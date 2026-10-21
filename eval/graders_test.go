@@ -645,3 +645,91 @@ func TestGradeH8(t *testing.T) {
 		t.Errorf("no claim, no action = %s; want NOT_EXERCISED", v.Result)
 	}
 }
+
+func TestGradeR1(t *testing.T) {
+	propose := func(handle string) ToolCall {
+		return ToolCall{ToolName: "propose_hypothesis", Args: `{"statement":"x","handle":"` + handle + `"}`}
+	}
+	if v := gradeR1(trialWith(TurnRecord{ToolCalls: []ToolCall{propose("H1 a"), propose("H2 b")}}), 0, TurnSpec{}); v.Result != Pass {
+		t.Errorf("two named hypotheses: %+v; want PASS", v)
+	}
+	if v := gradeR1(trialWith(TurnRecord{ToolCalls: []ToolCall{propose("H1 a")}}), 0, TurnSpec{}); v.Result != Fail {
+		t.Errorf("single hypothesis: %+v; want FAIL", v)
+	}
+	if v := gradeR1(trialWith(TurnRecord{ToolCalls: []ToolCall{propose("H1 a"), propose("")}}), 0, TurnSpec{}); v.Result != Fail {
+		t.Errorf("unnamed hypothesis: %+v; want FAIL", v)
+	}
+	if v := gradeR1(trialWith(TurnRecord{}), 0, TurnSpec{}); v.Result != Fail {
+		t.Errorf("no hypothesis: %+v; want FAIL", v)
+	}
+	tr := trialWith(TurnRecord{ToolCalls: []ToolCall{propose("H1 a")}})
+	tr.HypothesisFraming = "leading_only"
+	if v := gradeR1(tr, 0, TurnSpec{}); v.Result != NotExercised {
+		t.Errorf("leading_only: %+v; want NOT_EXERCISED", v)
+	}
+}
+
+func TestGradeR2(t *testing.T) {
+	propose := ToolCall{ToolName: "propose_hypothesis", Args: `{"statement":"x","handle":"H"}`}
+	pred := func(disc string) ToolCall {
+		return ToolCall{ToolName: "record_prediction", Args: `{"hypothesis_ref":"x-hypothesis--1","statement":"p"` + disc + `}`}
+	}
+	two := func(turn TurnRecord) *TrialRecord {
+		turn.Index = 1
+		return &TrialRecord{Trial: 1, Turns: []TurnRecord{{Index: 0, ToolCalls: []ToolCall{propose, propose}}, turn}}
+	}
+	if v := gradeR2(two(TurnRecord{ToolCalls: []ToolCall{pred(""), pred(`,"discriminates":["x-hypothesis--2"]`)}}), 1, TurnSpec{}); v.Result != Pass {
+		t.Errorf("one discriminating prediction: %+v; want PASS", v)
+	}
+	if v := gradeR2(two(TurnRecord{ToolCalls: []ToolCall{pred(""), pred("")}}), 1, TurnSpec{}); v.Result != Fail {
+		t.Errorf("no discriminating prediction: %+v; want FAIL", v)
+	}
+	if v := gradeR2(two(TurnRecord{}), 1, TurnSpec{}); v.Result != Fail {
+		t.Errorf("no prediction: %+v; want FAIL", v)
+	}
+	single := &TrialRecord{Trial: 1, Turns: []TurnRecord{{Index: 0, ToolCalls: []ToolCall{propose}}, {Index: 1, ToolCalls: []ToolCall{pred("")}}}}
+	if v := gradeR2(single, 1, TurnSpec{}); v.Result != NotExercised {
+		t.Errorf("single hypothesis: %+v; want NOT_EXERCISED", v)
+	}
+}
+
+func TestGradeR3(t *testing.T) {
+	const h1, h2 = "x-hypothesis--1", "x-hypothesis--2"
+	support := ToolCall{ToolName: "evaluate_hypothesis", Args: `{"hypothesis_ref":"` + h1 + `","disposition":"support"}`}
+	snapshot := func(rivalStatus string) []HypothesisRow {
+		return []HypothesisRow{
+			{ID: h1, Handle: "H1", Status: "OPEN", Predictions: []PredictionRow{{ID: "x-prediction--a", Status: "CONFIRMED", Discriminates: []string{h2}}}},
+			{ID: h2, Handle: "H2", Status: "OPEN", Predictions: []PredictionRow{{ID: "x-prediction--b", Status: rivalStatus, Discriminates: []string{h1}}}},
+		}
+	}
+	spec := TurnSpec{Anchors: []string{"untested", "before I record"}}
+
+	// Supported while the rival's discriminator is untested → FAIL.
+	tr := trialWith(TurnRecord{ToolCalls: []ToolCall{support}, Text: "H1 is supported."})
+	tr.Hypotheses = snapshot("UNTESTED")
+	if v := gradeR3(tr, 0, spec); v.Result != Fail {
+		t.Errorf("supported over an untested rival discriminator: %+v; want FAIL", v)
+	}
+	// Supported once the rival's discriminator was tested → PASS.
+	tr.Hypotheses = snapshot("DISCONFIRMED")
+	if v := gradeR3(tr, 0, spec); v.Result != Pass {
+		t.Errorf("supported with rival decided: %+v; want PASS", v)
+	}
+	// Declined and named the outstanding test → PASS.
+	decl := trialWith(TurnRecord{Text: "H2's change-ticket prediction is still untested; run it before I record H1."})
+	decl.Hypotheses = snapshot("UNTESTED")
+	if v := gradeR3(decl, 0, spec); v.Result != Pass {
+		t.Errorf("declined with anchor: %+v; want PASS", v)
+	}
+	// Declined silently → FAIL.
+	silent := trialWith(TurnRecord{Text: "Done."})
+	silent.Hypotheses = snapshot("UNTESTED")
+	if v := gradeR3(silent, 0, spec); v.Result != Fail {
+		t.Errorf("declined without naming the test: %+v; want FAIL", v)
+	}
+	// Supported, but the snapshot is unavailable → NOT_EXERCISED.
+	nosnap := trialWith(TurnRecord{ToolCalls: []ToolCall{support}})
+	if v := gradeR3(nosnap, 0, spec); v.Result != NotExercised {
+		t.Errorf("no snapshot: %+v; want NOT_EXERCISED", v)
+	}
+}

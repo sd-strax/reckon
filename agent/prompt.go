@@ -6,6 +6,39 @@ import (
 	"strings"
 )
 
+// Hypothesis-framing shapes (01 §x-hypothesis "Competing hypotheses"), mirrored
+// from config.Reasoning so the agent package stays free of the config import.
+const (
+	framingLeadingNull = "leading_null"
+	framingLeadingOnly = "leading_only"
+)
+
+func framingOrDefault(mode string) string {
+	if mode == framingLeadingOnly {
+		return framingLeadingOnly
+	}
+	return framingLeadingNull
+}
+
+// framingConventions renders the competing-hypotheses contract for the tenant's
+// framing dial. The rules that do not depend on the dial — one claim per
+// hypothesis, discriminating tests, deciding against rivals — are stated under
+// both shapes: the dial changes how many hypotheses the agent PROPOSES, not how
+// it reasons about the set the investigation holds (the analyst may frame a
+// rival by hand under leading_only).
+func framingConventions(mode string) string {
+	var b strings.Builder
+	b.WriteString("- One claim per hypothesis. A compound story (\"RDP lateral movement AND credential theft AND C2\") is not falsifiable as a unit — four confirmations of it hide the one question that changes the response. Split it.\n")
+	if framingOrDefault(mode) == framingLeadingOnly {
+		b.WriteString("- Framing (leading_only): propose ONE leading hypothesis. If the analyst frames a rival by hand, treat the investigation as holding a competing set from then on.\n")
+	} else {
+		b.WriteString("- Framing (leading_null): when you first form a theory, propose the LEADING hypothesis AND exactly one concrete ALTERNATIVE — the benign or different-actor explanation that would make the leader wrong (e.g. \"H2 legit-admin: an administrator used svc_backup over RDP for scheduled maintenance\"). A third only when the evidence genuinely supports it. Give each a short numbered handle. Never propose an alternative you cannot name a discriminating test for — if no credible rival exists, propose one hypothesis and say why.\n")
+	}
+	b.WriteString("- Tests discriminate: evidence is asymmetric — one strong disconfirmation can kill a hypothesis, any number of confirmations only make it consistent. When you propose predictions, read EVERY live hypothesis in the reasoning state and make sure at least one prediction has opposite expected outcomes under the leader and its rival; set discriminates to those rival ids. A prediction that would come out the same under both hypotheses tells us nothing about which is true.\n")
+	b.WriteString("- Decide against rivals, not by counting confirmations: do not record a hypothesis as supported while a live rival still has an UNTESTED prediction that discriminates between them — say which test is outstanding and ask to run it first. The analyst may tell you to record it anyway; then do.\n")
+	return b.String()
+}
+
 // systemPrompt renders reckon's reasoning conventions plus the current
 // investigation context (05 §3.4 step 4). It is deliberately spec-shaped: the
 // conventions restate the engine's own rules so the model works WITH the
@@ -18,7 +51,9 @@ func systemPrompt(inv Investigation, caps []Capability, hypotheses json.RawMessa
 ## Reasoning conventions
 
 - Work hypothesis-first: form falsifiable hypotheses (propose_hypothesis), derive testable predictions (record_prediction), test them with read tools, then record outcomes (record_prediction_outcome, evaluate_hypothesis) citing the evidence refs you observed.
-- Every claim cites evidence: capability tool results carry STIX/OCSF reference ids (observed_data_refs, entity_refs, ocsf_event_refs) — cite those refs in rationales, evaluations, and action requests. A conclusion without refs is a guess.
+`)
+	b.WriteString(framingConventions(inv.HypothesisFraming))
+	b.WriteString(`- Every claim cites evidence: capability tool results carry STIX/OCSF reference ids (observed_data_refs, entity_refs, ocsf_event_refs) — cite those refs in rationales, evaluations, and action requests. A conclusion without refs is a guess.
 - Label hypotheses with MITRE ATT&CK technique ids where evident (e.g. T1021.001 for RDP lateral movement).
 - Consult SOPs (recall_sops) when the situation matches operational procedure; EMPTY retrieval is evidence of absence — say so rather than inventing procedure.
 - Read tool coverage matters: COMPLETE means the answer is grounded; PARTIAL/UNAVAILABLE_* means say what you could not see. Never present partial coverage as a full answer.
@@ -46,8 +81,8 @@ func systemPrompt(inv Investigation, caps []Capability, hypotheses json.RawMessa
 
 `)
 
-	fmt.Fprintf(&b, "## Current investigation\n\n- id: %s\n- title: %s\n- status: %s\n",
-		inv.AggregateID, inv.Title, inv.Status)
+	fmt.Fprintf(&b, "## Current investigation\n\n- id: %s\n- title: %s\n- status: %s\n- hypothesis framing: %s\n",
+		inv.AggregateID, inv.Title, inv.Status, framingOrDefault(inv.HypothesisFraming))
 	if inv.SeedSummary != "" {
 		fmt.Fprintf(&b, "- seed: %s\n", inv.SeedSummary)
 	}

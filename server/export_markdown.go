@@ -156,10 +156,29 @@ func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID)
 		for _, p := range preds {
 			byHyp[p.HypothesisRef] = append(byHyp[p.HypothesisRef], p)
 		}
+		handleOf := make(map[string]string, len(hyps))
 		for _, h := range hyps {
-			fmt.Fprintf(&md, "- **[%s]** %s\n", h.Status, h.Statement)
+			handleOf[h.ID] = h.Handle
+		}
+		for _, h := range hyps {
+			if h.Handle != "" {
+				fmt.Fprintf(&md, "- **[%s]** `%s` — %s\n", h.Status, h.Handle, h.Statement)
+			} else {
+				fmt.Fprintf(&md, "- **[%s]** %s\n", h.Status, h.Statement)
+			}
 			for _, p := range byHyp[h.ID] {
 				fmt.Fprintf(&md, "  - prediction **[%s]** %s", p.Status, p.Statement)
+				if len(p.Discriminates) > 0 {
+					names := make([]string, 0, len(p.Discriminates))
+					for _, d := range p.Discriminates {
+						if n := handleOf[d]; n != "" {
+							names = append(names, n)
+						} else {
+							names = append(names, d)
+						}
+					}
+					fmt.Fprintf(&md, " — discriminates vs %s", strings.Join(names, ", "))
+				}
 				if len(p.TestResultRefs) > 0 {
 					fmt.Fprintf(&md, " — tested against %s", labeledList(rl, p.TestResultRefs))
 				}

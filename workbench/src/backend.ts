@@ -152,6 +152,11 @@ export interface Prediction {
   status: string;
   /** The declared test — "Test this" stages it in the composer, never fires it. */
   testQuery?: TestQuery;
+  /**
+   * Rival hypothesis ids whose expectation for this prediction is the OPPOSITE
+   * of the owner's (01 §x-prediction). Empty = merely consistent with its owner.
+   */
+  discriminates: string[];
   testResultRefs: string[];
 }
 
@@ -159,6 +164,8 @@ export interface Prediction {
 export interface Hypothesis {
   id: string;
   statement: string;
+  /** Short mnemonic ("H1 rdp-lateral") — the tab / composer / thread name. */
+  handle?: string;
   status: string;
   parentRef?: string;
   rootedAtRef?: string;
@@ -384,6 +391,7 @@ function mapSeed(s: RawInvestigation["seed"]): Seed | undefined {
 interface RawHypothesis {
   id: string;
   statement: string;
+  handle?: string;
   status: string;
   parent_ref?: string;
   rooted_at_ref?: string;
@@ -397,6 +405,7 @@ interface RawPrediction {
   statement: string;
   status: string;
   test_query?: { tool?: string; query_text?: string };
+  discriminates?: string[];
   test_result_refs?: string[];
 }
 
@@ -655,6 +664,7 @@ export class BackendClient {
     return (body.hypotheses ?? []).map((h) => ({
       id: h.id,
       statement: h.statement,
+      handle: h.handle || undefined,
       status: h.status,
       parentRef: h.parent_ref,
       rootedAtRef: h.rooted_at_ref,
@@ -666,6 +676,7 @@ export class BackendClient {
         testQuery: p.test_query
           ? { tool: p.test_query.tool, queryText: p.test_query.query_text }
           : undefined,
+        discriminates: p.discriminates ?? [],
         testResultRefs: p.test_result_refs ?? [],
       })),
     }));
@@ -904,26 +915,110 @@ export class BackendClient {
    * explanation is simply a sibling hypothesis — the tracker scores them
    * against each other. Human token; the node id is minted server-side.
    */
-  async recordHypothesis(investigationId: string, statement: string): Promise<void> {
+  async recordHypothesis(investigationId: string, statement: string, handle?: string): Promise<void> {
     await this.authedPost("/api/interpretations", {
       investigation_ref: investigationId,
       interpretation_type: "hypothesis",
-      hypothesis: { statement },
+      hypothesis: handle ? { statement, handle } : { statement },
       rationale: statement,
     });
   }
 
   /**
-   * Acknowledge an AI-PROPOSED hypothesis into OPEN — the human taking
-   * ownership of the line of inquiry (01 §Interpretation types). The aggregate
-   * refuses this from an AI delegate; always the human token.
+   * Acknowledge (adopt) an AI-PROPOSED hypothesis into OPEN — the human taking
+   * ownership of the line of inquiry (01 §Interpretation types). The adopt may
+   * RESTATE the claim and/or name it (acknowledge-with-restatement, legal while
+   * nothing under it is tested — the aggregate enforces). The aggregate refuses
+   * this from an AI delegate; always the human token.
    */
-  async acknowledgeHypothesis(investigationId: string, hypothesisRef: string): Promise<void> {
+  async acknowledgeHypothesis(
+    investigationId: string,
+    hypothesisRef: string,
+    opts?: { restatement?: string; handle?: string },
+  ): Promise<void> {
+    const restated = !!(opts?.restatement || opts?.handle);
     await this.authedPost("/api/interpretations", {
       investigation_ref: investigationId,
       interpretation_type: "hypothesis",
       hypothesis_ref: hypothesisRef,
-      rationale: "acknowledged from the workbench — taking ownership of this line of inquiry",
+      ...(opts?.restatement ? { restatement: opts.restatement } : {}),
+      ...(opts?.handle ? { handle: opts.handle } : {}),
+      rationale: restated
+        ? "adopted from the workbench with a restatement — taking ownership of this line of inquiry"
+        : "acknowledged from the workbench — taking ownership of this line of inquiry",
+    });
+  }
+
+  /**
+   * Revise an OPEN hypothesis's handle and/or statement (01 §x-hypothesis:
+   * human-only, statement only while untested). Same act as the adopt, on an
+   * already-owned hypothesis. Human token.
+   */
+  async reviseHypothesis(
+    investigationId: string,
+    hypothesisRef: string,
+    opts: { restatement?: string; handle?: string },
+  ): Promise<void> {
+    await this.authedPost("/api/interpretations", {
+      investigation_ref: investigationId,
+      interpretation_type: "hypothesis",
+      hypothesis_ref: hypothesisRef,
+      ...(opts.restatement ? { restatement: opts.restatement } : {}),
+      ...(opts.handle ? { handle: opts.handle } : {}),
+      rationale: opts.restatement ? "restated from the workbench" : "renamed from the workbench",
+    });
+  }
+
+  /**
+   * Abandon a live hypothesis the analyst is not pursuing (→ ABANDONED,
+   * 01 §x-hypothesis). Terminal; the thread keeps it. Human token.
+   */
+  async abandonHypothesis(investigationId: string, hypothesisRef: string, reason: string): Promise<void> {
+    await this.authedPost("/api/interpretations", {
+      investigation_ref: investigationId,
+      interpretation_type: "inconclusive",
+      hypothesis_ref: hypothesisRef,
+      abandoned: true,
+      rationale: reason,
+    });
+  }
+
+  /**
+   * Record an analyst-authored prediction under a hypothesis (01
+   * §x-prediction: either actor authors predictions) — the test only
+   * environmental knowledge can supply. discriminates names the rivals whose
+   * expectation is the opposite. Lands UNTESTED. Human token.
+   */
+  async recordPrediction(
+    investigationId: string,
+    hypothesisRef: string,
+    statement: string,
+    discriminates: string[],
+  ): Promise<void> {
+    await this.authedPost("/api/interpretations", {
+      investigation_ref: investigationId,
+      interpretation_type: "prediction",
+      prediction: {
+        hypothesis_ref: hypothesisRef,
+        statement,
+        ...(discriminates.length ? { discriminates } : {}),
+      },
+      rationale: "analyst-authored test",
+    });
+  }
+
+  /**
+   * Withdraw an UNTESTED prediction (→ WITHDRAWN, 01 §x-prediction): the
+   * analyst discarding a bad test without a deletion. Not an evidential
+   * outcome — no evidence refs. Human token; the aggregate refuses it from the AI.
+   */
+  async withdrawPrediction(investigationId: string, predictionRef: string, reason: string): Promise<void> {
+    await this.authedPost("/api/interpretations", {
+      investigation_ref: investigationId,
+      interpretation_type: "prediction",
+      prediction_ref: predictionRef,
+      prediction_status: "WITHDRAWN",
+      rationale: reason,
     });
   }
 

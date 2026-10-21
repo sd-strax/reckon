@@ -44,6 +44,11 @@ type TurnSpec struct {
 	// Anchors configures E2: the response must contain at least one (the
 	// fixture events' date, or an explicit historical qualifier).
 	Anchors []string `yaml:"anchors"`
+	// AckHypotheses makes the driver — the deterministic analyst — acknowledge
+	// every PROPOSED hypothesis (human token) BEFORE sending this turn: the
+	// Adopt click of the tracker, scripted. It stages the OPEN state the
+	// run-tests / decide turns (R2, R3) need under the default vetted posture.
+	AckHypotheses bool `yaml:"ack_hypotheses"`
 }
 
 // LoadScenario reads and validates a driver script. Every referenced assertion

@@ -253,3 +253,44 @@ func assertErrorClass(t *testing.T, err error, want ErrorClass) {
 		t.Errorf("error class = %q; want %q", ae.Class, want)
 	}
 }
+
+// TestFixtureTimeScoped: a time_scoped fixture replays only inside the window
+// the binding passed (reserved window.from/to params); open bounds and
+// unscoped fixtures are unaffected. This is how a scenario carries a baseline
+// that a 30-day question reaches and a 24-hour question does not.
+func TestFixtureTimeScoped(t *testing.T) {
+	a := newTestFixture(t, map[string]string{
+		"incident.json": `{
+          "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{"target.hostname":"*"}},"delay_ms":0},
+          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:32:47Z"}
+        }`,
+		"baseline.json": `{
+          "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{"target.hostname":"*"}},"delay_ms":0,"time_scoped":true},
+          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-13T02:00:10Z"}
+        }`,
+	})
+	invoke := func(window map[string]any) int {
+		t.Helper()
+		params := map[string]any{ParamVerb: "enumerate_logons", "target": map[string]any{"hostname": "WIN-FILE01"}}
+		if window != nil {
+			params["window"] = window
+		}
+		resp, err := a.Invoke(context.Background(), "replay", params)
+		if err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		return len(resp.Events)
+	}
+	if n := invoke(nil); n != 2 {
+		t.Errorf("no window: %d events; want 2 (scoped fixtures replay when unbounded)", n)
+	}
+	if n := invoke(map[string]any{"from": "0001-01-01T00:00:00Z", "to": "0001-01-01T00:00:00Z"}); n != 2 {
+		t.Errorf("zero window: %d events; want 2 (zero bounds are open)", n)
+	}
+	if n := invoke(map[string]any{"from": "2026-04-20T00:00:00Z", "to": "2026-04-21T00:00:00Z"}); n != 1 {
+		t.Errorf("24h window: %d events; want 1 (baseline out of window; incident unscoped)", n)
+	}
+	if n := invoke(map[string]any{"from": "2026-03-21T00:00:00Z", "to": "2026-04-21T00:00:00Z"}); n != 2 {
+		t.Errorf("30d window: %d events; want 2", n)
+	}
+}

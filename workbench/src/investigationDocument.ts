@@ -113,11 +113,15 @@ type InboundMessage =
   | { type: "pin.add"; refs: string[]; finding: string }
   | { type: "pin.unpin"; interpretationId: string; reason: string }
   | { type: "verdict.submit"; disposition: string; rationale: string; refs: string[] }
-  | { type: "hyp.ack"; hypothesisRef: string }
-  | { type: "hyp.new"; statement: string }
-  | { type: "hyp.proposeTests"; hypothesisRef: string; statement: string }
-  | { type: "hyp.runTests"; hypothesisRef: string; statement: string }
-  | { type: "hyp.decide"; hypothesisRef: string; statement: string }
+  | { type: "hyp.ack"; hypothesisRef: string; restatement?: string; handle?: string }
+  | { type: "hyp.revise"; hypothesisRef: string; restatement?: string; handle?: string }
+  | { type: "hyp.abandon"; hypothesisRef: string; reason: string }
+  | { type: "hyp.new"; statement: string; handle?: string }
+  | { type: "pred.new"; hypothesisRef: string; statement: string; discriminates: string[] }
+  | { type: "pred.withdraw"; predictionRef: string; reason: string }
+  | { type: "hyp.proposeTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
+  | { type: "hyp.runTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
+  | { type: "hyp.decide"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
   | { type: "enablement.apply"; adapter: string; enabled: boolean; config: Record<string, string>; secretFields: string[] }
   | { type: "comms.act"; threadId: string; verb: "ack" | "done" }
   | { type: "comms.snooze"; threadId: string; hours: number }
@@ -318,15 +322,23 @@ export class InvestigationDocuments {
     } else if (msg.type === "verdict.submit") {
       void this.submitVerdict(id, panel, msg);
     } else if (msg.type === "hyp.ack") {
-      void this.ackHypothesis(id, panel, msg.hypothesisRef);
+      void this.ackHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
+    } else if (msg.type === "hyp.revise") {
+      void this.reviseHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
+    } else if (msg.type === "hyp.abandon") {
+      void this.abandonHypothesis(id, panel, msg.hypothesisRef, msg.reason);
     } else if (msg.type === "hyp.new") {
-      void this.newHypothesis(id, panel, msg.statement);
+      void this.newHypothesis(id, panel, msg.statement, msg.handle);
+    } else if (msg.type === "pred.new") {
+      void this.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates);
+    } else if (msg.type === "pred.withdraw") {
+      void this.withdrawPrediction(id, panel, msg.predictionRef, msg.reason);
     } else if (msg.type === "hyp.proposeTests") {
-      void this.proposeTests(id, panel, msg.hypothesisRef, msg.statement);
+      void this.proposeTests(id, panel, msg.hypothesisRef, msg.statement, msg.handle, msg.rivals);
     } else if (msg.type === "hyp.runTests") {
-      void this.runTests(id, panel, msg.hypothesisRef, msg.statement);
+      void this.runTests(id, panel, msg.hypothesisRef, msg.statement, msg.handle, msg.rivals);
     } else if (msg.type === "hyp.decide") {
-      void this.decideHypothesis(id, panel, msg.hypothesisRef, msg.statement);
+      void this.decideHypothesis(id, panel, msg.hypothesisRef, msg.statement, msg.handle, msg.rivals);
     } else if (msg.type === "enablement.apply") {
       void this.applyEnablement(id, panel, msg);
     } else if (msg.type === "comms.act") {
@@ -797,11 +809,62 @@ export class InvestigationDocuments {
    * line of inquiry (02 §2.9). The aggregate enforces that this is a human act;
    * a rejection surfaces verbatim.
    */
-  private async ackHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string): Promise<void> {
+  private async ackHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, restatement?: string, handle?: string): Promise<void> {
     try {
-      await this.client.acknowledgeHypothesis(id, hypothesisRef);
+      await this.client.acknowledgeHypothesis(id, hypothesisRef, {
+        restatement: restatement?.trim() || undefined,
+        handle: handle?.trim() || undefined,
+      });
     } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: acknowledge failed — ${errText(err)}`);
+      void vscode.window.showErrorMessage(`reckon: adopt failed — ${errText(err)}`);
+    }
+    await this.load(id, panel);
+  }
+
+  /** Rename / restate an OPEN hypothesis (01 §x-hypothesis; human, untested-only for the statement). */
+  private async reviseHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, restatement?: string, handle?: string): Promise<void> {
+    const r = restatement?.trim() || undefined;
+    const h = handle?.trim() || undefined;
+    if (!r && !h) {
+      return;
+    }
+    try {
+      await this.client.reviseHypothesis(id, hypothesisRef, { restatement: r, handle: h });
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: revise failed — ${errText(err)}`);
+    }
+    await this.load(id, panel);
+  }
+
+  /** Abandon a live hypothesis the analyst is not pursuing (terminal; the thread keeps it). */
+  private async abandonHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, reason: string): Promise<void> {
+    try {
+      await this.client.abandonHypothesis(id, hypothesisRef, reason.trim() || "abandoned from the workbench — not pursued");
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: abandon failed — ${errText(err)}`);
+    }
+    await this.load(id, panel);
+  }
+
+  /** Record the analyst's own test under a hypothesis (01 §x-prediction: either actor authors predictions). */
+  private async newPrediction(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, discriminates: string[]): Promise<void> {
+    if (statement.trim() === "") {
+      return;
+    }
+    try {
+      await this.client.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? []);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: prediction failed — ${errText(err)}`);
+    }
+    await this.load(id, panel);
+  }
+
+  /** Withdraw an untested prediction — a status, never a deletion. */
+  private async withdrawPrediction(id: string, panel: vscode.WebviewPanel, predictionRef: string, reason: string): Promise<void> {
+    try {
+      await this.client.withdrawPrediction(id, predictionRef, reason.trim() || "withdrawn from the workbench");
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: withdraw failed — ${errText(err)}`);
     }
     await this.load(id, panel);
   }
@@ -811,12 +874,12 @@ export class InvestigationDocuments {
    * that competes with the AI's. Lands OPEN (human-authored); rejections
    * surface verbatim.
    */
-  private async newHypothesis(id: string, panel: vscode.WebviewPanel, statement: string): Promise<void> {
+  private async newHypothesis(id: string, panel: vscode.WebviewPanel, statement: string, handle?: string): Promise<void> {
     if (statement.trim() === "") {
       return;
     }
     try {
-      await this.client.recordHypothesis(id, statement.trim());
+      await this.client.recordHypothesis(id, statement.trim(), handle?.trim() || undefined);
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: hypothesis failed — ${errText(err)}`);
     }
@@ -1117,14 +1180,17 @@ export class InvestigationDocuments {
    * in the conversation; the predictions it records land on the tracker.
    * The "⚡ Propose tests:" prefix doubles as the cold-restore marker.
    */
-  private async proposeTests(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string): Promise<void> {
-    const clipped = statement.length > 60 ? statement.slice(0, 59) + "…" : statement;
-    const instruction = `⚡ Propose tests: for the hypothesis "${statement}" (${hypothesisRef}), `
+  private async proposeTests(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, handle?: string, rivals?: RivalBrief[]): Promise<void> {
+    const name = hypLabel(handle, statement);
+    const instruction = `⚡ Propose tests: for the hypothesis ${hypCite(handle, statement, hypothesisRef)}, `
       + "record the falsifiable predictions that would decide it — one prediction per test, "
       + "each with a concrete test query against the available capability verbs. Prove it or break it. "
+      + rivalsClause(rivals, "Read the live rivals too and make at least one prediction DISCRIMINATE — "
+        + "opposite expected outcome under this hypothesis and a rival — and set its discriminates to that rival's id. "
+        + "A test that comes out the same under both tells us nothing.")
       + "Record them with the tools ONLY; keep your final message to one sentence and do not "
       + "restate the predictions in prose — the tracker renders them.";
-    await this.runTurn(id, panel, instruction, { label: `⚡ propose tests · ${clipped}` });
+    await this.runTurn(id, panel, instruction, { label: `⚡ propose tests · ${name}` });
   }
 
   /**
@@ -1133,29 +1199,33 @@ export class InvestigationDocuments {
    * possible; outcomes must cite what was observed (the aggregate refuses a
    * CONFIRMED/DISCONFIRMED without test_result_refs).
    */
-  private async runTests(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string): Promise<void> {
-    const clipped = statement.length > 60 ? statement.slice(0, 59) + "…" : statement;
-    const instruction = `⚡ Run tests: execute the UNTESTED predictions under the hypothesis "${statement}" (${hypothesisRef}). `
+  private async runTests(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, handle?: string, rivals?: RivalBrief[]): Promise<void> {
+    const name = hypLabel(handle, statement);
+    const instruction = `⚡ Run tests: execute the UNTESTED predictions under the hypothesis ${hypCite(handle, statement, hypothesisRef)}. `
       + "They are independent — run their declared test queries in parallel where possible, then record each "
       + "outcome (CONFIRMED / DISCONFIRMED / INCONCLUSIVE) citing the observed evidence as test_result_refs. "
+      + rivalsClause(rivals, "Where a prediction discriminates against a rival, say in one clause which way the result cuts for that rival. ")
       + "Keep your final message to one or two sentences on what was decisive — do not restate the outcomes; the tracker renders them.";
-    await this.runTurn(id, panel, instruction, { label: `⚡ run tests · ${clipped}` });
+    await this.runTurn(id, panel, instruction, { label: `⚡ run tests · ${name}` });
   }
 
   /**
    * Decide the hypothesis — the judgment rung, ordered by the analyst once
-   * every prediction is decided. The agent weighs the outcomes and records
-   * support / refutation / inconclusive citing the decisive test evidence.
-   * Terminal in v0 (01): a changed judgment later is a NEW hypothesis
-   * chained via parent_ref, keeping every reversal auditable.
+   * every prediction is decided. The agent weighs the outcomes AGAINST THE
+   * RIVALS and records support / refutation / inconclusive citing the
+   * decisive test evidence; it declines while a rival's discriminator is
+   * untested unless the analyst overrides. Terminal in v0 (01): a changed
+   * judgment later is a NEW hypothesis chained via parent_ref.
    */
-  private async decideHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string): Promise<void> {
-    const clipped = statement.length > 60 ? statement.slice(0, 59) + "…" : statement;
-    const instruction = `⚡ Decide: every prediction under the hypothesis "${statement}" (${hypothesisRef}) has been tested. `
+  private async decideHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, handle?: string, rivals?: RivalBrief[]): Promise<void> {
+    const name = hypLabel(handle, statement);
+    const instruction = `⚡ Decide: every prediction under the hypothesis ${hypCite(handle, statement, hypothesisRef)} has been tested. `
       + "Weigh the outcomes and record the hypothesis outcome — support, refutation, or inconclusive — citing the "
       + "decisive test evidence. Be honest about mixed results: confirmed predictions support only what they actually tested. "
+      + rivalsClause(rivals, "Decide against the rivals, not by counting confirmations: if a live rival still has an UNTESTED prediction "
+        + "that discriminates between you, do NOT record an outcome — name that test and ask to run it first (I can tell you to record anyway). ")
       + "Keep your final message to one or two sentences on the judgment and why — the tracker renders the status.";
-    await this.runTurn(id, panel, instruction, { label: `⚡ decide · ${clipped}` });
+    await this.runTurn(id, panel, instruction, { label: `⚡ decide · ${name}` });
   }
 
   /** Drive one analyst turn through the transport, streaming progress to the webview. */
@@ -1563,6 +1633,7 @@ export class InvestigationDocuments {
     .badge.ok   { color: var(--ok);   background: var(--ok-bg);   border-color: var(--ok-border); }
     .badge.warn { color: var(--warn); background: var(--warn-bg); border-color: var(--warn-border); }
     .badge.bad  { color: var(--bad);  background: var(--bad-bg);  border-color: var(--bad-border); }
+    .badge.muted { color: var(--text-3); border-style: dashed; }
     .badge.info { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
     /* trust tiers (ui/03 §3.1): T1 info · T2 warning/square · T3 danger/diamond */
     .badge.T1 { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
@@ -1637,6 +1708,45 @@ export class InvestigationDocuments {
     .clamp.expanded { -webkit-line-clamp: unset; display: inline; }
     .hyphead { display: flex; align-items: baseline; gap: 6px; }
     .hyphead .statement { flex: 1; min-width: 0; }
+    /* the scoreboard strip (ui/02 §2.9): every hypothesis as a tab — handle,
+       status tone, tested/total — so the neglected rival is one glance away */
+    .hypstrip { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px; }
+    .hyptab {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--r-pill);
+      border: 1px solid var(--border); background: transparent; color: var(--text-2);
+      cursor: pointer; max-width: 100%;
+    }
+    .hyptab:hover { color: var(--text); border-color: color-mix(in srgb, var(--vscode-foreground) 24%, transparent); }
+    .hyptab.active { color: var(--text); background: var(--fill); border-color: color-mix(in srgb, var(--he-primary) 55%, transparent); }
+    .hyptab .hname { font-weight: 700; font-family: var(--mono, ui-monospace, monospace); white-space: nowrap; }
+    .hyptab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: none; }
+    .hyptab .dot.ok { background: var(--ok); } .hyptab .dot.bad { background: var(--bad); }
+    .hyptab .dot.warn { background: var(--warn); } .hyptab .dot.live { background: var(--he-primary); }
+    .hyptab .cnt { color: var(--text-3); white-space: nowrap; }
+    .hyptab.terminal { opacity: 0.7; }
+    .hyphandle {
+      font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-xs); font-weight: 700;
+      color: var(--he-primary-soft); margin-right: 4px; white-space: nowrap; cursor: pointer;
+    }
+    .hyphandle:hover { text-decoration: underline dotted; }
+    .nextmove {
+      font-size: var(--fs-xs); color: var(--text-2); margin: 0 0 6px; padding: 4px 8px;
+      border-left: 2px solid color-mix(in srgb, var(--he-primary) 55%, transparent);
+      display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+    }
+    .nextmove .nm { flex: 1; min-width: 0; }
+    .nextmove b { color: var(--text); font-weight: 600; }
+    .discchip {
+      font-size: 10px; color: var(--text-2); border: 1px dashed var(--border);
+      border-radius: var(--r-pill); padding: 0 6px; white-space: nowrap;
+    }
+    .discchip b { font-family: var(--mono, ui-monospace, monospace); font-weight: 700; color: var(--text-1); }
+    .promptchoices { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 2px; }
+    .promptchoices .choice { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); cursor: pointer; }
+    .promptchoices .choice input { margin: 0; }
+    button.ghost { color: var(--text-2); background: transparent; border-color: transparent; }
+    button.ghost:hover { color: var(--text); border-color: var(--border); }
     .cardmeta { font-size: var(--fs-xs); color: var(--text-2); margin-top: 4px; word-break: break-word; }
     .cardmeta.via { font-family: var(--mono, ui-monospace, monospace); color: var(--text-1); }
     .decide { margin-top: 7px; display: flex; gap: 6px; flex-wrap: wrap; }
@@ -2016,6 +2126,7 @@ export class InvestigationDocuments {
       <div id="promptLabel" class="dlglabel"></div>
       <textarea id="promptInput" rows="3"></textarea>
       <div id="promptRefs" class="pinrefs"></div>
+      <div id="promptChoices" class="promptchoices"></div>
       <div id="promptHelper" class="pinhelp"></div>
       <div class="decide">
         <button class="primary" id="promptConfirm"></button>
@@ -3179,6 +3290,7 @@ export class InvestigationDocuments {
     const BADGE_TONE = {
       CONFIRMED: "ok", SUPPORTED: "ok", TESTED: "ok", SUCCEEDED: "ok",
       REFUTED: "bad", FAILED: "bad", EXPIRED: "warn",
+      DISCONFIRMED: "bad", WITHDRAWN: "muted", ABANDONED: "muted",
       // comms thread states (ui/04 §4.2)
       AWAITING_REPLY: "warn", REPLIED: "ok", FOLLOWED_UP: "warn",
     };
@@ -3194,12 +3306,16 @@ export class InvestigationDocuments {
       input.focus();
       input.setSelectionRange(text.length, text.length);
     }
-    function predictionTestText(p) {
+    function predictionTestText(p, h, hs) {
       const q = p.testQuery || {};
+      const who = h ? " for " + hypName(h, hs) : "";
+      const rivals = (p.discriminates || []).map((d) => nameOf(d, hs || lastHyps));
+      const cut = rivals.length ? " It discriminates against " + rivals.join(", ") + " — say which way the result cuts." : "";
       if (q.queryText) {
-        return "Test this prediction" + (q.tool ? " via " + q.tool : "") + ": " + q.queryText;
+        return "Test this prediction" + who + (q.tool ? " via " + q.tool : "") + ": " + q.queryText
+          + " Record the outcome with evidence (" + p.id + ")." + cut;
       }
-      return "Test the prediction: " + p.statement;
+      return "Test the prediction" + who + ": " + p.statement + " Record the outcome with evidence (" + p.id + ")." + cut;
     }
 
     // Frame your own hypothesis — the competing-explanation move. Analyst-
@@ -3207,18 +3323,66 @@ export class InvestigationDocuments {
     // AI proposals); the tracker then scores the alternates side by side.
     $("hypNew").addEventListener("click", () => openPrompt({
       title: "New hypothesis",
-      label: "The claim to test — often the ALTERNATE explanation",
+      label: "The claim to test — ONE claim, often the ALTERNATE explanation",
       placeholder: "e.g. The svc_backup RDP logon was legitimate maintenance by the backup team, not lateral movement.",
-      helper: "Recorded as yours, OPEN immediately. Then hit “Propose tests” on it — competing hypotheses are decided by evidence, not argument.",
+      helper: "Recorded as yours, OPEN immediately, named H" + (lastHyps.length + 1) + " (rename by clicking the handle). Then “Propose tests” on it — competing hypotheses are decided by evidence, not argument.",
       confirm: "Record hypothesis",
-      onConfirm: (statement) => vscode.postMessage({ type: "hyp.new", statement }),
+      onConfirm: (statement) => vscode.postMessage({ type: "hyp.new", statement, handle: "H" + (lastHyps.length + 1) }),
     }));
 
-    // The hypothesis tracker — the drivable loop (02 §2.9). Hypotheses are the
-    // unit of work: PROPOSED cards carry Acknowledge (a human act the engine
-    // enforces), UNTESTED predictions carry "Test this" (stages the declared
-    // test), and the cheapest untested prediction is surfaced as the suggested
-    // next move — "what would decide this?" answered at a glance.
+    // Names: a hypothesis is referred to by its handle (01 §x-hypothesis); a
+    // handle-less one by its position (H1, H2 …) so every hypothesis has a
+    // stable short name in the strip, the composer and the residual.
+    function hypName(h, all) {
+      if (h.handle) return h.handle;
+      const list = all || lastHyps;
+      const i = list.findIndex((x) => x.id === h.id);
+      return "H" + (i >= 0 ? i + 1 : "?");
+    }
+    const isLive = (h) => h.status === "PROPOSED" || h.status === "OPEN";
+    // WITHDRAWN predictions are out of the count: a discarded test, not a gap.
+    const counted = (p) => p.status !== "WITHDRAWN";
+    const tested = (p) => counted(p) && p.status !== "UNTESTED";
+    const nameOf = (id, all) => { const r = all.find((x) => x.id === id); return r ? hypName(r, all) : id; };
+
+    // The rivals brief a scoped ⚡ turn carries: every OTHER live hypothesis,
+    // with how many of its untested predictions discriminate against the one
+    // in view (propose-tests / decide read the whole set, not the tab).
+    function rivalsOf(h, all) {
+      return all.filter((r) => r.id !== h.id && isLive(r)).map((r) => ({
+        id: r.id, handle: r.handle, statement: r.statement,
+        untestedDiscriminators: (r.predictions || []).filter((p) =>
+          p.status === "UNTESTED" && (p.discriminates || []).includes(h.id)).length,
+      }));
+    }
+
+    // The next move across the WHOLE set (02 §2.9): a discriminating untested
+    // prediction beats a merely confirming one — "what would decide this?"
+    // answered for the investigation, not for the open tab.
+    function nextMove(all) {
+      let best = null;
+      for (const h of all) {
+        if (!isLive(h)) continue;
+        for (const p of h.predictions || []) {
+          if (p.status !== "UNTESTED") continue;
+          const score = (p.discriminates || []).length ? 2 : 1;
+          if (!best || score > best.score) best = { h, p, score };
+        }
+      }
+      return best;
+    }
+
+    // The selected tab — the working hypothesis. Survives re-renders; falls
+    // back to the first live hypothesis when its own disappears.
+    let activeHyp = null;
+
+    // The hypothesis tracker — the drivable loop over a COMPETING SET (02 §2.9).
+    // Two layers: the scoreboard strip (every hypothesis as a tab: handle,
+    // status, tested/total — the neglected rival is always one glance away)
+    // and the working card for the selected tab. PROPOSED cards carry Adopt
+    // (a human act the engine enforces; the statement is editable in the
+    // adopt card), UNTESTED predictions carry "Test this" / "Withdraw", any
+    // live card takes "+ prediction" and "Abandon".
     function renderHypotheses(hs) {
       const box = $("hyps");
       box.textContent = "";
@@ -3226,112 +3390,284 @@ export class InvestigationDocuments {
         box.innerHTML = '<div class="empty">None yet</div>';
         return;
       }
+      if (!hs.some((h) => h.id === activeHyp)) {
+        activeHyp = (hs.find(isLive) || hs[0]).id;
+      }
 
-      for (const h of hs) {
-        const card = document.createElement("div");
-        card.className = "card";
-        const head = document.createElement("div");
-        head.className = "hyphead";
-        const st = document.createElement("span");
-        st.className = "statement clamp c4";
-        st.textContent = h.statement;
-        st.title = h.statement;
-        st.addEventListener("click", () => st.classList.toggle("expanded"));
-        const badge = document.createElement("span");
-        badge.className = badgeClass(h.status);
-        badge.textContent = h.status;
-        head.append(st, badge);
-        card.appendChild(head);
+      const nm = nextMove(hs);
+      if (nm) {
+        const bar = document.createElement("div");
+        bar.className = "nextmove";
+        const txt = document.createElement("span");
+        txt.className = "nm";
+        const b = document.createElement("b");
+        const rivals = (nm.p.discriminates || []).map((d) => nameOf(d, hs));
+        b.textContent = rivals.length
+          ? "Next: splits " + hypName(nm.h, hs) + " from " + rivals.join(", ")
+          : "Next: untested on " + hypName(nm.h, hs);
+        txt.append(b, document.createTextNode(" — " + nm.p.statement));
+        txt.title = nm.p.statement;
+        const go = document.createElement("button");
+        go.className = "testbtn";
+        go.textContent = "Test this";
+        go.title = "Open that hypothesis and stage this test in the composer";
+        go.addEventListener("click", () => {
+          activeHyp = nm.h.id;
+          renderHypotheses(hs);
+          stageInComposer(predictionTestText(nm.p, nm.h, hs));
+        });
+        bar.append(txt, go);
+        box.appendChild(bar);
+      }
 
-        const preds = h.predictions || [];
-        const live = h.status === "PROPOSED" || h.status === "OPEN";
-        const hasUntested = preds.some((p) => p.status === "UNTESTED");
-        const decide = document.createElement("div");
-        decide.className = "decide";
-        if (h.status === "PROPOSED") {
-          const ack = document.createElement("button");
-          ack.className = "primary";
-          ack.textContent = "✓ Acknowledge";
-          ack.title = "Take ownership of this AI-proposed line of inquiry (PROPOSED → OPEN). A human act — the engine refuses it from the AI.";
-          ack.addEventListener("click", () => {
-            ack.disabled = true;
-            vscode.postMessage({ type: "hyp.ack", hypothesisRef: h.id });
+      if (hs.length > 1) {
+        const strip = document.createElement("div");
+        strip.className = "hypstrip";
+        for (const x of hs) {
+          const tab = document.createElement("button");
+          tab.className = "hyptab" + (x.id === activeHyp ? " active" : "") + (isLive(x) ? "" : " terminal");
+          const dot = document.createElement("span");
+          dot.className = "dot " + (isLive(x) ? "live" : (BADGE_TONE[x.status] || ""));
+          const name = document.createElement("span");
+          name.className = "hname";
+          name.textContent = hypName(x, hs);
+          const preds = (x.predictions || []).filter(counted);
+          const cnt = document.createElement("span");
+          cnt.className = "cnt";
+          cnt.textContent = preds.length
+            ? preds.filter(tested).length + "/" + preds.length
+            : x.status.toLowerCase();
+          tab.title = x.status + " — " + x.statement;
+          tab.append(dot, name, cnt);
+          tab.addEventListener("click", () => { activeHyp = x.id; renderHypotheses(hs); });
+          strip.appendChild(tab);
+        }
+        box.appendChild(strip);
+      }
+
+      box.appendChild(renderHypothesisCard(hs.find((x) => x.id === activeHyp), hs));
+    }
+
+    function renderHypothesisCard(h, hs) {
+      const card = document.createElement("div");
+      card.className = "card";
+      const head = document.createElement("div");
+      head.className = "hyphead";
+      const live = isLive(h);
+      const preds = (h.predictions || []).filter(counted);
+      const anyTested = preds.some(tested);
+      // The handle: click to rename (an ordinary hypothesis act, 01).
+      const handle = document.createElement("span");
+      handle.className = "hyphandle";
+      handle.textContent = hypName(h, hs);
+      handle.title = live ? "Rename this hypothesis" : h.status;
+      if (live) {
+        handle.addEventListener("click", () => openPrompt({
+          title: "Rename " + hypName(h, hs),
+          label: "Short handle — how you and the agent will refer to it",
+          value: hypName(h, hs),
+          selectAll: true,
+          placeholder: "e.g. H2 legit-admin",
+          helper: "Appears in the tabs, the composer, the thread and the export.",
+          confirm: "Rename",
+          onConfirm: (handleText) => vscode.postMessage(
+            h.status === "PROPOSED"
+              ? { type: "hyp.ack", hypothesisRef: h.id, handle: handleText }
+              : { type: "hyp.revise", hypothesisRef: h.id, handle: handleText }),
+        }));
+      }
+      const st = document.createElement("span");
+      st.className = "statement clamp c4";
+      st.textContent = h.statement;
+      st.title = h.statement;
+      st.addEventListener("click", () => st.classList.toggle("expanded"));
+      const badge = document.createElement("span");
+      badge.className = badgeClass(h.status);
+      badge.textContent = h.status;
+      head.append(handle, st, badge);
+      card.appendChild(head);
+
+      const hasUntested = preds.some((p) => p.status === "UNTESTED");
+      const decide = document.createElement("div");
+      decide.className = "decide";
+      if (h.status === "PROPOSED") {
+        // Adopt = acknowledge-with-restatement (01 §x-hypothesis): the
+        // statement is editable in the card — sharpening the claim is the
+        // ownership moment. Unchanged text sends a plain acknowledgment.
+        const ack = document.createElement("button");
+        ack.className = "primary";
+        ack.textContent = "✓ Adopt";
+        ack.title = "Take ownership of this AI-proposed line of inquiry (PROPOSED → OPEN), sharpening the claim if you want. A human act — the engine refuses it from the AI.";
+        ack.addEventListener("click", () => openPrompt({
+          title: "Adopt " + hypName(h, hs),
+          label: "The claim, as you would state it",
+          value: h.statement,
+          helper: anyTested
+            ? "Predictions under this hypothesis already carry results, so the wording is frozen — adopt as is; a changed theory is a new hypothesis."
+            : "Edit freely: the original stays in the thread, the tests are derived from what you adopt. Cmd/Ctrl+Enter to adopt.",
+          confirm: "✓ Adopt",
+          onConfirm: (statement) => {
+            const restatement = statement !== h.statement ? statement : undefined;
+            vscode.postMessage({ type: "hyp.ack", hypothesisRef: h.id, restatement });
+          },
+        }));
+        decide.appendChild(ack);
+      }
+      // The drive affordance (02 §2.9) follows the state of the work — one
+      // rung at a time. PROPOSED: the only decision is ownership (Adopt).
+      // OPEN with no predictions: Propose tests. Untested predictions remain:
+      // Run tests (independent → parallel; per-row Test this runs just one).
+      // All decided: Decide — against the rivals, from the evidence (terminal
+      // in v0: a changed judgment later is a NEW hypothesis via parent_ref).
+      // Every ⚡ turn carries the live rivals so it reads the whole set.
+      if (h.status === "OPEN") {
+        const mkAside = (label, working, title, type) => {
+          const b = document.createElement("button");
+          b.className = "askdecide";
+          b.textContent = label;
+          b.title = title;
+          b.addEventListener("click", () => {
+            if (sendBtn.disabled) return; // a turn is already running
+            b.disabled = true;
+            b.textContent = working;
+            vscode.postMessage({ type, hypothesisRef: h.id, statement: h.statement, handle: h.handle, rivals: rivalsOf(h, hs) });
           });
-          decide.appendChild(ack);
+          decide.appendChild(b);
+        };
+        if (!preds.length) {
+          mkAside("⚡ Propose tests", "⚡ proposing…",
+            "Runs a scoped agent turn over the whole competing set: record the falsifiable predictions that would decide this — at least one that comes out the opposite way under a rival. Lands as a collapsed aside; predictions appear here.",
+            "hyp.proposeTests");
+        } else if (hasUntested) {
+          mkAside("⚡ Run tests", "⚡ testing…",
+            "Runs the untested predictions — they are independent, so they run in parallel where possible. Outcomes and evidence land back on these rows.",
+            "hyp.runTests");
+        } else {
+          mkAside("⚡ Decide", "⚡ deciding…",
+            "Weighs the tested predictions AGAINST THE RIVALS and records the hypothesis outcome (supported / refuted / inconclusive) citing the decisive evidence. Declines while a rival's discriminating test is untested — you can tell it to record anyway. Terminal in v0.",
+            "hyp.decide");
         }
-        // The drive affordance (02 §2.9) follows the state of the work — one
-        // rung at a time. PROPOSED: the only decision is ownership
-        // (Acknowledge). OPEN with no predictions: Propose tests. Untested
-        // predictions remain: Run tests (independent → parallel; per-row
-        // Test this runs just one). All decided: Decide — record the
-        // hypothesis outcome from the evidence (terminal in v0: a changed
-        // judgment later is a NEW hypothesis chained via parent_ref).
-        if (h.status === "OPEN") {
-          const mkAside = (label, working, title, type) => {
-            const b = document.createElement("button");
-            b.className = "askdecide";
-            b.textContent = label;
-            b.title = title;
-            b.addEventListener("click", () => {
-              if (sendBtn.disabled) return; // a turn is already running
-              b.disabled = true;
-              b.textContent = working;
-              vscode.postMessage({ type, hypothesisRef: h.id, statement: h.statement });
-            });
-            decide.appendChild(b);
-          };
-          if (!preds.length) {
-            mkAside("⚡ Propose tests", "⚡ proposing…",
-              "Runs a scoped agent turn: record the falsifiable predictions that would decide this. Lands as a collapsed aside; predictions appear here.",
-              "hyp.proposeTests");
-          } else if (hasUntested) {
-            mkAside("⚡ Run tests", "⚡ testing…",
-              "Runs the untested predictions — they are independent, so they run in parallel where possible. Outcomes and evidence land back on these rows.",
-              "hyp.runTests");
-          } else {
-            mkAside("⚡ Decide", "⚡ deciding…",
-              "Weighs the tested predictions and records the hypothesis outcome (supported / refuted / inconclusive) citing the decisive evidence. Terminal in v0 — a later change of judgment is a new hypothesis.",
-              "hyp.decide");
-          }
+      }
+      if (live) {
+        // The analyst's own test — the move only environmental knowledge can
+        // make (01 §x-prediction: either actor authors predictions).
+        const add = document.createElement("button");
+        add.className = "ghost";
+        add.textContent = "+ prediction";
+        add.title = "Add your own test under this hypothesis — e.g. a baseline only you know. Lands UNTESTED; mark the rivals it would decide against.";
+        add.addEventListener("click", () => {
+          const rivals = hs.filter((r) => r.id !== h.id && isLive(r));
+          openPrompt({
+            title: "New prediction under " + hypName(h, hs),
+            label: "If " + hypName(h, hs) + " is true, we should observe…",
+            placeholder: "e.g. svc_backup's 30-day logon baseline shows only Network logons from BKP-01 at 02:00 — never RemoteInteractive, never from 10.0.4.20.",
+            helper: "Recorded as yours, UNTESTED. “Test this” stages it in the composer; the agent records the outcome with evidence.",
+            confirm: "Record prediction",
+            choicesLabel: rivals.length ? "This test comes out the OPPOSITE way under (discriminates):" : "",
+            choices: rivals.map((r) => ({ id: r.id, label: hypName(r, hs) + " — " + (r.statement.length > 70 ? r.statement.slice(0, 69) + "…" : r.statement), title: r.statement, checked: rivals.length === 1 })),
+            onConfirm: (statement, picked) => vscode.postMessage({ type: "pred.new", hypothesisRef: h.id, statement, discriminates: picked || [] }),
+          });
+        });
+        decide.appendChild(add);
+        if (h.status === "OPEN" && !anyTested) {
+          const restate = document.createElement("button");
+          restate.className = "ghost";
+          restate.textContent = "Restate";
+          restate.title = "Sharpen the claim (legal while nothing under it has been tested). The original stays in the thread.";
+          restate.addEventListener("click", () => openPrompt({
+            title: "Restate " + hypName(h, hs),
+            label: "The claim, sharpened",
+            value: h.statement,
+            helper: "Predictions already recorded stay as they are — withdraw any the new wording makes moot.",
+            confirm: "Restate",
+            onConfirm: (statement) => {
+              if (statement !== h.statement) vscode.postMessage({ type: "hyp.revise", hypothesisRef: h.id, restatement: statement });
+            },
+          }));
+          decide.appendChild(restate);
         }
-        if (decide.childElementCount) card.appendChild(decide);
-        if (preds.length) {
-          const ul = document.createElement("ul");
-          ul.className = "predictions";
-          for (const p of preds) {
-            // Predictions are INDEPENDENT, parallel-testable claims — every
-            // row renders as an equal peer; no implied ordering.
-            const li = document.createElement("li");
-            const ptext = document.createElement("span");
-            ptext.className = "clamp c2";
-            ptext.textContent = p.statement;
-            ptext.title = p.statement;
-            ptext.addEventListener("click", () => ptext.classList.toggle("expanded"));
-            li.appendChild(ptext);
+        const abandon = document.createElement("button");
+        abandon.className = "ghost";
+        abandon.textContent = "Abandon";
+        abandon.title = "Not pursuing this line of inquiry (→ ABANDONED, terminal; the thread keeps it). Keeps unadopted proposals from piling up.";
+        abandon.addEventListener("click", () => openPrompt({
+          title: "Abandon " + hypName(h, hs),
+          label: "Why it is not being pursued (optional)",
+          placeholder: "e.g. superseded by H3; no evidence path available in this tenant",
+          helper: "Terminal: a later change of mind is a new hypothesis. The verdict residual stops listing it.",
+          confirm: "Abandon",
+          require: false,
+          onConfirm: (reason) => vscode.postMessage({ type: "hyp.abandon", hypothesisRef: h.id, reason }),
+        }));
+        decide.appendChild(abandon);
+      }
+      if (decide.childElementCount) card.appendChild(decide);
 
-            // One structured controls row per prediction: status badge, then
-            // evidence chips, action anchored at the right edge — the same
-            // place on every row, never wherever the text happened to wrap.
-            const row = document.createElement("div");
-            row.className = "predrow";
-            const pbadge = document.createElement("span");
-            pbadge.className = badgeClass(p.status);
-            pbadge.textContent = p.status;
-            row.appendChild(pbadge);
-            // The decisive outcomes cite what was observed — every test-result
-            // ref opens (02 §2.8).
-            const trefs = p.testResultRefs || [];
-            for (const r of trefs) row.appendChild(refChip(r));
-            if (p.status === "UNTESTED") {
-              const test = document.createElement("button");
-              test.className = "testbtn predact";
-              test.textContent = "Test this";
-              test.title = p.testQuery && p.testQuery.queryText
-                ? "Stage just this test in the composer: " + p.testQuery.queryText
-                : "Stage a test of just this prediction in the composer";
-              test.addEventListener("click", () => stageInComposer(predictionTestText(p)));
-              row.appendChild(test);
-            } else if (trefs.length) {
+      const all = h.predictions || [];
+      if (all.length) {
+        const ul = document.createElement("ul");
+        ul.className = "predictions";
+        for (const p of all) {
+          // Predictions are INDEPENDENT, parallel-testable claims — every
+          // row renders as an equal peer; no implied ordering.
+          const li = document.createElement("li");
+          if (p.status === "WITHDRAWN") li.style.opacity = "0.55";
+          const ptext = document.createElement("span");
+          ptext.className = "clamp c2";
+          ptext.textContent = p.statement;
+          ptext.title = p.statement;
+          ptext.addEventListener("click", () => ptext.classList.toggle("expanded"));
+          li.appendChild(ptext);
+
+          // One structured controls row per prediction: status badge, the
+          // discriminates chip, then evidence chips, action anchored at the
+          // right edge — the same place on every row.
+          const row = document.createElement("div");
+          row.className = "predrow";
+          const pbadge = document.createElement("span");
+          pbadge.className = badgeClass(p.status);
+          pbadge.textContent = p.status;
+          row.appendChild(pbadge);
+          if ((p.discriminates || []).length) {
+            const dc = document.createElement("span");
+            dc.className = "discchip";
+            dc.textContent = "vs ";
+            const names = document.createElement("b");
+            names.textContent = p.discriminates.map((d) => nameOf(d, hs)).join(", ");
+            dc.appendChild(names);
+            dc.title = "Discriminating test: these rivals predict the opposite outcome. CONFIRMED counts against them; DISCONFIRMED supports them.";
+            row.appendChild(dc);
+          }
+          // The decisive outcomes cite what was observed — every test-result
+          // ref opens (02 §2.8).
+          const trefs = p.testResultRefs || [];
+          for (const r of trefs) row.appendChild(refChip(r));
+          if (p.status === "UNTESTED") {
+            if (live) {
+              const wd = document.createElement("button");
+              wd.className = "ghost testbtn predact";
+              wd.textContent = "Withdraw";
+              wd.title = "Discard this test without deleting it (→ WITHDRAWN). To edit a test: withdraw it and add the corrected one.";
+              wd.addEventListener("click", () => openPrompt({
+                title: "Withdraw prediction",
+                label: "Why (optional)",
+                placeholder: "e.g. not testable with our verbs; same outcome under both hypotheses",
+                helper: "The record keeps it as WITHDRAWN; the scoreboard stops counting it.",
+                confirm: "Withdraw",
+                require: false,
+                onConfirm: (reason) => vscode.postMessage({ type: "pred.withdraw", predictionRef: p.id, reason }),
+              }));
+              row.appendChild(wd);
+            }
+            const test = document.createElement("button");
+            test.className = "testbtn" + (live ? "" : " predact");
+            test.textContent = "Test this";
+            test.title = p.testQuery && p.testQuery.queryText
+              ? "Stage just this test in the composer: " + p.testQuery.queryText
+              : "Stage a test of just this prediction in the composer";
+            test.addEventListener("click", () => stageInComposer(predictionTestText(p, h, hs)));
+            row.appendChild(test);
+          } else if (trefs.length) {
               // A decided prediction is pinnable: statement + outcome + its
               // citations, prefilled. The pin cites the PREDICTION NODE too,
               // so an active pin is detectable and the affordance goes inert
@@ -3358,9 +3694,8 @@ export class InvestigationDocuments {
             ul.appendChild(li);
           }
           card.appendChild(ul);
-        }
-        box.appendChild(card);
       }
+      return card;
     }
 
     function renderCapabilities(caps) {
@@ -4204,6 +4539,9 @@ export class InvestigationDocuments {
     // require (default true), onConfirm(value) }.
     let promptOnConfirm = null;
     let promptRequire = true;
+    // opts.choices renders optional checkboxes under the input ([{id, label,
+    // checked}]); the selected ids arrive as onConfirm's second argument. Used
+    // by "+ prediction" to mark which rivals the test discriminates against.
     function openPrompt(opts) {
       promptOnConfirm = opts.onConfirm;
       promptRequire = opts.require !== false;
@@ -4222,19 +4560,42 @@ export class InvestigationDocuments {
         more.textContent = "+" + (opts.refs.length - 12) + " more";
         box.appendChild(more);
       }
+      const choices = $("promptChoices");
+      choices.textContent = "";
+      if (opts.choicesLabel && (opts.choices || []).length) {
+        const cl = document.createElement("div");
+        cl.className = "dlglabel";
+        cl.textContent = opts.choicesLabel;
+        choices.appendChild(cl);
+      }
+      for (const c of (opts.choices || [])) {
+        const lab = document.createElement("label");
+        lab.className = "choice";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = c.id;
+        cb.checked = !!c.checked;
+        const txt = document.createElement("span");
+        txt.textContent = c.label;
+        txt.title = c.title || c.label;
+        lab.append(cb, txt);
+        choices.appendChild(lab);
+      }
       const confirm = $("promptConfirm");
       confirm.textContent = opts.confirm || "Confirm";
       confirm.disabled = promptRequire && input.value.trim() === "";
       $("promptDialog").style.display = "flex";
       input.focus();
+      if (opts.selectAll) input.select();
     }
     function closePrompt() { $("promptDialog").style.display = "none"; promptOnConfirm = null; }
     function submitPrompt() {
       const v = $("promptInput").value.trim();
       if (promptRequire && !v) return;
+      const picked = Array.from(document.querySelectorAll('#promptChoices input[type="checkbox"]:checked')).map((c) => c.value);
       const cb = promptOnConfirm;
       closePrompt();
-      if (cb) cb(v);
+      if (cb) cb(v, picked);
     }
     $("promptInput").addEventListener("input", () => {
       if (promptRequire) $("promptConfirm").disabled = $("promptInput").value.trim() === "";
@@ -4292,10 +4653,19 @@ export class InvestigationDocuments {
       res.appendChild(rt);
       const unavailable = (lastCaps || []).filter((c) => c.status === "unavailable").map((c) => c.verb);
       const untested = [];
+      // The rival nobody killed (ui/02 §2.9): a live competing hypothesis is
+      // the honest residual — the explanation that was never ruled out.
+      const openRivals = [];
       for (const h of lastHyps) {
+        const live = h.status === "PROPOSED" || h.status === "OPEN";
+        let disc = 0;
         for (const p of h.predictions || []) {
-          if (p.status === "UNTESTED") untested.push(p.statement);
+          if (p.status === "UNTESTED") {
+            untested.push(p.statement);
+            if ((p.discriminates || []).length) disc++;
+          }
         }
+        if (live) openRivals.push({ h, disc });
       }
       const line = (text) => {
         const d = document.createElement("div");
@@ -4303,9 +4673,16 @@ export class InvestigationDocuments {
         res.appendChild(d);
       };
       if (unavailable.length) line("verbs never checkable in this tenant: " + unavailable.join(", "));
+      for (const { h, disc } of openRivals) {
+        const name = hypName(h, lastHyps);
+        const why = h.status === "PROPOSED" ? "never adopted" : "still open";
+        line("undecided hypothesis " + name + " — " + why
+          + (disc ? ", " + disc + " untested discriminating test" + (disc === 1 ? "" : "s") : "")
+          + " (abandon it on the tracker if you are not pursuing it)");
+      }
       for (const s of untested.slice(0, 5)) line("untested prediction: " + s);
       if (untested.length > 5) line("… and " + (untested.length - 5) + " more untested predictions");
-      if (!unavailable.length && !untested.length) line("no known gaps — all configured verbs available, no untested predictions");
+      if (!unavailable.length && !untested.length && !openRivals.length) line("no known gaps — all configured verbs available, no undecided hypotheses, no untested predictions");
 
       $("verdictRationale").value = "";
       for (const r of document.querySelectorAll('input[name="disp"]')) r.checked = false;
@@ -4583,6 +4960,51 @@ function makeNonce(): string {
     out += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return out;
+}
+
+/**
+ * A live rival hypothesis as the webview briefs the scoped ⚡ turns about it
+ * (02 §2.9: propose-tests / decide read the WHOLE live set, not the tab).
+ */
+interface RivalBrief {
+  id: string;
+  handle?: string;
+  statement: string;
+  /** Untested predictions on the rival that discriminate against the hypothesis in view. */
+  untestedDiscriminators: number;
+}
+
+/** The short name a hypothesis is referred to by: its handle, else a clipped statement. */
+function hypLabel(handle: string | undefined, statement: string): string {
+  if (handle && handle.trim()) {
+    return handle.trim();
+  }
+  return statement.length > 60 ? statement.slice(0, 59) + "…" : statement;
+}
+
+/** How a scoped turn cites the hypothesis it acts on: handle + claim + id. */
+function hypCite(handle: string | undefined, statement: string, ref: string): string {
+  const h = handle && handle.trim() ? `${handle.trim()}: ` : "";
+  return `"${h}${statement}" (${ref})`;
+}
+
+/**
+ * The rivals clause of a scoped turn: the live competing hypotheses, named by
+ * handle and id, followed by the set-wide instruction. Empty when there is no
+ * rival — a single-hypothesis investigation is still a legal shape.
+ */
+function rivalsClause(rivals: RivalBrief[] | undefined, instruction: string): string {
+  if (!rivals || !rivals.length) {
+    return "";
+  }
+  const list = rivals.map((r) => {
+    const name = r.handle && r.handle.trim() ? `${r.handle.trim()}: ` : "";
+    const pending = r.untestedDiscriminators > 0
+      ? ` [${r.untestedDiscriminators} untested discriminating prediction${r.untestedDiscriminators === 1 ? "" : "s"}]`
+      : "";
+    return `${name}"${r.statement}" (${r.id})${pending}`;
+  });
+  return `Live rivals: ${list.join("; ")}. ${instruction}`;
 }
 
 function errText(err: unknown): string {

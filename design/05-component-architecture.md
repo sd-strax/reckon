@@ -747,6 +747,8 @@ These are minor edits that land alongside this spec. Each is small and additive;
 
 **Resolve open question on `x-hypothesis.labels`:** "Labels bind to MITRE ATT&CK technique IDs by convention (e.g., `T1486`, `T1078.004`); freeform values permitted. The agent loop is prompted to label hypotheses with applicable techniques where evident."
 
+**Competing-hypotheses framing (step 4 of the agent loop, §3.4):** the system prompt carries the tenant's `reasoning.hypothesis_framing` dial (01 §x-hypothesis, "Competing hypotheses") and the live hypothesis set with handles and `discriminates` links. Under `leading_null` the loop proposes a leader plus one concrete alternative (never an alternative it cannot name a discriminating prediction for); a propose-tests turn reads the whole live set and must record at least one prediction that discriminates between rivals; a decide turn declines to record a hypothesis outcome while a rival still has an untested discriminator, unless the analyst overrides. These are prompt contracts graded by the eval harness (10 §3, R1–R3), not aggregate gates — the aggregate enforces only what the dial does not change (acknowledgment, the `trust.ai_reasoning` gate, outcome evidence).
+
 **Extend PROVENANCE section:** add `consulted_sops` and `consulted_similar_investigations` as optional fields on Interpretation Layer A. Each is a list of `{id, version, retrieval_score}` references into the knowledge service. Layer B side store extends to retain retrieved snippets keyed by content hash. Detail in 06 §7.
 
 ### 14.2 03-capability-layer.md

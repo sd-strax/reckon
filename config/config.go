@@ -24,6 +24,7 @@ type Config struct {
 	Knowledge  Knowledge  `yaml:"knowledge"`
 	Export     Export     `yaml:"export"`
 	Trust      Trust      `yaml:"trust"`
+	Reasoning  Reasoning  `yaml:"reasoning"`
 	Demo       Demo       `yaml:"demo"`
 	Paid       Paid       `yaml:"paid"`
 }
@@ -59,6 +60,52 @@ type Trust struct {
 	// OPEN before any outcome is recorded; the door to full automation opens by
 	// configuration, never by code change, and the enabling ref rides the event.
 	AIReasoning bool `yaml:"ai_reasoning"`
+}
+
+// Reasoning holds the reasoning-posture dials — how the AI delegate is asked
+// to frame its analysis. Unlike the Trust dials these grant no authority; they
+// shape what the delegate proposes, and the aggregate rules are identical under
+// every setting.
+type Reasoning struct {
+	// HypothesisFraming is the competing-hypotheses dial (01-domain-model.md
+	// §x-hypothesis, "Competing hypotheses"):
+	//   "leading_null" (default) — the delegate frames a leading hypothesis PLUS
+	//            exactly one concrete alternative (benign / different-actor),
+	//            a third only when the evidence genuinely supports it, and
+	//            never an alternative it cannot name a discriminating
+	//            prediction for. Propose-tests then reads the whole set and
+	//            yields at least one prediction whose outcome differs across
+	//            rivals; decide weighs a hypothesis against its rivals.
+	//   "leading_only"          — a single leading hypothesis (the analyst may
+	//            still frame a rival by hand; the model is the same).
+	// Travels server → investigation view → agent session like
+	// knowledge.injection, so one tenant setting governs every client.
+	HypothesisFraming string `yaml:"hypothesis_framing"`
+}
+
+// Hypothesis-framing shapes (01 §x-hypothesis).
+const (
+	HypothesisFramingLeadingNull = "leading_null"
+	HypothesisFramingLeadingOnly = "leading_only"
+)
+
+// ValidHypothesisFraming reports whether the framing shape is a known value;
+// empty resolves to the leading_null default at read time.
+func (r Reasoning) ValidHypothesisFraming() bool {
+	switch r.HypothesisFraming {
+	case "", HypothesisFramingLeadingNull, HypothesisFramingLeadingOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// HypothesisFramingOrDefault resolves the effective shape (empty → leading_null).
+func (r Reasoning) HypothesisFramingOrDefault() string {
+	if r.HypothesisFraming == "" {
+		return HypothesisFramingLeadingNull
+	}
+	return r.HypothesisFraming
 }
 
 // Export configures the post-conclusion export bundle (design 07). Tenant

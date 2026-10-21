@@ -396,11 +396,11 @@ Referenced by all components.
 | `extraction`      | Entity lifted from an OcsfEvent.                                                                                                     |
 | `sighting`        | Sighting created from ObservedData.                                                                                                  |
 | `evidence-pin`    | Analyst curation: the cited `input_refs` are pinned to the investigation's evidence surface (see "Pinned evidence" below).            |
-| `hypothesis`      | `x-hypothesis` proposed (creation; includes AI-PROPOSED → OPEN acknowledgment and non-status field updates).                         |
+| `hypothesis`      | `x-hypothesis` proposed (creation; includes AI-PROPOSED → OPEN acknowledgment — optionally with a restated `statement`/`handle` — and human non-status field updates while untested). |
 | `support`         | `x-hypothesis` status changed to SUPPORTED.                                                                                          |
 | `refutation`      | `x-hypothesis` status changed to REFUTED.                                                                                            |
 | `inconclusive`    | `x-hypothesis` status changed to INCONCLUSIVE or ABANDONED (rationale carries the distinction).                                      |
-| `prediction`      | `x-prediction` proposed.                                                                                                             |
+| `prediction`      | `x-prediction` proposed, or its status moved (test outcome; human `WITHDRAWN` from `UNTESTED`).                                       |
 | `verdict`         | Disposition of record set or revised — benign / suspicious / malicious (see "Verdict" below). Distinct from `conclusion`.            |
 | `conclusion`      | Investigation concluded; final Report referenced from `ConclusionSlot`.                                                              |
 | `pivot`           | Reasoning departed from one entity to pursue a related lead. Underlying telemetry queries are T0; this captures the analytical move. |
@@ -476,7 +476,11 @@ A **working theory under investigation**.
 x-hypothesis
 
   id                  x-hypothesis--<uuid>
-  statement           string (the claim)
+  statement           string (the claim — ONE claim; compound claims are
+                      not falsifiable as a unit, see "Competing hypotheses")
+  handle              optional short mnemonic ("H1 rdp-lateral") — the
+                      name the tabs, composer, thread, verdict rationale
+                      and export use; agent-proposed, analyst-renamable
   status              PROPOSED | OPEN | SUPPORTED | REFUTED |
                       INCONCLUSIVE | ABANDONED
   parent_ref          optional x-hypothesis id (refinement)
@@ -492,6 +496,8 @@ x-hypothesis
 
 - `PROPOSED` is the initial state for **AI-generated** hypotheses pending acknowledgment.
 - `OPEN` is the initial state for **analyst-created** hypotheses, and where AI hypotheses move on acknowledgment.
+- **Competing hypotheses.** An investigation carries a *set* of hypotheses that compete to explain the same evidence, not one theory that accumulates confirmations. Evidence is asymmetric: one strong disconfirmation can kill a hypothesis, while any number of confirmations only makes it *consistent* with what was seen — so the predictions that matter most are the ones whose outcome **differs** between rivals (`x-prediction.discriminates`, below). The framing shape the AI delegate is asked to produce is the tenant dial **`reasoning.hypothesis_framing`**: `leading_null` (default — a leading hypothesis plus exactly one concrete alternative, benign or different-actor, with a third only when the evidence genuinely supports it; the alternative is only legitimate if the delegate can name a prediction that discriminates it from the leader) or `leading_only` (a single leading hypothesis). The dial shapes what the delegate proposes; the model itself is the same under both — an analyst may always frame a rival by hand.
+- **Acknowledgment may restate.** The acknowledging human may supply a revised `statement` and/or `handle` in the same act (acknowledge-with-restatement: the analyst sharpening the claim is the ownership moment). A restatement is legal only while **every prediction under the hypothesis is `UNTESTED` or `WITHDRAWN`** — once any prediction carries a result, the result was tested against the old wording, and a change of theory is a refinement chained via `parent_ref`. The same rule governs a later field update on an `OPEN` hypothesis (a `hypothesis` interpretation carrying `hypothesis_ref` + the new fields, no status change): human-only, untested-only. The original statement stays in the thread.
 - **Acknowledgment is a human-only act**, legal only on a `PROPOSED` hypothesis (an AI delegate cannot acknowledge — its own or any). It marks analyst ownership of the line of inquiry. **By default it is a gate on AI-driven adjudication** (`vetted` posture): an AI delegate may **not** record an evidential outcome — a prediction result (`run tests`) or a hypothesis evaluation (`support` / `refutation` / `inconclusive`) — on a hypothesis that is still `PROPOSED`; a human must Acknowledge it into `OPEN` first. A **human** may adjudicate a `PROPOSED` hypothesis directly (engaging with the AI's proposal is itself the human taking the loop), and either actor drives an `OPEN` hypothesis freely. The tenant dial **`trust.ai_reasoning`** reopens full autonomy — with it enabled, AI outcomes are legal from `PROPOSED` too (the server stamps an enabling ref the aggregate requires, structurally default-deny, mirroring the AI-verdict dial). The gate is decoupled from action containment (04-action-authorization.md §4–§5): it loosens *reasoning* friction, never *world-changing* friction. Every transition is recorded as an Interpretation with principal + delegate, so "AI-adjudicated vs human-acknowledged" is always derivable from the thread.
 - **Terminal statuses are terminal** — a changed judgment is a new hypothesis chained via `parent_ref`, keeping every reversal auditable. Consequence: a hypothesis decided before acknowledgment can never be acknowledged; analyst disagreement with a terminal verdict is expressed by chaining, not by re-opening.
 - **Evidence is not embedded** — it lives as `x-supports` / `x-refutes` relationships from Sightings.
@@ -505,13 +511,28 @@ A **testable consequence** of a hypothesis.
 x-prediction
 
   id                  x-prediction--<uuid>
-  hypothesis_ref      x-hypothesis id
+  hypothesis_ref      x-hypothesis id (the owner: the hypothesis that
+                      predicts this will be OBSERVED)
   statement           string (what would be observed if hypothesis is true)
   test_query          optional QuerySpec { tool, query_text, parameters }
-  status              UNTESTED | CONFIRMED | DISCONFIRMED | INCONCLUSIVE
+  discriminates       optional list of x-hypothesis ids — rivals whose
+                      expectation for this prediction is the OPPOSITE of
+                      the owner's. CONFIRMED supports the owner and counts
+                      against the listed; DISCONFIRMED the reverse. A
+                      prediction with an empty list is merely consistent
+                      with its owner — it cannot decide between rivals.
+  status              UNTESTED | CONFIRMED | DISCONFIRMED | INCONCLUSIVE |
+                      WITHDRAWN
   test_result_refs    list of ObservedData or Sighting ids
   created, modified, created_by_ref (STIX standard)
 ```
+
+**Notes:**
+
+- A prediction is a **consequence** of its hypothesis, not a constituent: confirming every prediction does not prove the hypothesis; disconfirming one may refute it. `discriminates` is the Analysis-of-Competing-Hypotheses matrix stored as data — the tracker ranks a discriminating test above a merely confirming one, and the decide step weighs a hypothesis against its rivals rather than counting its own confirmations.
+- **Either actor authors predictions.** The AI delegate derives them from the hypothesis; the analyst adds the ones only environmental knowledge can supply ("this account only ever authenticates from the backup host at 02:00"). Both land `UNTESTED` under the same rules.
+- **`WITHDRAWN`** is terminal and legal only from `UNTESTED`, by a **human**: the analyst discards a bad test without a deletion — the event log keeps it, the scoreboard stops counting it. It is not an evidential outcome (no `test_result_refs`) and never feeds a hypothesis evaluation.
+- **The node is immutable except for status.** Editing an untested prediction is *withdraw + record*: the thread shows both, and a result can never be attached to wording it was not tested against.
 
 ### x-action
 
@@ -685,6 +706,7 @@ These are **not domain-model gaps**. The model accommodates either choice.
 
 - Sharding / partitioning strategy for per-tenant data at scale. Constrained by the tenant model — per-tenant scope is guaranteed by construction; the remaining question is operational tuning within a tenant, not global federation.
 - **Hypothesis adjudication mode (`vetted` vs `autonomous`) — RESOLVED, built.** Whether an AI delegate may record an evidential outcome on its own un-acknowledged hypothesis is a trust posture, not a fixed property of the model. Shipped as the tenant dial **`trust.ai_reasoning`**, **default off** (`vetted`): a `PROPOSED` hypothesis must be human-acknowledged into `OPEN` before an AI delegate can run its tests or decide it — the AI assembles the theory and its candidate tests, then hands the loop to the analyst. Enabling the dial (`autonomous`) makes AI outcomes legal from `PROPOSED`, so a hunt self-adjudicates. Enforced at the aggregate boundary (`applyPredictionOutcome` / `applyHypothesisOutcome` via the shared `aiReasoningGate`), with the server stamping the enabling ref only when the dial is on, so no alternate path bypasses it. Deliberately decoupled from action containment: Gate 2 and human approval (04-action-authorization.md §4–§5) are identical in both modes — the dial loosens *reasoning* friction, never *world-changing* friction. Interaction to spec when background hunts land (05-component-architecture.md §3.3, v2): a `vetted` hunt yields a queue of `PROPOSED` theories for morning review; an `autonomous` hunt self-adjudicates overnight.
+- **Hypothesis framing shape (`leading_null` vs `leading_only`) — RESOLVED, built.** Whether the AI delegate frames one hypothesis or a competing set is a reasoning posture, not a property of the model: the model always holds a *set* (see §x-hypothesis "Competing hypotheses"). Shipped as the tenant dial **`reasoning.hypothesis_framing`**, **default `leading_null`**: the delegate proposes a leading hypothesis plus exactly one concrete alternative (benign / different-actor), a third only when the evidence genuinely supports it, and it may not propose an alternative it cannot name a discriminating prediction for — a perfunctory rival is worse than none, because analysts learn to ignore the rail. `leading_only` restores a single leading hypothesis. Two companion behaviours ride the dial but are *agent behaviour with an analyst override*, deliberately not aggregate gates: propose-tests runs against the whole live set and must yield at least one prediction whose outcome differs across rivals; decide does not record a hypothesis as SUPPORTED while a rival still has an untested discriminating prediction — it says so and asks to run it, and the analyst may answer "record it anyway." The dial travels server → investigation view → agent session exactly like `knowledge.injection`, so one tenant setting governs every client.
 
 ### Closed (resolved by other specs)
 

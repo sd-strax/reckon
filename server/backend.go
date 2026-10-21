@@ -180,6 +180,12 @@ type BackendConfig struct {
 	// (config.Knowledge.Injection: "opt_in" default | "auto"), surfaced to the
 	// agent on the investigation detail view (design/06 §5.1).
 	KnowledgeInjection string
+
+	// HypothesisFraming is the effective competing-hypotheses dial
+	// (config.Reasoning.HypothesisFraming: "leading_null" default |
+	// "leading_only"), surfaced to the agent on the investigation detail view
+	// (01 §x-hypothesis "Competing hypotheses").
+	HypothesisFraming string
 }
 
 // Backend is the in-process HTTP server.

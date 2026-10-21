@@ -31,8 +31,30 @@ type fixtureFile struct {
 			Params map[string]any `json:"params"`
 		} `json:"matches"`
 		DelayMS int `json:"delay_ms"`
+		// TimeScoped makes the fixture answer to the caller's time window: it
+		// replays only when the event's time falls inside the window the
+		// binding passed under the reserved `window.from` / `window.to` params
+		// (absent/zero bounds are open). This is how a scenario carries
+		// history — a baseline the question "is this normal for this account
+		// over 30 days?" reaches, that a 24-hour query does not — so the same
+		// scenario answers differently to different questions (01
+		// §x-hypothesis: discriminating tests need fixtures that can
+		// discriminate). Unscoped fixtures replay regardless of window, as
+		// before.
+		TimeScoped bool `json:"time_scoped"`
 	} `json:"fixture_meta"`
 	OCSF map[string]any `json:"ocsf"`
+}
+
+// fixtureWindow reads the reserved window params a binding may pass
+// (`window: {from, to}` rendered from the `${window.*}` roots, RFC 3339).
+// Zero or unparseable bounds are open.
+func fixtureWindow(params map[string]any) (from, to time.Time) {
+	w, _ := params["window"].(map[string]any)
+	if w == nil {
+		return from, to
+	}
+	return toTime(w["from"]), toTime(w["to"])
 }
 
 // FixtureAdapter replays recorded OCSF events from fixtures/<scenario>/*.json.
@@ -148,11 +170,18 @@ func (a *FixtureAdapter) Invoke(ctx context.Context, operation string, params ma
 	}
 
 	verb, _ := params[ParamVerb].(string)
+	from, to := fixtureWindow(params)
 
 	var events []OcsfPayload
 	for _, f := range a.fixtures {
 		if !fixtureMatches(f, verb, params) {
 			continue
+		}
+		if f.FixtureMeta.TimeScoped {
+			t := toTime(f.OCSF["time"])
+			if (!from.IsZero() && t.Before(from)) || (!to.IsZero() && t.After(to)) {
+				continue
+			}
 		}
 		if a.applyDelays && f.FixtureMeta.DelayMS > 0 {
 			select {

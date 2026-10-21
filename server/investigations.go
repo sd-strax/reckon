@@ -42,6 +42,12 @@ type InvestigationView struct {
 	// agent loop knows whether implicitly-retrieved knowledge defaults in
 	// ("auto") or waits for the analyst ("opt_in"). Detail responses only.
 	KnowledgeInjection string `json:"knowledge_injection,omitempty"`
+
+	// HypothesisFraming is the tenant's competing-hypotheses dial
+	// (config.Reasoning.HypothesisFraming; 01 §x-hypothesis): "leading_null"
+	// (default) or "leading_only". Detail responses only — the agent session
+	// renders its framing contract from it.
+	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
 }
 
 func seedBody(s *aggregate.Seed) *SeedBody {
@@ -184,6 +190,7 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 		Seed:               seedBody(ic.Seed),
 		SeedSummary:        ic.SeedSummary,
 		KnowledgeInjection: b.cfg.KnowledgeInjection,
+		HypothesisFraming:  b.cfg.HypothesisFraming,
 	}
 	if ic.VerdictDisposition != "" {
 		view.Verdict = &VerdictView{

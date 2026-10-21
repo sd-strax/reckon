@@ -154,7 +154,10 @@ package's own honesty rule. Render real stages only.
 Engine statuses, verbatim: `PROPOSED / OPEN / SUPPORTED / REFUTED / INCONCLUSIVE /
 ABANDONED` — and **predictions**: falsifiable test conditions with per-prediction status and
 test-result refs (`01`; served by `/hypotheses`). The hypothesis card grows a prediction
-sublist; the flat open/supported/refuted list in the sheets is superseded.
+sublist; the flat open/supported/refuted list in the sheets is superseded. Hypotheses carry
+a `handle` and predictions a `discriminates` list (`01 §x-hypothesis` "Competing
+hypotheses"); the tracker renders them as a tabbed scoreboard (`02 §2.9`), one working
+hypothesis at a time with the whole set always in view.
 
 ### 2.8 Entities
 

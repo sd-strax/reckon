@@ -382,6 +382,7 @@ func serve(cfg config.Config) error {
 		AllowAIVerdict:          cfg.Trust.AIVerdict,
 		AllowAIReasoning:        cfg.Trust.AIReasoning,
 		KnowledgeInjection:      cfg.Knowledge.InjectionOrDefault(),
+		HypothesisFraming:       cfg.Reasoning.HypothesisFramingOrDefault(),
 	}
 	if tel.Metrics != nil {
 		backendCfg.MetricsHandler = tel.Metrics.Handler()
@@ -478,6 +479,12 @@ func buildKnowledge(cfg config.Config, db *sql.DB) (*knowledge.Store, error) {
 	if !cfg.Knowledge.ValidInjection() {
 		return nil, fmt.Errorf("knowledge.injection: %q is not a valid posture (want %q or %q)",
 			cfg.Knowledge.Injection, config.KnowledgeInjectionOptIn, config.KnowledgeInjectionAuto)
+	}
+	// The reasoning dial is validated alongside its posture sibling — a typo
+	// must fail startup, not silently fall back to a default framing.
+	if !cfg.Reasoning.ValidHypothesisFraming() {
+		return nil, fmt.Errorf("reasoning.hypothesis_framing: %q is not a valid shape (want %q or %q)",
+			cfg.Reasoning.HypothesisFraming, config.HypothesisFramingLeadingNull, config.HypothesisFramingLeadingOnly)
 	}
 	corpora := []substrate.CorpusDef{
 		{Name: knowledge.CorpusProcedures, Archetype: substrate.Curated, Governance: substrate.Lightweight},

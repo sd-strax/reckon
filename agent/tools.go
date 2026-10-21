@@ -124,23 +124,25 @@ func intrinsicTools(actionTypes []ActionType) []ToolDef {
 		},
 		{
 			Name:        ToolProposeHypothesis,
-			Description: "Propose a falsifiable hypothesis about what is happening. It is recorded PROPOSED until the analyst acknowledges it. Returns the hypothesis id for later predictions and evaluation.",
+			Description: "Propose one falsifiable hypothesis — ONE claim, not a compound story. Hypotheses compete: call this once per rival (the leader, then the concrete alternative). It is recorded PROPOSED until the analyst acknowledges it. Returns the hypothesis id for later predictions and evaluation.",
 			InputSchema: obj(map[string]any{
-				"statement":     str("the claim, one or two sentences, falsifiable"),
+				"statement":     str("the claim, one or two sentences, falsifiable, a single mechanism"),
+				"handle":        str("short mnemonic the analyst will refer to it by, e.g. \"H1 rdp-lateral\", \"H2 legit-admin\" (number them in proposal order)"),
 				"rationale":     str("why you believe this, citing evidence refs"),
 				"labels":        strList("MITRE ATT&CK technique ids where evident, e.g. T1021.001"),
 				"rooted_at_ref": str("STIX id of the anchor entity, optional"),
 				"parent_ref":    str("x-hypothesis id this refines, optional"),
 				"confidence":    str("HIGH | MEDIUM | LOW"),
-			}, "statement", "rationale"),
+			}, "statement", "handle", "rationale"),
 		},
 		{
 			Name:        ToolRecordPrediction,
-			Description: "Record a testable prediction under a hypothesis: what you expect to observe if it is true, and what query would test it.",
+			Description: "Record a testable prediction under a hypothesis: what you expect to observe if it is true, and what query would test it. A prediction that DISCRIMINATES — one a rival hypothesis predicts the opposite outcome for — is worth more than one that merely confirms; name those rivals in discriminates.",
 			InputSchema: obj(map[string]any{
-				"hypothesis_ref": str("the x-hypothesis id"),
+				"hypothesis_ref": str("the x-hypothesis id that predicts this WILL be observed (the owner)"),
 				"statement":      str("what should be observable if the hypothesis holds"),
-				"rationale":      str("why this test discriminates"),
+				"rationale":      str("why this test discriminates (or, if it only confirms, say so)"),
+				"discriminates":  strList("x-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner"),
 				"test_tool":      str("the verb/tool that would test it, optional"),
 				"test_query":     str("the query text, optional"),
 			}, "hypothesis_ref", "statement", "rationale"),
@@ -434,6 +436,7 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 	case ToolProposeHypothesis:
 		var in struct {
 			Statement   string   `json:"statement"`
+			Handle      string   `json:"handle"`
 			Rationale   string   `json:"rationale"`
 			Labels      []string `json:"labels"`
 			RootedAtRef string   `json:"rooted_at_ref"`
@@ -450,6 +453,7 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 			Confidence:         in.Confidence,
 			Hypothesis: &Hypothesis{
 				Statement:   in.Statement,
+				Handle:      clipRunes(in.Handle, 40),
 				ParentRef:   in.ParentRef,
 				RootedAtRef: in.RootedAtRef,
 				Labels:      in.Labels,
@@ -462,16 +466,17 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 
 	case ToolRecordPrediction:
 		var in struct {
-			HypothesisRef string `json:"hypothesis_ref"`
-			Statement     string `json:"statement"`
-			Rationale     string `json:"rationale"`
-			TestTool      string `json:"test_tool"`
-			TestQuery     string `json:"test_query"`
+			HypothesisRef string   `json:"hypothesis_ref"`
+			Statement     string   `json:"statement"`
+			Rationale     string   `json:"rationale"`
+			Discriminates []string `json:"discriminates"`
+			TestTool      string   `json:"test_tool"`
+			TestQuery     string   `json:"test_query"`
 		}
 		if err := json.Unmarshal(input, &in); err != nil {
 			return nil, fmt.Errorf("bad record_prediction input: %w", err)
 		}
-		pred := &Prediction{HypothesisRef: in.HypothesisRef, Statement: in.Statement}
+		pred := &Prediction{HypothesisRef: in.HypothesisRef, Statement: in.Statement, Discriminates: in.Discriminates}
 		if in.TestTool != "" || in.TestQuery != "" {
 			pred.TestQuery = &QuerySpec{Tool: in.TestTool, QueryText: in.TestQuery}
 		}

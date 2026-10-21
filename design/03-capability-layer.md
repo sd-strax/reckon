@@ -1548,6 +1548,20 @@ testing), and returns the OCSF event. From there, normalization runs unchanged.
 The OcsfEvent gets `source_tool = "fixture:lateral-movement-via-rdp"` so it's
 traceable but distinguishable from real telemetry.
 
+**Time-scoped fixtures.** A fixture may declare `"time_scoped": true` in its
+`fixture_meta`. It then replays only when its event time falls inside the
+window the binding passed under the reserved `window` param pair
+(`window: { from: '${window.from | iso8601}', to: '${window.to | iso8601}' }`);
+zero or absent bounds are open, and unscoped fixtures replay regardless of
+window, as before. This is how a scenario carries *history*: a baseline that
+"is this normal for this account over 30 days?" reaches and a 24-hour query
+does not. Combined with a parameter the caller controls (the shipped scenario
+matches its `svc_backup` baseline on `target.user`, rendered from
+`${entity.user.name?}` so a host-rooted query omits it), the same scenario
+answers differently to different questions — the property a *discriminating*
+prediction needs (01-domain-model.md §x-prediction) and the reason a
+competing-hypotheses demo can refute its benign alternative on fixtures.
+
 ### 9.3 Mixed mode
 
 Per-binding override of adapter is allowed, so a tenant can run

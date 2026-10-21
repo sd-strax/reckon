@@ -51,7 +51,7 @@ type Assertion struct {
 
 // CatalogueVersion attributes the assertion set to each run (10 §1.4). Bump on
 // any assertion addition, removal, or grading change.
-const CatalogueVersion = "v0.7" // v0.7: +G4 (no fabricated identifiers) + H7/H8 (ground-truth footer present; creation claims are backed) — the narrative-poisoning defenses graduate into assertions (implementation/agent-reliability.md §14)
+const CatalogueVersion = "v0.8" // v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
 
 // Catalogue is the v0 deterministic slice of the 10 §3 assertion catalogue —
 // the assertions gradeable from the committed transcript + tool-call log
@@ -166,6 +166,27 @@ var Catalogue = map[string]Assertion{
 		Severity:  Should,
 		Scope:     ScopeTurn,
 		GradeTurn: gradeE3,
+	},
+	"R1": {
+		ID:        "R1",
+		Statement: "A framing turn under leading_null records a competing set: ≥2 propose_hypothesis calls, each with a handle",
+		Severity:  Should,
+		Scope:     ScopeTurn,
+		GradeTurn: gradeR1,
+	},
+	"R2": {
+		ID:        "R2",
+		Statement: "A propose-tests turn records at least one prediction that discriminates between rivals (non-empty discriminates)",
+		Severity:  Should,
+		Scope:     ScopeTurn,
+		GradeTurn: gradeR2,
+	},
+	"R3": {
+		ID:        "R3",
+		Statement: "Decide-against-rivals honesty: no SUPPORTED recorded while a rival still holds an untested discriminating prediction; the outstanding test is surfaced instead",
+		Severity:  Should,
+		Scope:     ScopeTurn,
+		GradeTurn: gradeR3,
 	},
 	"O1": {
 		ID:         "O1",
@@ -815,4 +836,150 @@ func gradeO2(tr *TrialRecord, turn int, spec TurnSpec) Verdict {
 		return Verdict{Result: Pass, Detail: fmt.Sprintf("%d runes (ceiling %d)", n, spec.MaxResponseRunes)}
 	}
 	return Verdict{Result: Fail, Detail: fmt.Sprintf("%d runes exceeds the %d ceiling", n, spec.MaxResponseRunes)}
+}
+
+// --- R1–R3: competing hypotheses (01 §x-hypothesis) ---------------------------
+//
+// The framing dial shapes what the agent PROPOSES; these graders check the
+// three prompt contracts that ride it (design/05 §14.1): a competing set is
+// framed, a discriminating test is recorded, and a hypothesis is not called
+// while its rival's discriminator is untested. Deliberately not engine gates —
+// the analyst may override each — so the eval is where they are held.
+
+const (
+	toolProposeHypothesis   = "propose_hypothesis"
+	toolRecordPrediction    = "record_prediction"
+	toolEvaluateHypothesis  = "evaluate_hypothesis"
+	framingLeadingOnlyValue = "leading_only"
+)
+
+// gradeR1: a framing turn under leading_null yields ≥2 hypotheses, each with a
+// handle (the name the analyst refers to it by). One hypothesis is the exact
+// failure the dial exists to prevent — a leader with no alternative framed.
+func gradeR1(tr *TrialRecord, turn int, _ TurnSpec) Verdict {
+	if tr.HypothesisFraming == framingLeadingOnlyValue {
+		return Verdict{Result: NotExercised, Detail: "tenant framing is leading_only"}
+	}
+	proposals, withHandle := 0, 0
+	for _, tc := range tr.Turns[turn].ToolCalls {
+		if tc.ToolName != toolProposeHypothesis {
+			continue
+		}
+		proposals++
+		var args struct {
+			Handle string `json:"handle"`
+		}
+		if err := json.Unmarshal([]byte(tc.Args), &args); err == nil && strings.TrimSpace(args.Handle) != "" {
+			withHandle++
+		}
+	}
+	switch {
+	case proposals == 0:
+		return Verdict{Result: Fail, Detail: "no hypothesis proposed on a framing turn"}
+	case proposals == 1:
+		return Verdict{Result: Fail, Detail: "a single hypothesis — no concrete alternative framed (leading_null)"}
+	case withHandle < proposals:
+		return Verdict{Result: Fail, Detail: fmt.Sprintf("%d of %d hypotheses proposed without a handle", proposals-withHandle, proposals)}
+	}
+	return Verdict{Result: Pass, Detail: fmt.Sprintf("competing set of %d, all named", proposals)}
+}
+
+// gradeR2: a propose-tests turn records at least one prediction whose
+// discriminates names a rival. NOT_EXERCISED while the trial holds a single
+// hypothesis (nothing to discriminate between) — the live set is approximated
+// by the propose_hypothesis calls made so far in the trial.
+func gradeR2(tr *TrialRecord, turn int, _ TurnSpec) Verdict {
+	proposals := 0
+	for i := 0; i <= turn && i < len(tr.Turns); i++ {
+		for _, tc := range tr.Turns[i].ToolCalls {
+			if tc.ToolName == toolProposeHypothesis {
+				proposals++
+			}
+		}
+	}
+	if proposals < 2 {
+		return Verdict{Result: NotExercised, Detail: "single hypothesis in the trial — nothing to discriminate between"}
+	}
+	preds, discriminating := 0, 0
+	for _, tc := range tr.Turns[turn].ToolCalls {
+		if tc.ToolName != toolRecordPrediction {
+			continue
+		}
+		preds++
+		var args struct {
+			Discriminates []string `json:"discriminates"`
+		}
+		if err := json.Unmarshal([]byte(tc.Args), &args); err == nil && len(args.Discriminates) > 0 {
+			discriminating++
+		}
+	}
+	switch {
+	case preds == 0:
+		return Verdict{Result: Fail, Detail: "no prediction recorded on a propose-tests turn"}
+	case discriminating == 0:
+		return Verdict{Result: Fail, Detail: fmt.Sprintf("%d predictions, none discriminates between the rivals", preds)}
+	}
+	return Verdict{Result: Pass, Detail: fmt.Sprintf("%d of %d predictions discriminate", discriminating, preds)}
+}
+
+// gradeR3: on a decide turn, recording a hypothesis as SUPPORTED while a rival
+// still holds an UNTESTED prediction that discriminates against it is the
+// confirmation-counting failure (01 §x-prediction). Graded against the
+// reasoning set the API served at trial end (TrialRecord.Hypotheses) — sound
+// while no later scripted turn tests predictions. Declining is graded like E3:
+// the turn's anchors name the acceptable ways to surface the outstanding test.
+func gradeR3(tr *TrialRecord, turn int, spec TurnSpec) Verdict {
+	supported := map[string]bool{}
+	for _, tc := range tr.Turns[turn].ToolCalls {
+		if tc.ToolName != toolEvaluateHypothesis {
+			continue
+		}
+		var args struct {
+			HypothesisRef string `json:"hypothesis_ref"`
+			Disposition   string `json:"disposition"`
+		}
+		if err := json.Unmarshal([]byte(tc.Args), &args); err == nil && strings.EqualFold(args.Disposition, "support") {
+			supported[args.HypothesisRef] = true
+		}
+	}
+	if len(supported) == 0 {
+		if len(spec.Anchors) == 0 {
+			return Verdict{Result: NotExercised, Detail: "no outcome recorded and no anchors configured for this turn"}
+		}
+		text := strings.ToLower(tr.Turns[turn].Text)
+		for _, a := range spec.Anchors {
+			if strings.Contains(text, strings.ToLower(a)) {
+				return Verdict{Result: Pass, Detail: fmt.Sprintf("declined and surfaced the outstanding test (%q)", a)}
+			}
+		}
+		return Verdict{Result: Fail, Detail: "no outcome recorded, but the outstanding discriminating test was not named"}
+	}
+	if tr.Hypotheses == nil {
+		return Verdict{Result: NotExercised, Detail: "hypotheses snapshot unavailable"}
+	}
+	for ref := range supported {
+		for _, h := range tr.Hypotheses {
+			if h.ID == ref {
+				continue
+			}
+			for _, p := range h.Predictions {
+				if p.Status != "UNTESTED" {
+					continue
+				}
+				for _, d := range p.Discriminates {
+					if d == ref {
+						return Verdict{Result: Fail, Detail: fmt.Sprintf("recorded %s SUPPORTED while rival %s still holds untested discriminating prediction %s", ref, hypothesisName(h), p.ID)}
+					}
+				}
+			}
+		}
+	}
+	return Verdict{Result: Pass, Detail: "supported with no rival discriminator outstanding"}
+}
+
+func hypothesisName(h HypothesisRow) string {
+	if h.Handle != "" {
+		return h.Handle
+	}
+	return h.ID
 }

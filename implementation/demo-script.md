@@ -125,13 +125,51 @@ AI reasons over: tick both to include them. *(The retriever proposes, the analys
 disposes — the injection dial. And the scores and bands are the vector backend at
 work, the reason we configured embeddings up front.)*
 
-## Act 3 — Decide (grounded in pins)
+## Act 3 — Decide (disprove the innocent explanation)
 
-Drive the hypothesis to a verdict the way [`road-test.md` §2–3](road-test.md)
-lays out: the agent proposes *"stolen valid account used for hands-on-keyboard
-lateral movement (T1021.001)"*, the analyst acknowledges it, evidence gets
-pinned, and the verdict of record lands as **true-positive** — grounded in the
-pins, not vibes.
+Drive the hypotheses to a verdict the way [`road-test.md` §2–3](road-test.md)
+lays out — but the point of this act is that there are **two** of them. Ask:
+
+> *"Frame the competing hypotheses — your leading explanation and the concrete
+> alternative that would make it wrong."*
+
+The agent frames **`H1 rdp-lateral`** — *stolen `svc_backup` credentials used
+for hands-on-keyboard lateral movement over RDP (T1021.001)* — and
+**`H2 legit-admin`** — *an administrator used `svc_backup` over RDP for
+scheduled maintenance.* Both land `PROPOSED`; the tracker shows them as tabs
+with a scoreboard strip. *(One claim each. The agent is not allowed to frame a
+rival it cannot name a discriminating test for — no strawmen.)*
+
+**Adopt H1** — the adopt card shows the statement *editable*: sharpen it
+(*"…from 10.0.4.20, 14:32 UTC"*) and adopt. Say out loud: *the original stays in
+the thread; the analyst taking ownership is the moment the claim gets precise.*
+Adopt H2 too — it is the one we intend to kill.
+
+**⚡ Propose tests** on H1. The agent reads *both* hypotheses and records
+predictions, at least one of which **discriminates**: *"svc_backup's 30-day
+logon baseline shows only Network logons from BKP-01 at 02:00 — never
+RemoteInteractive, never from 10.0.4.20"* — H1 predicts it, H2 predicts the
+opposite (the row carries a **vs H2** chip). Then add the analyst's own test
+with **+ prediction** on H2: *"a change ticket or maintenance window covers
+WIN-FILE01 for 2026-04-20"* — environmental knowledge the agent does not have;
+tick *discriminates H1*. *(Either actor authors tests. The analyst's is usually
+the sharpest.)*
+
+**⚡ Run tests.** The baseline query (user-rooted, 30-day window) returns seven
+nights of `Network` logons from `BKP-01` and the single `RemoteInteractive`
+from `10.0.4.20` — **CONFIRMED** for H1, and the chip says it cuts against H2.
+The change-record lookup comes back **COMPLETE with zero cases** — evidence of
+absence, **DISCONFIRMED** for H2. Pin both.
+
+Press **⚡ Decide** on H1 *before* H2's test has run, if you want to show the
+guard: the agent declines — *"H2 still has an untested prediction that
+discriminates between us; run it first"* — and offers to record anyway if you
+say so. Run it, then decide: **H2 REFUTED**, **H1 SUPPORTED**, each citing the
+decisive test. The verdict dialog's residual is clean: no undecided
+hypothesis, no untested test. Record **MALICIOUS**.
+
+**The line for the room:** *reckon did not just prove the attack — it disproved
+the innocent explanation, and the record shows which test did it.*
 
 ## Act 4 — Act (evidence precedes action)
 

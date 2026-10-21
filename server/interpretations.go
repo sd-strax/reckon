@@ -34,7 +34,9 @@ type RecordInterpretationBody struct {
 	// interpretations. The node ids are minted SERVER-side (returned in
 	// node_id); transitions reference nodes by their STIX id.
 	Hypothesis       *HypothesisBody `json:"hypothesis,omitempty"`     // type=hypothesis: create
-	HypothesisRef    string          `json:"hypothesis_ref,omitempty"` // hypothesis ack / support / refutation / inconclusive
+	HypothesisRef    string          `json:"hypothesis_ref,omitempty"` // hypothesis ack|revise / support / refutation / inconclusive
+	Restatement      string          `json:"restatement,omitempty"`    // ack|revise: the sharpened claim (human, untested-only; 01)
+	Handle           string          `json:"handle,omitempty"`         // ack|revise: the (re)named mnemonic
 	Abandoned        bool            `json:"abandoned,omitempty"`      // inconclusive → ABANDONED instead of INCONCLUSIVE
 	Prediction       *PredictionBody `json:"prediction,omitempty"`     // type=prediction: create
 	PredictionRef    string          `json:"prediction_ref,omitempty"` // prediction outcome
@@ -79,16 +81,20 @@ type VerdictBody struct {
 // HypothesisBody is the client shape of a new hypothesis.
 type HypothesisBody struct {
 	Statement   string   `json:"statement"`
+	Handle      string   `json:"handle,omitempty"`
 	ParentRef   string   `json:"parent_ref,omitempty"`
 	RootedAtRef string   `json:"rooted_at_ref,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
 }
 
-// PredictionBody is the client shape of a new prediction.
+// PredictionBody is the client shape of a new prediction. Discriminates names
+// the rival hypotheses whose expectation for it is the opposite of the owner's
+// (01 §x-prediction).
 type PredictionBody struct {
 	HypothesisRef string               `json:"hypothesis_ref"`
 	Statement     string               `json:"statement"`
 	TestQuery     *aggregate.QuerySpec `json:"test_query,omitempty"`
+	Discriminates []string             `json:"discriminates,omitempty"`
 }
 
 // TranscriptInput carries the raw transcript for the turn. Body is the text as a
@@ -175,6 +181,8 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 		Rationale:          body.Rationale,
 		Confidence:         body.Confidence,
 		HypothesisRef:      body.HypothesisRef,
+		Restatement:        body.Restatement,
+		Handle:             body.Handle,
 		Abandoned:          body.Abandoned,
 		PredictionRef:      body.PredictionRef,
 		PredictionStatus:   body.PredictionStatus,
@@ -222,6 +230,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 		cmd.Hypothesis = &aggregate.HypothesisNode{
 			ID:          id,
 			Statement:   body.Hypothesis.Statement,
+			Handle:      body.Hypothesis.Handle,
 			ParentRef:   body.Hypothesis.ParentRef,
 			RootedAtRef: body.Hypothesis.RootedAtRef,
 			Labels:      body.Hypothesis.Labels,
@@ -235,6 +244,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 			HypothesisRef: body.Prediction.HypothesisRef,
 			Statement:     body.Prediction.Statement,
 			TestQuery:     body.Prediction.TestQuery,
+			Discriminates: body.Prediction.Discriminates,
 		}
 	}
 	if body.Transcript != nil {
@@ -286,6 +296,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 type HypothesisView struct {
 	ID          string           `json:"id"`
 	Statement   string           `json:"statement"`
+	Handle      string           `json:"handle,omitempty"`
 	Status      string           `json:"status"`
 	ParentRef   string           `json:"parent_ref,omitempty"`
 	RootedAtRef string           `json:"rooted_at_ref,omitempty"`
@@ -295,12 +306,14 @@ type HypothesisView struct {
 
 // PredictionView is one prediction row in a HypothesisView. TestQuery is the
 // declared falsification test (01 §x-prediction) — the tracker's "Test this"
-// stages it into the composer, never fires it.
+// stages it into the composer, never fires it. Discriminates names the rivals
+// this prediction decides against.
 type PredictionView struct {
 	ID             string               `json:"id"`
 	Statement      string               `json:"statement"`
 	Status         string               `json:"status"`
 	TestQuery      *aggregate.QuerySpec `json:"test_query,omitempty"`
+	Discriminates  []string             `json:"discriminates,omitempty"`
 	TestResultRefs []string             `json:"test_result_refs,omitempty"`
 }
 
@@ -336,6 +349,7 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 			Statement:      p.Statement,
 			Status:         p.Status,
 			TestQuery:      p.TestQuery,
+			Discriminates:  p.Discriminates,
 			TestResultRefs: p.TestResultRefs,
 		})
 	}
@@ -344,6 +358,7 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 		out = append(out, HypothesisView{
 			ID:          h.ID,
 			Statement:   h.Statement,
+			Handle:      h.Handle,
 			Status:      h.Status,
 			ParentRef:   h.ParentRef,
 			RootedAtRef: h.RootedAtRef,

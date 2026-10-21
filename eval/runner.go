@@ -192,7 +192,19 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 	}
 
 	tr := &TrialRecord{Trial: trial, InvestigationID: invID}
+	if inv, err := client.GetInvestigation(ctx, invID); err == nil {
+		tr.HypothesisFraming = inv.HypothesisFraming
+	}
 	for i, spec := range s.Turns {
+		if spec.AckHypotheses {
+			// The scripted analyst adopts what the agent proposed (a human act
+			// the aggregate enforces) so the turn can drive OPEN hypotheses.
+			n, err := ackProposedHypotheses(ctx, client, backendURL, human, invID)
+			if err != nil {
+				return tr, session.System(), fmt.Errorf("turn %d: ack hypotheses: %w", i, err)
+			}
+			logf("eval: trial %d turn %d — driver acknowledged %d PROPOSED hypothesis(es)", trial, i+1, n)
+		}
 		res, err := session.Turn(ctx, spec.User)
 		rec := TurnRecord{Index: i, UserMsg: spec.User}
 		if res != nil {
@@ -237,6 +249,11 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 	} else {
 		logf("eval: trial %d — actions view fetch failed (event graders NOT_EXERCISED): %v", trial, err)
 	}
+	// The reasoning set at trial end — R3's ground truth for "did a rival still
+	// have an untested discriminating prediction when the agent decided?".
+	if tr.Hypotheses = hypothesesSnapshot(ctx, client, invID); tr.Hypotheses == nil {
+		logf("eval: trial %d — hypotheses view fetch failed (R3 NOT_EXERCISED)", trial)
+	}
 	return tr, session.System(), nil
 }
 
@@ -256,6 +273,45 @@ func createActiveInvestigation(ctx context.Context, backendURL string, human age
 		return "", fmt.Errorf("activate investigation: %w", err)
 	}
 	return created.AggregateID, nil
+}
+
+// hypothesesSnapshot reads the investigation's reasoning set through the
+// product API (handles, statuses, predictions + discriminates) — the state R3
+// grades against. nil on failure.
+func hypothesesSnapshot(ctx context.Context, client *agent.Client, invID string) []HypothesisRow {
+	raw, err := client.ListHypotheses(ctx, invID)
+	if err != nil {
+		return nil
+	}
+	var v struct {
+		Hypotheses []HypothesisRow `json:"hypotheses"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	return v.Hypotheses
+}
+
+// ackProposedHypotheses acknowledges every PROPOSED hypothesis with the human
+// token — the driver's scripted Adopt (TurnSpec.AckHypotheses). Returns how
+// many it acknowledged.
+func ackProposedHypotheses(ctx context.Context, client *agent.Client, backendURL string, human agent.TokenSource, invID string) (int, error) {
+	n := 0
+	for _, h := range hypothesesSnapshot(ctx, client, invID) {
+		if h.Status != "PROPOSED" {
+			continue
+		}
+		if err := postJSON(ctx, human, backendURL+"/api/interpretations", map[string]any{
+			"investigation_ref":   invID,
+			"interpretation_type": "hypothesis",
+			"hypothesis_ref":      h.ID,
+			"rationale":           "eval driver: adopted (the scripted analyst's Acknowledge)",
+		}, nil); err != nil {
+			return n, fmt.Errorf("acknowledge %s: %w", h.ID, err)
+		}
+		n++
+	}
+	return n, nil
 }
 
 // postJSON is the harness's minimal authenticated POST — for the two

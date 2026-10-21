@@ -253,20 +253,44 @@ analyst's trust in the agent is calibrated by spot-checking it; spot-checking is
 
 ## 2.9 Hypothesis tracker — the drivable loop
 
-Hypotheses are the unit of work, not passive rail entries. Each hypothesis card renders the
-full epistemic state from the engine (statuses verbatim: `PROPOSED / OPEN / SUPPORTED /
-REFUTED / INCONCLUSIVE / ABANDONED`) with its **predictions** nested — statement, status
-(`UNTESTED / CONFIRMED / DISCONFIRMED / INCONCLUSIVE`), and test-result refs (clickable,
-§2.8). Interactions:
+Hypotheses are the unit of work, not passive rail entries — and they come as a **competing
+set** (`01 §x-hypothesis`, "Competing hypotheses"), so the tracker's job is to keep the
+comparison visible while the analyst works one line of inquiry at a time. Two layers:
 
-- **Acknowledge** on a `PROPOSED` (AI-authored) hypothesis — the human taking ownership
-  (engine-enforced human act).
+- **The scoreboard strip** — every hypothesis as a tab: its `handle` (`H1 rdp-lateral`),
+  status verbatim (`PROPOSED / OPEN / SUPPORTED / REFUTED / INCONCLUSIVE / ABANDONED`), and
+  tested-over-total predictions. Always visible, so the neglected alternative is one glance
+  away and never silts up in a background tab.
+- **The working card** — the selected tab's hypothesis with its **predictions** nested:
+  statement, status (`UNTESTED / CONFIRMED / DISCONFIRMED / INCONCLUSIVE / WITHDRAWN`),
+  test-result refs (clickable, §2.8), and a *discriminates* chip naming the rival(s) the
+  prediction decides against. Selecting a tab sets the composer's focus: the ⚡ actions and
+  staged tests act on the hypothesis in view.
+
+Interactions:
+
+- **Adopt** on a `PROPOSED` (AI-authored) hypothesis — the human taking ownership
+  (engine-enforced human act). The adopt card shows the statement **editable**: sharpening
+  the claim is the ownership moment (acknowledge-with-restatement, legal while every
+  prediction is untested). The original stays in the thread. Rename the handle the same way.
+- **+ prediction** on a live hypothesis — the analyst's own test, from knowledge the agent
+  does not have; optionally marked as discriminating a rival.
 - **Test this** on an `UNTESTED` prediction — stages the prediction's declared test query
-  as a composer question (staged, never auto-fired — the pivot pattern).
-- The tracker surfaces the **cheapest untested prediction** as the suggested next move:
-  the "what would decide this?" question answered at a glance.
+  as a composer question (staged, never auto-fired — the pivot pattern; editable there).
+  **Withdraw** on the same row discards a bad test (status, not deletion). Editing an
+  untested prediction is withdraw + record.
+- **⚡ Propose tests / Run tests / Decide** — the scoped agent turns, each reading the
+  *whole* live set: propose-tests must yield a discriminating prediction; decide weighs the
+  hypothesis against its rivals and refuses to call it while a rival's discriminator is
+  untested (the analyst can say "record it anyway").
+- **Abandon** on a live hypothesis the analyst is not pursuing (→ `ABANDONED`), so
+  unadopted proposals do not accumulate.
+- The tracker surfaces the **next move** across *all* hypotheses — preferring a
+  discriminating untested prediction over a merely confirming one: the "what would decide
+  this?" question answered at a glance.
 
-The scoreboard framing is the point: what is still open, and what evidence would decide it.
+The scoreboard framing is the point: what is still open, what would decide it, and which
+rival nobody has killed yet. The verdict residual (§2.10) lists exactly that.
 
 ## 2.10 Verdict dialog — preflight and residual
 

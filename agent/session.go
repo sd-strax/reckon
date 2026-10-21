@@ -207,6 +207,18 @@ func (s *Session) refreshContext(ctx context.Context) error {
 	return nil
 }
 
+// refreshHypotheses re-reads the investigation's hypothesis set and rebuilds
+// the system prompt around it, leaving every other cached context input alone.
+func (s *Session) refreshHypotheses(ctx context.Context) {
+	hyps, err := s.backend.ListHypotheses(ctx, s.investigationID)
+	if err != nil {
+		return
+	}
+	s.hyps = hyps
+	sops, cases := s.includedKnowledge()
+	s.system = systemPrompt(s.investigation, s.caps, s.hyps, sops, cases)
+}
+
 // contextResetRationale marks a context reset in the reasoning thread. It makes
 // the reset DURABLE: rehydrate refuses to replay transcripts from before the
 // newest marker, so a sidecar respawn cannot re-import the discarded narration.
@@ -343,6 +355,12 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	s.pendingActions = nil
 	s.consulted = map[string]ConsultedSOP{}
 	s.consultedSimilar = map[string]ConsultedSimilarInvestigation{}
+	// The reasoning state in the system prompt must be current at every turn:
+	// between turns the analyst adopts with a restatement, frames a rival by
+	// hand, adds or withdraws predictions — and the competing-set contract asks
+	// the model to read EVERY live hypothesis (01 §x-hypothesis). One GET; a
+	// failure keeps the last known set rather than failing the turn.
+	s.refreshHypotheses(ctx)
 	// Knowledge the analyst included as context is consulted this turn (§6),
 	// merged with the model's own recalls below.
 	s.knowledgeConsulted()

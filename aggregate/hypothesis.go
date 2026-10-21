@@ -28,12 +28,15 @@ const (
 
 // x-prediction status values (01-domain-model.md §x-prediction). A prediction
 // is created UNTESTED against a PROPOSED/OPEN hypothesis and terminates when
-// its test outcome is recorded.
+// its test outcome is recorded — or when a human WITHDRAWS it untested (a
+// discarded test, not an evidential outcome: it carries no evidence and never
+// feeds a hypothesis evaluation).
 const (
 	PredictionUntested     = "UNTESTED"
 	PredictionConfirmed    = "CONFIRMED"
 	PredictionDisconfirmed = "DISCONFIRMED"
 	PredictionInconclusive = "INCONCLUSIVE"
+	PredictionWithdrawn    = "WITHDRAWN"
 )
 
 // STIX type prefixes for the reasoning nodes (custom objects per the x- STIX
@@ -70,6 +73,14 @@ const statementMaxRunes = 1000
 // maxLabels bounds the label list (ATT&CK technique ids by convention).
 const maxLabels = 20
 
+// handleMaxRunes bounds a hypothesis handle — a mnemonic ("H1 rdp-lateral"),
+// not a second statement.
+const handleMaxRunes = 40
+
+// maxDiscriminates bounds a prediction's discriminates list: a competing set is
+// a handful of rivals (01 §x-hypothesis caps the agent at three), never a crowd.
+const maxDiscriminates = 8
+
 // Bounds on a prediction's declared test query — it lands in the event payload
 // (and the STIX node), so it must stay a query spec, not a bulk carrier. The
 // transcript side store is where large content belongs.
@@ -85,6 +96,7 @@ const (
 type HypothesisNode struct {
 	ID          uuid.UUID `json:"id"`
 	Statement   string    `json:"statement"`
+	Handle      string    `json:"handle,omitempty"`        // short mnemonic (01 §x-hypothesis)
 	ParentRef   string    `json:"parent_ref,omitempty"`    // x-hypothesis-- id (refinement chain)
 	RootedAtRef string    `json:"rooted_at_ref,omitempty"` // SCO id (anchor entity)
 	Labels      []string  `json:"labels,omitempty"`        // ATT&CK technique ids by convention
@@ -105,6 +117,11 @@ type PredictionNode struct {
 	HypothesisRef string     `json:"hypothesis_ref"`
 	Statement     string     `json:"statement"`
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
+	// Discriminates lists the rival x-hypothesis ids whose expectation for this
+	// prediction is the OPPOSITE of the owner's (01 §x-prediction): CONFIRMED
+	// supports the owner and counts against these; DISCONFIRMED the reverse.
+	// Empty means the prediction is merely consistent with its owner.
+	Discriminates []string `json:"discriminates,omitempty"`
 }
 
 // --- event payload records ----------------------------------------------------
@@ -115,6 +132,7 @@ type PredictionNode struct {
 type HypothesisRecorded struct {
 	ID          string   `json:"id"` // full STIX id
 	Statement   string   `json:"statement"`
+	Handle      string   `json:"handle,omitempty"`
 	Status      string   `json:"status"` // PROPOSED (AI-authored) | OPEN (human-authored)
 	ParentRef   string   `json:"parent_ref,omitempty"`
 	RootedAtRef string   `json:"rooted_at_ref,omitempty"`
@@ -122,11 +140,16 @@ type HypothesisRecorded struct {
 }
 
 // HypothesisTransitionRecorded records a status move on an existing hypothesis
-// (acknowledgment or evidential outcome).
+// (acknowledgment or evidential outcome), or — From == To == OPEN — a human
+// field update. Statement/Handle are set when the act restated the hypothesis
+// (acknowledge-with-restatement, 01 §x-hypothesis): the projector rewrites the
+// node's fields; the prior wording stays on the earlier event.
 type HypothesisTransitionRecorded struct {
-	Ref  string `json:"ref"` // full STIX id
-	From string `json:"from"`
-	To   string `json:"to"`
+	Ref       string `json:"ref"` // full STIX id
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Statement string `json:"statement,omitempty"`
+	Handle    string `json:"handle,omitempty"`
 }
 
 // PredictionRecorded is the node content recorded when a prediction is created.
@@ -136,6 +159,7 @@ type PredictionRecorded struct {
 	Statement     string     `json:"statement"`
 	Status        string     `json:"status"` // always UNTESTED at creation
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
+	Discriminates []string   `json:"discriminates,omitempty"`
 }
 
 // PredictionTransitionRecorded records a prediction's test outcome.
@@ -194,10 +218,17 @@ func validateReasoningNodeShape(c RecordInterpretation) error {
 	}
 	if !nodeBearing[c.InterpretationType] {
 		if c.Hypothesis != nil || c.HypothesisRef != "" || c.Prediction != nil || c.PredictionRef != "" ||
-			c.Abandoned || c.PredictionStatus != "" || len(c.TestResultRefs) > 0 {
+			c.Abandoned || c.PredictionStatus != "" || len(c.TestResultRefs) > 0 ||
+			c.Restatement != "" || c.Handle != "" {
 			return fmt.Errorf("RecordInterpretation: type %q must not carry hypothesis/prediction payloads", c.InterpretationType)
 		}
 		return nil
+	}
+
+	// A restatement/handle rides only on the acknowledge-or-revise form of a
+	// hypothesis act (hypothesis_ref set) — a create carries them on the node.
+	if (c.Restatement != "" || c.Handle != "") && (c.InterpretationType != InterpretationHypothesis || c.HypothesisRef == "") {
+		return errors.New("RecordInterpretation: restatement/handle are only valid on a hypothesis acknowledge/revise (type hypothesis with hypothesis_ref)")
 	}
 
 	switch c.InterpretationType {
@@ -205,7 +236,7 @@ func validateReasoningNodeShape(c RecordInterpretation) error {
 		if c.Prediction != nil || c.PredictionRef != "" {
 			return errors.New("RecordInterpretation: type hypothesis must not carry prediction payloads")
 		}
-		// Exactly one of: create (Hypothesis) or acknowledge (HypothesisRef).
+		// Exactly one of: create (Hypothesis) or acknowledge/revise (HypothesisRef).
 		if (c.Hypothesis == nil) == (c.HypothesisRef == "") {
 			return errors.New("RecordInterpretation: type hypothesis requires exactly one of hypothesis (create) or hypothesis_ref (acknowledge)")
 		}
@@ -214,6 +245,12 @@ func validateReasoningNodeShape(c RecordInterpretation) error {
 		}
 		if _, err := stixIDUUID(c.HypothesisRef, stixTypeHypothesis); err != nil {
 			return fmt.Errorf("RecordInterpretation: %w", err)
+		}
+		if c.Restatement != "" && utf8.RuneCountInString(c.Restatement) > statementMaxRunes {
+			return fmt.Errorf("RecordInterpretation: restatement exceeds %d chars", statementMaxRunes)
+		}
+		if err := validateHandle(c.Handle); err != nil {
+			return err
 		}
 	case InterpretationSupport, InterpretationRefutation, InterpretationInconclusive:
 		if c.HypothesisRef == "" {
@@ -254,6 +291,11 @@ func validateReasoningNodeShape(c RecordInterpretation) error {
 				return fmt.Errorf("RecordInterpretation: prediction outcome %s requires test_result_refs", c.PredictionStatus)
 			}
 		case PredictionInconclusive:
+		case PredictionWithdrawn:
+			// A withdrawal is not an evidential outcome — it carries no evidence.
+			if len(c.TestResultRefs) > 0 {
+				return errors.New("RecordInterpretation: a WITHDRAWN prediction carries no test_result_refs")
+			}
 		default:
 			return fmt.Errorf("RecordInterpretation: invalid prediction outcome %q", c.PredictionStatus)
 		}
@@ -295,6 +337,20 @@ func validateHypothesisNode(h HypothesisNode) error {
 			return err
 		}
 	}
+	return validateHandle(h.Handle)
+}
+
+// validateHandle bounds a hypothesis handle: a single short line.
+func validateHandle(handle string) error {
+	if handle == "" {
+		return nil
+	}
+	if utf8.RuneCountInString(handle) > handleMaxRunes {
+		return fmt.Errorf("RecordInterpretation: hypothesis handle exceeds %d chars", handleMaxRunes)
+	}
+	if strings.ContainsAny(handle, "\r\n") {
+		return errors.New("RecordInterpretation: hypothesis handle must be a single line")
+	}
 	return nil
 }
 
@@ -310,6 +366,22 @@ func validatePredictionNode(p PredictionNode) error {
 	}
 	if utf8.RuneCountInString(p.Statement) > statementMaxRunes {
 		return fmt.Errorf("RecordInterpretation: prediction.statement exceeds %d chars", statementMaxRunes)
+	}
+	if len(p.Discriminates) > maxDiscriminates {
+		return fmt.Errorf("RecordInterpretation: prediction.discriminates exceeds %d", maxDiscriminates)
+	}
+	seen := make(map[string]bool, len(p.Discriminates))
+	for _, ref := range p.Discriminates {
+		if _, err := stixIDUUID(ref, stixTypeHypothesis); err != nil {
+			return fmt.Errorf("RecordInterpretation: prediction.discriminates: %w", err)
+		}
+		if ref == p.HypothesisRef {
+			return errors.New("RecordInterpretation: prediction.discriminates must not include its own hypothesis")
+		}
+		if seen[ref] {
+			return fmt.Errorf("RecordInterpretation: prediction.discriminates repeats %s", ref)
+		}
+		seen[ref] = true
 	}
 	// The test query lands in the event payload — bound it (the transcript
 	// side store is where bulk belongs).
@@ -341,7 +413,7 @@ func applyReasoningNodes(env Envelope, state aggregateState, c RecordInterpretat
 		if c.Hypothesis != nil {
 			return applyHypothesisCreate(env, state, *c.Hypothesis, rec)
 		}
-		return applyHypothesisAck(env, state, c.HypothesisRef, rec)
+		return applyHypothesisAckOrRevise(env, state, c, rec)
 	case InterpretationSupport:
 		return applyHypothesisOutcome(env, state, c.HypothesisRef, HypothesisSupported, c, rec)
 	case InterpretationRefutation:
@@ -383,6 +455,7 @@ func applyHypothesisCreate(env Envelope, state aggregateState, h HypothesisNode,
 	rec.Hypothesis = &HypothesisRecorded{
 		ID:          stixID,
 		Statement:   h.Statement,
+		Handle:      h.Handle,
 		Status:      status,
 		ParentRef:   h.ParentRef,
 		RootedAtRef: h.RootedAtRef,
@@ -392,21 +465,57 @@ func applyHypothesisCreate(env Envelope, state aggregateState, h HypothesisNode,
 	return nil
 }
 
-func applyHypothesisAck(env Envelope, state aggregateState, ref string, rec *InterpretationRecorded) error {
+// hypothesisHasResults reports whether any prediction under the hypothesis
+// carries a test result (anything but UNTESTED / WITHDRAWN). Tested wording is
+// frozen (01 §x-hypothesis): a result was recorded against the statement as it
+// stood, so a restatement after that point is a refinement via parent_ref, not
+// an edit.
+func hypothesisHasResults(state aggregateState, ref string) bool {
+	for _, p := range state.Predictions {
+		if p.HypothesisRef == ref && p.Status != PredictionUntested && p.Status != PredictionWithdrawn {
+			return true
+		}
+	}
+	return false
+}
+
+// applyHypothesisAckOrRevise handles a type=hypothesis act carrying a
+// hypothesis_ref: on a PROPOSED hypothesis it is the acknowledgment (→ OPEN),
+// optionally restating the claim in the same act; on an OPEN hypothesis it is a
+// field update (statement/handle, no status change). Both are human acts — an
+// AI delegate can neither adopt a proposal nor rewrite an analyst-owned claim —
+// and a restatement is legal only while nothing under the hypothesis has been
+// tested.
+func applyHypothesisAckOrRevise(env Envelope, state aggregateState, c RecordInterpretation, rec *InterpretationRecorded) error {
+	ref := c.HypothesisRef
 	hs, ok := state.Hypotheses[ref]
 	if !ok {
 		return fmt.Errorf("RecordInterpretation rejected: hypothesis %s does not exist", ref)
 	}
-	if hs.Status != HypothesisProposed {
-		return fmt.Errorf("RecordInterpretation rejected: hypothesis %s is %s, only PROPOSED can be acknowledged", ref, hs.Status)
-	}
 	// Acknowledging an AI-proposed hypothesis is the human taking ownership of
 	// the line of inquiry — an AI delegate cannot acknowledge (its own, or any)
-	// proposal into OPEN.
+	// proposal into OPEN, nor restate a hypothesis.
 	if env.Actor.IsAIDelegated() {
-		return errors.New("RecordInterpretation rejected: acknowledging a hypothesis is a human act")
+		return errors.New("RecordInterpretation rejected: acknowledging or restating a hypothesis is a human act")
 	}
-	rec.HypothesisTransition = &HypothesisTransitionRecorded{Ref: ref, From: hs.Status, To: HypothesisOpen}
+	revises := c.Restatement != "" || c.Handle != ""
+	switch hs.Status {
+	case HypothesisProposed:
+		// acknowledge (+ optional restatement)
+	case HypothesisOpen:
+		if !revises {
+			return fmt.Errorf("RecordInterpretation rejected: hypothesis %s is already OPEN (a revise needs a restatement or handle)", ref)
+		}
+	default:
+		return fmt.Errorf("RecordInterpretation rejected: hypothesis %s is %s, only PROPOSED can be acknowledged and only OPEN revised", ref, hs.Status)
+	}
+	if c.Restatement != "" && hypothesisHasResults(state, ref) {
+		return fmt.Errorf("RecordInterpretation rejected: hypothesis %s already has tested predictions — a changed theory is a new hypothesis refining it (parent_ref), not a restatement", ref)
+	}
+	rec.HypothesisTransition = &HypothesisTransitionRecorded{
+		Ref: ref, From: hs.Status, To: HypothesisOpen,
+		Statement: c.Restatement, Handle: c.Handle,
+	}
 	rec.OutputRefs = append(rec.OutputRefs, ref)
 	return nil
 }
@@ -462,12 +571,19 @@ func applyPredictionCreate(state aggregateState, p PredictionNode, rec *Interpre
 	if hs.Status != HypothesisProposed && hs.Status != HypothesisOpen {
 		return fmt.Errorf("RecordInterpretation rejected: hypothesis %s is %s, predictions test PROPOSED/OPEN hypotheses", p.HypothesisRef, hs.Status)
 	}
+	// A discriminated rival must be a real hypothesis in this investigation.
+	for _, rival := range p.Discriminates {
+		if _, ok := state.Hypotheses[rival]; !ok {
+			return fmt.Errorf("RecordInterpretation rejected: discriminated hypothesis %s does not exist", rival)
+		}
+	}
 	rec.Prediction = &PredictionRecorded{
 		ID:            stixID,
 		HypothesisRef: p.HypothesisRef,
 		Statement:     p.Statement,
 		Status:        PredictionUntested,
 		TestQuery:     p.TestQuery,
+		Discriminates: p.Discriminates,
 	}
 	rec.OutputRefs = append(rec.OutputRefs, stixID)
 	return nil
@@ -481,9 +597,15 @@ func applyPredictionOutcome(env Envelope, state aggregateState, c RecordInterpre
 	if ps.Status != PredictionUntested {
 		return fmt.Errorf("RecordInterpretation rejected: prediction %s is %s, only UNTESTED takes an outcome", c.PredictionRef, ps.Status)
 	}
-	// Running a test is an evidential outcome — gated on the parent hypothesis
-	// being human-acknowledged when the actor is an AI delegate.
-	if err := aiReasoningGate(env, c, state.Hypotheses[ps.HypothesisRef].Status); err != nil {
+	if c.PredictionStatus == PredictionWithdrawn {
+		// Withdrawing is the analyst discarding a test, not an evidential act:
+		// human-only, and outside the reasoning gate (nothing was decided).
+		if env.Actor.IsAIDelegated() {
+			return errors.New("RecordInterpretation rejected: withdrawing a prediction is a human act")
+		}
+	} else if err := aiReasoningGate(env, c, state.Hypotheses[ps.HypothesisRef].Status); err != nil {
+		// Running a test is an evidential outcome — gated on the parent
+		// hypothesis being human-acknowledged when the actor is an AI delegate.
 		return err
 	}
 	rec.PredictionTransition = &PredictionTransitionRecorded{

@@ -131,16 +131,20 @@ type ToolCall struct {
 // Hypothesis is the creation payload of a new x-hypothesis.
 type Hypothesis struct {
 	Statement   string   `json:"statement"`
+	Handle      string   `json:"handle,omitempty"`
 	ParentRef   string   `json:"parent_ref,omitempty"`
 	RootedAtRef string   `json:"rooted_at_ref,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
 }
 
-// Prediction is the creation payload of a new x-prediction.
+// Prediction is the creation payload of a new x-prediction. Discriminates
+// names the rival hypotheses whose expectation for it is the opposite of the
+// owner's (01 §x-prediction).
 type Prediction struct {
 	HypothesisRef string     `json:"hypothesis_ref"`
 	Statement     string     `json:"statement"`
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
+	Discriminates []string   `json:"discriminates,omitempty"`
 }
 
 // QuerySpec is a prediction's declared test.
@@ -253,6 +257,10 @@ type Investigation struct {
 	// KnowledgeInjection is the tenant's knowledge-injection posture (design/06
 	// §5.1): "opt_in" (default) or "auto". Empty is treated as opt_in.
 	KnowledgeInjection string `json:"knowledge_injection,omitempty"`
+	// HypothesisFraming is the tenant's competing-hypotheses dial (01
+	// §x-hypothesis): "leading_null" (default) or "leading_only". Empty is
+	// treated as leading_null.
+	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
 }
 
 // Seed is the subset of the investigation's root the prompt renders (the fields

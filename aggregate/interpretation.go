@@ -246,15 +246,21 @@ type RecordInterpretation struct {
 	// Reasoning-node payloads (Phase D.2). Hypotheses/predictions are outputs
 	// of interpretations, so they ride on this command rather than having
 	// commands of their own:
-	//   type=hypothesis    → Hypothesis (create) XOR HypothesisRef (acknowledge)
+	//   type=hypothesis    → Hypothesis (create) XOR HypothesisRef (acknowledge a
+	//                        PROPOSED, or revise an OPEN) — the latter optionally
+	//                        with Restatement/Handle (human-only, legal while
+	//                        nothing under the hypothesis is tested; 01)
 	//   type=support       → HypothesisRef (→ SUPPORTED)
 	//   type=refutation    → HypothesisRef (→ REFUTED)
 	//   type=inconclusive  → HypothesisRef (→ INCONCLUSIVE, or ABANDONED via Abandoned)
 	//   type=prediction    → Prediction (create) XOR PredictionRef+PredictionStatus
-	//                        (+TestResultRefs) for the test outcome
+	//                        (+TestResultRefs) for the test outcome, or
+	//                        PredictionStatus=WITHDRAWN (human, no refs)
 	// All other types must carry none of these.
 	Hypothesis       *HypothesisNode `json:"hypothesis,omitempty"`
 	HypothesisRef    string          `json:"hypothesis_ref,omitempty"`
+	Restatement      string          `json:"restatement,omitempty"`
+	Handle           string          `json:"handle,omitempty"`
 	Abandoned        bool            `json:"abandoned,omitempty"`
 	Prediction       *PredictionNode `json:"prediction,omitempty"`
 	PredictionRef    string          `json:"prediction_ref,omitempty"`

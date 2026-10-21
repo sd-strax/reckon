@@ -52,6 +52,13 @@ func (ReasoningNodeProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 		if err := transitionNode(ctx, tx, evt, stixTypeHypothesis, rec.HypothesisTransition.Ref, rec.HypothesisTransition.To, nil); err != nil {
 			return err
 		}
+		// Acknowledge-with-restatement / revise (01 §x-hypothesis): the node's
+		// fields move with the act; the prior wording stays on the earlier event.
+		if tr := rec.HypothesisTransition; tr.Statement != "" || tr.Handle != "" {
+			if err := reviseHypothesisFields(ctx, tx, evt, tr.Ref, tr.Statement, tr.Handle); err != nil {
+				return err
+			}
+		}
 	}
 	if rec.Prediction != nil {
 		if err := insertPrediction(ctx, tx, evt, rec, *rec.Prediction); err != nil {
@@ -75,6 +82,7 @@ type stixHypothesis struct {
 	SpecVersion string   `json:"spec_version"`
 	ID          string   `json:"id"`
 	Statement   string   `json:"statement"`
+	Handle      string   `json:"handle,omitempty"`
 	Status      string   `json:"status"`
 	ParentRef   string   `json:"parent_ref,omitempty"`
 	RootedAtRef string   `json:"rooted_at_ref,omitempty"`
@@ -93,6 +101,7 @@ type stixPrediction struct {
 	Statement      string     `json:"statement"`
 	Status         string     `json:"status"`
 	TestQuery      *QuerySpec `json:"test_query,omitempty"`
+	Discriminates  []string   `json:"discriminates,omitempty"`
 	TestResultRefs []string   `json:"test_result_refs,omitempty"`
 	Created        string     `json:"created"`
 	Modified       string     `json:"modified"`
@@ -110,6 +119,7 @@ func insertHypothesis(ctx context.Context, tx *sql.Tx, evt Event, rec Interpreta
 		SpecVersion: "2.1",
 		ID:          h.ID,
 		Statement:   h.Statement,
+		Handle:      h.Handle,
 		Status:      h.Status,
 		ParentRef:   h.ParentRef,
 		RootedAtRef: h.RootedAtRef,
@@ -138,13 +148,51 @@ func insertHypothesis(ctx context.Context, tx *sql.Tx, evt Event, rec Interpreta
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO hypothesis_current (
 			id, aggregate_id, tenant_id, statement, status, parent_ref,
-			rooted_at_ref, labels, created_at, updated_at, last_event_sequence
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10)
+			rooted_at_ref, labels, created_at, updated_at, last_event_sequence, handle
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11)
 		ON CONFLICT (id) DO NOTHING
 	`, h.ID, evt.AggregateID, evt.TenantID, h.Statement, h.Status,
 		nullString(h.ParentRef), nullString(h.RootedAtRef), labels,
-		evt.OccurredAt, evt.SequenceNo); err != nil {
+		evt.OccurredAt, evt.SequenceNo, h.Handle); err != nil {
 		return fmt.Errorf("insert hypothesis_current: %w", err)
+	}
+	return nil
+}
+
+// reviseHypothesisFields rewrites a hypothesis's statement and/or handle in
+// both stores (acknowledge-with-restatement / revise). Empty means unchanged.
+func reviseHypothesisFields(ctx context.Context, tx *sql.Tx, evt Event, ref, statement, handle string) error {
+	nodeUUID, err := stixIDUUID(ref, stixTypeHypothesis)
+	if err != nil {
+		return fmt.Errorf("project hypothesis revise: %w", err)
+	}
+	if statement != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE stix_objects
+			SET payload = jsonb_set(payload, '{statement}', to_jsonb($2::text)), modified = $3
+			WHERE id = $1
+		`, nodeUUID, statement, evt.OccurredAt); err != nil {
+			return fmt.Errorf("update stix x-hypothesis statement: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE hypothesis_current SET statement = $2, last_event_sequence = $3, updated_at = $4 WHERE id = $1
+		`, ref, statement, evt.SequenceNo, evt.OccurredAt); err != nil {
+			return fmt.Errorf("update hypothesis_current statement: %w", err)
+		}
+	}
+	if handle != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE stix_objects
+			SET payload = jsonb_set(payload, '{handle}', to_jsonb($2::text)), modified = $3
+			WHERE id = $1
+		`, nodeUUID, handle, evt.OccurredAt); err != nil {
+			return fmt.Errorf("update stix x-hypothesis handle: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE hypothesis_current SET handle = $2, last_event_sequence = $3, updated_at = $4 WHERE id = $1
+		`, ref, handle, evt.SequenceNo, evt.OccurredAt); err != nil {
+			return fmt.Errorf("update hypothesis_current handle: %w", err)
+		}
 	}
 	return nil
 }
@@ -162,11 +210,18 @@ func insertPrediction(ctx context.Context, tx *sql.Tx, evt Event, _ Interpretati
 		Statement:     p.Statement,
 		Status:        p.Status,
 		TestQuery:     p.TestQuery,
+		Discriminates: p.Discriminates,
 		Created:       stixTime(evt.OccurredAt),
 		Modified:      stixTime(evt.OccurredAt),
 	})
 	if err != nil {
 		return fmt.Errorf("marshal x-prediction: %w", err)
+	}
+	var discriminates []byte
+	if len(p.Discriminates) > 0 {
+		if discriminates, err = json.Marshal(p.Discriminates); err != nil {
+			return fmt.Errorf("marshal discriminates: %w", err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO stix_objects (id, tenant_id, type, spec_version, payload, created, modified)
@@ -179,11 +234,11 @@ func insertPrediction(ctx context.Context, tx *sql.Tx, evt Event, _ Interpretati
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO prediction_current (
 			id, hypothesis_ref, aggregate_id, tenant_id, statement, status,
-			created_at, updated_at, last_event_sequence
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
+			created_at, updated_at, last_event_sequence, discriminates
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9)
 		ON CONFLICT (id) DO NOTHING
 	`, p.ID, p.HypothesisRef, evt.AggregateID, evt.TenantID, p.Statement, p.Status,
-		evt.OccurredAt, evt.SequenceNo); err != nil {
+		evt.OccurredAt, evt.SequenceNo, discriminates); err != nil {
 		return fmt.Errorf("insert prediction_current: %w", err)
 	}
 	return nil
@@ -276,6 +331,7 @@ type HypothesisCurrent struct {
 	ID                string
 	AggregateID       AggregateID
 	Statement         string
+	Handle            string
 	Status            string
 	ParentRef         string
 	RootedAtRef       string
@@ -293,6 +349,7 @@ type PredictionCurrent struct {
 	Statement         string
 	Status            string
 	TestQuery         *QuerySpec
+	Discriminates     []string
 	TestResultRefs    []string
 	LastEventSequence int64
 }
@@ -300,7 +357,7 @@ type PredictionCurrent struct {
 // ListHypotheses returns the hypotheses of one investigation, oldest first.
 func ListHypotheses(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]HypothesisCurrent, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, aggregate_id, statement, status, parent_ref, rooted_at_ref, labels, last_event_sequence
+		SELECT id, aggregate_id, statement, handle, status, parent_ref, rooted_at_ref, labels, last_event_sequence
 		FROM hypothesis_current
 		WHERE aggregate_id = $1
 		ORDER BY created_at, id
@@ -315,7 +372,7 @@ func ListHypotheses(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]H
 		var h HypothesisCurrent
 		var parent, rooted sql.NullString
 		var labels []byte
-		if err := rows.Scan(&h.ID, &h.AggregateID, &h.Statement, &h.Status,
+		if err := rows.Scan(&h.ID, &h.AggregateID, &h.Statement, &h.Handle, &h.Status,
 			&parent, &rooted, &labels, &h.LastEventSequence); err != nil {
 			return nil, fmt.Errorf("scan hypothesis_current: %w", err)
 		}
@@ -334,7 +391,7 @@ func ListHypotheses(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]H
 func ListPredictions(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]PredictionCurrent, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT p.id, p.hypothesis_ref, p.aggregate_id, p.statement, p.status,
-		       p.test_result_refs, p.last_event_sequence,
+		       p.test_result_refs, p.discriminates, p.last_event_sequence,
 		       s.payload -> 'test_query'
 		FROM prediction_current p
 		LEFT JOIN stix_objects s ON s.id = split_part(p.id, '--', 2)::uuid
@@ -349,13 +406,16 @@ func ListPredictions(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]
 	var out []PredictionCurrent
 	for rows.Next() {
 		var p PredictionCurrent
-		var refs, testQuery []byte
+		var refs, discriminates, testQuery []byte
 		if err := rows.Scan(&p.ID, &p.HypothesisRef, &p.AggregateID, &p.Statement,
-			&p.Status, &refs, &p.LastEventSequence, &testQuery); err != nil {
+			&p.Status, &refs, &discriminates, &p.LastEventSequence, &testQuery); err != nil {
 			return nil, fmt.Errorf("scan prediction_current: %w", err)
 		}
 		if len(refs) > 0 {
 			_ = json.Unmarshal(refs, &p.TestResultRefs)
+		}
+		if len(discriminates) > 0 {
+			_ = json.Unmarshal(discriminates, &p.Discriminates)
 		}
 		if len(testQuery) > 0 {
 			_ = json.Unmarshal(testQuery, &p.TestQuery)

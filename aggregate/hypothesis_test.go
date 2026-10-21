@@ -473,3 +473,258 @@ func TestReasoningNodes_ProjectionAndReplay(t *testing.T) {
 	}
 	verify("replayed")
 }
+
+// TestCompetingHypotheses_Apply covers the competing-set additions (01
+// §x-hypothesis "Competing hypotheses"): handle + discriminates on creation,
+// acknowledge-with-restatement and its tested-wording freeze, the OPEN revise
+// path, and the human-only WITHDRAWN prediction status.
+func TestCompetingHypotheses_Apply(t *testing.T) {
+	human := newTestEnvelope("analyst-1")
+	ai := newTestEnvelope("analyst-1")
+	ai.Actor.Kind = ActorAIDelegated
+	ai.Actor.Delegate = &AIDelegate{Vendor: "claude"}
+
+	h1 := HypothesisSTIXID(uuid.New())
+	h2 := HypothesisSTIXID(uuid.New())
+
+	// A handle rides creation and lands on the recorded node.
+	create := RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationHypothesis, Rationale: "r",
+		Hypothesis: &HypothesisNode{ID: uuid.New(), Statement: "stolen creds", Handle: "H1 rdp-lateral"},
+	}
+	ev, err := applyCommand(ai, create, reasoningState(nil, nil))
+	if err != nil {
+		t.Fatalf("create with handle: %v", err)
+	}
+	if rec := recFromEvents(t, ev); rec.Hypothesis.Handle != "H1 rdp-lateral" {
+		t.Errorf("handle = %q; want H1 rdp-lateral", rec.Hypothesis.Handle)
+	}
+	long := create
+	long.Hypothesis = &HypothesisNode{ID: uuid.New(), Statement: "x", Handle: strings.Repeat("h", handleMaxRunes+1)}
+	if err := long.Validate(human); err == nil {
+		t.Error("over-long handle accepted")
+	}
+
+	// discriminates: must name a real rival, never itself.
+	both := reasoningState(map[string]hypothesisState{h1: {Status: HypothesisOpen}, h2: {Status: HypothesisOpen}}, nil)
+	pred := func(d ...string) RecordInterpretation {
+		return RecordInterpretation{
+			InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "r",
+			Prediction: &PredictionNode{ID: uuid.New(), HypothesisRef: h1, Statement: "baseline shows no RDP", Discriminates: d},
+		}
+	}
+	ev, err = applyCommand(ai, pred(h2), both)
+	if err != nil {
+		t.Fatalf("discriminating prediction: %v", err)
+	}
+	if rec := recFromEvents(t, ev); len(rec.Prediction.Discriminates) != 1 || rec.Prediction.Discriminates[0] != h2 {
+		t.Errorf("discriminates = %v; want [%s]", rec.Prediction.Discriminates, h2)
+	}
+	if _, err := applyCommand(ai, pred(HypothesisSTIXID(uuid.New())), both); err == nil {
+		t.Error("discriminating a nonexistent hypothesis accepted")
+	}
+	if err := pred(h1).Validate(human); err == nil {
+		t.Error("self-discrimination accepted")
+	}
+	if err := pred(h2, h2).Validate(human); err == nil {
+		t.Error("duplicate discriminates accepted")
+	}
+
+	// Acknowledge with restatement: human-only; the transition carries the new
+	// wording; frozen once anything under it is tested.
+	ack := RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationHypothesis, Rationale: "adopting",
+		HypothesisRef: h1, Restatement: "stolen svc_backup creds used over RDP from 10.0.4.20", Handle: "H1 rdp-lateral",
+	}
+	proposed := reasoningState(map[string]hypothesisState{h1: {Status: HypothesisProposed}}, nil)
+	if _, err := applyCommand(ai, ack, proposed); err == nil {
+		t.Error("AI restatement accepted (human act)")
+	}
+	ev, err = applyCommand(human, ack, proposed)
+	if err != nil {
+		t.Fatalf("ack with restatement: %v", err)
+	}
+	tr := recFromEvents(t, ev).HypothesisTransition
+	if tr == nil || tr.From != HypothesisProposed || tr.To != HypothesisOpen || tr.Statement != ack.Restatement || tr.Handle != "H1 rdp-lateral" {
+		t.Errorf("ack transition = %+v; want PROPOSED→OPEN with restatement+handle", tr)
+	}
+	p1 := PredictionSTIXID(uuid.New())
+	tested := reasoningState(
+		map[string]hypothesisState{h1: {Status: HypothesisProposed}},
+		map[string]predictionState{p1: {Status: PredictionConfirmed, HypothesisRef: h1}})
+	if _, err := applyCommand(human, ack, tested); err == nil {
+		t.Error("restatement over a tested prediction accepted (wording is frozen)")
+	}
+	// A withdrawn prediction does not freeze the wording.
+	withdrawn := reasoningState(
+		map[string]hypothesisState{h1: {Status: HypothesisProposed}},
+		map[string]predictionState{p1: {Status: PredictionWithdrawn, HypothesisRef: h1}})
+	if _, err := applyCommand(human, ack, withdrawn); err != nil {
+		t.Errorf("restatement over a withdrawn prediction rejected: %v", err)
+	}
+	// Plain ack (no restatement) is still fine over tested predictions.
+	plain := ack
+	plain.Restatement, plain.Handle = "", ""
+	if _, err := applyCommand(human, plain, tested); err != nil {
+		t.Errorf("plain ack over tested predictions rejected: %v", err)
+	}
+
+	// Revise an OPEN hypothesis: needs a field; keeps status.
+	open := reasoningState(map[string]hypothesisState{h1: {Status: HypothesisOpen}}, nil)
+	if _, err := applyCommand(human, plain, open); err == nil {
+		t.Error("bare ack on an OPEN hypothesis accepted")
+	}
+	rename := plain
+	rename.Handle = "H1 stolen-creds"
+	ev, err = applyCommand(human, rename, open)
+	if err != nil {
+		t.Fatalf("rename on OPEN: %v", err)
+	}
+	if tr := recFromEvents(t, ev).HypothesisTransition; tr.From != HypothesisOpen || tr.To != HypothesisOpen || tr.Handle != "H1 stolen-creds" {
+		t.Errorf("revise transition = %+v; want OPEN→OPEN with handle", tr)
+	}
+	// Restatement/handle never ride a non-hypothesis act or a create.
+	bad := RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: InterpretationSupport, Rationale: "r", HypothesisRef: h1, Handle: "x"}
+	if err := bad.Validate(human); err == nil {
+		t.Error("handle on a support act accepted")
+	}
+
+	// WITHDRAWN: human-only, UNTESTED-only, no evidence, outside the AI gate.
+	untested := reasoningState(
+		map[string]hypothesisState{h1: {Status: HypothesisProposed}},
+		map[string]predictionState{p1: {Status: PredictionUntested, HypothesisRef: h1}})
+	withdraw := RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "wrong test",
+		PredictionRef: p1, PredictionStatus: PredictionWithdrawn,
+	}
+	if _, err := applyCommand(ai, withdraw, untested); err == nil {
+		t.Error("AI withdrawal accepted (human act)")
+	}
+	ev, err = applyCommand(human, withdraw, untested)
+	if err != nil {
+		t.Fatalf("human withdraw: %v", err)
+	}
+	if tr := recFromEvents(t, ev).PredictionTransition; tr == nil || tr.To != PredictionWithdrawn {
+		t.Errorf("withdraw transition = %+v; want → WITHDRAWN", tr)
+	}
+	withRefs := withdraw
+	withRefs.TestResultRefs = []string{"observed-data--1"}
+	if err := withRefs.Validate(human); err == nil {
+		t.Error("withdrawal carrying evidence accepted")
+	}
+	if _, err := applyCommand(human, withdraw, tested); err == nil {
+		t.Error("withdrawing a CONFIRMED prediction accepted")
+	}
+}
+
+// TestCompetingHypotheses_Projection drives the competing-set fields through the
+// real handler: handle/discriminates land on the read models and the STIX
+// nodes, a restating acknowledgment rewrites the statement in place, a
+// withdrawal is a projected status, and replay rebuilds all of it.
+func TestCompetingHypotheses_Projection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetTables(t)
+	ctx := context.Background()
+	tenantID := uuid.New()
+	h := newTestHandler()
+	invID := activeInvestigation(t, h, tenantID)
+
+	env := func(kind string) Envelope {
+		e := Envelope{
+			AggregateID: invID, TenantID: tenantID, CorrelationID: uuid.New(),
+			Actor: Actor{PrincipalID: "analyst-1", Kind: kind}, OccurredAt: newTestEnvelope("").OccurredAt,
+		}
+		if kind == ActorAIDelegated {
+			e.Actor.Delegate = &AIDelegate{Vendor: "claude"}
+		}
+		return e
+	}
+	mustHandle := func(e Envelope, cmd Command) {
+		t.Helper()
+		if _, err := h.Handle(ctx, e, cmd); err != nil {
+			t.Fatalf("%s: %v", cmd.Kind(), err)
+		}
+	}
+
+	h1, h2 := uuid.New(), uuid.New()
+	h1Ref, h2Ref := HypothesisSTIXID(h1), HypothesisSTIXID(h2)
+	mustHandle(env(ActorAIDelegated), RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationHypothesis, Rationale: "leader",
+		Hypothesis: &HypothesisNode{ID: h1, Statement: "stolen creds", Handle: "H1 rdp-lateral"},
+	})
+	mustHandle(env(ActorAIDelegated), RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationHypothesis, Rationale: "null",
+		Hypothesis: &HypothesisNode{ID: h2, Statement: "legit admin session", Handle: "H2 legit-admin"},
+	})
+	p1, p2 := uuid.New(), uuid.New()
+	mustHandle(env(ActorAIDelegated), RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "discriminator",
+		Prediction: &PredictionNode{ID: p1, HypothesisRef: h1Ref, Statement: "baseline shows no RDP", Discriminates: []string{h2Ref}},
+	})
+	mustHandle(env(ActorAIDelegated), RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "bad test",
+		Prediction: &PredictionNode{ID: p2, HypothesisRef: h1Ref, Statement: "something irrelevant"},
+	})
+	// Human adopts H1 with a sharpened statement, withdraws the bad test.
+	mustHandle(env(""), RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationHypothesis, Rationale: "adopt",
+		HypothesisRef: h1Ref, Restatement: "stolen svc_backup creds used over RDP from 10.0.4.20",
+	})
+	mustHandle(env(""), RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "not a real test",
+		PredictionRef: PredictionSTIXID(p2), PredictionStatus: PredictionWithdrawn,
+	})
+	// Rename H2 while it is still PROPOSED is an ack; rename H1 (OPEN) is a revise.
+	mustHandle(env(""), RecordInterpretation{
+		InterpretationID: uuid.New(), InterpretationType: InterpretationHypothesis, Rationale: "rename",
+		HypothesisRef: h1Ref, Handle: "H1 stolen-creds",
+	})
+
+	verify := func(phase string) {
+		t.Helper()
+		hs, err := ListHypotheses(ctx, testDB, invID)
+		if err != nil || len(hs) != 2 {
+			t.Fatalf("[%s] ListHypotheses = %v, %v; want 2", phase, hs, err)
+		}
+		if hs[0].ID != h1Ref || hs[0].Status != HypothesisOpen || hs[0].Handle != "H1 stolen-creds" ||
+			hs[0].Statement != "stolen svc_backup creds used over RDP from 10.0.4.20" {
+			t.Errorf("[%s] H1 = %+v; want OPEN, renamed, restated", phase, hs[0])
+		}
+		if hs[1].Handle != "H2 legit-admin" || hs[1].Status != HypothesisProposed {
+			t.Errorf("[%s] H2 = %+v; want PROPOSED with handle", phase, hs[1])
+		}
+		ps, err := ListPredictions(ctx, testDB, invID)
+		if err != nil || len(ps) != 2 {
+			t.Fatalf("[%s] ListPredictions = %v, %v; want 2", phase, ps, err)
+		}
+		if len(ps[0].Discriminates) != 1 || ps[0].Discriminates[0] != h2Ref || ps[0].Status != PredictionUntested {
+			t.Errorf("[%s] p1 = %+v; want UNTESTED discriminating H2", phase, ps[0])
+		}
+		if ps[1].Status != PredictionWithdrawn {
+			t.Errorf("[%s] p2 status = %s; want WITHDRAWN", phase, ps[1].Status)
+		}
+		var payload []byte
+		if err := testDB.QueryRow(`SELECT payload FROM stix_objects WHERE id = $1`, h1).Scan(&payload); err != nil {
+			t.Fatalf("[%s] stix x-hypothesis row: %v", phase, err)
+		}
+		var node map[string]any
+		_ = json.Unmarshal(payload, &node)
+		if node["handle"] != "H1 stolen-creds" || node["statement"] != "stolen svc_backup creds used over RDP from 10.0.4.20" {
+			t.Errorf("[%s] stix H1 = %v; want renamed + restated", phase, node)
+		}
+		if err := testDB.QueryRow(`SELECT payload FROM stix_objects WHERE id = $1`, p1).Scan(&payload); err != nil {
+			t.Fatalf("[%s] stix x-prediction row: %v", phase, err)
+		}
+		_ = json.Unmarshal(payload, &node)
+		if d, _ := node["discriminates"].([]any); len(d) != 1 || d[0] != h2Ref {
+			t.Errorf("[%s] stix p1 discriminates = %v; want [%s]", phase, node["discriminates"], h2Ref)
+		}
+	}
+	verify("live")
+	if err := h.Replay(ctx); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	verify("replayed")
+}

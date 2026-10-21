@@ -88,9 +88,34 @@ type TrialRecord struct {
 	// trial end — the EVENT-LOG layer read back through the durable view
 	// (10 §1.1b), not the transcript. Event graders (G1) grade these.
 	Actions []ActionRow `json:"actions,omitempty"`
+	// Hypotheses is the investigation's reasoning set as the product API served
+	// it at trial end (handles, statuses, predictions with their discriminates
+	// links) — the state R3 grades a decide turn against. nil when the fetch
+	// failed (R3 reports NOT_EXERCISED rather than guessing).
+	Hypotheses []HypothesisRow `json:"hypotheses,omitempty"`
+	// HypothesisFraming is the tenant's competing-hypotheses dial as the
+	// investigation view served it (01 §x-hypothesis): "leading_null" or
+	// "leading_only". R1 is NOT_EXERCISED under leading_only.
+	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
 	// Aborted is set when the trial stopped before completing its script (a
 	// turn-level error); unreached turn-scoped assertions grade NOT_EXERCISED.
 	Aborted bool `json:"aborted,omitempty"`
+}
+
+// HypothesisRow mirrors server.HypothesisView (the slice graders read) without
+// importing the server package into grader unit tests' synthetic records.
+type HypothesisRow struct {
+	ID          string          `json:"id"`
+	Handle      string          `json:"handle,omitempty"`
+	Status      string          `json:"status"`
+	Predictions []PredictionRow `json:"predictions,omitempty"`
+}
+
+// PredictionRow mirrors server.PredictionView.
+type PredictionRow struct {
+	ID            string   `json:"id"`
+	Status        string   `json:"status"`
+	Discriminates []string `json:"discriminates,omitempty"`
 }
 
 // transcriptEvent is one parsed line of the committed transcript. The framing

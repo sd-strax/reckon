@@ -36,7 +36,18 @@ bindings:
           # host-less or differently-shaped agent query still resolves (the
           # fixture match below is wildcarded to tolerate hostname variance).
           hostname: '${entity.host.hostname ?? "WIN-FILE01"}'
+          # A USER-rooted query ({"user":{"name":"svc_backup"}}) reaches the
+          # account's historical baseline (logon-baseline-*.json, matched on
+          # target.user); a host-rooted query omits the key and sees only the
+          # incident-day logons. The baseline is also time-scoped, so a
+          # 30-day window answers "is RDP normal for this account?" and a
+          # 24-hour window does not — the discriminating test behind the
+          # competing-hypotheses demo (01 §x-hypothesis).
+          user: '${entity.user.name?}'
         outcome: '${outcome ?? "SUCCESS"}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
 
   get_process_ancestry:
     - adapter: fixture
@@ -59,6 +70,19 @@ bindings:
       operation: replay
       priority: 100
       params: {}
+
+  # The change-record check: "was there a change ticket / maintenance window
+  # covering WIN-FILE01?" No fixture answers this verb, so the result is
+  # COMPLETE with zero cases — evidence of ABSENCE against the legitimate-
+  # maintenance hypothesis, which is exactly what the verdict residual and the
+  # discriminating test need (an unbound verb would only say "unavailable").
+  query_external_cases:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        filter: '${filter?}'
+        status: '${status?}'
 
   # Bound to the disabled fixture_context instance above — the shipped
   # installed-not-enabled gap the enablement flow closes.

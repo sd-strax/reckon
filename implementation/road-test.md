@@ -32,13 +32,18 @@ Then, in the composer:
 > lateral movement."*
 
 **Expect:** the agent queries the fixture telemetry (RDP logons, the C2 network
-flow, the detection), narrates what it found, and **records a hypothesis** —
-something like *"WIN-FILE01 was accessed via RDP using a compromised service
-account."* The **Hypotheses** rail now has content, and tool-result rows carry
-pinnable evidence chips.
+flow, the detection), narrates what it found, and **records a competing set**
+(default `reasoning.hypothesis_framing: leading_null`): a leader such as
+**`H1 rdp-lateral`** — *"WIN-FILE01 was accessed via RDP using a compromised
+service account"* — and one concrete alternative, **`H2 legit-admin`** —
+*"an administrator used svc_backup over RDP for maintenance."* The
+**Hypotheses** rail shows them as tabs with a scoreboard strip, and tool-result
+rows carry pinnable evidence chips.
 
-*(If it investigates but doesn't record a hypothesis, nudge: "Record your
-leading hypothesis." Agent-proposed or human-authored both land in the tracker.)*
+*(If it investigates but doesn't record hypotheses, nudge: "Frame the competing
+hypotheses — your leading explanation and the alternative that would make it
+wrong." Agent-proposed or human-authored both land in the tracker; `+ new…`
+frames your own.)*
 
 > **On activation (no button).** A fresh investigation starts as a **Draft**.
 > Reasoning, hypotheses, pins, and the verdict are all allowed while it's a
@@ -48,23 +53,45 @@ leading hypothesis." Agent-proposed or human-authored both land in the tracker.)
 
 ## 2. Drive the hypothesis loop (the tracker's reason for existing)
 
-On the hypothesis card, walk the ladder:
+The tracker is a **competing set** (`01 §x-hypothesis`): a scoreboard strip of
+tabs (handle · status · tested/total) above one working card. Click a tab to
+work that hypothesis; the strip keeps the rival in view. Walk the ladder on
+**H1**:
 
-- **✓ Acknowledge** — if it's an AI-**proposed** hypothesis, this is **required
+- **✓ Adopt** — if it's an AI-**proposed** hypothesis, this is **required
   before the agent can go further**. Human-in-the-loop is the default: the agent
   cannot run tests on, or decide, a still-`PROPOSED` hypothesis until a human
-  Acknowledges it into `OPEN`. Skip it and the agent will refuse, honestly
-  ("a human must Acknowledge it first"). *(To let the agent drive the whole loop
-  autonomously, set the tenant dial `trust.ai_reasoning: true` — off by default.)*
-- **⚡ Propose tests** → the agent records falsifiable predictions (the aside
-  collapses to a one-liner).
+  adopts it into `OPEN`. Skip it and the agent will refuse, honestly ("a human
+  must Acknowledge it first"). The adopt card shows the **statement editable**
+  — sharpen it (add the source IP and time) and adopt: the original stays in the
+  thread. Adopt **H2** as well. *(To let the agent drive the whole loop
+  autonomously, set the tenant dial `trust.ai_reasoning: true` — off by
+  default. `reasoning.hypothesis_framing: leading_only` returns to a single
+  agent-proposed hypothesis.)*
+- **⚡ Propose tests** → the agent reads *both* hypotheses and records
+  falsifiable predictions; at least one carries a **vs H2** chip (it
+  discriminates — H2 predicts the opposite outcome). The aside collapses to a
+  one-liner. **Expect** the account-baseline test: *"svc_backup's 30-day logon
+  baseline shows only Network logons from BKP-01 at 02:00…"*.
+- **+ prediction** on **H2** → add your own: *"a change ticket or maintenance
+  window covers WIN-FILE01 on 2026-04-20"*, ticking *discriminates H1*. Use
+  **Withdraw** on any test that would come out the same under both (a status,
+  never a deletion — to edit, withdraw and add).
 - **⚡ Run tests** → it executes the predictions and records outcomes citing
-  evidence.
+  evidence. The baseline query (user-rooted, 30-day window) returns seven
+  nightly `Network` logons from `BKP-01` plus the one `RemoteInteractive` from
+  `10.0.4.20` → `CONFIRMED`; the change-record lookup returns COMPLETE with zero
+  cases → `DISCONFIRMED` for H2.
 - **📌 Pin** a decisive prediction's evidence (the button goes inert once pinned).
-- **⚡ Decide** → it records support/refutation citing the decisive test evidence.
+- **⚡ Decide** on H1 while H2's test is still untested → the agent **declines**
+  and names the outstanding discriminating test (say "record it anyway" to
+  override). Run H2's test, then decide: **H2 REFUTED**, **H1 SUPPORTED**, each
+  citing the decisive evidence.
 
 **Expect:** each ⚡ fires a collapsed aside; predictions live only in the
-tracker; the pin shows up in **Pinned evidence**.
+tracker; the **Next:** line above the strip points at the discriminating
+untested test across *all* hypotheses; the pin shows up in **Pinned evidence**;
+the verdict residual (step 3) lists any hypothesis still undecided.
 
 ## 3. Verdict — grounded in the pins
 
