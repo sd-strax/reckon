@@ -16,6 +16,7 @@ import { SidecarTransport } from "./agentTransport";
 import { InvestigationDocuments } from "./investigationDocument";
 import { EVIDENCE_SCHEME, EvidenceProvider } from "./evidenceProvider";
 import { EvidenceView } from "./evidenceView";
+import { ImportSOPsView } from "./importView";
 
 /** Where the BYOK Anthropic key lives — never in settings, never on disk in the clear. */
 const ANTHROPIC_KEY_SECRET = "reckon.anthropicApiKey";
@@ -46,6 +47,7 @@ export function activate(context: vscode.ExtensionContext): void {
     getToken: (kind, force) => session.token(kind, force),
   }, log);
   const evidence = new EvidenceView(client);
+  const importSOPs = new ImportSOPsView(client, log);
   const documents = new InvestigationDocuments(client, log, transport, (id, seq) => {
     void seen.set(id, seq).then(() => investigations.refresh());
   });
@@ -53,6 +55,7 @@ export function activate(context: vscode.ExtensionContext): void {
     log,
     session,
     { dispose: () => transport.dispose() },
+    { dispose: () => importSOPs.dispose() },
     // Citation-open: reckon-evidence:/<ref>.json virtual documents (02 §2.8).
     vscode.workspace.registerTextDocumentContentProvider(EVIDENCE_SCHEME, new EvidenceProvider(client)),
     vscode.commands.registerCommand("reckon.openEvidence", (ref?: string, currentInvestigationId?: string) => {
@@ -106,44 +109,16 @@ export function activate(context: vscode.ExtensionContext): void {
     // Import institutional knowledge into the SOP corpus (design/06 §2.4). SOPs
     // are consultative — the agent surfaces them (the knowledge rail); import is
     // an occasional populate act, so it is a COMMAND (workbench discipline, 13
-    // §3), not a management view. Two sources, both PICKERS (a choice from a
-    // known list — never the top-of-window quick input for content): the
-    // markdown/text tabs already open in the editor (what is imported is the
-    // buffer as shown, unsaved edits included — nothing is re-read behind the
-    // analyst's back), or a native file dialog. With no eligible tab open the
-    // dialog opens directly. Attribution comes from each document's YAML
-    // frontmatter (author, tags, source), parsed server-side.
-    vscode.commands.registerCommand("reckon.importSOP", async () => {
+    // §3), not a management view. The command opens the Import SOPs PANEL:
+    // choosing what becomes institutional knowledge is operational input, so it
+    // lives on a reckon surface (open-editor documents with checkboxes, add
+    // from disk, per-document outcome) — never the top-of-window quick input.
+    vscode.commands.registerCommand("reckon.importSOP", () => {
       if (!session.signedIn) {
         void vscode.window.showWarningMessage("reckon: sign in before importing SOPs");
         return;
       }
-      const items = await pickSOPSources();
-      if (items.length === 0) {
-        return; // cancelled
-      }
-      let ok = 0;
-      const failures: string[] = [];
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: "reckon: importing SOPs…" },
-        async () => {
-          for (const { name, read } of items) {
-            try {
-              const content = await read();
-              const res = await client.importSOPMarkdown(name, content);
-              ok++;
-              log.info(`imported SOP ${res.outcome}: ${res.title} (${name})`);
-            } catch (err) {
-              failures.push(`${name}: ${errText(err)}`);
-            }
-          }
-        },
-      );
-      if (failures.length === 0) {
-        void vscode.window.showInformationMessage(`reckon: imported ${ok} SOP${ok === 1 ? "" : "s"} — now consultable during investigations.`);
-      } else {
-        void vscode.window.showWarningMessage(`reckon: imported ${ok}, ${failures.length} failed — ${failures[0]}`);
-      }
+      importSOPs.open();
     }),
 
     // Rename an investigation from the tree's context menu (human curation — the
@@ -328,93 +303,6 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** One SOP document to import: its filename (the default source pointer) and a
- * deferred read, so a failure on one file is reported per file, not up front. */
-interface SOPSource {
-  name: string;
-  read: () => Thenable<string>;
-}
-
-const SOP_EXTENSIONS = ["md", "markdown", "txt"];
-
-function isSOPFile(uri: vscode.Uri): boolean {
-  if (uri.scheme !== "file" && uri.scheme !== "untitled") {
-    return false; // reckon's own virtual documents, remote/virtual fs, etc.
-  }
-  const ext = uri.path.split(".").pop()?.toLowerCase() ?? "";
-  return SOP_EXTENSIONS.includes(ext);
-}
-
-/**
- * Chooses the SOP documents to import. Open markdown/text tabs are offered first
- * (multi-pick, the active tab pre-selected; the import reads each tab's buffer
- * as the analyst sees it); "From disk…" or an editor with no eligible tab falls
- * through to the native file dialog. Returns [] when cancelled at any step.
- */
-async function pickSOPSources(): Promise<SOPSource[]> {
-  const activeUri = vscode.window.activeTextEditor?.document.uri.toString();
-  const seen = new Set<string>();
-  const openTabs: { uri: vscode.Uri; label: string; description: string }[] = [];
-  for (const group of vscode.window.tabGroups.all) {
-    for (const tab of group.tabs) {
-      if (!(tab.input instanceof vscode.TabInputText)) {
-        continue;
-      }
-      const uri = tab.input.uri;
-      const key = uri.toString();
-      if (seen.has(key) || !isSOPFile(uri)) {
-        continue;
-      }
-      seen.add(key);
-      const parts = uri.path.split("/");
-      openTabs.push({ uri, label: parts.pop() || tab.label, description: parts.join("/") });
-    }
-  }
-
-  const fromDisk = async (): Promise<SOPSource[]> => {
-    const uris = await vscode.window.showOpenDialog({
-      title: "Import SOPs",
-      canSelectMany: true,
-      openLabel: "Import",
-      filters: { "Markdown / text": SOP_EXTENSIONS },
-    });
-    return (uris ?? []).map((uri) => ({
-      name: uri.path.split("/").pop() || "untitled.md",
-      read: async () => Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8"),
-    }));
-  };
-
-  if (openTabs.length === 0) {
-    return fromDisk();
-  }
-
-  const OPEN = "From open files";
-  const DISK = "From disk…";
-  const mode = await vscode.window.showQuickPick(
-    [
-      { label: OPEN, description: `${openTabs.length} markdown/text tab${openTabs.length === 1 ? "" : "s"} open` },
-      { label: DISK, description: "choose files" },
-    ],
-    { title: "Import SOPs", placeHolder: "Where are the SOP documents?" },
-  );
-  if (!mode) {
-    return [];
-  }
-  if (mode.label === DISK) {
-    return fromDisk();
-  }
-
-  const picks = await vscode.window.showQuickPick(
-    openTabs.map((t) => ({ label: t.label, description: t.description, uri: t.uri, picked: t.uri.toString() === activeUri })),
-    { title: "Import SOPs — open files", placeHolder: "Select the documents to import", canPickMany: true },
-  );
-  return (picks ?? []).map((p) => ({
-    name: p.label,
-    // openTextDocument returns the live buffer when the file is open — unsaved
-    // edits included — so what is imported is exactly what is on screen.
-    read: async () => (await vscode.workspace.openTextDocument(p.uri)).getText(),
-  }));
-}
 
 /**
  * Per-investigation last-seen event sequence, in globalState. The tree's

@@ -128,16 +128,20 @@ Consequences, spelled out:
   path. This is also what makes the profile trim (`§6`) safe — hiding chrome can't orphan a
   feature.
 - **Operational input lives on a panel, not the quick bar.** The top-of-window quick input
-  (`showInputBox`/`showQuickPick`) is for *launching* a command and *picking from a known list* —
-  never for entering operational data (queries, filters, hypotheses, rationales, seed values).
-  Security work needs a durable editing surface you can see, revise, and read against the record;
-  the quick input has no multiline, no history, no validation surface, and evaporates on focus
-  loss. Data entry belongs on a reckon panel (the composer, the draft card, an in-document
-  prompt/verdict card). One-shot setup secrets typed once and masked (the BYOK key, sign-in) are
-  the only quick-bar exception. Consequence: a command that gathers input opens the relevant
-  surface rather than chaining quick-input prompts — e.g. "Seed from Case…" opens the draft
-  document in case mode (the filter and the case pick render on the panel), it does not prompt in
-  the quick bar (`§4.1` of `14-case-seed.md`).
+  (`showInputBox`/`showQuickPick`) is for *launching* a command — nothing more. It is never for
+  entering operational data (queries, filters, hypotheses, rationales, seed values), and it is
+  never for *operational choices* either: a pick that decides what gets acted on (which case to
+  seed from, which documents become institutional knowledge, which action to take) is a decision
+  surface, not a launcher, even when the options are a known list. Security work needs a durable
+  surface you can see, revise, and read the outcome against; the quick input has no multiline, no
+  history, no validation surface, shows no result, and evaporates on focus loss. Data entry and
+  decisions belong on a reckon panel (the composer, the draft card, an in-document prompt/verdict
+  card, a task panel such as Import SOPs). One-shot setup secrets typed once and masked (the BYOK
+  key, sign-in) are the only quick-bar exception. Consequence: a command that gathers input or a
+  choice opens the relevant surface rather than chaining quick-input prompts — "Seed from Case…"
+  opens the draft document in case mode (the filter and the case pick render on the panel,
+  `§4.1` of `14-case-seed.md`); "Import SOPs…" opens the Import SOPs panel (open documents with
+  checkboxes, add from disk, per-document outcome), it does not offer a quick-pick menu.
 - **The fork test.** A change is discipline-compliant iff it would survive relocation into a
   trimmed distribution with stock chrome absent. Anything that fails the test is re-homed now,
   not at fork time.

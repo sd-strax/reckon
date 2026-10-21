@@ -93,11 +93,13 @@ printed). Open it in a tab and walk the audience through it: plain markdown, YAM
 frontmatter — title, author, tags, recommendation. Ordinary institutional
 knowledge, the kind every SOC has.
 
-Bring it into reckon **live**: run **Import SOPs…** → **From open files** → the
-tab you're looking at is pre-selected → Enter. It lands in one motion — no
-library to manage, no re-navigating to the file, no ceremony. *The import
-capability, shown, not seeded behind the curtain.* (**From disk…** is the other
-route, for files you haven't opened.) Now ask again:
+Bring it into reckon **live**: run **Import SOPs…**. The Import SOPs panel opens
+beside the document with the tab you're reading already listed and ticked —
+press **Import**. The row turns green: *Added to the SOP library as "Lateral
+Movement via RDP — Containment"*. No library to manage, no re-navigating to the
+file, no ceremony. *The import capability, shown, not seeded behind the
+curtain.* (**Add files…** on the same panel is the route for documents you
+haven't opened.) Now ask again:
 
 > *"Now — with our runbook in hand, what's the containment procedure here?"*
 
