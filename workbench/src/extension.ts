@@ -106,21 +106,20 @@ export function activate(context: vscode.ExtensionContext): void {
     // Import institutional knowledge into the SOP corpus (design/06 §2.4). SOPs
     // are consultative — the agent surfaces them (the knowledge rail); import is
     // an occasional populate act, so it is a COMMAND (workbench discipline, 13
-    // §3), not a management view. The only input is a file PICKER — a native
-    // select, never the top-of-window quick input. Attribution comes from each
-    // file's YAML frontmatter (author, tags, source), parsed server-side.
+    // §3), not a management view. Two sources, both PICKERS (a choice from a
+    // known list — never the top-of-window quick input for content): the
+    // markdown/text tabs already open in the editor (what is imported is the
+    // buffer as shown, unsaved edits included — nothing is re-read behind the
+    // analyst's back), or a native file dialog. With no eligible tab open the
+    // dialog opens directly. Attribution comes from each document's YAML
+    // frontmatter (author, tags, source), parsed server-side.
     vscode.commands.registerCommand("reckon.importSOP", async () => {
       if (!session.signedIn) {
         void vscode.window.showWarningMessage("reckon: sign in before importing SOPs");
         return;
       }
-      const uris = await vscode.window.showOpenDialog({
-        title: "Import SOPs",
-        canSelectMany: true,
-        openLabel: "Import",
-        filters: { "Markdown / text": ["md", "markdown", "txt"] },
-      });
-      if (!uris || uris.length === 0) {
+      const items = await pickSOPSources();
+      if (items.length === 0) {
         return; // cancelled
       }
       let ok = 0;
@@ -128,11 +127,9 @@ export function activate(context: vscode.ExtensionContext): void {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: "reckon: importing SOPs…" },
         async () => {
-          for (const uri of uris) {
-            const name = uri.path.split("/").pop() || "untitled.md";
+          for (const { name, read } of items) {
             try {
-              const bytes = await vscode.workspace.fs.readFile(uri);
-              const content = Buffer.from(bytes).toString("utf8");
+              const content = await read();
               const res = await client.importSOPMarkdown(name, content);
               ok++;
               log.info(`imported SOP ${res.outcome}: ${res.title} (${name})`);
@@ -329,6 +326,94 @@ async function applyPosture(on: boolean): Promise<void> {
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** One SOP document to import: its filename (the default source pointer) and a
+ * deferred read, so a failure on one file is reported per file, not up front. */
+interface SOPSource {
+  name: string;
+  read: () => Thenable<string>;
+}
+
+const SOP_EXTENSIONS = ["md", "markdown", "txt"];
+
+function isSOPFile(uri: vscode.Uri): boolean {
+  if (uri.scheme !== "file" && uri.scheme !== "untitled") {
+    return false; // reckon's own virtual documents, remote/virtual fs, etc.
+  }
+  const ext = uri.path.split(".").pop()?.toLowerCase() ?? "";
+  return SOP_EXTENSIONS.includes(ext);
+}
+
+/**
+ * Chooses the SOP documents to import. Open markdown/text tabs are offered first
+ * (multi-pick, the active tab pre-selected; the import reads each tab's buffer
+ * as the analyst sees it); "From disk…" or an editor with no eligible tab falls
+ * through to the native file dialog. Returns [] when cancelled at any step.
+ */
+async function pickSOPSources(): Promise<SOPSource[]> {
+  const activeUri = vscode.window.activeTextEditor?.document.uri.toString();
+  const seen = new Set<string>();
+  const openTabs: { uri: vscode.Uri; label: string; description: string }[] = [];
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (!(tab.input instanceof vscode.TabInputText)) {
+        continue;
+      }
+      const uri = tab.input.uri;
+      const key = uri.toString();
+      if (seen.has(key) || !isSOPFile(uri)) {
+        continue;
+      }
+      seen.add(key);
+      const parts = uri.path.split("/");
+      openTabs.push({ uri, label: parts.pop() || tab.label, description: parts.join("/") });
+    }
+  }
+
+  const fromDisk = async (): Promise<SOPSource[]> => {
+    const uris = await vscode.window.showOpenDialog({
+      title: "Import SOPs",
+      canSelectMany: true,
+      openLabel: "Import",
+      filters: { "Markdown / text": SOP_EXTENSIONS },
+    });
+    return (uris ?? []).map((uri) => ({
+      name: uri.path.split("/").pop() || "untitled.md",
+      read: async () => Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8"),
+    }));
+  };
+
+  if (openTabs.length === 0) {
+    return fromDisk();
+  }
+
+  const OPEN = "From open files";
+  const DISK = "From disk…";
+  const mode = await vscode.window.showQuickPick(
+    [
+      { label: OPEN, description: `${openTabs.length} markdown/text tab${openTabs.length === 1 ? "" : "s"} open` },
+      { label: DISK, description: "choose files" },
+    ],
+    { title: "Import SOPs", placeHolder: "Where are the SOP documents?" },
+  );
+  if (!mode) {
+    return [];
+  }
+  if (mode.label === DISK) {
+    return fromDisk();
+  }
+
+  const picks = await vscode.window.showQuickPick(
+    openTabs.map((t) => ({ label: t.label, description: t.description, uri: t.uri, picked: t.uri.toString() === activeUri })),
+    { title: "Import SOPs — open files", placeHolder: "Select the documents to import", canPickMany: true },
+  );
+  return (picks ?? []).map((p) => ({
+    name: p.label,
+    // openTextDocument returns the live buffer when the file is open — unsaved
+    // edits included — so what is imported is exactly what is on screen.
+    read: async () => (await vscode.workspace.openTextDocument(p.uri)).getText(),
+  }));
 }
 
 /**

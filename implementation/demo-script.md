@@ -93,9 +93,11 @@ printed). Open it in a tab and walk the audience through it: plain markdown, YAM
 frontmatter — title, author, tags, recommendation. Ordinary institutional
 knowledge, the kind every SOC has.
 
-Bring it into reckon **live**: run **Import SOPs…**, pick that file. It lands in
-one motion — no library to manage, no ceremony. *The import capability, shown,
-not seeded behind the curtain.* Now ask again:
+Bring it into reckon **live**: run **Import SOPs…** → **From open files** → the
+tab you're looking at is pre-selected → Enter. It lands in one motion — no
+library to manage, no re-navigating to the file, no ceremony. *The import
+capability, shown, not seeded behind the curtain.* (**From disk…** is the other
+route, for files you haven't opened.) Now ask again:
 
 > *"Now — with our runbook in hand, what's the containment procedure here?"*
 
