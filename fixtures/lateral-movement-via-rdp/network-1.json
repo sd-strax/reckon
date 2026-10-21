@@ -3,7 +3,7 @@
     "scenario": "lateral-movement-via-rdp",
     "matches": {
       "verb": "get_network_connections",
-      "params": { "endpoint.hostname": "WIN-FILE01" }
+      "params": { "endpoint.hostname": "*" }
     },
     "delay_ms": 40
   },

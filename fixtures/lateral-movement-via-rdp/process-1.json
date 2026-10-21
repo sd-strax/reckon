@@ -3,7 +3,7 @@
     "scenario": "lateral-movement-via-rdp",
     "matches": {
       "verb": "get_process_ancestry",
-      "params": { "host.hostname": "WIN-FILE01" }
+      "params": { "host.hostname": "*" }
     },
     "delay_ms": 40
   },

@@ -3,7 +3,7 @@
     "scenario": "lateral-movement-via-rdp",
     "matches": {
       "verb": "enumerate_logons",
-      "params": { "target.hostname": "WIN-FILE01", "outcome": "SUCCESS" }
+      "params": { "target.hostname": "*", "outcome": "*" }
     },
     "delay_ms": 40
   },

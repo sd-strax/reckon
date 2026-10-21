@@ -32,7 +32,10 @@ bindings:
       priority: 100
       params:
         target:
-          hostname: "${entity.host.hostname}"
+          # Demo scenario is single-host: default to the scenario host so a
+          # host-less or differently-shaped agent query still resolves (the
+          # fixture match below is wildcarded to tolerate hostname variance).
+          hostname: '${entity.host.hostname ?? "WIN-FILE01"}'
         outcome: '${outcome ?? "SUCCESS"}'
 
   get_process_ancestry:
@@ -41,7 +44,7 @@ bindings:
       priority: 100
       params:
         host:
-          hostname: "${entity.host.hostname}"
+          hostname: '${entity.host.hostname ?? "WIN-FILE01"}'
 
   get_network_connections:
     - adapter: fixture
@@ -49,7 +52,7 @@ bindings:
       priority: 100
       params:
         endpoint:
-          hostname: "${entity.host.hostname}"
+          hostname: '${entity.host.hostname ?? "WIN-FILE01"}'
 
   search_alerts:
     - adapter: fixture
