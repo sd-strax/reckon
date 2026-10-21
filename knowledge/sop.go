@@ -164,9 +164,12 @@ func (s *Store) Import(ctx context.Context, sop SOP) (uuid.UUID, bool, error) {
 }
 
 // findBySourceURL locates the current SOP entry whose source pointer matches —
-// the re-import lineage lookup. Nil when none exists.
+// the re-import lineage lookup. Nil when none exists. Retired entries are
+// included on purpose: one source is one lineage forever, so re-importing a
+// retired SOP revives it as a new published revision (Revise clears the
+// retirement) rather than opening a second lineage beside the retired one.
 func (s *Store) findBySourceURL(ctx context.Context, tenantID uuid.UUID, url string) (*substrate.Entry, error) {
-	entries, err := s.sub.List(ctx, tenantID.String(), CorpusProcedures, substrate.ListFilter{})
+	entries, err := s.sub.List(ctx, tenantID.String(), CorpusProcedures, substrate.ListFilter{IncludeRetired: true})
 	if err != nil {
 		return nil, fmt.Errorf("resolve import source: %w", err)
 	}

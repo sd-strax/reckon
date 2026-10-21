@@ -248,6 +248,33 @@ func TestImportSOP(t *testing.T) {
 	if _, _, err := s.Import(ctx, bad); err == nil {
 		t.Error("import without source.url accepted")
 	}
+
+	// Retire, then re-import the same source: one source is one lineage, so
+	// the retired SOP is REVIVED (same id, a new published revision) — never a
+	// second lineage beside the retired one.
+	if err := s.Retire(ctx, testTenant, id); err != nil {
+		t.Fatal(err)
+	}
+	if live, _ := s.List(ctx, testTenant, false); len(live) != 1 { // only RUNBOOK-77 remains
+		t.Fatalf("after retire: %d live SOPs, want 1", len(live))
+	}
+	doc.Body = "Isolate first, preserve volatile evidence, notify legal, and brief the IR lead."
+	id3, created, err := s.Import(ctx, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created || id3 != id {
+		t.Errorf("re-import of a retired source should revive the lineage: created=%v id %s vs %s", created, id3, id)
+	}
+	got, err = s.Get(ctx, testTenant, id)
+	if err != nil || !strings.Contains(got.Body, "IR lead") {
+		t.Errorf("revived SOP not current: err=%v body=%q", err, got.Body)
+	}
+	live, _ := s.List(ctx, testTenant, false)
+	all, _ := s.List(ctx, testTenant, true)
+	if len(live) != 2 || len(all) != 2 {
+		t.Errorf("revive should restore one live SOP, not add a lineage: live=%d all=%d, want 2/2", len(live), len(all))
+	}
 }
 
 func TestGetUnknownSOP(t *testing.T) {

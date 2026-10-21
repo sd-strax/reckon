@@ -178,7 +178,11 @@ export class ImportSOPsView {
           // openTextDocument returns the live buffer when the file is open —
           // unsaved edits included — so what is imported is what is on screen.
           : (await vscode.workspace.openTextDocument(row.uri)).getText();
-        const res = await this.client.importSOPMarkdown(row.name, content);
+        // The FULL path goes as the filename: when the document carries no
+        // frontmatter source, the server keys the re-import lineage on it, and
+        // a bare basename would make two different "runbook.md" files silently
+        // revise each other. Matches the CLI, which keys on the cleaned path.
+        const res = await this.client.importSOPMarkdown(row.uri.fsPath, content);
         row.result = { outcome: res.outcome === "created" ? "created" : "revised", title: res.title };
         row.checked = false;
         ok++;

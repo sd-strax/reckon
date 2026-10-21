@@ -181,7 +181,9 @@ type SOPMarkdownBody struct {
 // importMarkdownSOP handles POST /api/sops/import_markdown (analyst): parse one
 // markdown document and upsert it. The importer is the authenticated principal
 // (recorded server-side, never client-supplied); the source pointer defaults to
-// file:<filename> when the frontmatter omits it — the re-import lineage key.
+// file:<filename> when the frontmatter omits it — the re-import lineage key, so
+// clients send the full path as the filename (a bare basename would collide
+// across directories). Only the basename feeds the fallback title.
 func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
