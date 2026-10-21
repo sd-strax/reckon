@@ -49,6 +49,14 @@ npm run compile     # tsc → out/
 npm run watch
 ```
 
+To install it as a real extension (not the dev host): `make workbench-package` from the
+repo root, then `code --install-extension workbench/reckon-workbench-*.vsix --force` and
+reload the window. The target compiles from a clean `out/` so stale artifacts never ship,
+and the package **must** carry `node_modules/vscode-jsonrpc` — it's a runtime dependency
+(the sidecar transport), so `.vscodeignore` deliberately does not exclude `node_modules`
+(vsce bundles production deps only). Without it `activate()` throws and every command
+reports "not found".
+
 Open **this folder** (not the repo root) in VS Code and press F5 → *Run Workbench Extension*. The
 default config launches the Extension Development Host with `--disable-extensions`, so only reckon
 loads: what you see is what an analyst gets, and your own extensions don't react to this folder

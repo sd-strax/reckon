@@ -1,4 +1,4 @@
-.PHONY: help build test test-all test-race run vet tidy hooks clean ci ci-full bundle lint eval eval-accept eval-regrade workbench-ci
+.PHONY: help build test test-all test-race run vet tidy hooks clean ci ci-full bundle lint eval eval-accept eval-regrade workbench-ci workbench-package
 .DEFAULT_GOAL := help
 
 help: ## List available targets
@@ -70,3 +70,6 @@ eval-regrade: ## Re-grade the latest run's committed trials with the current gra
 
 workbench-ci: ## Install + compile the VS Code extension (workbench/). Requires Node; never part of `ci` — engine work stays Go-only.
 	cd workbench && npm ci && npm run compile
+
+workbench-package: ## Build the installable .vsix from a CLEAN compile (stale out/*.js never ships). Install with: code --install-extension workbench/reckon-workbench-*.vsix --force
+	cd workbench && npm ci && rm -rf out && npm run compile && npm run package
