@@ -190,7 +190,11 @@ func runDemoReset(args []string) error {
 	// Nuke the data. Postgres re-inits an empty cluster on the next boot, so
 	// removing its data dir is the cleanest total wipe — no per-table archaeology
 	// against an event-sourced log. Temporal's SQLite store goes too so no stale
-	// workflow history references the wiped aggregates. Keycloak + secrets stay.
+	// workflow history references the wiped aggregates. Keycloak's realm lives
+	// in the same cluster (reckon_keycloak), so it goes WITH it: the shipped
+	// realm re-imports on the next boot with no login user and no direct-access
+	// grant — run `dev-auth` again before anything authenticates. The secret
+	// store (keychain/env references) is outside the data dir and survives.
 	base := filepath.Dir(path)
 	targets := []string{
 		filepath.Join(cfg.Data.Dir, "pg", "data"), // reckon_main + reckon_knowledge
