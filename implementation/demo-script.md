@@ -73,13 +73,15 @@ arrives as cases in the system of record, already assigned and prioritized, and
 that is where this investigation begins.
 
 Run **reckon: Seed from case…** (Command Palette, or **New Investigation** →
-*Case*). In the filter type the assignment group, exactly `SOC Tier 2`, and
-press **Search cases**. Three open incidents come back: a phishing report, a DLP
-bulk download, and **INC0010042 — Suspicious interactive RDP logon to
-`WIN-FILE01` by `svc_backup`**, P2, escalated from Tier 1. Pick it.
+**From a case…**). The picker opens straight onto the team's queue — the demo
+tenant names it in its capability config (`policies.case_queue: SOC Tier 2`),
+so there is nothing to type. Three open incidents are already listed: a
+phishing report, a DLP bulk download, and **INC0010042 — Suspicious interactive
+RDP logon to `WIN-FILE01` by `svc_backup`**, P2, escalated from Tier 1. Pick it.
+*(The filter box narrows within the queue; leave it blank.)*
 
-*(The fixture matches the filter exactly, so type it as shown. Any other filter
-returns zero cases — which is what Act 3 relies on.)*
+*(The fixture answers the configured queue and nothing else: a free-text
+lookup with no queue returns zero cases — which is what Act 3 relies on.)*
 
 The investigation opens **rooted on the case**: the title is the case title, the
 seed chip reads `case fixture:lateral-movement-via-rdp: INC0010042` — provenance

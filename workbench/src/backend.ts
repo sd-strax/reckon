@@ -480,6 +480,16 @@ export class BackendClient {
     };
   }
 
+  /**
+   * GET /api/capabilities — the tenant's configured case queue
+   * (`policies.case_queue`, 14 §4.2), or undefined when none is set or the
+   * capability layer is off. The "From a case…" picker opens on it.
+   */
+  async caseQueue(): Promise<string | undefined> {
+    const body = await this.authedGet<{ case_queue?: string }>("/api/capabilities");
+    return typeof body.case_queue === "string" && body.case_queue ? body.case_queue : undefined;
+  }
+
   /** GET /api/capabilities — count of resolvable verbs. Authenticated. */
   async capabilityCount(): Promise<number> {
     const body = await this.authedGet<{ capabilities?: unknown[] } | unknown[]>("/api/capabilities");
@@ -1216,9 +1226,10 @@ export class BackendClient {
    * runs query_external_cases and pulls each case's metadata out of the
    * class-2005 ObservedData extensions the case normalizer wrote (03 §2.9).
    */
-  async queryExternalCases(filter?: string, status?: string): Promise<CaseSummary[]> {
+  async queryExternalCases(filter?: string, status?: string, queue?: string): Promise<CaseSummary[]> {
     const extra: Record<string, unknown> = {};
     if (filter) extra.filter = filter;
+    if (queue) extra.queue = queue;
     if (status) extra.status = status;
     const res = await this.invokeCapability("query_external_cases", { extra });
     const out: CaseSummary[] = [];

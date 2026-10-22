@@ -3,7 +3,7 @@
     "scenario": "lateral-movement-via-rdp",
     "matches": {
       "verb": "query_external_cases",
-      "params": { "filter": "SOC Tier 2" }
+      "params": { "queue": "SOC Tier 2" }
     },
     "delay_ms": 60
   },

@@ -30,6 +30,7 @@ func describe() adapterplugin.DescribeResult {
 				Intent: "Search the case management system of record (ServiceNow, Jira SOC, TheHive) for cases matching a filter — the read side of 'have we seen this before?'.",
 				Inputs: []capability.InputParam{
 					{Name: "filter", Type: "string", Required: false, Desc: "free-text query over case title/summary"},
+					{Name: "queue", Type: "string", Required: false, Desc: "the assignment group the cases sit in, by name (14 §4.2) — the tenant's configured queue or one the analyst names"},
 					{Name: "status", Type: "string", Required: false, Desc: "case status filter, e.g. 'In Progress'"},
 					{Name: "window", Type: "time_window", Required: false, Desc: "time bound; defaults to the tenant investigation window"},
 					{Name: "limit", Type: "int", Required: false, Desc: "max cases to return (default 50)"},
@@ -102,13 +103,14 @@ func describe() adapterplugin.DescribeResult {
 			// side is the ENGINE's read-call input root (CallInput.Extra keys /
 			// entity / window), templated by the resolver. get_external_case_details's
 			// declared input is `case_id`; query_external_cases's are
-			// `filter`/`status`/`limit`. Optional inputs are marked `?` so a missing
+			// `filter`/`queue`/`status`/`limit`. Optional inputs are marked `?` so a missing
 			// one OMITS the param rather than rejecting the binding (§3.3.4).
 			{Verb: "get_external_case_details", Adapter: "servicenow", Operation: "get_incident", Priority: bindingPriority,
 				Params: map[string]any{"case_id": "${case_id}"}},
 			{Verb: "query_external_cases", Adapter: "servicenow", Operation: "query_incidents", Priority: bindingPriority,
 				Params: map[string]any{
 					"filter": "${filter?}",
+					"queue":  "${queue?}",
 					"status": "${status?}",
 					"limit":  "${limit?}",
 				}},

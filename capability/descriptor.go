@@ -109,7 +109,7 @@ func DefaultCatalog() *Catalog {
 		{
 			Verb:   "query_external_cases",
 			Intent: "Search the case management system of record (ServiceNow, Jira SOC, TheHive) for cases matching a filter — the read side of 'have we seen this before?'.",
-			Inputs: []InputParam{{Name: "filter", Type: "string", Required: false, Desc: "free-text query over case title/summary"}, {Name: "status", Type: "string", Required: false, Desc: "case status filter, e.g. 'In Progress'"}, windowInput(), {Name: "limit", Type: "int", Required: false, Desc: "max cases to return (default 50)"}},
+			Inputs: []InputParam{{Name: "filter", Type: "string", Required: false, Desc: "free-text query over case title/summary"}, {Name: "queue", Type: "string", Required: false, Desc: "the work queue the case system assigns by (a ServiceNow assignment group, a Jira project/board, a TheHive team) — the tenant's configured queue (policies.case_queue) or one the analyst names"}, {Name: "status", Type: "string", Required: false, Desc: "case status filter, e.g. 'In Progress'"}, windowInput(), {Name: "limit", Type: "int", Required: false, Desc: "max cases to return (default 50)"}},
 			Output: "list<observed_data>",
 		},
 		{

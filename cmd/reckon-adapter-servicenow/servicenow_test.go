@@ -448,6 +448,30 @@ func TestInvokeQueryIncidents(t *testing.T) {
 	}
 }
 
+// TestInvokeQueryIncidentsQueue: the queue input (14 §4.2) becomes an
+// assignment-group clause by display name, alongside the free-text clause.
+func TestInvokeQueryIncidentsQueue(t *testing.T) {
+	var gotQuery string
+	h := func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("sysparm_query")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"result":[{"sys_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","number":"INC1","short_description":"a","state":"New","assignment_group":"SOC Tier 2","opened_at":"2026-04-20 14:32:11"}]}`)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(h))
+	t.Cleanup(srv.Close)
+
+	b := configuredBridge(t, srv.URL)
+	raw, _ := json.Marshal(adapterplugin.InvokeParams{
+		Operation: "query_incidents", Params: map[string]any{"filter": "rdp", "queue": "SOC Tier 2"},
+	})
+	if _, werr := b.invoke(context.Background(), raw); werr != nil {
+		t.Fatalf("invoke: %v", werr)
+	}
+	if gotQuery != "short_descriptionLIKErdp^assignment_group.name=SOC Tier 2" {
+		t.Errorf("sysparm_query = %q; want the text clause and the group-name clause", gotQuery)
+	}
+}
+
 // TestInvokeQueryIncidentsStatusFilter: the status filter runs client-side on
 // the display label (ServiceNow's encoded query matches the stored numeric
 // state, not the label), case-insensitively.

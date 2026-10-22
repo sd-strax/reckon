@@ -108,6 +108,23 @@ func NewResolver(tenant TenantContext, bindings map[string][]Binding, adapters m
 	return &Resolver{tenant: tenant, bindings: bindings, adapters: adapters, normalizer: norm}
 }
 
+// PolicyCaseQueue is the tenant policy key naming the work queue the case
+// system of record assigns this team's cases to (14 §4.2): a ServiceNow
+// assignment group, a Jira project/board, a TheHive team. The picker opens on
+// it and query_external_cases takes it as the `queue` input.
+const PolicyCaseQueue = "case_queue"
+
+// PolicyString returns the tenant policy under key as a string, or "" when it
+// is unset or not a string. Policies are opaque to the resolver (§3.2); this
+// is the read accessor for the surfaces that consume them.
+func (r *Resolver) PolicyString(key string) string {
+	if r == nil || r.tenant.Policies == nil {
+		return ""
+	}
+	s, _ := r.tenant.Policies[key].(string)
+	return s
+}
+
 // ValidateBindings compiles every binding template, surfacing config errors
 // (unknown transforms, malformed expressions) at load time rather than at call
 // time (§3.3.4).

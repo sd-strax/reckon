@@ -24,7 +24,7 @@ type RenderMessage =
   // The unseeded state (design/ui/02 §2.7): render the "root this investigation"
   // surface instead of a document. "seeded" flips back once the seed persists;
   // "draft.error" reports a failed create without leaving the draft.
-  | { type: "draft"; mode?: "case" }
+  | { type: "draft"; mode?: "case"; caseQueue?: string }
   | { type: "seeded" }
   | { type: "draft.error"; message: string }
   // The "from a case" seed surface (13 §3 — operational input lives on the
@@ -104,7 +104,7 @@ type InboundMessage =
   | { type: "seed.alert"; alertId: string; source: string }
   // The "from a case" path (13 §3): search the case system of record, then seed
   // from a picked case — both driven from the draft surface, no quick input.
-  | { type: "seed.caseSearch"; filter: string }
+  | { type: "seed.caseSearch"; filter: string; queue?: string }
   | { type: "seed.case"; caseNumber: string }
   | { type: "send"; text: string; includedKnowledge?: string[] }
   | { type: "action.approve"; actionId: string; tier: string; actionType: string; challenge?: string }
@@ -286,7 +286,7 @@ export class InvestigationDocuments {
       if (InvestigationDocuments.isDraft(id)) {
         const mode = this.draftMode.get(id);
         this.draftMode.delete(id);
-        void this.post(panel, { type: "draft", mode });
+        void this.postDraft(panel, mode);
       } else {
         // A rename invoked from the tree opened this panel; start the in-place
         // edit only AFTER the load has posted its data (so the title field is
@@ -304,7 +304,7 @@ export class InvestigationDocuments {
     } else if (msg.type === "seed.alert") {
       void this.seedDraft(ref, panel, { alertId: msg.alertId, source: msg.source });
     } else if (msg.type === "seed.caseSearch") {
-      void this.searchCases(panel, msg.filter);
+      void this.searchCases(panel, msg.filter, msg.queue);
     } else if (msg.type === "seed.case") {
       void this.seedDraft(ref, panel, { value: msg.caseNumber, kind: "case" });
     } else if (msg.type === "send") {
@@ -421,13 +421,30 @@ export class InvestigationDocuments {
    * sub-form; seeding from a picked case runs the ordinary seedDraft path
    * (kind "case"), which fails closed server-side on a bad case id.
    */
-  private async searchCases(panel: vscode.WebviewPanel, filter: string): Promise<void> {
+  private async searchCases(panel: vscode.WebviewPanel, filter: string, queue?: string): Promise<void> {
     try {
-      const cases = await this.client.queryExternalCases(filter.trim() || undefined);
+      const cases = await this.client.queryExternalCases(filter.trim() || undefined, undefined, queue || undefined);
       void this.post(panel, { type: "draft.cases", cases });
     } catch (err) {
       void this.post(panel, { type: "draft.caseError", message: errText(err) });
     }
+  }
+
+  /**
+   * Render the unseeded draft, carrying the tenant's configured case queue
+   * (14 §4.2) when the capability layer reports one, so the "From a case…"
+   * path opens on the analyst's queue instead of a blank search. A missing or
+   * unreachable capability layer is not an error here — the draft simply
+   * behaves as before.
+   */
+  private async postDraft(panel: vscode.WebviewPanel, mode?: "case"): Promise<void> {
+    let caseQueue: string | undefined;
+    try {
+      caseQueue = await this.client.caseQueue();
+    } catch {
+      caseQueue = undefined;
+    }
+    void this.post(panel, { type: "draft", mode, caseQueue });
   }
 
   /** Refresh every open document (e.g. after sign-out flips to sign-in). */
@@ -4417,15 +4434,22 @@ export class InvestigationDocuments {
     // explicit in-flight flag guards both — a double Enter must never mint two
     // investigations. Cleared on error (retry) and on a fresh draft.
     let draftSubmitting = false;
-    function showDraft(mode) {
+    // The tenant's configured case queue (14 §4.2), "" when none: the case path
+    // opens on it and the filter narrows within it.
+    let draftCaseQueue = "";
+    function showDraft(mode, caseQueue) {
       draftOverride = null;
       draftSubmitting = false;
+      draftCaseQueue = caseQueue || "";
       $("draftView").style.display = "flex";
       $("draftInput").value = "";
       $("draftErr").textContent = "";
       $("draftInterp").innerHTML = "";
       setSeedPath(null);
       $("draftCaseFilter").value = "";
+      $("draftCaseFilter").placeholder = draftCaseQueue
+        ? "narrow the " + draftCaseQueue + " queue — e.g. rdp (blank = the whole queue)"
+        : "filter your case system of record (blank = recent) — e.g. reimage";
       $("draftCaseResults").innerHTML = "";
       $("draftCaseStatus").textContent = "";
       $("draftStart").disabled = true;
@@ -4457,7 +4481,12 @@ export class InvestigationDocuments {
       $("draftAlertToggle").setAttribute("aria-pressed", String(path === "alert"));
       $("draftCaseToggle").setAttribute("aria-pressed", String(path === "case"));
       if (path === "alert") $("draftAlertId").focus();
-      if (path === "case") $("draftCaseFilter").focus();
+      if (path === "case") {
+        $("draftCaseFilter").focus();
+        // A configured queue is the analyst's starting point, not a search they
+        // have to think of: open on it. Re-opening keeps results already shown.
+        if (draftCaseQueue && !$("draftCaseResults").children.length) submitCaseSearch();
+      }
     }
     function currentSeedPath() {
       if ($("draftAlertForm").style.display !== "none") return "alert";
@@ -4485,19 +4514,22 @@ export class InvestigationDocuments {
     // top-of-window quick input (workbench discipline, 13 §3). The pick fails
     // closed server-side, so a bad case never seeds a half-loaded investigation.
     function submitCaseSearch() {
-      $("draftCaseStatus").textContent = "Searching the case system of record…";
+      $("draftCaseStatus").textContent = draftCaseQueue
+        ? "Reading the " + draftCaseQueue + " queue…"
+        : "Searching the case system of record…";
       $("draftCaseResults").innerHTML = "";
-      vscode.postMessage({ type: "seed.caseSearch", filter: $("draftCaseFilter").value });
+      vscode.postMessage({ type: "seed.caseSearch", filter: $("draftCaseFilter").value, queue: draftCaseQueue || undefined });
     }
     function renderCases(cases) {
       const box = $("draftCaseResults");
       box.innerHTML = "";
+      const where = draftCaseQueue ? " in the " + draftCaseQueue + " queue" : " in the system of record";
       if (!cases.length) {
-        $("draftCaseStatus").textContent = "No matching cases in the system of record.";
+        $("draftCaseStatus").textContent = ($("draftCaseFilter").value.trim() ? "No matching cases" : "No open cases") + where + ".";
         return;
       }
       $("draftCaseStatus").textContent =
-        cases.length + " case" + (cases.length === 1 ? "" : "s") + " — pick one to investigate.";
+        cases.length + " case" + (cases.length === 1 ? "" : "s") + where + " — pick one to investigate.";
       for (const c of cases) {
         const row = document.createElement("button");
         row.className = "caseRow";
@@ -4777,7 +4809,7 @@ export class InvestigationDocuments {
           document.body.classList.add("loading");
           break;
         case "draft":
-          showDraft(msg.mode);
+          showDraft(msg.mode, msg.caseQueue);
           break;
         case "seeded":
           hideDraft();
