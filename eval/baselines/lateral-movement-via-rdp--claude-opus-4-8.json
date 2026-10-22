@@ -5,7 +5,7 @@
     "action_catalog_hash": "b25809c09675d153d3722ca7e92e81c0d99c55a79eb8582ba0e1ffdebbf0a245",
     "scenario_id": "lateral-movement-via-rdp",
     "driver_hash": "3a2d6e2ea68d0edb20f596e2851720499665df5af4f561b2973be189bd90517c",
-    "catalogue_version": "v0.9",
+    "catalogue_version": "v0.10",
     "trials": 3
   },
   "results": {
