@@ -200,8 +200,10 @@ the tool set advertised to the LLM.
 **`query_external_cases(filter: CaseFilter, window: TimeWindow, limit?: int = 50) -> list<ObservedData>`**
 Search the customer's case management system of record (TheHive,
 ServiceNow SOC, Jira SOC, Splunk ES Cases, custom) for cases matching the
-filter. `CaseFilter` supports text query, status, label, technique, and
-entity-mention filtering. Output normalized as `ObservedData` wrapping case
+filter. `CaseFilter` supports text query, **queue** (the work queue the SoR
+assigns by — assignment group / project / team, mapped by the adapter to its
+own vocabulary; `14 §4.2`), status, label, technique, and entity-mention
+filtering. Output normalized as `ObservedData` wrapping case
 references — each case becomes an entity-shaped observation with metadata:
 title, status, summary, key entities mentioned, link back to the SoR. Goes
 through the standard normalizer pipeline and lands in the telemetry layer

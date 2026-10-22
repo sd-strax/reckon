@@ -137,11 +137,18 @@ func (b *bridge) getIncident(ctx context.Context, client *snowClient, params map
 // — evidence of absence, not an error.
 func (b *bridge) queryIncidents(ctx context.Context, client *snowClient, params map[string]any) (any, *wireError) {
 	filter, _ := params["filter"].(string)
+	queue, _ := params["queue"].(string)
 	status, _ := params["status"].(string)
 
 	var clauses []string
 	if filter != "" {
 		clauses = append(clauses, "short_descriptionLIKE"+filter)
+	}
+	// queue (14 §4.2) is the assignment group, matched by display name through
+	// the reference dot-walk — the engine's queue vocabulary is the group's
+	// name, never its sys_id.
+	if queue != "" {
+		clauses = append(clauses, "assignment_group.name="+queue)
 	}
 	// status is NOT put in the encoded query: a ServiceNow encoded query matches
 	// the STORED numeric state code, not the display label the agent speaks ("In

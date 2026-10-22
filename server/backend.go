@@ -798,8 +798,14 @@ func (b *Backend) listCapabilities(w http.ResponseWriter, r *http.Request) {
 	}
 	b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, func(w http.ResponseWriter, _ *http.Request) {
 		summaries := resolver.ListCapabilities(catalog)
+		body := map[string]any{"capabilities": summaries}
+		// The tenant's case queue (14 §4.2) rides the catalog response: it is
+		// the SoR surface's one piece of standing config the picker needs.
+		if q := resolver.PolicyString(capability.PolicyCaseQueue); q != "" {
+			body["case_queue"] = q
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"capabilities": summaries})
+		_ = json.NewEncoder(w).Encode(body)
 	})
 }
 

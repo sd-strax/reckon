@@ -182,17 +182,36 @@ Two entry points onto §3's one flow:
 
 Both paths, and any later trigger, are callers of the *same* server flow.
 
-### 4.2 Deferred: the configured case queue
+### 4.2 The configured case queue (tenant-level landed; per-analyst deferred)
 
 T2/T3 analysts already own their cases *in the SoR* (assigned-to-me, my group).
-The natural next trigger is a **filtered case queue** — the workbench surfaces
-"cases matching *my* filter" and a click seeds one. The filters are org-specific
-and unknowable today, so v0 does not guess them; it ships the on-demand picker
-(§4.1) whose query path *is* the queue's, and defers only the affordance +
-per-analyst/tenant filter config. When it lands it swaps "analyst types the
-filter" for "read the filter from config" — one call-site change, additive UI,
-not a rewrite. The ad-hoc picker survives alongside it (a one-off search always
-outlives a saved one).
+Their day starts in a **queue**, not a search, so the picker opens on one.
+
+**Landed, in its simplest form.** `query_external_cases` takes a structured
+**`queue`** input — the work queue the SoR assigns by (a ServiceNow assignment
+group, a Jira project/board, a TheHive team); the adapter maps it to its own
+vocabulary (`03 §2.9`). The tenant names its queue once, in the capability
+config's policies (`policies.case_queue`), and `GET /api/capabilities` reports
+it. With a queue configured, opening *From a case…* runs the queue query
+immediately and labels the rows; the free-text filter **narrows within** the
+queue. Without one, the picker is the on-demand search of §4.1. Both are the
+same server path; the queue is one more parameter on it, not a second flow.
+
+Two things are deliberately *not* here. The queue is a structured value, never
+a sentence: turning words into verb parameters is the agent's job, and the
+capability layer stays pure I/O — a language layer behind the search box would
+be a second reasoning surface with no investigation to attribute it to, and it
+would make "no results" ambiguous (an empty queue, or a mistranslated query?).
+And the picker **reads only**: a `ticket.*` write is an x-action inside an
+investigation, grounded by evidence and recorded against a principal; before
+the investigation exists there is nothing to record it against, so taking
+ownership or changing state stays in the SoR's own interface.
+
+**Deferred: per-analyst queues** ("assigned to me"). That needs a mapping from
+the IdP principal to the SoR user, which v0 does not hold. When it lands it is
+a second source for the same `queue`/assignee parameter — additive, not a
+rewrite. The ad-hoc search survives alongside (a one-off query always outlives
+a saved one).
 
 ### 4.3 Seed context for the agent
 

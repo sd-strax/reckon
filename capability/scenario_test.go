@@ -74,11 +74,14 @@ func TestShippedLateralMovementScenario(t *testing.T) {
 		t.Errorf("search_alerts: coverage=%q indicators=%d; want COMPLETE/>0", alerts.Coverage, indicators)
 	}
 
-	// The case system of record answers two questions differently (14 §4.1 vs
-	// the Act 3 change-record check): the queue filter returns the three open
-	// Tier 2 incidents; any other filter is COMPLETE with zero cases — evidence
-	// of absence, not unavailability.
-	queue, err := res.Resolve(ctx, "query_external_cases", CallInput{Extra: map[string]any{"filter": "SOC Tier 2"}})
+	// The case system of record answers two questions differently (14 §4.2 vs
+	// the Act 3 change-record check): the configured queue returns the three
+	// open Tier 2 incidents; a free-text filter with no queue is COMPLETE with
+	// zero cases — evidence of absence, not unavailability.
+	if got := res.PolicyString(PolicyCaseQueue); got != "SOC Tier 2" {
+		t.Errorf("policies.case_queue = %q; want %q", got, "SOC Tier 2")
+	}
+	queue, err := res.Resolve(ctx, "query_external_cases", CallInput{Extra: map[string]any{"queue": res.PolicyString(PolicyCaseQueue)}})
 	if err != nil {
 		t.Fatal(err)
 	}

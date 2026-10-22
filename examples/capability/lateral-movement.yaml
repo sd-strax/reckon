@@ -72,25 +72,28 @@ bindings:
       params: {}
 
   # The case system of record answers two different questions in this scenario,
-  # and the fixtures discriminate between them on the filter value:
+  # and the fixtures discriminate between them on the `queue` input:
   #
-  # - The analyst's queue ("Seed from case…" with the assignment group,
-  #   filter "SOC Tier 2") returns the three open Tier 2 incidents
-  #   (case-queue-*.json) — the demo's opening move, 14 §4.1.
+  # - The analyst's queue (the picker opens on policies.case_queue, "SOC Tier
+  #   2") returns the three open Tier 2 incidents (case-queue-*.json) — the
+  #   demo's opening move, 14 §4.1/4.2.
   # - The change-record check ("was there a change ticket / maintenance window
-  #   covering WIN-FILE01?") matches no fixture, so it is COMPLETE with zero
-  #   cases — evidence of ABSENCE against the legitimate-maintenance
-  #   hypothesis, which is exactly what the verdict residual and the
-  #   discriminating test need (an unbound verb would only say "unavailable").
+  #   covering WIN-FILE01?") is a free-text filter with no queue, so it matches
+  #   no fixture and is COMPLETE with zero cases — evidence of ABSENCE against
+  #   the legitimate-maintenance hypothesis, which is exactly what the verdict
+  #   residual and the discriminating test need (an unbound verb would only say
+  #   "unavailable").
   #
-  # The fixture adapter matches parameter values exactly, so the same scenario
-  # serves both without the adapter knowing anything about cases.
+  # The fixture adapter matches parameter values exactly and cannot do a text
+  # search, so a free-text filter narrows nothing here; a real SoR adapter
+  # applies both axes.
   query_external_cases:
     - adapter: fixture
       operation: replay
       priority: 100
       params:
         filter: '${filter?}'
+        queue: '${queue?}'
         status: '${status?}'
 
   # The second step of the case-seed flow (14 §3) and the agent's "read the
@@ -118,3 +121,8 @@ policies:
   default_window:
     investigation: PT24H
     hunt: PT7D
+  # The work queue the case system of record assigns this team's cases to
+  # (14 §4.2): the "From a case…" picker opens on it, and query_external_cases
+  # takes it as its `queue` input. A ServiceNow assignment group here; a Jira
+  # project or TheHive team in another shop.
+  case_queue: SOC Tier 2
