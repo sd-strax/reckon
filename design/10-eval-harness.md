@@ -177,6 +177,7 @@ deterministic means; judge-graded refinements are listed where they extend a v0 
 |---|---|---|---|
 | O1 | No emoji in assistant text (expert audience, `09 §2.1`) | SHOULD | transcript |
 | O2 | Per-turn response length within a configured ceiling (default: driver-configurable per turn) | SHOULD | transcript |
+| O3 | A question is answered, not investigated: on a driver-marked `answer_only` turn the agent calls no tool beyond those the question itself requires (`allowed_tools`; empty = none) — the next read is offered in a line, never taken. Guards the opening move of hypothesis-first: evidence fetched before a hypothesis exists shapes the framing, and every read is the analyst's record (`09 §2.1`) | SHOULD | tool-call log |
 
 The catalogue is append-mostly: new road-test findings add assertions; an assertion is removed only
 when its behavior graduates to a mechanism that makes it structurally impossible (`§7`) — and even

@@ -239,6 +239,7 @@ committed transcript + tool-call log alone:
 | R3 | SHOULD | decide-against-rivals: no `evaluate_hypothesis` *support* while a rival still holds an untested discriminating prediction (graded against the hypotheses view captured at trial end). When nothing is recorded on the turn: PASS outright if no discriminator is outstanding in that view (already decided — nothing to withhold); otherwise the outstanding test must be named (anchors, like E3). The driver's `ack_hypotheses: true` turn flag adopts PROPOSED hypotheses first (human token) so the state is reachable under the vetted posture |
 | O1 | SHOULD | no emoji in assistant text |
 | O2 | SHOULD | per-turn response length within the configured ceiling |
+| O3 | SHOULD | a question is answered, not investigated: on an `answer_only` turn, no tool call beyond `allowed_tools` (the read(s) the question itself requires; empty = none) |
 
 Deferred (documented in `graders.go`, not omitted): the remaining **event
 graders** G2–G3 land when the investigation APIs expose interpretation
@@ -253,7 +254,7 @@ otherwise false-positive.
 
 - **A scenario** is a YAML driver under `scenarios/` — an ordered list of user
   turns, each optionally carrying turn-scoped assertion ids and per-turn config
-  (`min_quotes` for H2, `max_response_runes` for O2, `anchors` for E2). The
+  (`min_quotes` for H2, `max_response_runes` for O2, `anchors` for E2, `answer_only` + `allowed_tools` for O3). The
   loader (`scenario.go`) validates every referenced id exists **and** is placed
   at its declared scope (turn-scoped vs trial-wide), so a typo or misplacement
   fails loudly at load, not silently at grading.
