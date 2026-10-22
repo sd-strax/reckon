@@ -255,17 +255,19 @@ analyst's trust in the agent is calibrated by spot-checking it; spot-checking is
 
 Hypotheses are the unit of work, not passive rail entries — and they come as a **competing
 set** (`01 §x-hypothesis`, "Competing hypotheses"), so the tracker's job is to keep the
-comparison visible while the analyst works one line of inquiry at a time. Two layers:
+comparison visible. The whole set is on screen, in full (`adr/0047`):
 
-- **The scoreboard strip** — every hypothesis as a tab: its `handle` (`H1 rdp-lateral`),
-  status verbatim (`PROPOSED / OPEN / SUPPORTED / REFUTED / INCONCLUSIVE / ABANDONED`), and
-  tested-over-total predictions. Always visible, so the neglected alternative is one glance
-  away and never silts up in a background tab.
-- **The working card** — the selected tab's hypothesis with its **predictions** nested:
-  statement, status (`UNTESTED / CONFIRMED / DISCONFIRMED / INCONCLUSIVE / WITHDRAWN`),
-  test-result refs (clickable, §2.8), and a *discriminates* chip naming the rival(s) the
-  prediction decides against. Selecting a tab sets the composer's focus: the ⚡ actions and
-  staged tests act on the hypothesis in view.
+- **One card per hypothesis, stacked, live ones first.** The head reads `handle` (`H1
+  rdp-lateral`) · status verbatim (`PROPOSED / OPEN / SUPPORTED / REFUTED / INCONCLUSIVE /
+  ABANDONED`, the pill explaining what the status means for the analyst) · tested-over-total
+  predictions. The **claim renders in full** beneath it — never clamped: the claim is the
+  content, and the rival is never behind a tab.
+- **Predictions nested under each card**, each named by its ordinal **`P1`, `P2`, …**
+  (assigned by the server view in record order across the investigation, so the tracker,
+  the composer and the agent's reasoning state all mean the same test by the same name):
+  statement in full, status (`UNTESTED / CONFIRMED / DISCONFIRMED / INCONCLUSIVE /
+  WITHDRAWN`), test-result refs (clickable, §2.8), and a *discriminates* chip naming the
+  rival(s) the prediction decides against. The ⚡ actions on a card act on that hypothesis.
 
 Interactions:
 
@@ -285,12 +287,14 @@ Interactions:
   untested (the analyst can say "record it anyway").
 - **Abandon** on a live hypothesis the analyst is not pursuing (→ `ABANDONED`), so
   unadopted proposals do not accumulate.
-- The tracker surfaces the **next move** across *all* hypotheses — preferring a
-  discriminating untested prediction over a merely confirming one: the "what would decide
-  this?" question answered at a glance.
+- The **decide guard is shown where it bites**, never as a headline: the outstanding
+  discriminator's row is marked (*undecided until tested*), and beside ⚡ Decide a note names
+  what blocks it (*blocked: P2 (H2 legit-admin) is untested and splits it from H1*). The
+  tracker does not tell the analyst what to do next; it tells them what stands between a
+  hypothesis and a decision.
 
-The scoreboard framing is the point: what is still open, what would decide it, and which
-rival nobody has killed yet. The verdict residual (§2.10) lists exactly that.
+The framing is the point: what is still open, what would decide it, and which rival nobody
+has killed yet. The verdict residual (§2.10) lists exactly that.
 
 ## 2.10 Verdict dialog — preflight and residual
 

@@ -184,8 +184,8 @@ lays out — but the point of this act is that there are **two** of them. Ask:
 The agent frames **`H1 rdp-lateral`** — *stolen `svc_backup` credentials used
 for hands-on-keyboard lateral movement over RDP (T1021.001)* — and
 **`H2 legit-admin`** — *an administrator used `svc_backup` over RDP for
-scheduled maintenance.* Both land `PROPOSED`; the tracker shows them as tabs
-with a scoreboard strip. *(One claim each. The agent is not allowed to frame a
+scheduled maintenance.* Both land `PROPOSED`; the tracker shows them as two
+stacked cards, claims in full, each with its tally. *(One claim each. The agent is not allowed to frame a
 rival it cannot name a discriminating test for — no strawmen.)*
 
 **Adopt H1** — the adopt card shows the statement *editable*: sharpen it

@@ -1763,35 +1763,29 @@ export class InvestigationDocuments {
     .clamp.expanded { -webkit-line-clamp: unset; display: inline; }
     .hyphead { display: flex; align-items: baseline; gap: 6px; }
     .hyphead .statement { flex: 1; min-width: 0; }
-    /* the scoreboard strip (ui/02 §2.9): every hypothesis as a tab — handle,
-       status tone, tested/total — so the neglected rival is one glance away */
-    .hypstrip { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px; }
-    .hyptab {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--r-pill);
-      border: 1px solid var(--border); background: transparent; color: var(--text-2);
-      cursor: pointer; max-width: 100%;
-    }
-    .hyptab:hover { color: var(--text); border-color: color-mix(in srgb, var(--vscode-foreground) 24%, transparent); }
-    .hyptab.active { color: var(--text); background: var(--fill); border-color: color-mix(in srgb, var(--he-primary) 55%, transparent); }
-    .hyptab .hname { font-weight: 700; font-family: var(--mono, ui-monospace, monospace); white-space: nowrap; }
-    .hyptab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: none; }
-    .hyptab .dot.ok { background: var(--ok); } .hyptab .dot.bad { background: var(--bad); }
-    .hyptab .dot.warn { background: var(--warn); } .hyptab .dot.live { background: var(--he-primary); }
-    .hyptab .cnt { color: var(--text-3); white-space: nowrap; }
-    .hyptab.terminal { opacity: 0.7; }
     .hyphandle {
       font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-xs); font-weight: 700;
       color: var(--he-primary-soft); margin-right: 4px; white-space: nowrap; cursor: pointer;
     }
     .hyphandle:hover { text-decoration: underline dotted; }
-    .nextmove {
-      font-size: var(--fs-xs); color: var(--text-2); margin: 0 0 6px; padding: 4px 8px;
-      border-left: 2px solid color-mix(in srgb, var(--he-primary) 55%, transparent);
-      display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+    /* the tracker (adr/0047): head = handle · status · tally; the claim below in
+       full; predictions named P<n>, in full, the outstanding discriminator marked */
+    .hyphead { justify-content: space-between; }
+    .hypmeta { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .hypcount { font-size: var(--fs-xs); color: var(--text-3); }
+    .card > .statement { display: block; margin-top: 4px; line-height: 1.4; }
+    .predline { display: flex; align-items: baseline; gap: 7px; }
+    .pord {
+      font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-xs); font-weight: 700;
+      color: var(--he-primary-soft); flex: none;
     }
-    .nextmove .nm { flex: 1; min-width: 0; }
-    .nextmove b { color: var(--text); font-weight: 600; }
+    .predtext { line-height: 1.4; }
+    .predictions li.outstanding { border-left-color: var(--he-primary); }
+    .outchip {
+      font-size: 10px; color: var(--he-primary-soft); border: 1px solid color-mix(in srgb, var(--he-primary) 45%, transparent);
+      border-radius: var(--r-pill); padding: 0 6px; white-space: nowrap;
+    }
+    .guardnote { font-size: var(--fs-xs); color: var(--text-2); align-self: center; }
     .discchip {
       font-size: 10px; color: var(--text-2); border: 1px dashed var(--border);
       border-radius: var(--r-pill); padding: 0 6px; white-space: nowrap;
@@ -3433,30 +3427,30 @@ export class InvestigationDocuments {
     // The next move across the WHOLE set (02 §2.9): a discriminating untested
     // prediction beats a merely confirming one — "what would decide this?"
     // answered for the investigation, not for the open tab.
-    function nextMove(all) {
-      let best = null;
-      for (const h of all) {
-        if (!isLive(h)) continue;
-        for (const p of h.predictions || []) {
-          if (p.status !== "UNTESTED") continue;
-          const score = (p.discriminates || []).length ? 2 : 1;
-          if (!best || score > best.score) best = { h, p, score };
+    // The untested discriminators standing between h and a decision: the
+    // predictions a LIVE RIVAL holds that come out the opposite way under h
+    // (01 §x-hypothesis — until each is tested or withdrawn, neither side can
+    // be called). Shown where the guard bites, never as a headline.
+    function blockersOf(h, all) {
+      const out = [];
+      for (const o of all) {
+        if (o.id === h.id || !isLive(o)) continue;
+        for (const p of o.predictions || []) {
+          if (p.status === "UNTESTED" && (p.discriminates || []).includes(h.id)) out.push({ p, owner: o });
         }
       }
-      return best;
+      return out;
     }
+    // A prediction's short name (adr/0047): its ordinal from the server view,
+    // the same P<n> the agent's reasoning state uses.
+    function predName(p) { return p.ordinal ? "P" + p.ordinal : "this prediction"; }
 
-    // The selected tab — the working hypothesis. Survives re-renders; falls
-    // back to the first live hypothesis when its own disappears.
-    let activeHyp = null;
-
-    // The hypothesis tracker — the drivable loop over a COMPETING SET (02 §2.9).
-    // Two layers: the scoreboard strip (every hypothesis as a tab: handle,
-    // status, tested/total — the neglected rival is always one glance away)
-    // and the working card for the selected tab. PROPOSED cards carry Adopt
-    // (a human act the engine enforces; the statement is editable in the
-    // adopt card), UNTESTED predictions carry "Test this" / "Withdraw", any
-    // live card takes "+ prediction" and "Abandon".
+    // The hypothesis tracker — the drivable loop over a COMPETING SET (02 §2.9,
+    // adr/0047). Every hypothesis is a card, live ones first, the claim in
+    // full: the comparison IS the content, so no tab hides the rival and no
+    // clamp hides the claim. The decide guard appears beside ⚡ Decide and as a
+    // mark on the outstanding discriminator — where it bites — never as a
+    // banner telling the analyst what to do next.
     function renderHypotheses(hs) {
       const box = $("hyps");
       box.textContent = "";
@@ -3464,62 +3458,8 @@ export class InvestigationDocuments {
         box.innerHTML = '<div class="empty">None yet</div>';
         return;
       }
-      if (!hs.some((h) => h.id === activeHyp)) {
-        activeHyp = (hs.find(isLive) || hs[0]).id;
-      }
-
-      const nm = nextMove(hs);
-      if (nm) {
-        const bar = document.createElement("div");
-        bar.className = "nextmove";
-        const txt = document.createElement("span");
-        txt.className = "nm";
-        const b = document.createElement("b");
-        const rivals = (nm.p.discriminates || []).map((d) => nameOf(d, hs));
-        b.textContent = rivals.length
-          ? "Next: splits " + hypName(nm.h, hs) + " from " + rivals.join(", ")
-          : "Next: untested on " + hypName(nm.h, hs);
-        txt.append(b, document.createTextNode(" — " + nm.p.statement));
-        txt.title = nm.p.statement;
-        const go = document.createElement("button");
-        go.className = "testbtn";
-        go.textContent = "Test this";
-        go.title = "Open that hypothesis and stage this test in the composer";
-        go.addEventListener("click", () => {
-          activeHyp = nm.h.id;
-          renderHypotheses(hs);
-          stageInComposer(predictionTestText(nm.p, nm.h, hs));
-        });
-        bar.append(txt, go);
-        box.appendChild(bar);
-      }
-
-      if (hs.length > 1) {
-        const strip = document.createElement("div");
-        strip.className = "hypstrip";
-        for (const x of hs) {
-          const tab = document.createElement("button");
-          tab.className = "hyptab" + (x.id === activeHyp ? " active" : "") + (isLive(x) ? "" : " terminal");
-          const dot = document.createElement("span");
-          dot.className = "dot " + (isLive(x) ? "live" : (BADGE_TONE[x.status] || ""));
-          const name = document.createElement("span");
-          name.className = "hname";
-          name.textContent = hypName(x, hs);
-          const preds = (x.predictions || []).filter(counted);
-          const cnt = document.createElement("span");
-          cnt.className = "cnt";
-          cnt.textContent = preds.length
-            ? preds.filter(tested).length + "/" + preds.length
-            : x.status.toLowerCase();
-          tab.title = x.status + " — " + x.statement;
-          tab.append(dot, name, cnt);
-          tab.addEventListener("click", () => { activeHyp = x.id; renderHypotheses(hs); });
-          strip.appendChild(tab);
-        }
-        box.appendChild(strip);
-      }
-
-      box.appendChild(renderHypothesisCard(hs.find((x) => x.id === activeHyp), hs));
+      const ordered = hs.slice().sort((a, b) => (isLive(a) ? 0 : 1) - (isLive(b) ? 0 : 1));
+      for (const h of ordered) box.appendChild(renderHypothesisCard(h, hs));
     }
 
     function renderHypothesisCard(h, hs) {
@@ -3551,15 +3491,28 @@ export class InvestigationDocuments {
         }));
       }
       const st = document.createElement("span");
-      st.className = "statement clamp c4";
+      st.className = "statement";
       st.textContent = h.statement;
-      st.title = h.statement;
-      st.addEventListener("click", () => st.classList.toggle("expanded"));
       const badge = document.createElement("span");
       badge.className = badgeClass(h.status);
       badge.textContent = h.status;
-      head.append(handle, st, badge);
+      badge.title = h.status === "PROPOSED"
+        ? "Proposed by the agent. Adopt it to take ownership. Until a human does, the agent can propose and run tests against it but cannot record it supported or refuted."
+        : h.status === "OPEN" ? "Adopted — yours. Decided by its tests against the rivals."
+        : h.status;
+      const meta = document.createElement("span");
+      meta.className = "hypmeta";
+      meta.appendChild(badge);
+      if (preds.length) {
+        const cnt = document.createElement("span");
+        cnt.className = "hypcount";
+        cnt.textContent = preds.filter(tested).length + "/" + preds.length + " tested";
+        cnt.title = "Predictions tested over predictions recorded (withdrawn ones not counted)";
+        meta.appendChild(cnt);
+      }
+      head.append(handle, meta);
       card.appendChild(head);
+      card.appendChild(st);
 
       const hasUntested = preds.some((p) => p.status === "UNTESTED");
       const decide = document.createElement("div");
@@ -3620,6 +3573,15 @@ export class InvestigationDocuments {
           mkAside("⚡ Decide", "⚡ deciding…",
             "Weighs the tested predictions AGAINST THE RIVALS and records the hypothesis outcome (supported / refuted / inconclusive) citing the decisive evidence. Declines while a rival's discriminating test is untested — you can tell it to record anyway. Terminal in v0.",
             "hyp.decide");
+          const blockers = blockersOf(h, hs);
+          if (blockers.length) {
+            const note = document.createElement("span");
+            note.className = "guardnote";
+            note.textContent = "blocked: " + blockers.map((x) => predName(x.p) + " (" + hypName(x.owner, hs) + ")").join(", ")
+              + (blockers.length === 1 ? " is untested and splits it from " : " are untested and split it from ") + hypName(h, hs);
+            note.title = "The engine will not record this hypothesis decided while a rival holds an untested prediction that comes out the opposite way under it. Test it, withdraw it, or tell the agent to record anyway.";
+            decide.appendChild(note);
+          }
         }
       }
       if (live) {
@@ -3686,12 +3648,22 @@ export class InvestigationDocuments {
           // row renders as an equal peer; no implied ordering.
           const li = document.createElement("li");
           if (p.status === "WITHDRAWN") li.style.opacity = "0.55";
+          const outstanding = live && p.status === "UNTESTED" && (p.discriminates || []).length > 0;
+          if (outstanding) li.classList.add("outstanding");
+          const pline = document.createElement("div");
+          pline.className = "predline";
+          if (p.ordinal) {
+            const ord = document.createElement("span");
+            ord.className = "pord";
+            ord.textContent = "P" + p.ordinal;
+            ord.title = "How to refer to this prediction — in the composer, and in the agent's reasoning state";
+            pline.appendChild(ord);
+          }
           const ptext = document.createElement("span");
-          ptext.className = "clamp c2";
+          ptext.className = "predtext";
           ptext.textContent = p.statement;
-          ptext.title = p.statement;
-          ptext.addEventListener("click", () => ptext.classList.toggle("expanded"));
-          li.appendChild(ptext);
+          pline.appendChild(ptext);
+          li.appendChild(pline);
 
           // One structured controls row per prediction: status badge, the
           // discriminates chip, then evidence chips, action anchored at the
@@ -3712,6 +3684,13 @@ export class InvestigationDocuments {
             dc.title = "Discriminating test: these rivals predict the opposite outcome. CONFIRMED counts against them; DISCONFIRMED supports them.";
             row.appendChild(dc);
           }
+          if (outstanding) {
+            const os = document.createElement("span");
+            os.className = "outchip";
+            os.textContent = "undecided until tested";
+            os.title = "This is the test that separates the hypotheses. Until it runs (or is withdrawn), neither side can be recorded decided.";
+            row.appendChild(os);
+          }
           // The decisive outcomes cite what was observed — every test-result
           // ref opens (02 §2.8).
           const trefs = p.testResultRefs || [];
@@ -3726,7 +3705,7 @@ export class InvestigationDocuments {
                 title: "Withdraw prediction",
                 label: "Why (optional)",
                 placeholder: "e.g. not testable with our verbs; same outcome under both hypotheses",
-                helper: "The record keeps it as WITHDRAWN; the scoreboard stops counting it.",
+                helper: "The record keeps it as WITHDRAWN; the tally stops counting it.",
                 confirm: "Withdraw",
                 require: false,
                 onConfirm: (reason) => vscode.postMessage({ type: "pred.withdraw", predictionRef: p.id, reason }),
@@ -3735,7 +3714,7 @@ export class InvestigationDocuments {
             }
             const test = document.createElement("button");
             test.className = "testbtn" + (live ? "" : " predact");
-            test.textContent = "Test this";
+            test.textContent = p.ordinal ? "Test " + predName(p) : "Test this";
             test.title = p.testQuery && p.testQuery.queryText
               ? "Stage just this test in the composer: " + p.testQuery.queryText
               : "Stage a test of just this prediction in the composer";
