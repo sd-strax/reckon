@@ -50,4 +50,3 @@ it belongs to a public repository.
 | [0030](0030-cases-pane.md) | The case queue is a read-only view with a non-persisting read surface; starting an investigation is the only act on it |
 | [0032](0032-case-note.md) | The "opened in reckon" note on a seed case is a `ticket.comment` action in the new investigation, offered under `cases.note_on_seed` (confirm by default) |
 | [0034](0034-start-detach.md) | `reckon start --detach` returns when the stack is ready; foreground stays the default; `scripts/demo-reseed.sh` composes the lifecycle |
-| [0045](0045-answer-the-ask.md) | A question is answered, not investigated: the agent takes only the read the ask requires and offers the next; a verdict-shaped question is framed, then waits for the go (prompt contract, graded by O3) |
