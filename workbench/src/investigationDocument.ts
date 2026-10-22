@@ -2003,6 +2003,14 @@ export class InvestigationDocuments {
       background: none; border: none; padding: 0; cursor: pointer;
       color: var(--vscode-textLink-foreground); text-decoration: underline;
     }
+    /* The open seed path (From an alert… / From a case…) reads as a pressed
+       chip, so the toggle shows a choice, not a flicker. Negative margins
+       absorb the padding so the row does not shift when a path opens. */
+    .linklike[aria-pressed="true"] {
+      text-decoration: none; padding: 2px 8px; margin: -2px -8px; border-radius: var(--r-sm);
+      background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.18));
+      outline: 1px solid var(--vscode-focusBorder);
+    }
     #draftAlertForm { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
     #draftAlertForm input {
       font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background);
@@ -2163,8 +2171,8 @@ export class InvestigationDocuments {
       <div id="draftInterp" class="draftInterp"></div>
       <div class="draftActions">
         <button class="primary" id="draftStart" disabled>Start investigation</button>
-        <button id="draftAlertToggle" class="linklike">From an alert…</button>
-        <button id="draftCaseToggle" class="linklike">From a case…</button>
+        <button id="draftAlertToggle" class="linklike" aria-pressed="false">From an alert…</button>
+        <button id="draftCaseToggle" class="linklike" aria-pressed="false">From a case…</button>
       </div>
       <div id="draftAlertForm" style="display:none">
         <input id="draftAlertId" type="text" placeholder="alert id in its tool (e.g. EDR-ALERT-7741)">
@@ -4416,14 +4424,13 @@ export class InvestigationDocuments {
       $("draftInput").value = "";
       $("draftErr").textContent = "";
       $("draftInterp").innerHTML = "";
-      $("draftAlertForm").style.display = "none";
-      $("draftCaseForm").style.display = "none";
+      setSeedPath(null);
       $("draftCaseFilter").value = "";
       $("draftCaseResults").innerHTML = "";
       $("draftCaseStatus").textContent = "";
       $("draftStart").disabled = true;
       // reckon.seedFromCase opens the draft straight into the case search.
-      if (mode === "case") { toggleCaseForm(true); } else { $("draftInput").focus(); }
+      if (mode === "case") { setSeedPath("case"); } else { $("draftInput").focus(); }
     }
     function hideDraft() { $("draftView").style.display = "none"; }
     function submitDraft() {
@@ -4439,10 +4446,26 @@ export class InvestigationDocuments {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitDraft(); }
     });
     $("draftStart").addEventListener("click", submitDraft);
+    // The two system-of-record paths are disclosure toggles on one card (not a
+    // wizard): at most one is open, and the open one's link is pressed. One
+    // helper owns both the form's visibility and the link's aria-pressed, so
+    // the two can never disagree. path: "alert" | "case" | null.
+    function setSeedPath(path) {
+      const open = (id, on) => { $(id).style.display = on ? "flex" : "none"; };
+      open("draftAlertForm", path === "alert");
+      open("draftCaseForm", path === "case");
+      $("draftAlertToggle").setAttribute("aria-pressed", String(path === "alert"));
+      $("draftCaseToggle").setAttribute("aria-pressed", String(path === "case"));
+      if (path === "alert") $("draftAlertId").focus();
+      if (path === "case") $("draftCaseFilter").focus();
+    }
+    function currentSeedPath() {
+      if ($("draftAlertForm").style.display !== "none") return "alert";
+      if ($("draftCaseForm").style.display !== "none") return "case";
+      return null;
+    }
     $("draftAlertToggle").addEventListener("click", () => {
-      const f = $("draftAlertForm");
-      f.style.display = f.style.display === "none" ? "flex" : "none";
-      if (f.style.display === "flex") { $("draftCaseForm").style.display = "none"; $("draftAlertId").focus(); }
+      setSeedPath(currentSeedPath() === "alert" ? null : "alert");
     });
     function alertReady() {
       $("draftAlertStart").disabled = !($("draftAlertId").value.trim() && $("draftAlertSource").value.trim());
@@ -4461,12 +4484,6 @@ export class InvestigationDocuments {
     // and pick, all on this surface — the filter is a field here, never the
     // top-of-window quick input (workbench discipline, 13 §3). The pick fails
     // closed server-side, so a bad case never seeds a half-loaded investigation.
-    function toggleCaseForm(force) {
-      const f = $("draftCaseForm");
-      const show = force !== undefined ? force : f.style.display === "none";
-      f.style.display = show ? "flex" : "none";
-      if (show) { $("draftAlertForm").style.display = "none"; $("draftCaseFilter").focus(); }
-    }
     function submitCaseSearch() {
       $("draftCaseStatus").textContent = "Searching the case system of record…";
       $("draftCaseResults").innerHTML = "";
@@ -4496,7 +4513,9 @@ export class InvestigationDocuments {
         box.appendChild(row);
       }
     }
-    $("draftCaseToggle").addEventListener("click", () => toggleCaseForm());
+    $("draftCaseToggle").addEventListener("click", () => {
+      setSeedPath(currentSeedPath() === "case" ? null : "case");
+    });
     $("draftCaseSearchBtn").addEventListener("click", submitCaseSearch);
     $("draftCaseFilter").addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); submitCaseSearch(); }
