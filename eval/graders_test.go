@@ -205,7 +205,22 @@ func TestGradeH5(t *testing.T) {
 	if v := gradeH5(selfCorrected); v.Result != Pass {
 		t.Errorf("self-corrected = %s (%s); want PASS (dispatched attempt conforms)", v.Result, v.Detail)
 	}
+
+	// The #17 shape: parameters stringified with a stray ']' after the object.
+	// The loop's unwrapper recovers the object and the engine stores it
+	// conforming, so nothing malformed dispatched — H5 must agree with the loop.
+	repairedDispatched := &TrialRecord{ActionInputs: ticketInputs, Turns: []TurnRecord{{
+		ToolCalls:  []ToolCall{{ToolName: "request_action", Args: repairedArgs}},
+		Transcript: reqResult("t1", true),
+	}}}
+	if v := gradeH5(repairedDispatched); v.Result != Pass {
+		t.Errorf("repaired-stringified dispatched = %s (%s); want PASS (the loop dispatched a conforming object)", v.Result, v.Detail)
+	}
 }
+
+// repairedArgs is the real trial-1 shape from #17: a stringified object with
+// trailing data the loop's streaming decode tolerates but strict JSON rejects.
+const repairedArgs = `{"action_type":"ticket.create","parameters":"{\"summary\": \"handoff\", \"description\": \"d\"}]"}`
 
 // TestGradeH6: SHOULD — every ATTEMPT is graded for formatting hygiene,
 // regardless of whether the backend accepted or rejected it.
@@ -220,6 +235,24 @@ func TestGradeH6(t *testing.T) {
 	}}}
 	if v := gradeH6(conforming); v.Result != Pass {
 		t.Errorf("conforming parameters = %s (%s); want PASS", v.Result, v.Detail)
+	}
+
+	// A cleanly stringified object is unwrapped, not repaired: hygiene passes.
+	stringified := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
+		ToolCalls: []ToolCall{{ToolName: "request_action",
+			Args: `{"action_type":"ticket.create","parameters":"{\"summary\": \"handoff\"}"}`}},
+	}}}
+	if v := gradeH6(stringified); v.Result != Pass {
+		t.Errorf("cleanly stringified = %s (%s); want PASS", v.Result, v.Detail)
+	}
+
+	// One that needed repair (#17) is the fumble H6 exists to count — even
+	// though H5 passes it, because the loop dispatched a conforming object.
+	repaired := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
+		ToolCalls: []ToolCall{{ToolName: "request_action", Args: repairedArgs}},
+	}}}
+	if v := gradeH6(repaired); v.Result != Fail || !strings.Contains(v.Detail, "needed repair") {
+		t.Errorf("repaired stringified = %s (%s); want FAIL naming the repair", v.Result, v.Detail)
 	}
 
 	// The exact defect the harness found: invented {"title","body"} instead of

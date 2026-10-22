@@ -312,12 +312,13 @@ func (r *Report) Regressions(base *BaselineSummary) []string {
 			if prev.Exercised == 0 || res.Exercised == 0 {
 				continue
 			}
-			prevRate := float64(prev.Passed) / float64(prev.Exercised)
-			rate := float64(res.Passed) / float64(res.Exercised)
-			tolerance := 1.0 / float64(res.Exercised) // one trial's worth
-			if rate < prevRate-tolerance {
-				out = append(out, fmt.Sprintf("%s: SHOULD rate dropped %.2f -> %.2f (tolerance %.2f)",
-					label, prevRate, rate, tolerance))
+			// "Drops by MORE than one trial's worth" (10 §4.4), decided in
+			// integers: prevRate - rate > 1/N  ⇔  prev.Passed·N - res.Passed·prevN > prevN.
+			// In floating point 1 - 1/3 and 2/3 are not equal, and a 3/3 → 2/3
+			// run — exactly one trial's worth, acceptable — was flagged (#18).
+			if prev.Passed*res.Exercised-res.Passed*prev.Exercised > prev.Exercised {
+				out = append(out, fmt.Sprintf("%s: SHOULD rate dropped %d/%d -> %d/%d (tolerance: one trial)",
+					label, prev.Passed, prev.Exercised, res.Passed, res.Exercised))
 			}
 		}
 	}

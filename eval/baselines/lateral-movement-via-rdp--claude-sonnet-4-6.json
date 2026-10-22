@@ -1,15 +1,15 @@
 {
   "attribution": {
-    "prompt_version": "63baf3b439acdff156e6123a64f4b6bb9666f5cc51b5d37a5b0d556a68b81654",
+    "prompt_version": "49db1f85fec6cefbdcd51d8c45e39a2b7e98b5791a0d4dd676ebeafc2e039fed",
     "model": "claude-sonnet-4-6",
     "action_catalog_hash": "b25809c09675d153d3722ca7e92e81c0d99c55a79eb8582ba0e1ffdebbf0a245",
     "scenario_id": "lateral-movement-via-rdp",
-    "driver_hash": "0cf4d73b12dd5718d49bf27a554e8b33f96472c91b1cb3df555b5a35e2476d3b",
-    "catalogue_version": "v0.6",
+    "driver_hash": "3a2d6e2ea68d0edb20f596e2851720499665df5af4f561b2973be189bd90517c",
+    "catalogue_version": "v0.10",
     "trials": 3
   },
   "results": {
-    "A2@turn9": {
+    "A2@turn11": {
       "severity": "MUST",
       "result": "PASS",
       "passed": 3,
@@ -21,13 +21,13 @@
       "passed": 3,
       "exercised": 3
     },
-    "E1@turn6": {
+    "E1@turn8": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
       "exercised": 3
     },
-    "E2@turn7": {
+    "E2@turn9": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
@@ -45,6 +45,12 @@
       "passed": 3,
       "exercised": 3
     },
+    "G4": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
     "H2@turn1": {
       "severity": "MUST",
       "result": "PASS",
@@ -57,7 +63,7 @@
       "passed": 3,
       "exercised": 3
     },
-    "H4@turn5": {
+    "H4@turn7": {
       "severity": "MUST",
       "result": "PASS",
       "passed": 3,
@@ -71,9 +77,27 @@
     },
     "H6": {
       "severity": "SHOULD",
+      "result": "FAIL",
+      "passed": 2,
+      "exercised": 3
+    },
+    "H7@turn7": {
+      "severity": "SHOULD",
+      "result": "NOT_EXERCISED",
+      "passed": 0,
+      "exercised": 0
+    },
+    "H8@turn10": {
+      "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
       "exercised": 3
+    },
+    "H8@turn6": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 2,
+      "exercised": 2
     },
     "O1": {
       "severity": "SHOULD",
@@ -87,7 +111,25 @@
       "passed": 3,
       "exercised": 3
     },
-    "O2@turn7": {
+    "O2@turn9": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "R1@turn2": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "R2@turn4": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "R3@turn5": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
