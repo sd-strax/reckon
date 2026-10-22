@@ -154,6 +154,29 @@ func TestLoadMalformedYAMLErrors(t *testing.T) {
 	}
 }
 
+func TestCaseNotePosture(t *testing.T) {
+	cases := []struct {
+		in    string
+		valid bool
+		eff   string
+	}{
+		{"", true, CaseNoteConfirm}, // default: ask the analyst
+		{"confirm", true, CaseNoteConfirm},
+		{"auto", true, CaseNoteAuto},
+		{"off", true, CaseNoteOff},
+		{"always", false, "always"},
+	}
+	for _, c := range cases {
+		k := Cases{NoteOnSeed: c.in}
+		if k.ValidNoteOnSeed() != c.valid {
+			t.Errorf("ValidNoteOnSeed(%q) = %v; want %v", c.in, k.ValidNoteOnSeed(), c.valid)
+		}
+		if k.NoteOnSeedOrDefault() != c.eff {
+			t.Errorf("NoteOnSeedOrDefault(%q) = %q; want %q", c.in, k.NoteOnSeedOrDefault(), c.eff)
+		}
+	}
+}
+
 func TestKnowledgeInjectionPosture(t *testing.T) {
 	cases := []struct {
 		in    string

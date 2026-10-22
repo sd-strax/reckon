@@ -186,6 +186,12 @@ type BackendConfig struct {
 	// "leading_only"), surfaced to the agent on the investigation detail view
 	// (01 §x-hypothesis "Competing hypotheses").
 	HypothesisFraming string
+
+	// CaseNoteOnSeed is the effective case write-back posture
+	// (config.Cases.NoteOnSeed: "confirm" default | "auto" | "off";
+	// adr/0032-case-note.md), surfaced on create/detail so the client knows
+	// whether to ask, act, or stay silent; "off" is enforced at the endpoint.
+	CaseNoteOnSeed string
 }
 
 // Backend is the in-process HTTP server.
@@ -739,6 +745,17 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.renameInvestigation)
+		default:
+			methodNotAllowed(w, "POST")
+		}
+		return
+	}
+	// POST /api/investigations/{id}/case_note — request the "opened in reckon"
+	// note on the seed case as a ticket.comment action (adr/0032). Analyst.
+	if strings.HasSuffix(trimmed, "/case_note") {
+		switch r.Method {
+		case http.MethodPost:
+			b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.requestCaseNote)
 		default:
 			methodNotAllowed(w, "POST")
 		}

@@ -34,7 +34,11 @@ inconsistent.
 - **Auto-creation / a polling feed** — a noise-policy decision needing
   watermark/dedup state. Deferred with the configured case queue (§4.2).
 - **Status sync** — the investigation and the case keep independent lifecycles;
-  linking them (close the case ⇒ conclude?) is workflow policy, deferred.
+  linking them (close the case ⇒ conclude?) is workflow policy, deferred. Its
+  smallest piece has landed on its own terms: the "opened in reckon" note on
+  the seed case is a `ticket.comment` **action inside the new investigation**,
+  offered under the tenant posture `cases.note_on_seed` (confirm by default,
+  auto, off) — never a side effect of creation (`adr/0032-case-note.md`).
 - **Ticket-as-action** — writing a case is `04`/`08`, unchanged.
 
 ---

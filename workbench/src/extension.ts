@@ -56,7 +56,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // The case queue (adr/0030-cases-pane.md): the SoR's queue below
   // Investigations; a case opens read-only and an investigation starts from it.
   const cases = new CasesProvider(client, session);
-  const caseDocs = new CaseDocuments(client, log, () => {
+  const caseDocs = new CaseDocuments(client, log, (created) => {
+    documents.show(created.id, created.title);
+    // The case write-back posture (adr/0032): ask, act, or nothing.
+    documents.offerCaseNote(created);
     investigations.refresh();
     cases.refresh();
   });

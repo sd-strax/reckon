@@ -25,8 +25,51 @@ type Config struct {
 	Export     Export     `yaml:"export"`
 	Trust      Trust      `yaml:"trust"`
 	Reasoning  Reasoning  `yaml:"reasoning"`
+	Cases      Cases      `yaml:"cases"`
 	Demo       Demo       `yaml:"demo"`
 	Paid       Paid       `yaml:"paid"`
+}
+
+// Cases holds the tenant dials for investigations rooted on a system-of-record
+// case (design/14-case-seed.md).
+type Cases struct {
+	// NoteOnSeed is the write-back posture when an investigation is rooted on a
+	// case (adr/0032-case-note.md): whether the case gets a note saying an
+	// investigation was opened in reckon. The note is an ordinary ticket.comment
+	// action inside the NEW investigation — authorized by Gate 2 and recorded
+	// like any write — never a side effect of creation.
+	//   "confirm" (default) — the analyst is asked at creation, with the note
+	//            text editable; posting it requests the action.
+	//   "auto"              — the action is requested without asking (Gate 2
+	//            still decides whether it auto-approves or waits).
+	//   "off"               — never offered; the endpoint refuses.
+	NoteOnSeed string `yaml:"note_on_seed"`
+}
+
+// Case-note postures (adr/0032).
+const (
+	CaseNoteConfirm = "confirm"
+	CaseNoteAuto    = "auto"
+	CaseNoteOff     = "off"
+)
+
+// ValidNoteOnSeed reports whether the posture is a known value; empty resolves
+// to the confirm default at read time.
+func (c Cases) ValidNoteOnSeed() bool {
+	switch c.NoteOnSeed {
+	case "", CaseNoteConfirm, CaseNoteAuto, CaseNoteOff:
+		return true
+	default:
+		return false
+	}
+}
+
+// NoteOnSeedOrDefault is the effective posture.
+func (c Cases) NoteOnSeedOrDefault() string {
+	if c.NoteOnSeed == "" {
+		return CaseNoteConfirm
+	}
+	return c.NoteOnSeed
 }
 
 // Demo is the single switch that segregates the bundled demo world from a real

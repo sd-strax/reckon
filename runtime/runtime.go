@@ -383,6 +383,7 @@ func serve(cfg config.Config) error {
 		AllowAIReasoning:        cfg.Trust.AIReasoning,
 		KnowledgeInjection:      cfg.Knowledge.InjectionOrDefault(),
 		HypothesisFraming:       cfg.Reasoning.HypothesisFramingOrDefault(),
+		CaseNoteOnSeed:          cfg.Cases.NoteOnSeedOrDefault(),
 	}
 	if tel.Metrics != nil {
 		backendCfg.MetricsHandler = tel.Metrics.Handler()
@@ -491,6 +492,12 @@ func buildKnowledge(cfg config.Config, db *sql.DB) (*knowledge.Store, error) {
 	if !cfg.Reasoning.ValidHypothesisFraming() {
 		return nil, fmt.Errorf("reasoning.hypothesis_framing: %q is not a valid shape (want %q or %q)",
 			cfg.Reasoning.HypothesisFraming, config.HypothesisFramingLeadingNull, config.HypothesisFramingLeadingOnly)
+	}
+	// The case write-back posture (adr/0032) is validated with its siblings: a
+	// typo must fail startup, not silently become "ask" or "never".
+	if !cfg.Cases.ValidNoteOnSeed() {
+		return nil, fmt.Errorf("cases.note_on_seed: %q is not a valid posture (want %q, %q or %q)",
+			cfg.Cases.NoteOnSeed, config.CaseNoteConfirm, config.CaseNoteAuto, config.CaseNoteOff)
 	}
 	corpora := []substrate.CorpusDef{
 		{Name: knowledge.CorpusProcedures, Archetype: substrate.Curated, Governance: substrate.Lightweight},

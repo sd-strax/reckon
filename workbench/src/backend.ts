@@ -154,6 +154,10 @@ export interface InvestigationDetail {
   verdict?: Verdict;
   seed?: Seed;
   seedSummary?: string;
+  /** Tenant case write-back posture: "confirm" | "auto" | "off" (adr/0032). */
+  caseNoteOnSeed?: string;
+  /** On create of a case-rooted investigation: the default note to offer. */
+  caseNote?: { caseId: string; body: string };
 }
 
 /** One pinned-evidence row (mirrors server.PinView). */
@@ -419,6 +423,9 @@ interface RawInvestigation {
     case_id?: string; case_ref?: string;
   };
   seed_summary?: string;
+  // The case write-back posture and, on create, the note offer (adr/0032).
+  case_note_on_seed?: string;
+  case_note?: { case_id?: string; body?: string };
 }
 
 /** Map a raw seed body to the client Seed shape (shared by list/get/create). */
@@ -1312,7 +1319,23 @@ export class BackendClient {
       lastEventSequence: r.last_event_sequence ?? 0,
       seed: mapSeed(r.seed),
       seedSummary: r.seed_summary,
+      caseNoteOnSeed: r.case_note_on_seed,
+      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "" } : undefined,
     };
+  }
+
+  /**
+   * POST /api/investigations/{id}/case_note — request the "opened in reckon"
+   * note on the seed case as a ticket.comment action inside the investigation
+   * (adr/0032). body overrides the default text. Returns the action's id and
+   * authorization status, exactly like any action request.
+   */
+  async requestCaseNote(id: string, body?: string): Promise<{ actionId: string; status: string }> {
+    const r = await this.authedPost<{ action_id?: string; status?: string }>(
+      `/api/investigations/${encodeURIComponent(id)}/case_note`,
+      body ? { body } : {},
+    );
+    return { actionId: r.action_id ?? "", status: r.status ?? "" };
   }
 
   /**
