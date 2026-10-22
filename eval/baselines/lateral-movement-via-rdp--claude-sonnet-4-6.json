@@ -1,6 +1,7 @@
 {
   "attribution": {
-    "prompt_version": "49db1f85fec6cefbdcd51d8c45e39a2b7e98b5791a0d4dd676ebeafc2e039fed",
+    "prompt_version": "afe2ad5cb42d7bcf6432bbff874919d266ded80992403d2c8989f81a1cd10c0b",
+    "hypothesis_framing": "leading_null",
     "model": "claude-sonnet-4-6",
     "action_catalog_hash": "b25809c09675d153d3722ca7e92e81c0d99c55a79eb8582ba0e1ffdebbf0a245",
     "scenario_id": "lateral-movement-via-rdp",

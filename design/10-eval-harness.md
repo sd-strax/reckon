@@ -58,9 +58,13 @@ becomes an assertion here, so it can never silently regress.
    honesty) are v1: useful, but a judge is itself a model behavior to validate, so it never gates
    before the deterministic floor exists.
 4. **Every run is attributed.** A report without attribution is a vibe. Each run records: prompt
-   version (content hash of the assembled base prompt — the `09 §4.2` identifier, computed by the
-   harness until the product stamps it), model id, action-catalog content hash, scenario id + driver
-   script hash, assertion-catalogue version, trial count.
+   version (`agent.PromptVersion` — the content hash of the **base** prompt, a function of the prompt
+   code and the `hypothesis_framing` dial recorded beside it, and of nothing that varies per
+   investigation or install; the `09 §4.2` identifier, stamped by the agent package so the harness
+   and any future product surface agree), model id, action-catalog content hash, scenario id +
+   driver script hash, assertion-catalogue version, trial count. The prompt *as assembled* per trial
+   is kept in the trial record for inspection, never hashed as the version — a hash that moved with
+   the investigation id would mint a new "version" every run and say nothing.
 5. **Out of the test fast-path, out of CI by default.** Eval runs cost real tokens on a BYOK key and
    minutes of wall clock. They are explicitly invoked (`make eval`), never part of `-short`, `make
    ci`, or a merge gate at v0. A *failed eval blocks a prompt change* by discipline (`§4.4`), not by

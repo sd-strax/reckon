@@ -1,9 +1,26 @@
 package agent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 )
+
+// PromptVersion identifies the prompt the agent runs under: the SHA-256 of
+// the base prompt — systemPrompt rendered with no investigation and no
+// capability list — for the given hypothesis-framing dial. It is a pure
+// function of the prompt CODE and the one tenant dial that changes the
+// prompt's words (01 §x-hypothesis); it does not move with the investigation
+// id, title, seed, or the environment's degraded verbs, which vary per case
+// and per install and are not the prompt. The eval harness stamps it on every
+// run (10 §1.4), and "model X is supported" is a claim about a baseline at a
+// prompt version (10 §4.4) — so it must be stable across runs on the same code
+// and differ whenever the model is read different instructions.
+func PromptVersion(framing string) string {
+	sum := sha256.Sum256([]byte(systemPrompt(Investigation{HypothesisFraming: framing}, nil)))
+	return hex.EncodeToString(sum[:])
+}
 
 // Hypothesis-framing shapes (01 §x-hypothesis "Competing hypotheses"), mirrored
 // from config.Reasoning so the agent package stays free of the config import.

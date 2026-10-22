@@ -78,6 +78,11 @@ type TrialRecord struct {
 	Trial           int          `json:"trial"`
 	InvestigationID string       `json:"investigation_id"`
 	Turns           []TurnRecord `json:"turns"`
+	// SystemPrompt is the system prompt AS ASSEMBLED for this trial — the
+	// base prompt (whose hash is the run's prompt_version) plus the
+	// investigation's standing context. Kept so "what was the model told"
+	// is inspectable from the artifact without re-rendering.
+	SystemPrompt string `json:"system_prompt,omitempty"`
 	// ActionCatalog is the action_type vocabulary the backend served at session
 	// build — H3's ground truth.
 	ActionCatalog []string `json:"action_catalog,omitempty"`
