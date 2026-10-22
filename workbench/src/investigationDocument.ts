@@ -119,8 +119,10 @@ type InboundMessage =
   | { type: "hyp.revise"; hypothesisRef: string; restatement?: string; handle?: string }
   | { type: "hyp.abandon"; hypothesisRef: string; reason: string }
   | { type: "hyp.new"; statement: string; handle?: string }
-  | { type: "pred.new"; hypothesisRef: string; statement: string; discriminates: string[] }
+  | { type: "pred.new"; hypothesisRef: string; statement: string; discriminates: string[]; testKind?: string }
   | { type: "pred.withdraw"; predictionRef: string; reason: string }
+  // The analyst records a prediction's result with an attestation (adr/0054).
+  | { type: "pred.result"; predictionRef: string; status: string; content: string; source?: string; channel?: string }
   | { type: "hyp.proposeTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
   | { type: "hyp.runTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
   | { type: "hyp.decide"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
@@ -334,7 +336,9 @@ export class InvestigationDocuments {
     } else if (msg.type === "hyp.new") {
       void this.newHypothesis(id, panel, msg.statement, msg.handle);
     } else if (msg.type === "pred.new") {
-      void this.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates);
+      void this.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates, msg.testKind);
+    } else if (msg.type === "pred.result") {
+      void this.recordPredictionResult(id, panel, msg);
     } else if (msg.type === "pred.withdraw") {
       void this.withdrawPrediction(id, panel, msg.predictionRef, msg.reason);
     } else if (msg.type === "hyp.proposeTests") {
@@ -902,14 +906,41 @@ export class InvestigationDocuments {
   }
 
   /** Record the analyst's own test under a hypothesis (01 §x-prediction: either actor authors predictions). */
-  private async newPrediction(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, discriminates: string[]): Promise<void> {
+  private async newPrediction(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, discriminates: string[], testKind?: string): Promise<void> {
     if (statement.trim() === "") {
       return;
     }
     try {
-      await this.client.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? []);
+      await this.client.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind);
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: prediction failed — ${errText(err)}`);
+    }
+    await this.load(id, panel);
+  }
+
+  /**
+   * The analyst records a prediction's result themselves (adr/0054): the
+   * outcome plus what was observed — a person's answer, a check made by hand —
+   * which the engine keeps as an attestation the outcome cites. Rejections
+   * (e.g. the prediction is no longer UNTESTED) surface verbatim.
+   */
+  private async recordPredictionResult(
+    id: string,
+    panel: vscode.WebviewPanel,
+    msg: { predictionRef: string; status: string; content: string; source?: string; channel?: string },
+  ): Promise<void> {
+    if (msg.content.trim() === "") {
+      return;
+    }
+    const how = msg.channel?.trim() ? ` by ${msg.channel.trim()}` : "";
+    try {
+      await this.client.recordPredictionResult(id, msg.predictionRef, msg.status, `result recorded by the analyst${how}`, {
+        content: msg.content.trim(),
+        source: msg.source?.trim() || undefined,
+        channel: msg.channel?.trim() || undefined,
+      });
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: record result failed — ${errText(err)}`);
     }
     await this.load(id, panel);
   }
@@ -1261,6 +1292,7 @@ export class InvestigationDocuments {
     const instruction = `⚡ Run tests: execute the UNTESTED predictions under the hypothesis ${hypCite(handle, statement, hypothesisRef)}. `
       + "They are independent — run their declared test queries in parallel where possible, then record each "
       + "outcome (CONFIRMED / DISCONFIRMED / INCONCLUSIVE) citing the observed evidence as test_result_refs. "
+      + "Skip any prediction marked manual — a person tests it and I record its result; name it in one clause and move on. "
       + rivalsClause(rivals, "Where a prediction discriminates against a rival, say in one clause which way the result cuts for that rival. ")
       + "This turn ENDS when the outcomes are recorded: do not record a hypothesis outcome — Decide is a separate "
       + "step the analyst orders. Keep your final message to one or two sentences on what was decisive — do not restate the outcomes; the tracker renders them.";
@@ -1798,6 +1830,31 @@ export class InvestigationDocuments {
     .promptchoices { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 2px; }
     .promptchoices .choice { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); cursor: pointer; }
     .promptchoices .choice input { margin: 0; }
+    /* a person tests this prediction (adr/0054) */
+    .manualchip {
+      font-size: 10px; color: var(--text-2); border: 1px solid var(--border);
+      border-radius: var(--r-pill); padding: 0 6px; white-space: nowrap; background: var(--surface-2, transparent);
+    }
+    .attestline { font-size: var(--fs-xs); color: var(--text-2); margin-top: 3px; line-height: 1.35; }
+    .attestline b { font-weight: 600; color: var(--text-1); }
+    .attestline q { font-style: italic; }
+    /* typed fields on the prompt card */
+    .promptextras { display: flex; flex-direction: column; gap: 6px; }
+    .promptextras:empty { display: none; }
+    #promptExtrasTop:not(:empty) { margin-bottom: 8px; }
+    #promptExtras:not(:empty) { margin-top: 6px; }
+    .promptextras .pextra { display: flex; flex-direction: column; gap: 2px; }
+    .promptextras .pextra label { font-size: var(--fs-xs); color: var(--text-2); }
+    .promptextras .pextra.pcheck { flex-direction: row; align-items: center; gap: 6px; }
+    .promptextras .pextra.pcheck label { font-size: var(--fs-sm); color: var(--text-1); cursor: pointer; }
+    .promptextras .pextra.pcheck input { margin: 0; }
+    .promptextras select, .promptextras input[type="text"] {
+      width: 100%; box-sizing: border-box; font: inherit; font-size: var(--fs-sm);
+      color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-input-border, var(--border));
+      border-radius: var(--r-sm); padding: 4px 8px;
+    }
+    .promptextras select:focus, .promptextras input[type="text"]:focus { outline: none; border-color: var(--he-primary); }
     button.ghost { color: var(--text-2); background: transparent; border-color: transparent; }
     button.ghost:hover { color: var(--text); border-color: var(--border); }
     .cardmeta { font-size: var(--fs-xs); color: var(--text-2); margin-top: 4px; word-break: break-word; }
@@ -2188,10 +2245,12 @@ export class InvestigationDocuments {
   <div id="promptDialog" style="display:none">
     <div class="dlg">
       <h3 id="promptTitle"></h3>
+      <div id="promptExtrasTop" class="promptextras"></div>
       <div id="promptLabel" class="dlglabel"></div>
       <textarea id="promptInput" rows="3"></textarea>
       <div id="promptRefs" class="pinrefs"></div>
       <div id="promptChoices" class="promptchoices"></div>
+      <div id="promptExtras" class="promptextras"></div>
       <div id="promptHelper" class="pinhelp"></div>
       <div class="decide">
         <button class="primary" id="promptConfirm"></button>
@@ -2322,6 +2381,7 @@ export class InvestigationDocuments {
       "url": "URL", "windows-registry-key": "registry", "indicator": "indicator",
       "x-hypothesis": "hypothesis", "x-prediction": "prediction",
       "identity": "vendor", "sighting": "sighting",
+      "note": "attestation", // a human statement recorded as evidence (adr/0054)
     };
     const resolvedLabels = {}; // ref → resolved value, webview-side cache
     // Entity-type palette classes (ui/01 §Entity-type palette): one fixed
@@ -3575,7 +3635,7 @@ export class InvestigationDocuments {
             "hyp.runTests");
         } else {
           mkAside("⚡ Decide", "⚡ deciding…",
-            "Weighs the tested predictions AGAINST THE RIVALS and records the hypothesis outcome (supported / refuted / inconclusive) citing the decisive evidence. Declines while a rival's discriminating test is untested — you can tell it to record anyway. Terminal in v0.",
+            "Weighs the tested predictions AGAINST THE RIVALS and records the hypothesis outcome (supported / refuted / inconclusive) citing the decisive evidence. The engine refuses it while a rival's discriminating test is untested: test it, withdraw it, or record its result yourself. Terminal in v0.",
             "hyp.decide");
           const blockers = blockersOf(h, hs);
           if (blockers.length) {
@@ -3583,7 +3643,7 @@ export class InvestigationDocuments {
             note.className = "guardnote";
             note.textContent = "blocked: " + blockers.map((x) => predName(x.p) + " (" + hypName(x.owner, hs) + ")").join(", ")
               + (blockers.length === 1 ? " is untested and splits it from " : " are untested and split it from ") + hypName(h, hs);
-            note.title = "The engine will not record this hypothesis decided while a rival holds an untested prediction that comes out the opposite way under it. Test it, withdraw it, or tell the agent to record anyway.";
+            note.title = "The engine will not record this hypothesis decided while a rival holds an untested prediction that comes out the opposite way under it. Test it, withdraw it, or record its result yourself (Record result on the row).";
             decide.appendChild(note);
           }
         }
@@ -3601,11 +3661,12 @@ export class InvestigationDocuments {
             title: "New prediction under " + hypName(h, hs),
             label: "If " + hypName(h, hs) + " is true, we should observe…",
             placeholder: "e.g. svc_backup's 30-day logon baseline shows only Network logons from BKP-01 at 02:00 — never RemoteInteractive, never from 10.0.4.20.",
-            helper: "Recorded as yours, UNTESTED. “Test this” stages it in the composer; the agent records the outcome with evidence.",
+            helper: "Recorded as yours, UNTESTED. “Test this” stages it in the composer; the agent records the outcome with evidence. A test a person answers is yours to record, with what they said.",
             confirm: "Record prediction",
             choicesLabel: rivals.length ? "This test comes out the OPPOSITE way under (discriminates):" : "",
             choices: rivals.map((r) => ({ id: r.id, label: hypName(r, hs) + " — " + (r.statement.length > 70 ? r.statement.slice(0, 69) + "…" : r.statement), title: r.statement, checked: rivals.length === 1 })),
-            onConfirm: (statement, picked) => vscode.postMessage({ type: "pred.new", hypothesisRef: h.id, statement, discriminates: picked || [] }),
+            extras: [{ kind: "check", id: "manual", label: "A person tests this — the account owner, the change owner, a phone call. No tool query; I record the result.", title: "A manual test (adr/0054): the agent can propose one and remind you of it, never record its result." }],
+            onConfirm: (statement, picked, ex) => vscode.postMessage({ type: "pred.new", hypothesisRef: h.id, statement, discriminates: picked || [], testKind: ex && ex.manual ? "manual" : undefined }),
           });
         });
         decide.appendChild(add);
@@ -3697,6 +3758,18 @@ export class InvestigationDocuments {
             dc.title = "Discriminating test: these rivals predict the opposite outcome. CONFIRMED counts against them; DISCONFIRMED supports them.";
             row.appendChild(dc);
           }
+          const manual = p.testKind === "manual";
+          if (manual) {
+            // A person tests it (adr/0054): no verb runs it, the agent cannot
+            // record it — the analyst does, from the answer they got.
+            const mc = document.createElement("span");
+            mc.className = "manualchip";
+            mc.textContent = "a person tests this";
+            mc.title = (p.testQuery && (p.testQuery.queryText || p.testQuery.tool))
+              ? "Ask " + (p.testQuery.tool || "them") + (p.testQuery.queryText ? ": " + p.testQuery.queryText : "") + " — then Record result. The agent cannot record it."
+              : "Decided by someone's answer, not a query. Ask them, then Record result. The agent cannot record it.";
+            row.appendChild(mc);
+          }
           if (outstanding) {
             const os = document.createElement("span");
             os.className = "outchip";
@@ -3724,15 +3797,28 @@ export class InvestigationDocuments {
                 onConfirm: (reason) => vscode.postMessage({ type: "pred.withdraw", predictionRef: p.id, reason }),
               }));
               row.appendChild(wd);
+              // Record result — the analyst's own outcome with an attestation
+              // (adr/0054): the way a manual test is decided, and the human's
+              // way through the decide gate (adr/0051) on any test.
+              const rr = document.createElement("button");
+              rr.className = manual ? "testbtn" : "ghost testbtn";
+              rr.textContent = "Record result";
+              rr.title = manual
+                ? "Record what the person said as the result of " + predName(p) + ". Kept as an attestation the outcome cites — a human statement, never telemetry."
+                : "Record the result yourself — e.g. you checked it by hand, or asked someone. Kept as an attestation the outcome cites, distinct from telemetry.";
+              rr.addEventListener("click", () => openResultDialog(p, h, hs));
+              row.appendChild(rr);
             }
-            const test = document.createElement("button");
-            test.className = "testbtn" + (live ? "" : " predact");
-            test.textContent = p.ordinal ? "Test " + predName(p) : "Test this";
-            test.title = p.testQuery && p.testQuery.queryText
-              ? "Stage just this test in the composer: " + p.testQuery.queryText
-              : "Stage a test of just this prediction in the composer";
-            test.addEventListener("click", () => stageInComposer(predictionTestText(p, h, hs)));
-            row.appendChild(test);
+            if (!manual) {
+              const test = document.createElement("button");
+              test.className = "testbtn" + (live ? "" : " predact");
+              test.textContent = p.ordinal ? "Test " + predName(p) : "Test this";
+              test.title = p.testQuery && p.testQuery.queryText
+                ? "Stage just this test in the composer: " + p.testQuery.queryText
+                : "Stage a test of just this prediction in the composer";
+              test.addEventListener("click", () => stageInComposer(predictionTestText(p, h, hs)));
+              row.appendChild(test);
+            }
           } else if (trefs.length) {
               // A decided prediction is pinnable: statement + outcome + its
               // citations, prefilled. The pin cites the PREDICTION NODE too,
@@ -3757,6 +3843,19 @@ export class InvestigationDocuments {
               row.appendChild(pin);
             }
             li.appendChild(row);
+            if (p.attestation) {
+              // A human statement as evidence reads as one (adr/0054): who
+              // attested, how, who was asked, and the words — never as a log line.
+              const a = p.attestation;
+              const al = document.createElement("div");
+              al.className = "attestline";
+              const who = document.createElement("b");
+              who.textContent = "attested by " + a.author + (a.channel ? " by " + a.channel : "") + (a.source ? " (" + a.source + ")" : "");
+              const q = document.createElement("q");
+              q.textContent = a.content;
+              al.append(who, document.createTextNode(": "), q);
+              li.appendChild(al);
+            }
             ul.appendChild(li);
           }
           card.appendChild(ul);
@@ -4707,6 +4806,51 @@ export class InvestigationDocuments {
         lab.append(cb, txt);
         choices.appendChild(lab);
       }
+      // Extras: small typed fields (select / text / check) above the textarea
+      // (extrasTop) or below the choices (extras); their values reach onConfirm
+      // as its third argument, keyed by id. Still one card, still in-document.
+      const extraApi = {
+        setInput: (text) => { input.value = text; input.dispatchEvent(new Event("input")); },
+        setExtra: (id, value) => { const f = document.getElementById("promptExtra_" + id); if (f) { if (f.type === "checkbox") f.checked = !!value; else f.value = value; } },
+      };
+      const renderExtras = (box, list) => {
+        box.textContent = "";
+        for (const x of (list || [])) {
+          const wrap = document.createElement("div");
+          wrap.className = "pextra" + (x.kind === "check" ? " pcheck" : "");
+          let field;
+          if (x.kind === "select") {
+            field = document.createElement("select");
+            for (const o of (x.options || [])) {
+              const opt = document.createElement("option");
+              opt.value = o.value;
+              opt.textContent = o.label;
+              if (o.value === x.value) opt.selected = true;
+              field.appendChild(opt);
+            }
+          } else if (x.kind === "check") {
+            field = document.createElement("input");
+            field.type = "checkbox";
+            field.checked = !!x.value;
+          } else {
+            field = document.createElement("input");
+            field.type = "text";
+            field.value = x.value || "";
+            field.placeholder = x.placeholder || "";
+          }
+          field.id = "promptExtra_" + x.id;
+          field.dataset.extra = x.id;
+          if (x.onChange) field.addEventListener("change", () => x.onChange(field.type === "checkbox" ? field.checked : field.value, extraApi));
+          const lab = document.createElement("label");
+          lab.htmlFor = field.id;
+          lab.textContent = x.label || "";
+          if (x.title) lab.title = x.title;
+          if (x.kind === "check") wrap.append(field, lab); else wrap.append(lab, field);
+          box.appendChild(wrap);
+        }
+      };
+      renderExtras($("promptExtrasTop"), opts.extrasTop);
+      renderExtras($("promptExtras"), opts.extras);
       const confirm = $("promptConfirm");
       confirm.textContent = opts.confirm || "Confirm";
       confirm.disabled = promptRequire && input.value.trim() === "";
@@ -4719,9 +4863,13 @@ export class InvestigationDocuments {
       const v = $("promptInput").value.trim();
       if (promptRequire && !v) return;
       const picked = Array.from(document.querySelectorAll('#promptChoices input[type="checkbox"]:checked')).map((c) => c.value);
+      const extras = {};
+      for (const f of document.querySelectorAll("#promptExtrasTop [data-extra], #promptExtras [data-extra]")) {
+        extras[f.dataset.extra] = f.type === "checkbox" ? f.checked : f.value;
+      }
       const cb = promptOnConfirm;
       closePrompt();
-      if (cb) cb(v, picked);
+      if (cb) cb(v, picked, extras);
     }
     $("promptInput").addEventListener("input", () => {
       if (promptRequire) $("promptConfirm").disabled = $("promptInput").value.trim() === "";
@@ -4732,6 +4880,60 @@ export class InvestigationDocuments {
     });
     $("promptCancel").addEventListener("click", closePrompt);
     $("promptConfirm").addEventListener("click", submitPrompt);
+
+    // Record a prediction's result as the analyst (adr/0054): outcome, who was
+    // asked and how, and what they said — the attestation the outcome cites.
+    // A reply already on a comms thread can be prefilled (quoted, not linked).
+    function openResultDialog(p, h, hs) {
+      const rivals = (p.discriminates || []).map((d) => nameOf(d, hs));
+      const replies = [];
+      for (const t of lastComms) {
+        for (const e of (t.trail || [])) {
+          if (e.direction === "inbound") replies.push({ thread: t, entry: e });
+        }
+      }
+      const extrasTop = [{
+        kind: "select", id: "status", label: "Outcome",
+        options: [
+          { value: "CONFIRMED", label: "Confirmed — observed as predicted" },
+          { value: "DISCONFIRMED", label: "Disconfirmed — the opposite was observed" },
+          { value: "INCONCLUSIVE", label: "Inconclusive — no clear answer" },
+        ],
+      }];
+      if (replies.length) {
+        extrasTop.push({
+          kind: "select", id: "reply", label: "Prefill from a reply on a comms thread",
+          options: [{ value: "", label: "—" }].concat(replies.map((r, i) => ({
+            value: String(i),
+            label: (r.entry.author || r.thread.target) + " · " + new Date(r.entry.at).toLocaleString() + ": " + (r.entry.body.length > 60 ? r.entry.body.slice(0, 59) + "…" : r.entry.body),
+          }))),
+          onChange: (v, api) => {
+            const r = replies[Number(v)];
+            if (!r) return;
+            api.setInput(r.entry.body);
+            api.setExtra("source", r.entry.author || r.thread.target);
+            api.setExtra("channel", (r.thread.actionType || "comms").replace("notify.", "") + " reply");
+          },
+        });
+      }
+      extrasTop.push(
+        { kind: "text", id: "source", label: "Who was asked, or what was checked", placeholder: "e.g. J. Doe (account owner)" },
+        { kind: "text", id: "channel", label: "How", placeholder: "e.g. phone, chat, email, in person" },
+      );
+      openPrompt({
+        title: "Record result of " + predName(p) + (h ? " under " + hypName(h, hs) : ""),
+        label: "What was observed — who said what, or what you found",
+        placeholder: "e.g. Called J. Doe at 14:02: confirmed starting the RDP session from home over VPN to finish the backup job.",
+        helper: "Recorded as yours — an attestation the outcome cites. The record shows it as a human statement, never as telemetry."
+          + (rivals.length ? " This test discriminates vs " + rivals.join(", ") + ": a confirmed result counts against them; a disconfirmed one supports them." : ""),
+        confirm: "Record result",
+        extrasTop,
+        onConfirm: (content, _picked, ex) => vscode.postMessage({
+          type: "pred.result", predictionRef: p.id, status: (ex && ex.status) || "INCONCLUSIVE",
+          content, source: ex && ex.source, channel: ex && ex.channel,
+        }),
+      });
+    }
 
     // Pin evidence: the finding note + cited refs, in the prompt card.
     // suggested prefills the finding (visible and editable — a suggestion,
@@ -5194,6 +5396,10 @@ function deriveEvidenceLabel(doc: EvidenceDoc): string {
     return doc.type || "event";
   }
   const p = (doc.payload ?? {}) as Record<string, unknown>;
+  if (doc.type === "note") {
+    // An attestation (adr/0054): "attested by analyst-1 by phone: J. Doe".
+    return typeof p.abstract === "string" && p.abstract ? p.abstract : "attestation";
+  }
   const props = (typeof p.properties === "object" && p.properties ? p.properties : p) as Record<string, unknown>;
   const first = (...keys: string[]): string => {
     for (const k of keys) {

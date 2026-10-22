@@ -212,6 +212,23 @@ export interface Prediction {
    */
   discriminates: string[];
   testResultRefs: string[];
+  /**
+   * "tool" (default) or "manual" — a person's answer decides it (adr/0054):
+   * the analyst records the result; the agent cannot.
+   */
+  testKind?: string;
+  /** The human observation the outcome cites, when it has one. */
+  attestation?: PredictionAttestation;
+}
+
+/** A human attestation on a prediction outcome (mirrors server.AttestationView). */
+export interface PredictionAttestation {
+  noteRef: string;
+  author: string;
+  content: string;
+  source?: string;
+  channel?: string;
+  observedAt?: string;
 }
 
 /** One reasoning node with its predictions nested (mirrors server.HypothesisView). */
@@ -464,6 +481,8 @@ interface RawPrediction {
   test_query?: { tool?: string; query_text?: string };
   discriminates?: string[];
   test_result_refs?: string[];
+  test_kind?: string;
+  attestation?: { note_ref: string; author: string; content: string; source?: string; channel?: string; observed_at?: string };
 }
 
 export class BackendClient {
@@ -747,6 +766,17 @@ export class BackendClient {
           : undefined,
         discriminates: p.discriminates ?? [],
         testResultRefs: p.test_result_refs ?? [],
+        testKind: p.test_kind || undefined,
+        attestation: p.attestation
+          ? {
+              noteRef: p.attestation.note_ref,
+              author: p.attestation.author,
+              content: p.attestation.content,
+              source: p.attestation.source,
+              channel: p.attestation.channel,
+              observedAt: p.attestation.observed_at,
+            }
+          : undefined,
       })),
     }));
   }
@@ -1063,6 +1093,7 @@ export class BackendClient {
     hypothesisRef: string,
     statement: string,
     discriminates: string[],
+    testKind?: string,
   ): Promise<void> {
     await this.authedPost("/api/interpretations", {
       investigation_ref: investigationId,
@@ -1071,8 +1102,37 @@ export class BackendClient {
         hypothesis_ref: hypothesisRef,
         statement,
         ...(discriminates.length ? { discriminates } : {}),
+        ...(testKind === "manual" ? { test_kind: "manual" } : {}),
       },
-      rationale: "analyst-authored test",
+      rationale: testKind === "manual" ? "analyst-authored test — a person tests it" : "analyst-authored test",
+    });
+  }
+
+  /**
+   * Record a prediction's result as the analyst (adr/0054): the outcome plus
+   * an attestation — what a person said, or what was checked by hand — which
+   * the engine materializes as a STIX note the outcome cites. This is both the
+   * way a manual prediction is decided and the human's way through the
+   * decide gate (adr/0051). Human token; the engine refuses it from the agent.
+   */
+  async recordPredictionResult(
+    investigationId: string,
+    predictionRef: string,
+    status: string,
+    rationale: string,
+    attestation: { content: string; source?: string; channel?: string },
+  ): Promise<void> {
+    await this.authedPost("/api/interpretations", {
+      investigation_ref: investigationId,
+      interpretation_type: "prediction",
+      prediction_ref: predictionRef,
+      prediction_status: status,
+      rationale,
+      attestation: {
+        content: attestation.content,
+        ...(attestation.source ? { source: attestation.source } : {}),
+        ...(attestation.channel ? { channel: attestation.channel } : {}),
+      },
     });
   }
 

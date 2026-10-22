@@ -50,6 +50,7 @@ type predictionRow struct {
 	Status        string   `json:"status"`
 	Ordinal       int      `json:"ordinal"`
 	Discriminates []string `json:"discriminates"`
+	TestKind      string   `json:"test_kind"` // "manual" when a person tests it (adr/0054)
 }
 
 // predictionLabel is how the block names a prediction: its ordinal (P3) when
@@ -135,6 +136,12 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 			fmt.Fprintf(&b, "  - untested %s", predictionLabel(p))
 			if len(rivals) > 0 {
 				fmt.Fprintf(&b, " (discriminates vs %s)", strings.Join(rivals, ", "))
+			}
+			if p.TestKind == "manual" {
+				// A person tests it (adr/0054): the model cannot run it and the
+				// engine refuses its result from the delegate — say so where the
+				// model reads the test, not only in the standing rules.
+				b.WriteString(" [manual — a person tests it; the analyst records the result, you cannot]")
 			}
 			fmt.Fprintf(&b, ": %s\n", clipRunes(strings.TrimSpace(p.Statement), predictionStatementMax))
 		}
