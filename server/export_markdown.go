@@ -179,7 +179,17 @@ func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID)
 					}
 					fmt.Fprintf(&md, " — discriminates vs %s", strings.Join(names, ", "))
 				}
-				if len(p.TestResultRefs) > 0 {
+				if p.TestKind == aggregate.TestKindManual {
+					md.WriteString(" — tested by a person")
+				}
+				if a := p.Attestation; a != nil {
+					// A human statement reads as attested, never as telemetry
+					// (adr/0054): who attested, how, who was asked, and the words.
+					fmt.Fprintf(&md, " — %s", attestationLine(*a))
+					if rest := withoutRef(p.TestResultRefs, a.ID); len(rest) > 0 {
+						fmt.Fprintf(&md, "; also tested against %s", labeledList(rl, rest))
+					}
+				} else if len(p.TestResultRefs) > 0 {
 					fmt.Fprintf(&md, " — tested against %s", labeledList(rl, p.TestResultRefs))
 				}
 				md.WriteString("\n")
@@ -434,9 +444,48 @@ func stixLabel(typ string, payload []byte) string {
 			return fmt.Sprintf("pid %.0f", pid)
 		}
 		return get("pid")
+	case "note":
+		// An attestation note (adr/0054) labels as its abstract — "attested by
+		// analyst-1 by phone: J. Doe" — so a citation reads as a human statement.
+		var n struct {
+			Abstract string `json:"abstract"`
+			Content  string `json:"content"`
+		}
+		if err := json.Unmarshal(payload, &n); err == nil {
+			return firstNonEmpty(n.Abstract, oneLine(n.Content))
+		}
+		return ""
 	default:
 		return firstNonEmpty(get("name"), get("value"))
 	}
+}
+
+// attestationLine renders a recorded attestation for the report: who attested,
+// how, who was asked, then the words — "attested by analyst-1 by phone (J.
+// Doe): “started it from home over VPN”".
+func attestationLine(a aggregate.AttestationRecorded) string {
+	s := "attested by " + a.Author
+	if a.Channel != "" {
+		s += " by " + a.Channel
+	}
+	if a.Source != "" {
+		s += " (" + a.Source + ")"
+	}
+	if a.ObservedAt != nil {
+		s += " at " + a.ObservedAt.UTC().Format("2006-01-02 15:04Z")
+	}
+	return s + ": “" + oneLine(a.Content) + "”"
+}
+
+// withoutRef returns refs minus one id, preserving order.
+func withoutRef(refs []string, drop string) []string {
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		if r != drop {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func firstNonEmpty(vals ...string) string {

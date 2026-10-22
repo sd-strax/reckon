@@ -201,7 +201,11 @@ opposite (the row carries a **vs H2** chip). Then add the analyst's own test
 with **+ prediction** on H2: *"a change ticket or maintenance window covers
 WIN-FILE01 for 2026-04-20"* — environmental knowledge the agent does not have;
 tick *discriminates H1*. *(Either actor authors tests. The analyst's is usually
-the sharpest.)*
+the sharpest.)* If the room asks "what about just calling the admin?": tick
+**A person tests this** on a prediction instead — the row says *a person tests
+this*, the agent cannot run or record it, and **Record result** takes what they
+said as an attestation the record cites, labelled as a human statement, never
+as telemetry.
 
 **⚡ Run tests.** The baseline query (user-rooted, 30-day window) returns seven
 nights of `Network` logons from `BKP-01` and the single `RemoteInteractive`
@@ -211,8 +215,9 @@ absence, **DISCONFIRMED** for H2. Pin both.
 
 Press **⚡ Decide** on H1 *before* H2's test has run, if you want to show the
 guard: the agent declines — *"H2 still has an untested prediction that
-discriminates between us; run it first"* — and offers to record anyway if you
-say so. Run it, then decide: **H2 REFUTED**, **H1 SUPPORTED**, each citing the
+discriminates between us; run it first"* — and the engine would refuse it
+anyway; the row's **Record result** is your own way through if the test was a
+phone call. Run it, then decide: **H2 REFUTED**, **H1 SUPPORTED**, each citing the
 decisive test. The verdict dialog's residual is clean: no undecided
 hypothesis, no untested test. Record **MALICIOUS**.
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -44,7 +45,31 @@ const (
 const (
 	stixTypeHypothesis = "x-hypothesis"
 	stixTypePrediction = "x-prediction"
+	// stixTypeNote is STIX 2.1's Note, adopted unchanged (01 "Adopted vs
+	// invented"): the object a human's attestation of a prediction result is
+	// recorded as (adr/0054).
+	stixTypeNote = "note"
 )
+
+// x-prediction test kinds (01 §x-prediction, adr/0054). A TOOL test is a query
+// the agent or the analyst runs; a MANUAL test is a person's answer — the
+// account owner confirming a session, the change owner confirming a window —
+// which no verb can fetch. The kind decides who may record the result: a
+// manual prediction's outcome is a human act, carrying an Attestation.
+const (
+	TestKindTool   = "tool"
+	TestKindManual = "manual"
+)
+
+// Bounds on an attestation (adr/0054): the content is what a person said or
+// what was checked by hand, a paragraph at most; source and channel are labels.
+const (
+	attestationContentMaxRunes = 2000
+	attestationLabelMaxRunes   = 200
+)
+
+// NoteSTIXID renders the canonical STIX id for an attestation note uuid.
+func NoteSTIXID(id uuid.UUID) string { return stixTypeNote + "--" + id.String() }
 
 // HypothesisSTIXID renders the canonical STIX id for a hypothesis uuid.
 func HypothesisSTIXID(id uuid.UUID) string { return stixTypeHypothesis + "--" + id.String() }
@@ -122,6 +147,38 @@ type PredictionNode struct {
 	// supports the owner and counts against these; DISCONFIRMED the reverse.
 	// Empty means the prediction is merely consistent with its owner.
 	Discriminates []string `json:"discriminates,omitempty"`
+	// TestKind is TestKindTool (the default; empty reads as tool) or
+	// TestKindManual — a person's answer decides it (adr/0054). For a manual
+	// test, TestQuery says whom to ask and what.
+	TestKind string `json:"test_kind,omitempty"`
+}
+
+// Attestation is what a human observed outside any tool — the answer to a
+// question put to a person, a check made by hand — carried on a prediction
+// outcome as its evidence (adr/0054). The server mints ID; the aggregate
+// materializes a STIX Note whose id is prepended to the outcome's
+// test_result_refs. The evidence discipline is unchanged — a decisive outcome
+// still cites what was observed — what changed is that a human observation is
+// now citeable, and reads as attested rather than as telemetry. Human-only.
+type Attestation struct {
+	ID         uuid.UUID  `json:"id"`
+	Content    string     `json:"content"`               // what was observed: who said what
+	Source     string     `json:"source,omitempty"`      // who was asked, or what was checked
+	Channel    string     `json:"channel,omitempty"`     // phone, chat, email, in person…
+	ObservedAt *time.Time `json:"observed_at,omitempty"` // when; the act's time if omitted
+}
+
+// AttestationRecorded is the note content recorded on the event when a human
+// attests a prediction's result; the projector materializes it as a `note`.
+type AttestationRecorded struct {
+	ID            string     `json:"id"` // note--<uuid>
+	PredictionRef string     `json:"prediction_ref"`
+	HypothesisRef string     `json:"hypothesis_ref"`
+	Author        string     `json:"author"` // the human principal
+	Content       string     `json:"content"`
+	Source        string     `json:"source,omitempty"`
+	Channel       string     `json:"channel,omitempty"`
+	ObservedAt    *time.Time `json:"observed_at,omitempty"`
 }
 
 // --- event payload records ----------------------------------------------------
@@ -160,6 +217,7 @@ type PredictionRecorded struct {
 	Status        string     `json:"status"` // always UNTESTED at creation
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string   `json:"discriminates,omitempty"`
+	TestKind      string     `json:"test_kind,omitempty"` // "manual" when a person tests it; empty = tool
 }
 
 // PredictionTransitionRecorded records a prediction's test outcome.
@@ -182,6 +240,7 @@ type predictionState struct {
 	Status        string
 	HypothesisRef string   // parent — so an outcome can check the hypothesis is acknowledged
 	Discriminates []string // rivals this prediction decides against — so an outcome can check nothing is outstanding (adr/0051)
+	Manual        bool     // a person tests it — so an outcome can check the actor is human (adr/0054)
 }
 
 // foldReasoningEvent applies one interpretation.recorded event's node content to
@@ -195,11 +254,15 @@ func foldReasoningEvent(s *aggregateState, rec InterpretationRecorded) {
 		s.Hypotheses[rec.HypothesisTransition.Ref] = hypothesisState{Status: rec.HypothesisTransition.To}
 	}
 	if rec.Prediction != nil {
-		s.Predictions[rec.Prediction.ID] = predictionState{Status: rec.Prediction.Status, HypothesisRef: rec.Prediction.HypothesisRef, Discriminates: rec.Prediction.Discriminates}
+		s.Predictions[rec.Prediction.ID] = predictionState{
+			Status: rec.Prediction.Status, HypothesisRef: rec.Prediction.HypothesisRef,
+			Discriminates: rec.Prediction.Discriminates, Manual: rec.Prediction.TestKind == TestKindManual,
+		}
 	}
 	if rec.PredictionTransition != nil {
 		prev := s.Predictions[rec.PredictionTransition.Ref]
-		s.Predictions[rec.PredictionTransition.Ref] = predictionState{Status: rec.PredictionTransition.To, HypothesisRef: prev.HypothesisRef, Discriminates: prev.Discriminates}
+		prev.Status = rec.PredictionTransition.To
+		s.Predictions[rec.PredictionTransition.Ref] = prev
 	}
 }
 
@@ -209,6 +272,11 @@ func foldReasoningEvent(s *aggregateState, rec InterpretationRecorded) {
 // RecordInterpretation may carry, per interpretation type. State-dependent
 // legality (existence, current status) lives in applyReasoningNodes.
 func validateReasoningNodeShape(c RecordInterpretation) error {
+	// An attestation is evidence for a prediction OUTCOME and nothing else
+	// (adr/0054): never on a create, never on another type.
+	if c.Attestation != nil && (c.InterpretationType != InterpretationPrediction || c.PredictionRef == "") {
+		return errors.New("RecordInterpretation: an attestation rides only a prediction outcome (type prediction with prediction_ref)")
+	}
 	// No smuggling: node payloads are only legal on the types that produce them.
 	nodeBearing := map[string]bool{
 		InterpretationHypothesis:   true,
@@ -219,7 +287,7 @@ func validateReasoningNodeShape(c RecordInterpretation) error {
 	}
 	if !nodeBearing[c.InterpretationType] {
 		if c.Hypothesis != nil || c.HypothesisRef != "" || c.Prediction != nil || c.PredictionRef != "" ||
-			c.Abandoned || c.PredictionStatus != "" || len(c.TestResultRefs) > 0 ||
+			c.Abandoned || c.PredictionStatus != "" || len(c.TestResultRefs) > 0 || c.Attestation != nil ||
 			c.Restatement != "" || c.Handle != "" {
 			return fmt.Errorf("RecordInterpretation: type %q must not carry hypothesis/prediction payloads", c.InterpretationType)
 		}
@@ -275,10 +343,13 @@ func validateReasoningNodeShape(c RecordInterpretation) error {
 			return errors.New("RecordInterpretation: type prediction requires exactly one of prediction (create) or prediction_ref (outcome)")
 		}
 		if c.Prediction != nil {
-			if c.PredictionStatus != "" || len(c.TestResultRefs) > 0 {
+			if c.PredictionStatus != "" || len(c.TestResultRefs) > 0 || c.Attestation != nil {
 				return errors.New("RecordInterpretation: a prediction create carries no outcome fields")
 			}
 			return validatePredictionNode(*c.Prediction)
+		}
+		if err := validateAttestation(c.Attestation); err != nil {
+			return err
 		}
 		if _, err := stixIDUUID(c.PredictionRef, stixTypePrediction); err != nil {
 			return fmt.Errorf("RecordInterpretation: %w", err)
@@ -288,14 +359,16 @@ func validateReasoningNodeShape(c RecordInterpretation) error {
 			// The decisive outcomes must cite what was observed (04 §1's
 			// evidence discipline): a confirmation with nothing observed is a
 			// claim, not a test result.
-			if len(c.TestResultRefs) == 0 {
-				return fmt.Errorf("RecordInterpretation: prediction outcome %s requires test_result_refs", c.PredictionStatus)
+			// An attestation IS what was observed — a person's answer, a check
+			// made by hand — materialized as a citeable note (adr/0054).
+			if len(c.TestResultRefs) == 0 && c.Attestation == nil {
+				return fmt.Errorf("RecordInterpretation: prediction outcome %s requires test_result_refs (or an attestation)", c.PredictionStatus)
 			}
 		case PredictionInconclusive:
 		case PredictionWithdrawn:
 			// A withdrawal is not an evidential outcome — it carries no evidence.
-			if len(c.TestResultRefs) > 0 {
-				return errors.New("RecordInterpretation: a WITHDRAWN prediction carries no test_result_refs")
+			if len(c.TestResultRefs) > 0 || c.Attestation != nil {
+				return errors.New("RecordInterpretation: a WITHDRAWN prediction carries no test_result_refs or attestation")
 			}
 		default:
 			return fmt.Errorf("RecordInterpretation: invalid prediction outcome %q", c.PredictionStatus)
@@ -355,7 +428,34 @@ func validateHandle(handle string) error {
 	return nil
 }
 
+// validateAttestation runs the shape checks on an outcome's attestation
+// (adr/0054): a minted id and a bounded content; source and channel are
+// optional labels. nil is legal — most outcomes cite telemetry.
+func validateAttestation(a *Attestation) error {
+	if a == nil {
+		return nil
+	}
+	if a.ID == (uuid.UUID{}) {
+		return errors.New("RecordInterpretation: attestation.id is zero")
+	}
+	if strings.TrimSpace(a.Content) == "" {
+		return errors.New("RecordInterpretation: attestation.content is required — what the person said, or what was checked")
+	}
+	if utf8.RuneCountInString(a.Content) > attestationContentMaxRunes {
+		return fmt.Errorf("RecordInterpretation: attestation.content exceeds %d chars", attestationContentMaxRunes)
+	}
+	if utf8.RuneCountInString(a.Source) > attestationLabelMaxRunes || utf8.RuneCountInString(a.Channel) > attestationLabelMaxRunes {
+		return fmt.Errorf("RecordInterpretation: attestation.source/channel exceed %d chars", attestationLabelMaxRunes)
+	}
+	return nil
+}
+
 func validatePredictionNode(p PredictionNode) error {
+	switch p.TestKind {
+	case "", TestKindTool, TestKindManual:
+	default:
+		return fmt.Errorf("RecordInterpretation: prediction.test_kind %q is not tool|manual", p.TestKind)
+	}
 	if p.ID == (uuid.UUID{}) {
 		return errors.New("RecordInterpretation: prediction.id is zero")
 	}
@@ -635,6 +735,9 @@ func applyPredictionCreate(state aggregateState, p PredictionNode, rec *Interpre
 		TestQuery:     p.TestQuery,
 		Discriminates: p.Discriminates,
 	}
+	if p.TestKind == TestKindManual {
+		rec.Prediction.TestKind = TestKindManual
+	}
 	rec.OutputRefs = append(rec.OutputRefs, stixID)
 	return nil
 }
@@ -653,16 +756,43 @@ func applyPredictionOutcome(env Envelope, state aggregateState, c RecordInterpre
 		if env.Actor.IsAIDelegated() {
 			return errors.New("RecordInterpretation rejected: withdrawing a prediction is a human act")
 		}
-	} else if err := aiReasoningGate(env, c, state.Hypotheses[ps.HypothesisRef].Status); err != nil {
+	} else {
+		// Two human-only guards beside withdraw (adr/0054). What a person was
+		// told is recorded by the analyst who was told it, never by the
+		// delegate — the one statement the model could most easily invent is
+		// kept out of its reach entirely. And a prediction a person tests has
+		// no outcome the delegate can observe: it may ask for the result, not
+		// supply it.
+		if c.Attestation != nil && env.Actor.IsAIDelegated() {
+			return errors.New("RecordInterpretation rejected: an attestation is a human act — the analyst records what a person said")
+		}
+		if ps.Manual && env.Actor.IsAIDelegated() {
+			return fmt.Errorf("RecordInterpretation rejected: prediction %s is tested by a person, not a tool — the analyst records its result (or withdraws it)", c.PredictionRef)
+		}
 		// Running a test is an evidential outcome — gated on the parent
 		// hypothesis being human-acknowledged when the actor is an AI delegate.
-		return err
+		if err := aiReasoningGate(env, c, state.Hypotheses[ps.HypothesisRef].Status); err != nil {
+			return err
+		}
+	}
+	refs := c.TestResultRefs
+	if a := c.Attestation; a != nil {
+		// The attestation becomes a note the outcome cites, first among its
+		// evidence, so the evidence rule reads the same for every outcome.
+		noteID := NoteSTIXID(a.ID)
+		rec.Attestation = &AttestationRecorded{
+			ID: noteID, PredictionRef: c.PredictionRef, HypothesisRef: ps.HypothesisRef,
+			Author: env.Actor.PrincipalID, Content: strings.TrimSpace(a.Content),
+			Source: strings.TrimSpace(a.Source), Channel: strings.TrimSpace(a.Channel), ObservedAt: a.ObservedAt,
+		}
+		refs = append([]string{noteID}, refs...)
+		rec.OutputRefs = append(rec.OutputRefs, noteID)
 	}
 	rec.PredictionTransition = &PredictionTransitionRecorded{
 		Ref:            c.PredictionRef,
 		From:           ps.Status,
 		To:             c.PredictionStatus,
-		TestResultRefs: c.TestResultRefs,
+		TestResultRefs: refs,
 	}
 	rec.OutputRefs = append(rec.OutputRefs, c.PredictionRef)
 	return nil

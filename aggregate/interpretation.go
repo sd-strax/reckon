@@ -168,6 +168,9 @@ type InterpretationRecorded struct {
 	HypothesisTransition *HypothesisTransitionRecorded `json:"hypothesis_transition,omitempty"`
 	Prediction           *PredictionRecorded           `json:"prediction,omitempty"`
 	PredictionTransition *PredictionTransitionRecorded `json:"prediction_transition,omitempty"`
+	// Attestation is the human observation a prediction outcome cites
+	// (adr/0054); the projector materializes it as a STIX note.
+	Attestation *AttestationRecorded `json:"attestation,omitempty"`
 
 	// Verdict content on a type=verdict act (01 §Verdict): the disposition of
 	// record, folded (latest non-superseded wins) and projected onto
@@ -266,6 +269,10 @@ type RecordInterpretation struct {
 	PredictionRef    string          `json:"prediction_ref,omitempty"`
 	PredictionStatus string          `json:"prediction_status,omitempty"`
 	TestResultRefs   []string        `json:"test_result_refs,omitempty"`
+	// Attestation is a human's observation outside any tool, carried on a
+	// prediction outcome as its evidence (adr/0054): materialized as a STIX
+	// note whose id is prepended to the recorded test_result_refs. Human-only.
+	Attestation *Attestation `json:"attestation,omitempty"`
 
 	// Verdict payload for type=verdict (01 §Verdict). AIVerdictConfigRef is
 	// the AI-verdict dial's stamp: the SERVER sets it — exclusively when the

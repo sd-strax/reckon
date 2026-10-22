@@ -65,10 +65,98 @@ func (ReasoningNodeProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 			return err
 		}
 	}
+	if rec.Attestation != nil {
+		// The note lands before the transition that cites it (adr/0054).
+		if err := insertAttestationNote(ctx, tx, evt, *rec.Attestation); err != nil {
+			return err
+		}
+	}
 	if rec.PredictionTransition != nil {
 		if err := transitionNode(ctx, tx, evt, stixTypePrediction, rec.PredictionTransition.Ref, rec.PredictionTransition.To, rec.PredictionTransition.TestResultRefs); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// stixNote is the canonical STIX 2.1 Note written for a human attestation
+// (adr/0054): adopted unchanged — abstract, content, authors, object_refs —
+// plus the attestation's structure under an x_ custom property so a reader
+// can tell who was asked and how without parsing the abstract.
+type stixNote struct {
+	Type        string          `json:"type"`
+	SpecVersion string          `json:"spec_version"`
+	ID          string          `json:"id"`
+	Abstract    string          `json:"abstract,omitempty"`
+	Content     string          `json:"content"`
+	Authors     []string        `json:"authors,omitempty"`
+	ObjectRefs  []string        `json:"object_refs"`
+	Attestation stixAttestation `json:"x_reckon_attestation"`
+	Created     string          `json:"created"`
+	Modified    string          `json:"modified"`
+}
+
+type stixAttestation struct {
+	PredictionRef string     `json:"prediction_ref"`
+	Source        string     `json:"source,omitempty"`
+	Channel       string     `json:"channel,omitempty"`
+	ObservedAt    *time.Time `json:"observed_at,omitempty"`
+}
+
+// attestationAbstract is the one-line reading of an attestation: who attested,
+// how, and who was asked — "attested by analyst-1 by phone: Jane Doe".
+func attestationAbstract(a AttestationRecorded) string {
+	s := "attested by " + a.Author
+	if a.Channel != "" {
+		s += " by " + a.Channel
+	}
+	if a.Source != "" {
+		s += ": " + a.Source
+	}
+	return s
+}
+
+func insertAttestationNote(ctx context.Context, tx *sql.Tx, evt Event, a AttestationRecorded) error {
+	noteUUID, err := stixIDUUID(a.ID, stixTypeNote)
+	if err != nil {
+		return fmt.Errorf("project attestation: %w", err)
+	}
+	refs := []string{a.PredictionRef}
+	if a.HypothesisRef != "" {
+		refs = append(refs, a.HypothesisRef)
+	}
+	payload, err := json.Marshal(stixNote{
+		Type:        stixTypeNote,
+		SpecVersion: "2.1",
+		ID:          a.ID,
+		Abstract:    attestationAbstract(a),
+		Content:     a.Content,
+		Authors:     []string{a.Author},
+		ObjectRefs:  refs,
+		Attestation: stixAttestation{PredictionRef: a.PredictionRef, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt},
+		Created:     stixTime(evt.OccurredAt),
+		Modified:    stixTime(evt.OccurredAt),
+	})
+	if err != nil {
+		return fmt.Errorf("marshal note: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO stix_objects (id, tenant_id, type, spec_version, payload, created, modified)
+		VALUES ($1, $2, $3, '2.1', $4, $5, $5)
+		ON CONFLICT (id) DO NOTHING
+	`, noteUUID, evt.TenantID, stixTypeNote, payload, evt.OccurredAt); err != nil {
+		return fmt.Errorf("insert stix note: %w", err)
+	}
+	// The prediction row carries the attestation too, so the view needs no
+	// second lookup to say "attested by … : …" on the tracker.
+	att, err := json.Marshal(a)
+	if err != nil {
+		return fmt.Errorf("marshal attestation: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE prediction_current SET attestation = $2 WHERE id = $1
+	`, a.PredictionRef, att); err != nil {
+		return fmt.Errorf("update prediction_current attestation: %w", err)
 	}
 	return nil
 }
@@ -102,6 +190,7 @@ type stixPrediction struct {
 	Status         string     `json:"status"`
 	TestQuery      *QuerySpec `json:"test_query,omitempty"`
 	Discriminates  []string   `json:"discriminates,omitempty"`
+	TestKind       string     `json:"test_kind,omitempty"`
 	TestResultRefs []string   `json:"test_result_refs,omitempty"`
 	Created        string     `json:"created"`
 	Modified       string     `json:"modified"`
@@ -211,11 +300,16 @@ func insertPrediction(ctx context.Context, tx *sql.Tx, evt Event, _ Interpretati
 		Status:        p.Status,
 		TestQuery:     p.TestQuery,
 		Discriminates: p.Discriminates,
+		TestKind:      p.TestKind,
 		Created:       stixTime(evt.OccurredAt),
 		Modified:      stixTime(evt.OccurredAt),
 	})
 	if err != nil {
 		return fmt.Errorf("marshal x-prediction: %w", err)
+	}
+	testKind := p.TestKind
+	if testKind == "" {
+		testKind = TestKindTool
 	}
 	var discriminates []byte
 	if len(p.Discriminates) > 0 {
@@ -234,11 +328,11 @@ func insertPrediction(ctx context.Context, tx *sql.Tx, evt Event, _ Interpretati
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO prediction_current (
 			id, hypothesis_ref, aggregate_id, tenant_id, statement, status,
-			created_at, updated_at, last_event_sequence, discriminates
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9)
+			created_at, updated_at, last_event_sequence, discriminates, test_kind
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10)
 		ON CONFLICT (id) DO NOTHING
 	`, p.ID, p.HypothesisRef, evt.AggregateID, evt.TenantID, p.Statement, p.Status,
-		evt.OccurredAt, evt.SequenceNo, discriminates); err != nil {
+		evt.OccurredAt, evt.SequenceNo, discriminates, testKind); err != nil {
 		return fmt.Errorf("insert prediction_current: %w", err)
 	}
 	return nil
@@ -318,6 +412,12 @@ func (ReasoningNodeProjector) Reset(ctx context.Context, tx *sql.Tx) error {
 		stixTypeHypothesis, stixTypePrediction); err != nil {
 		return fmt.Errorf("delete reasoning stix_objects: %w", err)
 	}
+	// Attestation notes are ours to rebuild; a note from any other producer
+	// (none today) is not, so the delete is scoped by the attestation marker.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM stix_objects WHERE type = $1 AND payload ? 'x_reckon_attestation'`,
+		stixTypeNote); err != nil {
+		return fmt.Errorf("delete attestation notes: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `TRUNCATE hypothesis_current, prediction_current`); err != nil {
 		return fmt.Errorf("truncate reasoning projections: %w", err)
 	}
@@ -350,6 +450,8 @@ type PredictionCurrent struct {
 	Status            string
 	TestQuery         *QuerySpec
 	Discriminates     []string
+	TestKind          string               // tool | manual (adr/0054)
+	Attestation       *AttestationRecorded // the human observation the outcome cites, when it has one
 	TestResultRefs    []string
 	LastEventSequence int64
 }
@@ -392,7 +494,7 @@ func ListPredictions(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]
 	rows, err := db.QueryContext(ctx, `
 		SELECT p.id, p.hypothesis_ref, p.aggregate_id, p.statement, p.status,
 		       p.test_result_refs, p.discriminates, p.last_event_sequence,
-		       s.payload -> 'test_query'
+		       s.payload -> 'test_query', p.test_kind, p.attestation
 		FROM prediction_current p
 		LEFT JOIN stix_objects s ON s.id = split_part(p.id, '--', 2)::uuid
 		WHERE p.aggregate_id = $1
@@ -406,9 +508,9 @@ func ListPredictions(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]
 	var out []PredictionCurrent
 	for rows.Next() {
 		var p PredictionCurrent
-		var refs, discriminates, testQuery []byte
+		var refs, discriminates, testQuery, attestation []byte
 		if err := rows.Scan(&p.ID, &p.HypothesisRef, &p.AggregateID, &p.Statement,
-			&p.Status, &refs, &discriminates, &p.LastEventSequence, &testQuery); err != nil {
+			&p.Status, &refs, &discriminates, &p.LastEventSequence, &testQuery, &p.TestKind, &attestation); err != nil {
 			return nil, fmt.Errorf("scan prediction_current: %w", err)
 		}
 		if len(refs) > 0 {
@@ -419,6 +521,9 @@ func ListPredictions(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]
 		}
 		if len(testQuery) > 0 {
 			_ = json.Unmarshal(testQuery, &p.TestQuery)
+		}
+		if len(attestation) > 0 {
+			_ = json.Unmarshal(attestation, &p.Attestation)
 		}
 		out = append(out, p)
 	}
@@ -439,6 +544,10 @@ func ListReasoningStixPayloads(ctx context.Context, db *sql.DB, aggregateID uuid
 			SELECT split_part(id, '--', 2)::uuid FROM hypothesis_current WHERE aggregate_id = $1
 			UNION
 			SELECT split_part(id, '--', 2)::uuid FROM prediction_current WHERE aggregate_id = $1
+			UNION
+			-- the attestation notes the predictions' outcomes cite (adr/0054)
+			SELECT split_part(p.attestation ->> 'id', '--', 2)::uuid
+			FROM prediction_current p WHERE p.aggregate_id = $1 AND p.attestation IS NOT NULL
 		)
 		ORDER BY type, id
 	`, aggregateID)

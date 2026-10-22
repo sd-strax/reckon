@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -42,6 +43,10 @@ type RecordInterpretationBody struct {
 	PredictionRef    string          `json:"prediction_ref,omitempty"` // prediction outcome
 	PredictionStatus string          `json:"prediction_status,omitempty"`
 	TestResultRefs   []string        `json:"test_result_refs,omitempty"`
+	// Attestation is the analyst's own observation as the outcome's evidence
+	// (adr/0054): what a person said, or what was checked by hand. The note
+	// id is minted server-side; the aggregate refuses it from an AI delegate.
+	Attestation *AttestationBody `json:"attestation,omitempty"`
 
 	// Verdict payload for type=verdict (01 §Verdict): the disposition of
 	// record. The AI-verdict dial is applied SERVER-side from tenant config —
@@ -95,6 +100,17 @@ type PredictionBody struct {
 	Statement     string               `json:"statement"`
 	TestQuery     *aggregate.QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string             `json:"discriminates,omitempty"`
+	TestKind      string               `json:"test_kind,omitempty"` // tool (default) | manual — a person tests it (adr/0054)
+}
+
+// AttestationBody is the client shape of a human attestation on a prediction
+// outcome (adr/0054): the content is what was observed; source and channel
+// say who was asked and how; observed_at defaults to the act's time.
+type AttestationBody struct {
+	Content    string     `json:"content"`
+	Source     string     `json:"source,omitempty"`
+	Channel    string     `json:"channel,omitempty"`
+	ObservedAt *time.Time `json:"observed_at,omitempty"`
 }
 
 // TranscriptInput carries the raw transcript for the turn. Body is the text as a
@@ -245,6 +261,18 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 			Statement:     body.Prediction.Statement,
 			TestQuery:     body.Prediction.TestQuery,
 			Discriminates: body.Prediction.Discriminates,
+			TestKind:      body.Prediction.TestKind,
+		}
+	}
+	if body.Attestation != nil {
+		// The note id is minted here like every node id; the aggregate
+		// materializes the note and cites it (adr/0054).
+		cmd.Attestation = &aggregate.Attestation{
+			ID:         uuid.New(),
+			Content:    body.Attestation.Content,
+			Source:     body.Attestation.Source,
+			Channel:    body.Attestation.Channel,
+			ObservedAt: body.Attestation.ObservedAt,
 		}
 	}
 	if body.Transcript != nil {
@@ -321,6 +349,29 @@ type PredictionView struct {
 	TestQuery      *aggregate.QuerySpec `json:"test_query,omitempty"`
 	Discriminates  []string             `json:"discriminates,omitempty"`
 	TestResultRefs []string             `json:"test_result_refs,omitempty"`
+	// TestKind is tool or manual (adr/0054): manual means a person's answer
+	// decides it and the analyst records the result; the agent cannot.
+	TestKind string `json:"test_kind,omitempty"`
+	// Attestation is the human observation the outcome cites, when it has
+	// one — rendered as "attested by … by phone: …", distinct from telemetry.
+	Attestation *AttestationView `json:"attestation,omitempty"`
+}
+
+// AttestationView is the read shape of a recorded attestation (adr/0054).
+type AttestationView struct {
+	NoteRef    string     `json:"note_ref"`
+	Author     string     `json:"author"`
+	Content    string     `json:"content"`
+	Source     string     `json:"source,omitempty"`
+	Channel    string     `json:"channel,omitempty"`
+	ObservedAt *time.Time `json:"observed_at,omitempty"`
+}
+
+func attestationView(a *aggregate.AttestationRecorded) *AttestationView {
+	if a == nil {
+		return nil
+	}
+	return &AttestationView{NoteRef: a.ID, Author: a.Author, Content: a.Content, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt}
 }
 
 // listInvestigationHypotheses serves GET /api/investigations/{id}/hypotheses:
@@ -358,6 +409,8 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 			TestQuery:      p.TestQuery,
 			Discriminates:  p.Discriminates,
 			TestResultRefs: p.TestResultRefs,
+			TestKind:       p.TestKind,
+			Attestation:    attestationView(p.Attestation),
 		})
 	}
 	out := make([]HypothesisView, 0, len(hs))

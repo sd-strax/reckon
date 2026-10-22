@@ -523,7 +523,12 @@ x-prediction
                       with its owner — it cannot decide between rivals.
   status              UNTESTED | CONFIRMED | DISCONFIRMED | INCONCLUSIVE |
                       WITHDRAWN
-  test_result_refs    list of ObservedData or Sighting ids
+  test_kind           tool (default) | manual — who tests it: a query, or a
+                      person's answer (the account owner confirming the
+                      session, the change owner confirming the window). For
+                      a manual test, test_query says whom to ask and what.
+  test_result_refs    list of ObservedData, Sighting, or Note ids (a Note is
+                      a human attestation — see below)
   created, modified, created_by_ref (STIX standard)
 ```
 
@@ -533,6 +538,7 @@ x-prediction
 - **Either actor authors predictions.** The AI delegate derives them from the hypothesis; the analyst adds the ones only environmental knowledge can supply ("this account only ever authenticates from the backup host at 02:00"). Both land `UNTESTED` under the same rules.
 - **`WITHDRAWN`** is terminal and legal only from `UNTESTED`, by a **human**: the analyst discards a bad test without a deletion — the event log keeps it, the scoreboard stops counting it. It is not an evidential outcome (no `test_result_refs`) and never feeds a hypothesis evaluation.
 - **The node is immutable except for status.** Editing an untested prediction is *withdraw + record*: the thread shows both, and a result can never be attached to wording it was not tested against.
+- **A person's answer is evidence the record can cite** (`adr/0054`). A human recording an outcome may attach an *attestation* — what was observed, who was asked, over what channel — which the aggregate materializes as a STIX `Note` (adopted unchanged) authored by that principal, with `object_refs` to the prediction and its hypothesis, and prepends to `test_result_refs`. The evidence rule is unchanged: a decisive outcome still cites what was observed; a human observation is simply citeable, and reads as *attested*, never as telemetry. Two human-only rules follow: an AI delegate never carries an attestation, and never records any outcome but withdraw on a `manual` prediction — it may propose the test and ask for the result, not supply it. The decide gate (`adr/0051`) reads a manual discriminator like any other.
 
 ### x-action
 

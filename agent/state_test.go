@@ -126,3 +126,20 @@ func TestTurn_StateRidesTheMessageNotThePrompt(t *testing.T) {
 		t.Errorf("analyst prompt should follow the engine blocks:\n%s", u)
 	}
 }
+
+// adr/0054: a manual prediction is marked where the model reads the test, so
+// it does not try to run it or record its result.
+func TestHypothesisStateBlock_ManualPrediction(t *testing.T) {
+	raw := `{"hypotheses":[
+	  {"id":"x-hypothesis--a","handle":"H2 admin","status":"OPEN","statement":"s2","predictions":[
+	    {"id":"x-prediction--b","ordinal":2,"status":"UNTESTED","statement":"owner confirms","test_kind":"manual","discriminates":["x-hypothesis--c"]},
+	    {"id":"x-prediction--d","ordinal":3,"status":"UNTESTED","statement":"baseline","test_kind":"tool"}]},
+	  {"id":"x-hypothesis--c","handle":"H1 rdp","status":"OPEN","statement":"s1"}]}`
+	b := hypothesisStateBlock(json.RawMessage(raw))
+	if !strings.Contains(b, "untested P2 (x-prediction--b) (discriminates vs H1 rdp) [manual — a person tests it; the analyst records the result, you cannot]: owner confirms") {
+		t.Errorf("manual prediction not marked:\n%s", b)
+	}
+	if strings.Contains(b, "P3 (x-prediction--d) [manual") {
+		t.Errorf("tool prediction marked manual:\n%s", b)
+	}
+}

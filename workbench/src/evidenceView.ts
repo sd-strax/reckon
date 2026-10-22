@@ -159,6 +159,7 @@ export class EvidenceView {
         case "process": return p.command_line || (p.pid !== undefined ? "pid " + p.pid : type);
         case "x-hypothesis": return p.statement || p.text || "Hypothesis";
         case "x-prediction": return p.statement || p.text || "Prediction";
+        case "note": return p.abstract || "Attestation"; // a human statement recorded as evidence (adr/0054)
         case "observed-data": return "Observation" + (p.number_observed ? " ×" + p.number_observed : "");
         default: return p.name || p.value || type;
       }

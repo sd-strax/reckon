@@ -145,6 +145,7 @@ type Prediction struct {
 	Statement     string     `json:"statement"`
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string   `json:"discriminates,omitempty"`
+	TestKind      string     `json:"test_kind,omitempty"` // tool (default) | manual — a person tests it (adr/0054)
 }
 
 // QuerySpec is a prediction's declared test.
