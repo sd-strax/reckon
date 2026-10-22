@@ -51,3 +51,4 @@ it belongs to a public repository.
 | [0032](0032-case-note.md) | The "opened in reckon" note on a seed case is a `ticket.comment` action in the new investigation, offered under `cases.note_on_seed` (confirm by default) |
 | [0034](0034-start-detach.md) | `reckon start --detach` returns when the stack is ready; foreground stays the default; `scripts/demo-reseed.sh` composes the lifecycle |
 | [0047](0047-hypotheses-panel.md) | The hypothesis tracker shows the whole competing set in full, names predictions `P<n>` from the server view, and shows the decide guard where it bites |
+| [0051](0051-decide-guard.md) | Decide-against-rivals is an aggregate gate for AI delegates (the human override is a visible act, never a flag); scoped ⚡ commands say where they end; predictions name themselves |
