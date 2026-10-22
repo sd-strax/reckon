@@ -1,6 +1,6 @@
 # 0032 — The "opened in reckon" note on a seed case is an action in the new investigation, offered under a tenant posture that asks by default
 
-Issue: #32 · PR: #33 · Status: accepted
+Issue: #32 · PR: #33 · Status: accepted · Amended by #41 (PR #42): under `confirm` the note is on demand from the document, not a creation-time prompt
 
 ## Context
 
@@ -33,10 +33,18 @@ analyst's confirmation at creation.
   human has approved an action on this investigation.
 - **A tenant posture, `cases.note_on_seed`**, validated at startup like its
   sibling dials:
-  - `confirm` (default): the create response carries the offer with the
-    default note text; the workbench opens the prompt card over the new
-    document with the text editable; **Post note** requests the action,
-    **Cancel** writes nothing anywhere.
+  - `confirm` (default): the offer (the default note text) rides the create
+    **and detail** responses; the document's seed line ("From case …")
+    carries a right-aligned, single-use **Note the case** action. Pressing it
+    opens the prompt card with the text editable; **Post note** requests the
+    action, **Cancel** writes nothing anywhere. Once a comment action on the
+    seed case exists — from this button, the agent, or by hand — the line
+    shows its status (`noted · awaiting approval`, `posted`, …) read from the
+    action record. *Amended (#41):* the first version opened that prompt
+    over the new document at creation. That forced a choice about something
+    not urgent before the analyst had read anything, and the note is not
+    required to be the first action — it is a comment on the seed case,
+    valid on day one or after the verdict. On demand is the right shape.
   - `auto`: the workbench requests the action immediately, without asking.
     Gate 2 still decides whether it waits for approval.
   - `off`: no offer is sent, and the endpoint refuses.

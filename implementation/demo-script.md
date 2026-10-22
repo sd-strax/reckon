@@ -86,13 +86,16 @@ incidents are already there: a phishing report, a DLP bulk download, and
 `svc_backup`**, P2, escalated from Tier 1. Click it. The case opens
 **read-only**: Tier 1's narrative, the work notes, a link out to the system of
 record, and one button. Say that nothing on this page writes to the case
-system. Press **Start investigation**. The new document opens with one prompt
-over it: *Note the case in the system of record?* — the comment that tells
-INC0010042 an investigation was opened here, editable. Press **Post note**. It
-is requested as a `ticket.comment` **action** in this investigation, not fired
-behind the analyst's back; it sits pending on the tracker and its approval,
-later, is what activates the investigation. *(The tenant dial
-`cases.note_on_seed` makes this ask, auto, or never.)* *(Afterwards the row in the Cases view
+system. Press **Start investigation**. The new document opens on the case:
+its seed line reads *From case … INC0010042* with one small action at its
+right, **Note the case**. Nothing interrupts you. When you want the ticket to
+know — now, or after the verdict — press it: the comment that tells INC0010042
+an investigation was opened here appears, editable; **Post note** requests it
+as a `ticket.comment` **action** in this investigation, not fired behind the
+analyst's back. It sits pending on the tracker, the seed line now reads *noted
+· awaiting approval*, and its approval, later, is what activates the
+investigation. *(The tenant dial `cases.note_on_seed` makes this on-demand,
+automatic, or never.)* *(Afterwards the row in the Cases view
 reads "investigating" and leads back to this investigation — a case does not
 quietly get two. New Investigation → From a case… remains the explicit way to
 open a second one.)*
