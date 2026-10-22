@@ -206,9 +206,9 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 	// the note is on demand from the document, not a creation-time choice, so
 	// any load must be able to render the button with the default text.
 	if claims, ok := authz.FromContext(r.Context()); ok {
-		view.CaseNote = b.caseNoteOffer(view.AggregateID, ic.Title, ic.Seed, claims.PreferredUsername, commandNow())
+		view.CaseNote = b.caseNoteOffer(r.Context(), view.AggregateID, ic.Title, ic.Seed, claims.PreferredUsername, commandNow())
 	} else {
-		view.CaseNote = b.caseNoteOffer(view.AggregateID, ic.Title, ic.Seed, "", commandNow())
+		view.CaseNote = b.caseNoteOffer(r.Context(), view.AggregateID, ic.Title, ic.Seed, "", commandNow())
 	}
 	if ic.VerdictDisposition != "" {
 		view.Verdict = &VerdictView{
@@ -311,7 +311,7 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 			// The offer rides the create response (adr/0032): the client either
 			// asks the analyst (confirm) or posts it (auto); nil when the seed
 			// is not a case or the posture is off.
-			CaseNote: b.caseNoteOffer(res.AggregateID.String(), cmd.Title, cmd.Seed, claims.PreferredUsername, env.OccurredAt),
+			CaseNote: b.caseNoteOffer(r.Context(), res.AggregateID.String(), cmd.Title, cmd.Seed, claims.PreferredUsername, env.OccurredAt),
 		},
 		NewSequenceNo: res.NewSequenceNo,
 	})

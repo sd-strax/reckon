@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -53,25 +54,32 @@ func TestBuildCaseNoteRequest(t *testing.T) {
 // for any other seed. The default text names who, when, and the investigation.
 func TestCaseNoteOffer(t *testing.T) {
 	now := time.Date(2026, 10, 22, 18, 0, 0, 0, time.UTC)
-	seed := &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "INC0010042", CaseRef: "observed-data--abc"}
+	seed := &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "INC0010042", CaseRef: "observed-data--abc", Source: "servicenow"}
 
 	b := &Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteConfirm}}
-	offer := b.caseNoteOffer("inv-1", "Suspicious RDP logon", seed, "sdas", now)
+	offer := b.caseNoteOffer(context.Background(), "inv-1", "Suspicious RDP logon", seed, "sdas", now)
 	if offer == nil || offer.CaseID != "INC0010042" {
 		t.Fatalf("confirm posture: offer = %+v; want one for INC0010042", offer)
+	}
+	if offer.SystemName != "ServiceNow" {
+		t.Errorf("system name = %q; want ServiceNow from the seed source", offer.SystemName)
+	}
+	// An unknown source with no store to consult: no name, no guess.
+	if o := b.caseNoteOffer(context.Background(), "inv-1", "t", &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "X", CaseRef: "observed-data--abc", Source: "fixture:s"}, "", now); o == nil || o.SystemName != "" {
+		t.Errorf("fixture source without a store: offer = %+v; want an offer with no system name", o)
 	}
 	for _, want := range []string{"sdas", "2026-10-22T18:00:00Z", "Suspicious RDP logon", "reckon://investigation/inv-1"} {
 		if !strings.Contains(offer.Body, want) {
 			t.Errorf("default note lacks %q: %s", want, offer.Body)
 		}
 	}
-	if o := (&Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteAuto}}).caseNoteOffer("inv-1", "t", seed, "", now); o == nil {
+	if o := (&Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteAuto}}).caseNoteOffer(context.Background(), "inv-1", "t", seed, "", now); o == nil {
 		t.Error("auto posture: want an offer")
 	}
-	if o := (&Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteOff}}).caseNoteOffer("inv-1", "t", seed, "", now); o != nil {
+	if o := (&Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteOff}}).caseNoteOffer(context.Background(), "inv-1", "t", seed, "", now); o != nil {
 		t.Error("off posture: want no offer")
 	}
-	if o := b.caseNoteOffer("inv-1", "t", &aggregate.Seed{Type: aggregate.SeedEntity}, "", now); o != nil {
+	if o := b.caseNoteOffer(context.Background(), "inv-1", "t", &aggregate.Seed{Type: aggregate.SeedEntity}, "", now); o != nil {
 		t.Error("entity seed: want no offer")
 	}
 }

@@ -157,7 +157,7 @@ export interface InvestigationDetail {
   /** Tenant case write-back posture: "confirm" | "auto" | "off" (adr/0032). */
   caseNoteOnSeed?: string;
   /** On create of a case-rooted investigation: the default note to offer. */
-  caseNote?: { caseId: string; body: string };
+  caseNote?: { caseId: string; body: string; systemName?: string };
 }
 
 /** One pinned-evidence row (mirrors server.PinView). */
@@ -425,7 +425,7 @@ interface RawInvestigation {
   seed_summary?: string;
   // The case write-back posture and, on create, the note offer (adr/0032).
   case_note_on_seed?: string;
-  case_note?: { case_id?: string; body?: string };
+  case_note?: { case_id?: string; body?: string; system_name?: string };
 }
 
 /** Map a raw seed body to the client Seed shape (shared by list/get/create). */
@@ -718,7 +718,7 @@ export class BackendClient {
       seed: mapSeed(r.seed),
       seedSummary: r.seed_summary,
       caseNoteOnSeed: r.case_note_on_seed,
-      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "" } : undefined,
+      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "", systemName: r.case_note.system_name } : undefined,
     };
   }
 
@@ -1322,7 +1322,7 @@ export class BackendClient {
       seed: mapSeed(r.seed),
       seedSummary: r.seed_summary,
       caseNoteOnSeed: r.case_note_on_seed,
-      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "" } : undefined,
+      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "", systemName: r.case_note.system_name } : undefined,
     };
   }
 
