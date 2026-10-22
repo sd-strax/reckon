@@ -14,7 +14,8 @@ import (
 
 // WorkerConfig configures the in-process Temporal worker.
 type WorkerConfig struct {
-	// HostPort is the Temporal frontend gRPC address, e.g. "localhost:7233".
+	// HostPort is the Temporal frontend gRPC address, e.g. "127.0.0.1:7233"
+	// (supervisor.TemporalHostPort — an IP literal, see there for why).
 	HostPort string
 
 	// Namespace is the Temporal namespace to register on. Default "default".
@@ -90,17 +91,15 @@ func NewWorker(cfg WorkerConfig) *Worker {
 // component so /status reports the two separately.
 func (w *Worker) Name() string { return "temporal-worker" }
 
-// Start dials the Temporal frontend, verifies it is reachable, creates a worker
-// on the configured task queue, registers the workflow inventory, and begins
-// polling. Start returns only once the worker is polling (or an error). On any
-// failure it closes the client it opened so a restart starts clean.
+// Start dials the Temporal frontend (retrying a stalled connect, see Dial),
+// verifies it is reachable, creates a worker on the configured task queue,
+// registers the workflow inventory, and begins polling. Start returns only
+// once the worker is polling (or an error). On any failure it closes the
+// client it opened so a restart starts clean.
 func (w *Worker) Start(ctx context.Context) error {
-	c, err := client.Dial(client.Options{
-		HostPort:  w.cfg.HostPort,
-		Namespace: w.cfg.Namespace,
-	})
+	c, err := Dial(ctx, w.cfg.HostPort, w.cfg.Namespace)
 	if err != nil {
-		return fmt.Errorf("dial temporal %s: %w", w.cfg.HostPort, err)
+		return err
 	}
 	if _, err := c.CheckHealth(ctx, &client.CheckHealthRequest{}); err != nil {
 		c.Close()

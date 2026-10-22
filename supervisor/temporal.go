@@ -100,7 +100,7 @@ func (t *Temporal) Start(ctx context.Context) error {
 			DestDir: binDir,
 		},
 		ClientOptions: &client.Options{
-			HostPort:  fmt.Sprintf("localhost:%d", t.cfg.FrontendPort),
+			HostPort:  TemporalHostPort(t.cfg.FrontendPort),
 			Namespace: t.cfg.Namespace,
 		},
 		DBFilename: dbPath,
@@ -157,7 +157,7 @@ func (t *Temporal) Health(ctx context.Context) HealthStatus {
 }
 
 // FrontendHostPort returns the host:port string of the dev server's frontend
-// (e.g., "localhost:7233"). Useful for downstream consumers (workers, the
+// (e.g., "127.0.0.1:7233", see TemporalHostPort). Useful for downstream consumers (workers, the
 // reckon-backend) to construct Temporal clients without re-deriving from config.
 // Empty until Start has succeeded.
 func (t *Temporal) FrontendHostPort() string {
@@ -172,4 +172,18 @@ func (t *Temporal) FrontendHostPort() string {
 // Namespace returns the configured Temporal namespace.
 func (t *Temporal) Namespace() string {
 	return t.cfg.Namespace
+}
+
+// TemporalHostPort is the loopback address of the bundled dev server's
+// frontend for the given port — the one string the dev server binds to and
+// every in-process client dials. It is an IP literal, deliberately not
+// "localhost": the Temporal SDK connects through gRPC's DNS resolver, which for
+// a hostname also queries the network DNS for a TXT service-config record
+// (_grpc_config.<host>) and hands the channel no address until that answers.
+// On a laptop whose resolver is stalled or VPN-rerouted, that lookup alone can
+// outlast the SDK's 5s GetSystemInfo budget, and the stack fails to start even
+// though the frontend is up and a plain TCP probe passes. An IP literal
+// short-circuits the resolver entirely.
+func TemporalHostPort(port int) string {
+	return fmt.Sprintf("127.0.0.1:%d", port)
 }

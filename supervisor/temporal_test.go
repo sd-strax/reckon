@@ -88,3 +88,13 @@ func TestTemporalLifecycle(t *testing.T) {
 		t.Errorf("CheckHealth after restart: %v", err)
 	}
 }
+
+// TestTemporalHostPort_IsLoopbackLiteral guards the resolver bypass: the
+// address the dev server binds and clients dial must be an IP literal, never a
+// hostname that drags gRPC's DNS resolver (and its TXT lookup) into start-up.
+func TestTemporalHostPort_IsLoopbackLiteral(t *testing.T) {
+	got := TemporalHostPort(7233)
+	if got != "127.0.0.1:7233" {
+		t.Fatalf("TemporalHostPort(7233) = %q; want an IPv4 loopback literal", got)
+	}
+}

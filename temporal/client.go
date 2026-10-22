@@ -22,7 +22,8 @@ type Client struct {
 
 // ClientConfig configures a dispatch Client.
 type ClientConfig struct {
-	// HostPort is the Temporal frontend gRPC address, e.g. "localhost:7233".
+	// HostPort is the Temporal frontend gRPC address, e.g. "127.0.0.1:7233"
+	// (supervisor.TemporalHostPort — an IP literal, see there for why).
 	HostPort string
 
 	// Namespace is the Temporal namespace. Default "default".
@@ -35,17 +36,23 @@ type ClientConfig struct {
 }
 
 // NewClient dials the Temporal frontend and returns a dispatch Client. The
-// caller owns the returned Client and must Close it.
+// caller owns the returned Client and must Close it. Bounded by Dial's own
+// ready window; use NewClientContext to bound it with a caller deadline.
 func NewClient(cfg ClientConfig) (*Client, error) {
+	return NewClientContext(context.Background(), cfg)
+}
+
+// NewClientContext is NewClient with the dial bounded by ctx (see Dial).
+func NewClientContext(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	if cfg.Namespace == "" {
 		cfg.Namespace = "default"
 	}
 	if cfg.TaskQueue == "" {
 		cfg.TaskQueue = branding.CLI
 	}
-	c, err := client.Dial(client.Options{HostPort: cfg.HostPort, Namespace: cfg.Namespace})
+	c, err := Dial(ctx, cfg.HostPort, cfg.Namespace)
 	if err != nil {
-		return nil, fmt.Errorf("dial temporal %s: %w", cfg.HostPort, err)
+		return nil, err
 	}
 	return &Client{c: c, taskQueue: cfg.TaskQueue}, nil
 }
