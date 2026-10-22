@@ -204,7 +204,11 @@ The previous accepted run for the same scenario corpus is the **baseline** (its 
 not transcripts — is committed alongside the prompt so the diff travels with the change). A prompt
 or model change is acceptable when: no MUST assertion regresses `PASS → FAIL`, and no SHOULD pass
 rate drops more than the configured tolerance (default 1 trial's worth). Discipline at v0
-(reviewer checks the diff), pipeline later (v1+).
+(reviewer checks the diff), pipeline later (v1+). Baseline entries are keyed by assertion id and,
+for turn-scoped assertions, the turn index; a scenario re-layout that moves an assertion to another
+turn does not orphan its bar — a turn-scoped result with no exact key is compared against the
+baseline entry for the same id at its old turn, provided the id is asserted at exactly one turn on
+each side (an id asserted at several turns has no principled pairing and stays exact-key only).
 
 **Baselines are per-model, and the supported-model set is baseline-defined.** The product's model is
 config and its provider is an interface seam (`agent/llm.go`; `09 §0`), so "reckon supports model X"

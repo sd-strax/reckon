@@ -294,14 +294,19 @@ func (r *Report) Regressions(base *BaselineSummary) []string {
 	}
 	var out []string
 	for _, res := range r.Results {
-		prev, ok := base.Results[res.Key()]
+		prevKey, ok := r.baselineKey(res, base)
 		if !ok {
 			continue // new assertion — no baseline to regress against
+		}
+		prev := base.Results[prevKey]
+		label := res.Key()
+		if prevKey != label {
+			label = fmt.Sprintf("%s (baseline %s)", label, prevKey)
 		}
 		switch res.Severity {
 		case Must:
 			if prev.Result == Pass && res.Result == Fail {
-				out = append(out, fmt.Sprintf("%s: MUST regressed PASS -> FAIL", res.Key()))
+				out = append(out, fmt.Sprintf("%s: MUST regressed PASS -> FAIL", label))
 			}
 		case Should:
 			if prev.Exercised == 0 || res.Exercised == 0 {
@@ -312,10 +317,47 @@ func (r *Report) Regressions(base *BaselineSummary) []string {
 			tolerance := 1.0 / float64(res.Exercised) // one trial's worth
 			if rate < prevRate-tolerance {
 				out = append(out, fmt.Sprintf("%s: SHOULD rate dropped %.2f -> %.2f (tolerance %.2f)",
-					res.Key(), prevRate, rate, tolerance))
+					label, prevRate, rate, tolerance))
 			}
 		}
 	}
 	sort.Strings(out)
 	return out
+}
+
+// baselineKey resolves the baseline entry a result is compared against. The
+// exact key wins. A turn-scoped result with no exact key falls back to the
+// baseline entry for the same assertion id at another turn — but only when the
+// id is asserted at exactly one turn on each side. A scenario re-layout (turns
+// inserted ahead of an assertion) moves the key without changing the
+// assertion; keyed strictly by turn, the moved assertion would silently lose
+// its bar — E2 went 3/3 → 1/3 unflagged when the competing-hypotheses turns
+// landed ahead of it. An id asserted at several turns (O2, H8) stays exact-key
+// only: there is no principled pairing between relocated repeats.
+func (r *Report) baselineKey(res AssertionResult, base *BaselineSummary) (string, bool) {
+	if _, ok := base.Results[res.Key()]; ok {
+		return res.Key(), true
+	}
+	if res.Scope != ScopeTurn {
+		return "", false
+	}
+	mine := 0
+	for _, other := range r.Results {
+		if other.Scope == ScopeTurn && other.ID == res.ID {
+			mine++
+		}
+	}
+	if mine != 1 {
+		return "", false
+	}
+	var found string
+	for key := range base.Results {
+		if strings.HasPrefix(key, res.ID+"@turn") {
+			if found != "" {
+				return "", false // asserted at several turns in the baseline
+			}
+			found = key
+		}
+	}
+	return found, found != ""
 }

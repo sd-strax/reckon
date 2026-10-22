@@ -149,7 +149,11 @@ The previous accepted run for a `(scenario, model)` pair is the baseline
 (`10 §4.4`). `TestEvalRun` loads `eval/baselines/<scenario>--<model>.json` and
 fails on a regression: a MUST going `PASS → FAIL`, or a SHOULD pass rate
 dropping more than one trial's worth. A **missing** baseline is not a failure —
-the first run for a scenario+model has nothing to regress against.
+the first run for a scenario+model has nothing to regress against. Turn-scoped
+entries are keyed `<id>@turn<n>`; if a scenario edit moves an assertion to
+another turn, it is still compared against its old entry (same id, asserted at
+one turn on each side) and the finding names both keys — an inserted turn never
+silently drops an assertion's bar.
 
 To accept a run as the new baseline:
 
