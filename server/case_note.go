@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,6 +27,11 @@ import (
 type CaseNoteOffer struct {
 	CaseID string `json:"case_id"`
 	Body   string `json:"body"`
+	// SystemName is the case system's display name ("ServiceNow", "Jira"),
+	// derived from the seed's source label or, failing that, the promoted
+	// case read's own `sor` field; "" when neither says (the client then says
+	// "the case system"). Display only — never used to route the write.
+	SystemName string `json:"system_name,omitempty"`
 }
 
 // CaseNoteRequest is the body of POST /api/investigations/{id}/case_note. An
@@ -50,11 +56,56 @@ func caseNoteBody(investigationID, title, principal string, now time.Time) strin
 // caseNoteOffer builds the offer for a freshly created case-rooted
 // investigation under the tenant posture, or nil when the seed is not a case
 // or the posture is off.
-func (b *Backend) caseNoteOffer(investigationID, title string, seed *aggregate.Seed, principal string, now time.Time) *CaseNoteOffer {
+func (b *Backend) caseNoteOffer(ctx context.Context, investigationID, title string, seed *aggregate.Seed, principal string, now time.Time) *CaseNoteOffer {
 	if seed == nil || seed.Type != aggregate.SeedCase || b.cfg.CaseNoteOnSeed == config.CaseNoteOff {
 		return nil
 	}
-	return &CaseNoteOffer{CaseID: seed.CaseID, Body: caseNoteBody(investigationID, title, principal, now)}
+	return &CaseNoteOffer{
+		CaseID:     seed.CaseID,
+		Body:       caseNoteBody(investigationID, title, principal, now),
+		SystemName: b.caseSystemName(ctx, seed),
+	}
+}
+
+// caseSystemDisplayNames maps the labels adapters stamp (provenance.tool, or
+// a case body's `sor`) to the name an analyst says.
+var caseSystemDisplayNames = map[string]string{
+	"servicenow": "ServiceNow",
+	"jira":       "Jira",
+	"thehive":    "TheHive",
+}
+
+// caseSystemName names the case system for display: the seed's source label
+// when it is a known system; otherwise the `sor` the promoted case read
+// carried (a fixture replaying a ServiceNow incident says "servicenow" there
+// while its provenance honestly says "fixture:…"); otherwise "".
+func (b *Backend) caseSystemName(ctx context.Context, seed *aggregate.Seed) string {
+	if name, ok := caseSystemDisplayNames[strings.ToLower(seed.Source)]; ok {
+		return name
+	}
+	if b.cfg.Handler == nil || seed.CaseRef == "" {
+		return ""
+	}
+	id, ok := stixRefUUID(seed.CaseRef)
+	if !ok {
+		return ""
+	}
+	var payload []byte
+	if err := b.cfg.Handler.DB().QueryRowContext(ctx,
+		`SELECT payload FROM stix_objects WHERE id = $1`, id).Scan(&payload); err != nil {
+		return ""
+	}
+	var od struct {
+		Extensions map[string]any `json:"extensions"`
+	}
+	if err := json.Unmarshal(payload, &od); err != nil {
+		return ""
+	}
+	sor, _ := od.Extensions["sor"].(string)
+	if name, ok := caseSystemDisplayNames[strings.ToLower(sor)]; ok {
+		return name
+	}
+	return sor
 }
 
 // buildCaseNoteRequest shapes the note as the ticket.comment request the

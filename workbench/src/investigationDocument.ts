@@ -4439,7 +4439,7 @@ export class InvestigationDocuments {
       const btn = $("seedNoteBtn");
       if (btn && CUR_CASE_NOTE) {
         btn.addEventListener("click", () => openPrompt({
-          title: "Note the case in the system of record",
+          title: "Add note to " + (CUR_CASE_NOTE.systemName || "the case system"),
           label: "Comment to post on " + CUR_CASE_NOTE.caseId + " — requested as a ticket.comment action in this investigation",
           helper: "Cancel posts nothing. The request goes through approval like any action.",
           value: CUR_CASE_NOTE.body,
