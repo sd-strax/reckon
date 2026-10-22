@@ -50,9 +50,6 @@ type RenderMessage =
   | { type: "rename.begin"; title: string }
   // Applied rename: update the title in place without a full reload.
   | { type: "renamed"; title: string }
-  // The case write-back offer (adr/0032, posture "confirm"): open the prompt
-  // card with the default note, editable; confirming requests the action.
-  | { type: "caseNote.offer"; caseId: string; body: string }
   | { type: "pending"; actions: ActionRow[] }
   | { type: "pins"; pins: PinRow[] }
   // The comms/external-work threads (Phase F, binding §4).
@@ -442,43 +439,22 @@ export class InvestigationDocuments {
     }
   }
 
-  // Case-note offers waiting for their investigation panel to finish loading
-  // (adr/0032): the prompt must open over a rendered document, not a loading
-  // one, and the panel may have been created a moment ago (Cases view path).
-  private readonly caseNoteOffers = new Map<string, { caseId: string; body: string }>();
-
   /**
    * Apply the tenant's case write-back posture to a just-created
-   * investigation. "auto" requests the note now; "confirm" (the default)
-   * queues the offer, shown on the document once it has loaded; "off" (or a
-   * non-case seed) does nothing. The server already withheld the offer when
-   * the posture is off, so the absence of created.caseNote is the whole test.
+   * investigation (adr/0032 as amended). Only "auto" acts here: it requests
+   * the note now. Under "confirm" (the default) nothing happens at creation —
+   * the document carries a "Note the case" action on its seed line, usable
+   * whenever the analyst wants, once. "off" (or a non-case seed) sends no
+   * offer at all, so the absence of created.caseNote is the whole test.
    */
   offerCaseNote(created: InvestigationDetail): void {
-    if (!created.caseNote) {
+    if (!created.caseNote || created.caseNoteOnSeed !== "auto") {
       return;
     }
-    if (created.caseNoteOnSeed === "auto") {
-      void this.client.requestCaseNote(created.id).then(
-        (r) => void vscode.window.showInformationMessage(`reckon: note on ${created.caseNote?.caseId} requested (${r.status.toLowerCase().replace(/_/g, " ")})`),
-        (err: unknown) => void vscode.window.showWarningMessage(`reckon: could not request the case note: ${errText(err)}`),
-      );
-      return;
-    }
-    this.caseNoteOffers.set(created.id, created.caseNote);
-    const panel = this.open.get(created.id);
-    if (panel) {
-      this.flushCaseNoteOffer(created.id, panel);
-    }
-  }
-
-  private flushCaseNoteOffer(id: string, panel: vscode.WebviewPanel): void {
-    const offer = this.caseNoteOffers.get(id);
-    if (!offer) {
-      return;
-    }
-    this.caseNoteOffers.delete(id);
-    void this.post(panel, { type: "caseNote.offer", caseId: offer.caseId, body: offer.body });
+    void this.client.requestCaseNote(created.id).then(
+      (r) => void vscode.window.showInformationMessage(`reckon: note on ${created.caseNote?.caseId} requested (${r.status.toLowerCase().replace(/_/g, " ")})`),
+      (err: unknown) => void vscode.window.showWarningMessage(`reckon: could not request the case note: ${errText(err)}`),
+    );
   }
 
   /** The analyst confirmed the note: request it as an action, then reload. */
@@ -537,8 +513,6 @@ export class InvestigationDocuments {
       loadedThread = thread ?? undefined;
       void this.post(panel, { type: "data", investigation, hypotheses, capabilities, thread });
       this.onLoaded?.(id, investigation.lastEventSequence);
-      // A pending case-note offer (adr/0032) opens over the rendered document.
-      this.flushCaseNoteOffer(id, panel);
       // The event-time strip + evidence graph ride the same load,
       // fire-and-forget: both are lenses over the cited refs, sharing one
       // round of (cached) evidence fetches.
@@ -2079,6 +2053,10 @@ export class InvestigationDocuments {
       margin-left: 8px; cursor: pointer; color: var(--vscode-textLink-foreground);
       border-bottom: 1px dashed currentColor;
     }
+    /* The seed line carries one right-aligned action on a case seed (adr/0032). */
+    #seedChip.seedchip { display: flex; align-items: center; gap: 10px; }
+    #seedChip .seedNoteBtn { margin-left: auto; font-size: 12px; white-space: nowrap; }
+    #seedChip .seedNote { margin-left: auto; font-size: 12px; color: var(--vscode-descriptionForeground); white-space: nowrap; }
     .draftActions { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
     .linklike {
       background: none; border: none; padding: 0; cursor: pointer;
@@ -2327,6 +2305,13 @@ export class InvestigationDocuments {
     // starts (which supersedes the stale error view).
     let preserveLive = false;
     let CUR_TITLE = ""; // current title, for the rename prefill
+    // The seed, the case-note offer (adr/0032: default text, or null when the
+    // posture is off / not a case seed) and the action list — the seed line's
+    // "Note the case" action is derived from all three, so a change in any
+    // re-renders it.
+    let CUR_SEED = null;
+    let CUR_CASE_NOTE = null;
+    let CUR_ACTIONS = [];
 
     // A clickable citation (02 §2.8): every ref opens. The chip reads as
     // evidence — a type label immediately (from the id prefix), enriched with
@@ -4447,10 +4432,44 @@ export class InvestigationDocuments {
         html = "From alert <b>" + src + esc(seed.alertId || "") + "</b>";
       } else if (seed.type === "case") {
         const src = seed.source ? esc(seed.source) + ": " : "";
-        html = "From case <b>" + src + esc(seed.caseId || "") + "</b>";
+        html = "From case <b>" + src + esc(seed.caseId || "") + "</b>" + caseNoteControl(seed);
       }
       el.innerHTML = html;
       el.style.display = html ? "" : "none";
+      const btn = $("seedNoteBtn");
+      if (btn && CUR_CASE_NOTE) {
+        btn.addEventListener("click", () => openPrompt({
+          title: "Note the case in the system of record",
+          label: "Comment to post on " + CUR_CASE_NOTE.caseId + " — requested as a ticket.comment action in this investigation",
+          helper: "Cancel posts nothing. The request goes through approval like any action.",
+          value: CUR_CASE_NOTE.body,
+          require: false,
+          confirm: "Post note",
+          onConfirm: (v) => vscode.postMessage({ type: "caseNote.post", body: v }),
+        }));
+      }
+    }
+    // The right-aligned, single-use "Note the case" action on the seed line
+    // (adr/0032 as amended): on demand, never a creation-time choice. Once a
+    // comment action on the seed case exists — from this button, the agent, or
+    // the analyst by hand — the line shows its status instead, read from the
+    // investigation's own action record so every viewer sees the same thing.
+    function caseNoteControl(seed) {
+      const existing = (CUR_ACTIONS || []).find((a) =>
+        a.actionType === "ticket.comment" && (a.targets || []).includes(seed.caseId));
+      if (existing) {
+        const s = String(existing.status || "").toUpperCase();
+        const word = existing.pending ? "awaiting approval"
+          : s === "SUCCEEDED" ? "posted"
+          : s === "FAILED" ? "failed"
+          : s === "REJECTED" ? "rejected"
+          : s === "EXPIRED" ? "expired"
+          : s === "APPROVED" || s === "DISPATCHED" ? "posting"
+          : s.toLowerCase().replace(/_/g, " ");
+        return '<span class="seedNote" title="A comment on this case is on the action record">noted · ' + esc(word) + "</span>";
+      }
+      if (!CUR_CASE_NOTE) return "";
+      return '<button class="linklike seedNoteBtn" id="seedNoteBtn" title="Post a comment on the case that an investigation was opened here — a ticket.comment action, approved like any other">Note the case</button>';
     }
 
     // ---- the unseeded (draft) state: root this investigation ---------------
@@ -4908,7 +4927,9 @@ export class InvestigationDocuments {
           lastCaps = msg.capabilities;
           lastVerdict = msg.investigation.verdict || null;
           renderHeaderState(msg.investigation.state);
-          renderSeedChip(msg.investigation.seed);
+          CUR_SEED = msg.investigation.seed || null;
+          CUR_CASE_NOTE = msg.investigation.caseNote || null;
+          renderSeedChip(CUR_SEED);
           renderHypotheses(msg.hypotheses);
           renderCapabilities(msg.capabilities);
           break;
@@ -4930,19 +4951,6 @@ export class InvestigationDocuments {
         case "renamed":
           CUR_TITLE = msg.title;
           $("title").textContent = msg.title;
-          break;
-        case "caseNote.offer":
-          // adr/0032, posture "confirm": the analyst sees the note, may edit
-          // it, and posts it — or cancels and nothing is written anywhere.
-          openPrompt({
-            title: "Note the case in the system of record?",
-            label: "Comment to post on " + msg.caseId + " — requested as a ticket.comment action in this investigation",
-            helper: "Cancel posts nothing. The request still goes through approval like any action.",
-            value: msg.body,
-            require: false,
-            confirm: "Post note",
-            onConfirm: (v) => vscode.postMessage({ type: "caseNote.post", body: v }),
-          });
           break;
         case "chronicle":
           lastThread = msg.thread || [];
@@ -5038,8 +5046,10 @@ export class InvestigationDocuments {
           el("committed", "saved to thread · " + esc(String(msg.interpretationId).slice(0, 8)) + "…");
           break;
         case "pending":
+          CUR_ACTIONS = msg.actions || [];
           renderPending(msg.actions);
           renderActions(msg.actions);
+          renderSeedChip(CUR_SEED); // the case-note status derives from the actions
           break;
         case "turn.error":
           streaming = false;

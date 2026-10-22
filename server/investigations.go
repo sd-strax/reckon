@@ -52,9 +52,9 @@ type InvestigationView struct {
 	// CaseNoteOnSeed is the tenant's case write-back posture
 	// (config.Cases.NoteOnSeed; adr/0032): "confirm" | "auto" | "off". CaseNote
 	// is the offer itself — the default note text for the seed case — present
-	// on the CREATE response of a case-rooted investigation when the posture
-	// is not off. The client asks (confirm) or posts (auto) via
-	// POST /investigations/{id}/case_note.
+	// on the create AND detail responses of a case-rooted investigation when
+	// the posture is not off. The client offers it on demand (confirm) or
+	// posts it at creation (auto) via POST /investigations/{id}/case_note.
 	CaseNoteOnSeed string         `json:"case_note_on_seed,omitempty"`
 	CaseNote       *CaseNoteOffer `json:"case_note,omitempty"`
 }
@@ -201,6 +201,14 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 		KnowledgeInjection: b.cfg.KnowledgeInjection,
 		HypothesisFraming:  b.cfg.HypothesisFraming,
 		CaseNoteOnSeed:     b.cfg.CaseNoteOnSeed,
+	}
+	// The case-note offer rides the detail view too (adr/0032 as amended):
+	// the note is on demand from the document, not a creation-time choice, so
+	// any load must be able to render the button with the default text.
+	if claims, ok := authz.FromContext(r.Context()); ok {
+		view.CaseNote = b.caseNoteOffer(view.AggregateID, ic.Title, ic.Seed, claims.PreferredUsername, commandNow())
+	} else {
+		view.CaseNote = b.caseNoteOffer(view.AggregateID, ic.Title, ic.Seed, "", commandNow())
 	}
 	if ic.VerdictDisposition != "" {
 		view.Verdict = &VerdictView{

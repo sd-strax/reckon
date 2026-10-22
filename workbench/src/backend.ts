@@ -717,6 +717,8 @@ export class BackendClient {
       } : undefined,
       seed: mapSeed(r.seed),
       seedSummary: r.seed_summary,
+      caseNoteOnSeed: r.case_note_on_seed,
+      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "" } : undefined,
     };
   }
 
