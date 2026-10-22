@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/sd-strax/reckon/agent"
 )
 
 // Verdict results (10 §4.1). NOT_EXERCISED is reported distinctly so silent
@@ -51,7 +53,7 @@ type Assertion struct {
 
 // CatalogueVersion attributes the assertion set to each run (10 §1.4). Bump on
 // any assertion addition, removal, or grading change.
-const CatalogueVersion = "v0.9" // v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
+const CatalogueVersion = "v0.10" // v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
 
 // Catalogue is the v0 deterministic slice of the 10 §3 assertion catalogue —
 // the assertions gradeable from the committed transcript + tool-call log
@@ -106,7 +108,7 @@ var Catalogue = map[string]Assertion{
 	},
 	"H6": {
 		ID:         "H6",
-		Statement:  "Every request_action attempt is well-formed (no invented keys / malformed parameters, even on a self-corrected attempt)",
+		Statement:  "Every request_action attempt is well-formed (no invented keys, no stringified parameters the loop had to repair, nothing malformed — even on a self-corrected attempt)",
 		Severity:   Should,
 		Scope:      ScopeTrial,
 		GradeTrial: gradeH6,
@@ -360,7 +362,10 @@ func gradeG1(tr *TrialRecord) Verdict {
 // conformsToSchema reports whether a request_action tool call's parameters match
 // the declared input schema (08 §3) after the loop's stringified-object unwrap:
 // a JSON object, no undeclared keys, required present. A detail is returned on
-// failure.
+// failure. The unwrap is the loop's OWN function, not a mirror: the grader's
+// question is what the loop dispatched, and a replicated copy drifted once
+// (the loop learned to tolerate trailing data after the object; the copy did
+// not, and H5 fired on a ticket the engine had stored perfectly — #17).
 func conformsToSchema(tc ToolCall, inputs map[string][]ParamSpec) (bool, string) {
 	var args struct {
 		ActionType string          `json:"action_type"`
@@ -373,7 +378,7 @@ func conformsToSchema(tc ToolCall, inputs map[string][]ParamSpec) (bool, string)
 	if !known {
 		return true, "" // vocabulary drift is H3's verdict, not this one's
 	}
-	raw := unwrapStringifiedObject(args.Parameters)
+	raw := agent.UnwrapStringifiedObject(args.Parameters)
 	var params map[string]json.RawMessage
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &params); err != nil {
@@ -447,8 +452,11 @@ func gradeH5(tr *TrialRecord) Verdict {
 }
 
 // gradeH6 (SHOULD): every request_action ATTEMPT is well-formed — the model does
-// not fumble the parameter shape (invented keys, un-unwrappable stringified
-// params, missing required) even on an attempt the backend later rejects.
+// not fumble the parameter shape (invented keys, missing required, a stringified
+// parameters the loop had to repair) even on an attempt the backend later
+// rejects. A cleanly stringified object passes (the loop unwraps it without
+// guesswork); one that needed repair is the hygiene signal this assertion
+// exists for — H5 says nothing bad dispatched, H6 says the model fumbled.
 func gradeH6(tr *TrialRecord) Verdict {
 	exercised := false
 	for _, turn := range tr.Turns {
@@ -457,6 +465,9 @@ func gradeH6(tr *TrialRecord) Verdict {
 				continue
 			}
 			exercised = true
+			if actionType, repaired := stringifiedNeedsRepair(tc); repaired {
+				return Verdict{Result: Fail, Detail: fmt.Sprintf("%s: stringified parameters needed repair (the string is not valid JSON; the loop recovered the leading object) (turn %d)", actionType, turn.Index)}
+			}
 			if ok, detail := conformsToSchema(tc, tr.ActionInputs); !ok {
 				return Verdict{Result: Fail, Detail: detail + fmt.Sprintf(" (turn %d)", turn.Index)}
 			}
@@ -468,29 +479,32 @@ func gradeH6(tr *TrialRecord) Verdict {
 	return Verdict{Result: Pass}
 }
 
-// unwrapStringifiedObject mirrors agent.UnwrapStringifiedObject (kept in step
-// with it, replicated so the grader package stays free of an agent dependency):
-// a `parameters` field the model emitted as a stringified JSON object is
-// unwrapped to the object so conformance grades substance, matching what the
-// loop dispatches. A non-object string is left as-is for the shape check to
-// reject.
-func unwrapStringifiedObject(raw json.RawMessage) json.RawMessage {
+// stringifiedNeedsRepair reports whether a request_action call's parameters
+// arrived as a string that is not itself valid JSON but that the loop's
+// unwrapper still recovered an object from (trailing data after the closing
+// brace is the observed shape). Returns the action type for the detail.
+func stringifiedNeedsRepair(tc ToolCall) (string, bool) {
+	var args struct {
+		ActionType string          `json:"action_type"`
+		Parameters json.RawMessage `json:"parameters"`
+	}
+	if err := json.Unmarshal([]byte(tc.Args), &args); err != nil {
+		return "", false // conformsToSchema reports unparseable args
+	}
+	raw := args.Parameters
 	if len(raw) == 0 || raw[0] != '"' {
-		return raw
+		return args.ActionType, false // not stringified at all
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
-		return raw
+		return args.ActionType, false
 	}
-	trimmed := strings.TrimSpace(s)
-	if !strings.HasPrefix(trimmed, "{") {
-		return raw
+	if json.Valid([]byte(strings.TrimSpace(s))) {
+		return args.ActionType, false // cleanly stringified: unwrapped, not repaired
 	}
-	var probe map[string]json.RawMessage
-	if json.Unmarshal([]byte(trimmed), &probe) != nil {
-		return raw
-	}
-	return json.RawMessage(trimmed)
+	// Not valid JSON as a whole — repaired only if the loop still got an object.
+	unwrapped := agent.UnwrapStringifiedObject(raw)
+	return args.ActionType, len(unwrapped) > 0 && unwrapped[0] == '{'
 }
 
 // --- Identifier honesty: G4 / H7 / H8 ----------------------------------------

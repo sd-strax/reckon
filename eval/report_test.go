@@ -70,16 +70,20 @@ func TestRegressions_RelocatedTurnKey(t *testing.T) {
 		{ID: "O2", Severity: Should, Scope: ScopeTurn, Turn: 9, Result: Fail, Passed: 0, Exercised: 3},
 		{ID: "H4", Severity: Must, Scope: ScopeTurn, Turn: 7, Result: Fail, Passed: 2, Exercised: 3},
 		{ID: "G1", Severity: Must, Scope: ScopeTrial, Result: Pass, Passed: 3, Exercised: 3},
+		// Exactly one trial's worth (3/3 → 2/3) is within tolerance — and must
+		// be decided in integers: 1 - 1/3 and 2/3 differ in floating point (#18).
+		{ID: "H6", Severity: Should, Scope: ScopeTrial, Result: Fail, Passed: 2, Exercised: 3},
 	}}
 	base := &BaselineSummary{Results: map[string]RateRef{
 		"E2@turn7": {Severity: Should, Result: Pass, Passed: 3, Exercised: 3},
 		"O2@turn7": {Severity: Should, Result: Pass, Passed: 3, Exercised: 3},
 		"H4@turn7": {Severity: Must, Result: Pass, Passed: 3, Exercised: 3},
 		"G1":       {Severity: Must, Result: Pass, Passed: 3, Exercised: 3},
+		"H6":       {Severity: Should, Result: Pass, Passed: 3, Exercised: 3},
 	}}
 	got := r.Regressions(base)
 	want := []string{
-		"E2@turn9 (baseline E2@turn7): SHOULD rate dropped 1.00 -> 0.33 (tolerance 0.33)",
+		"E2@turn9 (baseline E2@turn7): SHOULD rate dropped 3/3 -> 1/3 (tolerance: one trial)",
 		"H4@turn7: MUST regressed PASS -> FAIL",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
