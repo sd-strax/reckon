@@ -1,0 +1,29 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": "get_external_case_details",
+      "params": { "case_id": "INC0010039" }
+    },
+    "delay_ms": 80
+  },
+  "ocsf": {
+    "class_uid": 2005,
+    "class_name": "Incident Finding",
+    "category_uid": 2,
+    "time": "2026-04-20T13:02:00Z",
+    "metadata": { "product": { "vendor_name": "ServiceNow" } },
+    "status": "New",
+    "priority": "3 - Moderate",
+    "assignment_group": "SOC Tier 2",
+    "finding_info": {
+      "uid": "INC0010039",
+      "title": "Phishing report: invoice-themed lure delivered to the AP team mailbox",
+      "desc": "Opened by: SOC Tier 1 (d.lindqvist) from three user reports via the report-phish button.\n\nSummary as reported: an email titled 'Overdue invoice 44817 — action required' reached the ap-team shared mailbox and two individual AP inboxes between 12:40 and 12:46 UTC. The link resolves to a page imitating the company sign-in portal. The mail gateway scored it clean. Sender domain was registered 2026-04-18.\n\nTier 1 triage notes:\n- No click events found in the proxy logs for the three reporters.\n- Mailbox search for the subject line pending.\n\nRequested of Tier 2: confirm scope of delivery, check for any clicks or submitted credentials, and block the sender domain and URL if confirmed malicious.\n\nWork notes:\n2026-04-20 13:02 UTC d.lindqvist — Incident created, assigned to SOC Tier 2."
+    },
+    "unmapped": {
+      "link": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0010039",
+      "sor": "servicenow"
+    }
+  }
+}

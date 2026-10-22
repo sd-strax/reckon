@@ -66,11 +66,37 @@ The fixtures are live and the prior cases are consultable.
 
 ---
 
-## Act 1 — Ask what we know (the gap, in the agent's own words)
+## Act 1 — Start where the analyst starts (the case queue, then the gap)
 
-An alert fires: an interactive RDP logon into **`WIN-FILE01`**, a file server,
-from an account with no reason to be there. Start a **New Investigation** → seed
-`WIN-FILE01`. Before pulling a single log, ask the agent in the composer:
+Nobody opens a blank page and types a hostname at the start of a shift. Work
+arrives as cases in the system of record, already assigned and prioritized, and
+that is where this investigation begins.
+
+Run **reckon: Seed from case…** (Command Palette, or **New Investigation** →
+*Case*). In the filter type the assignment group, exactly `SOC Tier 2`, and
+press **Search cases**. Three open incidents come back: a phishing report, a DLP
+bulk download, and **INC0010042 — Suspicious interactive RDP logon to
+`WIN-FILE01` by `svc_backup`**, P2, escalated from Tier 1. Pick it.
+
+*(The fixture matches the filter exactly, so type it as shown. Any other filter
+returns zero cases — which is what Act 3 relies on.)*
+
+The investigation opens **rooted on the case**: the title is the case title, the
+seed chip reads `case fixture:lateral-movement-via-rdp: INC0010042` — provenance
+is honest that this is a replayed fixture, not a live tenant; say so — and the
+agent's standing instruction is to read the full case before it pivots and to
+treat the body as an *external claim to verify*, not established fact. Ask it:
+
+> *"What does the case claim, and what have we actually confirmed?"*
+
+The agent calls `get_external_case_details`, restates Tier 1's narrative — the
+14:32 UTC RemoteInteractive logon from `10.0.4.20`, the encoded PowerShell thirty
+seconds later, the backup on-call who never answered, so legitimate maintenance
+is **unconfirmed either way** — and separates it from what we have observed
+ourselves: nothing yet. *(That unconfirmed line is Act 3's second hypothesis,
+handed to us by the ticket.)*
+
+Then, before pulling a single log, ask in the composer:
 
 > *"Before we dig in — do we have an established runbook for containing RDP
 > lateral movement?"*
@@ -196,6 +222,13 @@ on the BYOK key — **the backend never holds a model key**:
    a prompt: **Add to SOP library** or **Discard**. The analyst reviews it (edits
    if they like), and accepts. *(If an existing SOP already covered it, the model
    says so and proposes nothing — no duplicate clutter.)*
+
+**The other loop closes too.** This investigation was opened *from* a case, and
+any handoff the agent files on the way out (`ticket.create` for the reimage,
+`ticket.comment` on INC0010042 itself) goes back into the same system of record.
+When IT finishes and that ticket lands in the queue again, it is a legitimate
+new seed — *cases are investigated, tickets are acted upon*, and the same record
+can be both at different moments.
 
 **Close the loop out loud:** the corpus now holds a new SOP that *this*
 investigation produced. Start another investigation and its knowledge rail will

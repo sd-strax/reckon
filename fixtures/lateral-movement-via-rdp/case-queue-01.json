@@ -1,0 +1,29 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": "query_external_cases",
+      "params": { "filter": "SOC Tier 2" }
+    },
+    "delay_ms": 60
+  },
+  "ocsf": {
+    "class_uid": 2005,
+    "class_name": "Incident Finding",
+    "category_uid": 2,
+    "time": "2026-04-20T13:02:00Z",
+    "metadata": { "product": { "vendor_name": "ServiceNow" } },
+    "status": "New",
+    "priority": "3 - Moderate",
+    "assignment_group": "SOC Tier 2",
+    "finding_info": {
+      "uid": "INC0010039",
+      "title": "Phishing report: invoice-themed lure delivered to the AP team mailbox",
+      "desc": "Three AP team members reported an 'overdue invoice' email with a link to a credential-harvesting page. Mail gateway did not block it. No clicks confirmed yet; sender domain registered 2026-04-18."
+    },
+    "unmapped": {
+      "link": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0010039",
+      "sor": "servicenow"
+    }
+  }
+}

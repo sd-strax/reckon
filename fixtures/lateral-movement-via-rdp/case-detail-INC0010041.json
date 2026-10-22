@@ -1,0 +1,29 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": "get_external_case_details",
+      "params": { "case_id": "INC0010041" }
+    },
+    "delay_ms": 80
+  },
+  "ocsf": {
+    "class_uid": 2005,
+    "class_name": "Incident Finding",
+    "category_uid": 2,
+    "time": "2026-04-20T14:05:00Z",
+    "metadata": { "product": { "vendor_name": "ServiceNow" } },
+    "status": "New",
+    "priority": "3 - Moderate",
+    "assignment_group": "SOC Tier 2",
+    "finding_info": {
+      "uid": "INC0010041",
+      "title": "DLP: bulk download from the Finance-Q1 SharePoint site by a contractor account",
+      "desc": "Opened by: SOC Tier 1 (d.lindqvist) from DLP policy FIN-BULK-01.\n\nSummary as reported: between 13:49 and 14:00 UTC the account ext_jmorris downloaded 1,840 files (2.3 GB) from the Finance-Q1 SharePoint site. ext_jmorris is a contractor account; the engagement end date on record is 2026-04-30.\n\nTier 1 triage notes:\n- Site owner (finance-apps) notified, no reply yet on whether the download was requested.\n- No external transfer observed so far; files landed on the contractor's managed laptop.\n\nRequested of Tier 2: establish whether the download was authorized and whether any data left the managed device.\n\nWork notes:\n2026-04-20 14:05 UTC d.lindqvist — Incident created, assigned to SOC Tier 2."
+    },
+    "unmapped": {
+      "link": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0010041",
+      "sor": "servicenow"
+    }
+  }
+}

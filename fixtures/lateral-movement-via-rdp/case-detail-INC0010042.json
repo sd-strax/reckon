@@ -1,0 +1,29 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": "get_external_case_details",
+      "params": { "case_id": "INC0010042" }
+    },
+    "delay_ms": 80
+  },
+  "ocsf": {
+    "class_uid": 2005,
+    "class_name": "Incident Finding",
+    "category_uid": 2,
+    "time": "2026-04-20T14:41:00Z",
+    "metadata": { "product": { "vendor_name": "ServiceNow" } },
+    "status": "In Progress",
+    "priority": "2 - High",
+    "assignment_group": "SOC Tier 2",
+    "finding_info": {
+      "uid": "INC0010042",
+      "title": "Suspicious interactive RDP logon to WIN-FILE01 by svc_backup",
+      "desc": "Opened by: SOC Tier 1 (m.okafor) from EDR detection det-lm-001 (CrowdStrike, severity High, T1021.001 / T1059.001).\n\nSummary as reported: at 14:32 UTC an interactive (RemoteInteractive, type 10) RDP logon to WIN-FILE01 was recorded for the account CONTOSO\\svc_backup from 10.0.4.20. About 30 seconds later powershell.exe started on WIN-FILE01 with an encoded command line. WIN-FILE01 is the finance file server (asset tier: high).\n\nTier 1 triage notes:\n- svc_backup is the backup service account. Tier 1 expected it to authenticate from the backup server BKP-01, not from a workstation subnet address.\n- 10.0.4.20 is in the user workstation range; owner not identified at time of escalation.\n- The backup team on-call did not answer. Whether anyone on that team was doing hands-on work on WIN-FILE01 today is UNCONFIRMED.\n- No containment taken. Host remains on the network pending Tier 2 investigation.\n\nRequested of Tier 2: determine whether this is lateral movement with stolen service credentials or legitimate administrative use, and contain if malicious.\n\nWork notes:\n2026-04-20 14:41 UTC m.okafor — Incident created from det-lm-001, assigned to SOC Tier 2.\n2026-04-20 14:52 UTC m.okafor — Paged backup on-call, no answer. Escalating as P2 given asset tier."
+    },
+    "unmapped": {
+      "link": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0010042",
+      "sor": "servicenow"
+    }
+  }
+}

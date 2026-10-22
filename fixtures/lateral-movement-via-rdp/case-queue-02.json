@@ -1,0 +1,29 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": "query_external_cases",
+      "params": { "filter": "SOC Tier 2" }
+    },
+    "delay_ms": 60
+  },
+  "ocsf": {
+    "class_uid": 2005,
+    "class_name": "Incident Finding",
+    "category_uid": 2,
+    "time": "2026-04-20T14:05:00Z",
+    "metadata": { "product": { "vendor_name": "ServiceNow" } },
+    "status": "New",
+    "priority": "3 - Moderate",
+    "assignment_group": "SOC Tier 2",
+    "finding_info": {
+      "uid": "INC0010041",
+      "title": "DLP: bulk download from the Finance-Q1 SharePoint site by a contractor account",
+      "desc": "DLP flagged 1,840 files downloaded from the Finance-Q1 site in 11 minutes by ext_jmorris (contractor, engagement ends 2026-04-30). Site owner has not confirmed whether the download was requested."
+    },
+    "unmapped": {
+      "link": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0010041",
+      "sor": "servicenow"
+    }
+  }
+}
