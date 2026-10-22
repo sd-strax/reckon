@@ -207,6 +207,76 @@ func (f *fakeStopErrComponent) Stop(_ context.Context) error {
 
 // --- Run + watcher tests -----------------------------------------------------
 
+// OnReady is the "whole stack is serving" signal: it fires exactly once, only
+// after every component has started, and never when Start fails.
+func TestRunCallsOnReadyOnceAfterAllStarted(t *testing.T) {
+	withFastWatcher(t)
+	a := &fakeComponent{name: "a"}
+	b := &fakeComponent{name: "b"}
+	sup := New()
+	sup.Register(a, RestartOnExit)
+	sup.Register(b, RestartOnExit)
+
+	var (
+		mu           sync.Mutex
+		readyCalls   int
+		startedAtHit [2]int
+	)
+	sup.OnReady = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		readyCalls++
+		startedAtHit = [2]int{a.getStartCalls(), b.getStartCalls()}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- sup.Run(ctx) }()
+
+	waitFor(t, time.Second, "OnReady called", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return readyCalls == 1
+	})
+	mu.Lock()
+	if startedAtHit != [2]int{1, 1} {
+		t.Errorf("OnReady fired before all components started: start calls a=%d b=%d", startedAtHit[0], startedAtHit[1])
+	}
+	mu.Unlock()
+
+	cancel()
+	select {
+	case <-runDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after cancel")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if readyCalls != 1 {
+		t.Errorf("OnReady called %d times; want exactly 1", readyCalls)
+	}
+}
+
+func TestRunSkipsOnReadyWhenStartFails(t *testing.T) {
+	withFastWatcher(t)
+	a := &fakeComponent{name: "a"}
+	b := &fakeComponent{name: "b"}
+	b.setStartErr(errors.New("boom"))
+	sup := New()
+	sup.Register(a, RestartOnExit)
+	sup.Register(b, RestartOnExit)
+
+	called := false
+	sup.OnReady = func() { called = true }
+
+	if err := sup.Run(context.Background()); err == nil {
+		t.Fatal("Run returned nil despite a start failure")
+	}
+	if called {
+		t.Error("OnReady fired although Start failed")
+	}
+}
+
 func TestRunCancelStopsAllComponents(t *testing.T) {
 	withFastWatcher(t)
 	a := &fakeComponent{name: "a"}

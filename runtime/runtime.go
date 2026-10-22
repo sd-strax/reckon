@@ -436,8 +436,14 @@ func serve(cfg config.Config) error {
 		}
 	}()
 
-	log.Printf("%s: pid %d; /status on http://localhost:%d/status; %s stop to shut down",
-		branding.CLI, os.Getpid(), cfg.Backend.HTTPPort, branding.CLI)
+	// The operator-facing ready line fires from the supervisor's OnReady hook
+	// — after the last component (the backend) is serving — not here, where
+	// nothing has started yet. Until then the only promise is a pid.
+	log.Printf("%s: starting (pid %d)", branding.CLI, os.Getpid())
+	sup.OnReady = func() {
+		log.Printf("%s ready: http://localhost:%d (/status for component health); %s stop to shut down",
+			branding.CLI, cfg.Backend.HTTPPort, branding.CLI)
+	}
 
 	if err := sup.Run(ctx); err != nil {
 		return fmt.Errorf("supervisor: %w", err)
