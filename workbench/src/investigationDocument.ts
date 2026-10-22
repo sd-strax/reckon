@@ -405,8 +405,10 @@ export class InvestigationDocuments {
       panel.title = `⚖ ${created.title}`;
       void this.post(panel, { type: "seeded" });
       void this.load(created.id, panel);
-      // The tree should show the new investigation immediately.
+      // The trees should show the new investigation immediately — and, for a
+      // case seed, the Cases view should now point the case at it.
       void vscode.commands.executeCommand("reckon.refreshInvestigations");
+      void vscode.commands.executeCommand("reckon.refreshCases");
     } catch (err) {
       void this.post(panel, { type: "draft.error", message: errText(err) });
     } finally {

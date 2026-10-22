@@ -33,6 +33,10 @@
         {
           "id": "reckon.investigations",
           "name": "Investigations"
+        },
+        {
+          "id": "reckon.cases",
+          "name": "Cases"
         }
       ]
     },
@@ -56,6 +60,17 @@
         "command": "reckon.checkBackend",
         "category": "reckon",
         "title": "Check Backend Connection"
+      },
+      {
+        "command": "reckon.openCase",
+        "category": "reckon",
+        "title": "Open Case"
+      },
+      {
+        "command": "reckon.refreshCases",
+        "category": "reckon",
+        "title": "Refresh Cases",
+        "icon": "$(refresh)"
       },
       {
         "command": "reckon.refreshInvestigations",
@@ -129,6 +144,11 @@
           "command": "reckon.refreshInvestigations",
           "when": "view == reckon.investigations",
           "group": "navigation@2"
+        },
+        {
+          "command": "reckon.refreshCases",
+          "when": "view == reckon.cases",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -146,6 +166,10 @@
       "commandPalette": [
         {
           "command": "reckon.openInvestigation",
+          "when": "false"
+        },
+        {
+          "command": "reckon.openCase",
           "when": "false"
         },
         {
