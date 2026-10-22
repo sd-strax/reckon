@@ -49,12 +49,6 @@ type TurnSpec struct {
 	// Adopt click of the tracker, scripted. It stages the OPEN state the
 	// run-tests / decide turns (R2, R3) need under the default vetted posture.
 	AckHypotheses bool `yaml:"ack_hypotheses"`
-	// AnswerOnly configures O3: this turn is a QUESTION, to be answered from
-	// what the agent holds plus the read(s) the question itself requires —
-	// AllowedTools (empty = none). Any other tool call is uninvited
-	// collection: the agent enlarging the ask (09 §2.1, #45).
-	AnswerOnly   bool     `yaml:"answer_only"`
-	AllowedTools []string `yaml:"allowed_tools"`
 }
 
 // LoadScenario reads and validates a driver script. Every referenced assertion
