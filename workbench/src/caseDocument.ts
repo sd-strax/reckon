@@ -1,6 +1,8 @@
 // The case document (adr/0030-cases-pane.md): one system-of-record case,
 // read-only, with the one act the analyst can take on it here — start an
 // investigation rooted on it (14 §3), or open the one already rooted on it.
+// It does not link out: the document IS the read, and the case number is
+// enough for anyone who needs the SoR's own page.
 // Nothing on this surface writes to the case system: a write is an x-action
 // inside an investigation, and before the investigation exists there is
 // nothing to record it against.
@@ -17,7 +19,6 @@ type Inbound =
   | { type: "ready" }
   | { type: "start" }
   | { type: "open"; id: string; title?: string }
-  | { type: "link"; url: string }
   | { type: "refresh" };
 
 export class CaseDocuments {
@@ -63,11 +64,6 @@ export class CaseDocuments {
         return;
       case "open":
         void vscode.commands.executeCommand("reckon.openInvestigation", msg.id, msg.title);
-        return;
-      case "link":
-        if (/^https?:\/\//i.test(msg.url)) {
-          void vscode.env.openExternal(vscode.Uri.parse(msg.url));
-        }
         return;
     }
   }
@@ -158,7 +154,6 @@ export class CaseDocuments {
         c.assignmentGroup ? "<span>" + esc(c.assignmentGroup) + "</span>" : "",
         c.openedAt ? "<span>opened " + esc(new Date(c.openedAt).toLocaleString()) + "</span>" : "",
         c.source ? "<span>source " + esc(c.source) + "</span>" : "",
-        c.link ? '<span><button class="linklike" id="link">open in the system of record</button></span>' : "",
       ].filter(Boolean).join("");
       const inv = c.investigation;
       const flag = inv
@@ -180,8 +175,6 @@ export class CaseDocuments {
       if (open && inv) open.addEventListener("click", () => vscode.postMessage({ type: "open", id: inv.id, title: inv.title }));
       const openInv = document.getElementById("openInv");
       if (openInv && inv) openInv.addEventListener("click", () => vscode.postMessage({ type: "open", id: inv.id, title: inv.title }));
-      const link = document.getElementById("link");
-      if (link) link.addEventListener("click", () => vscode.postMessage({ type: "link", url: c.link }));
     }
     window.addEventListener("message", (e) => {
       const m = e.data;
