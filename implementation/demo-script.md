@@ -262,14 +262,18 @@ When the demo's done:
 
 ```
 reckon stop
-reckon demo reset           # wipes investigations, knowledge, fixtures
-reckon start                # a clean, real install
+reckon demo reset           # wipes investigations, knowledge, fixtures — and the realm
+reckon start --detach       # a clean, real install
+reckon dev-auth             # recreate the local login (the reset took it)
 ```
 
-`reset` removes the demo databases (they re-initialize empty on next boot),
-Temporal's store, and the seeded fixtures — Keycloak (your login) survives. The
-same install an analyst test-drove is now an empty, real one, ready for their
-own adapters and their own cases.
+`reset` removes the Postgres cluster (both reckon databases re-initialize empty
+on next boot), Temporal's store, and the seeded fixtures. Keycloak keeps its
+realm in that same cluster, so your login goes with it: the shipped realm comes
+back empty on the next boot, and `dev-auth` recreates the local user and the
+direct-access grant. Only the secret store survives. The same install an
+analyst test-drove is now an empty, real one, ready for their own adapters and
+their own cases.
 
 ---
 

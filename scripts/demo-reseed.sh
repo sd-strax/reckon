@@ -28,6 +28,13 @@ step "demo reset"
 step "start"
 "$RECKON" start --detach --timeout "$TIMEOUT"
 
+# The reset wiped the Postgres cluster, and Keycloak keeps its realm there:
+# the shipped realm re-imports on boot with no login user and no direct-access
+# grant. Recreate the local login before anything authenticates (seed uses it;
+# so does the workbench's sign-in).
+step "dev-auth (recreate the local login)"
+"$RECKON" dev-auth
+
 step "demo seed"
 "$RECKON" demo seed
 
@@ -38,4 +45,4 @@ step "restart (activates the seeded capabilities)"
 step "status"
 "$RECKON" status
 echo
-echo "Demo world rebuilt. Reload the VS Code window; the Cases view shows the seeded queue."
+echo "Demo world rebuilt. Reload the VS Code window and sign in again (the reset wiped the realm's sessions); the Cases view shows the seeded queue."
