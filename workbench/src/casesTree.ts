@@ -11,17 +11,44 @@ import * as vscode from "vscode";
 import { BackendClient, CaseRow } from "./backend";
 import { Session } from "./auth";
 
+/**
+ * How the queue is ordered. "priority": the SoR's priority, then oldest first
+ * within it — how a queue is worked. "age": oldest first regardless — what has
+ * been sitting longest. One toggle, remembered; never an order reckon invents
+ * (a relevance score would annotate rows, not reorder the queue).
+ */
+export type CasesSort = "priority" | "age";
+
+const SORT_KEY = "reckon.casesSort";
+
 export class CasesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
+  private sortMode: CasesSort;
 
   constructor(
     private readonly client: BackendClient,
     private readonly session: Session,
-  ) {}
+    private readonly state: vscode.Memento,
+  ) {
+    this.sortMode = state.get<CasesSort>(SORT_KEY) === "age" ? "age" : "priority";
+    void vscode.commands.executeCommand("setContext", SORT_KEY, this.sortMode);
+  }
 
   refresh(): void {
     this.emitter.fire();
+  }
+
+  get sort(): CasesSort {
+    return this.sortMode;
+  }
+
+  /** Switch the order; the view-title button reflects it via the context key. */
+  setSort(mode: CasesSort): void {
+    this.sortMode = mode;
+    void this.state.update(SORT_KEY, mode);
+    void vscode.commands.executeCommand("setContext", SORT_KEY, mode);
+    this.refresh();
   }
 
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
@@ -57,18 +84,43 @@ export class CasesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       items.push(infoItem(queue ? `Nothing in the ${queue} queue` : "No recent cases", "", "inbox"));
       return items;
     }
-    for (const r of rows) {
+    for (const r of sortRows(rows, this.sortMode)) {
       items.push(rowItem(r));
     }
     return items;
   }
 }
 
+/** Stable sort by the chosen order; a row missing the key sorts last. */
+function sortRows(rows: CaseRow[], mode: CasesSort): CaseRow[] {
+  const rank = (r: CaseRow): number => {
+    const m = /^\s*(\d)/.exec(r.priority ?? "");
+    return m ? Number(m[1]) : 9;
+  };
+  const opened = (r: CaseRow): number => {
+    const t = r.openedAt ? Date.parse(r.openedAt) : NaN;
+    return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+  };
+  return rows
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => {
+      const byPriority = rank(a.r) - rank(b.r);
+      const byAge = opened(a.r) - opened(b.r);
+      const primary = mode === "priority" ? byPriority : byAge;
+      const secondary = mode === "priority" ? byAge : byPriority;
+      return primary || secondary || a.i - b.i;
+    })
+    .map((x) => x.r);
+}
+
 function rowItem(r: CaseRow): vscode.TreeItem {
   const item = new vscode.TreeItem(r.title || r.number);
-  const cues: string[] = [r.number];
+  // Priority first: it is the sort key and the ring's meaning, spelled out so
+  // the colour is never the only cue.
+  const cues: string[] = [];
   const p = shortPriority(r.priority);
   if (p) cues.push(p);
+  cues.push(r.number);
   if (r.status) cues.push(r.status);
   if (r.openedAt) cues.push(age(r.openedAt));
   if (r.investigation) {

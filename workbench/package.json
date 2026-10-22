@@ -73,6 +73,18 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "reckon.cases.sortByAge",
+        "category": "reckon",
+        "title": "Cases: Sort Oldest First",
+        "icon": "$(history)"
+      },
+      {
+        "command": "reckon.cases.sortByPriority",
+        "category": "reckon",
+        "title": "Cases: Sort by Priority, Then Age",
+        "icon": "$(sort-precedence)"
+      },
+      {
         "command": "reckon.refreshInvestigations",
         "category": "reckon",
         "title": "Refresh Investigations",
@@ -146,9 +158,19 @@
           "group": "navigation@2"
         },
         {
+          "command": "reckon.cases.sortByAge",
+          "when": "view == reckon.cases && reckon.casesSort != age",
+          "group": "navigation@1"
+        },
+        {
+          "command": "reckon.cases.sortByPriority",
+          "when": "view == reckon.cases && reckon.casesSort == age",
+          "group": "navigation@1"
+        },
+        {
           "command": "reckon.refreshCases",
           "when": "view == reckon.cases",
-          "group": "navigation@1"
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -170,6 +192,14 @@
         },
         {
           "command": "reckon.openCase",
+          "when": "false"
+        },
+        {
+          "command": "reckon.cases.sortByAge",
+          "when": "false"
+        },
+        {
+          "command": "reckon.cases.sortByPriority",
           "when": "false"
         },
         {
