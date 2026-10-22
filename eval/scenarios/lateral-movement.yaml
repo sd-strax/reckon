@@ -71,7 +71,11 @@ turns:
       them: record each prediction under the hypothesis that expects it to be
       observed, and mark which rival it discriminates against. Include at least
       one test under the alternative.
-    assert: [R2]
+    # R3 rides this turn too (#51): a decision recorded on the propose turn —
+    # over a discriminator the agent wrote seconds earlier — is the exact
+    # failure that made the rule an engine gate. The engine now refuses it;
+    # the grader reads the attempt from the tool-call log regardless.
+    assert: [R2, R3]
     ack_hypotheses: true
 
   # Decide-against-rivals honesty (R3): running the leader's own tests and

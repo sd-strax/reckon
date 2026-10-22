@@ -1243,7 +1243,9 @@ export class InvestigationDocuments {
       + rivalsClause(rivals, "Read the live rivals too and make at least one prediction DISCRIMINATE — "
         + "opposite expected outcome under this hypothesis and a rival — and set its discriminates to that rival's id. "
         + "A test that comes out the same under both tells us nothing.")
-      + "Record them with the tools ONLY; keep your final message to one sentence and do not "
+      + "Record them with the tools ONLY. This turn ENDS when the predictions are recorded: do not run any test, "
+      + "do not record any prediction outcome, do not record any hypothesis outcome — Run tests and Decide are "
+      + "separate steps the analyst orders. Keep your final message to one sentence and do not "
       + "restate the predictions in prose — the tracker renders them.";
     await this.runTurn(id, panel, instruction, { label: `⚡ propose tests · ${name}` });
   }
@@ -1260,7 +1262,8 @@ export class InvestigationDocuments {
       + "They are independent — run their declared test queries in parallel where possible, then record each "
       + "outcome (CONFIRMED / DISCONFIRMED / INCONCLUSIVE) citing the observed evidence as test_result_refs. "
       + rivalsClause(rivals, "Where a prediction discriminates against a rival, say in one clause which way the result cuts for that rival. ")
-      + "Keep your final message to one or two sentences on what was decisive — do not restate the outcomes; the tracker renders them.";
+      + "This turn ENDS when the outcomes are recorded: do not record a hypothesis outcome — Decide is a separate "
+      + "step the analyst orders. Keep your final message to one or two sentences on what was decisive — do not restate the outcomes; the tracker renders them.";
     await this.runTurn(id, panel, instruction, { label: `⚡ run tests · ${name}` });
   }
 
@@ -1278,7 +1281,7 @@ export class InvestigationDocuments {
       + "Weigh the outcomes and record the hypothesis outcome — support, refutation, or inconclusive — citing the "
       + "decisive test evidence. Be honest about mixed results: confirmed predictions support only what they actually tested. "
       + rivalsClause(rivals, "Decide against the rivals, not by counting confirmations: if a live rival still has an UNTESTED prediction "
-        + "that discriminates between you, do NOT record an outcome — name that test and ask to run it first (I can tell you to record anyway). ")
+        + "that discriminates between you, do NOT record an outcome — the engine refuses it; name that test and ask to run it first (I can run it, withdraw it, or record the outcome myself). ")
       + "Keep your final message to one or two sentences on the judgment and why — the tracker renders the status.";
     await this.runTurn(id, panel, instruction, { label: `⚡ decide · ${name}` });
   }
@@ -1774,6 +1777,7 @@ export class InvestigationDocuments {
     .hypmeta { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     .hypcount { font-size: var(--fs-xs); color: var(--text-3); }
     .card > .statement { display: block; margin-top: 4px; line-height: 1.4; }
+    .predhead { font-size: var(--fs-xs); color: var(--text-3); margin-top: 8px; line-height: 1.35; }
     .predline { display: flex; align-items: baseline; gap: 7px; }
     .pord {
       font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-xs); font-weight: 700;
@@ -3640,6 +3644,15 @@ export class InvestigationDocuments {
       if (decide.childElementCount) card.appendChild(decide);
 
       const all = h.predictions || [];
+      // The predictions name themselves (adr/0047, #52): an analyst new to the
+      // method must be able to read what these rows are for without a guide.
+      const ph = document.createElement("div");
+      ph.className = "predhead";
+      ph.textContent = all.length
+        ? "Predictions — if this hypothesis is true, we should observe each of these. A confirmed one supports it; a disconfirmed one counts against it."
+        : (live ? "No predictions yet — nothing can confirm or refute this until a test is recorded (⚡ Propose tests, or + prediction)." : "No predictions were recorded.");
+      ph.title = "A prediction is a falsifiable test of the hypothesis. One marked “vs H2” is a discriminator: it comes out the opposite way under that rival, so its result moves both.";
+      card.appendChild(ph);
       if (all.length) {
         const ul = document.createElement("ul");
         ul.className = "predictions";

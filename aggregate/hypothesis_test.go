@@ -478,6 +478,59 @@ func TestReasoningNodes_ProjectionAndReplay(t *testing.T) {
 // §x-hypothesis "Competing hypotheses"): handle + discriminates on creation,
 // acknowledge-with-restatement and its tested-wording freeze, the OPEN revise
 // path, and the human-only WITHDRAWN prediction status.
+// adr/0051: an AI delegate cannot record SUPPORTED/REFUTED over an untested
+// discriminator — a rival's against this hypothesis, or this hypothesis's own
+// against a live rival. A human can; so can the AI once the prediction is
+// tested or withdrawn, or the rival is no longer live.
+func TestOutstandingDiscriminatorGate(t *testing.T) {
+	human := newTestEnvelope("analyst-1")
+	ai := newTestEnvelope("analyst-1")
+	ai.Actor.Kind = ActorAIDelegated
+	ai.Actor.Delegate = &AIDelegate{Vendor: "claude"}
+
+	h1 := HypothesisSTIXID(uuid.New())
+	h2 := HypothesisSTIXID(uuid.New())
+	p2 := PredictionSTIXID(uuid.New())
+	support := func(ref string) RecordInterpretation {
+		return RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: InterpretationSupport, Rationale: "r", HypothesisRef: ref}
+	}
+	refute := func(ref string) RecordInterpretation {
+		return RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: InterpretationRefutation, Rationale: "r", HypothesisRef: ref}
+	}
+	live := map[string]hypothesisState{h1: {Status: HypothesisOpen}, h2: {Status: HypothesisOpen}}
+
+	// H2 holds an untested prediction that discriminates against H1.
+	st := reasoningState(live, map[string]predictionState{p2: {Status: PredictionUntested, HypothesisRef: h2, Discriminates: []string{h1}}})
+	if _, err := applyCommand(ai, support(h1), st); err == nil {
+		t.Error("AI recorded H1 SUPPORTED over H2's untested discriminator")
+	}
+	if _, err := applyCommand(ai, refute(h2), st); err == nil {
+		t.Error("AI recorded H2 REFUTED while its own discriminator against H1 is untested")
+	}
+	if _, err := applyCommand(human, support(h1), st); err != nil {
+		t.Errorf("human override refused: %v", err)
+	}
+
+	// Tested (or withdrawn): the way is clear.
+	for _, status := range []string{PredictionConfirmed, PredictionWithdrawn} {
+		st := reasoningState(live, map[string]predictionState{p2: {Status: status, HypothesisRef: h2, Discriminates: []string{h1}}})
+		if _, err := applyCommand(ai, support(h1), st); err != nil {
+			t.Errorf("prediction %s: AI support refused: %v", status, err)
+		}
+	}
+	// A merely-consistent untested prediction (no discriminates) blocks nothing.
+	st = reasoningState(live, map[string]predictionState{p2: {Status: PredictionUntested, HypothesisRef: h2}})
+	if _, err := applyCommand(ai, support(h1), st); err != nil {
+		t.Errorf("non-discriminating prediction blocked a decision: %v", err)
+	}
+	// A rival that is no longer live cannot hold anything outstanding.
+	st = reasoningState(map[string]hypothesisState{h1: {Status: HypothesisOpen}, h2: {Status: HypothesisAbandoned}},
+		map[string]predictionState{p2: {Status: PredictionUntested, HypothesisRef: h2, Discriminates: []string{h1}}})
+	if _, err := applyCommand(ai, support(h1), st); err != nil {
+		t.Errorf("abandoned rival's prediction blocked a decision: %v", err)
+	}
+}
+
 func TestCompetingHypotheses_Apply(t *testing.T) {
 	human := newTestEnvelope("analyst-1")
 	ai := newTestEnvelope("analyst-1")

@@ -180,7 +180,8 @@ type hypothesisState struct {
 
 type predictionState struct {
 	Status        string
-	HypothesisRef string // parent — so an outcome can check the hypothesis is acknowledged
+	HypothesisRef string   // parent — so an outcome can check the hypothesis is acknowledged
+	Discriminates []string // rivals this prediction decides against — so an outcome can check nothing is outstanding (adr/0051)
 }
 
 // foldReasoningEvent applies one interpretation.recorded event's node content to
@@ -194,11 +195,11 @@ func foldReasoningEvent(s *aggregateState, rec InterpretationRecorded) {
 		s.Hypotheses[rec.HypothesisTransition.Ref] = hypothesisState{Status: rec.HypothesisTransition.To}
 	}
 	if rec.Prediction != nil {
-		s.Predictions[rec.Prediction.ID] = predictionState{Status: rec.Prediction.Status, HypothesisRef: rec.Prediction.HypothesisRef}
+		s.Predictions[rec.Prediction.ID] = predictionState{Status: rec.Prediction.Status, HypothesisRef: rec.Prediction.HypothesisRef, Discriminates: rec.Prediction.Discriminates}
 	}
 	if rec.PredictionTransition != nil {
 		prev := s.Predictions[rec.PredictionTransition.Ref]
-		s.Predictions[rec.PredictionTransition.Ref] = predictionState{Status: rec.PredictionTransition.To, HypothesisRef: prev.HypothesisRef}
+		s.Predictions[rec.PredictionTransition.Ref] = predictionState{Status: rec.PredictionTransition.To, HypothesisRef: prev.HypothesisRef, Discriminates: prev.Discriminates}
 	}
 }
 
@@ -529,6 +530,52 @@ func applyHypothesisAckOrRevise(env Envelope, state aggregateState, c RecordInte
 // full automation: the server stamps AIReasoningConfigRef only when it is on, so
 // absent stamp + AI actor + PROPOSED = denied on every path (structural
 // default-deny, mirroring the AI-verdict dial).
+// outstandingDiscriminatorGate enforces decide-against-rivals (01 §x-hypothesis;
+// adr/0051) for an AI delegate: a hypothesis may not be recorded SUPPORTED or
+// REFUTED while an UNTESTED prediction discriminates between it and a live
+// rival — whether the rival holds that prediction against it, or it holds one
+// against the rival. Such a set is undecided; confirmations on one side do
+// not substitute. The rule was a prompt contract; it became a gate when the
+// agent broke it inside a single turn, writing the discriminator and then
+// deciding over it, where no per-turn state block could have shown it. A
+// human is not gated: the analyst clears the way by testing or withdrawing
+// the prediction, or records the outcome themselves — an override that is a
+// visible human act, never a flag an AI could set.
+func outstandingDiscriminatorGate(env Envelope, state aggregateState, ref, to string) error {
+	if !env.Actor.IsAIDelegated() || (to != HypothesisSupported && to != HypothesisRefuted) {
+		return nil
+	}
+	isLive := func(h string) bool {
+		hs, ok := state.Hypotheses[h]
+		return ok && (hs.Status == HypothesisProposed || hs.Status == HypothesisOpen)
+	}
+	for id, p := range state.Predictions {
+		if p.Status != PredictionUntested {
+			continue
+		}
+		switch {
+		case p.HypothesisRef != ref && isLive(p.HypothesisRef) && containsString(p.Discriminates, ref):
+			return fmt.Errorf("RecordInterpretation rejected: hypothesis %s cannot be recorded %s — rival %s still holds untested prediction %s that discriminates against it; test it, or the analyst withdraws it", ref, to, p.HypothesisRef, id)
+		case p.HypothesisRef == ref:
+			for _, rival := range p.Discriminates {
+				if isLive(rival) {
+					return fmt.Errorf("RecordInterpretation rejected: hypothesis %s cannot be recorded %s — its untested prediction %s discriminates against live rival %s; test it, or the analyst withdraws it", ref, to, id, rival)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func containsString(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}
+
 func aiReasoningGate(env Envelope, c RecordInterpretation, hypStatus string) error {
 	if hypStatus != HypothesisProposed || !env.Actor.IsAIDelegated() {
 		return nil
@@ -551,6 +598,9 @@ func applyHypothesisOutcome(env Envelope, state aggregateState, ref, to string, 
 		return fmt.Errorf("RecordInterpretation rejected: hypothesis %s is %s (terminal), cannot move to %s", ref, hs.Status, to)
 	}
 	if err := aiReasoningGate(env, c, hs.Status); err != nil {
+		return err
+	}
+	if err := outstandingDiscriminatorGate(env, state, ref, to); err != nil {
 		return err
 	}
 	rec.HypothesisTransition = &HypothesisTransitionRecorded{Ref: ref, From: hs.Status, To: to}
