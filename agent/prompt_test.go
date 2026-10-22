@@ -49,6 +49,20 @@ func TestPromptVersion(t *testing.T) {
 // model has no live feed, the present is the per-turn [clock] block, and dated
 // evidence is never presented as live. Without the rule the behaviour is a
 // model disposition, not a contract (Sonnet 4.6 lost it under v0.9, #13).
+func TestSystemPrompt_AnswerTheAsk(t *testing.T) {
+	p := systemPrompt(Investigation{Title: "t"}, nil)
+	for _, want := range []string{
+		"Answer the ask, do not enlarge it",
+		"OFFER the next read in one line; do not take it",
+		"wait for the go before collecting anything",
+		"The analyst sequences the investigation",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("system prompt is missing the answer-the-ask rule: %q", want)
+		}
+	}
+}
+
 func TestSystemPrompt_TimeframeHonesty(t *testing.T) {
 	p := systemPrompt(Investigation{Title: "t"}, nil)
 	for _, want := range []string{

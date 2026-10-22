@@ -33,6 +33,20 @@ turns:
     assert: [H2]
     min_quotes: 4
 
+  # Answer the ask (O3): a QUESTION about what we hold is answered from what we
+  # hold — the agent already has the alerts and the logons — and the next read
+  # is offered, never taken. Any tool call here is uninvited collection: the
+  # agent enlarging the ask and shaping the framing before a hypothesis exists
+  # (agent/prompt.go "Answer the ask, do not enlarge it"; #45).
+  - user: >-
+      Before we frame anything: what have we actually verified so far about
+      WIN-FILE01 from our own telemetry, and what is still only the detection's
+      claim?
+    assert: [O3, O2]
+    answer_only: true
+    allowed_tools: []
+    max_response_runes: 3000
+
   # Competing-set framing (R1; G2's precondition): under the default
   # leading_null dial the agent frames the leader AND the concrete alternative,
   # each with a handle (01 §x-hypothesis). Under leading_only R1 is
