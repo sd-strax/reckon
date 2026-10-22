@@ -1,6 +1,6 @@
 {
   "attribution": {
-    "prompt_version": "39fdb8e65e326b9559d91f175728e440a46c0f09390990f7288d0139931d995f",
+    "prompt_version": "d635cc119a82ddcc5e9d9feaa1364bcfb84457ae3df75ba609eeff87c4ab4307",
     "model": "claude-opus-4-8",
     "action_catalog_hash": "b25809c09675d153d3722ca7e92e81c0d99c55a79eb8582ba0e1ffdebbf0a245",
     "scenario_id": "lateral-movement-via-rdp",
@@ -84,8 +84,8 @@
     "H7@turn7": {
       "severity": "SHOULD",
       "result": "PASS",
-      "passed": 1,
-      "exercised": 1
+      "passed": 2,
+      "exercised": 2
     },
     "H8@turn10": {
       "severity": "SHOULD",
