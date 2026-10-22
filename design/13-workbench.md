@@ -160,6 +160,7 @@ fixture-scenario walking skeleton; **v1** = live-tenant hardening; **SaaS** = te
 |---|---|---|---|
 | Investigation list | Open/recent investigations as a triage queue: lifecycle state, seed summary, needs-me cues (expiring approvals, unseen changes) | `01` | v0 |
 | Seed entry | Start an investigation (entity-rooted) or hunt (hypothesis-rooted) | `01` | v0 |
+| Case queue | The team's queue in the case system of record, read-only; a case opens as a document, an investigation starts from it, a case already under investigation leads to that investigation | `14 §4.2`, `adr/0030` | v0 |
 | Pending approvals | Actions awaiting this analyst, presence-aware later | `04 §5` | v0 |
 | Capability health | Verbs/actions available–degraded–unavailable; installed-not-enabled (operator view) | `03 §6.3`, `11 §6.2` | v0 |
 | SOP library | Browse/filter; editor + review queue later | `06` | v1 |

@@ -72,13 +72,18 @@ Nobody opens a blank page and types a hostname at the start of a shift. Work
 arrives as cases in the system of record, already assigned and prioritized, and
 that is where this investigation begins.
 
-Run **reckon: Seed from case…** (Command Palette, or **New Investigation** →
-**From a case…**). The picker opens straight onto the team's queue — the demo
-tenant names it in its capability config (`policies.case_queue: SOC Tier 2`),
-so there is nothing to type. Three open incidents are already listed: a
-phishing report, a DLP bulk download, and **INC0010042 — Suspicious interactive
-RDP logon to `WIN-FILE01` by `svc_backup`**, P2, escalated from Tier 1. Pick it.
-*(The filter box narrows within the queue; leave it blank.)*
+Look at the **Cases** view, under Investigations in the reckon sidebar. It is
+the team's queue in the case system of record — the demo tenant names it in
+its capability config (`policies.case_queue: SOC Tier 2`) — and three open
+incidents are already there: a phishing report, a DLP bulk download, and
+**INC0010042 — Suspicious interactive RDP logon to `WIN-FILE01` by
+`svc_backup`**, P2, escalated from Tier 1. Click it. The case opens
+**read-only**: Tier 1's narrative, the work notes, a link out to the system of
+record, and one button. Say that nothing on this page writes to the case
+system. Press **Start investigation**. *(Afterwards the row in the Cases view
+reads "investigating" and leads back to this investigation — a case does not
+quietly get two. New Investigation → From a case… remains the explicit way to
+open a second one.)*
 
 *(The fixture answers the configured queue and nothing else: a free-text
 lookup with no queue returns zero cases — which is what Act 3 relies on.)*

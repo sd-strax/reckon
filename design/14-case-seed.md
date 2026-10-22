@@ -196,6 +196,12 @@ it. With a queue configured, opening *From a case…* runs the queue query
 immediately and labels the rows; the free-text filter **narrows within** the
 queue. Without one, the picker is the on-demand search of §4.1. Both are the
 same server path; the queue is one more parameter on it, not a second flow.
+The queue also has a standing home: the workbench's **Cases** view, where a
+case opens read-only and an investigation starts from it, and a case already
+under investigation leads to that investigation (`adr/0030-cases-pane.md`).
+Both the view and the picker read through a **non-persisting** surface
+(`GET /api/cases`): browsing is not evidence, and the case is promoted into the
+telemetry layer once, when it seeds (§3).
 
 Two things are deliberately *not* here. The queue is a structured value, never
 a sentence: turning words into verb parameters is the agent's job, and the

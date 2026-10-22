@@ -418,6 +418,12 @@ func (b *Backend) buildRouter(verifier *authz.Verifier) http.Handler {
 		http.HandlerFunc(b.listCapabilities),
 	))
 
+	// GET /api/cases, GET /api/cases/{number} — the case queue and one case,
+	// read-only and non-persisting (adr/0030-cases-pane.md, 14 §4.2). Any
+	// authenticated reader.
+	api.Handle("/cases", authz.RequireAuth(verifier)(http.HandlerFunc(b.casesRoute)))
+	api.Handle("/cases/", authz.RequireAuth(verifier)(http.HandlerFunc(b.casesRoute)))
+
 	// POST /api/capability/{verb} — verb invocation (03 §3.4, Phase E.1): the
 	// agent loop's read-tool dispatch target. Analyst role.
 	api.Handle("/capability/", authz.RequireAuth(verifier)(

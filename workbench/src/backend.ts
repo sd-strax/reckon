@@ -88,6 +88,56 @@ export interface CaseSummary {
   status: string;
 }
 
+/** One row of the case queue (GET /api/cases; adr/0030-cases-pane.md). */
+export interface CaseRow {
+  number: string;
+  title?: string;
+  status?: string;
+  priority?: string;
+  assignmentGroup?: string;
+  summary?: string;
+  link?: string;
+  /** provenance.tool — the SoR as the binding labels it. */
+  source?: string;
+  openedAt?: string;
+  /** The open investigation already rooted on this case, if any. */
+  investigation?: { id: string; title: string; status: string };
+}
+
+/** The queue as served: which queue the rows came from, and the rows. */
+export interface CaseQueue {
+  queue: string;
+  cases: CaseRow[];
+}
+
+interface RawCase {
+  number: string;
+  title?: string;
+  status?: string;
+  priority?: string;
+  assignment_group?: string;
+  summary?: string;
+  link?: string;
+  source?: string;
+  opened_at?: string;
+  investigation?: { id: string; title: string; status: string };
+}
+
+function mapCase(r: RawCase): CaseRow {
+  return {
+    number: r.number,
+    title: r.title,
+    status: r.status,
+    priority: r.priority,
+    assignmentGroup: r.assignment_group,
+    summary: r.summary,
+    link: r.link,
+    source: r.source,
+    openedAt: r.opened_at,
+    investigation: r.investigation,
+  };
+}
+
 /** The verdict of record (mirrors server.VerdictView) — absent when none. */
 export interface Verdict {
   disposition: string; // BENIGN | SUSPICIOUS | MALICIOUS
@@ -1226,26 +1276,32 @@ export class BackendClient {
    * runs query_external_cases and pulls each case's metadata out of the
    * class-2005 ObservedData extensions the case normalizer wrote (03 §2.9).
    */
-  async queryExternalCases(filter?: string, status?: string, queue?: string): Promise<CaseSummary[]> {
-    const extra: Record<string, unknown> = {};
-    if (filter) extra.filter = filter;
-    if (queue) extra.queue = queue;
-    if (status) extra.status = status;
-    const res = await this.invokeCapability("query_external_cases", { extra });
-    const out: CaseSummary[] = [];
-    for (const n of res.normalized as Array<{ observed_data?: Array<{ extensions?: Record<string, unknown> }> }>) {
-      for (const od of n.observed_data ?? []) {
-        const ext = od.extensions ?? {};
-        const num = typeof ext.case_number === "string" ? ext.case_number : "";
-        if (!num) continue;
-        out.push({
-          number: num,
-          title: typeof ext.title === "string" ? ext.title : "",
-          status: typeof ext.status === "string" ? ext.status : "",
-        });
-      }
-    }
-    return out;
+  async queryExternalCases(filter?: string, _status?: string, queue?: string): Promise<CaseSummary[]> {
+    // The picker reads the same non-persisting queue surface the Cases view
+    // does (adr/0030): browsing is not evidence; the case is promoted once,
+    // when it seeds an investigation.
+    const res = await this.cases({ filter, queue });
+    return res.cases.map((c) => ({ number: c.number, title: c.title ?? "", status: c.status ?? "" }));
+  }
+
+  /**
+   * GET /api/cases — the case queue, read-only and non-persisting
+   * (adr/0030-cases-pane.md). queue defaults server-side to the tenant's
+   * configured one (14 §4.2); filter narrows within it. Each row carries the
+   * open investigation already rooted on it, if any.
+   */
+  async cases(opts: { filter?: string; queue?: string } = {}): Promise<CaseQueue> {
+    const q = new URLSearchParams();
+    if (opts.filter) q.set("filter", opts.filter);
+    if (opts.queue) q.set("queue", opts.queue);
+    const qs = q.toString();
+    const body = await this.authedGet<{ queue?: string; cases?: RawCase[] }>("/api/cases" + (qs ? "?" + qs : ""));
+    return { queue: body.queue ?? "", cases: (body.cases ?? []).map(mapCase) };
+  }
+
+  /** GET /api/cases/{number} — one case, read-only and non-persisting. */
+  async caseDetail(number: string): Promise<CaseRow> {
+    return mapCase(await this.authedGet<RawCase>("/api/cases/" + encodeURIComponent(number)));
   }
 
   private mapCreated(r: RawInvestigation): InvestigationDetail {

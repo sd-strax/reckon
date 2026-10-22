@@ -72,6 +72,7 @@ A pre-commit hook lands in Week 1 alongside Claude Code workflow setup (per `rec
 
 ## Working in this repo
 
+- **Issues are short; decisions go in `adr/`.** A GitHub issue states what is wrong or what is wanted, in a few lines, with at most a line of scope. It does not design the solution. The design — context, decision, alternatives rejected, consequences — is an architectural decision record at `adr/NNNN-component.md` (issue number, zero-padded) committed in the PR that implements it; `adr/README.md` has the template and index. Issue → ADR → PR, each linking the others.
 - When adding a new spec, follow the existing structure: framing/scope → out-of-scope → numbered sections → end-of-spec marker. Cross-reference other specs with section numbers (e.g., "see §4.3"), not page numbers.
 - Engineering planning (roadmap, 30-day plan, decisions log, risk register, phase-by-phase scope) lives in `reckon-enterprise` because it's framed around team shape, calendar, and commercial context. Architectural seam docs (`implementation/module-layout.md`) live here because they describe the codebase any contributor would see.
 - Cross-references go OSS → OSS only. **Do not reference `reckon-enterprise` paths from any file in this repo.** If you find yourself wanting to, the content you're describing probably belongs over there, and what's in this repo should stand on its own architectural merit.

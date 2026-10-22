@@ -17,6 +17,8 @@ import { InvestigationDocuments } from "./investigationDocument";
 import { EVIDENCE_SCHEME, EvidenceProvider } from "./evidenceProvider";
 import { EvidenceView } from "./evidenceView";
 import { ImportSOPsView } from "./importView";
+import { CasesProvider } from "./casesTree";
+import { CaseDocuments } from "./caseDocument";
 
 /** Where the BYOK Anthropic key lives — never in settings, never on disk in the clear. */
 const ANTHROPIC_KEY_SECRET = "reckon.anthropicApiKey";
@@ -51,7 +53,21 @@ export function activate(context: vscode.ExtensionContext): void {
   const documents = new InvestigationDocuments(client, log, transport, (id, seq) => {
     void seen.set(id, seq).then(() => investigations.refresh());
   });
+  // The case queue (adr/0030-cases-pane.md): the SoR's queue below
+  // Investigations; a case opens read-only and an investigation starts from it.
+  const cases = new CasesProvider(client, session);
+  const caseDocs = new CaseDocuments(client, log, () => {
+    investigations.refresh();
+    cases.refresh();
+  });
   context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("reckon.cases", cases),
+    vscode.commands.registerCommand("reckon.openCase", (number?: string) => {
+      if (typeof number === "string" && number !== "") {
+        caseDocs.open(number);
+      }
+    }),
+    vscode.commands.registerCommand("reckon.refreshCases", () => cases.refresh()),
     log,
     session,
     { dispose: () => transport.dispose() },
@@ -66,6 +82,7 @@ export function activate(context: vscode.ExtensionContext): void {
     session.onDidChange(() => {
       void vscode.commands.executeCommand("setContext", "reckon.signedIn", session.signedIn);
       investigations.refresh();
+      cases.refresh();
       documents.refreshAll();
     }),
     vscode.window.registerTreeDataProvider("reckon.investigations", investigations),
