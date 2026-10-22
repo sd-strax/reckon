@@ -48,7 +48,19 @@ type predictionRow struct {
 	ID            string   `json:"id"`
 	Statement     string   `json:"statement"`
 	Status        string   `json:"status"`
+	Ordinal       int      `json:"ordinal"`
 	Discriminates []string `json:"discriminates"`
+}
+
+// predictionLabel is how the block names a prediction: its ordinal (P3) when
+// the view supplied one — the same short name the tracker shows the analyst,
+// so "test P3" means the same thing on both sides — followed by the id the
+// tools take. Without an ordinal, the id alone.
+func predictionLabel(p predictionRow) string {
+	if p.Ordinal > 0 {
+		return fmt.Sprintf("P%d (%s)", p.Ordinal, p.ID)
+	}
+	return p.ID
 }
 
 // predictionStatementMax bounds a prediction statement in the block; the
@@ -117,10 +129,10 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 				}
 				rivals = append(rivals, name)
 				if isLiveHypothesis(h.Status) {
-					open = append(open, outstanding{owner: nameOf[h.ID], rival: name, pred: p.ID})
+					open = append(open, outstanding{owner: nameOf[h.ID], rival: name, pred: predictionLabel(p)})
 				}
 			}
-			fmt.Fprintf(&b, "  - untested %s", p.ID)
+			fmt.Fprintf(&b, "  - untested %s", predictionLabel(p))
 			if len(rivals) > 0 {
 				fmt.Fprintf(&b, " (discriminates vs %s)", strings.Join(rivals, ", "))
 			}

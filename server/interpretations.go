@@ -309,9 +309,15 @@ type HypothesisView struct {
 // stages it into the composer, never fires it. Discriminates names the rivals
 // this prediction decides against.
 type PredictionView struct {
-	ID             string               `json:"id"`
-	Statement      string               `json:"statement"`
-	Status         string               `json:"status"`
+	ID        string `json:"id"`
+	Statement string `json:"statement"`
+	Status    string `json:"status"`
+	// Ordinal is the prediction's short name, P1, P2, … in the order
+	// predictions were recorded across the investigation (adr/0047): what
+	// the tracker, the composer, the agent's reasoning-state block and an
+	// analyst's sentence all use to point at one. Display vocabulary, not
+	// identity — the id stays the reference.
+	Ordinal        int                  `json:"ordinal,omitempty"`
 	TestQuery      *aggregate.QuerySpec `json:"test_query,omitempty"`
 	Discriminates  []string             `json:"discriminates,omitempty"`
 	TestResultRefs []string             `json:"test_result_refs,omitempty"`
@@ -343,11 +349,12 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 	}
 
 	byHypothesis := make(map[string][]PredictionView, len(ps))
-	for _, p := range ps {
+	for i, p := range ps {
 		byHypothesis[p.HypothesisRef] = append(byHypothesis[p.HypothesisRef], PredictionView{
 			ID:             p.ID,
 			Statement:      p.Statement,
 			Status:         p.Status,
+			Ordinal:        i + 1, // ListPredictions is in record order
 			TestQuery:      p.TestQuery,
 			Discriminates:  p.Discriminates,
 			TestResultRefs: p.TestResultRefs,

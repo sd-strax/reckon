@@ -36,6 +36,21 @@ const hypothesesFixture = `{"hypotheses":[
 // TestHypothesisStateBlock: the per-turn block names every hypothesis, tallies
 // its predictions, lists the untested discriminators by rival handle, and ends
 // with the decide-contract summary. The same state renders identically twice.
+// With ordinals from the view, the block names predictions P<n> ahead of the
+// id — the tracker's vocabulary, so analyst and agent point at the same test.
+func TestHypothesisStateBlock_Ordinals(t *testing.T) {
+	raw := `{"hypotheses":[
+	  {"id":"x-hypothesis--a","handle":"H1 rdp","status":"OPEN","statement":"s1","predictions":[
+	    {"id":"x-prediction--b","ordinal":3,"status":"UNTESTED","statement":"p","discriminates":["x-hypothesis--c"]}]},
+	  {"id":"x-hypothesis--c","handle":"H2 admin","status":"OPEN","statement":"s2"}]}`
+	b := hypothesisStateBlock(json.RawMessage(raw))
+	for _, want := range []string{"untested P3 (x-prediction--b) (discriminates vs H2 admin)", "H1 rdp holds P3 (x-prediction--b) against H2 admin"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("block lacks %q:\n%s", want, b)
+		}
+	}
+}
+
 func TestHypothesisStateBlock(t *testing.T) {
 	got := hypothesisStateBlock(json.RawMessage(hypothesesFixture))
 	for _, want := range []string{
