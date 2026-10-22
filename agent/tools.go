@@ -576,7 +576,7 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 		// lazily-expired action (status still REQUESTED, 04) would read as
 		// live. The engine answers the question instead — a computed expired
 		// flag per action, plus now for grounding.
-		now := time.Now().UTC()
+		now := s.now().UTC()
 		type actionView struct {
 			ActionStatus
 			Expired bool `json:"expired"`

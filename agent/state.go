@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Per-turn engine state blocks.
@@ -19,6 +20,18 @@ import (
 // on, as an [engine] block logged in the transcript. The model sees current
 // state every turn; earlier turns keep the state they reasoned against; the
 // record shows what the model was told and when.
+
+// clockBlock states the time this turn began. The model has no clock: every
+// tool result is a timestamped observation, and the only "now" it would
+// otherwise ever see is the one inside a list_actions result, turns earlier.
+// "Is this still happening?" is a comparison between the latest observation
+// held and the present — so the engine supplies the present on every turn,
+// and the model never has to remember one or infer it from narrative. The
+// prompt's timeframe rule (prompt.go, "Output discipline") names this block.
+func clockBlock(now time.Time) string {
+	return fmt.Sprintf("[clock — this turn began at %s; the engine's clock, not an observation]",
+		now.UTC().Format(time.RFC3339))
+}
 
 // hypothesisRow mirrors the fields of the server's HypothesisView the block
 // renders. Decoded locally so the agent package keeps no dependency on server.
