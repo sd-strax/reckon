@@ -65,6 +65,15 @@ type Supervisor struct {
 	specs   []Spec
 	mu      sync.Mutex
 	started []Component // for stop ordering
+
+	// OnReady, when set, is called by Run exactly once, after Start has
+	// brought every registered component up and before the health watchers
+	// take over. It is the supervisor's "the whole stack is serving" signal
+	// — the one moment it alone can name, since a component's own ready log
+	// says nothing about the ones after it. Callers use it for the
+	// operator-facing ready line. Set it before Run; it is not called when
+	// Start fails.
+	OnReady func()
 }
 
 // New returns a fresh, empty Supervisor.
@@ -169,8 +178,13 @@ var (
 // Calling Start + Stop directly remains valid for tests or for tighter
 // external control of the lifecycle.
 func (s *Supervisor) Run(ctx context.Context) error {
+	began := time.Now()
 	if err := s.Start(ctx); err != nil {
 		return err
+	}
+	log.Printf("supervisor: all %d components ready in %s", len(s.specs), time.Since(began).Round(100*time.Millisecond))
+	if s.OnReady != nil {
+		s.OnReady()
 	}
 
 	runCtx, fatalCancel := context.WithCancel(ctx)
