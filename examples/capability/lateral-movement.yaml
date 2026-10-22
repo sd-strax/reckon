@@ -71,11 +71,20 @@ bindings:
       priority: 100
       params: {}
 
-  # The change-record check: "was there a change ticket / maintenance window
-  # covering WIN-FILE01?" No fixture answers this verb, so the result is
-  # COMPLETE with zero cases — evidence of ABSENCE against the legitimate-
-  # maintenance hypothesis, which is exactly what the verdict residual and the
-  # discriminating test need (an unbound verb would only say "unavailable").
+  # The case system of record answers two different questions in this scenario,
+  # and the fixtures discriminate between them on the filter value:
+  #
+  # - The analyst's queue ("Seed from case…" with the assignment group,
+  #   filter "SOC Tier 2") returns the three open Tier 2 incidents
+  #   (case-queue-*.json) — the demo's opening move, 14 §4.1.
+  # - The change-record check ("was there a change ticket / maintenance window
+  #   covering WIN-FILE01?") matches no fixture, so it is COMPLETE with zero
+  #   cases — evidence of ABSENCE against the legitimate-maintenance
+  #   hypothesis, which is exactly what the verdict residual and the
+  #   discriminating test need (an unbound verb would only say "unavailable").
+  #
+  # The fixture adapter matches parameter values exactly, so the same scenario
+  # serves both without the adapter knowing anything about cases.
   query_external_cases:
     - adapter: fixture
       operation: replay
@@ -83,6 +92,17 @@ bindings:
       params:
         filter: '${filter?}'
         status: '${status?}'
+
+  # The second step of the case-seed flow (14 §3) and the agent's "read the
+  # full case before pivoting" directive: one detail fixture per queued case
+  # (case-detail-*.json), matched on the case id, so any of the three can be
+  # picked and the seed resolves on exactly one case (fail-closed, 14 §2).
+  get_external_case_details:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        case_id: '${case_id}'
 
   # Bound to the disabled fixture_context instance above — the shipped
   # installed-not-enabled gap the enablement flow closes.
