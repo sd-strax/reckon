@@ -20,11 +20,17 @@ Everything below is fixtures — no real tenant, no real adapters.
 ```
 reckon init                 # a fixture-free real install
 # --- configure embeddings (see below) before starting ---
-reckon start                # brings up the stack (first run downloads deps)
+reckon start --detach       # brings up the stack and returns once it is ready
+                            # (first run downloads deps: add --timeout 10m)
 reckon dev-auth             # a local login (the shipped realm has none)
 reckon demo seed            # populate the demo world — refuses if not virgin
-reckon stop && reckon start # restart so the fixture capabilities activate
+reckon stop && reckon start --detach   # restart so the fixture capabilities activate
 ```
+
+Rebuilding later (after a rehearsal, or when the fixtures change) is one
+command: `scripts/demo-reseed.sh` (or `make demo-reseed` from the repo) runs
+stop → reset → start → seed → restart unattended, because `start --detach`
+returns when the stack is up instead of holding the console.
 
 **Configure vector recall first.** The knowledge rail's relevance scores,
 similarity bands, and the "have we seen this before?" case recall are all
