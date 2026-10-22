@@ -49,7 +49,7 @@ func main() {
 			log.Fatalf("%s init: %v", branding.CLI, err)
 		}
 	case "start":
-		if err := runtime.Run(ossModuleBuilder); err != nil {
+		if err := runStart(os.Args[2:]); err != nil {
 			log.Fatalf("%s start: %v", branding.CLI, err)
 		}
 	case "check":
@@ -121,7 +121,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "commands:")
 	fmt.Fprintf(os.Stderr, "  version    print the %s version\n", branding.CLI)
 	fmt.Fprintln(os.Stderr, "  init       first-run setup: write a default config with a fresh identity namespace")
-	fmt.Fprintln(os.Stderr, "  start      bring up the bundled stack (Pg + Temporal + Keycloak + backend)")
+	fmt.Fprintln(os.Stderr, "  start      bring up the bundled stack (Pg + Temporal + Keycloak + backend); --detach returns once it is ready (--timeout 3m)")
 	fmt.Fprintln(os.Stderr, "  check      validate config + module activation without starting services")
 	fmt.Fprintf(os.Stderr, "  stop       signal a running %s supervisor to shut down\n", branding.CLI)
 	fmt.Fprintf(os.Stderr, "  status     report supervisor health (queries a running %s instance)\n", branding.CLI)
