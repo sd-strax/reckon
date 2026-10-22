@@ -55,7 +55,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   // The case queue (adr/0030-cases-pane.md): the SoR's queue below
   // Investigations; a case opens read-only and an investigation starts from it.
-  const cases = new CasesProvider(client, session);
+  const cases = new CasesProvider(client, session, context.globalState);
   const caseDocs = new CaseDocuments(client, log, (created) => {
     documents.show(created.id, created.title);
     // The case write-back posture (adr/0032): ask, act, or nothing.
@@ -71,6 +71,10 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.commands.registerCommand("reckon.refreshCases", () => cases.refresh()),
+    // One toggle, two commands: the view-title shows whichever order is NOT
+    // current (context key reckon.casesSort), so the icon reads as "switch to".
+    vscode.commands.registerCommand("reckon.cases.sortByAge", () => cases.setSort("age")),
+    vscode.commands.registerCommand("reckon.cases.sortByPriority", () => cases.setSort("priority")),
     log,
     session,
     { dispose: () => transport.dispose() },
