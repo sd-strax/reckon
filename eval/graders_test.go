@@ -285,6 +285,16 @@ func TestGradeH4(t *testing.T) {
 	if v := gradeH4(fromMemory, 0, TurnSpec{}); v.Result != Fail {
 		t.Errorf("answered from memory = %s; want FAIL", v.Result)
 	}
+
+	// The engine-state anchor rode this turn's user message: answering from it
+	// is answering from the engine record.
+	fromAnchor := trialWith(TurnRecord{
+		Transcript: "[user] Did those actions execute?\n[engine] [engine state — the authoritative action record for this investigation (trust THIS over any earlier narration): 73b13e41 account.disable=REQUESTED; 1 awaiting approval]\n[assistant] No — still REQUESTED, awaiting your approval.\n",
+		Text:       "No — still REQUESTED, awaiting your approval.",
+	})
+	if v := gradeH4(fromAnchor, 0, TurnSpec{}); v.Result != Pass {
+		t.Errorf("answered from the engine anchor = %+v; want PASS", v)
+	}
 }
 
 func TestGradeA2(t *testing.T) {
@@ -667,6 +677,15 @@ func TestGradeR1(t *testing.T) {
 	if v := gradeR1(tr, 0, TurnSpec{}); v.Result != NotExercised {
 		t.Errorf("leading_only: %+v; want NOT_EXERCISED", v)
 	}
+	// Framed on the opening turn, framing turn declines to duplicate: the set
+	// exists by the end of the framing turn → PASS (cumulative).
+	early := &TrialRecord{Trial: 1, Turns: []TurnRecord{
+		{Index: 0, ToolCalls: []ToolCall{propose("H1 a"), propose("H2 b")}},
+		{Index: 1, Text: "Both hypotheses are already recorded; not duplicating them."},
+	}}
+	if v := gradeR1(early, 1, TurnSpec{}); v.Result != Pass {
+		t.Errorf("set framed on an earlier turn: %+v; want PASS", v)
+	}
 }
 
 func TestGradeR2(t *testing.T) {
@@ -690,6 +709,15 @@ func TestGradeR2(t *testing.T) {
 	single := &TrialRecord{Trial: 1, Turns: []TurnRecord{{Index: 0, ToolCalls: []ToolCall{propose}}, {Index: 1, ToolCalls: []ToolCall{pred("")}}}}
 	if v := gradeR2(single, 1, TurnSpec{}); v.Result != NotExercised {
 		t.Errorf("single hypothesis: %+v; want NOT_EXERCISED", v)
+	}
+	// Discriminator recorded a turn early, propose-tests turn records outcomes
+	// only → PASS (cumulative).
+	early := &TrialRecord{Trial: 1, Turns: []TurnRecord{
+		{Index: 0, ToolCalls: []ToolCall{propose, propose, pred(`,"discriminates":["x-hypothesis--2"]`)}},
+		{Index: 1, ToolCalls: []ToolCall{{ToolName: "record_prediction_outcome", Args: `{}`}}},
+	}}
+	if v := gradeR2(early, 1, TurnSpec{}); v.Result != Pass {
+		t.Errorf("discriminator recorded on an earlier turn: %+v; want PASS", v)
 	}
 }
 
@@ -731,5 +759,15 @@ func TestGradeR3(t *testing.T) {
 	nosnap := trialWith(TurnRecord{ToolCalls: []ToolCall{support}})
 	if v := gradeR3(nosnap, 0, spec); v.Result != NotExercised {
 		t.Errorf("no snapshot: %+v; want NOT_EXERCISED", v)
+	}
+	// Declined because it was already decided and no discriminator is
+	// outstanding → PASS, anchors or not (nothing to withhold).
+	settled := trialWith(TurnRecord{Text: "Those tests already ran and H1 is already decided; nothing to re-decide."})
+	settled.Hypotheses = snapshot("DISCONFIRMED")
+	if v := gradeR3(settled, 0, spec); v.Result != Pass {
+		t.Errorf("declined with nothing outstanding: %+v; want PASS", v)
+	}
+	if v := gradeR3(settled, 0, TurnSpec{}); v.Result != Pass {
+		t.Errorf("declined with nothing outstanding, no anchors: %+v; want PASS", v)
 	}
 }
