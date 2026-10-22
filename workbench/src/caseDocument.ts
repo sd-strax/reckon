@@ -6,7 +6,7 @@
 // nothing to record it against.
 
 import * as vscode from "vscode";
-import { BackendClient, CaseRow } from "./backend";
+import { BackendClient, CaseRow, InvestigationDetail } from "./backend";
 
 type Outbound =
   | { type: "case"; case: CaseRow }
@@ -27,7 +27,9 @@ export class CaseDocuments {
   constructor(
     private readonly client: BackendClient,
     private readonly log: vscode.LogOutputChannel,
-    private readonly onInvestigationCreated: () => void,
+    // Called with the created investigation: the extension opens it, applies
+    // the case write-back posture (adr/0032) and refreshes the trees.
+    private readonly onInvestigationCreated: (created: InvestigationDetail) => void,
   ) {}
 
   /** Open (or reveal) the document for one case number and (re)load it. */
@@ -94,8 +96,7 @@ export class CaseDocuments {
     try {
       const created = await this.client.createInvestigationFromInput(number, "case");
       this.log.info(`case ${number}: investigation ${created.id} started`);
-      this.onInvestigationCreated();
-      void vscode.commands.executeCommand("reckon.openInvestigation", created.id, created.title);
+      this.onInvestigationCreated(created);
       void this.load(number, panel);
     } catch (err) {
       void panel.webview.postMessage({ type: "error", message: errText(err) } satisfies Outbound);

@@ -50,6 +50,9 @@ type RenderMessage =
   | { type: "rename.begin"; title: string }
   // Applied rename: update the title in place without a full reload.
   | { type: "renamed"; title: string }
+  // The case write-back offer (adr/0032, posture "confirm"): open the prompt
+  // card with the default note, editable; confirming requests the action.
+  | { type: "caseNote.offer"; caseId: string; body: string }
   | { type: "pending"; actions: ActionRow[] }
   | { type: "pins"; pins: PinRow[] }
   // The comms/external-work threads (Phase F, binding §4).
@@ -106,6 +109,8 @@ type InboundMessage =
   // from a picked case — both driven from the draft surface, no quick input.
   | { type: "seed.caseSearch"; filter: string; queue?: string }
   | { type: "seed.case"; caseNumber: string }
+  // The analyst confirmed (and possibly edited) the case note (adr/0032).
+  | { type: "caseNote.post"; body: string }
   | { type: "send"; text: string; includedKnowledge?: string[] }
   | { type: "action.approve"; actionId: string; tier: string; actionType: string; challenge?: string }
   | { type: "action.reject"; actionId: string; actionType: string; reason: string }
@@ -307,6 +312,8 @@ export class InvestigationDocuments {
       void this.searchCases(panel, msg.filter, msg.queue);
     } else if (msg.type === "seed.case") {
       void this.seedDraft(ref, panel, { value: msg.caseNumber, kind: "case" });
+    } else if (msg.type === "caseNote.post") {
+      void this.postCaseNote(id, panel, msg.body);
     } else if (msg.type === "send") {
       void this.runTurn(id, panel, msg.text, undefined, msg.includedKnowledge);
     } else if (msg.type === "action.approve") {
@@ -405,6 +412,9 @@ export class InvestigationDocuments {
       panel.title = `⚖ ${created.title}`;
       void this.post(panel, { type: "seeded" });
       void this.load(created.id, panel);
+      // Case-rooted: apply the write-back posture (adr/0032) — the offer
+      // opens once the load above has rendered.
+      this.offerCaseNote(created);
       // The trees should show the new investigation immediately — and, for a
       // case seed, the Cases view should now point the case at it.
       void vscode.commands.executeCommand("reckon.refreshInvestigations");
@@ -429,6 +439,56 @@ export class InvestigationDocuments {
       void this.post(panel, { type: "draft.cases", cases });
     } catch (err) {
       void this.post(panel, { type: "draft.caseError", message: errText(err) });
+    }
+  }
+
+  // Case-note offers waiting for their investigation panel to finish loading
+  // (adr/0032): the prompt must open over a rendered document, not a loading
+  // one, and the panel may have been created a moment ago (Cases view path).
+  private readonly caseNoteOffers = new Map<string, { caseId: string; body: string }>();
+
+  /**
+   * Apply the tenant's case write-back posture to a just-created
+   * investigation. "auto" requests the note now; "confirm" (the default)
+   * queues the offer, shown on the document once it has loaded; "off" (or a
+   * non-case seed) does nothing. The server already withheld the offer when
+   * the posture is off, so the absence of created.caseNote is the whole test.
+   */
+  offerCaseNote(created: InvestigationDetail): void {
+    if (!created.caseNote) {
+      return;
+    }
+    if (created.caseNoteOnSeed === "auto") {
+      void this.client.requestCaseNote(created.id).then(
+        (r) => void vscode.window.showInformationMessage(`reckon: note on ${created.caseNote?.caseId} requested (${r.status.toLowerCase().replace(/_/g, " ")})`),
+        (err: unknown) => void vscode.window.showWarningMessage(`reckon: could not request the case note: ${errText(err)}`),
+      );
+      return;
+    }
+    this.caseNoteOffers.set(created.id, created.caseNote);
+    const panel = this.open.get(created.id);
+    if (panel) {
+      this.flushCaseNoteOffer(created.id, panel);
+    }
+  }
+
+  private flushCaseNoteOffer(id: string, panel: vscode.WebviewPanel): void {
+    const offer = this.caseNoteOffers.get(id);
+    if (!offer) {
+      return;
+    }
+    this.caseNoteOffers.delete(id);
+    void this.post(panel, { type: "caseNote.offer", caseId: offer.caseId, body: offer.body });
+  }
+
+  /** The analyst confirmed the note: request it as an action, then reload. */
+  private async postCaseNote(id: string, panel: vscode.WebviewPanel, body: string): Promise<void> {
+    try {
+      const r = await this.client.requestCaseNote(id, body.trim() || undefined);
+      void vscode.window.showInformationMessage(`reckon: case note requested (${r.status.toLowerCase().replace(/_/g, " ")})`);
+      void this.load(id, panel);
+    } catch (err) {
+      void vscode.window.showWarningMessage(`reckon: could not request the case note: ${errText(err)}`);
     }
   }
 
@@ -477,6 +537,8 @@ export class InvestigationDocuments {
       loadedThread = thread ?? undefined;
       void this.post(panel, { type: "data", investigation, hypotheses, capabilities, thread });
       this.onLoaded?.(id, investigation.lastEventSequence);
+      // A pending case-note offer (adr/0032) opens over the rendered document.
+      this.flushCaseNoteOffer(id, panel);
       // The event-time strip + evidence graph ride the same load,
       // fire-and-forget: both are lenses over the cited refs, sharing one
       // round of (cached) evidence fetches.
@@ -4868,6 +4930,19 @@ export class InvestigationDocuments {
         case "renamed":
           CUR_TITLE = msg.title;
           $("title").textContent = msg.title;
+          break;
+        case "caseNote.offer":
+          // adr/0032, posture "confirm": the analyst sees the note, may edit
+          // it, and posts it — or cancels and nothing is written anywhere.
+          openPrompt({
+            title: "Note the case in the system of record?",
+            label: "Comment to post on " + msg.caseId + " — requested as a ticket.comment action in this investigation",
+            helper: "Cancel posts nothing. The request still goes through approval like any action.",
+            value: msg.body,
+            require: false,
+            confirm: "Post note",
+            onConfirm: (v) => vscode.postMessage({ type: "caseNote.post", body: v }),
+          });
           break;
         case "chronicle":
           lastThread = msg.thread || [];

@@ -48,6 +48,15 @@ type InvestigationView struct {
 	// (default) or "leading_only". Detail responses only — the agent session
 	// renders its framing contract from it.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
+
+	// CaseNoteOnSeed is the tenant's case write-back posture
+	// (config.Cases.NoteOnSeed; adr/0032): "confirm" | "auto" | "off". CaseNote
+	// is the offer itself — the default note text for the seed case — present
+	// on the CREATE response of a case-rooted investigation when the posture
+	// is not off. The client asks (confirm) or posts (auto) via
+	// POST /investigations/{id}/case_note.
+	CaseNoteOnSeed string         `json:"case_note_on_seed,omitempty"`
+	CaseNote       *CaseNoteOffer `json:"case_note,omitempty"`
 }
 
 func seedBody(s *aggregate.Seed) *SeedBody {
@@ -191,6 +200,7 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 		SeedSummary:        ic.SeedSummary,
 		KnowledgeInjection: b.cfg.KnowledgeInjection,
 		HypothesisFraming:  b.cfg.HypothesisFraming,
+		CaseNoteOnSeed:     b.cfg.CaseNoteOnSeed,
 	}
 	if ic.VerdictDisposition != "" {
 		view.Verdict = &VerdictView{
@@ -289,6 +299,11 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 			LastEventSequence: res.NewSequenceNo,
 			Seed:              seedBody(cmd.Seed),
 			SeedSummary:       seedSummaryOf(cmd.Seed),
+			CaseNoteOnSeed:    b.cfg.CaseNoteOnSeed,
+			// The offer rides the create response (adr/0032): the client either
+			// asks the analyst (confirm) or posts it (auto); nil when the seed
+			// is not a case or the posture is off.
+			CaseNote: b.caseNoteOffer(res.AggregateID.String(), cmd.Title, cmd.Seed, claims.PreferredUsername, env.OccurredAt),
 		},
 		NewSequenceNo: res.NewSequenceNo,
 	})
