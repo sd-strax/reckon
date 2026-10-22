@@ -67,16 +67,22 @@ type Session struct {
 	tools    []ToolDef
 	messages []Message
 
-	// Context inputs cached so SetIncludedKnowledge can rebuild the system
-	// prompt without re-fetching (refreshContext is the only writer).
+	// Standing context (refreshContext is the only writer) and the hypothesis
+	// set as last read (refreshHypotheses, every turn). hyps never enters the
+	// system prompt: it is rendered per turn as a [reasoning state] block on
+	// the user message (state.go) so the cached prefix stays byte-stable.
 	investigation Investigation
 	caps          []Capability
 	hyps          json.RawMessage
 
 	// Implicit-retrieval state (design/06 §5.1): what was surfaced this session
-	// and the posture dial that set its default inclusion.
-	retrieved []KnowledgeItem
-	injection string
+	// and the posture dial that set its default inclusion. knowledgeShown is
+	// the set of refs whose content has been delivered to the model in this
+	// conversation — inclusion changes are delivered as a [knowledge] block on
+	// the next turn (pendingKnowledgeBlock), not by rewriting the system prompt.
+	retrieved      []KnowledgeItem
+	injection      string
+	knowledgeShown map[string]bool
 
 	pendingActions []ActionResponse // actions proposed this turn, for the surface to offer approval
 	// consulted accumulates the turn's recall_sops retrievals (by sop_id,
@@ -199,24 +205,23 @@ func (s *Session) refreshContext(ctx context.Context) error {
 	s.investigation, s.caps, s.hyps = inv, caps, hyps
 	// Implicit retrieval (design/06 §5.1): surface relevant SOPs + similar past
 	// cases with their relevance signals, defaulting inclusion per the posture
-	// dial. The system prompt embeds only what is included (nothing, under
-	// opt_in, until the analyst curates).
+	// dial. Included items reach the model as a [knowledge] block on the next
+	// turn (nothing, under opt_in, until the analyst curates); a (re)built
+	// context has shown the model nothing yet.
 	s.retrieveImplicit(ctx, inv)
-	sops, cases := s.includedKnowledge()
-	s.system = systemPrompt(inv, caps, hyps, sops, cases)
+	s.knowledgeShown = nil
+	s.system = systemPrompt(inv, caps)
 	return nil
 }
 
-// refreshHypotheses re-reads the investigation's hypothesis set and rebuilds
-// the system prompt around it, leaving every other cached context input alone.
+// refreshHypotheses re-reads the investigation's hypothesis set for this turn's
+// [reasoning state] block. A failure keeps the last known set.
 func (s *Session) refreshHypotheses(ctx context.Context) {
 	hyps, err := s.backend.ListHypotheses(ctx, s.investigationID)
 	if err != nil {
 		return
 	}
 	s.hyps = hyps
-	sops, cases := s.includedKnowledge()
-	s.system = systemPrompt(s.investigation, s.caps, s.hyps, sops, cases)
 }
 
 // contextResetRationale marks a context reset in the reasoning thread. It makes
@@ -355,11 +360,11 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	s.pendingActions = nil
 	s.consulted = map[string]ConsultedSOP{}
 	s.consultedSimilar = map[string]ConsultedSimilarInvestigation{}
-	// The reasoning state in the system prompt must be current at every turn:
-	// between turns the analyst adopts with a restatement, frames a rival by
-	// hand, adds or withdraws predictions — and the competing-set contract asks
-	// the model to read EVERY live hypothesis (01 §x-hypothesis). One GET; a
-	// failure keeps the last known set rather than failing the turn.
+	// The reasoning state must be current at every turn: between turns the
+	// analyst adopts with a restatement, frames a rival by hand, adds or
+	// withdraws predictions — and the competing-set contract asks the model to
+	// read EVERY live hypothesis (01 §x-hypothesis). One GET; a failure keeps
+	// the last known set rather than failing the turn.
 	s.refreshHypotheses(ctx)
 	// Knowledge the analyst included as context is consulted this turn (§6),
 	// merged with the model's own recalls below.
@@ -373,19 +378,31 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	var turnUsage Usage
 	var finalText strings.Builder
 
-	// Periodic ground-truth anchor: every anchorEveryTurns (and immediately
-	// after a ResetContext), the engine's authoritative action record rides the
-	// user message so the model re-grounds on fact rather than its own
-	// accumulated narration. Deterministic — states only what the engine holds.
-	userContent := []ContentBlock{TextBlock(userMsg)}
+	// Engine state rides the user message, never the system prompt (state.go):
+	// the knowledge the analyst (un)included since it was last shown, the
+	// hypothesis set as the engine holds it now, and — every anchorEveryTurns
+	// and immediately after a ResetContext — the authoritative action record,
+	// so the model re-grounds on fact rather than its own accumulated
+	// narration. Each is deterministic: it states only what the engine holds.
+	var userContent []ContentBlock
+	engine := func(block string) {
+		userContent = append(userContent, TextBlock(block))
+		fmt.Fprintf(&transcript, "[engine] %s\n", sanitizeTranscript(block))
+	}
+	if kb := s.pendingKnowledgeBlock(); kb != "" {
+		engine(kb)
+	}
+	if hb := hypothesisStateBlock(s.hyps); hb != "" {
+		engine(hb)
+	}
 	s.turnsSinceAnchor++
 	if s.turnsSinceAnchor >= anchorEveryTurns {
 		if anchor := s.engineStateAnchor(ctx); anchor != "" {
-			userContent = append([]ContentBlock{TextBlock(anchor)}, userContent...)
-			fmt.Fprintf(&transcript, "[engine] %s\n", sanitizeTranscript(anchor))
+			engine(anchor)
 			s.turnsSinceAnchor = 0
 		}
 	}
+	userContent = append(userContent, TextBlock(userMsg))
 
 	// A turn aborted by a model-call failure leaves the history ending in a
 	// user message (the tool results, or the aborted turn's own text). Merge

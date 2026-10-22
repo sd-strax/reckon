@@ -74,8 +74,8 @@ var pricing = map[string]modelPricing{
 	"claude-sonnet-4-6": {inputPerM: 3, outputPerM: 15, cacheWritePerM: 3.75, cacheReadPerM: 0.30},
 	// Haiku 4.5 tier.
 	"claude-haiku-4-5-20251001": {inputPerM: 1, outputPerM: 5, cacheWritePerM: 1.25, cacheReadPerM: 0.10},
-	// Opus 4.x tier.
-	"claude-opus-4-8": {inputPerM: 15, outputPerM: 75, cacheWritePerM: 18.75, cacheReadPerM: 1.50},
+	// Opus 4.x tier (Opus 4.7+ list price; the $15/$75 rate was retired).
+	"claude-opus-4-8": {inputPerM: 5, outputPerM: 25, cacheWritePerM: 6.25, cacheReadPerM: 0.50},
 }
 
 // EstimatedCost returns the run's estimated USD cost and whether the model's

@@ -67,7 +67,8 @@ type fakeBackend struct {
 	srv           *httptest.Server
 	calls         []recordedCall
 	actions       []ActionStatus
-	investigation *Investigation // detail response when set; else a default ACTIVE stub
+	hypotheses    json.RawMessage // GET …/hypotheses body when set; else an empty set
+	investigation *Investigation  // detail response when set; else a default ACTIVE stub
 	override      func(w http.ResponseWriter, r *http.Request) bool // handled?
 }
 
@@ -89,6 +90,10 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 	mux.HandleFunc("/api/investigations/", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
 		if strings.HasSuffix(r.URL.Path, "/hypotheses") {
+			if f.hypotheses != nil {
+				_, _ = w.Write(f.hypotheses)
+				return
+			}
 			_, _ = w.Write([]byte(`{"hypotheses":[]}`))
 			return
 		}

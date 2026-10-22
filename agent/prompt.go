@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -39,11 +38,16 @@ func framingConventions(mode string) string {
 	return b.String()
 }
 
-// systemPrompt renders reckon's reasoning conventions plus the current
-// investigation context (05 §3.4 step 4). It is deliberately spec-shaped: the
+// systemPrompt renders reckon's reasoning conventions plus the investigation's
+// standing context (05 §3.4 step 4). It is deliberately spec-shaped: the
 // conventions restate the engine's own rules so the model works WITH the
 // guardrails rather than discovering them by rejection.
-func systemPrompt(inv Investigation, caps []Capability, hypotheses json.RawMessage, includedSOPs, includedCases []KnowledgeItem) string {
+//
+// It is byte-stable for the life of a session: everything that changes between
+// turns (the hypothesis set, the action record, the knowledge the analyst
+// curated) rides the turn's user message as an [engine] block (state.go), never
+// this prompt — see the prompt-cache note there.
+func systemPrompt(inv Investigation, caps []Capability) string {
 	var b strings.Builder
 
 	b.WriteString(`You are reckon's investigation agent: an AI delegate assisting a human SOC analyst (threat hunter / IR responder) inside a live investigation. You act on the analyst's behalf and everything you do is recorded against their name with you as the delegate.
@@ -94,11 +98,7 @@ func systemPrompt(inv Investigation, caps []Capability, hypotheses json.RawMessa
 			inv.Seed.Source, inv.Seed.CaseID)
 	}
 
-	if len(hypotheses) > 0 && string(hypotheses) != "null" {
-		b.WriteString("\n## Reasoning state (existing hypotheses)\n\n")
-		b.Write(hypotheses)
-		b.WriteString("\n")
-	}
+	b.WriteString("\nThe investigation's current hypothesis set, the authoritative action record, and any SOPs or past cases the analyst has put in context arrive as [engine] / [reasoning state] / [knowledge] blocks on the analyst's messages. Each is the engine's own record as of that turn: read the latest one, and trust it over earlier narration.\n")
 
 	var degraded []string
 	for _, c := range caps {
@@ -110,10 +110,6 @@ func systemPrompt(inv Investigation, caps []Capability, hypotheses json.RawMessa
 		fmt.Fprintf(&b, "\n## Degraded capabilities\n\nThese verbs are configured but currently unresolvable (do not attempt them; note the gap if it matters): %s\n",
 			strings.Join(degraded, ", "))
 	}
-
-	// Implicitly-retrieved institutional knowledge the analyst has included
-	// (design/06 §5.1). Empty under opt_in until the analyst pulls something in.
-	renderKnowledgeSections(&b, includedSOPs, includedCases)
 
 	return b.String()
 }

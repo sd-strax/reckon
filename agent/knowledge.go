@@ -149,7 +149,8 @@ func (s *Session) RetrievedKnowledge() []KnowledgeItem {
 // SetIncludedKnowledge sets which retrieved items are included in the model's
 // context (the analyst's curation, keyed by Ref). Unknown refs are ignored;
 // items not named are excluded — the caller passes the full included set. The
-// system prompt is rebuilt so the next turn reflects the choice.
+// change reaches the model as a [knowledge] block on the next turn
+// (pendingKnowledgeBlock); the system prompt is not touched.
 func (s *Session) SetIncludedKnowledge(refs []string) {
 	want := make(map[string]bool, len(refs))
 	for _, r := range refs {
@@ -158,8 +159,52 @@ func (s *Session) SetIncludedKnowledge(refs []string) {
 	for i := range s.retrieved {
 		s.retrieved[i].Included = want[s.retrieved[i].Ref]
 	}
+}
+
+// pendingKnowledgeBlock renders what changed in the analyst's curated context
+// since the model last saw it: the full excerpt of each newly-included item
+// (delivered once — it then lives in the cached history like any other
+// observation) and a one-line notice for each item the analyst took back out.
+// Empty when nothing changed. Marks what it delivers as shown.
+func (s *Session) pendingKnowledgeBlock() string {
+	if s.knowledgeShown == nil {
+		s.knowledgeShown = map[string]bool{}
+	}
 	sops, cases := s.includedKnowledge()
-	s.system = systemPrompt(s.investigation, s.caps, s.hyps, sops, cases)
+	var newSOPs, newCases []KnowledgeItem
+	for _, k := range sops {
+		if !s.knowledgeShown[k.Ref] {
+			newSOPs = append(newSOPs, k)
+		}
+	}
+	for _, k := range cases {
+		if !s.knowledgeShown[k.Ref] {
+			newCases = append(newCases, k)
+		}
+	}
+	var removed []string
+	for _, k := range s.retrieved {
+		if s.knowledgeShown[k.Ref] && !k.Included {
+			removed = append(removed, fmt.Sprintf("%s (%s %s)", k.Title, k.Kind, k.Ref))
+			delete(s.knowledgeShown, k.Ref)
+		}
+	}
+	if len(newSOPs) == 0 && len(newCases) == 0 && len(removed) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("[knowledge — context the analyst curated for this investigation]\n")
+	renderKnowledgeSections(&b, newSOPs, newCases)
+	if len(removed) > 0 {
+		fmt.Fprintf(&b, "\nThe analyst removed from context: %s. Do not build on these further.\n", strings.Join(removed, "; "))
+	}
+	for _, k := range newSOPs {
+		s.knowledgeShown[k.Ref] = true
+	}
+	for _, k := range newCases {
+		s.knowledgeShown[k.Ref] = true
+	}
+	return b.String()
 }
 
 // includedKnowledge returns the currently-included items, cases and SOPs
@@ -205,8 +250,8 @@ func (s *Session) knowledgeConsulted() {
 	}
 }
 
-// renderKnowledgeSections writes the §5.1 system-prompt sections for the
-// included knowledge. Empty when nothing is included (opt_in before the
+// renderKnowledgeSections writes the §5.1 sections for the included knowledge
+// into a [knowledge] block. Empty when nothing is included (opt_in before the
 // analyst pulls anything in).
 func renderKnowledgeSections(b *strings.Builder, sops, cases []KnowledgeItem) {
 	if len(sops) > 0 {

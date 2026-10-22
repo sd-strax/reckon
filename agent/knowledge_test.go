@@ -76,18 +76,56 @@ func TestImplicitRetrieval_OptIn(t *testing.T) {
 		}
 	}
 	if strings.Contains(s.System(), "relevant SOPs") || strings.Contains(s.System(), "Similar past investigations") {
-		t.Error("opt_in leaked knowledge into the prompt before the analyst included anything")
+		t.Error("knowledge must never enter the system prompt — it rides the turn as a [knowledge] block")
+	}
+	// Nothing included: the turn carries no knowledge block.
+	if u := lastUserMessage(t, s, "first look"); strings.Contains(u, "[knowledge") {
+		t.Errorf("opt_in delivered knowledge before the analyst included anything:\n%s", u)
 	}
 
-	// The analyst pulls two in; the prompt now carries exactly those.
+	// The analyst pulls two in; the next turn's user message delivers exactly
+	// those, and the system prompt stays byte-identical (prompt-cache prefix).
+	before := s.System()
 	s.SetIncludedKnowledge([]string{"sop-1", "grouping--near"})
-	sys := s.System()
-	if !strings.Contains(sys, "Ransomware Containment") || !strings.Contains(sys, "Prior RDP pivot") {
-		t.Errorf("included knowledge not in prompt:\n%s", sys)
+	u := lastUserMessage(t, s, "and now?")
+	if !strings.Contains(u, "Ransomware Containment") || !strings.Contains(u, "Prior RDP pivot") {
+		t.Errorf("included knowledge not delivered on the turn:\n%s", u)
 	}
-	if strings.Contains(sys, "Unrelated BEC") {
-		t.Error("un-included item leaked into the prompt")
+	if strings.Contains(u, "Unrelated BEC") {
+		t.Error("un-included item leaked into the turn")
 	}
+	if s.System() != before {
+		t.Error("including knowledge rewrote the system prompt")
+	}
+	// Delivered once: it now lives in the history, the following turn repeats nothing.
+	if u := lastUserMessage(t, s, "go on"); strings.Contains(u, "[knowledge") {
+		t.Errorf("knowledge re-delivered on an unchanged inclusion:\n%s", u)
+	}
+}
+
+// lastUserMessage runs one turn and returns the text of the user message that
+// carried it (the analyst's prompt plus any [engine] blocks the session put
+// in front of it).
+func lastUserMessage(t *testing.T, s *Session, prompt string) string {
+	t.Helper()
+	if _, err := s.Turn(context.Background(), prompt); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	reqs := s.llm.(*scriptedLLM).requests
+	msgs := reqs[len(reqs)-1].Messages
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != RoleUser {
+			continue
+		}
+		var b strings.Builder
+		for _, c := range msgs[i].Content {
+			b.WriteString(c.Text)
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
+	t.Fatal("no user message in the model request")
+	return ""
 }
 
 // TestImplicitRetrieval_Auto: strong matches default in; DISTINCT stays out.
@@ -107,18 +145,23 @@ func TestImplicitRetrieval_Auto(t *testing.T) {
 	if byRef["grouping--far"].Included {
 		t.Error("auto: a DISTINCT case should stay surfaced-but-off")
 	}
-	sys := s.System()
-	if !strings.Contains(sys, "Ransomware Containment") || !strings.Contains(sys, "Prior RDP pivot") {
-		t.Errorf("auto-included knowledge not in prompt:\n%s", sys)
+	u := lastUserMessage(t, s, "first look")
+	if !strings.Contains(u, "Ransomware Containment") || !strings.Contains(u, "Prior RDP pivot") {
+		t.Errorf("auto-included knowledge not delivered on the first turn:\n%s", u)
 	}
-	if strings.Contains(sys, "Unrelated BEC") {
-		t.Error("DISTINCT case leaked into the prompt under auto")
+	if strings.Contains(u, "Unrelated BEC") {
+		t.Error("DISTINCT case leaked into the turn under auto")
 	}
 
-	// The analyst can veto a strong match — it leaves the context.
+	// The analyst can veto a strong match — the next turn says so, and the
+	// excerpt is not re-delivered.
 	s.SetIncludedKnowledge([]string{"grouping--near"}) // drop sop-1
-	if strings.Contains(s.System(), "Ransomware Containment") {
-		t.Error("vetoed SOP still in the prompt")
+	u = lastUserMessage(t, s, "and now?")
+	if !strings.Contains(u, "removed from context: Ransomware Containment") {
+		t.Errorf("veto not surfaced to the model:\n%s", u)
+	}
+	if strings.Contains(u, "Isolate first.") {
+		t.Error("vetoed SOP excerpt re-delivered")
 	}
 }
 
