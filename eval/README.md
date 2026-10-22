@@ -145,6 +145,13 @@ land in `eval/artifacts/<scenario>-<timestamp>/` — local only, gitignored.
 
 ## Baselines and regression
 
+Every run is attributed: `prompt_version` is `agent.PromptVersion` — the hash
+of the **base** prompt (prompt code + the `hypothesis_framing` dial, recorded
+beside it), identical across trials, runs, and models on the same code. The
+prompt *as assembled* for each trial (investigation context included) is kept
+in the trial record (`system_prompt`), not hashed: a version that changed with
+the investigation id would be a per-run nonce, not a version.
+
 The previous accepted run for a `(scenario, model)` pair is the baseline
 (`10 §4.4`). `TestEvalRun` loads `eval/baselines/<scenario>--<model>.json` and
 fails on a regression: a MUST going `PASS → FAIL`, or a SHOULD pass rate

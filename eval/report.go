@@ -12,7 +12,12 @@ import (
 // vibe. PromptVersion is the content hash of the assembled base prompt;
 // ActionCatalogHash covers the served action-type vocabulary.
 type Attribution struct {
-	PromptVersion     string `json:"prompt_version"`
+	// PromptVersion is agent.PromptVersion for the run's framing dial: a
+	// function of the prompt code and that dial, stable across runs,
+	// investigations, and models on the same code (#20).
+	PromptVersion string `json:"prompt_version"`
+	// HypothesisFraming is the dial PromptVersion was taken under.
+	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
 	Model             string `json:"model"`
 	ActionCatalogHash string `json:"action_catalog_hash"`
 	ScenarioID        string `json:"scenario_id"`

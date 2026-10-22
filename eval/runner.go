@@ -112,22 +112,22 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 	var (
 		trials      []*TrialRecord
 		trialErrors []string
-		promptHash  string
+		prompt      promptStamp
 	)
 	for n := 1; n <= s.Trials; n++ {
 		logf("eval: trial %d/%d", n, s.Trials)
-		tr, sysPrompt, err := runTrial(ctx, client, backendURL, humanCred, s, model, apiKey, n, logf)
+		tr, stamp, err := runTrial(ctx, client, backendURL, humanCred, s, model, apiKey, n, logf)
 		if err != nil {
 			trialErrors = append(trialErrors, fmt.Sprintf("trial %d: %v", n, err))
 			logf("eval: trial %d aborted: %v", n, err)
 		}
-		if promptHash == "" && sysPrompt != "" {
-			// Prompt-version identifier (10 §1.4): hash of the first trial's
-			// assembled system prompt. v0 caveat: assembly embeds investigation
-			// context, so this attributes the prompt AS RUN, not the base text —
-			// the product stamping a base-prompt version supersedes this (09 §4.2).
-			sum := sha256.Sum256([]byte(sysPrompt))
-			promptHash = hex.EncodeToString(sum[:])
+		if prompt.Version == "" && stamp.Version != "" {
+			// Prompt-version identifier (10 §1.4): the BASE prompt's version
+			// (agent.PromptVersion — prompt code + framing dial), the same for
+			// every trial, run, and model on the same code. The as-run prompt,
+			// investigation context included, is kept per trial in the
+			// artifact (TrialRecord.SystemPrompt), not hashed (#20).
+			prompt = stamp
 		}
 		if tr != nil {
 			tr.ActionCatalog = catalog
@@ -150,7 +150,8 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 	}
 	report := &Report{
 		Attribution: Attribution{
-			PromptVersion:     promptHash,
+			PromptVersion:     prompt.Version,
+			HypothesisFraming: prompt.Framing,
 			Model:             model,
 			ActionCatalogHash: catalogHash,
 			ScenarioID:        s.ID,
@@ -169,15 +170,22 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 	return report, nil
 }
 
+// promptStamp is the run's prompt attribution, read off the session: the base
+// prompt version and the framing dial it was taken under.
+type promptStamp struct {
+	Version string
+	Framing string
+}
+
 // runTrial creates + activates a fresh investigation, then drives the shipped
 // Session through the script. Returns the trial record (possibly partial, with
-// Aborted set) and the assembled system prompt for attribution.
+// Aborted set) and the session's prompt attribution.
 func runTrial(ctx context.Context, client *agent.Client, backendURL string, human agent.TokenSource,
-	s *Scenario, model, apiKey string, trial int, logf func(string, ...any)) (*TrialRecord, string, error) {
+	s *Scenario, model, apiKey string, trial int, logf func(string, ...any)) (*TrialRecord, promptStamp, error) {
 	invID, err := createActiveInvestigation(ctx, backendURL, human,
 		fmt.Sprintf("eval: %s — trial %d", s.ID, trial))
 	if err != nil {
-		return nil, "", err
+		return nil, promptStamp{}, err
 	}
 
 	session, err := agent.NewSession(ctx, agent.Config{
@@ -188,10 +196,11 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 		InvestigationID: invID,
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("assemble session: %w", err)
+		return nil, promptStamp{}, fmt.Errorf("assemble session: %w", err)
 	}
+	stamp := promptStamp{Version: session.PromptVersion(), Framing: session.HypothesisFraming()}
 
-	tr := &TrialRecord{Trial: trial, InvestigationID: invID}
+	tr := &TrialRecord{Trial: trial, InvestigationID: invID, SystemPrompt: session.System()}
 	if inv, err := client.GetInvestigation(ctx, invID); err == nil {
 		tr.HypothesisFraming = inv.HypothesisFraming
 	}
@@ -201,7 +210,7 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 			// the aggregate enforces) so the turn can drive OPEN hypotheses.
 			n, err := ackProposedHypotheses(ctx, client, backendURL, human, invID)
 			if err != nil {
-				return tr, session.System(), fmt.Errorf("turn %d: ack hypotheses: %w", i, err)
+				return tr, stamp, fmt.Errorf("turn %d: ack hypotheses: %w", i, err)
 			}
 			logf("eval: trial %d turn %d — driver acknowledged %d PROPOSED hypothesis(es)", trial, i+1, n)
 		}
@@ -225,7 +234,7 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 			rec.Err = err.Error()
 			tr.Turns = append(tr.Turns, rec)
 			tr.Aborted = true
-			return tr, session.System(), fmt.Errorf("turn %d: %w", i, err)
+			return tr, stamp, fmt.Errorf("turn %d: %w", i, err)
 		}
 		tr.Turns = append(tr.Turns, rec)
 		logf("eval: trial %d turn %d/%d — %d tool rounds", trial, i+1, len(s.Turns), res.ToolRounds)
@@ -254,7 +263,7 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 	if tr.Hypotheses = hypothesesSnapshot(ctx, client, invID); tr.Hypotheses == nil {
 		logf("eval: trial %d — hypotheses view fetch failed (R3 NOT_EXERCISED)", trial)
 	}
-	return tr, session.System(), nil
+	return tr, stamp, nil
 }
 
 // createActiveInvestigation provisions one fresh investigation per trial —

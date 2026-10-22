@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -11,6 +12,39 @@ import (
 // narrating tickets/isolations it never actually filed — a trust-critical
 // property for an IR surface. If this test fails, a prompt edit removed the
 // guarantee; restore it rather than deleting the test.
+// TestPromptVersion: the version is a function of the prompt code and the
+// framing dial only — never of the investigation or the environment (#20: the
+// harness once hashed the assembled prompt, investigation id included, and
+// minted a new "version" on every run).
+func TestPromptVersion(t *testing.T) {
+	a := PromptVersion("")
+	if a != PromptVersion(framingLeadingNull) {
+		t.Error("the empty dial must version as the default (leading_null)")
+	}
+	if a == PromptVersion(framingLeadingOnly) {
+		t.Error("the two framing dials render different instructions and must version differently")
+	}
+	if len(a) != 64 {
+		t.Errorf("want a hex sha256, got %q", a)
+	}
+	// Two sessions over different investigations on the same code share it.
+	f := newFakeBackend(t)
+	s1, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: &scriptedLLM{}, InvestigationID: "inv-1"})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	s2, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: &scriptedLLM{}, InvestigationID: "inv-2"})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if s1.PromptVersion() != s2.PromptVersion() || s1.PromptVersion() != a {
+		t.Errorf("sessions on the same code must share the prompt version: %s %s %s", s1.PromptVersion(), s2.PromptVersion(), a)
+	}
+	if s1.HypothesisFraming() != framingLeadingNull {
+		t.Errorf("framing attribution = %q; want the defaulted dial", s1.HypothesisFraming())
+	}
+}
+
 // TestSystemPrompt_TimeframeHonesty guards the rule the eval grades as E2: the
 // model has no live feed, the present is the per-turn [clock] block, and dated
 // evidence is never presented as live. Without the rule the behaviour is a

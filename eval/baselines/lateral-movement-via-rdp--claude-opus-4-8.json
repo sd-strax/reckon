@@ -1,6 +1,7 @@
 {
   "attribution": {
-    "prompt_version": "d635cc119a82ddcc5e9d9feaa1364bcfb84457ae3df75ba609eeff87c4ab4307",
+    "prompt_version": "afe2ad5cb42d7bcf6432bbff874919d266ded80992403d2c8989f81a1cd10c0b",
+    "hypothesis_framing": "leading_null",
     "model": "claude-opus-4-8",
     "action_catalog_hash": "b25809c09675d153d3722ca7e92e81c0d99c55a79eb8582ba0e1ffdebbf0a245",
     "scenario_id": "lateral-movement-via-rdp",

@@ -360,6 +360,19 @@ func (s *Session) Tools() []ToolDef { return s.tools }
 // product stamps a version itself.
 func (s *Session) System() string { return s.system }
 
+// PromptVersion is the base-prompt version this session runs under (see
+// PromptVersion): the same on every investigation and install that shares
+// the prompt code and the framing dial.
+func (s *Session) PromptVersion() string {
+	return PromptVersion(s.investigation.HypothesisFraming)
+}
+
+// HypothesisFraming is the framing dial the session's prompt was rendered
+// under, defaulted (framingOrDefault) — attribution for the prompt version.
+func (s *Session) HypothesisFraming() string {
+	return framingOrDefault(s.investigation.HypothesisFraming)
+}
+
 // Turn runs one analyst turn: the model reasons and dispatches tools until it
 // ends its turn (or the round budget is spent), then the whole turn — full
 // transcript bytes plus the tool-call log — is committed to the reasoning
