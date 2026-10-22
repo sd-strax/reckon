@@ -286,7 +286,7 @@ func serve(cfg config.Config) error {
 	// are configured — the ActionLifecycle activities (handler + action
 	// resolver), so the dispatch workflow (C.4) can run.
 	worker := temporal.NewWorker(temporal.WorkerConfig{
-		HostPort:  fmt.Sprintf("localhost:%d", cfg.Temporal.FrontendPort),
+		HostPort:  supervisor.TemporalHostPort(cfg.Temporal.FrontendPort),
 		Namespace: cfg.Temporal.Namespace,
 	})
 	// The comms-thread store (Phase F, binding §4) rides the main DB: the
@@ -343,7 +343,7 @@ func serve(cfg config.Config) error {
 	backendCfg := server.BackendConfig{
 		HTTPPort:         cfg.Backend.HTTPPort,
 		PgDSN:            pg.DSN("reckon_main"),
-		TemporalHostPort: fmt.Sprintf("localhost:%d", cfg.Temporal.FrontendPort),
+		TemporalHostPort: supervisor.TemporalHostPort(cfg.Temporal.FrontendPort),
 		KeycloakIssuer: fmt.Sprintf("http://localhost:%d/realms/%s",
 			cfg.Keycloak.HTTPPort, cfg.Keycloak.Realm),
 		KeycloakClientID: cfg.Keycloak.ClientID,

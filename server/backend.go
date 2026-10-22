@@ -283,7 +283,7 @@ func (b *Backend) Start(ctx context.Context) error {
 	// AND the export path (PostConclusionPipeline) — tying it to the action
 	// layer would silently disable auto-export on deployments that never
 	// configure write actions (07 §2.3 defaults auto-export ON).
-	dispatchClient, err := temporal.NewClient(temporal.ClientConfig{HostPort: b.cfg.TemporalHostPort})
+	dispatchClient, err := temporal.NewClientContext(ctx, temporal.ClientConfig{HostPort: b.cfg.TemporalHostPort})
 	if err != nil {
 		return fmt.Errorf("start temporal dispatch client: %w", err)
 	}
@@ -884,7 +884,7 @@ func (b *Backend) probePostgres(ctx context.Context) error {
 }
 
 func (b *Backend) probeTemporal(ctx context.Context) error {
-	c, err := client.Dial(client.Options{HostPort: b.cfg.TemporalHostPort})
+	c, err := temporal.Dial(ctx, b.cfg.TemporalHostPort, "")
 	if err != nil {
 		return err
 	}
