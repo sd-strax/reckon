@@ -307,9 +307,11 @@ When an investigation enters ACTIVE state (or a new turn begins on an active inv
 - Initial entity types and IDs in the Grouping
 - Any techniques surfaced from the seeding alert (if seed is `AlertSeed`)
 
-Returned SOPs go into the system prompt under a clearly-marked section: `# Your organization's relevant SOPs for cases like this`. The LLM consumes them as background context; no tool call needed.
+Returned SOPs the analyst includes (§5.1 posture dial) enter the model's context under a clearly-marked section: `## Your organization's relevant SOPs for cases like this`. The LLM consumes them as background context; no tool call needed.
 
-A symmetric implicit recall hits `recall_similar_investigations` with the same scope. The top N similar past concluded investigations enter the system prompt under `# Similar past investigations in your tenant`.
+A symmetric implicit recall hits `recall_similar_investigations` with the same scope. The top N similar past concluded investigations, once included, enter the context under `## Similar past investigations in your tenant`.
+
+**Delivery channel (as built).** Included knowledge is delivered as a `[knowledge]` engine block on the user message of the turn after the inclusion changes — each newly-included excerpt once, each removal named — not written into the system prompt. The system prompt is the byte-stable prompt-cache prefix (05 §2.7); anything that changes between turns rides the turn as an observation, the same channel as the hypothesis set and the action anchor. The sections above are the headings inside that block.
 
 Both implicit retrievals run before the LLM's first inference call on the turn.
 
