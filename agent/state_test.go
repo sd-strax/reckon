@@ -5,7 +5,20 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
+
+// TestClockBlock: the turn time is stated in UTC RFC 3339 and labelled as the
+// engine's clock, not an observation, so the model cannot mistake it for
+// telemetry.
+func TestClockBlock(t *testing.T) {
+	pdt := time.FixedZone("PDT", -7*3600)
+	got := clockBlock(time.Date(2026, 10, 21, 13, 55, 0, 0, pdt))
+	want := "[clock — this turn began at 2026-10-21T20:55:00Z; the engine's clock, not an observation]"
+	if got != want {
+		t.Errorf("clockBlock = %q\nwant %q", got, want)
+	}
+}
 
 const hypothesesFixture = `{"hypotheses":[
   {"id":"x-hypothesis--1","handle":"H1 rdp-intrusion","status":"OPEN","statement":"An attacker moved laterally over RDP.","labels":["T1021.001"],
@@ -62,12 +75,16 @@ func TestHypothesisStateBlock(t *testing.T) {
 func TestTurn_StateRidesTheMessageNotThePrompt(t *testing.T) {
 	f := newFakeBackend(t)
 	f.hypotheses = json.RawMessage(hypothesesFixture)
-	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: &scriptedLLM{}, InvestigationID: "inv-1"})
+	fixed := time.Date(2026, 10, 21, 20, 55, 0, 0, time.UTC)
+	s, err := NewSession(context.Background(), Config{
+		Backend: f.client(), LLM: &scriptedLLM{}, InvestigationID: "inv-1",
+		Clock: func() time.Time { return fixed },
+	})
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	if strings.Contains(s.System(), "x-hypothesis--1") {
-		t.Error("hypothesis set leaked into the system prompt")
+	if strings.Contains(s.System(), "x-hypothesis--1") || strings.Contains(s.System(), "2026-10-21T20:55") {
+		t.Error("per-turn state leaked into the system prompt")
 	}
 	before := s.System()
 	res, err := s.Turn(context.Background(), "where are we?")
@@ -83,6 +100,11 @@ func TestTurn_StateRidesTheMessageNotThePrompt(t *testing.T) {
 	}
 	if !strings.Contains(res.Transcript, "[engine] [reasoning state") {
 		t.Errorf("transcript does not record the block:\n%s", res.Transcript)
+	}
+	// The clock rides every turn (the model has no other source of "now").
+	clock := "[clock — this turn began at 2026-10-21T20:55:00Z"
+	if !strings.Contains(u, clock) || !strings.Contains(res.Transcript, "[engine] "+clock) {
+		t.Errorf("clock block missing from the user message or transcript:\n%s\n%s", u, res.Transcript)
 	}
 	// The user's own words come last, after the engine blocks.
 	if i, j := strings.Index(u, "[reasoning state"), strings.Index(u, "and now?"); i < 0 || j < i {

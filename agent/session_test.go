@@ -1287,10 +1287,21 @@ func TestSession_ResetContextAndAnchor(t *testing.T) {
 	req := llm.requests[len(llm.requests)-1]
 	first := req.Messages[0]
 	if first.Role != RoleUser || len(first.Content) < 2 {
-		t.Fatalf("first message should carry anchor + user text: %+v", first)
+		t.Fatalf("first message should carry engine blocks + user text: %+v", first)
 	}
-	if !strings.Contains(first.Content[0].Text, "engine state") || !strings.Contains(first.Content[0].Text, "dd4352b1 ticket.create=FAILED") {
-		t.Errorf("anchor missing or wrong: %q", first.Content[0].Text)
+	// The anchor is one of the engine blocks ahead of the user text (the clock
+	// rides every turn ahead of it); the user text is the last block.
+	anchored := false
+	for _, c := range first.Content[:len(first.Content)-1] {
+		if strings.Contains(c.Text, "engine state") && strings.Contains(c.Text, "dd4352b1 ticket.create=FAILED") {
+			anchored = true
+		}
+	}
+	if !anchored {
+		t.Errorf("anchor missing or wrong among engine blocks: %+v", first.Content)
+	}
+	if last := first.Content[len(first.Content)-1].Text; last != "where were we?" {
+		t.Errorf("user text should be the last block, got %q", last)
 	}
 }
 

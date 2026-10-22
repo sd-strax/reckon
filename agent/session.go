@@ -51,6 +51,10 @@ type Config struct {
 	MaxToolRounds   int
 	MaxTokens       int
 	Hooks           Hooks
+	// Clock is the engine's notion of now, stamped on every turn as a [clock]
+	// block (state.go) and used wherever a tool result pre-judges time for the
+	// model (list_actions' expired flag). nil means time.Now; tests fix it.
+	Clock func() time.Time
 }
 
 // Session is one analyst's interactive loop over one investigation. Not safe
@@ -62,6 +66,7 @@ type Session struct {
 	maxRounds       int
 	maxTokens       int
 	hooks           Hooks
+	now             func() time.Time
 
 	system   string
 	tools    []ToolDef
@@ -146,6 +151,7 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 		maxRounds:       cfg.MaxToolRounds,
 		maxTokens:       cfg.MaxTokens,
 		hooks:           cfg.Hooks,
+		now:             cfg.Clock,
 		// The investigation id is always a legit engine id — never a fabrication
 		// even when the model quotes it back (e.g. from a ticket body).
 		seenIDs: map[string]bool{strings.ToLower(cfg.InvestigationID): true},
@@ -155,6 +161,9 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 	}
 	if s.maxTokens <= 0 {
 		s.maxTokens = defaultMaxTokens
+	}
+	if s.now == nil {
+		s.now = time.Now
 	}
 
 	if err := s.refreshContext(ctx); err != nil {
@@ -379,16 +388,18 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	var finalText strings.Builder
 
 	// Engine state rides the user message, never the system prompt (state.go):
-	// the knowledge the analyst (un)included since it was last shown, the
-	// hypothesis set as the engine holds it now, and — every anchorEveryTurns
-	// and immediately after a ResetContext — the authoritative action record,
-	// so the model re-grounds on fact rather than its own accumulated
-	// narration. Each is deterministic: it states only what the engine holds.
+	// the turn clock, the knowledge the analyst (un)included since it was last
+	// shown, the hypothesis set as the engine holds it now, and — every
+	// anchorEveryTurns and immediately after a ResetContext — the authoritative
+	// action record, so the model re-grounds on fact rather than its own
+	// accumulated narration. Each is deterministic: it states only what the
+	// engine holds.
 	var userContent []ContentBlock
 	engine := func(block string) {
 		userContent = append(userContent, TextBlock(block))
 		fmt.Fprintf(&transcript, "[engine] %s\n", sanitizeTranscript(block))
 	}
+	engine(clockBlock(s.now()))
 	if kb := s.pendingKnowledgeBlock(); kb != "" {
 		engine(kb)
 	}

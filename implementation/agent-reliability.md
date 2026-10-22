@@ -97,6 +97,17 @@ authoritative action record… (trust THIS over any earlier narration): …]`.
 Deterministic, compact, and it outweighs stale narration precisely where the
 model looks first: recent context.
 
+The clock is ground truth of the same kind. The model has none: every tool
+result is a timestamped observation, and the only `now` it used to see was the
+one inside a `list_actions` result, turns earlier. Asked "is this attack
+happening right now?" over events dated six months back, a weaker model
+answered "yes" — the hypothesis block said SUPPORTED and containment was still
+pending, and nothing on the turn said what time it was. Every turn now carries
+a `[clock]` block with the engine's time, and the prompt states the rule:
+compare the latest observation against the clock, say nothing was observed
+after it, never present dated evidence as live. Supply the fact the comparison
+needs; do not ask the model to remember it.
+
 ## 5. Give the analyst a reset — durable, visible, and non-destructive
 
 `Session.ResetContext` (sidecar `resetSession`, workbench **Reset Agent
