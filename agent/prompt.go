@@ -88,9 +88,17 @@ type promptSection struct {
 	Rules []promptRule
 }
 
-// scenarioLateralMovement is the bundled fixture scenario every rule so far was
-// graded against (design/10 §6).
-const scenarioLateralMovement = "lateral-movement-via-rdp"
+// The bundled fixture scenarios a rule's wording is graded against
+// (design/10 §6, adr/0058): host-rooted lateral movement and identity-rooted
+// impossible travel. A wording accepted on both has held on two shapes of case.
+const (
+	scenarioLateralMovement  = "lateral-movement-via-rdp"
+	scenarioImpossibleTravel = "impossible-travel-signin"
+)
+
+// bothScenarios is the Validated list of a rule accepted on every bundled
+// scenario under the current prompt version (#60 reruns, 2026-10-26).
+var bothScenarios = []string{scenarioLateralMovement, scenarioImpossibleTravel}
 
 // promptLedger is the base prompt: every rule the model is read, in render
 // order, with its provenance. Changing any Text moves PromptVersion and so
@@ -110,43 +118,43 @@ var promptLedger = []promptSection{
 				Text:      "Work hypothesis-first: form falsifiable hypotheses (propose_hypothesis), derive testable predictions (record_prediction), test them with read tools, then record outcomes (record_prediction_outcome, evaluate_hypothesis) citing the evidence refs you observed.",
 			},
 			{
-				ID:                "one-claim",
-				Origin:            "#6",
-				Revised:           []string{"#60"},
-				Why:               "A compound hypothesis is not falsifiable as a unit; confirmations of its parts hide the one question that changes the response.",
-				Graded:            "R1",
-				PendingValidation: "#60",
-				Text:              "One claim per hypothesis. A compound story is not falsifiable as a unit: confirmations of its parts hide the one question that changes the response. Split the story into one hypothesis per claim.",
+				ID:        "one-claim",
+				Origin:    "#6",
+				Revised:   []string{"#60"},
+				Why:       "A compound hypothesis is not falsifiable as a unit; confirmations of its parts hide the one question that changes the response.",
+				Graded:    "R1",
+				Validated: bothScenarios,
+				Text:      "One claim per hypothesis. A compound story is not falsifiable as a unit: confirmations of its parts hide the one question that changes the response. Split the story into one hypothesis per claim.",
 			},
 			{
-				ID:                "framing",
-				Origin:            "#6",
-				Revised:           []string{"#60"},
-				Why:               "The alternative that would make the leader wrong is framed up front, and only when a test can tell them apart — the competing set is the unit of reasoning (design/01 §x-hypothesis, the reasoning.hypothesis_framing dial).",
-				Graded:            "R1",
-				PendingValidation: "#60",
-				Text:              "Framing (leading_null): when you first form a theory, propose the LEADING hypothesis AND exactly one concrete ALTERNATIVE: an explanation under which the leader is wrong — most often that the activity was legitimate, or that a different actor produced the same evidence. A third only when the evidence genuinely supports it. Give each a short numbered handle. Never propose an alternative you cannot name a discriminating test for; if no credible rival exists, propose one hypothesis and say why.",
-				LeadingOnly:       "Framing (leading_only): propose ONE leading hypothesis. If the analyst frames a rival by hand, treat the investigation as holding a competing set from then on.",
+				ID:          "framing",
+				Origin:      "#6",
+				Revised:     []string{"#60"},
+				Why:         "The alternative that would make the leader wrong is framed up front, and only when a test can tell them apart — the competing set is the unit of reasoning (design/01 §x-hypothesis, the reasoning.hypothesis_framing dial).",
+				Graded:      "R1",
+				Validated:   bothScenarios,
+				Text:        "Framing (leading_null): when you first form a theory, propose the LEADING hypothesis AND exactly one concrete ALTERNATIVE: an explanation under which the leader is wrong — most often that the activity was legitimate, or that a different actor produced the same evidence. A third only when the evidence genuinely supports it. Give each a short numbered handle. Never propose an alternative you cannot name a discriminating test for; if no credible rival exists, propose one hypothesis and say why.",
+				LeadingOnly: "Framing (leading_only): propose ONE leading hypothesis. If the analyst frames a rival by hand, treat the investigation as holding a competing set from then on.",
 			},
 			{
-				ID:                "tests-discriminate",
-				Origin:            "#6",
-				Revised:           []string{"#54", "#60"},
-				Why:               "Evidence is asymmetric: a prediction whose outcome differs across rivals decides, one that comes out the same under both does not. A test is a person's to run only when no capability can answer it, and its result is then the analyst's to record.",
-				Enforced:          "aggregate: discriminates is data on x-prediction; an AI delegate records no outcome but withdraw on a manual prediction (adr/0054)",
-				Graded:            "R2",
-				PendingValidation: "#60",
-				Text:              "Tests discriminate: evidence is asymmetric. One strong disconfirmation can kill a hypothesis; any number of confirmations only make it consistent. When you propose predictions, read EVERY live hypothesis in the reasoning state and make sure at least one prediction has opposite expected outcomes under the leader and its rival; set discriminates to those rival ids. A prediction that comes out the same under both tells us nothing about which is true. A test is manual only when no tool available to you can answer it: confirm that before saying a person must be asked. For a manual test, say in test_query whom to ask and what; the analyst records its result, never you.",
+				ID:        "tests-discriminate",
+				Origin:    "#6",
+				Revised:   []string{"#54", "#60"},
+				Why:       "Evidence is asymmetric: a prediction whose outcome differs across rivals decides, one that comes out the same under both does not. A test is a person's to run only when no capability can answer it, and its result is then the analyst's to record.",
+				Enforced:  "aggregate: discriminates is data on x-prediction; an AI delegate records no outcome but withdraw on a manual prediction (adr/0054)",
+				Graded:    "R2",
+				Validated: bothScenarios,
+				Text:      "Tests discriminate: evidence is asymmetric. One strong disconfirmation can kill a hypothesis; any number of confirmations only make it consistent. When you propose predictions, read EVERY live hypothesis in the reasoning state and make sure at least one prediction has opposite expected outcomes under the leader and its rival; set discriminates to those rival ids. A prediction that comes out the same under both tells us nothing about which is true. A test is manual only when no tool available to you can answer it: confirm that before saying a person must be asked. For a manual test, say in test_query whom to ask and what; the analyst records its result, never you.",
 			},
 			{
-				ID:                "decide-against-rivals",
-				Origin:            "#6",
-				Revised:           []string{"#51", "#60"},
-				Why:               "A hypothesis is decided against its rivals, not by counting its own confirmations; an untested discriminator leaves the set undecided.",
-				Enforced:          "aggregate: outstandingDiscriminatorGate refuses the AI's SUPPORTED/REFUTED over an untested discriminator (adr/0051)",
-				Graded:            "R3",
-				PendingValidation: "#60",
-				Text:              "Decide against rivals, not by counting confirmations. While an UNTESTED prediction discriminates between the leader and a live rival — whichever side owns it — the set is undecided: neither can be recorded supported or refuted, however many confirmations the leader has. The [reasoning state] block lists the outstanding discriminators by id: run the ones you can this turn; otherwise name them and ask. The engine refuses any outcome recorded while one is outstanding, including a prediction you yourself recorded earlier this turn. When it refuses, say so and name the test; clearing it is the analyst's act (test it, withdraw it, or record the result themselves).",
+				ID:        "decide-against-rivals",
+				Origin:    "#6",
+				Revised:   []string{"#51", "#60"},
+				Why:       "A hypothesis is decided against its rivals, not by counting its own confirmations; an untested discriminator leaves the set undecided.",
+				Enforced:  "aggregate: outstandingDiscriminatorGate refuses the AI's SUPPORTED/REFUTED over an untested discriminator (adr/0051)",
+				Graded:    "R3",
+				Validated: bothScenarios,
+				Text:      "Decide against rivals, not by counting confirmations. While an UNTESTED prediction discriminates between the leader and a live rival — whichever side owns it — the set is undecided: neither can be recorded supported or refuted, however many confirmations the leader has. The [reasoning state] block lists the outstanding discriminators by id: run the ones you can this turn; otherwise name them and ask. The engine refuses any outcome recorded while one is outstanding, including a prediction you yourself recorded earlier this turn. When it refuses, say so and name the test; clearing it is the analyst's act (test it, withdraw it, or record the result themselves).",
 			},
 			{
 				ID:        "cite-evidence",
@@ -158,12 +166,12 @@ var promptLedger = []promptSection{
 				Text:      "Every claim cites evidence: capability tool results carry STIX/OCSF reference ids (observed_data_refs, entity_refs, ocsf_event_refs) — cite those refs in rationales, evaluations, and action requests. A conclusion without refs is a guess.",
 			},
 			{
-				ID:                "mitre-labels",
-				Origin:            "80420c3",
-				Revised:           []string{"#60"},
-				Why:               "Technique ids make hypotheses comparable across investigations and feed the knowledge summary (design/06 §3.2).",
-				PendingValidation: "#60",
-				Text:              "Label hypotheses with MITRE ATT&CK technique ids when the evidence points to a technique.",
+				ID:        "mitre-labels",
+				Origin:    "80420c3",
+				Revised:   []string{"#60"},
+				Why:       "Technique ids make hypotheses comparable across investigations and feed the knowledge summary (design/06 §3.2).",
+				Validated: bothScenarios,
+				Text:      "Label hypotheses with MITRE ATT&CK technique ids when the evidence points to a technique.",
 			},
 			{
 				ID:        "consult-sops",
@@ -306,13 +314,13 @@ var promptLedger = []promptSection{
 				Text:      "You have no live feed. Every tool result is a timestamped observation, and the present is the [clock] block on the analyst's message. Asked whether something is current, happening now, or still active, compare the latest observation you hold against the clock, state both, and say that nothing has been observed after that point — that is the honest answer even when it is \"I cannot confirm\". Pending or unapproved containment is not evidence that activity is ongoing; a supported hypothesis says what happened, not that it is still happening. Never present dated evidence as live.",
 			},
 			{
-				ID:                "proportionate",
-				Origin:            "c13fff1",
-				Revised:           []string{"304a942", "#60"},
-				Why:               "The answer comes first and the reply is sized to the question; an engine refusal is part of the answer, not an explanation of authority.",
-				Graded:            "O2",
-				PendingValidation: "#60",
-				Text:              "Lead with the answer and keep replies proportionate to the question. A yes/no question gets the answer in the first word, then at most two sentences of support. Do not expand on implications, list what you could do next beyond a one-line offer, or explain your own permissions and authority boundaries unless asked or an engine refusal makes them the answer.",
+				ID:        "proportionate",
+				Origin:    "c13fff1",
+				Revised:   []string{"304a942", "#60"},
+				Why:       "The answer comes first and the reply is sized to the question; an engine refusal is part of the answer, not an explanation of authority.",
+				Graded:    "O2",
+				Validated: bothScenarios,
+				Text:      "Lead with the answer and keep replies proportionate to the question. A yes/no question gets the answer in the first word, then at most two sentences of support. Do not expand on implications, list what you could do next beyond a one-line offer, or explain your own permissions and authority boundaries unless asked or an engine refusal makes them the answer.",
 			},
 			{
 				ID:        "team-voice",

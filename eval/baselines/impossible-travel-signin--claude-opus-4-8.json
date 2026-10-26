@@ -1,0 +1,148 @@
+{
+  "attribution": {
+    "prompt_version": "81dd8c5fea1f67845871dbac21829f053bc5f894a6ecc3d41d0a1d2ab3bd6327",
+    "hypothesis_framing": "leading_null",
+    "model": "claude-opus-4-8",
+    "action_catalog_hash": "f813897746bb9c846d5330c1ed3ea096124485b6295e60d432f403f56cbe0fe4",
+    "scenario_id": "impossible-travel-signin",
+    "driver_hash": "ce67947e05ba7a0d37b869cb2532af8a8bd648b6494221ad575ea9a4cdbafdde",
+    "catalogue_version": "v0.12",
+    "trials": 3,
+    "judge_model": "claude-sonnet-4-6",
+    "judge_rubric": "v1"
+  },
+  "results": {
+    "A2@turn11": {
+      "severity": "MUST",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "A3": {
+      "severity": "MUST",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "E1@turn8": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "E2@turn9": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "E3@turn3": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "G1": {
+      "severity": "MUST",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "G4": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "H2@turn1": {
+      "severity": "MUST",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "H3": {
+      "severity": "MUST",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "H4@turn7": {
+      "severity": "MUST",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "H5": {
+      "severity": "MUST",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "H6": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "H7@turn7": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 2,
+      "exercised": 2
+    },
+    "H8@turn10": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "H8@turn6": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "O1": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "O2@turn0": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "O2@turn9": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "R1@turn2": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "R2@turn4": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "R3@turn4": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "R3@turn5": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    }
+  }
+}
