@@ -204,7 +204,9 @@ export interface Prediction {
   id: string;
   statement: string;
   status: string;
-  /** The declared test — "Test this" stages it in the composer, never fires it. */
+  /** P<n>: the server view's ordinal in record order across the investigation (adr/0047); the name the agent uses too. */
+  ordinal?: number;
+  /** The declared test — ⚡ Test P<n> runs just it as a scoped agent turn. */
   testQuery?: TestQuery;
   /**
    * Rival hypothesis ids whose expectation for this prediction is the OPPOSITE
@@ -478,6 +480,7 @@ interface RawPrediction {
   id: string;
   statement: string;
   status: string;
+  ordinal?: number;
   test_query?: { tool?: string; query_text?: string };
   discriminates?: string[];
   test_result_refs?: string[];
@@ -761,6 +764,7 @@ export class BackendClient {
         id: p.id,
         statement: p.statement,
         status: p.status,
+        ordinal: p.ordinal || undefined,
         testQuery: p.test_query
           ? { tool: p.test_query.tool, queryText: p.test_query.query_text }
           : undefined,
