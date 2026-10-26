@@ -50,6 +50,10 @@ func NewRegistry(r *identity.Resolver) *Registry {
 	return reg
 }
 
+// Identity returns the identity resolver this registry mints with — the scoped
+// one after Scoped — for objects the resolver itself mints (adr/0061).
+func (reg *Registry) Identity() *identity.Resolver { return reg.resolver }
+
 // Scoped returns a Registry that mints identity in a source scope's namespace
 // (03 §3.5). An empty scope returns the receiver (the common single-organization
 // path allocates nothing); a non-empty scope builds a Registry bound to
@@ -57,10 +61,6 @@ func NewRegistry(r *identity.Resolver) *Registry {
 // organization's namespace and never merge across organizations. Cheap enough
 // to build per scoped call — normalizers are tiny structs and calls are gated by
 // adapter I/O.
-// Identity returns the identity resolver this registry mints with — the scoped
-// one after Scoped — for objects the resolver itself mints (adr/0061).
-func (reg *Registry) Identity() *identity.Resolver { return reg.resolver }
-
 func (reg *Registry) Scoped(scope string) *Registry {
 	if scope == "" {
 		return reg
