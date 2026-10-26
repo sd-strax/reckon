@@ -53,3 +53,4 @@ it belongs to a public repository.
 | [0047](0047-hypotheses-panel.md) | The hypothesis tracker shows the whole competing set in full, names predictions `P<n>` from the server view, and shows the decide guard where it bites |
 | [0051](0051-decide-guard.md) | Decide-against-rivals is an aggregate gate for AI delegates (the human override is a visible act, never a flag); scoped ⚡ commands say where they end; predictions name themselves |
 | [0054](0054-manual-predictions.md) | A prediction declares whether a tool or a person tests it; a person's answer is recorded by the analyst as a STIX `note` the outcome cites; the AI can propose such a test, never record its result |
+| [0057](0057-prompt-ledger.md) | The base prompt is rendered from a ledger (id, origin, principle, enforcing mechanism, grading assertion, validated scenarios), its version is pinned by a frozen test, and a fixture-derived guard refuses scenario vocabulary in the prompt and tool descriptions |
