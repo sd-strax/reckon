@@ -16,6 +16,7 @@
 package identity
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -46,7 +47,10 @@ const (
 	TypeScheduledTask  = "x-scheduled-task"
 	TypeGroup          = "x-group"
 	TypeObservedData   = "observed-data"
-	TypeIdentity       = "identity"
+	// TypeNullObservation is the custom SDO recording that a complete query
+	// observed nothing (01 §Invented, adr/0061): the citeable form of absence.
+	TypeNullObservation = "x-null-observation"
+	TypeIdentity        = "identity"
 )
 
 // Resolver computes tenant-scoped deterministic ids. Construct one per tenant
@@ -323,6 +327,30 @@ func (r *Resolver) ObservedData(classUID int, observed time.Time, sourceTool str
 		"source_tool":        strings.TrimSpace(sourceTool),
 		"normalizer_version": normalizerVersion,
 		"content_hash":       contentHash(payload),
+	})
+}
+
+// NullObservation resolves the id of an x-null-observation (adr/0061): the
+// same question — verb, subject, parameters, window — asked of the same
+// sources and answered empty is the same absence, so it mints the same id.
+// A different window is a different absence. Sources are sorted so binding
+// order cannot change the id.
+func (r *Resolver) NullObservation(verb string, sources []string, subject, params map[string]any, from, to time.Time) STIXID {
+	sorted := append([]string(nil), sources...)
+	sort.Strings(sorted)
+	win := map[string]any{}
+	if !from.IsZero() {
+		win["from"] = from.UTC().Truncate(time.Second).Format(time.RFC3339)
+	}
+	if !to.IsZero() {
+		win["to"] = to.UTC().Truncate(time.Second).Format(time.RFC3339)
+	}
+	return r.mint(TypeNullObservation, map[string]any{
+		"verb":       verb,
+		"sources":    sorted,
+		"subject":    subject,
+		"parameters": params,
+		"window":     win,
 	})
 }
 

@@ -71,6 +71,9 @@ type CapabilityInvokeResponse struct {
 	DegradationNotes []string         `json:"degradation_notes,omitempty"`
 	Events           []OcsfEventView  `json:"events,omitempty"`
 	Normalized       []NormalizedView `json:"normalized,omitempty"`
+	// NullObservation is present when the answer was complete and empty
+	// (adr/0061); its id is also in ObservedDataRefs.
+	NullObservation *capability.NullObservation `json:"null_observation,omitempty"`
 }
 
 // capabilityInvokeRoute handles POST /api/capability/{verb} (03 §3.4, 05 §6.1):
@@ -154,6 +157,7 @@ func buildInvokeResponse(verb string, res capability.CapabilityResult) Capabilit
 		Coverage:         string(res.Coverage),
 		OcsfEventRefs:    res.OcsfEventRefs,
 		DegradationNotes: res.DegradationNotes,
+		NullObservation:  res.NullObservation,
 	}
 	for _, ref := range res.ObservedDataRefs {
 		out.ObservedDataRefs = append(out.ObservedDataRefs, string(ref))

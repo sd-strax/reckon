@@ -2,8 +2,11 @@ package capability
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/sd-strax/reckon/identity"
 )
 
 // stubAdapter is a configurable Adapter for resolver tests.
@@ -205,5 +208,87 @@ func TestValidateBindings(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("ValidateBindings accepted an unknown transform")
+	}
+}
+
+// TestResolveNullObservation: a COMPLETE answer with no events mints an
+// x-null-observation (adr/0061) whose id rides ObservedDataRefs; a complete
+// answer WITH events, a PARTIAL empty answer, and an unavailable verb mint
+// nothing. The id is deterministic over the question and its window.
+func TestResolveNullObservation(t *testing.T) {
+	empty := &stubAdapter{name: "s", healthy: true, resp: AdapterResponse{SourceTool: "stub:s"}}
+	res := newResolver(
+		map[string][]Binding{"v": {{Adapter: "s", Operation: "op", Priority: 1}}},
+		map[string]Adapter{"s": empty},
+	)
+	in := CallInput{
+		Entity: map[string]any{"host": map[string]any{"hostname": "h1"}},
+		Window: TimeWindow{From: time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC), To: time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)},
+		Extra:  map[string]any{"filter": "change window"},
+	}
+	out, err := res.Resolve(context.Background(), "v", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Coverage != CoverageComplete || out.NullObservation == nil {
+		t.Fatalf("coverage=%q null=%v; want COMPLETE with a null observation", out.Coverage, out.NullObservation)
+	}
+	n := out.NullObservation
+	if n.Type != identity.TypeNullObservation || n.Verb != "v" || n.Coverage != string(CoverageComplete) || len(n.Sources) != 1 || n.Sources[0] != "stub:s" {
+		t.Errorf("null observation = %+v", n)
+	}
+	if n.WindowFrom == nil || n.WindowTo == nil || n.Parameters["filter"] != "change window" {
+		t.Errorf("window/parameters not carried: %+v", n)
+	}
+	if len(n.ObjectRefs) != 1 || !strings.HasPrefix(string(n.ObjectRefs[0]), identity.TypeHost+"--") {
+		t.Errorf("object_refs = %v; want the subject host", n.ObjectRefs)
+	}
+	if len(out.ObservedDataRefs) != 1 || out.ObservedDataRefs[0] != n.ID {
+		t.Errorf("ObservedDataRefs = %v; want the null observation's id so it is citeable", out.ObservedDataRefs)
+	}
+	if n.Provenance.DerivationMode != DerivationDirect {
+		t.Errorf("derivation = %q; want DIRECT", n.Provenance.DerivationMode)
+	}
+
+	// Deterministic over the question; a different window is a different absence.
+	again, _ := res.Resolve(context.Background(), "v", in)
+	if again.NullObservation.ID != n.ID {
+		t.Errorf("same question minted different ids: %s vs %s", again.NullObservation.ID, n.ID)
+	}
+	later := in
+	later.Window.To = later.Window.To.Add(24 * time.Hour)
+	other, _ := res.Resolve(context.Background(), "v", later)
+	if other.NullObservation.ID == n.ID {
+		t.Error("a different window must be a different null observation")
+	}
+
+	// Complete with events: no null observation.
+	withEvents, _ := newResolver(
+		map[string][]Binding{"v": {{Adapter: "s", Operation: "op", Priority: 1}}},
+		map[string]Adapter{"s": healthyStub("s")},
+	).Resolve(context.Background(), "v", CallInput{})
+	if withEvents.NullObservation != nil {
+		t.Error("an answer with events must not mint a null observation")
+	}
+
+	// Partial and empty: nothing citeable — an unvouched absence is not evidence.
+	partial, _ := newResolver(
+		map[string][]Binding{"v": {
+			{Adapter: "ok", Operation: "op", Priority: 2, FanOut: true},
+			{Adapter: "bad", Operation: "op", Priority: 1, FanOut: true},
+		}},
+		map[string]Adapter{
+			"ok":  &stubAdapter{name: "ok", healthy: true, resp: AdapterResponse{SourceTool: "stub:ok"}},
+			"bad": &stubAdapter{name: "bad", healthy: true, err: adapterErrorf(ErrFallthrough, "down")},
+		},
+	).Resolve(context.Background(), "v", CallInput{})
+	if partial.Coverage != CoveragePartial || partial.NullObservation != nil {
+		t.Errorf("partial empty: coverage=%q null=%v; want PARTIAL and no null observation", partial.Coverage, partial.NullObservation)
+	}
+
+	// Unavailable: nothing.
+	unavailable, _ := newResolver(map[string][]Binding{}, map[string]Adapter{}).Resolve(context.Background(), "missing", CallInput{})
+	if unavailable.NullObservation != nil {
+		t.Error("an unavailable verb must not mint a null observation")
 	}
 }

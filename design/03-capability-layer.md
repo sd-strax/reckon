@@ -912,6 +912,15 @@ unrecognized classes by emitting an opaque `ObservedData` with `object_refs`
 empty and the OcsfEvent attached via `derived-from` — the LLM can still see the
 raw payload, just without typed entities.
 
+**Absence.** When every applicable binding answered (coverage COMPLETE) and
+no event came back, the resolver mints an `x-null-observation`
+(01-domain-model.md §NullObservation, adr/0061) over the question that was
+asked — verb, subject entity, parameters, window, sources — and returns its id
+among `observed_data_refs`, so the caller can cite the absence as it would cite
+an observation. This is normalization of the call's outcome, not reasoning: the
+condition is mechanical and no interpretation is produced. A PARTIAL,
+UNAVAILABLE or FAILED empty answer mints nothing.
+
 Normalizers are versioned. The version is recorded in the ObservedData's
 provenance. If a normalizer is improved, prior OcsfEvents can be re-normalized
 into new ObservedData; old ObservedData remains valid (immutable in spirit, even

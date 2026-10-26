@@ -2382,6 +2382,7 @@ export class InvestigationDocuments {
       "x-hypothesis": "hypothesis", "x-prediction": "prediction",
       "identity": "vendor", "sighting": "sighting",
       "note": "attestation", // a human statement recorded as evidence (adr/0054)
+      "x-null-observation": "nothing observed", // a complete, empty answer recorded as evidence (adr/0061)
     };
     const resolvedLabels = {}; // ref → resolved value, webview-side cache
     // Entity-type palette classes (ui/01 §Entity-type palette): one fixed

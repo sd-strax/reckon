@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sd-strax/reckon/identity"
@@ -86,6 +87,10 @@ type CapabilityResult struct {
 
 	Events     []OcsfEvent
 	Normalized []NormalizationResult
+	// NullObservation is set when coverage is COMPLETE and no event came back
+	// (adr/0061): the citeable record of absence. Its id also rides
+	// ObservedDataRefs so a caller cites it like any observation.
+	NullObservation *NullObservation
 }
 
 func (r *CapabilityResult) note(format string, args ...any) {
@@ -184,6 +189,7 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 
 	var applicable, succeeded, failed int
 	unhealthy := map[string]bool{}
+	var sources []string // source_tool of every binding that answered
 
 	// §3.5: scope filtering runs before the priority walk — a scope-mismatched
 	// binding is *not applicable*, never merely lower-priority, so it is skipped
@@ -246,6 +252,7 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 		}
 
 		succeeded++
+		sources = append(sources, resp.SourceTool)
 		r.ingest(&res, norm, resp)
 		if !fanout {
 			break // non-fan-out: highest-priority success wins
@@ -253,7 +260,84 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 	}
 
 	res.Coverage = classifyCoverage(fanout, applicable, succeeded, failed)
+	if res.Coverage == CoverageComplete && len(res.Events) == 0 {
+		// Every applicable source answered and none had anything: that is an
+		// observation of absence, and it needs an id the record can cite
+		// (adr/0061). Minted here, on this mechanical condition only — the
+		// layer records what it did, not what it means.
+		n := nullObservation(norm.Identity(), verb, input, sources, time.Now())
+		res.NullObservation = &n
+		res.ObservedDataRefs = append(res.ObservedDataRefs, n.ID)
+	}
 	return res, nil
+}
+
+// nullObservation builds the x-null-observation for a complete, empty answer
+// to verb over input.
+func nullObservation(ids *identity.Resolver, verb string, input CallInput, sources []string, now time.Time) NullObservation {
+	params := map[string]any{}
+	for k, v := range input.Extra {
+		params[k] = v
+	}
+	n := NullObservation{
+		Type:       identity.TypeNullObservation,
+		Verb:       verb,
+		Subject:    input.Entity,
+		Parameters: params,
+		Sources:    append([]string(nil), sources...),
+		Coverage:   string(CoverageComplete),
+		ObjectRefs: subjectRefs(ids, input.Entity),
+		ObservedAt: now.UTC(),
+		Provenance: Provenance{
+			DerivationMode:    DerivationDirect,
+			Tool:              strings.Join(sources, ","),
+			Normalizer:        identity.TypeNullObservation,
+			NormalizerVersion: 1,
+			ObservedAt:        now.UTC(),
+		},
+	}
+	if !input.Window.From.IsZero() {
+		f := input.Window.From.UTC()
+		n.WindowFrom = &f
+	}
+	if !input.Window.To.IsZero() {
+		t := input.Window.To.UTC()
+		n.WindowTo = &t
+	}
+	if len(params) == 0 {
+		n.Parameters = nil
+	}
+	n.ID = ids.NullObservation(verb, sources, input.Entity, params, input.Window.From, input.Window.To)
+	return n
+}
+
+// subjectRefs resolves the SCO ids a call's typed entity names, where the
+// identity is unambiguous from the input alone (03 §7.4: shaping is the
+// normalizer's contract, so an account — which needs domain composition — is
+// not resolved here).
+func subjectRefs(ids *identity.Resolver, entity map[string]any) []identity.STIXID {
+	var refs []identity.STIXID
+	if v, ok := entity["ip"].(string); ok && v != "" {
+		if strings.Contains(v, ":") {
+			refs = append(refs, ids.IPv6Addr(v))
+		} else {
+			refs = append(refs, ids.IPv4Addr(v))
+		}
+	}
+	if v, ok := entity["domain"].(string); ok && v != "" {
+		refs = append(refs, ids.DomainName(v))
+	}
+	if v, ok := entity["url"].(string); ok && v != "" {
+		refs = append(refs, ids.URL(v))
+	}
+	if h, ok := entity["host"].(map[string]any); ok {
+		hostname, _ := h["hostname"].(string)
+		domain, _ := h["domain"].(string)
+		if hostname != "" {
+			refs = append(refs, ids.Host(identity.HostIdentity{Hostname: hostname, Domain: domain}))
+		}
+	}
+	return refs
 }
 
 // ingest converts an adapter response to telemetry records, normalizes each
