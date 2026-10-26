@@ -53,6 +53,24 @@ type TurnSpec struct {
 	// Adopt click of the tracker, scripted. It stages the OPEN state the
 	// run-tests / decide turns (R2, R3) need under the default vetted posture.
 	AckHypotheses bool `yaml:"ack_hypotheses"`
+	// AttestManual makes the driver answer, BEFORE sending this turn, every
+	// prediction the agent marked manual and left UNTESTED: the Record result
+	// click of the tracker, scripted (adr/0054, adr/0069). The answer is
+	// authored per scenario — what the person said, who, over which channel.
+	// Which way it points for each prediction, as the agent worded it, is read
+	// by the reader model at the moment of recording and written into the
+	// trial record; nothing in the runner decides it.
+	AttestManual *AttestSpec `yaml:"attest_manual"`
+}
+
+// AttestSpec is the authored answer to a manual test (TurnSpec.AttestManual).
+type AttestSpec struct {
+	// Content is what the person said, as the analyst would type it.
+	Content string `yaml:"content"`
+	// Source is who answered (a role or a name as the scenario has it).
+	Source string `yaml:"source"`
+	// Channel is how (phone, chat, email, in person).
+	Channel string `yaml:"channel"`
 }
 
 // LoadScenario reads and validates a driver script. Every referenced assertion

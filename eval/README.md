@@ -335,7 +335,11 @@ same price whether the change is one sentence or five.
 - **A scenario** is a YAML driver under `scenarios/` — an ordered list of user
   turns, each optionally carrying turn-scoped assertion ids and per-turn config
   (`min_quotes` for H2, `max_response_runes` for O2, `anchors` for E2/E3/R3),
-  plus the `fixture_scenario` the stack must be wired for. The loader
+  plus the `fixture_scenario` the stack must be wired for, and, on the decide
+  turn, `attest_manual` — the authored answer (content, source, channel) the
+  scripted analyst records for any manual test the agent left open, through the
+  Record result path; a reader model decides per prediction which way the answer
+  points and the reading lands in the trial record (`adr/0069`). The loader
   (`scenario.go`) validates every referenced id exists **and** is placed at its
   declared scope (turn-scoped vs trial-wide), so a typo or misplacement fails
   loudly at load, not silently at grading; `TestLoadScenario_Bundled` requires

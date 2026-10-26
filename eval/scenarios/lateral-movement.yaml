@@ -102,6 +102,18 @@ turns:
   - user: >-
       Run the leading hypothesis's tests now, and then decide it.
     assert: [R3]
+    # The scripted analyst answers any manual test the agent left open before
+    # this turn (adr/0069): the platform owner's answer, authored here. A
+    # no-op when every test was a tool test.
+    attest_manual:
+      content: >-
+        Reached the backup platform owner by phone. No change record, no
+        maintenance window and no scheduled job covers an interactive session
+        from that account on the file server on that date; the account is used
+        by the nightly job only, which authenticates over the network and never
+        opens a desktop session. Nobody on the team ran anything by hand.
+      source: backup platform owner
+      channel: phone
     anchors:
       - "untested"
       - "not yet tested"
