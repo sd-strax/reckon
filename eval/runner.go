@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,6 +90,15 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 		return nil, fmt.Errorf("eval: login (agent client): %w", err)
 	}
 	client := agent.NewClient(backendURL, agentCred, humanCred)
+
+	// The stack is wired for one fixture scenario at a time (adr/0058). Check
+	// it is this driver's before spending a token: one search_alerts call, whose
+	// events carry the fixture adapter's source_tool.
+	if s.FixtureScenario != "" {
+		if err := checkWiredScenario(ctx, client, s.FixtureScenario); err != nil {
+			return nil, err
+		}
+	}
 
 	// The served action vocabulary: H3's ground truth, the declared parameter
 	// schemas (H5's), and part of the run's attribution. An error means the
@@ -339,6 +349,34 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 		logf("eval: trial %d — hypotheses view fetch failed (R3 NOT_EXERCISED)", trial)
 	}
 	return tr, stamp, nil
+}
+
+// checkWiredScenario asserts the running stack replays the fixture scenario the
+// driver script was written against: the events a bound verb returns are
+// stamped source_tool "fixture:<scenario>" (03 §9.2). A mismatch names the
+// swap command rather than letting the run grade the wrong world.
+func checkWiredScenario(ctx context.Context, client *agent.Client, want string) error {
+	raw, err := client.InvokeCapability(ctx, "search_alerts", agent.InvokeInput{Extra: map[string]any{"filter": "*"}})
+	if err != nil {
+		return fmt.Errorf("eval: probe the wired scenario (search_alerts): %w\n  is the stack up with a demo scenario wired? (`%s demo seed --scenario %s`)", err, branding.CLI, want)
+	}
+	var resp struct {
+		Events []struct {
+			SourceTool string `json:"source_tool"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("eval: parse the scenario probe: %w", err)
+	}
+	if len(resp.Events) == 0 {
+		return fmt.Errorf("eval: the wired scenario returned no alerts — the stack is not replaying %s (`%s demo scenario %s`, stack down, then start)", want, branding.CLI, want)
+	}
+	const prefix = "fixture:"
+	got := strings.TrimPrefix(resp.Events[0].SourceTool, prefix)
+	if !strings.HasPrefix(resp.Events[0].SourceTool, prefix) || got != want {
+		return fmt.Errorf("eval: the stack is wired for scenario %q; this driver needs %q.\n  stop the stack, run `%s demo scenario %s`, start it, and rerun", got, want, branding.CLI, want)
+	}
+	return nil
 }
 
 // createActiveInvestigation provisions one fresh investigation per trial —

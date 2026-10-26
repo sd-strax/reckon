@@ -9,8 +9,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
+	reckon "github.com/sd-strax/reckon"
 	"github.com/sd-strax/reckon/agent"
 	"github.com/sd-strax/reckon/config"
 	"github.com/sd-strax/reckon/internal/branding"
@@ -24,15 +27,17 @@ import (
 // touch a working instance by accident (config.Demo).
 func runDemo(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s demo <seed|reset>", branding.CLI)
+		return fmt.Errorf("usage: %s demo <seed|scenario|reset>", branding.CLI)
 	}
 	switch args[0] {
 	case "seed":
 		return runDemoSeed(args[1:])
+	case "scenario":
+		return runDemoScenario(args[1:])
 	case "reset":
 		return runDemoReset(args[1:])
 	default:
-		return fmt.Errorf("unknown demo subcommand %q (want: seed | reset)", args[0])
+		return fmt.Errorf("unknown demo subcommand %q (want: seed | scenario | reset)", args[0])
 	}
 }
 
@@ -45,11 +50,15 @@ func runDemoSeed(args []string) error {
 	fl := flag.NewFlagSet("demo seed", flag.ContinueOnError)
 	user := fl.String("user", envOrDefault("RECKON_USER", branding.CLI+"-admin"), "backend login user (or RECKON_USER)")
 	pass := fl.String("password", os.Getenv("RECKON_PASSWORD"), "backend login password (or RECKON_PASSWORD)")
+	scenario := fl.String("scenario", envOrDefault("RECKON_DEMO_SCENARIO", reckon.DemoScenario), "bundled fixture scenario to wire (or RECKON_DEMO_SCENARIO): "+demoScenarioList())
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
 	if *pass == "" {
 		*pass = branding.CLI // the dev-auth default, same as `knowledge import`
+	}
+	if _, ok := reckon.DemoConfigBaseFor(*scenario); !ok {
+		return fmt.Errorf("no bundled demo scenario %q (have: %s)", *scenario, demoScenarioList())
 	}
 
 	path, err := config.DefaultPath()
@@ -132,7 +141,7 @@ func runDemoSeed(args []string) error {
 	// Knowledge is in. Now materialize the fixtures + merged capability/action
 	// config beside the config, point the config at them, and flip the demo
 	// switch so the fixture guard admits them on next boot.
-	seed, err := runtime.SeedDemo(filepath.Dir(path))
+	seed, err := runtime.SeedDemo(filepath.Dir(path), *scenario)
 	if err != nil {
 		return fmt.Errorf("materialize demo fixtures/config: %w", err)
 	}
@@ -153,6 +162,67 @@ func runDemoSeed(args []string) error {
 	fmt.Printf("  %s stop && %s start\n", branding.CLI, branding.CLI)
 	fmt.Printf("\nWhen you're done, `%s demo reset` wipes the demo world back to a clean install.\n", branding.CLI)
 	return nil
+}
+
+// runDemoScenario swaps the wired fixture scenario on a seeded demo install
+// without touching the databases (adr/0058): it rewrites the fixtures and the
+// merged tenant config on disk and repoints the config. The stack must be down —
+// the capability layer reads the config at boot — and the install must already
+// be a demo (a real install never gets fixtures this way). Investigations and
+// knowledge survive; the eval corpus (design/10 §6) uses this to run its second
+// driver script against the same install.
+func runDemoScenario(args []string) error {
+	fl := flag.NewFlagSet("demo scenario", flag.ContinueOnError)
+	if err := fl.Parse(args); err != nil {
+		return err
+	}
+	if fl.NArg() != 1 {
+		return fmt.Errorf("usage: %s demo scenario <id>   (one of: %s)", branding.CLI, demoScenarioList())
+	}
+	scenario := fl.Arg(0)
+	if _, ok := reckon.DemoConfigBaseFor(scenario); !ok {
+		return fmt.Errorf("no bundled demo scenario %q (have: %s)", scenario, demoScenarioList())
+	}
+
+	path, err := config.DefaultPath()
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if !cfg.Demo.Enabled {
+		return fmt.Errorf("this install is not a demo (demo.enabled is false) — fixtures only run in demo mode.\n  seed one first: `%s demo seed --scenario %s`", branding.CLI, scenario)
+	}
+	if backendReachable(cfg) {
+		return fmt.Errorf("stop the stack before `%s demo scenario` (the capability layer reads the config at boot): `%s stop`", branding.CLI, branding.CLI)
+	}
+
+	seed, err := runtime.SeedDemo(filepath.Dir(path), scenario)
+	if err != nil {
+		return fmt.Errorf("materialize scenario fixtures/config: %w", err)
+	}
+	cfg.Capability.ConfigPath = seed.CapabilityConfig
+	cfg.Capability.FixtureRoot = seed.FixtureRoot
+	if err := config.Overwrite(cfg, path); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	fmt.Printf("%s demo scenario: wired %s\n", branding.CLI, seed.Scenario)
+	fmt.Printf("  fixtures:  %s\n", seed.FixtureRoot)
+	fmt.Printf("  config:    capability wired at %s\n", seed.CapabilityConfig)
+	fmt.Printf("\nStart the stack to activate it: `%s start`\n", branding.CLI)
+	return nil
+}
+
+// demoScenarioList renders the bundled scenario ids for help and error text.
+func demoScenarioList() string {
+	ids := make([]string, 0, len(reckon.DemoScenarios))
+	for id := range reckon.DemoScenarios {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, ", ")
 }
 
 // runDemoReset wipes the install back to a clean, empty state: it drops the

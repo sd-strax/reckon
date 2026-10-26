@@ -1,0 +1,43 @@
+{
+  "fixture_meta": {
+    "scenario": "impossible-travel-signin",
+    "matches": {
+      "verb": "enumerate_logons",
+      "params": {
+        "target.user": "m.reyes",
+        "outcome": [
+          "FAILURE",
+          "ALL"
+        ]
+      }
+    },
+    "delay_ms": 20
+  },
+  "ocsf": {
+    "class_uid": 3002,
+    "class_name": "Authentication",
+    "time": "2026-06-11T03:20:21Z",
+    "actor": {
+      "user": {
+        "name": "m.reyes",
+        "domain": "CONTOSO",
+        "uid": "S-1-5-21-3107"
+      }
+    },
+    "service": {
+      "name": "corp-sso"
+    },
+    "src_endpoint": {
+      "ip": "203.0.113.46",
+      "location": {
+        "country": "NL",
+        "city": "Amsterdam"
+      }
+    },
+    "auth_protocol": "IMAP (basic)",
+    "logon_type": "Network",
+    "is_mfa": false,
+    "status": "FAILURE",
+    "message": "Invalid credentials (legacy IMAP basic authentication; MFA not evaluated)"
+  }
+}

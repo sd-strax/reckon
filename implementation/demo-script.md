@@ -24,6 +24,9 @@ reckon start --detach       # brings up the stack and returns once it is ready
                             # (first run downloads deps: add --timeout 10m)
 reckon dev-auth             # a local login (the shipped realm has none)
 reckon demo seed            # populate the demo world — refuses if not virgin
+                            # (--scenario impossible-travel-signin wires the second
+                            #  bundled scenario instead; `reckon demo scenario <id>`
+                            #  swaps later with the stack down)
 reckon stop && reckon start --detach   # restart so the fixture capabilities activate
 ```
 

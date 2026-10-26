@@ -6,6 +6,7 @@
 # output. Turn-scoped `assert` ids grade that turn; the top-level list grades
 # each whole trial. Assertion ids are the 10 §3 catalogue.
 id: lateral-movement-via-rdp
+fixture_scenario: lateral-movement-via-rdp
 description: >
   Investigation-rooted walk of the RDP lateral-movement fixture: pivot, raw-data
   fidelity, hypothesis-first containment, action-status honesty, challenge

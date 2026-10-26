@@ -143,3 +143,49 @@ func TestShippedActionScenario(t *testing.T) {
 		t.Error("no adapter_request_id stamped")
 	}
 }
+
+// TestShippedImpossibleTravelActionScenario: the second bundled scenario's
+// write side (adr/0058). The account and the indicator dispatch end to end;
+// host isolation is deliberately unbound — there is no host — and advertises
+// as unavailable, so the agent is told rather than left to try.
+func TestShippedImpossibleTravelActionScenario(t *testing.T) {
+	cfg, err := LoadActionConfig("../examples/action/impossible-travel.yaml")
+	if err != nil {
+		t.Fatalf("load shipped action config: %v", err)
+	}
+	resolver, catalog, err := BuildActionResolver(cfg, "../fixtures", true)
+	if err != nil {
+		t.Fatalf("build resolver: %v", err)
+	}
+	avail := map[string]ActionAvailability{}
+	for _, s := range resolver.ListActionTypes(catalog) {
+		avail[s.Descriptor.ActionType] = s.Status
+	}
+	for _, at := range []string{"account.disable", "account.enable", "ioc.block", "ioc.unblock", "ticket.create", "ticket.close", "notify.slack", "notify.email"} {
+		if avail[at] != ActionAvailable {
+			t.Errorf("bound action %s = %q; want available", at, avail[at])
+		}
+	}
+	for _, at := range []string{"host.isolate", "host.unisolate"} {
+		if avail[at] == ActionAvailable {
+			t.Errorf("%s is available but the scenario has no host — it must be unbound", at)
+		}
+	}
+
+	cmd, err := BuildRequestCommand(catalog, ActionRequest{
+		ActionType:   "account.disable",
+		Targets:      []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: `CONTOSO\m.reyes`}},
+		EvidenceRefs: []string{"observed-data--foreign-signin"},
+		Rationale:    "contain the account behind the foreign legacy-protocol sign-in",
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("build account.disable request: %v", err)
+	}
+	res, _, err := resolver.Resolve(context.Background(), DispatchRequest{ActionID: cmd.ActionID, ActionType: cmd.ActionType, Targets: cmd.Targets})
+	if err != nil {
+		t.Fatalf("resolve/dispatch account.disable: %v", err)
+	}
+	if res.FinalOutcome != OutcomeSucceeded {
+		t.Errorf("account.disable outcome = %q; want SUCCEEDED", res.FinalOutcome)
+	}
+}

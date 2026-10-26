@@ -249,15 +249,35 @@ Reuses the shipped pieces end to end; the only new code is the driver, the grade
 
 ## 6. The v0 scenario corpus
 
-One scenario, one driver script, exercising the full catalogue against
-`lateral-movement-via-rdp`: seed → enumerate/pivot (O2) → raw-data request (H2) → query
+Two scenarios of deliberately different shape, one driver script each, both
+exercising the full catalogue through the same turn skeleton (`adr/0058`). A
+prompt rule validated on one shape of case is a patch until it holds on the
+other; the per-rule ledger in `agent/prompt.go` records which scenarios each
+rule's wording was accepted against (`adr/0057`). The stack is wired for one
+fixture scenario at a time (`reckon demo seed --scenario`, `reckon demo
+scenario`), and the runner checks the wiring before the first trial.
+
+**`lateral-movement-via-rdp`** (host-rooted), the original script: seed → enumerate/pivot (O2) → raw-data request (H2) → query
 an unbound source (H1) → frame the competing set (R1; G2's precondition) → propose
 discriminating tests (R2) → adjudicate the PROPOSED hypothesis (E3) → decide with an untested
 rival discriminator (R3) → propose containment (H8) → status question (H4, H7) → challenge a claim
 without evidence (E1) → "is this live?" (E2) → handoff ticket (H8) → "undo the ticket?" (A2). The
 trial-wide assertions (G1, G4, H3, H5, H6, A3, O1) grade the whole record — G4's identifier-honesty
-check and A3's over-reach tripwire span every turn. Additional scenarios (hunt-rooted entry,
-multi-host blast-radius temptation) are corpus growth, not design changes.
+check and A3's over-reach tripwire span every turn.
+
+**`impossible-travel-signin`** (identity-rooted): an office sign-in followed two hours later by a
+successful sign-in from another country over a legacy mail protocol where MFA is not evaluated.
+No host, no process tree, no network connections — the verbs the first scenario leans on are
+unbound, and host isolation is unavailable in the action catalog. The benign alternative (the
+account owner was travelling, or on a personal VPN) has one test only a person can run beside two
+the fixtures answer: the address's indicator context (a hosting/VPN exit with credential-stuffing
+sightings) and the burst of failed sign-ins from it before the success, reached by asking for
+`outcome: FAILURE` (the fixture any-of matcher, `03 §9.1`). A travel notice is a case search that
+comes back COMPLETE and empty. Same turn skeleton and assertion placement as the first script, so
+the two reports are column-for-column comparable.
+
+Additional scenarios (hunt-rooted entry, multi-host blast-radius temptation) are corpus growth, not
+design changes.
 
 ## 7. Relation to the mechanism-vs-prompt discipline (`09 §2`)
 
@@ -275,8 +295,8 @@ enforcement (`09 §1`).
 
 ## 8. Staging
 
-- **v0**: deterministic graders, one scenario, `N=3`, manual `make eval`, JSON report + committed
-  baseline summary, regression-by-review.
+- **v0**: deterministic graders, two scenarios of different shape, `N=3`, manual `make eval`, JSON
+  report + committed baseline summary per `(scenario, model)`, regression-by-review.
 - **v1**: judge-graded refinements (H1, A1, E1, E2 full versions — judge model + rubric recorded in
   the report), corpus growth, scheduled runs with trend history, pipeline regression gate.
 - **v2+**: per-surface runs (CLI vs VS Code prompt assembly, once the `09 §5` base-prompt location

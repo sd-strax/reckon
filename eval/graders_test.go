@@ -1,6 +1,7 @@
 package eval
 
 import (
+	reckon "github.com/sd-strax/reckon"
 	"os"
 	"path/filepath"
 	"strings"
@@ -474,6 +475,31 @@ func TestLoadScenario_Bundled(t *testing.T) {
 	}
 	if len(s.Turns) == 0 {
 		t.Fatal("no turns")
+	}
+
+	// Every committed driver script loads, names a bundled fixture scenario
+	// the runner can check the stack against (adr/0058), and has a distinct id
+	// (baselines are keyed by scenario id).
+	paths, err := filepath.Glob(filepath.Join("scenarios", "*.yaml"))
+	if err != nil || len(paths) < 2 {
+		t.Fatalf("expected at least two driver scripts under scenarios/, got %d (%v)", len(paths), err)
+	}
+	ids := map[string]string{}
+	for _, p := range paths {
+		sc, err := LoadScenario(p)
+		if err != nil {
+			t.Errorf("%s: %v", p, err)
+			continue
+		}
+		if sc.FixtureScenario == "" {
+			t.Errorf("%s: fixture_scenario is not set — the runner cannot check the stack is wired for it", p)
+		} else if _, ok := reckon.DemoConfigBaseFor(sc.FixtureScenario); !ok {
+			t.Errorf("%s: fixture_scenario %q is not a bundled scenario (reckon.DemoScenarios)", p, sc.FixtureScenario)
+		}
+		if prev, dup := ids[sc.ID]; dup {
+			t.Errorf("%s and %s share scenario id %q", prev, p, sc.ID)
+		}
+		ids[sc.ID] = p
 	}
 }
 

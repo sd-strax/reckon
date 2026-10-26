@@ -208,7 +208,11 @@ func (a *FixtureAdapter) Health() HealthStatus {
 
 // fixtureMatches reports whether a fixture applies to the incoming (verb,
 // params): the verb must equal matches.verb, and every matches.param must equal
-// the value at its dotted path in params ("*" matches anything).
+// the value at its dotted path in params. "*" matches anything; a list of
+// values matches any one of them (§9.1) — how a fixture answers to
+// `outcome: SUCCESS` and `outcome: ALL` without also answering to `FAILURE`,
+// so a scenario can carry failed and successful logons that a query tells
+// apart.
 func fixtureMatches(f fixtureFile, verb string, params map[string]any) bool {
 	if f.FixtureMeta.Matches.Verb != "" && f.FixtureMeta.Matches.Verb != verb {
 		return false
@@ -218,11 +222,30 @@ func fixtureMatches(f fixtureFile, verb string, params map[string]any) bool {
 			continue
 		}
 		got, ok := lookupPath(params, path)
-		if !ok || !valuesEqual(got, want) {
+		if !ok {
+			return false
+		}
+		if alternatives, isList := want.([]any); isList {
+			if !anyValueEqual(got, alternatives) {
+				return false
+			}
+			continue
+		}
+		if !valuesEqual(got, want) {
 			return false
 		}
 	}
 	return true
+}
+
+// anyValueEqual reports whether got equals any of the alternatives.
+func anyValueEqual(got any, alternatives []any) bool {
+	for _, alt := range alternatives {
+		if valuesEqual(got, alt) {
+			return true
+		}
+	}
+	return false
 }
 
 // lookupPath resolves a dotted path ("target.hostname") into a nested params

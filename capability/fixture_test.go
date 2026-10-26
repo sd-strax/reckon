@@ -294,3 +294,29 @@ func TestFixtureTimeScoped(t *testing.T) {
 		t.Errorf("30d window: %d events; want 2", n)
 	}
 }
+
+// TestFixtureAnyOf: a matches.param given as a list matches any one of its
+// values and nothing else (§9.1) — the mechanism that lets one scenario hold
+// successful and failed logons that `outcome` tells apart, while `ALL`
+// reaches both.
+func TestFixtureAnyOf(t *testing.T) {
+	a := newTestFixture(t, map[string]string{
+		"ok.json": `{
+          "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{"outcome":["SUCCESS","ALL"]}},"delay_ms":0},
+          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-06-11T03:21:08Z","status":"SUCCESS"}
+        }`,
+		"fail.json": `{
+          "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{"outcome":["FAILURE","ALL"]}},"delay_ms":0},
+          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-06-11T03:14:02Z","status":"FAILURE"}
+        }`,
+	})
+	for outcome, want := range map[string]int{"SUCCESS": 1, "FAILURE": 1, "ALL": 2, "OTHER": 0} {
+		resp, err := a.Invoke(context.Background(), "replay", map[string]any{ParamVerb: "enumerate_logons", "outcome": outcome})
+		if err != nil {
+			t.Fatalf("invoke %s: %v", outcome, err)
+		}
+		if len(resp.Events) != want {
+			t.Errorf("outcome=%s returned %d events; want %d", outcome, len(resp.Events), want)
+		}
+	}
+}

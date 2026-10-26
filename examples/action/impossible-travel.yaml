@@ -1,0 +1,95 @@
+# Example write-side (action) tenant config (design/08 §4) for the bundled
+# impossible-travel-signin fixture scenario. Merged with the capability config by
+# `reckon demo seed` (unknown keys are ignored by each loader). There is no host
+# in this scenario, so host.isolate/host.unisolate are deliberately unbound and
+# advertise as unavailable — containment is the account and the source address.
+
+action_adapters:
+  fixture_write:
+    class: fixture
+    enabled: true
+    scenario: impossible-travel-signin
+
+action_bindings:
+  account.disable:
+    - action_type: account.disable
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        account: "${target.resolved_identifier}"
+
+  account.enable:
+    - action_type: account.enable
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        account: "${target.resolved_identifier}"
+
+  ioc.block:
+    - action_type: ioc.block
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        indicator: "${target.resolved_identifier}"
+
+  ioc.unblock:
+    - action_type: ioc.unblock
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        indicator: "${target.resolved_identifier}"
+
+  ticket.create:
+    - action_type: ticket.create
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        project: "${target.resolved_identifier}"
+
+  ticket.comment:
+    - action_type: ticket.comment
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        ticket: "${target.resolved_identifier}"
+
+  ticket.transition:
+    - action_type: ticket.transition
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        ticket: "${target.resolved_identifier}"
+
+  ticket.close:
+    - action_type: ticket.close
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        ticket: "${target.resolved_identifier}"
+
+  notify.slack:
+    - action_type: notify.slack
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        channel: "${target.resolved_identifier}"
+        message: "${parameters.message}"
+
+  notify.email:
+    - action_type: notify.email
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        recipient: "${target.resolved_identifier}"
+        subject: "${parameters.subject}"
+        body: "${parameters.body}"

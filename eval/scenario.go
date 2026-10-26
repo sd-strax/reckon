@@ -19,6 +19,10 @@ type Scenario struct {
 	Description string `yaml:"description"`
 	// Trials is N (10 §2); defaults to 3.
 	Trials int `yaml:"trials"`
+	// FixtureScenario names the fixture scenario the stack must be wired for
+	// (adr/0058). The runner checks it before the first trial — one cheap
+	// capability call, no tokens — so a run never grades the wrong world.
+	FixtureScenario string `yaml:"fixture_scenario"`
 	// Assert lists the trial-wide assertion ids graded once per trial.
 	Assert []string `yaml:"assert"`
 	// Turns is the deterministic analyst script, in order.

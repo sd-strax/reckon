@@ -1,0 +1,45 @@
+{
+  "fixture_meta": {
+    "scenario": "impossible-travel-signin",
+    "matches": {
+      "verb": "enumerate_logons",
+      "params": {
+        "target.user": "m.reyes",
+        "outcome": [
+          "SUCCESS",
+          "ALL"
+        ]
+      }
+    },
+    "delay_ms": 15,
+    "time_scoped": true
+  },
+  "ocsf": {
+    "class_uid": 3002,
+    "class_name": "Authentication",
+    "time": "2026-05-15T13:02:12Z",
+    "actor": {
+      "user": {
+        "name": "m.reyes",
+        "domain": "CONTOSO",
+        "uid": "S-1-5-21-3107"
+      }
+    },
+    "service": {
+      "name": "corp-sso"
+    },
+    "src_endpoint": {
+      "ip": "10.0.12.40",
+      "hostname": "LT-REYES-01",
+      "location": {
+        "country": "CA",
+        "city": "Toronto"
+      }
+    },
+    "auth_protocol": "OIDC",
+    "logon_type": "Interactive",
+    "is_mfa": true,
+    "status": "SUCCESS",
+    "message": "Interactive sign-in to corp-sso from the managed laptop (office, MFA satisfied)"
+  }
+}

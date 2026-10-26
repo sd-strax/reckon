@@ -1,0 +1,19 @@
+{
+  "fixture_meta": {
+    "scenario": "impossible-travel-signin",
+    "matches": {
+      "action_type": "ioc.unblock",
+      "params": {
+        "resolved_identifier": "*"
+      }
+    },
+    "delay_ms": 150
+  },
+  "result": {
+    "final_outcome": "SUCCEEDED",
+    "per_target_results": {
+      "0": "OK"
+    },
+    "audit_depth": "FULL"
+  }
+}

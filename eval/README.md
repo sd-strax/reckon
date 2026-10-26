@@ -27,11 +27,34 @@ make eval                         # drives the scenario, grades, prints the matr
 
 ## Wiring the scenario
 
-The v0 corpus is one scenario, `lateral-movement-via-rdp` (`10 §6`) — the same
-bundled demo `reckon init` seeds. The read-side capability bindings and the
-write-side action bindings live in **one merged tenant config** (runtime reads a
-single `capability.config_path` for both; their top-level keys are disjoint —
-`adapters`/`bindings`/`policies` vs `action_adapters`/`action_bindings`).
+The corpus is two scenarios of different shape (`10 §6`, `adr/0058`), each a
+bundled fixture scenario with its own driver script:
+
+| driver (`SCENARIO=`) | fixture scenario | shape |
+|---|---|---|
+| `lateral-movement` (default) | `lateral-movement-via-rdp` | host-rooted: RDP, process tree, outbound C2, a change-record check the case system answers |
+| `impossible-travel` | `impossible-travel-signin` | identity-rooted: no host, a people-tested alternative, failed-sign-in burst, indicator context |
+
+**The stack is wired for one fixture scenario at a time.** The fixture adapter
+replays one directory and bindings default their entity to that scenario's host
+or account, so two scenarios in one config would answer each other's questions.
+The runner checks the wiring before the first trial (one `search_alerts` call,
+no tokens) and names the swap command on a mismatch. Baselines are keyed by
+`(scenario, model)`, so a prompt change is accepted only when every scenario's
+run is clean.
+
+```bash
+reckon demo seed --scenario impossible-travel-signin   # fresh install
+# or, on an already-seeded demo install (stack DOWN; investigations survive):
+reckon stop && reckon demo scenario impossible-travel-signin && reckon start
+make eval SCENARIO=impossible-travel
+make eval-accept
+```
+
+The read-side capability bindings and the write-side action bindings live in
+**one merged tenant config** (runtime reads a single `capability.config_path`
+for both; their top-level keys are disjoint — `adapters`/`bindings`/`policies`
+vs `action_adapters`/`action_bindings`).
 
 **Fresh install — nothing to wire by hand.** `reckon init` materializes and
 points the config at everything (`runtime/seed.go`):
@@ -264,10 +287,16 @@ otherwise false-positive.
 
 - **A scenario** is a YAML driver under `scenarios/` — an ordered list of user
   turns, each optionally carrying turn-scoped assertion ids and per-turn config
-  (`min_quotes` for H2, `max_response_runes` for O2, `anchors` for E2). The
-  loader (`scenario.go`) validates every referenced id exists **and** is placed
-  at its declared scope (turn-scoped vs trial-wide), so a typo or misplacement
-  fails loudly at load, not silently at grading.
+  (`min_quotes` for H2, `max_response_runes` for O2, `anchors` for E2/E3/R3),
+  plus the `fixture_scenario` the stack must be wired for. The loader
+  (`scenario.go`) validates every referenced id exists **and** is placed at its
+  declared scope (turn-scoped vs trial-wide), so a typo or misplacement fails
+  loudly at load, not silently at grading; `TestLoadScenario_Bundled` requires
+  every committed driver to name a bundled fixture scenario. A new fixture
+  scenario is a directory under `fixtures/`, a capability + action example
+  config pair under `examples/`, an entry in `reckon.DemoScenarios`, and smoke
+  tests in `capability/scenario_test.go` and `action/scenario_test.go`; the
+  prompt guard (`adr/0057`) picks up its identifiers automatically.
 - **An assertion** is a row in `Catalogue` plus its grader function. The
   catalogue is append-mostly: every road-test finding that gets fixed becomes an
   assertion so it can never silently regress (`10 §3`). Bump `CatalogueVersion`
