@@ -30,10 +30,13 @@ func LatestRunDir(artifactDir string) (string, error) {
 }
 
 // Regrade re-derives a run's report.json from its committed trial records with
-// the CURRENT grader catalogue. Token-free by construction: the graders are
-// deterministic over the recorded trials (10 §2 — the committed turn record is
-// the graded artifact), so a grader fix does not require re-spending a model
-// run; the trials are ground truth and the report is derived state.
+// the CURRENT grader catalogue. The graders are deterministic over the recorded
+// trials (10 §2 — the committed turn record is the graded artifact), so a
+// grader fix does not require re-spending a model run; the trials are ground
+// truth and the report is derived state. The one exception is the judge
+// (adr/0059): when ANTHROPIC_API_KEY is set and RECKON_EVAL_JUDGE is not "off",
+// the E3/R3 declined-outcome turns whose anchors miss are re-judged — a few
+// short calls, attributed on the report — otherwise they grade by anchors.
 //
 // Attribution is preserved from the original report — it describes the trials
 // (model, prompt hash, action catalog, driver) — except CatalogueVersion, which
@@ -96,13 +99,16 @@ func Regrade(runDir, scenarioPath string) (*Report, error) {
 			"refusing a partial regrade (the SHOULD denominator would silently change)", len(trials), want)
 	}
 
+	judge := judgeFromEnv(os.Getenv("ANTHROPIC_API_KEY"), nil)
 	report := &Report{
 		Attribution: orig.Attribution,
-		Results:     Grade(s, trials),
+		Results:     GradeWith(s, trials, judge),
 		TrialErrors: orig.TrialErrors,
 		Usage:       orig.Usage,
 	}
 	report.Attribution.CatalogueVersion = CatalogueVersion
+	report.Attribution.JudgeModel, report.Attribution.JudgeRubric = "", ""
+	stampJudge(report, judge)
 
 	blob, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {

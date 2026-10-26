@@ -24,6 +24,10 @@ type Attribution struct {
 	DriverHash        string `json:"driver_hash"`
 	CatalogueVersion  string `json:"catalogue_version"`
 	Trials            int    `json:"trials"`
+	// JudgeModel / JudgeRubric attribute the judge (adr/0059) when one graded
+	// this run: empty means every verdict was deterministic.
+	JudgeModel  string `json:"judge_model,omitempty"`
+	JudgeRubric string `json:"judge_rubric,omitempty"`
 }
 
 // AssertionResult is one assertion's aggregated outcome across N trials
@@ -62,6 +66,10 @@ type Report struct {
 	// Usage is the token accounting summed across every model call of the run —
 	// what the run cost, so "what is this costing me" is a number, not a guess.
 	Usage Usage `json:"usage"`
+	// JudgeUsage is what the judge spent (adr/0059), kept apart from the
+	// agent's cost; JudgeCalls is how many verdicts it decided.
+	JudgeUsage Usage `json:"judge_usage,omitempty"`
+	JudgeCalls int   `json:"judge_calls,omitempty"`
 }
 
 // modelPricing is per-million-token USD rates for one model (Anthropic public
@@ -132,6 +140,12 @@ func humanTokens(n int) string {
 // trials and aggregates per 10 §4.2. Turn-scoped assertions on turns a trial
 // never reached grade NOT_EXERCISED for that trial.
 func Grade(s *Scenario, trials []*TrialRecord) []AssertionResult {
+	return GradeWith(s, trials, nil)
+}
+
+// GradeWith is Grade with a judge available for the assertions that declare
+// one (adr/0059). A nil judge grades exactly as Grade.
+func GradeWith(s *Scenario, trials []*TrialRecord, judge Judge) []AssertionResult {
 	var results []AssertionResult
 
 	for _, id := range s.Assert {
@@ -150,6 +164,10 @@ func Grade(s *Scenario, trials []*TrialRecord) []AssertionResult {
 			for _, tr := range trials {
 				if turnIdx >= len(tr.Turns) || tr.Turns[turnIdx].Err != "" {
 					res.Verdicts = append(res.Verdicts, Verdict{Result: NotExercised, Detail: "turn not reached (trial aborted)"})
+					continue
+				}
+				if judge != nil && a.JudgeTurn != nil {
+					res.Verdicts = append(res.Verdicts, a.JudgeTurn(tr, turnIdx, spec, judge))
 					continue
 				}
 				res.Verdicts = append(res.Verdicts, a.GradeTurn(tr, turnIdx, spec))
@@ -202,8 +220,12 @@ func (r *Report) Summary() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "eval run — scenario %s, model %s, %d trials\n",
 		r.Attribution.ScenarioID, r.Attribution.Model, r.Attribution.Trials)
-	fmt.Fprintf(&b, "prompt %s  catalogue %s\n\n",
+	fmt.Fprintf(&b, "prompt %s  catalogue %s",
 		short(r.Attribution.PromptVersion), r.Attribution.CatalogueVersion)
+	if r.Attribution.JudgeModel != "" {
+		fmt.Fprintf(&b, "  judge %s (%s)", r.Attribution.JudgeModel, r.Attribution.JudgeRubric)
+	}
+	b.WriteString("\n\n")
 	for _, res := range r.Results {
 		marks := make([]string, len(res.Verdicts))
 		for i, v := range res.Verdicts {
@@ -225,6 +247,19 @@ func (r *Report) Summary() string {
 	}
 	if r.Usage != (Usage{}) {
 		fmt.Fprintf(&b, "\n%s\n", r.usageLine())
+	}
+	if r.JudgeCalls > 0 {
+		var judged []string
+		for _, res := range r.Results {
+			for i, v := range res.Verdicts {
+				if v.Judged {
+					judged = append(judged, fmt.Sprintf("%s trial %d → %s", res.Key(), i+1, v.Result))
+				}
+			}
+		}
+		u := r.JudgeUsage
+		fmt.Fprintf(&b, "judge: %d verdict(s) decided by %s, %s in + %s out — %s\n",
+			r.JudgeCalls, r.Attribution.JudgeModel, humanTokens(u.Input+u.CacheWrite+u.CacheRead), humanTokens(u.Output), strings.Join(judged, "; "))
 	}
 	if n := r.MustFailures(); n > 0 {
 		fmt.Fprintf(&b, "\n%d MUST assertion(s) failed — defects.\n", n)
