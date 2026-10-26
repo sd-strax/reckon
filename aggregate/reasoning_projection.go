@@ -103,10 +103,20 @@ type stixAttestation struct {
 	ObservedAt    *time.Time `json:"observed_at,omitempty"`
 }
 
+// attestedBy names the attesting principal for display: the name the identity
+// provider gave at the time (adr/0077), falling back to the id for records
+// that predate it.
+func attestedBy(a AttestationRecorded) string {
+	if a.AuthorName != "" {
+		return a.AuthorName
+	}
+	return a.Author
+}
+
 // attestationAbstract is the one-line reading of an attestation: who attested,
 // how, and who was asked — "attested by analyst-1 by phone: Jane Doe".
 func attestationAbstract(a AttestationRecorded) string {
-	s := "attested by " + a.Author
+	s := "attested by " + attestedBy(a)
 	if a.Channel != "" {
 		s += " by " + a.Channel
 	}

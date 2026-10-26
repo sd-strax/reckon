@@ -227,6 +227,8 @@ export interface Prediction {
 export interface PredictionAttestation {
   noteRef: string;
   author: string;
+  /** The attesting principal's display name at the time, when the record has it (adr/0077). */
+  authorName?: string;
   content: string;
   source?: string;
   channel?: string;
@@ -485,7 +487,7 @@ interface RawPrediction {
   discriminates?: string[];
   test_result_refs?: string[];
   test_kind?: string;
-  attestation?: { note_ref: string; author: string; content: string; source?: string; channel?: string; observed_at?: string };
+  attestation?: { note_ref: string; author: string; author_name?: string; content: string; source?: string; channel?: string; observed_at?: string };
 }
 
 export class BackendClient {
@@ -775,6 +777,7 @@ export class BackendClient {
           ? {
               noteRef: p.attestation.note_ref,
               author: p.attestation.author,
+              authorName: p.attestation.author_name || undefined,
               content: p.attestation.content,
               source: p.attestation.source,
               channel: p.attestation.channel,

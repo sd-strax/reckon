@@ -174,7 +174,8 @@ type AttestationRecorded struct {
 	ID            string     `json:"id"` // note--<uuid>
 	PredictionRef string     `json:"prediction_ref"`
 	HypothesisRef string     `json:"hypothesis_ref"`
-	Author        string     `json:"author"` // the human principal
+	Author        string     `json:"author"`                // the human principal (id)
+	AuthorName    string     `json:"author_name,omitempty"` // the principal's display name at the time, if known
 	Content       string     `json:"content"`
 	Source        string     `json:"source,omitempty"`
 	Channel       string     `json:"channel,omitempty"`
@@ -782,7 +783,7 @@ func applyPredictionOutcome(env Envelope, state aggregateState, c RecordInterpre
 		noteID := NoteSTIXID(a.ID)
 		rec.Attestation = &AttestationRecorded{
 			ID: noteID, PredictionRef: c.PredictionRef, HypothesisRef: ps.HypothesisRef,
-			Author: env.Actor.PrincipalID, Content: strings.TrimSpace(a.Content),
+			Author: env.Actor.PrincipalID, AuthorName: env.Actor.PrincipalName, Content: strings.TrimSpace(a.Content),
 			Source: strings.TrimSpace(a.Source), Channel: strings.TrimSpace(a.Channel), ObservedAt: a.ObservedAt,
 		}
 		refs = append([]string{noteID}, refs...)

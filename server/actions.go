@@ -196,12 +196,13 @@ func (b *Backend) listActionTypes(w http.ResponseWriter, r *http.Request) {
 func actorFromClaims(c authz.Claims) aggregate.Actor {
 	if c.DelegateKind != "" {
 		return aggregate.Actor{
-			PrincipalID: c.Subject,
-			Kind:        aggregate.ActorAIDelegated,
-			Delegate:    &aggregate.AIDelegate{Vendor: c.DelegateKind},
+			PrincipalID:   c.Subject,
+			PrincipalName: c.PreferredUsername,
+			Kind:          aggregate.ActorAIDelegated,
+			Delegate:      &aggregate.AIDelegate{Vendor: c.DelegateKind},
 		}
 	}
-	return aggregate.Actor{PrincipalID: c.Subject, Kind: aggregate.ActorHuman}
+	return aggregate.Actor{PrincipalID: c.Subject, PrincipalName: c.PreferredUsername, Kind: aggregate.ActorHuman}
 }
 
 // actionsCollection routes /api/actions. POST (request_action) requires the

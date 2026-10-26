@@ -361,6 +361,7 @@ type PredictionView struct {
 type AttestationView struct {
 	NoteRef    string     `json:"note_ref"`
 	Author     string     `json:"author"`
+	AuthorName string     `json:"author_name,omitempty"` // the principal's display name at the time, if the record has it
 	Content    string     `json:"content"`
 	Source     string     `json:"source,omitempty"`
 	Channel    string     `json:"channel,omitempty"`
@@ -371,7 +372,7 @@ func attestationView(a *aggregate.AttestationRecorded) *AttestationView {
 	if a == nil {
 		return nil
 	}
-	return &AttestationView{NoteRef: a.ID, Author: a.Author, Content: a.Content, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt}
+	return &AttestationView{NoteRef: a.ID, Author: a.Author, AuthorName: a.AuthorName, Content: a.Content, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt}
 }
 
 // listInvestigationHypotheses serves GET /api/investigations/{id}/hypotheses:

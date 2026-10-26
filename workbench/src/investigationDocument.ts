@@ -2098,9 +2098,13 @@ export class InvestigationDocuments {
       border-left-color: var(--accent, var(--vscode-textLink-foreground));
     }
     .actline .acticon { flex: none; width: 1.1em; text-align: center; opacity: 0.85; }
-    .actline .acttext { flex: 1; min-width: 0; }
+    /* An act line is one line (adr/0077): the text keeps a readable minimum and
+       ellipsizes (the full statement lives on the tracker and in the title);
+       citation chips shrink and ellipsize rather than squeezing the text. */
+    .actline .acttext { flex: 1 1 16ch; min-width: 16ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .actline .acttime { flex: none; font-size: 0.85em; opacity: 0.6; }
-    .actline .refchip { flex: none; }
+    .actline .refchip { flex: 0 1 auto; min-width: 0; max-width: 34%; white-space: nowrap; }
+    .actline .refchip > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
     .actline.superseded { opacity: 0.6; }
     .actline.superseded.strong { font-weight: 400; }
     .actline.superseded .acttext { text-decoration: line-through; color: var(--text-3); }
@@ -3202,6 +3206,7 @@ export class InvestigationDocuments {
       // The interpretation's own summary is the authoritative description; the
       // verb prefixes it only when the summary doesn't already read as a phrase.
       text.textContent = e.summary || (spec ? spec.verb : e.interpretationType);
+      text.title = text.textContent; // the full statement, since the line ellipsizes
       row.appendChild(text);
 
       // A superseded act (e.g. a verdict a later one revised) stays in the
@@ -3889,7 +3894,7 @@ export class InvestigationDocuments {
               const al = document.createElement("div");
               al.className = "attestline";
               const who = document.createElement("b");
-              who.textContent = "attested by " + a.author + (a.channel ? " by " + a.channel : "") + (a.source ? " (" + a.source + ")" : "");
+              who.textContent = "attested by " + (a.authorName || a.author) + (a.channel ? " by " + a.channel : "") + (a.source ? " (" + a.source + ")" : "");
               const q = document.createElement("q");
               q.textContent = a.content;
               al.append(who, document.createTextNode(": "), q);
