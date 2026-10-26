@@ -1,13 +1,15 @@
 {
   "attribution": {
-    "prompt_version": "afe2ad5cb42d7bcf6432bbff874919d266ded80992403d2c8989f81a1cd10c0b",
+    "prompt_version": "81dd8c5fea1f67845871dbac21829f053bc5f894a6ecc3d41d0a1d2ab3bd6327",
     "hypothesis_framing": "leading_null",
     "model": "claude-opus-4-8",
     "action_catalog_hash": "b25809c09675d153d3722ca7e92e81c0d99c55a79eb8582ba0e1ffdebbf0a245",
     "scenario_id": "lateral-movement-via-rdp",
-    "driver_hash": "3a2d6e2ea68d0edb20f596e2851720499665df5af4f561b2973be189bd90517c",
-    "catalogue_version": "v0.10",
-    "trials": 3
+    "driver_hash": "7ef1738ee9e54a6acd394520cf22338afcad6387c289ba4ea62aca9757b2557e",
+    "catalogue_version": "v0.12",
+    "trials": 3,
+    "judge_model": "claude-sonnet-4-6",
+    "judge_rubric": "v1"
   },
   "results": {
     "A2@turn11": {
@@ -85,8 +87,8 @@
     "H7@turn7": {
       "severity": "SHOULD",
       "result": "PASS",
-      "passed": 2,
-      "exercised": 2
+      "passed": 1,
+      "exercised": 1
     },
     "H8@turn10": {
       "severity": "SHOULD",
@@ -125,6 +127,12 @@
       "exercised": 3
     },
     "R2@turn4": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "R3@turn4": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
