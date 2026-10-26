@@ -102,9 +102,14 @@ const (
 // See reckon/design/01-domain-model.md and reckon/CLAUDE.md "Architectural
 // commitments" → "AI is a delegate, never a principal."
 type Actor struct {
-	PrincipalID string      `json:"principal_id"`
-	Kind        string      `json:"kind,omitempty"` // HUMAN | AI_DELEGATED | SYSTEM; empty = HUMAN
-	Delegate    *AIDelegate `json:"delegate,omitempty"`
+	PrincipalID string `json:"principal_id"`
+	// PrincipalName is the human-facing name of the principal as the identity
+	// provider presents it (Keycloak preferred_username), captured at command
+	// time for display — the record is keyed and authorized by PrincipalID,
+	// never by this (adr/0077). Empty on events recorded before it existed.
+	PrincipalName string      `json:"principal_name,omitempty"`
+	Kind          string      `json:"kind,omitempty"` // HUMAN | AI_DELEGATED | SYSTEM; empty = HUMAN
+	Delegate      *AIDelegate `json:"delegate,omitempty"`
 }
 
 // IsAIDelegated reports whether the command was initiated by the AI on the

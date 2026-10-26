@@ -492,6 +492,9 @@ func stixLabel(typ string, payload []byte) string {
 // Doe): “started it from home over VPN”".
 func attestationLine(a aggregate.AttestationRecorded) string {
 	s := "attested by " + a.Author
+	if a.AuthorName != "" {
+		s = "attested by " + a.AuthorName
+	}
 	if a.Channel != "" {
 		s += " by " + a.Channel
 	}
