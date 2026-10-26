@@ -87,17 +87,16 @@ its capability config (`policies.case_queue: SOC Tier 2`) — and three open
 incidents are already there: a phishing report, a DLP bulk download, and
 **INC0010042 — Suspicious interactive RDP logon to `WIN-FILE01` by
 `svc_backup`**, P2, escalated from Tier 1. Click it. The case opens
-**read-only**: Tier 1's narrative, the work notes, a link out to the system of
-record, and one button. Say that nothing on this page writes to the case
-system. Press **Start investigation**. The new document opens on the case:
+**read-only**: Tier 1's narrative, the work notes, the case number, and one
+button. It does not link out — the document is the read. Say that nothing on
+this page writes to the case system. Press **Start investigation**. The new document opens on the case:
 its seed line reads *From case … INC0010042* with one small action at its
 right, **Note the case**. Nothing interrupts you. When you want the ticket to
 know — now, or after the verdict — press it: the comment that tells INC0010042
 an investigation was opened here appears, editable; **Post note** requests it
 as a `ticket.comment` **action** in this investigation, not fired behind the
-analyst's back. It sits pending on the tracker, the seed line now reads *noted
-· awaiting approval*, and its approval, later, is what activates the
-investigation. *(The tenant dial `cases.note_on_seed` makes this on-demand,
+analyst's back. It sits pending on the tracker and the seed line now reads *noted
+· awaiting approval*; approve it when you want the comment to land. *(The tenant dial `cases.note_on_seed` makes this on-demand,
 automatic, or never.)* *(Afterwards the row in the Cases view
 reads "investigating" and leads back to this investigation — a case does not
 quietly get two. New Investigation → From a case… remains the explicit way to
@@ -128,10 +127,16 @@ Then, before pulling a single log, ask in the composer:
 
 The agent calls its `recall_sops` tool, finds **nothing**, and says so — *"no SOP
 on file for this."* It does **not** invent a procedure: the agent is explicitly
-instructed that an empty retrieval is evidence of absence. It may note the two
-prior cases it *does* remember — `FINANCE-07`, `WORKSTATION-22` — surfaced on the
-**knowledge rail** as near-matches. So the honest starting state: **we remember
-similar incidents, but we have no codified playbook.** That gap is the setup.
+instructed that an empty retrieval is evidence of absence. It may note the prior
+case it *does* remember — the RDP pivot on `FINANCE-07` — surfaced on the
+**knowledge rail** with a similarity band and a score (the LSASS case on
+`WORKSTATION-22` may appear further down, or not at all; promise the one). So
+the honest starting state: **we remember a similar incident, but we have no
+codified playbook.** That gap is the setup.
+
+*(Say this too, the first time the agent runs: the reasoning happens on your
+own key, in the editor. The engine behind it holds no model key, ever. What it
+holds is the record.)*
 
 *(Say this one out loud — it's the differentiator: an empty corpus makes the
 agent admit it, not hallucinate a runbook.)*
@@ -184,10 +189,12 @@ lays out — but the point of this act is that there are **two** of them. Ask:
 > *"Frame the competing hypotheses — your leading explanation and the concrete
 > alternative that would make it wrong."*
 
-The agent frames **`H1 rdp-lateral`** — *stolen `svc_backup` credentials used
-for hands-on-keyboard lateral movement over RDP (T1021.001)* — and
-**`H2 legit-admin`** — *an administrator used `svc_backup` over RDP for
-scheduled maintenance.* Both land `PROPOSED`; the tracker shows them as two
+The agent frames **H1** — *stolen `svc_backup` credentials used for
+hands-on-keyboard lateral movement over RDP (T1021.001)* — and **H2** — *an
+administrator used `svc_backup` over RDP for scheduled maintenance.* The
+handles it picks vary from run to run (`H1 adversarial-lateral-movement`,
+`H2 legitimate-admin-activity`, and the like); read them off the screen rather
+than promising them. Both land `PROPOSED`; the tracker shows them as two
 stacked cards, claims in full, each with its tally. *(One claim each. The agent is not allowed to frame a
 rival it cannot name a discriminating test for — no strawmen.)*
 
@@ -206,20 +213,30 @@ WIN-FILE01 for 2026-04-20"* — environmental knowledge the agent does not have;
 tick *discriminates H1*. *(Either actor authors tests. The analyst's is usually
 the sharpest.)* If the room asks "what about just calling the admin?": tick
 **A person tests this** on a prediction instead — the row says *a person tests
-this*, the agent cannot run or record it, and **Record result** takes what they
-said as an attestation the record cites, labelled as a human statement, never
-as telemetry.
+this*, and **Record result** takes what they said as an attestation the record
+cites, labelled as a human statement, never as telemetry. Say the rule out loud,
+because it is the one an audience burned by automation wants to hear: *the AI
+can propose this test and ask you for the answer; it can never record the
+answer. Only a person can.* Expect **⚡ Run tests** to skip that row and say so
+— it stays untested until you press Record result.
 
 **⚡ Run tests.** The baseline query (user-rooted, 30-day window) returns seven
 nights of `Network` logons from `BKP-01` and the single `RemoteInteractive`
 from `10.0.4.20` — **CONFIRMED** for H1, and the chip says it cuts against H2.
-The change-record lookup comes back **COMPLETE with zero cases** — evidence of
-absence, **DISCONFIRMED** for H2. Pin both.
+The change-record lookup comes back **COMPLETE with zero cases** — and that
+absence is itself an object: the engine mints a *nothing observed* record
+carrying the question, the source and the window, and the agent cites it to
+record **DISCONFIRMED** for H2. Open the citation from the evidence chip: it
+reads *Nothing observed: query_external_cases … (coverage complete)*. *(Say
+this one too: "we looked and found nothing" is the most common finding in an
+investigation, and here it is evidence you can open, not a sentence in a
+report.)* Pin the two evidence chips.
 
 Press **⚡ Decide** on H1 *before* H2's test has run, if you want to show the
-guard: the agent declines — *"H2 still has an untested prediction that
-discriminates between us; run it first"* — and the engine would refuse it
-anyway; the row's **Record result** is your own way through if the test was a
+guard: the agent declines and names the outstanding test (its words vary), and
+if it tried anyway the engine would refuse the write; the guard note on the
+row is the stable text — *test it, withdraw it, or record its result
+yourself* — and **Record result** is your own way through if the test was a
 phone call. Run it, then decide: **H2 REFUTED**, **H1 SUPPORTED**, each citing the
 decisive test. The verdict dialog's residual is clean: no undecided
 hypothesis, no untested test. Record **MALICIOUS**.
@@ -266,6 +283,22 @@ surface that very SOP. Each concluded case makes the next one better — with a
 human deciding, every time, both what gets acted on and what gets learned.
 
 ---
+
+## The other story (same acts, different nouns)
+
+The demo world carries a second scenario, `impossible-travel-signin`: an
+account's office sign-in followed two hours later by a successful sign-in from
+another country over a legacy mail protocol. No host, no process tree; the
+benign alternative is "they were travelling, or on a VPN", and the one test
+only a person can run is asking them. Every act above has its twin: the case in
+the queue, the competing set, the people-tested prediction closed with Record
+result, the empty travel-notice search minting a *nothing observed* record,
+containment of the account and the address with no host to isolate. For a room
+of identity people, swap before they arrive:
+
+```
+reckon stop && reckon demo scenario impossible-travel-signin && reckon start --detach
+```
 
 ## Reset (graduate to real work)
 
