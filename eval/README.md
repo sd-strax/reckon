@@ -98,6 +98,17 @@ share reasoning state) and runs the full script through the real loop. `N=3` by
 default (`10 §2`); the model is stochastic, so trials are how a flaky pass is
 caught.
 
+Trials run **concurrently** — they share nothing but the backend client and the
+provider's rate limit, so a run's wall time is one trial's (~4–5 min on Opus),
+not N of them. `RECKON_EVAL_PARALLEL=<n>` caps the fan-out (`1` serializes,
+which keeps the live log readable when you are watching a single trial; the
+default is all N at once). Trial starts are **staggered** — trial *n* opens
+(n−1)×5s after trial 1 (`RECKON_EVAL_STAGGER=<duration>` to change; `-1s`
+disables) — so the opening calls never hit the provider as one synchronized
+burst, the likeliest trigger for a 429. Residual backpressure (429/529) is
+absorbed by the client's backoff and shows up as "provider backpressure" log
+lines, not as aborted trials.
+
 ## What comes out
 
 A compact assertion × trial matrix prints at the end:

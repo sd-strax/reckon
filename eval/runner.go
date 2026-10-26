@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/sd-strax/reckon/agent"
@@ -29,9 +31,23 @@ type RunConfig struct {
 	// ArtifactDir receives the report + per-trial records (transcripts included;
 	// local artifacts, never committed — 10 §4.3). Empty = eval/artifacts/<run>.
 	ArtifactDir string
-	// Log receives progress lines; nil = silent.
+	// Log receives progress lines; nil = silent. It is called from several
+	// goroutines at once (one per in-flight trial), so it must be safe for
+	// concurrent use — testing.T.Logf is.
 	Log func(format string, args ...any)
+	// Parallel caps how many trials run at once; 0 = RECKON_EVAL_PARALLEL,
+	// else every trial concurrently. 1 serializes (easier to read live logs).
+	Parallel int
+	// Stagger spaces trial starts: trial n begins (n-1)×Stagger after trial 1,
+	// so concurrent trials don't open on the provider in the same instant (a
+	// synchronized burst is the likeliest 429). 0 = RECKON_EVAL_STAGGER, else
+	// defaultStagger; negative disables.
+	Stagger time.Duration
 }
+
+// defaultStagger is the gap between concurrent trial starts: long enough to
+// de-synchronize the opening calls, short against a ~4-minute trial.
+const defaultStagger = 5 * time.Second
 
 // Run executes the scenario end to end and returns the graded report. The
 // report is also written to the artifact dir alongside the per-trial records.
@@ -109,33 +125,92 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 		return nil, fmt.Errorf("eval: create artifact dir: %w", err)
 	}
 
+	// Trials run concurrently: each is a fresh investigation driven by its own
+	// Session, sharing only the backend client and the two credentials (both
+	// goroutine-safe), so nothing couples them but the provider's rate limit —
+	// which the Anthropic client's backoff rides out. Wall time is one trial's,
+	// not N. Parallel bounds the fan-out (RECKON_EVAL_PARALLEL; 0 = all N).
+	parallel := rc.Parallel
+	if parallel <= 0 {
+		parallel = envInt("RECKON_EVAL_PARALLEL", s.Trials)
+	}
+	if parallel <= 0 || parallel > s.Trials {
+		parallel = s.Trials
+	}
+	stagger := rc.Stagger
+	if stagger == 0 {
+		stagger = envDuration("RECKON_EVAL_STAGGER", defaultStagger)
+	}
+	if stagger < 0 {
+		stagger = 0
+	}
+	logf("eval: running %d trial(s) at a time, starts staggered by %s", parallel, stagger)
+
+	type trialOutcome struct {
+		rec   *TrialRecord
+		stamp promptStamp
+		err   error
+	}
+	outcomes := make([]trialOutcome, s.Trials)
+	sem := make(chan struct{}, parallel)
+	var wg sync.WaitGroup
+	for n := 1; n <= s.Trials; n++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			// Deterministic stagger rather than random jitter: the same
+			// spacing every run keeps runs comparable, and (n-1)×stagger
+			// guarantees no two trials open on the provider together.
+			if wait := time.Duration(n-1) * stagger; wait > 0 {
+				select {
+				case <-time.After(wait):
+				case <-ctx.Done():
+					outcomes[n-1] = trialOutcome{err: ctx.Err()}
+					return
+				}
+			}
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			logf("eval: trial %d/%d started", n, s.Trials)
+			tr, stamp, err := runTrial(ctx, client, backendURL, humanCred, s, model, apiKey, n, logf)
+			if err != nil {
+				logf("eval: trial %d aborted: %v", n, err)
+			}
+			if tr != nil {
+				tr.ActionCatalog = catalog
+				tr.ActionInputs = actionInputs
+				// Each trial owns its own file, so the write needs no lock.
+				if raw, err := json.MarshalIndent(tr, "", "  "); err == nil {
+					_ = os.WriteFile(filepath.Join(artifactDir, fmt.Sprintf("trial-%d.json", n)), raw, 0o600)
+				}
+			}
+			outcomes[n-1] = trialOutcome{rec: tr, stamp: stamp, err: err}
+		}(n)
+	}
+	wg.Wait()
+
+	// Fold in trial order so verdict columns, trial errors, and the prompt
+	// stamp are deterministic regardless of which goroutine finished first.
 	var (
 		trials      []*TrialRecord
 		trialErrors []string
 		prompt      promptStamp
 	)
-	for n := 1; n <= s.Trials; n++ {
-		logf("eval: trial %d/%d", n, s.Trials)
-		tr, stamp, err := runTrial(ctx, client, backendURL, humanCred, s, model, apiKey, n, logf)
-		if err != nil {
-			trialErrors = append(trialErrors, fmt.Sprintf("trial %d: %v", n, err))
-			logf("eval: trial %d aborted: %v", n, err)
+	for i, o := range outcomes {
+		n := i + 1
+		if o.err != nil {
+			trialErrors = append(trialErrors, fmt.Sprintf("trial %d: %v", n, o.err))
 		}
-		if prompt.Version == "" && stamp.Version != "" {
+		if prompt.Version == "" && o.stamp.Version != "" {
 			// Prompt-version identifier (10 §1.4): the BASE prompt's version
 			// (agent.PromptVersion — prompt code + framing dial), the same for
 			// every trial, run, and model on the same code. The as-run prompt,
 			// investigation context included, is kept per trial in the
 			// artifact (TrialRecord.SystemPrompt), not hashed (#20).
-			prompt = stamp
+			prompt = o.stamp
 		}
-		if tr != nil {
-			tr.ActionCatalog = catalog
-			tr.ActionInputs = actionInputs
-			trials = append(trials, tr)
-			if raw, err := json.MarshalIndent(tr, "", "  "); err == nil {
-				_ = os.WriteFile(filepath.Join(artifactDir, fmt.Sprintf("trial-%d.json", n)), raw, 0o600)
-			}
+		if o.rec != nil {
+			trials = append(trials, o.rec)
 		}
 	}
 	if len(trials) == 0 {
@@ -364,4 +439,32 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// envInt reads an integer env var, falling back to def when unset or
+// unparseable.
+func envInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
+// envDuration reads a Go duration env var (e.g. "5s"), falling back to def
+// when unset or unparseable.
+func envDuration(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }
