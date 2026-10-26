@@ -25,7 +25,8 @@ belongs to how it is changed, not to what it enforces.
 ## Decision
 
 - **The prompt is rendered from a ledger.** `promptLedger` holds every rule
-  as data: a stable id, what introduced it (commit, issue, or PR), the
+  as data: a stable id, what introduced it (one issue or commit) and what
+  reworded it since, the
   principle it encodes in one line with no scenario vocabulary, the engine
   mechanism that also enforces it when one exists, the eval assertion that
   grades it, and the scenario ids its wording was accepted against. The
