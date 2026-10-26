@@ -300,6 +300,34 @@ committed record captures the ids the backend injects into the base prompt
 (seed entity STIX ids): a model legitimately quoting an injected seed id would
 otherwise false-positive.
 
+## Changing the prompt
+
+The base prompt is governed (`adr/0057`, `adr/0060`): it is rendered from a
+ledger, its version is pinned, and a fixture-derived guard refuses scenario
+vocabulary. A prompt change is one PR that carries all of the following, and the
+reviewer who merges it checks the list — none of it needs a judgment of English:
+
+1. **The words, the ledger entry, and the golden move together.** The rule's
+   `Text` changed; its `Since` names this issue; its `Why` still reads as a
+   principle (no host, account, address, technique, product, or one-case
+   situation); `Validated` is cleared and `PendingValidation` names the issue.
+   `TestPrompt_Frozen` has the new hashes.
+2. **The guard is green with an empty exemption list.** A new sentence that
+   needs an exemption is rewritten, not exempted.
+3. **No re-legislation of an engine gate.** If the rule's `Enforced` field
+   names a mechanism, the sentence says what the model does when refused, not
+   the rule at length.
+4. **An independent review happened.** Someone — or a fresh agent with none of
+   the author's context — read the diff against the rubric (principle or patch;
+   scenario vocabulary; duplication; conflicts or ambiguity; plain English) and
+   the PR lists each finding and what was done with it.
+5. **Four clean runs before accept.** Both scenarios, both models, under the new
+   version; then `make eval-accept` for each and flip `PendingValidation` to
+   `Validated` in the ledger in the accepting commit.
+
+The order matters for cost: everything but step 5 is free, and step 5 is the
+same price whether the change is one sentence or five.
+
 ## Adding scenarios / assertions
 
 - **A scenario** is a YAML driver under `scenarios/` — an ordered list of user

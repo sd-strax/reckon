@@ -14,8 +14,8 @@ import (
 // test green — that is the point of pinning the hash rather than the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "c7b63b5bf7a6699572284715cedd268d878462f63954721b25966ad860551658",
-		framingLeadingOnly: "4c25f9e10c6659abb483b3f154acdc2d907d64b8e6ef4ad8ed151a3b84faf9c9",
+		framingLeadingNull: "81dd8c5fea1f67845871dbac21829f053bc5f894a6ecc3d41d0a1d2ab3bd6327",
+		framingLeadingOnly: "5ab0f9cb2f79c07dba691253bd0fd998d10930f7c1782e4264881c67d93e17e4",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -51,8 +51,11 @@ func TestPromptLedger_Complete(t *testing.T) {
 			if strings.TrimSpace(r.Why) == "" {
 				t.Errorf("rule %s: Why is empty — state the principle, or the rule is a patch", r.ID)
 			}
-			if len(r.Validated) == 0 {
-				t.Errorf("rule %s: Validated is empty — a rule is graded against at least one scenario before it ships", r.ID)
+			switch {
+			case len(r.Validated) == 0 && r.PendingValidation == "":
+				t.Errorf("rule %s: neither Validated nor PendingValidation is set — a rule is graded against at least one scenario, or names the issue whose runs will grade it", r.ID)
+			case len(r.Validated) > 0 && r.PendingValidation != "":
+				t.Errorf("rule %s: both Validated and PendingValidation are set — a wording is either accepted or awaiting acceptance", r.ID)
 			}
 			if r.Text == "" {
 				t.Errorf("rule %s: Text is empty", r.ID)

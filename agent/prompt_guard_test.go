@@ -32,17 +32,13 @@ var identifierKeys = map[string]bool{
 // the denylist; nothing that short is a scenario identifier.
 const minIdentifierLen = 4
 
-// promptGuardExemptions are the scenario identifiers the prompt and tool
-// descriptions contain TODAY. They are listed, dated, and removed in the prompt
-// revision (#60); the guard refuses any identifier not on this list, so the set
-// can only shrink. Do not add to it: a new example in the prompt is written
-// without scenario vocabulary, or it is not written.
-var promptGuardExemptions = map[string]string{
-	"svc_backup": "framing example in the leading_null rule — removed in #60",
-	"t1021.001":  "MITRE example in the mitre-labels rule and the propose_hypothesis labels field — removed in #60",
-	"win-file01": "entity example in every verb tool's entity description — removed in #60",
-	"jdoe":       "entity example in every verb tool's entity description — removed in #60",
-}
+// promptGuardExemptions lists scenario identifiers the prompt or tool
+// descriptions are allowed to contain, each with its reason. The four the
+// prompt carried when the guard landed (adr/0057) were removed by the revision
+// (#60); the list is empty and stays empty — a new example in the prompt is
+// written without scenario vocabulary, or it is not written. The guard also
+// fails on an exemption that no longer matches, so the list can only shrink.
+var promptGuardExemptions = map[string]string{}
 
 // TestPrompt_NoScenarioVocabulary is the mechanical half of adr/0057: the base
 // prompt and the tool descriptions the model reads must not contain an
