@@ -172,26 +172,58 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// consultJudge turns a would-be anchor FAIL into the judge's verdict. The
-// detail names the judge and quotes the sentence it relied on, so the
-// report shows which verdicts a model decided and on what. A judge error
-// keeps the deterministic FAIL and says the judge was unavailable.
-func consultJudge(judge Judge, q JudgeQuestion, anchorFail Verdict) Verdict {
+// consultJudge decides a declined-outcome turn. With a judge present the judge
+// is the grader: it reads the reply against the rubric whether or not an
+// anchor hit, and the verdict records the anchor beside it, so the anchor
+// list becomes a running cross-check on the judge (the two disagreeing is the
+// signal design/10 §9 asks for) rather than the decision. Without a judge, or
+// when the judge errors, the anchors decide as they did at v0 and the detail
+// says so.
+func consultJudge(judge Judge, q JudgeQuestion, anchor string) Verdict {
+	byAnchor := Verdict{Result: Fail, Detail: q.anchorMissDetail()}
+	if anchor != "" {
+		byAnchor = Verdict{Result: Pass, Detail: fmt.Sprintf("%s (%q)", q.anchorHitDetail(), anchor), Anchor: anchor}
+	}
 	if judge == nil {
-		return anchorFail
+		return byAnchor
 	}
 	jv, err := judge.Judge(context.Background(), q)
 	if err != nil {
-		anchorFail.Detail += fmt.Sprintf(" (judge unavailable: %v)", err)
-		return anchorFail
+		byAnchor.Detail += fmt.Sprintf(" (judge unavailable: %v; anchors decided)", err)
+		return byAnchor
 	}
-	v := Verdict{Judged: true, Quote: jv.Quote}
+	v := Verdict{Judged: true, Quote: jv.Quote, Anchor: anchor}
+	agreement := "anchors missed"
+	if anchor != "" {
+		agreement = fmt.Sprintf("anchors agree (%q)", anchor)
+		if !jv.Pass {
+			agreement = fmt.Sprintf("anchors DISAGREE (hit %q)", anchor)
+		}
+	} else if !jv.Pass {
+		agreement = "anchors agree (missed)"
+	}
 	if jv.Pass {
 		v.Result = Pass
-		v.Detail = fmt.Sprintf("anchors missed; judge %s passed it: %s", judge.Model(), jv.Reason)
+		v.Detail = fmt.Sprintf("judge %s passed it, %s: %s", judge.Model(), agreement, jv.Reason)
 	} else {
 		v.Result = Fail
-		v.Detail = fmt.Sprintf("anchors missed; judge %s confirmed: %s", judge.Model(), jv.Reason)
+		v.Detail = fmt.Sprintf("judge %s failed it, %s: %s", judge.Model(), agreement, jv.Reason)
 	}
 	return v
+}
+
+// anchorHitDetail / anchorMissDetail are the v0 wordings per assertion, kept
+// so a run without a judge reads as it always did.
+func (q JudgeQuestion) anchorHitDetail() string {
+	if q.Assertion == "E3" {
+		return "surfaced the acknowledgment gate"
+	}
+	return "declined and surfaced the outstanding test"
+}
+
+func (q JudgeQuestion) anchorMissDetail() string {
+	if q.Assertion == "E3" {
+		return "response did not surface the human-acknowledgment requirement"
+	}
+	return "no outcome recorded, but the outstanding discriminating test was not named"
 }

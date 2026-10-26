@@ -1,6 +1,6 @@
 # 0059 — A judge model decides a declined-outcome turn when the anchor strings miss
 
-Issue: #59 · PR: #64 · Status: accepted
+Issue: #59 · PR: #64, amended by #68 · Status: accepted
 
 ## Context
 
@@ -72,3 +72,17 @@ analyst's own key, like the agent.
   carries the long tail of wording.
 - The rubric text is versioned (`JudgeRubricVersion`); a rubric change is a
   grading change and moves the catalogue version with it.
+
+## Amendment (#68)
+
+The anchors-first order graded a false positive without recourse: a reply
+containing "outstanding" while deciding anyway passed on the string and the
+judge was never asked. With the judge's cost near zero per turn, the order is
+inverted. On a declined-outcome turn the judge is the grader whenever one is
+present; the anchor that hit, if any, is recorded on the verdict beside the
+judge's answer, and the run summary counts agreements and lists the
+disagreements, each checkable against the quoted sentence. That agreement rate
+is the judge-drift signal design/10 §9 left open. Without a judge, or when it
+errors, the anchors decide as before and the attribution says so. The judge
+model stays a Sonnet-class model by default: the quote mitigates a weaker
+reader but does not replace one. Catalogue v0.12.
