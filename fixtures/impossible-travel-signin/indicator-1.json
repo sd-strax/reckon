@@ -1,0 +1,50 @@
+{
+  "fixture_meta": {
+    "scenario": "impossible-travel-signin",
+    "matches": {
+      "verb": "get_indicator_context",
+      "params": {
+        "indicator.ip": "*"
+      }
+    },
+    "delay_ms": 60
+  },
+  "ocsf": {
+    "class_uid": 5021,
+    "class_name": "OSINT Inventory Info",
+    "time": "2026-06-11T03:30:00Z",
+    "metadata": {
+      "product": {
+        "vendor_name": "fixture-ti"
+      }
+    },
+    "osint": [
+      {
+        "value": "203.0.113.46",
+        "type": "IP Address",
+        "type_id": 2,
+        "reputation": {
+          "provider": "fixture-ti",
+          "score": "Suspicious",
+          "score_id": 4,
+          "base_score": 71
+        },
+        "confidence": "Medium",
+        "autonomous_system": {
+          "number": 64500,
+          "name": "ExampleHost VPS Ltd"
+        },
+        "location": {
+          "country": "NL",
+          "city": "Amsterdam"
+        },
+        "categories": [
+          "hosting",
+          "VPN exit",
+          "anonymizer"
+        ],
+        "comment": "Commercial VPS / consumer-VPN exit. 14 unrelated credential-stuffing sightings against other tenants in the last 30 days; no residential attribution."
+      }
+    ]
+  }
+}

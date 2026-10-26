@@ -8,10 +8,13 @@
 #   scripts/demo-reseed.sh                 # uses `reckon` on PATH
 #   RECKON=bin/reckon scripts/demo-reseed.sh
 #   scripts/demo-reseed.sh --force         # reset a non-demo install
+#   RECKON_DEMO_SCENARIO=impossible-travel-signin scripts/demo-reseed.sh
+#                                          # seed a different bundled scenario
 set -euo pipefail
 
 RECKON="${RECKON:-reckon}"
 TIMEOUT="${RECKON_START_TIMEOUT:-3m}"
+SCENARIO="${RECKON_DEMO_SCENARIO:-}"
 
 step() { printf '\n==> %s\n' "$*"; }
 
@@ -36,7 +39,11 @@ step "dev-auth (recreate the local login)"
 "$RECKON" dev-auth
 
 step "demo seed"
-"$RECKON" demo seed
+if [ -n "$SCENARIO" ]; then
+  "$RECKON" demo seed --scenario "$SCENARIO"
+else
+  "$RECKON" demo seed
+fi
 
 step "restart (activates the seeded capabilities)"
 "$RECKON" stop

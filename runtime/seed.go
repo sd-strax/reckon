@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 
 	reckon "github.com/sd-strax/reckon"
 )
@@ -14,17 +15,24 @@ import (
 // written.
 type SeedResult struct {
 	FixtureRoot      string // <base>/fixtures — cfg.Capability.FixtureRoot
-	CapabilityConfig string // <base>/capability/<scenario>.yaml — cfg.Capability.ConfigPath
+	CapabilityConfig string // <base>/capability/<config-base>.yaml — cfg.Capability.ConfigPath
 	Scenario         string // the seeded fixture scenario
 	SOPDocs          string // <base>/sops — SOP markdown staged for live import
 }
 
-// SeedDemo materializes the embedded demo scenario + a merged tenant config
+// SeedDemo materializes one embedded demo scenario + its merged tenant config
 // under base (the install's config directory), so the demo world can serve
 // /api/capabilities and run the request→dispatch→result→reverse action path
-// against fixtures. It is the file-materializing half of `reckon demo seed`;
-// the caller wires the returned paths into the config (ConfigPath/FixtureRoot)
-// and flips demo.enabled. It does NOT touch config.yaml or any database.
+// against fixtures. It is the file-materializing half of `reckon demo seed`
+// (and the whole of `reckon demo scenario`); the caller wires the returned
+// paths into the config (ConfigPath/FixtureRoot) and flips demo.enabled. It
+// does NOT touch config.yaml or any database.
+//
+// scenario must be a key of reckon.DemoScenarios; the empty string selects the
+// default. The stack is wired for one scenario at a time (adr/0058): the
+// fixture adapter replays one directory, and bindings default their entity to
+// that scenario's host or account, so two scenarios in one config would answer
+// each other's questions.
 //
 // The capability (read) and action (write) example configs are merged into one
 // file because runtime consumes a SINGLE config_path for both (buildCapability +
@@ -33,8 +41,14 @@ type SeedResult struct {
 // each. Fixture JSON is copied verbatim into <base>/fixtures/<scenario>/.
 //
 // Seeding overwrites its own targets, so a re-seed is idempotent.
-func SeedDemo(base string) (SeedResult, error) {
-	scenario := reckon.DemoScenario
+func SeedDemo(base, scenario string) (SeedResult, error) {
+	if scenario == "" {
+		scenario = reckon.DemoScenario
+	}
+	configBase, ok := reckon.DemoConfigBaseFor(scenario)
+	if !ok {
+		return SeedResult{}, fmt.Errorf("no bundled demo scenario %q (have: %s)", scenario, joinScenarios())
+	}
 	fixtureRoot := filepath.Join(base, "fixtures")
 
 	// 1. Copy the fixture scenario tree verbatim.
@@ -49,7 +63,7 @@ func SeedDemo(base string) (SeedResult, error) {
 	}
 	for _, e := range entries {
 		if e.IsDir() {
-			continue // the demo scenario is flat; nested dirs are not expected
+			continue // scenarios are flat; nested dirs are not expected
 		}
 		data, err := reckon.DemoFS.ReadFile(srcDir + "/" + e.Name())
 		if err != nil {
@@ -61,13 +75,11 @@ func SeedDemo(base string) (SeedResult, error) {
 	}
 
 	// 2. Merge the capability + action example configs into one tenant config.
-	// The example configs are named for the workflow (DemoConfigBase), which
-	// differs from the fixture scenario id (DemoScenario).
-	capYAML, err := reckon.DemoFS.ReadFile("examples/capability/" + reckon.DemoConfigBase + ".yaml")
+	capYAML, err := reckon.DemoFS.ReadFile("examples/capability/" + configBase + ".yaml")
 	if err != nil {
 		return SeedResult{}, fmt.Errorf("read embedded capability config: %w", err)
 	}
-	actionYAML, err := reckon.DemoFS.ReadFile("examples/action/" + reckon.DemoConfigBase + ".yaml")
+	actionYAML, err := reckon.DemoFS.ReadFile("examples/action/" + configBase + ".yaml")
 	if err != nil {
 		return SeedResult{}, fmt.Errorf("read embedded action config: %w", err)
 	}
@@ -77,7 +89,7 @@ func SeedDemo(base string) (SeedResult, error) {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return SeedResult{}, fmt.Errorf("create config dir: %w", err)
 	}
-	configPath := filepath.Join(configDir, reckon.DemoConfigBase+".yaml")
+	configPath := filepath.Join(configDir, configBase+".yaml")
 	if err := os.WriteFile(configPath, merged, 0o644); err != nil {
 		return SeedResult{}, fmt.Errorf("write capability config: %w", err)
 	}
@@ -114,6 +126,23 @@ func SeedDemo(base string) (SeedResult, error) {
 		Scenario:         scenario,
 		SOPDocs:          sopDir,
 	}, nil
+}
+
+// joinScenarios lists the bundled scenario ids, sorted, for error text.
+func joinScenarios() string {
+	ids := make([]string, 0, len(reckon.DemoScenarios))
+	for id := range reckon.DemoScenarios {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := ""
+	for i, id := range ids {
+		if i > 0 {
+			out += ", "
+		}
+		out += id
+	}
+	return out
 }
 
 // mergeTenantConfigs concatenates the read + write example configs into one

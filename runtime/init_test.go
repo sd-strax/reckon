@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	reckon "github.com/sd-strax/reckon"
 	"os"
 	"path/filepath"
 	"testing"
@@ -246,12 +247,20 @@ func TestInit_FixtureFree(t *testing.T) {
 // and BuildActionResolver produces write bindings, both against the seeded files
 // (with demo=true, since the fixture guard requires it).
 func TestSeedDemo_WiredDemo(t *testing.T) {
+	for scenario := range reckon.DemoScenarios {
+		t.Run(scenario, func(t *testing.T) { testSeedDemoWired(t, scenario) })
+	}
+}
+
+// testSeedDemoWired seeds one bundled scenario and proves both loaders consume
+// the result — every scenario in reckon.DemoScenarios must pass (adr/0058).
+func testSeedDemoWired(t *testing.T, scenario string) {
 	base := t.TempDir()
-	res, err := SeedDemo(base)
+	res, err := SeedDemo(base, scenario)
 	if err != nil {
 		t.Fatalf("SeedDemo: %v", err)
 	}
-	if res.Scenario == "" || res.CapabilityConfig == "" || res.FixtureRoot == "" {
+	if res.Scenario != scenario || res.CapabilityConfig == "" || res.FixtureRoot == "" {
 		t.Fatalf("seed result incomplete: %+v", res)
 	}
 

@@ -1,0 +1,35 @@
+{
+  "fixture_meta": {
+    "scenario": "impossible-travel-signin",
+    "matches": {
+      "verb": "get_external_case_details",
+      "params": {
+        "case_id": "INC0012010"
+      }
+    },
+    "delay_ms": 80
+  },
+  "ocsf": {
+    "class_uid": 2005,
+    "class_name": "Incident Finding",
+    "category_uid": 2,
+    "time": "2026-06-11T03:40:00Z",
+    "metadata": {
+      "product": {
+        "vendor_name": "ServiceNow"
+      }
+    },
+    "status": "New",
+    "priority": "2 - High",
+    "assignment_group": "SOC Tier 2",
+    "finding_info": {
+      "uid": "INC0012010",
+      "title": "Impossible-travel alert for m.reyes (corp-sso): confirm with the account owner",
+      "desc": "Opened by: identity platform automation.\n\nSummary: an office sign-in for m.reyes (Toronto, MFA satisfied) at 01:12 UTC was followed at 03:21 UTC by a successful sign-in from 203.0.113.46 (Amsterdam, NL) over legacy IMAP basic authentication, where MFA is not evaluated.\n\nRequested of Tier 2: establish whether the account owner performed the Amsterdam sign-in; if not, contain the account and the source address and hand off to IR.\n\nWork notes:\n2026-06-11 03:40 UTC automation \u2014 Incident created, assigned to SOC Tier 2."
+    },
+    "unmapped": {
+      "link": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0012010",
+      "sor": "servicenow"
+    }
+  }
+}

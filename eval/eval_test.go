@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,7 +28,7 @@ func TestEvalRun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	scenario := filepath.Join("scenarios", "lateral-movement.yaml")
+	scenario := scenarioPathFromEnv()
 	report, err := Run(ctx, RunConfig{
 		ScenarioPath: scenario,
 		Log:          t.Logf,
@@ -113,7 +114,7 @@ func TestRegradeRun(t *testing.T) {
 		}
 		runDir = d
 	}
-	report, err := Regrade(runDir, filepath.Join("scenarios", "lateral-movement.yaml"))
+	report, err := Regrade(runDir, scenarioPathFromEnv())
 	if err != nil {
 		t.Fatalf("regrade: %v", err)
 	}
@@ -137,5 +138,23 @@ func TestRegradeRun(t *testing.T) {
 	if n := len(report.TrialErrors); n > 0 {
 		t.Errorf("%d of %d trials did not complete — run is truncated, not acceptable",
 			n, report.Attribution.Trials)
+	}
+}
+
+// scenarioPathFromEnv selects the driver script: RECKON_EVAL_SCENARIO names a
+// file under scenarios/ (with or without .yaml) or a path; unset means the
+// original lateral-movement script. `make eval SCENARIO=impossible-travel` is
+// the Makefile spelling (adr/0058: one driver per bundled fixture scenario).
+func scenarioPathFromEnv() string {
+	name := os.Getenv("RECKON_EVAL_SCENARIO")
+	switch {
+	case name == "":
+		return filepath.Join("scenarios", "lateral-movement.yaml")
+	case strings.ContainsAny(name, "/\\"):
+		return name
+	case strings.HasSuffix(name, ".yaml"):
+		return filepath.Join("scenarios", name)
+	default:
+		return filepath.Join("scenarios", name+".yaml")
 	}
 }

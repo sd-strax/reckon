@@ -59,8 +59,8 @@ ci-full: lint test-all build ## Pre-release check: lint + full test suite incl. 
 bundle: build ## Build an air-gap-able distribution tarball for the current OS/arch
 	@bash scripts/build-bundle.sh
 
-eval: ## Behavioral eval run (design/10): real model + running local stack; costs tokens. Needs ANTHROPIC_API_KEY.
-	RECKON_EVAL=1 go test -count=1 -run TestEvalRun -v -timeout 40m ./eval/
+eval: ## Behavioral eval run (design/10): real model + running local stack; costs tokens. Needs ANTHROPIC_API_KEY. SCENARIO=<driver> picks the script under eval/scenarios/ (default lateral-movement); the stack must be wired for its fixture scenario.
+	RECKON_EVAL=1 RECKON_EVAL_SCENARIO=$(SCENARIO) go test -count=1 -run TestEvalRun -v -timeout 40m ./eval/
 
 demo-reseed: build ## Rebuild the demo world unattended: stop → reset → start → seed → restart (scripts/demo-reseed.sh; needs embeddings configured for seed). ARGS=--force resets a non-demo install (e.g. after a half-finished reseed)
 	RECKON=bin/reckon bash scripts/demo-reseed.sh $(ARGS)
@@ -68,8 +68,8 @@ demo-reseed: build ## Rebuild the demo world unattended: stop → reset → star
 eval-accept: ## Accept the latest eval run as the committed per-model baseline (design/10 §4.4). Token-free; refuses a MUST-failing or truncated run (RECKON_EVAL_FORCE=1 to override).
 	RECKON_EVAL_ACCEPT=1 go test -count=1 -run '^TestAcceptBaseline$$' -v ./eval/
 
-eval-regrade: ## Re-grade the latest run's committed trials with the current grader catalogue (token-free); rewrites its report.json. Refuses if the driver script changed since the run.
-	RECKON_EVAL_REGRADE=1 go test -count=1 -run '^TestRegradeRun$$' -v ./eval/
+eval-regrade: ## Re-grade the latest run's committed trials with the current grader catalogue (token-free); rewrites its report.json. Refuses if the driver script changed since the run. SCENARIO=<driver> as for eval.
+	RECKON_EVAL_REGRADE=1 RECKON_EVAL_SCENARIO=$(SCENARIO) go test -count=1 -run '^TestRegradeRun$$' -v ./eval/
 
 workbench-ci: ## Install + compile the VS Code extension (workbench/). Requires Node; never part of `ci` — engine work stays Go-only.
 	cd workbench && npm ci && npm run compile

@@ -128,3 +128,114 @@ func caseNumbers(res CapabilityResult) map[string]bool {
 	}
 	return out
 }
+
+// TestShippedImpossibleTravelScenario loads the second bundled scenario
+// (adr/0058) — identity-rooted, no host — and resolves its bound verbs end to
+// end. The discriminating axes the eval's second driver relies on are pinned
+// here: `outcome` tells failed sign-ins from successful ones (any-of matcher,
+// §9.1), the 30-day office baseline is time-scoped, the foreign address has
+// indicator context, and a free-text case search is COMPLETE with zero cases.
+func TestShippedImpossibleTravelScenario(t *testing.T) {
+	cfg, err := LoadTenantConfig("../examples/capability/impossible-travel.yaml")
+	if err != nil {
+		t.Fatalf("load shipped config: %v", err)
+	}
+	res, catalog, err := BuildResolver(cfg, "../fixtures", uuid.New(), true)
+	if err != nil {
+		t.Fatalf("build resolver: %v", err)
+	}
+	avail := map[string]bool{}
+	for _, v := range res.AvailableVerbs(catalog) {
+		avail[v] = true
+	}
+	for _, v := range []string{"enumerate_logons", "search_alerts", "get_indicator_context", "query_external_cases", "get_external_case_details"} {
+		if !avail[v] {
+			t.Errorf("verb %s not available in shipped scenario", v)
+		}
+	}
+	for _, v := range []string{"get_process_ancestry", "get_network_connections", "get_host_context"} {
+		if avail[v] {
+			t.Errorf("verb %s is available but the scenario has no host — it must be unbound", v)
+		}
+	}
+
+	ctx := context.Background()
+	user := map[string]any{"user": map[string]any{"name": "m.reyes"}}
+	day := map[string]any{"from": "2026-06-11T00:00:00Z", "to": "2026-06-12T00:00:00Z"}
+
+	// Successful sign-ins on the incident day: the office one and the foreign one.
+	ok, err := res.Resolve(ctx, "enumerate_logons", CallInput{Entity: user, Extra: map[string]any{"window": day}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok.Coverage != CoverageComplete || len(ok.ObservedDataRefs) != 2 {
+		t.Errorf("enumerate_logons(SUCCESS, incident day): coverage=%q refs=%d; want COMPLETE/2", ok.Coverage, len(ok.ObservedDataRefs))
+	}
+	// The failures before the success are a separate question.
+	fail, err := res.Resolve(ctx, "enumerate_logons", CallInput{Entity: user, Extra: map[string]any{"outcome": "FAILURE", "window": day}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fail.Coverage != CoverageComplete || len(fail.ObservedDataRefs) != 5 {
+		t.Errorf("enumerate_logons(FAILURE): coverage=%q refs=%d; want COMPLETE/5", fail.Coverage, len(fail.ObservedDataRefs))
+	}
+	// ALL reaches both.
+	all, err := res.Resolve(ctx, "enumerate_logons", CallInput{Entity: user, Extra: map[string]any{"outcome": "ALL", "window": day}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all.ObservedDataRefs) != 7 {
+		t.Errorf("enumerate_logons(ALL): refs=%d; want 7", len(all.ObservedDataRefs))
+	}
+	// A 30-day window reaches the office baseline; the incident day does not.
+	month := map[string]any{"from": "2026-05-12T00:00:00Z", "to": "2026-06-12T00:00:00Z"}
+	base, err := res.Resolve(ctx, "enumerate_logons", CallInput{Entity: user, Extra: map[string]any{"window": month}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(base.ObservedDataRefs) != 12 {
+		t.Errorf("enumerate_logons(SUCCESS, 30 days): refs=%d; want 12 (10 baseline + 2 incident-day)", len(base.ObservedDataRefs))
+	}
+
+	alerts, err := res.Resolve(ctx, "search_alerts", CallInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var indicators int
+	for _, nr := range alerts.Normalized {
+		indicators += len(nr.Indicators)
+	}
+	if alerts.Coverage != CoverageComplete || indicators == 0 {
+		t.Errorf("search_alerts: coverage=%q indicators=%d; want COMPLETE/>0", alerts.Coverage, indicators)
+	}
+
+	ti, err := res.Resolve(ctx, "get_indicator_context", CallInput{Entity: map[string]any{"ip": "203.0.113.46"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ti.Coverage != CoverageComplete || len(ti.ObservedDataRefs) != 1 {
+		t.Errorf("get_indicator_context: coverage=%q refs=%d; want COMPLETE/1", ti.Coverage, len(ti.ObservedDataRefs))
+	}
+
+	queue, err := res.Resolve(ctx, "query_external_cases", CallInput{Extra: map[string]any{"queue": res.PolicyString(PolicyCaseQueue)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queue.Coverage != CoverageComplete || !caseNumbers(queue)["INC0012010"] {
+		t.Errorf("query_external_cases(queue): coverage=%q cases=%v; want COMPLETE with INC0012010", queue.Coverage, caseNumbers(queue))
+	}
+	travel, err := res.Resolve(ctx, "query_external_cases", CallInput{Extra: map[string]any{"filter": "m.reyes travel notice"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if travel.Coverage != CoverageComplete || len(travel.ObservedDataRefs) != 0 {
+		t.Errorf("query_external_cases(travel notice): coverage=%q refs=%d; want COMPLETE/0 (evidence of absence)", travel.Coverage, len(travel.ObservedDataRefs))
+	}
+	detail, err := res.Resolve(ctx, "get_external_case_details", CallInput{Extra: map[string]any{"case_id": "INC0012010"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Coverage != CoverageComplete || len(detail.ObservedDataRefs) != 1 {
+		t.Errorf("get_external_case_details: coverage=%q refs=%d; want COMPLETE/1", detail.Coverage, len(detail.ObservedDataRefs))
+	}
+}

@@ -1,0 +1,83 @@
+# Example tenant capability config (design/03-capability-layer.md §3.2) for the
+# bundled impossible-travel-signin fixture scenario — the second shape of case in
+# the eval corpus (design/10 §6, adr/0058): identity-rooted, no host, no process,
+# no network. Wire it with `reckon demo seed --scenario impossible-travel-signin`
+# (fresh install) or `reckon demo scenario impossible-travel-signin` (swap, stack
+# down). One scenario is wired at a time: the fixture adapter answers from one
+# directory, and bindings default their entity to this scenario's account.
+
+tenant: demo
+
+adapters:
+  fixture:
+    class: fixture
+    enabled: true
+    scenario: impossible-travel-signin
+  # Real adapters land in Phase E; disabled here so v0 runs on fixtures only.
+  okta:
+    class: native_api
+    enabled: false
+
+bindings:
+  # The scenario is single-account: default to it so a user-less query still
+  # resolves. `outcome` is the discriminating axis — the fixtures answer
+  # SUCCESS and FAILURE separately and ALL with both (03 §9.1 any-of matcher):
+  # the burst of failed sign-ins from the foreign address before the success is
+  # a test the agent has to ask for. The 30-day office baseline is time-scoped,
+  # so "is a foreign sign-in normal for this account?" reaches it over 30 days
+  # and a 24-hour window does not.
+  enumerate_logons:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        target:
+          user: '${entity.user.name ?? "m.reyes"}'
+          hostname: '${entity.host.hostname?}'
+        outcome: '${outcome ?? "SUCCESS"}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  search_alerts:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params: {}
+
+  # Threat-intel context for the foreign sign-in address. The scenario carries
+  # one external indicator, so the fixture matches any indicator query; a real
+  # adapter resolves on the indicator value.
+  get_indicator_context:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        indicator:
+          ip: '${entity.ip?}'
+
+  # The case system of record. The team queue returns the alert's own ticket;
+  # a free-text filter (a travel notice, a helpdesk request from the account
+  # owner) matches no fixture and is COMPLETE with zero cases — evidence of
+  # absence against the legitimate-travel hypothesis.
+  query_external_cases:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        filter: '${filter?}'
+        queue: '${queue?}'
+        status: '${status?}'
+
+  get_external_case_details:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        case_id: '${case_id}'
+
+policies:
+  default_window:
+    investigation: PT24H
+    hunt: PT7D
+  case_queue: SOC Tier 2

@@ -1550,6 +1550,14 @@ testing), and returns the OCSF event. From there, normalization runs unchanged.
 The OcsfEvent gets `source_tool = "fixture:lateral-movement-via-rdp"` so it's
 traceable but distinguishable from real telemetry.
 
+**Matching.** The verb must equal `matches.verb`, and every `matches.params`
+entry must equal the value at its dotted path in the rendered binding params.
+`"*"` matches anything, including an absent param. A **list** matches any one of
+its values and nothing else — `"outcome": ["SUCCESS", "ALL"]` on the successful
+sign-ins and `"outcome": ["FAILURE", "ALL"]` on the failed ones lets one scenario
+answer `SUCCESS`, `FAILURE`, and `ALL` differently, which is what a
+discriminating question ("were there failures before the success?") needs.
+
 **Time-scoped fixtures.** A fixture may declare `"time_scoped": true` in its
 `fixture_meta`. It then replays only when its event time falls inside the
 window the binding passed under the reserved `window` param pair

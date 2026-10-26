@@ -1,0 +1,35 @@
+{
+  "fixture_meta": {
+    "scenario": "impossible-travel-signin",
+    "matches": {
+      "verb": "query_external_cases",
+      "params": {
+        "queue": "SOC Tier 2"
+      }
+    },
+    "delay_ms": 60
+  },
+  "ocsf": {
+    "class_uid": 2005,
+    "class_name": "Incident Finding",
+    "category_uid": 2,
+    "time": "2026-06-11T03:40:00Z",
+    "metadata": {
+      "product": {
+        "vendor_name": "ServiceNow"
+      }
+    },
+    "status": "New",
+    "priority": "2 - High",
+    "assignment_group": "SOC Tier 2",
+    "finding_info": {
+      "uid": "INC0012010",
+      "title": "Impossible-travel alert for m.reyes (corp-sso): confirm with the account owner",
+      "desc": "The identity platform raised an impossible-travel detection for m.reyes: an office sign-in from Toronto followed two hours later by a successful sign-in from the Netherlands over a legacy mail protocol. No travel notice on file. Assigned to SOC Tier 2 for triage."
+    },
+    "unmapped": {
+      "link": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0012010",
+      "sor": "servicenow"
+    }
+  }
+}
