@@ -233,6 +233,7 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 			runUsage.Add(turn.Usage)
 		}
 	}
+	judge := judgeFromEnv(apiKey, logf)
 	report := &Report{
 		Attribution: Attribution{
 			PromptVersion:     prompt.Version,
@@ -244,10 +245,11 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 			CatalogueVersion:  CatalogueVersion,
 			Trials:            s.Trials,
 		},
-		Results:     Grade(s, trials),
+		Results:     GradeWith(s, trials, judge),
 		TrialErrors: trialErrors,
 		Usage:       runUsage,
 	}
+	stampJudge(report, judge)
 	if raw, err := json.MarshalIndent(report, "", "  "); err == nil {
 		_ = os.WriteFile(filepath.Join(artifactDir, "report.json"), raw, 0o600)
 	}
@@ -470,6 +472,39 @@ func postJSON(ctx context.Context, src agent.TokenSource, url string, in, out an
 		return json.Unmarshal(raw, out)
 	}
 	return nil
+}
+
+// judgeFromEnv builds the run's judge (adr/0059): the BYOK key the run already
+// holds, the model from RECKON_EVAL_JUDGE_MODEL (DefaultJudgeModel when unset).
+// RECKON_EVAL_JUDGE=off grades with the deterministic anchors alone. Returns a
+// typed nil-free Judge or nil.
+func judgeFromEnv(apiKey string, logf func(string, ...any)) Judge {
+	if apiKey == "" || strings.EqualFold(os.Getenv("RECKON_EVAL_JUDGE"), "off") {
+		return nil
+	}
+	j := NewAnthropicJudge(apiKey, os.Getenv("RECKON_EVAL_JUDGE_MODEL"))
+	if logf != nil {
+		logf("eval: judge %s consulted where E3/R3 anchors miss (RECKON_EVAL_JUDGE=off to disable)", j.Model())
+	}
+	return j
+}
+
+// stampJudge records the judge's attribution and spend on the report. A judge
+// that decided nothing leaves the attribution empty: every verdict was
+// deterministic, whatever was available.
+func stampJudge(report *Report, judge Judge) {
+	lj, ok := judge.(*LLMJudge)
+	if !ok || lj == nil {
+		return
+	}
+	usage, calls := lj.Usage()
+	if calls == 0 {
+		return
+	}
+	report.Attribution.JudgeModel = lj.Model()
+	report.Attribution.JudgeRubric = JudgeRubricVersion
+	report.JudgeUsage = usage
+	report.JudgeCalls = calls
 }
 
 func envOr(key, def string) string {

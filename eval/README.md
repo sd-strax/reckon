@@ -246,6 +246,23 @@ First live use: a marker-tripwire false positive (E1 grepped
 refuse it* — use vs. mention). Fix the grader, `make eval-regrade`,
 `make eval-accept` — $0 instead of a fresh N=3.
 
+## The judge
+
+E3 and R3 grade a turn where the agent is asked to decide and should not. When
+nothing is recorded, the question is whether the reply said *why*. Anchor
+strings decide that first (a hit is a deterministic PASS, no model call); when
+none hits, a **judge** reads the reply against a fixed rubric (`judge.go`,
+`adr/0059`) instead of the strings failing it on wording. The judge is a
+no-tools completion on the agent's own provider seam — BYOK, client-side — and
+answers a strict JSON object whose quoted sentence lands in the verdict
+(`judged: true`, `quote`), so you can check it from the report. The run records
+`judge_model` + `judge_rubric` and the judge's tokens apart from the agent's.
+
+- `RECKON_EVAL_JUDGE_MODEL=<id>` picks the judge (default `claude-sonnet-4-6`).
+- `RECKON_EVAL_JUDGE=off` grades by anchors alone (the pre-v0.11 behavior).
+- `make eval-regrade` re-judges when a key is present — the one case where a
+  regrade spends tokens, a handful of short calls.
+
 ## The assertion catalogue
 
 Defined in [`graders.go`](graders.go) (`Catalogue`, version `CatalogueVersion`),
