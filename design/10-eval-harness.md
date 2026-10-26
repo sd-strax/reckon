@@ -86,7 +86,12 @@ A **driver script** is the deterministic analyst: an ordered list of user turns.
 turn asks for raw data; grade H2 here*). Catalogue-wide assertions grade the whole trial. The driver
 never adapts to model output (no branching): determinism on the input side is what makes N trials
 comparable. Where a turn needs a reference from earlier model output (an action id to approve), the
-driver uses the backend API to look it up — the same ground truth the analyst's UI would use.
+driver uses the backend API to look it up — the same ground truth the analyst's UI would use. The
+driver also performs the analyst's own acts where the script says so, through the same product paths
+a human uses: adopting the agent's proposals before a propose-tests turn (`ack_hypotheses`), and
+answering a manual test with an authored answer before a decide turn (`attest_manual`, `adr/0069`),
+where a reader model decides which way the answer points for each prediction's own wording and the
+reading is recorded in the trial.
 
 Trials exist because the model is stochastic: the same script can pass twice and fail once. `N = 3`
 by default (`§4.2` for how trials aggregate).

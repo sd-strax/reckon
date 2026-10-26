@@ -102,6 +102,9 @@ type TrialRecord struct {
 	// investigation view served it (01 §x-hypothesis): "leading_null" or
 	// "leading_only". R1 is NOT_EXERCISED under leading_only.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
+	// Attestations lists the manual tests the driver answered on the analyst's
+	// behalf (TurnSpec.AttestManual), with the reader's reading of each.
+	Attestations []AttestationRecord `json:"attestations,omitempty"`
 	// Aborted is set when the trial stopped before completing its script (a
 	// turn-level error); unreached turn-scoped assertions grade NOT_EXERCISED.
 	Aborted bool `json:"aborted,omitempty"`
@@ -119,8 +122,24 @@ type HypothesisRow struct {
 // PredictionRow mirrors server.PredictionView.
 type PredictionRow struct {
 	ID            string   `json:"id"`
+	Statement     string   `json:"statement,omitempty"`
 	Status        string   `json:"status"`
+	TestKind      string   `json:"test_kind,omitempty"` // "manual" when a person tests it (adr/0054)
 	Discriminates []string `json:"discriminates,omitempty"`
+}
+
+// AttestationRecord is one manual test the driver answered (adr/0069): which
+// prediction, what the authored answer was, how the reader read it against the
+// prediction's wording, and the status recorded as a result. It is in the
+// trial record so a reviewer can check the reading.
+type AttestationRecord struct {
+	Turn          int    `json:"turn"`
+	PredictionRef string `json:"prediction_ref"`
+	Hypothesis    string `json:"hypothesis"`
+	Statement     string `json:"statement"`
+	Status        string `json:"status"`
+	Reason        string `json:"reason"`
+	Content       string `json:"content"`
 }
 
 // transcriptEvent is one parsed line of the committed transcript. The framing

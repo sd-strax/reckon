@@ -291,7 +291,24 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 	if inv, err := client.GetInvestigation(ctx, invID); err == nil {
 		tr.HypothesisFraming = inv.HypothesisFraming
 	}
+	reader := readerFromEnv(apiKey)
 	for i, spec := range s.Turns {
+		if spec.AttestManual != nil {
+			// The scripted analyst answers the manual tests (adr/0069): the
+			// Record result click, with the scenario's authored answer, the
+			// reader deciding which way it points for each prediction's wording.
+			recs, err := attestManualPredictions(ctx, client, backendURL, human, invID, i, *spec.AttestManual, reader)
+			tr.Attestations = append(tr.Attestations, recs...)
+			if err != nil {
+				return tr, stamp, fmt.Errorf("turn %d: attest manual predictions: %w", i, err)
+			}
+			if len(recs) == 0 {
+				logf("eval: trial %d turn %d — attest_manual: no UNTESTED manual prediction to answer (no-op)", trial, i+1)
+			}
+			for _, rec := range recs {
+				logf("eval: trial %d turn %d — driver attested %s as %s (%s)", trial, i+1, rec.PredictionRef, rec.Status, rec.Reason)
+			}
+		}
 		if spec.AckHypotheses {
 			// The scripted analyst adopts what the agent proposed (a human act
 			// the aggregate enforces) so the turn can drive OPEN hypotheses.
@@ -414,6 +431,61 @@ func hypothesesSnapshot(ctx context.Context, client *agent.Client, invID string)
 		return nil
 	}
 	return v.Hypotheses
+}
+
+// attestManualPredictions records, with the human token, an attested outcome
+// for every UNTESTED manual prediction in the investigation — the tracker's
+// Record result, scripted (adr/0054). The authored answer is the same for each
+// (one person said one thing); the reader decides per prediction whether that
+// answer confirms or disconfirms its wording. Without a reader the step
+// cannot read the answer and fails loudly rather than guess.
+func attestManualPredictions(ctx context.Context, client *agent.Client, backendURL string, human agent.TokenSource,
+	invID string, turn int, spec AttestSpec, reader Reader) ([]AttestationRecord, error) {
+	var out []AttestationRecord
+	for _, h := range hypothesesSnapshot(ctx, client, invID) {
+		for _, p := range h.Predictions {
+			if p.Status != "UNTESTED" || p.TestKind != "manual" {
+				continue
+			}
+			if reader == nil {
+				return out, fmt.Errorf("prediction %s is manual and untested but no reader is configured to read the authored answer (ANTHROPIC_API_KEY)", p.ID)
+			}
+			hyp := h.Handle
+			if hyp == "" {
+				hyp = h.ID
+			}
+			status, reason, err := reader.Read(ctx, ReadQuestion{Hypothesis: hyp, Statement: p.Statement, Content: spec.Content})
+			if err != nil {
+				return out, err
+			}
+			if err := postJSON(ctx, human, backendURL+"/api/interpretations", map[string]any{
+				"investigation_ref":   invID,
+				"interpretation_type": "prediction",
+				"prediction_ref":      p.ID,
+				"prediction_status":   status,
+				"rationale":           "eval driver: result recorded by the scripted analyst from the scenario's authored answer (" + reason + ")",
+				"attestation": map[string]any{
+					"content": spec.Content,
+					"source":  spec.Source,
+					"channel": spec.Channel,
+				},
+			}, nil); err != nil {
+				return out, fmt.Errorf("record result for %s: %w", p.ID, err)
+			}
+			out = append(out, AttestationRecord{Turn: turn, PredictionRef: p.ID, Hypothesis: hyp, Statement: p.Statement, Status: status, Reason: reason, Content: spec.Content})
+		}
+	}
+	return out, nil
+}
+
+// readerFromEnv builds the driver's reader on the run's key. It is independent
+// of RECKON_EVAL_JUDGE (which governs grading): a driver that cannot read the
+// authored answer cannot answer a manual test at all.
+func readerFromEnv(apiKey string) Reader {
+	if apiKey == "" {
+		return nil
+	}
+	return NewAnthropicJudge(apiKey, os.Getenv("RECKON_EVAL_JUDGE_MODEL"))
 }
 
 // ackProposedHypotheses acknowledges every PROPOSED hypothesis with the human

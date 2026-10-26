@@ -54,6 +54,81 @@ type JudgeVerdict struct {
 // on any change to a rubric or the judge's instructions.
 const JudgeRubricVersion = "v1"
 
+// Reader reads an authored answer against a prediction's own wording and says
+// which way it points (adr/0069). It is the scripted analyst's eyes on the
+// Record result dialog, not a grader: its reading is recorded in the trial
+// and shapes what the agent sees next, and the graders never consult it.
+type Reader interface {
+	// Read returns CONFIRMED, DISCONFIRMED, or INCONCLUSIVE for the prediction
+	// given the answer, with one line of reason.
+	Read(ctx context.Context, q ReadQuestion) (status, reason string, err error)
+}
+
+// ReadQuestion is one manual prediction and the authored answer to it.
+type ReadQuestion struct {
+	Hypothesis string // the owning hypothesis's handle or statement
+	Statement  string // the prediction: what the hypothesis expects to be observed
+	Content    string // what the person said
+}
+
+// readerSystem instructs the reader: the prediction's own words decide the
+// polarity, the answer is testimony, the output is one status.
+const readerSystem = `You are an investigation analyst recording the result of a test that only a person could run. You are given a hypothesis, the prediction the hypothesis makes (what would be observed if the hypothesis is true), and what the person said when asked. Decide whether the person's answer CONFIRMS the prediction (the predicted observation happened), DISCONFIRMS it (the predicted observation did not happen), or is INCONCLUSIVE (the answer does not settle it). Judge the prediction's own wording, not the hypothesis's likelihood. Answer with a JSON object only:
+{"status": "CONFIRMED" | "DISCONFIRMED" | "INCONCLUSIVE", "reason": "one sentence"}`
+
+// Read implements Reader on the same provider seam as Judge.
+func (j *LLMJudge) Read(ctx context.Context, q ReadQuestion) (string, string, error) {
+	timeout := j.Timeout
+	if timeout == 0 {
+		timeout = 60 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	user := fmt.Sprintf("Hypothesis: %s\n\nPrediction (what would be observed if the hypothesis is true):\n%s\n\nWhat the person said:\n<<<\n%s\n>>>\n", q.Hypothesis, q.Statement, q.Content)
+	resp, err := j.LLM.Complete(ctx, agent.CompleteRequest{
+		System:    readerSystem,
+		Messages:  []agent.Message{{Role: agent.RoleUser, Content: []agent.ContentBlock{agent.TextBlock(user)}}},
+		MaxTokens: 200,
+	})
+	j.mu.Lock()
+	j.usage.Add(Usage{Input: resp.Usage.Input, Output: resp.Usage.Output, CacheWrite: resp.Usage.CacheWrite, CacheRead: resp.Usage.CacheRead})
+	j.calls++
+	j.mu.Unlock()
+	if err != nil {
+		return "", "", fmt.Errorf("reader: %w", err)
+	}
+	var text strings.Builder
+	for _, b := range resp.Content {
+		if b.Type == agent.BlockText {
+			text.WriteString(b.Text)
+		}
+	}
+	return parseReading(text.String())
+}
+
+// parseReading reads the reader's JSON object and normalizes the status to
+// the three the engine accepts.
+func parseReading(s string) (string, string, error) {
+	start := strings.Index(s, "{")
+	end := strings.LastIndex(s, "}")
+	if start < 0 || end <= start {
+		return "", "", fmt.Errorf("reader reply carries no JSON object: %q", truncate(s, 200))
+	}
+	var v struct {
+		Status string `json:"status"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(s[start:end+1]), &v); err != nil {
+		return "", "", fmt.Errorf("reader reply is not the expected object: %w (%q)", err, truncate(s, 200))
+	}
+	status := strings.ToUpper(strings.TrimSpace(v.Status))
+	switch status {
+	case "CONFIRMED", "DISCONFIRMED", "INCONCLUSIVE":
+		return status, strings.TrimSpace(v.Reason), nil
+	}
+	return "", "", fmt.Errorf("reader returned status %q; want CONFIRMED, DISCONFIRMED, or INCONCLUSIVE", v.Status)
+}
+
 // DefaultJudgeModel is the judging model when RECKON_EVAL_JUDGE_MODEL is
 // unset: a model with committed pricing, cheaper than the Opus runs it grades.
 // Judging a model with itself is a known limitation of v1 (10 §9).

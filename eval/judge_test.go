@@ -3,6 +3,7 @@ package eval
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -193,5 +194,61 @@ func TestGradeWith_PrefersJudgeTurnOnlyWithJudge(t *testing.T) {
 	}
 	if len(j.asked) != 1 {
 		t.Errorf("judge asked %d times; want once (E3 only)", len(j.asked))
+	}
+}
+
+// TestReader_ParsesStatus: the reader asks about the prediction's own wording,
+// returns one of the three engine statuses, and accounts its spend; anything
+// else is an error, never a guessed status.
+func TestReader_ParsesStatus(t *testing.T) {
+	llm := &scriptedJudgeLLM{reply: "```json\n{\"status\": \"disconfirmed\", \"reason\": \"the person denies the session\"}\n```"}
+	j := &LLMJudge{LLM: llm, ModelID: "fake-reader"}
+	status, reason, err := j.Read(context.Background(), ReadQuestion{Hypothesis: "H2 benign", Statement: "the owner will confirm the session", Content: "it was not me"})
+	if err != nil || status != "DISCONFIRMED" || reason == "" {
+		t.Fatalf("Read = %q %q %v", status, reason, err)
+	}
+	if len(llm.seen) != 1 || llm.seen[0].System != readerSystem {
+		t.Fatalf("reader request = %+v; want one completion under the reader system prompt", llm.seen)
+	}
+	user := llm.seen[0].Messages[0].Content[0].Text
+	for _, want := range []string{"H2 benign", "the owner will confirm the session", "it was not me"} {
+		if !strings.Contains(user, want) {
+			t.Errorf("reader prompt is missing %q", want)
+		}
+	}
+	if _, _, err := parseReading(`{"status":"maybe","reason":"x"}`); err == nil {
+		t.Error("an unknown status must be an error, not recorded")
+	}
+	if _, _, err := parseReading("no object"); err == nil {
+		t.Error("a reply without a JSON object must be an error")
+	}
+	if _, calls := j.Usage(); calls != 1 {
+		t.Errorf("reader calls = %d; want 1", calls)
+	}
+}
+
+// TestLoadScenario_AttestManual: both committed drivers author an answer on
+// their decide turn, with who and how; the step is data in the script, never
+// a rule in the runner.
+func TestLoadScenario_AttestManual(t *testing.T) {
+	for _, name := range []string{"lateral-movement.yaml", "impossible-travel.yaml"} {
+		s, err := LoadScenario(filepath.Join("scenarios", name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		var found int
+		for i, turn := range s.Turns {
+			if turn.AttestManual == nil {
+				continue
+			}
+			found++
+			a := turn.AttestManual
+			if strings.TrimSpace(a.Content) == "" || a.Source == "" || a.Channel == "" {
+				t.Errorf("%s turn %d: attest_manual needs content, source and channel; got %+v", name, i, a)
+			}
+		}
+		if found == 0 {
+			t.Errorf("%s: no turn authors a manual answer — the decide turn can only be graded as a decline", name)
+		}
 	}
 }
