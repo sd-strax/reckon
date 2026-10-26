@@ -277,8 +277,11 @@ Interactions:
   prediction is untested). The original stays in the thread. Rename the handle the same way.
 - **+ prediction** on a live hypothesis — the analyst's own test, from knowledge the agent
   does not have; optionally marked as discriminating a rival.
-- **Test this** on an `UNTESTED` prediction — stages the prediction's declared test query
-  as a composer question (staged, never auto-fired — the pivot pattern; editable there).
+- **⚡ Test P<n>** on an `UNTESTED` prediction — runs just that prediction's declared test
+  as a scoped agent turn, the per-row member of the ⚡ family (adr/0075): the outcome and
+  its evidence land on the row, and the turn ends there. A test a person answers has no
+  ⚡ Test; **Record result** is its path. To refine a test's wording first, withdraw and
+  re-add it, or type the refined ask in the composer.
   **Withdraw** on the same row discards a bad test (status, not deletion). Editing an
   untested prediction is withdraw + record.
 - **⚡ Propose tests / Run tests / Decide** — the scoped agent turns, each reading the

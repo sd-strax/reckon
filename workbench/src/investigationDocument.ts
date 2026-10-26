@@ -125,6 +125,8 @@ type InboundMessage =
   | { type: "pred.result"; predictionRef: string; status: string; content: string; source?: string; channel?: string }
   | { type: "hyp.proposeTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
   | { type: "hyp.runTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
+  // One prediction's test, run as a scoped turn from its row (the ⚡ family).
+  | { type: "pred.test"; predictionRef: string; predictionName: string; statement: string; queryText?: string; tool?: string; hypothesisRef: string; hypStatement: string; handle?: string; rivals?: RivalBrief[] }
   | { type: "hyp.decide"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
   | { type: "enablement.apply"; adapter: string; enabled: boolean; config: Record<string, string>; secretFields: string[] }
   | { type: "comms.act"; threadId: string; verb: "ack" | "done" }
@@ -343,6 +345,8 @@ export class InvestigationDocuments {
       void this.withdrawPrediction(id, panel, msg.predictionRef, msg.reason);
     } else if (msg.type === "hyp.proposeTests") {
       void this.proposeTests(id, panel, msg.hypothesisRef, msg.statement, msg.handle, msg.rivals);
+    } else if (msg.type === "pred.test") {
+      void this.testPrediction(id, panel, msg);
     } else if (msg.type === "hyp.runTests") {
       void this.runTests(id, panel, msg.hypothesisRef, msg.statement, msg.handle, msg.rivals);
     } else if (msg.type === "hyp.decide") {
@@ -1297,6 +1301,28 @@ export class InvestigationDocuments {
       + "This turn ENDS when the outcomes are recorded: do not record a hypothesis outcome — Decide is a separate "
       + "step the analyst orders. Keep your final message to one or two sentences on what was decisive — do not restate the outcomes; the tracker renders them.";
     await this.runTurn(id, panel, instruction, { label: `⚡ run tests · ${name}` });
+  }
+
+  /**
+   * Run ONE prediction's declared test — the per-row member of the ⚡ family
+   * (adr/0075). Same contract as Run tests, scoped to a single prediction: the
+   * outcome is recorded citing evidence, and the turn ends there.
+   */
+  private async testPrediction(id: string, panel: vscode.WebviewPanel, m: {
+    predictionRef: string; predictionName: string; statement: string; queryText?: string; tool?: string;
+    hypothesisRef: string; hypStatement: string; handle?: string; rivals?: RivalBrief[];
+  }): Promise<void> {
+    const name = hypLabel(m.handle, m.hypStatement);
+    const declared = m.queryText
+      ? `Its declared test${m.tool ? " via " + m.tool : ""}: ${m.queryText} `
+      : "";
+    const instruction = `⚡ Test ${m.predictionName}: run the test for prediction ${m.predictionRef} under the hypothesis ${hypCite(m.handle, m.hypStatement, m.hypothesisRef)} — "${m.statement}". `
+      + declared
+      + "Record its outcome (CONFIRMED / DISCONFIRMED / INCONCLUSIVE) citing the observed evidence as test_result_refs. "
+      + rivalsClause(m.rivals, "If it discriminates against a rival, say in one clause which way the result cuts for that rival. ")
+      + "This turn ENDS when that one outcome is recorded: do not run other tests and do not record a hypothesis outcome — Decide is a separate step the analyst orders. "
+      + "Keep your final message to one or two sentences on what was decisive; the tracker renders the outcome.";
+    await this.runTurn(id, panel, instruction, { label: `⚡ test ${m.predictionName} · ${name}` });
   }
 
   /**
@@ -3608,7 +3634,7 @@ export class InvestigationDocuments {
       // The drive affordance (02 §2.9) follows the state of the work — one
       // rung at a time. PROPOSED: the only decision is ownership (Adopt).
       // OPEN with no predictions: Propose tests. Untested predictions remain:
-      // Run tests (independent → parallel; per-row Test this runs just one).
+      // Run tests (independent → parallel; per-row ⚡ Test P<n> runs just one).
       // All decided: Decide — against the rivals, from the evidence (terminal
       // in v0: a changed judgment later is a NEW hypothesis via parent_ref).
       // Every ⚡ turn carries the live rivals so it reads the whole set.
@@ -3662,7 +3688,7 @@ export class InvestigationDocuments {
             title: "New prediction under " + hypName(h, hs),
             label: "If " + hypName(h, hs) + " is true, we should observe…",
             placeholder: "e.g. svc_backup's 30-day logon baseline shows only Network logons from BKP-01 at 02:00 — never RemoteInteractive, never from 10.0.4.20.",
-            helper: "Recorded as yours, UNTESTED. “Test this” stages it in the composer; the agent records the outcome with evidence. A test a person answers is yours to record, with what they said.",
+            helper: "Recorded as yours, UNTESTED. ⚡ Test on its row runs it as an agent turn that records the outcome with evidence. A test a person answers is yours to record, with what they said.",
             confirm: "Record prediction",
             choicesLabel: rivals.length ? "This test comes out the OPPOSITE way under (discriminates):" : "",
             choices: rivals.map((r) => ({ id: r.id, label: hypName(r, hs) + " — " + (r.statement.length > 70 ? r.statement.slice(0, 69) + "…" : r.statement), title: r.statement, checked: rivals.length === 1 })),
@@ -3811,13 +3837,25 @@ export class InvestigationDocuments {
               row.appendChild(rr);
             }
             if (!manual) {
+              // One row's test, run as a scoped turn — the ⚡ family, like Run
+              // tests but for this prediction alone (adr/0075).
               const test = document.createElement("button");
               test.className = "testbtn" + (live ? "" : " predact");
-              test.textContent = p.ordinal ? "Test " + predName(p) : "Test this";
+              const label = "⚡ Test " + (p.ordinal ? predName(p) : "this");
+              test.textContent = label;
               test.title = p.testQuery && p.testQuery.queryText
-                ? "Stage just this test in the composer: " + p.testQuery.queryText
-                : "Stage a test of just this prediction in the composer";
-              test.addEventListener("click", () => stageInComposer(predictionTestText(p, h, hs)));
+                ? "Runs just this test as an agent turn: " + p.testQuery.queryText + " — the outcome and its evidence land on this row."
+                : "Runs a test of just this prediction as an agent turn; the outcome and its evidence land on this row.";
+              test.addEventListener("click", () => {
+                if (sendBtn.disabled) return; // a turn is already running
+                test.disabled = true;
+                test.textContent = "⚡ testing…";
+                vscode.postMessage({
+                  type: "pred.test", predictionRef: p.id, predictionName: p.ordinal ? predName(p) : "this prediction",
+                  statement: p.statement, queryText: (p.testQuery || {}).queryText, tool: (p.testQuery || {}).tool,
+                  hypothesisRef: h.id, hypStatement: h.statement, handle: h.handle, rivals: rivalsOf(h, hs),
+                });
+              });
               row.appendChild(test);
             }
           } else if (trefs.length) {
