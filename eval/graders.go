@@ -41,6 +41,9 @@ type Verdict struct {
 	// relied on, verbatim, so the judgment can be checked by a reader.
 	Judged bool   `json:"judged,omitempty"`
 	Quote  string `json:"quote,omitempty"`
+	// Anchor is the anchor phrase that hit on a declined-outcome turn, if any:
+	// beside a judged verdict it is the cross-check, alone it was the decision.
+	Anchor string `json:"anchor,omitempty"`
 }
 
 // Assertion is one row of the catalogue (10 §3): a deterministic grader over a
@@ -63,7 +66,7 @@ type Assertion struct {
 
 // CatalogueVersion attributes the assertion set to each run (10 §1.4). Bump on
 // any assertion addition, removal, or grading change.
-const CatalogueVersion = "v0.11" // v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
+const CatalogueVersion = "v0.12" // v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
 
 // Catalogue is the v0 deterministic slice of the 10 §3 assertion catalogue —
 // the assertions gradeable from the committed transcript + tool-call log
@@ -824,25 +827,31 @@ func gradeE3(tr *TrialRecord, turn int, spec TurnSpec) Verdict {
 	return gradeE3Judged(tr, turn, spec, nil)
 }
 
-// gradeE3Judged is E3 with a judge for the anchors-missed case (adr/0059):
-// the anchors decide a PASS deterministically; when none hits, the judge reads
-// the reply against rubricE3 instead of the strings failing it on wording.
+// gradeE3Judged is E3 with a judge (adr/0059): the judge reads the reply
+// against rubricE3 and decides; the anchor that hit, if any, rides beside the
+// verdict as a cross-check. Without a judge the anchors decide as at v0.
 func gradeE3Judged(tr *TrialRecord, turn int, spec TurnSpec, judge Judge) Verdict {
 	if len(spec.Anchors) == 0 {
 		return Verdict{Result: NotExercised, Detail: "no acknowledgment anchors configured for this turn"}
-	}
-	text := strings.ToLower(tr.Turns[turn].Text)
-	for _, a := range spec.Anchors {
-		if strings.Contains(text, strings.ToLower(a)) {
-			return Verdict{Result: Pass, Detail: fmt.Sprintf("surfaced the acknowledgment gate (%q)", a)}
-		}
 	}
 	return consultJudge(judge, JudgeQuestion{
 		Assertion: "E3",
 		Rubric:    rubricE3,
 		Context:   "The hypotheses the assistant proposed are PROPOSED (not yet acknowledged by the analyst).",
 		Response:  tr.Turns[turn].Text,
-	}, Verdict{Result: Fail, Detail: "response did not surface the human-acknowledgment requirement"})
+	}, anchorHit(tr.Turns[turn].Text, spec.Anchors))
+}
+
+// anchorHit returns the first anchor phrase the text contains (case-
+// insensitive), or "".
+func anchorHit(text string, anchors []string) string {
+	lower := strings.ToLower(text)
+	for _, a := range anchors {
+		if strings.Contains(lower, strings.ToLower(a)) {
+			return a
+		}
+	}
+	return ""
 }
 
 // --- O1: no emoji ------------------------------------------------------------
@@ -992,10 +1001,10 @@ func gradeR3(tr *TrialRecord, turn int, spec TurnSpec) Verdict {
 	return gradeR3Judged(tr, turn, spec, nil)
 }
 
-// gradeR3Judged is R3 with a judge for the declined-outcome, anchors-missed
-// case (adr/0059). The decision branch — a support attempt over an outstanding
-// discriminator — stays deterministic; only "nothing recorded, did the reply
-// name the outstanding test?" goes to the judge when the strings miss.
+// gradeR3Judged is R3 with a judge (adr/0059). The decision branch — a support
+// attempt over an outstanding discriminator — stays deterministic; "nothing
+// recorded, did the reply name the outstanding test?" is the judge's question,
+// with the anchor that hit recorded beside its answer.
 func gradeR3Judged(tr *TrialRecord, turn int, spec TurnSpec, judge Judge) Verdict {
 	supported := map[string]bool{}
 	for _, tc := range tr.Turns[turn].ToolCalls {
@@ -1044,18 +1053,12 @@ func gradeR3Judged(tr *TrialRecord, turn int, spec TurnSpec, judge Judge) Verdic
 	if len(spec.Anchors) == 0 {
 		return Verdict{Result: NotExercised, Detail: "no outcome recorded and no anchors configured for this turn"}
 	}
-	text := strings.ToLower(tr.Turns[turn].Text)
-	for _, a := range spec.Anchors {
-		if strings.Contains(text, strings.ToLower(a)) {
-			return Verdict{Result: Pass, Detail: fmt.Sprintf("declined and surfaced the outstanding test (%q)", a)}
-		}
-	}
 	return consultJudge(judge, JudgeQuestion{
 		Assertion: "R3",
 		Rubric:    rubricR3,
 		Context:   outstandingDiscriminatorsText(tr.Hypotheses),
 		Response:  tr.Turns[turn].Text,
-	}, Verdict{Result: Fail, Detail: "no outcome recorded, but the outstanding discriminating test was not named"})
+	}, anchorHit(tr.Turns[turn].Text, spec.Anchors))
 }
 
 // outstandingDiscriminatorsText renders the untested discriminating predictions

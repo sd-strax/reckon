@@ -249,17 +249,27 @@ func (r *Report) Summary() string {
 		fmt.Fprintf(&b, "\n%s\n", r.usageLine())
 	}
 	if r.JudgeCalls > 0 {
-		var judged []string
+		var disagreed []string
+		agreed := 0
 		for _, res := range r.Results {
 			for i, v := range res.Verdicts {
-				if v.Judged {
-					judged = append(judged, fmt.Sprintf("%s trial %d → %s", res.Key(), i+1, v.Result))
+				if !v.Judged {
+					continue
 				}
+				if (v.Result == Pass) == (v.Anchor != "") {
+					agreed++
+					continue
+				}
+				disagreed = append(disagreed, fmt.Sprintf("%s trial %d: judge %s, anchor %q", res.Key(), i+1, v.Result, v.Anchor))
 			}
 		}
 		u := r.JudgeUsage
-		fmt.Fprintf(&b, "judge: %d verdict(s) decided by %s, %s in + %s out — %s\n",
-			r.JudgeCalls, r.Attribution.JudgeModel, humanTokens(u.Input+u.CacheWrite+u.CacheRead), humanTokens(u.Output), strings.Join(judged, "; "))
+		fmt.Fprintf(&b, "judge: %d verdict(s) by %s, %s in + %s out; anchors agreed on %d, disagreed on %d",
+			r.JudgeCalls, r.Attribution.JudgeModel, humanTokens(u.Input+u.CacheWrite+u.CacheRead), humanTokens(u.Output), agreed, len(disagreed))
+		if len(disagreed) > 0 {
+			fmt.Fprintf(&b, " — %s", strings.Join(disagreed, "; "))
+		}
+		b.WriteString("\n")
 	}
 	if n := r.MustFailures(); n > 0 {
 		fmt.Fprintf(&b, "\n%d MUST assertion(s) failed — defects.\n", n)

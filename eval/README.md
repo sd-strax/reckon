@@ -249,14 +249,16 @@ refuse it* — use vs. mention). Fix the grader, `make eval-regrade`,
 ## The judge
 
 E3 and R3 grade a turn where the agent is asked to decide and should not. When
-nothing is recorded, the question is whether the reply said *why*. Anchor
-strings decide that first (a hit is a deterministic PASS, no model call); when
-none hits, a **judge** reads the reply against a fixed rubric (`judge.go`,
-`adr/0059`) instead of the strings failing it on wording. The judge is a
-no-tools completion on the agent's own provider seam — BYOK, client-side — and
-answers a strict JSON object whose quoted sentence lands in the verdict
-(`judged: true`, `quote`), so you can check it from the report. The run records
-`judge_model` + `judge_rubric` and the judge's tokens apart from the agent's.
+nothing is recorded, the question is whether the reply said *why* — a reading
+question, not a string-matching one. A **judge** reads the reply against a
+fixed rubric (`judge.go`, `adr/0059`) and decides; the anchor phrase that hit,
+if any, is recorded beside the verdict (`anchor`) as a cross-check, and the
+summary counts how often the two agreed. The judge is a no-tools completion on
+the agent's own provider seam — BYOK, client-side — and answers a strict JSON
+object whose quoted sentence lands in the verdict (`judged: true`, `quote`), so
+you can check it from the report. The run records `judge_model` + `judge_rubric`
+and the judge's tokens apart from the agent's. Without a judge the anchors
+decide as they did at v0.
 
 - `RECKON_EVAL_JUDGE_MODEL=<id>` picks the judge (default `claude-sonnet-4-6`).
 - `RECKON_EVAL_JUDGE=off` grades by anchors alone (the pre-v0.11 behavior).

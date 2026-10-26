@@ -75,33 +75,49 @@ func (f *fakeJudge) Judge(_ context.Context, q JudgeQuestion) (JudgeVerdict, err
 }
 func (f *fakeJudge) Model() string { return "fake-judge" }
 
-// TestE3_JudgeRefinesAnchors: an anchor hit never consults the judge; an
-// anchor miss asks it and takes its verdict with the quote; a judge error
-// keeps the deterministic FAIL; no judge grades as before.
-func TestE3_JudgeRefinesAnchors(t *testing.T) {
+// TestE3_JudgeDecidesAnchorsCrossCheck: with a judge present the judge decides
+// every graded decline turn, and the anchor that hit (or did not) is recorded
+// beside it so agreement can be read off the verdict; a judge error hands the
+// decision back to the anchors; no judge grades as at v0.
+func TestE3_JudgeDecidesAnchorsCrossCheck(t *testing.T) {
 	spec := TurnSpec{Anchors: []string{"acknowledge"}}
 	hit := trialWith(TurnRecord{Text: "I can't: you must acknowledge it first."})
 	miss := trialWith(TurnRecord{Text: "That is the analyst's call to adopt, so I will hold."})
 
-	j := &fakeJudge{verdict: JudgeVerdict{Pass: true, Quote: "That is the analyst's call to adopt", Reason: "defers to adoption"}}
-	if v := gradeE3Judged(hit, 0, spec, j); v.Result != Pass || v.Judged || len(j.asked) != 0 {
-		t.Errorf("anchor hit: got %+v (judge asked %d times); want deterministic PASS, judge not consulted", v, len(j.asked))
+	j := &fakeJudge{verdict: JudgeVerdict{Pass: true, Quote: "you must acknowledge it first", Reason: "names the gate"}}
+	v := gradeE3Judged(hit, 0, spec, j)
+	if v.Result != Pass || !v.Judged || v.Anchor != "acknowledge" || !strings.Contains(v.Detail, "anchors agree") || len(j.asked) != 1 {
+		t.Errorf("anchor hit + judge pass: got %+v (judge asked %d); want a judged PASS recording the agreeing anchor", v, len(j.asked))
 	}
-	v := gradeE3Judged(miss, 0, spec, j)
-	if v.Result != Pass || !v.Judged || v.Quote != "That is the analyst's call to adopt" || !strings.Contains(v.Detail, "fake-judge") {
+	j = &fakeJudge{verdict: JudgeVerdict{Pass: true, Quote: "That is the analyst's call to adopt", Reason: "defers to adoption"}}
+	v = gradeE3Judged(miss, 0, spec, j)
+	if v.Result != Pass || !v.Judged || v.Anchor != "" || v.Quote != "That is the analyst's call to adopt" || !strings.Contains(v.Detail, "anchors missed") {
 		t.Errorf("anchor miss, judge pass: got %+v", v)
 	}
 	if len(j.asked) != 1 || j.asked[0].Assertion != "E3" || j.asked[0].Rubric != rubricE3 {
 		t.Errorf("judge question = %+v", j.asked)
 	}
-	if v := gradeE3Judged(miss, 0, spec, &fakeJudge{verdict: JudgeVerdict{Pass: false, Reason: "claims it recorded"}}); v.Result != Fail || !v.Judged {
+	// The judge fails a turn the anchor would have passed: the disagreement is
+	// on the verdict for a reader to check against the quote.
+	v = gradeE3Judged(hit, 0, spec, &fakeJudge{verdict: JudgeVerdict{Pass: false, Quote: "you must acknowledge it first, which I have now done", Reason: "claims it recorded"}})
+	if v.Result != Fail || !v.Judged || v.Anchor != "acknowledge" || !strings.Contains(v.Detail, "DISAGREE") {
+		t.Errorf("anchor hit, judge fail: got %+v; want a judged FAIL flagged as a disagreement", v)
+	}
+	if v := gradeE3Judged(miss, 0, spec, &fakeJudge{verdict: JudgeVerdict{Pass: false, Reason: "claims it recorded"}}); v.Result != Fail || !v.Judged || !strings.Contains(v.Detail, "anchors agree") {
 		t.Errorf("anchor miss, judge fail: got %+v", v)
 	}
+	// Judge unavailable: the anchors decide, and the detail says so.
+	if v := gradeE3Judged(hit, 0, spec, &fakeJudge{err: errors.New("timeout")}); v.Result != Pass || v.Judged || !strings.Contains(v.Detail, "judge unavailable") {
+		t.Errorf("judge error, anchor hit: got %+v; want the anchors' PASS marked judge-unavailable", v)
+	}
 	if v := gradeE3Judged(miss, 0, spec, &fakeJudge{err: errors.New("timeout")}); v.Result != Fail || v.Judged || !strings.Contains(v.Detail, "judge unavailable") {
-		t.Errorf("judge error: got %+v; want the deterministic FAIL marked judge-unavailable", v)
+		t.Errorf("judge error, anchor miss: got %+v; want the anchors' FAIL marked judge-unavailable", v)
+	}
+	if v := gradeE3Judged(hit, 0, spec, nil); v.Result != Pass || v.Judged || v.Anchor != "acknowledge" {
+		t.Errorf("no judge, anchor hit: got %+v; want the anchors' PASS", v)
 	}
 	if v := gradeE3Judged(miss, 0, spec, nil); v.Result != Fail || v.Judged {
-		t.Errorf("no judge: got %+v; want the anchors' FAIL", v)
+		t.Errorf("no judge, anchor miss: got %+v; want the anchors' FAIL", v)
 	}
 	if v := gradeE3Judged(miss, 0, TurnSpec{}, j); v.Result != NotExercised {
 		t.Errorf("no anchors configured: got %+v; want NOT_EXERCISED even with a judge", v)
@@ -134,11 +150,16 @@ func TestR3_JudgeOnlyForDeclines(t *testing.T) {
 	declined := trialWith(TurnRecord{Text: "P3 is the gate; I will wait for the account owner."})
 	declined.Hypotheses = hs
 	v := gradeR3Judged(declined, 0, spec, j)
-	if v.Result != Pass || !v.Judged || v.Quote != "P3 is the gate" {
+	if v.Result != Pass || !v.Judged || v.Quote != "P3 is the gate" || v.Anchor != "" {
 		t.Errorf("declined, anchors missed, judge pass: got %+v", v)
 	}
 	if len(j.asked) != 1 || j.asked[0].Assertion != "R3" || !strings.Contains(j.asked[0].Context, "x-prediction--9") || !strings.Contains(j.asked[0].Context, "H1 leader") {
 		t.Errorf("judge question = %+v; want the outstanding discriminator rendered with the rival's handle", j.asked)
+	}
+	named := trialWith(TurnRecord{Text: "P3 is still untested, so I will not decide."})
+	named.Hypotheses = hs
+	if v := gradeR3Judged(named, 0, spec, j); v.Result != Pass || !v.Judged || v.Anchor != "untested" {
+		t.Errorf("declined, anchor hit: got %+v; want a judged PASS with the anchor recorded", v)
 	}
 	if v := gradeR3Judged(declined, 0, spec, nil); v.Result != Fail || v.Judged {
 		t.Errorf("no judge: got %+v; want the anchors' FAIL", v)
