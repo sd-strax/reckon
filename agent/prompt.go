@@ -47,10 +47,16 @@ func framingOrDefault(mode string) string {
 type promptRule struct {
 	// ID is the rule's stable slug — how ADRs, issues, and eval notes refer to it.
 	ID string
-	// Since names what introduced the rule: a commit for the founding set, an
-	// issue or PR number afterwards. Git history is the audit trail; this is
-	// the pointer into it.
-	Since string
+	// Origin is what introduced the rule, as one pointer: a GitHub issue
+	// ("#54" — github.com/sd-strax/reckon/issues/54, and adr/0054-*.md where
+	// the issue has a decision record) or, for rules older than the issue
+	// discipline, the 7-character commit that added it ("80420c3" — git show).
+	// Git history is the audit trail; this is the pointer into it.
+	Origin string
+	// Revised lists, in order, the issues (or commits) that changed the rule's
+	// wording after Origin, in the same pointer form. The current Text is the
+	// result of the last one.
+	Revised []string
 	// Why is the principle the rule encodes, in one line, with no scenario
 	// vocabulary — the test of whether the rule is doctrine or a patch.
 	Why string
@@ -97,7 +103,7 @@ var promptLedger = []promptSection{
 		Rules: []promptRule{
 			{
 				ID:        "hypothesis-first",
-				Since:     "80420c3",
+				Origin:    "80420c3",
 				Why:       "An investigation is a loop of falsifiable claims, tests, and evidence-cited outcomes — the reasoning model the domain is built on (design/01 §x-hypothesis, design/09 §2).",
 				Enforced:  "aggregate: outcomes cite test_result_refs; hypotheses are PROPOSED until a human acknowledges",
 				Validated: []string{scenarioLateralMovement},
@@ -105,7 +111,8 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:                "one-claim",
-				Since:             "#6; revised #60",
+				Origin:            "#6",
+				Revised:           []string{"#60"},
 				Why:               "A compound hypothesis is not falsifiable as a unit; confirmations of its parts hide the one question that changes the response.",
 				Graded:            "R1",
 				PendingValidation: "#60",
@@ -113,7 +120,8 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:                "framing",
-				Since:             "#6; revised #60",
+				Origin:            "#6",
+				Revised:           []string{"#60"},
 				Why:               "The alternative that would make the leader wrong is framed up front, and only when a test can tell them apart — the competing set is the unit of reasoning (design/01 §x-hypothesis, the reasoning.hypothesis_framing dial).",
 				Graded:            "R1",
 				PendingValidation: "#60",
@@ -122,7 +130,8 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:                "tests-discriminate",
-				Since:             "#6; manual tests #54; revised #60",
+				Origin:            "#6",
+				Revised:           []string{"#54", "#60"},
 				Why:               "Evidence is asymmetric: a prediction whose outcome differs across rivals decides, one that comes out the same under both does not. A test is a person's to run only when no capability can answer it, and its result is then the analyst's to record.",
 				Enforced:          "aggregate: discriminates is data on x-prediction; an AI delegate records no outcome but withdraw on a manual prediction (adr/0054)",
 				Graded:            "R2",
@@ -131,7 +140,8 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:                "decide-against-rivals",
-				Since:             "#6; engine gate #51; revised #60",
+				Origin:            "#6",
+				Revised:           []string{"#51", "#60"},
 				Why:               "A hypothesis is decided against its rivals, not by counting its own confirmations; an untested discriminator leaves the set undecided.",
 				Enforced:          "aggregate: outstandingDiscriminatorGate refuses the AI's SUPPORTED/REFUTED over an untested discriminator (adr/0051)",
 				Graded:            "R3",
@@ -140,7 +150,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "cite-evidence",
-				Since:     "80420c3",
+				Origin:    "80420c3",
 				Why:       "A claim the record cannot trace to an observation is a guess; grounding is a mechanism, not a courtesy (design/09 §3).",
 				Enforced:  "aggregate: decisive outcomes require test_result_refs; action requests require evidence_refs",
 				Graded:    "G1, G4",
@@ -149,28 +159,29 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:                "mitre-labels",
-				Since:             "80420c3; revised #60",
+				Origin:            "80420c3",
+				Revised:           []string{"#60"},
 				Why:               "Technique ids make hypotheses comparable across investigations and feed the knowledge summary (design/06 §3.2).",
 				PendingValidation: "#60",
 				Text:              "Label hypotheses with MITRE ATT&CK technique ids when the evidence points to a technique.",
 			},
 			{
 				ID:        "consult-sops",
-				Since:     "80420c3",
+				Origin:    "80420c3",
 				Why:       "Institutional procedure is consulted, not invented; an empty retrieval is itself information (design/06 §5).",
 				Validated: []string{scenarioLateralMovement},
 				Text:      "Consult SOPs (recall_sops) when the situation matches operational procedure; EMPTY retrieval is evidence of absence — say so rather than inventing procedure.",
 			},
 			{
 				ID:        "coverage",
-				Since:     "80420c3",
+				Origin:    "80420c3",
 				Why:       "Partial coverage reported as a full answer is a false negative the analyst cannot see (design/03 §6.1).",
 				Validated: []string{scenarioLateralMovement},
 				Text:      "Read tool coverage matters: COMPLETE means the answer is grounded; PARTIAL/UNAVAILABLE_* means say what you could not see. Never present partial coverage as a full answer.",
 			},
 			{
 				ID:        "terse-rationales",
-				Since:     "80420c3",
+				Origin:    "80420c3",
 				Why:       "Recorded rationales are capped and audited; narrative belongs in the reply.",
 				Enforced:  "aggregate: rationale length caps",
 				Validated: []string{scenarioLateralMovement},
@@ -183,7 +194,7 @@ var promptLedger = []promptSection{
 		Rules: []promptRule{
 			{
 				ID:        "delegate-not-principal",
-				Since:     "80420c3",
+				Origin:    "80420c3",
 				Why:       "The AI is a delegate: it proposes, a human decides (design/04 §3; CLAUDE.md architectural commitments).",
 				Enforced:  "aggregate: AI write-protection on approve/reject/conclude/reopen/archive",
 				Graded:    "A3",
@@ -192,14 +203,14 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "approval-inside-product",
-				Since:     "c881117",
+				Origin:    "c881117",
 				Why:       "Dispatch is the engine's durable workflow; directing the analyst to an external console breaks the audit chain (design/08 §6).",
 				Validated: []string{scenarioLateralMovement},
 				Text:      "Approval and execution happen INSIDE this product. A requested action sits in the engine's queue until the analyst approves it in this same surface (they get an inline approve prompt after your turn); on approval the ENGINE dispatches it through its durable workflow and records the outcome. There is no external console step — never direct the analyst to an EDR/SOAR/ticketing console to \"execute\" a reckon action.",
 			},
 			{
 				ID:        "chat-is-not-approval",
-				Since:     "c881117",
+				Origin:    "c881117",
 				Why:       "An approval is an explicit act at the approval prompt, attributed and recorded; words in chat are not (design/04 §3).",
 				Enforced:  "aggregate: approve is a command from the human principal, never inferred",
 				Validated: []string{scenarioLateralMovement},
@@ -207,7 +218,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "never-assume-state",
-				Since:     "c881117",
+				Origin:    "c881117",
 				Why:       "Action state is the engine's record; memory of a request is not its status.",
 				Graded:    "H4",
 				Validated: []string{scenarioLateralMovement},
@@ -215,7 +226,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "action-exists-only-with-id",
-				Since:     "6b14bae",
+				Origin:    "6b14bae",
 				Why:       "A claimed action with no returned id is a fabrication; the returned id is what makes the claim verifiable (implementation/agent-reliability.md §2).",
 				Enforced:  "loop: the ground-truth reconciliation footer and the engine-state anchor",
 				Graded:    "H8, H7",
@@ -224,7 +235,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "fresh-call-per-create",
-				Since:     "6b14bae",
+				Origin:    "6b14bae",
 				Why:       "Restating a past success is not an act; each creation is a tool call the engine records.",
 				Graded:    "H8",
 				Validated: []string{scenarioLateralMovement},
@@ -232,7 +243,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "parameters-are-an-object",
-				Since:     "6b14bae; graded #17",
+				Origin:    "6b14bae",
 				Why:       "A stringified parameters object templates to an empty field against a real write adapter; the loop repairs it, the model should not need it to.",
 				Enforced:  "loop: UnwrapStringifiedObject",
 				Graded:    "H5, H6",
@@ -241,7 +252,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "narrowest-action",
-				Since:     "80420c3",
+				Origin:    "80420c3",
 				Why:       "Blast radius, not the verb, drives the trust tier; the narrowest action that addresses the evidence is the one to request (design/04 §1).",
 				Enforced:  "action: the T2→T3 blast-radius escalator",
 				Validated: []string{scenarioLateralMovement},
@@ -249,7 +260,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "proposed-by-design",
-				Since:     "80420c3",
+				Origin:    "80420c3",
 				Why:       "An AI-authored hypothesis is a proposal until a human adopts it; the model should not read that as failure (trust.ai_reasoning).",
 				Enforced:  "aggregate: the acknowledgment gate",
 				Graded:    "E3",
@@ -263,7 +274,7 @@ var promptLedger = []promptSection{
 		Rules: []promptRule{
 			{
 				ID:        "expert-prose",
-				Since:     "c13fff1",
+				Origin:    "c13fff1",
 				Why:       "The reader is a threat hunter; decoration costs attention.",
 				Graded:    "O1",
 				Validated: []string{scenarioLateralMovement},
@@ -271,7 +282,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "raw-data-verbatim",
-				Since:     "c13fff1",
+				Origin:    "c13fff1",
 				Why:       "A raw-data request is a request for the record, not a reading of it.",
 				Graded:    "H2",
 				Validated: []string{scenarioLateralMovement},
@@ -279,7 +290,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "no-concession-without-evidence",
-				Since:     "c13fff1",
+				Origin:    "c13fff1",
 				Why:       "A position changes on evidence, not on pressure; a concession without a reason is a false record.",
 				Graded:    "E1",
 				Validated: []string{scenarioLateralMovement},
@@ -287,7 +298,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "no-live-feed",
-				Since:     "0c9a418",
+				Origin:    "0c9a418",
 				Why:       "The model has no clock and no feed; every observation is dated and the present is the engine's [clock] block.",
 				Enforced:  "loop: the [clock] block on every turn",
 				Graded:    "E2",
@@ -296,7 +307,8 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:                "proportionate",
-				Since:             "c13fff1; tightened 304a942; revised #60",
+				Origin:            "c13fff1",
+				Revised:           []string{"304a942", "#60"},
 				Why:               "The answer comes first and the reply is sized to the question; an engine refusal is part of the answer, not an explanation of authority.",
 				Graded:            "O2",
 				PendingValidation: "#60",
@@ -304,7 +316,7 @@ var promptLedger = []promptSection{
 			},
 			{
 				ID:        "team-voice",
-				Since:     "304a942",
+				Origin:    "304a942",
 				Why:       "The agent speaks as part of the analyst's team, not as the engine describing a tenant.",
 				Validated: []string{scenarioLateralMovement},
 				Text:      "Speak as part of the team: \"we\"/\"our\", never \"the tenant\" or other engine vocabulary.",

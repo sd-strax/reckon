@@ -1,9 +1,14 @@
 package agent
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// pointerRe is the one form a ledger provenance pointer takes: a GitHub issue
+// number or a 7-character commit — resolvable by anyone with the repo.
+var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 
 // TestPrompt_Frozen pins the base prompt's version for each framing dial
 // (adr/0057). The prompt is the soft layer of the agent's behavior and every
@@ -20,7 +25,7 @@ func TestPrompt_Frozen(t *testing.T) {
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
 			t.Errorf("prompt version under %s = %s; want %s\n"+
-				"  the base prompt changed. If that is deliberate: update this golden, the promptLedger entry of the rule that moved (Since/Why/Validated), and rerun the per-model eval baselines (make eval; make eval-accept) — design/10 §4.4.",
+				"  the base prompt changed. If that is deliberate: update this golden, the promptLedger entry of the rule that moved (Revised/Why/PendingValidation), and rerun the per-model eval baselines (make eval; make eval-accept) — design/10 §4.4.",
 				dial, got, want)
 		}
 	}
@@ -45,8 +50,13 @@ func TestPromptLedger_Complete(t *testing.T) {
 				t.Errorf("rule ID %q is used twice", r.ID)
 			}
 			seen[r.ID] = true
-			if r.Since == "" {
-				t.Errorf("rule %s: Since is empty — name the commit, issue, or PR that introduced it", r.ID)
+			if !pointerRe.MatchString(r.Origin) {
+				t.Errorf("rule %s: Origin %q is not one pointer — want an issue (\"#54\") or a 7-char commit (\"80420c3\")", r.ID, r.Origin)
+			}
+			for _, rev := range r.Revised {
+				if !pointerRe.MatchString(rev) {
+					t.Errorf("rule %s: Revised entry %q is not a pointer — want an issue (\"#60\") or a 7-char commit", r.ID, rev)
+				}
 			}
 			if strings.TrimSpace(r.Why) == "" {
 				t.Errorf("rule %s: Why is empty — state the principle, or the rule is a patch", r.ID)

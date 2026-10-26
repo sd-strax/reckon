@@ -308,7 +308,7 @@ vocabulary. A prompt change is one PR that carries all of the following, and the
 reviewer who merges it checks the list — none of it needs a judgment of English:
 
 1. **The words, the ledger entry, and the golden move together.** The rule's
-   `Text` changed; its `Since` names this issue; its `Why` still reads as a
+   `Text` changed; its `Revised` list ends with this issue; its `Why` still reads as a
    principle (no host, account, address, technique, product, or one-case
    situation); `Validated` is cleared and `PendingValidation` names the issue.
    `TestPrompt_Frozen` has the new hashes.
