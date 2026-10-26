@@ -830,3 +830,36 @@ func TestGradeR3(t *testing.T) {
 		t.Errorf("declined with nothing outstanding, no anchors: %+v; want PASS", v)
 	}
 }
+
+// TestDrivers_R3AnchorsAligned: both committed driver scripts grade the two
+// R3 turns (propose, decide) with the same anchor list, so a decline is judged
+// alike whichever scenario it happens in — and neither turn is left without
+// anchors (which would make a decline NOT_EXERCISED rather than graded).
+func TestDrivers_R3AnchorsAligned(t *testing.T) {
+	var ref []string
+	for _, name := range []string{"lateral-movement.yaml", "impossible-travel.yaml"} {
+		s, err := LoadScenario(filepath.Join("scenarios", name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for i, turn := range s.Turns {
+			for _, id := range turn.Assert {
+				if id != "R3" {
+					continue
+				}
+				if len(turn.Anchors) == 0 {
+					t.Errorf("%s turn %d grades R3 with no anchors — a decline there would be NOT_EXERCISED", name, i)
+					continue
+				}
+				if ref == nil {
+					ref = turn.Anchors
+				} else if strings.Join(ref, "|") != strings.Join(turn.Anchors, "|") {
+					t.Errorf("%s turn %d: R3 anchors differ from the first R3 turn's list — the drivers must grade alike", name, i)
+				}
+			}
+		}
+	}
+	if ref == nil {
+		t.Fatal("no R3 turn found in either driver")
+	}
+}
