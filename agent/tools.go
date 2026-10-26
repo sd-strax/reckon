@@ -59,7 +59,7 @@ func verbToolDef(c Capability) ToolDef {
 			props["entity"] = map[string]any{
 				"type": "object",
 				"description": in.Desc + " — a typed entity object keyed by kind, " +
-					`e.g. {"host":{"hostname":"WIN-FILE01"}}, {"user":{"name":"jdoe"}}, {"process":{"pid":4312}}`,
+					`e.g. {"host":{"hostname":"<hostname>"}}, {"user":{"name":"<account>"}}, {"process":{"pid":1234}} (pid is a number), {"ip":"<address>"}`,
 			}
 			if in.Required {
 				required = append(required, "entity")
@@ -127,9 +127,9 @@ func intrinsicTools(actionTypes []ActionType) []ToolDef {
 			Description: "Propose one falsifiable hypothesis — ONE claim, not a compound story. Hypotheses compete: call this once per rival (the leader, then the concrete alternative). It is recorded PROPOSED until the analyst acknowledges it. Returns the hypothesis id for later predictions and evaluation.",
 			InputSchema: obj(map[string]any{
 				"statement":     str("the claim, one or two sentences, falsifiable, a single mechanism"),
-				"handle":        str("short mnemonic the analyst will refer to it by, e.g. \"H1 rdp-lateral\", \"H2 legit-admin\" (number them in proposal order)"),
+				"handle":        str("short mnemonic the analyst will refer to it by: a number in proposal order plus two or three words naming the mechanism, e.g. \"H1 <mechanism>\", \"H2 <rival mechanism>\""),
 				"rationale":     str("why you believe this, citing evidence refs"),
-				"labels":        strList("MITRE ATT&CK technique ids where evident, e.g. T1021.001"),
+				"labels":        strList("MITRE ATT&CK technique ids where evident"),
 				"rooted_at_ref": str("STIX id of the anchor entity, optional"),
 				"parent_ref":    str("x-hypothesis id this refines, optional"),
 				"confidence":    str("HIGH | MEDIUM | LOW"),
@@ -137,14 +137,14 @@ func intrinsicTools(actionTypes []ActionType) []ToolDef {
 		},
 		{
 			Name:        ToolRecordPrediction,
-			Description: "Record a testable prediction under a hypothesis: what you expect to observe if it is true, and what query would test it. A prediction that DISCRIMINATES — one a rival hypothesis predicts the opposite outcome for — is worth more than one that merely confirms; name those rivals in discriminates. When only a person can test it (the account owner confirming a session, the change owner confirming a window), set test_kind to manual and say in test_query whom to ask and what: the analyst records that result, you never do.",
+			Description: "Record a testable prediction under a hypothesis: what you expect to observe if it is true, and what query would test it. A prediction that DISCRIMINATES — one a rival hypothesis predicts the opposite outcome for — is worth more than one that merely confirms; name those rivals in discriminates. When a test is manual (no tool available to you can answer it and a person can), set test_kind to manual and say in test_query whom to ask and what; the analyst records its result, never you.",
 			InputSchema: obj(map[string]any{
 				"hypothesis_ref": str("the x-hypothesis id that predicts this WILL be observed (the owner)"),
 				"statement":      str("what should be observable if the hypothesis holds"),
 				"rationale":      str("why this test discriminates (or, if it only confirms, say so)"),
 				"discriminates":  strList("x-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner"),
-				"test_kind":      str("tool (default) | manual — manual when a person's answer decides it and no verb can; prefer a tool test where one exists"),
-				"test_tool":      str("the verb/tool that would test it, optional (for a manual test: who to ask, e.g. \"account owner\")"),
+				"test_kind":      str("tool (default) | manual — manual only when no tool can test the prediction and a person's answer can"),
+				"test_tool":      str("the tool that would test it, optional (for a manual test: the role of the person to ask)"),
 				"test_query":     str("the query text, optional (for a manual test: the question to put to them)"),
 			}, "hypothesis_ref", "statement", "rationale"),
 		},
