@@ -160,6 +160,12 @@ export class EvidenceView {
         case "x-hypothesis": return p.statement || p.text || "Hypothesis";
         case "x-prediction": return p.statement || p.text || "Prediction";
         case "note": return p.abstract || "Attestation"; // a human statement recorded as evidence (adr/0054)
+        case "x-null-observation": { // a complete, empty answer recorded as evidence (adr/0061)
+          var winFrom = p.window_from ? new Date(p.window_from).toISOString().slice(0, 16) + "Z" : "…";
+          var winTo = p.window_to ? new Date(p.window_to).toISOString().slice(0, 16) + "Z" : "…";
+          var win = (p.window_from || p.window_to) ? " over " + winFrom + " – " + winTo : "";
+          return "Nothing observed: " + (p.verb || "query") + win + " (coverage complete)";
+        }
         case "observed-data": return "Observation" + (p.number_observed ? " ×" + p.number_observed : "");
         default: return p.name || p.value || type;
       }

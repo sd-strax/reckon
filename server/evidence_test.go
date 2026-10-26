@@ -87,3 +87,44 @@ func TestEvidence_PersistAndOpen(t *testing.T) {
 		t.Errorf("unknown ref = %d; want 404", code)
 	}
 }
+
+// TestEvidence_NullObservationOpens: a complete, empty answer persists its
+// x-null-observation (adr/0061) and the citation opens like any other.
+func TestEvidence_NullObservationOpens(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	b := newTestBackend(t)
+	b.cfg.CapabilityResolver, b.cfg.CapabilityCatalog = buildInvokeCapability(t)
+
+	token := mintToken(t, nil)
+	// The test fixture answers get_network_connections for H1 only: asking
+	// about H2 is a complete, empty answer.
+	resp, out := postCapability(t, b, token, "get_network_connections", CapabilityInvokeBody{Entity: map[string]any{"host": map[string]any{"hostname": "H2"}}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("invoke = %d", resp.StatusCode)
+	}
+	if out.Coverage != string(capability.CoverageComplete) || out.NullObservation == nil || len(out.ObservedDataRefs) != 1 {
+		t.Fatalf("coverage=%q null=%v refs=%v (notes: %v); want COMPLETE with one citeable null observation", out.Coverage, out.NullObservation != nil, out.ObservedDataRefs, out.DegradationNotes)
+	}
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/evidence/"+out.ObservedDataRefs[0], nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("open null observation = %d", res.StatusCode)
+	}
+	var ev EvidenceView
+	if err := json.NewDecoder(res.Body).Decode(&ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.Kind != "stix" || ev.Type != "x-null-observation" {
+		t.Errorf("opened %s as kind=%q type=%q", out.ObservedDataRefs[0], ev.Kind, ev.Type)
+	}
+}

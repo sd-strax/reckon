@@ -52,6 +52,12 @@ func persistInvokeResult(r *http.Request, db *sql.DB, res capability.CapabilityR
 	stix := func(id string, created time.Time, obj any) error {
 		return upsertStixObject(r, tx, tenant, id, created, obj)
 	}
+	if n := res.NullObservation; n != nil {
+		// The absence is a citeable object like any observation (adr/0061).
+		if err := stix(string(n.ID), n.ObservedAt, n); err != nil {
+			return err
+		}
+	}
 	for _, n := range res.Normalized {
 		for _, od := range n.ObservedData {
 			if err := stix(string(od.ID), od.FirstObserved, od); err != nil {

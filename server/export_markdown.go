@@ -455,6 +455,33 @@ func stixLabel(typ string, payload []byte) string {
 			return firstNonEmpty(n.Abstract, oneLine(n.Content))
 		}
 		return ""
+	case "x-null-observation":
+		// A complete, empty answer (adr/0061) reads as what was searched and
+		// over what window, so the report says "nothing found" with its scope.
+		var n struct {
+			Verb       string     `json:"verb"`
+			Sources    []string   `json:"sources"`
+			WindowFrom *time.Time `json:"window_from"`
+			WindowTo   *time.Time `json:"window_to"`
+		}
+		if err := json.Unmarshal(payload, &n); err != nil {
+			return ""
+		}
+		s := "nothing observed: " + n.Verb
+		if len(n.Sources) > 0 {
+			s += " from " + strings.Join(n.Sources, ", ")
+		}
+		if n.WindowFrom != nil || n.WindowTo != nil {
+			from, to := "…", "…"
+			if n.WindowFrom != nil {
+				from = n.WindowFrom.UTC().Format("2006-01-02 15:04Z")
+			}
+			if n.WindowTo != nil {
+				to = n.WindowTo.UTC().Format("2006-01-02 15:04Z")
+			}
+			s += " over " + from + " – " + to
+		}
+		return s + " (coverage complete)"
 	default:
 		return firstNonEmpty(get("name"), get("value"))
 	}

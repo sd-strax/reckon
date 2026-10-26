@@ -57,6 +57,10 @@ func NewRegistry(r *identity.Resolver) *Registry {
 // organization's namespace and never merge across organizations. Cheap enough
 // to build per scoped call — normalizers are tiny structs and calls are gated by
 // adapter I/O.
+// Identity returns the identity resolver this registry mints with — the scoped
+// one after Scoped — for objects the resolver itself mints (adr/0061).
+func (reg *Registry) Identity() *identity.Resolver { return reg.resolver }
+
 func (reg *Registry) Scoped(scope string) *Registry {
 	if scope == "" {
 		return reg

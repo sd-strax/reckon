@@ -209,6 +209,19 @@ ObservedData
 
 Linked to `OcsfEvent`(s) via the `derived-from` edge.
 
+### NullObservation (custom STIX SDO `x-null-observation`)
+
+The citeable form of absence (adr/0061). Minted by the capability layer when a
+verb's coverage is COMPLETE and no event came back; never by a normalizer over
+an event, never by reasoning. Fields: `verb`, `subject` (the typed entity the
+question was about), `parameters`, `window_from`/`window_to`, `sources`,
+`coverage` (always COMPLETE), `object_refs` to the subject's SCOs where the
+identity is unambiguous from the input alone, `observed_at`, provenance DIRECT.
+It is a legal `test_result_ref` for a DISCONFIRMED (or CONFIRMED) prediction,
+opens from any citation, and travels in the archive bundle like any STIX
+object. A query with PARTIAL coverage and no results mints nothing — the
+absence of the object is itself the signal that nothing honest can be claimed.
+
 ### Sighting (STIX SRO)
 
 ```
@@ -698,7 +711,7 @@ ADOPTED VS INVENTED
 
 - **`x-interpretation`** — primitive that records a reasoning act.
 - **`x-action`** — primitive for state-changing operations. Lifecycle and authorization in 04-action-authorization.md.
-- **Custom STIX SDOs:** `x-hypothesis`, `x-prediction`.
+- **Custom STIX SDOs:** `x-hypothesis`, `x-prediction`, `x-null-observation` — the last records that a complete query observed nothing (adr/0061). STIX has no form for absence: `observed-data` must observe at least one object and a `sighting` sights an indicator, so "no change record exists for this host in this window" had nothing an outcome could cite. The capability layer mints it on a mechanical condition only — coverage COMPLETE and zero results — carrying the verb, the subject entity, the parameters, the window and the sources; a PARTIAL empty answer mints nothing, so an absence the layer cannot vouch for is not citeable and INCONCLUSIVE is the only honest outcome. Identity is UUIDv5 over (verb, sources, subject, parameters, window), so the same question answered empty twice is one object.
 - **Custom STIX SCOs:** `x-host`, `x-registry-key`, `x-scheduled-task`, `x-group` — entity types not covered by STIX 2.1 native; identity rules in 03-capability-layer.md §7.2.
 - **Custom STIX relationship types:** `x-supports`, `x-refutes`, `reverses`; plus the normalizer-emitted observation relationships `parent-process-of`, `x-authenticated-to`, `loads`, `member-of-group`, `clicked` (03-capability-layer.md §4.1, §4.2, §4.8, §4.9, §4.11).
 - **Investigation extension structure** — `Seed`, `Lifecycle`, `ReasoningThread`, `ConclusionSlot` layered on top of `Grouping`.

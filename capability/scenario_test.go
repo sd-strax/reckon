@@ -95,8 +95,13 @@ func TestShippedLateralMovementScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if change.Coverage != CoverageComplete || len(change.ObservedDataRefs) != 0 {
-		t.Errorf("query_external_cases(change record): coverage=%q refs=%d; want COMPLETE/0", change.Coverage, len(change.ObservedDataRefs))
+	// Evidence of absence is citeable (adr/0061): the complete, empty answer
+	// mints an x-null-observation and its id is the one ref in the result.
+	if change.Coverage != CoverageComplete || change.NullObservation == nil || len(change.ObservedDataRefs) != 1 || change.ObservedDataRefs[0] != change.NullObservation.ID {
+		t.Errorf("query_external_cases(change record): coverage=%q null=%v refs=%v; want COMPLETE with the null observation as the only ref", change.Coverage, change.NullObservation != nil, change.ObservedDataRefs)
+	}
+	if change.NullObservation != nil && change.NullObservation.Parameters["filter"] != "WIN-FILE01 change window" {
+		t.Errorf("null observation does not carry the question: %+v", change.NullObservation.Parameters)
 	}
 
 	// Every queued case resolves to exactly one detail read — the fail-closed
@@ -228,8 +233,8 @@ func TestShippedImpossibleTravelScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if travel.Coverage != CoverageComplete || len(travel.ObservedDataRefs) != 0 {
-		t.Errorf("query_external_cases(travel notice): coverage=%q refs=%d; want COMPLETE/0 (evidence of absence)", travel.Coverage, len(travel.ObservedDataRefs))
+	if travel.Coverage != CoverageComplete || travel.NullObservation == nil || len(travel.ObservedDataRefs) != 1 {
+		t.Errorf("query_external_cases(travel notice): coverage=%q null=%v refs=%d; want COMPLETE with a citeable null observation", travel.Coverage, travel.NullObservation != nil, len(travel.ObservedDataRefs))
 	}
 	detail, err := res.Resolve(ctx, "get_external_case_details", CallInput{Extra: map[string]any{"case_id": "INC0012010"}})
 	if err != nil {

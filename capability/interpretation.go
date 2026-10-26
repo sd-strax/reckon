@@ -135,6 +135,41 @@ type VendorIdentity struct {
 	Name string          `json:"name"`
 }
 
+// NullObservation is the custom STIX SDO x-null-observation (01 §Invented,
+// adr/0061): the record that a question was asked of a source with complete
+// coverage and nothing came back. It is what an outcome cites when the
+// evidence is an absence — no change record, no prior alert, no failed
+// sign-in — which STIX cannot express (observed-data must observe something;
+// a sighting sights an indicator). It is minted by the resolver on a
+// mechanical condition, never by reasoning: coverage COMPLETE and zero events.
+// A PARTIAL empty answer mints nothing, so an absence the layer cannot vouch
+// for is not citeable, and the only honest outcome is INCONCLUSIVE.
+type NullObservation struct {
+	ID   identity.STIXID `json:"id"`
+	Type string          `json:"type"` // identity.TypeNullObservation
+	// Verb is the question asked; Subject is the typed entity it was about
+	// (the call's entity input, verbatim); Parameters are the other inputs
+	// (filter, queue, outcome…).
+	Verb       string         `json:"verb"`
+	Subject    map[string]any `json:"subject,omitempty"`
+	Parameters map[string]any `json:"parameters,omitempty"`
+	// WindowFrom/WindowTo bound the absence; an absence is only ever claimed
+	// for the window that was searched.
+	WindowFrom *time.Time `json:"window_from,omitempty"`
+	WindowTo   *time.Time `json:"window_to,omitempty"`
+	// Sources are the source_tools that answered (every binding that
+	// succeeded); Coverage is always COMPLETE — the condition of minting.
+	Sources  []string `json:"sources"`
+	Coverage string   `json:"coverage"`
+	// ObjectRefs links the absence to the subject's SCOs where the subject's
+	// identity is unambiguous from the call input alone (an address, a domain,
+	// a URL, a host); an account is left in Subject until entity shaping is
+	// shared with the normalizers (03 §7.4).
+	ObjectRefs []identity.STIXID `json:"object_refs,omitempty"`
+	ObservedAt time.Time         `json:"observed_at"`
+	Provenance Provenance        `json:"provenance"`
+}
+
 // NormalizationResult is the full output of normalizing one OcsfEvent: the SCOs
 // extracted, the ObservedData grouping them, the STIX relationships between
 // them, and the cross-layer edges back to the OcsfEvent (§4). Indicators,
