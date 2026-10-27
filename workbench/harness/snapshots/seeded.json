@@ -1,0 +1,345 @@
+{
+  "name": "seeded",
+  "snapshot": {
+    "seq": 1,
+    "investigation": {
+      "id": "ba615302-95c5-448a-b62b-7da7348a230e",
+      "title": "Suspicious interactive RDP logon to WIN-FILE01 by svc_backup",
+      "state": "draft",
+      "lastEventSequence": 1,
+      "seed": {
+        "type": "case",
+        "source": "fixture:lateral-movement-via-rdp",
+        "caseId": "INC0010042",
+        "caseRef": "observed-data--65cf7f22-d63f-5498-bf90-2ed2490a49e4"
+      },
+      "seedSummary": "case fixture:lateral-movement-via-rdp: INC0010042",
+      "caseNoteOnSeed": "confirm",
+      "caseNote": {
+        "caseId": "INC0010042",
+        "body": "Investigation opened in reckon by reckon-admin at 2026-10-27T19:16:38Z: \"Suspicious interactive RDP logon to WIN-FILE01 by svc_backup\" (reckon://investigation/ba615302-95c5-448a-b62b-7da7348a230e). Findings and actions are recorded there; this case will be updated when the investigation concludes.",
+        "systemName": "ServiceNow"
+      }
+    },
+    "hypotheses": [],
+    "actions": [],
+    "pins": [],
+    "comms": [],
+    "thread": [],
+    "turns": [],
+    "capabilities": [
+      {
+        "verb": "enumerate_logons",
+        "intent": "List authentication events against a user or host in a window, optionally filtered by outcome.",
+        "inputs": [
+          {
+            "name": "target",
+            "type": "entity",
+            "required": true,
+            "desc": "user-account or host"
+          },
+          {
+            "name": "window",
+            "type": "time_window",
+            "required": false,
+            "desc": "time bound; defaults to the tenant investigation window"
+          },
+          {
+            "name": "outcome",
+            "type": "enum",
+            "required": false,
+            "desc": "SUCCESS|FAILURE|ALL"
+          }
+        ],
+        "output": "list<observed_data>",
+        "status": "available"
+      },
+      {
+        "verb": "get_external_case_details",
+        "intent": "Fetch full content for one case in the SoR (title, status, summary, link) — a follow-up after query_external_cases returns hits worth deep-diving.",
+        "inputs": [
+          {
+            "name": "case_id",
+            "type": "string",
+            "required": true,
+            "desc": "the case id/number, e.g. INC0010042 or a sys_id"
+          }
+        ],
+        "output": "observed_data",
+        "status": "available"
+      },
+      {
+        "verb": "get_host_context",
+        "intent": "Fetch asset/CMDB context for a host: owner, OS, last-seen, sensors.",
+        "inputs": [
+          {
+            "name": "host",
+            "type": "entity",
+            "required": true,
+            "desc": "the host to look up"
+          }
+        ],
+        "output": "host context",
+        "status": "degraded"
+      },
+      {
+        "verb": "get_indicator_context",
+        "intent": "Enrich an indicator (IP, domain, hash, URL) with threat-intel reputation and sightings.",
+        "inputs": [
+          {
+            "name": "indicator",
+            "type": "entity",
+            "required": true,
+            "desc": "the indicator to enrich"
+          }
+        ],
+        "output": "indicator context",
+        "status": "unavailable"
+      },
+      {
+        "verb": "get_network_connections",
+        "intent": "Return network connections for a host, IP, or process in a window.",
+        "inputs": [
+          {
+            "name": "endpoint",
+            "type": "entity",
+            "required": true,
+            "desc": "host, IP, or process"
+          },
+          {
+            "name": "window",
+            "type": "time_window",
+            "required": false,
+            "desc": "time bound; defaults to the tenant investigation window"
+          },
+          {
+            "name": "direction",
+            "type": "enum",
+            "required": false,
+            "desc": "INBOUND|OUTBOUND|ALL"
+          }
+        ],
+        "output": "list<observed_data>",
+        "status": "available"
+      },
+      {
+        "verb": "get_process_ancestry",
+        "intent": "Walk a process's parent chain to root, returning ordered parent-child observations.",
+        "inputs": [
+          {
+            "name": "process",
+            "type": "entity",
+            "required": true,
+            "desc": "the process to walk from"
+          },
+          {
+            "name": "window",
+            "type": "time_window",
+            "required": false,
+            "desc": "time bound; defaults to the tenant investigation window"
+          }
+        ],
+        "output": "list<observed_data>",
+        "status": "available"
+      },
+      {
+        "verb": "list_capabilities",
+        "intent": "List the verbs resolvable in this tenant and their current availability.",
+        "inputs": [],
+        "output": "list<capability_summary>",
+        "status": "unavailable"
+      },
+      {
+        "verb": "query_external_cases",
+        "intent": "Search the case management system of record (ServiceNow, Jira SOC, TheHive) for cases matching a filter — the read side of 'have we seen this before?'.",
+        "inputs": [
+          {
+            "name": "filter",
+            "type": "string",
+            "required": false,
+            "desc": "free-text query over case title/summary"
+          },
+          {
+            "name": "queue",
+            "type": "string",
+            "required": false,
+            "desc": "the work queue the case system assigns by (a ServiceNow assignment group, a Jira project/board, a TheHive team) — the tenant's configured queue (policies.case_queue) or one the analyst names"
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "required": false,
+            "desc": "case status filter, e.g. 'In Progress'"
+          },
+          {
+            "name": "window",
+            "type": "time_window",
+            "required": false,
+            "desc": "time bound; defaults to the tenant investigation window"
+          },
+          {
+            "name": "limit",
+            "type": "int",
+            "required": false,
+            "desc": "max cases to return (default 50)"
+          }
+        ],
+        "output": "list<observed_data>",
+        "status": "available"
+      },
+      {
+        "verb": "resolve_entity",
+        "intent": "Canonicalize a free-form identifier (IP, hostname, user) into a typed entity with a stable id.",
+        "inputs": [
+          {
+            "name": "identifier",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "hint_type",
+            "type": "string",
+            "required": false
+          }
+        ],
+        "output": "entity",
+        "status": "unavailable"
+      },
+      {
+        "verb": "search_alerts",
+        "intent": "Search detection findings / alerts matching a filter in a window.",
+        "inputs": [
+          {
+            "name": "filter",
+            "type": "alert_filter",
+            "required": true
+          },
+          {
+            "name": "window",
+            "type": "time_window",
+            "required": false,
+            "desc": "time bound; defaults to the tenant investigation window"
+          }
+        ],
+        "output": "list<observed_data>",
+        "status": "available"
+      }
+    ],
+    "enablement": {
+      "adapters": [
+        {
+          "name": "crowdstrike_falcon",
+          "class": "native_api",
+          "enabled": false,
+          "configFields": {},
+          "requiredFields": [],
+          "supportable": false
+        },
+        {
+          "name": "fixture",
+          "class": "fixture",
+          "enabled": true,
+          "scenario": "lateral-movement-via-rdp",
+          "configFields": {
+            "scenario": {
+              "type": "string",
+              "description": "Fixture scenario directory to replay (under the fixtures root), e.g. lateral-movement-via-rdp",
+              "secret": false
+            }
+          },
+          "requiredFields": [
+            "scenario"
+          ],
+          "supportable": true
+        },
+        {
+          "name": "fixture_context",
+          "class": "fixture",
+          "enabled": false,
+          "scenario": "lateral-movement-via-rdp",
+          "configFields": {
+            "scenario": {
+              "type": "string",
+              "description": "Fixture scenario directory to replay (under the fixtures root), e.g. lateral-movement-via-rdp",
+              "secret": false
+            }
+          },
+          "requiredFields": [
+            "scenario"
+          ],
+          "supportable": true
+        }
+      ],
+      "verbs": [
+        {
+          "verb": "enumerate_logons",
+          "adapters": [
+            "fixture"
+          ],
+          "enabled": true,
+          "closableBy": []
+        },
+        {
+          "verb": "get_external_case_details",
+          "adapters": [
+            "fixture"
+          ],
+          "enabled": true,
+          "closableBy": []
+        },
+        {
+          "verb": "get_host_context",
+          "adapters": [
+            "fixture_context"
+          ],
+          "enabled": false,
+          "closableBy": [
+            "fixture_context"
+          ]
+        },
+        {
+          "verb": "get_network_connections",
+          "adapters": [
+            "fixture"
+          ],
+          "enabled": true,
+          "closableBy": []
+        },
+        {
+          "verb": "get_process_ancestry",
+          "adapters": [
+            "fixture"
+          ],
+          "enabled": true,
+          "closableBy": []
+        },
+        {
+          "verb": "query_external_cases",
+          "adapters": [
+            "fixture"
+          ],
+          "enabled": true,
+          "closableBy": []
+        },
+        {
+          "verb": "search_alerts",
+          "adapters": [
+            "fixture"
+          ],
+          "enabled": true,
+          "closableBy": []
+        }
+      ]
+    },
+    "knowledge": [],
+    "derived": {
+      "strip": [],
+      "graph": {
+        "refs": [],
+        "edges": []
+      }
+    }
+  },
+  "labels": {},
+  "appearances": {}
+}

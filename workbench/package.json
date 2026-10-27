@@ -259,7 +259,7 @@
     "watch:webview": "node esbuild.mjs --watch",
     "test": "vitest run",
     "harness": "node esbuild.mjs --serve",
-    "harness:record": "node out/harness/record.js",
+    "harness:record": "tsc -p harness/tsconfig.record.json && node harness/dist/record/harness/record.js",
     "package": "npx @vscode/vsce package"
   },
   "devDependencies": {
