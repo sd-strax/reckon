@@ -1,6 +1,6 @@
 # 0079 — The investigation document is organized by stage, the conversation is a companion, and every citation opens in an inspector
 
-Issue: #79 · PR: #80 · Status: proposed
+Issue: #79 · PR: #80 · Status: accepted
 
 ## Context
 

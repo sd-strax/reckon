@@ -206,6 +206,148 @@ on the document's structure. Tabs: What the AI read · Whole document · Version
 | "Exactly as retrieved · hash matches current version" or "updated since this case consulted it" with a diff | Content hash at retrieval (`06 §6.2`) vs the current revision (`06 §2.2`) |
 | Open original at this location | Gap `00 §6.15` (retained original) |
 
+### 8.6.1 The remaining types
+
+Every object a surface can cite has an inspector in the same frame. Reference screens:
+`mockups/07`–`11`.
+
+**Absence** (`x-null-observation`, `adr/0061`). Not an event: a search that answered in
+full and found nothing. Tabs: Search · Provenance · Raw.
+
+| Element | Source |
+|---|---|
+| Name ("No connections from WIN-FILE01 to 185.220.101.5 in the 7 days before") | Verb, subject and parameters of the absence object |
+| `COMPLETE · 0 EVENTS` | Its coverage (an absence object exists only for a complete answer) |
+| Verb, subject, what was looked for, window, sources answered | `GET /api/evidence/{ref}` (the absence object) |
+| What it does and does not say; the standing note that a partial empty answer is never citeable | Fixed copy (`adr/0061`) |
+| Re-run with a wider window | Stages the same verb in the composer (`02 §2.4`) |
+
+**Observed-data bundle** (one capability answer, many events). A list, not a field table.
+Tabs: Events · Envelope · Raw.
+
+| Element | Source |
+|---|---|
+| Event count, first and last observed | The `observed-data` envelope |
+| Events grouped by source (repetitions collapsed, each opening its evidence inspector) | The bundle's events via `GET /api/evidence/{ref}`; grouping is display |
+| Objects it contains | The envelope's object refs, as entity chips |
+| Produced by (opens the capability call) | Gap `00 §6.20` |
+
+**Detection finding** (Indicator + Sighting + vendor Identity, `03 §4.12`). Marked **inferred
+by the vendor**: the one inferred object the capability layer produces. Tabs: Finding ·
+Evidence · Raw.
+
+| Element | Source |
+|---|---|
+| Title, finding id, vendor, time, severity | Indicator + vendor Identity |
+| Techniques | The finding's types (`03 §4.12`) |
+| Sighting: where, when, count | Sighting |
+| The evidence the vendor attached, each opening its evidence inspector | Recursed evidence, normalized through the registry |
+| How far to trust it: which predictions confirmed the underlying events independently | `/hypotheses` test-result refs that cite the same events |
+
+**Attestation** (`note`, `adr/0054`). The name is the quoted statement itself.
+
+| Element | Source |
+|---|---|
+| Statement, verbatim | The note |
+| Who said it (as recorded), who recorded it (display name), when | The note + the recording act's actor (`adr/0077`) |
+| How it was obtained | The note's text as recorded; nothing inferred |
+| The question it answers; the prediction and the outcome it produced | The prediction whose `test_result_refs` hold the note |
+
+**Prediction.** Tabs: Record · History.
+
+| Element | Source |
+|---|---|
+| `P<n>`, short title, status, owner hypothesis, statement | `/hypotheses` (`adr/0047`); short title gap `00 §6.12` |
+| Discriminates (the rivals expecting the opposite) | `discriminates` |
+| Test kind (tool or person), test results (each opening its inspector) | `test_kind`, `test_result_refs` |
+| History: proposed, accepted, tested, withdrawn, with actors | The thread's interpretation events for this prediction (`/thread`) |
+
+**Hypothesis.** Tabs: Record · Wording history.
+
+| Element | Source |
+|---|---|
+| Handle, status, claim, predictions tested over total | `/hypotheses` |
+| Predictions as one-line rows (`§8.4`) | `/hypotheses` |
+| Wording history: proposed text, restatement at adoption, parent when refined | The acknowledgment and refinement events (`/thread`); `parent_ref` |
+| The competing set with each status; open the matrix | `/hypotheses` |
+
+**Action** (`x-action`). The card (`03 §3.3`) is the summary; the inspector is the record.
+Tabs: History · Authorization · Targets.
+
+| Element | Source |
+|---|---|
+| State history with actor and time per transition | The action's `action.*` events (`02 §3`) |
+| Tier, distinct targets against the escalation threshold, escalation reason | The requested action (`04 §1`) |
+| Policy decision, the policy that decided, shadow policies that would have fired | `action.policy_evaluated` (`04 §4`, `§4.4`) |
+| Approver (display name) | The approval event |
+| Per-target results, including `UNKNOWN` residuals | `action.resulted` (`08 §6c`) |
+| Reversibility class; reversed-by / reverses links in both directions; retry lineage | `reversibility`, `reversed_by_ref` / `reversal_attempted_by_ref` / `reversal_of_ref`, `retry_of` (`00 §6.6`) |
+
+**Notification thread** (`ui/04`). Tabs: Thread · Sent message.
+
+| Element | Source |
+|---|---|
+| Channel action, sent time, thread status | The `notify.*` action + its comms thread (`00 §4`) |
+| Thread: sent, replies, acknowledgments | `GET /api/investigations/{id}/comms` |
+| Follow-up dueness and the escalation rule (prompts, never sends) | Derived at read time (`00 §4`) |
+| The exact message sent | The frozen body on the approved action |
+
+**Owner action item.** Gap `00 §6.17`.
+
+| Element | Source |
+|---|---|
+| What, owner, why, when asked, status | The owner action item record |
+| History | Its events |
+| Mark confirmed / waive with reason; counted by the conclude checklist until one happens | The conclude preflight (`02 §2.10`) |
+
+**Similar past case** (`06 §3`, case summaries). Tabs: Summary · Why it matched.
+
+| Element | Source |
+|---|---|
+| Title, concluded date, disposition, duration, band | `POST /api/knowledge/recall_similar_investigations` match + its summary |
+| Narrative, techniques, primary entities, actions taken with outcomes | The structured summary (`06 §3.1`) |
+| Why it matched | `match_rationale` |
+| In this case: consulted or applied | `consulted_similar_investigations` (`00 §6.9`) |
+| Open that investigation; include in context | `investigation_ref`; the knowledge gate (`06 §5.1`) |
+
+**Turn** (an interpretation and the turn that wrote it). Tabs: Answer · Tool calls ·
+Consulted · Transcript.
+
+| Element | Source |
+|---|---|
+| The analyst's ask, the answer, the model | The thread entry + `GET /api/interpretations/{id}/transcript` |
+| Records written, each with type and what it cites; derivation mode; actor and delegate | The interpretation events (`01`) |
+| Tool calls with coverage and counts, each opening its capability call | The committed turn record; gap `00 §6.20` for opening one |
+| Consulted knowledge: applied or only consulted | `consulted_*` (`00 §6.9`) |
+
+**Capability call.** The object the Story timeline, the residual panel and the bundle point
+at. Tabs: Call · Result · Raw.
+
+| Element | Source |
+|---|---|
+| Verb, binding, adapter operation, priority | The capability result envelope (`03 §3`, `§6.1`) |
+| Coverage and how many bindings answered | `03 §6.1` |
+| Parameters sent, exactly | The templated parameters (`03 §3.3`) |
+| What it produced (bundle, absence object, or nothing) | The result's refs |
+| Other bindings for the verb, including installed-not-enabled | `GET /api/capabilities` (operator view, `13 §4`) |
+| Addressable by id from any surface | Gap `00 §6.20` |
+
+**Person** (a principal).
+
+| Element | Source |
+|---|---|
+| Display name, principal id, issuer | The actor on their acts (`adr/0077`) |
+| What they did in this case | Events in this investigation whose actor is this principal |
+| Roles that authorized each act | Gap `00 §6.19`; until it exists, the inspector says roles live in the identity provider and shows none |
+
+**Alias** (an alias edge). Linked, never merged.
+
+| Element | Source |
+|---|---|
+| The two identities, each with its own event count | Both STIX objects + their citations |
+| Why they are linked: basis, by whom, when | The alias edge and its provenance (`01`) |
+| Remove link (separates the evidence again; nothing was merged, so nothing is lost) | An analyst act on the edge |
+
 ## 8.7 Density rules
 
 - At rest a row carries one status and one count. Everything else is behind expansion.
