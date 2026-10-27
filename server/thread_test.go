@@ -72,6 +72,10 @@ func TestInvestigationThread_ReassemblesReasoning(t *testing.T) {
 	if last.Actor.Kind != "AI_DELEGATED" || last.Actor.Principal == "" {
 		t.Errorf("actor = %+v; want AI_DELEGATED with the human principal", last.Actor)
 	}
+	// The roles the token carried ride the act for display (adr/0105).
+	if len(last.Actor.Roles) != 1 || last.Actor.Roles[0] != "analyst" {
+		t.Errorf("actor roles = %v; want the token's [analyst]", last.Actor.Roles)
+	}
 	if last.Confidence != "MEDIUM" || last.ToolCalls != 1 || !last.HasTranscript {
 		t.Errorf("provenance fields lost: %+v", last)
 	}

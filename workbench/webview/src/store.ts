@@ -87,7 +87,8 @@ export interface State {
   /** The work queue (08 §8.3); null until the host posts it. */
   queue: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string } | null;
   /** The signed-in principal, for "edited by you" and attestations. */
-  me: { name: string; principal: string } | null;
+  /** The signed-in principal and the issuer that authenticated them (the Person inspector's issuer line, adr/0105). */
+  me: { name: string; principal: string; issuer?: string } | null;
   /** The Knowledge document's cache (impl §2.6, §3.1): null on the investigation surface, whose host never posts it. */
   kdoc: KnowledgeState | null;
   /** The Knowledge host's last error, shown as a banner until the next successful slice. */
@@ -240,7 +241,7 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "knowledge.answer.done":
       return state.kdoc ? { ...state, kdoc: { ...state.kdoc, answer: msg.answer } } : state;
     case "me":
-      return { ...state, me: { name: msg.name, principal: msg.principal } };
+      return { ...state, me: { name: msg.name, principal: msg.principal, issuer: msg.issuer } };
     case "rename.begin":
       return { ...state, renameRequest: { title: msg.title, nonce: (state.renameRequest?.nonce ?? 0) + 1 } };
     case "renamed":

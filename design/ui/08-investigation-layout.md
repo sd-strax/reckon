@@ -340,7 +340,7 @@ at. Tabs: Call · Result · Raw.
 |---|---|
 | Display name, principal id, issuer | The actor on their acts (`adr/0077`) |
 | What they did in this case | Events in this investigation whose actor is this principal |
-| Roles that authorized each act | Gap `00 §6.19`; until it exists, the inspector says roles live in the identity provider and shows none |
+| Roles that authorized each act | The roles the token carried on each act (`adr/0105`), the union across this case with "current roles may differ"; acts recorded before the field existed show none and the inspector says so |
 
 **Alias** (an alias edge). Linked, never merged.
 

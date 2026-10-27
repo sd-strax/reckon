@@ -327,7 +327,7 @@ export class HarnessTransport implements WebviewTransport {
     if (this.know) {
       const doc = this.kdoc ?? (this.kdoc = structuredClone(this.know.knowledge));
       this.emit({ type: "knowledge.state", state: doc });
-      this.emit({ type: "me", name: "Analyst One", principal: "analyst-1" });
+      this.emit({ type: "me", name: "Analyst One", principal: "analyst-1", issuer: "https://idp.example.test/realms/reckon" });
       return;
     }
     if (!this.inv) {
@@ -336,7 +336,7 @@ export class HarnessTransport implements WebviewTransport {
     }
     this.emit({ type: "state.snapshot", seq: this.inv.snapshot.seq, snapshot: this.inv.snapshot });
     this.postQueue();
-    this.emit({ type: "me", name: "Analyst One", principal: "analyst-1" });
+    this.emit({ type: "me", name: "Analyst One", principal: "analyst-1", issuer: "https://idp.example.test/realms/reckon" });
   }
 
   private postQueue(): void {

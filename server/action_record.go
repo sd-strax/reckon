@@ -47,10 +47,12 @@ type ActionHistoryEntry struct {
 }
 
 // ActionApproverView names one approval: the principal (id + display name as
-// the identity provider presented it, adr/0077) and when.
+// the identity provider presented it, adr/0077), the roles their token carried
+// on the approving act (adr/0105, display only) and when.
 type ActionApproverView struct {
 	Principal string    `json:"principal"`
 	Name      string    `json:"principal_name,omitempty"`
+	Roles     []string  `json:"roles,omitempty"`
 	At        time.Time `json:"at"`
 }
 
@@ -224,6 +226,7 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 			// is named by their recorded ref only.
 			if actor.PrincipalID == approver.Principal {
 				approver.Name = actor.PrincipalName
+				approver.Roles = actor.Roles
 			}
 			if a.Stage == aggregate.AuthStageSecondary {
 				out.Authorization.SecondaryApprover = &approver

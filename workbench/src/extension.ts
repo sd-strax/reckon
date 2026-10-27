@@ -49,7 +49,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const documents = new InvestigationDocuments(
     context.extensionUri, client, log, transport,
     { backendUrl: () => backendUrl(), token: () => session.token() },
-    () => client.me().then((m) => ({ name: m.username, principal: m.subject })).catch(() => null),
+    // The issuer rides with the principal for the Person inspector's identity line (adr/0105).
+    () => Promise.all([client.me(), client.authConfig().catch(() => null)])
+      .then(([m, auth]) => ({ name: m.username, principal: m.subject, issuer: auth?.issuer })).catch(() => null),
     (id, seq) => {
       void seen.set(id, seq).then(() => investigations.refresh());
     },

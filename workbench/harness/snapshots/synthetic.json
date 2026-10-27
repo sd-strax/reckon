@@ -319,7 +319,10 @@
         "actor": {
           "principal": "agent@reckon",
           "kind": "AI_DELEGATED",
-          "model": "claude"
+          "model": "claude",
+          "roles": [
+            "analyst"
+          ]
         },
         "interpretationId": "interp-turn-1",
         "interpretationType": "observation",
@@ -359,7 +362,10 @@
         "actor": {
           "principal": "agent@reckon",
           "kind": "AI_DELEGATED",
-          "model": "claude"
+          "model": "claude",
+          "roles": [
+            "analyst"
+          ]
         },
         "interpretationId": "interp-aside-1",
         "interpretationType": "prediction",
@@ -402,7 +408,10 @@
         "actor": {
           "principal": "agent@reckon",
           "kind": "AI_DELEGATED",
-          "model": "claude"
+          "model": "claude",
+          "roles": [
+            "analyst"
+          ]
         },
         "interpretationId": "interp-areq-1",
         "interpretationType": "action-request",
@@ -422,7 +431,10 @@
         "occurredAt": "2026-10-20T09:08:00.000Z",
         "actor": {
           "principal": "analyst-1",
-          "kind": "HUMAN"
+          "kind": "HUMAN",
+          "roles": [
+            "analyst"
+          ]
         },
         "interpretationId": "interp-aapp-1",
         "interpretationType": "action-approval",
@@ -458,7 +470,10 @@
         "occurredAt": "2026-10-20T09:10:00.000Z",
         "actor": {
           "principal": "analyst-1",
-          "kind": "HUMAN"
+          "kind": "HUMAN",
+          "roles": [
+            "analyst"
+          ]
         },
         "interpretationId": "interp-reset-1",
         "interpretationType": "note",
@@ -476,7 +491,10 @@
         "occurredAt": "2026-10-20T09:11:00.000Z",
         "actor": {
           "principal": "analyst-1",
-          "kind": "HUMAN"
+          "kind": "HUMAN",
+          "roles": [
+            "analyst"
+          ]
         },
         "interpretationId": "interp-verdict-old",
         "interpretationType": "verdict",
@@ -497,7 +515,10 @@
         "actor": {
           "principal": "agent@reckon",
           "kind": "AI_DELEGATED",
-          "model": "claude"
+          "model": "claude",
+          "roles": [
+            "analyst"
+          ]
         },
         "interpretationId": "interp-turn-old",
         "interpretationType": "observation",
@@ -1613,7 +1634,10 @@
           "actor": {
             "principal": "analyst-1",
             "principalName": "Analyst One",
-            "kind": "HUMAN"
+            "kind": "HUMAN",
+            "roles": [
+              "analyst"
+            ]
           },
           "status": "APPROVED",
           "detail": "approved by Analyst One"
@@ -1648,7 +1672,10 @@
         "primaryApprover": {
           "principal": "analyst-1",
           "principalName": "Analyst One",
-          "at": "2026-10-20T09:08:00Z"
+          "at": "2026-10-20T09:08:00Z",
+          "roles": [
+            "analyst"
+          ]
         },
         "evaluations": [
           {

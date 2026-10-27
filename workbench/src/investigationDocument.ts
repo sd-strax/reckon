@@ -64,7 +64,7 @@ export class InvestigationDocuments {
     private readonly log: vscode.LogOutputChannel,
     private readonly transport: AgentTransport,
     private readonly stream: { backendUrl: () => string; token: () => Promise<string> } | null,
-    private readonly me: () => Promise<{ name: string; principal: string } | null>,
+    private readonly me: () => Promise<{ name: string; principal: string; issuer?: string } | null>,
     /**
      * Called after each successful load with the last event sequence the
      * analyst has now seen — feeds the tree's unseen-changes cue (02 §2.12).
@@ -507,7 +507,7 @@ export class InvestigationDocuments {
     this.onLoaded?.(id, snapshot.seq);
     this.subscribe(id, panel);
     void this.postQueue(panel);
-    void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal }); }).catch(() => undefined);
+    void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal, issuer: m.issuer }); }).catch(() => undefined);
     // Dispatch is asynchronous (a Temporal workflow) and its result events are
     // recorded by the worker, not the HTTP path — keep refreshing while any
     // action is mid-dispatch so DISPATCHING never sticks past the outcome.
