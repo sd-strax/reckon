@@ -33,9 +33,20 @@ func buildInvokeCapability(t *testing.T) (*capability.Resolver, *capability.Cata
 	files := map[string]string{
 		"logon.json": `{
 	      "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{}},"delay_ms":0},
-	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:32:11Z",
-	              "actor":{"user":{"name":"jdoe"}},"dst_endpoint":{"hostname":"H1"},"status":"SUCCESS"}
+	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:32:11Z","logon_type":"RemoteInteractive",
+	              "actor":{"user":{"name":"jdoe"}},"src_endpoint":{"ip":"10.0.4.20"},"dst_endpoint":{"hostname":"H1"},"status":"SUCCESS"}
 	    }`,
+		// Three nightly network logons on three days (a baseline pattern,
+		// adr/0095) beside the interactive one above (its deviation).
+		"night1.json": `{"fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{}},"delay_ms":0},
+	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-13T02:00:10Z","logon_type":"Network",
+	              "actor":{"user":{"name":"jdoe"}},"src_endpoint":{"ip":"10.0.9.10"},"dst_endpoint":{"hostname":"H1"},"status":"SUCCESS"}}`,
+		"night2.json": `{"fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{}},"delay_ms":0},
+	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-14T02:00:13Z","logon_type":"Network",
+	              "actor":{"user":{"name":"jdoe"}},"src_endpoint":{"ip":"10.0.9.10"},"dst_endpoint":{"hostname":"H1"},"status":"SUCCESS"}}`,
+		"night3.json": `{"fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{}},"delay_ms":0},
+	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-15T02:00:16Z","logon_type":"Network",
+	              "actor":{"user":{"name":"jdoe"}},"src_endpoint":{"ip":"10.0.9.10"},"dst_endpoint":{"hostname":"H1"},"status":"SUCCESS"}}`,
 		"conn.json": `{
 	      "fixture_meta":{"scenario":"s","matches":{"verb":"get_network_connections","params":{"endpoint.hostname":"H1"}},"delay_ms":0},
 	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:40:00Z",

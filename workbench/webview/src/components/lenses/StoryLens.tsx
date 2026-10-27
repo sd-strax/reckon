@@ -11,6 +11,7 @@ import { EventStrip, EvidenceGraph } from "../DerivedViews";
 import { Empty, RefChip, fmtDateTime } from "../shared";
 import { EventSentence } from "../EventSentence";
 import { attackPath } from "../../derive/attackPath";
+import { collapsePatterns, patternSentence } from "../../derive/baseline";
 
 /** The category of a STIX object cited in event time (an OCSF record carries its own, adr/0090). */
 const CATEGORY: Record<string, string> = { "observed-data": "observed" };
@@ -30,9 +31,12 @@ export function StoryLens() {
     // The investigation's retrieved events (adr/0092) are the rows; the
     // cited-refs strip stands in when the events read failed.
     const events = snap?.events;
+    // A repeated pattern (adr/0095) collapses into one baseline row at its first event.
     const items = events
-      ? events.map((e) => ({ ref: e.id, time: e.time, label: e.className, sentence: e.view?.sentence, category: e.view?.category, odRefs: e.observedDataRefs }))
-      : (snap?.derived?.strip || []).map((it) => ({ ...it, odRefs: [] as string[] }));
+      ? collapsePatterns(events).map((it) => it.kind === "pattern"
+        ? { ref: it.events[0].id, time: it.time, label: it.className, sentence: it.events[0].view?.sentence, category: it.events[0].view?.category, odRefs: it.events.flatMap((e) => e.observedDataRefs), pattern: it }
+        : { ref: it.event.id, time: it.event.time, label: it.event.className, sentence: it.event.view?.sentence, category: it.event.view?.category, odRefs: it.event.observedDataRefs, pattern: undefined })
+      : (snap?.derived?.strip || []).map((it) => ({ ...it, odRefs: [] as string[], pattern: undefined }));
     // Citing predictions: whose test results include the event or its observed-data.
     return items.map((it) => {
       const citing = hs.flatMap((h) => h.predictions.filter((p) => (p.testResultRefs || []).some((r) => r === it.ref || it.odRefs.includes(r))).map((p) => ({ h, p })));
@@ -89,11 +93,16 @@ export function StoryLens() {
               const divider = !dividerDone && Number.isFinite(created) && t >= created;
               if (divider) dividerDone = true;
               return (
-                <li key={r.ref + i} className={"trow " + r.emphasis}>
+                <li key={r.ref + i} className={"trow " + r.emphasis + (r.pattern ? " baseline" : "")}>
                   {divider ? <div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div> : null}
-                  <span className="ttime mono">{new Date(r.time).toLocaleTimeString()}</span>
+                  <span className="ttime mono">{r.pattern ? new Date(r.time).toLocaleDateString() : new Date(r.time).toLocaleTimeString()}</span>
                   <span className={"tcat " + r.category}>{r.category.toUpperCase()}</span>
-                  <span className="tsentence">{r.sentence?.length ? <><EventSentence spans={r.sentence} /> <RefChip refId={r.ref} className="topen" /></> : <><RefChip refId={r.ref} /> <span className="imeta">{r.label}</span></>}</span>
+                  {r.pattern ? (
+                    <details className="tsentence tpattern">
+                      <summary><b>{patternSentence(r.pattern)}</b> · {r.sentence?.length ? <EventSentence spans={r.sentence} className="inline" /> : r.label}</summary>
+                      {r.pattern.events.map((e) => <div key={e.id} className="irow"><span className="imeta mono">{fmtDateTime(e.time)}</span> <RefChip refId={e.id} className="topen" /></div>)}
+                    </details>
+                  ) : <span className="tsentence">{r.sentence?.length ? <><EventSentence spans={r.sentence} /> <RefChip refId={r.ref} className="topen" /></> : <><RefChip refId={r.ref} /> <span className="imeta">{r.label}</span></>}</span>}
                   <span className="tciting">{r.citing.map(({ h, p }) => <a key={p.id} className={"pcite " + (p.status === "CONFIRMED" ? "ok" : p.status === "DISCONFIRMED" ? "bad" : "")} title={`${p.status} under ${hypName(h, hs)}`} onClick={() => openInspector({ kind: "ref", ref: p.id })}>P{p.ordinal ?? "?"}</a>)}</span>
                 </li>
               );
@@ -101,7 +110,7 @@ export function StoryLens() {
             {!dividerDone && Number.isFinite(created) ? <li className="trow"><div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div></li> : null}
           </ol>
         )}
-        <p className="imeta">{snap.events ? `${snap.events.length} retrieved event${snap.events.length === 1 ? "" : "s"} in this investigation.` : "The investigation's events could not be read; the cited refs stand in."} Baseline rows (collapsed repetitions) need gap 00 §6.14.</p>
+        <p className="imeta">{snap.events ? `${snap.events.length} retrieved event${snap.events.length === 1 ? "" : "s"} in this investigation; a pattern repeated on three or more days collapses into one row.` : "The investigation's events could not be read; the cited refs stand in."}</p>
       </section>
       <section className="lsection">
         <h3>Not yet known</h3>

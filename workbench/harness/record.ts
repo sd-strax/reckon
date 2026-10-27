@@ -9,7 +9,7 @@
 // Env: RECKON_USER (default reckon-admin), RECKON_PASSWORD (default reckon).
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { BackendClient, type ActionRecord, type Appearance, type CallDetail, type CaseSummaryView, type EvidenceDoc, type SOPDoc, type ThreadEntry } from "../src/backend";
+import { BackendClient, type ActionRecord, type Appearance, type BaselineView, type CallDetail, type CaseSummaryView, type EvidenceDoc, type SOPDoc, type ThreadEntry } from "../src/backend";
 import { buildDerivedViews } from "../src/derivedViews";
 import { deriveEvidenceLabel } from "../src/evidenceLabel";
 import type { ChronicleTurn, InvestigationSnapshot } from "../src/protocol";
@@ -92,6 +92,11 @@ async function main(): Promise<void> {
     for (const callId of new Set((events ?? []).map((e) => e.callId).filter(Boolean))) {
       try { calls[callId] = await client.call(id, callId); } catch { /* not recorded */ }
     }
+    // Every entity's baseline (adr/0095), kept only where the record holds one.
+    const baselines: Record<string, BaselineView> = {};
+    for (const ref of new Set((events ?? []).flatMap((e) => e.entityRefs))) {
+      try { const b = await client.baseline(id, ref); if (b) baselines[ref] = b; } catch { /* none */ }
+    }
     // Every ref the snapshot cites gets its label and, for entities, its appearances.
     const refs = new Set<string>();
     const walk = (v: unknown) => {
@@ -131,7 +136,7 @@ async function main(): Promise<void> {
     }
     const name = arg("--name", investigation.state.toLowerCase() + "-" + id.slice(0, 8));
     const file = join(outDir, name + ".json");
-    writeFileSync(file, JSON.stringify({ name, snapshot, labels, appearances, docs, transcripts, actionRecords, sops, caseSummaries, calls }, null, 2) + "\n");
+    writeFileSync(file, JSON.stringify({ name, snapshot, labels, appearances, docs, transcripts, actionRecords, sops, caseSummaries, calls, baselines }, null, 2) + "\n");
     console.log(`wrote ${file} (seq ${snapshot.seq}, ${thread?.length ?? 0} thread entries, ${Object.keys(labels).length} labels)`);
   }
 }

@@ -1,13 +1,15 @@
 // Entity (account, host, IP, domain, process …): type, value, deterministic
 // id on hover; role and counts in this case; actions on it; other
 // investigations; Pivot (stages, never fires), Pin, Copy. The popover of
-// ui/02 §2.4 folded in (impl §2.1). The baseline is gap §6.14 and is absent
-// until it exists — never inferred.
+// ui/02 §2.4 folded in (impl §2.1). The baseline (adr/0095) is the record's
+// counting fact for this entity within this investigation, shown only when
+// the record holds one — never inferred.
 import { useApp } from "../../app";
 import { inThisCase } from "../../derive/citations";
 import { refTypeLabel } from "../../refs";
-import { Badge } from "../shared";
+import { Badge, fmtDateTime } from "../shared";
 import { pinSpec } from "../PromptCard";
+import { patternSentence } from "../../derive/baseline";
 import { Fields, Json, Loading, Section } from "./primitives";
 
 export function EntityInspector({ refId }: { refId: string }) {
@@ -15,6 +17,7 @@ export function EntityInspector({ refId }: { refId: string }) {
   const doc = state.docs[refId];
   const label = state.labels[refId];
   const apps = state.appearances[refId];
+  const baseline = state.baselines[refId];
   const c = inThisCase(refId, state.snap);
   const typeLabel = refTypeLabel(refId);
   const seed = state.snap?.investigation.seed;
@@ -39,7 +42,30 @@ export function EntityInspector({ refId }: { refId: string }) {
         <div>{role} · {c.acts.length} act{c.acts.length === 1 ? "" : "s"} cite it · {actionsOn.length} action{actionsOn.length === 1 ? "" : "s"} on it</div>
       </Section>
       <Section title="Normal behaviour">
-        <div className="empty">No baseline exists for this entity in the record (a baseline is never inferred).</div>
+        {baseline === undefined ? <div className="empty">reading the retrieved record…</div>
+          : baseline === null ? <div className="empty">No baseline exists for this entity in the record: nothing retrieved for it repeats on three or more days. A baseline is never inferred.</div>
+          : (
+            <>
+              <div className="imeta">From the record retrieved for this investigation: {baseline.eventsConsidered} events, {fmtDateTime(baseline.from)} → {fmtDateTime(baseline.to)}.</div>
+              {baseline.patterns.map((p, i) => (
+                <div key={i} className="irow">
+                  <b>{patternSentence(p)}</b> · {p.className}{" "}
+                  <span className="mono">{Object.entries(p.key).map(([k, v]) => `${k}=${v}`).join(" · ")}</span>
+                  {" "}<a onClick={() => openInspector({ kind: "ref", ref: p.eventIds[0] })}>first</a> · <a onClick={() => openInspector({ kind: "ref", ref: p.eventIds[p.eventIds.length - 1] })}>last</a>
+                </div>
+              ))}
+              {baseline.deviations.length ? (
+                <>
+                  <div className="kicker">How this case deviates</div>
+                  {baseline.deviations.map((d) => (
+                    <div key={d.eventId} className="irow deviation">
+                      <a onClick={() => openInspector({ kind: "ref", ref: d.eventId })}>{d.className} at {fmtDateTime(d.time)}</a>: differs in <span className="mono">{d.differs.map((f) => `${f}=${d.key[f]}`).join(" · ")}</span>
+                    </div>
+                  ))}
+                </>
+              ) : <div className="imeta">Every retrieved event of a patterned class matches a pattern.</div>}
+            </>
+          )}
       </Section>
       {actionsOn.length ? (
         <Section title="Actions on this entity">

@@ -132,15 +132,17 @@ describe("the investigation document", () => {
     mount();
     tab("Story");
     expect(within(lens()).getByText("T1078")).toBeTruthy();
-    // The rows are the investigation's retrieved events (adr/0092), two of them, plus the start divider.
-    expect(lens().querySelectorAll(".trow").length).toBe(2);
-    expect(within(lens()).getByText(/2 retrieved events in this investigation/)).toBeTruthy();
+    // The rows are the investigation's retrieved events (adr/0092): the three nightly logons collapse into one baseline row (adr/0095), the two others stay.
+    expect(lens().querySelectorAll(".trow").length).toBe(3);
+    expect(lens().querySelectorAll(".trow.baseline").length).toBe(1);
+    expect(within(lens()).getByText("3 events over 3 days, typically around 02:00 UTC")).toBeTruthy();
+    expect(within(lens()).getByText(/5 retrieved events in this investigation/)).toBeTruthy();
     expect(within(lens()).getByText(/No hypothesis is SUPPORTED yet, so there is no attack path/)).toBeTruthy();
     expect(within(lens()).getByText("Open full graph")).toBeTruthy();
     expect(within(lens()).getByText(/investigation starts/)).toBeTruthy();
     expect(within(lens()).getByText(/under H1 not-owner: No scheduled job/)).toBeTruthy();
     // The per-class sentence (adr/0090): the event reads as who did what where, its entities as chips.
-    const sentence = lens().querySelector(".trow .esentence") as HTMLElement;
+    const sentence = lens().querySelector(".trow:not(.baseline) .esentence") as HTMLElement;
     expect(sentence.textContent).toContain("interactive logon to");
     expect(sentence.querySelectorAll(".eslot").length).toBeGreaterThan(0);
     fireEvent.click(within(lens()).getByRole("tab", { name: "Auth" }));

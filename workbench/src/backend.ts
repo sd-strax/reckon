@@ -218,9 +218,21 @@ export interface EventRow {
   verb: string;
   coverage: string;
   view?: EventView;
+  /** The class's pattern key (adr/0095): what a baseline groups by. */
+  pattern?: Record<string, string>;
   observedDataRefs: string[];
   entityRefs: string[];
   relationships: { type: string; sourceRef: string; targetRef: string }[];
+}
+
+/** One entity's baseline within one investigation (server.EntityBaselineResponse, adr/0095): a counting fact, never a judgment. */
+export interface BaselineView {
+  entity: string;
+  patterns: { classUid: number; className: string; key: Record<string, string>; count: number; days: number; typicalHour: number; first: string; last: string; eventIds: string[] }[];
+  deviations: { eventId: string; classUid: number; className: string; time: string; key: Record<string, string>; differs: string[] }[];
+  from: string;
+  to: string;
+  eventsConsidered: number;
 }
 
 /** A capability call as listed (server.CallView). */
@@ -354,13 +366,13 @@ export interface SOPDoc {
 
 interface RawEventRow {
   id?: string; class_uid?: number; class_name?: string; time?: string; recorded_at?: string; source_tool?: string;
-  call_id?: string; verb?: string; coverage?: string; view?: EventView; observed_data_refs?: string[]; entity_refs?: string[];
+  call_id?: string; verb?: string; coverage?: string; view?: EventView; pattern?: Record<string, string>; observed_data_refs?: string[]; entity_refs?: string[];
   relationships?: { type?: string; source_ref?: string; target_ref?: string }[];
 }
 function mapEventRow(r: RawEventRow): EventRow {
   return {
     id: r.id ?? "", classUid: r.class_uid ?? 0, className: r.class_name ?? "", time: r.time ?? "", recordedAt: r.recorded_at ?? "", sourceTool: r.source_tool ?? "",
-    callId: r.call_id ?? "", verb: r.verb ?? "", coverage: r.coverage ?? "", view: r.view, observedDataRefs: r.observed_data_refs ?? [], entityRefs: r.entity_refs ?? [],
+    callId: r.call_id ?? "", verb: r.verb ?? "", coverage: r.coverage ?? "", view: r.view, pattern: r.pattern, observedDataRefs: r.observed_data_refs ?? [], entityRefs: r.entity_refs ?? [],
     relationships: (r.relationships ?? []).map((x) => ({ type: x.type ?? "", sourceRef: x.source_ref ?? "", targetRef: x.target_ref ?? "" })),
   };
 }
@@ -1436,6 +1448,22 @@ export class BackendClient {
     const qs = q.toString();
     const r = await this.authedGet<{ events?: RawEventRow[] }>(`/api/investigations/${encodeURIComponent(investigationId)}/events${qs ? "?" + qs : ""}`);
     return (r.events ?? []).map(mapEventRow);
+  }
+
+  /** GET /api/investigations/{id}/entities/{ref}/baseline — null when nothing repeats (204). */
+  async baseline(investigationId: string, ref: string): Promise<BaselineView | null> {
+    interface Raw {
+      entity?: string; from?: string; to?: string; events_considered?: number;
+      patterns?: { class_uid?: number; class_name?: string; key?: Record<string, string>; count?: number; days?: number; typical_hour?: number; first?: string; last?: string; event_ids?: string[] }[];
+      deviations?: { event_id?: string; class_uid?: number; class_name?: string; time?: string; key?: Record<string, string>; differs?: string[] }[];
+    }
+    const r = await this.authedGet<Raw | undefined>(`/api/investigations/${encodeURIComponent(investigationId)}/entities/${encodeURIComponent(ref)}/baseline`);
+    if (!r) return null;
+    return {
+      entity: r.entity ?? ref, from: r.from ?? "", to: r.to ?? "", eventsConsidered: r.events_considered ?? 0,
+      patterns: (r.patterns ?? []).map((p) => ({ classUid: p.class_uid ?? 0, className: p.class_name ?? "", key: p.key ?? {}, count: p.count ?? 0, days: p.days ?? 0, typicalHour: p.typical_hour ?? 0, first: p.first ?? "", last: p.last ?? "", eventIds: p.event_ids ?? [] })),
+      deviations: (r.deviations ?? []).map((d) => ({ eventId: d.event_id ?? "", classUid: d.class_uid ?? 0, className: d.class_name ?? "", time: d.time ?? "", key: d.key ?? {}, differs: d.differs ?? [] })),
+    };
   }
 
   /** GET /api/investigations/{id}/calls — the capability calls, oldest first. */

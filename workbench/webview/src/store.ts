@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a patch older than what the
 // webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, CallDetail, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/backend";
+import type { ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/backend";
 import type { InvestigationSnapshot, KnowledgeItem, KnowledgeSection, KnowledgeState, RenderMessage } from "../../src/protocol";
 
 export interface LiveToolResult {
@@ -73,6 +73,8 @@ export interface State {
   actionRecords: Record<string, ActionRecord>;
   caseSummaries: Record<string, CaseSummaryView | null>;
   calls: Record<string, CallDetail>;
+  /** Entity baselines (adr/0095): null = the record holds none; absent = not asked yet. */
+  baselines: Record<string, BaselineView | null>;
   inspectorErrors: Record<string, string>;
   /** The analyst's knowledge curation: the session's items with local toggles. */
   knowledge: KnowledgeItem[];
@@ -108,6 +110,7 @@ export const initialState: State = {
   actionRecords: {},
   caseSummaries: {},
   calls: {},
+  baselines: {},
   inspectorErrors: {},
   knowledge: [],
   live: [],
@@ -247,6 +250,8 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...state, actionRecords: { ...state.actionRecords, [msg.actionId]: msg.record }, inspectorErrors: dropKey(state.inspectorErrors, msg.actionId) };
     case "inspector.case":
       return { ...state, caseSummaries: { ...state.caseSummaries, [msg.investigationRef]: msg.summary }, inspectorErrors: dropKey(state.inspectorErrors, msg.investigationRef) };
+    case "inspector.baseline":
+      return { ...state, baselines: { ...state.baselines, [msg.ref]: msg.baseline } };
     case "inspector.call":
       return { ...state, calls: { ...state.calls, [msg.callId]: msg.call }, inspectorErrors: dropKey(state.inspectorErrors, msg.callId) };
     case "inspector.error":

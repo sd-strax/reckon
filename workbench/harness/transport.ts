@@ -4,7 +4,7 @@
 // with a `knowledge` slice is the Knowledge document (impl §2.6): it posts
 // `knowledge.state` instead of an investigation snapshot and answers the
 // document's reads and writes from that slice.
-import type { ActionRecord, Appearance, CallDetail, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/backend";
+import type { ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/backend";
 import type { ImportRow, InboundMessage, InspectorTarget, InvestigationSnapshot, KnowledgeState, RenderMessage, SearchResults } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
@@ -24,6 +24,8 @@ export interface HarnessSnapshot {
   caseSummaries?: Record<string, CaseSummaryView | null>;
   /** The capability calls the stage's events name (adr/0092). */
   calls?: Record<string, CallDetail>;
+  /** Entity baselines (adr/0095); an entity absent here answers null. */
+  baselines?: Record<string, BaselineView>;
   /** The work queue (08 §8.3) as the host posts it. */
   queue?: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string };
 }
@@ -212,6 +214,8 @@ export class HarnessTransport implements WebviewTransport {
         const doc = d?.docs?.[target.ref];
         if (doc) this.emit({ type: "inspector.evidence", ref: target.ref, doc, appearances: d?.appearances?.[target.ref] ?? [] });
         else this.emit({ type: "inspector.error", target: target.ref, message: "not recorded in this harness stage" });
+        // The baseline (adr/0095) is a read over the investigation's events, independent of the object's own record.
+        if (!target.ref.startsWith("observed-data--") && target.ref.includes("--")) this.emit({ type: "inspector.baseline", ref: target.ref, baseline: d?.baselines?.[target.ref] ?? null });
         break;
       }
       case "sop": {

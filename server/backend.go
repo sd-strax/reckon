@@ -685,6 +685,11 @@ func (b *Backend) investigationsCollection(w http.ResponseWriter, r *http.Reques
 // archive, D.6); the /rename sub-resource changes the title.
 func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	trimmed := strings.TrimSuffix(r.URL.Path, "/")
+	// An entity's baseline within the investigation (adr/0095).
+	if strings.Contains(trimmed, "/entities/") && strings.HasSuffix(trimmed, "/baseline") {
+		b.investigationBaselineRoute(w, r)
+		return
+	}
 	// The investigation's events and its capability calls (adr/0092).
 	if strings.HasSuffix(trimmed, "/events") {
 		b.investigationEventsRoute(w, r)
