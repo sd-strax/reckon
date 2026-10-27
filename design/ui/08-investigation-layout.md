@@ -92,7 +92,6 @@ per investigation overrides the default (view state, not investigation state, li
 | Still to do | `REQUESTED` actions with countdowns, owner action items (gap `00 §6.17`), outstanding notification, open predictions |
 | Procedures followed | `consulted_*` with `used = true` (`00 §6.9`) |
 | Copy handoff note, Export report | `GET /api/investigations/{id}/export.md` (`00 §6.10`) |
-| At conclude: the candidate procedure and "now recallable" note | `ui/09 §9.7` |
 
 ### Story — event time
 

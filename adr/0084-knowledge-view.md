@@ -1,4 +1,4 @@
-# 0084 — Institutional knowledge gets its own view, a curation section inside each investigation, and markdown as the import format
+# 0084 — Institutional knowledge gets its own view, kept separate from investigation work, with a curation section inside each investigation and markdown as the import format
 
 Issue: #84 · PR: #85 · Status: proposed
 
@@ -28,7 +28,12 @@ parser accepts markdown with YAML frontmatter (`internal/sopdoc`).
 The full specification is `design/ui/09-knowledge.md`; as facts about the surfaces:
 
 - **A Knowledge view**, opened from the left region beside the work queue, outside any
-  investigation, with tabs for Procedures, Past cases and Import, and one query bar.
+  investigation, with tabs for Procedures, Past cases, Import and Candidates, and one query
+  bar.
+- **Knowledge and investigation work stay separate.** The Knowledge view shows no
+  hypotheses, actions, verdicts, investigation status or investigation controls, and acts
+  on no investigation; an investigation shows knowledge only as what the agent may read and
+  what it cited. An investigation a piece of knowledge came from is named as a link only.
 - **The query bar is natural language with two modes.** Search runs semantic recall over
   both corpora and lists scored results with band and rationale, unsummarized. Ask has the
   agent answer from the knowledge base only, citing what it used, with no telemetry tools
@@ -47,8 +52,9 @@ The full specification is `design/ui/09-knowledge.md`; as facts about the surfac
   initial state follows the injection posture, a scoped search, and nudges beside Propose
   tests, Decide and the response plan when strong matches are not included. Inclusion is
   only ever the analyst's act.
-- **Conclude shows what the case teaches**: the candidate procedure with Add to library /
-  Discard, and a note that the case is now recallable.
+- **Candidate procedures go to a queue in the Knowledge view.** The draft the conclude hook
+  produces is stored and reviewed there (edit, add to library, discard with a reason), not
+  prompted for at conclude. A concluded case joins Past cases without any prompt.
 
 ## Alternatives rejected
 
@@ -63,6 +69,10 @@ The full specification is `design/ui/09-knowledge.md`; as facts about the surfac
 - **Keep the rail as a separate panel beside the lenses.** It would compete with the
   companion column for width; the decision about what the agent reads belongs next to the
   conversation that uses it.
+- **Prompt for the candidate procedure at conclude.** It puts knowledge management in the
+  middle of closing an investigation, asks the person closing it to curate the library on
+  the spot, and loses the draft if they dismiss it. A queue lets whoever owns the library
+  review drafts when they choose.
 - **Nudges that include strong matches automatically.** That is the `auto` posture, a
   tenant decision (`06 §5.1`); the nudge informs and never changes the included set.
 
@@ -70,9 +80,9 @@ The full specification is `design/ui/09-knowledge.md`; as facts about the surfac
 
 - `design/13-workbench.md §4`: the SOP library row becomes the Knowledge view; the knowledge
   rail row moves into the companion column.
-- `ui/08 §8.3`, `§8.4`, `§8.5` point to `ui/09` for the knowledge entry point, the conclude
-  step and the Knowledge section.
+- `ui/08 §8.3` and `§8.5` point to `ui/09` for the knowledge entry point and the Knowledge
+  section. The workbench's conclude-time candidate prompt is replaced by the queue.
 - New engine gaps in `00-backend-binding.md §6`: listing concluded-case summaries (21),
-  citation counts and where-used across investigations (22), and an Ask session outside an
-  investigation (23).
+  citation counts and where-used across investigations (22), an Ask session outside an
+  investigation (23), and stored procedure candidates (24).
 - The gated review queue around procedures is not specified here and remains separate work.

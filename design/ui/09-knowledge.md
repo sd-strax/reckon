@@ -3,7 +3,7 @@
 This sheet defines how analysts add, browse and query institutional knowledge — the
 procedure corpus and the concluded-case corpus of `design/06-knowledge-service.md` — and how
 retrieved knowledge is curated inside an investigation. The decision and its alternatives
-are `adr/0084-knowledge-view.md`. Reference screens: `mockups/12`–`14`.
+are `adr/0084-knowledge-view.md`. Reference screens: `mockups/12`–`16`.
 
 Binding rules apply unchanged (`00`): the knowledge service is the record, every element
 names its source, and an element with no source is a gap in `00 §6`.
@@ -25,9 +25,16 @@ names its source, and an element with no source is a gap in `00 §6`.
 | **Knowledge view** | Its own document in the main area, opened from the left region's header (`ui/08 §8.3`) alongside the work queue | Add, browse, edit, retire and query knowledge, outside any investigation |
 | **Knowledge section** | Top of the companion column inside an investigation (`ui/08 §8.5`) | Decide what knowledge the agent reasons over in this investigation |
 
+**The two surfaces stay separate.** The Knowledge view shows knowledge only: no
+hypotheses, actions, verdicts, investigation status or investigation controls render in it,
+and nothing in it acts on an investigation. An investigation shows knowledge only as what
+the agent may read (§9.6) and what it cited (`ui/08 §8.5`, `§8.6`). Where a piece of
+knowledge came from an investigation, the Knowledge view names that investigation as a
+link and nothing more.
+
 The Knowledge view has a query bar (§9.2) and tabs for **Procedures** (§9.3), **Past
-cases** (§9.4) and **Import** (§9.5); a **Results** tab appears after a query and holds its
-results.
+cases** (§9.4), **Import** (§9.5) and **Candidates** (§9.7); a **Results** tab appears after
+a query and holds its results.
 
 ## 9.2 Query bar: search and ask
 
@@ -61,7 +68,7 @@ author. Retired procedures are hidden by default and shown marked when included.
 |---|---|
 | Rows, filters | `GET /api/sops`; empty-query recall browses by tag |
 | Cited in N investigations | Gap `00 §6.22` |
-| Added from an investigation (candidate accepted at conclude) | Source URL `reckon://investigation/<id>` |
+| Added from an investigation (a candidate accepted from the queue, §9.7) | Source URL `reckon://investigation/<id>` |
 
 **Detail** (opens beside the list):
 
@@ -122,22 +129,29 @@ retrieved items that the `auto` posture would include (procedures; past cases ba
 posture would include are not included · Review". It links to the Knowledge section; it never includes
 anything by itself.
 
-## 9.7 What a concluded case teaches
+## 9.7 Candidates
 
-At conclude, the Summary lens (`ui/08 §8.4`) adds a **Knowledge** step:
+When an investigation concludes, the agent may draft a **candidate procedure** generalized
+from it and from the knowledge it consulted (the existing conclude hook, `proposeSOP`), or
+decide none is warranted. The draft goes to the Candidates tab of the Knowledge view; the
+investigation shows no prompt for it. Whoever manages knowledge reviews candidates there,
+whenever they choose.
 
-- **Candidate procedure** when the agent judges one warranted: an editable markdown draft
-  with **Add to library** / **Discard**. Accepting imports it with a
-  `reckon://investigation/<id>` source URL, so accepting again revises rather than
-  duplicates. Source: `proposeSOP` (existing conclude hook).
-- **This case is now recallable**: a note that the concluded summary has joined the
-  past-case corpus, with a link to it in the Knowledge view.
+| Element | Source |
+|---|---|
+| Rows: title, drafted from (the investigation, as a link), drafted at, status (`NEW` / `ACCEPTED` / `DISCARDED`) | Gap `00 §6.24` |
+| Detail: the draft as editable markdown with frontmatter; the closest existing procedure, when one exists, for comparison | The draft; procedure recall over its text (§9.2) |
+| **Add to library**: imports the edited draft with a `reckon://investigation/<id>` source URL, so accepting again revises rather than duplicates | `POST /api/sops/import_markdown` |
+| **Discard** with a reason | Gap `00 §6.24` |
 
-The analyst decides both what is acted on and what is learned; nothing is added without
-an explicit accept.
+Nothing is added without an explicit accept. Under `gated` governance an accepted candidate
+enters as a draft for review (`06 §9.3`).
+
+A concluded investigation's summary joins the Past cases tab (§9.4) on its own; nothing is
+shown in the investigation about it.
 
 ---
 
-*The Knowledge view reads and writes only the knowledge service; it records nothing in any
-investigation. Inside an investigation, inclusion is the analyst's act, carried on the
-next turn.*
+*The Knowledge view reads and writes only the knowledge service, shows no investigation
+state, and records nothing in any investigation. Inside an investigation, inclusion is the
+analyst's act, carried on the next turn.*

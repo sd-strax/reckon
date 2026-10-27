@@ -27,7 +27,7 @@ expressed through VS Code theme variables where noted.
 | `06-vscode-surface-map.md` | Which surface is webview vs native API; commands, keybindings, contributions |
 | `07-build-order.md` | Implementation sequence with acceptance criteria |
 | `08-investigation-layout.md` | Regions, the four lenses, the companion column, the inspector (supersedes `02 §2.2`, `§2.8`, `§2.9` row anatomy) |
-| `09-knowledge.md` | The Knowledge view (procedures, past cases, import, search and ask) and the Knowledge section inside an investigation |
+| `09-knowledge.md` | The Knowledge view (procedures, past cases, import, candidates, search and ask), kept separate from investigation work, and the Knowledge section inside an investigation |
 | `mockups/` | Reference screens for the reference scenario (illustrative; the sheets win) |
 | `impl-spec/` | Engineering layer: process boundaries, state ownership, event contracts |
 
