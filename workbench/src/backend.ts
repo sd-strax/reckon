@@ -206,6 +206,50 @@ export interface EventView {
   decoded?: { field: string; encoding: string; text: string };
 }
 
+/** One event of an investigation as the events endpoint lists it (server.EventRow, adr/0092). */
+export interface EventRow {
+  id: string;
+  classUid: number;
+  className: string;
+  time: string;
+  recordedAt: string;
+  sourceTool: string;
+  callId: string;
+  verb: string;
+  coverage: string;
+  view?: EventView;
+  observedDataRefs: string[];
+  entityRefs: string[];
+  relationships: { type: string; sourceRef: string; targetRef: string }[];
+}
+
+/** A capability call as listed (server.CallView). */
+export interface CallView {
+  id: string;
+  verb: string;
+  binding?: string;
+  adapter?: string;
+  operation?: string;
+  priority?: number;
+  coverage: string;
+  bindingsAnswered: number;
+  bindingsTotal: number;
+  nullObservationRef?: string;
+  startedAt: string;
+  durationMs: number;
+  eventCount: number;
+}
+
+/** A capability call whole (server.CallDetail): the record the inspector shows. */
+export interface CallDetail extends CallView {
+  paramsSent?: unknown;
+  degradationNotes: string[];
+  attempts: { adapter: string; operation: string; priority: number; params?: unknown; answered: boolean; note?: string }[];
+  produced: { ocsfEventRefs: string[]; observedDataRefs: string[]; entityRefs: string[]; nullObservationRef?: string; events: EventRow[] };
+  otherBindings: { adapter: string; operation: string; priority: number; scope?: string; configured: boolean; healthy: boolean }[];
+  closableBy?: string[];
+}
+
 export interface EvidenceDoc {
   ref: string;
   kind: string; // "stix" | "ocsf"
@@ -217,6 +261,8 @@ export interface EvidenceDoc {
   sourceTool?: string;
   /** On an OCSF record: the sentence, the curated fields, the category, a decoded field (adr/0090). */
   view?: EventView;
+  /** On an OCSF record: the capability call that retrieved it (adr/0092). */
+  callId?: string;
   /** On an `indicator--` ref: its sightings, vendor identity and recursed evidence (08 §8.6.1). */
   related?: { sightings: EvidenceDoc[]; identity: EvidenceDoc | null; evidence: EvidenceDoc[] };
 }
@@ -304,6 +350,37 @@ export interface SOPDoc {
   retiredAt?: string;
   retiredReason?: string;
   retiredBy?: string;
+}
+
+interface RawEventRow {
+  id?: string; class_uid?: number; class_name?: string; time?: string; recorded_at?: string; source_tool?: string;
+  call_id?: string; verb?: string; coverage?: string; view?: EventView; observed_data_refs?: string[]; entity_refs?: string[];
+  relationships?: { type?: string; source_ref?: string; target_ref?: string }[];
+}
+function mapEventRow(r: RawEventRow): EventRow {
+  return {
+    id: r.id ?? "", classUid: r.class_uid ?? 0, className: r.class_name ?? "", time: r.time ?? "", recordedAt: r.recorded_at ?? "", sourceTool: r.source_tool ?? "",
+    callId: r.call_id ?? "", verb: r.verb ?? "", coverage: r.coverage ?? "", view: r.view, observedDataRefs: r.observed_data_refs ?? [], entityRefs: r.entity_refs ?? [],
+    relationships: (r.relationships ?? []).map((x) => ({ type: x.type ?? "", sourceRef: x.source_ref ?? "", targetRef: x.target_ref ?? "" })),
+  };
+}
+interface RawCall {
+  id?: string; verb?: string; binding?: string; adapter?: string; operation?: string; priority?: number; coverage?: string;
+  bindings_answered?: number; bindings_total?: number; null_observation_ref?: string; started_at?: string; duration_ms?: number; event_count?: number;
+}
+interface RawCallDetail extends RawCall {
+  params_sent?: unknown; degradation_notes?: string[];
+  attempts?: { adapter?: string; operation?: string; priority?: number; params?: unknown; answered?: boolean; note?: string }[];
+  produced?: { ocsf_event_refs?: string[]; observed_data_refs?: string[]; entity_refs?: string[]; null_observation_ref?: string; events?: RawEventRow[] };
+  other_bindings?: { adapter?: string; operation?: string; priority?: number; scope?: string; configured?: boolean; healthy?: boolean }[];
+  closable_by?: string[];
+}
+function mapCall(r: RawCall): CallView {
+  return {
+    id: r.id ?? "", verb: r.verb ?? "", binding: r.binding, adapter: r.adapter, operation: r.operation, priority: r.priority, coverage: r.coverage ?? "",
+    bindingsAnswered: r.bindings_answered ?? 0, bindingsTotal: r.bindings_total ?? 0, nullObservationRef: r.null_observation_ref,
+    startedAt: r.started_at ?? "", durationMs: r.duration_ms ?? 0, eventCount: r.event_count ?? 0,
+  };
 }
 
 /** The wire shape of a SOP (knowledge.SOP). */
@@ -472,6 +549,8 @@ export interface ToolCallRecord {
   callId: string;
   toolName: string;
   args: unknown;
+  /** The capability call the dispatch made (adr/0092), when the tool was a verb. */
+  capabilityCallId?: string;
 }
 
 /** One reasoning act in the thread (mirrors server.ThreadEntryView). */
@@ -866,7 +945,7 @@ export class BackendClient {
       transcript: rec.transcript
         ? { transcript_id: rec.transcript.transcriptId, turn_id: rec.transcript.turnId, body: rec.transcript.body }
         : undefined,
-      tool_calls: rec.toolCalls?.map((t) => ({ call_id: t.callId, tool_name: t.toolName, args: t.args })),
+      tool_calls: rec.toolCalls?.map((t) => ({ call_id: t.callId, tool_name: t.toolName, args: t.args, capability_call_id: t.capabilityCallId })),
     };
     const r = await this.authedPost<{ interpretation_id?: string }>("/api/interpretations", body);
     return { interpretationId: r.interpretation_id ?? "" };
@@ -1347,6 +1426,41 @@ export class BackendClient {
   }
 
   /** GET /api/evidence/{ref} — citation-open (02 §2.8). */
+  /** GET /api/investigations/{id}/events — the events the investigation's calls retrieved (adr/0092). */
+  async events(investigationId: string, opts?: { entity?: string; category?: string; around?: string; limit?: number }): Promise<EventRow[]> {
+    const q = new URLSearchParams();
+    if (opts?.entity) q.set("entity", opts.entity);
+    if (opts?.category) q.set("category", opts.category);
+    if (opts?.around) q.set("around", opts.around);
+    if (opts?.limit) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    const r = await this.authedGet<{ events?: RawEventRow[] }>(`/api/investigations/${encodeURIComponent(investigationId)}/events${qs ? "?" + qs : ""}`);
+    return (r.events ?? []).map(mapEventRow);
+  }
+
+  /** GET /api/investigations/{id}/calls — the capability calls, oldest first. */
+  async calls(investigationId: string): Promise<CallView[]> {
+    const r = await this.authedGet<{ calls?: RawCall[] }>(`/api/investigations/${encodeURIComponent(investigationId)}/calls`);
+    return (r.calls ?? []).map(mapCall);
+  }
+
+  /** GET /api/investigations/{id}/calls/{call_id} — one call whole (08 §8.6.1). */
+  async call(investigationId: string, callId: string): Promise<CallDetail> {
+    const r = await this.authedGet<RawCallDetail>(`/api/investigations/${encodeURIComponent(investigationId)}/calls/${encodeURIComponent(callId)}`);
+    return {
+      ...mapCall(r),
+      paramsSent: r.params_sent,
+      degradationNotes: r.degradation_notes ?? [],
+      attempts: (r.attempts ?? []).map((a) => ({ adapter: a.adapter ?? "", operation: a.operation ?? "", priority: a.priority ?? 0, params: a.params, answered: !!a.answered, note: a.note })),
+      produced: {
+        ocsfEventRefs: r.produced?.ocsf_event_refs ?? [], observedDataRefs: r.produced?.observed_data_refs ?? [], entityRefs: r.produced?.entity_refs ?? [],
+        nullObservationRef: r.produced?.null_observation_ref, events: (r.produced?.events ?? []).map(mapEventRow),
+      },
+      otherBindings: (r.other_bindings ?? []).map((b) => ({ adapter: b.adapter ?? "", operation: b.operation ?? "", priority: b.priority ?? 0, scope: b.scope, configured: !!b.configured, healthy: !!b.healthy })),
+      closableBy: r.closable_by,
+    };
+  }
+
   async evidence(ref: string): Promise<EvidenceDoc> {
     const r = await this.authedGet<RawEvidence>(`/api/evidence/${encodeURIComponent(ref)}`);
     return mapEvidence(r, ref);
@@ -1711,7 +1825,7 @@ export class BackendClient {
 interface RawEvidence {
   ref?: string; kind?: string; type?: string; payload?: unknown;
   class_uid?: number; time?: string; recorded_at?: string; source_tool?: string;
-  view?: EventView;
+  view?: EventView; call_id?: string;
   related?: { sightings?: RawEvidence[]; identity?: RawEvidence | null; evidence?: RawEvidence[] };
 }
 
@@ -1726,6 +1840,7 @@ function mapEvidence(r: RawEvidence, ref: string): EvidenceDoc {
     recordedAt: r.recorded_at,
     sourceTool: r.source_tool,
     view: r.view,
+    callId: r.call_id,
   };
   if (r.related) {
     doc.related = {

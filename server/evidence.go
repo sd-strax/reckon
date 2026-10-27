@@ -29,7 +29,7 @@ import (
 // objects in a single transaction. Failure fails the invocation: returning
 // refs that were never persisted would mint citations that cannot open —
 // exactly the broken promise this layer exists to prevent.
-func persistInvokeResult(r *http.Request, db *sql.DB, res capability.CapabilityResult) error {
+func persistInvokeResult(r *http.Request, db *sql.DB, res capability.CapabilityResult, call callRecord) error {
 	ctx := r.Context()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -107,6 +107,10 @@ func persistInvokeResult(r *http.Request, db *sql.DB, res capability.CapabilityR
 			}
 		}
 	}
+	// The call itself and its joins (adr/0092), in the same transaction.
+	if err := persistCall(ctx, tx, call, res); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -169,6 +173,9 @@ type EvidenceView struct {
 	// sentence with entity slots, the curated fields, the category, a decoded
 	// encoded field. Nil for STIX objects.
 	View *ocsfview.EventView `json:"view,omitempty"`
+	// CallID is the capability call that retrieved an OCSF record (adr/0092);
+	// empty for a record persisted before calls were recorded.
+	CallID string `json:"call_id,omitempty"`
 
 	// Related is set on an `indicator--` ref (a detection finding, 03 §4.12):
 	// the sightings that cite it, the vendor identity that produced it, and the
@@ -252,6 +259,7 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 	}
 	v.Ref, v.Kind, v.Payload, v.Time, v.RecordedAt = ref, "ocsf", payload, &t, &rec
 	v.View = b.eventView(capability.OcsfEvent{ID: id, ClassUID: v.ClassUID, ClassName: v.Type, Time: t, RecordedAt: rec, SourceTool: v.SourceTool}, payload)
+	v.CallID = callIDForEvent(r.Context(), db, id)
 	writeJSON(w, http.StatusOK, v)
 }
 

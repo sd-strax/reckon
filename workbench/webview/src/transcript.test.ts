@@ -37,3 +37,14 @@ describe("parseTranscript", () => {
     expect(distillResult(false, "x".repeat(5000)).body.length).toBe(4001);
   });
 });
+
+describe("distillResult", () => {
+  it("names the capability call the envelope came from (adr/0092)", async () => {
+    const { distillResult } = await import("./transcript");
+    const r = distillResult(false, JSON.stringify({ coverage: "COMPLETE", call_id: "c-1", events: [{}], ocsf_event_refs: ["e1"] }));
+    expect(r.callId).toBe("c-1");
+    expect(r.detail).toBe("COMPLETE · 1 event(s)");
+    expect(distillResult(false, "plain text").callId).toBeUndefined();
+  });
+});
+

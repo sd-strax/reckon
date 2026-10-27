@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a patch older than what the
 // webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/backend";
+import type { ActionRecord, Appearance, CallDetail, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/backend";
 import type { InvestigationSnapshot, KnowledgeItem, KnowledgeSection, KnowledgeState, RenderMessage } from "../../src/protocol";
 
 export interface LiveToolResult {
@@ -12,6 +12,8 @@ export interface LiveToolResult {
   detail: string;
   coverage?: string;
   refs: string[];
+  /** The capability call the result came from (adr/0092). */
+  callId?: string;
 }
 
 export interface LiveToolRow {
@@ -70,6 +72,7 @@ export interface State {
   transcripts: Record<string, string>;
   actionRecords: Record<string, ActionRecord>;
   caseSummaries: Record<string, CaseSummaryView | null>;
+  calls: Record<string, CallDetail>;
   inspectorErrors: Record<string, string>;
   /** The analyst's knowledge curation: the session's items with local toggles. */
   knowledge: KnowledgeItem[];
@@ -104,6 +107,7 @@ export const initialState: State = {
   transcripts: {},
   actionRecords: {},
   caseSummaries: {},
+  calls: {},
   inspectorErrors: {},
   knowledge: [],
   live: [],
@@ -243,6 +247,8 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...state, actionRecords: { ...state.actionRecords, [msg.actionId]: msg.record }, inspectorErrors: dropKey(state.inspectorErrors, msg.actionId) };
     case "inspector.case":
       return { ...state, caseSummaries: { ...state.caseSummaries, [msg.investigationRef]: msg.summary }, inspectorErrors: dropKey(state.inspectorErrors, msg.investigationRef) };
+    case "inspector.call":
+      return { ...state, calls: { ...state.calls, [msg.callId]: msg.call }, inspectorErrors: dropKey(state.inspectorErrors, msg.callId) };
     case "inspector.error":
       return { ...state, inspectorErrors: { ...state.inspectorErrors, [msg.target]: msg.message }, docs: msg.target in state.docs ? state.docs : { ...state.docs, [msg.target]: null } };
     case "turn.user":
@@ -275,7 +281,7 @@ function onMessage(state: State, msg: RenderMessage): State {
       }
       return withTurn(state, (turn) => {
         const seg = turn.segments[idx] as { kind: "tool"; row: LiveToolRow };
-        turn.segments[idx] = { kind: "tool", row: { ...seg.row, result: { isError: msg.isError, detail, coverage: msg.coverage, refs: msg.refs || [] } } };
+        turn.segments[idx] = { kind: "tool", row: { ...seg.row, result: { isError: msg.isError, detail, coverage: msg.coverage, refs: msg.refs || [], callId: msg.callId } } };
       });
     }
     case "turn.committed":

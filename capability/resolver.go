@@ -85,6 +85,15 @@ type CapabilityResult struct {
 	EntityRefs       []identity.STIXID
 	DegradationNotes []string
 
+	// The call's own facts (adr/0092): every binding considered and what
+	// became of it, how many answered of how many configured, and the timing.
+	// Recorded so a call is addressable as a record, not re-derived later.
+	Attempts         []BindingAttempt
+	BindingsAnswered int
+	BindingsTotal    int
+	StartedAt        time.Time
+	Duration         time.Duration
+
 	Events     []OcsfEvent
 	Normalized []NormalizationResult
 	// NullObservation is set when coverage is COMPLETE and no event came back
@@ -95,6 +104,44 @@ type CapabilityResult struct {
 
 func (r *CapabilityResult) note(format string, args ...any) {
 	r.DegradationNotes = append(r.DegradationNotes, fmt.Sprintf(format, args...))
+}
+
+// BindingAttempt is one binding's part in a call: what was sent to it when it
+// was applicable and healthy, whether it answered, and the note when it did
+// not. Params is nil when nothing was sent.
+type BindingAttempt struct {
+	Adapter   string         `json:"adapter"`
+	Operation string         `json:"operation"`
+	Priority  int            `json:"priority"`
+	Params    map[string]any `json:"params,omitempty"`
+	Answered  bool           `json:"answered"`
+	Note      string         `json:"note,omitempty"`
+}
+
+// BindingStatus is one configured binding of a verb with its adapter's
+// present health — the "other bindings for the verb" a call record lists.
+type BindingStatus struct {
+	Adapter    string `json:"adapter"`
+	Operation  string `json:"operation"`
+	Priority   int    `json:"priority"`
+	Scope      string `json:"scope,omitempty"`
+	Configured bool   `json:"configured"` // the adapter is present (enabled)
+	Healthy    bool   `json:"healthy"`
+}
+
+// VerbBindings lists a verb's configured bindings, highest priority first,
+// with each adapter's presence and health.
+func (r *Resolver) VerbBindings(verb string) []BindingStatus {
+	out := []BindingStatus{}
+	for _, b := range sortedByPriority(r.bindings[verb]) {
+		st := BindingStatus{Adapter: b.Adapter, Operation: b.Operation, Priority: b.Priority, Scope: b.Scope}
+		if a, ok := r.adapters[b.Adapter]; ok {
+			st.Configured = true
+			st.Healthy = a.Health().Healthy
+		}
+		out = append(out, st)
+	}
+	return out
 }
 
 // Resolver turns a verb call into telemetry + interpretation objects by
@@ -174,7 +221,8 @@ func validateParams(params map[string]any) error {
 // fan-out verbs invoke all eligible bindings. A FATAL adapter error propagates.
 func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (CapabilityResult, error) {
 	bindings := sortedByPriority(r.bindings[verb])
-	var res CapabilityResult
+	res := CapabilityResult{StartedAt: time.Now().UTC(), BindingsTotal: len(bindings), Attempts: []BindingAttempt{}}
+	defer func() { res.Duration = time.Since(res.StartedAt) }()
 	if len(bindings) == 0 {
 		res.Coverage = CoverageUnavailableTenant
 		res.note("no binding configured for verb %q in tenant %q", verb, r.tenant.Name)
@@ -197,17 +245,29 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 	// scope-filtered degrades exactly like any other coverage gap (§6.1).
 	norm := r.normalizer.Scoped(input.SourceScope)
 
+	// attempt records one binding's part in the call; skip is the note for a
+	// binding that did not answer (also a degradation note).
+	attempt := func(b Binding, params map[string]any, answered bool, note string) {
+		res.Attempts = append(res.Attempts, BindingAttempt{Adapter: b.Adapter, Operation: b.Operation, Priority: b.Priority, Params: params, Answered: answered, Note: note})
+	}
+	skip := func(b Binding, params map[string]any, format string, args ...any) {
+		note := fmt.Sprintf(format, args...)
+		res.DegradationNotes = append(res.DegradationNotes, note)
+		attempt(b, params, false, note)
+	}
+
 	for _, b := range bindings {
 		if !ScopeApplicable(b.Scope, input.SourceScope) {
-			res.note("binding %s/%s: scope %q not applicable to investigation scope %q", verb, b.Adapter, b.Scope, input.SourceScope)
+			skip(b, nil, "binding %s/%s: scope %q not applicable to investigation scope %q", verb, b.Adapter, b.Scope, input.SourceScope)
 			continue
 		}
 		adapter, ok := r.adapters[b.Adapter]
 		if !ok {
-			res.note("binding %s/%s: adapter not configured or disabled", verb, b.Adapter)
+			skip(b, nil, "binding %s/%s: adapter not configured or disabled", verb, b.Adapter)
 			continue
 		}
 		if unhealthy[b.Adapter] {
+			attempt(b, nil, false, "adapter marked unhealthy earlier in this call")
 			continue // already marked unhealthy earlier this call
 		}
 
@@ -217,14 +277,14 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 			return CapabilityResult{}, fmt.Errorf("verb %s, adapter %s: template render: %w", verb, b.Adapter, err)
 		}
 		if !appl {
-			res.note("binding %s/%s: required input missing, not applicable", verb, b.Adapter)
+			skip(b, nil, "binding %s/%s: required input missing, not applicable", verb, b.Adapter)
 			continue
 		}
 		applicable++
 
 		if h := adapter.Health(); !h.Healthy {
 			unhealthy[b.Adapter] = true
-			res.note("binding %s/%s: adapter unhealthy: %s", verb, b.Adapter, h.Message)
+			skip(b, nil, "binding %s/%s: adapter unhealthy: %s", verb, b.Adapter, h.Message)
 			continue
 		}
 
@@ -242,23 +302,25 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 					// applicable stays counted and the classifier yields
 					// UNAVAILABLE_TRANSIENT, never UNAVAILABLE_TENANT (§6.1).
 					unhealthy[b.Adapter] = true
-					res.note("binding %s/%s: adapter became unhealthy: %v", verb, b.Adapter, ae.Err)
+					skip(b, params, "binding %s/%s: adapter became unhealthy: %v", verb, b.Adapter, ae.Err)
 					continue
 				}
 			}
 			failed++
-			res.note("binding %s/%s: call failed: %v", verb, b.Adapter, err)
+			skip(b, params, "binding %s/%s: call failed: %v", verb, b.Adapter, err)
 			continue
 		}
 
 		succeeded++
 		sources = append(sources, resp.SourceTool)
+		attempt(b, params, true, "")
 		r.ingest(&res, norm, resp)
 		if !fanout {
 			break // non-fan-out: highest-priority success wins
 		}
 	}
 
+	res.BindingsAnswered = succeeded
 	res.Coverage = classifyCoverage(fanout, applicable, succeeded, failed)
 	if res.Coverage == CoverageComplete && len(res.Events) == 0 {
 		// Every applicable source answered and none had anything: that is an

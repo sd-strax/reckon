@@ -303,10 +303,11 @@ func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) 
 				// fields, never by parsing Content (which may be clipped
 				// mid-JSON). Absent when the result is not a capability
 				// envelope (e.g. list_actions).
-				if cov, n, refs, ok := summarizeEnvelope(content); ok && !isError {
+				if cov, n, refs, callID, ok := summarizeEnvelope(content); ok && !isError {
 					note.Coverage = cov
 					note.EventCount = &n
 					note.Refs = refs
+					note.CallID = callID
 				}
 				s.conn.Notify("turn/tool_result", note)
 			},
@@ -416,27 +417,31 @@ type turnToolResultNote struct {
 	// events) — what the client's pin-from-result and citation-open surfaces
 	// act on (design/ui 02 §2.8), extracted pre-clip like the ticker fields.
 	Refs []string `json:"refs,omitempty"`
+	// CallID addresses the capability call the result came from (adr/0092),
+	// so the row can open it.
+	CallID string `json:"call_id,omitempty"`
 }
 
 // summarizeEnvelope distills a capability-envelope result into the ticker
 // fields: its coverage classification, event count, and citation refs.
 // ok=false when the payload is not an envelope (a plain error string, or a
 // non-capability tool result like list_actions).
-func summarizeEnvelope(content string) (coverage string, eventCount int, refs []string, ok bool) {
+func summarizeEnvelope(content string) (coverage string, eventCount int, refs []string, callID string, ok bool) {
 	var env struct {
 		Coverage         string            `json:"coverage"`
+		CallID           string            `json:"call_id"`
 		Events           []json.RawMessage `json:"events"`
 		ObservedDataRefs []string          `json:"observed_data_refs"`
 		EntityRefs       []string          `json:"entity_refs"`
 		OcsfEventRefs    []string          `json:"ocsf_event_refs"`
 	}
 	if err := json.Unmarshal([]byte(content), &env); err != nil || env.Coverage == "" {
-		return "", 0, nil, false
+		return "", 0, nil, "", false
 	}
 	refs = append(refs, env.ObservedDataRefs...)
 	refs = append(refs, env.EntityRefs...)
 	refs = append(refs, env.OcsfEventRefs...)
-	return env.Coverage, len(env.Events), refs, true
+	return env.Coverage, len(env.Events), refs, env.CallID, true
 }
 
 func (s *service) handleTurn(ctx context.Context, raw json.RawMessage) (any, error) {

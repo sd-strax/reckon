@@ -15,9 +15,11 @@ import type {
   Appearance,
   Capability,
   CaseRow,
+  CallDetail,
   CaseSummaryView,
   CommsThread,
   Enablement,
+  EventRow,
   EventSpan,
   EvidenceDoc,
   Hypothesis,
@@ -114,7 +116,8 @@ export type InspectorTarget =
   | { kind: "action"; actionId: string }
   | { kind: "thread"; threadId: string }
   | { kind: "case"; investigationRef: string }
-  | { kind: "person"; principalId: string };
+  | { kind: "person"; principalId: string }
+  | { kind: "call"; callId: string };
 
 /** One implicit-retrieval item (design/06 §5.1): a SOP or a similar past case
  * with its relevance signals and the analyst's inclusion state. Mirrors the
@@ -183,6 +186,8 @@ export interface InvestigationSnapshot {
   enablement: Enablement | null;
   knowledge: KnowledgeItem[];
   derived: DerivedViews | null;
+  /** The events the investigation's calls retrieved, in event time (adr/0092); null when the read failed. */
+  events: EventRow[] | null;
 }
 
 /**
@@ -233,6 +238,7 @@ export type RenderMessage =
   | { type: "inspector.action"; actionId: string; record: ActionRecord }
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
+  | { type: "inspector.call"; callId: string; call: CallDetail }
   | { type: "inspector.error"; target: string; message: string }
   // The Knowledge document (impl §2.6): slices re-posted whole after reads
   // and the host's own writes; the answer streams by request id.
@@ -251,7 +257,7 @@ export type RenderMessage =
   | { type: "turn.text"; delta: string }
   | { type: "turn.step"; round: number }
   | { type: "turn.tool"; name: string; input: unknown }
-  | { type: "turn.toolResult"; name: string; isError: boolean; coverage?: string; events?: number; refs?: string[] }
+  | { type: "turn.toolResult"; name: string; isError: boolean; coverage?: string; events?: number; refs?: string[]; callId?: string }
   | { type: "turn.committed"; interpretationId: string }
   | { type: "turn.error"; message: string }
   | { type: "turn.end"; usage?: { input: number; output: number; cacheRead: number }; rounds?: number };

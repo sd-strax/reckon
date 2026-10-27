@@ -14,6 +14,8 @@ export interface ToolRowResult {
   refs: string[];
   /** A non-envelope result body to show behind the disclosure. */
   body?: string;
+  /** The capability call the result came from (adr/0092). */
+  callId?: string;
 }
 
 /** A tool result's refs are already pinned when some active pin cites all of
@@ -24,7 +26,7 @@ export function refsAlreadyPinned(pins: PinRow[], refs: string[]): boolean {
 }
 
 export function ToolRow({ name, argsHint, argsPretty, result }: { name: string; argsHint: string; argsPretty: string; result?: ToolRowResult }) {
-  const { state, send, openPrompt, openEnableForm } = useApp();
+  const { state, send, openPrompt, openEnableForm, openInspector } = useApp();
   const pins = state.snap?.pins || [];
   const refs = result?.refs || [];
   const pinned = refsAlreadyPinned(pins, refs);
@@ -43,6 +45,7 @@ export function ToolRow({ name, argsHint, argsPretty, result }: { name: string; 
         <span className="verb">{name}</span>
         <span className="hint">{argsHint}</span>
         {result ? <span className="hint status">{result.detail}</span> : null}
+        {result?.callId ? <button className="linklike opencall" title="Open the capability call: binding, parameters sent, what it produced" onClick={(e) => { e.stopPropagation(); e.preventDefault(); openInspector({ kind: "call", callId: result.callId! }); }}>open call</button> : null}
         {refs.length ? (
           <button
             className={"pincta summaryPin" + (pinned ? " pinnedInert" : "")}

@@ -619,7 +619,7 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 				extra[k] = val
 			}
 		}
-		call := InvokeInput{Entity: in.Entity}
+		call := InvokeInput{Entity: in.Entity, InvestigationRef: s.investigationID}
 		if len(extra) > 0 {
 			call.Extra = extra
 		}

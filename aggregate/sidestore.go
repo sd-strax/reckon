@@ -47,10 +47,13 @@ type TranscriptContent struct {
 // tool-result store lands (v1 — results are served by /capability/<verb>
 // responses today and not retained). Treat it as a client assertion, not proof.
 type ToolCallContent struct {
-	CallID     string          `json:"call_id"`
+	CallID     string          `json:"call_id"` // the model's tool_use id
 	ToolName   string          `json:"tool_name"`
 	Args       json.RawMessage `json:"args,omitempty"`
 	ResultHash string          `json:"result_hash,omitempty"`
+	// CapabilityCallID is the capability call the dispatch made (adr/0092),
+	// empty for an intrinsic tool or a call made before calls were recorded.
+	CapabilityCallID string `json:"capability_call_id,omitempty"`
 }
 
 // TranscriptRef is the reference the interpretation event carries into the
@@ -112,14 +115,18 @@ func (s *SideStore) WriteReasoningTx(ctx context.Context, tx *sql.Tx, env Envelo
 	for i := range c.ToolCalls {
 		tc := c.ToolCalls[i]
 		args := normalizeArgs(tc.Args)
+		var capCall any
+		if id, err := uuid.Parse(tc.CapabilityCallID); err == nil {
+			capCall = id
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO ai_tool_calls (
 				id, tenant_id, investigation_id, event_id, tool_name, tool_args,
-				result_hash, transcript_hash, occurred_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				result_hash, transcript_hash, occurred_at, capability_call_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		`, uuid.Must(uuid.NewV7()), env.TenantID, env.AggregateID, interpEventID,
 			tc.ToolName, []byte(args), nullString(tc.ResultHash), nullString(transcriptHash),
-			env.OccurredAt); err != nil {
+			env.OccurredAt, capCall); err != nil {
 			return fmt.Errorf("insert ai_tool_calls: %w", err)
 		}
 	}

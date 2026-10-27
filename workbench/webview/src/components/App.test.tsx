@@ -132,7 +132,11 @@ describe("the investigation document", () => {
     mount();
     tab("Story");
     expect(within(lens()).getByText("T1078")).toBeTruthy();
-    expect(lens().querySelectorAll(".trow").length).toBeGreaterThan(2);
+    // The rows are the investigation's retrieved events (adr/0092), two of them, plus the start divider.
+    expect(lens().querySelectorAll(".trow").length).toBe(2);
+    expect(within(lens()).getByText(/2 retrieved events in this investigation/)).toBeTruthy();
+    expect(within(lens()).getByText(/No hypothesis is SUPPORTED yet, so there is no attack path/)).toBeTruthy();
+    expect(within(lens()).getByText("Open full graph")).toBeTruthy();
     expect(within(lens()).getByText(/investigation starts/)).toBeTruthy();
     expect(within(lens()).getByText(/under H1 not-owner: No scheduled job/)).toBeTruthy();
     // The per-class sentence (adr/0090): the event reads as who did what where, its entities as chips.

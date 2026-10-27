@@ -837,6 +837,14 @@ it"); each row carries its `call_id`. Payloads are not included (the evidence en
 them). A read over persisted tables, never a capability call. §6.13 and §6.20 share these
 tables and land in one PR under one ADR that lists both issues.
 
+**Landed** (`adr/0092`, PR #94): `capability_calls` carries `attempts` (every binding
+considered, with its outcome) beside the columns above; the snapshot carries `events` (fetched
+with the load and after each turn), so the webview derives "around it" and the attack path from
+it rather than asking per object; the host answers `inspector.call` from
+`GET …/calls/{call_id}`. The tool-call row's field is `capability_call_id`, kept apart from the
+model's `call_id` (its tool-use id). Events persisted before the migration have no call and are
+not listed; the timeline says so.
+
 ### 8.3 §6.14 — Entity baselines
 
 **Decision.** A baseline is a **counting fact about the retrieved record**, computed server-side
@@ -948,6 +956,11 @@ lists them for the Story timeline and the residual panel. The Call inspector's R
 the "bundle" view: the call's events grouped by source with repetitions collapsed, each
 opening its Evidence inspector. Calls from the workbench's own reads (the case picker, the
 queue) carry no investigation and are not listed.
+
+**Landed** with §6.13 (`adr/0092`, PR #94). The sidecar's tool-result notice carries `call_id`,
+so a live tool row opens its call as a reconstructed one does (the transcript's envelope names
+it). "Other bindings" come from `Resolver.VerbBindings`; installed-but-disabled adapters from
+the enablement view, with the Set up… affordance.
 
 ### 8.10 §6.21 — Listing concluded-case summaries
 
