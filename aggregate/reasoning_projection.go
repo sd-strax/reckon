@@ -201,6 +201,8 @@ type stixPrediction struct {
 	TestQuery      *QuerySpec `json:"test_query,omitempty"`
 	Discriminates  []string   `json:"discriminates,omitempty"`
 	TestKind       string     `json:"test_kind,omitempty"`
+	Title          string     `json:"title,omitempty"`
+	TitleDerived   bool       `json:"title_derived,omitempty"`
 	TestResultRefs []string   `json:"test_result_refs,omitempty"`
 	Created        string     `json:"created"`
 	Modified       string     `json:"modified"`
@@ -301,6 +303,12 @@ func insertPrediction(ctx context.Context, tx *sql.Tx, evt Event, _ Interpretati
 	if err != nil {
 		return fmt.Errorf("project prediction: %w", err)
 	}
+	// An event recorded before adr/0090 carries no title: a replay derives
+	// it here, deterministically, so the projection is whole either way.
+	title, derived := p.Title, p.TitleDerived
+	if title == "" {
+		title, derived = DeriveTitle(p.Statement), true
+	}
 	payload, err := json.Marshal(stixPrediction{
 		Type:          stixTypePrediction,
 		SpecVersion:   "2.1",
@@ -311,6 +319,8 @@ func insertPrediction(ctx context.Context, tx *sql.Tx, evt Event, _ Interpretati
 		TestQuery:     p.TestQuery,
 		Discriminates: p.Discriminates,
 		TestKind:      p.TestKind,
+		Title:         title,
+		TitleDerived:  derived,
 		Created:       stixTime(evt.OccurredAt),
 		Modified:      stixTime(evt.OccurredAt),
 	})
@@ -338,11 +348,11 @@ func insertPrediction(ctx context.Context, tx *sql.Tx, evt Event, _ Interpretati
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO prediction_current (
 			id, hypothesis_ref, aggregate_id, tenant_id, statement, status,
-			created_at, updated_at, last_event_sequence, discriminates, test_kind
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10)
+			created_at, updated_at, last_event_sequence, discriminates, test_kind, title, title_derived
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (id) DO NOTHING
 	`, p.ID, p.HypothesisRef, evt.AggregateID, evt.TenantID, p.Statement, p.Status,
-		evt.OccurredAt, evt.SequenceNo, discriminates, testKind); err != nil {
+		evt.OccurredAt, evt.SequenceNo, discriminates, testKind, title, derived); err != nil {
 		return fmt.Errorf("insert prediction_current: %w", err)
 	}
 	return nil
@@ -463,6 +473,8 @@ type PredictionCurrent struct {
 	TestKind          string               // tool | manual (adr/0054)
 	Attestation       *AttestationRecorded // the human observation the outcome cites, when it has one
 	TestResultRefs    []string
+	Title             string // the short name of record (adr/0090); "" on a row projected before it
+	TitleDerived      bool
 	LastEventSequence int64
 }
 
@@ -504,7 +516,8 @@ func ListPredictions(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]
 	rows, err := db.QueryContext(ctx, `
 		SELECT p.id, p.hypothesis_ref, p.aggregate_id, p.statement, p.status,
 		       p.test_result_refs, p.discriminates, p.last_event_sequence,
-		       s.payload -> 'test_query', p.test_kind, p.attestation
+		       s.payload -> 'test_query', p.test_kind, p.attestation,
+		       COALESCE(p.title, ''), p.title_derived
 		FROM prediction_current p
 		LEFT JOIN stix_objects s ON s.id = split_part(p.id, '--', 2)::uuid
 		WHERE p.aggregate_id = $1
@@ -520,7 +533,8 @@ func ListPredictions(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]
 		var p PredictionCurrent
 		var refs, discriminates, testQuery, attestation []byte
 		if err := rows.Scan(&p.ID, &p.HypothesisRef, &p.AggregateID, &p.Statement,
-			&p.Status, &refs, &discriminates, &p.LastEventSequence, &testQuery, &p.TestKind, &attestation); err != nil {
+			&p.Status, &refs, &discriminates, &p.LastEventSequence, &testQuery, &p.TestKind, &attestation,
+			&p.Title, &p.TitleDerived); err != nil {
 			return nil, fmt.Errorf("scan prediction_current: %w", err)
 		}
 		if len(refs) > 0 {

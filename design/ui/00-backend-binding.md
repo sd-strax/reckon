@@ -264,7 +264,9 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     (`03 §4.1`–`§4.12`), the curated field list and a one-sentence rendering the inspector
     and the Story timeline show, plus a short title per prediction. Display knowledge, so
     it may live client-side keyed by `class_uid`; the short title is recorded with the
-    prediction, never generated at render time.
+    prediction, never generated at render time. **Landed** (`adr/0090`): server-side, in
+    `capability/ocsfview`, with the entity slots carrying the normalizer's ids; the title is
+    a field of `x-prediction`, derived once by the aggregate when not authored.
 13. **Entity-scoped event query** — the cited and retrieved events for one entity within
     one investigation, ordered by event time, for the inspector's "around it" strip and
     the Story timeline. A read over persisted `ocsf_events` (§6.3), not a new capability

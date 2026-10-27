@@ -151,6 +151,50 @@ type PredictionNode struct {
 	// TestKindManual — a person's answer decides it (adr/0054). For a manual
 	// test, TestQuery says whom to ask and what.
 	TestKind string `json:"test_kind,omitempty"`
+	// Title is the prediction's short name (adr/0090): a noun phrase of at
+	// most titleMaxRunes, authored by whoever records the prediction. Empty
+	// means the aggregate derives one from the statement at record time, so
+	// the record always holds a title and no surface generates one at render
+	// time. Frozen with the statement.
+	Title string `json:"title,omitempty"`
+}
+
+// titleMaxRunes bounds a prediction's short title (adr/0090).
+const titleMaxRunes = 64
+
+// DeriveTitle is the deterministic short title of a prediction statement:
+// the statement up to its first clause boundary when that head is long
+// enough to stand alone, else the whole statement, clipped to titleMaxRunes,
+// with no trailing period. The same function derives a title the record
+// lacks (a prediction recorded before adr/0090) at read time, so every
+// surface shows one text.
+func DeriveTitle(statement string) string {
+	s := strings.TrimSpace(statement)
+	// The earliest clause boundary whose head can stand alone.
+	cut := -1
+	for _, sep := range []string{",", ";", ":", " (", " — ", " – ", " - "} {
+		if i := strings.Index(s, sep); i > 0 && utf8.RuneCountInString(s[:i]) >= 24 && (cut < 0 || i < cut) {
+			cut = i
+		}
+	}
+	if cut > 0 {
+		s = s[:cut]
+	}
+	return NormalizeTitle(s)
+}
+
+// NormalizeTitle trims a title, drops a trailing period and clips it to
+// titleMaxRunes with an ellipsis, at a word boundary when one is near.
+func NormalizeTitle(title string) string {
+	s := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(title), "."))
+	if utf8.RuneCountInString(s) > titleMaxRunes {
+		head := string([]rune(s)[:titleMaxRunes-1])
+		if i := strings.LastIndex(head, " "); i >= 40 {
+			head = head[:i]
+		}
+		s = strings.TrimSpace(strings.TrimRight(head, ",;:—–-")) + "…"
+	}
+	return s
 }
 
 // Attestation is what a human observed outside any tool — the answer to a
@@ -219,6 +263,11 @@ type PredictionRecorded struct {
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string   `json:"discriminates,omitempty"`
 	TestKind      string     `json:"test_kind,omitempty"` // "manual" when a person tests it; empty = tool
+	// Title is the short name of record (adr/0090); TitleDerived says the
+	// aggregate derived it from the statement rather than a person or the
+	// agent authoring it.
+	Title        string `json:"title,omitempty"`
+	TitleDerived bool   `json:"title_derived,omitempty"`
 }
 
 // PredictionTransitionRecorded records a prediction's test outcome.
@@ -735,6 +784,10 @@ func applyPredictionCreate(state aggregateState, p PredictionNode, rec *Interpre
 		Status:        PredictionUntested,
 		TestQuery:     p.TestQuery,
 		Discriminates: p.Discriminates,
+		Title:         NormalizeTitle(p.Title),
+	}
+	if rec.Prediction.Title == "" {
+		rec.Prediction.Title, rec.Prediction.TitleDerived = DeriveTitle(p.Statement), true
 	}
 	if p.TestKind == TestKindManual {
 		rec.Prediction.TestKind = TestKindManual

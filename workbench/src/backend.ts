@@ -194,6 +194,18 @@ export interface Appearance {
 }
 
 /** One opened citation (mirrors server.EvidenceView). */
+/** One piece of an event sentence (ocsfview.Span): text, or an entity slot. */
+export interface EventSpan { t: "text" | "entity"; text: string; ref?: string; type?: string }
+/** One curated fact of an event (ocsfview.Field). */
+export interface EventField { label: string; value: string; ref?: string; mono?: boolean; tone?: string }
+/** The per-class rendering of an OCSF record (ocsfview.EventView, adr/0090). */
+export interface EventView {
+  sentence?: EventSpan[];
+  fields: EventField[];
+  category: string;
+  decoded?: { field: string; encoding: string; text: string };
+}
+
 export interface EvidenceDoc {
   ref: string;
   kind: string; // "stix" | "ocsf"
@@ -203,6 +215,8 @@ export interface EvidenceDoc {
   time?: string;
   recordedAt?: string;
   sourceTool?: string;
+  /** On an OCSF record: the sentence, the curated fields, the category, a decoded field (adr/0090). */
+  view?: EventView;
   /** On an `indicator--` ref: its sightings, vendor identity and recursed evidence (08 §8.6.1). */
   related?: { sightings: EvidenceDoc[]; identity: EvidenceDoc | null; evidence: EvidenceDoc[] };
 }
@@ -342,6 +356,9 @@ export interface Prediction {
   status: string;
   /** P<n>: the server view's ordinal in record order across the investigation (adr/0047); the name the agent uses too. */
   ordinal?: number;
+  /** The short name of record (adr/0090): authored with the prediction or derived once by the engine; never generated here. */
+  title: string;
+  titleDerived?: boolean;
   /** The declared test — ⚡ Test P<n> runs just it as a scoped agent turn. */
   testQuery?: TestQuery;
   /**
@@ -626,6 +643,8 @@ interface RawPrediction {
   status: string;
   ordinal?: number;
   test_query?: { tool?: string; query_text?: string };
+  title?: string;
+  title_derived?: boolean;
   discriminates?: string[];
   test_result_refs?: string[];
   test_kind?: string;
@@ -916,6 +935,8 @@ export class BackendClient {
         statement: p.statement,
         status: p.status,
         ordinal: p.ordinal || undefined,
+        title: p.title || p.statement, // a record from before adr/0090 shows its statement, never a client-side clip
+        titleDerived: p.title_derived || undefined,
         testQuery: p.test_query
           ? { tool: p.test_query.tool, queryText: p.test_query.query_text }
           : undefined,
@@ -1206,6 +1227,7 @@ export class BackendClient {
     statement: string,
     discriminates: string[],
     testKind?: string,
+    title?: string,
   ): Promise<void> {
     await this.authedPost("/api/interpretations", {
       investigation_ref: investigationId,
@@ -1213,6 +1235,7 @@ export class BackendClient {
       prediction: {
         hypothesis_ref: hypothesisRef,
         statement,
+        ...(title ? { title } : {}),
         ...(discriminates.length ? { discriminates } : {}),
         ...(testKind === "manual" ? { test_kind: "manual" } : {}),
       },
@@ -1688,6 +1711,7 @@ export class BackendClient {
 interface RawEvidence {
   ref?: string; kind?: string; type?: string; payload?: unknown;
   class_uid?: number; time?: string; recorded_at?: string; source_tool?: string;
+  view?: EventView;
   related?: { sightings?: RawEvidence[]; identity?: RawEvidence | null; evidence?: RawEvidence[] };
 }
 
@@ -1701,6 +1725,7 @@ function mapEvidence(r: RawEvidence, ref: string): EvidenceDoc {
     time: r.time,
     recordedAt: r.recorded_at,
     sourceTool: r.source_tool,
+    view: r.view,
   };
   if (r.related) {
     doc.related = {

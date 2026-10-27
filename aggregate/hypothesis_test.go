@@ -781,3 +781,45 @@ func TestCompetingHypotheses_Projection(t *testing.T) {
 	}
 	verify("replayed")
 }
+
+// adr/0090: every recorded prediction holds a short title — authored with it,
+// else derived deterministically from the statement at record time — and the
+// derivation is the one function every reader uses.
+func TestPredictionTitle(t *testing.T) {
+	cases := []struct{ statement, want string }{
+		{"the account's 30-day logon history shows only network logons from the backup host", "the account's 30-day logon history shows only network logons…"},
+		{"outbound 53/udp volume from the host spikes, with TXT records over 200 bytes", "outbound 53/udp volume from the host spikes"},
+		{"baseline shows no RDP.", "baseline shows no RDP"},
+		{"short, with a comma", "short, with a comma"},
+		{"the owner confirms the session — by phone, within the hour", "the owner confirms the session"},
+	}
+	for _, c := range cases {
+		if got := DeriveTitle(c.statement); got != c.want {
+			t.Errorf("DeriveTitle(%q) = %q; want %q", c.statement, got, c.want)
+		}
+	}
+	if got := NormalizeTitle("  A title with a trailing period.  "); got != "A title with a trailing period" {
+		t.Errorf("NormalizeTitle = %q", got)
+	}
+
+	hRef := HypothesisSTIXID(uuid.New())
+	live := map[string]hypothesisState{hRef: {Status: HypothesisOpen}}
+	env := newTestEnvelope("analyst-1")
+	record := func(title string) *PredictionRecorded {
+		t.Helper()
+		events, err := applyCommand(env, RecordInterpretation{
+			InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "r",
+			Prediction: &PredictionNode{ID: uuid.New(), HypothesisRef: hRef, Statement: "outbound 53/udp volume from the host spikes, with TXT records over 200 bytes", Title: title},
+		}, reasoningState(live, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return recFromEvents(t, events).Prediction
+	}
+	if p := record(""); p.Title != "outbound 53/udp volume from the host spikes" || !p.TitleDerived {
+		t.Errorf("derived title = %+v", p)
+	}
+	if p := record("DNS volume spike."); p.Title != "DNS volume spike" || p.TitleDerived {
+		t.Errorf("authored title = %+v", p)
+	}
+}

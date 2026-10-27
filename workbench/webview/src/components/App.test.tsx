@@ -66,7 +66,7 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText(/all discriminators tested|a discriminator is untested/)).toBeTruthy();
     const rows = lens().querySelectorAll(".prow");
     expect(rows.length).toBe(4);
-    expect(rows[0].querySelector(".ptitle")?.textContent?.startsWith("user-a's 30-day logon history")).toBe(true); // the statement, clipped to one line until gap §6.12
+    expect(rows[0].querySelector(".ptitle")?.textContent).toBe(data.snapshot.hypotheses[0].predictions[0].title); // the title of record (adr/0090), never a client-side clip
     expect(rows[0].querySelector(".psplits")?.textContent).toBe("splits H2");
     expect(rows[1].querySelector(".pcount")?.textContent).toBe("attested");
     expect(rows[0].querySelector(".pbody")).toBeNull();
@@ -135,6 +135,12 @@ describe("the investigation document", () => {
     expect(lens().querySelectorAll(".trow").length).toBeGreaterThan(2);
     expect(within(lens()).getByText(/investigation starts/)).toBeTruthy();
     expect(within(lens()).getByText(/under H1 not-owner: No scheduled job/)).toBeTruthy();
+    // The per-class sentence (adr/0090): the event reads as who did what where, its entities as chips.
+    const sentence = lens().querySelector(".trow .esentence") as HTMLElement;
+    expect(sentence.textContent).toContain("interactive logon to");
+    expect(sentence.querySelectorAll(".eslot").length).toBeGreaterThan(0);
+    fireEvent.click(within(lens()).getByRole("tab", { name: "Auth" }));
+    expect(lens().querySelectorAll(".trow .esentence").length).toBeGreaterThan(0);
     fireEvent.click(within(lens()).getByRole("tab", { name: "Network" }));
     expect(within(lens()).getByText("No cited events carry an event time yet.")).toBeTruthy();
   });
@@ -178,10 +184,11 @@ describe("the investigation document", () => {
     const { transport } = mount();
     fireEvent.click(within(lens()).getAllByText("+ prediction")[0]);
     let dlg = screen.getByRole("dialog");
-    fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "a new test" } });
+    fireEvent.change(dlg.querySelector("#promptInput")!, { target: { value: "a new test" } });
+    fireEvent.change(dlg.querySelector("#promptExtra_title")!, { target: { value: "A new test, titled." } });
     fireEvent.click(within(dlg).getByLabelText(/A person tests this/));
     fireEvent.click(within(dlg).getByText("Record prediction"));
-    expect(transport.intents.find((i) => i.type === "pred.new")).toMatchObject({ statement: "a new test", testKind: "manual" });
+    expect(transport.intents.find((i) => i.type === "pred.new")).toMatchObject({ statement: "a new test", testKind: "manual", title: "A new test, titled." });
     fireEvent.click(lens().querySelector(".hypcard .hyphandle")!);
     expect(screen.getByRole("dialog", { name: "Rename H1 not-owner" })).toBeTruthy();
     fireEvent.click(screen.getByText("Cancel"));

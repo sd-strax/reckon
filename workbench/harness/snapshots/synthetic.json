@@ -1,1109 +1,1204 @@
 {
- "name": "synthetic-reasoning",
- "snapshot": {
-  "seq": 14,
-  "investigation": {
-   "id": "grouping--1c2a7c5e-5a9e-4b7e-9f1a-6d3e2a1b0c01",
-   "title": "Interactive logon review for host-a",
-   "state": "ACTIVE",
-   "lastEventSequence": 14,
-   "seed": {
-    "type": "case",
-    "caseId": "CASE-1001",
-    "source": "ticketing",
-    "entityRef": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
-    "entityIdentifier": "host-a"
-   },
-   "caseNoteOnSeed": "confirm",
-   "caseNote": {
-    "caseId": "CASE-1001",
-    "body": "An investigation was opened for this case.",
-    "systemName": "the ticketing system"
-   },
-   "createdAt": "2026-10-20T09:05:00Z",
-   "openedByName": "Analyst One",
-   "knowledgeInjection": "opt_in"
-  },
-  "hypotheses": [
-   {
-    "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
-    "statement": "The interactive logon by user-a on host-a was not performed by the account owner.",
-    "handle": "H1 not-owner",
-    "status": "OPEN",
-    "labels": [
-     "T1078"
-    ],
-    "predictions": [
-     {
-      "id": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
-      "ordinal": 1,
-      "statement": "user-a's 30-day logon history shows no prior interactive logons to host-a.",
-      "status": "CONFIRMED",
-      "discriminates": [
-       "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
-      ],
-      "testResultRefs": [
-       "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05"
-      ],
-      "testQuery": {
-       "tool": "enumerate_logons",
-       "queryText": "logons for user-a, 30d"
-      }
-     },
-     {
-      "id": "x-prediction--bbbb2222-0000-4000-8000-000000000002",
-      "ordinal": 2,
-      "statement": "The account owner did not start the session.",
-      "status": "CONFIRMED",
-      "discriminates": [
-       "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
-      ],
-      "testResultRefs": [
-       "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06"
-      ],
-      "testKind": "manual",
-      "attestation": {
-       "noteRef": "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06",
-       "author": "analyst-1",
-       "authorName": "Analyst One",
-       "content": "Owner confirmed by phone they were not working at that time.",
-       "source": "account owner",
-       "channel": "phone"
-      }
-     },
-     {
-      "id": "x-prediction--bbbb2222-0000-4000-8000-000000000003",
-      "ordinal": 3,
-      "statement": "No scheduled job on host-a accounts for the session.",
-      "status": "UNTESTED",
-      "discriminates": [
-       "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
-      ],
-      "testResultRefs": [],
-      "testQuery": {
-       "tool": "list_scheduled_tasks",
-       "queryText": "scheduled tasks on host-a"
-      }
-     }
-    ]
-   },
-   {
-    "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000002",
-    "statement": "The logon was routine maintenance by the account owner.",
-    "status": "PROPOSED",
-    "labels": [],
-    "predictions": [
-     {
-      "id": "x-prediction--bbbb2222-0000-4000-8000-000000000004",
-      "ordinal": 4,
-      "statement": "A change ticket covers maintenance on host-a in the window.",
-      "status": "UNTESTED",
-      "discriminates": [
-       "x-hypothesis--aaaa1111-0000-4000-8000-000000000001"
-      ],
-      "testResultRefs": []
-     }
-    ]
-   }
-  ],
-  "actions": [
-   {
-    "actionId": "act-1",
-    "actionType": "host.isolate",
-    "tier": "T2",
-    "status": "SUCCEEDED",
-    "requiredMode": "MANUAL",
-    "targets": [
-     "host-a"
-    ],
-    "pending": false,
-    "pendingLabel": "",
-    "expired": false,
-    "isReversal": false,
-    "reversibility": "REVERSIBLE",
-    "tierEscalated": false,
-    "evidenceRefs": [
-     "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
-    ],
-    "adapter": "fixture-edr",
-    "resultRef": "ISO-1"
-   },
-   {
-    "actionId": "act-2",
-    "actionType": "notify.email",
-    "tier": "T1",
-    "status": "REQUESTED",
-    "requiredMode": "MANUAL",
-    "targets": [
-     "it-ops@example.test"
-    ],
-    "pending": true,
-    "pendingLabel": "PENDING_MANUAL",
-    "expired": false,
-    "expiresAt": "2026-10-27T19:50:48.537Z",
-    "isReversal": false,
-    "reversibility": "IRREVERSIBLE",
-    "tierEscalated": false,
-    "evidenceRefs": [
-     "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-     "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"
-    ],
-    "plannedAdapter": "fixture-mail",
-    "parameters": {
-     "subject": "Session on host-a",
-     "body": "Please confirm whether maintenance was scheduled."
-    }
-   },
-   {
-    "actionId": "act-3",
-    "actionType": "account.disable",
-    "tier": "T3",
-    "status": "REQUESTED",
-    "requiredMode": "MANUAL",
-    "targets": [
-     "user-a"
-    ],
-    "pending": true,
-    "pendingLabel": "PENDING_TWO_PARTY",
-    "expired": false,
-    "expiresAt": "2026-10-27T18:52:48.537Z",
-    "isReversal": false,
-    "reversibility": "REVERSIBLE",
-    "tierEscalated": true,
-    "evidenceRefs": [
-     "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05"
-    ]
-   },
-   {
-    "actionId": "act-4",
-    "actionType": "ioc.block",
-    "tier": "T2",
-    "status": "EXPIRED",
-    "requiredMode": "MANUAL",
-    "targets": [
-     "10.0.0.9"
-    ],
-    "pending": false,
-    "pendingLabel": "",
-    "expired": true,
-    "isReversal": false,
-    "reversibility": "BEST_EFFORT",
-    "tierEscalated": false,
-    "evidenceRefs": []
-   },
-   {
-    "actionId": "act-5",
-    "actionType": "ticket.comment",
-    "tier": "T1",
-    "status": "FAILED",
-    "requiredMode": "MANUAL",
-    "targets": [
-     "CASE-1001"
-    ],
-    "pending": false,
-    "pendingLabel": "",
-    "expired": false,
-    "isReversal": false,
-    "tierEscalated": false,
-    "evidenceRefs": [],
-    "adapter": "fixture-ticketing",
-    "errorDetail": "ticket is read-only"
-   }
-  ],
-  "pins": [
-   {
-    "interpretationId": "interp-pin-1",
-    "finding": "Two interactive logons by user-a within six minutes.",
-    "inputRefs": [
-     "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-     "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"
-    ],
-    "actor": "HUMAN",
-    "pinnedAt": "2026-10-20T09:05:00.000Z",
-    "superseded": false
-   },
-   {
-    "interpretationId": "interp-pin-0",
-    "finding": "Early guess, re-scoped.",
-    "inputRefs": [
-     "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
-     "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
-     "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08"
-    ],
-    "actor": "AI_DELEGATED",
-    "pinnedAt": "2026-10-20T09:02:00.000Z",
-    "superseded": true
-   }
-  ],
-  "comms": [
-   {
-    "threadId": "thr-1",
-    "actionId": "act-0",
-    "actionType": "notify.email",
-    "target": "it-ops@example.test",
-    "subject": "Session on host-a",
-    "status": "replied",
-    "followUpHours": 24,
-    "followUps": 1,
-    "unackedReply": true,
-    "sentAt": "2026-10-20T09:06:00.000Z",
-    "trail": [
-     {
-      "direction": "outbound",
-      "author": "analyst-1",
-      "at": "2026-10-20T09:06:00.000Z",
-      "body": "Was maintenance scheduled?"
-     },
-     {
-      "direction": "inbound",
-      "author": "it-ops",
-      "at": "2026-10-20T09:40:00.000Z",
-      "body": "No maintenance was scheduled."
-     }
-    ],
-    "followUpDue": false,
-    "escalationTriggered": false
-   },
-   {
-    "threadId": "thr-2",
-    "actionId": "act-6",
-    "actionType": "notify.slack",
-    "target": "#ops",
-    "status": "followed_up",
-    "followUpHours": 4,
-    "followUps": 2,
-    "unackedReply": false,
-    "sentAt": "2026-10-20T09:01:00.000Z",
-    "trail": [
-     {
-      "direction": "outbound",
-      "author": "analyst-1",
-      "at": "2026-10-20T09:01:00.000Z",
-      "body": "Any update?"
-     }
-    ],
-    "followUpDue": true,
-    "escalationTriggered": true,
-    "escalationPolicy": "two-follow-ups"
-   }
-  ],
-  "thread": [
-   {
-    "sequenceNo": 2,
-    "occurredAt": "2026-10-20T09:01:00.000Z",
-    "actor": {
-     "principal": "agent@reckon",
-     "kind": "AI_DELEGATED",
-     "model": "claude"
-    },
-    "interpretationId": "interp-turn-1",
-    "interpretationType": "observation",
-    "summary": "turn: enumerated logons",
-    "inputRefs": [
-     "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-     "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
-     "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
-     "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08"
-    ],
-    "outputRefs": [
-     "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
-     "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
-    ],
-    "toolCalls": 1,
-    "hasTranscript": true,
-    "superseded": false,
-    "consultedSops": [
-     {
-      "sopId": "sop-1",
-      "title": "Procedure one",
-      "used": true
-     }
-    ],
-    "consultedSimilar": [
-     {
-      "investigationRef": "grouping--prior-1",
-      "title": "Prior case A",
-      "band": "RELATED",
-      "used": false
-     }
-    ]
-   },
-   {
-    "sequenceNo": 4,
-    "occurredAt": "2026-10-20T09:03:00.000Z",
-    "actor": {
-     "principal": "agent@reckon",
-     "kind": "AI_DELEGATED",
-     "model": "claude"
-    },
-    "interpretationId": "interp-aside-1",
-    "interpretationType": "prediction",
-    "summary": "⚡ Propose tests: recorded P1, P2",
-    "inputRefs": [],
-    "outputRefs": [
-     "x-prediction--bbbb2222-0000-4000-8000-000000000001",
-     "x-prediction--bbbb2222-0000-4000-8000-000000000002"
-    ],
-    "toolCalls": 0,
-    "hasTranscript": true,
-    "superseded": false,
-    "consultedSops": [],
-    "consultedSimilar": []
-   },
-   {
-    "sequenceNo": 6,
-    "occurredAt": "2026-10-20T09:05:00.000Z",
-    "actor": {
-     "principal": "analyst-1",
-     "kind": "HUMAN"
-    },
-    "interpretationId": "interp-pin-1",
-    "interpretationType": "evidence-pin",
-    "summary": "pinned: two interactive logons",
-    "inputRefs": [
-     "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-     "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"
-    ],
-    "outputRefs": [],
-    "toolCalls": 0,
-    "hasTranscript": false,
-    "superseded": false,
-    "consultedSops": [],
-    "consultedSimilar": []
-   },
-   {
-    "sequenceNo": 8,
-    "occurredAt": "2026-10-20T09:07:00.000Z",
-    "actor": {
-     "principal": "agent@reckon",
-     "kind": "AI_DELEGATED",
-     "model": "claude"
-    },
-    "interpretationId": "interp-areq-1",
-    "interpretationType": "action-request",
-    "summary": "requested host.isolate on host-a",
-    "inputRefs": [
-     "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
-    ],
-    "outputRefs": [],
-    "toolCalls": 0,
-    "hasTranscript": false,
-    "superseded": false,
-    "consultedSops": [],
-    "consultedSimilar": []
-   },
-   {
-    "sequenceNo": 9,
-    "occurredAt": "2026-10-20T09:08:00.000Z",
-    "actor": {
-     "principal": "analyst-1",
-     "kind": "HUMAN"
-    },
-    "interpretationId": "interp-aapp-1",
-    "interpretationType": "action-approval",
-    "summary": "approved host.isolate",
-    "inputRefs": [],
-    "outputRefs": [],
-    "toolCalls": 0,
-    "hasTranscript": false,
-    "superseded": false,
-    "consultedSops": [],
-    "consultedSimilar": []
-   },
-   {
-    "sequenceNo": 10,
-    "occurredAt": "2026-10-20T09:09:00.000Z",
-    "actor": {
-     "principal": "system",
-     "kind": "SYSTEM"
-    },
-    "interpretationId": "interp-ares-1",
-    "interpretationType": "action-result",
-    "summary": "host.isolate SUCCEEDED",
-    "inputRefs": [],
-    "outputRefs": [],
-    "toolCalls": 0,
-    "hasTranscript": false,
-    "superseded": false,
-    "consultedSops": [],
-    "consultedSimilar": []
-   },
-   {
-    "sequenceNo": 11,
-    "occurredAt": "2026-10-20T09:10:00.000Z",
-    "actor": {
-     "principal": "analyst-1",
-     "kind": "HUMAN"
-    },
-    "interpretationId": "interp-reset-1",
-    "interpretationType": "note",
-    "summary": "context reset: agent re-grounded",
-    "inputRefs": [],
-    "outputRefs": [],
-    "toolCalls": 0,
-    "hasTranscript": false,
-    "superseded": false,
-    "consultedSops": [],
-    "consultedSimilar": []
-   },
-   {
-    "sequenceNo": 12,
-    "occurredAt": "2026-10-20T09:11:00.000Z",
-    "actor": {
-     "principal": "analyst-1",
-     "kind": "HUMAN"
-    },
-    "interpretationId": "interp-verdict-old",
-    "interpretationType": "verdict",
-    "summary": "verdict SUSPICIOUS",
-    "inputRefs": [
-     "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
-    ],
-    "outputRefs": [],
-    "toolCalls": 0,
-    "hasTranscript": false,
-    "superseded": true,
-    "consultedSops": [],
-    "consultedSimilar": []
-   },
-   {
-    "sequenceNo": 13,
-    "occurredAt": "2026-10-20T09:12:00.000Z",
-    "actor": {
-     "principal": "agent@reckon",
-     "kind": "AI_DELEGATED",
-     "model": "claude"
-    },
-    "interpretationId": "interp-turn-old",
-    "interpretationType": "observation",
-    "summary": "turn: earlier reasoning",
-    "inputRefs": [],
-    "outputRefs": [],
-    "toolCalls": 0,
-    "hasTranscript": true,
-    "superseded": false,
-    "consultedSops": [],
-    "consultedSimilar": []
-   }
-  ],
-  "turns": [
-   {
-    "sequenceNo": 2,
-    "occurredAt": "2026-10-20T09:01:00.000Z",
-    "body": "[user] Review the seed host's recent interactive logons.\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round"
-   },
-   {
-    "sequenceNo": 4,
-    "occurredAt": "2026-10-20T09:03:00.000Z",
-    "body": "[user] ⚡ Propose tests: for the hypothesis H1, record the falsifiable predictions.\n[assistant] Recorded P1 and P2.\n[loop] 0 tool rounds"
-   }
-  ],
-  "capabilities": [
-   {
-    "verb": "enumerate_logons",
-    "intent": "",
-    "inputs": [],
-    "output": "",
-    "status": "available"
-   },
-   {
-    "verb": "list_scheduled_tasks",
-    "intent": "",
-    "inputs": [],
-    "output": "",
-    "status": "degraded"
-   },
-   {
-    "verb": "query_dns",
-    "intent": "",
-    "inputs": [],
-    "output": "",
-    "status": "unavailable"
-   }
-  ],
-  "enablement": {
-   "adapters": [
-    {
-     "name": "dns-adapter",
-     "class": "NATIVE_API",
-     "enabled": false,
-     "configFields": {
-      "base_url": {
-       "type": "string",
-       "description": "The DNS log API."
+  "name": "synthetic-reasoning",
+  "snapshot": {
+    "seq": 14,
+    "investigation": {
+      "id": "grouping--1c2a7c5e-5a9e-4b7e-9f1a-6d3e2a1b0c01",
+      "title": "Interactive logon review for host-a",
+      "state": "ACTIVE",
+      "lastEventSequence": 14,
+      "seed": {
+        "type": "case",
+        "caseId": "CASE-1001",
+        "source": "ticketing",
+        "entityRef": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+        "entityIdentifier": "host-a"
       },
-      "api_key": {
-       "type": "string",
-       "secret": true
+      "caseNoteOnSeed": "confirm",
+      "caseNote": {
+        "caseId": "CASE-1001",
+        "body": "An investigation was opened for this case.",
+        "systemName": "the ticketing system"
+      },
+      "createdAt": "2026-10-20T09:05:00Z",
+      "openedByName": "Analyst One",
+      "knowledgeInjection": "opt_in"
+    },
+    "hypotheses": [
+      {
+        "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+        "statement": "The interactive logon by user-a on host-a was not performed by the account owner.",
+        "handle": "H1 not-owner",
+        "status": "OPEN",
+        "labels": [
+          "T1078"
+        ],
+        "predictions": [
+          {
+            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
+            "ordinal": 1,
+            "statement": "user-a's 30-day logon history shows no prior interactive logons to host-a.",
+            "status": "CONFIRMED",
+            "discriminates": [
+              "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
+            ],
+            "testResultRefs": [
+              "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05"
+            ],
+            "testQuery": {
+              "tool": "enumerate_logons",
+              "queryText": "logons for user-a, 30d"
+            },
+            "title": "user-a's 30-day logon history shows no prior interactive…",
+            "titleDerived": true
+          },
+          {
+            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000002",
+            "ordinal": 2,
+            "statement": "The account owner did not start the session.",
+            "status": "CONFIRMED",
+            "discriminates": [
+              "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
+            ],
+            "testResultRefs": [
+              "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06"
+            ],
+            "testKind": "manual",
+            "attestation": {
+              "noteRef": "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06",
+              "author": "analyst-1",
+              "authorName": "Analyst One",
+              "content": "Owner confirmed by phone they were not working at that time.",
+              "source": "account owner",
+              "channel": "phone"
+            },
+            "title": "The account owner did not start the session",
+            "titleDerived": true
+          },
+          {
+            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000003",
+            "ordinal": 3,
+            "statement": "No scheduled job on host-a accounts for the session.",
+            "status": "UNTESTED",
+            "discriminates": [
+              "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
+            ],
+            "testResultRefs": [],
+            "testQuery": {
+              "tool": "list_scheduled_tasks",
+              "queryText": "scheduled tasks on host-a"
+            },
+            "title": "No scheduled job on host-a accounts for the session",
+            "titleDerived": true
+          }
+        ]
+      },
+      {
+        "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000002",
+        "statement": "The logon was routine maintenance by the account owner.",
+        "status": "PROPOSED",
+        "labels": [],
+        "predictions": [
+          {
+            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000004",
+            "ordinal": 4,
+            "statement": "A change ticket covers maintenance on host-a in the window.",
+            "status": "UNTESTED",
+            "discriminates": [
+              "x-hypothesis--aaaa1111-0000-4000-8000-000000000001"
+            ],
+            "testResultRefs": [],
+            "title": "A change ticket covers maintenance on host-a in the window",
+            "titleDerived": true
+          }
+        ]
       }
-     },
-     "requiredFields": [
-      "base_url"
-     ],
-     "supportable": true
-    }
-   ],
-   "verbs": [
-    {
-     "verb": "query_dns",
-     "adapters": [
-      "dns-adapter"
-     ],
-     "enabled": false,
-     "closableBy": [
-      "dns-adapter"
-     ]
-    }
-   ]
-  },
-  "knowledge": [
-   {
-    "kind": "sop",
-    "ref": "sop-1",
-    "title": "Procedure one",
-    "excerpt": "Confirm the session with the owner first.",
-    "score": 0.82,
-    "included": false,
-    "rationale": "matches the seed host"
-   },
-   {
-    "kind": "case",
-    "ref": "grouping--prior-1",
-    "title": "Prior case A",
-    "excerpt": "",
-    "score": 0.7,
-    "band": "RELATED",
-    "included": false,
-    "rationale": "same account type"
-   }
-  ],
-  "derived": {
-   "strip": [
-    {
-     "ref": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
-     "time": "2026-10-20T09:00:00.000Z",
-     "label": "Authentication"
-    },
-    {
-     "ref": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-     "time": "2026-10-20T09:00:00.000Z",
-     "label": "observed-data"
-    },
-    {
-     "ref": "1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9",
-     "time": "2026-10-20T09:06:00.000Z",
-     "label": "Authentication"
-    }
-   ],
-   "graph": {
-    "refs": [
-     {
-      "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
-      "kind": "stix",
-      "type": "x-hypothesis"
-     },
-     {
-      "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000002",
-      "kind": "stix",
-      "type": "x-hypothesis"
-     },
-     {
-      "id": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
-      "kind": "stix",
-      "type": "x-prediction"
-     },
-     {
-      "id": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-      "kind": "stix",
-      "type": "observed-data"
-     },
-     {
-      "id": "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
-      "kind": "stix",
-      "type": "observed-data"
-     },
-     {
-      "id": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
-      "kind": "stix",
-      "type": "x-host"
-     },
-     {
-      "id": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
-      "kind": "ocsf",
-      "type": "Authentication"
-     }
     ],
-    "edges": [
-     {
-      "from": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
-      "to": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-      "ai": true
-     },
-     {
-      "from": "x-hypothesis--aaaa1111-0000-4000-8000-000000000002",
-      "to": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-      "ai": true
-     },
-     {
-      "from": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
-      "to": "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
-      "ai": true
-     },
-     {
-      "from": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
-      "to": "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
-      "ai": false
-     },
-     {
-      "from": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-      "to": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
-      "ai": false,
-      "join": true
-     },
-     {
-      "from": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-      "to": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
-      "ai": false,
-      "join": true
-     }
+    "actions": [
+      {
+        "actionId": "act-1",
+        "actionType": "host.isolate",
+        "tier": "T2",
+        "status": "SUCCEEDED",
+        "requiredMode": "MANUAL",
+        "targets": [
+          "host-a"
+        ],
+        "pending": false,
+        "pendingLabel": "",
+        "expired": false,
+        "isReversal": false,
+        "reversibility": "REVERSIBLE",
+        "tierEscalated": false,
+        "evidenceRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
+        ],
+        "adapter": "fixture-edr",
+        "resultRef": "ISO-1"
+      },
+      {
+        "actionId": "act-2",
+        "actionType": "notify.email",
+        "tier": "T1",
+        "status": "REQUESTED",
+        "requiredMode": "MANUAL",
+        "targets": [
+          "it-ops@example.test"
+        ],
+        "pending": true,
+        "pendingLabel": "PENDING_MANUAL",
+        "expired": false,
+        "expiresAt": "2026-10-27T19:50:48.537Z",
+        "isReversal": false,
+        "reversibility": "IRREVERSIBLE",
+        "tierEscalated": false,
+        "evidenceRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+          "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"
+        ],
+        "plannedAdapter": "fixture-mail",
+        "parameters": {
+          "subject": "Session on host-a",
+          "body": "Please confirm whether maintenance was scheduled."
+        }
+      },
+      {
+        "actionId": "act-3",
+        "actionType": "account.disable",
+        "tier": "T3",
+        "status": "REQUESTED",
+        "requiredMode": "MANUAL",
+        "targets": [
+          "user-a"
+        ],
+        "pending": true,
+        "pendingLabel": "PENDING_TWO_PARTY",
+        "expired": false,
+        "expiresAt": "2026-10-27T18:52:48.537Z",
+        "isReversal": false,
+        "reversibility": "REVERSIBLE",
+        "tierEscalated": true,
+        "evidenceRefs": [
+          "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05"
+        ]
+      },
+      {
+        "actionId": "act-4",
+        "actionType": "ioc.block",
+        "tier": "T2",
+        "status": "EXPIRED",
+        "requiredMode": "MANUAL",
+        "targets": [
+          "10.0.0.9"
+        ],
+        "pending": false,
+        "pendingLabel": "",
+        "expired": true,
+        "isReversal": false,
+        "reversibility": "BEST_EFFORT",
+        "tierEscalated": false,
+        "evidenceRefs": []
+      },
+      {
+        "actionId": "act-5",
+        "actionType": "ticket.comment",
+        "tier": "T1",
+        "status": "FAILED",
+        "requiredMode": "MANUAL",
+        "targets": [
+          "CASE-1001"
+        ],
+        "pending": false,
+        "pendingLabel": "",
+        "expired": false,
+        "isReversal": false,
+        "tierEscalated": false,
+        "evidenceRefs": [],
+        "adapter": "fixture-ticketing",
+        "errorDetail": "ticket is read-only"
+      }
+    ],
+    "pins": [
+      {
+        "interpretationId": "interp-pin-1",
+        "finding": "Two interactive logons by user-a within six minutes.",
+        "inputRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+          "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"
+        ],
+        "actor": "HUMAN",
+        "pinnedAt": "2026-10-20T09:05:00.000Z",
+        "superseded": false
+      },
+      {
+        "interpretationId": "interp-pin-0",
+        "finding": "Early guess, re-scoped.",
+        "inputRefs": [
+          "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
+          "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+          "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08"
+        ],
+        "actor": "AI_DELEGATED",
+        "pinnedAt": "2026-10-20T09:02:00.000Z",
+        "superseded": true
+      }
+    ],
+    "comms": [
+      {
+        "threadId": "thr-1",
+        "actionId": "act-0",
+        "actionType": "notify.email",
+        "target": "it-ops@example.test",
+        "subject": "Session on host-a",
+        "status": "replied",
+        "followUpHours": 24,
+        "followUps": 1,
+        "unackedReply": true,
+        "sentAt": "2026-10-20T09:06:00.000Z",
+        "trail": [
+          {
+            "direction": "outbound",
+            "author": "analyst-1",
+            "at": "2026-10-20T09:06:00.000Z",
+            "body": "Was maintenance scheduled?"
+          },
+          {
+            "direction": "inbound",
+            "author": "it-ops",
+            "at": "2026-10-20T09:40:00.000Z",
+            "body": "No maintenance was scheduled."
+          }
+        ],
+        "followUpDue": false,
+        "escalationTriggered": false
+      },
+      {
+        "threadId": "thr-2",
+        "actionId": "act-6",
+        "actionType": "notify.slack",
+        "target": "#ops",
+        "status": "followed_up",
+        "followUpHours": 4,
+        "followUps": 2,
+        "unackedReply": false,
+        "sentAt": "2026-10-20T09:01:00.000Z",
+        "trail": [
+          {
+            "direction": "outbound",
+            "author": "analyst-1",
+            "at": "2026-10-20T09:01:00.000Z",
+            "body": "Any update?"
+          }
+        ],
+        "followUpDue": true,
+        "escalationTriggered": true,
+        "escalationPolicy": "two-follow-ups"
+      }
+    ],
+    "thread": [
+      {
+        "sequenceNo": 2,
+        "occurredAt": "2026-10-20T09:01:00.000Z",
+        "actor": {
+          "principal": "agent@reckon",
+          "kind": "AI_DELEGATED",
+          "model": "claude"
+        },
+        "interpretationId": "interp-turn-1",
+        "interpretationType": "observation",
+        "summary": "turn: enumerated logons",
+        "inputRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+          "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
+          "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+          "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08"
+        ],
+        "outputRefs": [
+          "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+          "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
+        ],
+        "toolCalls": 1,
+        "hasTranscript": true,
+        "superseded": false,
+        "consultedSops": [
+          {
+            "sopId": "sop-1",
+            "title": "Procedure one",
+            "used": true
+          }
+        ],
+        "consultedSimilar": [
+          {
+            "investigationRef": "grouping--prior-1",
+            "title": "Prior case A",
+            "band": "RELATED",
+            "used": false
+          }
+        ]
+      },
+      {
+        "sequenceNo": 4,
+        "occurredAt": "2026-10-20T09:03:00.000Z",
+        "actor": {
+          "principal": "agent@reckon",
+          "kind": "AI_DELEGATED",
+          "model": "claude"
+        },
+        "interpretationId": "interp-aside-1",
+        "interpretationType": "prediction",
+        "summary": "⚡ Propose tests: recorded P1, P2",
+        "inputRefs": [],
+        "outputRefs": [
+          "x-prediction--bbbb2222-0000-4000-8000-000000000001",
+          "x-prediction--bbbb2222-0000-4000-8000-000000000002"
+        ],
+        "toolCalls": 0,
+        "hasTranscript": true,
+        "superseded": false,
+        "consultedSops": [],
+        "consultedSimilar": []
+      },
+      {
+        "sequenceNo": 6,
+        "occurredAt": "2026-10-20T09:05:00.000Z",
+        "actor": {
+          "principal": "analyst-1",
+          "kind": "HUMAN"
+        },
+        "interpretationId": "interp-pin-1",
+        "interpretationType": "evidence-pin",
+        "summary": "pinned: two interactive logons",
+        "inputRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+          "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"
+        ],
+        "outputRefs": [],
+        "toolCalls": 0,
+        "hasTranscript": false,
+        "superseded": false,
+        "consultedSops": [],
+        "consultedSimilar": []
+      },
+      {
+        "sequenceNo": 8,
+        "occurredAt": "2026-10-20T09:07:00.000Z",
+        "actor": {
+          "principal": "agent@reckon",
+          "kind": "AI_DELEGATED",
+          "model": "claude"
+        },
+        "interpretationId": "interp-areq-1",
+        "interpretationType": "action-request",
+        "summary": "requested host.isolate on host-a",
+        "inputRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
+        ],
+        "outputRefs": [],
+        "toolCalls": 0,
+        "hasTranscript": false,
+        "superseded": false,
+        "consultedSops": [],
+        "consultedSimilar": []
+      },
+      {
+        "sequenceNo": 9,
+        "occurredAt": "2026-10-20T09:08:00.000Z",
+        "actor": {
+          "principal": "analyst-1",
+          "kind": "HUMAN"
+        },
+        "interpretationId": "interp-aapp-1",
+        "interpretationType": "action-approval",
+        "summary": "approved host.isolate",
+        "inputRefs": [],
+        "outputRefs": [],
+        "toolCalls": 0,
+        "hasTranscript": false,
+        "superseded": false,
+        "consultedSops": [],
+        "consultedSimilar": []
+      },
+      {
+        "sequenceNo": 10,
+        "occurredAt": "2026-10-20T09:09:00.000Z",
+        "actor": {
+          "principal": "system",
+          "kind": "SYSTEM"
+        },
+        "interpretationId": "interp-ares-1",
+        "interpretationType": "action-result",
+        "summary": "host.isolate SUCCEEDED",
+        "inputRefs": [],
+        "outputRefs": [],
+        "toolCalls": 0,
+        "hasTranscript": false,
+        "superseded": false,
+        "consultedSops": [],
+        "consultedSimilar": []
+      },
+      {
+        "sequenceNo": 11,
+        "occurredAt": "2026-10-20T09:10:00.000Z",
+        "actor": {
+          "principal": "analyst-1",
+          "kind": "HUMAN"
+        },
+        "interpretationId": "interp-reset-1",
+        "interpretationType": "note",
+        "summary": "context reset: agent re-grounded",
+        "inputRefs": [],
+        "outputRefs": [],
+        "toolCalls": 0,
+        "hasTranscript": false,
+        "superseded": false,
+        "consultedSops": [],
+        "consultedSimilar": []
+      },
+      {
+        "sequenceNo": 12,
+        "occurredAt": "2026-10-20T09:11:00.000Z",
+        "actor": {
+          "principal": "analyst-1",
+          "kind": "HUMAN"
+        },
+        "interpretationId": "interp-verdict-old",
+        "interpretationType": "verdict",
+        "summary": "verdict SUSPICIOUS",
+        "inputRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
+        ],
+        "outputRefs": [],
+        "toolCalls": 0,
+        "hasTranscript": false,
+        "superseded": true,
+        "consultedSops": [],
+        "consultedSimilar": []
+      },
+      {
+        "sequenceNo": 13,
+        "occurredAt": "2026-10-20T09:12:00.000Z",
+        "actor": {
+          "principal": "agent@reckon",
+          "kind": "AI_DELEGATED",
+          "model": "claude"
+        },
+        "interpretationId": "interp-turn-old",
+        "interpretationType": "observation",
+        "summary": "turn: earlier reasoning",
+        "inputRefs": [],
+        "outputRefs": [],
+        "toolCalls": 0,
+        "hasTranscript": true,
+        "superseded": false,
+        "consultedSops": [],
+        "consultedSimilar": []
+      }
+    ],
+    "turns": [
+      {
+        "sequenceNo": 2,
+        "occurredAt": "2026-10-20T09:01:00.000Z",
+        "body": "[user] Review the seed host's recent interactive logons.\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round"
+      },
+      {
+        "sequenceNo": 4,
+        "occurredAt": "2026-10-20T09:03:00.000Z",
+        "body": "[user] ⚡ Propose tests: for the hypothesis H1, record the falsifiable predictions.\n[assistant] Recorded P1 and P2.\n[loop] 0 tool rounds"
+      }
+    ],
+    "capabilities": [
+      {
+        "verb": "enumerate_logons",
+        "intent": "",
+        "inputs": [],
+        "output": "",
+        "status": "available"
+      },
+      {
+        "verb": "list_scheduled_tasks",
+        "intent": "",
+        "inputs": [],
+        "output": "",
+        "status": "degraded"
+      },
+      {
+        "verb": "query_dns",
+        "intent": "",
+        "inputs": [],
+        "output": "",
+        "status": "unavailable"
+      }
+    ],
+    "enablement": {
+      "adapters": [
+        {
+          "name": "dns-adapter",
+          "class": "NATIVE_API",
+          "enabled": false,
+          "configFields": {
+            "base_url": {
+              "type": "string",
+              "description": "The DNS log API."
+            },
+            "api_key": {
+              "type": "string",
+              "secret": true
+            }
+          },
+          "requiredFields": [
+            "base_url"
+          ],
+          "supportable": true
+        }
+      ],
+      "verbs": [
+        {
+          "verb": "query_dns",
+          "adapters": [
+            "dns-adapter"
+          ],
+          "enabled": false,
+          "closableBy": [
+            "dns-adapter"
+          ]
+        }
+      ]
+    },
+    "knowledge": [
+      {
+        "kind": "sop",
+        "ref": "sop-1",
+        "title": "Procedure one",
+        "excerpt": "Confirm the session with the owner first.",
+        "score": 0.82,
+        "included": false,
+        "rationale": "matches the seed host"
+      },
+      {
+        "kind": "case",
+        "ref": "grouping--prior-1",
+        "title": "Prior case A",
+        "excerpt": "",
+        "score": 0.7,
+        "band": "RELATED",
+        "included": false,
+        "rationale": "same account type"
+      }
+    ],
+    "derived": {
+      "strip": [
+        {
+          "ref": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
+          "time": "2026-10-20T09:00:00.000Z",
+          "label": "Authentication",
+          "sentence": [
+            {
+              "t": "entity",
+              "text": "user-a",
+              "type": "user-account"
+            },
+            {
+              "t": "text",
+              "text": " interactive logon to "
+            },
+            {
+              "t": "entity",
+              "text": "host-a",
+              "type": "x-host",
+              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            },
+            {
+              "t": "text",
+              "text": " from "
+            },
+            {
+              "t": "entity",
+              "text": "10.0.0.9",
+              "type": "ipv4-addr"
+            }
+          ],
+          "category": "auth"
+        },
+        {
+          "ref": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+          "time": "2026-10-20T09:00:00.000Z",
+          "label": "observed-data"
+        },
+        {
+          "ref": "1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9",
+          "time": "2026-10-20T09:06:00.000Z",
+          "label": "Authentication"
+        }
+      ],
+      "graph": {
+        "refs": [
+          {
+            "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+            "kind": "stix",
+            "type": "x-hypothesis"
+          },
+          {
+            "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000002",
+            "kind": "stix",
+            "type": "x-hypothesis"
+          },
+          {
+            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
+            "kind": "stix",
+            "type": "x-prediction"
+          },
+          {
+            "id": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+            "kind": "stix",
+            "type": "observed-data"
+          },
+          {
+            "id": "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
+            "kind": "stix",
+            "type": "observed-data"
+          },
+          {
+            "id": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+            "kind": "stix",
+            "type": "x-host"
+          },
+          {
+            "id": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
+            "kind": "ocsf",
+            "type": "Authentication"
+          }
+        ],
+        "edges": [
+          {
+            "from": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+            "to": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+            "ai": true
+          },
+          {
+            "from": "x-hypothesis--aaaa1111-0000-4000-8000-000000000002",
+            "to": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+            "ai": true
+          },
+          {
+            "from": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+            "to": "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
+            "ai": true
+          },
+          {
+            "from": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
+            "to": "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
+            "ai": false
+          },
+          {
+            "from": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+            "to": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+            "ai": false,
+            "join": true
+          },
+          {
+            "from": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+            "to": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
+            "ai": false,
+            "join": true
+          }
+        ]
+      }
+    }
+  },
+  "labels": {
+    "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": "host-a",
+    "user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02": "user-a",
+    "ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03": "10.0.0.9",
+    "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04": "3 objects",
+    "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05": "2 objects",
+    "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8": "Authentication",
+    "1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9": "Authentication",
+    "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06": "attested by analyst-1 by phone: account owner",
+    "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07": "get_network_connections over 7 days"
+  },
+  "appearances": {
+    "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": [
+      {
+        "investigationId": "grouping--prior-1",
+        "title": "Prior case A",
+        "status": "concluded",
+        "mentions": 3
+      }
     ]
-   }
-  }
- },
- "labels": {
-  "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": "host-a",
-  "user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02": "user-a",
-  "ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03": "10.0.0.9",
-  "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04": "3 objects",
-  "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05": "2 objects",
-  "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8": "Authentication",
-  "1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9": "Authentication",
-  "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06": "attested by analyst-1 by phone: account owner",
-  "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07": "get_network_connections over 7 days"
- },
- "appearances": {
-  "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": [
-   {
-    "investigationId": "grouping--prior-1",
-    "title": "Prior case A",
-    "status": "concluded",
-    "mentions": 3
-   }
-  ]
- },
- "docs": {
-  "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": {
-   "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
-   "kind": "stix",
-   "type": "x-host",
-   "payload": {
-    "type": "x-host",
-    "id": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
-    "properties": {
-     "hostname": "host-a",
-     "os": "Windows Server"
-    },
-    "provenance": {
-     "tool": "fixture",
-     "normalizer": "authentication",
-     "normalizer_version": "1",
-     "derivation_mode": "DIRECT"
-    }
-   }
   },
-  "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04": {
-   "ref": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-   "kind": "stix",
-   "type": "observed-data",
-   "payload": {
-    "type": "observed-data",
-    "id": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-    "number_observed": 1,
-    "first_observed": "2026-10-20T09:00:00Z",
-    "last_observed": "2026-10-20T09:00:00Z",
-    "object_refs": [
-     "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
-     "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05"
-    ],
-    "provenance": {
-     "tool": "fixture",
-     "normalizer": "authentication",
-     "normalizer_version": "1",
-     "derivation_mode": "DIRECT",
-     "coverage": "COMPLETE"
-    }
-   }
-  },
-  "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8": {
-   "ref": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
-   "kind": "ocsf",
-   "type": "Authentication",
-   "classUid": 3002,
-   "time": "2026-10-20T09:00:00Z",
-   "recordedAt": "2026-10-20T09:05:00Z",
-   "sourceTool": "fixture:scenario",
-   "payload": {
-    "class_uid": 3002,
-    "activity_name": "Logon",
-    "actor": {
-     "user": {
-      "name": "user-a"
-     }
-    },
-    "src_endpoint": {
-     "ip": "10.0.0.9"
-    },
-    "dst_endpoint": {
-     "hostname": "host-a"
-    },
-    "logon_type": "interactive",
-    "status": "Success"
-   }
-  },
-  "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06": {
-   "ref": "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06",
-   "kind": "stix",
-   "type": "note",
-   "payload": {
-    "type": "note",
-    "id": "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06",
-    "abstract": "attested by analyst-1 by phone: account owner",
-    "content": "Owner confirmed by phone they were not working at that time.",
-    "authors": [
-     "analyst-1"
-    ],
-    "created": "2026-10-20T09:40:00Z"
-   }
-  },
-  "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07": {
-   "ref": "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
-   "kind": "stix",
-   "type": "x-null-observation",
-   "payload": {
-    "type": "x-null-observation",
-    "id": "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
-    "verb": "get_network_connections",
-    "subject": "host-a",
-    "parameters": {
-     "destination": "203.0.113.9"
-    },
-    "window_from": "2026-10-13T09:00:00Z",
-    "window_to": "2026-10-20T09:00:00Z",
-    "sources": [
-     "fixture"
-    ],
-    "coverage": "COMPLETE"
-   }
-  },
-  "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08": {
-   "ref": "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08",
-   "kind": "stix",
-   "type": "indicator",
-   "payload": {
-    "type": "indicator",
-    "id": "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08",
-    "name": "det-1 · interactive logon followed by an encoded command",
-    "indicator_types": [
-     "T1021.001"
-    ],
-    "severity": "HIGH",
-    "valid_from": "2026-10-20T09:01:00Z",
-    "created_by_ref": "identity--d173b4a5-04c5-47e8-a3a4-bf2a3b4c5d0a"
-   },
-   "related": {
-    "sightings": [
-     {
-      "ref": "sighting--c062a394-f3b4-46d7-9293-ae1f2a3b4c09",
+  "docs": {
+    "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": {
+      "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
       "kind": "stix",
-      "type": "sighting",
+      "type": "x-host",
       "payload": {
-       "type": "sighting",
-       "id": "sighting--c062a394-f3b4-46d7-9293-ae1f2a3b4c09",
-       "sighting_of_ref": "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08",
-       "count": 1,
-       "first_seen": "2026-10-20T09:01:00Z",
-       "where_sighted_refs": [
-        "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
-       ],
-       "observed_data_refs": [
-        "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
-       ]
+        "type": "x-host",
+        "id": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+        "properties": {
+          "hostname": "host-a",
+          "os": "Windows Server"
+        },
+        "provenance": {
+          "tool": "fixture",
+          "normalizer": "authentication",
+          "normalizer_version": "1",
+          "derivation_mode": "DIRECT"
+        }
       }
-     }
-    ],
-    "identity": {
-     "ref": "identity--d173b4a5-04c5-47e8-a3a4-bf2a3b4c5d0a",
-     "kind": "stix",
-     "type": "identity",
-     "payload": {
-      "type": "identity",
-      "id": "identity--d173b4a5-04c5-47e8-a3a4-bf2a3b4c5d0a",
-      "name": "vendor-x",
-      "identity_class": "organization"
-     }
     },
-    "evidence": [
-     {
+    "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04": {
       "ref": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
       "kind": "stix",
       "type": "observed-data",
       "payload": {
-       "type": "observed-data",
-       "id": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-       "number_observed": 1,
-       "object_refs": [
-        "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
-       ]
+        "type": "observed-data",
+        "id": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+        "number_observed": 1,
+        "first_observed": "2026-10-20T09:00:00Z",
+        "last_observed": "2026-10-20T09:00:00Z",
+        "object_refs": [
+          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+          "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05"
+        ],
+        "provenance": {
+          "tool": "fixture",
+          "normalizer": "authentication",
+          "normalizer_version": "1",
+          "derivation_mode": "DIRECT",
+          "coverage": "COMPLETE"
+        }
       }
-     }
-    ]
-   }
-  }
- },
- "transcripts": {
-  "interp-turn-1": "[user] Review the seed host's recent interactive logons.\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round",
-  "interp-aside-1": "[user] ⚡ Propose tests: for the hypothesis H1, record the falsifiable predictions.\n[assistant] Recorded P1 and P2.\n[loop] 0 tool rounds"
- },
- "actionRecords": {
-  "act-1": {
-   "action": {
-    "actionId": "act-1",
-    "actionType": "host.isolate",
-    "tier": "T2",
-    "status": "SUCCEEDED",
-    "requiredMode": "MANUAL",
-    "targets": [
-     "host-a"
+    },
+    "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8": {
+      "ref": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
+      "kind": "ocsf",
+      "type": "Authentication",
+      "classUid": 3002,
+      "time": "2026-10-20T09:00:00Z",
+      "recordedAt": "2026-10-20T09:05:00Z",
+      "sourceTool": "fixture:scenario",
+      "payload": {
+        "class_uid": 3002,
+        "activity_name": "Logon",
+        "actor": {
+          "user": {
+            "name": "user-a"
+          }
+        },
+        "src_endpoint": {
+          "ip": "10.0.0.9"
+        },
+        "dst_endpoint": {
+          "hostname": "host-a"
+        },
+        "logon_type": "interactive",
+        "status": "Success"
+      },
+      "view": {
+        "sentence": [
+          {
+            "t": "entity",
+            "text": "user-a",
+            "type": "user-account"
+          },
+          {
+            "t": "text",
+            "text": " interactive logon to "
+          },
+          {
+            "t": "entity",
+            "text": "host-a",
+            "type": "x-host",
+            "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+          },
+          {
+            "t": "text",
+            "text": " from "
+          },
+          {
+            "t": "entity",
+            "text": "10.0.0.9",
+            "type": "ipv4-addr"
+          }
+        ],
+        "fields": [
+          {
+            "label": "User",
+            "value": "user-a",
+            "mono": true
+          },
+          {
+            "label": "Logon type",
+            "value": "interactive"
+          },
+          {
+            "label": "Destination",
+            "value": "host-a",
+            "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+            "mono": true
+          },
+          {
+            "label": "Source",
+            "value": "10.0.0.9",
+            "mono": true
+          },
+          {
+            "label": "Result",
+            "value": "Success",
+            "tone": "ok"
+          },
+          {
+            "label": "Activity",
+            "value": "Logon"
+          }
+        ],
+        "category": "auth"
+      }
+    },
+    "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06": {
+      "ref": "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06",
+      "kind": "stix",
+      "type": "note",
+      "payload": {
+        "type": "note",
+        "id": "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06",
+        "abstract": "attested by analyst-1 by phone: account owner",
+        "content": "Owner confirmed by phone they were not working at that time.",
+        "authors": [
+          "analyst-1"
+        ],
+        "created": "2026-10-20T09:40:00Z"
+      }
+    },
+    "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07": {
+      "ref": "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+      "kind": "stix",
+      "type": "x-null-observation",
+      "payload": {
+        "type": "x-null-observation",
+        "id": "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+        "verb": "get_network_connections",
+        "subject": "host-a",
+        "parameters": {
+          "destination": "203.0.113.9"
+        },
+        "window_from": "2026-10-13T09:00:00Z",
+        "window_to": "2026-10-20T09:00:00Z",
+        "sources": [
+          "fixture"
+        ],
+        "coverage": "COMPLETE"
+      }
+    },
+    "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08": {
+      "ref": "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08",
+      "kind": "stix",
+      "type": "indicator",
+      "payload": {
+        "type": "indicator",
+        "id": "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08",
+        "name": "det-1 · interactive logon followed by an encoded command",
+        "indicator_types": [
+          "T1021.001"
+        ],
+        "severity": "HIGH",
+        "valid_from": "2026-10-20T09:01:00Z",
+        "created_by_ref": "identity--d173b4a5-04c5-47e8-a3a4-bf2a3b4c5d0a"
+      },
+      "related": {
+        "sightings": [
+          {
+            "ref": "sighting--c062a394-f3b4-46d7-9293-ae1f2a3b4c09",
+            "kind": "stix",
+            "type": "sighting",
+            "payload": {
+              "type": "sighting",
+              "id": "sighting--c062a394-f3b4-46d7-9293-ae1f2a3b4c09",
+              "sighting_of_ref": "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08",
+              "count": 1,
+              "first_seen": "2026-10-20T09:01:00Z",
+              "where_sighted_refs": [
+                "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+              ],
+              "observed_data_refs": [
+                "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
+              ]
+            }
+          }
+        ],
+        "identity": {
+          "ref": "identity--d173b4a5-04c5-47e8-a3a4-bf2a3b4c5d0a",
+          "kind": "stix",
+          "type": "identity",
+          "payload": {
+            "type": "identity",
+            "id": "identity--d173b4a5-04c5-47e8-a3a4-bf2a3b4c5d0a",
+            "name": "vendor-x",
+            "identity_class": "organization"
+          }
+        },
+        "evidence": [
+          {
+            "ref": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+            "kind": "stix",
+            "type": "observed-data",
+            "payload": {
+              "type": "observed-data",
+              "id": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+              "number_observed": 1,
+              "object_refs": [
+                "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "transcripts": {
+    "interp-turn-1": "[user] Review the seed host's recent interactive logons.\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round",
+    "interp-aside-1": "[user] ⚡ Propose tests: for the hypothesis H1, record the falsifiable predictions.\n[assistant] Recorded P1 and P2.\n[loop] 0 tool rounds"
+  },
+  "actionRecords": {
+    "act-1": {
+      "action": {
+        "actionId": "act-1",
+        "actionType": "host.isolate",
+        "tier": "T2",
+        "status": "SUCCEEDED",
+        "requiredMode": "MANUAL",
+        "targets": [
+          "host-a"
+        ],
+        "pending": false,
+        "pendingLabel": "",
+        "expired": false,
+        "isReversal": false,
+        "reversibility": "REVERSIBLE",
+        "tierEscalated": false,
+        "evidenceRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
+        ],
+        "adapter": "fixture-edr",
+        "resultRef": "ISO-1"
+      },
+      "history": [
+        {
+          "sequenceNo": 8,
+          "eventType": "action.requested",
+          "occurredAt": "2026-10-20T09:07:00Z",
+          "actor": {
+            "principal": "agent@reckon",
+            "kind": "AI_DELEGATED",
+            "model": "claude"
+          },
+          "status": "REQUESTED",
+          "detail": "host.isolate · T2 · 1 target(s)"
+        },
+        {
+          "sequenceNo": 8,
+          "eventType": "action.policy_evaluated",
+          "occurredAt": "2026-10-20T09:07:00Z",
+          "actor": {
+            "principal": "agent@reckon",
+            "kind": "AI_DELEGATED"
+          },
+          "detail": "manual approval required · no policy pre-authorizes this"
+        },
+        {
+          "sequenceNo": 9,
+          "eventType": "action.approved",
+          "occurredAt": "2026-10-20T09:08:00Z",
+          "actor": {
+            "principal": "analyst-1",
+            "principalName": "Analyst One",
+            "kind": "HUMAN"
+          },
+          "status": "APPROVED",
+          "detail": "approved by Analyst One"
+        },
+        {
+          "sequenceNo": 10,
+          "eventType": "action.dispatched",
+          "occurredAt": "2026-10-20T09:08:30Z",
+          "actor": {
+            "principal": "system",
+            "kind": "SYSTEM"
+          },
+          "status": "EXECUTING",
+          "detail": "via fixture-edr"
+        },
+        {
+          "sequenceNo": 10,
+          "eventType": "action.resulted",
+          "occurredAt": "2026-10-20T09:09:00Z",
+          "actor": {
+            "principal": "system",
+            "kind": "SYSTEM"
+          },
+          "status": "SUCCEEDED",
+          "detail": "SUCCEEDED · 1 of 1 target(s) SUCCEEDED"
+        }
+      ],
+      "authorization": {
+        "requiredMode": "MANUAL",
+        "mode": "MANUAL",
+        "stage": "SOLO",
+        "primaryApprover": {
+          "principal": "analyst-1",
+          "principalName": "Analyst One",
+          "at": "2026-10-20T09:08:00Z"
+        },
+        "evaluations": [
+          {
+            "policyRef": "policy/ai-no-tier3/1.0.0",
+            "policyVersion": "1",
+            "wouldHaveFired": false,
+            "effect": "DENY",
+            "shadow": false
+          },
+          {
+            "policyRef": "policy/shadow-isolate/1.0.0",
+            "policyVersion": "1",
+            "wouldHaveFired": true,
+            "effect": "AUTO_APPROVE",
+            "shadow": true
+          }
+        ]
+      },
+      "result": {
+        "finalOutcome": "SUCCEEDED",
+        "attempts": 1,
+        "adapter": "fixture-edr",
+        "rawResponseRef": "ISO-1",
+        "perTarget": [
+          {
+            "target": "host-a",
+            "outcome": "SUCCEEDED"
+          }
+        ]
+      },
+      "links": {
+        "requestingInterpretationId": "interp-areq-1"
+      }
+    }
+  },
+  "sops": {
+    "sop-1": {
+      "id": "sop-1",
+      "title": "Procedure one",
+      "body": "# Procedure one\n\nConfirm the session with the owner first.\n\n## Triage\n\n1. Compare with the account's usual logons.",
+      "tags": [
+        "T1078",
+        "triage"
+      ],
+      "status": "published",
+      "recommendation": "confirm-with-owner",
+      "authorId": "Runbooks",
+      "source": {
+        "system": "file",
+        "url": "demo://sops/procedure-one",
+        "version": "1.0"
+      },
+      "importedBy": "analyst-1",
+      "importedAt": "2026-10-19T08:00:00Z"
+    }
+  },
+  "caseSummaries": {
+    "grouping--prior-1": {
+      "investigationRef": "grouping--prior-1",
+      "title": "Prior case A",
+      "body": "An interactive logon by a service account to a server it does not usually reach; contained by isolating the host.",
+      "conclusionAt": "2026-05-14T10:00:00Z",
+      "seedKind": "entity",
+      "seedValue": "HOST-Z",
+      "techniques": [
+        "T1021.001",
+        "T1078"
+      ],
+      "primaryEntities": [
+        "HOST-Z",
+        "svc-z"
+      ],
+      "actionsTaken": [
+        {
+          "actionType": "host.isolate",
+          "targetCount": 1,
+          "outcome": "SUCCEEDED"
+        }
+      ],
+      "conclusionOutcome": "succeeded",
+      "durationHours": 6.5,
+      "verdictDisposition": "MALICIOUS",
+      "verdictRationale": "confirmed",
+      "tags": [
+        "T1021.001",
+        "T1078",
+        "seed:entity",
+        "disposition:MALICIOUS"
+      ],
+      "revision": 2
+    }
+  },
+  "queue": {
+    "caseSource": "ticketing",
+    "investigations": [
+      {
+        "id": "grouping--1c2a7c5e-5a9e-4b7e-9f1a-6d3e2a1b0c01",
+        "title": "Interactive logon review for host-a",
+        "state": "ACTIVE",
+        "seedSummary": "case CASE-1001",
+        "lastEventSequence": 14,
+        "updatedAt": "2026-10-20T10:00:00Z",
+        "pendingActions": 2,
+        "nearestExpiry": "2026-10-27T20:01:31.672Z",
+        "hasVerdict": false,
+        "openActions": 3,
+        "openNotifications": 1,
+        "seed": {
+          "type": "case",
+          "caseId": "CASE-1001",
+          "source": "ticketing",
+          "entityRef": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+          "entityIdentifier": "host-a"
+        }
+      },
+      {
+        "id": "grouping--2c3b8d6f-6b0f-4c8f-a02b-7e4f3b2c1d02",
+        "title": "Bulk download from a shared site by a contractor account",
+        "state": "ACTIVE",
+        "seedSummary": "case CASE-1002",
+        "lastEventSequence": 3,
+        "updatedAt": "2026-10-19T10:00:00Z",
+        "pendingActions": 0,
+        "hasVerdict": true,
+        "openActions": 0,
+        "openNotifications": 0,
+        "seed": {
+          "type": "case",
+          "caseId": "CASE-1002",
+          "source": "ticketing"
+        }
+      },
+      {
+        "id": "grouping--3d4c9e70-7c10-4d90-b13c-8f5a4c3d2e03",
+        "title": "Closed phishing report",
+        "state": "CONCLUDED",
+        "lastEventSequence": 9,
+        "pendingActions": 0,
+        "hasVerdict": true,
+        "openActions": 0,
+        "openNotifications": 0
+      }
     ],
-    "pending": false,
-    "pendingLabel": "",
-    "expired": false,
-    "isReversal": false,
-    "reversibility": "REVERSIBLE",
-    "tierEscalated": false,
-    "evidenceRefs": [
-     "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
-    ],
-    "adapter": "fixture-edr",
-    "resultRef": "ISO-1"
-   },
-   "history": [
-    {
-     "sequenceNo": 8,
-     "eventType": "action.requested",
-     "occurredAt": "2026-10-20T09:07:00Z",
-     "actor": {
-      "principal": "agent@reckon",
-      "kind": "AI_DELEGATED",
-      "model": "claude"
-     },
-     "status": "REQUESTED",
-     "detail": "host.isolate · T2 · 1 target(s)"
-    },
-    {
-     "sequenceNo": 8,
-     "eventType": "action.policy_evaluated",
-     "occurredAt": "2026-10-20T09:07:00Z",
-     "actor": {
-      "principal": "agent@reckon",
-      "kind": "AI_DELEGATED"
-     },
-     "detail": "manual approval required · no policy pre-authorizes this"
-    },
-    {
-     "sequenceNo": 9,
-     "eventType": "action.approved",
-     "occurredAt": "2026-10-20T09:08:00Z",
-     "actor": {
-      "principal": "analyst-1",
-      "principalName": "Analyst One",
-      "kind": "HUMAN"
-     },
-     "status": "APPROVED",
-     "detail": "approved by Analyst One"
-    },
-    {
-     "sequenceNo": 10,
-     "eventType": "action.dispatched",
-     "occurredAt": "2026-10-20T09:08:30Z",
-     "actor": {
-      "principal": "system",
-      "kind": "SYSTEM"
-     },
-     "status": "EXECUTING",
-     "detail": "via fixture-edr"
-    },
-    {
-     "sequenceNo": 10,
-     "eventType": "action.resulted",
-     "occurredAt": "2026-10-20T09:09:00Z",
-     "actor": {
-      "principal": "system",
-      "kind": "SYSTEM"
-     },
-     "status": "SUCCEEDED",
-     "detail": "SUCCEEDED · 1 of 1 target(s) SUCCEEDED"
-    }
-   ],
-   "authorization": {
-    "requiredMode": "MANUAL",
-    "mode": "MANUAL",
-    "stage": "SOLO",
-    "primaryApprover": {
-     "principal": "analyst-1",
-     "principalName": "Analyst One",
-     "at": "2026-10-20T09:08:00Z"
-    },
-    "evaluations": [
-     {
-      "policyRef": "policy/ai-no-tier3/1.0.0",
-      "policyVersion": "1",
-      "wouldHaveFired": false,
-      "effect": "DENY",
-      "shadow": false
-     },
-     {
-      "policyRef": "policy/shadow-isolate/1.0.0",
-      "policyVersion": "1",
-      "wouldHaveFired": true,
-      "effect": "AUTO_APPROVE",
-      "shadow": true
-     }
+    "cases": [
+      {
+        "number": "CASE-1003",
+        "title": "Invoice-themed lure delivered to a shared mailbox",
+        "status": "New",
+        "priority": "P3",
+        "source": "ticketing"
+      }
     ]
-   },
-   "result": {
-    "finalOutcome": "SUCCEEDED",
-    "attempts": 1,
-    "adapter": "fixture-edr",
-    "rawResponseRef": "ISO-1",
-    "perTarget": [
-     {
-      "target": "host-a",
-      "outcome": "SUCCEEDED"
-     }
-    ]
-   },
-   "links": {
-    "requestingInterpretationId": "interp-areq-1"
-   }
   }
- },
- "sops": {
-  "sop-1": {
-   "id": "sop-1",
-   "title": "Procedure one",
-   "body": "# Procedure one\n\nConfirm the session with the owner first.\n\n## Triage\n\n1. Compare with the account's usual logons.",
-   "tags": [
-    "T1078",
-    "triage"
-   ],
-   "status": "published",
-   "recommendation": "confirm-with-owner",
-   "authorId": "Runbooks",
-   "source": {
-    "system": "file",
-    "url": "demo://sops/procedure-one",
-    "version": "1.0"
-   },
-   "importedBy": "analyst-1",
-   "importedAt": "2026-10-19T08:00:00Z"
-  }
- },
- "caseSummaries": {
-  "grouping--prior-1": {
-   "investigationRef": "grouping--prior-1",
-   "title": "Prior case A",
-   "body": "An interactive logon by a service account to a server it does not usually reach; contained by isolating the host.",
-   "conclusionAt": "2026-05-14T10:00:00Z",
-   "seedKind": "entity",
-   "seedValue": "HOST-Z",
-   "techniques": [
-    "T1021.001",
-    "T1078"
-   ],
-   "primaryEntities": [
-    "HOST-Z",
-    "svc-z"
-   ],
-   "actionsTaken": [
-    {
-     "actionType": "host.isolate",
-     "targetCount": 1,
-     "outcome": "SUCCEEDED"
-    }
-   ],
-   "conclusionOutcome": "succeeded",
-   "durationHours": 6.5,
-   "verdictDisposition": "MALICIOUS",
-   "verdictRationale": "confirmed",
-   "tags": [
-    "T1021.001",
-    "T1078",
-    "seed:entity",
-    "disposition:MALICIOUS"
-   ],
-   "revision": 2
-  }
- },
- "queue": {
-  "caseSource": "ticketing",
-  "investigations": [
-   {
-    "id": "grouping--1c2a7c5e-5a9e-4b7e-9f1a-6d3e2a1b0c01",
-    "title": "Interactive logon review for host-a",
-    "state": "ACTIVE",
-    "seedSummary": "case CASE-1001",
-    "lastEventSequence": 14,
-    "updatedAt": "2026-10-20T10:00:00Z",
-    "pendingActions": 2,
-    "nearestExpiry": "2026-10-27T20:01:31.672Z",
-    "hasVerdict": false,
-    "openActions": 3,
-    "openNotifications": 1,
-    "seed": {
-     "type": "case",
-     "caseId": "CASE-1001",
-     "source": "ticketing",
-     "entityRef": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
-     "entityIdentifier": "host-a"
-    }
-   },
-   {
-    "id": "grouping--2c3b8d6f-6b0f-4c8f-a02b-7e4f3b2c1d02",
-    "title": "Bulk download from a shared site by a contractor account",
-    "state": "ACTIVE",
-    "seedSummary": "case CASE-1002",
-    "lastEventSequence": 3,
-    "updatedAt": "2026-10-19T10:00:00Z",
-    "pendingActions": 0,
-    "hasVerdict": true,
-    "openActions": 0,
-    "openNotifications": 0,
-    "seed": {
-     "type": "case",
-     "caseId": "CASE-1002",
-     "source": "ticketing"
-    }
-   },
-   {
-    "id": "grouping--3d4c9e70-7c10-4d90-b13c-8f5a4c3d2e03",
-    "title": "Closed phishing report",
-    "state": "CONCLUDED",
-    "lastEventSequence": 9,
-    "pendingActions": 0,
-    "hasVerdict": true,
-    "openActions": 0,
-    "openNotifications": 0
-   }
-  ],
-  "cases": [
-   {
-    "number": "CASE-1003",
-    "title": "Invoice-themed lure delivered to a shared mailbox",
-    "status": "New",
-    "priority": "P3",
-    "source": "ticketing"
-   }
-  ]
- }
 }

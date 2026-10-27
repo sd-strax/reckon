@@ -1,7 +1,7 @@
 // The hypothesis tracker — the drivable loop over a COMPETING SET (02 §2.9,
 // adr/0047) with 08 §8.4's density: a prediction row is ONE LINE at rest
 // (glyph with its word for screen readers, the ordinal, a short title —
-// the statement truncated until gap §6.12 — a `splits H<n>` marker, the
+// the short title of record (adr/0090) — a `splits H<n>` marker, the
 // evidence count or "attested"); expanding shows the statement, the
 // attestation with its author by name, the evidence chips, what it decides
 // against, the Pinned marker and the row's affordances.
@@ -59,14 +59,6 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
   };
 }
 
-/** The short title (gap §6.12): the statement up to its first clause boundary, clipped. */
-export function shortTitle(p: Prediction): string {
-  const s = p.statement.trim();
-  const cut = s.search(/[,;:—–]| — | - /);
-  const head = cut > 24 ? s.slice(0, cut) : s;
-  return head.length > 72 ? head.slice(0, 71) + "…" : head;
-}
-
 const GLYPH: Record<string, { g: string; word: string; tone: string }> = {
   CONFIRMED: { g: "✓", word: "confirmed", tone: "ok" },
   DISCONFIRMED: { g: "✕", word: "disconfirmed", tone: "bad" },
@@ -90,7 +82,7 @@ function PredictionRow({ p, h, hs, pins }: { p: Prediction; h: Hypothesis; hs: H
       <div className="pline" onClick={() => setOpen((o) => !o)} role="button" aria-expanded={open}>
         <span className={"pglyph " + glyph.tone} aria-hidden="true">{glyph.g}</span><span className="sr">{glyph.word}</span>
         <span className="pord" title="Open this prediction" onClick={(e) => { e.stopPropagation(); openInspector({ kind: "ref", ref: p.id }); }}>{predName(p)}</span>
-        <span className="ptitle" title={p.statement}>{shortTitle(p)}</span>
+        <span className="ptitle" title={p.statement}>{p.title}</span>
         {splits.length ? <span className="psplits" title="Discriminating test: these rivals predict the opposite outcome">splits {splits.join(", ")}</span> : null}
         <span className="pcount">{manual && p.attestation ? "attested" : trefs.length ? `${trefs.length} evidence` : manual ? "a person tests this" : p.status === "UNTESTED" ? "untested" : ""}</span>
         <span className="pchev" aria-hidden="true">{open ? "⌄" : "›"}</span>
@@ -188,8 +180,11 @@ export function HypothesisCard({ h, hs, pins }: { h: Hypothesis; hs: Hypothesis[
                 helper: "Recorded as yours, UNTESTED. ⚡ Test on its row runs it as an agent turn. A test a person answers is yours to record.", confirm: "Record prediction",
                 choicesLabel: rivals.length ? "This test comes out the OPPOSITE way under (discriminates):" : "",
                 choices: rivals.map((r) => ({ id: r.id, label: hypName(r, hs) + " — " + (r.statement.length > 70 ? r.statement.slice(0, 69) + "…" : r.statement), title: r.statement, checked: rivals.length === 1 })),
-                extras: [{ kind: "check", id: "manual", label: "A person tests this — the account owner, the change owner, a phone call. No tool query; I record the result.", title: "A manual test (adr/0054)." }],
-                onConfirm: (statement, picked, ex) => send({ type: "pred.new", hypothesisRef: h.id, statement, discriminates: picked || [], testKind: ex.manual ? "manual" : undefined }),
+                extras: [
+                  { kind: "text", id: "title", label: "Short title (optional, ≤ 64 characters; derived from the statement when empty)", placeholder: "e.g. the account's 30-day logon history", title: "The row's name of record (adr/0090); frozen with the statement." },
+                  { kind: "check", id: "manual", label: "A person tests this — the account owner, the change owner, a phone call. No tool query; I record the result.", title: "A manual test (adr/0054)." },
+                ],
+                onConfirm: (statement, picked, ex) => send({ type: "pred.new", hypothesisRef: h.id, statement, discriminates: picked || [], testKind: ex.manual ? "manual" : undefined, title: typeof ex.title === "string" && ex.title.trim() ? ex.title.trim() : undefined }),
               });
             }}>+ prediction</button>
             {h.status === "OPEN" && !anyTested ? <button className="ghost" title="Sharpen the claim (legal while nothing under it has been tested)." onClick={() => openPrompt({

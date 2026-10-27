@@ -2,12 +2,14 @@
 // adr/0061), Detection finding (indicator + sighting + vendor identity,
 // 03 §4.12) and Alias (an alias edge) — the record-shaped inspectors
 // (08 §8.6, §8.6.1). The per-class sentence and curated field table are gap
-// §6.12; until it lands the generic field renderer shows every field.
+// adr/0090: the sentence, the curated fields and a decoded field head the
+// Details tab; the generic field renderer still shows every field below.
 import { useApp } from "../../app";
 import type { EvidenceDoc } from "../../../../src/backend";
 import { refType, refTypeLabel } from "../../refs";
 import { RefChip, fmtDateTime } from "../shared";
 import { Fields, Json, KV, Loading, Section, Tabs } from "./primitives";
+import { EventDecoded, EventFields, EventSentence } from "../EventSentence";
 
 function payloadOf(doc: EvidenceDoc): Record<string, unknown> {
   return (doc.payload && typeof doc.payload === "object" ? doc.payload : {}) as Record<string, unknown>;
@@ -68,8 +70,11 @@ export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: stri
       <Tabs tabs={[
         { id: "details", label: "Details", body: () => (
           <>
+            {doc.view?.sentence?.length ? <p className="esummary"><EventSentence spans={doc.view.sentence} /></p> : null}
+            {doc.view?.fields.length ? <Section title="Event"><EventFields fields={doc.view.fields} /></Section> : null}
+            {doc.view ? <EventDecoded view={doc.view} /> : null}
             {isOD && objectRefs.length ? <Section title="Objects it contains">{objectRefs.map((r) => <RefChip key={r} refId={r} />)}</Section> : null}
-            <Section title={doc.kind === "ocsf" ? "Event fields" : "Properties"}><Fields obj={propsOf(doc)} /></Section>
+            {doc.kind === "ocsf" && doc.view?.fields.length ? <details className="iraw"><summary className="kicker">All event fields</summary><Fields obj={propsOf(doc)} /></details> : <Section title={doc.kind === "ocsf" ? "Event fields" : "Properties"}><Fields obj={propsOf(doc)} /></Section>}
           </>
         ) },
         { id: "provenance", label: "Provenance", body: () => <ProvenanceTab doc={doc} /> },

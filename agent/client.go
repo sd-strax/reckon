@@ -146,6 +146,7 @@ type Prediction struct {
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string   `json:"discriminates,omitempty"`
 	TestKind      string     `json:"test_kind,omitempty"` // tool (default) | manual — a person tests it (adr/0054)
+	Title         string     `json:"title,omitempty"`     // the short name (adr/0090); derived by the aggregate when empty
 }
 
 // QuerySpec is a prediction's declared test.

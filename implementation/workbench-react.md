@@ -232,7 +232,7 @@ syntax-tinted, copy), `Disclosure`.
 ### 2.2 Density rules applied (`08 §8.7`)
 
 A prediction row at rest: status glyph with its word for screen readers, `P<n>`, the short title
-(gap §6.12; until it exists, the statement truncated to one line), `splits H<n>`, evidence count
+of record (`adr/0090`; the statement on hover), `splits H<n>`, evidence count
 or `attested`. Expanded: the statement in full, the attestation quote with its author by name,
 evidence chips, "decides against", Pinned marker, and the row's affordances (⚡ Test P<n> /
 Record result / Withdraw / Pin). Principal ids, UUIDs and hashes are on hover or in Provenance.
@@ -798,6 +798,14 @@ boundary, clipped to 64 characters) and marks `title_derived: true`, so the reco
 a title and the UI never generates one at render time. Titles are frozen with the statement.
 This is a tool-schema addition, not a base-prompt change; `make eval` runs once as a check and
 the baselines are expected to stand.
+
+**Landed** (`adr/0090`, PR #91): `capability/ocsfview` with renderers for every normalized class
+plus 2005 and 5001; `view` on the evidence read, `sentence` / `category` on strip items, the
+export label; `title` / `title_derived` on `x-prediction`, migration `0024`, the tool
+parameter, the "+ prediction" title field. An authored title over 64 characters is normalized
+(clipped at a word, trailing period dropped) rather than rejected, so a display field never
+costs the agent a turn. `EventRow` itself waits for §6.13; until then the timeline rows are the
+cited events the strip already carries, now as sentences.
 
 ### 8.2 §6.13 — Entity-scoped event query
 

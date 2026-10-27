@@ -38,7 +38,7 @@ describe("targetName", () => {
   it("names snapshot objects without a fetch, falls back to labels and type words", () => {
     const h = snap.hypotheses[0];
     expect(targetName({ kind: "ref", ref: h.id }, snap, {})).toBe(h.handle + " · " + h.statement);
-    expect(targetName({ kind: "ref", ref: h.predictions[0].id }, snap, {})).toBe("P1 · " + h.predictions[0].statement);
+    expect(targetName({ kind: "ref", ref: h.predictions[0].id }, snap, {})).toBe("P1 · " + h.predictions[0].title);
     expect(targetName({ kind: "ref", ref: "x-host--z" }, snap, { "x-host--z": "host-z" })).toBe("host-z");
     expect(targetName({ kind: "ref", ref: "x-host--z" }, snap, {})).toBe("host");
     expect(targetName({ kind: "action", actionId: "act-1" }, snap, {})).toBe("host.isolate → host-a");

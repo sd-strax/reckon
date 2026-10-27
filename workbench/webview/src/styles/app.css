@@ -705,3 +705,12 @@ body.loading #rail { opacity: 0.6; }
   .ksplit.open { grid-template-columns: minmax(0, 1fr); }
   .kdetail { border-left: none; padding-left: 0; position: static; }
 }
+
+/* The per-class event rendering (adr/0090) */
+.esentence .eslot.plain { color: var(--text); font-family: var(--mono); font-size: var(--fs-xs); cursor: default; text-decoration: none; }
+.esummary { margin: 2px 0 8px; line-height: 1.6; }
+.etone.ok { color: var(--ok); } .etone.bad { color: var(--bad); } .etone.warn { color: var(--warn); }
+.edecoded { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--fill); font-size: var(--fs-xs); }
+.edecoded .kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); }
+.edecoded pre { margin: 4px 0; white-space: pre-wrap; word-break: break-all; }
+.timeline .tsentence .topen { opacity: 0.6; }

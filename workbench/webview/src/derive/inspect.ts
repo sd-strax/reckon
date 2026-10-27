@@ -90,7 +90,7 @@ export function targetName(t: InspectorTarget, snap: InvestigationSnapshot | nul
       if (type === "x-prediction") {
         for (const h of snap?.hypotheses || []) {
           const p = h.predictions.find((x) => x.id === t.ref);
-          if (p) return (p.ordinal ? "P" + p.ordinal + " · " : "") + p.statement;
+          if (p) return (p.ordinal ? "P" + p.ordinal + " · " : "") + (p.title || p.statement);
         }
       }
       return labels[t.ref] || refTypeLabel(t.ref);

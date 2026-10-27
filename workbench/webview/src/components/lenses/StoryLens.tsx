@@ -1,16 +1,18 @@
 // Story — event time (08 §8.4): everything here is in event time;
 // investigation time appears once, as the divider where it started. The
-// attack path and the generated timeline rows need gaps §6.12–§6.14; until
+// attack path and the generated timeline rows need gaps §6.13–§6.14; until
 // they land the lens shows what the record backs: the cited events in event
-// time with their citing predictions, the ATT&CK labels, the evidence graph
-// and the open questions.
+// time as their per-class sentences (adr/0090) with their citing predictions,
+// the ATT&CK labels, the evidence graph and the open questions.
 import { useMemo, useState } from "react";
 import { useApp } from "../../app";
 import { hypName } from "../../derive/hyps";
 import { EventStrip, EvidenceGraph } from "../DerivedViews";
 import { Empty, RefChip, fmtDateTime } from "../shared";
+import { EventSentence } from "../EventSentence";
 
-const CATEGORY: Record<string, string> = { Authentication: "auth", "Process Activity": "process", "Network Activity": "network", "DNS Activity": "network", "Detection Finding": "detection", "Security Finding": "detection", "observed-data": "observed" };
+/** The category of a STIX object cited in event time (an OCSF record carries its own, adr/0090). */
+const CATEGORY: Record<string, string> = { "observed-data": "observed" };
 
 export function StoryLens() {
   const { state, openInspector } = useApp();
@@ -23,7 +25,7 @@ export function StoryLens() {
     return strip.map((it) => {
       const citing = hs.flatMap((h) => h.predictions.filter((p) => (p.testResultRefs || []).includes(it.ref)).map((p) => ({ h, p })));
       const emphasis = citing.some(({ h, p }) => p.status === "CONFIRMED" && h.status === "SUPPORTED") ? "emphasized" : citing.some(({ p }) => p.status === "DISCONFIRMED") ? "against" : "plain";
-      return { ...it, category: CATEGORY[it.label] || "other", citing, emphasis };
+      return { ...it, category: it.category || CATEGORY[it.label] || "other", citing, emphasis };
     });
   }, [snap?.derived?.strip, hs]);
   if (!snap) return null;
@@ -61,7 +63,7 @@ export function StoryLens() {
                   {divider ? <div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div> : null}
                   <span className="ttime mono">{new Date(r.time).toLocaleTimeString()}</span>
                   <span className={"tcat " + r.category}>{r.category.toUpperCase()}</span>
-                  <span className="tsentence"><RefChip refId={r.ref} /> <span className="imeta">{r.label} (the per-class sentence is gap 00 §6.12)</span></span>
+                  <span className="tsentence">{r.sentence?.length ? <><EventSentence spans={r.sentence} /> <RefChip refId={r.ref} className="topen" /></> : <><RefChip refId={r.ref} /> <span className="imeta">{r.label}</span></>}</span>
                   <span className="tciting">{r.citing.map(({ h, p }) => <a key={p.id} className={"pcite " + (p.status === "CONFIRMED" ? "ok" : p.status === "DISCONFIRMED" ? "bad" : "")} title={`${p.status} under ${hypName(h, hs)}`} onClick={() => openInspector({ kind: "ref", ref: p.id })}>P{p.ordinal ?? "?"}</a>)}</span>
                 </li>
               );

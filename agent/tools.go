@@ -141,6 +141,7 @@ func intrinsicTools(actionTypes []ActionType) []ToolDef {
 			InputSchema: obj(map[string]any{
 				"hypothesis_ref": str("the x-hypothesis id that predicts this WILL be observed (the owner)"),
 				"statement":      str("what should be observable if the hypothesis holds"),
+				"title":          str("a short name for the prediction: a noun phrase of at most 64 characters naming the subject and what is expected, no trailing period; derived from the statement when omitted"),
 				"rationale":      str("why this test discriminates (or, if it only confirms, say so)"),
 				"discriminates":  strList("x-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner"),
 				"test_kind":      str("tool (default) | manual — manual only when no tool can test the prediction and a person's answer can"),
@@ -469,6 +470,7 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 		var in struct {
 			HypothesisRef string   `json:"hypothesis_ref"`
 			Statement     string   `json:"statement"`
+			Title         string   `json:"title"`
 			Rationale     string   `json:"rationale"`
 			Discriminates []string `json:"discriminates"`
 			TestKind      string   `json:"test_kind"`
@@ -478,7 +480,7 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 		if err := json.Unmarshal(input, &in); err != nil {
 			return nil, fmt.Errorf("bad record_prediction input: %w", err)
 		}
-		pred := &Prediction{HypothesisRef: in.HypothesisRef, Statement: in.Statement, Discriminates: in.Discriminates, TestKind: in.TestKind}
+		pred := &Prediction{HypothesisRef: in.HypothesisRef, Statement: in.Statement, Title: in.Title, Discriminates: in.Discriminates, TestKind: in.TestKind}
 		if in.TestTool != "" || in.TestQuery != "" {
 			pred.TestQuery = &QuerySpec{Tool: in.TestTool, QueryText: in.TestQuery}
 		}

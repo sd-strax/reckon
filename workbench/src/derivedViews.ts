@@ -33,7 +33,7 @@ export async function buildDerivedViews(
         if (typeof p.first_observed === "string") time = p.first_observed;
       }
       if (time && Number.isFinite(Date.parse(time))) {
-        items.push({ ref: doc.ref, time, label: doc.type || doc.kind });
+        items.push({ ref: doc.ref, time, label: doc.type || doc.kind, sentence: doc.view?.sentence, category: doc.view?.category });
       }
     }
   }

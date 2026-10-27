@@ -101,6 +101,9 @@ type PredictionBody struct {
 	TestQuery     *aggregate.QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string             `json:"discriminates,omitempty"`
 	TestKind      string               `json:"test_kind,omitempty"` // tool (default) | manual — a person tests it (adr/0054)
+	// Title is the optional short name (adr/0090); the aggregate derives one
+	// from the statement when it is empty.
+	Title string `json:"title,omitempty"`
 }
 
 // AttestationBody is the client shape of a human attestation on a prediction
@@ -262,6 +265,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 			TestQuery:     body.Prediction.TestQuery,
 			Discriminates: body.Prediction.Discriminates,
 			TestKind:      body.Prediction.TestKind,
+			Title:         body.Prediction.Title,
 		}
 	}
 	if body.Attestation != nil {
@@ -345,7 +349,13 @@ type PredictionView struct {
 	// the tracker, the composer, the agent's reasoning-state block and an
 	// analyst's sentence all use to point at one. Display vocabulary, not
 	// identity — the id stays the reference.
-	Ordinal        int                  `json:"ordinal,omitempty"`
+	Ordinal int `json:"ordinal,omitempty"`
+	// Title is the short name of record (adr/0090): authored with the
+	// prediction, or derived from the statement — at record time, or at read
+	// time for a row projected before the title existed, by the same
+	// function. TitleDerived says which.
+	Title          string               `json:"title"`
+	TitleDerived   bool                 `json:"title_derived,omitempty"`
 	TestQuery      *aggregate.QuerySpec `json:"test_query,omitempty"`
 	Discriminates  []string             `json:"discriminates,omitempty"`
 	TestResultRefs []string             `json:"test_result_refs,omitempty"`
@@ -402,11 +412,17 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 
 	byHypothesis := make(map[string][]PredictionView, len(ps))
 	for i, p := range ps {
+		title, derived := p.Title, p.TitleDerived
+		if title == "" {
+			title, derived = aggregate.DeriveTitle(p.Statement), true
+		}
 		byHypothesis[p.HypothesisRef] = append(byHypothesis[p.HypothesisRef], PredictionView{
 			ID:             p.ID,
 			Statement:      p.Statement,
 			Status:         p.Status,
 			Ordinal:        i + 1, // ListPredictions is in record order
+			Title:          title,
+			TitleDerived:   derived,
 			TestQuery:      p.TestQuery,
 			Discriminates:  p.Discriminates,
 			TestResultRefs: p.TestResultRefs,
