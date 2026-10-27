@@ -14,8 +14,6 @@ import { BackendClient, InvestigationSummary } from "./backend";
 import { Session } from "./auth";
 import { SidecarTransport } from "./agentTransport";
 import { InvestigationDocuments } from "./investigationDocument";
-import { EVIDENCE_SCHEME, EvidenceProvider } from "./evidenceProvider";
-import { EvidenceView } from "./evidenceView";
 import { ImportSOPsView } from "./importView";
 import { CasesProvider } from "./casesTree";
 import { CaseDocuments } from "./caseDocument";
@@ -48,7 +46,6 @@ export function activate(context: vscode.ExtensionContext): void {
     apiKey: () => context.secrets.get(ANTHROPIC_KEY_SECRET),
     getToken: (kind, force) => session.token(kind, force),
   }, log);
-  const evidence = new EvidenceView(client);
   const importSOPs = new ImportSOPsView(client, log);
   const documents = new InvestigationDocuments(context.extensionUri, client, log, transport, (id, seq) => {
     void seen.set(id, seq).then(() => investigations.refresh());
@@ -79,13 +76,6 @@ export function activate(context: vscode.ExtensionContext): void {
     session,
     { dispose: () => transport.dispose() },
     { dispose: () => importSOPs.dispose() },
-    // Citation-open: reckon-evidence:/<ref>.json virtual documents (02 §2.8).
-    vscode.workspace.registerTextDocumentContentProvider(EVIDENCE_SCHEME, new EvidenceProvider(client)),
-    vscode.commands.registerCommand("reckon.openEvidence", (ref?: string, currentInvestigationId?: string) => {
-      if (typeof ref === "string" && ref !== "") {
-        void evidence.open(ref, typeof currentInvestigationId === "string" ? currentInvestigationId : undefined);
-      }
-    }),
     session.onDidChange(() => {
       void vscode.commands.executeCommand("setContext", "reckon.signedIn", session.signedIn);
       investigations.refresh();

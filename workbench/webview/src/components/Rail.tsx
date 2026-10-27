@@ -7,7 +7,7 @@ import { badgeTone } from "../derive/hyps";
 import { Badge, Empty, Eyebrow, RefChip, fmtDateTime } from "./shared";
 
 export function KnowledgeRail() {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, openInspector } = useApp();
   const items = state.knowledge;
   if (!items.length) return null;
   const anyIncluded = items.some((k) => k.included);
@@ -26,7 +26,7 @@ export function KnowledgeRail() {
             <div className="kbody" title={k.excerpt || ""}>
               <div className="ktitle">
                 <span className="kkind">{k.kind === "sop" ? "SOP" : "PRIOR CASE"}</span>
-                {k.title || k.ref}{" "}
+                <a onClick={() => openInspector(k.kind === "sop" ? { kind: "sop", sopId: k.ref } : { kind: "case", investigationRef: k.ref })}>{k.title || k.ref}</a>{" "}
                 {k.kind === "case" && k.band ? <span className={"kband " + (k.band === "NEAR_DUPLICATE" ? "near" : k.band === "DISTINCT" ? "distinct" : "")}>{k.band}</span> : null}
               </div>
               {k.rationale ? <div className="krationale">{k.rationale}</div> : null}
@@ -71,7 +71,7 @@ export function Pins() {
 /** The action ledger: every action on this investigation, newest first, with
  * where it landed. Read-only — the approval affordances stay in the interrupt. */
 export function ActionsLedger() {
-  const { state } = useApp();
+  const { state, openInspector } = useApp();
   const all = state.snap?.actions || [];
   if (!all.length) return null;
   return (
@@ -83,7 +83,7 @@ export function ActionsLedger() {
           return (
             <div key={a.actionId} className={"actrow " + (a.pending ? "pend" : "settled")}>
               <div className="artop">
-                <span className="atype">{(a.isReversal ? "↺ " : "") + a.actionType}</span>
+                <a className="atype" title="Open the action record" onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{(a.isReversal ? "↺ " : "") + a.actionType}</a>
                 <Badge tone={a.tier}>{a.tier}</Badge>
                 <Badge tone={sb.tone}>{sb.label}</Badge>
               </div>
@@ -104,7 +104,7 @@ export function ActionsLedger() {
 /** Comms threads (Phase F, ui/04): conversation state that FOLLOWED an approved
  * notify.* action — nothing here sends anything; Follow up requests a new action. */
 export function Comms() {
-  const { state, send, openPrompt } = useApp();
+  const { state, send, openPrompt, openInspector } = useApp();
   const threads = state.snap?.comms || [];
   if (!threads.length) return null;
   const open = threads.filter((t) => t.status === "awaiting_reply" || t.status === "followed_up").length;
@@ -121,7 +121,7 @@ export function Comms() {
           return (
             <div key={t.threadId} className={"card commscard" + (t.status === "replied" ? " replied" : "")} style={t.status === "closed" ? { opacity: 0.7 } : undefined}>
               <div>
-                <span className="statement">{(t.actionType === "notify.email" ? "✉ " : "# ") + t.target}</span>
+                <a className="statement" title="Open the thread" onClick={() => openInspector({ kind: "thread", threadId: t.threadId })}>{(t.actionType === "notify.email" ? "✉ " : "# ") + t.target}</a>
                 <Badge tone={badgeTone(t.status)}>{t.status.replace("_", " ")}</Badge>
               </div>
               {t.subject ? <div className="cardmeta">{t.subject}</div> : null}

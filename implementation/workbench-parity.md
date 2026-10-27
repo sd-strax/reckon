@@ -68,7 +68,7 @@ behaviors kept, C4–C7 the section's additions from `09`.
 | D7 | Cold restore: committed turns rebuilt from line-framed transcripts (user / assistant / tool_use / tool_result / loop), envelopes distilled into coverage + chips, non-envelope results pretty-printed, aside turns reconstructed collapsed | `<AgentTurn>` via `<Activity>`; transcripts fetched on demand | [h] |
 | D8 | Chronicle act lines (request / approval / rejection / dispatch / result / reversal / expiry / pin / verdict / lifecycle / conclusion) with icon, summary, up to two chips, time; superseded struck + tagged | *relocated*: `<ThreadView>` (companion Thread mode) | [h] |
 | D9 | Context-reset boundary line | `<ThreadView>` (and a marker in Conversation) | [h] |
-| D10 | Turn stub for a transcript not loaded → opens the transcript | `<AgentTurn>` collapsed → `<TurnInspector>` (editor tab path removed) | [h] |
+| D10 | Turn stub for a transcript not loaded → opens the transcript | *superseded*: the stub opens the Turn inspector (Transcript tab) | [h] |
 | D11 | SOP chips (followed / consulted) and similar-case chips (drew on / similar) under a turn | `<KnowledgeChips>` | [h] |
 | D12 | Empty-conversation hint | `<Conversation>` | [ ] |
 
@@ -145,11 +145,11 @@ behaviors kept, C4–C7 the section's additions from `09`.
 | # | Behavior | New home | Status |
 |---|---|---|---|
 | L1 | Ref chip: type label from the id prefix, enriched with the resolved value (`host · WIN-FILE01`), palette class per type, full id in tooltip; label cache shared across panels | `<Chip>` | [h] |
-| L2 | Entity popover: type, value, deterministic id, appearances in other investigations (open on click), Pivot (stages a composer question), Pin, Open raw JSON, Copy value | *superseded*: `<EntityInspector>` with the same actions | [h] |
-| L3 | Evidence card panel: title by type, badges, provenance line, generic depth-limited field renderer, cross-investigation memory, raw JSON disclosure, "Open raw JSON tab" | *superseded*: `<EvidenceInspector>` Details / Provenance / Raw; the editor tab path is deleted | [ ] |
-| L4 | Attestation (`note`) and null observation (`x-null-observation`) titled as human statement / "Nothing observed: … (coverage complete)" | `<EvidenceInspector>` | [ ] |
-| L5 | Transcript opens for a thread step | *superseded*: `<TurnInspector>` (Transcript tab; Answer · Tool calls · Consulted beside it) | [ ] |
-| L6 | Every ref type the current chips can carry opens something: event, observed-data, null observation, indicator / sighting, note, prediction, hypothesis, entity types | each resolves to its `08 §8.6.1` renderer (`workbench-react.md §2.4`); none opens an editor tab | [ ] |
+| L2 | Entity popover: type, value, deterministic id, appearances in other investigations (open on click), Pivot (stages a composer question), Pin, Open raw JSON, Copy value | *superseded*: `<EntityInspector>` (pivot, pin, copy, appearances, properties, raw) | [h] |
+| L3 | Evidence card panel: title by type, badges, provenance line, generic depth-limited field renderer, cross-investigation memory, raw JSON disclosure, "Open raw JSON tab" | *superseded*: `<EvidenceInspector>` Details · Provenance · Raw (same generic field renderer, raw JSON with copy, appearances on the entity inspector) | [h] |
+| L4 | Attestation (`note`) and null observation (`x-null-observation`) titled as human statement / "Nothing observed: … (coverage complete)" | `<AttestationInspector>` (the statement, who said it, who recorded it, the question it answers) and `<AbsenceInspector>` (Search · Provenance · Raw, re-run wider) | [h] |
+| L5 | Transcript opens for a thread step | *superseded*: `<TurnInspector>` Answer · Tool calls · Consulted · Transcript | [h] |
+| L6 | Every ref type the current chips can carry opens something: event, observed-data, null observation, indicator / sighting, note, prediction, hypothesis, entity types | every ref type resolves to a renderer (`derive/inspect.ts`): evidence, entity, absence, detection (with `related`), attestation, prediction, hypothesis, alias; action, thread, case, turn, person, procedure by target kind | [h] |
 
 ## M. Infrastructure
 

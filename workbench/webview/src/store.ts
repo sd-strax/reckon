@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a patch older than what the
 // webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { Appearance, CaseSummary } from "../../src/backend";
+import type { ActionRecord, Appearance, CaseSummary, CaseSummaryView, EvidenceDoc, SOPDoc } from "../../src/backend";
 import type { InvestigationSnapshot, KnowledgeItem, RenderMessage } from "../../src/protocol";
 
 export interface LiveToolResult {
@@ -64,6 +64,13 @@ export interface State {
   draft: DraftState;
   labels: Record<string, string>;
   appearances: Record<string, Appearance[]>;
+  /** The inspector's fetched records, keyed by target key (derive/inspect.ts). null = the fetch failed; the error is in inspectorErrors. */
+  docs: Record<string, EvidenceDoc | null>;
+  sops: Record<string, SOPDoc>;
+  transcripts: Record<string, string>;
+  actionRecords: Record<string, ActionRecord>;
+  caseSummaries: Record<string, CaseSummaryView | null>;
+  inspectorErrors: Record<string, string>;
   /** The analyst's knowledge curation: the session's items with local toggles. */
   knowledge: KnowledgeItem[];
   live: LiveItem[];
@@ -82,6 +89,12 @@ export const initialState: State = {
   draft: { visible: false, caseQueue: "", cases: null, status: "", error: "", submitting: false },
   labels: {},
   appearances: {},
+  docs: {},
+  sops: {},
+  transcripts: {},
+  actionRecords: {},
+  caseSummaries: {},
+  inspectorErrors: {},
   knowledge: [],
   live: [],
   streaming: false,
@@ -179,8 +192,24 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...state, title: msg.title, snap: state.snap ? { ...state.snap, investigation: { ...state.snap.investigation, title: msg.title } } : null };
     case "evidence.label":
       return { ...state, labels: { ...state.labels, [msg.ref]: msg.label } };
-    case "entity.info":
-      return { ...state, appearances: { ...state.appearances, [msg.ref]: msg.appearances } };
+    case "inspector.evidence": {
+      return {
+        ...state,
+        docs: { ...state.docs, [msg.ref]: msg.doc },
+        appearances: { ...state.appearances, [msg.ref]: msg.appearances },
+        inspectorErrors: dropKey(state.inspectorErrors, msg.ref),
+      };
+    }
+    case "inspector.procedure":
+      return { ...state, sops: { ...state.sops, [msg.sopId]: msg.sop }, inspectorErrors: dropKey(state.inspectorErrors, msg.sopId) };
+    case "inspector.turn":
+      return { ...state, transcripts: { ...state.transcripts, [msg.interpretationId]: msg.body }, inspectorErrors: dropKey(state.inspectorErrors, msg.interpretationId) };
+    case "inspector.action":
+      return { ...state, actionRecords: { ...state.actionRecords, [msg.actionId]: msg.record }, inspectorErrors: dropKey(state.inspectorErrors, msg.actionId) };
+    case "inspector.case":
+      return { ...state, caseSummaries: { ...state.caseSummaries, [msg.investigationRef]: msg.summary }, inspectorErrors: dropKey(state.inspectorErrors, msg.investigationRef) };
+    case "inspector.error":
+      return { ...state, inspectorErrors: { ...state.inspectorErrors, [msg.target]: msg.message }, docs: msg.target in state.docs ? state.docs : { ...state.docs, [msg.target]: null } };
     case "turn.user":
       return { ...state, preserveLive: false, live: [...state.live, { kind: "user", text: msg.text }] };
     case "turn.start":
@@ -242,3 +271,10 @@ function mergeKnowledge(prev: KnowledgeItem[], next: KnowledgeItem[]): Knowledge
   const seen = new Map(prev.map((k) => [k.ref, k.included] as const));
   return next.map((k) => seen.has(k.ref) ? { ...k, included: seen.get(k.ref)! } : k);
 }
+
+function dropKey<T>(m: Record<string, T>, k: string): Record<string, T> {
+  if (!(k in m)) return m;
+  const { [k]: _dropped, ...rest } = m;
+  return rest;
+}
+

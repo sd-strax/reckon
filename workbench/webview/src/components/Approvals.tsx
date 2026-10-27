@@ -10,14 +10,14 @@ import { Badge, Countdown, Eyebrow, RefChip } from "./shared";
 import type { ActionRow } from "../../../src/backend";
 
 function ApprovalCard({ a, engine, locked, onLock }: { a: ActionRow; engine: string; locked: boolean; onLock: () => void }) {
-  const { send, openPrompt } = useApp();
+  const { send, openPrompt, openInspector } = useApp();
   const p = (a.parameters || {}) as Record<string, unknown>;
   const isNotify = !!a.actionType && a.actionType.indexOf("notify.") === 0;
   const bodyText = typeof p.message === "string" && p.message ? p.message : typeof p.body === "string" ? p.body : "";
   return (
     <div className="card" style={a.expired ? { opacity: 0.7 } : undefined}>
       <div>
-        <span className="statement">{a.actionType}</span>
+        <a className="statement" title="Open the action record" onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a>
         <Badge tone={a.tier}>{a.tier}</Badge>
         <Badge tone={a.expired ? "warn" : ""}>{a.expired ? "EXPIRED" : a.pendingLabel}</Badge>
       </div>

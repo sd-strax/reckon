@@ -113,58 +113,65 @@ func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Reques
 	}
 	out := make([]ActionView, 0, len(acts))
 	for _, a := range acts {
-		v := ActionView{
-			ActionID:      a.ActionID.String(),
-			ActionType:    a.ActionType,
-			Tier:          a.Tier,
-			Status:        a.Status,
-			RequiredMode:  a.RequiredMode,
-			Mode:          a.Mode,
-			IsReversal:    a.IsReversal,
-			Targets:       a.Targets,
-			EvidenceRefs:  a.EvidenceRefs,
-			Reversibility: a.Reversibility,
-			Parameters:    a.Parameters,
-			Adapter:       a.Adapter,
-			ErrorDetail:   a.ErrorDetail,
-			ResultRef:     a.RawResponseRef,
-		}
-		if a.RetryOf != (uuid.UUID{}) {
-			v.RetryOf = a.RetryOf.String()
-		}
-		if !a.ExpiresAt.IsZero() {
-			t := a.ExpiresAt
-			v.ExpiresAt = &t
-		}
-		// The escalation is derivable, not stored: the catalog's default tier
-		// for the type vs the frozen tier on the action.
-		if b.cfg.ActionCatalog != nil {
-			if d, ok := b.cfg.ActionCatalog.Descriptor(a.ActionType); ok && d.DefaultTier != a.Tier && a.Tier == aggregate.TierT3 {
-				v.TierEscalated = true
-			}
-		}
-		// Pre-approval preview: which adapter WOULD dispatch this if approved now
-		// (superseded by the actual Adapter once dispatched). SourceScope is v0
-		// unscoped; a scoped preview reads the Seed scope (03 §3.5) in v1.
-		if a.Adapter == "" {
-			if resolver := b.actionResolver(); resolver != nil {
-				var params map[string]any
-				if len(a.Parameters) > 0 {
-					_ = json.Unmarshal(a.Parameters, &params)
-				}
-				if binding, ok := resolver.PlannedBinding(action.DispatchRequest{
-					ActionID:   a.ActionID,
-					ActionType: a.ActionType,
-					Targets:    a.Targets,
-					Parameters: params,
-				}); ok {
-					v.PlannedAdapter = binding.Adapter
-				}
-			}
-		}
-		out = append(out, v)
+		out = append(out, b.actionView(a))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"actions": out})
+}
+
+// actionView maps one projected x-action to the list/record view: the frozen
+// request facts plus the two derived facts (tier escalation against the
+// catalog's default, the pre-approval planned adapter).
+func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
+	v := ActionView{
+		ActionID:      a.ActionID.String(),
+		ActionType:    a.ActionType,
+		Tier:          a.Tier,
+		Status:        a.Status,
+		RequiredMode:  a.RequiredMode,
+		Mode:          a.Mode,
+		IsReversal:    a.IsReversal,
+		Targets:       a.Targets,
+		EvidenceRefs:  a.EvidenceRefs,
+		Reversibility: a.Reversibility,
+		Parameters:    a.Parameters,
+		Adapter:       a.Adapter,
+		ErrorDetail:   a.ErrorDetail,
+		ResultRef:     a.RawResponseRef,
+	}
+	if a.RetryOf != (uuid.UUID{}) {
+		v.RetryOf = a.RetryOf.String()
+	}
+	if !a.ExpiresAt.IsZero() {
+		t := a.ExpiresAt
+		v.ExpiresAt = &t
+	}
+	// The escalation is derivable, not stored: the catalog's default tier
+	// for the type vs the frozen tier on the action.
+	if b.cfg.ActionCatalog != nil {
+		if d, ok := b.cfg.ActionCatalog.Descriptor(a.ActionType); ok && d.DefaultTier != a.Tier && a.Tier == aggregate.TierT3 {
+			v.TierEscalated = true
+		}
+	}
+	// Pre-approval preview: which adapter WOULD dispatch this if approved now
+	// (superseded by the actual Adapter once dispatched). SourceScope is v0
+	// unscoped; a scoped preview reads the Seed scope (03 §3.5) in v1.
+	if a.Adapter == "" {
+		if resolver := b.actionResolver(); resolver != nil {
+			var params map[string]any
+			if len(a.Parameters) > 0 {
+				_ = json.Unmarshal(a.Parameters, &params)
+			}
+			if binding, ok := resolver.PlannedBinding(action.DispatchRequest{
+				ActionID:   a.ActionID,
+				ActionType: a.ActionType,
+				Targets:    a.Targets,
+				Parameters: params,
+			}); ok {
+				v.PlannedAdapter = binding.Adapter
+			}
+		}
+	}
+	return v
 }
 
 // listActionTypes serves GET /api/action-types: the write-side catalog with

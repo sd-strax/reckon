@@ -61,7 +61,7 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
 }
 
 function PredictionRow({ p, h, hs, pins }: { p: Prediction; h: Hypothesis; hs: Hypothesis[]; pins: PinRow[] }) {
-  const { state, send, openPrompt, busy } = useApp();
+  const { state, send, openPrompt, busy, openInspector } = useApp();
   const live = isLive(h);
   const outstanding = live && p.status === "UNTESTED" && (p.discriminates || []).length > 0;
   const manual = p.testKind === "manual";
@@ -73,7 +73,7 @@ function PredictionRow({ p, h, hs, pins }: { p: Prediction; h: Hypothesis; hs: H
   return (
     <li className={outstanding ? "outstanding" : undefined} style={p.status === "WITHDRAWN" ? { opacity: 0.55 } : undefined}>
       <div className="predline">
-        {p.ordinal ? <span className="pord" title="How to refer to this prediction — in the composer, and in the agent's reasoning state">P{p.ordinal}</span> : null}
+        {p.ordinal ? <span className="pord" title="Open this prediction (P<n> is how to refer to it in the composer and in the agent's reasoning state)" onClick={() => openInspector({ kind: "ref", ref: p.id })}>P{p.ordinal}</span> : null}
         <span className="predtext">{p.statement}</span>
       </div>
       <div className="predrow">
@@ -143,7 +143,7 @@ function PredictionRow({ p, h, hs, pins }: { p: Prediction; h: Hypothesis; hs: H
 }
 
 export function HypothesisCard({ h, hs, pins }: { h: Hypothesis; hs: Hypothesis[]; pins: PinRow[] }) {
-  const { send, openPrompt, busy } = useApp();
+  const { send, openPrompt, busy, openInspector } = useApp();
   const live = isLive(h);
   const preds = (h.predictions || []).filter(counted);
   const anyTested = preds.some(tested);
@@ -181,7 +181,7 @@ export function HypothesisCard({ h, hs, pins }: { h: Hypothesis; hs: Hypothesis[
           {preds.length ? <span className="hypcount" title="Predictions tested over predictions recorded (withdrawn ones not counted)">{preds.filter(tested).length}/{preds.length} tested</span> : null}
         </span>
       </div>
-      <span className="statement">{h.statement}</span>
+      <span className="statement" title="Open this hypothesis" style={{ cursor: "pointer" }} onClick={() => openInspector({ kind: "ref", ref: h.id })}>{h.statement}</span>
       <div className="decide">
         {h.status === "PROPOSED" ? (
           // Adopt = acknowledge-with-restatement (01 §x-hypothesis): the

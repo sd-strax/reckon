@@ -1,6 +1,6 @@
 // The investigation document: two regions (conversation + the state rail),
-// the resizable grip between them, and the overlays (dialogs, popover, the
-// draft surface). Region layout is the current one; ui/08's lenses land in
+// the resizable grip between them, the inspector dock overlaying the
+// conversation side, and the overlays (dialogs, the draft surface). Region layout is the current one; ui/08's lenses land in
 // the layout PR on top of these same components.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp } from "../app";
@@ -10,9 +10,9 @@ import { Composer } from "./Composer";
 import { EventStrip, EvidenceGraph } from "./DerivedViews";
 import { EnableForm, VerdictDialog } from "./Dialogs";
 import { DraftView } from "./DraftView";
-import { EntityPopover } from "./EntityPopover";
 import { Header } from "./Header";
 import { Hypotheses } from "./Hypotheses";
+import { InspectorDock } from "./inspectors/Inspector";
 import { LiveConversation } from "./LiveConversation";
 import { PromptCard } from "./PromptCard";
 import { ActionsLedger, CapabilitiesFold, Comms, KnowledgeRail, Pins } from "./Rail";
@@ -54,7 +54,7 @@ function RailGrip() {
 }
 
 export function App() {
-  const { state, prompt, enableAdapter, verdictOpen, popover } = useApp();
+  const { state, prompt, enableAdapter, verdictOpen } = useApp();
   const scroll = useRef<HTMLDivElement>(null);
   const wasAtBottom = useRef(true);
   // Stick to the bottom while the analyst is already there (streaming text,
@@ -84,6 +84,7 @@ export function App() {
           <LiveConversation />
         </div>
         <Composer />
+        <InspectorDock />
       </div>
       <RailGrip />
       <aside id="rail">
@@ -102,7 +103,6 @@ export function App() {
       {enableAdapter ? <EnableForm adapter={enableAdapter} /> : null}
       {verdictOpen ? <VerdictDialog /> : null}
       {state.draft.visible ? <DraftView key={state.draft.caseQueue + String(state.draft.mode)} /> : null}
-      {popover ? <EntityPopover refId={popover.ref} anchor={popover.anchor} /> : null}
     </>
   );
 }
