@@ -9,6 +9,7 @@ tells you which is which.
 |---|---|
 | **Investigation Panel** | `WebviewViewProvider` in the secondary sidebar or a `WebviewPanel` beside the editor. This is the main build. |
 | **Enhanced `.inv.md` preview** | `CustomTextEditorProvider` — gives you the enhanced render while the underlying document stays plain markdown. |
+| **Inspector** | A panel inside the investigation webview (`ui/08 §8.6`), never an editor tab or a `TextDocumentContentProvider` document. Same clamping rule as the popover. |
 | **Entity popover** | Rendered inside whichever webview hosts the chip. Position with `position: fixed` + viewport clamping (never let it clip). |
 | **Verdict / conclude dialogs** | Modal inside the webview — VS Code has no rich modal API. |
 | **Settings page** | Optional: a `WebviewPanel` for the rich tool-health view. Simple prefs should also exist in `contributes.configuration`. |

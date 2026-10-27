@@ -26,6 +26,8 @@ expressed through VS Code theme variables where noted.
 | `05-data-model.md` | State shapes and the reference scenario (data authority: binding §2) |
 | `06-vscode-surface-map.md` | Which surface is webview vs native API; commands, keybindings, contributions |
 | `07-build-order.md` | Implementation sequence with acceptance criteria |
+| `08-investigation-layout.md` | Regions, the four lenses, the companion column, the inspector (supersedes `02 §2.2`, `§2.8`, `§2.9` row anatomy) |
+| `mockups/` | Reference screens for the reference scenario (illustrative; the sheets win) |
 | `impl-spec/` | Engineering layer: process boundaries, state ownership, event contracts |
 
 ## Non-negotiables (the design fails without these)

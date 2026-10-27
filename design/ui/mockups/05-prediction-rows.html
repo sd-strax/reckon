@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prediction rows and matrix</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0f24;}
+a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;font-weight:600;padding:1px 7px 1px 6px;border-radius:5px;line-height:1.45;white-space:nowrap}
+.sw{width:6px;height:6px;border-radius:2px;display:inline-block}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.mx th,.mx td{padding:7px 10px;border-top:1px solid rgba(255,255,255,.05);text-align:left;font-weight:400}
+.mx thead th{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62);background:rgba(255,255,255,.05);border-top:0}
+.c{text-align:center;font-weight:700;width:64px}
+.y{color:#4ec77b}.n{color:#ff5f6e;background:rgba(255,95,110,.13)}.q{color:#f5b53d}
+</style>
+</head>
+<body>
+<div style="width: 1120px; height: 760px; box-sizing: border-box; padding: 28px 32px; display: flex; gap: 32px; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
+
+<div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600;">One prediction, three densities</h2>
+
+<div class="eyebrow">Today</div>
+<div style="background: #141a33; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;">
+<div style="line-height: 1.5;"><span class="mono" style="color: #8b8aff;">P2</span> WIN-FILE01 makes outbound connections after 14:33 to an external/untrusted IP or an internal host that is not a backup target — C2 or onward pivoting.</div>
+<div style="display: flex; gap: 5px; flex-wrap: wrap;">
+<span class="pill" style="color: #4ec77b; background: rgba(78,199,123,.13); border: 1px solid rgba(78,199,123,.32);">CONFIRMED</span>
+<span class="mono" style="font-size: 10px; color: rgba(255,255,255,.62);">vs H2 legitimate admin use</span>
+<span class="chip" style="color: rgba(255,255,255,.88); background: rgba(255,255,255,.08);">observed data · 5 objects</span>
+<span class="chip" style="color: rgba(255,255,255,.88); background: rgba(255,255,255,.08);">network-traffic</span>
+<span class="chip" style="color: #6fd698; background: rgba(111,214,152,.14);">domain · exfil.example.net</span>
+<span class="chip" style="color: #45c9d6; background: rgba(69,201,214,.14);">IP · 185.220.101.5</span>
+<span style="font-size: 11px; color: rgba(255,255,255,.62);">pinned</span>
+</div>
+</div>
+
+<div class="eyebrow">Collapsed (default)</div>
+<div style="background: #141a33; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; overflow: hidden;">
+<button type="button" aria-expanded="false" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 8px 12px; background: transparent; border: 0; color: rgba(255,255,255,.88); font: inherit; text-align: left; cursor: pointer;">
+<span style="color: #4ec77b; font-weight: 700; width: 14px;" aria-label="Confirmed">✓</span>
+<span class="mono" style="color: rgba(255,255,255,.62); width: 22px;">P2</span>
+<span style="flex: 1; min-width: 0;">Outbound to an untrusted host after 14:33</span>
+<span class="mono" style="font-size: 10px; color: rgba(255,255,255,.62); border: 1px solid rgba(255,255,255,.16); border-radius: 5px; padding: 0 5px;">splits H2</span>
+<span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">5 evidence</span>
+<span style="color: rgba(255,255,255,.62);" aria-hidden="true">›</span>
+</button>
+</div>
+
+<div class="eyebrow">Expanded</div>
+<div style="background: #1a2142; border: 1px solid rgba(115,113,252,.45); border-radius: 10px; overflow: hidden;">
+<button type="button" aria-expanded="true" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 8px 12px; background: transparent; border: 0; color: rgba(255,255,255,.88); font: inherit; text-align: left; cursor: pointer;">
+<span style="color: #4ec77b; font-weight: 700; width: 14px;" aria-label="Confirmed">✓</span>
+<span class="mono" style="color: rgba(255,255,255,.62); width: 22px;">P2</span>
+<span style="flex: 1; min-width: 0; font-weight: 600;">Outbound to an untrusted host after 14:33</span>
+<span class="pill" style="color: #4ec77b; background: rgba(78,199,123,.13);">CONFIRMED</span>
+<span style="color: rgba(255,255,255,.62);" aria-hidden="true">⌄</span>
+</button>
+<div style="padding: 0 12px 12px 56px; display: flex; flex-direction: column; gap: 10px;">
+<p style="margin: 0; color: rgba(255,255,255,.62); line-height: 1.55;">Under H1, WIN-FILE01 reaches an external or untrusted destination after 14:33. Under H2 it only talks to backup targets.</p>
+<div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+<span class="eyebrow">Found</span>
+<span class="chip" style="color: #45c9d6; background: rgba(69,201,214,.14);"><span class="sw" style="background: #45c9d6;"></span>185.220.101.5</span>
+<span class="chip" style="color: #6fd698; background: rgba(111,214,152,.14);"><span class="sw" style="background: #6fd698;"></span>exfil.example.net</span>
+<span style="color: rgba(255,255,255,.62);">at <span class="mono">14:33:15</span>, 15s after the PowerShell spawn</span>
+</div>
+<div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px;">
+<a href="#">5 network events</a>
+<a href="#">Query sent</a>
+<span style="color: rgba(255,255,255,.62);">Decides against <span class="mono" style="color: #ff5f6e;">H2</span></span>
+<span style="flex: 1;"></span>
+<span style="color: #f5b53d;">Pinned</span>
+</div>
+</div>
+</div>
+</div>
+
+<div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600;">Matrix view</h2>
+<p style="margin: 0; color: rgba(255,255,255,.62); line-height: 1.55;">Each prediction scored against both hypotheses. The hypothesis with the fewest inconsistencies stands.</p>
+<div style="background: #141a33; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; overflow: hidden;">
+<table class="mx" style="width: 100%; border-collapse: collapse;">
+<thead>
+<tr><th scope="col">Prediction</th><th scope="col" class="c">H1 stolen-cred</th><th scope="col" class="c">H2 admin</th></tr>
+</thead>
+<tbody>
+<tr><th scope="row"><span class="mono" style="color: rgba(255,255,255,.62);">P1</span> PowerShell is malicious</th><td class="c n">✕</td><td class="c y">✓</td></tr>
+<tr><th scope="row"><span class="mono" style="color: rgba(255,255,255,.62);">P2</span> Outbound to untrusted host</th><td class="c y">✓</td><td class="c n">✕</td></tr>
+<tr style="background: rgba(245,181,61,.13);"><th scope="row"><span class="mono" style="color: rgba(255,255,255,.62);">P3</span> 10.0.4.20 is a workstation <span style="font-size: 11px; color: #f5b53d;">open</span></th><td class="c q">?</td><td class="c q">?</td></tr>
+<tr><th scope="row"><span class="mono" style="color: rgba(255,255,255,.62);">P4</span> Anomalous auth breadth</th><td class="c y">✓</td><td class="c n">✕</td></tr>
+<tr><th scope="row"><span class="mono" style="color: rgba(255,255,255,.62);">P5</span> Nobody did hands-on work</th><td class="c y">✓</td><td class="c n">✕</td></tr>
+<tr><th scope="row"><span class="mono" style="color: rgba(255,255,255,.62);">P6</span> 10.0.4.20 is a jump host</th><td class="c y">✓</td><td class="c n">✕</td></tr>
+<tr><th scope="row"><span class="mono" style="color: rgba(255,255,255,.62);">P7</span> Destination is benign</th><td class="c y">✓</td><td class="c n">✕</td></tr>
+<tr><th scope="row"><span class="mono" style="color: rgba(255,255,255,.62);">P8</span> An operator did the work</th><td class="c y">✓</td><td class="c n">✕</td></tr>
+<tr style="background: rgba(255,255,255,.05);"><th scope="row" style="font-weight: 700;">Inconsistent</th><td class="c" style="font-weight: 800;">1</td><td class="c" style="font-weight: 800; color: #ff5f6e;">7</td></tr>
+</tbody>
+</table>
+</div>
+<div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: rgba(255,255,255,.62);">
+<span><span class="y" style="font-weight: 700;">✓</span> consistent</span>
+<span><span style="color: #ff5f6e; font-weight: 700;">✕</span> inconsistent</span>
+<span><span class="q" style="font-weight: 700;">?</span> untested or inconclusive</span>
+</div>
+</div>
+
+</div>
+</body>
+</html>

@@ -82,6 +82,11 @@ Must be byte-accurate to what's on disk.
 
 ## 2.2 Investigation Panel (webview)
 
+> **Superseded in layout by `ui/08 §8.5`** (the conversation is a companion column; turn
+> results render as links; tool calls fold into a per-turn activity disclosure). The
+> message, composer and veil rules below still apply inside it; the context bar moves to
+> the header (`ui/08 §8.2`).
+
 446px, right side. Vertical stack:
 `context bar → [remediation summary] → [incident channel] → chat scroll → input`
 
@@ -244,6 +249,9 @@ Other entries: `⌘⇧O` open (`*.inv.md` picker), `⌘⇧P` all reckon commands
 
 ## 2.8 Evidence in reach
 
+> **Superseded by `ui/08 §8.6`**: every citation opens in the inspector, never an editor
+> tab. The principle below is unchanged; the surface is the inspector.
+
 The trust loop's last step (README non-negotiable #8): every rendered evidence ref opens.
 Clicking a cited `observed-data` / OCSF-event ref anywhere — assistant prose, a pin, an
 action card's evidence chips, a prediction's test results — opens the underlying record
@@ -252,6 +260,10 @@ same affordance from the tool-call block's raw view and from the entity popover.
 analyst's trust in the agent is calibrated by spot-checking it; spot-checking is one click.
 
 ## 2.9 Hypothesis tracker — the drivable loop
+
+> **Row anatomy superseded by `ui/08 §8.4` (Reasoning)**: prediction rows are one line at
+> rest and expand in place; a verdict basis strip heads the lens; a Cards / Matrix toggle
+> shows the same set as a matrix. The interactions below are unchanged.
 
 Hypotheses are the unit of work, not passive rail entries — and they come as a **competing
 set** (`01 §x-hypothesis`, "Competing hypotheses"), so the tracker's job is to keep the

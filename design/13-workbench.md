@@ -169,7 +169,10 @@ fixture-scenario walking skeleton; **v1** = live-tenant hardening; **SaaS** = te
 
 | Surface | What it is | Semantics | Phase |
 |---|---|---|---|
-| Conversation + reasoning thread | The turn loop; interpretations chronological, branching, foldable, with rationale and cited evidence | `05 §3.4`, `09`, `01` | v0 |
+| Lenses | The document's four working views: Summary, Story (event time), Reasoning (the competing set), Response (plan, owner items, notification); the default follows the derived lifecycle | `01`, `02`, `04` | v1 |
+| Companion column | The conversation beside the lenses: the turn loop, with what a turn records rendered as links and tool calls folded into a per-turn activity disclosure | `05 §3.4`, `09` | v1 |
+| Inspector | Every citation (evidence, entity, procedure excerpt) opens here, typed, with why it is in this investigation; raw JSON is a tab | `01`, `03 §6`, `06 §6` | v1 |
+| Conversation + reasoning thread | The turn loop; interpretations chronological, branching, foldable, with rationale and cited evidence. Remains the audit lens and the export's source | `05 §3.4`, `09`, `01` | v0 |
 | Pinned evidence | Curated evidence surface: pin from tool results/thread, pinned list with counts; un-pin = supersession | `01` (evidence-pin) | v0 |
 | Verdict flow | Record/revise the disposition of record (rationale + cited evidence required); gates conclude; AI authorship behind the default-off tenant dial | `01` (Verdict) | v0 |
 | Inline approval flow | T2 single-confirm (verb + targets + evidence + approve/reject); T3 typed challenge; two-party | `04 §5` | v0 (T2/T3), SaaS (two-party) |
@@ -202,9 +205,10 @@ document. No file explorer as home base, no startup editor, no developer-workflo
 the default posture (`§6` trims run-and-debug, SCM, tasks, marketplace from view).
 
 **Editor-in-reach.** The full editor remains one command away, because for this audience it is
-part of the job: open a piece of raw OCSF evidence as real JSON (via a reckon read-only URI, not
-a workspace file); draft a detection rule or query in a scratch editor next to the conversation;
-keep a notebook beside the investigation. The workbench never *removes* text editing — it
+part of the job: draft a detection rule or query in a scratch editor next to the conversation;
+keep a notebook beside the investigation. Cited evidence is not one of these: it opens in the
+investigation's inspector, raw JSON included, so reading a citation never leaves the
+investigation (`design/ui/08 §8.6`). The workbench never *removes* text editing — it
 removes text editing as the *identity* of the product. What gets trimmed is the developer
 workflow chrome, not the editing capability.
 
@@ -259,7 +263,8 @@ scenario (`fixtures/lateral-movement-via-rdp/`, `03 §9`) with no live tenant:
    (`04 §4`–`§5`, `server/actions.go`).
 5. **Enablement widgets**: the `11 §5.1` flow end-to-end — gap hint, schema-derived form,
    human confirm, recorded event, secret capture out-of-band.
-6. **Raw evidence in reach**: read-only OCSF JSON via reckon URIs from any cited evidence ref.
+6. **Raw evidence in reach**: read-only OCSF JSON from any cited evidence ref (v0 opened it
+   in an editor tab; the inspector, `design/ui/08 §8.6`, replaces that surface in v1).
 7. **Minimal graph**: the two-layer join rendered navigably (interpretation → evidence →
    telemetry); richness deferred to v1.
 8. **The profile** (`§6`) wrapping the above.

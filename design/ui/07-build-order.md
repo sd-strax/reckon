@@ -106,6 +106,37 @@ on next open.
 
 ---
 
+## Investigation layout (`ui/08`) — shipped in this order, each step on its own
+
+The redesign lands incrementally over the built workbench. The investigation webview moves
+to React with the first step; later steps are built as components on it.
+
+**L1 — Inspector.** Evidence, entity and procedure-excerpt renderers in the shared frame;
+back stack; pin; Raw and Provenance tabs. Replaces the read-only evidence editor tabs.
+*Done when:* every cited ref anywhere opens the inspector in one click, no citation opens an
+editor tab, and "In this case" names what cites the object.
+
+**L2 — Density.** One-line prediction rows with expand; names for principals; the per-turn
+activity disclosure; proposed actions as cards in the conversation.
+*Done when:* at `VERDICT_REACHED` on the reference scenario, no object renders in full in
+more than one place, and no sequence number or principal id is in the reading path.
+
+**L3 — Layout.** Header with stage indicator and primary action; lens tabs with the
+lifecycle default; the companion column; the two-section work queue.
+*Done when:* the default lens changes with the derived lifecycle, and a case with an
+investigation appears once, as its investigation.
+
+**L4 — Story.** Attack path and event-time timeline (needs `00 §6.12`–`§6.14`).
+*Done when:* the reference scenario's sequence reads in event time with each row linked to
+the predictions that cite it, and investigation time appears only as the start divider.
+
+**L5 — Summary and Response additions.** Summary tiles and narrative; response-policy fact,
+owner action items, notification draft (needs `00 §6.16`–`§6.18`).
+*Done when:* an analyst picking the investigation up can say where it stands and what is
+left from the Summary lens alone.
+
+---
+
 ## Cross-cutting acceptance
 
 Validate these continuously, not at the end:

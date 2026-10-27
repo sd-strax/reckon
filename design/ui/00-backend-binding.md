@@ -234,7 +234,8 @@ Built (endpoint + surface live):
 2. **Verdict act** — `verdict` acts with the pin gate and the conclude gate; AI verdicts
    behind the default-off `trust.ai_verdict` dial (the enabling ref rides the event).
 3. **Raw evidence in reach** — eager promotion at ingest (`ocsf_events` + `stix_objects`
-   persistence in the invoke path), `GET /api/evidence/{ref}`, read-only editor tabs.
+   persistence in the invoke path), `GET /api/evidence/{ref}`, read-only editor tabs
+   (superseded as the surface by the inspector, `ui/08 §8.6`; the endpoint stays).
 4. **Cross-investigation appearances** — the `ref_appearances` fold (seeds + citations +
    action targets), `GET /api/entities/{ref}/appearances`.
 5. **Real seeds** — the Seed extension on `CreateInvestigation` (alert / entity /
@@ -257,35 +258,59 @@ Built (endpoint + surface live):
     workbench surfaces (§4). Remaining for full Phase F: real vendor comms adapters,
     vendor webhook ingestion, the engine-side conclude gate, durable follow-up nudges.
 
+Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
+
+12. **Per-class event projections** — for each OCSF class the normalizers handle
+    (`03 §4.1`–`§4.12`), the curated field list and a one-sentence rendering the inspector
+    and the Story timeline show, plus a short title per prediction. Display knowledge, so
+    it may live client-side keyed by `class_uid`; the short title is recorded with the
+    prediction, never generated at render time.
+13. **Entity-scoped event query** — the cited and retrieved events for one entity within
+    one investigation, ordered by event time, for the inspector's "around it" strip and
+    the Story timeline. A read over persisted `ocsf_events` (§6.3), not a new capability
+    call.
+14. **Entity baselines** — where a capability answer establishes normal behaviour (the
+    reference scenario's nightly logon baseline), a summary the inspector and timeline can
+    render. Shown only when the record holds one; never inferred by the UI.
+15. **Procedure excerpt provenance** — at import, record a location per chunk (page,
+    heading path, or anchor, whatever the format yields) and retain the original file or a
+    snapshot of the URL, so a citation names "where in the source" and "open original"
+    shows what existed at retrieval time (`06 §2.4`, `§6.2`).
+16. **Response-policy status on requested actions** — whether the tenant's Gate 2 policies
+    would auto-approve the action, and where the approval routes when they would not,
+    readable on the requested action (`04 §4`).
+17. **Owner action items** — work that only an owner outside reckon can do, tracked to
+    confirmation with the investigation and counted by the conclude preflight. Open: an
+    `x-action` with an external-work descriptor (`00 §4`'s external work) or its own record.
+18. **Narrative summary at any time** — the two-tier summary of `06 §3.2` produced on
+    demand for an open investigation, not only at conclusion, with its authorship (drafted,
+    edited by) recorded.
+
 ---
 
 ## 7. Open questions
 
 Deliberate non-decisions, tracked here per house convention:
 
-- **Panel vs document**: can the Investigation Panel be navigation + approvals + composer,
-  with the document as the single reading surface — or are two renderings of the reasoning
-  stream (panel chat + document timeline) worth the duplication? The package's own "rethink
-  signal" (if analysts ignore the document, the thesis fails) is the test.
 - **`WAIVED`**: is "decided not to do, without rejecting the idea" worth a first-class
   engine status, or does rejection-with-rationale cover it?
-- **Layout floor**: the specified widths (~300px tree + 860px document + 446px panel) exceed
-  small laptops; the ≤1440px strategy is undefined.
+- **Layout floor**: `ui/08 §8.1` sets the collapse points (queue to a rail below 1280px,
+  companion to a drawer below 1024px); the minimum width at which a lens stays readable
+  with the inspector open is still undefined.
 - **Auth surface**: sign-in/out state, the 401-refresh appearance, and the welcome view's
   sign-in affordance need design — the extension's dual-client PKCE flow is built and
   load-bearing.
-- **Structural navigation**: the investigation is a graph (hypotheses, entities, evidence,
-  typed edges) rendered today as a chronological log. The thread is the right *audit* lens
-  but not the only *working* lens — what are the other lenses (by entity, by hypothesis,
-  by event time), and how does the analyst move between them without losing place?
-- **Two clocks**: investigation time (when we learned it) vs event time (when it
-  happened). The event-time strip (`13 §4` Timeline, minimal at v0) needs its relationship
-  to the thread designed — the reference scenario's own decisive fact is a 7-second
-  event-time anomaly.
 - **Mid-turn steering**: a multi-round agent turn is currently atomic (watch or cancel).
   A queued interjection the loop reads between tool rounds ("skip DNS, chase the service
   account") would change the feel from batch job to colleague — needs sidecar/agent
   design, not just UI.
+
+(Resolved by `ui/08` and `adr/0079`: **panel vs document** — the conversation is a
+companion column and the document is the reading surface, organized as four lenses;
+**structural navigation** — the lenses are Summary, Story (event time), Reasoning (by
+hypothesis) and Response, with entities reached through the inspector; **two clocks** —
+the Story lens is event time, with investigation time marked once where the
+investigation began.)
 
 (Resolved: naming. The package's original product name was a prototype-era simplification;
 the product is **reckon** — command ids, config keys, and copy use the `reckon.` prefix

@@ -85,6 +85,10 @@ recovery info · notify green) · title (`Isolate host` + entity chip) with tier
 
 ## 3.4 Remediation plan block
 
+> **Extended by `ui/08 §8.4` (Response)**: the plan is the Response lens; requested cards add
+> the response-policy fact (pre-authorized or routed for approval), and owner action items
+> and the notification draft sit below the plan.
+
 Posted by the AI right after the verdict. Container: 1px `--selected-border`, radius 10px,
 header with an indigo wash.
 
@@ -148,6 +152,9 @@ Counts must agree with the status bar. Only **resolved** items count toward `N/M
 action is not resolved.
 
 ## 3.7 External work
+
+> **Extended by `ui/08 §8.4` (Response)**: work only an owner outside reckon can do is an
+> owner action item, tracked to confirmation (gap `00 §6.17`).
 
 Cards for tickets and notifications: 30px icon tile (ticket info / notification green), title,
 meta (`owner · system` or `template: …`), and a create/draft button that resolves to a state pill
