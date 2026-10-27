@@ -3,7 +3,7 @@
 This sheet defines how analysts add, browse and query institutional knowledge — the
 procedure corpus and the concluded-case corpus of `design/06-knowledge-service.md` — and how
 retrieved knowledge is curated inside an investigation. The decision and its alternatives
-are `adr/0084-knowledge-view.md`. Reference screens: `mockups/12`–`16`.
+are `adr/0084-knowledge-view.md`. Reference screens: `mockups/12`–`17`.
 
 Binding rules apply unchanged (`00`): the knowledge service is the record, every element
 names its source, and an element with no source is a gap in `00 §6`.
@@ -32,9 +32,12 @@ the agent may read (§9.6) and what it cited (`ui/08 §8.5`, `§8.6`). Where a p
 knowledge came from an investigation, the Knowledge view names that investigation as a
 link and nothing more.
 
-The Knowledge view has a query bar (§9.2) and tabs for **Procedures** (§9.3), **Past
-cases** (§9.4), **Import** (§9.5) and **Candidates** (§9.7); a **Results** tab appears after
-a query and holds its results.
+The Knowledge view has a query bar (§9.2) above its content. Its sections — **Procedures**
+(§9.3), **Past cases** (§9.4), **Import** (§9.5) and **Candidates** (§9.7), each with its
+count — are listed once, in the left region, which holds the work queue in Work mode and
+these sections in Knowledge mode (`ui/08 §8.3`). There is no second row of the same items
+above the content. Running a query replaces the content with its results under a header
+naming the query, with a way back to the section that was open.
 
 ## 9.2 Query bar: search and ask
 
@@ -96,7 +99,7 @@ candidate from it was accepted.
 ## 9.5 Import
 
 Markdown with YAML frontmatter is the import format (`06 §2.4`); other formats come later
-by converting to markdown before import. The Import tab is the existing Import SOPs panel
+by converting to markdown before import. The Import section is the existing Import SOPs panel
 (`13 §3`) moved into the view:
 
 - Choose files or a folder; each document is listed with a checkbox and its parsed title.
@@ -133,7 +136,7 @@ anything by itself.
 
 When an investigation concludes, the agent may draft a **candidate procedure** generalized
 from it and from the knowledge it consulted (the existing conclude hook, `proposeSOP`), or
-decide none is warranted. The draft goes to the Candidates tab of the Knowledge view; the
+decide none is warranted. The draft goes to the Candidates section of the Knowledge view; the
 investigation shows no prompt for it. Whoever manages knowledge reviews candidates there,
 whenever they choose.
 
@@ -147,7 +150,7 @@ whenever they choose.
 Nothing is added without an explicit accept. Under `gated` governance an accepted candidate
 enters as a draft for review (`06 §9.3`).
 
-A concluded investigation's summary joins the Past cases tab (§9.4) on its own; nothing is
+A concluded investigation's summary joins Past cases (§9.4) on its own; nothing is
 shown in the investigation about it.
 
 ---

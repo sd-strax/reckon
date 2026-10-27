@@ -28,8 +28,8 @@ parser accepts markdown with YAML frontmatter (`internal/sopdoc`).
 The full specification is `design/ui/09-knowledge.md`; as facts about the surfaces:
 
 - **A Knowledge view**, opened from the left region beside the work queue, outside any
-  investigation, with tabs for Procedures, Past cases, Import and Candidates, and one query
-  bar.
+  investigation, with sections for Procedures, Past cases, Import and Candidates listed
+  once in the left region, and one query bar.
 - **Knowledge and investigation work stay separate.** The Knowledge view shows no
   hypotheses, actions, verdicts, investigation status or investigation controls, and acts
   on no investigation; an investigation shows knowledge only as what the agent may read and
@@ -44,7 +44,7 @@ The full specification is `design/ui/09-knowledge.md`; as facts about the surfac
 - **Past cases are listed and opened** from the view; the detail is the similar-case
   inspector at full width.
 - **Markdown with YAML frontmatter is the import format.** Other formats are converted to
-  markdown before import, at the edge, when support for them is added. The Import tab is
+  markdown before import, at the edge, when support for them is added. The Import section is
   the existing Import SOPs panel, showing parsed frontmatter before import and a
   per-document outcome (added, revised, failed) after.
 - **Each investigation has a Knowledge section** at the top of the companion column,

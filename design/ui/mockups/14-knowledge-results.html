@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Knowledge — search, ask and past cases</title>
+<title>Knowledge — search and ask results</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
 <style>
 body{margin:0;background:#0a0f24;}
@@ -34,7 +34,7 @@ a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
 </style>
 </head>
 <body>
-<div style="width: 1440px; min-height: 1000px; box-sizing: border-box; display: flex; flex-direction: column; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
+<div style="width: 1440px; min-height: 780px; box-sizing: border-box; display: flex; flex-direction: column; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
 <header style="display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: #070b1c; border-bottom: 1px solid rgba(255,255,255,.09);">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.88)" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><circle cx="12" cy="18" r="2.5"></circle><path d="M8.4 6.6l7.2 1"></path><path d="M7 8.3l4 7.4"></path><path d="M16.8 10.2l-3.6 5.7"></path></svg>
 <h1 style="margin: 0; font-size: 17px; font-weight: 700;">Knowledge</h1>
@@ -46,10 +46,7 @@ a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
 <button type="button" class="btn" style="flex: 1; border: 0; border-radius: 0; color: rgba(255,255,255,.62);">Work</button>
 <button type="button" class="btn" style="flex: 1; border: 0; border-radius: 0; background: rgba(115,113,252,.16); color: #8b8aff;" aria-pressed="true">Knowledge</button>
 </div>
-<a href="#" style="padding: 7px 10px; border-radius: 7px; color: rgba(255,255,255,.88);">Procedures</a>
-<a href="#" style="padding: 7px 10px; border-radius: 7px; color: rgba(255,255,255,.88);">Past cases</a>
-<a href="#" style="padding: 7px 10px; border-radius: 7px; color: rgba(255,255,255,.88);">Import</a>
-<a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; color: rgba(255,255,255,.88);"><span>Candidates</span><span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); padding: 0 6px;">1</span></a>
+<a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88); background: rgba(115,113,252,.16);" aria-current="page"><span>Procedures</span><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">3</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Past cases</span><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">2</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Import</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Candidates</span><span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); padding: 0 6px;">1</span></a>
 </nav>
 <main style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
 <div style="padding: 14px 24px 0; display: flex; flex-direction: column; gap: 10px;">
@@ -61,11 +58,11 @@ a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
 <button type="button" class="btn" style="border: 0; border-radius: 0; padding: 4px 10px; color: rgba(255,255,255,.62);">Ask</button>
 </div>
 </form>
-<div role="tablist" aria-label="Knowledge" style="display: flex; gap: 22px; border-bottom: 1px solid rgba(255,255,255,.09);"><button class="tab" role="tab" type="button">Procedures <span class=mono style="font-size: 11px; color: rgba(255,255,255,.62);">3</span></button><button class="tab" role="tab" type="button">Past cases <span class=mono style="font-size: 11px; color: rgba(255,255,255,.62);">2</span></button><button class="tab" role="tab" type="button">Import</button><button class="tab" role="tab" type="button">Candidates <span class=mono style="font-size: 11px; color: rgba(255,255,255,.62);">1</span></button><button class="tab on" role="tab" type="button" aria-selected="true">Results <span class=mono style="font-size: 11px; color: rgba(255,255,255,.62);">4</span></button></div>
 </div>
 <div style="display: flex; flex-direction: column; gap: 16px; padding: 14px 24px 28px;">
+<div style="display: flex; align-items: baseline; gap: 12px;"><h2 style="margin: 0; font-size: 15px;">Results for “how do we contain RDP lateral movement with a service account?”</h2><a href="#" style="font-size: 12px;">‹ Back to Procedures</a></div>
 <div style="display: flex; gap: 16px; align-items: flex-start;"><section class="card" style="flex: 1 1 0; min-width: 0;" aria-label="Search results">
-<div style="padding: 10px 14px; display: flex; gap: 8px; align-items: center;"><span class="eyebrow">Search</span><span style="font-size: 12px;">“how do we contain RDP lateral movement with a service account?”</span><span style="flex: 1;"></span><span class="mut" style="font-size: 11px;">4 results · semantic</span></div>
+<div style="padding: 10px 14px; display: flex; gap: 8px; align-items: center;"><span class="eyebrow">Search</span><span style="flex: 1;"></span><span class="mut" style="font-size: 11px;">4 results · semantic</span></div>
 <div class="row" style="flex-direction: column; gap: 6px;">
 <div style="display: flex; gap: 8px; align-items: center; width: 100%;"><span class="eyebrow" style="width: 74px; flex: none;">Procedure</span><a href="#" style="font-weight: 600; color: rgba(255,255,255,.88); flex: 1; min-width: 0;">Lateral Movement via RDP — Containment</a><span class="pill band-strong">STRONG</span></div>
 <div class="mut" style="font-size: 11px; padding-left: 82px;">v1.0 · recommends isolate</div>
@@ -91,7 +88,7 @@ a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
 <div style="font-size: 11px; padding-left: 82px; display: flex; gap: 12px; flex-wrap: wrap;"><span class="mut">Why: containment only</span><span style="flex: 1;"></span><a href="#">Open</a></div>
 </div>
 </section><section class="card" style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;" aria-label="Ask answer">
-<div style="padding: 10px 14px; display: flex; gap: 8px; align-items: center;"><span class="eyebrow">Ask</span><span style="font-size: 12px;">same question</span><span style="flex: 1;"></span><span class="mut" style="font-size: 11px;">answered from the knowledge base only</span></div>
+<div style="padding: 10px 14px; display: flex; gap: 8px; align-items: center;"><span class="eyebrow">Ask</span><span style="flex: 1;"></span><span class="mut" style="font-size: 11px;">answered from the knowledge base only</span></div>
 <div style="padding: 4px 16px 14px; display: flex; flex-direction: column; gap: 10px; line-height: 1.6;">
 <p style="margin: 0;">Isolate the destination host once hands-on-keyboard activity is confirmed, using network isolation so volatile evidence survives <a href="#" class="mono" style="font-size: 11px;">[1]</a>. Then disable or force-reset the account, but first capture every host it has reached, or you lose the map; for a service account, coordinate the rotation, since a blind reset causes an outage and tips off the adversary <a href="#" class="mono" style="font-size: 11px;">[1]</a> <a href="#" class="mono" style="font-size: 11px;">[2]</a>. The May FINANCE-07 case followed the same order: isolate, then disable <a href="#" class="mono" style="font-size: 11px;">[3]</a>.</p>
 <p style="margin: 0;" class="mut">No procedure covers how to tell a backup service account's legitimate use from misuse.</p>
@@ -103,11 +100,6 @@ a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
 <div class="mut" style="font-size: 11px;">reckon · [MODEL] · no telemetry tools · nothing recorded in any investigation</div>
 </div>
 </section></div>
-<section class="card" aria-label="Past cases">
-<div style="padding: 10px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;"><span class="eyebrow">Past cases tab</span><span class="mut" style="font-size: 11px;">2 concluded</span><span style="flex: 1;"></span><button type="button" class="btn" style="padding: 2px 9px; font-size: 11px;">Technique</button><button type="button" class="btn" style="padding: 2px 9px; font-size: 11px;">Disposition</button><button type="button" class="btn" style="padding: 2px 9px; font-size: 11px;">Date</button></div>
-<a href="#" class="row" style="color: rgba(255,255,255,.88); align-items: center;"><span style="flex: 1; min-width: 0; font-weight: 600;">RDP lateral movement from FINANCE-07 to DC-02</span><span class="tag">T1021.001</span><span class="tag">T1078</span><span class="mut" style="font-size: 11px; width: 210px;">host.isolate <span class="ok">✓</span> · account.disable <span class="ok">✓</span></span><span class="mut" style="font-size: 11px; width: 130px;">true positive · 6.5 h</span><span class="mut mono" style="font-size: 11px; width: 60px; text-align: right;">May 14</span></a>
-<a href="#" class="row" style="color: rgba(255,255,255,.88); align-items: center;"><span style="flex: 1; min-width: 0; font-weight: 600;">LSASS credential dumping on WORKSTATION-22</span><span class="tag">T1003.001</span><span class="mut" style="font-size: 11px; width: 210px;">account.reset_credentials <span class="ok">✓</span> · host.isolate <span class="ok">✓</span></span><span class="mut" style="font-size: 11px; width: 130px;">true positive · 4 h</span><span class="mut mono" style="font-size: 11px; width: 60px; text-align: right;">Jun 3</span></a>
-</section>
 </div>
 </main>
 </div>
