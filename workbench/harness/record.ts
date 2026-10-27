@@ -8,7 +8,7 @@
 // Env: RECKON_USER (default reckon-admin), RECKON_PASSWORD (default reckon).
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { BackendClient, type Appearance, type EvidenceDoc, type ThreadEntry } from "../src/backend";
+import { BackendClient, type ActionRecord, type Appearance, type CaseSummaryView, type EvidenceDoc, type SOPDoc, type ThreadEntry } from "../src/backend";
 import { buildDerivedViews } from "../src/derivedViews";
 import { deriveEvidenceLabel } from "../src/evidenceLabel";
 import type { ChronicleTurn, InvestigationSnapshot } from "../src/protocol";
@@ -89,17 +89,36 @@ async function main(): Promise<void> {
     walk({ hypotheses, actions, pins, thread, derived });
     const labels: Record<string, string> = {};
     const appearances: Record<string, Appearance[]> = {};
+    const docs: Record<string, EvidenceDoc> = {};
     for (const r of refs) {
       const doc = await getDoc(r);
+      if (doc) docs[r] = doc;
       const label = doc ? deriveEvidenceLabel(doc) : "";
       if (label) labels[r] = label;
       if (ENTITY_POPOVER_TYPES.has(r.includes("--") ? r.slice(0, r.indexOf("--")) : "")) {
         try { appearances[r] = (await client.appearances(r)).filter((a) => a.investigationId !== id); } catch { /* none */ }
       }
     }
+    // The inspector's records (impl §4.1): transcripts for every turn with
+    // one, the record of every action, and the procedures / case summaries the
+    // thread consulted.
+    const transcripts: Record<string, string> = {};
+    for (const e of (thread ?? []).filter((x: ThreadEntry) => x.hasTranscript)) {
+      try { transcripts[e.interpretationId] = (await client.transcript(e.interpretationId)).body; } catch { /* a stub */ }
+    }
+    const actionRecords: Record<string, ActionRecord> = {};
+    for (const a of actions ?? []) {
+      try { actionRecords[a.actionId] = await client.actionRecord(a.actionId); } catch { /* not recorded */ }
+    }
+    const sops: Record<string, SOPDoc> = {};
+    const caseSummaries: Record<string, CaseSummaryView | null> = {};
+    for (const e of thread ?? []) {
+      for (const s of e.consultedSops || []) if (!(s.sopId in sops)) { try { sops[s.sopId] = await client.sop(s.sopId); } catch { /* gone */ } }
+      for (const s of e.consultedSimilar || []) if (!(s.investigationRef in caseSummaries)) { try { caseSummaries[s.investigationRef] = await client.caseSummary(s.investigationRef); } catch { /* none */ } }
+    }
     const name = arg("--name", investigation.state.toLowerCase() + "-" + id.slice(0, 8));
     const file = join(outDir, name + ".json");
-    writeFileSync(file, JSON.stringify({ name, snapshot, labels, appearances }, null, 2) + "\n");
+    writeFileSync(file, JSON.stringify({ name, snapshot, labels, appearances, docs, transcripts, actionRecords, sops, caseSummaries }, null, 2) + "\n");
     console.log(`wrote ${file} (seq ${snapshot.seq}, ${thread?.length ?? 0} thread entries, ${Object.keys(labels).length} labels)`);
   }
 }

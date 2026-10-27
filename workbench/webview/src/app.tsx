@@ -3,14 +3,22 @@
 // enablement form, the entity popover). Dialogs are view state; the host is
 // told only when the analyst confirms.
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { InboundMessage } from "../../src/protocol";
+import type { InboundMessage, InspectorTarget } from "../../src/protocol";
+import { targetKey } from "./derive/inspect";
 import { initialState, reducer, type Action, type State } from "./store";
 import type { WebviewTransport } from "./transport";
 import type { PromptSpec } from "./components/PromptCard";
 
-export interface PopoverSpec {
-  ref: string;
-  anchor: DOMRect;
+/** One open inspector pane: its target plus the back stack it was reached through (08 §8.6). */
+export interface InspectorPane {
+  stack: InspectorTarget[];
+}
+
+export interface InspectorState {
+  /** The active pane; Esc closes it, opening a citation replaces its target and pushes the previous one onto its stack. */
+  active: InspectorPane | null;
+  /** A pinned pane stays while another opens beside it for comparison (at most two). */
+  pinned: InspectorPane | null;
 }
 
 export interface AppContextValue {
@@ -28,9 +36,12 @@ export interface AppContextValue {
   closeEnableForm: () => void;
   verdictOpen: boolean;
   setVerdictOpen: (on: boolean) => void;
-  popover: PopoverSpec | null;
-  openPopover: (ref: string, anchor: DOMRect) => void;
-  closePopover: () => void;
+  inspector: InspectorState;
+  /** Open a citation in the active pane (pushing the previous target onto its back stack). */
+  openInspector: (target: InspectorTarget) => void;
+  inspectorBack: () => void;
+  closeInspector: (which: "active" | "pinned") => void;
+  pinInspector: () => void;
   /** Stage text in the composer — the pivot pattern: staged, never fired. */
   stage: (text: string) => void;
   staged: { text: string; nonce: number } | null;
@@ -52,7 +63,7 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
   const [prompt, setPrompt] = useState<PromptSpec | null>(null);
   const [enableAdapter, setEnableAdapter] = useState<string | null>(null);
   const [verdictOpen, setVerdictOpen] = useState(false);
-  const [popover, setPopover] = useState<PopoverSpec | null>(null);
+  const [inspector, setInspector] = useState<InspectorState>({ active: null, pinned: null });
   const [staged, setStaged] = useState<{ text: string; nonce: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const requested = useRef(new Set<string>());
@@ -70,6 +81,27 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
   }, [transport]);
 
   const send = useCallback((m: InboundMessage) => transport.send(m), [transport]);
+  const openInspector = useCallback((target: InspectorTarget) => {
+    setInspector((s) => {
+      const key = targetKey(target);
+      const cur = s.active?.stack[s.active.stack.length - 1];
+      if (cur && targetKey(cur) === key) return s;
+      // Re-opening the pinned object just focuses it: no duplicate pane.
+      const pinnedTop = s.pinned?.stack[s.pinned.stack.length - 1];
+      if (pinnedTop && targetKey(pinnedTop) === key) return s;
+      const stack = s.active ? [...s.active.stack.filter((x) => targetKey(x) !== key), target] : [target];
+      return { ...s, active: { stack } };
+    });
+    // Every pane asks the host once per target; the store caches the answer,
+    // and the host's own caches make a repeat ask cheap.
+    transport.send({ type: "inspector.open", target });
+  }, [transport]);
+  const inspectorBack = useCallback(() => setInspector((s) => {
+    if (!s.active || s.active.stack.length < 2) return s;
+    return { ...s, active: { stack: s.active.stack.slice(0, -1) } };
+  }), []);
+  const closeInspector = useCallback((which: "active" | "pinned") => setInspector((s) => ({ ...s, [which]: null })), []);
+  const pinInspector = useCallback(() => setInspector((s) => s.active ? { active: null, pinned: s.active } : s), []);
   const resolve = useCallback((ref: string) => {
     if (requested.current.has(ref)) return;
     requested.current.add(ref);
@@ -81,10 +113,10 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
     prompt, openPrompt: setPrompt, closePrompt: () => setPrompt(null),
     enableAdapter, openEnableForm: setEnableAdapter, closeEnableForm: () => setEnableAdapter(null),
     verdictOpen, setVerdictOpen,
-    popover, openPopover: (ref, anchor) => setPopover({ ref, anchor }), closePopover: () => setPopover(null),
+    inspector, openInspector, inspectorBack, closeInspector, pinInspector,
     stage: (text) => setStaged((s) => ({ text, nonce: (s?.nonce ?? 0) + 1 })), staged,
     busy, setBusy,
-  }), [state, send, transport, resolve, prompt, enableAdapter, verdictOpen, popover, staged, busy]);
+  }), [state, send, transport, resolve, prompt, enableAdapter, verdictOpen, inspector, openInspector, inspectorBack, closeInspector, pinInspector, staged, busy]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

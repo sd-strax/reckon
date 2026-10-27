@@ -289,3 +289,122 @@ func summaryMeta(sum Summary) map[string]any {
 		"verdict":            map[string]any{"disposition": sum.VerdictDisposition, "rationale": sum.VerdictRationale},
 	}
 }
+
+// CaseSummaryView is one concluded investigation's summary read back by its
+// source investigation (design/ui 08 §8.6.1 "Similar past case"): the
+// structured fields the producer recorded plus the recallable body — the LLM
+// narrative once the client tier wrote one, the deterministic baseline until
+// then (06 §3.2). Reserved tags are stripped.
+type CaseSummaryView struct {
+	InvestigationRef   string          `json:"investigation_ref"`
+	Title              string          `json:"title"`
+	Body               string          `json:"body"`
+	GeneratorModel     string          `json:"generator_model,omitempty"`
+	ConclusionAt       string          `json:"conclusion_at,omitempty"`
+	SeedKind           string          `json:"seed_kind,omitempty"`
+	SeedValue          string          `json:"seed_value,omitempty"`
+	Techniques         []string        `json:"techniques"`
+	PrimaryEntities    []string        `json:"primary_entities"`
+	ActionsTaken       []SummaryAction `json:"actions_taken"`
+	ConclusionOutcome  string          `json:"conclusion_outcome,omitempty"`
+	DurationHours      float64         `json:"duration_hours,omitempty"`
+	VerdictDisposition string          `json:"verdict_disposition,omitempty"`
+	VerdictRationale   string          `json:"verdict_rationale,omitempty"`
+	Tags               []string        `json:"tags"`
+	Revision           int             `json:"revision"`
+	ContentHash        string          `json:"content_hash,omitempty"`
+}
+
+// SummaryByInvestigation reads the current summary of one concluded
+// investigation (ErrNoSummary when none exists). Recall hits carry no
+// provenance or meta, so this is the read the inspector uses once it knows the
+// source ref.
+func (s *Store) SummaryByInvestigation(ctx context.Context, tenantID uuid.UUID, investigationRef string) (CaseSummaryView, error) {
+	if investigationRef == "" {
+		return CaseSummaryView{}, fmt.Errorf("SummaryByInvestigation: investigation_ref required")
+	}
+	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{
+		Tag: summarySourcePrefix + investigationRef,
+	})
+	if err != nil {
+		return CaseSummaryView{}, fmt.Errorf("resolve summary: %w", err)
+	}
+	if len(entries) == 0 {
+		return CaseSummaryView{}, fmt.Errorf("%w: %s", ErrNoSummary, investigationRef)
+	}
+	return caseSummaryView(entries[0]), nil
+}
+
+func caseSummaryView(e substrate.Entry) CaseSummaryView {
+	v := CaseSummaryView{
+		InvestigationRef: sourceRefOf(e.Tags),
+		Title:            e.Title,
+		Body:             e.Body,
+		Techniques:       []string{},
+		PrimaryEntities:  []string{},
+		ActionsTaken:     []SummaryAction{},
+		Tags:             stripReserved(e.Tags),
+		Revision:         e.Revision,
+		ContentHash:      string(e.ContentHash),
+	}
+	if e.Provenance != nil {
+		v.GeneratorModel = e.Provenance.GeneratorModel
+	}
+	m := e.Meta
+	str := func(k string) string {
+		if s, ok := m[k].(string); ok {
+			return s
+		}
+		return ""
+	}
+	strs := func(k string) []string {
+		out := []string{}
+		switch raw := m[k].(type) {
+		case []string:
+			out = append(out, raw...)
+		case []any:
+			for _, x := range raw {
+				if s, ok := x.(string); ok {
+					out = append(out, s)
+				}
+			}
+		}
+		return out
+	}
+	v.ConclusionAt = str("conclusion_at")
+	v.SeedKind, v.SeedValue = str("seed_kind"), str("seed_value")
+	v.Techniques = strs("techniques")
+	v.PrimaryEntities = strs("primary_entities")
+	v.ConclusionOutcome = str("conclusion_outcome")
+	if d, ok := m["duration_hours"].(float64); ok {
+		v.DurationHours = d
+	}
+	if verdict, ok := m["verdict"].(map[string]any); ok {
+		if s, ok := verdict["disposition"].(string); ok {
+			v.VerdictDisposition = s
+		}
+		if s, ok := verdict["rationale"].(string); ok {
+			v.VerdictRationale = s
+		}
+	}
+	if acts, ok := m["actions_taken"].([]any); ok {
+		for _, a := range acts {
+			am, ok := a.(map[string]any)
+			if !ok {
+				continue
+			}
+			sa := SummaryAction{}
+			if s, ok := am["action_type"].(string); ok {
+				sa.ActionType = s
+			}
+			if s, ok := am["outcome"].(string); ok {
+				sa.Outcome = s
+			}
+			if n, ok := am["target_count"].(float64); ok {
+				sa.TargetCount = int(n)
+			}
+			v.ActionsTaken = append(v.ActionsTaken, sa)
+		}
+	}
+	return v
+}
