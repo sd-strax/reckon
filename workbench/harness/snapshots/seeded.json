@@ -340,7 +340,8 @@
       }
     },
     "events": null,
-    "ownerItems": null
+    "ownerItems": null,
+    "summary": null
   },
   "labels": {},
   "appearances": {}

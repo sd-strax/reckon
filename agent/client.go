@@ -460,6 +460,12 @@ func (c *Client) SubmitSummaryNarrative(ctx context.Context, investigationRef, n
 	return c.do(ctx, http.MethodPost, "/api/knowledge/summary_narrative", c.agentSrc, body, nil)
 }
 
+// PutNarrative appends a narrative revision for an open investigation (agent
+// token: the server records it as the AI's draft, adr/0103).
+func (c *Client) PutNarrative(ctx context.Context, investigationID, body, generatorModel string) error {
+	return c.do(ctx, http.MethodPut, "/api/investigations/"+investigationID+"/narrative", c.agentSrc, map[string]any{"body": body, "generator_model": generatorModel}, nil)
+}
+
 // RecordInterpretation appends one reasoning act (agent token).
 func (c *Client) RecordInterpretation(ctx context.Context, body InterpretationRequest) (InterpretationResponse, error) {
 	var out InterpretationResponse

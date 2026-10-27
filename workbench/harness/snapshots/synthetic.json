@@ -1202,7 +1202,108 @@
           }
         ]
       }
-    ]
+    ],
+    "summary": {
+      "asOfSequence": 14,
+      "state": "ACTIVE",
+      "seed": {
+        "kind": "case",
+        "value": "host-a"
+      },
+      "techniques": [
+        "T1078"
+      ],
+      "containment": {
+        "total": 3,
+        "approved": 1,
+        "terminal": 3,
+        "pending": 1,
+        "nearestExpiry": "2026-10-27T18:52:48.537Z",
+        "done": [
+          "host.isolate on host-a"
+        ]
+      },
+      "notification": {
+        "status": "awaiting_approval",
+        "sent": 0,
+        "requested": 1,
+        "awaitingReplies": 1
+      },
+      "openQuestions": [
+        {
+          "predictionId": "x-prediction--bbbb2222-0000-4000-8000-000000000003",
+          "ordinal": 3,
+          "title": "No scheduled job on host-a accounts for the session",
+          "status": "UNTESTED",
+          "hypothesis": "not-owner"
+        }
+      ],
+      "ownerItems": {
+        "open": 1,
+        "sent": 1,
+        "confirmed": 1,
+        "waived": 0,
+        "waiting": [
+          "Identity team: Rotate the service account's credential",
+          "Change owner: Confirm the maintenance window on host-a"
+        ]
+      },
+      "proceduresFollowed": [
+        {
+          "sopId": "sop-1",
+          "title": "Procedure one"
+        }
+      ],
+      "stillToDo": [
+        "Approve account.disable on user-a",
+        "Approve the notification to ops@example.test",
+        "Await the replies still outstanding",
+        "Test P3 under not-owner: No scheduled job on host-a accounts for the session",
+        "Ask Identity team: Rotate the service account's credential",
+        "Await confirmation from Change owner: Confirm the maintenance window on host-a"
+      ],
+      "narrative": {
+        "id": "n-2",
+        "revision": 2,
+        "body": "An account signed in to a host it does not normally reach, from an address outside its usual range. The owner has not yet confirmed the session.\n\nContainment is partly in place: the host is isolated; disabling the account awaits approval. The change owner has been asked to confirm the maintenance window.\n\nThe owner was reached by phone and did not recognise the session.",
+        "asOfSequence": 14,
+        "authorKind": "HUMAN",
+        "authorId": "analyst-1",
+        "createdAt": "2026-10-20T10:20:00.000Z",
+        "authorName": "Analyst One"
+      },
+      "authorship": {
+        "draftedBy": "reckon",
+        "draftedModel": "harness-model",
+        "editedBy": "Analyst One",
+        "revisions": 2,
+        "latestAsOfSequence": 14,
+        "latestIsCurrent": true
+      },
+      "revisions": [
+        {
+          "id": "n-1",
+          "revision": 1,
+          "body": "An account signed in to a host it does not normally reach, from an address outside its usual range. The owner has not yet confirmed the session.\n\nContainment is partly in place: the host is isolated; disabling the account awaits approval. The change owner has been asked to confirm the maintenance window.",
+          "generatorModel": "harness-model",
+          "asOfSequence": 11,
+          "authorKind": "AI_DELEGATED",
+          "authorId": "reckon",
+          "createdAt": "2026-10-20T10:05:00.000Z"
+        },
+        {
+          "id": "n-2",
+          "revision": 2,
+          "body": "An account signed in to a host it does not normally reach, from an address outside its usual range. The owner has not yet confirmed the session.\n\nContainment is partly in place: the host is isolated; disabling the account awaits approval. The change owner has been asked to confirm the maintenance window.\n\nThe owner was reached by phone and did not recognise the session.",
+          "asOfSequence": 14,
+          "authorKind": "HUMAN",
+          "authorId": "analyst-1",
+          "createdAt": "2026-10-20T10:20:00.000Z",
+          "authorName": "Analyst One"
+        }
+      ],
+      "handoffNote": "Interactive logon review for host-a\n\nAn account signed in to a host it does not normally reach, from an address outside its usual range. The owner has not yet confirmed the session.\n\nContainment is partly in place: the host is isolated; disabling the account awaits approval. The change owner has been asked to confirm the maintenance window.\n\nThe owner was reached by phone and did not recognise the session.\n\nVerdict: none yet\nDone: host.isolate on host-a\nNotification: awaiting approval"
+    }
   },
   "labels": {
     "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": "host-a",

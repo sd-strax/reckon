@@ -750,3 +750,9 @@ body.loading #rail { opacity: 0.6; }
 .ownertitle { color: var(--link); cursor: pointer; font-weight: 600; }
 .ownercard.confirmed .ownertitle, .ownercard.waived .ownertitle { color: var(--text-3); text-decoration: line-through; }
 .lsection > h3 .ghost { margin-left: auto; }
+
+/* The narrative (adr/0103) */
+.narrative { font-size: var(--fs-md); line-height: 1.6; max-width: 72ch; }
+.authorship { margin-top: 6px; }
+.authorship .warn { color: var(--warn); }
+.summary .banner { border: 1px solid var(--bad-border); background: var(--bad-bg); border-radius: var(--r-sm); padding: 8px 10px; margin-bottom: 8px; }

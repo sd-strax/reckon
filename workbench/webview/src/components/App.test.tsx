@@ -120,11 +120,10 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText("none yet")).toBeTruthy(); // verdict tile
     expect(within(lens()).getByText("2 of 4 approved")).toBeTruthy(); // containment: SUCCEEDED + FAILED were approved; REQUESTED and EXPIRED were not
     expect(within(lens()).getByText("isolated")).toBeTruthy(); // host-a's derivable status word
-    expect(within(lens()).getByText(/No narrative has been drafted/)).toBeTruthy();
+    expect(within(lens()).getByText(/did not recognise the session/)).toBeTruthy(); // the narrative of record (adr/0103)
     expect(within(lens()).getByText("Procedure one")).toBeTruthy();
     fireEvent.click(within(lens()).getByText("Copy handoff note"));
-    const copied = transport.intents.find((i) => i.type === "copy") as { text: string };
-    expect(copied.text).toContain("Still to do:");
+    expect(transport.intents.some((i) => i.type === "handoff.copy")).toBe(true); // the server renders the note when the summary is present (adr/0103)
     fireEvent.click(within(lens()).getByText("Export report"));
     expect(transport.intents.some((i) => i.type === "export.open")).toBe(true);
   });
@@ -292,5 +291,31 @@ describe("the investigation document", () => {
     tab("Summary");
     expect(within(lens()).getByText(/Awaiting confirmation from Change owner: Confirm the maintenance window/)).toBeTruthy();
     expect(within(lens()).getByText(/Ask Network team: Disable the legacy VPN account/)).toBeTruthy();
+  });
+
+  it("Summary: the narrative with its authorship line, an edit as a revision, a redraft from the record, the handoff copy from the server (adr/0103)", () => {
+    const { transport } = mount();
+    tab("Summary");
+    const section = document.querySelector("#obj-narrative") as HTMLElement;
+    expect(within(section).getByText(/did not recognise the session/)).toBeTruthy();
+    expect(within(section).getByText(/drafted by reckon \(harness-model\) · edited by Analyst One · revision 2/)).toBeTruthy();
+    expect(within(section).queryByText(/record has moved on/)).toBeNull();
+    // The edit opens on the current body and saves a revision.
+    fireEvent.click(within(section).getByText("Edit"));
+    const dlg = screen.getByRole("dialog");
+    expect((dlg.querySelector("#promptInput") as HTMLTextAreaElement).value).toMatch(/did not recognise/);
+    fireEvent.change(dlg.querySelector("#promptInput")!, { target: { value: "The owner denied the session; the account is disabled." } });
+    fireEvent.click(within(dlg).getByText("Save revision"));
+    expect(transport.intents.find((i) => i.type === "narrative.save")).toMatchObject({ body: "The owner denied the session; the account is disabled." });
+    expect(within(section).getByText(/account is disabled/)).toBeTruthy();
+    expect(within(section).getByText(/revision 3/)).toBeTruthy();
+    // A redraft is an AI revision above it; the lens shows the drafting state and then the draft.
+    fireEvent.click(within(section).getByText("Redraft"));
+    expect(transport.intents.find((i) => i.type === "narrative.draft")).toBeTruthy();
+    expect(within(section).getByText(/Drafted from the record/)).toBeTruthy();
+    expect(within(section).getByText(/revision 4/)).toBeTruthy();
+    // The handoff note comes from the server's rendering when the summary is present.
+    fireEvent.click(within(lens()).getByText("Copy handoff note"));
+    expect(transport.intents.find((i) => i.type === "handoff.copy")).toBeTruthy();
   });
 });

@@ -44,6 +44,8 @@ export function Header() {
     title: "Conclude investigation",
     label: "Summary of record — what did this investigation determine?",
     placeholder: "e.g. Confirmed C2 beaconing from the file server; host isolated, IOCs blocked.",
+    // The latest narrative prefills the conclusion summary (adr/0103).
+    value: snap?.summary?.narrative?.body || undefined,
     helper: preflight.map((x) => (x.ok ? "☑ " : "☐ ") + x.text).join(" · ") + " · Concluding consumes the verdict of record and files the final report reference; you can reopen later.",
     confirm: "Conclude",
     onConfirm: (summary) => send({ type: "lifecycle", transition: "conclude", summary }),

@@ -1,12 +1,49 @@
-// Summary — where it stands (08 §8.4): four tiles, the narrative (gap §6.18:
-// absent until drafted, never templated), key entities with derivable
-// status words, still to do, procedures followed, the handoff note and the
-// export. Every element names its source or says it is a gap.
+// Summary — where it stands (08 §8.4): four tiles, the narrative (adr/0103:
+// drafted on the client plane or written by the analyst, with its authorship;
+// never templated), key entities with derivable status words, still to do,
+// procedures followed, the handoff note and the export. Every element names
+// its source or says it is a gap.
 import { useApp } from "../../app";
 import { terminal } from "../../derive/stage";
 import { hypName } from "../../derive/hyps";
 import { handoffNote, keyEntities, proceduresFollowed, stillToDo } from "../../derive/summary";
-import { Badge, Countdown, Empty, RefChip } from "../shared";
+import { Badge, Countdown, Empty, Markdown, RefChip, fmtDateTime } from "../shared";
+
+/** The narrative with its authorship line and the two acts (adr/0103). */
+function Narrative() {
+  const { state, send, openPrompt } = useApp();
+  const snap = state.snap!;
+  const s = snap.summary;
+  const closed = ["CONCLUDED", "ARCHIVED"].includes(String(snap.investigation.state).toUpperCase());
+  const n = s?.narrative ?? null;
+  const a = s?.authorship;
+  const stale = !!(a && n && !a.latestIsCurrent);
+  return (
+    <>
+      {state.narrativeDrafting ? <div className="imeta">drafting from the record…</div> : null}
+      {state.narrativeError ? <div className="banner error" role="alert">The draft failed: {state.narrativeError}</div> : null}
+      {s === null ? <Empty>The summary could not be read.</Empty>
+        : !n ? <Empty>No narrative has been drafted for this investigation yet. Draft one from the record, or write it; the thread and the Story lens hold the record either way.</Empty>
+        : (
+          <>
+            <Markdown text={n.body} className="narrative" />
+            <div className="imeta authorship">
+              {a?.draftedBy === "reckon" ? <>drafted by reckon{a.draftedModel ? ` (${a.draftedModel})` : ""}</> : <>written by {a?.draftedBy || n.authorName || n.authorId}</>}
+              {a?.editedBy ? <> · edited by {a.editedBy}</> : null}
+              {" · "}revision {n.revision} · {fmtDateTime(n.createdAt)}
+              {stale ? <> · <span className="warn">the record has moved on since (as of sequence {n.asOfSequence}, now {snap.seq})</span></> : null}
+            </div>
+          </>
+        )}
+      {!closed ? (
+        <div className="decide">
+          <button className={n ? undefined : "primary"} disabled={state.narrativeDrafting} title="One model completion over the record, on your key; recorded as a draft you can edit" onClick={() => send({ type: "narrative.draft" })}>{n ? "Redraft" : "Draft"}</button>
+          <button onClick={() => openPrompt({ title: n ? "Edit the narrative" : "Write the narrative", label: "What happened, as it stands — your words become a revision above the draft", value: n?.body || "", confirm: "Save revision", onConfirm: (body) => send({ type: "narrative.save", body }) })}>{n ? "Edit" : "Write"}</button>
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 export function SummaryLens() {
   const { state, send, openInspector, goTo } = useApp();
@@ -52,9 +89,9 @@ export function SummaryLens() {
         </div>
       </div>
 
-      <section className="lsection">
+      <section className="lsection" id="obj-narrative">
         <h3>What happened</h3>
-        <Empty>No narrative has been drafted for this investigation yet (gap 00 §6.18). The thread and the Story lens hold the record.</Empty>
+        <Narrative />
       </section>
 
       <section className="lsection">
@@ -93,7 +130,7 @@ export function SummaryLens() {
       </section>
 
       <div className="decide">
-        <button onClick={() => send({ type: "copy", text: handoffNote(snap.investigation.title, verdict, actions, todo, hs, followed) })}>Copy handoff note</button>
+        <button title="The facts, the narrative and what remains, rendered by the server so the copy and the export agree" onClick={() => send(snap.summary ? { type: "handoff.copy" } : { type: "copy", text: handoffNote(snap.investigation.title, verdict, actions, todo, hs, followed) })}>Copy handoff note</button>
         <button title="The live markdown snapshot — paste into a ticket unedited" onClick={() => send({ type: "export.open" })}>Export report</button>
       </div>
     </div>

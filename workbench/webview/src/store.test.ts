@@ -7,7 +7,7 @@ function snap(seq: number, title = "T"): InvestigationSnapshot {
     seq,
     investigation: { id: "inv-1", title, state: "ACTIVE", lastEventSequence: seq },
     hypotheses: [], actions: [], pins: [], comms: [], thread: [], turns: [],
-    capabilities: null, enablement: null, knowledge: [], derived: null, events: null, ownerItems: null,
+    capabilities: null, enablement: null, knowledge: [], derived: null, events: null, ownerItems: null, summary: null,
   };
 }
 
@@ -121,5 +121,17 @@ describe("the Knowledge document's slices", () => {
     expect(s.kreveal).toMatchObject({ section: "import", nonce: 1 });
     expect(s.snap).toBeNull(); // never an investigation slice
   });
-});
 
+  it("tracks the narrative draft in flight and clears it when the summary re-posts (adr/0103)", () => {
+    let s = run([{ type: "state.snapshot", seq: 5, snapshot: snap(5) }]);
+    s = run([{ type: "narrative.drafting" }], s);
+    expect(s.narrativeDrafting).toBe(true);
+    s = run([{ type: "narrative.failed", message: "no key" }], s);
+    expect(s.narrativeDrafting).toBe(false);
+    expect(s.narrativeError).toBe("no key");
+    s = run([{ type: "narrative.drafting" }], s);
+    expect(s.narrativeError).toBeNull();
+    s = run([{ type: "state.patch", seq: 5, patch: { summary: null } }], s);
+    expect(s.narrativeDrafting).toBe(false);
+  });
+});

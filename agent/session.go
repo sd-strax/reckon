@@ -663,6 +663,49 @@ func (s *Session) SummarizeConcluded(ctx context.Context) (string, error) {
 	return text, nil
 }
 
+// draftNarrativeInstruction asks for the "what happened" prose of an OPEN
+// investigation (adr/0103): where it stands now, from the record in context,
+// in a form a reader outside the investigation can follow.
+const draftNarrativeInstruction = "Write the narrative of this investigation as it stands NOW, for a reader who was not " +
+	"part of it: what was observed, what was concluded or remains open, what was done and what is " +
+	"still to do. Plain prose, three to six short paragraphs, no headings, no lists. State only what " +
+	"the record in this conversation supports; name entities as they appear in it; say \"not yet " +
+	"known\" where a question is open rather than guessing. Do not propose actions here."
+
+// DraftNarrative runs ONE no-tools completion over the session's own
+// conversation for an open investigation and records the text as an AI
+// narrative revision (adr/0103): the client plane holds the key, the server
+// holds the lineage. Returns the text and the model.
+func (s *Session) DraftNarrative(ctx context.Context) (string, string, error) {
+	if len(s.messages) == 0 {
+		s.rehydrate(ctx)
+	}
+	msgs := append(append([]Message{}, s.messages...),
+		Message{Role: RoleUser, Content: []ContentBlock{TextBlock(draftNarrativeInstruction)}})
+	resp, err := s.llm.Complete(ctx, CompleteRequest{System: s.system, Messages: msgs, MaxTokens: s.maxTokens})
+	if err != nil {
+		return "", "", fmt.Errorf("agent: draft narrative: %w", err)
+	}
+	var b strings.Builder
+	for _, blk := range resp.Content {
+		if blk.Type == BlockText {
+			b.WriteString(blk.Text)
+		}
+	}
+	text := strings.TrimSpace(b.String())
+	if text == "" {
+		return "", "", fmt.Errorf("agent: draft narrative: the model returned no text")
+	}
+	model := ""
+	if m, ok := s.llm.(interface{ ModelName() string }); ok {
+		model = m.ModelName()
+	}
+	if err := s.backend.PutNarrative(ctx, s.investigationID, text, model); err != nil {
+		return "", "", fmt.Errorf("agent: record narrative: %w", err)
+	}
+	return text, model, nil
+}
+
 // summaryRetryDelay is the single not-found retry backoff in
 // SummarizeConcluded — long enough for the post-conclusion pipeline's
 // structured write, short enough not to hang the conclude UX.

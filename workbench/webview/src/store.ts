@@ -94,6 +94,9 @@ export interface State {
   kerror: string | null;
   /** A reveal request (the import command, a link): the section and the object to land on. */
   kreveal: { section: KnowledgeSection; id?: string; nonce: number } | null;
+  /** The narrative draft in flight (adr/0103), and its last failure. */
+  narrativeDrafting: boolean;
+  narrativeError: string | null;
 }
 
 export const initialState: State = {
@@ -124,6 +127,8 @@ export const initialState: State = {
   kdoc: null,
   kerror: null,
   kreveal: null,
+  narrativeDrafting: false,
+  narrativeError: null,
 };
 
 export type Action =
@@ -208,6 +213,7 @@ function onMessage(state: State, msg: RenderMessage): State {
       const snap = { ...state.snap, ...msg.patch };
       const next: State = { ...state, seq: msg.seq, snap, title: msg.patch.investigation ? msg.patch.investigation.title : state.title };
       if (msg.patch.knowledge) next.knowledge = mergeKnowledge(state.knowledge, msg.patch.knowledge);
+      if (msg.patch.summary !== undefined) { next.narrativeDrafting = false; next.narrativeError = null; }
       if (msg.patch.thread !== undefined && !state.streaming && !state.preserveLive) next.live = [];
       return next;
     }
@@ -221,6 +227,10 @@ function onMessage(state: State, msg: RenderMessage): State {
     }
     case "knowledge.error":
       return { ...state, loading: false, kerror: msg.message };
+    case "narrative.drafting":
+      return { ...state, narrativeDrafting: true, narrativeError: null };
+    case "narrative.failed":
+      return { ...state, narrativeDrafting: false, narrativeError: msg.message };
     case "knowledge.reveal":
       return { ...state, kreveal: { section: msg.section, id: msg.id, nonce: (state.kreveal?.nonce ?? 0) + 1 } };
     case "knowledge.answer.start":

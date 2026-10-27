@@ -398,6 +398,18 @@ function mapCall(r: RawCall): CallView {
   };
 }
 
+interface RawNarrative { id?: string; revision?: number; body?: string; generator_model?: string; as_of_sequence?: number; author_kind?: string; author_id?: string; author_name?: string; created_at?: string }
+interface RawSummary {
+  as_of_sequence?: number; state?: string; seed?: { kind?: string; value?: string };
+  verdict?: { disposition?: string; rationale?: string; at?: string; author_name?: string }; techniques?: string[];
+  containment?: { total?: number; approved?: number; terminal?: number; pending?: number; nearest_expiry?: string; done?: string[] };
+  notification?: { status?: string; sent?: number; requested?: number; awaiting_replies?: number };
+  open_questions?: { prediction_id?: string; ordinal?: number; title?: string; status?: string; hypothesis?: string }[];
+  owner_items?: { open?: number; sent?: number; confirmed?: number; waived?: number; waiting?: string[] };
+  procedures_followed?: { sop_id?: string; title?: string }[]; still_to_do?: string[];
+  narrative?: RawNarrative | null; authorship?: { drafted_by?: string; drafted_model?: string; edited_by?: string; revisions?: number; latest_as_of_sequence?: number; latest_is_current?: boolean };
+  revisions?: RawNarrative[]; handoff_note?: string;
+}
 interface RawOwnerItem {
   id?: string; title?: string; owner?: string; detail?: string; status?: string; notify_action_id?: string;
   created_by?: string; created_by_name?: string; created_by_kind?: string; created_at?: string; sent_at?: string;
@@ -643,6 +655,38 @@ export interface ThreadEntry {
 }
 
 /** One row of the durable action queue (mirrors server.ActionView). */
+/** One narrative revision (summary.Narrative, adr/0103). */
+export interface NarrativeRevision {
+  id: string;
+  revision: number;
+  body: string;
+  generatorModel?: string;
+  asOfSequence: number;
+  authorKind: "AI_DELEGATED" | "HUMAN" | string;
+  authorId: string;
+  authorName?: string;
+  createdAt: string;
+}
+
+/** The summary at this state (server.SummaryResponse, adr/0103). */
+export interface SummaryView {
+  asOfSequence: number;
+  state: string;
+  seed?: { kind: string; value: string };
+  verdict?: { disposition: string; rationale?: string; at?: string; authorName?: string };
+  techniques: string[];
+  containment: { total: number; approved: number; terminal: number; pending: number; nearestExpiry?: string; done: string[] };
+  notification: { status: string; sent: number; requested: number; awaitingReplies: number };
+  openQuestions: { predictionId: string; ordinal: number; title: string; status: string; hypothesis: string }[];
+  ownerItems: { open: number; sent: number; confirmed: number; waived: number; waiting: string[] };
+  proceduresFollowed: { sopId: string; title: string }[];
+  stillToDo: string[];
+  narrative: NarrativeRevision | null;
+  authorship: { draftedBy?: string; draftedModel?: string; editedBy?: string; revisions: number; latestAsOfSequence: number; latestIsCurrent: boolean };
+  revisions: NarrativeRevision[];
+  handoffNote: string;
+}
+
 /** One owner action item (server.OwnerItemView, adr/0101). */
 export interface OwnerItem {
   id: string;
@@ -1556,6 +1600,33 @@ export class BackendClient {
       patterns: (r.patterns ?? []).map((p) => ({ classUid: p.class_uid ?? 0, className: p.class_name ?? "", key: p.key ?? {}, count: p.count ?? 0, days: p.days ?? 0, typicalHour: p.typical_hour ?? 0, first: p.first ?? "", last: p.last ?? "", eventIds: p.event_ids ?? [] })),
       deviations: (r.deviations ?? []).map((d) => ({ eventId: d.event_id ?? "", classUid: d.class_uid ?? 0, className: d.class_name ?? "", time: d.time ?? "", key: d.key ?? {}, differs: d.differs ?? [] })),
     };
+  }
+
+  /** GET /api/investigations/{id}/summary — the facts and the narrative lineage (adr/0103). */
+  async summary(investigationId: string): Promise<SummaryView> {
+    const r = await this.authedGet<RawSummary>(`/api/investigations/${encodeURIComponent(investigationId)}/summary`);
+    const rev = (n: RawNarrative): NarrativeRevision => ({ id: n.id ?? "", revision: n.revision ?? 0, body: n.body ?? "", generatorModel: n.generator_model, asOfSequence: n.as_of_sequence ?? 0, authorKind: n.author_kind ?? "HUMAN", authorId: n.author_id ?? "", authorName: n.author_name, createdAt: n.created_at ?? "" });
+    return {
+      asOfSequence: r.as_of_sequence ?? 0, state: r.state ?? "",
+      seed: r.seed ? { kind: r.seed.kind ?? "", value: r.seed.value ?? "" } : undefined,
+      verdict: r.verdict ? { disposition: r.verdict.disposition ?? "", rationale: r.verdict.rationale, at: r.verdict.at, authorName: r.verdict.author_name } : undefined,
+      techniques: r.techniques ?? [],
+      containment: { total: r.containment?.total ?? 0, approved: r.containment?.approved ?? 0, terminal: r.containment?.terminal ?? 0, pending: r.containment?.pending ?? 0, nearestExpiry: r.containment?.nearest_expiry, done: r.containment?.done ?? [] },
+      notification: { status: r.notification?.status ?? "", sent: r.notification?.sent ?? 0, requested: r.notification?.requested ?? 0, awaitingReplies: r.notification?.awaiting_replies ?? 0 },
+      openQuestions: (r.open_questions ?? []).map((q) => ({ predictionId: q.prediction_id ?? "", ordinal: q.ordinal ?? 0, title: q.title ?? "", status: q.status ?? "", hypothesis: q.hypothesis ?? "" })),
+      ownerItems: { open: r.owner_items?.open ?? 0, sent: r.owner_items?.sent ?? 0, confirmed: r.owner_items?.confirmed ?? 0, waived: r.owner_items?.waived ?? 0, waiting: r.owner_items?.waiting ?? [] },
+      proceduresFollowed: (r.procedures_followed ?? []).map((x) => ({ sopId: x.sop_id ?? "", title: x.title ?? "" })),
+      stillToDo: r.still_to_do ?? [],
+      narrative: r.narrative ? rev(r.narrative) : null,
+      authorship: { draftedBy: r.authorship?.drafted_by, draftedModel: r.authorship?.drafted_model, editedBy: r.authorship?.edited_by, revisions: r.authorship?.revisions ?? 0, latestAsOfSequence: r.authorship?.latest_as_of_sequence ?? 0, latestIsCurrent: !!r.authorship?.latest_is_current },
+      revisions: (r.revisions ?? []).map(rev),
+      handoffNote: r.handoff_note ?? "",
+    };
+  }
+
+  /** PUT /api/investigations/{id}/narrative — the analyst's edit as a HUMAN revision (adr/0103). */
+  async putNarrative(investigationId: string, body: string): Promise<void> {
+    await this.authed<unknown>("PUT", `/api/investigations/${encodeURIComponent(investigationId)}/narrative`, { body });
   }
 
   /** GET /api/investigations/{id}/owner_items — the owner action items (adr/0101). */

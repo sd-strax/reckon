@@ -950,6 +950,11 @@ authorship line reads "drafted by reckon · edited by <name>". At conclude, the 
 prefills the conclusion summary; the knowledge summary pipeline is unchanged. The handoff note
 is built from the summary facts + narrative + still-to-do, host-side, and copied.
 
+**Landed** (`adr/0103`, PR #104): the handoff note is rendered by the server
+(`SummaryResponse.handoff_note`) so the copy and the export agree; the Summary lens keeps its
+tile derivations from the snapshot and shows the narrative with `narrative.drafting` /
+`narrative.failed` states; `narrative.save` carries the analyst's revision. Migration `0029`.
+
 ### 8.8 §6.19 — Roles on acts
 
 **Decision.** `Actor` gains `Roles []string`, captured at command time from the token's roles

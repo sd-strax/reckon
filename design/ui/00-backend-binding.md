@@ -296,7 +296,8 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     /api/investigations/{id}/owner_items`, `POST /api/owner_items/{id}/confirm|waive|attach`.
 18. **Narrative summary at any time** — the two-tier summary of `06 §3.2` produced on
     demand for an open investigation, not only at conclusion, with its authorship (drafted,
-    edited by) recorded.
+    edited by) recorded. **Landed** (`adr/0103`): `GET /api/investigations/{id}/summary`,
+    `PUT …/narrative` as revisions, the sidecar's `draftNarrative`.
 19. **Roles on acts** — the role that authorized an act, captured from the token at command
     time alongside `principal_name` (`adr/0077`), for the person inspector (`ui/08 §8.6.1`).
     Display only: authorization still reads the live token, and reckon still mirrors no

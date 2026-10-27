@@ -4,21 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"regexp"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/knowledge"
+	"github.com/sd-strax/reckon/summary"
 )
 
 // summaryExtractorVersion stamps every summary's provenance (design/06 §3.1
-// extractor_version). Bump when the extraction shape changes so a re-derivation
-// is distinguishable from the prior version's output.
-const summaryExtractorVersion = "1"
+// extractor_version); the extraction itself lives in summary/ (adr/0103).
+const summaryExtractorVersion = summary.ExtractorVersion
 
 // summaryWriter is the narrow consumer seam the producer needs — the knowledge
 // facade maps the domain summary onto the substrate's DERIVED corpus. Kept an
@@ -129,136 +126,8 @@ func investigationSpan(ctx context.Context, db *sql.DB, aggID uuid.UUID) (create
 	return created, concluded, nil
 }
 
-var techniqueRe = regexp.MustCompile(`^T\d{4}(\.\d{3})?$`)
-
-// buildSummary is the pure extraction (design/06 §3.2): aggregate state →
-// domain Summary, no I/O. Kept pure so the extraction shape is unit-testable
-// without a database.
+// buildSummary is the knowledge-summary extraction, now summary.Extract
+// (adr/0103): the one fold the Summary lens, the export and this pipeline share.
 func buildSummary(groupingID string, ic aggregate.InvestigationCurrent, hyps []aggregate.HypothesisCurrent, actions []aggregate.ActionCurrent, createdAt, concludedAt time.Time) knowledge.Summary {
-	seedKind, seedValue := "", ""
-	var entities []string
-	if ic.Seed != nil {
-		seedKind = ic.Seed.Type
-		seedValue = seedValueOf(ic.Seed)
-		if ic.Seed.Type == aggregate.SeedEntity && ic.Seed.EntityIdentifier != "" {
-			entities = append(entities, ic.Seed.EntityIdentifier)
-		}
-	}
-
-	techniques := extractTechniques(hyps)
-	summaryActions := make([]knowledge.SummaryAction, 0, len(actions))
-	for _, ac := range actions {
-		summaryActions = append(summaryActions, knowledge.SummaryAction{
-			ActionType:  ac.ActionType,
-			TargetCount: len(ac.Targets),
-			Outcome:     ac.Status,
-		})
-	}
-
-	var duration float64
-	if !createdAt.IsZero() && !concludedAt.IsZero() && concludedAt.After(createdAt) {
-		duration = concludedAt.Sub(createdAt).Hours()
-	}
-
-	sum := knowledge.Summary{
-		InvestigationRef:   groupingID,
-		Title:              ic.Title,
-		ConclusionAt:       concludedAt,
-		GeneratorModel:     "", // deterministic v0 — no LLM narrative yet
-		ExtractorVersion:   summaryExtractorVersion,
-		SeedKind:           seedKind,
-		SeedValue:          seedValue,
-		Techniques:         techniques,
-		PrimaryEntities:    entities,
-		ActionsTaken:       summaryActions,
-		ConclusionOutcome:  conclusionOutcome(ic),
-		DurationHours:      duration,
-		VerdictDisposition: ic.VerdictDisposition,
-		VerdictRationale:   ic.VerdictRationale,
-	}
-	sum.SummaryText = renderSummaryBody(sum)
-	return sum
-}
-
-// seedValueOf renders the seed's identifying value per kind (design/06 §3.2).
-func seedValueOf(s *aggregate.Seed) string {
-	switch s.Type {
-	case aggregate.SeedAlert:
-		return s.AlertID
-	case aggregate.SeedEntity:
-		if s.EntityIdentifier != "" {
-			return s.EntityIdentifier
-		}
-		return s.EntityRef
-	case aggregate.SeedQuestion:
-		return s.HypothesisStatement
-	case aggregate.SeedCase:
-		return s.CaseID
-	default:
-		return ""
-	}
-}
-
-// extractTechniques pulls MITRE technique ids from hypothesis labels, sorted
-// and deduplicated. Indicator-type contributions (06 §3.2) are a later
-// enrichment once indicators are read from the STIX store.
-func extractTechniques(hyps []aggregate.HypothesisCurrent) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, h := range hyps {
-		for _, label := range h.Labels {
-			if techniqueRe.MatchString(label) && !seen[label] {
-				seen[label] = true
-				out = append(out, label)
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// conclusionOutcome is the v0 crude classification (design/06 §3.2): a recorded
-// verdict means the investigation reached a disposition ("succeeded"); its
-// absence is "inconclusive". The finer failed/abandoned distinction needs the
-// conclusion Interpretation's rationale with LLM disambiguation — deferred with
-// the narrative.
-func conclusionOutcome(ic aggregate.InvestigationCurrent) string {
-	if ic.VerdictDisposition != "" {
-		return "succeeded"
-	}
-	return "inconclusive"
-}
-
-// renderSummaryBody is the deterministic recallable body (design/06 §3.2 v0):
-// a compact prose rendering of the structured fields, embeddable for similarity
-// and searchable by keyword. The server-side-LLM narrative replaces this later.
-func renderSummaryBody(sum knowledge.Summary) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Investigation %q concluded %s.", sum.Title, sum.ConclusionOutcome)
-	if sum.SeedKind != "" {
-		fmt.Fprintf(&b, " Seeded from %s: %s.", sum.SeedKind, sum.SeedValue)
-	}
-	if sum.VerdictDisposition != "" {
-		fmt.Fprintf(&b, " Verdict: %s.", sum.VerdictDisposition)
-		if sum.VerdictRationale != "" {
-			fmt.Fprintf(&b, " %s", sum.VerdictRationale)
-		}
-	}
-	if len(sum.Techniques) > 0 {
-		fmt.Fprintf(&b, " Techniques: %s.", strings.Join(sum.Techniques, ", "))
-	}
-	if len(sum.PrimaryEntities) > 0 {
-		fmt.Fprintf(&b, " Entities: %s.", strings.Join(sum.PrimaryEntities, ", "))
-	}
-	if len(sum.ActionsTaken) > 0 {
-		parts := make([]string, 0, len(sum.ActionsTaken))
-		for _, a := range sum.ActionsTaken {
-			parts = append(parts, fmt.Sprintf("%s (%d target(s), %s)", a.ActionType, a.TargetCount, a.Outcome))
-		}
-		fmt.Fprintf(&b, " Actions taken: %s.", strings.Join(parts, "; "))
-	}
-	if sum.DurationHours > 0 {
-		fmt.Fprintf(&b, " Duration: %.1fh.", sum.DurationHours)
-	}
-	return b.String()
+	return summary.Extract(groupingID, ic, hyps, actions, createdAt, concludedAt)
 }

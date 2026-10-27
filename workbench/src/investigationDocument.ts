@@ -314,6 +314,12 @@ export class InvestigationDocuments {
       void vscode.commands.executeCommand("reckon.openKnowledge", msg.section, msg.id);
     } else if (msg.type === "notify.request") {
       void this.requestNotification(id, panel, msg);
+    } else if (msg.type === "narrative.draft") {
+      void this.draftNarrative(id, panel);
+    } else if (msg.type === "narrative.save") {
+      void this.saveNarrative(id, panel, msg.body);
+    } else if (msg.type === "handoff.copy") {
+      void this.copyHandoff(id);
     } else if (msg.type === "owner.add") {
       void this.ownerItemAct(id, panel, () => this.client.createOwnerItem(id, { title: msg.title, owner: msg.owner, detail: msg.detail }).then(() => undefined), "add the owner item");
     } else if (msg.type === "owner.confirm") {
@@ -465,7 +471,7 @@ export class InvestigationDocuments {
     void this.post(panel, { type: "loading" });
     let snapshot: InvestigationSnapshot;
     try {
-      const [investigation, hypotheses, capabilities, thread, actions, pins, comms, events, ownerItems] = await Promise.all([
+      const [investigation, hypotheses, capabilities, thread, actions, pins, comms, events, ownerItems, summary] = await Promise.all([
         this.client.getInvestigation(id),
         this.client.hypotheses(id),
         // Capability health is a v0 rail surface (13 §4); a 503 just means the
@@ -481,13 +487,14 @@ export class InvestigationDocuments {
         this.client.comms(id).catch((err: unknown) => { this.log.debug(`list comms ${id}: ${errText(err)}`); return null; }),
         this.client.events(id).catch((err: unknown) => { this.log.debug(`list events ${id}: ${errText(err)}`); return null; }),
         this.client.ownerItems(id).catch((err: unknown) => { this.log.debug(`list owner items ${id}: ${errText(err)}`); return null; }),
+        this.client.summary(id).catch((err: unknown) => { this.log.debug(`summary ${id}: ${errText(err)}`); return null; }),
       ]);
       panel.title = `⚖ ${investigation.title}`;
       snapshot = {
         seq: investigation.lastEventSequence,
         investigation, hypotheses, actions, pins, comms, thread,
         turns: await this.chronicleTurns(thread ?? []),
-        capabilities, enablement: null, knowledge: [], derived: null, events, ownerItems,
+        capabilities, enablement: null, knowledge: [], derived: null, events, ownerItems, summary,
       };
     } catch (err) {
       const message = errText(err);
@@ -562,6 +569,11 @@ export class InvestigationDocuments {
       patch.ownerItems = await this.client.ownerItems(id);
     } catch (err) {
       this.log.debug(`list owner items ${id}: ${errText(err)}`);
+    }
+    try {
+      patch.summary = await this.client.summary(id);
+    } catch (err) {
+      this.log.debug(`summary ${id}: ${errText(err)}`);
     }
     try {
       patch.thread = await this.client.thread(id);
@@ -775,6 +787,45 @@ export class InvestigationDocuments {
       void vscode.window.showErrorMessage(`reckon: notification failed — ${errText(err)}`);
     }
     await this.postPending(id, panel);
+  }
+
+  /** The narrative draft on the client plane (adr/0103): the sidecar writes the
+   * AI revision; the summary slice re-posts with it. A failure is a message,
+   * never a templated text. */
+  private async draftNarrative(id: string, panel: vscode.WebviewPanel): Promise<void> {
+    void this.post(panel, { type: "narrative.drafting" });
+    try {
+      await this.transport.draftNarrative(id);
+    } catch (err) {
+      void this.post(panel, { type: "narrative.failed", message: errText(err) });
+      return;
+    }
+    try {
+      void this.patch(id, panel, { summary: await this.client.summary(id) });
+    } catch (err) {
+      void this.post(panel, { type: "narrative.failed", message: errText(err) });
+    }
+  }
+
+  /** The analyst's edit as a HUMAN revision above the draft (adr/0103). */
+  private async saveNarrative(id: string, panel: vscode.WebviewPanel, body: string): Promise<void> {
+    try {
+      await this.client.putNarrative(id, body);
+      void this.patch(id, panel, { summary: await this.client.summary(id) });
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: could not save the narrative — ${errText(err)}`);
+    }
+  }
+
+  /** The handoff note the server renders from the facts and the narrative (08 §8.4). */
+  private async copyHandoff(id: string): Promise<void> {
+    try {
+      const s = await this.client.summary(id);
+      await vscode.env.clipboard.writeText(s.handoffNote);
+      void vscode.window.setStatusBarMessage("reckon: handoff note copied", 4000);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: could not build the handoff note — ${errText(err)}`);
+    }
   }
 
   /** One owner-item act (adr/0101), then the slice re-posted. */

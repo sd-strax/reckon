@@ -28,6 +28,7 @@ import type {
   InvestigationSummary,
   OwnerItem,
   PinRow,
+  SummaryView,
   RetrievalRow,
   RevisionContent,
   SOPDoc,
@@ -199,6 +200,8 @@ export interface InvestigationSnapshot {
   events: EventRow[] | null;
   /** Owner action items (adr/0101); null when the layer is off or the read failed. */
   ownerItems: OwnerItem[] | null;
+  /** The two-tier summary at this state (adr/0103): the facts, the latest narrative with its authorship, the handoff note. */
+  summary: SummaryView | null;
 }
 
 /**
@@ -263,6 +266,9 @@ export type RenderMessage =
   | { type: "knowledge.error"; message: string }
   // Reveal a section (the reckon.importSOP command, a link with an id).
   | { type: "knowledge.reveal"; section: KnowledgeSection; id?: string }
+  // The narrative draft in flight on the client plane (adr/0103), and its failure.
+  | { type: "narrative.drafting" }
+  | { type: "narrative.failed"; message: string }
   | { type: "turn.start" }
   | { type: "turn.user"; text: string }
   // An aside (the "btw" lens): a scoped agent turn rendered collapsed.
@@ -295,6 +301,10 @@ export type InboundMessage =
   | { type: "notify.request"; channel: "notify.email" | "notify.slack"; target: string; subject?: string; body: string; ownerItemIds?: string[] }
   // Owner action items (adr/0101): add one, record the owner's confirmation, waive with a reason.
   | { type: "owner.add"; title: string; owner: string; detail?: string }
+  // The narrative (adr/0103): draft it on the client plane; save the analyst's edit as a revision; copy the handoff note.
+  | { type: "narrative.draft" }
+  | { type: "narrative.save"; body: string }
+  | { type: "handoff.copy" }
   | { type: "owner.confirm"; id: string; note: string }
   | { type: "owner.waive"; id: string; reason: string }
   // The lens and companion mode the analyst chose, mirrored to globalState so

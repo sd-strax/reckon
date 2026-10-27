@@ -109,6 +109,29 @@ export class HarnessTransport implements WebviewTransport {
       case "rename":
         this.emit({ type: "renamed", title: intent.title });
         break;
+      case "narrative.draft": {
+        // The sidecar would draft on the client plane; the harness posts the drafting
+        // state, then a summary whose narrative is an AI revision.
+        const snap = this.inv?.snapshot;
+        if (!snap || !snap.summary) break;
+        this.emit({ type: "narrative.drafting" });
+        const now = new Date().toISOString();
+        const rev = { id: "n-" + (snap.summary.revisions.length + 1), revision: snap.summary.revisions.length + 1, body: "Drafted from the record: an account logged on to a host it never reaches; the session is under investigation and no verdict stands yet.", generatorModel: "harness-model", asOfSequence: snap.seq, authorKind: "AI_DELEGATED", authorId: "reckon", createdAt: now };
+        const revisions = [...snap.summary.revisions, rev];
+        snap.summary = { ...snap.summary, narrative: rev, revisions, authorship: { draftedBy: snap.summary.authorship.draftedBy || "reckon", draftedModel: snap.summary.authorship.draftedModel || "harness-model", editedBy: snap.summary.authorship.editedBy, revisions: revisions.length, latestAsOfSequence: snap.seq, latestIsCurrent: true } };
+        this.emit({ type: "state.patch", seq: snap.seq, patch: { summary: snap.summary } });
+        break;
+      }
+      case "narrative.save": {
+        const snap = this.inv?.snapshot;
+        if (!snap || !snap.summary) break;
+        const now = new Date().toISOString();
+        const rev = { id: "n-" + (snap.summary.revisions.length + 1), revision: snap.summary.revisions.length + 1, body: intent.body, asOfSequence: snap.seq, authorKind: "HUMAN", authorId: "analyst-1", authorName: "Analyst One", createdAt: now };
+        const revisions = [...snap.summary.revisions, rev];
+        snap.summary = { ...snap.summary, narrative: rev, revisions, authorship: { ...snap.summary.authorship, draftedBy: snap.summary.authorship.draftedBy || "Analyst One", editedBy: snap.summary.authorship.draftedBy ? "Analyst One" : undefined, revisions: revisions.length, latestAsOfSequence: snap.seq, latestIsCurrent: true } };
+        this.emit({ type: "state.patch", seq: snap.seq, patch: { summary: snap.summary } });
+        break;
+      }
       case "owner.add":
       case "owner.confirm":
       case "owner.waive": {

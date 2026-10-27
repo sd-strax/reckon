@@ -31,6 +31,7 @@ import (
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/knowledge"
 	"github.com/sd-strax/reckon/owneritems"
+	"github.com/sd-strax/reckon/summary"
 	"github.com/sd-strax/reckon/supervisor"
 	"github.com/sd-strax/reckon/temporal"
 )
@@ -151,6 +152,8 @@ type BackendConfig struct {
 	Comms *comms.Store
 	// OwnerItems, when non-nil, enables the owner action items routes (adr/0101).
 	OwnerItems *owneritems.Store
+	// Narratives, when non-nil, enables the narrative revisions (adr/0103).
+	Narratives *summary.NarrativeStore
 
 	// TenantNamespace is this install's identity namespace UUID (03 §7.1),
 	// stamped onto export bundles + their archive path (D.5).
@@ -693,6 +696,15 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	// An entity's baseline within the investigation (adr/0095).
 	if strings.Contains(trimmed, "/entities/") && strings.HasSuffix(trimmed, "/baseline") {
 		b.investigationBaselineRoute(w, r)
+		return
+	}
+	// The summary at any state and the narrative revisions (adr/0103).
+	if strings.HasSuffix(trimmed, "/summary") {
+		b.investigationSummaryRoute(w, r)
+		return
+	}
+	if strings.HasSuffix(trimmed, "/narrative") {
+		b.investigationNarrativeRoute(w, r)
 		return
 	}
 	// Owner action items (adr/0101).

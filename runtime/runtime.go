@@ -32,6 +32,7 @@ import (
 	"github.com/sd-strax/reckon/module"
 	"github.com/sd-strax/reckon/owneritems"
 	"github.com/sd-strax/reckon/server"
+	"github.com/sd-strax/reckon/summary"
 	"github.com/sd-strax/reckon/supervisor"
 	"github.com/sd-strax/reckon/telemetry"
 	"github.com/sd-strax/reckon/temporal"
@@ -380,6 +381,7 @@ func serve(cfg config.Config) error {
 		Knowledge:      knowledgeStore,
 		Comms:          commsStore,
 		OwnerItems:     ownerItems,
+		Narratives:     summary.NewNarrativeStore(handler.DB()),
 
 		TenantNamespace:         cfg.Capability.TenantNamespace,
 		ExportIncludeSideStores: cfg.Export.IncludeSideStores,

@@ -101,6 +101,8 @@ export interface AgentTransport {
   getKnowledge(investigationId: string): Promise<KnowledgeItem[]>;
   /** Client-side knowledge-summary narrative at conclusion (design/06 §3.2). */
   summarizeConcluded(investigationId: string): Promise<void>;
+  /** Draft the narrative of an OPEN investigation on the client plane (adr/0103): one BYOK completion; the sidecar records it as an AI revision. */
+  draftNarrative(investigationId: string): Promise<void>;
   /**
    * The analyst's own query over both corpora (design/ui 09 §9.6): the hits
    * join the session's retrieved set, excluded; the merged set comes back.
@@ -226,6 +228,12 @@ export class SidecarTransport implements AgentTransport {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
     await conn.sendRequest("summarizeConcluded", { session_id: sessionId });
+  }
+
+  async draftNarrative(investigationId: string): Promise<void> {
+    const conn = await this.ensureConnection();
+    const sessionId = await this.ensureSession(conn, investigationId);
+    await conn.sendRequest("draftNarrative", { session_id: sessionId });
   }
 
   /**

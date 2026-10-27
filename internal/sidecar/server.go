@@ -65,6 +65,7 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, opts Options) error {
 		"turn":               s.handleTurn,
 		"resetSession":       s.handleResetSession,
 		"summarizeConcluded": s.handleSummarizeConcluded,
+		"draftNarrative":     s.handleDraftNarrative,
 		"proposeSOP":         s.handleProposeSOP,
 		"searchKnowledge":    s.handleSearchKnowledge,
 		"cancel":             s.handleCancel,
@@ -583,6 +584,27 @@ func (s *service) handleSummarizeConcluded(ctx context.Context, raw json.RawMess
 		return nil, err
 	}
 	return map[string]any{"chars": len(narrative)}, nil
+}
+
+// handleDraftNarrative runs the client tier of the narrative at any time
+// (adr/0103): one BYOK completion over the session's conversation, recorded
+// by the session as an AI narrative revision. Serialized with turns.
+func (s *service) handleDraftNarrative(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p summarizeConcludedParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, errInvalidParams("draftNarrative: %v", err)
+	}
+	st, err := s.session(p.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	st.turnMu.Lock()
+	defer st.turnMu.Unlock()
+	text, model, err := st.sess.DraftNarrative(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"chars": len(text), "model": model}, nil
 }
 
 // proposeSOPParams identifies the session whose concluded investigation to

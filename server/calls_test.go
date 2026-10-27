@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/summary"
 )
 
 // adr/0092: a call made for an investigation is a record — the invoke
@@ -283,5 +285,71 @@ func TestRetrievals_Endpoint(t *testing.T) {
 	_ = testDB.QueryRow(`SELECT count(*) FROM events WHERE aggregate_id = $1 AND payload::text LIKE '%preserve volatile evidence%'`, invID).Scan(&n)
 	if n != 0 {
 		t.Error("the excerpt's bytes leaked into the event log")
+	}
+}
+
+// adr/0103: the summary reads at any state with its facts; the AI draft and
+// the analyst's edit are revisions with their authorship; the handoff note is
+// the facts plus the latest narrative.
+func TestSummary_FactsAndNarrativeLineage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	if _, err := testDB.Exec(`TRUNCATE investigation_narratives`); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	b := newTestBackend(t)
+	b.cfg.Narratives = summary.NewNarrativeStore(testDB)
+	invID := activeInvestigation(t)
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	human := mintToken(t, nil)
+	ai := mintToken(t, map[string]any{"delegate_kind": "claude"})
+	call := func(method, path, token string, body any) (int, SummaryResponse) {
+		t.Helper()
+		var rd *bytes.Reader
+		if body != nil {
+			raw, _ := json.Marshal(body)
+			rd = bytes.NewReader(raw)
+		} else {
+			rd = bytes.NewReader(nil)
+		}
+		req, _ := http.NewRequest(method, srv.URL+path, rd)
+		req.Header.Set("Authorization", "Bearer "+token)
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		var out SummaryResponse
+		_ = json.NewDecoder(r.Body).Decode(&out)
+		return r.StatusCode, out
+	}
+	code, s0 := call(http.MethodGet, "/api/investigations/"+invID.String()+"/summary", human, nil)
+	if code != http.StatusOK || s0.Narrative != nil || s0.Authorship.Revisions != 0 || s0.State != "ACTIVE" || s0.Notification.Status != "not_yet_notified" {
+		t.Fatalf("summary before any narrative = %d %+v", code, s0)
+	}
+	if code, _ := call(http.MethodPut, "/api/investigations/"+invID.String()+"/narrative", ai, NarrativeBody{Body: "The record so far: one host, one account, nothing decided.", GeneratorModel: "model-x"}); code != http.StatusCreated {
+		t.Fatalf("AI draft = %d", code)
+	}
+	if code, _ := call(http.MethodPut, "/api/investigations/"+invID.String()+"/narrative", human, NarrativeBody{Body: "The record so far: one host, one account; the owner has been asked."}); code != http.StatusCreated {
+		t.Fatalf("analyst edit = %d", code)
+	}
+	if code, _ := call(http.MethodPut, "/api/investigations/"+invID.String()+"/narrative", human, NarrativeBody{Body: "   "}); code != http.StatusBadRequest {
+		t.Errorf("empty narrative = %d; want 400", code)
+	}
+	_, s1 := call(http.MethodGet, "/api/investigations/"+invID.String()+"/summary", human, nil)
+	if s1.Narrative == nil || s1.Narrative.Revision != 2 || s1.Narrative.AuthorKind != summary.AuthorHuman || len(s1.Revisions) != 2 || s1.Revisions[0].AuthorKind != summary.AuthorAI {
+		t.Fatalf("lineage = %+v / %+v", s1.Narrative, s1.Revisions)
+	}
+	if s1.Authorship.DraftedBy != "reckon" || s1.Authorship.DraftedModel != "model-x" || s1.Authorship.EditedBy == "" || !s1.Authorship.LatestIsCurrent {
+		t.Errorf("authorship = %+v", s1.Authorship)
+	}
+	if !strings.Contains(s1.HandoffNote, "the owner has been asked") || !strings.Contains(s1.HandoffNote, "Verdict: none yet") {
+		t.Errorf("handoff note = %q", s1.HandoffNote)
+	}
+	if code, _ := call(http.MethodGet, "/api/investigations/"+uuid.NewString()+"/summary", human, nil); code != http.StatusNotFound {
+		t.Errorf("unknown investigation = %d; want 404", code)
 	}
 }
