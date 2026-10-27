@@ -293,6 +293,24 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     turn record, resolvable by an endpoint, so the bundle, the Story timeline and the
     residual panel can open the call that produced their evidence (`ui/08 §8.6.1`).
 
+Motivated by the knowledge surfaces (`ui/09`, `adr/0084`), not yet built:
+
+21. **Listing concluded-case summaries** — browse the past-case corpus without a query, with
+    filters on technique, disposition and conclusion date (`ui/09 §9.4`). Recall requires a
+    query today; the procedure facade already owns an empty-query browse, and past cases
+    need the same.
+22. **Citation counts and where-used** — for a procedure or a past case, the investigations
+    that consulted it and whether each applied it, from the `consulted_*` provenance on
+    interpretations (`00 §6.9`), as a fold across investigations (`ui/09 §9.3`).
+23. **Ask outside an investigation** — an agent session not bound to an investigation,
+    whose only tools are the two recall calls, which answers with citations and records
+    nothing in any investigation (`ui/09 §9.2`). Same client-side loop and model key as
+    investigation turns (`05 §3.4`).
+24. **Stored procedure candidates** — the conclude hook's draft (`proposeSOP`) is kept as a
+    candidate record (draft text, source investigation, drafted at, status, discard reason)
+    instead of being shown once at conclude, so it can be reviewed later in the Knowledge
+    view (`ui/09 §9.7`). Accepting still imports through the existing path.
+
 ---
 
 ## 7. Open questions

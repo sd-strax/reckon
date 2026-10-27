@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Knowledge — procedures</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0f24;}
+a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;font-weight:600;padding:1px 7px 1px 6px;border-radius:5px;line-height:1.45;white-space:nowrap}
+.sw{width:6px;height:6px;border-radius:2px;display:inline-block}
+.tag{font-family:"JetBrains Mono",Menlo,monospace;font-size:10px;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.88);white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.btn{font:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:5px 10px;cursor:pointer;border:1px solid rgba(255,255,255,.16);background:transparent;color:rgba(255,255,255,.88)}
+.btn-p{color:#8b8aff;border-color:rgba(115,113,252,.45)}
+.btn-primary{background:#5d5be0;border-color:#5d5be0;color:#ffffff}
+.tab{font:inherit;font-size:13px;font-weight:600;padding:10px 2px;background:transparent;border:0;border-bottom:2px solid transparent;color:rgba(255,255,255,.62);cursor:pointer;display:flex;gap:6px;align-items:center}
+.tab.on{color:rgba(255,255,255,.88);border-bottom-color:#7371fc}
+.card{background:#141a33;border:1px solid rgba(255,255,255,.09);border-radius:10px}
+.row{display:flex;gap:12px;align-items:flex-start;padding:10px 14px;border-top:1px solid rgba(255,255,255,.05)}
+.mut{color:rgba(255,255,255,.62)}.ok{color:#4ec77b}.warn{color:#f5b53d}.bad{color:#ff5f6e}
+.band-strong{color:#4ec77b;background:rgba(78,199,123,.13)}
+.band-rel{color:#8b8aff;background:rgba(115,113,252,.16)}
+.band-dist{color:rgba(255,255,255,.62);background:rgba(255,255,255,.08)}
+.toggle{width:28px;height:16px;border-radius:999px;background:rgba(255,255,255,.16);position:relative;flex:none;border:0;cursor:pointer;padding:0}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:999px;background:#ffffff}
+.toggle.on{background:#5d5be0}.toggle.on::after{left:14px}
+.kv{display:grid;grid-template-columns:110px minmax(0,1fr)}
+.k{font-size:11px;color:rgba(255,255,255,.62);padding:5px 0;border-top:1px solid rgba(255,255,255,.05)}
+.v{padding:5px 0;border-top:1px solid rgba(255,255,255,.05);font-size:12px}
+.md h3{font-size:14px;margin:14px 0 6px}.md p,.md li{line-height:1.55;font-size:13px}.md ul,.md ol{margin:0;padding-left:20px}
+</style>
+</head>
+<body>
+<div style="width: 1440px; min-height: 940px; box-sizing: border-box; display: flex; flex-direction: column; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
+<header style="display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: #070b1c; border-bottom: 1px solid rgba(255,255,255,.09);">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.88)" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><circle cx="12" cy="18" r="2.5"></circle><path d="M8.4 6.6l7.2 1"></path><path d="M7 8.3l4 7.4"></path><path d="M16.8 10.2l-3.6 5.7"></path></svg>
+<h1 style="margin: 0; font-size: 17px; font-weight: 700;">Knowledge</h1>
+<span class="mut" style="font-size: 12px;">procedures and past cases your team has recorded</span>
+</header>
+<div style="display: flex; flex: 1;">
+<nav aria-label="Workbench" style="width: 240px; flex: none; border-right: 1px solid rgba(255,255,255,.09); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box;">
+<div role="group" aria-label="Region" style="display: flex; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; overflow: hidden; margin-bottom: 10px;">
+<button type="button" class="btn" style="flex: 1; border: 0; border-radius: 0; color: rgba(255,255,255,.62);">Work</button>
+<button type="button" class="btn" style="flex: 1; border: 0; border-radius: 0; background: rgba(115,113,252,.16); color: #8b8aff;" aria-pressed="true">Knowledge</button>
+</div>
+<a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88); background: rgba(115,113,252,.16);" aria-current="page"><span>Procedures</span><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">3</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Past cases</span><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">2</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Import</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Candidates</span><span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); padding: 0 6px;">1</span></a>
+</nav>
+<main style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+<div style="padding: 14px 24px 0; display: flex; flex-direction: column; gap: 10px;">
+<form role="search" style="display: flex; gap: 8px; align-items: center; background: #141a33; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; padding: 6px 6px 6px 12px;">
+<label for="kq" class="mut" style="font-size: 12px; flex: none;">Ask or search</label>
+<input id="kq" type="text" placeholder="e.g. how do we contain RDP lateral movement with a service account?" style="flex: 1; background: transparent; border: 0; color: rgba(255,255,255,.88); font: inherit; outline: none; min-width: 0;">
+<div role="group" aria-label="Mode" style="display: flex; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; overflow: hidden;">
+<button type="button" class="btn" style="border: 0; border-radius: 0; background: rgba(255,255,255,.08); padding: 4px 10px;" aria-pressed="true">Search</button>
+<button type="button" class="btn" style="border: 0; border-radius: 0; padding: 4px 10px; color: rgba(255,255,255,.62);">Ask</button>
+</div>
+</form>
+</div>
+<div style="display: flex; gap: 16px; padding: 14px 24px 28px; align-items: flex-start;">
+<section style="flex: 1 1 0; min-width: 0;" class="card" aria-label="Procedures">
+<div style="display: flex; gap: 8px; padding: 10px 14px; align-items: center; flex-wrap: wrap;">
+<span class="eyebrow">Filter</span>
+<button type="button" class="btn" style="padding: 2px 9px; font-size: 11px;">Technique</button>
+<button type="button" class="btn" style="padding: 2px 9px; font-size: 11px;">Tag</button>
+<button type="button" class="btn" style="padding: 2px 9px; font-size: 11px;">Recommendation</button>
+<button type="button" class="btn" style="padding: 2px 9px; font-size: 11px;">Author</button>
+<label style="display: flex; gap: 6px; align-items: center; font-size: 11px;" class="mut"><input type="checkbox"> show retired</label>
+<span style="flex: 1;"></span>
+<button type="button" class="btn btn-p" style="font-size: 11px;">+ Import</button>
+</div>
+<div style="display: flex; gap: 12px; padding: 6px 14px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; background: rgba(255,255,255,.05);" class="mut"><span style="flex: 1;">Procedure</span><span style="width: 110px;">Recommends</span><span style="width: 90px;">Version</span><span style="width: 70px; text-align: right;">Used</span></div>
+<a href="#" class="row" style="color: rgba(255,255,255,.88); background: rgba(115,113,252,.10); box-shadow: inset 3px 0 0 #7371fc;">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
+<div style="font-weight: 600;">Lateral Movement via RDP — Containment</div>
+<div style="display: flex; gap: 4px; flex-wrap: wrap;"><span class="tag">lateral-movement</span><span class="tag">T1021.001</span><span class="tag">rdp</span><span class="tag">containment</span></div>
+</div>
+<div style="width: 110px; flex: none; font-size: 11px;" class="mono mut">isolate</div>
+<div style="width: 90px; flex: none; font-size: 11px;" class="mut">v1.0 · Oct 26</div>
+<div style="width: 70px; flex: none; text-align: right; font-size: 11px;" class="mut">cited in <span style="color: rgba(255,255,255,.88);">3</span></div>
+</a><a href="#" class="row" style="color: rgba(255,255,255,.88);">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
+<div style="font-weight: 600;">Credential Theft Triage</div>
+<div style="display: flex; gap: 4px; flex-wrap: wrap;"><span class="tag">credential-access</span><span class="tag">T1003</span><span class="tag">T1078</span><span class="tag">triage</span></div>
+</div>
+<div style="width: 110px; flex: none; font-size: 11px;" class="mono mut">reset-credentials</div>
+<div style="width: 90px; flex: none; font-size: 11px;" class="mut">v1.0 · Oct 26</div>
+<div style="width: 70px; flex: none; text-align: right; font-size: 11px;" class="mut">cited in <span style="color: rgba(255,255,255,.88);">2</span></div>
+</a><a href="#" class="row" style="color: rgba(255,255,255,.88);">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
+<div style="font-weight: 600;">Host Isolation Runbook</div>
+<div style="display: flex; gap: 4px; flex-wrap: wrap;"><span class="tag">containment</span><span class="tag">host-isolation</span><span class="tag">evidence-preservation</span></div>
+</div>
+<div style="width: 110px; flex: none; font-size: 11px;" class="mono mut">isolate</div>
+<div style="width: 90px; flex: none; font-size: 11px;" class="mut">v1.0 · Oct 26</div>
+<div style="width: 70px; flex: none; text-align: right; font-size: 11px;" class="mut">cited in <span style="color: rgba(255,255,255,.88);">1</span></div>
+</a><a href="#" class="row" style="color: rgba(255,255,255,.88);">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
+<div style="font-weight: 600;">Service account used interactively</div>
+<div style="display: flex; gap: 4px; flex-wrap: wrap;"><span class="tag">T1078</span><span class="tag">service-account</span><span class="tag">rdp</span></div>
+<div class="mut" style="font-size: 11px;">added from investigation INC0010042</div></div>
+<div style="width: 110px; flex: none; font-size: 11px;" class="mono mut">disable</div>
+<div style="width: 90px; flex: none; font-size: 11px;" class="mut">v1.0 · Oct 27</div>
+<div style="width: 70px; flex: none; text-align: right; font-size: 11px;" class="mut">cited in <span style="color: rgba(255,255,255,.88);">0</span></div>
+</a>
+</section>
+<article style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;" class="card" aria-label="Procedure detail">
+<div style="padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; gap: 10px; align-items: flex-start;"><h2 style="margin: 0; font-size: 16px; font-weight: 700; flex: 1;">Lateral Movement via RDP — Containment</h2><span class="pill" style="color: #4ec77b; background: rgba(78,199,123,.13); border: 1px solid rgba(78,199,123,.32);">PUBLISHED</span></div>
+<div class="kv">
+<div class="k">Author</div><div class="v">SOC Runbooks</div>
+<div class="k">Recommends</div><div class="v mono">isolate</div>
+<div class="k">Applies to</div><div class="v"><span class="tag">T1021.001</span> <span class="tag">lateral-movement</span> <span class="tag">rdp</span> <span class="tag">containment</span></div>
+<div class="k">Source</div><div class="v"><span class="mono" style="font-size: 11px;">demo://sops/lateral-movement-rdp-containment</span> · v1.0</div>
+<div class="k">Imported</div><div class="v">by Sudeep · Oct 26</div>
+</div>
+<div style="display: flex; gap: 8px;"><button type="button" class="btn">Edit</button><button type="button" class="btn">Retire…</button><button type="button" class="btn">Copy link</button></div>
+</div>
+<div role="tablist" style="display: flex; gap: 18px; border-bottom: 1px solid rgba(255,255,255,.09); padding: 0 16px;">
+<button class="tab on" role="tab" aria-selected="true" type="button" style="font-size: 12px; padding: 8px 0;">Procedure</button>
+<button class="tab" role="tab" type="button" style="font-size: 12px; padding: 8px 0;">Versions <span class="mono" style="font-size: 11px;">1</span></button>
+<button class="tab" role="tab" type="button" style="font-size: 12px; padding: 8px 0;">Where used <span class="mono" style="font-size: 11px;">3</span></button>
+</div>
+<div class="md" style="padding: 4px 16px 16px;">
+<p class="mut" style="font-size: 12px;">Scope: an interactive RDP logon from an internal host that is not a known jump box, followed by process creation on the destination. Treat as suspected hands-on-keyboard lateral movement (T1021.001) until proven benign.</p>
+<h3>Triage</h3>
+<ol><li>Confirm the source→destination RDP session in the authentication telemetry. Note the account and whether it holds local-admin on the destination.</li><li>Pull process activity on the destination in the 15 minutes after the logon.</li><li>Check whether the account authenticated to additional hosts in the same window.</li></ol>
+<h3>Containment</h3>
+<ul><li><strong>Isolate the destination host</strong> if hands-on-keyboard activity is confirmed. Prefer network isolation over power-off.</li><li>Disable or force-reset the account if it is being used to pivot. Do not reset before capturing which hosts it has already reached.</li><li>Block the source host's RDP egress if the source itself is compromised.</li></ul>
+<h3>Do not</h3>
+<ul><li>Do not reimage the destination before evidence collection.</li><li>Do not treat a single logon as benign because the account is privileged.</li></ul>
+</div>
+</article>
+</div>
+</main>
+</div>
+</div>
+</body>
+</html>
