@@ -119,6 +119,12 @@ type ConsultedSOP struct {
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
 	Used           bool    `json:"used"`
+	// ExcerptHash is the content address of the excerpt the model saw and
+	// RevisionHash the procedure revision it came from (06 §6.2; adr/0097).
+	// The bytes live in the knowledge_retrievals side store; the event keeps
+	// the hashes only, so "what did the AI see when it cited this" verifies.
+	ExcerptHash  string `json:"excerpt_hash,omitempty"`
+	RevisionHash string `json:"revision_hash,omitempty"`
 }
 
 // ConsultedSimilarInvestigation records one concluded-investigation summary
@@ -297,6 +303,11 @@ type RecordInterpretation struct {
 	// ConsultedSimilar carries the turn's similar-investigation retrieval
 	// provenance (06 §6), same contract as ConsultedSOPs.
 	ConsultedSimilar []ConsultedSimilarInvestigation `json:"consulted_similar_investigations,omitempty"`
+
+	// Retrievals are the retrieved excerpts themselves (adr/0097), written to
+	// the side store in the same transaction; the event carries only each
+	// consulted SOP's excerpt and revision hashes.
+	Retrievals []RetrievalContent `json:"retrievals,omitempty"`
 }
 
 // Kind returns "RecordInterpretation".
@@ -376,7 +387,7 @@ func (c RecordInterpretation) Validate(env Envelope) error {
 // hasBlobs reports whether this interpretation carries side-store content that
 // the Handler must persist (in the same transaction as the event).
 func (c RecordInterpretation) hasBlobs() bool {
-	return c.Transcript != nil || len(c.ToolCalls) > 0
+	return c.Transcript != nil || len(c.ToolCalls) > 0 || len(c.Retrievals) > 0
 }
 
 // applyRecordInterpretation emits the single InterpretationRecorded event for a

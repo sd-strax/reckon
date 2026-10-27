@@ -100,8 +100,19 @@ const out = {
   name: "knowledge",
   knowledge: {
     counts: { procedures: sops.filter((s) => s.status !== "retired").length, cases: null, candidates: null },
-    sops, cases: null, candidates: null, detail: null, results: null, answer: null, importRows, importing: false,
+    sops, cases: null, candidates: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows, importing: false,
   },
+  // Each procedure's lineage (adr/0097): one revision per rev count, the first imported, later ones edits; the bodies for a compare.
+  revisions: Object.fromEntries(sops.map((s) => [s.id, Array.from({ length: s.revisionCount }, (_, i) => {
+    const rev = s.revisionCount - i;
+    const hash = createHash("sha256").update(s.id + ":" + rev).digest("hex");
+    return { revision: rev, contentHash: hash, title: s.title, status: rev === s.revisionCount ? s.status : "published", createdAt: new Date(Date.parse(s.importedAt) + (rev - 1) * 86400000).toISOString(), authorId: s.authorId, importedBy: rev === 1 ? s.importedBy : undefined, sourceVersion: rev === 1 ? s.source?.version : undefined, supersededAt: rev === s.revisionCount ? undefined : new Date(Date.parse(s.importedAt) + rev * 86400000).toISOString(), hasOriginal: rev === 1 };
+  })])),
+  revisionBodies: Object.fromEntries(sops.flatMap((s) => Array.from({ length: s.revisionCount }, (_, i) => {
+    const rev = s.revisionCount - i;
+    const hash = createHash("sha256").update(s.id + ":" + rev).digest("hex");
+    return [hash, { contentHash: hash, title: s.title, body: rev === s.revisionCount ? s.body : s.body.split("\n").slice(0, -3).join("\n") + "\n\nAn earlier wording of the closing steps.\n", tags: s.tags, purged: false }];
+  }))),
   search,
   caseSummaries,
   queue: JSON.parse(readFileSync(join(here, "snapshots", "synthetic.json"), "utf8")).queue,

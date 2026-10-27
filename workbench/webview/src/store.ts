@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a patch older than what the
 // webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/backend";
+import type { ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, RetrievalRow, SOPDoc, SOPRevision } from "../../src/backend";
 import type { InvestigationSnapshot, KnowledgeItem, KnowledgeSection, KnowledgeState, RenderMessage } from "../../src/protocol";
 
 export interface LiveToolResult {
@@ -69,6 +69,8 @@ export interface State {
   /** The inspector's fetched records, keyed by target key (derive/inspect.ts). null = the fetch failed; the error is in inspectorErrors. */
   docs: Record<string, EvidenceDoc | null>;
   sops: Record<string, SOPDoc>;
+  /** What this investigation retrieved of a procedure and its lineage (adr/0097); undefined = not answered. */
+  sopExtras: Record<string, { retrievals?: RetrievalRow[]; revisions?: SOPRevision[] }>;
   transcripts: Record<string, string>;
   actionRecords: Record<string, ActionRecord>;
   caseSummaries: Record<string, CaseSummaryView | null>;
@@ -106,6 +108,7 @@ export const initialState: State = {
   appearances: {},
   docs: {},
   sops: {},
+  sopExtras: {},
   transcripts: {},
   actionRecords: {},
   caseSummaries: {},
@@ -213,7 +216,7 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "knowledge.state": {
       // Slices arrive whole; the first post carries every slice (the host's
       // load), later ones only what a read or a write touched.
-      const base: KnowledgeState = state.kdoc ?? { counts: { procedures: 0, cases: null, candidates: null }, sops: [], cases: null, candidates: null, detail: null, results: null, answer: null, importRows: [], importing: false };
+      const base: KnowledgeState = state.kdoc ?? { counts: { procedures: 0, cases: null, candidates: null }, sops: [], cases: null, candidates: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows: [], importing: false };
       return { ...state, loading: false, kerror: null, kdoc: { ...base, ...msg.state } };
     }
     case "knowledge.error":
@@ -243,7 +246,7 @@ function onMessage(state: State, msg: RenderMessage): State {
       };
     }
     case "inspector.procedure":
-      return { ...state, sops: { ...state.sops, [msg.sopId]: msg.sop }, inspectorErrors: dropKey(state.inspectorErrors, msg.sopId) };
+      return { ...state, sops: { ...state.sops, [msg.sopId]: msg.sop }, sopExtras: { ...state.sopExtras, [msg.sopId]: { retrievals: msg.retrievals, revisions: msg.revisions } }, inspectorErrors: dropKey(state.inspectorErrors, msg.sopId) };
     case "inspector.turn":
       return { ...state, transcripts: { ...state.transcripts, [msg.interpretationId]: msg.body }, inspectorErrors: dropKey(state.inspectorErrors, msg.interpretationId) };
     case "inspector.action":

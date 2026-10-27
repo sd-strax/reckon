@@ -27,7 +27,10 @@ import type {
   InvestigationDetail,
   InvestigationSummary,
   PinRow,
+  RetrievalRow,
+  RevisionContent,
   SOPDoc,
+  SOPRevision,
   ThreadEntry,
 } from "./backend";
 
@@ -99,6 +102,9 @@ export interface KnowledgeState {
   candidates: null;
   /** The open procedure, whole (the row carries the body too; the detail re-reads it so an edit elsewhere shows). */
   detail: SOPDoc | null;
+  /** The open procedure's lineage (adr/0097) and the revision bodies fetched for a compare, by hash. */
+  detailRevisions: SOPRevision[] | null;
+  revisionBodies: Record<string, RevisionContent>;
   results: SearchResults | null;
   answer: Answer | null;
   importRows: ImportRow[];
@@ -234,7 +240,8 @@ export type RenderMessage =
   // The inspector's one-object answers (impl §4.1): the webview opened a pane
   // from the snapshot and asked for what the record holds beyond it.
   | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; appearances: Appearance[] }
-  | { type: "inspector.procedure"; sopId: string; sop: SOPDoc }
+  // The procedure with what this investigation retrieved of it and its lineage (adr/0097).
+  | { type: "inspector.procedure"; sopId: string; sop: SOPDoc; retrievals?: RetrievalRow[]; revisions?: SOPRevision[] }
   | { type: "inspector.turn"; interpretationId: string; body: string }
   | { type: "inspector.action"; actionId: string; record: ActionRecord }
   // summary is null when the corpus holds none for the ref (an honest gap).
@@ -330,6 +337,10 @@ export type InboundMessage =
   // The Knowledge document only (impl §2.6, §4.2).
   | { type: "knowledge.query"; mode: "search" | "ask"; text: string; filters?: { tags?: string[]; includeRetired?: boolean } }
   | { type: "sop.get"; sopId: string }
+  // Open the retained original of a revision in an editor (a document, not a citation; adr/0097).
+  | { type: "sop.openOriginal"; sopId: string; revision?: string }
+  // Fetch one revision's content for a client-side compare.
+  | { type: "sop.revision"; sopId: string; hash: string }
   | { type: "sop.save"; sopId: string; title: string; body: string; tags: string[]; recommendation?: string }
   | { type: "sop.retire"; sopId: string; reason: string }
   | { type: "cases.list"; filters?: { technique?: string; disposition?: string; from?: string; to?: string } }

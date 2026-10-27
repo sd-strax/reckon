@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -213,5 +214,74 @@ func TestBaseline_Endpoint(t *testing.T) {
 	// An entity the record holds no pattern for: 204, nothing to show.
 	if code := get("/api/investigations/"+invID.String()+"/entities/x-host--00000000-0000-4000-8000-000000000000/baseline", nil); code != http.StatusNoContent {
 		t.Errorf("no pattern = %d; want 204", code)
+	}
+}
+
+// adr/0097: a turn that consulted a procedure commits the excerpt the model
+// saw to the side store, keyed by its hash, and the investigation's
+// retrievals read back with the turn, the revision and the location.
+func TestRetrievals_Endpoint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	if _, err := testDB.Exec(`TRUNCATE knowledge_retrievals, knowledge_retrieval_uses`); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	b := newTestBackend(t)
+	invID := activeInvestigation(t)
+	token := mintToken(t, nil)
+	sopID := uuid.New()
+	resp, out := postInterpretation(t, b, token, RecordInterpretationBody{
+		InvestigationRef:   invID.String(),
+		InterpretationType: "pivot",
+		Rationale:          "consulted the runbook",
+		ConsultedSOPs: []ConsultedSOPBody{{
+			SOPID: sopID.String(), Title: "Host Isolation Runbook", RetrievalScore: 0.81, Used: true,
+			Excerpt: "Isolate first, preserve volatile evidence.", RevisionHash: "rev-aaaa",
+			Location: json.RawMessage(`{"heading_path":["Host Isolation Runbook","Preconditions"],"offset":42}`), Band: "RELATED",
+		}},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("record: %d", resp.StatusCode)
+	}
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/investigations/"+invID.String()+"/retrievals?sop="+sopID.String(), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var got struct {
+		Retrievals []RetrievalView `json:"retrievals"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&got)
+	if r.StatusCode != http.StatusOK || len(got.Retrievals) != 1 {
+		t.Fatalf("retrievals = %d %+v", r.StatusCode, got.Retrievals)
+	}
+	v := got.Retrievals[0]
+	if v.InterpretationID != out.InterpretationID || v.SOPID != sopID.String() || v.Excerpt != "Isolate first, preserve volatile evidence." || v.RevisionHash != "rev-aaaa" || v.Band != "RELATED" {
+		t.Errorf("retrieval = %+v", v)
+	}
+	if v.ExcerptHash == "" || !strings.Contains(string(v.Location), "Preconditions") || v.ChunkIndex != 1 || v.ChunkCount != 1 {
+		t.Errorf("retrieval provenance = %+v", v)
+	}
+	if v.MatchesCurrent != nil {
+		t.Error("no knowledge store in this backend: matches_current must be absent, not guessed")
+	}
+	// The event kept the hashes only; the bytes live in the side store.
+	var excerptHash, revisionHash string
+	if err := testDB.QueryRow(`SELECT payload -> 'consulted_sops' -> 0 ->> 'excerpt_hash', payload -> 'consulted_sops' -> 0 ->> 'revision_hash' FROM events WHERE aggregate_id = $1 AND event_type = 'interpretation.recorded' ORDER BY sequence_no DESC LIMIT 1`, invID).Scan(&excerptHash, &revisionHash); err != nil {
+		t.Fatalf("event: %v", err)
+	}
+	if excerptHash != v.ExcerptHash || revisionHash != "rev-aaaa" {
+		t.Errorf("event hashes = %q %q; want %q rev-aaaa", excerptHash, revisionHash, v.ExcerptHash)
+	}
+	var n int
+	_ = testDB.QueryRow(`SELECT count(*) FROM events WHERE aggregate_id = $1 AND payload::text LIKE '%preserve volatile evidence%'`, invID).Scan(&n)
+	if n != 0 {
+		t.Error("the excerpt's bytes leaked into the event log")
 	}
 }

@@ -106,6 +106,8 @@
     "cases": null,
     "candidates": null,
     "detail": null,
+    "detailRevisions": null,
+    "revisionBodies": {},
     "results": null,
     "answer": null,
     "importRows": [
@@ -197,6 +199,168 @@
       }
     ],
     "importing": false
+  },
+  "revisions": {
+    "59f0a2cc-b599-44bc-8d72-0abda14ed4d2": [
+      {
+        "revision": 2,
+        "contentHash": "6e575eee4e7fc6819a9df94287d339361fe4ffba3fa1055ad085d30ce99ae92c",
+        "title": "Credential Theft Triage",
+        "status": "published",
+        "createdAt": "2026-10-27T09:12:00.000Z",
+        "authorId": "SOC Runbooks",
+        "hasOriginal": false
+      },
+      {
+        "revision": 1,
+        "contentHash": "d89c4a1ac530673c5b5385f52b92a02e118f2f435e40f49b6f277c239139bbf9",
+        "title": "Credential Theft Triage",
+        "status": "published",
+        "createdAt": "2026-10-26T09:12:00.000Z",
+        "authorId": "SOC Runbooks",
+        "importedBy": "analyst-1",
+        "sourceVersion": "1.0",
+        "supersededAt": "2026-10-27T09:12:00.000Z",
+        "hasOriginal": true
+      }
+    ],
+    "5cce8c33-eda2-480d-8495-bb29f356c037": [
+      {
+        "revision": 1,
+        "contentHash": "fcb3614ebe2652bcae38613a4aa1d0fc5dd8e4ec0a7bb0a7fc1279a5aaa9478b",
+        "title": "Host Isolation Runbook",
+        "status": "published",
+        "createdAt": "2026-10-26T09:12:00.000Z",
+        "authorId": "SOC Runbooks",
+        "importedBy": "analyst-1",
+        "sourceVersion": "1.0",
+        "hasOriginal": true
+      }
+    ],
+    "a54530dd-61a7-48f2-8889-0a3d59fbf1b7": [
+      {
+        "revision": 1,
+        "contentHash": "7c27f7182cd6b1ec6306a33c65a980610edc711cc3b76db6c148173651f3aa1c",
+        "title": "Lateral Movement via RDP — Containment",
+        "status": "published",
+        "createdAt": "2026-10-26T09:12:00.000Z",
+        "authorId": "SOC Runbooks",
+        "importedBy": "analyst-1",
+        "sourceVersion": "1.0",
+        "hasOriginal": true
+      }
+    ],
+    "dcb1c6ef-fafc-4ba1-8c60-127a64f86091": [
+      {
+        "revision": 3,
+        "contentHash": "8078708c44b0828fafb1105a0c946da7c9ed3517f39c7378e7ab20b338fc3123",
+        "title": "Legacy VPN lockout procedure",
+        "status": "retired",
+        "createdAt": "2026-09-03T10:00:00.000Z",
+        "authorId": "SOC Runbooks",
+        "hasOriginal": false
+      },
+      {
+        "revision": 2,
+        "contentHash": "2ea7cd8431a260c9a63edba0b5546f013d69be706f7edead8b6b11e6793efdcf",
+        "title": "Legacy VPN lockout procedure",
+        "status": "published",
+        "createdAt": "2026-09-02T10:00:00.000Z",
+        "authorId": "SOC Runbooks",
+        "supersededAt": "2026-09-03T10:00:00.000Z",
+        "hasOriginal": false
+      },
+      {
+        "revision": 1,
+        "contentHash": "543ff7a0d7b6a3ba9f191af408f7ba273a832a2d303d06b39ce403919d5a434c",
+        "title": "Legacy VPN lockout procedure",
+        "status": "published",
+        "createdAt": "2026-09-01T10:00:00.000Z",
+        "authorId": "SOC Runbooks",
+        "importedBy": "analyst-1",
+        "supersededAt": "2026-09-02T10:00:00.000Z",
+        "hasOriginal": true
+      }
+    ]
+  },
+  "revisionBodies": {
+    "6e575eee4e7fc6819a9df94287d339361fe4ffba3fa1055ad085d30ce99ae92c": {
+      "contentHash": "6e575eee4e7fc6819a9df94287d339361fe4ffba3fa1055ad085d30ce99ae92c",
+      "title": "Credential Theft Triage",
+      "body": "# Credential Theft Triage\n\nScope: signs that account credentials were captured — LSASS access, credential\ndumping tooling (ATT&CK T1003), or a valid account used from an anomalous host\n(T1078). Goal is to bound blast radius before rotating secrets.\n\n## Establish blast radius first\n1. Enumerate every host and service the account touched since the suspected\n   theft. The reset is only as good as this list — a missed pivot host keeps the\n   adversary in.\n2. Identify any secrets the account could read (service accounts, vaulted keys,\n   cloud tokens). Theft of a human account often chains to service credentials.\n3. Look for persistence established under the account (scheduled tasks, new\n   local accounts, registry run keys) — rotating the password does not remove\n   these.\n\n## Response\n- Force-reset the account and any credentials it could reach; invalidate active\n  sessions and tokens, not just the password.\n- Remove persistence found above before closing.\n- If a service account is implicated, coordinate the rotation — a blind reset of\n  a service account causes an outage and tips off the adversary.\n\n## Grounding\nEvery containment action must cite the specific evidence (the dump event, the\nanomalous logon) that justifies it. An un-grounded reset is noise.",
+      "tags": [
+        "credential-access",
+        "T1003",
+        "T1078",
+        "triage"
+      ],
+      "purged": false
+    },
+    "d89c4a1ac530673c5b5385f52b92a02e118f2f435e40f49b6f277c239139bbf9": {
+      "contentHash": "d89c4a1ac530673c5b5385f52b92a02e118f2f435e40f49b6f277c239139bbf9",
+      "title": "Credential Theft Triage",
+      "body": "# Credential Theft Triage\n\nScope: signs that account credentials were captured — LSASS access, credential\ndumping tooling (ATT&CK T1003), or a valid account used from an anomalous host\n(T1078). Goal is to bound blast radius before rotating secrets.\n\n## Establish blast radius first\n1. Enumerate every host and service the account touched since the suspected\n   theft. The reset is only as good as this list — a missed pivot host keeps the\n   adversary in.\n2. Identify any secrets the account could read (service accounts, vaulted keys,\n   cloud tokens). Theft of a human account often chains to service credentials.\n3. Look for persistence established under the account (scheduled tasks, new\n   local accounts, registry run keys) — rotating the password does not remove\n   these.\n\n## Response\n- Force-reset the account and any credentials it could reach; invalidate active\n  sessions and tokens, not just the password.\n- Remove persistence found above before closing.\n- If a service account is implicated, coordinate the rotation — a blind reset of\n  a service account causes an outage and tips off the adversary.\n\n\nAn earlier wording of the closing steps.\n",
+      "tags": [
+        "credential-access",
+        "T1003",
+        "T1078",
+        "triage"
+      ],
+      "purged": false
+    },
+    "fcb3614ebe2652bcae38613a4aa1d0fc5dd8e4ec0a7bb0a7fc1279a5aaa9478b": {
+      "contentHash": "fcb3614ebe2652bcae38613a4aa1d0fc5dd8e4ec0a7bb0a7fc1279a5aaa9478b",
+      "title": "Host Isolation Runbook",
+      "body": "# Host Isolation Runbook\n\nScope: the mechanics of isolating a compromised endpoint so investigation can\ncontinue without letting the adversary act. Isolation is reversible; reimaging\nis not — reach for it first.\n\n## Preconditions\n- The host is confirmed compromised or is actively being used to pivot.\n- You have captured what the host has already reached (isolation freezes the\n  host, not the knowledge of where the adversary went next).\n\n## Procedure\n1. **Network-isolate**, allowing only the management/EDR channel. This preserves\n   memory, running processes, and on-disk artifacts for collection.\n2. Notify the host owner through an out-of-band channel — never through the\n   isolated host, which the adversary may be watching.\n3. Collect volatile evidence (process list, network connections, logged-on\n   users) before any reboot.\n\n## Reversal\nIsolation is a best-effort, reversible control. Lift it only after the host is\nconfirmed clean or has been rebuilt. Record the reversal on the case so the\naudit trail shows the control was deliberately removed, not dropped.\n\n## Do not\n- Do not power the host off — you lose memory-resident evidence and any chance\n  of attributing the intrusion.",
+      "tags": [
+        "containment",
+        "host-isolation",
+        "evidence-preservation"
+      ],
+      "purged": false
+    },
+    "7c27f7182cd6b1ec6306a33c65a980610edc711cc3b76db6c148173651f3aa1c": {
+      "contentHash": "7c27f7182cd6b1ec6306a33c65a980610edc711cc3b76db6c148173651f3aa1c",
+      "title": "Lateral Movement via RDP — Containment",
+      "body": "# Lateral Movement via RDP — Containment\n\nScope: an interactive RDP logon (OCSF `authentication`, logon type 10) from an\ninternal host that is not a known jump box, followed by process creation on the\ndestination. Treat as suspected hands-on-keyboard lateral movement (ATT&CK\nT1021.001) until proven benign.\n\n## Triage\n1. Confirm the source→destination RDP session in the authentication telemetry.\n   Note the account and whether it holds local-admin on the destination.\n2. Pull process activity on the destination in the 15 minutes after the logon.\n   Discovery tooling, credential access, or archive staging escalate severity.\n3. Check whether the account authenticated to additional hosts in the same\n   window — a fan-out pattern is the strongest lateral-movement signal.\n\n## Containment\n- **Isolate the destination host** if hands-on-keyboard activity is confirmed.\n  Prefer network isolation over power-off so volatile evidence survives.\n- Disable or force-reset the account if it is being used to pivot. Do not reset\n  before capturing which hosts it has already reached, or you lose the map.\n- Block the source host's RDP egress if the source itself is compromised rather\n  than merely a stolen credential's first hop.\n\n## Do not\n- Do not reimage the destination before evidence collection — the process tree\n  and any dropped tooling are the investigation.\n- Do not treat a single logon as benign because the account is privileged;\n  privileged accounts are exactly what this technique abuses.",
+      "tags": [
+        "lateral-movement",
+        "T1021.001",
+        "rdp",
+        "containment"
+      ],
+      "purged": false
+    },
+    "8078708c44b0828fafb1105a0c946da7c9ed3517f39c7378e7ab20b338fc3123": {
+      "contentHash": "8078708c44b0828fafb1105a0c946da7c9ed3517f39c7378e7ab20b338fc3123",
+      "title": "Legacy VPN lockout procedure",
+      "body": "# Legacy VPN lockout procedure\n\nRetired: the VPN concentrator was decommissioned.\n",
+      "tags": [
+        "vpn",
+        "access"
+      ],
+      "purged": false
+    },
+    "2ea7cd8431a260c9a63edba0b5546f013d69be706f7edead8b6b11e6793efdcf": {
+      "contentHash": "2ea7cd8431a260c9a63edba0b5546f013d69be706f7edead8b6b11e6793efdcf",
+      "title": "Legacy VPN lockout procedure",
+      "body": "# Legacy VPN lockout procedure\n\nAn earlier wording of the closing steps.\n",
+      "tags": [
+        "vpn",
+        "access"
+      ],
+      "purged": false
+    },
+    "543ff7a0d7b6a3ba9f191af408f7ba273a832a2d303d06b39ce403919d5a434c": {
+      "contentHash": "543ff7a0d7b6a3ba9f191af408f7ba273a832a2d303d06b39ce403919d5a434c",
+      "title": "Legacy VPN lockout procedure",
+      "body": "# Legacy VPN lockout procedure\n\nAn earlier wording of the closing steps.\n",
+      "tags": [
+        "vpn",
+        "access"
+      ],
+      "purged": false
+    }
   },
   "search": {
     "procedures": [

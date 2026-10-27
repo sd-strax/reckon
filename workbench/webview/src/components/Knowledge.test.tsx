@@ -52,7 +52,8 @@ describe("the Knowledge document", () => {
     expect(within(detail).getByText("Frontmatter")).toBeTruthy();
     expect(within(detail).getByText(first.source!.url)).toBeTruthy();
     fireEvent.click(within(detail).getByRole("tab", { name: /^Versions/ }));
-    expect(within(detail).getByText(/rev 2 · current/)).toBeTruthy();
+    expect(within(detail).getByText("rev 2")).toBeTruthy();
+    expect(within(detail).getByText("current")).toBeTruthy();
     fireEvent.click(within(detail).getByRole("tab", { name: "Where used" }));
     expect(within(detail).getByText(/gap 00 §6.22/)).toBeTruthy();
     fireEvent.click(within(detail).getByText("Copy link"));
@@ -168,6 +169,23 @@ describe("the Knowledge document", () => {
     expect(screen.getByRole("alert").textContent).toBe("Could not load the procedures — 503");
     act(() => transport.emit({ type: "knowledge.state", state: { counts: { procedures: 3, cases: null, candidates: null } } }));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("lists a procedure's lineage, opens an original and compares two revisions as a diff (adr/0097)", () => {
+    const transport = mountKnowledge();
+    const first = kdata.knowledge.sops[0];
+    fireEvent.click(within(main()).getByText(first.title));
+    const detail = main().querySelector(".kdetail") as HTMLElement;
+    fireEvent.click(within(detail).getByRole("tab", { name: /^Versions · 2/ }));
+    expect(within(detail).getByText("rev 2")).toBeTruthy();
+    expect(within(detail).getByText("rev 1")).toBeTruthy();
+    fireEvent.click(within(detail).getByText("Open original"));
+    expect(transport.intents.find((i) => i.type === "sop.openOriginal")).toMatchObject({ sopId: first.id });
+    fireEvent.click(within(detail).getByLabelText("compare rev 1"));
+    fireEvent.click(within(detail).getByLabelText("compare rev 2"));
+    expect(transport.intents.filter((i) => i.type === "sop.revision").length).toBe(2);
+    expect(detail.querySelector(".kcompare .kdiff")).toBeTruthy();
+    expect(detail.querySelectorAll(".kdiff .dl.added").length).toBeGreaterThan(0);
   });
 });
 

@@ -15,6 +15,7 @@ import * as vscode from "vscode";
 import { BackendClient, InvestigationDetail, SOPDoc } from "./backend";
 import type { ImportDryRun, ImportRow, InboundMessage, InspectorTarget, KnowledgeSection, KnowledgeState, RenderMessage, SearchResults } from "./protocol";
 import { panelOptions, webviewShell } from "./webviewShell";
+import { openSOPOriginal } from "./investigationDocument";
 
 const SOP_EXTENSIONS = ["md", "markdown", "txt"];
 
@@ -107,6 +108,12 @@ export class KnowledgeDocument {
       case "sop.get":
         void this.getSOP(msg.sopId);
         return;
+      case "sop.openOriginal":
+        void openSOPOriginal(this.client, msg.sopId, msg.revision);
+        return;
+      case "sop.revision":
+        void this.getRevision(msg.sopId, msg.hash);
+        return;
       case "sop.save":
         void this.saveSOP(msg);
         return;
@@ -171,6 +178,8 @@ export class KnowledgeDocument {
       cases: null,
       candidates: null,
       detail: null,
+      detailRevisions: null,
+      revisionBodies: {},
       results: null,
       answer: null,
       importRows: this.rows.map(toImportRow),
@@ -193,10 +202,25 @@ export class KnowledgeDocument {
 
   private async getSOP(id: string): Promise<void> {
     try {
-      const detail = await this.client.sop(id);
-      await this.post({ type: "knowledge.state", state: { detail } });
+      const [detail, detailRevisions] = await Promise.all([
+        this.client.sop(id),
+        this.client.sopRevisions(id).catch((err: unknown) => { this.log.debug(`revisions ${id}: ${errText(err)}`); return null; }),
+      ]);
+      await this.post({ type: "knowledge.state", state: { detail, detailRevisions } });
     } catch (err) {
       await this.post({ type: "knowledge.error", message: `Could not read the procedure — ${errText(err)}` });
+    }
+  }
+
+  private readonly revisionBodies: Record<string, import("./backend").RevisionContent> = {};
+
+  /** One revision's content for the Versions compare (adr/0097). */
+  private async getRevision(id: string, hash: string): Promise<void> {
+    try {
+      this.revisionBodies[hash] = await this.client.sopRevision(id, hash);
+      await this.post({ type: "knowledge.state", state: { revisionBodies: { ...this.revisionBodies } } });
+    } catch (err) {
+      await this.post({ type: "knowledge.error", message: `Could not read the revision — ${errText(err)}` });
     }
   }
 
@@ -204,8 +228,8 @@ export class KnowledgeDocument {
     try {
       await this.client.updateSOP(msg.sopId, { title: msg.title, body: msg.body, tags: msg.tags, recommendation: msg.recommendation });
       this.sops = await this.client.sops(true);
-      const detail = await this.client.sop(msg.sopId);
-      await this.post({ type: "knowledge.state", state: { sops: this.sops, counts: this.counts(), detail } });
+      const [detail, detailRevisions] = await Promise.all([this.client.sop(msg.sopId), this.client.sopRevisions(msg.sopId).catch(() => null)]);
+      await this.post({ type: "knowledge.state", state: { sops: this.sops, counts: this.counts(), detail, detailRevisions } });
       this.log.info(`SOP ${msg.sopId} revised: ${msg.title}`);
     } catch (err) {
       await this.post({ type: "knowledge.error", message: `Save failed — ${errText(err)}` });

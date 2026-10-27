@@ -83,6 +83,12 @@ type ConsultedSOP struct {
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
 	Used           bool    `json:"used"`
+	// The retrieval's provenance (06 §6.2; adr/0097): the excerpt as the
+	// model saw it, the revision it came from, where in the source, the band.
+	Excerpt      string          `json:"excerpt,omitempty"`
+	RevisionHash string          `json:"revision_hash,omitempty"`
+	Location     json.RawMessage `json:"location,omitempty"`
+	Band         string          `json:"band,omitempty"`
 }
 
 // ConsultedSimilarInvestigation is one concluded-investigation summary surfaced
@@ -99,20 +105,20 @@ type ConsultedSimilarInvestigation struct {
 // InterpretationRequest is the body of POST /api/interpretations (the loop's
 // write into the reasoning thread).
 type InterpretationRequest struct {
-	InvestigationRef   string         `json:"investigation_ref"`
-	InterpretationType string         `json:"interpretation_type"`
-	InputRefs          []string       `json:"input_refs,omitempty"`
-	OutputRefs         []string       `json:"output_refs,omitempty"`
-	Rationale          string         `json:"rationale"`
-	Confidence         string         `json:"confidence,omitempty"`
-	Transcript         *Transcript    `json:"transcript,omitempty"`
-	ToolCalls          []ToolCall     `json:"tool_calls,omitempty"`
-	Hypothesis         *Hypothesis    `json:"hypothesis,omitempty"`
-	HypothesisRef      string         `json:"hypothesis_ref,omitempty"`
-	Abandoned          bool           `json:"abandoned,omitempty"`
-	Prediction         *Prediction    `json:"prediction,omitempty"`
-	PredictionRef      string         `json:"prediction_ref,omitempty"`
-	PredictionStatus   string         `json:"prediction_status,omitempty"`
+	InvestigationRef   string                          `json:"investigation_ref"`
+	InterpretationType string                          `json:"interpretation_type"`
+	InputRefs          []string                        `json:"input_refs,omitempty"`
+	OutputRefs         []string                        `json:"output_refs,omitempty"`
+	Rationale          string                          `json:"rationale"`
+	Confidence         string                          `json:"confidence,omitempty"`
+	Transcript         *Transcript                     `json:"transcript,omitempty"`
+	ToolCalls          []ToolCall                      `json:"tool_calls,omitempty"`
+	Hypothesis         *Hypothesis                     `json:"hypothesis,omitempty"`
+	HypothesisRef      string                          `json:"hypothesis_ref,omitempty"`
+	Abandoned          bool                            `json:"abandoned,omitempty"`
+	Prediction         *Prediction                     `json:"prediction,omitempty"`
+	PredictionRef      string                          `json:"prediction_ref,omitempty"`
+	PredictionStatus   string                          `json:"prediction_status,omitempty"`
 	ConsultedSOPs      []ConsultedSOP                  `json:"consulted_sops,omitempty"`
 	ConsultedSimilar   []ConsultedSimilarInvestigation `json:"consulted_similar_investigations,omitempty"`
 	TestResultRefs     []string                        `json:"test_result_refs,omitempty"`

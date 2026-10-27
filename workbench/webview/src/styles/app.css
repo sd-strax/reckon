@@ -734,3 +734,12 @@ body.loading #rail { opacity: 0.6; }
 .tpattern summary { cursor: pointer; }
 .tpattern .irow { margin-left: 12px; }
 .deviation { border-left: 2px solid var(--warn); padding-left: 6px; }
+
+/* Excerpt provenance and revisions (adr/0097) */
+.retrieval { margin: 6px 0 12px; }
+.imeta.ok { color: var(--ok); } .imeta.warn { color: var(--warn); }
+.kdiff { font-family: var(--mono); font-size: var(--fs-xs); background: var(--fill); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 8px; overflow: auto; margin: 6px 0; }
+.kdiff .dl { white-space: pre-wrap; }
+.kdiff .dl.added { color: var(--ok); } .kdiff .dl.removed { color: var(--bad); text-decoration: line-through; }
+.revrow { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
+.kcompare { margin-top: 8px; }

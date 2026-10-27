@@ -78,7 +78,7 @@ type Entry struct {
 	VersionLabel string    // corpus convention (e.g. semver); not interpreted
 
 	// Curated governance.
-	AuthoredBy string   // opaque principal
+	AuthoredBy  string   // opaque principal
 	SignedOffBy []string // opaque principals recorded at the PUBLISHED transition
 
 	// Derived provenance.

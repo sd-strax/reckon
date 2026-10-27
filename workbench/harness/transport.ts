@@ -4,7 +4,7 @@
 // with a `knowledge` slice is the Knowledge document (impl §2.6): it posts
 // `knowledge.state` instead of an investigation snapshot and answers the
 // document's reads and writes from that slice.
-import type { ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/backend";
+import type { ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, RetrievalRow, RevisionContent, SOPDoc, SOPRevision } from "../src/backend";
 import type { ImportRow, InboundMessage, InspectorTarget, InvestigationSnapshot, KnowledgeState, RenderMessage, SearchResults } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
@@ -26,6 +26,9 @@ export interface HarnessSnapshot {
   calls?: Record<string, CallDetail>;
   /** Entity baselines (adr/0095); an entity absent here answers null. */
   baselines?: Record<string, BaselineView>;
+  /** What the investigation retrieved of each procedure and each procedure's lineage (adr/0097). */
+  sopRetrievals?: Record<string, RetrievalRow[]>;
+  sopRevisions?: Record<string, SOPRevision[]>;
   /** The work queue (08 §8.3) as the host posts it. */
   queue?: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string };
 }
@@ -40,6 +43,9 @@ export interface HarnessKnowledge {
   search?: Omit<SearchResults, "query">;
   caseSummaries?: Record<string, CaseSummaryView | null>;
   queue?: HarnessSnapshot["queue"];
+  /** Each procedure's lineage and the revision bodies a compare can fetch (adr/0097). */
+  revisions?: Record<string, SOPRevision[]>;
+  revisionBodies?: Record<string, RevisionContent>;
 }
 
 export class HarnessTransport implements WebviewTransport {
@@ -135,15 +141,28 @@ export class HarnessTransport implements WebviewTransport {
         break;
       case "sop.get": {
         const sop = doc.sops.find((s) => s.id === intent.sopId);
-        if (sop) this.emit({ type: "knowledge.state", state: { detail: sop } });
+        if (sop) this.emit({ type: "knowledge.state", state: { detail: sop, detailRevisions: k.revisions?.[sop.id] ?? [] } });
         else this.emit({ type: "knowledge.error", message: "procedure not recorded in this harness stage" });
+        break;
+      }
+      case "sop.revision": {
+        const body = k.revisionBodies?.[intent.hash];
+        if (body) {
+          doc.revisionBodies = { ...(doc.revisionBodies || {}), [intent.hash]: body };
+          this.emit({ type: "knowledge.state", state: { revisionBodies: doc.revisionBodies } });
+        } else {
+          this.emit({ type: "knowledge.error", message: "revision not recorded in this harness stage" });
+        }
         break;
       }
       case "sop.save": {
         const sop = doc.sops.find((s) => s.id === intent.sopId);
         if (!sop) break;
         Object.assign(sop, { title: intent.title, body: intent.body, tags: intent.tags, recommendation: intent.recommendation, revisionCount: (sop.revisionCount ?? 1) + 1, updatedAt: new Date().toISOString() });
-        this.emit({ type: "knowledge.state", state: { sops: doc.sops, counts: counts(), detail: { ...sop } } });
+        // A save is a new revision: the lineage grows by one (adr/0097).
+        const prior = (doc.detailRevisions && doc.detailRevisions.length ? doc.detailRevisions : k.revisions?.[sop.id] ?? []).map((r) => ({ ...r, supersededAt: r.supersededAt || new Date().toISOString() }));
+        doc.detailRevisions = [{ revision: sop.revisionCount!, contentHash: "h-" + sop.revisionCount + "-" + sop.id, title: sop.title, status: sop.status, createdAt: sop.updatedAt!, authorId: sop.authorId, hasOriginal: false }, ...prior];
+        this.emit({ type: "knowledge.state", state: { sops: doc.sops, counts: counts(), detail: { ...sop }, detailRevisions: doc.detailRevisions } });
         break;
       }
       case "sop.retire": {
@@ -220,7 +239,7 @@ export class HarnessTransport implements WebviewTransport {
       }
       case "sop": {
         const sop = d?.sops?.[target.sopId];
-        if (sop) this.emit({ type: "inspector.procedure", sopId: target.sopId, sop });
+        if (sop) this.emit({ type: "inspector.procedure", sopId: target.sopId, sop, retrievals: d?.sopRetrievals?.[target.sopId] ?? [], revisions: d?.sopRevisions?.[target.sopId] ?? [] });
         else this.emit({ type: "inspector.error", target: target.sopId, message: "procedure not recorded in this harness stage" });
         break;
       }

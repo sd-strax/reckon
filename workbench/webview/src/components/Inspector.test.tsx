@@ -159,7 +159,7 @@ describe("the inspector", () => {
     fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Procedure one"));
     p = pane();
     expect(within(p).getByText("Procedure")).toBeTruthy();
-    expect(within(p).getByText(/Confirm the session with the owner first/)).toBeTruthy(); // What the AI read
+    expect(within(p).getAllByText(/Confirm the session with the owner first/).length).toBeGreaterThan(0); // What the AI read
     fireEvent.click(within(p).getByRole("tab", { name: "Whole document" }));
     expect(within(p).getByText("confirm-with-owner")).toBeTruthy();
 
@@ -227,5 +227,21 @@ describe("the inspector", () => {
     fireEvent.click(chip("account · user-a"));
     p = pane();
     expect(within(p).getByText(/No baseline exists for this entity in the record/)).toBeTruthy();
+  });
+
+  it("shows what the AI read of a procedure with its place, its turn and whether it changed since, and the lineage with Open original (adr/0097)", () => {
+    const transport = mount();
+    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Procedure one"));
+    const p = pane();
+    expect(within(p).getByText("Procedure")).toBeTruthy();
+    expect(within(p).getByText(/excerpt 1 of 1 retrieved/)).toBeTruthy();
+    expect(within(p).getByText(/retrieved in/)).toBeTruthy();
+    expect(within(p).getByText("Updated since this case consulted it")).toBeTruthy();
+    expect(p.querySelector(".kdiff")).toBeTruthy();
+    fireEvent.click(within(p).getByRole("tab", { name: "Versions · 2" }));
+    expect(within(p).getByText("rev 2")).toBeTruthy();
+    expect(within(p).getByText("current")).toBeTruthy();
+    fireEvent.click(within(p).getByText("Open original"));
+    expect(transport.intents.find((i) => i.type === "sop.openOriginal")).toMatchObject({ sopId: "sop-1", revision: data.sopRevisions!["sop-1"][1].contentHash });
   });
 });

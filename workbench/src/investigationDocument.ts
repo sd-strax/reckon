@@ -306,6 +306,8 @@ export class InvestigationDocuments {
       void this.startFromCase(msg.caseNumber);
     } else if (msg.type === "knowledge.search") {
       void this.searchKnowledge(id, panel, msg.text);
+    } else if (msg.type === "sop.openOriginal") {
+      void openSOPOriginal(this.client, msg.sopId, msg.revision);
     } else if (msg.type === "knowledge.open") {
       // A navigation act (impl §2.6): the Knowledge document is revealed; this
       // document's main area never changes.
@@ -805,9 +807,18 @@ export class InvestigationDocuments {
           void this.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps });
           return;
         }
-        case "sop":
-          void this.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop: await this.client.sop(target.sopId) });
+        case "sop": {
+          // The procedure whole, what this investigation retrieved of it, and
+          // its lineage (adr/0097); the two extras are gaps, not errors, when
+          // their reads fail.
+          const [sop, retrievals, revisions] = await Promise.all([
+            this.client.sop(target.sopId),
+            InvestigationDocuments.isDraft(id) ? Promise.resolve([]) : this.client.retrievals(id, target.sopId).catch((err: unknown) => { this.log.debug(`retrievals ${target.sopId}: ${errText(err)}`); return undefined; }),
+            this.client.sopRevisions(target.sopId).catch((err: unknown) => { this.log.debug(`revisions ${target.sopId}: ${errText(err)}`); return undefined; }),
+          ]);
+          void this.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop, retrievals, revisions });
           return;
+        }
         case "turn": {
           let body = this.transcriptCache.get(target.interpretationId);
           if (body === undefined) {
@@ -1445,6 +1456,22 @@ function rivalsClause(rivals: RivalBrief[] | undefined, instruction: string): st
     return `${name}"${r.statement}" (${r.id})${pending}`;
   });
   return `Live rivals: ${list.join("; ")}. ${instruction}`;
+}
+
+/** Open a procedure's retained original in an editor (adr/0097): a document the
+ * analyst reads, not a citation; the inspector stays where it was. */
+export async function openSOPOriginal(client: BackendClient, sopId: string, revision?: string): Promise<void> {
+  try {
+    const o = await client.sopOriginal(sopId, revision);
+    if (!o) {
+      void vscode.window.showInformationMessage("reckon: no original was retained for this revision (imported before originals were kept, or through the JSON import).");
+      return;
+    }
+    const doc = await vscode.workspace.openTextDocument({ content: o.text, language: o.mediaType.includes("markdown") ? "markdown" : "plaintext" });
+    await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside });
+  } catch (err) {
+    void vscode.window.showErrorMessage(`reckon: could not open the original — ${errText(err)}`);
+  }
 }
 
 /** The STIX types an entity inspector opens (the same set as webview/src/refs.ts ENTITY_POPOVER_TYPES). */

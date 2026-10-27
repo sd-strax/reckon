@@ -690,6 +690,11 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 		b.investigationBaselineRoute(w, r)
 		return
 	}
+	// The excerpts the investigation's turns retrieved (adr/0097).
+	if strings.HasSuffix(trimmed, "/retrievals") {
+		b.investigationRetrievalsRoute(w, r)
+		return
+	}
 	// The investigation's events and its capability calls (adr/0092).
 	if strings.HasSuffix(trimmed, "/events") {
 		b.investigationEventsRoute(w, r)

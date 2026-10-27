@@ -8,6 +8,14 @@ import { parseTranscript } from "../../transcript";
 import { Badge, Markdown, RefChip, fmtDateTime, fmtTime } from "../shared";
 import { ToolRow } from "../ToolRow";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
+import { currentSpan, lineDiff } from "../../derive/diff";
+
+/** A line diff rendered as rows (adr/0097). */
+export function DiffView({ before, after }: { before: string; after: string }) {
+  const lines = lineDiff(before, after);
+  if (lines.every((l) => l.kind === "same")) return <div className="imeta">no textual difference in this span</div>;
+  return <pre className="kdiff">{lines.map((l, i) => <div key={i} className={"dl " + l.kind}>{l.kind === "added" ? "+ " : l.kind === "removed" ? "− " : "  "}{l.text}</div>)}</pre>;
+}
 
 export function TurnInspector({ interpretationId }: { interpretationId: string }) {
   const { state, openInspector } = useApp();
@@ -115,12 +123,13 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
 export function ProcedureInspector({ sopId }: { sopId: string }) {
   const { surface, state, openInspector, send } = useApp();
   const sop = state.sops[sopId];
+  const extras = state.sopExtras[sopId];
   const item = state.knowledge.find((k) => k.kind === "sop" && k.ref === sopId);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSops || []).filter((s) => s.sopId === sopId).map((s) => ({ e, s })));
   const ledTo = (state.snap?.actions || []).filter((a) => consulted.some(({ e }) => (e.outputRefs || []).includes(a.actionId)));
   return (
     <>
-      <div className="isub">{sop ? <>{sop.source?.system ? sop.source.system + " · " : ""}{sop.source?.url ? <span className="mono">{sop.source.url}</span> : "markdown"}{sop.importedBy ? ` · imported by ${sop.importedBy}` : ""}{sop.importedAt ? ` · ${fmtDateTime(sop.importedAt)}` : ""}</> : null}</div>
+      <div className="isub">{sop ? <>{sop.format || "markdown"} · {sop.source?.system ? sop.source.system + " · " : ""}{sop.source?.url ? <span className="mono">{sop.source.url}</span> : null}{sop.importedBy ? ` · imported by ${sop.importedBy}` : ""}{sop.importedAt ? ` · ${fmtDateTime(sop.importedAt)}` : ""}</> : null}</div>
       {surface === "investigation" ? <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
         {item ? <span className="icite">retrieved at seed time · {item.included ? "included in context" : "not included"}</span> : null}
         {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.used ? "applied" : "consulted, not applied"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
@@ -128,10 +137,34 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
         {!item && !consulted.length ? <span className="empty">not consulted in this investigation</span> : null}
       </div> : null}
       <Tabs tabs={[
-        { id: "read", label: "What the AI read", body: () => (
-          item?.excerpt ? <><blockquote className="iquote">{item.excerpt}</blockquote><div className="imeta">the excerpt retrieved for this investigation{item.band ? " · " + item.band : ""}{item.rationale ? " · " + item.rationale : ""}</div><p className="imeta">Excerpt provenance per turn (k of n, location in the source, hash check) is gap 00 §6.15.</p></>
-            : <div className="empty">No retrieved excerpt is held for this procedure in this investigation (excerpt provenance is gap 00 §6.15).</div>
-        ) },
+        { id: "read", label: "What the AI read", body: () => {
+          const retrievals = extras?.retrievals;
+          if (retrievals === undefined) return item?.excerpt ? <><blockquote className="iquote">{item.excerpt}</blockquote><div className="imeta">the excerpt retrieved for this investigation{item.band ? " · " + item.band : ""}{item.rationale ? " · " + item.rationale : ""}</div><div className="imeta">reading what the turns retrieved…</div></> : <Loading what="the retrieved excerpts" />;
+          if (!retrievals.length) return <>
+            {item?.excerpt ? <><blockquote className="iquote">{item.excerpt}</blockquote><div className="imeta">retrieved for this investigation at seed time{item.band ? " · " + item.band : ""}{item.rationale ? " · " + item.rationale : ""}; not yet cited by a committed turn</div></> : null}
+            <div className="empty">No committed turn of this investigation retrieved this procedure (a turn committed before excerpts were kept shows none).</div>
+          </>;
+          return <>{retrievals.map((r) => {
+            const turn = state.snap?.thread?.find((e) => e.interpretationId === r.interpretationId);
+            const path = (r.location?.headingPath || []).join(" › ");
+            return (
+              <div key={r.interpretationId + r.excerptHash} className="retrieval">
+                <blockquote className="iquote">{r.excerpt}</blockquote>
+                <div className="imeta">
+                  excerpt {r.chunkIndex} of {r.chunkCount} retrieved{path ? <> · in <span className="mono">{path}</span></> : r.location?.page ? ` · page ${r.location.page}` : ""}{r.band ? <> · <Badge>{r.band}</Badge></> : null}
+                  {" · "}retrieved in <a onClick={() => openInspector({ kind: "turn", interpretationId: r.interpretationId })}>{turn?.summary || "a turn"}</a>{r.retrievedAt ? " · " + fmtDateTime(r.retrievedAt) : ""}
+                </div>
+                {r.matchesCurrent === true ? <div className="imeta ok">Exactly as retrieved · hash matches current version</div>
+                  : r.matchesCurrent === false ? <>
+                    <div className="imeta warn">Updated since this case consulted it</div>
+                    {sop ? <DiffView before={r.excerpt.replace(/…$/, "")} after={currentSpan(sop.body, r.excerpt)} /> : null}
+                  </>
+                  : <div className="imeta">The current revision could not be compared.</div>}
+                <div className="imeta mono" title="excerpt hash · revision hash">{r.excerptHash.slice(0, 12)} · {r.revisionHash.slice(0, 12)}</div>
+              </div>
+            );
+          })}</>;
+        } },
         { id: "whole", label: "Whole document", body: () => (
           sop === undefined ? <Loading what="procedure" /> : (
             <>
@@ -146,7 +179,18 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
             </>
           )
         ) },
-        { id: "versions", label: "Versions", body: () => <div className="empty">{sop?.revisionCount ? `rev ${sop.revisionCount} is current. ` : ""}Revision history and the retained original land with gap 00 §6.15.</div> },
+        { id: "versions", label: extras?.revisions ? `Versions · ${extras.revisions.length}` : "Versions", body: () => {
+          const revs = extras?.revisions;
+          if (revs === undefined) return <Loading what="the lineage" />;
+          return <>{revs.map((r) => (
+            <div key={r.contentHash} className="irow revrow">
+              <b>rev {r.revision}</b>{!r.supersededAt ? <Badge tone="ok">current</Badge> : null}{r.status === "retired" ? <Badge tone="muted">retired</Badge> : null}
+              {" · "}{fmtDateTime(r.createdAt)}{r.authorId ? " · " + r.authorId : ""}{r.importedBy ? " · imported by " + r.importedBy : ""}{r.sourceVersion ? " · source v" + r.sourceVersion : ""}
+              {" · "}<span className="mono" title={r.contentHash}>{r.contentHash.slice(0, 12)}</span>
+              {r.hasOriginal ? <> · <a onClick={() => send({ type: "sop.openOriginal", sopId, revision: r.contentHash })}>Open original</a></> : null}
+            </div>
+          ))}</>;
+        } },
       ]} />
       {surface === "investigation" ? <div className="decide"><button onClick={() => send({ type: "knowledge.open", section: "procedures", id: sopId })}>Open in the Knowledge view</button></div> : null}
     </>

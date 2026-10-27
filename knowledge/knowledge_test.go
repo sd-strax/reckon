@@ -443,3 +443,88 @@ func (e *stubEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 	}
 	return out, nil
 }
+
+// adr/0097: an excerpt locates under the heading path above it; the lineage
+// lists every revision with its content hash; the original rides the revision
+// it was imported with and reads back by hash after an edit.
+func TestLocate(t *testing.T) {
+	body := "# Host Isolation Runbook\n\nScope line.\n\n## Preconditions\n- The host is confirmed compromised.\n\n### Evidence first\nCapture volatile state before isolating.\n\n## Steps\n1. Isolate.\n"
+	loc := Locate(body, "Capture volatile state before isolating.")
+	if got := strings.Join(loc.HeadingPath, " › "); got != "Host Isolation Runbook › Preconditions › Evidence first" {
+		t.Errorf("heading path = %q", got)
+	}
+	if loc.Offset == 0 {
+		t.Error("offset should be past the start")
+	}
+	// The substrate's ellipsised excerpt still locates; an unknown excerpt locates at the start.
+	if l := Locate(body, "1. Isolate.…"); strings.Join(l.HeadingPath, "/") != "Host Isolation Runbook/Steps" {
+		t.Errorf("ellipsised excerpt = %v", l.HeadingPath)
+	}
+	// An excerpt not found locates at the start, under the document's title heading.
+	if l := Locate(body, "nowhere in this document"); l.Offset != 0 || strings.Join(l.HeadingPath, "/") != "Host Isolation Runbook" {
+		t.Errorf("unknown excerpt = %+v; want the start under the title", l)
+	}
+}
+
+func TestRevisionsAndOriginal(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	original := []byte("---\ntitle: Ransomware Containment Runbook\n---\n# Ransomware Containment Runbook\n\nIsolate first.\n")
+	doc := SOP{
+		TenantID: testTenant, Title: "Ransomware Containment Runbook", Body: "# Ransomware Containment Runbook\n\nIsolate first.", Tags: []string{"ransomware"},
+		Source: &SOPSource{System: "file", URL: "file:/sops/ransomware.md", Version: "1"}, ImportedBy: "sam",
+		Format: "markdown", Original: &SOPOriginal{Filename: "ransomware.md", MediaType: "text/markdown", Bytes: original},
+	}
+	id, _, err := s.Import(ctx, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _ := s.Get(ctx, testTenant, id)
+	if first.ContentHash == "" || first.Format != "markdown" {
+		t.Fatalf("imported SOP lacks hash/format: %+v", first)
+	}
+	// An in-product edit is a second revision; the original stays on the first.
+	if err := s.Update(ctx, testTenant, id, first.Title, first.Body+"\n\nNotify legal.", first.Tags, ""); err != nil {
+		t.Fatal(err)
+	}
+	revs, err := s.Revisions(ctx, testTenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revs) != 2 || revs[0].Revision != 2 || revs[1].Revision != 1 || revs[1].ContentHash != first.ContentHash || revs[1].SupersededAt == nil || revs[0].SupersededAt != nil {
+		t.Fatalf("revisions = %+v", revs)
+	}
+	if !revs[1].HasOriginal || revs[1].ImportedBy != "sam" || revs[1].SourceVersion != "1" {
+		t.Errorf("first revision facts = %+v", revs[1])
+	}
+	// The retrieved revision reads back by hash, bytes intact.
+	c, err := s.RevisionContent(ctx, testTenant, first.ContentHash)
+	if err != nil || c.Body != first.Body || c.Purged {
+		t.Errorf("revision content: err=%v body=%q purged=%v", err, c.Body, c.Purged)
+	}
+	o, ok, err := s.Original(ctx, testTenant, id, first.ContentHash)
+	if err != nil || !ok || string(o.Bytes) != string(original) || o.Filename != "ransomware.md" {
+		t.Errorf("original by hash: ok=%v err=%v %+v", ok, err, o)
+	}
+	// The current revision carried the meta forward, so the original is still reachable from it.
+	if _, ok, err := s.Original(ctx, testTenant, id, ""); err != nil || !ok {
+		t.Errorf("original on current: ok=%v err=%v", ok, err)
+	}
+	// Recall names the revision and the excerpt's place in it.
+	res, err := s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "isolate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) == 0 || res.Results[0].ContentHash == "" || res.Results[0].Location == nil || res.Results[0].Revision != 2 {
+		t.Fatalf("recall provenance = %+v", res.Results)
+	}
+	if res.Results[0].Location.HeadingPath[0] != "Ransomware Containment Runbook" {
+		t.Errorf("recall location = %+v", res.Results[0].Location)
+	}
+	if _, err := s.Revisions(ctx, testTenant, uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Errorf("revisions of an unknown sop: %v", err)
+	}
+}

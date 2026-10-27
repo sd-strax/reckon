@@ -280,7 +280,10 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
 15. **Procedure excerpt provenance** — at import, record a location per chunk (page,
     heading path, or anchor, whatever the format yields) and retain the original file or a
     snapshot of the URL, so a citation names "where in the source" and "open original"
-    shows what existed at retrieval time (`06 §2.4`, `§6.2`).
+    shows what existed at retrieval time (`06 §2.4`, `§6.2`). **Landed** (`adr/0097`): the
+    `06 §6.2` side store keyed by excerpt hash with revision and heading-path location; the
+    original retained with the revision; `GET /api/sops/{id}/revisions[/{hash}]`,
+    `…/original?rev=`, `GET /api/investigations/{id}/retrievals?sop=`.
 16. **Response-policy status on requested actions** — whether the tenant's Gate 2 policies
     would auto-approve the action, and where the approval routes when they would not,
     readable on the requested action (`04 §4`).

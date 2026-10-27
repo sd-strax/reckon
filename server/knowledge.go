@@ -331,6 +331,10 @@ func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 			Source: &knowledge.SOPSource{
 				System: doc.SourceSystem, URL: doc.SourceURL, Version: doc.SourceVersion,
 			},
+			// The file as imported is retained with the revision (adr/0097), so
+			// a citation can open what existed at retrieval time.
+			Format:   "markdown",
+			Original: &knowledge.SOPOriginal{Filename: name, MediaType: "text/markdown; charset=utf-8", Bytes: []byte(body.Content)},
 		})
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, "import sop: "+err.Error())
@@ -358,8 +362,32 @@ func (b *Backend) sopsCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 // sopsItem routes /api/sops/{id}: GET (reader), PUT update (analyst),
-// DELETE retire (analyst).
+// DELETE retire (analyst); and the lineage reads /api/sops/{id}/revisions,
+// /api/sops/{id}/revisions/{hash} and /api/sops/{id}/original?rev= (adr/0097).
 func (b *Backend) sopsItem(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/sops/"), "/"), "/")
+	if len(parts) >= 2 {
+		id, err := uuid.Parse(parts[0])
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid sop id")
+			return
+		}
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, "GET")
+			return
+		}
+		switch {
+		case parts[1] == "revisions" && len(parts) == 2:
+			b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) { b.sopRevisions(w, r, id) })
+		case parts[1] == "revisions" && len(parts) == 3:
+			b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) { b.sopRevisionContent(w, r, parts[2]) })
+		case parts[1] == "original" && len(parts) == 2:
+			b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) { b.sopOriginal(w, r, id) })
+		default:
+			writeJSONError(w, http.StatusNotFound, "unknown sop subresource")
+		}
+		return
+	}
 	id, ok := sopID(w, r)
 	if !ok {
 		return
@@ -468,6 +496,58 @@ func (b *Backend) retireSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// sopRevisions serves GET /api/sops/{id}/revisions: the lineage, newest first.
+func (b *Backend) sopRevisions(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	revs, err := b.cfg.Knowledge.Revisions(r.Context(), module.SingleTenantUUID, id)
+	if errors.Is(err, knowledge.ErrNotFound) {
+		writeJSONError(w, http.StatusNotFound, "sop not found")
+		return
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "sop revisions: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"revisions": revs})
+}
+
+// sopRevisionContent serves GET /api/sops/{id}/revisions/{hash}: one revision's
+// content by its hash — the bytes a past retrieval cited.
+func (b *Backend) sopRevisionContent(w http.ResponseWriter, r *http.Request, hash string) {
+	c, err := b.cfg.Knowledge.RevisionContent(r.Context(), module.SingleTenantUUID, hash)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "revision not found: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+// sopOriginal serves GET /api/sops/{id}/original?rev=<hash>: the retained
+// original file of a revision (the current one by default), as bytes with its
+// media type; 404 when the import kept none.
+func (b *Backend) sopOriginal(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	o, ok, err := b.cfg.Knowledge.Original(r.Context(), module.SingleTenantUUID, id, r.URL.Query().Get("rev"))
+	if errors.Is(err, knowledge.ErrNotFound) {
+		writeJSONError(w, http.StatusNotFound, "sop not found")
+		return
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "sop original: "+err.Error())
+		return
+	}
+	if !ok {
+		writeJSONError(w, http.StatusNotFound, "no original was retained for this revision")
+		return
+	}
+	mt := o.MediaType
+	if mt == "" {
+		mt = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", mt)
+	w.Header().Set("Content-Disposition", `inline; filename="`+strings.ReplaceAll(o.Filename, `"`, "")+`"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(o.Bytes)
 }
 
 // anyReader is the role set that may read (viewer, analyst, auditor).

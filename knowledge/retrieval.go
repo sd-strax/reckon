@@ -43,6 +43,11 @@ type SOPMatch struct {
 	// — "vector-cosine/<model>" or the degraded "pg-fts", so a consumer can tell
 	// semantic recall from the keyword fallback.
 	Backend string `json:"backend,omitempty"`
+	// ContentHash names the revision the excerpt came from and Location says
+	// where in it (adr/0097): what a turn's provenance records.
+	ContentHash string    `json:"content_hash,omitempty"`
+	Revision    int       `json:"revision,omitempty"`
+	Location    *Location `json:"location,omitempty"`
 }
 
 // RecallResult is the recall_sops response envelope.
@@ -86,7 +91,7 @@ func (s *Store) RecallSOPs(ctx context.Context, tenantID uuid.UUID, req RecallRe
 	backend := rankerLabel(res.Ranker)
 	for _, h := range res.Results {
 		lineage, _ := lineageOf(h.Tags)
-		out.Results = append(out.Results, SOPMatch{
+		m := SOPMatch{
 			SOPID:          lineage,
 			Title:          h.Title,
 			Excerpt:        h.Excerpt,
@@ -96,7 +101,16 @@ func (s *Store) RecallSOPs(ctx context.Context, tenantID uuid.UUID, req RecallRe
 			Recommendation: h.Advice,
 			Status:         sopStatus(h.Status),
 			Backend:        backend,
-		})
+			ContentHash:    string(h.ContentHash),
+			Revision:       h.Revision,
+		}
+		// The excerpt's place in the source (adr/0097): the hit carries no body,
+		// so the entry is read once per hit (a handful per call).
+		if e, err := s.sub.Get(ctx, tenantID.String(), CorpusProcedures, h.EntryID); err == nil {
+			loc := Locate(e.Body, h.Excerpt)
+			m.Location = &loc
+		}
+		out.Results = append(out.Results, m)
 	}
 	return out, nil
 }
@@ -118,14 +132,19 @@ func (s *Store) browseByTag(ctx context.Context, tenantID uuid.UUID, req RecallR
 		if !ok {
 			continue
 		}
+		ex := excerpt(e.Body)
+		loc := Locate(e.Body, ex)
 		res.Results = append(res.Results, SOPMatch{
 			SOPID:          lineage,
 			Title:          e.Title,
-			Excerpt:        excerpt(e.Body),
+			Excerpt:        ex,
 			MatchRationale: browseRationale(req.Tags, stripReserved(e.Tags)),
 			Tags:           stripReserved(e.Tags),
 			Recommendation: e.Advice,
 			Status:         sopStatus(e.Status),
+			ContentHash:    string(e.ContentHash),
+			Revision:       e.Revision,
+			Location:       &loc,
 		})
 	}
 	// List already returns newest-created first; a revised SOP's new row keeps

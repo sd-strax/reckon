@@ -777,9 +777,13 @@ func (s *Session) complete(ctx context.Context) (resp CompleteResponse, streamed
 func (s *Session) trackConsulted(content string) {
 	var res struct {
 		Results []struct {
-			SOPID string  `json:"sop_id"`
-			Title string  `json:"title"`
-			Score float64 `json:"score"`
+			SOPID       string          `json:"sop_id"`
+			Title       string          `json:"title"`
+			Score       float64         `json:"score"`
+			Excerpt     string          `json:"excerpt"`
+			ContentHash string          `json:"content_hash"`
+			Location    json.RawMessage `json:"location"`
+			Band        string          `json:"band"`
 		} `json:"results"`
 	}
 	if json.Unmarshal([]byte(content), &res) != nil {
@@ -790,7 +794,9 @@ func (s *Session) trackConsulted(content string) {
 			continue
 		}
 		if prev, ok := s.consulted[r.SOPID]; !ok || r.Score > prev.RetrievalScore {
-			s.consulted[r.SOPID] = ConsultedSOP{SOPID: r.SOPID, Title: r.Title, RetrievalScore: r.Score}
+			// The excerpt and its revision ride to the commit (adr/0097): the
+			// bytes the model saw, verifiable against the procedure later.
+			s.consulted[r.SOPID] = ConsultedSOP{SOPID: r.SOPID, Title: r.Title, RetrievalScore: r.Score, Excerpt: r.Excerpt, RevisionHash: r.ContentHash, Location: r.Location, Band: r.Band}
 		}
 	}
 }

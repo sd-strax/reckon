@@ -9,6 +9,7 @@ import type { SOPDoc } from "../../../../src/backend";
 import { KV, Section, Tabs } from "../inspectors/primitives";
 import { Badge, Empty, Markdown, fmtDateTime } from "../shared";
 import { useKnowledgeView } from "./KnowledgeApp";
+import { DiffView } from "../inspectors/ProvenanceInspectors";
 
 /** "v1.0" when the source system recorded a version, else "rev N" (impl §8.0). */
 export function versionLabel(s: SOPDoc): string {
@@ -81,9 +82,42 @@ export function Procedures() {
   );
 }
 
+/** The lineage (adr/0097): every revision, Open original where one was kept, and any two compared as a line diff. */
+function Versions({ sop }: { sop: SOPDoc }) {
+  const { state, send } = useApp();
+  const revisions = state.kdoc?.detailRevisions;
+  const bodies = state.kdoc?.revisionBodies || {};
+  const [picked, setPicked] = useState<string[]>([]);
+  if (revisions === undefined || revisions === null) return <Empty>reading the lineage…</Empty>;
+  const toggle = (hash: string) => {
+    const next = picked.includes(hash) ? picked.filter((h) => h !== hash) : [...picked.slice(-1), hash];
+    setPicked(next);
+    for (const h of next) if (!bodies[h]) send({ type: "sop.revision", sopId: sop.id, hash: h });
+  };
+  const [a, b] = picked;
+  return (
+    <>
+      <div className="imeta">Pick two revisions to compare them.</div>
+      {revisions.map((r) => (
+        <div key={r.contentHash} className="irow revrow">
+          <input type="checkbox" checked={picked.includes(r.contentHash)} onChange={() => toggle(r.contentHash)} aria-label={"compare rev " + r.revision} />
+          <b>rev {r.revision}</b>{!r.supersededAt ? <Badge tone="ok">current</Badge> : null}{r.status === "retired" ? <Badge tone="muted">retired</Badge> : null}
+          {" · "}{fmtDateTime(r.createdAt)}{r.authorId ? " · " + r.authorId : ""}{r.importedBy ? " · imported by " + r.importedBy : ""}{r.sourceVersion ? " · source v" + r.sourceVersion : ""}
+          {" · "}<span className="mono" title={r.contentHash}>{r.contentHash.slice(0, 12)}</span>
+          {r.hasOriginal ? <> · <a onClick={() => send({ type: "sop.openOriginal", sopId: sop.id, revision: r.contentHash })}>Open original</a></> : null}
+        </div>
+      ))}
+      {a && b ? (bodies[a] && bodies[b]
+        ? <div className="kcompare"><div className="kicker">rev {revisions.find((r) => r.contentHash === a)?.revision} → rev {revisions.find((r) => r.contentHash === b)?.revision}</div><DiffView before={bodies[a].body} after={bodies[b].body} /></div>
+        : <Empty>reading the two revisions…</Empty>) : null}
+    </>
+  );
+}
+
 function ProcedureDetail({ sop }: { sop: SOPDoc }) {
-  const { send, openPrompt, openInspector } = useApp();
+  const { state, send, openPrompt, openInspector } = useApp();
   const view = useKnowledgeView();
+  const revisions = state.kdoc?.detailRevisions;
   const inv = fromInvestigation(sop);
   const retire = () => openPrompt({
     title: "Retire procedure",
@@ -126,12 +160,7 @@ function ProcedureDetail({ sop }: { sop: SOPDoc }) {
             <Markdown text={sop.body} className="idoc kbody" />
           </>
         ) },
-        { id: "versions", label: `Versions · ${sop.revisionCount ?? "?"}`, body: () => (
-          <>
-            <div className="irow">rev {sop.revisionCount ?? "?"} · current{sop.updatedAt ? " · " + fmtDateTime(sop.updatedAt) : ""}{sop.source?.version ? ` · the source's v${sop.source.version}` : ""}</div>
-            <Empty>Each revision with its time and who made it, and comparing two, land with gap 00 §6.15 (the revisions endpoint).</Empty>
-          </>
-        ) },
+        { id: "versions", label: `Versions · ${revisions ? revisions.length : sop.revisionCount ?? "?"}`, body: () => <Versions sop={sop} /> },
         { id: "used", label: "Where used", body: () => <Empty>Which investigations consulted or applied this procedure is gap 00 §6.22 (the citation projector).</Empty> },
       ]} />
       <div className="decide"><button onClick={() => openInspector({ kind: "sop", sopId: sop.id })}>Open in the inspector</button></div>

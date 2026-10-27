@@ -883,6 +883,13 @@ investigation retrieved, k of n, with the turn that retrieved each). The inspect
 `excerpt_hash` against the current revision's content for the same span: match → "Exactly as
 retrieved"; else "updated since this case consulted it" with a line diff rendered client-side.
 
+**Landed** (`adr/0097`, PR #98) with two shape changes: the side store is two tables
+(`knowledge_retrievals` by excerpt hash, `knowledge_retrieval_uses` per interpretation) so one
+revision's excerpt shares a row across turns as `06 §6.2` asks; and the retained original rides
+the revision's meta (part of the hashed content) instead of a `sop_originals` table, since the
+facade owns no SQL. `GET /api/sops/{id}/revisions/{hash}` returns a revision's content for the
+client-side compare. The JSON import endpoint retains no original (it carries no file).
+
 ### 8.5 §6.16 — Response-policy status on requested actions
 
 **Decision.** The Gate 2 evaluation already recorded by `action.policy_evaluated` is folded onto

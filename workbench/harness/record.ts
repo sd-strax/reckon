@@ -9,7 +9,7 @@
 // Env: RECKON_USER (default reckon-admin), RECKON_PASSWORD (default reckon).
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { BackendClient, type ActionRecord, type Appearance, type BaselineView, type CallDetail, type CaseSummaryView, type EvidenceDoc, type SOPDoc, type ThreadEntry } from "../src/backend";
+import { BackendClient, type ActionRecord, type Appearance, type BaselineView, type CallDetail, type RetrievalRow, type SOPRevision, type CaseSummaryView, type EvidenceDoc, type SOPDoc, type ThreadEntry } from "../src/backend";
 import { buildDerivedViews } from "../src/derivedViews";
 import { deriveEvidenceLabel } from "../src/evidenceLabel";
 import type { ChronicleTurn, InvestigationSnapshot } from "../src/protocol";
@@ -129,14 +129,20 @@ async function main(): Promise<void> {
       try { actionRecords[a.actionId] = await client.actionRecord(a.actionId); } catch { /* not recorded */ }
     }
     const sops: Record<string, SOPDoc> = {};
+    const sopRetrievals: Record<string, RetrievalRow[]> = {};
+    const sopRevisions: Record<string, SOPRevision[]> = {};
     const caseSummaries: Record<string, CaseSummaryView | null> = {};
     for (const e of thread ?? []) {
-      for (const s of e.consultedSops || []) if (!(s.sopId in sops)) { try { sops[s.sopId] = await client.sop(s.sopId); } catch { /* gone */ } }
+      for (const s of e.consultedSops || []) if (!(s.sopId in sops)) {
+        try { sops[s.sopId] = await client.sop(s.sopId); } catch { /* gone */ }
+        try { sopRetrievals[s.sopId] = await client.retrievals(id, s.sopId); } catch { /* none */ }
+        try { sopRevisions[s.sopId] = await client.sopRevisions(s.sopId); } catch { /* none */ }
+      }
       for (const s of e.consultedSimilar || []) if (!(s.investigationRef in caseSummaries)) { try { caseSummaries[s.investigationRef] = await client.caseSummary(s.investigationRef); } catch { /* none */ } }
     }
     const name = arg("--name", investigation.state.toLowerCase() + "-" + id.slice(0, 8));
     const file = join(outDir, name + ".json");
-    writeFileSync(file, JSON.stringify({ name, snapshot, labels, appearances, docs, transcripts, actionRecords, sops, caseSummaries, calls, baselines }, null, 2) + "\n");
+    writeFileSync(file, JSON.stringify({ name, snapshot, labels, appearances, docs, transcripts, actionRecords, sops, sopRetrievals, sopRevisions, caseSummaries, calls, baselines }, null, 2) + "\n");
     console.log(`wrote ${file} (seq ${snapshot.seq}, ${thread?.length ?? 0} thread entries, ${Object.keys(labels).length} labels)`);
   }
 }
@@ -158,8 +164,9 @@ async function recordKnowledge(client: BackendClient, outDir: string): Promise<v
     name: "knowledge",
     knowledge: {
       counts: { procedures: sops.filter((s) => s.status !== "retired").length, cases: null, candidates: null },
-      sops, cases: null, candidates: null, detail: null, results: null, answer: null, importRows: [], importing: false,
+      sops, cases: null, candidates: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows: [], importing: false,
     },
+    revisions: Object.fromEntries(await Promise.all(sops.map(async (s) => [s.id, await client.sopRevisions(s.id).catch(() => [])] as const))),
     search: {
       procedures: (recall.results ?? []).map((r) => ({ sopId: r.sop_id, title: r.title, excerpt: r.excerpt, score: r.score, rationale: r.match_rationale, tags: r.tags ?? [], recommendation: r.recommendation, status: r.status, backend: r.backend })),
       cases: (similar?.results ?? []).map((r) => ({ investigationRef: r.investigation_ref, title: r.title, excerpt: r.excerpt, score: r.score, band: r.band, rationale: r.match_rationale, tags: r.tags ?? [], backend: r.backend })),

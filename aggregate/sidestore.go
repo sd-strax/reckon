@@ -56,6 +56,23 @@ type ToolCallContent struct {
 	CapabilityCallID string `json:"capability_call_id,omitempty"`
 }
 
+// RetrievalContent is one retrieved procedure excerpt as the model saw it
+// (06 §6.2; adr/0097), carried on a RecordInterpretation and written to
+// knowledge_retrievals (the bytes, keyed by excerpt hash) and
+// knowledge_retrieval_uses (this interpretation's use, with score and band).
+type RetrievalContent struct {
+	SOPID        uuid.UUID       `json:"sop_id"`
+	RevisionHash string          `json:"revision_hash"`
+	Excerpt      string          `json:"excerpt"`
+	Location     json.RawMessage `json:"location,omitempty"`
+	Score        float64         `json:"score,omitempty"`
+	Band         string          `json:"band,omitempty"`
+}
+
+// ExcerptHash is the content address of a retrieved excerpt: SHA-256 of its
+// bytes, the same function the agent and the event use.
+func (r RetrievalContent) ExcerptHash() string { return HashContent([]byte(r.Excerpt)) }
+
 // TranscriptRef is the reference the interpretation event carries into the
 // transcript side store (02 §6): the content hash locates the bytes, the
 // transcript/turn ids locate the position within the conversation.
@@ -128,6 +145,29 @@ func (s *SideStore) WriteReasoningTx(ctx context.Context, tx *sql.Tx, env Envelo
 			tc.ToolName, []byte(args), nullString(tc.ResultHash), nullString(transcriptHash),
 			env.OccurredAt, capCall); err != nil {
 			return fmt.Errorf("insert ai_tool_calls: %w", err)
+		}
+	}
+	for _, r := range c.Retrievals {
+		if r.Excerpt == "" || r.SOPID == uuid.Nil {
+			continue
+		}
+		var loc any
+		if len(r.Location) > 0 {
+			loc = []byte(r.Location)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO knowledge_retrievals (tenant_id, excerpt_hash, sop_id, revision_hash, excerpt, location, first_seen_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (tenant_id, excerpt_hash) DO NOTHING
+		`, env.TenantID, r.ExcerptHash(), r.SOPID, r.RevisionHash, r.Excerpt, loc, env.OccurredAt); err != nil {
+			return fmt.Errorf("insert knowledge_retrievals: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO knowledge_retrieval_uses (tenant_id, investigation_id, interpretation_id, excerpt_hash, score, band, retrieved_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT DO NOTHING
+		`, env.TenantID, env.AggregateID, c.InterpretationID, r.ExcerptHash(), r.Score, nullString(r.Band), env.OccurredAt); err != nil {
+			return fmt.Errorf("insert knowledge_retrieval_uses: %w", err)
 		}
 	}
 	return nil

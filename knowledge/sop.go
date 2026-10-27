@@ -14,8 +14,10 @@ package knowledge
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -86,6 +88,14 @@ type SOP struct {
 	ImportedBy string     `json:"imported_by,omitempty"`
 	ImportedAt *time.Time `json:"imported_at,omitempty"`
 
+	// ContentHash is the current revision's content address (RFC 8785 over the
+	// hashed content); a retrieval names the revision it read by it (adr/0097).
+	ContentHash string `json:"content_hash,omitempty"`
+	// Format is the imported document's format ("markdown") when the import
+	// recorded one; Original is the retained original (input on import, read
+	// back by Original()).
+	Format   string       `json:"format,omitempty"`
+	Original *SOPOriginal `json:"-"`
 	// RevisionCount is the substrate revision number of the current entry
 	// (monotonic within the lineage, 1 for a fresh SOP): the "rev N" label the
 	// Knowledge view shows when the source system recorded no version of its
@@ -97,6 +107,38 @@ type SOP struct {
 	// entry meta of the revision the retirement is applied to.
 	RetiredReason string `json:"retired_reason,omitempty"`
 	RetiredBy     string `json:"retired_by,omitempty"`
+}
+
+// SOPOriginal is the file a procedure was imported from, retained so a
+// citation can open what existed at retrieval time (06 §2.4; adr/0097).
+type SOPOriginal struct {
+	Filename  string `json:"filename"`
+	MediaType string `json:"media_type"`
+	Bytes     []byte `json:"bytes"`
+}
+
+// SOPRevision is one revision of a procedure's lineage (06 §2.2): the content
+// hash a retrieval names, when, by whom.
+type SOPRevision struct {
+	Revision      int        `json:"revision"`
+	ContentHash   string     `json:"content_hash"`
+	Title         string     `json:"title"`
+	Status        string     `json:"status"`
+	CreatedAt     time.Time  `json:"created_at"`
+	AuthorID      string     `json:"author_id,omitempty"`
+	ImportedBy    string     `json:"imported_by,omitempty"`
+	SourceVersion string     `json:"source_version,omitempty"`
+	SupersededAt  *time.Time `json:"superseded_at,omitempty"`
+	HasOriginal   bool       `json:"has_original"`
+}
+
+// RevisionContent is one revision's content, read back by hash (06 §6.2).
+type RevisionContent struct {
+	ContentHash string   `json:"content_hash"`
+	Title       string   `json:"title"`
+	Body        string   `json:"body"`
+	Tags        []string `json:"tags"`
+	Purged      bool     `json:"purged"`
 }
 
 // Store is the SOP corpus, backed by the memory substrate.
@@ -208,7 +250,80 @@ func sopMeta(sop SOP) map[string]any {
 		m["imported_by"] = sop.ImportedBy
 	}
 	m["imported_at"] = time.Now().UTC().Format(time.RFC3339)
+	if sop.Format != "" {
+		m["format"] = sop.Format
+	}
+	if o := sop.Original; o != nil && len(o.Bytes) > 0 {
+		// The retained original rides the revision's meta (adr/0097): it is
+		// part of the hashed content, so the hash a retrieval names covers the
+		// bytes the import saw.
+		m["original"] = map[string]any{"filename": o.Filename, "media_type": o.MediaType, "bytes_b64": base64.StdEncoding.EncodeToString(o.Bytes)}
+	}
 	return m
+}
+
+// Revisions lists a procedure's lineage, newest first (06 §2.2): every
+// revision's content hash, time, author and importer, retired or superseded
+// ones included.
+func (s *Store) Revisions(ctx context.Context, tenantID, id uuid.UUID) ([]SOPRevision, error) {
+	entries, err := s.sub.List(ctx, tenantID.String(), CorpusProcedures, substrate.ListFilter{
+		Tag: lineageTagPrefix + id.String(), IncludeRetired: true, IncludeSuperseded: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sop revisions: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	out := make([]SOPRevision, 0, len(entries))
+	for _, e := range entries {
+		r := SOPRevision{Revision: e.Revision, ContentHash: string(e.ContentHash), Title: e.Title, Status: sopStatus(e.Status), CreatedAt: e.Created, AuthorID: e.AuthoredBy, ImportedBy: str(e.Meta["imported_by"]), SupersededAt: e.SupersededAt}
+		if src, ok := e.Meta["source"].(map[string]any); ok {
+			r.SourceVersion = str(src["version"])
+		}
+		_, r.HasOriginal = e.Meta["original"].(map[string]any)
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Revision > out[j].Revision })
+	return out, nil
+}
+
+// RevisionContent reads one revision by its content hash (06 §6.2): the bytes
+// a past retrieval cited, or the purge tombstone.
+func (s *Store) RevisionContent(ctx context.Context, tenantID uuid.UUID, hash string) (RevisionContent, error) {
+	snap, err := s.sub.Snapshot(ctx, tenantID.String(), substrate.ContentHash(hash))
+	if err != nil {
+		return RevisionContent{}, fmt.Errorf("sop revision %s: %w", hash, err)
+	}
+	return RevisionContent{ContentHash: hash, Title: snap.Content.Title, Body: snap.Content.Body, Tags: stripReserved(snap.Content.Tags), Purged: snap.Purged}, nil
+}
+
+// Original returns the retained original of a revision (the current one when
+// hash is empty); ok is false when the import kept none.
+func (s *Store) Original(ctx context.Context, tenantID, id uuid.UUID, hash string) (SOPOriginal, bool, error) {
+	var meta map[string]any
+	if hash == "" {
+		e, err := s.resolveCurrent(ctx, tenantID, id, true)
+		if err != nil {
+			return SOPOriginal{}, false, err
+		}
+		meta = e.Meta
+	} else {
+		snap, err := s.sub.Snapshot(ctx, tenantID.String(), substrate.ContentHash(hash))
+		if err != nil {
+			return SOPOriginal{}, false, fmt.Errorf("sop revision %s: %w", hash, err)
+		}
+		meta = snap.Content.Meta
+	}
+	o, ok := meta["original"].(map[string]any)
+	if !ok {
+		return SOPOriginal{}, false, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(str(o["bytes_b64"]))
+	if err != nil {
+		return SOPOriginal{}, false, fmt.Errorf("sop original: %w", err)
+	}
+	return SOPOriginal{Filename: str(o["filename"]), MediaType: str(o["media_type"]), Bytes: raw}, true, nil
 }
 
 // Get returns the current revision of one SOP by its lineage id.
@@ -402,6 +517,8 @@ func toSOP(e substrate.Entry, tenantID, lineage uuid.UUID) SOP {
 		RevisionCount:  e.Revision,
 		RetiredReason:  str(e.Meta["retired_reason"]),
 		RetiredBy:      str(e.Meta["retired_by"]),
+		ContentHash:    string(e.ContentHash),
+		Format:         str(e.Meta["format"]),
 	}
 	if len(e.SignedOffBy) > 0 {
 		sop.SignerID = e.SignedOffBy[0]

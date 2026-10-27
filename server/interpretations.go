@@ -67,6 +67,13 @@ type ConsultedSOPBody struct {
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
 	Used           bool    `json:"used"`
+	// The retrieval's provenance (06 §6.2; adr/0097): the excerpt the model
+	// saw, the revision it came from, where in it, the band. The server
+	// writes the excerpt to the side store and the event keeps the hashes.
+	Excerpt      string          `json:"excerpt,omitempty"`
+	RevisionHash string          `json:"revision_hash,omitempty"`
+	Location     json.RawMessage `json:"location,omitempty"`
+	Band         string          `json:"band,omitempty"`
 }
 
 // ConsultedSimilarBody mirrors aggregate.ConsultedSimilarInvestigation.
@@ -212,9 +219,15 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 		cmd.Verdict = &aggregate.VerdictNode{Disposition: body.Verdict.Disposition}
 	}
 	for _, cs := range body.ConsultedSOPs {
-		cmd.ConsultedSOPs = append(cmd.ConsultedSOPs, aggregate.ConsultedSOP{
-			SOPID: cs.SOPID, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Used: cs.Used,
-		})
+		c := aggregate.ConsultedSOP{SOPID: cs.SOPID, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Used: cs.Used, RevisionHash: cs.RevisionHash}
+		if cs.Excerpt != "" {
+			if sopID, err := uuid.Parse(cs.SOPID); err == nil {
+				r := aggregate.RetrievalContent{SOPID: sopID, RevisionHash: cs.RevisionHash, Excerpt: cs.Excerpt, Location: cs.Location, Score: cs.RetrievalScore, Band: cs.Band}
+				c.ExcerptHash = r.ExcerptHash()
+				cmd.Retrievals = append(cmd.Retrievals, r)
+			}
+		}
+		cmd.ConsultedSOPs = append(cmd.ConsultedSOPs, c)
 	}
 	for _, cs := range body.ConsultedSimilar {
 		cmd.ConsultedSimilar = append(cmd.ConsultedSimilar, aggregate.ConsultedSimilarInvestigation{

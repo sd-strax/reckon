@@ -189,3 +189,13 @@ describe("collapsePatterns", () => {
   });
 });
 
+describe("lineDiff", () => {
+  it("marks added and removed lines and finds the current span of an excerpt", async () => {
+    const { lineDiff, currentSpan } = await import("./diff");
+    const d = lineDiff("a\nb\nc", "a\nB\nc\nd");
+    expect(d.map((l) => l.kind + ":" + l.text)).toEqual(["same:a", "removed:b", "added:B", "same:c", "added:d"]);
+    expect(currentSpan("# T\nintro\nstep one\nstep two\nend", "step one\nstep two…")).toBe("step one\nstep two");
+    expect(currentSpan("# T\nother", "gone\nlines")).toBe("# T\nother");
+  });
+});
+

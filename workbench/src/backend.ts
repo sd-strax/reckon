@@ -359,6 +359,9 @@ export interface SOPDoc {
   updatedAt?: string;
   /** The substrate revision of the current entry: "rev N" when the source recorded no version. */
   revisionCount?: number;
+  /** The current revision's content hash; a retrieval names the revision it read by it (adr/0097). */
+  contentHash?: string;
+  format?: string;
   retiredAt?: string;
   retiredReason?: string;
   retiredBy?: string;
@@ -400,7 +403,7 @@ interface RawSOP {
   id?: string; title?: string; body?: string; tags?: string[]; status?: string; recommendation?: string;
   author_id?: string; source?: { system?: string; url?: string; version?: string }; imported_by?: string;
   imported_at?: string; created_at?: string; updated_at?: string; revision_count?: number;
-  retired_at?: string; retired_reason?: string; retired_by?: string;
+  retired_at?: string; retired_reason?: string; retired_by?: string; content_hash?: string; format?: string;
 }
 
 function mapSOP(r: RawSOP, id: string): SOPDoc {
@@ -410,6 +413,7 @@ function mapSOP(r: RawSOP, id: string): SOPDoc {
     source: r.source ? { system: r.source.system, url: r.source.url ?? "", version: r.source.version } : undefined,
     importedBy: r.imported_by, importedAt: r.imported_at, createdAt: r.created_at, updatedAt: r.updated_at,
     revisionCount: r.revision_count, retiredAt: r.retired_at, retiredReason: r.retired_reason, retiredBy: r.retired_by,
+    contentHash: r.content_hash, format: r.format,
   };
 }
 
@@ -430,6 +434,46 @@ export interface RecallSOPsRaw {
 export interface RecallSimilarRaw {
   results: { investigation_ref: string; title: string; excerpt: string; score: number; band: string; match_rationale: string; tags?: string[]; backend?: string }[];
   coverage: string;
+}
+
+/** One revision of a procedure's lineage (knowledge.SOPRevision, adr/0097). */
+export interface SOPRevision {
+  revision: number;
+  contentHash: string;
+  title: string;
+  status: string;
+  createdAt: string;
+  authorId?: string;
+  importedBy?: string;
+  sourceVersion?: string;
+  supersededAt?: string;
+  hasOriginal: boolean;
+}
+
+/** One revision's content by hash (knowledge.RevisionContent). */
+export interface RevisionContent {
+  contentHash: string;
+  title: string;
+  body: string;
+  tags: string[];
+  purged: boolean;
+}
+
+/** One retrieved excerpt as a turn consulted it (server.RetrievalView, adr/0097). */
+export interface RetrievalRow {
+  interpretationId: string;
+  sopId: string;
+  excerptHash: string;
+  revisionHash: string;
+  excerpt: string;
+  location?: { headingPath?: string[]; offset?: number; page?: number };
+  score?: number;
+  band?: string;
+  retrievedAt: string;
+  matchesCurrent?: boolean;
+  currentHash?: string;
+  chunkIndex: number;
+  chunkCount: number;
 }
 
 /** A prediction's declared falsification test (mirrors aggregate.QuerySpec). */
@@ -1567,6 +1611,41 @@ export class BackendClient {
   /** GET /api/sops/{id} — one procedure, whole (08 §8.6 "Whole document"). */
   async sop(id: string): Promise<SOPDoc> {
     return mapSOP(await this.authedGet<RawSOP>(`/api/sops/${encodeURIComponent(id)}`), id);
+  }
+
+  /** GET /api/sops/{id}/revisions — the lineage, newest first (adr/0097). */
+  async sopRevisions(id: string): Promise<SOPRevision[]> {
+    interface Raw { revision?: number; content_hash?: string; title?: string; status?: string; created_at?: string; author_id?: string; imported_by?: string; source_version?: string; superseded_at?: string; has_original?: boolean }
+    const r = await this.authedGet<{ revisions?: Raw[] }>(`/api/sops/${encodeURIComponent(id)}/revisions`);
+    return (r.revisions ?? []).map((x) => ({ revision: x.revision ?? 0, contentHash: x.content_hash ?? "", title: x.title ?? "", status: x.status ?? "", createdAt: x.created_at ?? "", authorId: x.author_id, importedBy: x.imported_by, sourceVersion: x.source_version, supersededAt: x.superseded_at, hasOriginal: !!x.has_original }));
+  }
+
+  /** GET /api/sops/{id}/revisions/{hash} — one revision's content. */
+  async sopRevision(id: string, hash: string): Promise<RevisionContent> {
+    const r = await this.authedGet<{ content_hash?: string; title?: string; body?: string; tags?: string[]; purged?: boolean }>(`/api/sops/${encodeURIComponent(id)}/revisions/${encodeURIComponent(hash)}`);
+    return { contentHash: r.content_hash ?? hash, title: r.title ?? "", body: r.body ?? "", tags: r.tags ?? [], purged: !!r.purged };
+  }
+
+  /** GET /api/sops/{id}/original?rev= — the retained original's text and media type; null when none was kept. */
+  async sopOriginal(id: string, revision?: string): Promise<{ text: string; mediaType: string } | null> {
+    if (!this.token) throw new Error("no token source configured");
+    const res = await fetch(`${this.baseUrl()}/api/sops/${encodeURIComponent(id)}/original${revision ? "?rev=" + encodeURIComponent(revision) : ""}`, {
+      headers: { Authorization: `Bearer ${await this.token()}` }, signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`GET original → ${res.status}`);
+    return { text: await res.text(), mediaType: res.headers.get("content-type") ?? "" };
+  }
+
+  /** GET /api/investigations/{id}/retrievals[?sop=] — the excerpts the turns retrieved (adr/0097). */
+  async retrievals(investigationId: string, sopId?: string): Promise<RetrievalRow[]> {
+    interface Raw { interpretation_id?: string; sop_id?: string; excerpt_hash?: string; revision_hash?: string; excerpt?: string; location?: { heading_path?: string[]; offset?: number; page?: number }; score?: number; band?: string; retrieved_at?: string; matches_current?: boolean; current_hash?: string; chunk_index?: number; chunk_count?: number }
+    const r = await this.authedGet<{ retrievals?: Raw[] }>(`/api/investigations/${encodeURIComponent(investigationId)}/retrievals${sopId ? "?sop=" + encodeURIComponent(sopId) : ""}`);
+    return (r.retrievals ?? []).map((x) => ({
+      interpretationId: x.interpretation_id ?? "", sopId: x.sop_id ?? "", excerptHash: x.excerpt_hash ?? "", revisionHash: x.revision_hash ?? "", excerpt: x.excerpt ?? "",
+      location: x.location ? { headingPath: x.location.heading_path, offset: x.location.offset, page: x.location.page } : undefined,
+      score: x.score, band: x.band, retrievedAt: x.retrieved_at ?? "", matchesCurrent: x.matches_current, currentHash: x.current_hash, chunkIndex: x.chunk_index ?? 1, chunkCount: x.chunk_count ?? 1,
+    }));
   }
 
   /** GET /api/sops — the procedure corpus, current revisions (09 §9.3). */

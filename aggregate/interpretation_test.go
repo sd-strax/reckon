@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -324,5 +325,48 @@ func TestRecordInterpretation_RejectedWhenConcluded(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("reasoning accepted on a concluded investigation")
+	}
+}
+
+// adr/0097: a retrieved excerpt on the command lands in the side store in the
+// interpretation's transaction — the bytes keyed by their hash, the use keyed
+// by the interpretation — and a second turn citing the same excerpt shares
+// the row.
+func TestRecordInterpretation_WritesRetrievals(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetTables(t)
+	tenantID := uuid.New()
+	h := NewHandler(NewStore(testDB), InvestigationCurrentProjector{}, ActionCurrentProjector{}).
+		WithSideStore(NewSideStore(testDB))
+	invID := activeInvestigation(t, h, tenantID)
+	sopID := uuid.New()
+	retrieval := RetrievalContent{SOPID: sopID, RevisionHash: "rev-1", Excerpt: "Isolate first.", Location: json.RawMessage(`{"heading_path":["Runbook"],"offset":0}`), Score: 0.9, Band: "RELATED"}
+	record := func() {
+		t.Helper()
+		cmd := RecordInterpretation{
+			InterpretationID: uuid.New(), InterpretationType: InterpretationPivot, Rationale: "consulted the runbook",
+			ConsultedSOPs: []ConsultedSOP{{SOPID: sopID.String(), Title: "Runbook", RetrievalScore: 0.9, Used: true, ExcerptHash: retrieval.ExcerptHash(), RevisionHash: "rev-1"}},
+			Retrievals:    []RetrievalContent{retrieval},
+		}
+		env := newTestEnvelope("analyst-1")
+		env.AggregateID, env.TenantID, env.CorrelationID, env.OccurredAt = invID, tenantID, uuid.New(), time.Now()
+		if _, err := h.Handle(context.Background(), env, cmd); err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+	}
+	record()
+	record()
+	var rows, uses int
+	_ = testDB.QueryRow(`SELECT count(*) FROM knowledge_retrievals WHERE tenant_id = $1 AND sop_id = $2`, tenantID, sopID).Scan(&rows)
+	_ = testDB.QueryRow(`SELECT count(*) FROM knowledge_retrieval_uses WHERE tenant_id = $1 AND investigation_id = $2`, tenantID, invID).Scan(&uses)
+	if rows != 1 || uses != 2 {
+		t.Errorf("side store: %d excerpt rows, %d uses; want 1 shared row, 2 uses", rows, uses)
+	}
+	var excerpt, revision string
+	_ = testDB.QueryRow(`SELECT excerpt, revision_hash FROM knowledge_retrievals WHERE excerpt_hash = $1`, retrieval.ExcerptHash()).Scan(&excerpt, &revision)
+	if excerpt != "Isolate first." || revision != "rev-1" {
+		t.Errorf("stored excerpt = %q rev %q", excerpt, revision)
 	}
 }
