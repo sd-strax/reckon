@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Investigation — response stage</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0f24;}
+a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;font-weight:600;padding:1px 7px 1px 6px;border-radius:5px;line-height:1.45;white-space:nowrap}
+.sw{width:6px;height:6px;border-radius:2px;display:inline-block}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.btn{font:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:6px 12px;cursor:pointer;border:1px solid rgba(255,255,255,.16);background:transparent;color:rgba(255,255,255,.88)}
+.btn-primary{background:#5d5be0;border-color:#5d5be0;color:#ffffff}
+.btn-ok{background:#4ec77b;border-color:#4ec77b;color:#0a0f24}
+.tab{font:inherit;font-size:13px;font-weight:600;padding:10px 2px;background:transparent;border:0;border-bottom:2px solid transparent;color:rgba(255,255,255,.62);cursor:pointer;display:flex;gap:6px;align-items:center}
+.ev{display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;background:rgba(245,181,61,.13);color:#f5b53d;border:1px solid rgba(245,181,61,.34)}
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.05);border-radius:7px;overflow:hidden}
+.fact{background:#141a33;padding:7px 10px;display:flex;flex-direction:column;gap:2px}
+.fl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.group{display:flex;align-items:center;gap:10px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.group::after{content:"";flex:1;height:1px;background:rgba(255,255,255,.09)}
+</style>
+</head>
+<body>
+<div style="width: 100%; min-height: 900px; display: flex; flex-direction: column; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; padding: 14px 20px; background: #070b1c; border-bottom: 1px solid rgba(255,255,255,.09);">
+<div style="display: flex; align-items: center; gap: 12px; flex: 999 1 420px; min-width: 0;">
+<span style="width: 30px; height: 30px; border-radius: 7px; background: rgba(245,154,107,.14); color: #f59a6b; display: flex; align-items: center; justify-content: center; flex: none;" aria-hidden="true">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3l9 16H3z"></path><path d="M12 10v4"></path><path d="M12 17h.01"></path></svg>
+</span>
+<div style="min-width: 0;">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+<span class="chip" style="color: rgba(255,255,255,.88); background: rgba(255,255,255,.08);">Contoso</span>
+<h1 style="margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em;">Suspicious interactive RDP logon to WIN-FILE01 by svc_backup</h1>
+</div>
+<div class="mono" style="font-size: 11px; color: rgba(255,255,255,.62); margin-top: 2px;">inv-8b9ce9b2 · from case INC0010042 · 14:41 UTC · owner Sudeep</div>
+</div>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+<span class="pill" style="color: #ff5f6e; background: rgba(255,95,110,.13); border: 1px solid rgba(255,95,110,.34); font-size: 11px; padding: 3px 10px;">
+<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h11l-2 4 2 4H5"></path></svg>MALICIOUS</span>
+<ol style="display: flex; align-items: center; gap: 6px; list-style: none; margin: 0; padding: 0; font-size: 12px;" aria-label="Investigation stage">
+<li style="color: #4ec77b; font-weight: 600;">✓ Investigate</li>
+<li style="color: rgba(255,255,255,.26);" aria-hidden="true">—</li>
+<li style="color: #4ec77b; font-weight: 600;">✓ Verdict</li>
+<li style="color: rgba(255,255,255,.26);" aria-hidden="true">—</li>
+<li style="display: flex; align-items: center; gap: 5px; color: #f5b53d; font-weight: 700;"><span style="width: 8px; height: 8px; border-radius: 999px; background: #f5b53d; box-shadow: 0 0 0 3px rgba(245,181,61,.18);"></span>Contain</li>
+<li style="color: rgba(255,255,255,.26);" aria-hidden="true">—</li>
+<li style="color: rgba(255,255,255,.62);">Notify</li>
+<li style="color: rgba(255,255,255,.26);" aria-hidden="true">—</li>
+<li style="color: rgba(255,255,255,.62);">Close</li>
+</ol>
+<span style="font-size: 12px; color: #f5b53d; font-weight: 600;">⏳ first approval expires in 14m</span>
+</div>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1; min-height: 0;">
+
+<nav aria-label="Work queue" style="flex: 1 1 220px; max-width: 270px; background: #0a0f24; border-right: 1px solid rgba(255,255,255,.09); padding: 14px 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px;">
+<div class="eyebrow" style="padding: 0 8px 6px; display: flex; justify-content: space-between;"><span>Investigations</span><span class="mono">2</span></div>
+<a href="#" style="display: block; padding: 9px 10px; border-radius: 7px; background: rgba(115,113,252,.16); border: 1px solid rgba(115,113,252,.45); color: rgba(255,255,255,.88);">
+<div style="display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: rgba(255,255,255,.62);"><span>Contoso</span><span style="color: #f5b53d; font-weight: 700;">Contain</span></div>
+<div style="font-weight: 600; margin-top: 2px;">Suspicious RDP logon to WIN-FILE01</div>
+<div class="mono" style="font-size: 10px; color: rgba(255,255,255,.62); margin-top: 3px;">from INC0010042</div>
+</a>
+<a href="#" style="display: block; padding: 9px 10px; border-radius: 7px; color: rgba(255,255,255,.88);">
+<div style="display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: rgba(255,255,255,.62);"><span>Northwind</span><span style="color: #4aa8ff; font-weight: 700;">Investigate</span></div>
+<div style="font-weight: 600; margin-top: 2px;">Phishing report: invoice-themed lure</div>
+<div class="mono" style="font-size: 10px; color: rgba(255,255,255,.62); margin-top: 3px;">from INC0010039</div>
+</a>
+<div class="eyebrow" style="padding: 16px 8px 6px; display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,.09); margin-top: 10px;"><span>Cases · ServiceNow</span><span class="mono">1 new</span></div>
+<div style="padding: 9px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,.09); display: flex; flex-direction: column; gap: 6px;">
+<div style="display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: rgba(255,255,255,.62);"><span>Fabrikam</span><span class="mono">INC0010041</span></div>
+<a href="#" style="font-weight: 600; color: rgba(255,255,255,.88);">DLP: bulk download from Finance-Q1 by a contractor</a>
+<button type="button" class="btn" style="align-self: flex-start; padding: 3px 9px; font-size: 11px; color: #8b8aff; border-color: rgba(115,113,252,.45);">Start investigation</button>
+</div>
+<p style="margin: 6px 8px 0; font-size: 11px; line-height: 1.5; color: rgba(255,255,255,.62);">Cases already under investigation are listed above, not here.</p>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column;">
+<div role="tablist" aria-label="Investigation views" style="display: flex; gap: 22px; padding: 0 24px; border-bottom: 1px solid rgba(255,255,255,.09);">
+<button class="tab" role="tab" type="button">Summary</button>
+<button class="tab" role="tab" type="button">Story</button>
+<button class="tab" role="tab" type="button">Reasoning <span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">2</span></button>
+<button class="tab" role="tab" aria-selected="true" type="button" style="color: rgba(255,255,255,.88); border-bottom-color: #7371fc;">Response <span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); padding: 0 6px;">3</span></button>
+</div>
+
+<div style="padding: 18px 24px 32px; display: flex; flex-direction: column; gap: 14px; max-width: 900px; box-sizing: border-box; width: 100%;">
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;">
+<div style="flex: 999 1 320px; min-width: 0;">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600;">Containment plan</h2>
+<div style="font-size: 12px; color: rgba(255,255,255,.62); margin-top: 2px;">3 actions · 1 owner action item · from SOPs lateral-movement-rdp §2 and credential-theft-triage §3</div>
+</div>
+<button type="button" class="btn">Review one by one</button>
+<button type="button" class="btn btn-primary">Approve 2 pre-authorized</button>
+</div>
+
+<div class="group">Containment</div>
+
+<article style="background: #141a33; border: 1px solid rgba(245,181,61,.34); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+<span style="width: 26px; height: 26px; border-radius: 7px; background: rgba(255,95,110,.13); color: #ff5f6e; display: flex; align-items: center; justify-content: center;" aria-hidden="true">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="11" rx="2"></rect><path d="M9 20h6"></path><path d="M3 3l18 18"></path></svg></span>
+<span style="font-weight: 700; font-size: 14px;">Isolate host</span>
+<span class="chip" style="color: #6fb6f2; background: rgba(111,182,242,.14);"><span class="sw" style="background: #6fb6f2;"></span>WIN-FILE01</span>
+<span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); font-size: 9px;"><span style="width: 7px; height: 7px; background: #f5b53d;"></span>T2 · REVERSIBLE</span>
+<span style="flex: 1;"></span>
+<span class="mono" style="font-size: 10px; color: rgba(255,255,255,.62);">host.isolate</span>
+<span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); border: 1px solid rgba(245,181,61,.34); font-size: 9px;">REQUESTED</span>
+</div>
+<p style="margin: 0; line-height: 1.55;">Stops hands-on-keyboard activity while the investigation continues. We already have what the host reached, so isolating it loses nothing.</p>
+<div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+<span class="eyebrow">Because</span>
+<a href="#" class="ev">P2 outbound to 185.220.101.5</a>
+<a href="#" class="ev">P4 auth breadth</a>
+<a href="#" class="ev">P5 attestation</a>
+</div>
+<div class="facts">
+<div class="fact"><span class="fl">Undo</span><span>host.unisolate</span></div>
+<div class="fact"><span class="fl">Runs via</span><span class="mono" style="font-size: 12px;">crowdstrike-response</span></div>
+<div class="fact"><span class="fl">Response policy</span><span style="color: #4ec77b;">Pre-authorized</span></div>
+<div class="fact"><span class="fl">Window</span><span style="color: #f5b53d; font-weight: 600;">14m left</span></div>
+</div>
+<div style="display: flex; gap: 8px; justify-content: flex-end;">
+<button type="button" class="btn">Modify</button>
+<button type="button" class="btn">Reject</button>
+<button type="button" class="btn btn-ok">Approve</button>
+</div>
+</article>
+
+<article style="background: #141a33; border: 1px solid rgba(245,181,61,.34); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+<span style="width: 26px; height: 26px; border-radius: 7px; background: rgba(255,95,110,.13); color: #ff5f6e; display: flex; align-items: center; justify-content: center;" aria-hidden="true">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4-6 8-6s7 2 8 6"></path><path d="M3 3l18 18"></path></svg></span>
+<span style="font-weight: 700; font-size: 14px;">Disable account</span>
+<span class="chip" style="color: #c98fe0; background: rgba(201,143,224,.15);"><span class="sw" style="background: #c98fe0;"></span>svc_backup</span>
+<span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); font-size: 9px;"><span style="width: 7px; height: 7px; background: #f5b53d;"></span>T2 · REVERSIBLE</span>
+<span style="flex: 1;"></span>
+<span class="mono" style="font-size: 10px; color: rgba(255,255,255,.62);">account.disable</span>
+<span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); border: 1px solid rgba(245,181,61,.34); font-size: 9px;">REQUESTED</span>
+</div>
+<p style="margin: 0; line-height: 1.55;">Blocks new sessions until the credential is rotated. It does not end sessions already open; revoke those separately.</p>
+<div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+<span class="eyebrow">Because</span>
+<a href="#" class="ev">P4 auth breadth</a>
+<a href="#" class="ev">P5 attestation</a>
+</div>
+<div class="facts">
+<div class="fact"><span class="fl">Undo</span><span>account.enable</span></div>
+<div class="fact"><span class="fl">Runs via</span><span class="mono" style="font-size: 12px;">okta</span></div>
+<div class="fact"><span class="fl">Response policy</span><span style="color: #f5b53d;">Needs Contoso approval</span></div>
+<div class="fact"><span class="fl">Window</span><span>58m left</span></div>
+</div>
+<div style="display: flex; gap: 8px; justify-content: flex-end;">
+<button type="button" class="btn">Modify</button>
+<button type="button" class="btn">Reject</button>
+<button type="button" class="btn btn-primary">Request Contoso approval</button>
+</div>
+</article>
+
+<article style="background: #141a33; border: 1px solid rgba(245,181,61,.34); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+<span style="width: 26px; height: 26px; border-radius: 7px; background: rgba(255,95,110,.13); color: #ff5f6e; display: flex; align-items: center; justify-content: center;" aria-hidden="true">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"></circle><path d="M6.5 6.5l11 11"></path></svg></span>
+<span style="font-weight: 700; font-size: 14px;">Block indicators</span>
+<span class="chip" style="color: #45c9d6; background: rgba(69,201,214,.14);"><span class="sw" style="background: #45c9d6;"></span>185.220.101.5</span>
+<span class="chip" style="color: #6fd698; background: rgba(111,214,152,.14);"><span class="sw" style="background: #6fd698;"></span>exfil.example.net</span>
+<span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); font-size: 9px;"><span style="width: 7px; height: 7px; background: #f5b53d;"></span>T2</span>
+<span style="flex: 1;"></span>
+<span class="mono" style="font-size: 10px; color: rgba(255,255,255,.62);">ioc.block · 24h</span>
+<span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); border: 1px solid rgba(245,181,61,.34); font-size: 9px;">REQUESTED</span>
+</div>
+<p style="margin: 0; line-height: 1.55;">WIN-FILE01 beaconed to this destination about 15 seconds after the PowerShell spawn. Blocking it at the edge covers any other host that tries.</p>
+<div class="facts">
+<div class="fact"><span class="fl">Undo</span><span style="color: #f5b53d;">Best effort — treat as permanent</span></div>
+<div class="fact"><span class="fl">Runs via</span><span class="mono" style="font-size: 12px;">crowdstrike-response</span></div>
+<div class="fact"><span class="fl">Response policy</span><span style="color: #4ec77b;">Pre-authorized</span></div>
+<div class="fact"><span class="fl">Window</span><span>58m left</span></div>
+</div>
+<div style="display: flex; gap: 8px; justify-content: flex-end;">
+<button type="button" class="btn">Modify</button>
+<button type="button" class="btn">Reject</button>
+<button type="button" class="btn btn-ok">Approve</button>
+</div>
+</article>
+
+<div class="group">Owner action items</div>
+
+<article style="background: #141a33; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+<span style="width: 26px; height: 26px; border-radius: 7px; background: rgba(245,181,61,.13); color: #f5b53d; display: flex; align-items: center; justify-content: center;" aria-hidden="true">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"></circle><path d="M11 12l9-9"></path><path d="M17 6l3 3"></path></svg></span>
+<div style="flex: 999 1 300px; min-width: 0;">
+<div style="font-weight: 700;">Rotate the svc_backup credential</div>
+<div style="font-size: 12px; color: rgba(255,255,255,.62); margin-top: 2px;">Owner: Contoso IAM · tracked here until the owner confirms it's done</div>
+</div>
+<span class="pill" style="color: rgba(255,255,255,.62); background: rgba(255,255,255,.08);">NOT SENT</span>
+<button type="button" class="btn">Add to notification</button>
+</article>
+
+<div class="group">Notification</div>
+
+<article style="background: #141a33; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+<span style="font-weight: 700;">Stakeholder notification</span>
+<span style="font-size: 12px; color: rgba(255,255,255,.62);">Draft from the case record · to Contoso security contact</span>
+<span style="flex: 1;"></span>
+<span class="pill" style="color: rgba(255,255,255,.62); background: rgba(255,255,255,.08);">DRAFT</span>
+</div>
+<div style="background: #0a0f24; border: 1px solid rgba(255,255,255,.05); border-radius: 7px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; line-height: 1.55;">
+<div><span class="fl" style="display: inline;">What happened </span>The svc_backup account was used from a workstation for an interactive session on WIN-FILE01 at 14:32 UTC. Your backup team confirmed nobody was working then.</div>
+<div><span class="fl" style="display: inline;">What we did </span>Containment pending: host isolation and indicator block.</div>
+<div><span class="fl" style="display: inline;">What we need </span>Approve disabling svc_backup, and rotate its credential.</div>
+</div>
+<div style="display: flex; gap: 8px; justify-content: flex-end;">
+<button type="button" class="btn">Edit</button>
+<button type="button" class="btn btn-primary">Preview &amp; send</button>
+</div>
+</article>
+
+</div>
+</main>
+
+<aside aria-label="Assistant" style="flex: 1 1 340px; max-width: 420px; background: #0c1228; border-left: 1px solid rgba(255,255,255,.09); display: flex; flex-direction: column; box-sizing: border-box;">
+<div style="padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.09); display: flex; align-items: center; gap: 8px;">
+<span style="width: 22px; height: 22px; border-radius: 7px; background: #7371fc;" aria-hidden="true"></span>
+<span style="font-weight: 700;">Assistant</span>
+<span style="flex: 1;"></span>
+<span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">scoped to inv-8b9ce9b2</span>
+</div>
+<div style="flex: 1; padding: 14px 16px; display: flex; flex-direction: column; gap: 16px;">
+<div style="align-self: flex-end; max-width: 86%; background: #7371fc; color: #ffffff; padding: 8px 12px; border-radius: 13px 13px 4px 13px; line-height: 1.5; font-weight: 600;">Based on the SOP, what actions are required?</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div class="eyebrow" style="color: #8b8aff;">reckon · [MODEL]</div>
+<p style="margin: 0; line-height: 1.62; font-size: 14px;">Two SOPs apply. I've proposed isolating WIN-FILE01, disabling svc_backup and blocking the beacon destination. Rotating the credential is Contoso's to do, so it's an owner action item.</p>
+<p style="margin: 0; line-height: 1.62; font-size: 14px;">The response policy pre-authorizes isolation and blocking; disabling an account needs Contoso's approval.</p>
+<a href="#" style="display: flex; gap: 8px; align-items: center; padding: 6px 10px; border: 1px solid rgba(245,181,61,.34); background: rgba(245,181,61,.13); border-radius: 7px; color: rgba(255,255,255,.88); font-size: 12px;"><span style="color: #f5b53d;">→</span>Containment plan · 3 actions</a>
+<div style="display: flex; gap: 6px; flex-wrap: wrap;">
+<span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(78,199,123,.13); color: #4ec77b;">followed: lateral-movement-rdp §2</span>
+<span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(78,199,123,.13); color: #4ec77b;">followed: credential-theft-triage §3</span>
+</div>
+<details style="font-size: 12px; color: rgba(255,255,255,.62);">
+<summary style="cursor: pointer;">Activity · recall_sops, 3 action requests</summary>
+</details>
+</div>
+</div>
+<div style="padding: 12px 16px 16px;">
+<label for="composer2" style="display: block; font-size: 11px; color: rgba(255,255,255,.62); margin-bottom: 6px;">Ask about this investigation</label>
+<div style="display: flex; gap: 8px; align-items: flex-end; background: #141a33; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; padding: 8px;">
+<textarea id="composer2" rows="2" placeholder="e.g. Also revoke open svc_backup sessions" style="flex: 1; resize: none; background: transparent; border: 0; color: rgba(255,255,255,.88); font: inherit; outline: none;"></textarea>
+<button type="button" class="btn btn-primary" aria-label="Send">Send</button>
+</div>
+</div>
+</aside>
+
+</div>
+</div>
+</body>
+</html>

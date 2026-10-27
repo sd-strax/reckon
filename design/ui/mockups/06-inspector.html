@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inspector — evidence, entity, procedure</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0f24;}
+a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;font-weight:600;padding:1px 7px 1px 6px;border-radius:5px;line-height:1.45;white-space:nowrap}
+.sw{width:6px;height:6px;border-radius:2px;display:inline-block}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.btn{font:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:5px 10px;cursor:pointer;border:1px solid rgba(255,255,255,.16);background:transparent;color:rgba(255,255,255,.88)}
+.icon{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:0;background:transparent;color:rgba(255,255,255,.62);cursor:pointer;font:inherit}
+.icon:hover{background:rgba(255,255,255,.055);color:rgba(255,255,255,.88)}
+.tabs{display:flex;gap:18px;border-bottom:1px solid rgba(255,255,255,.09);padding:0 16px}
+.tb{font:inherit;font-size:12px;font-weight:600;padding:8px 0;background:transparent;border:0;border-bottom:2px solid transparent;color:rgba(255,255,255,.62);cursor:pointer}
+.tb.on{color:rgba(255,255,255,.88);border-bottom-color:#7371fc}
+.kv{display:grid;grid-template-columns:110px minmax(0,1fr);gap:0}
+.k{font-size:11px;color:rgba(255,255,255,.62);padding:6px 0;border-top:1px solid rgba(255,255,255,.05)}
+.v{padding:6px 0;border-top:1px solid rgba(255,255,255,.05);min-width:0}
+.sec{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border-top:1px solid rgba(255,255,255,.09)}
+.ctx{display:flex;gap:10px;align-items:baseline;padding:5px 8px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<div style="width: 1480px; height: 1000px; box-sizing: border-box; padding: 24px; display: flex; gap: 20px; align-items: flex-start; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
+
+<aside aria-label="Inspector: evidence" style="flex: 1 1 0; min-width: 0; background: #11172f; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4); display: flex; flex-direction: column; overflow: hidden;">
+<div style="display: flex; align-items: center; gap: 6px; padding: 8px 10px 0 16px;">
+<span class="eyebrow" style="flex: 1;">Evidence · Authentication</span>
+<button type="button" class="icon" aria-label="Pin inspector"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"></path><path d="M9 3h6l-1 7 4 4H6l4-4z"></path></svg></button>
+<button type="button" class="icon" aria-label="Close inspector">✕</button>
+</div>
+<div style="padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-size: 15px; font-weight: 700; line-height: 1.4;">svc_backup interactive RDP logon to WIN-FILE01 from 10.0.4.20</h2>
+<div class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">2026-04-20 14:32:47 UTC</div>
+<div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; padding: 7px 10px; background: rgba(115,113,252,.16); border-radius: 7px;">
+<span style="color: rgba(255,255,255,.62);">In this case:</span>
+<span>cited by <a href="#" class="mono">P4</a> <a href="#" class="mono">P6</a></span>
+<span style="color: rgba(255,255,255,.62);">·</span>
+<span>grounds <a href="#">Disable account</a></span>
+</div>
+</div>
+<div class="tabs" role="tablist">
+<button type="button" role="tab" class="tb on" aria-selected="true">Details</button>
+<button type="button" role="tab" class="tb">Provenance</button>
+<button type="button" role="tab" class="tb">Raw</button>
+</div>
+<div style="padding: 4px 16px 12px;">
+<div class="kv">
+<div class="k">User</div><div class="v"><span class="chip" style="color: #c98fe0; background: rgba(201,143,224,.15);"><span class="sw" style="background: #c98fe0;"></span>svc_backup</span> <span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">CONTOSO</span></div>
+<div class="k">Logon type</div><div class="v">RemoteInteractive <span style="color: rgba(255,255,255,.62);">(type 10)</span></div>
+<div class="k">Source</div><div class="v"><span class="chip" style="color: #45c9d6; background: rgba(69,201,214,.14);"><span class="sw" style="background: #45c9d6;"></span>10.0.4.20</span></div>
+<div class="k">Destination</div><div class="v"><span class="chip" style="color: #6fb6f2; background: rgba(111,182,242,.14);"><span class="sw" style="background: #6fb6f2;"></span>WIN-FILE01</span> <span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">CONTOSO</span></div>
+<div class="k">Result</div><div class="v" style="color: #4ec77b; font-weight: 600;">Success</div>
+</div>
+</div>
+<div class="sec">
+<span class="eyebrow">Around it on WIN-FILE01</span>
+<div style="display: flex; flex-direction: column; gap: 2px;">
+<a href="#" class="ctx" style="color: rgba(255,255,255,.88);"><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62); width: 56px;">14:32:11</span><span>jdoe RDP logon from 10.0.4.55</span></a>
+<a href="#" class="ctx" style="color: rgba(255,255,255,.88);"><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62); width: 56px;">14:32:40</span><span>mstsc-hijack.exe starts</span></a>
+<div class="ctx" style="background: rgba(255,95,110,.13); font-weight: 600;"><span class="mono" style="font-size: 11px; width: 56px;">14:32:47</span><span>this logon</span></div>
+<a href="#" class="ctx" style="color: rgba(255,255,255,.88);"><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62); width: 56px;">14:33:05</span><span>powershell.exe, encoded command</span></a>
+<a href="#" class="ctx" style="color: rgba(255,255,255,.88);"><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62); width: 56px;">14:33:20</span><span>connects to 185.220.101.5:443</span></a>
+</div>
+<a href="#" style="font-size: 12px;">Show on the timeline</a>
+</div>
+<div class="sec">
+<span class="eyebrow">Source</span>
+<div style="font-size: 12px; color: rgba(255,255,255,.62); line-height: 1.5;"><span class="mono" style="color: rgba(255,255,255,.88);">enumerate_logons</span> via identity telemetry · coverage <span style="color: #4ec77b; font-weight: 700;">COMPLETE</span> · <a href="#">Provenance</a></div>
+</div>
+</aside>
+
+<aside aria-label="Inspector: entity" style="flex: 1 1 0; min-width: 0; background: #11172f; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4); display: flex; flex-direction: column; overflow: hidden;">
+<div style="display: flex; align-items: center; gap: 6px; padding: 8px 10px 0 10px;">
+<button type="button" class="icon" aria-label="Back to evidence">‹</button>
+<nav aria-label="Inspector history" style="flex: 1; font-size: 11px; color: rgba(255,255,255,.62); display: flex; gap: 6px; min-width: 0;"><a href="#" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">RDP logon 14:32:47</a><span aria-hidden="true">›</span><span style="color: rgba(255,255,255,.88);">svc_backup</span></nav>
+<button type="button" class="icon" aria-label="Pin inspector"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"></path><path d="M9 3h6l-1 7 4 4H6l4-4z"></path></svg></button>
+<button type="button" class="icon" aria-label="Close inspector">✕</button>
+</div>
+<div style="padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; align-items: center; gap: 10px;">
+<span style="width: 34px; height: 34px; border-radius: 7px; background: rgba(201,143,224,.15); color: #c98fe0; display: flex; align-items: center; justify-content: center;" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4-6 8-6s7 2 8 6"></path></svg></span>
+<div style="min-width: 0;">
+<div style="font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #c98fe0;">User account</div>
+<h2 class="mono" style="margin: 0; font-size: 15px; font-weight: 600;">CONTOSO\svc_backup</h2>
+</div>
+<span style="flex: 1;"></span>
+<span class="pill" style="color: #ff5f6e; background: rgba(255,95,110,.13); border: 1px solid rgba(255,95,110,.34);">COMPROMISED</span>
+</div>
+<div style="font-size: 12px; padding: 7px 10px; background: rgba(115,113,252,.16); border-radius: 7px;"><span style="color: rgba(255,255,255,.62);">In this case:</span> the account used for the session · 3 events · 1 pending action</div>
+</div>
+<div class="sec">
+<span class="eyebrow">Normal behaviour</span>
+<div style="line-height: 1.5;">Network logons to WIN-FILE01 from <span class="chip" style="color: #6fb6f2; background: rgba(111,182,242,.14);">BKP-01</span> at <span class="mono">02:00</span>, every night.</div>
+<div style="display: flex; gap: 4px; align-items: flex-end;" role="img" aria-label="Seven nights, Apr 13 to 19, each with one 02:00 logon">
+<span style="display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: rgba(255,255,255,.62);"><span style="width: 26px; height: 18px; border-radius: 3px; background: rgba(78,199,123,.32);"></span>13</span>
+<span style="display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: rgba(255,255,255,.62);"><span style="width: 26px; height: 18px; border-radius: 3px; background: rgba(78,199,123,.32);"></span>14</span>
+<span style="display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: rgba(255,255,255,.62);"><span style="width: 26px; height: 18px; border-radius: 3px; background: rgba(78,199,123,.32);"></span>15</span>
+<span style="display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: rgba(255,255,255,.62);"><span style="width: 26px; height: 18px; border-radius: 3px; background: rgba(78,199,123,.32);"></span>16</span>
+<span style="display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: rgba(255,255,255,.62);"><span style="width: 26px; height: 18px; border-radius: 3px; background: rgba(78,199,123,.32);"></span>17</span>
+<span style="display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: rgba(255,255,255,.62);"><span style="width: 26px; height: 18px; border-radius: 3px; background: rgba(78,199,123,.32);"></span>18</span>
+<span style="display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: rgba(255,255,255,.62);"><span style="width: 26px; height: 18px; border-radius: 3px; background: rgba(78,199,123,.32);"></span>19</span>
+<span style="display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: #ff5f6e; font-weight: 700;"><span style="width: 26px; height: 18px; border-radius: 3px; background: #ff5f6e;"></span>20</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px;">
+<span><span style="color: #ff5f6e; font-weight: 700;">✕</span> interactive RDP, not a network logon</span>
+<span><span style="color: #ff5f6e; font-weight: 700;">✕</span> from 10.0.4.20, not BKP-01</span>
+<span><span style="color: #ff5f6e; font-weight: 700;">✕</span> at 14:32, not in the 02:00 window</span>
+</div>
+</div>
+<div class="sec">
+<span class="eyebrow">Actions on this account</span>
+<a href="#" style="display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid rgba(245,181,61,.34); background: rgba(245,181,61,.13); border-radius: 7px; color: rgba(255,255,255,.88);"><span style="flex: 1;">Disable account</span><span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); font-size: 9px;">REQUESTED</span></a>
+<span style="font-size: 12px; color: rgba(255,255,255,.62);">Needs Contoso's approval · credential rotation is an owner action item</span>
+</div>
+<div class="sec">
+<span class="eyebrow">Other investigations</span>
+<span style="font-size: 12px; color: rgba(255,255,255,.62); line-height: 1.5;">First seen in this investigation.</span>
+</div>
+<div class="sec" style="flex-direction: row; gap: 8px;">
+<button type="button" class="btn" style="color: #8b8aff; border-color: rgba(115,113,252,.45);">Pivot: what else did it touch?</button>
+<button type="button" class="btn">Copy</button>
+</div>
+</aside>
+
+<aside aria-label="Inspector: procedure" style="flex: 1 1 0; min-width: 0; background: #11172f; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4); display: flex; flex-direction: column; overflow: hidden;">
+<div style="display: flex; align-items: center; gap: 6px; padding: 8px 10px 0 16px;">
+<span class="eyebrow" style="flex: 1;">Procedure · imported</span>
+<button type="button" class="icon" aria-label="Pin inspector"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"></path><path d="M9 3h6l-1 7 4 4H6l4-4z"></path></svg></button>
+<button type="button" class="icon" aria-label="Close inspector">✕</button>
+</div>
+<div style="padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-size: 15px; font-weight: 700; line-height: 1.4;">Lateral Movement via RDP — Containment</h2>
+<div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11px; color: rgba(255,255,255,.62);">
+<span class="mono" style="padding: 1px 6px; border-radius: 5px; background: rgba(255,255,255,.08); color: rgba(255,255,255,.88);">[FORMAT]</span>
+<span>[SOURCE NAME OR URL]</span>
+<span>· imported by [IMPORTER] on [DATE]</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; padding: 7px 10px; background: rgba(115,113,252,.16); border-radius: 7px;">
+<span><span style="color: rgba(255,255,255,.62);">In this case:</span> retrieved when you asked what actions are required · <span style="color: #4ec77b; font-weight: 600;">applied</span></span>
+<span>led to <a href="#">Isolate host</a> and <a href="#">Disable account</a></span>
+</div>
+</div>
+<div class="tabs" role="tablist">
+<button type="button" role="tab" class="tb on" aria-selected="true">What the AI read</button>
+<button type="button" role="tab" class="tb">Whole document</button>
+<button type="button" role="tab" class="tb">Versions</button>
+</div>
+<div style="padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 10px; line-height: 1.55;">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: rgba(255,255,255,.62);">
+<span>Excerpt 2 of 3 retrieved</span>
+<span>·</span>
+<span>located at <span style="color: rgba(255,255,255,.88);">[PAGE, HEADING OR ANCHOR]</span></span>
+<span>·</span>
+<span>relevance <span style="color: #4ec77b; font-weight: 700;">strong</span></span>
+</div>
+<blockquote style="margin: 0; background: rgba(245,181,61,.13); border: 1px solid rgba(245,181,61,.34); border-radius: 7px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+<span><span style="font-weight: 700;">Isolate the destination host</span> if hands-on-keyboard activity is confirmed. Prefer network isolation over power-off so volatile evidence survives.</span>
+<span>Disable or force-reset the account if it is being used to pivot. Do not reset before capturing which hosts it has already reached, or you lose the map.</span>
+<span>Block the source host's RDP egress if the source itself is compromised rather than merely a stolen credential's first hop.</span>
+</blockquote>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,.62);">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ec77b" stroke-width="2.2" aria-hidden="true"><path d="M5 12l5 5L20 7"></path></svg>
+<span>Exactly as retrieved · content hash matches the current version</span>
+</div>
+<div style="display: flex; gap: 6px; flex-wrap: wrap;">
+<button type="button" class="btn" style="font-size: 11px;">‹ Excerpt 1</button>
+<button type="button" class="btn" style="font-size: 11px;">Excerpt 3 ›</button>
+</div>
+</div>
+<div class="sec" style="flex-direction: row; gap: 8px; flex-wrap: wrap;">
+<button type="button" class="btn" style="color: #8b8aff; border-color: rgba(115,113,252,.45);">Open original at this location</button>
+<a href="#" style="font-size: 12px; align-self: center;">SOP library</a>
+</div>
+</aside>
+
+</div>
+</body>
+</html>
