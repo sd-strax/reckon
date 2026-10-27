@@ -19,6 +19,9 @@ binding wins.
 | `09-inspectors-action.html` | Inspector: action, notification thread, owner action item | `ui/08 §8.6.1` |
 | `10-inspectors-provenance.html` | Inspector: turn, capability call, similar past case | `ui/08 §8.6.1` |
 | `11-inspectors-identity.html` | Inspector: person, alias | `ui/08 §8.6.1` |
+| `12-knowledge-procedures.html` | Knowledge view: procedure list and detail | `ui/09 §9.3` |
+| `13-knowledge-search.html` | Knowledge view: Search and Ask results; the past-cases list | `ui/09 §9.2`, `§9.4` |
+| `14-knowledge-in-investigation.html` | Import panel; the Knowledge section in an investigation; a nudge; the conclude step | `ui/09 §9.5`–`§9.7` |
 
 Data: events, times, process ids, the decoded command, the case ids and the procedure text
 come from the fixture scenario and `demo/knowledge/`. Tenant labels on the queue
@@ -37,3 +40,8 @@ illustrative; bracketed values (`[POLICY NAME]`, `[CHANNEL]`, `[PRINCIPAL ID]`,
 Colors, type and spacing are the tokens of `01-design-system.md` (dark theme). Fonts load
 from Google Fonts for viewing convenience only; the workbench bundles them (`06`, Webview
 hardening).
+
+In `12`–`14`, the three procedures, their text, tags and recommendations, and the two past
+cases come from `demo/knowledge/`. The fourth procedure (added from INC0010042), the
+imported file names and outcomes, the relevance bands, the "cited in" counts and the Ask
+answer's wording are illustrative.

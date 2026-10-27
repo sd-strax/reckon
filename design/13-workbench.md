@@ -163,7 +163,7 @@ fixture-scenario walking skeleton; **v1** = live-tenant hardening; **SaaS** = te
 | Case queue | The team's queue in the case system of record, read-only; a case opens as a document, an investigation starts from it, a case already under investigation leads to that investigation | `14 §4.2`, `adr/0030` | v0 |
 | Pending approvals | Actions awaiting this analyst, presence-aware later | `04 §5` | v0 |
 | Capability health | Verbs/actions available–degraded–unavailable; installed-not-enabled (operator view) | `03 §6.3`, `11 §6.2` | v0 |
-| SOP library | Browse/filter; editor + review queue later | `06` | v1 |
+| Knowledge view | Add (markdown import), browse, edit and retire procedures; list past cases; natural-language search and ask over both corpora (`design/ui/09`). The gated review queue is separate | `06` | v1 |
 
 **The investigation document** (custom editor, the primary workspace):
 

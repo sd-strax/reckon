@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Knowledge — import, investigation section, conclude</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0f24;}
+a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;font-weight:600;padding:1px 7px 1px 6px;border-radius:5px;line-height:1.45;white-space:nowrap}
+.sw{width:6px;height:6px;border-radius:2px;display:inline-block}
+.tag{font-family:"JetBrains Mono",Menlo,monospace;font-size:10px;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.88);white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.btn{font:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:5px 10px;cursor:pointer;border:1px solid rgba(255,255,255,.16);background:transparent;color:rgba(255,255,255,.88)}
+.btn-p{color:#8b8aff;border-color:rgba(115,113,252,.45)}
+.btn-primary{background:#5d5be0;border-color:#5d5be0;color:#ffffff}
+.tab{font:inherit;font-size:13px;font-weight:600;padding:10px 2px;background:transparent;border:0;border-bottom:2px solid transparent;color:rgba(255,255,255,.62);cursor:pointer;display:flex;gap:6px;align-items:center}
+.tab.on{color:rgba(255,255,255,.88);border-bottom-color:#7371fc}
+.card{background:#141a33;border:1px solid rgba(255,255,255,.09);border-radius:10px}
+.row{display:flex;gap:12px;align-items:flex-start;padding:10px 14px;border-top:1px solid rgba(255,255,255,.05)}
+.mut{color:rgba(255,255,255,.62)}.ok{color:#4ec77b}.warn{color:#f5b53d}.bad{color:#ff5f6e}
+.band-strong{color:#4ec77b;background:rgba(78,199,123,.13)}
+.band-rel{color:#8b8aff;background:rgba(115,113,252,.16)}
+.band-dist{color:rgba(255,255,255,.62);background:rgba(255,255,255,.08)}
+.toggle{width:28px;height:16px;border-radius:999px;background:rgba(255,255,255,.16);position:relative;flex:none;border:0;cursor:pointer;padding:0}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:999px;background:#ffffff}
+.toggle.on{background:#5d5be0}.toggle.on::after{left:14px}
+.kv{display:grid;grid-template-columns:110px minmax(0,1fr)}
+.k{font-size:11px;color:rgba(255,255,255,.62);padding:5px 0;border-top:1px solid rgba(255,255,255,.05)}
+.v{padding:5px 0;border-top:1px solid rgba(255,255,255,.05);font-size:12px}
+.md h3{font-size:14px;margin:14px 0 6px}.md p,.md li{line-height:1.55;font-size:13px}.md ul,.md ol{margin:0;padding-left:20px}
+</style>
+</head>
+<body>
+<div style="width: 1480px; min-height: 700px; box-sizing: border-box; display: flex; flex-direction: column; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
+<div style="padding: 24px; display: flex; gap: 20px; align-items: flex-start;">
+<section class="card" style="flex: 1 1 0; min-width: 0;" aria-label="Import procedures">
+<div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 4px;"><h2 style="margin: 0; font-size: 15px;">Import procedures</h2><span class="mut" style="font-size: 12px;">Markdown with YAML frontmatter. Re-importing a document with the same source URL adds a version.</span></div>
+<div style="padding: 0 14px 10px; display: flex; gap: 8px;"><button type="button" class="btn">Choose files…</button><button type="button" class="btn">Choose folder…</button></div>
+<div class="row" style="align-items: center;"><input type="checkbox" checked aria-label="Include ir-playbook-rdp.md"><div style="flex: 1; min-width: 0;"><div style="font-weight: 600;">RDP Session Review</div><div class="mono mut" style="font-size: 11px;">ir-playbook-rdp.md · author, tags, source url ✓</div></div><span class="pill" style="color: #4ec77b; background: rgba(78,199,123,.13);">ADDED</span></div>
+<div class="row" style="align-items: center;"><input type="checkbox" checked aria-label="Include lateral-movement-rdp-containment.md"><div style="flex: 1; min-width: 0;"><div style="font-weight: 600;">Lateral Movement via RDP — Containment</div><div class="mono mut" style="font-size: 11px;">lateral-movement-rdp-containment.md · same source url</div></div><span class="pill" style="color: #8b8aff; background: rgba(115,113,252,.16);">REVISED · v1.1</span></div>
+<div class="row" style="align-items: center;"><input type="checkbox" checked aria-label="Include vpn-notes.md"><div style="flex: 1; min-width: 0;"><div style="font-weight: 600;">vpn-notes.md</div><div class="mut" style="font-size: 11px;"><span class="warn">no tags, no source url</span> · imports without them</div></div><span class="pill" style="color: #4ec77b; background: rgba(78,199,123,.13);">ADDED</span></div>
+<div class="row" style="align-items: center;"><input type="checkbox" aria-label="Include runbook.docx"><div style="flex: 1; min-width: 0;"><div style="font-weight: 600;">runbook.docx</div><div class="bad" style="font-size: 11px;">not markdown · convert it to markdown first</div></div><span class="pill" style="color: #ff5f6e; background: rgba(255,95,110,.13);">FAILED</span></div>
+<div style="padding: 10px 14px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid rgba(255,255,255,.05);"><button type="button" class="btn btn-primary">Import 3</button></div>
+</section>
+<section class="card" style="flex: 1 1 0; min-width: 0; background: #0c1228;" aria-label="Knowledge in this investigation">
+<div style="padding: 10px 14px 0; display: flex; flex-direction: column; gap: 8px;">
+<div class="eyebrow">Companion column · inside INC0010042</div>
+<div style="display: flex; align-items: center; gap: 8px;"><span style="font-weight: 700;">Knowledge</span><span class="mut" style="font-size: 11px;">4 retrieved · 1 included · the agent reads only what is included</span><span style="flex: 1;"></span><button type="button" class="btn" style="padding: 1px 8px; font-size: 11px;">Collapse</button></div>
+<div style="display: flex; gap: 6px; align-items: center; background: #141a33; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; padding: 4px 8px;"><label for="iq" class="mut" style="font-size: 11px;">Search</label><input id="iq" type="text" placeholder="find more procedures or past cases" style="flex: 1; background: transparent; border: 0; color: rgba(255,255,255,.88); font: inherit; font-size: 12px; outline: none; min-width: 0;"></div>
+</div>
+<div style="padding: 4px 14px 12px;">
+<div style="display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.05);">
+<button type="button" class="toggle on" role="switch" aria-checked="true" aria-label="Include Lateral Movement via RDP — Containment"></button>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><div style="display: flex; gap: 6px; align-items: center;"><span class="eyebrow" style="font-size: 9px;">Procedure</span><span class="pill band-strong">STRONG</span></div><a href="#" style="color: rgba(255,255,255,.88); font-weight: 600; font-size: 12px;">Lateral Movement via RDP — Containment</a><span class="mut" style="font-size: 11px;">matches T1021.001 and the seed host</span></div></div>
+<div style="display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.05);">
+<button type="button" class="toggle" role="switch" aria-checked="false" aria-label="Include Credential Theft Triage"></button>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><div style="display: flex; gap: 6px; align-items: center;"><span class="eyebrow" style="font-size: 9px;">Procedure</span><span class="pill band-rel">RELATED</span></div><a href="#" style="color: rgba(255,255,255,.88); font-weight: 600; font-size: 12px;">Credential Theft Triage</a><span class="mut" style="font-size: 11px;">matches T1078</span></div></div>
+<div style="display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.05);">
+<button type="button" class="toggle" role="switch" aria-checked="false" aria-label="Include RDP lateral movement from FINANCE-07 to DC-02"></button>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><div style="display: flex; gap: 6px; align-items: center;"><span class="eyebrow" style="font-size: 9px;">Past case</span><span class="pill band-rel">RELATED</span></div><a href="#" style="color: rgba(255,255,255,.88); font-weight: 600; font-size: 12px;">RDP lateral movement from FINANCE-07 to DC-02</a><span class="mut" style="font-size: 11px;">valid account used for RDP to a server</span></div></div>
+<div style="display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.05);">
+<button type="button" class="toggle" role="switch" aria-checked="false" aria-label="Include Host Isolation Runbook"></button>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><div style="display: flex; gap: 6px; align-items: center;"><span class="eyebrow" style="font-size: 9px;">Procedure</span><span class="pill band-dist">DISTINCT</span></div><a href="#" style="color: rgba(255,255,255,.88); font-weight: 600; font-size: 12px;">Host Isolation Runbook</a><span class="mut" style="font-size: 11px;">containment only</span></div></div>
+<a href="#" style="font-size: 11px;">Open in the Knowledge view</a>
+</div>
+<div style="padding: 10px 14px 14px; border-top: 1px solid rgba(255,255,255,.09); display: flex; flex-direction: column; gap: 8px;">
+<div class="eyebrow">Collapsed, once reviewed</div>
+<button type="button" style="all: unset; cursor: pointer; display: flex; gap: 8px; align-items: center; font-size: 12px;"><span aria-hidden="true">›</span><span style="font-weight: 700;">Knowledge</span><span class="mut">4 retrieved · 2 included</span></button>
+</div>
+</section>
+<div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 20px;"><section class="card" style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;" aria-label="Nudge beside Decide">
+<div class="eyebrow">Beside ⚡ Decide, in the Reasoning lens</div>
+<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;"><button type="button" class="btn" style="color: #8b8aff; border-style: dashed; border-color: rgba(115,113,252,.45);">⚡ Decide H1</button><span style="font-size: 12px;"><span class="warn" aria-hidden="true">●</span> 1 procedure and 1 past case the auto posture would include are not included · <a href="#">Review</a></span></div>
+<div class="mut" style="font-size: 11px;">Informs only. Including stays the analyst's act.</div>
+</section><section class="card" style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;" aria-label="What this case teaches">
+<div class="eyebrow">Summary lens · at conclude</div>
+<div style="font-weight: 700;">What this case teaches</div>
+<div style="background: #0a0f24; border: 1px solid rgba(255,255,255,.05); border-radius: 7px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;">
+<div style="display: flex; gap: 8px; align-items: center;"><span class="eyebrow">Candidate procedure</span><span style="flex: 1;"></span><span class="mut" style="font-size: 11px;">drafted by reckon · editable</span></div>
+<div style="font-weight: 600;">Service account used interactively</div>
+<div class="mut" style="font-size: 12px; line-height: 1.5;">When a service account opens an interactive session, check its baseline source and window first, then confirm with the owning team before treating it as maintenance…</div>
+<div style="display: flex; gap: 8px;"><button type="button" class="btn">Edit</button><button type="button" class="btn">Discard</button><button type="button" class="btn btn-primary">Add to library</button></div>
+</div>
+<div style="font-size: 12px;"><span class="ok" aria-hidden="true">✓</span> This case is now recallable as a past case · <a href="#">View it</a></div>
+</section></div>
+</div>
+</div>
+</body>
+</html>

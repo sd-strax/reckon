@@ -135,6 +135,13 @@ owner action items, notification draft (needs `00 §6.16`–`§6.18`).
 *Done when:* an analyst picking the investigation up can say where it stands and what is
 left from the Summary lens alone.
 
+**L6 — Knowledge** (`ui/09`). The Knowledge section in the companion column first (it
+replaces the rail, so it lands with L3), then the Knowledge view: procedures, import, search;
+past cases and Ask follow their gaps (`00 §6.21`–`§6.23`).
+*Done when:* under the `opt_in` posture an analyst can see, search and include knowledge
+from inside an investigation without leaving it, and can import, find, read, revise and
+retire a procedure from the Knowledge view.
+
 ---
 
 ## Cross-cutting acceptance
