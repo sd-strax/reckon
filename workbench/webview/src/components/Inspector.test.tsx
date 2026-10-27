@@ -186,7 +186,7 @@ describe("the inspector", () => {
     let p = pane();
     expect(within(p).getByText("Produced by")).toBeTruthy();
     expect(within(p).getByText(/Around it/)).toBeTruthy();
-    expect(p.querySelectorAll(".aroundrow").length).toBe(2); // the other event on host-a, and "this event"
+    expect(p.querySelectorAll(".aroundrow").length).toBe(5); // three nightly logons before, "this event", the later one after — all on host-a
     fireEvent.click(within(p).getByText(/enumerate_logons · COMPLETE/));
     expect(transport.intents.find((i) => i.type === "inspector.open" && i.target.kind === "call")).toMatchObject({ target: { kind: "call", callId: "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e6" } });
     p = pane();
@@ -194,10 +194,11 @@ describe("the inspector", () => {
     expect(within(p).getByText(/1 of 2 bindings answered · took 42 ms/)).toBeTruthy();
     expect(within(p).getByText("Parameters sent, exactly")).toBeTruthy();
     expect(within(p).getByText(/edr-adapter is installed but not enabled/)).toBeTruthy();
-    fireEvent.click(within(p).getByRole("tab", { name: "Result · 2" }));
-    expect(within(p).getByText(/^From .* · 2$/)).toBeTruthy();
-    expect(p.querySelectorAll(".bundlerow").length).toBe(1); // two identical sentences collapse into one row
+    fireEvent.click(within(p).getByRole("tab", { name: "Result · 5" }));
+    expect(within(p).getByText(/^From .* · 5$/)).toBeTruthy();
+    expect(p.querySelectorAll(".bundlerow").length).toBe(2); // the nightly sentence ×3 and the interactive one ×2
     expect(within(p).getByText(/×2/)).toBeTruthy();
+    expect(within(p).getByText(/×3/)).toBeTruthy();
     fireEvent.click(within(p).getByText("‹ back"));
     expect(pane().getAttribute("aria-label")).toBe("Evidence");
   });
@@ -213,5 +214,18 @@ describe("the inspector", () => {
     expect(within(p).getByText("Capability call")).toBeTruthy();
     fireEvent.click(within(p).getByRole("tab", { name: "Result · 0" }));
     expect(within(p).getByText("Absence recorded")).toBeTruthy();
+  });
+
+  it("shows an entity's baseline as a counting fact with how this case deviates, and none where nothing repeats (adr/0095)", () => {
+    mount();
+    fireEvent.click(chip("host · host-a"));
+    let p = pane();
+    expect(within(p).getByText("3 events over 3 days, typically around 02:00 UTC")).toBeTruthy();
+    expect(within(p).getByText("How this case deviates")).toBeTruthy();
+    expect(p.querySelectorAll(".deviation").length).toBe(2);
+    expect(within(p).getByText(/5 events,/)).toBeTruthy();
+    fireEvent.click(chip("account · user-a"));
+    p = pane();
+    expect(within(p).getByText(/No baseline exists for this entity in the record/)).toBeTruthy();
   });
 });

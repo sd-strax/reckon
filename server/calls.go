@@ -123,16 +123,19 @@ func nullJSON(b []byte) any {
 // rendering, and its interpretation-layer joins. Payloads are not included;
 // the evidence endpoint serves them.
 type EventRow struct {
-	ID               string              `json:"id"`
-	ClassUID         int                 `json:"class_uid"`
-	ClassName        string              `json:"class_name"`
-	Time             time.Time           `json:"time"`
-	RecordedAt       time.Time           `json:"recorded_at"`
-	SourceTool       string              `json:"source_tool"`
-	CallID           string              `json:"call_id"`
-	Verb             string              `json:"verb"`
-	Coverage         string              `json:"coverage"`
-	View             *ocsfview.EventView `json:"view,omitempty"`
+	ID         string              `json:"id"`
+	ClassUID   int                 `json:"class_uid"`
+	ClassName  string              `json:"class_name"`
+	Time       time.Time           `json:"time"`
+	RecordedAt time.Time           `json:"recorded_at"`
+	SourceTool string              `json:"source_tool"`
+	CallID     string              `json:"call_id"`
+	Verb       string              `json:"verb"`
+	Coverage   string              `json:"coverage"`
+	View       *ocsfview.EventView `json:"view,omitempty"`
+	// Pattern is the class\'s pattern key (adr/0095): the fields a baseline
+	// groups by. Nil for a class with no key.
+	Pattern          map[string]string   `json:"pattern,omitempty"`
 	ObservedDataRefs []string            `json:"observed_data_refs"`
 	EntityRefs       []string            `json:"entity_refs"`
 	Relationships    []EventRelationship `json:"relationships"`
@@ -392,6 +395,10 @@ func (b *Backend) investigationEvents(ctx context.Context, db *sql.DB, invID uui
 		}
 		seen[e.ID] = true
 		e.View = b.eventView(capability.OcsfEvent{ID: id, ClassUID: e.ClassUID, ClassName: e.ClassName, Time: e.Time, RecordedAt: e.RecordedAt, SourceTool: e.SourceTool}, payload)
+		var m map[string]any
+		if json.Unmarshal(payload, &m) == nil {
+			e.Pattern = ocsfview.PatternKey(e.ClassUID, m)
+		}
 		e.ObservedDataRefs, e.EntityRefs, e.Relationships = []string{}, []string{}, []EventRelationship{}
 		out = append(out, e)
 	}
@@ -611,6 +618,59 @@ func (b *Backend) callDetail(ctx context.Context, db *sql.DB, invID, callID uuid
 		}
 	}
 	return d, nil
+}
+
+// EntityBaselineResponse is the baseline of one entity within one
+// investigation (adr/0095): the fold over the retrieved events that cite it.
+type EntityBaselineResponse struct {
+	Entity string `json:"entity"`
+	ocsfview.BaselineView
+}
+
+// investigationBaselineRoute serves GET /investigations/{id}/entities/{ref}/baseline:
+// the patterns and deviations the retrieved record holds for the entity, or
+// 204 when nothing repeats — a surface shows the section only then.
+func (b *Backend) investigationBaselineRoute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, "GET")
+		return
+	}
+	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		// investigations / {id} / entities / {ref} / baseline
+		if len(parts) != 5 || parts[0] != "investigations" || parts[2] != "entities" || parts[4] != "baseline" {
+			writeJSONError(w, http.StatusBadRequest, "path must be /investigations/{id}/entities/{ref}/baseline")
+			return
+		}
+		invID, err := uuid.Parse(parts[1])
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
+			return
+		}
+		if b.cfg.Handler == nil {
+			writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
+			return
+		}
+		rows, err := b.investigationEvents(r.Context(), b.cfg.Handler.DB(), invID)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "events: "+err.Error())
+			return
+		}
+		ref := parts[3]
+		var in []ocsfview.BaselineEvent
+		for _, e := range rows {
+			if !containsRef(e.EntityRefs, ref) {
+				continue
+			}
+			in = append(in, ocsfview.BaselineEvent{ID: e.ID, ClassUID: e.ClassUID, ClassName: e.ClassName, Time: e.Time, Key: e.Pattern})
+		}
+		view := ocsfview.Baseline(in)
+		if len(view.Patterns) == 0 {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeJSON(w, http.StatusOK, EntityBaselineResponse{Entity: ref, BaselineView: view})
+	})
 }
 
 // callIDForEvent answers the call that retrieved an event, "" when none

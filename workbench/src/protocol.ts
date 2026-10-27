@@ -15,6 +15,7 @@ import type {
   Appearance,
   Capability,
   CaseRow,
+  BaselineView,
   CallDetail,
   CaseSummaryView,
   CommsThread,
@@ -239,6 +240,8 @@ export type RenderMessage =
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
   | { type: "inspector.call"; callId: string; call: CallDetail }
+  // An entity's baseline within the investigation (adr/0095); null when the record holds none.
+  | { type: "inspector.baseline"; ref: string; baseline: BaselineView | null }
   | { type: "inspector.error"; target: string; message: string }
   // The Knowledge document (impl §2.6): slices re-posted whole after reads
   // and the host's own writes; the answer streams by request id.

@@ -166,3 +166,26 @@ describe("attackPath", () => {
   });
 });
 
+describe("collapsePatterns", () => {
+  it("collapses a key repeated on three days into one row at its first event and leaves the rest as events", async () => {
+    const { collapsePatterns, patternSentence } = await import("./baseline");
+    const ev = (id: string, time: string, pattern?: Record<string, string>) => ({
+      id, classUid: 3002, className: "Authentication", time, recordedAt: time, sourceTool: "f", callId: "c", verb: "v", coverage: "COMPLETE",
+      pattern, observedDataRefs: [], entityRefs: [], relationships: [],
+    });
+    const night = { logon_type: "network", source: "10.0.9.10", destination: "h" };
+    const items = collapsePatterns([
+      ev("x", "2026-01-04T14:00:00Z", { logon_type: "interactive", source: "10.0.4.20", destination: "h" }),
+      ev("n3", "2026-01-03T02:00:00Z", night), ev("n1", "2026-01-01T02:00:00Z", night), ev("n2", "2026-01-02T03:00:00Z", night),
+      ev("k", "2026-01-01T01:00:00Z"),
+    ] as never);
+    expect(items.map((i) => i.kind)).toEqual(["event", "pattern", "event"]);
+    const p = items[1] as { kind: "pattern"; count: number; days: number; typicalHour: number; time: string; events: { id: string }[] };
+    expect([p.count, p.days, p.typicalHour, p.time]).toEqual([3, 3, 2, "2026-01-01T02:00:00Z"]);
+    expect(p.events.map((e) => e.id)).toEqual(["n1", "n2", "n3"]);
+    expect(patternSentence(p)).toBe("3 events over 3 days, typically around 02:00 UTC");
+    // Two days are not a pattern.
+    expect(collapsePatterns([ev("a", "2026-01-01T02:00:00Z", night), ev("b", "2026-01-02T02:00:00Z", night), ev("c", "2026-01-02T05:00:00Z", night)] as never).every((i) => i.kind === "event")).toBe(true);
+  });
+});
+

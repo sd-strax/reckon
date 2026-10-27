@@ -274,7 +274,9 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     `GET /api/investigations/{id}/events` with `entity`, `category`, `around`.
 14. **Entity baselines** — where a capability answer establishes normal behaviour (the
     reference scenario's nightly logon baseline), a summary the inspector and timeline can
-    render. Shown only when the record holds one; never inferred by the UI.
+    render. Shown only when the record holds one; never inferred by the UI. **Landed**
+    (`adr/0095`): a counting fact folded from the investigation's retrieved events,
+    `GET /api/investigations/{id}/entities/{ref}/baseline` or 204.
 15. **Procedure excerpt provenance** — at import, record a location per chunk (page,
     heading path, or anchor, whatever the format yields) and retain the original file or a
     snapshot of the URL, so a citation names "where in the source" and "open original"

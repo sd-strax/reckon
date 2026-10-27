@@ -859,6 +859,11 @@ holds one and captions it with the window actually retrieved. The timeline colla
 events into one row. The word "normal" appears as the sheet's section title only; the body says
 "N events over M days".
 
+**Landed** (`adr/0095`, PR #96): `PatternKey` rides each event row as `pattern`, so the timeline
+collapse is the same count applied in the webview over the engine's keys (`derive/baseline.ts`,
+thresholds mirrored); the entity inspector asks the endpoint when it opens (`inspector.baseline`,
+null on 204). Keys exist for authentication, network and process; other classes take no part.
+
 ### 8.4 §6.15 — Procedure excerpt provenance
 
 **Decision.** The `06 §6.2` side store is built: `knowledge_retrievals` in `reckon_main`

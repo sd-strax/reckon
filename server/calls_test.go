@@ -143,3 +143,75 @@ func TestCalls_RecordedListedAndOpened(t *testing.T) {
 		t.Errorf("evidence call_id = %q; want %s", evidence.CallID, out.CallID)
 	}
 }
+
+// adr/0095: the baseline is a read over the investigation's events for one
+// entity — the nightly logons are a pattern with its count, days and hour,
+// the interactive logon is the deviation naming the fields that differ, and
+// an entity with nothing repeating answers 204.
+func TestBaseline_Endpoint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	if _, err := testDB.Exec(`TRUNCATE ocsf_events, stix_edges, capability_calls, call_events, observed_data_events`); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	b := newTestBackend(t)
+	b.cfg.CapabilityResolver, b.cfg.CapabilityCatalog = buildInvokeCapability(t)
+	b.cfg.TenantNamespace = testNamespace.String()
+	token := mintToken(t, nil)
+	invID := uuid.New()
+	if resp, out := postCapability(t, b, token, "enumerate_logons", CapabilityInvokeBody{InvestigationRef: invID.String()}); resp.StatusCode != http.StatusOK || len(out.Events) != 4 {
+		t.Fatalf("invoke = %d events=%d; want 4", resp.StatusCode, len(out.Events))
+	}
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	get := func(path string, into any) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		if into != nil {
+			_ = json.NewDecoder(r.Body).Decode(into)
+		}
+		return r.StatusCode
+	}
+	var ev EventsResponse
+	get("/api/investigations/"+invID.String()+"/events", &ev)
+	var host string
+	for _, e := range ev.Events {
+		for _, r := range e.EntityRefs {
+			if len(r) > 7 && r[:7] == "x-host-" {
+				host = r
+			}
+		}
+		if e.Pattern == nil || e.Pattern["destination"] != "H1" {
+			t.Errorf("row pattern = %v", e.Pattern)
+		}
+	}
+	if host == "" {
+		t.Fatal("no host entity among the events")
+	}
+	var base EntityBaselineResponse
+	if code := get("/api/investigations/"+invID.String()+"/entities/"+host+"/baseline", &base); code != http.StatusOK {
+		t.Fatalf("baseline = %d", code)
+	}
+	if base.Entity != host || base.EventsConsidered != 4 || len(base.Patterns) != 1 || len(base.Deviations) != 1 {
+		t.Fatalf("baseline = %+v", base)
+	}
+	p := base.Patterns[0]
+	if p.Count != 3 || p.Days != 3 || p.TypicalHour != 2 || p.Key["logon_type"] != "Network" {
+		t.Errorf("pattern = %+v", p)
+	}
+	if d := base.Deviations[0]; d.Key["logon_type"] != "RemoteInteractive" || len(d.Differs) != 2 {
+		t.Errorf("deviation = %+v", d)
+	}
+	// An entity the record holds no pattern for: 204, nothing to show.
+	if code := get("/api/investigations/"+invID.String()+"/entities/x-host--00000000-0000-4000-8000-000000000000/baseline", nil); code != http.StatusNoContent {
+		t.Errorf("no pattern = %d; want 204", code)
+	}
+}

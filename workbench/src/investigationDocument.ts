@@ -781,6 +781,16 @@ export class InvestigationDocuments {
     try {
       switch (target.kind) {
         case "ref": {
+          if (isEntityRef(target.ref) && !InvestigationDocuments.isDraft(id)) {
+            // The entity's baseline within this investigation (adr/0095): a
+            // read over the retrieved events, independent of the object's own
+            // record; null when the record holds none — the inspector says so.
+            try {
+              void this.post(panel, { type: "inspector.baseline", ref: target.ref, baseline: await this.client.baseline(id, target.ref) });
+            } catch (err) {
+              this.log.debug(`baseline ${target.ref}: ${errText(err)}`);
+            }
+          }
           const doc = await this.getDoc(target.ref);
           if (!doc) {
             void this.post(panel, { type: "inspector.error", target: target.ref, message: "no persisted record for this ref — it may predate telemetry persistence" });
@@ -1435,6 +1445,13 @@ function rivalsClause(rivals: RivalBrief[] | undefined, instruction: string): st
     return `${name}"${r.statement}" (${r.id})${pending}`;
   });
   return `Live rivals: ${list.join("; ")}. ${instruction}`;
+}
+
+/** The STIX types an entity inspector opens (the same set as webview/src/refs.ts ENTITY_POPOVER_TYPES). */
+const ENTITY_REF_TYPES = new Set(["x-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file", "domain-name", "email-addr", "url", "windows-registry-key", "x-registry-key", "x-scheduled-task", "x-group"]);
+function isEntityRef(ref: string): boolean {
+  const i = ref.indexOf("--");
+  return i > 0 && ENTITY_REF_TYPES.has(ref.slice(0, i));
 }
 
 function errText(err: unknown): string {
