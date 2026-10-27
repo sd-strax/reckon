@@ -72,7 +72,7 @@ eval-regrade: ## Re-grade the latest run's committed trials with the current gra
 	RECKON_EVAL_REGRADE=1 RECKON_EVAL_SCENARIO=$(SCENARIO) go test -count=1 -run '^TestRegradeRun$$' -v ./eval/
 
 workbench-ci: ## Install + compile the VS Code extension (workbench/). Requires Node; never part of `ci` — engine work stays Go-only.
-	cd workbench && npm ci && npm run compile
+	cd workbench && npm ci && npm run compile && npm test
 
 workbench-package: ## Build the installable .vsix from a CLEAN compile (stale out/*.js never ships). Install with: code --install-extension workbench/reckon-workbench-*.vsix --force
 	cd workbench && npm ci && rm -rf out && npm run compile && npm run package

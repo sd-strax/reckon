@@ -23,6 +23,9 @@ import {
   StreamMessageWriter,
 } from "vscode-jsonrpc/node";
 import { TokenKind } from "./auth";
+import type { KnowledgeItem } from "./protocol";
+
+export type { KnowledgeItem };
 
 /** The stdio protocol contract version (sidecar.ProtocolVersion). */
 const PROTOCOL_VERSION = 1;
@@ -72,22 +75,6 @@ export interface TurnOutcome {
   error?: string;
 }
 
-/**
- * The seam the investigation document drives. Sessions are keyed by
- * investigation id; the transport owns their lifecycle (including re-creation
- * after a sidecar respawn).
- */
-export interface KnowledgeItem {
-  kind: "sop" | "case";
-  ref: string;
-  title: string;
-  excerpt: string;
-  score: number;
-  band?: string;
-  rationale?: string;
-  included: boolean;
-}
-
 /** A candidate SOP the model generalized from a concluded investigation
  * (design/06: the compounding loop). Not persisted — the analyst reviews it and
  * decides to add it to the library or discard. warranted=false means the model
@@ -101,6 +88,11 @@ export interface SOPCandidate {
   rationale: string;
 }
 
+/**
+ * The seam the investigation document drives. Sessions are keyed by
+ * investigation id; the transport owns their lifecycle (including re-creation
+ * after a sidecar respawn).
+ */
 export interface AgentTransport {
   turn(investigationId: string, text: string, progress: TurnProgress, includedKnowledge?: string[]): Promise<TurnOutcome>;
   cancel(investigationId: string): Promise<void>;

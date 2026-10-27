@@ -44,10 +44,20 @@ seams"). Built so far:
 ## Development
 
 ```bash
-npm ci              # or: make workbench-ci from the repo root (install + compile)
-npm run compile     # tsc → out/
-npm run watch
+npm ci              # or: make workbench-ci from the repo root (install + compile + test)
+npm run compile     # tsc → out/ (host), tsc --noEmit (webview types), esbuild → out/webview/ (the React bundle)
+npm run watch       # host; `npm run watch:webview` rebuilds the bundle on change
+npm run test        # vitest: webview derivations, the store's sequence discipline, component tests over harness snapshots
+npm run harness     # the browser dev harness at http://localhost:8765 (stage picker, theme toggle, intent log)
+npm run harness:record -- [investigation-id]   # record harness snapshots from a running, dev-auth'd stack
 ```
+
+The investigation document is a React webview (`webview/src`, `implementation/workbench-react.md`):
+one bundle loaded through `asWebviewUri` under the nonce CSP, fonts vendored under `media/fonts`
+(nothing is fetched at runtime), the host↔webview protocol in `src/protocol.ts`, and the host's
+per-investigation cache posted as whole snapshots and slice patches with the event sequence.
+`harness/` is development-only (not packaged): the same components over a `HarnessTransport`
+fed by recorded snapshots under `harness/snapshots/`.
 
 To install it as a real extension (not the dev host): `make workbench-package` from the
 repo root, then `code --install-extension workbench/reckon-workbench-*.vsix --force` and

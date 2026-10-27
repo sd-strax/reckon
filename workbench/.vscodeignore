@@ -3,3 +3,7 @@ tsconfig.json
 .gitignore
 .vscode/**
 **/*.map
+webview/**
+harness/**
+esbuild.mjs
+vitest.config.ts

@@ -1,0 +1,99 @@
+/* design/ui/01-design-system.md, applied (impl §5.2). Three tiers of tokens:
+   1. chrome-adjacent — DERIVED from --vscode-* so the panel never fights the
+      user's theme (backgrounds, text, dividers, inputs), with 01's values as
+      fallbacks for the browser harness;
+   2. reckon semantic — FIXED (analysts learn these as meaning): indigo primary,
+      ok/warn/bad/info, the pin amber, trust tiers;
+   3. entity palette — FIXED per type, used identically everywhere. */
+@import "../../../media/fonts/fonts.css";
+
+:root {
+  /* type (01 §Typography): the vendored faces first, the theme's as fallback */
+  --sans: "Open Sans", var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+  --mono: "JetBrains Mono", var(--vscode-editor-font-family, source-code-pro, Menlo, Monaco, Consolas, monospace);
+  --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-md: 14px; --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 26px;
+  /* spacing — 4px base; density target: terminal, not airy */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px;
+  /* radius */
+  --r-xs: 3px; --r-sm: 5px; --r: 7px; --r-lg: 10px; --r-pill: 999px;
+  /* motion */
+  --dur-fast: .16s; --dur: .28s; --dur-slow: .55s;
+  --ease: cubic-bezier(.4, 0, .2, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  /* brand */
+  --he-primary: #7371fc; --he-primary-soft: #8b8aff; --he-primary-deep: #5d5be0;
+  --he-secondary: #b06bd6; --he-teal: #2bb6e6;
+  /* chrome-adjacent, theme-derived (01 values as fallbacks) */
+  --editor-bg: var(--vscode-editor-background, #0a0f24);
+  --sidebar-bg: var(--vscode-sideBar-background, #0a0f24);
+  --text: var(--vscode-foreground, rgba(255,255,255,.88));
+  --text-1: var(--text);
+  --text-2: var(--vscode-descriptionForeground, color-mix(in srgb, var(--text) 62%, transparent));
+  --text-3: color-mix(in srgb, var(--text) 40%, transparent);
+  --text-4: color-mix(in srgb, var(--text) 26%, transparent);
+  --border: var(--vscode-panel-border, color-mix(in srgb, var(--text) 9%, transparent));
+  --border-strong: color-mix(in srgb, var(--text) 16%, transparent);
+  --fill: color-mix(in srgb, var(--text) 5%, transparent);
+  --fill-2: color-mix(in srgb, var(--text) 8%, transparent);
+  --fill-3: color-mix(in srgb, var(--text) 12%, transparent);
+  --hover: color-mix(in srgb, var(--text) 6%, transparent);
+  --selected: color-mix(in srgb, var(--he-primary) 16%, transparent);
+  --selected-border: color-mix(in srgb, var(--he-primary) 45%, transparent);
+  --overlay-bg: var(--vscode-editorWidget-background, var(--vscode-editor-background, #11172f));
+  --widget-border: var(--vscode-widget-border, var(--border));
+  --input-fg: var(--vscode-input-foreground, var(--text));
+  --input-bg: var(--vscode-input-background, rgba(255,255,255,.05));
+  --input-border: var(--vscode-input-border, var(--border));
+  --focus: var(--vscode-focusBorder, var(--he-primary));
+  --link: var(--vscode-textLink-foreground, var(--he-primary-soft));
+  --error-fg: var(--vscode-errorForeground, #ff5f6e);
+  --shadow-pop: 0 12px 40px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
+  --shadow-panel: 0 8px 28px rgba(0,0,0,.45);
+  /* semantic (fixed; dark values) */
+  --ok: #4ec77b;   --ok-bg: rgba(78,199,123,.13);   --ok-border: rgba(78,199,123,.32);
+  --warn: #f5b53d; --warn-bg: rgba(245,181,61,.13); --warn-border: rgba(245,181,61,.34);
+  --bad: #ff5f6e;  --bad-bg: rgba(255,95,110,.13);  --bad-border: rgba(255,95,110,.34);
+  --info: #4aa8ff; --info-bg: rgba(74,168,255,.13); --info-border: rgba(74,168,255,.34);
+  --pin: #f5b53d;
+  /* entity palette (fixed per type; dark values) */
+  --ent-host: #6fb6f2;    --ent-host-bg: rgba(111,182,242,.14);
+  --ent-account: #c98fe0; --ent-account-bg: rgba(201,143,224,.15);
+  --ent-ip: #45c9d6;      --ent-ip-bg: rgba(69,201,214,.14);
+  --ent-hash: #f0b94c;    --ent-hash-bg: rgba(240,185,76,.14);
+  --ent-domain: #6fd698;  --ent-domain-bg: rgba(111,214,152,.14);
+  --ent-email: #a99bf5;   --ent-email-bg: rgba(169,155,245,.15);
+  --ent-process: #b6c2cf; --ent-process-bg: rgba(182,194,207,.13);
+  --ent-alert: #f59a6b;   --ent-alert-bg: rgba(245,154,107,.14);
+}
+body.vscode-light, body.vscode-high-contrast-light {
+  --shadow-pop: 0 12px 40px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.10);
+  --shadow-panel: 0 8px 28px rgba(0,0,0,.12);
+  --ok: #1f9d52;   --ok-bg: rgba(31,157,82,.10);    --ok-border: rgba(31,157,82,.32);
+  --warn: #c8860b; --warn-bg: rgba(200,134,11,.10); --warn-border: rgba(200,134,11,.34);
+  --bad: #e0394a;  --bad-bg: rgba(224,57,74,.10);   --bad-border: rgba(224,57,74,.34);
+  --info: #1f7fe0; --info-bg: rgba(31,127,224,.10); --info-border: rgba(31,127,224,.34);
+  --pin: #c8860b;
+  --ent-host: #1f6fc4;    --ent-host-bg: rgba(31,111,196,.10);
+  --ent-account: #9333b8; --ent-account-bg: rgba(147,51,184,.10);
+  --ent-ip: #0e8a9c;      --ent-ip-bg: rgba(14,138,156,.10);
+  --ent-hash: #b3790a;    --ent-hash-bg: rgba(179,121,10,.11);
+  --ent-domain: #1c9b57;  --ent-domain-bg: rgba(28,155,87,.10);
+  --ent-email: #6a5be0;   --ent-email-bg: rgba(106,91,224,.10);
+  --ent-process: #5a6b7b; --ent-process-bg: rgba(90,107,123,.10);
+  --ent-alert: #d2671f;   --ent-alert-bg: rgba(210,103,31,.10);
+}
+/* The browser harness has no --vscode-* variables: give the light theme 01's
+   values so both themes render as the sheet specifies. */
+body.harness.vscode-light {
+  --editor-bg: #ffffff; --sidebar-bg: #f6f6f8; --overlay-bg: #ffffff;
+  --text: rgba(13,17,36,.90); --text-2: rgba(13,17,36,.62); --text-3: rgba(13,17,36,.42); --text-4: rgba(13,17,36,.28);
+  --border: rgba(13,17,36,.12); --border-strong: rgba(13,17,36,.20);
+  --fill: rgba(13,17,36,.05); --fill-2: rgba(13,17,36,.08); --fill-3: rgba(13,17,36,.12); --hover: rgba(13,17,36,.055);
+  --input-bg: #ffffff; --input-border: rgba(13,17,36,.12); --input-fg: var(--text);
+  --link: #5d5be0; --error-fg: #e0394a;
+}
+body.harness.vscode-dark {
+  --text-2: rgba(255,255,255,.62); --text-3: rgba(255,255,255,.40); --text-4: rgba(255,255,255,.26);
+  --border: rgba(255,255,255,.09); --fill: rgba(255,255,255,.05); --fill-2: rgba(255,255,255,.08);
+  --input-bg: rgba(255,255,255,.05); --input-border: rgba(255,255,255,.09);
+}
