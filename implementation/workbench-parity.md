@@ -1,7 +1,8 @@
 # Investigation webview — parity inventory
 
 Every behavior the current webview (`workbench/src/investigationDocument.ts`, `evidenceView.ts`,
-`evidenceProvider.ts`) supports, as of the React move (`implementation/workbench-react.md`).
+`evidenceProvider.ts`) and the Import SOPs panel (`importView.ts`) support, as of the React move
+(`implementation/workbench-react.md`).
 Each row names where the behavior lives in the new tree (`workbench-react.md §2`) and is ticked
 twice: in the browser harness against recorded snapshots, and on the live stack against the
 reference scenario. A row is not done until both are ticked. Rows marked *relocated* keep the
@@ -39,13 +40,20 @@ Legend: `[ ]` not yet · `[h]` harness · `[l]` live · `[x]` both.
 | B10 | Invisible activate note on a DRAFT's first pending action | `<ActionCard>` | [ ] |
 | B11 | "Since you were here" (first unseen entry) and the delta line | `<SinceYouWereHere>`; divider in Conversation and Thread modes | [ ] |
 
-## C. Knowledge rail (`06 §5.1`)
+## C. Knowledge section (`06 §5.1`, `09 §9.6`)
+
+The rail becomes the Knowledge section at the top of the companion column; C1–C3 are the rail's
+behaviors kept, C4–C7 the section's additions from `09`.
 
 | # | Behavior | New home | Status |
 |---|---|---|---|
-| C1 | Items (SOP / PRIOR CASE) with title, band, rationale, excerpt tooltip, include checkbox; header posture word | `<KnowledgeRail>` (top of the companion) | [ ] |
-| C2 | Included set rides the next turn (`includedKnowledge`); undefined when nothing surfaced | `<Composer>` → `send` | [ ] |
-| C3 | Rail loads only for workable states (DRAFT/ACTIVE/PAUSED) | host `load` unchanged | [ ] |
+| C1 | Items (SOP / PRIOR CASE) with title, band, rationale, excerpt tooltip, include toggle; header posture word | `<KnowledgeSection>` rows; "The agent reads only what is included." | [ ] |
+| C2 | Included set rides the next turn (`includedKnowledge`); undefined when nothing surfaced | webview state → `<Composer>` → `send` | [ ] |
+| C3 | Loads only for workable states (DRAFT/ACTIVE/PAUSED) | host `load` unchanged | [ ] |
+| C4 | Collapsed summary "N retrieved · M included" once reviewed | `<KnowledgeSummaryLine>` | [ ] |
+| C5 | Search within the investigation; results join the list with their toggle off | `<KnowledgeSearch>` → `knowledge.search` → sidecar `searchKnowledge` (`workbench-react.md §8.0`) | [ ] |
+| C6 | Each item opens in the inspector (Procedure / Similar case); "Open the Knowledge view" | `inspector.open` / `knowledge.open` | [ ] |
+| C7 | Nudge beside ⚡ Propose tests, ⚡ Decide and the response plan when auto-posture items are not included; links to the section, includes nothing | `<KnowledgeNudge>` (`derive/knowledgeNudge.ts`) | [ ] |
 
 ## D. Conversation and streaming
 
@@ -152,7 +160,24 @@ Legend: `[ ]` not yet · `[h]` harness · `[l]` live · `[x]` both.
 | M3 | Loading dim; error banner "Could not load" | `<App>` | [ ] |
 | M4 | Light theme token overrides | `tokens.css` | [ ] |
 | M5 | CSP: no network from the page; nonce script | host `html()` (§5.1) | [ ] |
-| M6 | Post-conclude: knowledge-summary narrative (fire-and-forget) and candidate-SOP draft → editor tab → Add to SOP library / Discard | host `lifecycleTransition` / `proposeCandidateSOP` unchanged | [ ] |
+| M6 | Post-conclude: knowledge-summary narrative (fire-and-forget) | host `lifecycleTransition` unchanged | [ ] |
+| M6b | Post-conclude: candidate-SOP draft → editor tab → Add to SOP library / Discard; a `warranted:false` draft shows nothing | *superseded* by the Candidates section of the Knowledge document (`09 §9.7`, `workbench-react.md §8.13`): the host stores the draft, no prompt; the editor-tab path stays until §6.24 lands | [ ] |
 | M7 | Export markdown opens in an editor tab beside | host `openMarkdownExport` unchanged | [ ] |
 | M8 | Copy to clipboard | host | [ ] |
 | M9 | Open another investigation from a link | host `investigation.open` | [ ] |
+
+## N. Import SOPs panel (`importView.ts`, `06 §2.4`, `13 §3`)
+
+Behaviors of the current Import SOPs panel, which becomes the Import section of the Knowledge
+document (`09 §9.5`, `workbench-react.md §2.6`); `importView.ts` is deleted when every row is ticked.
+
+| # | Behavior | New home | Status |
+|---|---|---|---|
+| N1 | `reckon.importSOP` command opens the panel (never the quick input) | the command keeps its id and opens the Knowledge document at Import | [ ] |
+| N2 | Add documents through the native file picker (multi-select); `file:` and `untitled:` URIs only | `<Import>` → `import.choose`; folder choice added per `09 §9.5` | [ ] |
+| N3 | One row per document: checkbox, parsed title, filename; toggle rows in and out | `<Import>` rows (`import.toggle`) | [ ] |
+| N4 | Import the checked rows; each `POST /api/sops/import_markdown` with the raw markdown | host `import.run` → `importSOPMarkdown` unchanged | [ ] |
+| N5 | Per-document outcome: created ("Added to the SOP library as …"), revised ("Revised existing SOP …"), failed with the server's message | `<Import>` outcome badges: added · revised (with version) · failed | [ ] |
+| N6 | Refresh re-reads the chosen documents from disk | `import.refresh` | [ ] |
+| N7 | "Imported — consultable now on the knowledge rail" line | reworded to name the Knowledge section | [ ] |
+| N8 | Parsed frontmatter shown before import; missing recommended fields flagged | *new* (`09 §9.5`): dry run, `workbench-react.md §8.0` | [ ] |
