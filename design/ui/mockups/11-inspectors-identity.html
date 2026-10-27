@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inspectors: person, alias</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0f24;}
+a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;font-weight:600;padding:1px 7px 1px 6px;border-radius:5px;line-height:1.45;white-space:nowrap}
+.sw{width:6px;height:6px;border-radius:2px;display:inline-block}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.btn{font:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:5px 10px;cursor:pointer;border:1px solid rgba(255,255,255,.16);background:transparent;color:rgba(255,255,255,.88)}
+.btn-p{color:#8b8aff;border-color:rgba(115,113,252,.45)}
+.icon{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:0;background:transparent;color:rgba(255,255,255,.62);cursor:pointer;font:inherit}
+.tabs{display:flex;gap:18px;border-bottom:1px solid rgba(255,255,255,.09);padding:0 16px}
+.tb{font:inherit;font-size:12px;font-weight:600;padding:8px 0;background:transparent;border:0;border-bottom:2px solid transparent;color:rgba(255,255,255,.62);cursor:pointer}
+.tb.on{color:rgba(255,255,255,.88);border-bottom-color:#7371fc}
+.kv{display:grid;grid-template-columns:118px minmax(0,1fr)}
+.k{font-size:11px;color:rgba(255,255,255,.62);padding:6px 0;border-top:1px solid rgba(255,255,255,.05)}
+.v{padding:6px 0;border-top:1px solid rgba(255,255,255,.05);min-width:0;overflow-wrap:anywhere}
+.sec{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border-top:1px solid rgba(255,255,255,.09)}
+.li{display:flex;gap:10px;align-items:baseline;padding:5px 8px;border-radius:5px;font-size:12px}
+.t{font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;color:rgba(255,255,255,.62);flex:none}
+.ok{color:#4ec77b}.warn{color:#f5b53d}.bad{color:#ff5f6e}.info{color:#4aa8ff}.mut{color:rgba(255,255,255,.62)}
+.why{display:flex;flex-direction:column;gap:4px;font-size:12px;padding:7px 10px;background:rgba(115,113,252,.16);border-radius:7px}
+.quote{background:rgba(245,181,61,.13);border:1px solid rgba(245,181,61,.34);border-radius:7px;padding:10px 12px;line-height:1.55}
+.inset{background:#0a0f24;border:1px solid rgba(255,255,255,.05);border-radius:7px;padding:8px 10px}
+</style>
+</head>
+<body>
+<div style="width: 1480px; height: 540px; box-sizing: border-box; padding: 24px; display: flex; gap: 20px; align-items: flex-start; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
+<aside aria-label="Inspector: Person" style="flex: 1 1 0; min-width: 0; background: #11172f; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4); display: flex; flex-direction: column; overflow: hidden;">
+<div style="display: flex; align-items: center; gap: 6px; padding: 8px 10px 0 16px;"><span class="eyebrow" style="flex: 1;">Person</span><button type="button" class="icon" aria-label="Pin inspector"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 17v5"></path><path d="M9 3h6l-1 7 4 4H6l4-4z"></path></svg></button><button type="button" class="icon" aria-label="Close inspector">✕</button></div>
+<div style="padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; gap: 10px; align-items: flex-start;"><h2 style="margin: 0; font-size: 15px; font-weight: 700; line-height: 1.4; flex: 1; min-width: 0;">Sudeep</h2></div>
+<div style="font-size: 11px; color: rgba(255,255,255,.62); line-height: 1.5;">From the identity provider at the time of each act; reckon stores no roles of its own.</div><div class="why"><span><span class="mut">In this case:</span> owner · 4 acts · 1 approval</span></div></div>
+<div class="sec"><span class="eyebrow">Roles carried on their acts</span><div style="display: flex; gap: 6px; flex-wrap: wrap;"><span class="pill" style="color: rgba(255,255,255,.62); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);">ANALYST</span><span class="pill" style="color: rgba(255,255,255,.62); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);">APPROVER</span></div><div class="mut" style="font-size: 11px;">as recorded on each event; current roles may differ</div></div><div class="sec"><span class="eyebrow">What they did here</span><div style="display: flex; flex-direction: column; gap: 2px;"><div class="li"><span class="t" style="width: 40px;">13:10</span><span style="flex: 1; min-width: 0;">Adopted and restated <span class="mono">H1</span></span></div><div class="li"><span class="t" style="width: 40px;">13:48</span><span style="flex: 1; min-width: 0;">Recorded the attestation for <span class="mono">P5</span></span></div><div class="li"><span class="t" style="width: 40px;">14:20</span><span style="flex: 1; min-width: 0;">Recorded the verdict: malicious</span></div><div class="li"><span class="t" style="width: 40px;">14:55</span><span style="flex: 1; min-width: 0;">Approved <span class="mono">host.isolate</span> on WIN-FILE01</span></div></div></div><div class="sec"><span class="eyebrow">Identity</span><div class="kv"><div class="k">Principal id</div><div class="v"><span class="mono" style="font-size: 11px;">[PRINCIPAL ID]</span></div><div class="k">Issuer</div><div class="v"><span class="mut">[IDENTITY PROVIDER]</span></div></div></div>
+</aside>
+
+<aside aria-label="Inspector: Alias" style="flex: 1 1 0; min-width: 0; background: #11172f; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4); display: flex; flex-direction: column; overflow: hidden;">
+<div style="display: flex; align-items: center; gap: 6px; padding: 8px 10px 0 16px;"><span class="eyebrow" style="flex: 1;">Alias</span><button type="button" class="icon" aria-label="Pin inspector"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 17v5"></path><path d="M9 3h6l-1 7 4 4H6l4-4z"></path></svg></button><button type="button" class="icon" aria-label="Close inspector">✕</button></div>
+<div style="padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; gap: 10px; align-items: flex-start;"><h2 style="margin: 0; font-size: 15px; font-weight: 700; line-height: 1.4; flex: 1; min-width: 0;">CONTOSO\svc_backup  ⇄  svc_backup@contoso.local</h2></div>
+<div style="font-size: 11px; color: rgba(255,255,255,.62); line-height: 1.5;">Two identities joined by a link. Linked, never merged: each keeps its own id and history.</div><div class="why"><span><span class="mut">In this case:</span> lets evidence about either identity count for the account used in the session</span></div></div>
+<div style="padding: 14px 16px; display: flex; align-items: center; gap: 10px; justify-content: center;"><div class="inset" style="display: flex; flex-direction: column; gap: 4px; align-items: center;"><span class="chip" style="color: #c98fe0; background: rgba(201,143,224,.15);"><span class="sw" style="background: #c98fe0;"></span>CONTOSO\svc_backup</span><span class="mut" style="font-size: 11px;">directory account · 9 events</span></div><div style="display: flex; flex-direction: column; align-items: center; font-size: 11px;" class="mut"><span class="mono">alias of</span><span aria-hidden="true">⇄</span></div><div class="inset" style="display: flex; flex-direction: column; gap: 4px; align-items: center;"><span class="chip" style="color: #c98fe0; background: rgba(201,143,224,.15);"><span class="sw" style="background: #c98fe0;"></span>svc_backup@contoso.local</span><span class="mut" style="font-size: 11px;">cloud identity · 0 events</span></div></div><div class="sec"><span class="eyebrow">Why they are linked</span><div class="kv"><div class="k">Basis</div><div class="v"><span class="mut">[RULE OR EVIDENCE, e.g. same directory id in both sources]</span></div><div class="k">Linked by</div><div class="v"><span class="mut">[ANALYST OR NORMALIZER]</span> · <span class="mono">[TIME]</span></div><div class="k">Scope</div><div class="v">this tenant</div></div></div><div class="sec"><span class="eyebrow">Undo</span><div class="mut" style="font-size: 12px; line-height: 1.5;">Removing the link separates the evidence again. Nothing was merged, so nothing is lost.</div><div style="display: flex; gap: 8px;"><button type="button" class="btn">Remove link…</button></div></div>
+</aside>
+</div>
+</body>
+</html>

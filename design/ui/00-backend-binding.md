@@ -285,6 +285,13 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
 18. **Narrative summary at any time** — the two-tier summary of `06 §3.2` produced on
     demand for an open investigation, not only at conclusion, with its authorship (drafted,
     edited by) recorded.
+19. **Roles on acts** — the role that authorized an act, captured from the token at command
+    time alongside `principal_name` (`adr/0077`), for the person inspector (`ui/08 §8.6.1`).
+    Display only: authorization still reads the live token, and reckon still mirrors no
+    roles.
+20. **Addressable capability calls** — a stable id per capability call within a committed
+    turn record, resolvable by an endpoint, so the bundle, the Story timeline and the
+    residual panel can open the call that produced their evidence (`ui/08 §8.6.1`).
 
 ---
 
