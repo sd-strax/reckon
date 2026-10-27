@@ -140,7 +140,8 @@ Legend: `[ ]` not yet · `[h]` harness · `[l]` live · `[x]` both.
 | L2 | Entity popover: type, value, deterministic id, appearances in other investigations (open on click), Pivot (stages a composer question), Pin, Open raw JSON, Copy value | *superseded*: `<EntityInspector>` with the same actions | [ ] |
 | L3 | Evidence card panel: title by type, badges, provenance line, generic depth-limited field renderer, cross-investigation memory, raw JSON disclosure, "Open raw JSON tab" | *superseded*: `<EvidenceInspector>` Details / Provenance / Raw; the editor tab path is deleted | [ ] |
 | L4 | Attestation (`note`) and null observation (`x-null-observation`) titled as human statement / "Nothing observed: … (coverage complete)" | `<EvidenceInspector>` | [ ] |
-| L5 | Transcript opens for a thread step | *superseded*: `<TurnInspector>` | [ ] |
+| L5 | Transcript opens for a thread step | *superseded*: `<TurnInspector>` (Transcript tab; Answer · Tool calls · Consulted beside it) | [ ] |
+| L6 | Every ref type the current chips can carry opens something: event, observed-data, null observation, indicator / sighting, note, prediction, hypothesis, entity types | each resolves to its `08 §8.6.1` renderer (`workbench-react.md §2.4`); none opens an editor tab | [ ] |
 
 ## M. Infrastructure
 

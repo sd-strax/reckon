@@ -1,10 +1,11 @@
 # The investigation webview in React — technical design
 
 Status: **proposed** (for review before implementation). Decision record:
-`adr/0079-investigation-layout.md`. Specification: `design/ui/08-investigation-layout.md`,
-bound by `design/ui/00-backend-binding.md` (the authority layer) and the workbench discipline
-(`design/13 §3`). Mockups: `design/ui/mockups/`. Parity inventory of the current webview:
-`implementation/workbench-parity.md`.
+`adr/0079-investigation-layout.md`. Specification: `design/ui/08-investigation-layout.md`
+(including `§8.6.1`, the inspector for every citable type), bound by
+`design/ui/00-backend-binding.md` (the authority layer; gaps `§6.12`–`§6.20`) and the workbench
+discipline (`design/13 §3`). Mockups: `design/ui/mockups/01`–`11`. Parity inventory of the
+current webview: `implementation/workbench-parity.md`.
 
 This document fixes the engineering shape: the component tree, who owns which state, the
 extension↔webview protocol, how the bundle is built and loaded, the browser harness, and the
@@ -146,10 +147,22 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
 │   └─ <Composer>                      Enter sends, Shift+Enter newline; disabled on CONCLUDED/ARCHIVED; pivot staging
 ├─ <InspectorDock>                     08 §8.6; up to two panes (pinned + active); Esc closes the active one
 │   └─ <Inspector>*                    frame: type label · pin · close · back + breadcrumb; name; <InThisCase>; tabs
-│       ├─ <EvidenceInspector>         Details (sentence, curated fields, decoded command line) · Provenance · Raw
+│       ├─ <EvidenceInspector>         an OCSF event, or an observed-data (its one event) — Details · Provenance · Raw (08 §8.6)
 │       ├─ <EntityInspector>           type/value/aliases/id-on-hover; role & counts; <Baseline>; actions; other investigations; Pivot; Copy; Pin as evidence
 │       ├─ <ProcedureInspector>        What the AI read · Whole document · Versions; hash check; Open original
-│       └─ <TurnInspector>             a committed turn's transcript (replaces the transcript editor tab)
+│       ├─ <AbsenceInspector>          x-null-observation — Search · Provenance · Raw; says / does not say; Re-run wider (08 §8.6.1)
+│       ├─ <DetectionInspector>        indicator + sighting + vendor identity — Finding · Evidence · Raw; "inferred by the vendor"
+│       ├─ <AttestationInspector>      note — statement, who said it / recorded it, the question it answers, rules
+│       ├─ <PredictionInspector>       Record · History (from the thread's prediction events)
+│       ├─ <HypothesisInspector>       Record · Wording history; one-line prediction rows; the competing set; Open the matrix
+│       ├─ <ActionInspector>           History · Authorization · Targets (GET /api/actions/{id}, §8.5); Request reversal
+│       ├─ <ThreadInspector>           a notify.* action + its comms thread — Thread · Sent message; follow-up / snooze
+│       ├─ <OwnerItemInspector>        §6.17 record + history; Mark confirmed · Waive…
+│       ├─ <SimilarCaseInspector>      a case summary — Summary · Why it matched; Open that investigation · Include in context
+│       ├─ <TurnInspector>             Answer · Tool calls · Consulted · Transcript (replaces the transcript editor tab)
+│       ├─ <CallInspector>             a capability call — Call · Result · Raw (§6.20); the "bundle" view of one answer's events
+│       ├─ <PersonInspector>           display name, what they did here, roles on their acts (§6.19), id + issuer on hover
+│       └─ <AliasInspector>            an alias edge — both identities, basis, linked by (renders only when the record holds one, §9)
 └─ dialogs                             in-document modals, never the quick input (13 §3)
     ├─ <PromptCard>                    the reusable text/choice/extras card (parity §L)
     ├─ <VerdictDialog>                 preflight + residual (02 §2.10)
@@ -211,6 +224,24 @@ pane and pushes the previous object onto that pane's back stack; a pinned pane i
 label, pin and close; back + breadcrumb when reached from another object; a human name;
 **In this case** (derive/citations.ts, §7.4); then the typed tabs. Width 440–480px, overlaying
 the companion side of the lens area (`08 §8.1`), never replacing the lens.
+
+**Resolving a target to a renderer.** An `inspector.open` target (§4.2) is resolved by the host
+from the id's shape and the snapshot: an OCSF event id or `observed-data--` → Evidence;
+`x-null-observation--` → Absence; `indicator--` → Detection (with its sighting and vendor
+identity); `note--` → Attestation; `x-prediction--` / `x-hypothesis--` → the reasoning
+inspectors (data already in the snapshot; history from the thread); an SCO type → Entity;
+`relationship--` of type `aliases` → Alias; a SOP id → Procedure; an action id → Action; a comms
+thread id → Thread; an owner item id → Owner item; a knowledge `case` ref → Similar case; an
+interpretation id → Turn; a capability call id → Call; a principal id → Person. Each renderer
+declares which slices it reads from the snapshot and which one-object fetches it needs, so
+most open instantly and only the Evidence, Call, Procedure, Similar-case and Action-history
+views wait on a round trip.
+
+**Observed-data in this engine is one object per event** (`03 §4`, `number_observed = 1`), so
+`08 §8.6.1`'s "observed-data bundle (one capability answer, many events)" is the **capability
+call** (§8.9): an `observed-data--` ref opens the Evidence inspector of its event, with the
+bundle it came from one link away ("Produced by"), and the Call inspector's Result tab is the
+list of events grouped by source with repetitions collapsed. Flagged in §11.
 
 ### 2.5 The thread stays reachable
 
@@ -301,7 +332,12 @@ the types; the host narrows on `type`. One protocol, extended; no second one.
 | { type: "inspector.entity"; ref: string; doc: EvidenceDoc | null; label: string; baseline: Baseline | null; appearances: Appearance[]; eventCount: number }
 | { type: "inspector.procedure"; sopId: string; sop: SOPView; excerpts: RetrievedExcerpt[]; revisions: SOPRevision[] }
 | { type: "inspector.turn"; interpretationId: string; body: string }
-| { type: "inspector.error"; ref: string; message: string }
+| { type: "inspector.detection"; ref: string; indicator: EvidenceDoc; sightings: EvidenceDoc[]; identity: EvidenceDoc | null; evidence: EvidenceDoc[] }
+| { type: "inspector.action"; actionId: string; record: ActionRecord }        // §8.5: history, authorization, per-target results, links
+| { type: "inspector.call"; callId: string; call: CapabilityCall; events: EventRow[] }  // §8.9
+| { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView; match: KnowledgeItem | null }
+| { type: "inspector.alias"; ref: string; edge: EvidenceDoc; left: EvidenceDoc | null; right: EvidenceDoc | null }
+| { type: "inspector.error"; target: string; message: string }
 | { type: "events"; seq: number; items: EventRow[]; entity?: string }   // §6.13
 | { type: "summary"; seq: number; facts: SummaryFacts; narrative: Narrative | null } // §6.18
 | { type: "narrative.drafting" } | { type: "narrative.failed"; message: string }
@@ -322,7 +358,18 @@ then drops the old ones).
 | { type: "ui.resync" }
 | { type: "queue.get" }
 | { type: "queue.start"; caseNumber: string }                            // Start investigation from the work queue
-| { type: "inspector.open"; target: { kind: "ref"; ref: string } | { kind: "sop"; sopId: string } | { kind: "turn"; interpretationId: string } }
+| { type: "inspector.open"; target:
+      | { kind: "ref"; ref: string }                 // any STIX / OCSF id: evidence, observed-data, absence, indicator, note, prediction, hypothesis, entity, alias edge
+      | { kind: "sop"; sopId: string }
+      | { kind: "turn"; interpretationId: string }
+      | { kind: "action"; actionId: string }
+      | { kind: "thread"; threadId: string }
+      | { kind: "ownerItem"; id: string }
+      | { kind: "case"; investigationRef: string }
+      | { kind: "call"; callId: string }
+      | { kind: "person"; principalId: string } }
+| { type: "capability.rerun"; verb: string; params: Record<string, unknown> }  // Absence "Re-run with a wider window": stages the verb in the composer (host builds the text)
+| { type: "knowledge.include"; ref: string; included: boolean }                // Similar case "Include in context"
 | { type: "events.get"; entity?: string }
 | { type: "summary.get" }
 | { type: "narrative.draft" }                                            // sidecar BYOK draft (§6.18)
@@ -549,6 +596,17 @@ architectural commitment: the investigation aggregate is the only event-sourced 
 - `ActionView.targets` keep `entity_ref` and `resolved_identifier` (the client stops flattening).
 - `GET /api/cases` is already the queue; the work queue filters client-side to rows with no
   `investigation`.
+- `GET /api/evidence/{ref}` on an `indicator--` ref gains `related`: the sightings whose
+  `sighting_of_ref` is the indicator, the vendor identity (`created_by_ref`), and the
+  observed-data the finding recursed (`03 §4.12`), so the Detection inspector is one fetch.
+- `GET /api/knowledge/case_summaries/{investigation_ref}` reads one case summary (structured
+  fields + narrative) from the `case-summaries` corpus, for the Similar-case inspector; the
+  demo's seeded prior cases have no local aggregate, so the summary is the only record.
+- `GET /api/actions/{id}` returns the action record with its state history (each `action.*`
+  event with actor name and time), the authorization (mode, approver name, policy evaluations,
+  shadow would-fire), per-target results, and reversal / retry links in both directions. The
+  Action inspector reads it; the card keeps reading the list view. Ships with the inspector PR;
+  §8.5 adds the projected `policy` summary to the list view later.
 
 ### 8.1 §6.12 — Per-class event views and prediction short titles
 
@@ -585,12 +643,15 @@ the baselines are expected to stand.
 ### 8.2 §6.13 — Entity-scoped event query
 
 **Decision.** Membership of a retrieved event in an investigation is recorded at ingest, not
-inferred later. `CapabilityInvokeBody` gains `investigation_ref` (the agent loop and the
-workbench already know it; empty keeps today's behavior for ad-hoc calls). `persistInvokeResult`
-writes two join tables in the same transaction:
+inferred later, and the unit of membership is the **capability call** (§8.9): one row per
+invocation, and every event it returned joined to it. `CapabilityInvokeBody` gains
+`investigation_ref` (the agent loop and the workbench already know it; empty keeps today's
+behavior for ad-hoc calls). `persistInvokeResult` writes, in the same transaction:
 
 ```sql
-investigation_events (aggregate_id, ocsf_event_id, verb, coverage, source_tool, invoked_at, invoke_params JSONB, PRIMARY KEY (aggregate_id, ocsf_event_id))
+capability_calls (id UUID PK, tenant_id, aggregate_id, verb, binding, adapter, operation, priority, params_sent JSONB,
+                  coverage, bindings_answered INT, bindings_total INT, null_observation_ref TEXT, started_at, duration_ms, degradation_notes JSONB)
+call_events       (call_id UUID, ocsf_event_id UUID, PRIMARY KEY (call_id, ocsf_event_id))
 observed_data_events (observed_data_id UUID, ocsf_event_id UUID, PRIMARY KEY (observed_data_id, ocsf_event_id))  -- the derived-from edge, persisted
 ```
 
@@ -605,8 +666,9 @@ returns, ordered by event time:
 
 `entity` restricts to events whose observed-data `object_refs` include the ref; `around` returns
 the window of ±N events on the same host entity as the given event (the inspector's "Around
-it"). Payloads are not included (the evidence endpoint serves them). A read over persisted
-tables, never a capability call.
+it"); each row carries its `call_id`. Payloads are not included (the evidence endpoint serves
+them). A read over persisted tables, never a capability call. §6.13 and §6.20 share these
+tables and land in one PR under one ADR that lists both issues.
 
 ### 8.3 §6.14 — Entity baselines
 
@@ -692,6 +754,34 @@ authorship line reads "drafted by reckon · edited by <name>". At conclude, the 
 prefills the conclusion summary; the knowledge summary pipeline is unchanged. The handoff note
 is built from the summary facts + narrative + still-to-do, host-side, and copied.
 
+### 8.8 §6.19 — Roles on acts
+
+**Decision.** `Actor` gains `Roles []string`, captured at command time from the token's roles
+by the one derivation every handler uses (`actorFromClaims`), beside `PrincipalName`
+(`adr/0077`). Display only: authorization still reads the live token and reckon mirrors no
+roles. Projected onto `ThreadActorView.roles` and the approval's actor on `GET /api/actions/{id}`.
+The Person inspector derives everything else client-side from the snapshot: the acts in this
+investigation whose actor is the principal (thread entries, approvals, attestations), the
+union of roles those acts carried, with the caption that current roles may differ. Events
+recorded before the field existed show no roles, and the inspector says so. Issuer is the
+`/api/auth-config` issuer.
+
+### 8.9 §6.20 — Addressable capability calls
+
+**Decision.** A capability call is a first-class, addressable record (`capability_calls`, §8.2),
+minted by the invoke endpoint and returned in the envelope as `call_id`. The agent's
+`ToolCallRecord` carries it and `ai_tool_calls` gains a `call_id` column, so a committed turn's
+tool-call list resolves to calls, a call resolves to the events and observed-data it produced
+(and to its absence object when it produced nothing), and an event resolves back to the call
+that retrieved it. `GET /api/investigations/{id}/calls/{call_id}` returns the call (verb,
+binding, operation, priority, parameters sent exactly as templated, coverage, bindings
+answered / total, duration, degradation notes, produced refs) plus the other bindings for the
+verb from the catalog, including installed-not-enabled; `GET /api/investigations/{id}/calls`
+lists them for the Story timeline and the residual panel. The Call inspector's Result tab is
+the "bundle" view: the call's events grouped by source with repetitions collapsed, each
+opening its Evidence inspector. Calls from the workbench's own reads (the case picker, the
+queue) carry no investigation and are not listed.
+
 ---
 
 ## 9. What the mockups show that the record cannot back
@@ -710,6 +800,13 @@ Listed as gaps, not faked (`00` seam rules). Each renders the honest nearest fac
 | Notification "to Contoso security contact" | no configured contact; the analyst supplies the target on Edit |
 | Baseline chart (seven nights) | rendered only from §8.3 patterns; absent otherwise |
 | Narrative wording | §8.7; absent until drafted; never templated by the UI |
+| Alias inspector (`CONTOSO\svc_backup ⇄ svc_backup@contoso.local`), "Remove link…" | no normalizer mints alias edges and no analyst act creates one today; the renderer ships and opens only when a `relationship--` of type `aliases` exists in the record; add / remove link are engine acts not in `00 §6` and are listed in §11 as a question, not built here |
+| Owner item "owner says scheduled for tonight" | a reply the analyst records on the item (history note), never read from a channel automatically |
+| Absence "7 days" window, "1 of 1 answered" | from the absence object's window and the call's `bindings_answered / total` (§8.9) |
+| Turn "derivation: inferred" | the interpretation's `derivation_mode`, verbatim |
+| Call "Took [DURATION]" | `duration_ms` recorded at invoke (§8.9) |
+| Person "owner · 4 acts · 1 approval" | "opened by" when the principal created the investigation; counts from the thread and approvals |
+| Attestation "Accepted into the set" history step | the acknowledgment event of the owning hypothesis, named as such; a prediction has no acceptance act of its own |
 
 ---
 
@@ -724,19 +821,26 @@ PRs in dependency order, each green on `make ci` and `make workbench-ci`, each r
    harness with recorded snapshots, component tests. Every parity row ticked in the harness and
    on the live stack. The old inline UI is deleted in the same PR (two renderers would be two
    truths).
-3. **Inspector (L1)** — evidence / entity / turn renderers, frame, back stack, pinning, Raw +
-   Provenance tabs; `evidenceView.ts`, `evidenceProvider.ts`, the scheme and the command deleted;
-   the entity popover folded in. Procedure inspector ships its frame and "Whole document" tab
-   (the excerpt tabs wait for §8.4).
+3. **Inspector (L1)** — the frame, back stack, pinning, and every renderer whose data the
+   record already holds: evidence, entity, absence, detection (with the `related` expansion),
+   attestation, prediction, hypothesis, action (with `GET /api/actions/{id}`), notification
+   thread, similar case (with the case-summary read), turn, person (without roles until §8.8),
+   alias (opens only when an edge exists); `evidenceView.ts`, `evidenceProvider.ts`, the scheme
+   and the command deleted; the entity popover folded in. Procedure inspector ships its frame
+   and "Whole document" tab (the excerpt tabs wait for §8.4). Owner item (§8.6), Call and the
+   bundle view (§8.9) and roles (§8.8) light up with their gap PRs.
 4. **Density + layout (L2, L3)** — header with stage and primary action, work queue, lens tabs
    with the lifecycle default, companion column with turn records and the activity disclosure,
    one-line prediction rows and the matrix, Response lens from the existing action data,
    `/api/stream` subscription, §8.0 view additions.
 5. **Engine gaps**, one PR each, each landing its UI slice so it is demoable:
-   §6.12 (event views + titles; Timeline rows and inspector Details), §6.13 (events endpoint;
-   Story timeline, Around it, attack path), §6.14 (baseline), §6.15 (excerpt provenance; the
-   procedure inspector's excerpt tabs and Versions), §6.16 (policy fact on cards), §6.17 (owner
-   items; Response and Summary sections), §6.18 (summary endpoint, narrative, handoff note).
+   §6.12 (event views + titles; Timeline rows and inspector Details), §6.13 + §6.20 together
+   (calls, call events, events endpoint; Story timeline, Around it, attack path, the Call
+   inspector and bundle view, "Produced by" links), §6.14 (baseline), §6.15 (excerpt
+   provenance; the procedure inspector's excerpt tabs and Versions), §6.16 (policy fact on
+   cards), §6.17 (owner items; Response and Summary sections, the Owner-item inspector),
+   §6.18 (summary endpoint, narrative, handoff note), §6.19 (roles on acts; the Person
+   inspector's roles).
 6. **Cleanup** — dead code, `design/ui` sheet amendments forced by implementation (in the PRs
    that force them, this PR sweeps), `design/13 §7` note, road test and demo script updates.
 
@@ -769,3 +873,10 @@ is set.
 9. **The webview's stylesheet is fully bundled**, so `style-src` loses `'unsafe-inline'`.
 10. **The `/api/stream` subscription is added now**; Temporal-emitted events keep the bounded
     poll until a LISTEN/NOTIFY republisher exists.
+11. **The observed-data bundle of `08 §8.6.1` is the capability call** (§2.4, §8.9), because
+    the engine mints one observed-data per event; an `observed-data--` ref opens its event.
+12. **§6.13 and §6.20 share one table set and one PR**, under one ADR listing both issues.
+13. **Alias edges have no producer today.** The Alias inspector renders when an edge exists;
+    creating or removing one is an engine act the binding does not list. Should it become
+    gap §6.21 (an analyst act on an `aliases` relationship with basis and provenance), or stay
+    out until a normalizer or adapter mints alias edges?
