@@ -137,6 +137,34 @@ func (s *Session) recallSimilarItems(ctx context.Context, query string) []Knowle
 	return out
 }
 
+// SearchKnowledge runs the analyst's own query over both corpora (design/ui
+// 09 §9.6) and APPENDS the hits to the session's retrieved set, excluded until
+// the analyst includes them — the session owns what the model may read, so an
+// item the analyst finds must join the set before SetIncludedKnowledge can
+// flip it. Items already surfaced keep their inclusion. Returns the merged set.
+func (s *Session) SearchKnowledge(ctx context.Context, query string) []KnowledgeItem {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return s.RetrievedKnowledge()
+	}
+	seen := make(map[string]bool, len(s.retrieved))
+	for _, k := range s.retrieved {
+		seen[k.Ref] = true
+	}
+	var found []KnowledgeItem
+	found = append(found, s.recallSOPItems(ctx, query)...)
+	found = append(found, s.recallSimilarItems(ctx, query)...)
+	for _, k := range found {
+		if seen[k.Ref] {
+			continue
+		}
+		seen[k.Ref] = true
+		k.Included = false
+		s.retrieved = append(s.retrieved, k)
+	}
+	return s.RetrievedKnowledge()
+}
+
 // RetrievedKnowledge returns what implicit retrieval surfaced this session,
 // with each item's current inclusion — the data the workbench's knowledge rail
 // renders. A copy, so the caller cannot mutate session state.

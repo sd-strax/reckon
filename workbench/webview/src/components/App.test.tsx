@@ -1,6 +1,6 @@
 // Component tests over the harness snapshot (impl §5.5): the document renders
-// its surfaces from recorded data, and the analyst's acts reach the host as
-// the intents the protocol names.
+// its regions from recorded data (08 §8.1–§8.5), and the analyst's acts reach
+// the host as the intents the protocol names.
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { AppProvider } from "../app";
@@ -15,122 +15,199 @@ function mount(d: HarnessSnapshot | null = data) {
   const view = render(<AppProvider transport={transport}><App /></AppProvider>);
   return { transport, view };
 }
+const tab = (name: string) => fireEvent.click(screen.getByRole("tab", { name: new RegExp("^" + name) }));
+const lens = () => document.querySelector(".lensscroll") as HTMLElement;
+const header = () => document.querySelector("#header") as HTMLElement;
 
 describe("the investigation document", () => {
-  it("renders the header, seed line and the derived state label from the snapshot", () => {
+  it("renders the header: title, case reference with Note the case, the stage, the primary action and the nearest expiry", () => {
     mount();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(data.snapshot.investigation.title);
-    expect(document.querySelector(".state")?.textContent).toBe("ACTIVE · REMEDIATING"); // pending actions (binding §2.4)
-    // A ticket.comment action on the seed case exists (FAILED), so the seed
-    // line shows its status instead of the one-shot "Note the case" button.
-    expect(screen.getByText("noted · failed")).toBeTruthy();
-    expect(document.querySelector("#meta code")?.textContent).toBe(data.snapshot.investigation.id);
+    expect(within(header()).getByText("CASE-1001")).toBeTruthy();
+    expect(within(header()).getByText(/opened by Analyst One/)).toBeTruthy();
+    // A ticket.comment action on the seed case exists (FAILED), so the status word shows instead of the button.
+    expect(within(header()).getByText(/noted · failed/)).toBeTruthy();
+    const steps = Array.from(document.querySelectorAll(".stage .step")).map((s) => s.className);
+    expect(steps[0]).toContain("current"); // no verdict yet → Investigate
+    expect(within(header()).getByText("Review 2 proposed actions")).toBeTruthy();
+    expect(within(header()).getByText(/first approval/)).toBeTruthy();
   });
 
-  it("renders every rail section: approvals, hypotheses, knowledge, pins, ledger, comms, capabilities", () => {
+  it("opens on the stage's default lens and remembers the analyst's choice", () => {
+    const { transport } = mount();
+    expect(screen.getByRole("tab", { name: /^Reasoning/ }).getAttribute("aria-selected")).toBe("true");
+    tab("Story");
+    expect(transport.intents.find((i) => i.type === "view.state")).toEqual({ type: "view.state", lens: "story" });
+    expect(transport.getState<{ lens: Record<string, string> }>()?.lens[data.snapshot.investigation.id]).toBe("story");
+  });
+
+  it("renders the work queue needs-me-first with stage steps, and starts an investigation from a case", () => {
+    const { transport } = mount();
+    const nav = document.querySelector("#leftRegion") as HTMLElement;
+    const rows = Array.from(nav.querySelectorAll(".qrow:not(.case)"));
+    expect(rows.length).toBe(2); // the concluded one is not in the open queue
+    expect(rows[0].classList.contains("current")).toBe(true);
+    expect(rows[0].querySelector(".qstep")?.textContent).toBe("Investigate");
+    expect(rows[1].querySelector(".qstep")?.textContent).toBe("Close");
+    expect(within(nav).getByText("from CASE-1002")).toBeTruthy();
+    fireEvent.click(rows[1]);
+    expect(transport.intents.find((i) => i.type === "investigation.open")).toMatchObject({ id: "grouping--2c3b8d6f-6b0f-4c8f-a02b-7e4f3b2c1d02" });
+    expect(within(nav).getByText("CASE-1003")).toBeTruthy();
+    fireEvent.click(within(nav).getByText("Start investigation"));
+    expect(transport.intents.find((i) => i.type === "queue.start")).toEqual({ type: "queue.start", caseNumber: "CASE-1003" });
+    expect(within(nav).getByText("Capabilities · 1/3 available")).toBeTruthy();
+    fireEvent.click(within(nav).getByText("set up"));
+    expect(screen.getByRole("dialog", { name: "Enable dns-adapter" })).toBeTruthy();
+  });
+
+  it("Reasoning: verdict basis, one-line prediction rows that expand, the matrix, the pinned fold", () => {
     mount();
-    const pending = document.querySelector("#pendingSection")!;
-    expect(within(pending as HTMLElement).getByText("Approve · Send")).toBeTruthy(); // notify.* preview card
-    expect(within(pending as HTMLElement).getByText("Approve (challenge)…")).toBeTruthy(); // T3
-    expect(within(pending as HTMLElement).getByText("↻ Re-request")).toBeTruthy(); // EXPIRED without a successor
-    expect(within(pending as HTMLElement).getByText("Please confirm whether maintenance was scheduled.")).toBeTruthy(); // pre-send preview
-    expect(Array.from(document.querySelectorAll(".hyphandle")).map((h) => h.textContent)).toEqual(["H1 not-owner", "H2"]); // live first, handle or position
-    expect(screen.getByText("2/3 tested")).toBeTruthy(); // withdrawn excluded, manual counted
-    expect(screen.getByText("a person tests this")).toBeTruthy();
-    expect(screen.getAllByText("undecided until tested").length).toBe(2);
-    expect(screen.getByText(/attested by Analyst One by phone/)).toBeTruthy();
-    expect(screen.getByText("✓ Adopt")).toBeTruthy();
-    expect(screen.getByText("⚡ Run tests")).toBeTruthy();
-    expect(screen.getByText("Procedure one")).toBeTruthy();
-    expect(screen.getByText("Two interactive logons by user-a within six minutes.")).toBeTruthy();
-    expect(screen.getByText("Early guess, re-scoped.").closest(".pinrow")!.classList.contains("superseded")).toBe(true);
-    expect(screen.getByText("Actions · 5")).toBeTruthy();
-    expect(screen.getByText("✗ ticket is read-only")).toBeTruthy();
-    expect(screen.getByText("External work · 1 open")).toBeTruthy();
-    expect(screen.getByText("Acknowledge")).toBeTruthy();
-    expect(screen.getByText("Capabilities · 1/3 available")).toBeTruthy();
-    expect(screen.getByText("set up")).toBeTruthy(); // installed-not-enabled affordance
+    expect(within(lens()).getByText("Verdict basis")).toBeTruthy();
+    expect(within(lens()).getByText(/all discriminators tested|a discriminator is untested/)).toBeTruthy();
+    const rows = lens().querySelectorAll(".prow");
+    expect(rows.length).toBe(4);
+    expect(rows[0].querySelector(".ptitle")?.textContent?.startsWith("user-a's 30-day logon history")).toBe(true); // the statement, clipped to one line until gap §6.12
+    expect(rows[0].querySelector(".psplits")?.textContent).toBe("splits H2");
+    expect(rows[1].querySelector(".pcount")?.textContent).toBe("attested");
+    expect(rows[0].querySelector(".pbody")).toBeNull();
+    fireEvent.click(rows[0].querySelector(".pline")!);
+    expect(rows[0].querySelector(".pbody .pstatement")).toBeTruthy();
+    expect(within(lens()).getByText("⚡ Run tests")).toBeTruthy();
+    expect(within(lens()).getByText("✓ Adopt")).toBeTruthy();
+    fireEvent.click(within(lens()).getByRole("tab", { name: "Matrix" }));
+    const cells = Array.from(lens().querySelectorAll("tbody tr:first-child td.cell")).map((c) => c.textContent);
+    expect(cells).toEqual(["✓", "✕"]);
+    expect(lens().querySelector("tfoot")?.textContent).toContain("Inconsistent02");
+    expect(within(lens()).getByText(/Pinned evidence · 1/)).toBeTruthy();
   });
 
-  it("reconstructs the chronicle: committed turn with a tool row, act lines, the reset boundary, a stub, a struck verdict", () => {
-    mount();
-    const restored = document.querySelector("#restored")!;
-    expect(within(restored as HTMLElement).getByText("enumerate_logons")).toBeTruthy();
-    expect(within(restored as HTMLElement).getByText("COMPLETE · 2 event(s)")).toBeTruthy();
-    expect(restored.querySelector("table.mdtable")).toBeTruthy();
-    expect(within(restored as HTMLElement).getByText("followed: Procedure one")).toBeTruthy();
-    expect(within(restored as HTMLElement).getByText(/committed aside/)).toBeTruthy();
-    expect(within(restored as HTMLElement).getByText("approved host.isolate")).toBeTruthy();
-    expect(within(restored as HTMLElement).getByText(/context reset — agent re-grounded/)).toBeTruthy();
-    expect(within(restored as HTMLElement).getByText(/earlier reasoning — open transcript/)).toBeTruthy();
-    expect(within(restored as HTMLElement).getByText("verdict SUSPICIOUS").closest(".actline")!.classList.contains("superseded")).toBe(true);
-    expect(document.querySelector("#stripWrap summary")?.textContent).toBe("Event time · 3 events over 6m");
-    expect(document.querySelector("#graphWrap summary")?.textContent).toContain("Evidence graph · 6 objects · 1 events");
-  });
-
-  it("resolves chip labels through the host and opens every chip in the inspector", () => {
+  it("Response: cards in every state, the approve lock, the notification draft → notify.request, the comms threads", () => {
     const { transport } = mount();
-    expect(transport.intents.some((i) => i.type === "evidence.resolve")).toBe(true);
-    const chip = Array.from(document.querySelectorAll(".refchip")).find((c) => c.textContent === "host · host-a")!;
-    expect(chip).toBeTruthy();
-    fireEvent.click(chip);
-    expect(transport.intents.some((i) => i.type === "inspector.open")).toBe(true);
-    expect(document.querySelector(".inspector.active")).toBeTruthy();
-    expect(document.querySelector(".popover")).toBeNull(); // the popover is retired into the inspector
-  });
-
-  it("sends a turn with the included knowledge set", () => {
-    const { transport } = mount();
-    const cb = document.querySelector("#knowledgeBox input[type=checkbox]") as HTMLInputElement;
-    fireEvent.click(cb);
-    const input = document.querySelector("#input") as HTMLTextAreaElement;
-    fireEvent.change(input, { target: { value: "continue" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    const sent = transport.intents.find((i) => i.type === "send");
-    expect(sent).toEqual({ type: "send", text: "continue", includedKnowledge: ["sop-1"] });
-    expect(input.disabled).toBe(true); // one turn at a time
-  });
-
-  it("routes a reject through the prompt card, an approve straight to the host, then locks the queue", () => {
-    const { transport } = mount();
-    fireEvent.click(screen.getAllByText("Reject…")[0]);
+    tab("Response");
+    const cards = lens().querySelectorAll(".actioncard.full");
+    expect(cards.length).toBe(5);
+    expect(within(lens()).getByText("Approve · Send")).toBeTruthy();
+    expect(within(lens()).getByText("Approve (challenge)…")).toBeTruthy();
+    expect(within(lens()).getByText("↻ Re-request")).toBeTruthy();
+    expect(within(lens()).getByText("Reverse…")).toBeTruthy(); // SUCCEEDED + REVERSIBLE
+    expect(within(lens()).getByText("✗ ticket is read-only")).toBeTruthy();
+    expect(within(lens()).getAllByText(/no policy pre-authorizes/).length).toBeGreaterThan(0);
+    fireEvent.click(within(lens()).getAllByText("Reject…")[0]);
     const dlg = screen.getByRole("dialog");
     fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "not warranted" } });
     fireEvent.click(within(dlg).getByText("Reject"));
-    expect(transport.intents.find((i) => i.type === "action.reject")).toMatchObject({ actionId: "act-2", reason: "not warranted" });
-    fireEvent.click(screen.getByText("Approve · Send"));
+    expect(transport.intents.find((i) => i.type === "action.reject")).toMatchObject({ reason: "not warranted" });
+    fireEvent.click(within(lens()).getByText("Approve · Send"));
     expect(transport.intents.find((i) => i.type === "action.approve")).toMatchObject({ actionId: "act-2", tier: "T1" });
-    // One decision in flight at a time: every queue button is disabled until the host re-posts the slice.
-    expect((screen.getByText("Approve (challenge)…") as HTMLButtonElement).disabled).toBe(true);
+    expect((within(lens()).getByText("Approve (challenge)…") as HTMLButtonElement).disabled).toBe(true);
     act(() => transport.emit({ type: "state.patch", seq: 15, patch: { actions: data.snapshot.actions!.filter((a) => a.actionId !== "act-2") } }));
-    expect((screen.getByText("Approve (challenge)…") as HTMLButtonElement).disabled).toBe(false);
+    expect((within(lens()).getByText("Approve (challenge)…") as HTMLButtonElement).disabled).toBe(false);
+    expect(within(lens()).getByText(/What happened: under investigation/)).toBeTruthy();
+    fireEvent.click(within(lens()).getByText("Preview & send email…"));
+    const send = screen.getByRole("dialog");
+    fireEvent.change(send.querySelector("#promptExtra_target")!, { target: { value: "ops@example.test" } });
+    fireEvent.click(within(send).getByText("Request to send"));
+    expect(transport.intents.find((i) => i.type === "notify.request")).toMatchObject({ channel: "notify.email", target: "ops@example.test" });
+    expect(within(lens()).getByText("External work · 1 open")).toBeTruthy();
+    expect(within(lens()).getByText("Acknowledge")).toBeTruthy();
+    expect(within(lens()).getByText(/gap 00 §6.17/)).toBeTruthy(); // owner items: honest gap line
   });
 
-  it("records a prediction with its discriminators and the manual flag", () => {
+  it("Summary: four tiles, key entities with derivable words, still to do, procedures followed, the handoff note", () => {
     const { transport } = mount();
-    fireEvent.click(screen.getAllByText("+ prediction")[0]);
-    const dlg = screen.getByRole("dialog");
+    tab("Summary");
+    expect(within(lens()).getByText("none yet")).toBeTruthy(); // verdict tile
+    expect(within(lens()).getByText("2 of 4 approved")).toBeTruthy(); // containment: SUCCEEDED + FAILED were approved; REQUESTED and EXPIRED were not
+    expect(within(lens()).getByText("isolated")).toBeTruthy(); // host-a's derivable status word
+    expect(within(lens()).getByText(/No narrative has been drafted/)).toBeTruthy();
+    expect(within(lens()).getByText("Procedure one")).toBeTruthy();
+    fireEvent.click(within(lens()).getByText("Copy handoff note"));
+    const copied = transport.intents.find((i) => i.type === "copy") as { text: string };
+    expect(copied.text).toContain("Still to do:");
+    fireEvent.click(within(lens()).getByText("Export report"));
+    expect(transport.intents.some((i) => i.type === "export.open")).toBe(true);
+  });
+
+  it("Story: techniques, the timeline in event time with citing predictions and the start divider, not yet known", () => {
+    mount();
+    tab("Story");
+    expect(within(lens()).getByText("T1078")).toBeTruthy();
+    expect(lens().querySelectorAll(".trow").length).toBeGreaterThan(2);
+    expect(within(lens()).getByText(/investigation starts/)).toBeTruthy();
+    expect(within(lens()).getByText(/under H1 not-owner: No scheduled job/)).toBeTruthy();
+    fireEvent.click(within(lens()).getByRole("tab", { name: "Network" }));
+    expect(within(lens()).getByText("No cited events carry an event time yet.")).toBeTruthy();
+  });
+
+  it("Companion: the Knowledge section with toggles, search and the nudge; turn records as links; the activity disclosure; Thread mode", () => {
+    const { transport } = mount();
+    const comp = document.querySelector("#companion") as HTMLElement;
+    expect(within(comp).getByText("2 retrieved · 0 included")).toBeTruthy();
+    expect(within(lens()).getByText(/1 procedure and 1 past case the auto posture would include are not included/)).toBeTruthy();
+    fireEvent.click(comp.querySelector("#knowledgeBox input[type=checkbox]")!);
+    expect(within(comp).getByText("2 retrieved · 1 included")).toBeTruthy();
+    expect(within(lens()).getByText(/1 past case the auto posture would include is not included/)).toBeTruthy();
+    fireEvent.change(comp.querySelector(".ksearch input")!, { target: { value: "isolation" } });
+    fireEvent.keyDown(comp.querySelector(".ksearch input")!, { key: "Enter" });
+    expect(transport.intents.find((i) => i.type === "knowledge.search")).toEqual({ type: "knowledge.search", text: "isolation" });
+    expect(within(comp).getByText("3 retrieved · 1 included")).toBeTruthy(); // the hit joined, excluded
+    // The first turn's records and activity.
+    expect(within(comp).getByText(/Activity · 1 tool call/)).toBeTruthy();
+    expect(within(comp).getByText("followed: Procedure one")).toBeTruthy();
+    expect(within(comp).getByText(/committed · /)).toBeTruthy(); // the aside, collapsed
+    expect(comp.querySelector(".actline")).toBeNull(); // no act lines in Conversation mode
+    fireEvent.click(within(comp).getByRole("tab", { name: "Thread" }));
+    expect(within(comp).getByText("approved host.isolate")).toBeTruthy();
+    expect(within(comp).getByText(/context reset — agent re-grounded/)).toBeTruthy();
+    const pin = comp.querySelector(".summaryPin") as HTMLButtonElement; // a restored tool row's pin
+    fireEvent.click(pin);
+    expect(screen.getByRole("dialog", { name: "Pin as evidence" })).toBeTruthy();
+  });
+
+  it("sends a turn with the included knowledge set and parks the composer during the turn", () => {
+    const { transport } = mount();
+    fireEvent.click(document.querySelector("#knowledgeBox input[type=checkbox]")!);
+    const input = document.querySelector("#input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "continue" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(transport.intents.find((i) => i.type === "send")).toEqual({ type: "send", text: "continue", includedKnowledge: ["sop-1"] });
+    expect(input.disabled).toBe(true);
+  });
+
+  it("records a prediction with its discriminators and the manual flag, and routes adopt / rename / abandon through the card", () => {
+    const { transport } = mount();
+    fireEvent.click(within(lens()).getAllByText("+ prediction")[0]);
+    let dlg = screen.getByRole("dialog");
     fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "a new test" } });
     fireEvent.click(within(dlg).getByLabelText(/A person tests this/));
     fireEvent.click(within(dlg).getByText("Record prediction"));
-    const sent = transport.intents.find((i) => i.type === "pred.new");
-    expect(sent).toMatchObject({ statement: "a new test", testKind: "manual" });
-    expect((sent as { discriminates: string[] }).discriminates.length).toBe(1); // the single rival is pre-checked
+    expect(transport.intents.find((i) => i.type === "pred.new")).toMatchObject({ statement: "a new test", testKind: "manual" });
+    fireEvent.click(lens().querySelector(".hypcard .hyphandle")!);
+    expect(screen.getByRole("dialog", { name: "Rename H1 not-owner" })).toBeTruthy();
+    fireEvent.click(screen.getByText("Cancel"));
+    fireEvent.click(within(lens()).getAllByText("Abandon")[0]);
+    dlg = screen.getByRole("dialog", { name: "Abandon H1 not-owner" });
+    fireEvent.click(within(dlg).getByText("Abandon"));
+    expect(transport.intents.find((i) => i.type === "hyp.abandon")).toMatchObject({ reason: "" });
+    fireEvent.click(within(lens()).getByText("+ Add a hypothesis"));
+    dlg = screen.getByRole("dialog", { name: "New hypothesis" });
+    fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "another explanation" } });
+    fireEvent.click(within(dlg).getByText("Record hypothesis"));
+    expect(transport.intents.find((i) => i.type === "hyp.new")).toEqual({ type: "hyp.new", statement: "another explanation", handle: "H3" });
   });
 
   it("gates the verdict on pins and a rationale, and cites the active pins", () => {
     const { transport } = mount();
-    fireEvent.click(screen.getByText("Verdict…"));
+    fireEvent.click(within(header()).getByText("Verdict…"));
     const dlg = screen.getByRole("dialog");
     const submit = within(dlg).getByRole("button", { name: "Record verdict" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     fireEvent.click(within(dlg).getByLabelText("MALICIOUS"));
     fireEvent.change(dlg.querySelector("#verdictRationale")!, { target: { value: "because" } });
     expect(submit.disabled).toBe(false);
-    expect(within(dlg).getByText(/undecided hypothesis H2 — never adopted/)).toBeTruthy();
     fireEvent.click(submit);
     const v = transport.intents.find((i) => i.type === "verdict.submit") as { refs: string[] };
-    expect(v.refs.length).toBe(2); // the active pin's refs, not the superseded one's
+    expect(v.refs.length).toBe(2);
   });
 
   it("renames inline: Enter commits, Escape cancels", () => {
@@ -140,7 +217,7 @@ describe("the investigation document", () => {
     fireEvent.change(edit, { target: { value: "Renamed" } });
     fireEvent.keyDown(edit, { key: "Enter" });
     expect(transport.intents.find((i) => i.type === "rename")).toEqual({ type: "rename", title: "Renamed" });
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Renamed"); // the host echo applied
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Renamed");
   });
 
   it("renders the draft surface and guards the double submit", () => {
@@ -149,47 +226,22 @@ describe("the investigation document", () => {
     fireEvent.change(input, { target: { value: "host-b" } });
     expect(screen.getByText(/investigate host/)).toBeTruthy();
     fireEvent.click(screen.getByText("hunt this as a question instead"));
-    expect(screen.getByText(/a hunt \(open question\)/)).toBeTruthy();
     fireEvent.keyDown(input, { key: "Enter" });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(transport.intents.filter((i) => i.type === "seed.submit")).toEqual([{ type: "seed.submit", value: "host-b", kind: "question" }]);
   });
 
-  it("parks the composer and hides the verdict and rename affordances on a concluded record", () => {
+  it("parks the composer, opens on Summary, and hides the verdict and rename affordances on a concluded record", () => {
     const concluded: HarnessSnapshot = { ...data, snapshot: { ...data.snapshot, investigation: { ...data.snapshot.investigation, state: "CONCLUDED", verdict: { disposition: "BENIGN", verdictAt: "" } } } };
     mount(concluded);
     expect((document.querySelector("#input") as HTMLTextAreaElement).disabled).toBe(true);
-    expect(screen.queryByText("Verdict…")).toBeNull();
-    expect(document.querySelector(".iconbtn")).toBeNull();
-    expect(screen.getByText("Reopen…")).toBeTruthy();
-    expect(screen.getByText("Archive…")).toBeTruthy();
-  });
-
-  it("opens the handle rename, abandon, the tool-result pin and the enable form as in-document cards", () => {
-    const { transport } = mount();
-    fireEvent.click(document.querySelector(".hyphandle")!);
-    expect(screen.getByRole("dialog", { name: "Rename H1 not-owner" })).toBeTruthy();
-    fireEvent.click(screen.getByText("Cancel"));
-    fireEvent.click(screen.getAllByText("Abandon")[0]);
-    const abandon = screen.getByRole("dialog", { name: "Abandon H1 not-owner" });
-    fireEvent.click(within(abandon).getByText("Abandon")); // optional reason: confirm enabled while empty
-    expect(transport.intents.find((i) => i.type === "hyp.abandon")).toMatchObject({ reason: "" });
-    // The pin on a restored tool result's summary line carries every ref the envelope cited.
-    const pin = document.querySelector("#restored .summaryPin") as HTMLButtonElement;
-    expect(pin.disabled).toBe(false);
-    fireEvent.click(pin);
-    const pinDlg = screen.getByRole("dialog", { name: "Pin as evidence" });
-    expect(pinDlg.querySelectorAll(".pinrefs .refchip").length).toBe(7); // 2 observed-data + 3 entities + 2 events
-    fireEvent.change(within(pinDlg).getByRole("textbox"), { target: { value: "shows the two logons" } });
-    fireEvent.click(within(pinDlg).getByText("📌 Pin evidence"));
-    expect(transport.intents.find((i) => i.type === "pin.add")).toMatchObject({ finding: "shows the two logons" });
-    // The enable form renders from the adapter's schema; the secret never gets a field.
-    fireEvent.click(screen.getByText("set up"));
-    const form = screen.getByRole("dialog", { name: "Enable dns-adapter" });
-    expect(within(form).getByText("base_url (required)")).toBeTruthy();
-    expect(within(form).getByText(/api_key: secret — captured via secure input/)).toBeTruthy();
-    fireEvent.change(form.querySelector("input[type=text]")!, { target: { value: "https://dns.example.test" } });
-    fireEvent.click(within(form).getByRole("button", { name: "Enable dns-adapter" }));
-    expect(transport.intents.find((i) => i.type === "enablement.apply")).toEqual({ type: "enablement.apply", adapter: "dns-adapter", enabled: true, config: { base_url: "https://dns.example.test" }, secretFields: ["api_key"] });
+    expect(screen.getByRole("tab", { name: /^Summary/ }).getAttribute("aria-selected")).toBe("true");
+    expect(within(header()).queryByText("Verdict…")).toBeNull();
+    expect(header().querySelector(".iconbtn")).toBeNull();
+    expect(within(header()).getByText("Reopen…")).toBeTruthy();
+    expect(within(header()).getByText("Archive…")).toBeTruthy();
+    // Close is done; Contain and Notify honestly stay undone (the actions never settled); nothing is current.
+    expect(document.querySelector(".stage .step:last-child")!.classList.contains("done")).toBe(true);
+    expect(document.querySelector(".stage .step.current")).toBeNull();
   });
 });

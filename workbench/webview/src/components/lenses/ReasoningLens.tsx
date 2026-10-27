@@ -1,0 +1,105 @@
+// Reasoning — the competing set (08 §8.4): the verdict basis strip, the
+// tracker with one-line prediction rows, the Cards / Matrix toggle, the new-
+// hypothesis affordance, and the pinned-evidence fold (the canonical place
+// for pins).
+import { useState } from "react";
+import { useApp } from "../../app";
+import { badgeTone, blockersOf, counted, hypName, isLive, orderHypotheses, tested } from "../../derive/hyps";
+import { buildMatrix } from "../../derive/matrix";
+import { HypothesisCard } from "../Hypotheses";
+import { Badge, Empty, RefChip, fmtDateTime } from "../shared";
+
+function VerdictBasis() {
+  const { state, openInspector } = useApp();
+  const hs = state.snap?.hypotheses || [];
+  const live = hs.filter((h) => h.status !== "ABANDONED");
+  const open = live.flatMap((h) => h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
+  const blocked = live.some((h) => blockersOf(h, hs).length > 0);
+  if (!hs.length) return null;
+  return (
+    <div className="basis">
+      <span className="kicker">Verdict basis</span>
+      {live.map((h) => <span key={h.id} className="basisitem"><a className="hyphandle" onClick={() => openInspector({ kind: "ref", ref: h.id })}>{hypName(h, hs)}</a> <Badge tone={badgeTone(h.status)}>{h.status}</Badge></span>)}
+      <span className="imeta">Open: {open.length ? open.map(({ p }) => `P${p.ordinal ?? "?"} ${p.status.toLowerCase()}`).join(", ") : "none"} · {blocked ? "a discriminator is untested" : "all discriminators tested"}</span>
+    </div>
+  );
+}
+
+function MatrixView() {
+  const { state, openInspector } = useApp();
+  const hs = state.snap?.hypotheses || [];
+  const m = buildMatrix(hs);
+  if (!m.rows.length) return <Empty>No predictions to score yet.</Empty>;
+  return (
+    <table className="matrix">
+      <thead><tr><th>Prediction</th>{m.columns.map((h) => <th key={h.id}><a onClick={() => openInspector({ kind: "ref", ref: h.id })}>{hypName(h, hs)}</a></th>)}</tr></thead>
+      <tbody>
+        {m.rows.map((r) => (
+          <tr key={r.p.id} className={r.open ? "open" : undefined}>
+            <td><a onClick={() => openInspector({ kind: "ref", ref: r.p.id })}>P{r.p.ordinal ?? "?"}</a> <span className="mtitle">{r.p.statement}</span>{r.open ? <span className="imeta"> open</span> : null}</td>
+            {r.cells.map((c, i) => <td key={i} className={"cell " + (c === "✓" ? "ok" : c === "✕" ? "bad" : c === "?" ? "open" : "")}>{c}</td>)}
+          </tr>
+        ))}
+      </tbody>
+      <tfoot><tr><td>Inconsistent</td>{m.inconsistent.map((n, i) => <td key={i} className="cell">{n}</td>)}</tr></tfoot>
+    </table>
+  );
+}
+
+function PinnedEvidence() {
+  const { state, send, openPrompt } = useApp();
+  const pins = state.snap?.pins || [];
+  const active = pins.filter((p) => !p.superseded).length;
+  return (
+    <details className="railfold pinsfold" open={active > 0}>
+      <summary>Pinned evidence{pins.length ? ` · ${active}` : ""}</summary>
+      <div id="pinsBox">
+        {!pins.length ? <Empty>Nothing pinned yet — pin key findings from tool results</Empty> : pins.map((p) => (
+          <div key={p.interpretationId} className={"card pinrow" + (p.superseded ? " superseded" : "")}>
+            {!p.superseded ? <button className="unpin" title="Supersede this pin (stays visible, struck)" onClick={() => openPrompt({
+              title: "Remove from evidence", label: "Why remove this?", placeholder: "e.g. re-scoped — this logon was expected activity",
+              helper: "The pin stays visible on the thread, struck — nothing is deleted.", confirm: "Remove",
+              onConfirm: (reason) => send({ type: "pin.unpin", interpretationId: p.interpretationId, reason }),
+            })}>un-pin</button> : null}
+            <div className="finding">{p.finding}</div>
+            <div className="cardmeta">{(p.actor === "AI_DELEGATED" ? "AI" : p.actor === "SYSTEM" ? "system" : "analyst") + (p.pinnedAt ? " · " + fmtDateTime(p.pinnedAt) : "")}</div>
+            <div>{(p.inputRefs || []).map((r) => <RefChip key={r} refId={r} pinned={!p.superseded} />)}</div>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+export function ReasoningLens() {
+  const { state, send, openPrompt } = useApp();
+  const [view, setView] = useState<"cards" | "matrix">("cards");
+  const hs = state.snap?.hypotheses || [];
+  const pins = state.snap?.pins || [];
+  const engine = state.snap ? String(state.snap.investigation.state).toUpperCase() : "";
+  const closed = engine === "CONCLUDED" || engine === "ARCHIVED";
+  const tally = hs.filter(isLive).map((h) => { const ps = h.predictions.filter(counted); return `${hypName(h, hs)} ${ps.filter(tested).length}/${ps.length}`; });
+  void tally;
+  return (
+    <div className="lens reasoning">
+      <VerdictBasis />
+      <div className="lenstools">
+        <div className="modetoggle" role="tablist">
+          <button role="tab" aria-selected={view === "cards"} className={view === "cards" ? "on" : ""} onClick={() => setView("cards")}>Cards</button>
+          <button role="tab" aria-selected={view === "matrix"} className={view === "matrix" ? "on" : ""} onClick={() => setView("matrix")}>Matrix</button>
+        </div>
+        {!closed ? <button className="railadd" title="Frame your own hypothesis — e.g. the alternate (benign or different-attacker) explanation. Lands OPEN, tested like any other." onClick={() => openPrompt({
+          title: "New hypothesis", label: "The claim to test — ONE claim, often the ALTERNATE explanation",
+          placeholder: "e.g. The logon was legitimate maintenance by the backup team, not lateral movement.",
+          helper: "Recorded as yours, OPEN immediately, named H" + (hs.length + 1) + " (rename by clicking the handle). Then “Propose tests” on it — competing hypotheses are decided by evidence, not argument.",
+          confirm: "Record hypothesis",
+          onConfirm: (statement) => send({ type: "hyp.new", statement, handle: "H" + (hs.length + 1) }),
+        })}>+ Add a hypothesis</button> : null}
+      </div>
+      {view === "matrix" ? <MatrixView /> : (
+        <div id="hyps">{!hs.length ? <Empty>None yet</Empty> : orderHypotheses(hs).map((h) => <HypothesisCard key={h.id} h={h} hs={hs} pins={pins} />)}</div>
+      )}
+      <PinnedEvidence />
+    </div>
+  );
+}

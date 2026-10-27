@@ -17,6 +17,9 @@ function mount() {
 }
 const chip = (text: string) => Array.from(document.querySelectorAll(".refchip")).find((c) => c.textContent === text) as HTMLElement;
 const pane = () => document.querySelector(".inspector.active") as HTMLElement;
+const lens = () => document.querySelector(".lensscroll") as HTMLElement;
+/** Chips on the Reasoning lens live in the pinned-evidence fold and in expanded rows; expand every row first. */
+const expandRows = () => { for (const l of Array.from(document.querySelectorAll(".prow .pline"))) fireEvent.click(l); };
 
 describe("the inspector", () => {
   it("opens an entity from a chip with the frame, In this case, pivot and raw properties", () => {
@@ -68,7 +71,7 @@ describe("the inspector", () => {
 
   it("renders the absence with its search facts and stages a wider re-run", () => {
     mount();
-    fireEvent.click(chip("nothing observed · get_network_connections over 7 days"));
+    fireEvent.click(chip("nothing observed · get_network_connections over 7 days")); // cited by a pin in the fold
     const p = pane();
     expect(within(p).getByText("Evidence · absence")).toBeTruthy();
     expect(within(p).getByText("COMPLETE · 0 EVENTS")).toBeTruthy();
@@ -92,6 +95,7 @@ describe("the inspector", () => {
 
   it("renders an attestation as a human statement with who said it and the question it answers", () => {
     mount();
+    expandRows(); // the attestation chip is P2's test result
     fireEvent.click(chip("attestation · attested by analyst-1 by phone: account owner"));
     const p = pane();
     expect(within(p).getByText("Attestation")).toBeTruthy();
@@ -103,7 +107,7 @@ describe("the inspector", () => {
 
   it("renders a prediction and its hypothesis from the snapshot alone, linked both ways", () => {
     mount();
-    fireEvent.click(document.querySelector(".predictions .pord[title^='Open this prediction']:nth-of-type(1)") ? Array.from(document.querySelectorAll(".predictions .pord")).find((el) => el.textContent === "P3")! : screen.getAllByText("P3")[0]);
+    fireEvent.click(Array.from(lens().querySelectorAll(".prow .pord")).find((el) => el.textContent === "P3")!);
     let p = pane();
     expect(p.getAttribute("aria-label")).toBe("Prediction");
     expect(within(p).getByText("Prediction")).toBeTruthy();
@@ -121,9 +125,8 @@ describe("the inspector", () => {
 
   it("renders an action's record: history with actors, authorization, targets with results", () => {
     mount();
-    fireEvent.click(screen.getAllByTitle("Open the action record")[0]); // the ledger: newest first → act-5
-    fireEvent.click(chip("observed data · 3 objects"));
-    fireEvent.click(within(pane()).getByText("host.isolate")); // In this case → act-1
+    fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
+    fireEvent.click(within(lens()).getAllByTitle("Open the action record").find((a) => a.textContent === "host.isolate")!);
     const p = pane();
     expect(within(p).getByText("Action")).toBeTruthy();
     expect(within(p).getByText(/approved by Analyst One/)).toBeTruthy();
@@ -138,37 +141,39 @@ describe("the inspector", () => {
 
   it("renders a notification thread and a turn, a procedure and a similar case from the knowledge rail", () => {
     const transport = mount();
-    fireEvent.click(screen.getAllByTitle("Open the thread")[0]);
+    fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
+    fireEvent.click(within(lens()).getAllByTitle("Open the thread")[0]);
     let p = pane();
     expect(within(p).getByText("Notification thread")).toBeTruthy();
     expect(within(p).getByText(/No maintenance was scheduled/)).toBeTruthy();
     fireEvent.click(within(p).getByRole("tab", { name: "Sent message" }));
     expect(within(p).getByText("Session on host-a", { selector: ".subj" })).toBeTruthy();
 
+    fireEvent.click(within(document.querySelector("#companion") as HTMLElement).getByRole("tab", { name: "Thread" }));
     fireEvent.click(screen.getByText(/earlier reasoning — open transcript/)); // the stub
     p = pane();
     expect(within(p).getByText("Turn")).toBeTruthy();
     expect(transport.intents.some((i) => i.type === "inspector.open" && i.target.kind === "turn")).toBe(true);
     expect(within(p).getByText(/transcript not recorded in this harness stage/)).toBeTruthy(); // the honest error for a stub
 
-    fireEvent.click(screen.getByText("Procedure one"));
+    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Procedure one"));
     p = pane();
     expect(within(p).getByText("Procedure")).toBeTruthy();
     expect(within(p).getByText(/Confirm the session with the owner first/)).toBeTruthy(); // What the AI read
     fireEvent.click(within(p).getByRole("tab", { name: "Whole document" }));
     expect(within(p).getByText("confirm-with-owner")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Prior case A"));
+    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Prior case A"));
     p = pane();
     expect(within(p).getByText("Similar past case")).toBeTruthy();
     expect(within(p).getByText(/contained by isolating the host/, { selector: "p" })).toBeTruthy();
     fireEvent.click(within(p).getByText("Include in context"));
-    expect((document.querySelector("#knowledgeBox input[type=checkbox]:nth-of-type(1)") as HTMLInputElement)).toBeTruthy();
-    expect(screen.getByText("in context")).toBeTruthy(); // the rail's posture word flipped
+    expect(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("2 retrieved · 1 included")).toBeTruthy();
   });
 
   it("shows an honest error for a ref the record cannot open", () => {
     const transport = mount();
+    fireEvent.click(screen.getByRole("tab", { name: /^Summary/ })); // key entities carry the account chip
     fireEvent.click(chip("account · user-a"));
     act(() => transport.emit({ type: "inspector.error", target: "user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02", message: "no persisted record for this ref" }));
     expect(within(pane()).getByText(/no persisted record for this ref/)).toBeTruthy();

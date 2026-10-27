@@ -14,16 +14,21 @@ import type {
   ActionRow,
   Appearance,
   Capability,
+  CaseRow,
   CaseSummaryView,
   CommsThread,
   Enablement,
   EvidenceDoc,
   Hypothesis,
   InvestigationDetail,
+  InvestigationSummary,
   PinRow,
   SOPDoc,
   ThreadEntry,
 } from "./backend";
+
+/** The four lenses (08 §8.4). */
+export type Lens = "summary" | "story" | "reasoning" | "response";
 
 /**
  * What an inspector opens (impl §2.4, §4.2). A `ref` is any STIX / OCSF id:
@@ -133,6 +138,11 @@ export type RenderMessage =
   // The whole cache, and whole re-posts of the slices an act touched (§3.1).
   | { type: "state.snapshot"; seq: number; snapshot: InvestigationSnapshot }
   | { type: "state.patch"; seq: number; patch: Partial<InvestigationSnapshot> }
+  // The work queue (08 §8.3): the analyst's investigations and the case
+  // system's queue, posted on load and on refresh; `queue.get` re-asks.
+  | { type: "queue"; investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string }
+  // Who the signed-in principal is, for "edited by you" and attestations.
+  | { type: "me"; name: string; principal: string }
   | { type: "error"; message: string }
   // Open the in-document rename card (never the top-of-window quick input).
   | { type: "rename.begin"; title: string }
@@ -167,6 +177,18 @@ export type InboundMessage =
   | { type: "refresh" | "ready" }
   // Resync: the webview saw a sequence gap it cannot fill (§3.2).
   | { type: "ui.resync" }
+  | { type: "queue.get" }
+  // Start an investigation from a case row in the work queue (08 §8.3).
+  | { type: "queue.start"; caseNumber: string }
+  // The Knowledge section's scoped search (09 §9.6): the sidecar runs it and
+  // the merged set comes back as a `knowledge` patch.
+  | { type: "knowledge.search"; text: string }
+  // Request the outbound notification (08 §8.4 Response): a notify.* action
+  // whose pre-send preview is the approval.
+  | { type: "notify.request"; channel: "notify.email" | "notify.slack"; target: string; subject?: string; body: string }
+  // The lens and companion mode the analyst chose, mirrored to globalState so
+  // the tree can deep-link (view state, never investigation state).
+  | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }
   // The seed surface (design/ui/02 §2.7): the analyst's confirmed root.
   | { type: "seed.submit"; value: string; kind: string }
   | { type: "seed.alert"; alertId: string; source: string }
