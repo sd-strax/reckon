@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Knowledge — candidates</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0f24;}
+a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;font-weight:600;padding:1px 7px 1px 6px;border-radius:5px;line-height:1.45;white-space:nowrap}
+.sw{width:6px;height:6px;border-radius:2px;display:inline-block}
+.tag{font-family:"JetBrains Mono",Menlo,monospace;font-size:10px;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.88);white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.btn{font:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:5px 10px;cursor:pointer;border:1px solid rgba(255,255,255,.16);background:transparent;color:rgba(255,255,255,.88)}
+.btn-p{color:#8b8aff;border-color:rgba(115,113,252,.45)}
+.btn-primary{background:#5d5be0;border-color:#5d5be0;color:#ffffff}
+.tab{font:inherit;font-size:13px;font-weight:600;padding:10px 2px;background:transparent;border:0;border-bottom:2px solid transparent;color:rgba(255,255,255,.62);cursor:pointer;display:flex;gap:6px;align-items:center}
+.tab.on{color:rgba(255,255,255,.88);border-bottom-color:#7371fc}
+.card{background:#141a33;border:1px solid rgba(255,255,255,.09);border-radius:10px}
+.row{display:flex;gap:12px;align-items:flex-start;padding:10px 14px;border-top:1px solid rgba(255,255,255,.05)}
+.mut{color:rgba(255,255,255,.62)}.ok{color:#4ec77b}.warn{color:#f5b53d}.bad{color:#ff5f6e}
+.band-strong{color:#4ec77b;background:rgba(78,199,123,.13)}
+.band-rel{color:#8b8aff;background:rgba(115,113,252,.16)}
+.band-dist{color:rgba(255,255,255,.62);background:rgba(255,255,255,.08)}
+.toggle{width:28px;height:16px;border-radius:999px;background:rgba(255,255,255,.16);position:relative;flex:none;border:0;cursor:pointer;padding:0}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:999px;background:#ffffff}
+.toggle.on{background:#5d5be0}.toggle.on::after{left:14px}
+.kv{display:grid;grid-template-columns:110px minmax(0,1fr)}
+.k{font-size:11px;color:rgba(255,255,255,.62);padding:5px 0;border-top:1px solid rgba(255,255,255,.05)}
+.v{padding:5px 0;border-top:1px solid rgba(255,255,255,.05);font-size:12px}
+.md h3{font-size:14px;margin:14px 0 6px}.md p,.md li{line-height:1.55;font-size:13px}.md ul,.md ol{margin:0;padding-left:20px}
+</style>
+</head>
+<body>
+<div style="width: 1440px; min-height: 820px; box-sizing: border-box; display: flex; flex-direction: column; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
+<header style="display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: #070b1c; border-bottom: 1px solid rgba(255,255,255,.09);">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.88)" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><circle cx="12" cy="18" r="2.5"></circle><path d="M8.4 6.6l7.2 1"></path><path d="M7 8.3l4 7.4"></path><path d="M16.8 10.2l-3.6 5.7"></path></svg>
+<h1 style="margin: 0; font-size: 17px; font-weight: 700;">Knowledge</h1>
+<span class="mut" style="font-size: 12px;">procedures and past cases your team has recorded</span>
+</header>
+<div style="display: flex; flex: 1;">
+<nav aria-label="Workbench" style="width: 240px; flex: none; border-right: 1px solid rgba(255,255,255,.09); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box;">
+<div role="group" aria-label="Region" style="display: flex; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; overflow: hidden; margin-bottom: 10px;">
+<button type="button" class="btn" style="flex: 1; border: 0; border-radius: 0; color: rgba(255,255,255,.62);">Work</button>
+<button type="button" class="btn" style="flex: 1; border: 0; border-radius: 0; background: rgba(115,113,252,.16); color: #8b8aff;" aria-pressed="true">Knowledge</button>
+</div>
+<a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Procedures</span><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">3</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Past cases</span><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">2</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Import</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88); background: rgba(115,113,252,.16);" aria-current="page"><span>Candidates</span><span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); padding: 0 6px;">1</span></a>
+</nav>
+<main style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+<div style="padding: 14px 24px 0; display: flex; flex-direction: column; gap: 10px;">
+<form role="search" style="display: flex; gap: 8px; align-items: center; background: #141a33; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; padding: 6px 6px 6px 12px;">
+<label for="kq" class="mut" style="font-size: 12px; flex: none;">Ask or search</label>
+<input id="kq" type="text" placeholder="e.g. how do we contain RDP lateral movement with a service account?" style="flex: 1; background: transparent; border: 0; color: rgba(255,255,255,.88); font: inherit; outline: none; min-width: 0;">
+<div role="group" aria-label="Mode" style="display: flex; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; overflow: hidden;">
+<button type="button" class="btn" style="border: 0; border-radius: 0; background: rgba(255,255,255,.08); padding: 4px 10px;" aria-pressed="true">Search</button>
+<button type="button" class="btn" style="border: 0; border-radius: 0; padding: 4px 10px; color: rgba(255,255,255,.62);">Ask</button>
+</div>
+</form>
+</div>
+<div style="display: flex; gap: 16px; padding: 14px 24px 28px; align-items: flex-start;"><section class="card" style="flex: 0 0 440px; min-width: 0;" aria-label="Candidates"><div style="padding: 10px 14px; display: flex; gap: 8px; align-items: center;"><span class="eyebrow">Candidates</span><span class="mut" style="font-size: 11px;">drafted when an investigation concludes</span><span style="flex: 1;"></span><label class="mut" style="font-size: 11px; display: flex; gap: 6px; align-items: center;"><input type="checkbox"> show reviewed</label></div><a href="#" class="row" style="color: rgba(255,255,255,.88); background: rgba(115,113,252,.10); box-shadow: inset 3px 0 0 #7371fc;"><div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;"><span style="font-weight: 600;">Service account used interactively</span><span class="mut" style="font-size: 11px;">drafted from INC0010042 · Suspicious interactive RDP logon to WIN-FILE01</span></div><span class="mut mono" style="font-size: 11px; width: 50px;">Oct 27</span><span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13);">NEW</span></a><a href="#" class="row" style="color: rgba(255,255,255,.88);"><div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;"><span style="font-weight: 600;">Credential dumping response checklist</span><span class="mut" style="font-size: 11px;">drafted from LSASS credential dumping on WORKSTATION-22</span></div><span class="mut mono" style="font-size: 11px; width: 50px;">Jun 3</span><span class="pill" style="color: #4ec77b; background: rgba(78,199,123,.13);">ACCEPTED</span></a></section><article class="card" style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;" aria-label="Candidate detail"><div style="padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 6px;"><div style="display: flex; gap: 10px; align-items: flex-start;"><h2 style="margin: 0; font-size: 16px; font-weight: 700; flex: 1;">Service account used interactively</h2><span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); border: 1px solid rgba(245,181,61,.34);">NEW</span></div><div class="mut" style="font-size: 12px;">Drafted Oct 27 from <a href="#">INC0010042</a> and the procedures it consulted · editable before adding</div></div><div style="display: flex; gap: 16px; padding: 0 16px 16px; align-items: flex-start;"><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px;"><span class="eyebrow">Draft</span><pre class="mono" style="margin: 0; background: #0a0f24; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; padding: 10px 12px; font-size: 11px; line-height: 1.6; white-space: pre-wrap; color: rgba(255,255,255,.88);">---
+title: Service account used interactively
+author: [REVIEWER]
+tags: [T1078, service-account, rdp]
+recommendation: disable
+---
+# Service account used interactively
+
+Scope: a service account opens an interactive
+session (RDP, console) instead of its usual
+network logons.
+
+## Triage
+1. Compare the session with the account's
+   baseline: source host, logon type, time window.
+2. Confirm with the owning team whether anyone
+   was working under the account at that time.
+3. ...</pre></div><div style="flex: 0 0 300px; min-width: 0; display: flex; flex-direction: column; gap: 8px;"><span class="eyebrow">Closest existing procedure</span><a href="#" style="background: #0a0f24; border: 1px solid rgba(255,255,255,.05); border-radius: 7px; padding: 10px 12px; color: rgba(255,255,255,.88); display: flex; flex-direction: column; gap: 4px;"><span style="font-weight: 600;">Lateral Movement via RDP — Containment</span><span class="pill band-rel" style="align-self: flex-start;">RELATED</span><span class="mut" style="font-size: 11px; line-height: 1.5;">Covers containment after RDP lateral movement; does not cover telling a service account's legitimate use from misuse.</span></a><span class="mut" style="font-size: 11px; line-height: 1.5;">Adding creates a new procedure. To extend the existing one instead, edit it and discard this candidate.</span></div></div><div style="padding: 10px 16px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid rgba(255,255,255,.05);"><button type="button" class="btn">Discard…</button><button type="button" class="btn btn-primary">Add to library</button></div></article></div>
+</main>
+</div>
+</div>
+</body>
+</html>

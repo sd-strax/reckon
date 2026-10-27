@@ -64,7 +64,7 @@ only notification remains; **Conclude** when the conclude preflight passes (`02 
 
 ## 8.3 Work queue
 
-Two sections, in this order.
+Two sections, in this order. The region's header also opens the Knowledge view (`ui/09 §9.1`).
 
 - **Investigations** — the analyst's open investigations as a triage queue (`13 §4`):
   ordered needs-me-first (`ui/06` tree rules). A row shows the tenant
@@ -148,6 +148,8 @@ The tracker of `02 §2.9` (`adr/0047`) with these changes:
 - **What a turn records renders as a link**, one line each: "H1·P5 confirmed by
   attestation", "Proposed 3 actions + 1 owner item". Clicking scrolls the lens to the
   object (switching lens if needed) — the object itself is never restated.
+- A **Knowledge section** heads the column: what the agent may read in this investigation,
+  with include toggles (`ui/09 §9.6`). It replaces the knowledge rail.
 - **Consulted knowledge** renders as chips under the turn (`02 §2.11`).
 - **Activity disclosure**, collapsed: "Activity · 3 tool calls, 2 records". Expanding shows
   the tool-call blocks (`02 §2.3`) and the records written. No sequence numbers, no

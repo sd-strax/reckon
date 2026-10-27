@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Knowledge — search and ask results</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0f24;}
+a{color:#8b8aff;text-decoration:none}a:hover{color:#ffffff}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;font-weight:600;padding:1px 7px 1px 6px;border-radius:5px;line-height:1.45;white-space:nowrap}
+.sw{width:6px;height:6px;border-radius:2px;display:inline-block}
+.tag{font-family:"JetBrains Mono",Menlo,monospace;font-size:10px;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.88);white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.btn{font:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:5px 10px;cursor:pointer;border:1px solid rgba(255,255,255,.16);background:transparent;color:rgba(255,255,255,.88)}
+.btn-p{color:#8b8aff;border-color:rgba(115,113,252,.45)}
+.btn-primary{background:#5d5be0;border-color:#5d5be0;color:#ffffff}
+.tab{font:inherit;font-size:13px;font-weight:600;padding:10px 2px;background:transparent;border:0;border-bottom:2px solid transparent;color:rgba(255,255,255,.62);cursor:pointer;display:flex;gap:6px;align-items:center}
+.tab.on{color:rgba(255,255,255,.88);border-bottom-color:#7371fc}
+.card{background:#141a33;border:1px solid rgba(255,255,255,.09);border-radius:10px}
+.row{display:flex;gap:12px;align-items:flex-start;padding:10px 14px;border-top:1px solid rgba(255,255,255,.05)}
+.mut{color:rgba(255,255,255,.62)}.ok{color:#4ec77b}.warn{color:#f5b53d}.bad{color:#ff5f6e}
+.band-strong{color:#4ec77b;background:rgba(78,199,123,.13)}
+.band-rel{color:#8b8aff;background:rgba(115,113,252,.16)}
+.band-dist{color:rgba(255,255,255,.62);background:rgba(255,255,255,.08)}
+.toggle{width:28px;height:16px;border-radius:999px;background:rgba(255,255,255,.16);position:relative;flex:none;border:0;cursor:pointer;padding:0}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:999px;background:#ffffff}
+.toggle.on{background:#5d5be0}.toggle.on::after{left:14px}
+.kv{display:grid;grid-template-columns:110px minmax(0,1fr)}
+.k{font-size:11px;color:rgba(255,255,255,.62);padding:5px 0;border-top:1px solid rgba(255,255,255,.05)}
+.v{padding:5px 0;border-top:1px solid rgba(255,255,255,.05);font-size:12px}
+.md h3{font-size:14px;margin:14px 0 6px}.md p,.md li{line-height:1.55;font-size:13px}.md ul,.md ol{margin:0;padding-left:20px}
+</style>
+</head>
+<body>
+<div style="width: 1440px; min-height: 780px; box-sizing: border-box; display: flex; flex-direction: column; background: #0a0f24; color: rgba(255,255,255,.88); font-family: 'Open Sans', -apple-system, 'Segoe UI', sans-serif; font-size: 13px;">
+<header style="display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: #070b1c; border-bottom: 1px solid rgba(255,255,255,.09);">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.88)" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><circle cx="12" cy="18" r="2.5"></circle><path d="M8.4 6.6l7.2 1"></path><path d="M7 8.3l4 7.4"></path><path d="M16.8 10.2l-3.6 5.7"></path></svg>
+<h1 style="margin: 0; font-size: 17px; font-weight: 700;">Knowledge</h1>
+<span class="mut" style="font-size: 12px;">procedures and past cases your team has recorded</span>
+</header>
+<div style="display: flex; flex: 1;">
+<nav aria-label="Workbench" style="width: 240px; flex: none; border-right: 1px solid rgba(255,255,255,.09); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box;">
+<div role="group" aria-label="Region" style="display: flex; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; overflow: hidden; margin-bottom: 10px;">
+<button type="button" class="btn" style="flex: 1; border: 0; border-radius: 0; color: rgba(255,255,255,.62);">Work</button>
+<button type="button" class="btn" style="flex: 1; border: 0; border-radius: 0; background: rgba(115,113,252,.16); color: #8b8aff;" aria-pressed="true">Knowledge</button>
+</div>
+<a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88); background: rgba(115,113,252,.16);" aria-current="page"><span>Procedures</span><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">3</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Past cases</span><span class="mono" style="font-size: 11px; color: rgba(255,255,255,.62);">2</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Import</span></a><a href="#" style="padding: 7px 10px; border-radius: 7px; display: flex; justify-content: space-between; align-items: center; color: rgba(255,255,255,.88);"><span>Candidates</span><span class="pill" style="color: #f5b53d; background: rgba(245,181,61,.13); padding: 0 6px;">1</span></a>
+</nav>
+<main style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+<div style="padding: 14px 24px 0; display: flex; flex-direction: column; gap: 10px;">
+<form role="search" style="display: flex; gap: 8px; align-items: center; background: #141a33; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; padding: 6px 6px 6px 12px;">
+<label for="kq" class="mut" style="font-size: 12px; flex: none;">Ask or search</label>
+<input id="kq" type="text" placeholder="e.g. how do we contain RDP lateral movement with a service account?" style="flex: 1; background: transparent; border: 0; color: rgba(255,255,255,.88); font: inherit; outline: none; min-width: 0;">
+<div role="group" aria-label="Mode" style="display: flex; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; overflow: hidden;">
+<button type="button" class="btn" style="border: 0; border-radius: 0; background: rgba(255,255,255,.08); padding: 4px 10px;" aria-pressed="true">Search</button>
+<button type="button" class="btn" style="border: 0; border-radius: 0; padding: 4px 10px; color: rgba(255,255,255,.62);">Ask</button>
+</div>
+</form>
+</div>
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 14px 24px 28px;">
+<div style="display: flex; align-items: baseline; gap: 12px;"><h2 style="margin: 0; font-size: 15px;">Results for “how do we contain RDP lateral movement with a service account?”</h2><a href="#" style="font-size: 12px;">‹ Back to Procedures</a></div>
+<div style="display: flex; gap: 16px; align-items: flex-start;"><section class="card" style="flex: 1 1 0; min-width: 0;" aria-label="Search results">
+<div style="padding: 10px 14px; display: flex; gap: 8px; align-items: center;"><span class="eyebrow">Search</span><span style="flex: 1;"></span><span class="mut" style="font-size: 11px;">4 results · semantic</span></div>
+<div class="row" style="flex-direction: column; gap: 6px;">
+<div style="display: flex; gap: 8px; align-items: center; width: 100%;"><span class="eyebrow" style="width: 74px; flex: none;">Procedure</span><a href="#" style="font-weight: 600; color: rgba(255,255,255,.88); flex: 1; min-width: 0;">Lateral Movement via RDP — Containment</a><span class="pill band-strong">STRONG</span></div>
+<div class="mut" style="font-size: 11px; padding-left: 82px;">v1.0 · recommends isolate</div>
+<div style="font-size: 12px; line-height: 1.55; padding-left: 82px;">…Isolate the destination host if hands-on-keyboard activity is confirmed. Disable or force-reset the account if it is being used to pivot…</div>
+<div style="font-size: 11px; padding-left: 82px; display: flex; gap: 12px; flex-wrap: wrap;"><span class="mut">Why: matches T1021.001 and rdp; containment section</span><span style="flex: 1;"></span><a href="#">Open</a></div>
+</div>
+<div class="row" style="flex-direction: column; gap: 6px;">
+<div style="display: flex; gap: 8px; align-items: center; width: 100%;"><span class="eyebrow" style="width: 74px; flex: none;">Procedure</span><a href="#" style="font-weight: 600; color: rgba(255,255,255,.88); flex: 1; min-width: 0;">Credential Theft Triage</a><span class="pill band-rel">RELATED</span></div>
+<div class="mut" style="font-size: 11px; padding-left: 82px;">v1.0 · recommends reset-credentials</div>
+<div style="font-size: 12px; line-height: 1.55; padding-left: 82px;">…Enumerate every host and service the account touched since the suspected theft. The reset is only as good as this list…</div>
+<div style="font-size: 11px; padding-left: 82px; display: flex; gap: 12px; flex-wrap: wrap;"><span class="mut">Why: matches T1078 (valid accounts)</span><span style="flex: 1;"></span><a href="#">Open</a></div>
+</div>
+<div class="row" style="flex-direction: column; gap: 6px;">
+<div style="display: flex; gap: 8px; align-items: center; width: 100%;"><span class="eyebrow" style="width: 74px; flex: none;">Past case</span><a href="#" style="font-weight: 600; color: rgba(255,255,255,.88); flex: 1; min-width: 0;">RDP lateral movement from FINANCE-07 to DC-02</a><span class="pill band-rel">RELATED</span></div>
+<div class="mut" style="font-size: 11px; padding-left: 82px;">concluded May 14 · true positive · 6.5 h</div>
+<div style="font-size: 12px; line-height: 1.55; padding-left: 82px;">A stolen valid account was used to RDP from FINANCE-07 into DC-02, where discovery tooling ran. Contained by isolating DC-02 and disabling the account.</div>
+<div style="font-size: 11px; padding-left: 82px; display: flex; gap: 12px; flex-wrap: wrap;"><span class="mut">Why: same techniques; valid account used for RDP</span><span style="flex: 1;"></span><a href="#">Open</a></div>
+</div>
+<div class="row" style="flex-direction: column; gap: 6px;">
+<div style="display: flex; gap: 8px; align-items: center; width: 100%;"><span class="eyebrow" style="width: 74px; flex: none;">Procedure</span><a href="#" style="font-weight: 600; color: rgba(255,255,255,.88); flex: 1; min-width: 0;">Host Isolation Runbook</a><span class="pill band-dist">DISTINCT</span></div>
+<div class="mut" style="font-size: 11px; padding-left: 82px;">v1.0 · recommends isolate</div>
+<div style="font-size: 12px; line-height: 1.55; padding-left: 82px;">[EXCERPT FROM THE HOST ISOLATION RUNBOOK]</div>
+<div style="font-size: 11px; padding-left: 82px; display: flex; gap: 12px; flex-wrap: wrap;"><span class="mut">Why: containment only</span><span style="flex: 1;"></span><a href="#">Open</a></div>
+</div>
+</section><section class="card" style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;" aria-label="Ask answer">
+<div style="padding: 10px 14px; display: flex; gap: 8px; align-items: center;"><span class="eyebrow">Ask</span><span style="flex: 1;"></span><span class="mut" style="font-size: 11px;">answered from the knowledge base only</span></div>
+<div style="padding: 4px 16px 14px; display: flex; flex-direction: column; gap: 10px; line-height: 1.6;">
+<p style="margin: 0;">Isolate the destination host once hands-on-keyboard activity is confirmed, using network isolation so volatile evidence survives <a href="#" class="mono" style="font-size: 11px;">[1]</a>. Then disable or force-reset the account, but first capture every host it has reached, or you lose the map; for a service account, coordinate the rotation, since a blind reset causes an outage and tips off the adversary <a href="#" class="mono" style="font-size: 11px;">[1]</a> <a href="#" class="mono" style="font-size: 11px;">[2]</a>. The May FINANCE-07 case followed the same order: isolate, then disable <a href="#" class="mono" style="font-size: 11px;">[3]</a>.</p>
+<p style="margin: 0;" class="mut">No procedure covers how to tell a backup service account's legitimate use from misuse.</p>
+<div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px;">
+<a href="#"><span class="mono">[1]</span> Lateral Movement via RDP — Containment · Containment</a>
+<a href="#"><span class="mono">[2]</span> Credential Theft Triage · blast radius</a>
+<a href="#"><span class="mono">[3]</span> Past case: RDP lateral movement from FINANCE-07 to DC-02</a>
+</div>
+<div class="mut" style="font-size: 11px;">reckon · [MODEL] · no telemetry tools · nothing recorded in any investigation</div>
+</div>
+</section></div>
+</div>
+</main>
+</div>
+</div>
+</body>
+</html>
