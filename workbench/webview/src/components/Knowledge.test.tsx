@@ -32,7 +32,7 @@ describe("the Knowledge document", () => {
     expect(document.querySelector("#querybar")).toBeTruthy();
     expect(document.querySelector("#companion")).toBeNull(); // no investigation surface here
     const secs = Array.from(nav().querySelectorAll(".ksec")).map((s) => s.textContent);
-    expect(secs).toEqual(["Procedures3", "Past cases—", "Import4", "Candidates—"]);
+    expect(secs).toEqual(["Procedures3", "Past cases2", "Import4", "Candidates—"]);
     expect(main().querySelectorAll("tbody tr").length).toBe(3);
     fireEvent.click(within(main()).getByLabelText("show retired"));
     const rows = main().querySelectorAll("tbody tr");
@@ -111,16 +111,37 @@ describe("the Knowledge document", () => {
     expect(main().querySelectorAll("tbody tr").length).toBe(3);
   });
 
-  it("Ask shows the gap line until §6.23 lands; Past cases and Candidates show theirs", () => {
+  it("Ask shows the gap line until §6.23 lands; Candidates shows its own", () => {
     mountKnowledge();
     fireEvent.click(screen.getByRole("tab", { name: "Ask" }));
     fireEvent.change(document.querySelector("#queryText")!, { target: { value: "what do we do about rdp?" } });
     fireEvent.click(within(document.querySelector("#querybar") as HTMLElement).getByRole("button", { name: "Ask" }));
     expect(within(main()).getByText(/Ask lands with gap 00 §6.23/)).toBeTruthy();
-    section("Past cases");
-    expect(within(main()).getByText(/gap 00 §6.21/)).toBeTruthy();
     section("Candidates");
     expect(within(main()).getByText(/gap 00 §6.24/)).toBeTruthy();
+  });
+
+  it("Past cases: every concluded summary newest first with its fields, narrowed by technique and disposition, and the row opens the case (adr/0107)", () => {
+    const transport = mountKnowledge();
+    section("Past cases");
+    const rows = () => Array.from(main().querySelectorAll("table[aria-label='Past cases'] tbody tr"));
+    expect(rows().length).toBe(2);
+    const first = Object.values(kdata.caseSummaries!).filter(Boolean).sort((a, b) => (b!.conclusionAt || "").localeCompare(a!.conclusionAt || ""))[0]!;
+    expect(rows()[0].querySelector(".ktitle")?.textContent).toBe(first.title);
+    expect(within(rows()[0] as HTMLElement).getByText(first.verdictDisposition!)).toBeTruthy();
+    expect(within(main()).getAllByText("baseline").length).toBeGreaterThan(0); // no narrative written on the seeded cases
+    fireEvent.change(main().querySelector("#caseTechnique")!, { target: { value: first.techniques[0] } });
+    fireEvent.click(within(main()).getByRole("button", { name: "Filter" }));
+    expect(transport.intents.find((i) => i.type === "cases.list")).toMatchObject({ filters: { technique: first.techniques[0] } });
+    expect(rows().every((r) => r.textContent!.includes(first.techniques[0]))).toBe(true);
+    expect(main().querySelector(".kcases h3 .imeta")?.textContent).toBe("2"); // the count stays the total
+    fireEvent.change(main().querySelector("#caseTechnique")!, { target: { value: "T9999" } });
+    fireEvent.click(within(main()).getByRole("button", { name: "Filter" }));
+    expect(within(main()).getByText(/no concluded investigation matches these filters/)).toBeTruthy();
+    fireEvent.click(within(main()).getByRole("button", { name: "Clear" }));
+    expect(rows().length).toBe(2);
+    fireEvent.click(rows()[0]);
+    expect(transport.intents.some((i) => i.type === "inspector.open" && i.target.kind === "case")).toBe(true);
   });
 
   it("Import: editor and disk rows with the parsed frontmatter, missing fields and the parser's error; outcomes after the run", () => {

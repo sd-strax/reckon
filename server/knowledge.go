@@ -3,8 +3,11 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -82,6 +85,72 @@ func (b *Backend) recallSimilar(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, res)
 	})
+}
+
+// CaseSummariesResponse is the Past cases listing (design/ui 09 §9.4, adr/0107).
+type CaseSummariesResponse struct {
+	Summaries []knowledge.CaseSummaryView `json:"summaries"`
+}
+
+// listCaseSummaries handles GET /api/knowledge/case_summaries?technique=&disposition=&from=&to=&limit=
+// (adr/0107): every concluded investigation's current summary, newest first,
+// narrowed by technique, verdict disposition and conclusion-date window
+// (RFC 3339 or YYYY-MM-DD; `to` as a date covers the whole day). Any
+// authenticated reader. The summary is the record of a concluded case the
+// knowledge corpus holds; the listing is a read over it, not a new table.
+func (b *Backend) listCaseSummaries(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, "GET")
+		return
+	}
+	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		f := knowledge.SummaryFilter{Technique: strings.TrimSpace(q.Get("technique")), Disposition: strings.TrimSpace(q.Get("disposition"))}
+		var err error
+		if f.From, err = parseDayOrTime(q.Get("from"), false); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "from: "+err.Error())
+			return
+		}
+		if f.To, err = parseDayOrTime(q.Get("to"), true); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "to: "+err.Error())
+			return
+		}
+		if lim := q.Get("limit"); lim != "" {
+			if f.Limit, err = strconv.Atoi(lim); err != nil || f.Limit < 0 {
+				writeJSONError(w, http.StatusBadRequest, "limit must be a non-negative integer")
+				return
+			}
+		}
+		out, err := b.cfg.Knowledge.ListSummaries(r.Context(), module.SingleTenantUUID, f)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "case_summaries: "+err.Error())
+			return
+		}
+		if out == nil {
+			out = []knowledge.CaseSummaryView{}
+		}
+		writeJSON(w, http.StatusOK, CaseSummariesResponse{Summaries: out})
+	})
+}
+
+// parseDayOrTime reads an RFC 3339 instant or a YYYY-MM-DD day; a day as the
+// end of a window covers that whole day. Empty is the zero time (open).
+func parseDayOrTime(raw string, endOfDay bool) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t, nil
+	}
+	d, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("want RFC 3339 or YYYY-MM-DD, got %q", raw)
+	}
+	if endOfDay {
+		return d.Add(24*time.Hour - time.Nanosecond), nil
+	}
+	return d, nil
 }
 
 // getCaseSummary handles GET /api/knowledge/case_summaries/{investigation_ref}

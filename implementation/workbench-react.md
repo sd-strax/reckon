@@ -1003,6 +1003,9 @@ the structured summary's fields: title, concluded at, disposition, techniques, s
 value as the primary entity, `actions_taken` with outcomes, duration hours, and whether a
 narrative exists. No new table: the corpus is the record, and a listing is a read over it.
 
+**Landed** (`adr/0107`, PR #108) as specified; the row is the existing `CaseSummaryView` and
+"whether a narrative exists" is `generator_model` being set rather than a new field.
+
 ### 8.11 §6.22 — Citation counts and where-used
 
 **Decision.** An aggregate **projector** (`aggregate/knowledge_citations.go`, the `Projector`

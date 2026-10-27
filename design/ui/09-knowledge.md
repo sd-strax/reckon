@@ -89,8 +89,8 @@ author. Retired procedures are hidden by default and shown marked when included.
 
 **List.** One row per concluded investigation summary: title, concluded date, disposition,
 techniques, primary entities, actions taken with outcomes, duration. Filters: technique,
-disposition, date range. Source: gap `00 §6.21` (recall needs a query; listing does not
-exist).
+disposition, date range. Source: `GET /api/knowledge/case_summaries` (`adr/0107`), a read over
+the case-summaries corpus; the count is the corpus total.
 
 **Detail** is the similar-case inspector (`ui/08 §8.6.1`) at full width, with **Open the
 investigation** (read-only once concluded) and "Procedures learned from this case" when a

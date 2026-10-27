@@ -250,9 +250,17 @@ export class HarnessTransport implements WebviewTransport {
       case "import.refresh":
         this.emit({ type: "knowledge.state", state: { importRows: doc.importRows } });
         break;
-      case "cases.list":
-        this.emit({ type: "knowledge.error", message: "Listing past cases lands with gap 00 §6.21." });
+      case "cases.list": {
+        // The listing is a read over the corpus (adr/0107): the stage's case summaries, newest first, narrowed.
+        const f = intent.filters || {};
+        const all = Object.values(k.caseSummaries || {}).filter((c): c is CaseSummaryView => !!c)
+          .sort((a, b) => (b.conclusionAt || "").localeCompare(a.conclusionAt || ""));
+        const cases = all.filter((c) => (!f.technique || c.techniques.some((t) => t.toLowerCase() === f.technique!.toLowerCase()))
+          && (!f.disposition || (c.verdictDisposition || "").toLowerCase() === f.disposition.toLowerCase())
+          && (!f.from || (c.conclusionAt || "") >= f.from) && (!f.to || (c.conclusionAt || "").slice(0, 10) <= f.to));
+        this.emit({ type: "knowledge.state", state: { cases, counts: { ...counts(), cases: all.length } } });
         break;
+      }
       case "inspector.open":
         if (intent.target.kind === "sop") {
           const sop = doc.sops.find((s) => s.id === (intent.target as { sopId: string }).sopId);

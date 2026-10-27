@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -333,6 +334,76 @@ func (s *Store) SummaryByInvestigation(ctx context.Context, tenantID uuid.UUID, 
 		return CaseSummaryView{}, fmt.Errorf("%w: %s", ErrNoSummary, investigationRef)
 	}
 	return caseSummaryView(entries[0]), nil
+}
+
+// SummaryFilter narrows ListSummaries (design/ui 09 §9.4 Past cases). Zero
+// value: every concluded investigation's current summary, newest conclusion
+// first.
+type SummaryFilter struct {
+	Technique   string    // a MITRE technique id the summary carries
+	Disposition string    // the verdict disposition (exact, case-insensitive)
+	From, To    time.Time // conclusion_at window, inclusive; zero = open
+	Limit       int       // 0 = no cap
+}
+
+// ListSummaries lists concluded-investigation summaries from the DERIVED
+// case-summaries corpus (adr/0107): the mirror of the empty-query browse the
+// procedure facade owns. Recall needs a query; a listing is a read over the
+// corpus. The technique (or, failing that, the disposition) narrows at the
+// substrate as a tag; the rest narrows here from the structured fields the
+// producer wrote as meta. No new table — the corpus is the record. Reserved
+// tags are stripped; investigation_ref is recovered from the source tag.
+func (s *Store) ListSummaries(ctx context.Context, tenantID uuid.UUID, f SummaryFilter) ([]CaseSummaryView, error) {
+	lf := substrate.ListFilter{}
+	switch {
+	case f.Technique != "":
+		lf.Tag = f.Technique
+	case f.Disposition != "":
+		lf.Tag = "disposition:" + strings.ToUpper(f.Disposition)
+	}
+	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, lf)
+	if err != nil {
+		return nil, fmt.Errorf("list summaries: %w", err)
+	}
+	out := make([]CaseSummaryView, 0, len(entries))
+	for _, e := range entries {
+		v := caseSummaryView(e)
+		if f.Technique != "" && !containsFold(v.Techniques, f.Technique) {
+			continue
+		}
+		if f.Disposition != "" && !strings.EqualFold(v.VerdictDisposition, f.Disposition) {
+			continue
+		}
+		at, _ := time.Parse(time.RFC3339, v.ConclusionAt)
+		if !f.From.IsZero() && (at.IsZero() || at.Before(f.From)) {
+			continue
+		}
+		if !f.To.IsZero() && (at.IsZero() || at.After(f.To)) {
+			continue
+		}
+		out = append(out, v)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		ai, _ := time.Parse(time.RFC3339, out[i].ConclusionAt)
+		aj, _ := time.Parse(time.RFC3339, out[j].ConclusionAt)
+		if !ai.Equal(aj) {
+			return ai.After(aj)
+		}
+		return out[i].Title < out[j].Title
+	})
+	if f.Limit > 0 && len(out) > f.Limit {
+		out = out[:f.Limit]
+	}
+	return out, nil
+}
+
+func containsFold(list []string, want string) bool {
+	for _, x := range list {
+		if strings.EqualFold(x, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func caseSummaryView(e substrate.Entry) CaseSummaryView {

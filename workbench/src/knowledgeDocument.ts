@@ -12,7 +12,7 @@
 // (internal/sopdoc) stays the only parser.
 
 import * as vscode from "vscode";
-import { BackendClient, InvestigationDetail, SOPDoc } from "./backend";
+import { BackendClient, CaseSummaryView, InvestigationDetail, SOPDoc } from "./backend";
 import type { ImportDryRun, ImportRow, InboundMessage, InspectorTarget, KnowledgeSection, KnowledgeState, RenderMessage, SearchResults } from "./protocol";
 import { panelOptions, webviewShell } from "./webviewShell";
 import { openSOPOriginal } from "./investigationDocument";
@@ -40,6 +40,7 @@ export class KnowledgeDocument {
   private rows: Row[] = [];
   private importing = false;
   private sops: SOPDoc[] = [];
+  private cases: CaseSummaryView[] | null = null;
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -121,7 +122,7 @@ export class KnowledgeDocument {
         void this.retireSOP(msg.sopId, msg.reason);
         return;
       case "cases.list":
-        void this.post({ type: "knowledge.error", message: "Listing past cases lands with gap 00 §6.21; recall answers a query today (Search)." });
+        void this.listCases(msg.filters);
         return;
       case "candidate.get":
       case "candidate.accept":
@@ -172,10 +173,18 @@ export class KnowledgeDocument {
       return;
     }
     await this.rescanEditors(false);
+    // Past cases (09 §9.4, adr/0107): the listing is a read over the corpus; a
+    // failure leaves the section honest (null) and the procedures intact.
+    try {
+      this.cases = await this.client.caseSummaries();
+    } catch (err) {
+      this.log.debug(`case_summaries: ${errText(err)}`);
+      this.cases = null;
+    }
     const state: KnowledgeState = {
       counts: this.counts(),
       sops: this.sops,
-      cases: null,
+      cases: this.cases,
       candidates: null,
       detail: null,
       detailRevisions: null,
@@ -197,7 +206,20 @@ export class KnowledgeDocument {
   }
 
   private counts(): KnowledgeState["counts"] {
-    return { procedures: this.sops.filter((s) => s.status !== "retired").length, cases: null, candidates: null };
+    return { procedures: this.sops.filter((s) => s.status !== "retired").length, cases: this.cases ? this.cases.length : null, candidates: null };
+  }
+
+  /** The Past cases listing with the analyst's filters (09 §9.4, adr/0107). The
+   * count stays the unfiltered total so the section's number means what it says. */
+  private async listCases(filters?: { technique?: string; disposition?: string; from?: string; to?: string }): Promise<void> {
+    try {
+      const cases = await this.client.caseSummaries(filters);
+      const filtered = !!(filters && (filters.technique || filters.disposition || filters.from || filters.to));
+      if (!filtered) this.cases = cases;
+      await this.post({ type: "knowledge.state", state: { cases, counts: this.counts() } });
+    } catch (err) {
+      await this.post({ type: "knowledge.error", message: `Could not list past cases — ${errText(err)}` });
+    }
   }
 
   private async getSOP(id: string): Promise<void> {

@@ -266,3 +266,83 @@ func TestSummaryByInvestigation(t *testing.T) {
 		t.Errorf("missing = %v; want ErrNoSummary", err)
 	}
 }
+
+func TestListSummaries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	write := func(title, disposition string, at time.Time, techniques ...string) string {
+		ref := "grouping--" + uuid.New().String()
+		if _, err := s.WriteSummary(ctx, testTenant, Summary{
+			InvestigationRef: ref, Title: title, ConclusionAt: at, SummaryText: "body", ExtractorVersion: "1",
+			SeedKind: "entity", SeedValue: "HOST", Techniques: techniques, VerdictDisposition: disposition, ConclusionOutcome: "succeeded",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return ref
+	}
+	older := write("Older malicious", "MALICIOUS", time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), "T1021.001")
+	newer := write("Newer benign", "BENIGN", time.Date(2026, 5, 2, 9, 0, 0, 0, time.UTC), "T1078")
+	mid := write("Middle malicious", "MALICIOUS", time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC), "T1078", "T1021.001")
+
+	all, err := s.ListSummaries(ctx, testTenant, SummaryFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := refs(all); len(got) != 3 || got[0] != newer || got[1] != mid || got[2] != older {
+		t.Errorf("all = %v; want newest conclusion first [%s %s %s]", got, newer, mid, older)
+	}
+	for _, v := range all {
+		for _, tag := range v.Tags {
+			if strings.HasPrefix(tag, summarySourcePrefix) {
+				t.Errorf("reserved tag leaked: %v", v.Tags)
+			}
+		}
+	}
+	byTech, err := s.ListSummaries(ctx, testTenant, SummaryFilter{Technique: "t1021.001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := refs(byTech); len(got) != 2 || got[0] != mid || got[1] != older {
+		t.Errorf("by technique = %v; want [%s %s]", got, mid, older)
+	}
+	byDisp, err := s.ListSummaries(ctx, testTenant, SummaryFilter{Disposition: "malicious", Technique: "T1078"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := refs(byDisp); len(got) != 1 || got[0] != mid {
+		t.Errorf("by disposition+technique = %v; want [%s]", got, mid)
+	}
+	window, err := s.ListSummaries(ctx, testTenant, SummaryFilter{From: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), To: time.Date(2026, 4, 30, 23, 59, 59, 0, time.UTC), Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := refs(window); len(got) != 1 || got[0] != mid {
+		t.Errorf("window = %v; want [%s]", got, mid)
+	}
+	// A re-derivation is a revision, not a second row.
+	if _, err := s.EnrichSummary(ctx, testTenant, older, "the narrative", "model-x"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.ListSummaries(ctx, testTenant, SummaryFilter{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 2 {
+		t.Errorf("limit = %d rows; want 2", len(again))
+	}
+	all, _ = s.ListSummaries(ctx, testTenant, SummaryFilter{})
+	if len(all) != 3 || all[2].GeneratorModel != "model-x" {
+		t.Errorf("after enrich = %d rows, last model %q; want 3 rows with the narrative's model", len(all), all[len(all)-1].GeneratorModel)
+	}
+}
+
+func refs(vs []CaseSummaryView) []string {
+	out := make([]string, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, v.InvestigationRef)
+	}
+	return out
+}

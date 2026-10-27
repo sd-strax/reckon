@@ -3,7 +3,7 @@
   "knowledge": {
     "counts": {
       "procedures": 3,
-      "cases": null,
+      "cases": 2,
       "candidates": null
     },
     "sops": [
@@ -103,7 +103,81 @@
         "retiredBy": "analyst-1"
       }
     ],
-    "cases": null,
+    "cases": [
+      {
+        "investigationRef": "grouping--b2b2b2b2-2222-4222-8222-222222222222",
+        "title": "LSASS credential dumping on WORKSTATION-22",
+        "body": "A non-system process opened LSASS on WORKSTATION-22 and read its memory — classic OS credential dumping (T1003.001). The logged-on account corp\\a.okafor was the exposed credential. Established that the account had not yet been reused elsewhere, then isolated the host and force-reset the account plus its active sessions. No lateral movement observed; contained before pivot.",
+        "conclusionAt": "2026-06-03T11:05:00Z",
+        "seedKind": "host",
+        "seedValue": "WORKSTATION-22",
+        "techniques": [
+          "T1003.001"
+        ],
+        "primaryEntities": [
+          "WORKSTATION-22",
+          "corp\\a.okafor"
+        ],
+        "actionsTaken": [
+          {
+            "actionType": "account.reset_credentials",
+            "targetCount": 1,
+            "outcome": "SUCCEEDED"
+          },
+          {
+            "actionType": "host.isolate",
+            "targetCount": 1,
+            "outcome": "SUCCEEDED"
+          }
+        ],
+        "conclusionOutcome": "succeeded",
+        "durationHours": 4,
+        "verdictDisposition": "true_positive",
+        "verdictRationale": "Process accessed LSASS memory consistent with credential dumping (T1003.001). Bounded blast radius to the logged-on account and rotated its credentials before the adversary reused them.",
+        "tags": [
+          "technique:T1003.001"
+        ],
+        "revision": 1
+      },
+      {
+        "investigationRef": "grouping--a1a1a1a1-1111-4111-8111-111111111111",
+        "title": "RDP lateral movement from FINANCE-07 to DC-02",
+        "body": "Interactive RDP logon from FINANCE-07 to the domain controller DC-02 using corp\\j.rivera, an account with no operational reason to reach DC-02. Post-logon process activity showed host and domain discovery. Determined true-positive hands-on-keyboard lateral movement (T1021.001) on a stolen valid account (T1078). Contained by isolating DC-02 and disabling the account; no evidence of persistence or data staging before containment.",
+        "conclusionAt": "2026-05-14T18:20:00Z",
+        "seedKind": "host",
+        "seedValue": "FINANCE-07",
+        "techniques": [
+          "T1021.001",
+          "T1078"
+        ],
+        "primaryEntities": [
+          "FINANCE-07",
+          "DC-02",
+          "corp\\j.rivera"
+        ],
+        "actionsTaken": [
+          {
+            "actionType": "host.isolate",
+            "targetCount": 1,
+            "outcome": "SUCCEEDED"
+          },
+          {
+            "actionType": "account.disable",
+            "targetCount": 1,
+            "outcome": "SUCCEEDED"
+          }
+        ],
+        "conclusionOutcome": "succeeded",
+        "durationHours": 6.5,
+        "verdictDisposition": "true_positive",
+        "verdictRationale": "A stolen valid account (corp\\j.rivera) was used to RDP from FINANCE-07 into DC-02, where discovery tooling ran. Containing the destination and disabling the account stopped the pivot.",
+        "tags": [
+          "technique:T1021.001",
+          "technique:T1078"
+        ],
+        "revision": 1
+      }
+    ],
     "candidates": null,
     "detail": null,
     "detailRevisions": null,

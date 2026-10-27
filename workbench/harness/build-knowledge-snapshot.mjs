@@ -99,8 +99,8 @@ const search = {
 const out = {
   name: "knowledge",
   knowledge: {
-    counts: { procedures: sops.filter((s) => s.status !== "retired").length, cases: null, candidates: null },
-    sops, cases: null, candidates: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows, importing: false,
+    counts: { procedures: sops.filter((s) => s.status !== "retired").length, cases: Object.keys(caseSummaries).length, candidates: null },
+    sops, cases: Object.values(caseSummaries).sort((a, b) => (b.conclusionAt || "").localeCompare(a.conclusionAt || "")), candidates: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows, importing: false,
   },
   // Each procedure's lineage (adr/0097): one revision per rev count, the first imported, later ones edits; the bodies for a compare.
   revisions: Object.fromEntries(sops.map((s) => [s.id, Array.from({ length: s.revisionCount }, (_, i) => {

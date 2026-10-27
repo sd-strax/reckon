@@ -343,6 +343,25 @@ export interface CaseSummaryView {
   contentHash?: string;
 }
 
+interface RawCaseSummary {
+  investigation_ref?: string; title?: string; body?: string; generator_model?: string; conclusion_at?: string;
+  seed_kind?: string; seed_value?: string; techniques?: string[]; primary_entities?: string[];
+  actions_taken?: { action_type?: string; target_count?: number; outcome?: string }[];
+  conclusion_outcome?: string; duration_hours?: number; verdict_disposition?: string; verdict_rationale?: string;
+  tags?: string[]; revision?: number; content_hash?: string;
+}
+
+function mapCaseSummary(r: RawCaseSummary, investigationRef: string): CaseSummaryView {
+  return {
+    investigationRef: r.investigation_ref ?? investigationRef, title: r.title ?? "", body: r.body ?? "",
+    generatorModel: r.generator_model, conclusionAt: r.conclusion_at, seedKind: r.seed_kind, seedValue: r.seed_value,
+    techniques: r.techniques ?? [], primaryEntities: r.primary_entities ?? [],
+    actionsTaken: (r.actions_taken ?? []).map((a) => ({ actionType: a.action_type ?? "", targetCount: a.target_count ?? 0, outcome: a.outcome ?? "" })),
+    conclusionOutcome: r.conclusion_outcome, durationHours: r.duration_hours, verdictDisposition: r.verdict_disposition,
+    verdictRationale: r.verdict_rationale, tags: r.tags ?? [], revision: r.revision ?? 0, contentHash: r.content_hash,
+  };
+}
+
 /** One procedure (mirrors knowledge.SOP, the fields the inspector shows). */
 export interface SOPDoc {
   id: string;
@@ -1720,28 +1739,27 @@ export class BackendClient {
 
   /** GET /api/knowledge/case_summaries/{ref} — one concluded case's summary; null when none exists. */
   async caseSummary(investigationRef: string): Promise<CaseSummaryView | null> {
-    interface Raw {
-      investigation_ref?: string; title?: string; body?: string; generator_model?: string; conclusion_at?: string;
-      seed_kind?: string; seed_value?: string; techniques?: string[]; primary_entities?: string[];
-      actions_taken?: { action_type?: string; target_count?: number; outcome?: string }[];
-      conclusion_outcome?: string; duration_hours?: number; verdict_disposition?: string; verdict_rationale?: string;
-      tags?: string[]; revision?: number; content_hash?: string;
-    }
-    let r: Raw;
+    let r: RawCaseSummary;
     try {
-      r = await this.authedGet<Raw>(`/api/knowledge/case_summaries/${encodeURIComponent(investigationRef)}`);
+      r = await this.authedGet<RawCaseSummary>(`/api/knowledge/case_summaries/${encodeURIComponent(investigationRef)}`);
     } catch (err) {
       if (err instanceof Error && /\b404\b/.test(err.message)) return null;
       throw err;
     }
-    return {
-      investigationRef: r.investigation_ref ?? investigationRef, title: r.title ?? "", body: r.body ?? "",
-      generatorModel: r.generator_model, conclusionAt: r.conclusion_at, seedKind: r.seed_kind, seedValue: r.seed_value,
-      techniques: r.techniques ?? [], primaryEntities: r.primary_entities ?? [],
-      actionsTaken: (r.actions_taken ?? []).map((a) => ({ actionType: a.action_type ?? "", targetCount: a.target_count ?? 0, outcome: a.outcome ?? "" })),
-      conclusionOutcome: r.conclusion_outcome, durationHours: r.duration_hours, verdictDisposition: r.verdict_disposition,
-      verdictRationale: r.verdict_rationale, tags: r.tags ?? [], revision: r.revision ?? 0, contentHash: r.content_hash,
-    };
+    return mapCaseSummary(r, investigationRef);
+  }
+
+  /** GET /api/knowledge/case_summaries — every concluded investigation's summary, newest first, narrowed (09 §9.4, adr/0107). */
+  async caseSummaries(filters?: { technique?: string; disposition?: string; from?: string; to?: string; limit?: number }): Promise<CaseSummaryView[]> {
+    const qs = new URLSearchParams();
+    if (filters?.technique) qs.set("technique", filters.technique);
+    if (filters?.disposition) qs.set("disposition", filters.disposition);
+    if (filters?.from) qs.set("from", filters.from);
+    if (filters?.to) qs.set("to", filters.to);
+    if (filters?.limit) qs.set("limit", String(filters.limit));
+    const q = qs.toString();
+    const r = await this.authedGet<{ summaries?: RawCaseSummary[] }>(`/api/knowledge/case_summaries${q ? "?" + q : ""}`);
+    return (r.summaries ?? []).map((x) => mapCaseSummary(x, x.investigation_ref ?? ""));
   }
 
   /** GET /api/sops/{id} — one procedure, whole (08 §8.6 "Whole document"). */
