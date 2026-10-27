@@ -84,6 +84,35 @@ func (b *Backend) recallSimilar(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getCaseSummary handles GET /api/knowledge/case_summaries/{investigation_ref}
+// (design/ui 08 §8.6.1 "Similar past case"): one concluded investigation's
+// summary read back by its source ref, for the inspector. The demo's seeded
+// prior cases have no local aggregate, so the summary is the only record. Any
+// authenticated reader; 404 when none exists.
+func (b *Backend) getCaseSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, "GET")
+		return
+	}
+	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+		ref := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/knowledge/case_summaries/"), "/")
+		if ref == "" {
+			writeJSONError(w, http.StatusBadRequest, "path must be /knowledge/case_summaries/{investigation_ref}")
+			return
+		}
+		v, err := b.cfg.Knowledge.SummaryByInvestigation(r.Context(), module.SingleTenantUUID, ref)
+		if errors.Is(err, knowledge.ErrNoSummary) {
+			writeJSONError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "case_summaries: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, v)
+	})
+}
+
 // SummaryNarrativeBody is the client-side enrichment payload (design/06 §3.2
 // two-tier): the narrative the analyst's own BYOK client wrote at conclusion.
 type SummaryNarrativeBody struct {

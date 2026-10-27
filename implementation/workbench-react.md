@@ -81,9 +81,10 @@ host is not bundled; only the webview is. React 18 is a runtime dependency bundl
 webview file; nothing is fetched at runtime.
 
 Deleted by this work: `evidenceView.ts`, `evidenceProvider.ts`, the `reckon-evidence:` scheme,
-the `reckon.openEvidence` command, the inline template-string UI in `investigationDocument.ts`,
-the transcript-in-editor-tab path (`transcript.open` becomes an inspector view of the
-committed turn, §2.5), `importView.ts` (the Import SOPs panel becomes the Import section of the
+the `reckon.openEvidence` command and the `entity.info` message (all gone with the inspector PR;
+the popover's pivot / pin / copy / appearances live on the Entity inspector), the inline
+template-string UI in `investigationDocument.ts`, the transcript-in-editor-tab path
+(`transcript.open` becomes an inspector view of the committed turn, §2.5), `importView.ts` (the Import SOPs panel becomes the Import section of the
 Knowledge document, §2.6; the `reckon.importSOP` command keeps its id and opens that section),
 and the conclude-time candidate-SOP prompt (the draft is stored and reviewed in the Candidates
 section once gap §6.24 lands, §8.13; until then the prompt stays).
@@ -460,7 +461,7 @@ then drops the old ones).
       | { kind: "case"; investigationRef: string }
       | { kind: "call"; callId: string }
       | { kind: "person"; principalId: string } }
-| { type: "capability.rerun"; verb: string; params: Record<string, unknown> }  // Absence "Re-run with a wider window": stages the verb in the composer (host builds the text)
+// Absence "Re-run with a wider window" stages the text in the composer webview-side; no host message
 | { type: "knowledge.search"; text: string }                              // 09 §9.6: sidecar searchKnowledge; the merged set comes back as `knowledge`
 | { type: "knowledge.open"; section?: "procedures" | "cases" | "import" | "candidates"; id?: string } // reveal the Knowledge document
 | { type: "events.get"; entity?: string }

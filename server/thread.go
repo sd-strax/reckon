@@ -25,7 +25,10 @@ import (
 // human, Kind says whether the AI (or the system) acted on their behalf.
 type ThreadActorView struct {
 	Principal string `json:"principal"`
-	Kind      string `json:"kind"` // HUMAN | AI_DELEGATED | SYSTEM
+	// PrincipalName is the display name the identity provider presented at the
+	// time of the act (adr/0077); empty on events recorded before it existed.
+	PrincipalName string `json:"principal_name,omitempty"`
+	Kind          string `json:"kind"` // HUMAN | AI_DELEGATED | SYSTEM
 	// Model names the LLM for AI-delegated acts (actor.delegate).
 	Model string `json:"model,omitempty"`
 }
@@ -170,7 +173,7 @@ func (b *Backend) loadSupersededIDs(ctx context.Context, invID uuid.UUID) (map[s
 }
 
 func threadActor(a aggregate.Actor) ThreadActorView {
-	v := ThreadActorView{Principal: a.PrincipalID, Kind: a.Kind}
+	v := ThreadActorView{Principal: a.PrincipalID, PrincipalName: a.PrincipalName, Kind: a.Kind}
 	if v.Kind == "" {
 		v.Kind = aggregate.ActorHuman
 	}

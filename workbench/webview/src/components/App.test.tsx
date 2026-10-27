@@ -68,17 +68,15 @@ describe("the investigation document", () => {
     expect(document.querySelector("#graphWrap summary")?.textContent).toContain("Evidence graph · 6 objects · 1 events");
   });
 
-  it("resolves chip labels through the host and opens the entity popover", () => {
+  it("resolves chip labels through the host and opens every chip in the inspector", () => {
     const { transport } = mount();
     expect(transport.intents.some((i) => i.type === "evidence.resolve")).toBe(true);
     const chip = Array.from(document.querySelectorAll(".refchip")).find((c) => c.textContent === "host · host-a")!;
     expect(chip).toBeTruthy();
     fireEvent.click(chip);
-    expect(document.querySelector(".popover .pop-value")?.textContent).toBe("host-a");
-    expect(screen.getByText(/Appears in 1 other investigation/)).toBeTruthy();
-    fireEvent.click(screen.getByText("Pivot on entity"));
-    expect((document.querySelector("#input") as HTMLTextAreaElement).value).toContain("Pivot on host-a");
-    expect(transport.intents.some((i) => i.type === "send")).toBe(false); // staged, never fired
+    expect(transport.intents.some((i) => i.type === "inspector.open")).toBe(true);
+    expect(document.querySelector(".inspector.active")).toBeTruthy();
+    expect(document.querySelector(".popover")).toBeNull(); // the popover is retired into the inspector
   });
 
   it("sends a turn with the included knowledge set", () => {
