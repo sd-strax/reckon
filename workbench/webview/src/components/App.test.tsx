@@ -91,7 +91,9 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText("↻ Re-request")).toBeTruthy();
     expect(within(lens()).getByText("Reverse…")).toBeTruthy(); // SUCCEEDED + REVERSIBLE
     expect(within(lens()).getByText("✗ ticket is read-only")).toBeTruthy();
-    expect(within(lens()).getAllByText(/no policy pre-authorizes/).length).toBeGreaterThan(0);
+    expect(within(lens()).getAllByText(/No policy pre-authorizes/).length).toBeGreaterThan(0);
+    // The policy fact is the record's (adr/0099): the shadow policy that would have fired is named.
+    expect(within(lens()).getByText(/a shadow policy would have pre-authorized this \(policy\/shadow-disable-service-accounts\)/)).toBeTruthy();
     fireEvent.click(within(lens()).getAllByText("Reject…")[0]);
     const dlg = screen.getByRole("dialog");
     fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "not warranted" } });

@@ -907,6 +907,10 @@ the existing "Auto-approved by policy <ref>" badge. The mockup's "Pre-authorized
 button is not a state the engine has; the sheet's wording ("whether … pre-authorizes … or it
 needs an approval routed to its owner") is what renders.
 
+**Landed** (`adr/0099`, PR #100): `policy` adds `policy_version`; `effect` is `NONE` when no
+policy matched (the card's "no policy pre-authorizes"). Migration `0027`; an action requested
+before it carries no `policy` and the card falls back to the frozen requirement.
+
 ### 8.6 §6.17 — Owner action items
 
 **Decision.** An owner action item is **its own record**, CRUD + thin history, modeled on the

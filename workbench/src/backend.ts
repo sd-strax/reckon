@@ -628,6 +628,16 @@ export interface ThreadEntry {
 }
 
 /** One row of the durable action queue (mirrors server.ActionView). */
+/** The response-policy status of an action (aggregate.ActionPolicy, adr/0099): a fact, never a prediction. */
+export interface ActionPolicy {
+  effect: "NONE" | "AUTO_APPROVE" | "REQUIRE_TWO_PARTY" | "DENY" | string;
+  matchedPolicyRef?: string;
+  policyVersion?: string;
+  routesTo?: "requester" | "pool" | string;
+  secondaryApproverPool?: string[];
+  shadowWouldFire: string[];
+}
+
 export interface ActionRow {
   actionId: string;
   actionType: string;
@@ -659,6 +669,8 @@ export interface ActionRow {
   evidenceRefs: string[];
   /** Lineage: the FAILED/EXPIRED action this request replaces. */
   retryOf?: string;
+  /** The Gate 2 evaluation folded onto the action (04 §4; adr/0099); absent on an action requested before the fold. */
+  policy?: ActionPolicy;
   /**
    * The tool that dispatched the action (write-side provenance) — which of
    * several possible adapters actually acted. Empty until dispatched.
@@ -1977,6 +1989,7 @@ interface RawAction {
   planned_adapter?: string;
   error_detail?: string;
   result_ref?: string;
+  policy?: { effect?: string; matched_policy_ref?: string; policy_version?: string; routes_to?: string; secondary_approver_pool?: string[]; shadow_would_fire?: string[] };
 }
 
 /** Map one raw action row to the queue/ledger view: pending vocabulary, lazy expiry. */
@@ -2015,5 +2028,6 @@ function mapAction(a: RawAction): ActionRow {
     errorDetail: a.error_detail,
     resultRef: a.result_ref,
     parameters: params,
+    policy: a.policy ? { effect: a.policy.effect ?? "NONE", matchedPolicyRef: a.policy.matched_policy_ref, policyVersion: a.policy.policy_version, routesTo: a.policy.routes_to, secondaryApproverPool: a.policy.secondary_approver_pool, shadowWouldFire: a.policy.shadow_would_fire ?? [] } : undefined,
   };
 }

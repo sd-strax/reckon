@@ -534,3 +534,28 @@ func foldInto(base map[uuid.UUID]actionState, events []Event) map[uuid.UUID]acti
 	}
 	return out
 }
+
+// adr/0099: the policy fold is a pure statement of the recorded evaluation —
+// the effect that drove authorization, where a human approval routes, and the
+// shadow policies that would have fired.
+func TestFoldActionPolicy(t *testing.T) {
+	none := foldActionPolicy(ActionPolicyEvaluated{Evaluations: []PolicyEvaluationRecord{{PolicyRef: "p/baseline", Effect: "DENY", WouldHaveFired: false}}}, AuthModeManual, nil)
+	if none.Effect != "NONE" || none.RoutesTo != "requester" || none.MatchedPolicyRef != "" || len(none.ShadowWouldFire) != 0 {
+		t.Errorf("no match = %+v", none)
+	}
+	two := foldActionPolicy(ActionPolicyEvaluated{}, AuthModeTwoParty, []string{"secops-lead"})
+	if two.Effect != "NONE" || two.RoutesTo != "pool" || len(two.SecondaryApproverPool) != 1 {
+		t.Errorf("two-party = %+v", two)
+	}
+	auto := foldActionPolicy(ActionPolicyEvaluated{MatchedPolicyRef: "p/auto", Evaluations: []PolicyEvaluationRecord{
+		{PolicyRef: "p/auto", PolicyVersion: "1.0.0", Effect: "AUTO_APPROVE", WouldHaveFired: true},
+		{PolicyRef: "p/shadow", Effect: "AUTO_APPROVE", WouldHaveFired: true, Shadow: true},
+		{PolicyRef: "p/quiet", Effect: "DENY", WouldHaveFired: false, Shadow: true},
+	}}, AuthModeAutoPolicy, nil)
+	if auto.Effect != "AUTO_APPROVE" || auto.MatchedPolicyRef != "p/auto" || auto.PolicyVersion != "1.0.0" || auto.RoutesTo != "" {
+		t.Errorf("auto = %+v", auto)
+	}
+	if len(auto.ShadowWouldFire) != 1 || auto.ShadowWouldFire[0] != "p/shadow" {
+		t.Errorf("shadow would fire = %v", auto.ShadowWouldFire)
+	}
+}

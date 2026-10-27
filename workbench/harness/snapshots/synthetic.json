@@ -134,7 +134,12 @@
           "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
         ],
         "adapter": "fixture-edr",
-        "resultRef": "ISO-1"
+        "resultRef": "ISO-1",
+        "policy": {
+          "effect": "NONE",
+          "routesTo": "requester",
+          "shadowWouldFire": []
+        }
       },
       {
         "actionId": "act-2",
@@ -160,6 +165,11 @@
         "parameters": {
           "subject": "Session on host-a",
           "body": "Please confirm whether maintenance was scheduled."
+        },
+        "policy": {
+          "effect": "NONE",
+          "routesTo": "requester",
+          "shadowWouldFire": []
         }
       },
       {
@@ -180,7 +190,14 @@
         "tierEscalated": true,
         "evidenceRefs": [
           "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05"
-        ]
+        ],
+        "policy": {
+          "effect": "NONE",
+          "routesTo": "requester",
+          "shadowWouldFire": [
+            "policy/shadow-disable-service-accounts"
+          ]
+        }
       },
       {
         "actionId": "act-4",

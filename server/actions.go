@@ -89,6 +89,10 @@ type ActionView struct {
 	// created ServiceNow incident number) — the analyst's handle into the
 	// external system of record.
 	ResultRef string `json:"result_ref,omitempty"`
+	// Policy is the Gate 2 evaluation folded onto the action (04 §4; adr/0099):
+	// whether a policy pre-authorizes it and where the approval routes when
+	// none does. Nil for an action requested before the fold.
+	Policy *aggregate.ActionPolicy `json:"policy,omitempty"`
 }
 
 // listInvestigationActions serves GET /api/investigations/{id}/actions: every
@@ -137,6 +141,7 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 		Adapter:       a.Adapter,
 		ErrorDetail:   a.ErrorDetail,
 		ResultRef:     a.RawResponseRef,
+		Policy:        a.Policy,
 	}
 	if a.RetryOf != (uuid.UUID{}) {
 		v.RetryOf = a.RetryOf.String()

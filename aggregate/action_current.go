@@ -42,8 +42,8 @@ type ActionCurrent struct {
 	// EvidenceRefs are the STIX/OCSF refs that grounded the request (08 §2),
 	// surfaced from the ActionRequested event so the actions API (and the eval
 	// harness's G1 grader) can read grounding without walking the event log.
-	EvidenceRefs      []string
-	ExpiresAt         time.Time // approval deadline frozen at request time; zero = none
+	EvidenceRefs []string
+	ExpiresAt    time.Time // approval deadline frozen at request time; zero = none
 	// RetryOf is the prior FAILED/EXPIRED action this one replaces — lineage
 	// only (a retry is always a new action; the dispatch ledger forbids
 	// re-dispatching one id). Zero when not a retry.
@@ -59,8 +59,55 @@ type ActionCurrent struct {
 	// RawResponseRef is the operational reference the dispatch returned (e.g.
 	// the created incident number) — the analyst's handle into the external
 	// system of record.
-	RawResponseRef    string
+	RawResponseRef string
+	// Policy is the Gate 2 evaluation folded onto the action (adr/0099): nil
+	// when none was recorded for it.
+	Policy            *ActionPolicy
 	LastEventSequence int64
+}
+
+// ActionPolicy is the response-policy status of a requested action (04 §4;
+// adr/0099), projected from action.policy_evaluated and the frozen
+// authorization requirement: a fact the card renders, never a prediction.
+type ActionPolicy struct {
+	// Effect that drove authorization: NONE (no policy matched; a human
+	// decides), AUTO_APPROVE, REQUIRE_TWO_PARTY or DENY.
+	Effect           string `json:"effect"`
+	MatchedPolicyRef string `json:"matched_policy_ref,omitempty"`
+	PolicyVersion    string `json:"policy_version,omitempty"`
+	// RoutesTo says where the approval goes when a human decides: the
+	// requester's own approval ("requester") or a second approver from the
+	// pool ("pool"); empty when the policy decided.
+	RoutesTo              string   `json:"routes_to,omitempty"`
+	SecondaryApproverPool []string `json:"secondary_approver_pool,omitempty"`
+	// ShadowWouldFire lists the shadow policies that would have fired (04 §4.4).
+	ShadowWouldFire []string `json:"shadow_would_fire,omitempty"`
+}
+
+// foldActionPolicy is the pure fold of an evaluation onto the policy status
+// (adr/0099). requiredMode and pool are the request's frozen requirement.
+func foldActionPolicy(p ActionPolicyEvaluated, requiredMode string, pool []string) ActionPolicy {
+	out := ActionPolicy{Effect: "NONE", ShadowWouldFire: []string{}}
+	for _, e := range p.Evaluations {
+		if e.Shadow && e.WouldHaveFired {
+			out.ShadowWouldFire = append(out.ShadowWouldFire, e.PolicyRef)
+		}
+		if !e.Shadow && e.PolicyRef == p.MatchedPolicyRef && p.MatchedPolicyRef != "" {
+			out.Effect, out.MatchedPolicyRef, out.PolicyVersion = e.Effect, e.PolicyRef, e.PolicyVersion
+		}
+	}
+	if out.MatchedPolicyRef == "" && p.MatchedPolicyRef != "" {
+		out.MatchedPolicyRef = p.MatchedPolicyRef
+	}
+	switch {
+	case out.Effect == "AUTO_APPROVE" || out.Effect == "DENY":
+		// The policy decided; nothing routes to a person.
+	case requiredMode == AuthModeTwoParty || out.Effect == "REQUIRE_TWO_PARTY":
+		out.RoutesTo, out.SecondaryApproverPool = "pool", pool
+	default:
+		out.RoutesTo = "requester"
+	}
+	return out
 }
 
 // ActionCurrentProjector populates the action_current table — one row per
@@ -113,6 +160,32 @@ func (ActionCurrentProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 			pool, params, targets, evidence, nullTime(p.ExpiresAt), evt.OccurredAt, evt.SequenceNo)
 		if err != nil {
 			return fmt.Errorf("insert action_current: %w", err)
+		}
+		return nil
+
+	case EventTypeActionPolicyEvaluated:
+		// The Gate 2 evaluation is recorded in the same transaction as the
+		// request (04 §4); fold it onto the row (adr/0099) with the frozen
+		// requirement the row already holds.
+		var p ActionPolicyEvaluated
+		if err := json.Unmarshal(evt.Payload, &p); err != nil {
+			return fmt.Errorf("unmarshal ActionPolicyEvaluated: %w", err)
+		}
+		var requiredMode sql.NullString
+		var pool []byte
+		if err := tx.QueryRowContext(ctx, `SELECT required_mode, secondary_approver_pool FROM action_current WHERE action_id = $1`, p.ActionID).Scan(&requiredMode, &pool); err != nil {
+			return fmt.Errorf("read action_current for policy fold: %w", err)
+		}
+		var poolList []string
+		if len(pool) > 0 {
+			_ = json.Unmarshal(pool, &poolList)
+		}
+		policy, err := json.Marshal(foldActionPolicy(p, requiredMode.String, poolList))
+		if err != nil {
+			return fmt.Errorf("marshal action policy: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE action_current SET policy = $2, last_event_sequence = $3 WHERE action_id = $1`, p.ActionID, policy, evt.SequenceNo); err != nil {
+			return fmt.Errorf("update action_current policy: %w", err)
 		}
 		return nil
 
@@ -275,7 +348,7 @@ const actionCurrentColumns = `action_id, aggregate_id, action_type, tier, status
 	       primary_approver_ref, primary_approved_at, is_reversal, reversal_of_ref, retry_of,
 	       reversibility, reversed_by_ref, reversal_attempted_by_ref,
 	       required_mode, secondary_approver_pool, parameters, targets, evidence_refs,
-	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence`
+	       expires_at, adapter, error_detail, raw_response_ref, policy, last_event_sequence`
 
 // scanActionCurrent decodes one actionCurrentColumns row (sql.Row or sql.Rows).
 func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
@@ -283,14 +356,20 @@ func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
 	var mode, approver, requiredMode, reversibility sql.NullString
 	var primaryAt, expiresAt sql.NullTime
 	var reversalOf, retryOf, reversedBy, attemptedBy uuid.NullUUID
-	var targets, pool, params, evidence []byte
+	var targets, pool, params, evidence, policy []byte
 	err := scan(&a.ActionID, &a.AggregateID, &a.ActionType, &a.Tier, &a.Status,
 		&mode, &approver, &primaryAt, &a.IsReversal, &reversalOf, &retryOf,
 		&reversibility, &reversedBy, &attemptedBy,
 		&requiredMode, &pool, &params, &targets, &evidence, &expiresAt,
-		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence)
+		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &policy, &a.LastEventSequence)
 	if err != nil {
 		return ActionCurrent{}, err
+	}
+	if len(policy) > 0 {
+		var ap ActionPolicy
+		if json.Unmarshal(policy, &ap) == nil {
+			a.Policy = &ap
+		}
 	}
 	a.Mode = mode.String
 	a.PrimaryApprover = approver.String

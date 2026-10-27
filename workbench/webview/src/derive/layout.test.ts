@@ -199,3 +199,13 @@ describe("lineDiff", () => {
   });
 });
 
+describe("policyFact", () => {
+  it("states the recorded policy fact for a card", async () => {
+    const { policyFact } = await import("../components/ActionCard");
+    const base = { actionId: "a", actionType: "host.isolate", tier: "T2", status: "REQUESTED", requiredMode: "MANUAL", targets: [], pending: true, pendingLabel: "PENDING_MANUAL", expired: false, isReversal: false, tierEscalated: false, evidenceRefs: [] };
+    expect(policyFact(base as never)).toBe("No policy pre-authorizes host.isolate · needs your approval");
+    expect(policyFact({ ...base, policy: { effect: "NONE", routesTo: "pool", secondaryApproverPool: ["secops-lead"], shadowWouldFire: ["p/shadow"] } } as never)).toBe("Two-party: a second approval from secops-lead · a shadow policy would have pre-authorized this (p/shadow)");
+    expect(policyFact({ ...base, pending: false, status: "APPROVED", policy: { effect: "AUTO_APPROVE", matchedPolicyRef: "p/auto", shadowWouldFire: [] } } as never)).toBe("Auto-approved by policy p/auto");
+  });
+});
+

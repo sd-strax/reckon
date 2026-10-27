@@ -22,6 +22,26 @@ export function groupOf(a: Pick<ActionRow, "actionType">): "containment" | "erad
 }
 export const GROUP_LABELS: Record<ReturnType<typeof groupOf>, string> = { containment: "Containment", eradication: "Eradication", recovery: "Recovery", notification: "Notification", external: "External work" };
 
+/** The policy fact as the record states it (adr/0099): a REQUESTED action a
+ * policy auto-approved never exists, so a pending card says that none
+ * pre-authorizes it and where the approval routes; a shadow policy that would
+ * have fired is named; an approved one keeps its mode. */
+export function policyFact(a: ActionRow): string {
+  const p = a.policy;
+  const shadow = p?.shadowWouldFire.length ? ` · a shadow policy would have pre-authorized this (${p.shadowWouldFire.join(", ")})` : "";
+  if (a.pending) {
+    if (p?.effect === "REQUIRE_TWO_PARTY" || a.requiredMode === "TWO_PARTY" || p?.routesTo === "pool") {
+      const pool = p?.secondaryApproverPool?.length ? ` from ${p.secondaryApproverPool.join(", ")}` : "";
+      return `Two-party${p?.matchedPolicyRef ? ` (policy ${p.matchedPolicyRef})` : ""}: a second approval${pool}` + shadow;
+    }
+    return `No policy pre-authorizes ${a.actionType} · needs your approval` + shadow;
+  }
+  if (p?.effect === "AUTO_APPROVE") return `Auto-approved by policy ${p.matchedPolicyRef || ""}`.trim();
+  if (p?.effect === "DENY") return `Denied by policy ${p.matchedPolicyRef || ""}`.trim();
+  if (a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED") return "approved" + shadow;
+  return "—";
+}
+
 export function ActionCard({ a, variant, locked, onLock, draft }: { a: ActionRow; variant: "full" | "compact"; locked: boolean; onLock: () => void; draft?: boolean }) {
   const { send, openPrompt, openInspector, goTo } = useApp();
   const p = (a.parameters || {}) as Record<string, unknown>;
@@ -96,7 +116,7 @@ export function ActionCard({ a, variant, locked, onLock, draft }: { a: ActionRow
       <dl className="acfacts">
         <div><dt>Undo</dt><dd>{a.reversibility === "REVERSIBLE" ? "reversible" : a.reversibility === "BEST_EFFORT" ? "best effort — treat as permanent" : a.reversibility === "IRREVERSIBLE" ? "irreversible" : "—"}</dd></div>
         <div><dt>Runs via</dt><dd className="mono">{a.adapter || a.plannedAdapter || "—"}{a.resultRef ? " → " + a.resultRef : ""}</dd></div>
-        <div><dt>Response policy</dt><dd>{a.pending ? (a.requiredMode === "TWO_PARTY" ? "two-party: a second approver is needed" : `no policy pre-authorizes ${a.actionType} · needs your approval`) : a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED" ? "approved" : "—"}</dd></div>
+        <div><dt>Response policy</dt><dd>{policyFact(a)}</dd></div>
         <div><dt>Window</dt><dd>{a.pending && !a.expired && a.expiresAt ? <Countdown expiresAt={a.expiresAt} /> : a.expired ? "elapsed" : "—"}</dd></div>
       </dl>
       {a.retryOf ? <div className="cardmeta">↻ retry of <a onClick={() => openInspector({ kind: "action", actionId: a.retryOf! })}>{a.retryOf.slice(0, 8)}…</a> (the original can never re-dispatch)</div> : null}

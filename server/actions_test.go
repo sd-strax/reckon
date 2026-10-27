@@ -80,6 +80,7 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
+		EvidenceRefs:     []string{"observed-data--00000000-0000-4000-8000-000000000001"},
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d; want 201", resp.StatusCode)
@@ -95,6 +96,10 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 	}
 	if ac.Status != aggregate.ActionStatusApproved || ac.PrimaryApprover != "secops-lead" {
 		t.Errorf("projected status=%q approver=%q; want APPROVED / secops-lead", ac.Status, ac.PrimaryApprover)
+	}
+	// The evaluation is folded onto the action (adr/0099): the policy decided.
+	if ac.Policy == nil || ac.Policy.Effect != "AUTO_APPROVE" || ac.Policy.MatchedPolicyRef != "policy/auto-isolate/1.0.0" || ac.Policy.RoutesTo != "" {
+		t.Errorf("projected policy = %+v; want AUTO_APPROVE by policy/auto-isolate/1.0.0", ac.Policy)
 	}
 }
 
@@ -113,6 +118,7 @@ func TestRequestAction_ManualFallThrough(t *testing.T) {
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
+		EvidenceRefs:     []string{"observed-data--00000000-0000-4000-8000-000000000001"},
 	})
 	if out.Status != "PENDING_MANUAL" || out.Mode != action.ModeManual {
 		t.Errorf("status=%q mode=%q; want PENDING_MANUAL/MANUAL", out.Status, out.Mode)
@@ -120,6 +126,27 @@ func TestRequestAction_ManualFallThrough(t *testing.T) {
 	ac, _ := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(out.ActionID))
 	if ac.Status != aggregate.ActionStatusRequested {
 		t.Errorf("projected status = %q; want REQUESTED", ac.Status)
+	}
+	// No policy matched: the fact says so and names where the approval goes (adr/0099).
+	if ac.Policy == nil || ac.Policy.Effect != "NONE" || ac.Policy.RoutesTo != "requester" || ac.Policy.MatchedPolicyRef != "" {
+		t.Errorf("projected policy = %+v; want NONE routed to the requester", ac.Policy)
+	}
+	// The list view serves it.
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/investigations/"+invID.String()+"/actions", nil)
+	req.Header.Set("Authorization", "Bearer "+mintToken(t, nil))
+	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var list struct {
+		Actions []ActionView `json:"actions"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&list)
+	if len(list.Actions) != 1 || list.Actions[0].Policy == nil || list.Actions[0].Policy.Effect != "NONE" {
+		t.Errorf("list policy = %+v", list.Actions)
 	}
 }
 
