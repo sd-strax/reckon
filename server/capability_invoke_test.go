@@ -18,6 +18,11 @@ import (
 // bindings: enumerate_logons (no params — matches every call) and
 // get_network_connections (templated on ${entity.host.hostname} — exercises the
 // applicability path).
+// testNamespace is the identity namespace the invoke tests mint ids under;
+// a backend that must recover those ids (the evidence view, adr/0090) sets
+// cfg.TenantNamespace to it.
+var testNamespace = uuid.MustParse("5d1f6c2e-3b4a-4c5d-8e6f-7a8b9c0d1e2f")
+
 func buildInvokeCapability(t *testing.T) (*capability.Resolver, *capability.Catalog) {
 	t.Helper()
 	root := t.TempDir()
@@ -53,7 +58,7 @@ func buildInvokeCapability(t *testing.T) (*capability.Resolver, *capability.Cata
 			}},
 		},
 	}
-	res, cat, err := capability.BuildResolver(tc, root, uuid.New(), true)
+	res, cat, err := capability.BuildResolver(tc, root, testNamespace, true)
 	if err != nil {
 		t.Fatalf("BuildResolver: %v", err)
 	}

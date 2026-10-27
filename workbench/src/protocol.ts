@@ -18,6 +18,7 @@ import type {
   CaseSummaryView,
   CommsThread,
   Enablement,
+  EventSpan,
   EvidenceDoc,
   Hypothesis,
   InvestigationDetail,
@@ -141,6 +142,9 @@ export interface StripItem {
   ref: string;
   time: string;
   label: string;
+  /** The per-class sentence and category of an OCSF record (adr/0090); absent on a STIX object. */
+  sentence?: EventSpan[];
+  category?: string;
 }
 
 /** The minimal evidence graph (13 §7 step 7): the two-layer join as data. */
@@ -292,7 +296,7 @@ export type InboundMessage =
   | { type: "hyp.revise"; hypothesisRef: string; restatement?: string; handle?: string }
   | { type: "hyp.abandon"; hypothesisRef: string; reason: string }
   | { type: "hyp.new"; statement: string; handle?: string }
-  | { type: "pred.new"; hypothesisRef: string; statement: string; discriminates: string[]; testKind?: string }
+  | { type: "pred.new"; hypothesisRef: string; statement: string; discriminates: string[]; testKind?: string; title?: string }
   | { type: "pred.withdraw"; predictionRef: string; reason: string }
   // The analyst records a prediction's result with an attestation (adr/0054).
   | { type: "pred.result"; predictionRef: string; status: string; content: string; source?: string; channel?: string }

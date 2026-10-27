@@ -24,6 +24,7 @@ func TestEvidence_PersistAndOpen(t *testing.T) {
 	}
 	b := newTestBackend(t)
 	b.cfg.CapabilityResolver, b.cfg.CapabilityCatalog = buildInvokeCapability(t)
+	b.cfg.TenantNamespace = testNamespace.String() // the view re-mints ids under the ingest namespace
 
 	token := mintToken(t, nil)
 	resp, out := postCapability(t, b, token, "enumerate_logons", CapabilityInvokeBody{})
@@ -55,6 +56,28 @@ func TestEvidence_PersistAndOpen(t *testing.T) {
 	code, ev := open(out.OcsfEventRefs[0])
 	if code != http.StatusOK || ev.Kind != "ocsf" || ev.ClassUID != 3002 || len(ev.Payload) == 0 {
 		t.Errorf("open ocsf ref = %d %+v; want a raw telemetry record", code, ev)
+	}
+	// The per-class view rides the record (adr/0090): a sentence whose entity
+	// slots carry the ids the normalizer minted at ingest, so each opens too.
+	if ev.View == nil || len(ev.View.Sentence) == 0 || ev.View.Category != "auth" || len(ev.View.Fields) == 0 {
+		t.Fatalf("view = %+v; want a rendered authentication event", ev.View)
+	}
+	slots := 0
+	for _, sp := range ev.View.Sentence {
+		if sp.T != "entity" {
+			continue
+		}
+		if sp.Ref == "" {
+			t.Errorf("entity slot %q (%s) has no ref", sp.Text, sp.Type)
+			continue
+		}
+		slots++
+		if c, _ := open(sp.Ref); c != http.StatusOK {
+			t.Errorf("slot ref %s does not open: %d", sp.Ref, c)
+		}
+	}
+	if slots == 0 {
+		t.Error("no entity slots in the sentence")
 	}
 	code, ev = open(out.ObservedDataRefs[0])
 	if code != http.StatusOK || ev.Kind != "stix" || ev.Type != "observed-data" {

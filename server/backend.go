@@ -232,6 +232,10 @@ type Backend struct {
 	// leaves seed_input entity resolution a clean 400 rather than a panic.
 	identityOnce sync.Once
 	identityRes  *identity.Resolver
+	// normalizerOnce/normalizerReg memoize the normalizer registry the
+	// evidence view uses to recover an event's entity ids (ocsfview).
+	normalizerOnce sync.Once
+	normalizerReg  *capability.Registry
 }
 
 // identityResolver returns the memoized tenant identity resolver, or nil when
@@ -245,6 +249,19 @@ func (b *Backend) identityResolver() *identity.Resolver {
 		b.identityRes = identity.NewResolver(ns)
 	})
 	return b.identityRes
+}
+
+// normalizers returns the memoized normalizer registry bound to the tenant
+// resolver, or nil when there is no resolver. It re-normalizes a persisted
+// event in memory so the event view's entity slots carry the same ids the
+// normalizer minted at ingest (the resolver is deterministic, 03 §7).
+func (b *Backend) normalizers() *capability.Registry {
+	b.normalizerOnce.Do(func() {
+		if r := b.identityResolver(); r != nil {
+			b.normalizerReg = capability.NewRegistry(r)
+		}
+	})
+	return b.normalizerReg
 }
 
 // NewBackend constructs the Backend (not yet started). The supervisor

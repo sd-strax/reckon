@@ -36,7 +36,7 @@ function MatrixView() {
       <tbody>
         {m.rows.map((r) => (
           <tr key={r.p.id} className={r.open ? "open" : undefined}>
-            <td><a onClick={() => openInspector({ kind: "ref", ref: r.p.id })}>P{r.p.ordinal ?? "?"}</a> <span className="mtitle">{r.p.statement}</span>{r.open ? <span className="imeta"> open</span> : null}</td>
+            <td><a onClick={() => openInspector({ kind: "ref", ref: r.p.id })}>P{r.p.ordinal ?? "?"}</a> <span className="mtitle" title={r.p.statement}>{r.p.title}</span>{r.open ? <span className="imeta"> open</span> : null}</td>
             {r.cells.map((c, i) => <td key={i} className={"cell " + (c === "✓" ? "ok" : c === "✕" ? "bad" : c === "?" ? "open" : "")}>{c}</td>)}
           </tr>
         ))}

@@ -273,7 +273,7 @@ export class InvestigationDocuments {
     } else if (msg.type === "hyp.new") {
       void this.newHypothesis(id, panel, msg.statement, msg.handle);
     } else if (msg.type === "pred.new") {
-      void this.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates, msg.testKind);
+      void this.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates, msg.testKind, msg.title);
     } else if (msg.type === "pred.result") {
       void this.recordPredictionResult(id, panel, msg);
     } else if (msg.type === "pred.withdraw") {
@@ -875,12 +875,12 @@ export class InvestigationDocuments {
   }
 
   /** Record the analyst's own test under a hypothesis (01 §x-prediction: either actor authors predictions). */
-  private async newPrediction(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, discriminates: string[], testKind?: string): Promise<void> {
+  private async newPrediction(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, discriminates: string[], testKind?: string, title?: string): Promise<void> {
     if (statement.trim() === "") {
       return;
     }
     try {
-      await this.client.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind);
+      await this.client.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind, title?.trim() || undefined);
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: prediction failed — ${errText(err)}`);
     }

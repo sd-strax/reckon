@@ -8,7 +8,7 @@ import { verdictChecklist, verdictRefs, verdictResidual } from "./verdict";
 
 const H = (id: string, status: string, preds: { id: string; status: string; discriminates?: string[] }[] = [], handle?: string): Hypothesis => ({
   id, statement: "claim " + id, status, handle, labels: [],
-  predictions: preds.map((p) => ({ id: p.id, statement: "pred " + p.id, status: p.status, discriminates: p.discriminates || [], testResultRefs: [] })),
+  predictions: preds.map((p) => ({ id: p.id, statement: "pred " + p.id, title: "pred " + p.id, status: p.status, discriminates: p.discriminates || [], testResultRefs: [] })),
 });
 const A = (over: Partial<ActionRow>): ActionRow => ({
   actionId: "a", actionType: "host.isolate", tier: "T2", status: "REQUESTED", requiredMode: "MANUAL", targets: [],

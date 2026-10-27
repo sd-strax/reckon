@@ -137,7 +137,7 @@ behaviors kept, C4–C7 the section's additions from `09`.
 
 | # | Behavior | New home | Status |
 |---|---|---|---|
-| K1 | Event-time strip (dots by event time, open on click, span label) | *superseded*: `<StoryLens>` timeline rows in event time (the strip stays as the span overview) with citing predictions and the start divider; sentences wait for §6.12 | [h] |
+| K1 | Event-time strip (dots by event time, open on click, span label) | *superseded*: `<StoryLens>` timeline rows in event time (the strip stays as the span overview) with citing predictions and the start divider, each event as its per-class sentence with entity chips (`adr/0090`) | [h] |
 | K2 | Minimal two-layer evidence graph (STIX left, OCSF right, grounding edges tinted by actor, join edges dashed, ungrounded reasoning nodes flagged, click opens) | `<StoryLens>` under Attack path (the path itself waits for §6.13) | [h] |
 
 ## L. Citations, chips, popover, evidence

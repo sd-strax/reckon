@@ -10,6 +10,10 @@ import type { EvidenceDoc } from "./backend";
  */
 export function deriveEvidenceLabel(doc: EvidenceDoc): string {
   if (doc.kind === "ocsf") {
+    // The per-class sentence (adr/0090) names the event; the class name
+    // stands in for a class with no renderer.
+    const sentence = (doc.view?.sentence ?? []).map((s) => s.text).join("");
+    if (sentence) return sentence.length > 96 ? sentence.slice(0, 95) + "…" : sentence;
     return doc.type || "event";
   }
   const p = (doc.payload ?? {}) as Record<string, unknown>;

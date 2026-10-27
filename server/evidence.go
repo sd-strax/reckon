@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/capability/ocsfview"
+	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/module"
 )
 
@@ -163,6 +165,11 @@ type EvidenceView struct {
 	RecordedAt *time.Time `json:"recorded_at,omitempty"`
 	SourceTool string     `json:"source_tool,omitempty"`
 
+	// View is the per-class rendering of an OCSF record (adr/0090): the
+	// sentence with entity slots, the curated fields, the category, a decoded
+	// encoded field. Nil for STIX objects.
+	View *ocsfview.EventView `json:"view,omitempty"`
+
 	// Related is set on an `indicator--` ref (a detection finding, 03 §4.12):
 	// the sightings that cite it, the vendor identity that produced it, and the
 	// observed-data the finding recursed — so the Detection inspector is one
@@ -244,7 +251,59 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v.Ref, v.Kind, v.Payload, v.Time, v.RecordedAt = ref, "ocsf", payload, &t, &rec
+	v.View = b.eventView(capability.OcsfEvent{ID: id, ClassUID: v.ClassUID, ClassName: v.Type, Time: t, RecordedAt: rec, SourceTool: v.SourceTool}, payload)
 	writeJSON(w, http.StatusOK, v)
+}
+
+// eventView renders a persisted OCSF record (ocsfview, adr/0090). The entity
+// slots get their ids by re-normalizing the event in memory: the resolver is
+// deterministic, so the ids match the SCOs persisted at ingest. Without a
+// resolver the slots carry text only.
+func (b *Backend) eventView(evt capability.OcsfEvent, payload []byte) *ocsfview.EventView {
+	var m map[string]any
+	if err := json.Unmarshal(payload, &m); err != nil || m == nil {
+		return nil
+	}
+	evt.Payload = m
+	var refs ocsfview.RefLookup
+	if reg := b.normalizers(); reg != nil {
+		if res, err := reg.Normalize(evt); err == nil {
+			refs = refLookupFrom(res)
+		}
+	}
+	v := ocsfview.Build(evt.ClassUID, m, refs)
+	return &v
+}
+
+// refLookupFrom indexes a normalization result by (type, salient value) so a
+// sentence slot can name the id the normalizer minted for it.
+func refLookupFrom(res capability.NormalizationResult) ocsfview.RefLookup {
+	idx := make(map[string]string, len(res.SCOs))
+	for _, s := range res.SCOs {
+		key := ""
+		switch s.Type {
+		case identity.TypeHost:
+			key, _ = s.Properties["hostname"].(string)
+		case identity.TypeUserAccount:
+			key, _ = s.Properties["account_login"].(string)
+		case identity.TypeProcess:
+			key = fmt.Sprint(s.Properties["pid"])
+		case identity.TypeFile:
+			key, _ = s.Properties["name"].(string)
+		case identity.TypeRegistryKey:
+			key, _ = s.Properties["key_path"].(string)
+		case identity.TypeScheduledTask:
+			key, _ = s.Properties["name"].(string)
+		case identity.TypeGroup:
+			key, _ = s.Properties["name"].(string)
+		default:
+			key, _ = s.Properties["value"].(string)
+		}
+		if key != "" {
+			idx[s.Type+"\x00"+key] = string(s.ID)
+		}
+	}
+	return func(typ, value string) string { return idx[typ+"\x00"+value] }
 }
 
 // loadIndicatorRelated assembles a detection finding's neighbourhood: every

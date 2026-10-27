@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/capability/ocsfview"
 )
 
 // Live markdown export (design/ui binding §6 item 10): the portable,
@@ -392,10 +393,20 @@ func (rl *refLabeler) resolve(ref string) string {
 		return ref
 	}
 	var class string
+	var classUID int
 	var t time.Time
+	var payload []byte
 	if err := rl.db.QueryRowContext(rl.ctx,
-		`SELECT class_name, time FROM ocsf_events WHERE id = $1`, id).Scan(&class, &t); err != nil {
+		`SELECT class_name, class_uid, time, payload FROM ocsf_events WHERE id = $1`, id).Scan(&class, &classUID, &t, &payload); err != nil {
 		return ref
+	}
+	// The per-class sentence (adr/0090) names the event the way the document
+	// does; the class name stands in for a class with no renderer.
+	var m map[string]any
+	if json.Unmarshal(payload, &m) == nil && m != nil {
+		if sentence := ocsfview.Build(classUID, m, nil).Text(); sentence != "" {
+			return fmt.Sprintf("%s @ %s", sentence, t.UTC().Format("15:04:05Z"))
+		}
 	}
 	return fmt.Sprintf("%s @ %s", class, t.UTC().Format("15:04:05Z"))
 }
