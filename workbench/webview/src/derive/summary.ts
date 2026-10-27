@@ -1,7 +1,7 @@
 // The Summary lens's facts (08 §8.4, impl §9): key entities with role and the
 // derivable status words, still-to-do, procedures followed, the handoff note.
 // Status words come only from the verdict and the actions — never invented.
-import type { ActionRow, Hypothesis, PinRow, ThreadEntry, Seed, CommsThread, Verdict } from "../../../src/backend";
+import type { ActionRow, Hypothesis, OwnerItem, PinRow, ThreadEntry, Seed, CommsThread, Verdict } from "../../../src/backend";
 import { isEntityRef } from "../refs";
 import { terminal, isNotify } from "./stage";
 import { hypName } from "./hyps";
@@ -50,13 +50,21 @@ export function keyEntities(seed: Seed | undefined, thread: ThreadEntry[], pins:
 
 export interface TodoItem {
   text: string;
-  kind: "approve" | "notify" | "prediction" | "comms";
+  kind: "approve" | "notify" | "prediction" | "comms" | "owner";
   expiresAt?: string;
   ref?: string;
+  /** An owner item's id (kind "owner"). */
+  ownerItemId?: string;
 }
 
-export function stillToDo(actions: ActionRow[], comms: CommsThread[], hs: Hypothesis[], labels: Record<string, string>): TodoItem[] {
+/** OPEN and SENT items still wait on the owner (adr/0101). */
+export const openOwnerItems = (items: OwnerItem[] | null | undefined): OwnerItem[] => (items || []).filter((i) => i.status === "OPEN" || i.status === "SENT");
+
+export function stillToDo(actions: ActionRow[], comms: CommsThread[], hs: Hypothesis[], labels: Record<string, string>, ownerItems?: OwnerItem[] | null): TodoItem[] {
   const out: TodoItem[] = [];
+  for (const i of openOwnerItems(ownerItems)) {
+    out.push({ text: `${i.status === "SENT" ? "Awaiting confirmation from" : "Ask"} ${i.owner}: ${i.title}`, kind: "owner", ownerItemId: i.id });
+  }
   for (const a of actions) {
     if (a.pending && !a.expired) out.push({ text: `Approve ${a.actionType} on ${a.targets.join(", ")}`, kind: "approve", expiresAt: a.expiresAt });
   }

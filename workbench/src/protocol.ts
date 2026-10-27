@@ -26,6 +26,7 @@ import type {
   Hypothesis,
   InvestigationDetail,
   InvestigationSummary,
+  OwnerItem,
   PinRow,
   RetrievalRow,
   RevisionContent,
@@ -124,7 +125,8 @@ export type InspectorTarget =
   | { kind: "thread"; threadId: string }
   | { kind: "case"; investigationRef: string }
   | { kind: "person"; principalId: string }
-  | { kind: "call"; callId: string };
+  | { kind: "call"; callId: string }
+  | { kind: "ownerItem"; id: string };
 
 /** One implicit-retrieval item (design/06 §5.1): a SOP or a similar past case
  * with its relevance signals and the analyst's inclusion state. Mirrors the
@@ -195,6 +197,8 @@ export interface InvestigationSnapshot {
   derived: DerivedViews | null;
   /** The events the investigation's calls retrieved, in event time (adr/0092); null when the read failed. */
   events: EventRow[] | null;
+  /** Owner action items (adr/0101); null when the layer is off or the read failed. */
+  ownerItems: OwnerItem[] | null;
 }
 
 /**
@@ -288,7 +292,11 @@ export type InboundMessage =
   | { type: "knowledge.open"; section?: KnowledgeSection; id?: string }
   // Request the outbound notification (08 §8.4 Response): a notify.* action
   // whose pre-send preview is the approval.
-  | { type: "notify.request"; channel: "notify.email" | "notify.slack"; target: string; subject?: string; body: string }
+  | { type: "notify.request"; channel: "notify.email" | "notify.slack"; target: string; subject?: string; body: string; ownerItemIds?: string[] }
+  // Owner action items (adr/0101): add one, record the owner's confirmation, waive with a reason.
+  | { type: "owner.add"; title: string; owner: string; detail?: string }
+  | { type: "owner.confirm"; id: string; note: string }
+  | { type: "owner.waive"; id: string; reason: string }
   // The lens and companion mode the analyst chose, mirrored to globalState so
   // the tree can deep-link (view state, never investigation state).
   | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }

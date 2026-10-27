@@ -30,6 +30,7 @@ import (
 	"github.com/sd-strax/reckon/comms"
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/knowledge"
+	"github.com/sd-strax/reckon/owneritems"
 	"github.com/sd-strax/reckon/supervisor"
 	"github.com/sd-strax/reckon/temporal"
 )
@@ -148,6 +149,8 @@ type BackendConfig struct {
 	// §4): GET /api/investigations/{id}/comms + /api/comms acts. Threads are
 	// opened by the action-result path, never by these routes.
 	Comms *comms.Store
+	// OwnerItems, when non-nil, enables the owner action items routes (adr/0101).
+	OwnerItems *owneritems.Store
 
 	// TenantNamespace is this install's identity namespace UUID (03 §7.1),
 	// stamped onto export bundles + their archive path (D.5).
@@ -521,6 +524,8 @@ func (b *Backend) buildRouter(verifier *authz.Verifier) http.Handler {
 	// Comms acts (Phase F, binding §4): inbound-reply ingestion + the
 	// analyst's acknowledge/done/snooze on a thread.
 	api.Handle("/comms/", authz.RequireAuth(verifier)(http.HandlerFunc(b.commsRoute)))
+	// Owner action item acts (adr/0101): confirm, waive, attach.
+	api.Handle("/owner_items/", authz.RequireAuth(verifier)(http.HandlerFunc(b.ownerItemsRoute)))
 
 	// Knowledge service (Phase C.5): SOP corpus CRUD + keyword retrieval, plus
 	// the K4 similar-investigation similarity recall over the case-summaries
@@ -688,6 +693,11 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	// An entity's baseline within the investigation (adr/0095).
 	if strings.Contains(trimmed, "/entities/") && strings.HasSuffix(trimmed, "/baseline") {
 		b.investigationBaselineRoute(w, r)
+		return
+	}
+	// Owner action items (adr/0101).
+	if strings.HasSuffix(trimmed, "/owner_items") {
+		b.investigationOwnerItemsRoute(w, r)
 		return
 	}
 	// The excerpts the investigation's turns retrieved (adr/0097).

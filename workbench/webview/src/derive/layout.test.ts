@@ -121,8 +121,9 @@ describe("summary", () => {
     const labels = (synthetic as unknown as { labels: Record<string, string> }).labels;
     const ents = keyEntities(snap.investigation.seed, snap.thread!, snap.pins, snap.actions!, labels);
     expect(ents[0]).toMatchObject({ role: "seed subject", status: "isolated" });
-    const todo = stillToDo(snap.actions!, snap.comms!, snap.hypotheses, labels);
-    expect(todo.map((t) => t.kind)).toEqual(["approve", "approve", "comms", "prediction", "prediction"]);
+    const todo = stillToDo(snap.actions!, snap.comms!, snap.hypotheses, labels, snap.ownerItems);
+    expect(todo.filter((t) => t.kind === "owner").map((t) => t.text)).toEqual(["Ask Identity team: Rotate the service account's credential", "Awaiting confirmation from Change owner: Confirm the maintenance window on host-a"]);
+    expect(todo.map((t) => t.kind)).toEqual(["owner", "owner", "approve", "approve", "comms", "prediction", "prediction"]);
     expect(proceduresFollowed(snap.thread!)).toEqual([{ sopId: "sop-1", title: "Procedure one" }]);
     const note = handoffNote("T", snap.investigation.verdict, snap.actions!, todo, snap.hypotheses, proceduresFollowed(snap.thread!));
     expect(note).toContain("Verdict: none yet");

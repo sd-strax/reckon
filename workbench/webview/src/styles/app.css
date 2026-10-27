@@ -743,3 +743,10 @@ body.loading #rail { opacity: 0.6; }
 .kdiff .dl.added { color: var(--ok); } .kdiff .dl.removed { color: var(--bad); text-decoration: line-through; }
 .revrow { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
 .kcompare { margin-top: 8px; }
+
+/* Owner action items (adr/0101) */
+.ownercard { padding: 8px 10px; margin: 6px 0; }
+.ownerline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.ownertitle { color: var(--link); cursor: pointer; font-weight: 600; }
+.ownercard.confirmed .ownertitle, .ownercard.waived .ownertitle { color: var(--text-3); text-decoration: line-through; }
+.lsection > h3 .ghost { margin-left: auto; }

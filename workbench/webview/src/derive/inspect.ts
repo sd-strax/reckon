@@ -8,7 +8,7 @@ import { refType, refTypeLabel } from "../refs";
 export type Renderer =
   | "evidence" | "entity" | "absence" | "detection" | "attestation"
   | "prediction" | "hypothesis" | "action" | "thread" | "case"
-  | "turn" | "person" | "alias" | "procedure" | "call";
+  | "turn" | "person" | "alias" | "procedure" | "call" | "ownerItem";
 
 const ENTITY_TYPES = new Set([
   "x-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file",
@@ -27,6 +27,7 @@ export function targetKey(t: InspectorTarget): string {
     case "case": return "case:" + t.investigationRef;
     case "person": return "person:" + t.principalId;
     case "call": return "call:" + t.callId;
+    case "ownerItem": return "owner:" + t.id;
   }
 }
 
@@ -41,6 +42,7 @@ export function rendererFor(t: InspectorTarget, doc?: EvidenceDoc | null): Rende
     case "case": return "case";
     case "person": return "person";
     case "call": return "call";
+    case "ownerItem": return "ownerItem";
     case "ref": {
       const type = refType(t.ref);
       if (type === "x-null-observation") return "absence";
@@ -76,6 +78,7 @@ export function rendererLabel(r: Renderer): string {
     case "alias": return "Alias";
     case "procedure": return "Procedure";
     case "call": return "Capability call";
+    case "ownerItem": return "Owner action item";
   }
 }
 
@@ -127,6 +130,10 @@ export function targetName(t: InspectorTarget, snap: InvestigationSnapshot | nul
     case "call": {
       const row = snap?.events?.find((e) => e.callId === t.callId);
       return row ? row.verb + " · " + row.coverage : "Capability call";
+    }
+    case "ownerItem": {
+      const it = snap?.ownerItems?.find((x) => x.id === t.id);
+      return it ? it.title : "Owner action item";
     }
   }
 }

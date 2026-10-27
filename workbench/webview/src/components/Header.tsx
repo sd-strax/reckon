@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../app";
 import { caseNoteStatus } from "../derive/actions";
+import { openOwnerItems } from "../derive/summary";
 import { concludeAllowed, concludePreflight, preflightClean } from "../derive/preflight";
 import { STEPS, STEP_LABELS, nearestExpiry, primaryAction, stageOf } from "../derive/stage";
 import { Countdown } from "./shared";
@@ -17,9 +18,10 @@ export function Header() {
   const actions = snap?.actions || [];
   const verdict = snap?.investigation.verdict || null;
   const comms = snap?.comms || [];
-  const inputs = { status: engine, verdict, actions, comms, openOwnerItems: 0 };
+  const owners = openOwnerItems(snap?.ownerItems).length;
+  const inputs = { status: engine, verdict, actions, comms, openOwnerItems: owners };
   const stage = stageOf(inputs);
-  const preflight = concludePreflight({ verdict, pins: snap?.pins || [], actions, comms, openOwnerItems: 0 });
+  const preflight = concludePreflight({ verdict, pins: snap?.pins || [], actions, comms, openOwnerItems: owners });
   const primary = snap ? primaryAction(inputs, stage, preflightClean(preflight)) : null;
   const expiry = nearestExpiry(actions);
   const seed = snap?.investigation.seed;

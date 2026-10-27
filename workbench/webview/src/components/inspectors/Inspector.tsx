@@ -10,12 +10,12 @@ import { InThisCaseBlock, InspectorError } from "./primitives";
 import { AbsenceInspector, AliasInspector, DetectionInspector, EvidenceInspector } from "./EvidenceInspector";
 import { EntityInspector } from "./EntityInspector";
 import { AttestationInspector, HypothesisInspector, PredictionInspector } from "./ReasoningInspectors";
-import { ActionInspector, ThreadInspector } from "./ActionInspectors";
+import { ActionInspector, OwnerItemInspector, ThreadInspector } from "./ActionInspectors";
 import { CaseInspector, PersonInspector, ProcedureInspector, TurnInspector } from "./ProvenanceInspectors";
 import { CallInspector } from "./CallInspector";
 
 const RECORD_ONLY = new Set(["evidence", "absence", "detection", "alias"]);
-const SNAPSHOT_ONLY = new Set(["prediction", "hypothesis", "thread", "person"]);
+const SNAPSHOT_ONLY = new Set(["prediction", "hypothesis", "thread", "person", "ownerItem"]);
 
 function Body({ target }: { target: InspectorTarget }) {
   const { state } = useApp();
@@ -37,6 +37,7 @@ function Body({ target }: { target: InspectorTarget }) {
     case "person": return <PersonInspector principalId={(target as { principalId: string }).principalId} />;
     case "procedure": return <ProcedureInspector sopId={(target as { sopId: string }).sopId} />;
     case "call": return <CallInspector callId={(target as { callId: string }).callId} />;
+    case "ownerItem": return <OwnerItemInspector id={(target as { id: string }).id} />;
   }
 }
 

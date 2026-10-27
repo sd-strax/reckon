@@ -16,6 +16,7 @@ import (
 	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/comms"
+	"github.com/sd-strax/reckon/owneritems"
 )
 
 // fatalErrorType is the non-retryable ApplicationError type a FATAL dispatch
@@ -32,8 +33,9 @@ type Activities struct {
 	// (11 §5.1) can replace the dispatch resolver under a running worker — the
 	// worker registers this struct wholesale and cannot re-register, so the
 	// swap has to happen behind a stable field.
-	resolver *action.AtomicResolver
-	comms    *comms.Store
+	resolver   *action.AtomicResolver
+	comms      *comms.Store
+	ownerItems *owneritems.Store
 }
 
 // NewActivities constructs the activity set. resolver is an AtomicResolver so
@@ -43,8 +45,8 @@ type Activities struct {
 // is a constructor parameter rather than a builder method because the worker
 // registers this struct wholesale (RegisterActivity), and Temporal panics on
 // any exported method that isn't a valid activity signature.
-func NewActivities(handler *aggregate.Handler, resolver *action.AtomicResolver, comms *comms.Store) *Activities {
-	return &Activities{handler: handler, resolver: resolver, comms: comms}
+func NewActivities(handler *aggregate.Handler, resolver *action.AtomicResolver, comms *comms.Store, ownerItems *owneritems.Store) *Activities {
+	return &Activities{handler: handler, resolver: resolver, comms: comms, ownerItems: ownerItems}
 }
 
 // CheckDispatched is the dispatch-ledger guard (08 §6b): it reports whether the
@@ -269,7 +271,19 @@ func (a *Activities) EmitResulted(ctx context.Context, in EmitResultedInput) err
 // thread state (binding §4: the outbound message is the action; the thread is
 // the conversation that follows).
 func (a *Activities) recordCommsThread(ctx context.Context, actionID uuid.UUID, in EmitResultedInput) {
-	if a.comms == nil || in.FinalOutcome != aggregate.ActionStatusSucceeded {
+	if in.FinalOutcome != aggregate.ActionStatusSucceeded {
+		return
+	}
+	// Owner action items attached to the notification were asked for by it
+	// (adr/0101): only a SUCCEEDED send moves them to SENT.
+	if a.ownerItems != nil {
+		if n, err := a.ownerItems.MarkSent(ctx, actionID, time.Now()); err != nil {
+			activity.GetLogger(ctx).Warn("owner items not marked sent", "action_id", actionID, "error", err)
+		} else if n > 0 {
+			activity.GetLogger(ctx).Info("owner items marked sent", "action_id", actionID, "count", n)
+		}
+	}
+	if a.comms == nil {
 		return
 	}
 	ac, err := aggregate.LoadActionCurrent(ctx, a.handler.DB(), actionID)

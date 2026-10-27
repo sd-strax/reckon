@@ -244,4 +244,22 @@ describe("the inspector", () => {
     fireEvent.click(within(p).getByText("Open original"));
     expect(transport.intents.find((i) => i.type === "sop.openOriginal")).toMatchObject({ sopId: "sop-1", revision: data.sopRevisions!["sop-1"][1].contentHash });
   });
+
+  it("renders an owner action item from the snapshot with its history and the human acts (adr/0101)", () => {
+    const transport = mount();
+    fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
+    fireEvent.click(screen.getByText("Confirm the maintenance window on host-a"));
+    const p = pane();
+    expect(within(p).getByText("Owner action item")).toBeTruthy();
+    expect(within(p).getByText("SENT")).toBeTruthy();
+    expect(within(p).getByText("Change owner")).toBeTruthy();
+    expect(p.querySelectorAll(".ihistory li").length).toBe(3); // created, attached, sent
+    expect(within(p).getByText(/notify.email → /)).toBeTruthy(); // asked via the notification
+    fireEvent.click(within(p).getByText("Waive…"));
+    const dlg = screen.getByRole("dialog");
+    fireEvent.change(dlg.querySelector("#promptInput")!, { target: { value: "window no longer needed" } });
+    fireEvent.click(within(dlg).getByText("Waive"));
+    expect(transport.intents.find((i) => i.type === "owner.waive")).toMatchObject({ id: "owner-2", reason: "window no longer needed" });
+    expect(within(pane()).getByText("WAIVED")).toBeTruthy();
+  });
 });

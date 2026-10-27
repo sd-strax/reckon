@@ -314,6 +314,12 @@ export class InvestigationDocuments {
       void vscode.commands.executeCommand("reckon.openKnowledge", msg.section, msg.id);
     } else if (msg.type === "notify.request") {
       void this.requestNotification(id, panel, msg);
+    } else if (msg.type === "owner.add") {
+      void this.ownerItemAct(id, panel, () => this.client.createOwnerItem(id, { title: msg.title, owner: msg.owner, detail: msg.detail }).then(() => undefined), "add the owner item");
+    } else if (msg.type === "owner.confirm") {
+      void this.ownerItemAct(id, panel, () => this.client.ownerItemAct(msg.id, "confirm", { note: msg.note }), "record the confirmation");
+    } else if (msg.type === "owner.waive") {
+      void this.ownerItemAct(id, panel, () => this.client.ownerItemAct(msg.id, "waive", { reason: msg.reason }), "waive the owner item");
     } else if (msg.type === "view.state") {
       this.onViewState?.(id, msg.lens, msg.companion);
     } else if (msg.type === "export.open") {
@@ -459,7 +465,7 @@ export class InvestigationDocuments {
     void this.post(panel, { type: "loading" });
     let snapshot: InvestigationSnapshot;
     try {
-      const [investigation, hypotheses, capabilities, thread, actions, pins, comms, events] = await Promise.all([
+      const [investigation, hypotheses, capabilities, thread, actions, pins, comms, events, ownerItems] = await Promise.all([
         this.client.getInvestigation(id),
         this.client.hypotheses(id),
         // Capability health is a v0 rail surface (13 §4); a 503 just means the
@@ -474,13 +480,14 @@ export class InvestigationDocuments {
         this.client.pins(id).catch((err: unknown) => { this.log.debug(`list pins ${id}: ${errText(err)}`); return [] as PinRow[]; }),
         this.client.comms(id).catch((err: unknown) => { this.log.debug(`list comms ${id}: ${errText(err)}`); return null; }),
         this.client.events(id).catch((err: unknown) => { this.log.debug(`list events ${id}: ${errText(err)}`); return null; }),
+        this.client.ownerItems(id).catch((err: unknown) => { this.log.debug(`list owner items ${id}: ${errText(err)}`); return null; }),
       ]);
       panel.title = `⚖ ${investigation.title}`;
       snapshot = {
         seq: investigation.lastEventSequence,
         investigation, hypotheses, actions, pins, comms, thread,
         turns: await this.chronicleTurns(thread ?? []),
-        capabilities, enablement: null, knowledge: [], derived: null, events,
+        capabilities, enablement: null, knowledge: [], derived: null, events, ownerItems,
       };
     } catch (err) {
       const message = errText(err);
@@ -550,6 +557,11 @@ export class InvestigationDocuments {
       patch.events = await this.client.events(id);
     } catch (err) {
       this.log.debug(`list events ${id}: ${errText(err)}`);
+    }
+    try {
+      patch.ownerItems = await this.client.ownerItems(id);
+    } catch (err) {
+      this.log.debug(`list owner items ${id}: ${errText(err)}`);
     }
     try {
       patch.thread = await this.client.thread(id);
@@ -741,7 +753,7 @@ export class InvestigationDocuments {
    * pre-send preview is the approval. Through Gate 2 like any action; it lands
    * in the queue as a preview card.
    */
-  private async requestNotification(id: string, panel: vscode.WebviewPanel, msg: { channel: string; target: string; subject?: string; body: string }): Promise<void> {
+  private async requestNotification(id: string, panel: vscode.WebviewPanel, msg: { channel: string; target: string; subject?: string; body: string; ownerItemIds?: string[] }): Promise<void> {
     const parameters: Record<string, unknown> = msg.channel === "notify.email"
       ? { subject: msg.subject || "Investigation update", body: msg.body }
       : { message: msg.body };
@@ -753,11 +765,30 @@ export class InvestigationDocuments {
         parameters,
         rationale: "stakeholder notification from the investigation record",
       });
+      // The owner items whose ask rides this notification attach to it
+      // (adr/0101); they move to SENT only when the send succeeds.
+      for (const itemId of msg.ownerItemIds ?? []) {
+        try { await this.client.ownerItemAct(itemId, "attach", { action_id: res.actionId }); } catch (err) { this.log.warn(`attach owner item ${itemId}: ${errText(err)}`); }
+      }
       void vscode.window.showInformationMessage(`reckon: notification requested (${res.status}) — approve to send`);
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: notification failed — ${errText(err)}`);
     }
     await this.postPending(id, panel);
+  }
+
+  /** One owner-item act (adr/0101), then the slice re-posted. */
+  private async ownerItemAct(id: string, panel: vscode.WebviewPanel, act: () => Promise<void>, what: string): Promise<void> {
+    try {
+      await act();
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: could not ${what} — ${errText(err)}`);
+    }
+    try {
+      void this.patch(id, panel, { ownerItems: await this.client.ownerItems(id) });
+    } catch (err) {
+      this.log.debug(`list owner items ${id}: ${errText(err)}`);
+    }
   }
 
   /**

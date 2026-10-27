@@ -291,6 +291,9 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
 17. **Owner action items** — work that only an owner outside reckon can do, tracked to
     confirmation with the investigation and counted by the conclude preflight. Open: an
     `x-action` with an external-work descriptor (`00 §4`'s external work) or its own record.
+    **Landed** (`adr/0101`): its own record (`owner_items`), attached to the notification that
+    asks for it, SENT on that notification's success; `GET/POST
+    /api/investigations/{id}/owner_items`, `POST /api/owner_items/{id}/confirm|waive|attach`.
 18. **Narrative summary at any time** — the two-tier summary of `06 §3.2` produced on
     demand for an open investigation, not only at conclusion, with its authorship (drafted,
     edited by) recorded.

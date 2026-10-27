@@ -21,6 +21,7 @@ const (
 	ToolRecordPredictionOutcome = "record_prediction_outcome"
 	ToolRequestAction           = "request_action"
 	ToolListActions             = "list_actions"
+	ToolProposeOwnerItem        = "propose_owner_item"
 )
 
 // maxToolResultBytes bounds a tool result fed back to the model. Fixture
@@ -194,6 +195,15 @@ func intrinsicTools(actionTypes []ActionType) []ToolDef {
 				"rationale": str("why this action, now"),
 				"retry_of":  str("when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage)"),
 			}, "action_type", "targets", "rationale", "evidence_refs"),
+		},
+		{
+			Name:        ToolProposeOwnerItem,
+			Description: "Record work that only an owner OUTSIDE this system can do — the owner of an account, a host, a service or a change — as an owner action item the analyst tracks to the owner's confirmation (for example: rotate a credential, confirm a session, re-image a host, change a perimeter rule). It executes nothing and asks nobody by itself: the analyst attaches it to a notification and records the owner's confirmation. Use it instead of writing such work into prose; use request_action for anything a configured tool can do.",
+			InputSchema: obj(map[string]any{
+				"title":  str("what the owner must do, as a short imperative (≤ 120 characters)"),
+				"owner":  str("who must do it: the owning team or role, or the person when known"),
+				"detail": str("why, and what evidence this rests on — a sentence or two"),
+			}, "title", "owner", "detail"),
 		},
 		{
 			Name:        ToolListActions,
@@ -570,6 +580,21 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 		}
 		s.pendingActions = append(s.pendingActions, resp)
 		return json.Marshal(resp)
+
+	case ToolProposeOwnerItem:
+		var in struct {
+			Title  string `json:"title"`
+			Owner  string `json:"owner"`
+			Detail string `json:"detail"`
+		}
+		if err := json.Unmarshal(input, &in); err != nil {
+			return nil, fmt.Errorf("bad propose_owner_item input: %w", err)
+		}
+		item, err := s.backend.CreateOwnerItem(ctx, s.investigationID, OwnerItemRequest{Title: in.Title, Owner: in.Owner, Detail: in.Detail})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"owner_item_id": item.ID, "status": item.Status, "note": "recorded as a proposal; the analyst attaches it to a notification and records the owner's confirmation"})
 
 	case ToolListActions:
 		acts, err := s.backend.ListActions(ctx, s.investigationID)

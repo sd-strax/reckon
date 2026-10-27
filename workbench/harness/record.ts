@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   };
 
   for (const id of ids) {
-    const [investigation, hypotheses, capabilities, thread, actions, pins, comms, enablement, events] = await Promise.all([
+    const [investigation, hypotheses, capabilities, thread, actions, pins, comms, enablement, events, ownerItems] = await Promise.all([
       client.getInvestigation(id),
       client.hypotheses(id),
       client.capabilities().catch(() => null),
@@ -72,6 +72,7 @@ async function main(): Promise<void> {
       client.comms(id).catch(() => null),
       client.enablement().catch(() => null),
       client.events(id).catch(() => null),
+      client.ownerItems(id).catch(() => null),
     ]);
     const turns: ChronicleTurn[] = [];
     for (const e of (thread ?? []).filter((x: ThreadEntry) => x.hasTranscript).slice(-40)) {
@@ -86,6 +87,7 @@ async function main(): Promise<void> {
       knowledge: [], // the sidecar's retrieval is not recorded here; the harness shows the rail from a hand-written set
       derived,
       events,
+      ownerItems,
     };
     // The calls the events name (adr/0092), whole, for the Call inspector.
     const calls: Record<string, CallDetail> = {};

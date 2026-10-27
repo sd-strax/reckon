@@ -1117,6 +1117,91 @@
           "destination": "host-a"
         }
       }
+    ],
+    "ownerItems": [
+      {
+        "id": "owner-1",
+        "title": "Rotate the service account's credential",
+        "owner": "Identity team",
+        "detail": "the account logged on from a workstation it never uses",
+        "status": "OPEN",
+        "createdBy": "reckon",
+        "createdByName": "reckon",
+        "createdByKind": "AI_DELEGATED",
+        "createdAt": "2026-10-20T09:45:00.000Z",
+        "updatedAt": "2026-10-20T09:45:00.000Z",
+        "history": [
+          {
+            "at": "2026-10-20T09:45:00.000Z",
+            "actor": "reckon",
+            "act": "created"
+          }
+        ]
+      },
+      {
+        "id": "owner-2",
+        "title": "Confirm the maintenance window on host-a",
+        "owner": "Change owner",
+        "status": "SENT",
+        "notifyActionId": "act-2",
+        "createdBy": "analyst-1",
+        "createdByName": "Analyst One",
+        "createdByKind": "HUMAN",
+        "createdAt": "2026-10-20T09:50:00.000Z",
+        "sentAt": "2026-10-20T10:00:00.000Z",
+        "updatedAt": "2026-10-20T10:00:00.000Z",
+        "history": [
+          {
+            "at": "2026-10-20T09:50:00.000Z",
+            "actor": "analyst-1",
+            "actorName": "Analyst One",
+            "act": "created"
+          },
+          {
+            "at": "2026-10-20T09:55:00.000Z",
+            "actor": "analyst-1",
+            "actorName": "Analyst One",
+            "act": "attached",
+            "note": "act-2"
+          },
+          {
+            "at": "2026-10-20T10:00:00.000Z",
+            "actor": "system",
+            "act": "sent",
+            "note": "act-2"
+          }
+        ]
+      },
+      {
+        "id": "owner-3",
+        "title": "Re-image the workstation",
+        "owner": "Desktop team",
+        "status": "CONFIRMED",
+        "createdBy": "analyst-1",
+        "createdByName": "Analyst One",
+        "createdByKind": "HUMAN",
+        "createdAt": "2026-10-19T15:00:00.000Z",
+        "confirmedBy": "analyst-1",
+        "confirmedByName": "Analyst One",
+        "confirmedAt": "2026-10-20T08:00:00.000Z",
+        "confirmationNote": "re-imaged overnight, confirmed by the team lead",
+        "updatedAt": "2026-10-20T08:00:00.000Z",
+        "history": [
+          {
+            "at": "2026-10-19T15:00:00.000Z",
+            "actor": "analyst-1",
+            "actorName": "Analyst One",
+            "act": "created"
+          },
+          {
+            "at": "2026-10-20T08:00:00.000Z",
+            "actor": "analyst-1",
+            "actorName": "Analyst One",
+            "act": "confirmed",
+            "note": "re-imaged overnight, confirmed by the team lead"
+          }
+        ]
+      }
     ]
   },
   "labels": {

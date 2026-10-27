@@ -112,7 +112,6 @@ describe("the investigation document", () => {
     expect(transport.intents.find((i) => i.type === "notify.request")).toMatchObject({ channel: "notify.email", target: "ops@example.test" });
     expect(within(lens()).getByText("External work · 1 open")).toBeTruthy();
     expect(within(lens()).getByText("Acknowledge")).toBeTruthy();
-    expect(within(lens()).getByText(/gap 00 §6.17/)).toBeTruthy(); // owner items: honest gap line
   });
 
   it("Summary: four tiles, key entities with derivable words, still to do, procedures followed, the handoff note", () => {
@@ -258,5 +257,40 @@ describe("the investigation document", () => {
     // Close is done; Contain and Notify honestly stay undone (the actions never settled); nothing is current.
     expect(document.querySelector(".stage .step:last-child")!.classList.contains("done")).toBe(true);
     expect(document.querySelector(".stage .step.current")).toBeNull();
+  });
+
+  it("Response: owner action items with their status, a new item, a confirmation; the Summary counts them; the notification asks for the open ones (adr/0101)", () => {
+    const { transport } = mount();
+    tab("Response");
+    const section = document.querySelector("#obj-owner-items") as HTMLElement;
+    expect(section.querySelectorAll(".ownercard").length).toBe(3);
+    expect(within(section).getByText("OPEN")).toBeTruthy();
+    expect(within(section).getByText(/proposed by reckon/)).toBeTruthy();
+    expect(within(section).getAllByText(/asked /).length).toBeGreaterThan(0);
+    expect(within(section).getByText(/re-imaged overnight/)).toBeTruthy();
+    fireEvent.click(within(section).getByText("+ Owner item"));
+    let dlg = screen.getByRole("dialog");
+    fireEvent.change(dlg.querySelector("#promptInput")!, { target: { value: "Disable the legacy VPN account" } });
+    fireEvent.change(dlg.querySelector("#promptExtra_owner")!, { target: { value: "Network team" } });
+    fireEvent.click(within(dlg).getByText("Add item"));
+    expect(transport.intents.find((i) => i.type === "owner.add")).toMatchObject({ title: "Disable the legacy VPN account", owner: "Network team" });
+    expect(section.querySelectorAll(".ownercard").length).toBe(4);
+    fireEvent.click(within(section).getAllByText("Mark confirmed…")[0]);
+    dlg = screen.getByRole("dialog");
+    fireEvent.change(dlg.querySelector("#promptInput")!, { target: { value: "rotated at 14:05" } });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Mark confirmed" }));
+    expect(transport.intents.find((i) => i.type === "owner.confirm")).toMatchObject({ id: "owner-1", note: "rotated at 14:05" });
+    expect(within(section).getAllByText("CONFIRMED").length).toBe(2);
+    // The notification draft asks for what is still OPEN, and attaches those items.
+    expect(within(lens()).getByText(/What we need:.*Network team: Disable the legacy VPN account/)).toBeTruthy();
+    fireEvent.click(within(lens()).getByText("Preview & send email…"));
+    const send = screen.getByRole("dialog");
+    fireEvent.change(send.querySelector("#promptExtra_target")!, { target: { value: "ops@example.test" } });
+    fireEvent.click(within(send).getByText("Request to send"));
+    expect(transport.intents.filter((i) => i.type === "notify.request").pop()).toMatchObject({ ownerItemIds: ["owner-4"] });
+    // Summary: still to do counts the open and sent items.
+    tab("Summary");
+    expect(within(lens()).getByText(/Awaiting confirmation from Change owner: Confirm the maintenance window/)).toBeTruthy();
+    expect(within(lens()).getByText(/Ask Network team: Disable the legacy VPN account/)).toBeTruthy();
   });
 });

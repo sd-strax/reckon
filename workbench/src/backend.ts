@@ -398,6 +398,21 @@ function mapCall(r: RawCall): CallView {
   };
 }
 
+interface RawOwnerItem {
+  id?: string; title?: string; owner?: string; detail?: string; status?: string; notify_action_id?: string;
+  created_by?: string; created_by_name?: string; created_by_kind?: string; created_at?: string; sent_at?: string;
+  confirmed_by?: string; confirmed_by_name?: string; confirmed_at?: string; confirmation_note?: string; updated_at?: string;
+  history?: { at?: string; actor?: string; actor_name?: string; act?: string; note?: string }[];
+}
+function mapOwnerItem(r: RawOwnerItem): OwnerItem {
+  return {
+    id: r.id ?? "", title: r.title ?? "", owner: r.owner ?? "", detail: r.detail, status: r.status ?? "OPEN", notifyActionId: r.notify_action_id,
+    createdBy: r.created_by ?? "", createdByName: r.created_by_name, createdByKind: r.created_by_kind ?? "HUMAN", createdAt: r.created_at ?? "", sentAt: r.sent_at,
+    confirmedBy: r.confirmed_by, confirmedByName: r.confirmed_by_name, confirmedAt: r.confirmed_at, confirmationNote: r.confirmation_note, updatedAt: r.updated_at ?? "",
+    history: (r.history ?? []).map((h) => ({ at: h.at ?? "", actor: h.actor ?? "", actorName: h.actor_name, act: h.act ?? "", note: h.note })),
+  };
+}
+
 /** The wire shape of a SOP (knowledge.SOP). */
 interface RawSOP {
   id?: string; title?: string; body?: string; tags?: string[]; status?: string; recommendation?: string;
@@ -628,6 +643,27 @@ export interface ThreadEntry {
 }
 
 /** One row of the durable action queue (mirrors server.ActionView). */
+/** One owner action item (server.OwnerItemView, adr/0101). */
+export interface OwnerItem {
+  id: string;
+  title: string;
+  owner: string;
+  detail?: string;
+  status: "OPEN" | "SENT" | "CONFIRMED" | "WAIVED" | string;
+  notifyActionId?: string;
+  createdBy: string;
+  createdByName?: string;
+  createdByKind: "HUMAN" | "AI_DELEGATED" | string;
+  createdAt: string;
+  sentAt?: string;
+  confirmedBy?: string;
+  confirmedByName?: string;
+  confirmedAt?: string;
+  confirmationNote?: string;
+  updatedAt: string;
+  history: { at: string; actor: string; actorName?: string; act: string; note?: string }[];
+}
+
 /** The response-policy status of an action (aggregate.ActionPolicy, adr/0099): a fact, never a prediction. */
 export interface ActionPolicy {
   effect: "NONE" | "AUTO_APPROVE" | "REQUIRE_TWO_PARTY" | "DENY" | string;
@@ -1520,6 +1556,22 @@ export class BackendClient {
       patterns: (r.patterns ?? []).map((p) => ({ classUid: p.class_uid ?? 0, className: p.class_name ?? "", key: p.key ?? {}, count: p.count ?? 0, days: p.days ?? 0, typicalHour: p.typical_hour ?? 0, first: p.first ?? "", last: p.last ?? "", eventIds: p.event_ids ?? [] })),
       deviations: (r.deviations ?? []).map((d) => ({ eventId: d.event_id ?? "", classUid: d.class_uid ?? 0, className: d.class_name ?? "", time: d.time ?? "", key: d.key ?? {}, differs: d.differs ?? [] })),
     };
+  }
+
+  /** GET /api/investigations/{id}/owner_items — the owner action items (adr/0101). */
+  async ownerItems(investigationId: string): Promise<OwnerItem[]> {
+    const r = await this.authedGet<{ owner_items?: RawOwnerItem[] }>(`/api/investigations/${encodeURIComponent(investigationId)}/owner_items`);
+    return (r.owner_items ?? []).map(mapOwnerItem);
+  }
+
+  /** POST /api/investigations/{id}/owner_items — the analyst adds one. */
+  async createOwnerItem(investigationId: string, body: { title: string; owner: string; detail?: string }): Promise<OwnerItem> {
+    return mapOwnerItem(await this.authedPost<RawOwnerItem>(`/api/investigations/${encodeURIComponent(investigationId)}/owner_items`, body));
+  }
+
+  /** POST /api/owner_items/{id}/confirm|waive|attach — human acts on an item. */
+  async ownerItemAct(id: string, verb: "confirm" | "waive" | "attach", body: { note?: string; reason?: string; action_id?: string }): Promise<void> {
+    await this.authedPost(`/api/owner_items/${encodeURIComponent(id)}/${verb}`, body);
   }
 
   /** GET /api/investigations/{id}/calls — the capability calls, oldest first. */

@@ -928,6 +928,11 @@ description teaches when to use it (work only an owner outside reckon can do); n
 rule changes. The conclude preflight counts OPEN/SENT items as an input (decision support at
 v0, like comms; the engine-side gate lands with Phase F).
 
+**Landed** (`adr/0101`, PR #102) with `created_by_kind` (HUMAN | AI_DELEGATED) on the record so
+a proposal reads as one; attach is `POST /api/owner_items/{id}/attach {action_id}` after the
+notification is requested (the webview passes the items' ids on `notify.request`). Migration
+`0028`; `temporal.NewActivities` gains the store.
+
 ### 8.7 §6.18 — Narrative summary at any time
 
 **Decision.** Two tiers, as `06 §3.2`: structured facts are a server-side pure function over

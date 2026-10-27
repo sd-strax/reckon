@@ -7,7 +7,7 @@ function snap(seq: number, title = "T"): InvestigationSnapshot {
     seq,
     investigation: { id: "inv-1", title, state: "ACTIVE", lastEventSequence: seq },
     hypotheses: [], actions: [], pins: [], comms: [], thread: [], turns: [],
-    capabilities: null, enablement: null, knowledge: [], derived: null, events: null,
+    capabilities: null, enablement: null, knowledge: [], derived: null, events: null, ownerItems: null,
   };
 }
 

@@ -109,6 +109,26 @@ export class HarnessTransport implements WebviewTransport {
       case "rename":
         this.emit({ type: "renamed", title: intent.title });
         break;
+      case "owner.add":
+      case "owner.confirm":
+      case "owner.waive": {
+        // Owner items (adr/0101): the acts mutate the stage's copy and re-post the slice.
+        const snap = this.inv?.snapshot;
+        if (!snap) break;
+        const items = (snap.ownerItems || []).map((i) => ({ ...i }));
+        const now = new Date().toISOString();
+        if (intent.type === "owner.add") items.push({ id: "owner-" + (items.length + 1), title: intent.title, owner: intent.owner, detail: intent.detail, status: "OPEN", createdBy: "analyst-1", createdByName: "Analyst One", createdByKind: "HUMAN", createdAt: now, updatedAt: now, history: [{ at: now, actor: "analyst-1", actorName: "Analyst One", act: "created" }] });
+        else {
+          const it = items.find((i) => i.id === intent.id);
+          if (it) {
+            const act = intent.type === "owner.confirm" ? "confirmed" : "waived";
+            Object.assign(it, { status: act.toUpperCase(), confirmedBy: "analyst-1", confirmedByName: "Analyst One", confirmedAt: now, confirmationNote: intent.type === "owner.confirm" ? intent.note : intent.reason, updatedAt: now, history: [...it.history, { at: now, actor: "analyst-1", actorName: "Analyst One", act, note: intent.type === "owner.confirm" ? intent.note : intent.reason }] });
+          }
+        }
+        snap.ownerItems = items;
+        this.emit({ type: "state.patch", seq: snap.seq, patch: { ownerItems: items } });
+        break;
+      }
       case "seed.caseSearch":
         this.emit({ type: "draft.cases", cases: [{ number: "CASE-1001", title: "A case from the queue", status: "New" }] });
         break;

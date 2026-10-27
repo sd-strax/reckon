@@ -3,7 +3,7 @@
 // Sent message) — 08 §8.6.1. The card is the summary; this is the record.
 import { useApp } from "../../app";
 import { actionStatusBadge } from "../../derive/actions";
-import { Badge, RefChip, fmtDateTime, fmtTime } from "../shared";
+import { Badge, RefChip, fmtDateTime, fmtTime  } from "../shared";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
 
 const ESCALATION_THRESHOLD = 10; // 04 §1: T2→T3 above this many distinct targets
@@ -155,3 +155,35 @@ export function ThreadInspector({ threadId }: { threadId: string }) {
     </>
   );
 }
+
+/** Owner action item (08 §8.6.1; adr/0101): what, owner, why, when asked,
+ * status; the history; Mark confirmed / Waive… while it is open. */
+export function OwnerItemInspector({ id }: { id: string }) {
+  const { state, send, openPrompt, openInspector } = useApp();
+  const it = state.snap?.ownerItems?.find((x) => x.id === id);
+  if (!it) return <div className="empty">This owner action item is not in the current snapshot.</div>;
+  const open = it.status === "OPEN" || it.status === "SENT";
+  const notify = it.notifyActionId ? (state.snap?.actions || []).find((a) => a.actionId === it.notifyActionId) : undefined;
+  return (
+    <>
+      <div className="isub"><Badge tone={it.status === "CONFIRMED" ? "ok" : it.status === "WAIVED" ? "muted" : it.status === "SENT" ? "info" : "warn"}>{it.status}</Badge> {it.createdByKind === "AI_DELEGATED" ? "proposed by reckon" : "added by " + (it.createdByName || it.createdBy)} · {fmtDateTime(it.createdAt)}</div>
+      <KV rows={[
+        { k: "What", v: it.title },
+        { k: "Owner", v: it.owner },
+        { k: "Why", v: it.detail },
+        { k: "Asked", v: it.sentAt ? <>{fmtDateTime(it.sentAt)}{notify ? <> via <a onClick={() => openInspector({ kind: "action", actionId: notify.actionId })}>{notify.actionType} → {notify.targets.join(", ")}</a></> : null}</> : it.notifyActionId ? "attached to a notification not yet sent" : "not yet asked — add it to the notification" },
+        { k: it.status === "WAIVED" ? "Waived" : "Confirmed", v: it.confirmedAt ? `${fmtDateTime(it.confirmedAt)} by ${it.confirmedByName || it.confirmedBy}${it.confirmationNote ? " — " + it.confirmationNote : ""}` : undefined },
+      ]} />
+      <Section title="History">
+        <ol className="ihistory">{it.history.map((h, i) => <li key={i}><span className="imeta">{fmtDateTime(h.at)}</span> {h.act}{h.actorName || h.actor ? " · " + (h.actorName || h.actor) : ""}{h.note ? <> — {h.note}</> : null}</li>)}</ol>
+      </Section>
+      {open ? (
+        <div className="decide">
+          <button className="primary" onClick={() => openPrompt({ title: "Mark confirmed", label: `How did ${it.owner} confirm “${it.title}”?`, placeholder: "e.g. confirmed by phone at 14:05; credential rotated", confirm: "Mark confirmed", onConfirm: (note) => send({ type: "owner.confirm", id: it.id, note }) })}>Mark confirmed…</button>
+          <button onClick={() => openPrompt({ title: "Waive owner item", label: "Why is this item waived without the owner's confirmation?", placeholder: "e.g. the host was re-imaged before the request went out", confirm: "Waive", onConfirm: (reason) => send({ type: "owner.waive", id: it.id, reason }) })}>Waive…</button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+

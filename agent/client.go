@@ -523,6 +523,29 @@ func (c *Client) Transcript(ctx context.Context, interpretationID string) (strin
 	return out.Body, err
 }
 
+// OwnerItemRequest is the propose_owner_item payload (adr/0101).
+type OwnerItemRequest struct {
+	Title  string `json:"title"`
+	Owner  string `json:"owner"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// OwnerItem is the created item as the server answers it.
+type OwnerItem struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Title  string `json:"title"`
+	Owner  string `json:"owner"`
+}
+
+// CreateOwnerItem records an owner action item for the investigation (agent
+// token: the server marks it a proposal, AI_DELEGATED).
+func (c *Client) CreateOwnerItem(ctx context.Context, investigationID string, body OwnerItemRequest) (OwnerItem, error) {
+	var out OwnerItem
+	err := c.do(ctx, http.MethodPost, "/api/investigations/"+investigationID+"/owner_items", c.agentSrc, body, &out)
+	return out, err
+}
+
 // ListActions returns the investigation's x-actions with their current status
 // (agent token — a read). The durable source of the pending-approval queue.
 func (c *Client) ListActions(ctx context.Context, id string) ([]ActionStatus, error) {
