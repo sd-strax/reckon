@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "outDir": "dist/record",
+    "rootDir": "..",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "files": ["record.ts"]
+}

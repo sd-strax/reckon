@@ -50,7 +50,7 @@ export function activate(context: vscode.ExtensionContext): void {
   }, log);
   const evidence = new EvidenceView(client);
   const importSOPs = new ImportSOPsView(client, log);
-  const documents = new InvestigationDocuments(client, log, transport, (id, seq) => {
+  const documents = new InvestigationDocuments(context.extensionUri, client, log, transport, (id, seq) => {
     void seen.set(id, seq).then(() => investigations.refresh());
   });
   // The case queue (adr/0030-cases-pane.md): the SoR's queue below

@@ -1,0 +1,8 @@
+/* The harness chrome: a strip above the page. The page itself is styled by the webview's own stylesheets. */
+#root { display: flex; flex-direction: column; height: 100vh; }
+#harnessStrip { flex: none; display: flex; gap: 12px; align-items: center; padding: 4px 10px; font: 12px var(--mono); background: var(--he-primary-deep); color: #fff; }
+#harnessStrip select, #harnessStrip button { font: inherit; color: #fff; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.3); border-radius: 4px; padding: 1px 6px; }
+#harnessStrip .intents { position: relative; }
+#harnessStrip .intents summary { cursor: pointer; }
+#harnessStrip .intents pre { position: absolute; right: 0; top: 20px; z-index: 100; width: 60vw; max-height: 40vh; overflow: auto; margin: 0; padding: 8px; background: var(--overlay-bg); color: var(--text); border: 1px solid var(--border); font-size: 11px; }
+#harnessPage { flex: 1; min-height: 0; display: flex; }

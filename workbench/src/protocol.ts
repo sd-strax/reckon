@@ -1,0 +1,184 @@
+// The extension-host ↔ webview message protocol for the investigation document
+// (implementation/workbench-react.md §4). Types only: this module is imported
+// by the host (tsc) and by the webview bundle (esbuild) and must stay free of
+// `vscode` and of runtime code.
+//
+// The host owns a per-investigation cache of the engine's projections and
+// posts it as a whole snapshot, then as whole re-posts of the slices an act
+// touched (§3.1). Every projection message carries the investigation's event
+// sequence so the webview can drop a stale patch (§3.2). Streaming and the
+// one-object answers (labels, appearances) ride beside it unchanged.
+
+import type {
+  ActionRow,
+  Appearance,
+  Capability,
+  CommsThread,
+  Enablement,
+  Hypothesis,
+  InvestigationDetail,
+  PinRow,
+  ThreadEntry,
+} from "./backend";
+
+/** One implicit-retrieval item (design/06 §5.1): a SOP or a similar past case
+ * with its relevance signals and the analyst's inclusion state. Mirrors the
+ * sidecar's KnowledgeItem (agent.KnowledgeItem). */
+export interface KnowledgeItem {
+  kind: "sop" | "case";
+  ref: string;
+  title: string;
+  excerpt: string;
+  score: number;
+  band?: string;
+  rationale?: string;
+  included: boolean;
+}
+
+/** A committed turn's line-framed transcript body, keyed by its thread position. */
+export interface ChronicleTurn {
+  sequenceNo: number;
+  occurredAt: string;
+  body: string;
+}
+
+/** The event-time strip item: a cited ref that carries an EVENT time (binding §7). */
+export interface StripItem {
+  ref: string;
+  time: string;
+  label: string;
+}
+
+/** The minimal evidence graph (13 §7 step 7): the two-layer join as data. */
+export interface GraphView {
+  refs: { id: string; kind: string; type: string }[];
+  edges: { from: string; to: string; ai: boolean; join?: boolean }[];
+}
+
+/** Lenses the host derives over the thread's citations with cached evidence
+ * fetches (strip + graph). Null until computed; failures leave gaps. */
+export interface DerivedViews {
+  strip: StripItem[];
+  graph: GraphView;
+}
+
+/**
+ * The host's cache of one investigation, posted whole (§3.1). Slices that come
+ * from an optional layer are null when the layer is off or unreachable so the
+ * webview can render that honestly instead of an empty list.
+ */
+export interface InvestigationSnapshot {
+  /** investigation.last_event_sequence when fetched. */
+  seq: number;
+  investigation: InvestigationDetail;
+  hypotheses: Hypothesis[];
+  /** The durable action queue + ledger; null when the action layer is off. */
+  actions: ActionRow[] | null;
+  pins: PinRow[];
+  /** Comms / external-work threads; null when the layer is off. */
+  comms: CommsThread[] | null;
+  /** The committed reasoning thread; null when its fetch failed. */
+  thread: ThreadEntry[] | null;
+  /** Transcript bodies for the most recent transcript-bearing entries. */
+  turns: ChronicleTurn[];
+  capabilities: Capability[] | null;
+  enablement: Enablement | null;
+  knowledge: KnowledgeItem[];
+  derived: DerivedViews | null;
+}
+
+/**
+ * A live rival hypothesis as the webview briefs the scoped ⚡ turns about it
+ * (02 §2.9: propose-tests / decide read the WHOLE live set, not the tab).
+ */
+export interface RivalBrief {
+  id: string;
+  handle?: string;
+  statement: string;
+  /** Untested predictions on the rival that discriminate against the hypothesis in view. */
+  untestedDiscriminators: number;
+}
+
+/** What the extension host posts to the webview to render. */
+export type RenderMessage =
+  | { type: "loading" }
+  // The unseeded state (design/ui/02 §2.7): render the "root this investigation"
+  // surface instead of a document. "seeded" flips back once the seed persists;
+  // "draft.error" reports a failed create without leaving the draft.
+  | { type: "draft"; mode?: "case"; caseQueue?: string }
+  | { type: "seeded" }
+  | { type: "draft.error"; message: string }
+  // The "from a case" seed surface (13 §3): the SoR search results, and a
+  // search failure rendered inline in the case sub-form.
+  | { type: "draft.cases"; cases: { number: string; title: string; status: string }[] }
+  | { type: "draft.caseError"; message: string }
+  // The whole cache, and whole re-posts of the slices an act touched (§3.1).
+  | { type: "state.snapshot"; seq: number; snapshot: InvestigationSnapshot }
+  | { type: "state.patch"; seq: number; patch: Partial<InvestigationSnapshot> }
+  | { type: "error"; message: string }
+  // Open the in-document rename card (never the top-of-window quick input).
+  | { type: "rename.begin"; title: string }
+  // Applied rename: update the title in place without a full reload.
+  | { type: "renamed"; title: string }
+  // A resolved human label for an evidence ref (e.g. "host · WIN-FILE01").
+  | { type: "evidence.label"; ref: string; label: string }
+  // The entity popover's cross-investigation memory (ui/02 §2.4).
+  | { type: "entity.info"; ref: string; appearances: Appearance[] }
+  | { type: "turn.start" }
+  | { type: "turn.user"; text: string }
+  // An aside (the "btw" lens): a scoped agent turn rendered collapsed.
+  | { type: "aside.start"; label: string }
+  | { type: "turn.reasoning"; delta: string }
+  | { type: "turn.text"; delta: string }
+  | { type: "turn.step"; round: number }
+  | { type: "turn.tool"; name: string; input: unknown }
+  | { type: "turn.toolResult"; name: string; isError: boolean; coverage?: string; events?: number; refs?: string[] }
+  | { type: "turn.committed"; interpretationId: string }
+  | { type: "turn.error"; message: string }
+  | { type: "turn.end"; usage?: { input: number; output: number; cacheRead: number }; rounds?: number };
+
+/** What the webview posts back to the extension host. */
+export type InboundMessage =
+  | { type: "refresh" | "ready" }
+  // Resync: the webview saw a sequence gap it cannot fill (§3.2).
+  | { type: "ui.resync" }
+  // The seed surface (design/ui/02 §2.7): the analyst's confirmed root.
+  | { type: "seed.submit"; value: string; kind: string }
+  | { type: "seed.alert"; alertId: string; source: string }
+  | { type: "seed.caseSearch"; filter: string; queue?: string }
+  | { type: "seed.case"; caseNumber: string }
+  // The analyst confirmed (and possibly edited) the case note (adr/0032).
+  | { type: "caseNote.post"; body: string }
+  | { type: "send"; text: string; includedKnowledge?: string[] }
+  | { type: "action.approve"; actionId: string; tier: string; actionType: string; challenge?: string }
+  | { type: "action.reject"; actionId: string; actionType: string; reason: string }
+  | { type: "action.rerequest"; actionId: string; actionType: string; rationale: string }
+  | { type: "pin.add"; refs: string[]; finding: string }
+  | { type: "pin.unpin"; interpretationId: string; reason: string }
+  | { type: "verdict.submit"; disposition: string; rationale: string; refs: string[] }
+  | { type: "hyp.ack"; hypothesisRef: string; restatement?: string; handle?: string }
+  | { type: "hyp.revise"; hypothesisRef: string; restatement?: string; handle?: string }
+  | { type: "hyp.abandon"; hypothesisRef: string; reason: string }
+  | { type: "hyp.new"; statement: string; handle?: string }
+  | { type: "pred.new"; hypothesisRef: string; statement: string; discriminates: string[]; testKind?: string }
+  | { type: "pred.withdraw"; predictionRef: string; reason: string }
+  // The analyst records a prediction's result with an attestation (adr/0054).
+  | { type: "pred.result"; predictionRef: string; status: string; content: string; source?: string; channel?: string }
+  | { type: "hyp.proposeTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
+  | { type: "hyp.runTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
+  // One prediction's test, run as a scoped turn from its row (the ⚡ family).
+  | { type: "pred.test"; predictionRef: string; predictionName: string; statement: string; queryText?: string; tool?: string; hypothesisRef: string; hypStatement: string; handle?: string; rivals?: RivalBrief[] }
+  | { type: "hyp.decide"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
+  | { type: "enablement.apply"; adapter: string; enabled: boolean; config: Record<string, string>; secretFields: string[] }
+  | { type: "comms.act"; threadId: string; verb: "ack" | "done" }
+  | { type: "comms.snooze"; threadId: string; hours: number }
+  | { type: "comms.followup"; threadId: string; actionType: string; target: string; subject: string; message: string; followUpHours: number }
+  | { type: "lifecycle"; transition: string; reason?: string; summary?: string }
+  | { type: "evidence.open"; ref: string }
+  | { type: "evidence.resolve"; ref: string }
+  | { type: "entity.info"; ref: string }
+  | { type: "export.open" }
+  | { type: "copy"; text: string }
+  | { type: "investigation.open"; id: string; title?: string }
+  | { type: "rename"; title: string }
+  | { type: "transcript.open"; interpretationId: string };
