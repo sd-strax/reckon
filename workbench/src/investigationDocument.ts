@@ -457,7 +457,7 @@ export class InvestigationDocuments {
     void this.post(panel, { type: "loading" });
     let snapshot: InvestigationSnapshot;
     try {
-      const [investigation, hypotheses, capabilities, thread, actions, pins, comms] = await Promise.all([
+      const [investigation, hypotheses, capabilities, thread, actions, pins, comms, events] = await Promise.all([
         this.client.getInvestigation(id),
         this.client.hypotheses(id),
         // Capability health is a v0 rail surface (13 §4); a 503 just means the
@@ -471,13 +471,14 @@ export class InvestigationDocuments {
         this.client.actions(id).catch((err: unknown) => { this.log.debug(`list actions ${id}: ${errText(err)}`); return null; }),
         this.client.pins(id).catch((err: unknown) => { this.log.debug(`list pins ${id}: ${errText(err)}`); return [] as PinRow[]; }),
         this.client.comms(id).catch((err: unknown) => { this.log.debug(`list comms ${id}: ${errText(err)}`); return null; }),
+        this.client.events(id).catch((err: unknown) => { this.log.debug(`list events ${id}: ${errText(err)}`); return null; }),
       ]);
       panel.title = `⚖ ${investigation.title}`;
       snapshot = {
         seq: investigation.lastEventSequence,
         investigation, hypotheses, actions, pins, comms, thread,
         turns: await this.chronicleTurns(thread ?? []),
-        capabilities, enablement: null, knowledge: [], derived: null,
+        capabilities, enablement: null, knowledge: [], derived: null, events,
       };
     } catch (err) {
       const message = errText(err);
@@ -541,6 +542,12 @@ export class InvestigationDocuments {
       patch.comms = await this.client.comms(id);
     } catch (err) {
       this.log.debug(`list comms ${id}: ${errText(err)}`);
+    }
+    try {
+      // A turn's calls added events (adr/0092): the timeline re-reads them.
+      patch.events = await this.client.events(id);
+    } catch (err) {
+      this.log.debug(`list events ${id}: ${errText(err)}`);
     }
     try {
       patch.thread = await this.client.thread(id);
@@ -806,12 +813,15 @@ export class InvestigationDocuments {
         case "case":
           void this.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary: await this.client.caseSummary(target.investigationRef) });
           return;
+        case "call":
+          void this.post(panel, { type: "inspector.call", callId: target.callId, call: await this.client.call(id, target.callId) });
+          return;
         default:
           return; // thread, person: rendered from the snapshot alone
       }
     } catch (err) {
       const key = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
-        : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "";
+        : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "callId" in target ? target.callId : "";
       void this.post(panel, { type: "inspector.error", target: key, message: errText(err) });
     }
   }
@@ -1347,8 +1357,8 @@ export class InvestigationDocuments {
         // coverage/events come distilled from the sidecar (from the full,
         // unclipped payload) — absent for non-envelope results, and the
         // webview renders that honestly instead of a bogus "? · 0".
-        onToolResult: (name, _content, isError, coverage, events, refs) =>
-          void this.post(panel, { type: "turn.toolResult", name, isError, coverage, events, refs }),
+        onToolResult: (name, _content, isError, coverage, events, refs, callId) =>
+          void this.post(panel, { type: "turn.toolResult", name, isError, coverage, events, refs, callId }),
       }, includedKnowledge);
       if (outcome.interpretationId) {
         void this.post(panel, { type: "turn.committed", interpretationId: outcome.interpretationId });

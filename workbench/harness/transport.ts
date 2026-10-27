@@ -4,7 +4,7 @@
 // with a `knowledge` slice is the Knowledge document (impl §2.6): it posts
 // `knowledge.state` instead of an investigation snapshot and answers the
 // document's reads and writes from that slice.
-import type { ActionRecord, Appearance, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/backend";
+import type { ActionRecord, Appearance, CallDetail, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/backend";
 import type { ImportRow, InboundMessage, InspectorTarget, InvestigationSnapshot, KnowledgeState, RenderMessage, SearchResults } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
@@ -22,6 +22,8 @@ export interface HarnessSnapshot {
   actionRecords?: Record<string, ActionRecord>;
   sops?: Record<string, SOPDoc>;
   caseSummaries?: Record<string, CaseSummaryView | null>;
+  /** The capability calls the stage's events name (adr/0092). */
+  calls?: Record<string, CallDetail>;
   /** The work queue (08 §8.3) as the host posts it. */
   queue?: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string };
 }
@@ -233,6 +235,12 @@ export class HarnessTransport implements WebviewTransport {
       case "case":
         this.emit({ type: "inspector.case", investigationRef: target.investigationRef, summary: d?.caseSummaries?.[target.investigationRef] ?? null });
         break;
+      case "call": {
+        const call = d?.calls?.[target.callId];
+        if (call) this.emit({ type: "inspector.call", callId: target.callId, call });
+        else this.emit({ type: "inspector.error", target: target.callId, message: "call not recorded in this harness stage" });
+        break;
+      }
       // thread, person: rendered from the snapshot alone
     }
   }

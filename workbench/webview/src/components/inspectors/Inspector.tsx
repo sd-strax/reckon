@@ -12,6 +12,7 @@ import { EntityInspector } from "./EntityInspector";
 import { AttestationInspector, HypothesisInspector, PredictionInspector } from "./ReasoningInspectors";
 import { ActionInspector, ThreadInspector } from "./ActionInspectors";
 import { CaseInspector, PersonInspector, ProcedureInspector, TurnInspector } from "./ProvenanceInspectors";
+import { CallInspector } from "./CallInspector";
 
 const RECORD_ONLY = new Set(["evidence", "absence", "detection", "alias"]);
 const SNAPSHOT_ONLY = new Set(["prediction", "hypothesis", "thread", "person"]);
@@ -35,6 +36,7 @@ function Body({ target }: { target: InspectorTarget }) {
     case "turn": return <TurnInspector interpretationId={(target as { interpretationId: string }).interpretationId} />;
     case "person": return <PersonInspector principalId={(target as { principalId: string }).principalId} />;
     case "procedure": return <ProcedureInspector sopId={(target as { sopId: string }).sopId} />;
+    case "call": return <CallInspector callId={(target as { callId: string }).callId} />;
   }
 }
 
@@ -44,11 +46,12 @@ function PaneView({ pane, which }: { pane: Pane; which: "active" | "pinned" }) {
   const doc = target.kind === "ref" ? state.docs[target.ref] : undefined;
   const renderer = rendererFor(target, doc);
   // The fetched record names the pane when the snapshot cannot (the Knowledge document has no snapshot).
-  const fetched = target.kind === "sop" ? state.sops[target.sopId]?.title : target.kind === "case" ? state.caseSummaries[target.investigationRef]?.title : undefined;
+  const fetched = target.kind === "sop" ? state.sops[target.sopId]?.title : target.kind === "case" ? state.caseSummaries[target.investigationRef]?.title
+    : target.kind === "call" && state.calls[target.callId] ? state.calls[target.callId].verb + " · " + state.calls[target.callId].coverage : undefined;
   const name = fetched || targetName(target, state.snap, state.labels);
   const key = targetKey(target);
   const errKey = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
-    : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "";
+    : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "callId" in target ? target.callId : "";
   const error = state.inspectorErrors[errKey];
   const crumbs = pane.stack.slice(0, -1);
   return (

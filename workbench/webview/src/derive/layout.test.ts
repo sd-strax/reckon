@@ -130,3 +130,39 @@ describe("summary", () => {
     expect(note).toContain("Still to do:");
   });
 });
+
+describe("attackPath", () => {
+  it("orders the cited entities by first event time, keeps the relationships among them, and is absent without a SUPPORTED hypothesis", async () => {
+    const { attackPath, aroundEvent, bundleGroups } = await import("./attackPath");
+    const ev = (id: string, time: string, od: string[], ents: string[], rels: { type: string; sourceRef: string; targetRef: string }[] = []) => ({
+      id, classUid: 3002, className: "Authentication", time, recordedAt: time, sourceTool: "fixture", callId: "c1", verb: "v", coverage: "COMPLETE",
+      observedDataRefs: od, entityRefs: ents, relationships: rels,
+    });
+    const events = [
+      ev("e2", "2026-01-01T10:05:00Z", ["observed-data--2"], ["x-host--b", "user-account--u"], [{ type: "x-authenticated-to", sourceRef: "user-account--u", targetRef: "x-host--b" }]),
+      ev("e1", "2026-01-01T10:00:00Z", ["observed-data--1"], ["x-host--a", "user-account--u"]),
+      ev("e3", "2026-01-01T10:09:00Z", ["observed-data--3"], ["x-host--a"]),
+    ];
+    const hs = [{ id: "h1", statement: "s", status: "SUPPORTED", labels: [], predictions: [
+      { id: "p1", statement: "p", title: "p", status: "CONFIRMED", discriminates: [], testResultRefs: ["observed-data--1", "observed-data--2"] },
+      { id: "p2", statement: "q", title: "q", status: "DISCONFIRMED", discriminates: [], testResultRefs: ["observed-data--3"] },
+    ] }];
+    const path = attackPath(hs as never, events as never)!;
+    expect(path.nodes.map((n) => n.ref)).toEqual(["x-host--a", "user-account--u", "x-host--b"]);
+    expect(path.edges).toEqual([{ type: "x-authenticated-to", from: "user-account--u", to: "x-host--b" }]);
+    expect(path.spanMs).toBe(5 * 60000);
+    expect(path.citedBy).toEqual([{ predictionId: "p1", hypothesisId: "h1" }]);
+    expect(attackPath([{ ...hs[0], status: "OPEN" }] as never, events as never)).toBeNull();
+    // Around it: the same host, in time order, the anchor excluded.
+    const around = aroundEvent(events.slice().sort((a, b) => a.time.localeCompare(b.time)) as never, "e3")!;
+    expect(around.key).toBe("x-host--a");
+    expect(around.before.map((e) => e.id)).toEqual(["e1"]);
+    expect(around.after).toEqual([]);
+    // The bundle: identical sentences collapse per source.
+    const groups = bundleGroups(events as never);
+    expect(groups.length).toBe(1);
+    expect(groups[0].rows.length).toBe(1); // no view: all three read as "Authentication"
+    expect(groups[0].rows[0].ids.length).toBe(3);
+  });
+});
+

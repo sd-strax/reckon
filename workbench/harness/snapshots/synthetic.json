@@ -703,7 +703,163 @@
           }
         ]
       }
-    }
+    },
+    "events": [
+      {
+        "id": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
+        "classUid": 3002,
+        "className": "Authentication",
+        "time": "2026-10-20T09:00:00Z",
+        "recordedAt": "2026-10-20T09:05:00Z",
+        "sourceTool": "fixture:scenario",
+        "callId": "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e6",
+        "verb": "enumerate_logons",
+        "coverage": "COMPLETE",
+        "view": {
+          "sentence": [
+            {
+              "t": "entity",
+              "text": "user-a",
+              "type": "user-account"
+            },
+            {
+              "t": "text",
+              "text": " interactive logon to "
+            },
+            {
+              "t": "entity",
+              "text": "host-a",
+              "type": "x-host",
+              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            },
+            {
+              "t": "text",
+              "text": " from "
+            },
+            {
+              "t": "entity",
+              "text": "10.0.0.9",
+              "type": "ipv4-addr"
+            }
+          ],
+          "fields": [
+            {
+              "label": "User",
+              "value": "user-a",
+              "mono": true
+            },
+            {
+              "label": "Logon type",
+              "value": "interactive"
+            },
+            {
+              "label": "Destination",
+              "value": "host-a",
+              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "mono": true
+            },
+            {
+              "label": "Source",
+              "value": "10.0.0.9",
+              "mono": true
+            },
+            {
+              "label": "Result",
+              "value": "Success",
+              "tone": "ok"
+            },
+            {
+              "label": "Activity",
+              "value": "Logon"
+            }
+          ],
+          "category": "auth"
+        },
+        "observedDataRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
+        ],
+        "entityRefs": [
+          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+        ],
+        "relationships": []
+      },
+      {
+        "id": "1b2c3d4e-5f60-4172-8283-a4b5c6d7e8f9",
+        "classUid": 3002,
+        "className": "Authentication",
+        "time": "2026-10-20T09:07:00.000Z",
+        "recordedAt": "2026-10-20T09:05:00Z",
+        "sourceTool": "fixture:scenario",
+        "callId": "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e6",
+        "verb": "enumerate_logons",
+        "coverage": "COMPLETE",
+        "view": {
+          "sentence": [
+            {
+              "t": "entity",
+              "text": "user-a",
+              "type": "user-account"
+            },
+            {
+              "t": "text",
+              "text": " interactive logon to "
+            },
+            {
+              "t": "entity",
+              "text": "host-a",
+              "type": "x-host",
+              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            },
+            {
+              "t": "text",
+              "text": " from "
+            },
+            {
+              "t": "entity",
+              "text": "10.0.0.9",
+              "type": "ipv4-addr"
+            }
+          ],
+          "fields": [
+            {
+              "label": "User",
+              "value": "user-a",
+              "mono": true
+            },
+            {
+              "label": "Logon type",
+              "value": "interactive"
+            },
+            {
+              "label": "Destination",
+              "value": "host-a",
+              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "mono": true
+            },
+            {
+              "label": "Source",
+              "value": "10.0.0.9",
+              "mono": true
+            },
+            {
+              "label": "Result",
+              "value": "Success",
+              "tone": "ok"
+            },
+            {
+              "label": "Activity",
+              "value": "Logon"
+            }
+          ],
+          "category": "auth"
+        },
+        "observedDataRefs": [],
+        "entityRefs": [
+          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+        ],
+        "relationships": []
+      }
+    ]
   },
   "labels": {
     "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": "host-a",
@@ -853,7 +1009,8 @@
           }
         ],
         "category": "auth"
-      }
+      },
+      "callId": "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e6"
     },
     "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06": {
       "ref": "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06",
@@ -1200,5 +1357,289 @@
         "source": "ticketing"
       }
     ]
+  },
+  "calls": {
+    "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e6": {
+      "id": "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e6",
+      "verb": "enumerate_logons",
+      "binding": "fixture",
+      "adapter": "fixture",
+      "operation": "replay",
+      "priority": 100,
+      "coverage": "COMPLETE",
+      "bindingsAnswered": 1,
+      "bindingsTotal": 2,
+      "startedAt": "2026-10-20T09:30:00.000Z",
+      "durationMs": 42,
+      "eventCount": 2,
+      "paramsSent": {
+        "endpoint": {
+          "hostname": "host-a"
+        },
+        "__verb": "enumerate_logons"
+      },
+      "degradationNotes": [
+        "binding enumerate_logons/edr-adapter: adapter not configured or disabled"
+      ],
+      "attempts": [
+        {
+          "adapter": "fixture",
+          "operation": "replay",
+          "priority": 100,
+          "params": {
+            "endpoint": {
+              "hostname": "host-a"
+            }
+          },
+          "answered": true
+        },
+        {
+          "adapter": "edr-adapter",
+          "operation": "logons",
+          "priority": 50,
+          "answered": false,
+          "note": "binding enumerate_logons/edr-adapter: adapter not configured or disabled"
+        }
+      ],
+      "produced": {
+        "ocsfEventRefs": [
+          "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
+          "1b2c3d4e-5f60-4172-8283-a4b5c6d7e8f9"
+        ],
+        "observedDataRefs": [
+          "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
+        ],
+        "entityRefs": [
+          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+        ],
+        "events": [
+          {
+            "id": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
+            "classUid": 3002,
+            "className": "Authentication",
+            "time": "2026-10-20T09:00:00Z",
+            "recordedAt": "2026-10-20T09:05:00Z",
+            "sourceTool": "fixture:scenario",
+            "callId": "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e6",
+            "verb": "enumerate_logons",
+            "coverage": "COMPLETE",
+            "view": {
+              "sentence": [
+                {
+                  "t": "entity",
+                  "text": "user-a",
+                  "type": "user-account"
+                },
+                {
+                  "t": "text",
+                  "text": " interactive logon to "
+                },
+                {
+                  "t": "entity",
+                  "text": "host-a",
+                  "type": "x-host",
+                  "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+                },
+                {
+                  "t": "text",
+                  "text": " from "
+                },
+                {
+                  "t": "entity",
+                  "text": "10.0.0.9",
+                  "type": "ipv4-addr"
+                }
+              ],
+              "fields": [
+                {
+                  "label": "User",
+                  "value": "user-a",
+                  "mono": true
+                },
+                {
+                  "label": "Logon type",
+                  "value": "interactive"
+                },
+                {
+                  "label": "Destination",
+                  "value": "host-a",
+                  "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                  "mono": true
+                },
+                {
+                  "label": "Source",
+                  "value": "10.0.0.9",
+                  "mono": true
+                },
+                {
+                  "label": "Result",
+                  "value": "Success",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Activity",
+                  "value": "Logon"
+                }
+              ],
+              "category": "auth"
+            },
+            "observedDataRefs": [
+              "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
+            ],
+            "entityRefs": [
+              "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            ],
+            "relationships": []
+          },
+          {
+            "id": "1b2c3d4e-5f60-4172-8283-a4b5c6d7e8f9",
+            "classUid": 3002,
+            "className": "Authentication",
+            "time": "2026-10-20T09:07:00.000Z",
+            "recordedAt": "2026-10-20T09:05:00Z",
+            "sourceTool": "fixture:scenario",
+            "callId": "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e6",
+            "verb": "enumerate_logons",
+            "coverage": "COMPLETE",
+            "view": {
+              "sentence": [
+                {
+                  "t": "entity",
+                  "text": "user-a",
+                  "type": "user-account"
+                },
+                {
+                  "t": "text",
+                  "text": " interactive logon to "
+                },
+                {
+                  "t": "entity",
+                  "text": "host-a",
+                  "type": "x-host",
+                  "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+                },
+                {
+                  "t": "text",
+                  "text": " from "
+                },
+                {
+                  "t": "entity",
+                  "text": "10.0.0.9",
+                  "type": "ipv4-addr"
+                }
+              ],
+              "fields": [
+                {
+                  "label": "User",
+                  "value": "user-a",
+                  "mono": true
+                },
+                {
+                  "label": "Logon type",
+                  "value": "interactive"
+                },
+                {
+                  "label": "Destination",
+                  "value": "host-a",
+                  "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                  "mono": true
+                },
+                {
+                  "label": "Source",
+                  "value": "10.0.0.9",
+                  "mono": true
+                },
+                {
+                  "label": "Result",
+                  "value": "Success",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Activity",
+                  "value": "Logon"
+                }
+              ],
+              "category": "auth"
+            },
+            "observedDataRefs": [],
+            "entityRefs": [
+              "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            ],
+            "relationships": []
+          }
+        ]
+      },
+      "otherBindings": [
+        {
+          "adapter": "fixture",
+          "operation": "replay",
+          "priority": 100,
+          "configured": true,
+          "healthy": true
+        },
+        {
+          "adapter": "edr-adapter",
+          "operation": "logons",
+          "priority": 50,
+          "configured": false,
+          "healthy": false
+        }
+      ],
+      "closableBy": [
+        "edr-adapter"
+      ]
+    },
+    "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e7": {
+      "id": "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e7",
+      "verb": "get_network_connections",
+      "binding": "fixture",
+      "adapter": "fixture",
+      "operation": "replay",
+      "priority": 100,
+      "coverage": "COMPLETE",
+      "bindingsAnswered": 1,
+      "bindingsTotal": 1,
+      "nullObservationRef": "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+      "startedAt": "2026-10-20T09:31:00.000Z",
+      "durationMs": 11,
+      "eventCount": 0,
+      "paramsSent": {
+        "endpoint": {
+          "hostname": "host-a"
+        }
+      },
+      "degradationNotes": [],
+      "attempts": [
+        {
+          "adapter": "fixture",
+          "operation": "replay",
+          "priority": 100,
+          "params": {
+            "endpoint": {
+              "hostname": "host-a"
+            }
+          },
+          "answered": true
+        }
+      ],
+      "produced": {
+        "ocsfEventRefs": [],
+        "observedDataRefs": [
+          "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07"
+        ],
+        "entityRefs": [],
+        "nullObservationRef": "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+        "events": []
+      },
+      "otherBindings": [
+        {
+          "adapter": "fixture",
+          "operation": "replay",
+          "priority": 100,
+          "configured": true,
+          "healthy": true
+        }
+      ]
+    }
   }
 }

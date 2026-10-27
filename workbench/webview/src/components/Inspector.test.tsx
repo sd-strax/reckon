@@ -178,4 +178,40 @@ describe("the inspector", () => {
     act(() => transport.emit({ type: "inspector.error", target: "user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02", message: "no persisted record for this ref" }));
     expect(within(pane()).getByText(/no persisted record for this ref/)).toBeTruthy();
   });
+
+  it("renders an event's Produced by and Around it, and opens the capability call with its bundle (adr/0092)", () => {
+    const transport = mount();
+    fireEvent.click(screen.getByRole("tab", { name: /^Story/ }));
+    fireEvent.click(document.querySelector('.trow [data-ref="0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"]')!);
+    let p = pane();
+    expect(within(p).getByText("Produced by")).toBeTruthy();
+    expect(within(p).getByText(/Around it/)).toBeTruthy();
+    expect(p.querySelectorAll(".aroundrow").length).toBe(2); // the other event on host-a, and "this event"
+    fireEvent.click(within(p).getByText(/enumerate_logons · COMPLETE/));
+    expect(transport.intents.find((i) => i.type === "inspector.open" && i.target.kind === "call")).toMatchObject({ target: { kind: "call", callId: "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e6" } });
+    p = pane();
+    expect(within(p).getByText("Capability call")).toBeTruthy();
+    expect(within(p).getByText(/1 of 2 bindings answered · took 42 ms/)).toBeTruthy();
+    expect(within(p).getByText("Parameters sent, exactly")).toBeTruthy();
+    expect(within(p).getByText(/edr-adapter is installed but not enabled/)).toBeTruthy();
+    fireEvent.click(within(p).getByRole("tab", { name: "Result · 2" }));
+    expect(within(p).getByText(/^From .* · 2$/)).toBeTruthy();
+    expect(p.querySelectorAll(".bundlerow").length).toBe(1); // two identical sentences collapse into one row
+    expect(within(p).getByText(/×2/)).toBeTruthy();
+    fireEvent.click(within(p).getByText("‹ back"));
+    expect(pane().getAttribute("aria-label")).toBe("Evidence");
+  });
+
+  it("a call that produced only an absence says so", () => {
+    const transport = mount();
+    // The call opens from a live tool row, whose result names it.
+    act(() => transport.emit({ type: "turn.start" }));
+    act(() => transport.emit({ type: "turn.tool", name: "get_network_connections", input: { entity: { host: { hostname: "host-a" } } } }));
+    act(() => transport.emit({ type: "turn.toolResult", name: "get_network_connections", isError: false, coverage: "COMPLETE", events: 0, refs: [], callId: "019a1c0e-7b2d-7c3e-8f40-51a2b3c4d5e7" }));
+    fireEvent.click(screen.getByText("open call"));
+    const p = pane();
+    expect(within(p).getByText("Capability call")).toBeTruthy();
+    fireEvent.click(within(p).getByRole("tab", { name: "Result · 0" }));
+    expect(within(p).getByText("Absence recorded")).toBeTruthy();
+  });
 });

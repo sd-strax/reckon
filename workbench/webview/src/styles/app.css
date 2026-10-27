@@ -714,3 +714,17 @@ body.loading #rail { opacity: 0.6; }
 .edecoded .kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); }
 .edecoded pre { margin: 4px 0; white-space: pre-wrap; word-break: break-all; }
 .timeline .tsentence .topen { opacity: 0.6; }
+
+/* Capability calls, the attack path, around it (adr/0092) */
+.apath { margin: 4px 0 8px; padding-left: 0; list-style: none; }
+.apnode { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+.apidx { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-3); width: 1.6em; }
+.apedge { font-size: var(--fs-xs); color: var(--text-2); }
+.aroundrow { display: flex; gap: 8px; align-items: baseline; }
+.aroundrow.this { border-left: 2px solid var(--he-primary); padding-left: 6px; }
+.aroundrow a { color: var(--link); cursor: pointer; }
+.bundlerow a { cursor: pointer; }
+.esentence.inline .eslot { font-size: var(--fs-xs); }
+.tool summary .opencall { font-size: var(--fs-xs); margin-left: 6px; }
+.irow .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; background: var(--text-3); }
+.irow .dot.available { background: var(--ok); } .irow .dot.degraded { background: var(--warn); } .irow .dot.unavailable { background: var(--bad); }

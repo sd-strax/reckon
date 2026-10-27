@@ -10,9 +10,16 @@ import { hypName } from "../../derive/hyps";
 import { EventStrip, EvidenceGraph } from "../DerivedViews";
 import { Empty, RefChip, fmtDateTime } from "../shared";
 import { EventSentence } from "../EventSentence";
+import { attackPath } from "../../derive/attackPath";
 
 /** The category of a STIX object cited in event time (an OCSF record carries its own, adr/0090). */
 const CATEGORY: Record<string, string> = { "observed-data": "observed" };
+
+function fmtSpanMs(ms: number): string {
+  if (ms < 60_000) return Math.round(ms / 1000) + " s";
+  if (ms < 3_600_000) return Math.round(ms / 60_000) + " min";
+  return (ms / 3_600_000).toFixed(1) + " h";
+}
 
 export function StoryLens() {
   const { state, openInspector } = useApp();
@@ -20,14 +27,20 @@ export function StoryLens() {
   const [filter, setFilter] = useState<"all" | "auth" | "process" | "network" | "detection">("all");
   const hs = snap?.hypotheses || [];
   const rows = useMemo(() => {
-    const strip = snap?.derived?.strip || [];
-    // Citing predictions: whose test results include the ref.
-    return strip.map((it) => {
-      const citing = hs.flatMap((h) => h.predictions.filter((p) => (p.testResultRefs || []).includes(it.ref)).map((p) => ({ h, p })));
+    // The investigation's retrieved events (adr/0092) are the rows; the
+    // cited-refs strip stands in when the events read failed.
+    const events = snap?.events;
+    const items = events
+      ? events.map((e) => ({ ref: e.id, time: e.time, label: e.className, sentence: e.view?.sentence, category: e.view?.category, odRefs: e.observedDataRefs }))
+      : (snap?.derived?.strip || []).map((it) => ({ ...it, odRefs: [] as string[] }));
+    // Citing predictions: whose test results include the event or its observed-data.
+    return items.map((it) => {
+      const citing = hs.flatMap((h) => h.predictions.filter((p) => (p.testResultRefs || []).some((r) => r === it.ref || it.odRefs.includes(r))).map((p) => ({ h, p })));
       const emphasis = citing.some(({ h, p }) => p.status === "CONFIRMED" && h.status === "SUPPORTED") ? "emphasized" : citing.some(({ p }) => p.status === "DISCONFIRMED") ? "against" : "plain";
       return { ...it, category: it.category || CATEGORY[it.label] || "other", citing, emphasis };
     });
-  }, [snap?.derived?.strip, hs]);
+  }, [snap?.events, snap?.derived?.strip, hs]);
+  const path = useMemo(() => attackPath(hs, snap?.events), [hs, snap?.events]);
   if (!snap) return null;
   const techniques = Array.from(new Set(hs.flatMap((h) => h.labels || []).filter((l) => /^T\d{4}/.test(l))));
   const supported = hs.some((h) => h.status === "SUPPORTED");
@@ -38,9 +51,26 @@ export function StoryLens() {
   return (
     <div className="lens story">
       <section className="lsection">
-        <h3>Attack path</h3>
-        {supported ? <Empty>The attack path (entities as nodes, typed relations between them) needs the entity-scoped event query — gap 00 §6.13. The evidence graph below shows what grounds what.</Empty> : <Empty>No hypothesis is SUPPORTED yet, so there is no attack path to show.</Empty>}
-        {snap.derived ? <EvidenceGraph graph={snap.derived.graph} /> : null}
+        <h3>Attack path{path && path.nodes.length ? <span className="imeta">{path.nodes.length} entities over {fmtSpanMs(path.spanMs)} · cited by {path.citedBy.map((c) => "P" + (hs.flatMap((h) => h.predictions).find((p) => p.id === c.predictionId)?.ordinal ?? "?")).join(", ")}</span> : null}</h3>
+        {!supported ? <Empty>No hypothesis is SUPPORTED yet, so there is no attack path to show.</Empty>
+          : !path ? <Empty>The investigation's events could not be read, so the path cannot be drawn.</Empty>
+          : !path.nodes.length ? <Empty>The SUPPORTED hypothesis cites no observed-data among the retrieved events, so there is no path to draw.</Empty>
+          : (
+            <ol className="apath">
+              {path.nodes.map((n, i) => {
+                const out = path.edges.filter((e) => e.from === n.ref);
+                return (
+                  <li key={n.ref} className="apnode">
+                    <span className="apidx">{i + 1}</span>
+                    <RefChip refId={n.ref} />
+                    <span className="imeta">first {new Date(n.firstAt).toLocaleTimeString()} · {n.eventIds.length} event{n.eventIds.length === 1 ? "" : "s"}</span>
+                    {out.map((e) => <span key={e.type + e.to} className="apedge">— {e.type} → <RefChip refId={e.to} /></span>)}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        <details className="railfold"><summary>Open full graph</summary>{snap.derived ? <EvidenceGraph graph={snap.derived.graph} /> : <Empty>not derived yet</Empty>}</details>
       </section>
       <section className="lsection">
         <h3>ATT&CK</h3>
@@ -71,7 +101,7 @@ export function StoryLens() {
             {!dividerDone && Number.isFinite(created) ? <li className="trow"><div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div></li> : null}
           </ol>
         )}
-        <p className="imeta">Baseline rows (collapsed repetitions) need gap 00 §6.14; the full entity-scoped record needs gap 00 §6.13.</p>
+        <p className="imeta">{snap.events ? `${snap.events.length} retrieved event${snap.events.length === 1 ? "" : "s"} in this investigation.` : "The investigation's events could not be read; the cited refs stand in."} Baseline rows (collapsed repetitions) need gap 00 §6.14.</p>
       </section>
       <section className="lsection">
         <h3>Not yet known</h3>

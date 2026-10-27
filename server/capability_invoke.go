@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/capability"
 )
@@ -27,6 +29,10 @@ type CapabilityInvokeBody struct {
 	// Seed.SourceScope; empty in single-organization tenants reaches every
 	// unscoped instance as before.
 	SourceScope string `json:"source_scope,omitempty"`
+	// InvestigationRef names the investigation the call serves (adr/0092):
+	// the call and every event it returns join it at ingest. Empty keeps an
+	// ad-hoc call out of every investigation's record.
+	InvestigationRef string `json:"investigation_ref,omitempty"`
 }
 
 // WindowInput is the JSON shape of a verb call's time bound.
@@ -63,7 +69,10 @@ type NormalizedView struct {
 // reference lists the agent loop attaches to an x-interpretation, the coverage
 // classification, degradation notes, and the concrete objects produced.
 type CapabilityInvokeResponse struct {
-	Verb             string           `json:"verb"`
+	Verb string `json:"verb"`
+	// CallID addresses this call's record (adr/0092): the turn's tool-call
+	// row carries it, and GET /api/investigations/{id}/calls/{call_id} opens it.
+	CallID           string           `json:"call_id"`
 	Coverage         string           `json:"coverage"`
 	OcsfEventRefs    []string         `json:"ocsf_event_refs,omitempty"`
 	ObservedDataRefs []string         `json:"observed_data_refs,omitempty"`
@@ -117,6 +126,15 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var aggregateID *uuid.UUID
+	if body.InvestigationRef != "" {
+		id, err := uuid.Parse(strings.TrimPrefix(body.InvestigationRef, "grouping--"))
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "investigation_ref is not an investigation id")
+			return
+		}
+		aggregateID = &id
+	}
 	input := capability.CallInput{Entity: body.Entity, Extra: body.Extra, SourceScope: body.SourceScope}
 	if body.Window != nil {
 		input.Window = capability.TimeWindow{From: body.Window.From, To: body.Window.To}
@@ -139,14 +157,17 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 	// are persisted before the refs leave the building — a ref the caller cites
 	// must be openable later (design/ui 02 §2.8). Persist failure fails the
 	// invocation rather than minting dangling citations.
+	call := callRecord{ID: uuid.Must(uuid.NewV7()), AggregateID: aggregateID, Verb: verb}
 	if b.cfg.Handler != nil {
-		if err := persistInvokeResult(r, b.cfg.Handler.DB(), res); err != nil {
+		if err := persistInvokeResult(r, b.cfg.Handler.DB(), res, call); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, verb+": persist results: "+err.Error())
 			return
 		}
 	}
 
-	writeJSON(w, http.StatusOK, buildInvokeResponse(verb, res))
+	out := buildInvokeResponse(verb, res)
+	out.CallID = call.ID.String()
+	writeJSON(w, http.StatusOK, out)
 }
 
 // buildInvokeResponse converts the resolver's CapabilityResult to the wire

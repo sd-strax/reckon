@@ -23,6 +23,19 @@ const defaultMaxToolRounds = 16
 // defaultMaxTokens is the per-completion output budget.
 const defaultMaxTokens = 4096
 
+// envelopeCallID reads call_id from a capability envelope (adr/0092); "" for
+// any other tool result.
+func envelopeCallID(content string) string {
+	var env struct {
+		CallID   string `json:"call_id"`
+		Coverage string `json:"coverage"`
+	}
+	if err := json.Unmarshal([]byte(content), &env); err != nil || env.Coverage == "" {
+		return ""
+	}
+	return env.CallID
+}
+
 // Hooks lets the surface render progress as the turn executes. All fields are
 // optional.
 type Hooks struct {
@@ -507,6 +520,9 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 			content, isErr := s.dispatchTool(ctx, tu.ToolName, tu.Input)
 			if !isErr {
 				s.rememberIDs(content)
+				// A capability envelope names its call (adr/0092); the tool log
+				// carries it so the committed turn resolves to the call.
+				toolLog[len(toolLog)-1].CapabilityCallID = envelopeCallID(content)
 			}
 			if tu.ToolName == ToolRecallSOPs && !isErr {
 				s.trackConsulted(content)

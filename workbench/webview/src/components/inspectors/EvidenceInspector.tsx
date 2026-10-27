@@ -10,6 +10,7 @@ import { refType, refTypeLabel } from "../../refs";
 import { RefChip, fmtDateTime } from "../shared";
 import { Fields, Json, KV, Loading, Section, Tabs } from "./primitives";
 import { EventDecoded, EventFields, EventSentence } from "../EventSentence";
+import { aroundEvent } from "../../derive/attackPath";
 
 function payloadOf(doc: EvidenceDoc): Record<string, unknown> {
   return (doc.payload && typeof doc.payload === "object" ? doc.payload : {}) as Record<string, unknown>;
@@ -27,11 +28,17 @@ function rawOf(doc: EvidenceDoc): unknown {
 }
 
 function ProvenanceTab({ doc }: { doc: EvidenceDoc }) {
+  const { state, openInspector } = useApp();
   const p = payloadOf(doc);
   const prov = (p.provenance && typeof p.provenance === "object" ? p.provenance : null) as Record<string, unknown> | null;
   if (doc.kind === "ocsf") {
+    const row = state.snap?.events?.find((e) => e.id === doc.ref);
+    const callId = doc.callId || row?.callId;
     return <KV rows={[
       { k: "Source tool", v: doc.sourceTool, mono: true },
+      { k: "Verb", v: row?.verb, mono: true },
+      { k: "Coverage", v: row?.coverage, mono: true },
+      { k: "Produced by", v: callId ? <a onClick={() => openInspector({ kind: "call", callId })}>the capability call</a> : undefined },
       { k: "Event time", v: doc.time ? fmtDateTime(doc.time) : undefined },
       { k: "Recorded", v: doc.recordedAt ? fmtDateTime(doc.recordedAt) : undefined },
       { k: "Class", v: doc.classUid ? `${doc.type} (${doc.classUid})` : doc.type, mono: true },
@@ -54,11 +61,32 @@ function useDoc(refId: string): EvidenceDoc | null | undefined {
   return state.docs[refId];
 }
 
+/** The events just before and after on the same host entity (08 §8.6.1), from the investigation's events (adr/0092). */
+function AroundIt({ eventId }: { eventId: string }) {
+  const { state, openInspector } = useApp();
+  const around = aroundEvent(state.snap?.events, eventId);
+  if (!around) return <Section title="Around it"><div className="empty">This event is not among the investigation's retrieved events, so its neighbours are unknown.</div></Section>;
+  const row = (e: NonNullable<typeof around>["before"][number]) => (
+    <div key={e.id} className="irow aroundrow"><span className="imeta mono">{new Date(e.time).toLocaleTimeString()}</span> <a onClick={() => openInspector({ kind: "ref", ref: e.id })}>{e.view?.sentence?.length ? <EventSentence spans={e.view.sentence} className="inline" /> : e.className}</a></div>
+  );
+  return (
+    <Section title={"Around it" + (around.key ? " · on " + (state.labels[around.key] || around.key.slice(0, around.key.indexOf("--"))) : "")}>
+      {around.before.map(row)}
+      <div className="irow aroundrow this"><span className="imeta">this event</span></div>
+      {around.after.map(row)}
+      {!around.before.length && !around.after.length ? <div className="empty">no other retrieved event on the same entity</div> : null}
+    </Section>
+  );
+}
+
 export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: string } }) {
+  const { state, openInspector } = useApp();
   const doc = useDoc(target.ref);
   if (doc === undefined) return <Loading what={refTypeLabel(target.ref)} />;
   if (doc === null) return null; // the frame shows the error
   const p = payloadOf(doc);
+  const row = doc.kind === "ocsf" ? state.snap?.events?.find((e) => e.id === doc.ref) : undefined;
+  const producedBy = doc.callId || row?.callId;
   const isOD = doc.type === "observed-data";
   const objectRefs = Array.isArray(p.object_refs) ? (p.object_refs as unknown[]).filter((x): x is string => typeof x === "string") : [];
   const sub = doc.kind === "ocsf"
@@ -73,6 +101,8 @@ export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: stri
             {doc.view?.sentence?.length ? <p className="esummary"><EventSentence spans={doc.view.sentence} /></p> : null}
             {doc.view?.fields.length ? <Section title="Event"><EventFields fields={doc.view.fields} /></Section> : null}
             {doc.view ? <EventDecoded view={doc.view} /> : null}
+            {producedBy ? <div className="irow"><span className="kicker">Produced by</span> <a onClick={() => openInspector({ kind: "call", callId: producedBy })}>{row ? row.verb + " · " + row.coverage : "the capability call"}</a></div> : null}
+            {doc.kind === "ocsf" ? <AroundIt eventId={doc.ref} /> : null}
             {isOD && objectRefs.length ? <Section title="Objects it contains">{objectRefs.map((r) => <RefChip key={r} refId={r} />)}</Section> : null}
             {doc.kind === "ocsf" && doc.view?.fields.length ? <details className="iraw"><summary className="kicker">All event fields</summary><Fields obj={propsOf(doc)} /></details> : <Section title={doc.kind === "ocsf" ? "Event fields" : "Properties"}><Fields obj={propsOf(doc)} /></Section>}
           </>
