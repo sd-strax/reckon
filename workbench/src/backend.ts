@@ -65,6 +65,12 @@ export interface InvestigationSummary {
   pendingActions: number;
   /** Soonest approval-window deadline among them (ISO) — the countdown cue. */
   nearestExpiry?: string;
+  /** Stage inputs for the work queue (08 §8.3): list rows only. */
+  hasVerdict: boolean;
+  openActions: number;
+  openNotifications: number;
+  /** The seed, when the row carries one (the case reference in the queue). */
+  seed?: Seed;
 }
 
 /** The investigation's root (mirrors server.SeedBody, 01 §Extension 1). */
@@ -158,6 +164,12 @@ export interface InvestigationDetail {
   caseNoteOnSeed?: string;
   /** On create of a case-rooted investigation: the default note to offer. */
   caseNote?: { caseId: string; body: string; systemName?: string };
+  /** The knowledge-injection posture (06 §5.1): "opt_in" | "auto". Detail responses. */
+  knowledgeInjection?: string;
+  /** The investigation's start (the Story lens's investigation-time divider). */
+  createdAt?: string;
+  /** Who opened it: the creating act's actor by display name (adr/0077). */
+  openedByName?: string;
 }
 
 /** One pinned-evidence row (mirrors server.PinView). */
@@ -518,6 +530,12 @@ interface RawInvestigation {
   updated_at?: string;
   pending_actions?: number;
   nearest_expiry?: string;
+  knowledge_injection?: string;
+  has_verdict?: boolean;
+  open_actions?: number;
+  open_notifications?: number;
+  created_at?: string;
+  opened_by_name?: string;
   verdict?: { disposition?: string; rationale?: string; verdict_at?: string };
   seed?: {
     type?: string; alert_id?: string; source?: string;
@@ -805,6 +823,10 @@ export class BackendClient {
       updatedAt: r.updated_at,
       pendingActions: r.pending_actions ?? 0,
       nearestExpiry: r.nearest_expiry,
+      hasVerdict: !!r.has_verdict,
+      openActions: r.open_actions ?? 0,
+      openNotifications: r.open_notifications ?? 0,
+      seed: mapSeed(r.seed),
     }));
   }
 
@@ -825,6 +847,9 @@ export class BackendClient {
       seedSummary: r.seed_summary,
       caseNoteOnSeed: r.case_note_on_seed,
       caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "", systemName: r.case_note.system_name } : undefined,
+      knowledgeInjection: r.knowledge_injection,
+      createdAt: r.created_at,
+      openedByName: r.opened_by_name,
     };
   }
 

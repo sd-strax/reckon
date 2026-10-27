@@ -66,6 +66,7 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, opts Options) error {
 		"resetSession":       s.handleResetSession,
 		"summarizeConcluded": s.handleSummarizeConcluded,
 		"proposeSOP":         s.handleProposeSOP,
+		"searchKnowledge":    s.handleSearchKnowledge,
 		"cancel":             s.handleCancel,
 		"shutdown":           func(context.Context, json.RawMessage) (any, error) { return struct{}{}, nil },
 	})
@@ -608,6 +609,30 @@ func (s *service) handleProposeSOP(ctx context.Context, raw json.RawMessage) (an
 		return nil, err
 	}
 	return cand, nil
+}
+
+type searchKnowledgeParams struct {
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
+}
+
+// handleSearchKnowledge runs the analyst's query over both knowledge corpora
+// through the session (design/ui 09 §9.6): the hits join the session's
+// retrieved set, excluded, and the merged set comes back for the Knowledge
+// section. No model call; serialized with turns because it mutates the set a
+// turn's [knowledge] block reads.
+func (s *service) handleSearchKnowledge(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p searchKnowledgeParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, errInvalidParams("searchKnowledge: %v", err)
+	}
+	st, err := s.session(p.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	st.turnMu.Lock()
+	defer st.turnMu.Unlock()
+	return map[string]any{"knowledge": st.sess.SearchKnowledge(ctx, p.Text)}, nil
 }
 
 func (s *service) handleCancel(_ context.Context, raw json.RawMessage) (any, error) {

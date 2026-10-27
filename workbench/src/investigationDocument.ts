@@ -20,6 +20,7 @@ import { AgentTransport, SOPCandidate } from "./agentTransport";
 import type { ChronicleTurn, InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage, RivalBrief } from "./protocol";
 import { buildDerivedViews } from "./derivedViews";
 import { deriveEvidenceLabel } from "./evidenceLabel";
+import { StreamSubscription } from "./streamClient";
 
 export class InvestigationDocuments {
   private readonly open = new Map<string, vscode.WebviewPanel>();
@@ -51,18 +52,26 @@ export class InvestigationDocuments {
   // The last event sequence posted per investigation (impl §3.2): every slice
   // re-post carries it so the webview can drop a stale patch.
   private readonly seqs = new Map<string, number>();
+  // One /api/stream subscription per open investigation panel (impl §3.3).
+  private readonly streams = new Map<string, StreamSubscription>();
+  // Deltas that arrive while a reload is in flight collapse into one more.
+  private readonly reloadPending = new Set<string>();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly client: BackendClient,
     private readonly log: vscode.LogOutputChannel,
     private readonly transport: AgentTransport,
+    private readonly stream: { backendUrl: () => string; token: () => Promise<string> } | null,
+    private readonly me: () => Promise<{ name: string; principal: string } | null>,
     /**
      * Called after each successful load with the last event sequence the
      * analyst has now seen — feeds the tree's unseen-changes cue (02 §2.12).
      * Last-seen is view state, never investigation state.
      */
     private readonly onLoaded?: (id: string, lastEventSequence: number) => void,
+    /** The lens / companion mode the analyst chose (view state the tree may deep-link). */
+    private readonly onViewState?: (id: string, lens?: string, companion?: string) => void,
   ) {}
 
   /** Open (or reveal) the document for one investigation. */
@@ -84,7 +93,7 @@ export class InvestigationDocuments {
     const ref = { id };
     panel.webview.html = this.html(panel.webview);
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => this.open.delete(ref.id));
+    panel.onDidDispose(() => { this.open.delete(ref.id); this.unsubscribe(ref.id); });
   }
 
   /**
@@ -111,7 +120,7 @@ export class InvestigationDocuments {
     // The webview asks for its initial state via "ready"; a draft key answers
     // with the unseeded render instead of a load().
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => this.open.delete(ref.id));
+    panel.onDidDispose(() => { this.open.delete(ref.id); this.unsubscribe(ref.id); });
   }
 
   /** The page may load only the bundle and the vendored fonts (impl §5.1). */
@@ -124,6 +133,41 @@ export class InvestigationDocuments {
         vscode.Uri.joinPath(this.extensionUri, "media"),
       ],
     };
+  }
+
+  /**
+   * Subscribe the panel to the investigation's projection deltas (impl §3.3).
+   * A delta refreshes the slices its event family touches; the host already
+   * reloads after its own commands, so this is the path for changes made
+   * elsewhere (the agent's acts, another panel, a policy auto-approval).
+   */
+  private subscribe(id: string, panel: vscode.WebviewPanel): void {
+    if (!this.stream || this.streams.has(id)) {
+      return;
+    }
+    const { backendUrl, token } = this.stream;
+    this.streams.set(id, new StreamSubscription(id, {
+      backendUrl, token, log: this.log,
+      onDelta: (d) => {
+        if (this.open.get(id) !== panel) {
+          return;
+        }
+        if (this.reloadPending.has(id)) {
+          return; // a reload is already queued; it will see this change too
+        }
+        this.reloadPending.add(id);
+        const family = (d.eventType || "").split(".")[0];
+        const run = family === "action" || family === "interpretation"
+          ? this.postPending(id, panel)
+          : this.load(id, panel);
+        void run.finally(() => this.reloadPending.delete(id));
+      },
+    }));
+  }
+
+  private unsubscribe(id: string): void {
+    this.streams.get(id)?.dispose();
+    this.streams.delete(id);
   }
 
   private static isDraft(key: string): boolean {
@@ -262,6 +306,16 @@ export class InvestigationDocuments {
       void this.resolveLabel(panel, msg.ref);
     } else if (msg.type === "inspector.open") {
       void this.answerInspector(id, panel, msg.target);
+    } else if (msg.type === "queue.get") {
+      void this.postQueue(panel);
+    } else if (msg.type === "queue.start") {
+      void this.startFromCase(msg.caseNumber);
+    } else if (msg.type === "knowledge.search") {
+      void this.searchKnowledge(id, panel, msg.text);
+    } else if (msg.type === "notify.request") {
+      void this.requestNotification(id, panel, msg);
+    } else if (msg.type === "view.state") {
+      this.onViewState?.(id, msg.lens, msg.companion);
     } else if (msg.type === "export.open") {
       void this.openMarkdownExport(id);
     } else if (msg.type === "copy") {
@@ -436,6 +490,9 @@ export class InvestigationDocuments {
     this.seqs.set(id, snapshot.seq);
     void this.post(panel, { type: "state.snapshot", seq: snapshot.seq, snapshot });
     this.onLoaded?.(id, snapshot.seq);
+    this.subscribe(id, panel);
+    void this.postQueue(panel);
+    void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal }); }).catch(() => undefined);
     // Dispatch is asynchronous (a Temporal workflow) and its result events are
     // recorded by the worker, not the HTTP path — keep refreshing while any
     // action is mid-dispatch so DISPATCHING never sticks past the outcome.
@@ -628,6 +685,72 @@ export class InvestigationDocuments {
     if (label) {
       void this.post(panel, { type: "evidence.label", ref, label });
     }
+  }
+
+  /**
+   * The work queue (08 §8.3): the analyst's investigations, needs-me-first,
+   * and the case system's queue filtered to cases with no investigation. Both
+   * reads are best-effort: a missing case layer leaves the Cases section
+   * absent, never a broken document.
+   */
+  private async postQueue(panel: vscode.WebviewPanel): Promise<void> {
+    try {
+      const [investigations, queue] = await Promise.all([
+        this.client.investigations(),
+        this.client.cases().catch(() => null),
+      ]);
+      const cases = (queue?.cases ?? []).filter((c) => !c.investigation);
+      void this.post(panel, { type: "queue", investigations, cases, caseSource: queue?.queue });
+    } catch (err) {
+      this.log.debug(`queue: ${errText(err)}`);
+    }
+  }
+
+  /** Start an investigation from a case row: the seed path, then open it. */
+  private async startFromCase(caseNumber: string): Promise<void> {
+    try {
+      const created = await this.client.createInvestigationFromInput(caseNumber, "case");
+      this.show(created.id, created.title);
+      this.offerCaseNote(created);
+      void vscode.commands.executeCommand("reckon.refreshInvestigations");
+      void vscode.commands.executeCommand("reckon.refreshCases");
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: could not start from ${caseNumber} — ${errText(err)}`);
+    }
+  }
+
+  /** The Knowledge section's scoped search (09 §9.6): the session merges the hits. */
+  private async searchKnowledge(id: string, panel: vscode.WebviewPanel, text: string): Promise<void> {
+    try {
+      const items = await this.transport.searchKnowledge(id, text);
+      void this.patch(id, panel, { knowledge: items });
+    } catch (err) {
+      void vscode.window.showWarningMessage(`reckon: knowledge search failed — ${errText(err)}`);
+    }
+  }
+
+  /**
+   * The outbound notification (08 §8.4 Response): a notify.* action whose
+   * pre-send preview is the approval. Through Gate 2 like any action; it lands
+   * in the queue as a preview card.
+   */
+  private async requestNotification(id: string, panel: vscode.WebviewPanel, msg: { channel: string; target: string; subject?: string; body: string }): Promise<void> {
+    const parameters: Record<string, unknown> = msg.channel === "notify.email"
+      ? { subject: msg.subject || "Investigation update", body: msg.body }
+      : { message: msg.body };
+    try {
+      const res = await this.client.requestAction({
+        investigationRef: id,
+        actionType: msg.channel,
+        targets: [{ resolvedIdentifier: msg.target }],
+        parameters,
+        rationale: "stakeholder notification from the investigation record",
+      });
+      void vscode.window.showInformationMessage(`reckon: notification requested (${res.status}) — approve to send`);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: notification failed — ${errText(err)}`);
+    }
+    await this.postPending(id, panel);
   }
 
   /**

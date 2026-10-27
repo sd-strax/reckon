@@ -3,7 +3,8 @@
 // enablement form, the entity popover). Dialogs are view state; the host is
 // told only when the analyst confirms.
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { InboundMessage, InspectorTarget } from "../../src/protocol";
+import type { InboundMessage, InspectorTarget, Lens } from "../../src/protocol";
+import { defaultLens } from "./derive/lens";
 import { targetKey } from "./derive/inspect";
 import { initialState, reducer, type Action, type State } from "./store";
 import type { WebviewTransport } from "./transport";
@@ -48,6 +49,19 @@ export interface AppContextValue {
   /** A turn is in flight (the composer and the ⚡ buttons are disabled). */
   busy: boolean;
   setBusy: (on: boolean) => void;
+  /** The active lens: the analyst's choice for this investigation, else the stage's default (08 §8.4). */
+  lens: Lens;
+  setLens: (l: Lens) => void;
+  companionMode: "conversation" | "thread";
+  setCompanionMode: (m: "conversation" | "thread") => void;
+  /** Go to an object: switch lens if needed and scroll to it; a ref opens the inspector too. */
+  goTo: (target: { kind: "lens"; lens: Lens; anchor?: string } | { kind: "ref"; ref: string }) => void;
+}
+
+interface PersistedView {
+  railW?: number;
+  lens?: Record<string, Lens>;
+  companion?: "conversation" | "thread";
 }
 
 const Ctx = createContext<AppContextValue | null>(null);
@@ -67,6 +81,29 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
   const [staged, setStaged] = useState<{ text: string; nonce: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const requested = useRef(new Set<string>());
+  const [chosenLens, setChosenLens] = useState<Lens | null>(null);
+  const [companionMode, setCompanionModeState] = useState<"conversation" | "thread">(() => transport.getState<PersistedView>()?.companion || "conversation");
+  const investigationId = state.snap?.investigation.id;
+  // The analyst's last lens choice per investigation (view state) wins; else the stage's default.
+  useEffect(() => {
+    if (!investigationId) return;
+    const saved = transport.getState<PersistedView>()?.lens?.[investigationId];
+    setChosenLens(saved || null);
+  }, [investigationId, transport]);
+  const lens: Lens = chosenLens || (state.snap ? defaultLens(state.snap.investigation.state, !!state.snap.investigation.verdict) : "reasoning");
+  const setLens = useCallback((l: Lens) => {
+    setChosenLens(l);
+    if (investigationId) {
+      const prev = transport.getState<PersistedView>() || {};
+      transport.setState({ ...prev, lens: { ...(prev.lens || {}), [investigationId]: l } });
+    }
+    transport.send({ type: "view.state", lens: l });
+  }, [investigationId, transport]);
+  const setCompanionMode = useCallback((m: "conversation" | "thread") => {
+    setCompanionModeState(m);
+    transport.setState({ ...(transport.getState<PersistedView>() || {}), companion: m });
+    transport.send({ type: "view.state", companion: m });
+  }, [transport]);
 
   useEffect(() => {
     const off = transport.onMessage((msg) => {
@@ -102,6 +139,20 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
   }), []);
   const closeInspector = useCallback((which: "active" | "pinned") => setInspector((s) => ({ ...s, [which]: null })), []);
   const pinInspector = useCallback(() => setInspector((s) => s.active ? { active: null, pinned: s.active } : s), []);
+  const goTo = useCallback((target: { kind: "lens"; lens: Lens; anchor?: string } | { kind: "ref"; ref: string }) => {
+    if (target.kind === "ref") {
+      openInspector({ kind: "ref", ref: target.ref });
+      const el = document.getElementById("obj-" + target.ref);
+      if (el) el.scrollIntoView({ block: "center" });
+      return;
+    }
+    setLens(target.lens);
+    const anchor = target.anchor;
+    requestAnimationFrame(() => {
+      const el = anchor ? document.getElementById("obj-" + anchor) : null;
+      if (el) el.scrollIntoView({ block: "start" });
+    });
+  }, [openInspector, setLens]);
   const resolve = useCallback((ref: string) => {
     if (requested.current.has(ref)) return;
     requested.current.add(ref);
@@ -116,7 +167,8 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
     inspector, openInspector, inspectorBack, closeInspector, pinInspector,
     stage: (text) => setStaged((s) => ({ text, nonce: (s?.nonce ?? 0) + 1 })), staged,
     busy, setBusy,
-  }), [state, send, transport, resolve, prompt, enableAdapter, verdictOpen, inspector, openInspector, inspectorBack, closeInspector, pinInspector, staged, busy]);
+    lens, setLens, companionMode, setCompanionMode, goTo,
+  }), [state, send, transport, resolve, prompt, enableAdapter, verdictOpen, inspector, openInspector, inspectorBack, closeInspector, pinInspector, staged, busy, lens, setLens, companionMode, setCompanionMode, goTo]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

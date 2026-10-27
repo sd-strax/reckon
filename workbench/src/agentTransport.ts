@@ -101,6 +101,11 @@ export interface AgentTransport {
   getKnowledge(investigationId: string): Promise<KnowledgeItem[]>;
   /** Client-side knowledge-summary narrative at conclusion (design/06 §3.2). */
   summarizeConcluded(investigationId: string): Promise<void>;
+  /**
+   * The analyst's own query over both corpora (design/ui 09 §9.6): the hits
+   * join the session's retrieved set, excluded; the merged set comes back.
+   */
+  searchKnowledge(investigationId: string, text: string): Promise<KnowledgeItem[]>;
   /** Client-side candidate-SOP generalization at conclusion (design/06: the
    * compounding loop). Returns a draft for the analyst to accept or discard. */
   proposeSOP(investigationId: string): Promise<SOPCandidate>;
@@ -233,6 +238,15 @@ export class SidecarTransport implements AgentTransport {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
     return (await conn.sendRequest("proposeSOP", { session_id: sessionId })) as SOPCandidate;
+  }
+
+  async searchKnowledge(investigationId: string, text: string): Promise<KnowledgeItem[]> {
+    const conn = await this.ensureConnection();
+    const sessionId = await this.ensureSession(conn, investigationId);
+    const res = (await conn.sendRequest("searchKnowledge", { session_id: sessionId, text })) as { knowledge?: KnowledgeItem[] };
+    const items = res.knowledge ?? [];
+    this.knowledge.set(investigationId, items);
+    return items;
   }
 
   dispose(): void {

@@ -19,7 +19,10 @@
     "caseId": "CASE-1001",
     "body": "An investigation was opened for this case.",
     "systemName": "the ticketing system"
-   }
+   },
+   "createdAt": "2026-10-20T09:05:00Z",
+   "openedByName": "Analyst One",
+   "knowledgeInjection": "opt_in"
   },
   "hypotheses": [
    {
@@ -1041,5 +1044,66 @@
    ],
    "revision": 2
   }
+ },
+ "queue": {
+  "caseSource": "ticketing",
+  "investigations": [
+   {
+    "id": "grouping--1c2a7c5e-5a9e-4b7e-9f1a-6d3e2a1b0c01",
+    "title": "Interactive logon review for host-a",
+    "state": "ACTIVE",
+    "seedSummary": "case CASE-1001",
+    "lastEventSequence": 14,
+    "updatedAt": "2026-10-20T10:00:00Z",
+    "pendingActions": 2,
+    "nearestExpiry": "2026-10-27T20:01:31.672Z",
+    "hasVerdict": false,
+    "openActions": 3,
+    "openNotifications": 1,
+    "seed": {
+     "type": "case",
+     "caseId": "CASE-1001",
+     "source": "ticketing",
+     "entityRef": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+     "entityIdentifier": "host-a"
+    }
+   },
+   {
+    "id": "grouping--2c3b8d6f-6b0f-4c8f-a02b-7e4f3b2c1d02",
+    "title": "Bulk download from a shared site by a contractor account",
+    "state": "ACTIVE",
+    "seedSummary": "case CASE-1002",
+    "lastEventSequence": 3,
+    "updatedAt": "2026-10-19T10:00:00Z",
+    "pendingActions": 0,
+    "hasVerdict": true,
+    "openActions": 0,
+    "openNotifications": 0,
+    "seed": {
+     "type": "case",
+     "caseId": "CASE-1002",
+     "source": "ticketing"
+    }
+   },
+   {
+    "id": "grouping--3d4c9e70-7c10-4d90-b13c-8f5a4c3d2e03",
+    "title": "Closed phishing report",
+    "state": "CONCLUDED",
+    "lastEventSequence": 9,
+    "pendingActions": 0,
+    "hasVerdict": true,
+    "openActions": 0,
+    "openNotifications": 0
+   }
+  ],
+  "cases": [
+   {
+    "number": "CASE-1003",
+    "title": "Invoice-themed lure delivered to a shared mailbox",
+    "status": "New",
+    "priority": "P3",
+    "source": "ticketing"
+   }
+  ]
  }
 }

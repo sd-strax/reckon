@@ -189,3 +189,58 @@ func TestImplicitRetrieval_IncludedIsConsulted(t *testing.T) {
 		t.Errorf("included case not recorded as consulted: %+v", body.ConsultedSimilar)
 	}
 }
+
+// TestSearchKnowledge: the analyst's own query (design/ui 09 §9.6) appends
+// its hits to the retrieved set EXCLUDED, never duplicates an item already
+// surfaced, and leaves existing inclusion untouched — so SetIncludedKnowledge
+// can then flip a searched-in item like any other.
+func TestSearchKnowledge(t *testing.T) {
+	s, f := newKnowledgeSession(t, injectionOptIn)
+	before := len(s.RetrievedKnowledge())
+	s.SetIncludedKnowledge([]string{"sop-1"})
+
+	// The same canned corpus answers the query: every hit is already surfaced.
+	merged := s.SearchKnowledge(context.Background(), "ransomware")
+	if len(merged) != before {
+		t.Fatalf("duplicates appended: %d → %d", before, len(merged))
+	}
+	for _, k := range merged {
+		if k.Ref == "sop-1" && !k.Included {
+			t.Errorf("search reset the analyst's inclusion of sop-1")
+		}
+	}
+
+	// A new hit joins the set, excluded.
+	prev := f.override
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path == "/api/knowledge/recall_sops" {
+			_, _ = w.Write([]byte(`{"results":[{"sop_id":"sop-9","title":"Host Isolation","excerpt":"Isolate.","score":0.5,"match_rationale":"query match"}],"coverage":"COMPLETE"}`))
+			return true
+		}
+		return prev(w, r)
+	}
+	merged = s.SearchKnowledge(context.Background(), "isolation")
+	if len(merged) != before+1 {
+		t.Fatalf("expected one new item, got %d (was %d): %+v", len(merged), before, merged)
+	}
+	var found *KnowledgeItem
+	for i := range merged {
+		if merged[i].Ref == "sop-9" {
+			found = &merged[i]
+		}
+	}
+	if found == nil || found.Included || found.Kind != "sop" {
+		t.Fatalf("searched-in item = %+v; want sop-9 excluded", found)
+	}
+	// Once in the set, the analyst's gate works on it.
+	s.SetIncludedKnowledge([]string{"sop-9"})
+	for _, k := range s.RetrievedKnowledge() {
+		if k.Ref == "sop-9" && !k.Included {
+			t.Errorf("searched-in item could not be included")
+		}
+	}
+	// An empty query changes nothing.
+	if n := len(s.SearchKnowledge(context.Background(), "  ")); n != before+1 {
+		t.Errorf("empty query changed the set: %d", n)
+	}
+}

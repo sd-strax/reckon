@@ -36,6 +36,19 @@ type InvestigationView struct {
 	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
 	PendingActions int        `json:"pending_actions,omitempty"`
 	NearestExpiry  *time.Time `json:"nearest_expiry,omitempty"`
+	// Stage inputs for the work queue (design/ui 08 §8.3), list rows only, so
+	// a row's stage step derives without fetching every investigation: whether
+	// a verdict act exists, the non-notify actions not yet terminal, and the
+	// notify.* actions not yet terminal.
+	HasVerdict        bool `json:"has_verdict,omitempty"`
+	OpenActions       int  `json:"open_actions,omitempty"`
+	OpenNotifications int  `json:"open_notifications,omitempty"`
+
+	// CreatedAt and OpenedByName are the investigation's start (the
+	// investigation-time divider of the Story lens) and who opened it — the
+	// creating act's actor by display name (adr/0077). Detail responses.
+	CreatedAt    *time.Time `json:"created_at,omitempty"`
+	OpenedByName string     `json:"opened_by_name,omitempty"`
 
 	// KnowledgeInjection is the effective knowledge-injection posture (design/06
 	// §5.1, config.Knowledge.Injection) — surfaced on the detail view so the
@@ -138,7 +151,17 @@ func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
 		            AND a.status IN ('REQUESTED', 'PENDING_SECONDARY')),
 		        (SELECT MIN(a.expires_at) FROM action_current a
 		          WHERE a.aggregate_id = i.aggregate_id
-		            AND a.status IN ('REQUESTED', 'PENDING_SECONDARY'))
+		            AND a.status IN ('REQUESTED', 'PENDING_SECONDARY')),
+		        COALESCE(i.verdict_disposition, '') <> '',
+		        (SELECT COUNT(*) FROM action_current a
+		          WHERE a.aggregate_id = i.aggregate_id
+		            AND a.action_type NOT LIKE 'notify.%'
+		            AND a.status NOT IN ('SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT', 'REJECTED', 'EXPIRED', 'REVERSED')),
+		        (SELECT COUNT(*) FROM action_current a
+		          WHERE a.aggregate_id = i.aggregate_id
+		            AND a.action_type LIKE 'notify.%'
+		            AND a.status NOT IN ('SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT', 'REJECTED', 'EXPIRED', 'REVERSED')),
+		        i.seed
 		 FROM investigation_current i
 		 ORDER BY i.updated_at DESC LIMIT 200`)
 	if err != nil {
@@ -152,12 +175,20 @@ func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
 		var id uuid.UUID
 		var updatedAt time.Time
 		var nearest sql.NullTime
+		var seedRaw []byte
 		if err := rows.Scan(&id, &v.Title, &v.Status, &v.LastEventSequence, &v.SeedSummary,
-			&updatedAt, &v.PendingActions, &nearest); err != nil {
+			&updatedAt, &v.PendingActions, &nearest, &v.HasVerdict, &v.OpenActions, &v.OpenNotifications, &seedRaw); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "scan: "+err.Error())
 			return
 		}
 		v.AggregateID = id.String()
+		// The seed rides list rows too (the queue shows the case reference).
+		if len(seedRaw) > 0 {
+			var seed aggregate.Seed
+			if json.Unmarshal(seedRaw, &seed) == nil && seed.Type != "" {
+				v.Seed = seedBody(&seed)
+			}
+		}
 		v.UpdatedAt = &updatedAt
 		if nearest.Valid {
 			t := nearest.Time
@@ -216,6 +247,21 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 			Rationale:        ic.VerdictRationale,
 			VerdictAt:        ic.VerdictAt.Time,
 			InterpretationID: ic.VerdictInterpretationID.String(),
+		}
+	}
+	// The investigation's start and who opened it: the creating act (sequence
+	// 1) and its actor's display name (adr/0077).
+	var createdAt time.Time
+	var actorRaw []byte
+	if err := b.cfg.Handler.DB().QueryRowContext(r.Context(),
+		`SELECT occurred_at, actor FROM events WHERE aggregate_id = $1 AND sequence_no = 1`, id).Scan(&createdAt, &actorRaw); err == nil {
+		view.CreatedAt = &createdAt
+		var actor aggregate.Actor
+		if json.Unmarshal(actorRaw, &actor) == nil {
+			view.OpenedByName = actor.PrincipalName
+			if view.OpenedByName == "" {
+				view.OpenedByName = actor.PrincipalID
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, view)
