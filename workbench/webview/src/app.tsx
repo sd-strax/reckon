@@ -22,7 +22,14 @@ export interface InspectorState {
   pinned: InspectorPane | null;
 }
 
+/** Which document the bundle is rendering (impl §2.6): the Knowledge document
+ * shares the provider, the inspector dock, the dialogs and the primitives, but
+ * its host never posts an investigation message, so `state.snap` stays null
+ * there by construction and the inspector shows no "In this case" fold. */
+export type Surface = "investigation" | "knowledge";
+
 export interface AppContextValue {
+  surface: Surface;
   state: State;
   dispatch: (a: Action) => void;
   send: (m: InboundMessage) => void;
@@ -72,7 +79,7 @@ export function useApp(): AppContextValue {
   return v;
 }
 
-export function AppProvider({ transport, children }: { transport: WebviewTransport; children: React.ReactNode }) {
+export function AppProvider({ transport, surface = "investigation", children }: { transport: WebviewTransport; surface?: Surface; children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [prompt, setPrompt] = useState<PromptSpec | null>(null);
   const [enableAdapter, setEnableAdapter] = useState<string | null>(null);
@@ -160,7 +167,7 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
   }, [transport]);
 
   const value = useMemo<AppContextValue>(() => ({
-    state, dispatch, send, transport, resolve,
+    surface, state, dispatch, send, transport, resolve,
     prompt, openPrompt: setPrompt, closePrompt: () => setPrompt(null),
     enableAdapter, openEnableForm: setEnableAdapter, closeEnableForm: () => setEnableAdapter(null),
     verdictOpen, setVerdictOpen,
@@ -168,7 +175,7 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
     stage: (text) => setStaged((s) => ({ text, nonce: (s?.nonce ?? 0) + 1 })), staged,
     busy, setBusy,
     lens, setLens, companionMode, setCompanionMode, goTo,
-  }), [state, send, transport, resolve, prompt, enableAdapter, verdictOpen, inspector, openInspector, inspectorBack, closeInspector, pinInspector, staged, busy, lens, setLens, companionMode, setCompanionMode, goTo]);
+  }), [surface, state, send, transport, resolve, prompt, enableAdapter, verdictOpen, inspector, openInspector, inspectorBack, closeInspector, pinInspector, staged, busy, lens, setLens, companionMode, setCompanionMode, goTo]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

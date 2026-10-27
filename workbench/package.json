@@ -112,6 +112,11 @@
         "title": "Import SOPs…"
       },
       {
+        "command": "reckon.openKnowledge",
+        "category": "reckon",
+        "title": "Knowledge View"
+      },
+      {
         "command": "reckon.openInvestigation",
         "category": "reckon",
         "title": "Open Investigation"
@@ -220,6 +225,10 @@
         },
         {
           "command": "reckon.importSOP",
+          "when": "reckon.signedIn"
+        },
+        {
+          "command": "reckon.openKnowledge",
           "when": "reckon.signedIn"
         },
         {

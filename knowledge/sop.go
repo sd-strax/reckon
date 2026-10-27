@@ -85,6 +85,18 @@ type SOP struct {
 	Source     *SOPSource `json:"source,omitempty"`
 	ImportedBy string     `json:"imported_by,omitempty"`
 	ImportedAt *time.Time `json:"imported_at,omitempty"`
+
+	// RevisionCount is the substrate revision number of the current entry
+	// (monotonic within the lineage, 1 for a fresh SOP): the "rev N" label the
+	// Knowledge view shows when the source system recorded no version of its
+	// own.
+	RevisionCount int `json:"revision_count"`
+	// RetiredReason and RetiredBy are the knowledge-domain facts of a
+	// retirement (ui/09 §9.3 "Retire (with a reason)"): the substrate's
+	// transition carries principals only, so the facade records them in the
+	// entry meta of the revision the retirement is applied to.
+	RetiredReason string `json:"retired_reason,omitempty"`
+	RetiredBy     string `json:"retired_by,omitempty"`
 }
 
 // Store is the SOP corpus, backed by the memory substrate.
@@ -227,8 +239,10 @@ func (s *Store) List(ctx context.Context, tenantID uuid.UUID, includeRetired boo
 }
 
 // Update replaces the editable fields of a SOP as a new revision, keeping its
-// lineage id (the prior revision's content stays hash-addressable). A retired
-// SOP cannot be updated.
+// lineage id (the prior revision's content stays hash-addressable) and its
+// attribution meta (the source pointer must survive an edit, or a later
+// re-import of the same document would open a second lineage). A retired SOP
+// cannot be updated.
 func (s *Store) Update(ctx context.Context, tenantID, id uuid.UUID, title, body string, tags []string, recommendation string) error {
 	e, err := s.resolveCurrent(ctx, tenantID, id, false)
 	if err != nil {
@@ -239,6 +253,7 @@ func (s *Store) Update(ctx context.Context, tenantID, id uuid.UUID, title, body 
 		Body:       body,
 		Tags:       withLineage(tags, id),
 		Advice:     recommendation,
+		Meta:       e.Meta,       // the substrate replaces meta on a revision; the attribution is ours to carry
 		AuthoredBy: e.AuthoredBy, // carry the original author forward
 	})
 	if err != nil {
@@ -247,17 +262,63 @@ func (s *Store) Update(ctx context.Context, tenantID, id uuid.UUID, title, body 
 	return nil
 }
 
-// Retire soft-deletes a SOP (status → retired). Retired SOPs stay retrievable
-// only with include_retired for audit; the content stays hash-addressable.
-func (s *Store) Retire(ctx context.Context, tenantID, id uuid.UUID) error {
+// Retire soft-deletes a SOP (status → retired) with the reason and the
+// principal recorded in the entry meta (ui/09 §9.3). Retired SOPs stay
+// retrievable only with include_retired for audit; the content stays
+// hash-addressable. The reason rides a revision of the current content (the
+// substrate never mutates a row's meta), so a retirement is one revision plus
+// the transition.
+func (s *Store) Retire(ctx context.Context, tenantID, id uuid.UUID, reason, by string) error {
 	e, err := s.resolveCurrent(ctx, tenantID, id, false)
 	if err != nil {
 		return err
 	}
-	if err := s.sub.Transition(ctx, tenantID.String(), CorpusProcedures, e.ID, substrate.Transition{To: substrate.StatusRetired}); err != nil {
+	target := e
+	if reason != "" || by != "" {
+		meta := make(map[string]any, len(e.Meta)+2)
+		for k, v := range e.Meta {
+			meta[k] = v
+		}
+		if reason != "" {
+			meta["retired_reason"] = reason
+		}
+		if by != "" {
+			meta["retired_by"] = by
+		}
+		target, err = s.sub.Revise(ctx, tenantID.String(), CorpusProcedures, e.ID, substrate.Revision{
+			Title: e.Title, Body: e.Body, Tags: e.Tags, Advice: e.Advice, Meta: meta, AuthoredBy: e.AuthoredBy,
+		})
+		if err != nil {
+			return fmt.Errorf("retire sop: record reason: %w", err)
+		}
+	}
+	if err := s.sub.Transition(ctx, tenantID.String(), CorpusProcedures, target.ID, substrate.Transition{To: substrate.StatusRetired, Principals: principals(by)}); err != nil {
 		return fmt.Errorf("retire sop: %w", err)
 	}
 	return nil
+}
+
+// LookupBySource resolves the SOP an import of the given source URL would
+// revise — the dry-run read behind the Knowledge view's import preview (ui/09
+// §9.5). Retired SOPs resolve too, because re-importing a retired source
+// revives its lineage (see findBySourceURL). ok is false when none exists.
+func (s *Store) LookupBySource(ctx context.Context, tenantID uuid.UUID, url string) (SOP, bool, error) {
+	e, err := s.findBySourceURL(ctx, tenantID, url)
+	if err != nil || e == nil {
+		return SOP{}, false, err
+	}
+	lineage, ok := lineageOf(e.Tags)
+	if !ok {
+		return SOP{}, false, nil
+	}
+	return toSOP(*e, tenantID, lineage), true, nil
+}
+
+func principals(by string) []string {
+	if by == "" {
+		return nil
+	}
+	return []string{by}
 }
 
 // resolveCurrent finds the current-revision entry for a lineage id via its
@@ -338,6 +399,9 @@ func toSOP(e substrate.Entry, tenantID, lineage uuid.UUID) SOP {
 		UpdatedAt:      e.Updated,
 		PublishedAt:    e.PublishedAt,
 		RetiredAt:      e.RetiredAt,
+		RevisionCount:  e.Revision,
+		RetiredReason:  str(e.Meta["retired_reason"]),
+		RetiredBy:      str(e.Meta["retired_by"]),
 	}
 	if len(e.SignedOffBy) > 0 {
 		sop.SignerID = e.SignedOffBy[0]

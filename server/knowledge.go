@@ -207,12 +207,77 @@ type SOPMarkdownBody struct {
 	Content  string `json:"content"`
 }
 
+// ImportDryRun is the answer to POST /api/sops/import_markdown?dry_run=true
+// (ui/09 §9.5, implementation/workbench-react.md §8.0): what the one parser saw
+// in the document, the recommended fields it is missing, and the outcome a
+// real import would have — writing nothing. One parser, two modes.
+type ImportDryRun struct {
+	Title          string   `json:"title"`
+	Author         string   `json:"author,omitempty"`
+	Tags           []string `json:"tags"`
+	Recommendation string   `json:"recommendation,omitempty"`
+	Source         struct {
+		System  string `json:"system,omitempty"`
+		URL     string `json:"url"`
+		Version string `json:"version,omitempty"`
+	} `json:"source"`
+	// SourceDefaulted is true when the document carried no source URL and the
+	// file path stands in as the lineage key.
+	SourceDefaulted bool `json:"source_defaulted"`
+	// Missing lists the recommended frontmatter fields the document lacks:
+	// title, author, tags, source_url. Import proceeds without them.
+	Missing []string `json:"missing"`
+	// Outcome is "added", or "revised" with the procedure the source URL
+	// already keys.
+	Outcome       string `json:"outcome"`
+	ExistingID    string `json:"existing_id,omitempty"`
+	ExistingTitle string `json:"existing_title,omitempty"`
+}
+
+// dryRunReport builds the import preview from a parsed document and the SOP
+// its source URL already keys (nil when none). Pure, so the rules are unit-
+// testable without a corpus: a missing title falls back to the heading or the
+// filename (so "title" is missing only when the frontmatter had none and the
+// body opens without a heading), the source URL is missing when it was
+// defaulted from the path.
+func dryRunReport(doc sopdoc.Doc, frontmatterTitle bool, sourceDefaulted bool, existing *knowledge.SOP) ImportDryRun {
+	rep := ImportDryRun{
+		Title: doc.Title, Author: doc.Author, Tags: doc.Tags, Recommendation: doc.Recommendation,
+		SourceDefaulted: sourceDefaulted,
+		Missing:         []string{},
+		Outcome:         "added",
+	}
+	if rep.Tags == nil {
+		rep.Tags = []string{}
+	}
+	rep.Source.System, rep.Source.URL, rep.Source.Version = doc.SourceSystem, doc.SourceURL, doc.SourceVersion
+	if !frontmatterTitle {
+		rep.Missing = append(rep.Missing, "title")
+	}
+	if doc.Author == "" {
+		rep.Missing = append(rep.Missing, "author")
+	}
+	if len(doc.Tags) == 0 {
+		rep.Missing = append(rep.Missing, "tags")
+	}
+	if sourceDefaulted {
+		rep.Missing = append(rep.Missing, "source_url")
+	}
+	if existing != nil {
+		rep.Outcome = "revised"
+		rep.ExistingID = existing.ID.String()
+		rep.ExistingTitle = existing.Title
+	}
+	return rep
+}
+
 // importMarkdownSOP handles POST /api/sops/import_markdown (analyst): parse one
 // markdown document and upsert it. The importer is the authenticated principal
 // (recorded server-side, never client-supplied); the source pointer defaults to
 // file:<filename> when the frontmatter omits it — the re-import lineage key, so
 // clients send the full path as the filename (a bare basename would collide
 // across directories). Only the basename feeds the fallback title.
+// With ?dry_run=true it answers an ImportDryRun instead and writes nothing.
 func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
@@ -234,9 +299,23 @@ func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusBadRequest, "parse sop document: "+err.Error())
 			return
 		}
-		if doc.SourceURL == "" {
+		sourceDefaulted := doc.SourceURL == ""
+		if sourceDefaulted {
 			doc.SourceSystem = "file"
 			doc.SourceURL = "file:" + name
+		}
+		if r.URL.Query().Get("dry_run") == "true" {
+			existing, found, err := b.cfg.Knowledge.LookupBySource(r.Context(), module.SingleTenantUUID, doc.SourceURL)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, "import dry run: "+err.Error())
+				return
+			}
+			var ex *knowledge.SOP
+			if found {
+				ex = &existing
+			}
+			writeJSON(w, http.StatusOK, dryRunReport(doc, doc.FrontmatterTitle, sourceDefaulted, ex))
+			return
 		}
 		claims, _ := authz.FromContext(r.Context())
 		importer := claims.PreferredUsername
@@ -359,8 +438,27 @@ func (b *Backend) updateSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// SOPRetireBody is the optional DELETE /api/sops/{id} payload: why the
+// procedure is retired (ui/09 §9.3). Recorded with the principal in the
+// entry meta; an empty body retires without a reason.
+type SOPRetireBody struct {
+	Reason string `json:"reason"`
+}
+
 func (b *Backend) retireSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	err := b.cfg.Knowledge.Retire(r.Context(), module.SingleTenantUUID, id)
+	var body SOPRetireBody
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+			return
+		}
+	}
+	claims, _ := authz.FromContext(r.Context())
+	by := claims.PreferredUsername
+	if by == "" {
+		by = claims.Subject
+	}
+	err := b.cfg.Knowledge.Retire(r.Context(), module.SingleTenantUUID, id, strings.TrimSpace(body.Reason), by)
 	if errors.Is(err, knowledge.ErrNotFound) {
 		writeJSONError(w, http.StatusNotFound, "sop not found or already retired")
 		return

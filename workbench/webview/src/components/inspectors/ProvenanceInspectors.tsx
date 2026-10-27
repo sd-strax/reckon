@@ -62,7 +62,7 @@ export function TurnInspector({ interpretationId }: { interpretationId: string }
 }
 
 export function CaseInspector({ investigationRef }: { investigationRef: string }) {
-  const { state, send, dispatch, openInspector } = useApp();
+  const { surface, state, send, dispatch, openInspector } = useApp();
   const summary = state.caseSummaries[investigationRef];
   const item = state.knowledge.find((k) => k.kind === "case" && k.ref === investigationRef);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSimilar || []).filter((s) => s.investigationRef === investigationRef).map((s) => ({ e, s })));
@@ -72,11 +72,11 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
         {item?.band ? <Badge tone={item.band === "NEAR_DUPLICATE" ? "ok" : item.band === "DISTINCT" ? "muted" : "info"}>{item.band}</Badge> : null}
         {summary ? <> Concluded {summary.conclusionAt ? fmtDateTime(summary.conclusionAt) : "—"}{summary.verdictDisposition ? " · " + summary.verdictDisposition.toLowerCase() : ""}{summary.durationHours ? ` · ${summary.durationHours} hours` : ""}</> : null}
       </div>
-      <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
+      {surface === "investigation" ? <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
         {item ? <span className="icite">retrieved at seed time · {item.included ? "included in context" : "not included"}</span> : null}
         {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.used ? "applied" : "consulted, not applied"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
         {!item && !consulted.length ? <span className="empty">not consulted in this investigation</span> : null}
-      </div>
+      </div> : null}
       <Tabs tabs={[
         { id: "summary", label: "Summary", body: () => (
           summary === undefined ? <Loading what="case summary" />
@@ -105,6 +105,7 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
       <div className="decide">
         <button onClick={() => send({ type: "investigation.open", id: investigationRef.replace(/^grouping--/, ""), title: summary?.title || item?.title })}>Open that investigation</button>
         {item ? <button className={item.included ? undefined : "primary"} onClick={() => dispatch({ type: "knowledge.toggle", ref: item.ref, included: !item.included })}>{item.included ? "Remove from context" : "Include in context"}</button> : null}
+        {surface === "investigation" ? <button onClick={() => send({ type: "knowledge.open", section: "cases", id: investigationRef })}>Open in the Knowledge view</button> : null}
       </div>
       {summary ? <details className="iraw"><summary className="kicker">Raw</summary><Json value={summary} /></details> : null}
     </>
@@ -112,7 +113,7 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
 }
 
 export function ProcedureInspector({ sopId }: { sopId: string }) {
-  const { state, openInspector } = useApp();
+  const { surface, state, openInspector, send } = useApp();
   const sop = state.sops[sopId];
   const item = state.knowledge.find((k) => k.kind === "sop" && k.ref === sopId);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSops || []).filter((s) => s.sopId === sopId).map((s) => ({ e, s })));
@@ -120,12 +121,12 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
   return (
     <>
       <div className="isub">{sop ? <>{sop.source?.system ? sop.source.system + " · " : ""}{sop.source?.url ? <span className="mono">{sop.source.url}</span> : "markdown"}{sop.importedBy ? ` · imported by ${sop.importedBy}` : ""}{sop.importedAt ? ` · ${fmtDateTime(sop.importedAt)}` : ""}</> : null}</div>
-      <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
+      {surface === "investigation" ? <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
         {item ? <span className="icite">retrieved at seed time · {item.included ? "included in context" : "not included"}</span> : null}
         {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.used ? "applied" : "consulted, not applied"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
         {ledTo.map((a) => <span key={a.actionId} className="icite">led to <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a></span>)}
         {!item && !consulted.length ? <span className="empty">not consulted in this investigation</span> : null}
-      </div>
+      </div> : null}
       <Tabs tabs={[
         { id: "read", label: "What the AI read", body: () => (
           item?.excerpt ? <><blockquote className="iquote">{item.excerpt}</blockquote><div className="imeta">the excerpt retrieved for this investigation{item.band ? " · " + item.band : ""}{item.rationale ? " · " + item.rationale : ""}</div><p className="imeta">Excerpt provenance per turn (k of n, location in the source, hash check) is gap 00 §6.15.</p></>
@@ -145,8 +146,9 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
             </>
           )
         ) },
-        { id: "versions", label: "Versions", body: () => <div className="empty">Revision history and the retained original land with gap 00 §6.15.</div> },
+        { id: "versions", label: "Versions", body: () => <div className="empty">{sop?.revisionCount ? `rev ${sop.revisionCount} is current. ` : ""}Revision history and the retained original land with gap 00 §6.15.</div> },
       ]} />
+      {surface === "investigation" ? <div className="decide"><button onClick={() => send({ type: "knowledge.open", section: "procedures", id: sopId })}>Open in the Knowledge view</button></div> : null}
     </>
   );
 }

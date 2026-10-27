@@ -30,6 +30,10 @@ type Doc struct {
 	SourceURL      string
 	SourceVersion  string
 	Body           string
+	// FrontmatterTitle is true when the frontmatter supplied the title (as
+	// opposed to the first heading or the caller's fallback) — the import
+	// preview flags a missing one.
+	FrontmatterTitle bool
 }
 
 // frontmatter is the YAML block a document may open with.
@@ -56,14 +60,15 @@ func Parse(raw []byte, fallbackTitle string) (Doc, error) {
 		return Doc{}, err
 	}
 	doc := Doc{
-		Title:          fm.Title,
-		Author:         fm.Author,
-		Tags:           fm.Tags,
-		Recommendation: fm.Recommendation,
-		SourceSystem:   fm.Source.System,
-		SourceURL:      fm.Source.URL,
-		SourceVersion:  fm.Source.Version,
-		Body:           strings.TrimSpace(body),
+		FrontmatterTitle: fm.Title != "",
+		Title:            fm.Title,
+		Author:           fm.Author,
+		Tags:             fm.Tags,
+		Recommendation:   fm.Recommendation,
+		SourceSystem:     fm.Source.System,
+		SourceURL:        fm.Source.URL,
+		SourceVersion:    fm.Source.Version,
+		Body:             strings.TrimSpace(body),
 	}
 	if doc.Body == "" {
 		return Doc{}, fmt.Errorf("empty body")

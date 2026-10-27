@@ -4,7 +4,7 @@
 // webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
 import type { ActionRecord, Appearance, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/backend";
-import type { InvestigationSnapshot, KnowledgeItem, RenderMessage } from "../../src/protocol";
+import type { InvestigationSnapshot, KnowledgeItem, KnowledgeSection, KnowledgeState, RenderMessage } from "../../src/protocol";
 
 export interface LiveToolResult {
   isError: boolean;
@@ -81,6 +81,12 @@ export interface State {
   queue: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string } | null;
   /** The signed-in principal, for "edited by you" and attestations. */
   me: { name: string; principal: string } | null;
+  /** The Knowledge document's cache (impl §2.6, §3.1): null on the investigation surface, whose host never posts it. */
+  kdoc: KnowledgeState | null;
+  /** The Knowledge host's last error, shown as a banner until the next successful slice. */
+  kerror: string | null;
+  /** A reveal request (the import command, a link): the section and the object to land on. */
+  kreveal: { section: KnowledgeSection; id?: string; nonce: number } | null;
 }
 
 export const initialState: State = {
@@ -105,6 +111,9 @@ export const initialState: State = {
   preserveLive: false,
   queue: null,
   me: null,
+  kdoc: null,
+  kerror: null,
+  kreveal: null,
 };
 
 export type Action =
@@ -194,6 +203,22 @@ function onMessage(state: State, msg: RenderMessage): State {
     }
     case "queue":
       return { ...state, queue: { investigations: msg.investigations, cases: msg.cases, caseSource: msg.caseSource } };
+    case "knowledge.state": {
+      // Slices arrive whole; the first post carries every slice (the host's
+      // load), later ones only what a read or a write touched.
+      const base: KnowledgeState = state.kdoc ?? { counts: { procedures: 0, cases: null, candidates: null }, sops: [], cases: null, candidates: null, detail: null, results: null, answer: null, importRows: [], importing: false };
+      return { ...state, loading: false, kerror: null, kdoc: { ...base, ...msg.state } };
+    }
+    case "knowledge.error":
+      return { ...state, loading: false, kerror: msg.message };
+    case "knowledge.reveal":
+      return { ...state, kreveal: { section: msg.section, id: msg.id, nonce: (state.kreveal?.nonce ?? 0) + 1 } };
+    case "knowledge.answer.start":
+      return state.kdoc ? { ...state, kdoc: { ...state.kdoc, answer: { requestId: msg.requestId, question: state.kdoc.answer?.question || "", text: "", citations: [], model: "", toolsUsed: [] } } } : state;
+    case "knowledge.answer.delta":
+      return state.kdoc?.answer && state.kdoc.answer.requestId === msg.requestId ? { ...state, kdoc: { ...state.kdoc, answer: { ...state.kdoc.answer, text: state.kdoc.answer.text + msg.text } } } : state;
+    case "knowledge.answer.done":
+      return state.kdoc ? { ...state, kdoc: { ...state.kdoc, answer: msg.answer } } : state;
     case "me":
       return { ...state, me: { name: msg.name, principal: msg.principal } };
     case "rename.begin":

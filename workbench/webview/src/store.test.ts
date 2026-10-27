@@ -106,3 +106,20 @@ describe("reducer: rename", () => {
     expect(s.renameRequest?.nonce).toBe(2);
   });
 });
+
+describe("the Knowledge document's slices", () => {
+  it("merges partial knowledge.state posts over the first whole one and clears the error", () => {
+    let s = reducer(initialState, { type: "msg", msg: { type: "knowledge.error", message: "boom" } });
+    expect(s.kerror).toBe("boom");
+    s = reducer(s, { type: "msg", msg: { type: "knowledge.state", state: { counts: { procedures: 2, cases: null, candidates: null }, sops: [{ id: "a", title: "A", body: "", tags: [], status: "published" }], cases: null, candidates: null, detail: null, results: null, answer: null, importRows: [], importing: false } } });
+    expect(s.kerror).toBeNull();
+    expect(s.loading).toBe(false);
+    s = reducer(s, { type: "msg", msg: { type: "knowledge.state", state: { importing: true } } });
+    expect(s.kdoc?.importing).toBe(true);
+    expect(s.kdoc?.sops.length).toBe(1); // the other slices kept
+    s = reducer(s, { type: "msg", msg: { type: "knowledge.reveal", section: "import", id: undefined } });
+    expect(s.kreveal).toMatchObject({ section: "import", nonce: 1 });
+    expect(s.snap).toBeNull(); // never an investigation slice
+  });
+});
+

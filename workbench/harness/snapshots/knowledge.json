@@ -1,0 +1,403 @@
+{
+  "name": "knowledge",
+  "knowledge": {
+    "counts": {
+      "procedures": 3,
+      "cases": null,
+      "candidates": null
+    },
+    "sops": [
+      {
+        "id": "59f0a2cc-b599-44bc-8d72-0abda14ed4d2",
+        "title": "Credential Theft Triage",
+        "body": "# Credential Theft Triage\n\nScope: signs that account credentials were captured — LSASS access, credential\ndumping tooling (ATT&CK T1003), or a valid account used from an anomalous host\n(T1078). Goal is to bound blast radius before rotating secrets.\n\n## Establish blast radius first\n1. Enumerate every host and service the account touched since the suspected\n   theft. The reset is only as good as this list — a missed pivot host keeps the\n   adversary in.\n2. Identify any secrets the account could read (service accounts, vaulted keys,\n   cloud tokens). Theft of a human account often chains to service credentials.\n3. Look for persistence established under the account (scheduled tasks, new\n   local accounts, registry run keys) — rotating the password does not remove\n   these.\n\n## Response\n- Force-reset the account and any credentials it could reach; invalidate active\n  sessions and tokens, not just the password.\n- Remove persistence found above before closing.\n- If a service account is implicated, coordinate the rotation — a blind reset of\n  a service account causes an outage and tips off the adversary.\n\n## Grounding\nEvery containment action must cite the specific evidence (the dump event, the\nanomalous logon) that justifies it. An un-grounded reset is noise.",
+        "tags": [
+          "credential-access",
+          "T1003",
+          "T1078",
+          "triage"
+        ],
+        "status": "published",
+        "recommendation": "reset-credentials",
+        "authorId": "SOC Runbooks",
+        "source": {
+          "system": "demo",
+          "url": "demo://sops/credential-theft-triage",
+          "version": "1.0"
+        },
+        "importedBy": "analyst-1",
+        "importedAt": "2026-10-26T09:12:00Z",
+        "createdAt": "2026-10-26T09:12:00Z",
+        "updatedAt": "2026-10-26T09:12:00Z",
+        "revisionCount": 2
+      },
+      {
+        "id": "5cce8c33-eda2-480d-8495-bb29f356c037",
+        "title": "Host Isolation Runbook",
+        "body": "# Host Isolation Runbook\n\nScope: the mechanics of isolating a compromised endpoint so investigation can\ncontinue without letting the adversary act. Isolation is reversible; reimaging\nis not — reach for it first.\n\n## Preconditions\n- The host is confirmed compromised or is actively being used to pivot.\n- You have captured what the host has already reached (isolation freezes the\n  host, not the knowledge of where the adversary went next).\n\n## Procedure\n1. **Network-isolate**, allowing only the management/EDR channel. This preserves\n   memory, running processes, and on-disk artifacts for collection.\n2. Notify the host owner through an out-of-band channel — never through the\n   isolated host, which the adversary may be watching.\n3. Collect volatile evidence (process list, network connections, logged-on\n   users) before any reboot.\n\n## Reversal\nIsolation is a best-effort, reversible control. Lift it only after the host is\nconfirmed clean or has been rebuilt. Record the reversal on the case so the\naudit trail shows the control was deliberately removed, not dropped.\n\n## Do not\n- Do not power the host off — you lose memory-resident evidence and any chance\n  of attributing the intrusion.",
+        "tags": [
+          "containment",
+          "host-isolation",
+          "evidence-preservation"
+        ],
+        "status": "published",
+        "recommendation": "isolate",
+        "authorId": "SOC Runbooks",
+        "source": {
+          "system": "demo",
+          "url": "demo://sops/host-isolation-runbook",
+          "version": "1.0"
+        },
+        "importedBy": "analyst-1",
+        "importedAt": "2026-10-26T09:12:00Z",
+        "createdAt": "2026-10-26T09:12:00Z",
+        "updatedAt": "2026-10-26T09:12:00Z",
+        "revisionCount": 1
+      },
+      {
+        "id": "a54530dd-61a7-48f2-8889-0a3d59fbf1b7",
+        "title": "Lateral Movement via RDP — Containment",
+        "body": "# Lateral Movement via RDP — Containment\n\nScope: an interactive RDP logon (OCSF `authentication`, logon type 10) from an\ninternal host that is not a known jump box, followed by process creation on the\ndestination. Treat as suspected hands-on-keyboard lateral movement (ATT&CK\nT1021.001) until proven benign.\n\n## Triage\n1. Confirm the source→destination RDP session in the authentication telemetry.\n   Note the account and whether it holds local-admin on the destination.\n2. Pull process activity on the destination in the 15 minutes after the logon.\n   Discovery tooling, credential access, or archive staging escalate severity.\n3. Check whether the account authenticated to additional hosts in the same\n   window — a fan-out pattern is the strongest lateral-movement signal.\n\n## Containment\n- **Isolate the destination host** if hands-on-keyboard activity is confirmed.\n  Prefer network isolation over power-off so volatile evidence survives.\n- Disable or force-reset the account if it is being used to pivot. Do not reset\n  before capturing which hosts it has already reached, or you lose the map.\n- Block the source host's RDP egress if the source itself is compromised rather\n  than merely a stolen credential's first hop.\n\n## Do not\n- Do not reimage the destination before evidence collection — the process tree\n  and any dropped tooling are the investigation.\n- Do not treat a single logon as benign because the account is privileged;\n  privileged accounts are exactly what this technique abuses.",
+        "tags": [
+          "lateral-movement",
+          "T1021.001",
+          "rdp",
+          "containment"
+        ],
+        "status": "published",
+        "recommendation": "isolate",
+        "authorId": "SOC Runbooks",
+        "source": {
+          "system": "demo",
+          "url": "demo://sops/lateral-movement-rdp-containment",
+          "version": "1.0"
+        },
+        "importedBy": "analyst-1",
+        "importedAt": "2026-10-26T09:12:00Z",
+        "createdAt": "2026-10-26T09:12:00Z",
+        "updatedAt": "2026-10-26T09:12:00Z",
+        "revisionCount": 1
+      },
+      {
+        "id": "dcb1c6ef-fafc-4ba1-8c60-127a64f86091",
+        "title": "Legacy VPN lockout procedure",
+        "body": "# Legacy VPN lockout procedure\n\nRetired: the VPN concentrator was decommissioned.\n",
+        "tags": [
+          "vpn",
+          "access"
+        ],
+        "status": "retired",
+        "recommendation": "escalate",
+        "authorId": "SOC Runbooks",
+        "source": {
+          "system": "file",
+          "url": "file:/sops/legacy-vpn-lockout.md"
+        },
+        "importedBy": "analyst-1",
+        "importedAt": "2026-09-01T10:00:00Z",
+        "createdAt": "2026-09-01T10:00:00Z",
+        "updatedAt": "2026-10-20T15:30:00Z",
+        "revisionCount": 3,
+        "retiredAt": "2026-10-20T15:30:00Z",
+        "retiredReason": "the VPN concentrator was decommissioned",
+        "retiredBy": "analyst-1"
+      }
+    ],
+    "cases": null,
+    "candidates": null,
+    "detail": null,
+    "results": null,
+    "answer": null,
+    "importRows": [
+      {
+        "id": "file:///Users/analyst/sops/credential-reset-runbook.md",
+        "name": "credential-reset-runbook.md",
+        "dir": "/Users/analyst/sops",
+        "fromEditor": true,
+        "dirty": true,
+        "checked": true,
+        "preview": {
+          "title": "Credential reset runbook",
+          "author": "SOC Runbooks",
+          "tags": [
+            "credential",
+            "reset"
+          ],
+          "recommendation": "reset",
+          "source": {
+            "system": "wiki",
+            "url": "https://wiki.example.test/RB-CRED-RESET",
+            "version": "1.2"
+          },
+          "sourceDefaulted": false,
+          "missing": [],
+          "outcome": "added"
+        }
+      },
+      {
+        "id": "file:///Users/analyst/sops/host-isolation-runbook.md",
+        "name": "host-isolation-runbook.md",
+        "dir": "/Users/analyst/sops",
+        "fromEditor": false,
+        "dirty": false,
+        "checked": true,
+        "preview": {
+          "title": "Host Isolation Runbook",
+          "author": "SOC Runbooks",
+          "tags": [
+            "containment",
+            "host-isolation",
+            "evidence-preservation"
+          ],
+          "recommendation": "isolate",
+          "source": {
+            "system": "demo",
+            "url": "demo://sops/host-isolation-runbook",
+            "version": "1.0"
+          },
+          "sourceDefaulted": false,
+          "missing": [],
+          "outcome": "revised",
+          "existingId": "5cce8c33-eda2-480d-8495-bb29f356c037",
+          "existingTitle": "Host Isolation Runbook"
+        }
+      },
+      {
+        "id": "file:///Users/analyst/sops/notes.md",
+        "name": "notes.md",
+        "dir": "/Users/analyst/sops",
+        "fromEditor": false,
+        "dirty": false,
+        "checked": false,
+        "preview": {
+          "title": "notes",
+          "tags": [],
+          "source": {
+            "system": "file",
+            "url": "file:/Users/analyst/sops/notes.md"
+          },
+          "sourceDefaulted": true,
+          "missing": [
+            "title",
+            "author",
+            "tags",
+            "source_url"
+          ],
+          "outcome": "added"
+        }
+      },
+      {
+        "id": "file:///Users/analyst/sops/empty.md",
+        "name": "empty.md",
+        "dir": "/Users/analyst/sops",
+        "fromEditor": false,
+        "dirty": false,
+        "checked": true,
+        "previewError": "POST /api/sops/import_markdown?dry_run=true → 400: parse sop document: empty body"
+      }
+    ],
+    "importing": false
+  },
+  "search": {
+    "procedures": [
+      {
+        "sopId": "59f0a2cc-b599-44bc-8d72-0abda14ed4d2",
+        "title": "Credential Theft Triage",
+        "excerpt": "Scope: signs that account credentials were captured — LSASS access, credential dumping tooling (ATT&CK T1003), or a valid account used from an anomalous host (T1078). Goal is to bound blast radius before rotating secrets",
+        "score": 0.82,
+        "rationale": "the seed context names RDP lateral movement",
+        "tags": [
+          "credential-access",
+          "T1003",
+          "T1078",
+          "triage"
+        ],
+        "recommendation": "reset-credentials",
+        "status": "published",
+        "backend": "vector-cosine/text-embedding-3-small"
+      },
+      {
+        "sopId": "5cce8c33-eda2-480d-8495-bb29f356c037",
+        "title": "Host Isolation Runbook",
+        "excerpt": "Scope: the mechanics of isolating a compromised endpoint so investigation can continue without letting the adversary act. Isolation is reversible; reimaging is not — reach for it first.",
+        "score": 0.6199999999999999,
+        "rationale": "shares the containment vocabulary",
+        "tags": [
+          "containment",
+          "host-isolation",
+          "evidence-preservation"
+        ],
+        "recommendation": "isolate",
+        "status": "published",
+        "backend": "vector-cosine/text-embedding-3-small"
+      }
+    ],
+    "cases": [
+      {
+        "investigationRef": "grouping--b2b2b2b2-2222-4222-8222-222222222222",
+        "title": "LSASS credential dumping on WORKSTATION-22",
+        "excerpt": "A non-system process opened LSASS on WORKSTATION-22 and read its memory — classic OS credential dumping (T1003.001). The logged-on account corp\\a.okafor was the exposed credential. Established that the account had not ye",
+        "score": 0.9,
+        "band": "NEAR_DUPLICATE",
+        "rationale": "same technique and seed kind",
+        "tags": [
+          "technique:T1003.001"
+        ],
+        "backend": "vector-cosine/text-embedding-3-small"
+      },
+      {
+        "investigationRef": "grouping--a1a1a1a1-1111-4111-8111-111111111111",
+        "title": "RDP lateral movement from FINANCE-07 to DC-02",
+        "excerpt": "Interactive RDP logon from FINANCE-07 to the domain controller DC-02 using corp\\j.rivera, an account with no operational reason to reach DC-02. Post-logon process activity showed host and domain discovery. Determined tru",
+        "score": 0.55,
+        "band": "DISTINCT",
+        "rationale": "different technique family",
+        "tags": [
+          "technique:T1021.001",
+          "technique:T1078"
+        ],
+        "backend": "vector-cosine/text-embedding-3-small"
+      }
+    ],
+    "coverage": {
+      "procedures": "COMPLETE",
+      "cases": "COMPLETE"
+    }
+  },
+  "caseSummaries": {
+    "grouping--b2b2b2b2-2222-4222-8222-222222222222": {
+      "investigationRef": "grouping--b2b2b2b2-2222-4222-8222-222222222222",
+      "title": "LSASS credential dumping on WORKSTATION-22",
+      "body": "A non-system process opened LSASS on WORKSTATION-22 and read its memory — classic OS credential dumping (T1003.001). The logged-on account corp\\a.okafor was the exposed credential. Established that the account had not yet been reused elsewhere, then isolated the host and force-reset the account plus its active sessions. No lateral movement observed; contained before pivot.",
+      "conclusionAt": "2026-06-03T11:05:00Z",
+      "seedKind": "host",
+      "seedValue": "WORKSTATION-22",
+      "techniques": [
+        "T1003.001"
+      ],
+      "primaryEntities": [
+        "WORKSTATION-22",
+        "corp\\a.okafor"
+      ],
+      "actionsTaken": [
+        {
+          "actionType": "account.reset_credentials",
+          "targetCount": 1,
+          "outcome": "SUCCEEDED"
+        },
+        {
+          "actionType": "host.isolate",
+          "targetCount": 1,
+          "outcome": "SUCCEEDED"
+        }
+      ],
+      "conclusionOutcome": "succeeded",
+      "durationHours": 4,
+      "verdictDisposition": "true_positive",
+      "verdictRationale": "Process accessed LSASS memory consistent with credential dumping (T1003.001). Bounded blast radius to the logged-on account and rotated its credentials before the adversary reused them.",
+      "tags": [
+        "technique:T1003.001"
+      ],
+      "revision": 1
+    },
+    "grouping--a1a1a1a1-1111-4111-8111-111111111111": {
+      "investigationRef": "grouping--a1a1a1a1-1111-4111-8111-111111111111",
+      "title": "RDP lateral movement from FINANCE-07 to DC-02",
+      "body": "Interactive RDP logon from FINANCE-07 to the domain controller DC-02 using corp\\j.rivera, an account with no operational reason to reach DC-02. Post-logon process activity showed host and domain discovery. Determined true-positive hands-on-keyboard lateral movement (T1021.001) on a stolen valid account (T1078). Contained by isolating DC-02 and disabling the account; no evidence of persistence or data staging before containment.",
+      "conclusionAt": "2026-05-14T18:20:00Z",
+      "seedKind": "host",
+      "seedValue": "FINANCE-07",
+      "techniques": [
+        "T1021.001",
+        "T1078"
+      ],
+      "primaryEntities": [
+        "FINANCE-07",
+        "DC-02",
+        "corp\\j.rivera"
+      ],
+      "actionsTaken": [
+        {
+          "actionType": "host.isolate",
+          "targetCount": 1,
+          "outcome": "SUCCEEDED"
+        },
+        {
+          "actionType": "account.disable",
+          "targetCount": 1,
+          "outcome": "SUCCEEDED"
+        }
+      ],
+      "conclusionOutcome": "succeeded",
+      "durationHours": 6.5,
+      "verdictDisposition": "true_positive",
+      "verdictRationale": "A stolen valid account (corp\\j.rivera) was used to RDP from FINANCE-07 into DC-02, where discovery tooling ran. Containing the destination and disabling the account stopped the pivot.",
+      "tags": [
+        "technique:T1021.001",
+        "technique:T1078"
+      ],
+      "revision": 1
+    }
+  },
+  "queue": {
+    "caseSource": "ticketing",
+    "investigations": [
+      {
+        "id": "grouping--1c2a7c5e-5a9e-4b7e-9f1a-6d3e2a1b0c01",
+        "title": "Interactive logon review for host-a",
+        "state": "ACTIVE",
+        "seedSummary": "case CASE-1001",
+        "lastEventSequence": 14,
+        "updatedAt": "2026-10-20T10:00:00Z",
+        "pendingActions": 2,
+        "nearestExpiry": "2026-10-27T20:01:31.672Z",
+        "hasVerdict": false,
+        "openActions": 3,
+        "openNotifications": 1,
+        "seed": {
+          "type": "case",
+          "caseId": "CASE-1001",
+          "source": "ticketing",
+          "entityRef": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+          "entityIdentifier": "host-a"
+        }
+      },
+      {
+        "id": "grouping--2c3b8d6f-6b0f-4c8f-a02b-7e4f3b2c1d02",
+        "title": "Bulk download from a shared site by a contractor account",
+        "state": "ACTIVE",
+        "seedSummary": "case CASE-1002",
+        "lastEventSequence": 3,
+        "updatedAt": "2026-10-19T10:00:00Z",
+        "pendingActions": 0,
+        "hasVerdict": true,
+        "openActions": 0,
+        "openNotifications": 0,
+        "seed": {
+          "type": "case",
+          "caseId": "CASE-1002",
+          "source": "ticketing"
+        }
+      },
+      {
+        "id": "grouping--3d4c9e70-7c10-4d90-b13c-8f5a4c3d2e03",
+        "title": "Closed phishing report",
+        "state": "CONCLUDED",
+        "lastEventSequence": 9,
+        "pendingActions": 0,
+        "hasVerdict": true,
+        "openActions": 0,
+        "openNotifications": 0
+      }
+    ],
+    "cases": [
+      {
+        "number": "CASE-1003",
+        "title": "Invoice-themed lure delivered to a shared mailbox",
+        "status": "New",
+        "priority": "P3",
+        "source": "ticketing"
+      }
+    ]
+  }
+}

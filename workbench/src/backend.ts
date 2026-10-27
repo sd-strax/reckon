@@ -285,6 +285,48 @@ export interface SOPDoc {
   importedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** The substrate revision of the current entry: "rev N" when the source recorded no version. */
+  revisionCount?: number;
+  retiredAt?: string;
+  retiredReason?: string;
+  retiredBy?: string;
+}
+
+/** The wire shape of a SOP (knowledge.SOP). */
+interface RawSOP {
+  id?: string; title?: string; body?: string; tags?: string[]; status?: string; recommendation?: string;
+  author_id?: string; source?: { system?: string; url?: string; version?: string }; imported_by?: string;
+  imported_at?: string; created_at?: string; updated_at?: string; revision_count?: number;
+  retired_at?: string; retired_reason?: string; retired_by?: string;
+}
+
+function mapSOP(r: RawSOP, id: string): SOPDoc {
+  return {
+    id: r.id ?? id, title: r.title ?? "", body: r.body ?? "", tags: r.tags ?? [], status: r.status ?? "",
+    recommendation: r.recommendation, authorId: r.author_id,
+    source: r.source ? { system: r.source.system, url: r.source.url ?? "", version: r.source.version } : undefined,
+    importedBy: r.imported_by, importedAt: r.imported_at, createdAt: r.created_at, updatedAt: r.updated_at,
+    revisionCount: r.revision_count, retiredAt: r.retired_at, retiredReason: r.retired_reason, retiredBy: r.retired_by,
+  };
+}
+
+/** server.ImportDryRun on the wire. */
+export interface ImportDryRunRaw {
+  title: string; author?: string; tags: string[]; recommendation?: string;
+  source: { system?: string; url: string; version?: string };
+  source_defaulted: boolean; missing: string[]; outcome: "added" | "revised"; existing_id?: string; existing_title?: string;
+}
+
+/** knowledge.RecallResult on the wire. */
+export interface RecallSOPsRaw {
+  results: { sop_id: string; title: string; excerpt: string; score: number; match_rationale: string; tags?: string[]; recommendation?: string; status: string; backend?: string }[];
+  coverage: string;
+}
+
+/** knowledge.SimilarResult on the wire. */
+export interface RecallSimilarRaw {
+  results: { investigation_ref: string; title: string; excerpt: string; score: number; band: string; match_rationale: string; tags?: string[]; backend?: string }[];
+  coverage: string;
 }
 
 /** A prediction's declared falsification test (mirrors aggregate.QuerySpec). */
@@ -1359,18 +1401,42 @@ export class BackendClient {
 
   /** GET /api/sops/{id} — one procedure, whole (08 §8.6 "Whole document"). */
   async sop(id: string): Promise<SOPDoc> {
-    interface Raw {
-      id?: string; title?: string; body?: string; tags?: string[]; status?: string; recommendation?: string;
-      author_id?: string; source?: { system?: string; url?: string; version?: string }; imported_by?: string;
-      imported_at?: string; created_at?: string; updated_at?: string;
-    }
-    const r = await this.authedGet<Raw>(`/api/sops/${encodeURIComponent(id)}`);
-    return {
-      id: r.id ?? id, title: r.title ?? "", body: r.body ?? "", tags: r.tags ?? [], status: r.status ?? "",
-      recommendation: r.recommendation, authorId: r.author_id,
-      source: r.source ? { system: r.source.system, url: r.source.url ?? "", version: r.source.version } : undefined,
-      importedBy: r.imported_by, importedAt: r.imported_at, createdAt: r.created_at, updatedAt: r.updated_at,
-    };
+    return mapSOP(await this.authedGet<RawSOP>(`/api/sops/${encodeURIComponent(id)}`), id);
+  }
+
+  /** GET /api/sops — the procedure corpus, current revisions (09 §9.3). */
+  async sops(includeRetired = false): Promise<SOPDoc[]> {
+    const r = await this.authedGet<{ sops?: RawSOP[] }>(`/api/sops${includeRetired ? "?include_retired=true" : ""}`);
+    return (r.sops ?? []).map((x) => mapSOP(x, x.id ?? ""));
+  }
+
+  /** PUT /api/sops/{id} — a new revision under the same lineage id (09 §9.3). */
+  async updateSOP(id: string, body: { title: string; body: string; tags: string[]; recommendation?: string }): Promise<void> {
+    await this.authed<unknown>("PUT", `/api/sops/${encodeURIComponent(id)}`, body);
+  }
+
+  /** DELETE /api/sops/{id} with a reason — retire (09 §9.3). */
+  async retireSOP(id: string, reason: string): Promise<void> {
+    await this.authed<unknown>("DELETE", `/api/sops/${encodeURIComponent(id)}`, { reason });
+  }
+
+  /**
+   * POST /api/sops/import_markdown?dry_run=true — what the server's parser
+   * sees in a document and the outcome an import would have, writing nothing
+   * (09 §9.5). The same parser answers both modes.
+   */
+  async importSOPDryRun(filename: string, content: string): Promise<ImportDryRunRaw> {
+    return this.authedPost<ImportDryRunRaw>("/api/sops/import_markdown?dry_run=true", { filename, content });
+  }
+
+  /** POST /api/knowledge/recall_sops — semantic recall over the procedures (06 §4). */
+  async recallSOPs(query: string, tags?: string[], includeRetired = false, limit = 10): Promise<RecallSOPsRaw> {
+    return this.authedPost<RecallSOPsRaw>("/api/knowledge/recall_sops", { query, tags, include_retired: includeRetired, limit });
+  }
+
+  /** POST /api/knowledge/recall_similar_investigations — similarity recall over the case summaries (06 §4). */
+  async recallSimilar(query: string, tags?: string[], limit = 10): Promise<RecallSimilarRaw> {
+    return this.authedPost<RecallSimilarRaw>("/api/knowledge/recall_similar_investigations", { query, tags, limit });
   }
 
   /**
@@ -1571,7 +1637,7 @@ export class BackendClient {
     return this.authed<T>("POST", path, body);
   }
 
-  private async authed<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  private async authed<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<T> {
     if (!this.token) {
       throw new Error("no token source configured");
     }
@@ -1597,6 +1663,9 @@ export class BackendClient {
         // non-JSON error body — the status alone will have to do
       }
       throw new Error(`${method} ${path} → ${res.status}${detail}`);
+    }
+    if (res.status === 204) {
+      return undefined as T;
     }
     return (await res.json()) as T;
   }

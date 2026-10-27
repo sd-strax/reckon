@@ -10,11 +10,11 @@
 // filesystem.
 
 import * as vscode from "vscode";
-import { BackendClient, InvestigationSummary } from "./backend";
+import { BackendClient, InvestigationDetail, InvestigationSummary } from "./backend";
 import { Session } from "./auth";
 import { SidecarTransport } from "./agentTransport";
 import { InvestigationDocuments } from "./investigationDocument";
-import { ImportSOPsView } from "./importView";
+import { KnowledgeDocument } from "./knowledgeDocument";
 import { CasesProvider } from "./casesTree";
 import { CaseDocuments } from "./caseDocument";
 
@@ -46,7 +46,6 @@ export function activate(context: vscode.ExtensionContext): void {
     apiKey: () => context.secrets.get(ANTHROPIC_KEY_SECRET),
     getToken: (kind, force) => session.token(kind, force),
   }, log);
-  const importSOPs = new ImportSOPsView(client, log);
   const documents = new InvestigationDocuments(
     context.extensionUri, client, log, transport,
     { backendUrl: () => backendUrl(), token: () => session.token() },
@@ -58,13 +57,19 @@ export function activate(context: vscode.ExtensionContext): void {
   // The case queue (adr/0030-cases-pane.md): the SoR's queue below
   // Investigations; a case opens read-only and an investigation starts from it.
   const cases = new CasesProvider(client, session, context.globalState);
-  const caseDocs = new CaseDocuments(client, log, (created) => {
+  const onInvestigationCreated = (created: InvestigationDetail) => {
     documents.show(created.id, created.title);
     // The case write-back posture (adr/0032): ask, act, or nothing.
     documents.offerCaseNote(created);
     investigations.refresh();
     cases.refresh();
-  });
+  };
+  const caseDocs = new CaseDocuments(client, log, onInvestigationCreated);
+  // The Knowledge document (design/ui/09 §9.1): one singleton panel in the
+  // main area for adding, browsing, editing, retiring and querying knowledge
+  // outside any investigation. The investigation document's left region and
+  // its Knowledge section reveal it; `reckon.importSOP` opens its Import section.
+  const knowledge = new KnowledgeDocument(context.extensionUri, client, log, onInvestigationCreated);
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("reckon.cases", cases),
     vscode.commands.registerCommand("reckon.openCase", (number?: string) => {
@@ -80,7 +85,7 @@ export function activate(context: vscode.ExtensionContext): void {
     log,
     session,
     { dispose: () => transport.dispose() },
-    { dispose: () => importSOPs.dispose() },
+    { dispose: () => knowledge.dispose() },
     session.onDidChange(() => {
       void vscode.commands.executeCommand("setContext", "reckon.signedIn", session.signedIn);
       investigations.refresh();
@@ -125,19 +130,30 @@ export function activate(context: vscode.ExtensionContext): void {
       documents.showDraft("case");
     }),
 
-    // Import institutional knowledge into the SOP corpus (design/06 §2.4). SOPs
-    // are consultative — the agent surfaces them (the knowledge rail); import is
-    // an occasional populate act, so it is a COMMAND (workbench discipline, 13
-    // §3), not a management view. The command opens the Import SOPs PANEL:
-    // choosing what becomes institutional knowledge is operational input, so it
-    // lives on a reckon surface (open-editor documents with checkboxes, add
-    // from disk, per-document outcome) — never the top-of-window quick input.
+    // The Knowledge view (design/ui/09 §9.1): a command first (13 §3), also
+    // reached from the investigation document's left region. Arguments name a
+    // section and an id so a link lands on its object.
+    vscode.commands.registerCommand("reckon.openKnowledge", (section?: unknown, id?: unknown) => {
+      if (!session.signedIn) {
+        void vscode.window.showWarningMessage("reckon: sign in before opening the Knowledge view");
+        return;
+      }
+      const sec = section === "procedures" || section === "cases" || section === "import" || section === "candidates" ? section : undefined;
+      knowledge.open(sec, typeof id === "string" ? id : undefined);
+    }),
+
+    // Import institutional knowledge into the SOP corpus (design/06 §2.4).
+    // Import is an occasional populate act, so it is a COMMAND (workbench
+    // discipline, 13 §3); it opens the Knowledge document at its Import
+    // section, where choosing what becomes institutional knowledge happens on
+    // a reckon surface (documents with checkboxes and their parsed
+    // frontmatter, per-document outcome) — never the top-of-window quick input.
     vscode.commands.registerCommand("reckon.importSOP", () => {
       if (!session.signedIn) {
         void vscode.window.showWarningMessage("reckon: sign in before importing SOPs");
         return;
       }
-      importSOPs.open();
+      knowledge.open("import");
     }),
 
     // Rename an investigation from the tree's context menu (human curation — the

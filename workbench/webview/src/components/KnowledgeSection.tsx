@@ -53,6 +53,7 @@ export function KnowledgeSection() {
             <input type="text" value={q} placeholder="Search procedures and past cases…" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); search(); } }} />
             <button disabled={!q.trim() || searching} onClick={search}>Search</button>
           </div>
+          <div className="imeta"><a className="kopen" onClick={() => send({ type: "knowledge.open", section: "procedures" })}>Open the Knowledge view</a> · add, browse, edit and query knowledge outside this investigation</div>
         </>
       ) : null}
     </section>

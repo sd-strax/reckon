@@ -15,6 +15,7 @@
 
 import { randomUUID } from "crypto";
 import * as vscode from "vscode";
+import { panelOptions, webviewShell } from "./webviewShell";
 import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, PinRow, ThreadEntry } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
 import type { ChronicleTurn, InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage, RivalBrief } from "./protocol";
@@ -125,14 +126,7 @@ export class InvestigationDocuments {
 
   /** The page may load only the bundle and the vendored fonts (impl §5.1). */
   private panelOptions(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
-    return {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.extensionUri, "out", "webview"),
-        vscode.Uri.joinPath(this.extensionUri, "media"),
-      ],
-    };
+    return panelOptions(this.extensionUri);
   }
 
   /**
@@ -312,6 +306,10 @@ export class InvestigationDocuments {
       void this.startFromCase(msg.caseNumber);
     } else if (msg.type === "knowledge.search") {
       void this.searchKnowledge(id, panel, msg.text);
+    } else if (msg.type === "knowledge.open") {
+      // A navigation act (impl §2.6): the Knowledge document is revealed; this
+      // document's main area never changes.
+      void vscode.commands.executeCommand("reckon.openKnowledge", msg.section, msg.id);
     } else if (msg.type === "notify.request") {
       void this.requestNotification(id, panel, msg);
     } else if (msg.type === "view.state") {
@@ -1391,41 +1389,10 @@ export class InvestigationDocuments {
    * page. No inline styles, so style-src carries no 'unsafe-inline'.
    */
   private html(webview: vscode.Webview): string {
-    const nonce = makeNonce();
-    const base = vscode.Uri.joinPath(this.extensionUri, "out", "webview");
-    const script = webview.asWebviewUri(vscode.Uri.joinPath(base, "investigation.js"));
-    const style = webview.asWebviewUri(vscode.Uri.joinPath(base, "investigation.css"));
-    const csp = [
-      `default-src 'none'`,
-      `style-src ${webview.cspSource}`,
-      `font-src ${webview.cspSource}`,
-      `script-src 'nonce-${nonce}'`,
-    ].join("; ");
-    return /* html */ `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="${csp}" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="${style.toString()}" />
-  <title>Investigation</title>
-</head>
-<body class="loading">
-  <div id="root"></div>
-  <script nonce="${nonce}" src="${script.toString()}"></script>
-</body>
-</html>`;
+    return webviewShell(webview, this.extensionUri, { title: "Investigation", surface: "investigation" });
   }
 }
 
-function makeNonce(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let out = "";
-  for (let i = 0; i < 32; i++) {
-    out += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return out;
-}
 
 /** The short name a hypothesis is referred to by: its handle, else a clipped statement. */
 function hypLabel(handle: string | undefined, statement: string): string {

@@ -157,8 +157,13 @@ func TestSOP_CRUD(t *testing.T) {
 		t.Errorf("edit produced a duplicate list entry: %d", len(list))
 	}
 
-	// List excludes retired.
-	if err := s.Retire(ctx, testTenant, id); err != nil {
+	if got.RevisionCount != 2 {
+		t.Errorf("revision_count after one edit = %d; want 2", got.RevisionCount)
+	}
+
+	// List excludes retired. The reason and the principal ride the record
+	// (ui/09 §9.3) — the substrate transition carries principals only.
+	if err := s.Retire(ctx, testTenant, id, "superseded by the new containment runbook", "sam"); err != nil {
 		t.Fatalf("retire: %v", err)
 	}
 	list, _ = s.List(ctx, testTenant, false)
@@ -169,10 +174,17 @@ func TestSOP_CRUD(t *testing.T) {
 	if len(list) != 1 || list[0].Status != StatusRetired || list[0].ID != id {
 		t.Errorf("include-retired list wrong: %+v", list)
 	}
+	if list[0].RetiredReason != "superseded by the new containment runbook" || list[0].RetiredBy != "sam" || list[0].RetiredAt == nil {
+		t.Errorf("retirement facts not recorded: reason=%q by=%q at=%v", list[0].RetiredReason, list[0].RetiredBy, list[0].RetiredAt)
+	}
 
 	// A retired SOP can't be updated.
 	if err := s.Update(ctx, testTenant, id, "x", "y", nil, ""); !errors.Is(err, ErrNotFound) {
 		t.Errorf("update of retired SOP: err=%v; want ErrNotFound", err)
+	}
+	// Nor retired twice.
+	if err := s.Retire(ctx, testTenant, id, "", ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second retire: err=%v; want ErrNotFound", err)
 	}
 }
 
@@ -234,6 +246,27 @@ func TestImportSOP(t *testing.T) {
 		t.Errorf("re-import duplicated the SOP: %d entries", len(list))
 	}
 
+	// The dry-run read resolves the same lineage the import would revise.
+	if found, ok, err := s.LookupBySource(ctx, testTenant, doc.Source.URL); err != nil || !ok || found.ID != id {
+		t.Errorf("LookupBySource: ok=%v id=%s err=%v; want the imported SOP %s", ok, found.ID, err, id)
+	}
+	if _, ok, err := s.LookupBySource(ctx, testTenant, "https://wiki.example.com/NOWHERE"); err != nil || ok {
+		t.Errorf("LookupBySource of an unknown URL: ok=%v err=%v; want not found", ok, err)
+	}
+
+	// An in-product edit keeps the attribution: the source pointer survives,
+	// so the next re-import still revises this lineage instead of opening a
+	// second one beside it.
+	if err := s.Update(ctx, testTenant, id, got.Title, got.Body+" Edited in reckon.", got.Tags, got.Recommendation); err != nil {
+		t.Fatalf("update after import: %v", err)
+	}
+	if got, _ = s.Get(ctx, testTenant, id); got.Source == nil || got.Source.URL != doc.Source.URL || got.ImportedBy != "sam" {
+		t.Errorf("edit dropped the import attribution: %+v", got)
+	}
+	if id4, created, err := s.Import(ctx, doc); err != nil || created || id4 != id {
+		t.Errorf("re-import after an edit should revise the same lineage: created=%v id %s vs %s err=%v", created, id4, id, err)
+	}
+
 	// A DIFFERENT source URL is a distinct SOP.
 	other := doc
 	other.Title = "BEC Response"
@@ -252,7 +285,7 @@ func TestImportSOP(t *testing.T) {
 	// Retire, then re-import the same source: one source is one lineage, so
 	// the retired SOP is REVIVED (same id, a new published revision) — never a
 	// second lineage beside the retired one.
-	if err := s.Retire(ctx, testTenant, id); err != nil {
+	if err := s.Retire(ctx, testTenant, id, "replaced", "sam"); err != nil {
 		t.Fatal(err)
 	}
 	if live, _ := s.List(ctx, testTenant, false); len(live) != 1 { // only RUNBOOK-77 remains
@@ -347,7 +380,7 @@ func TestRecallSOPs(t *testing.T) {
 	}
 
 	// Retired excluded by default.
-	if err := s.Retire(ctx, testTenant, ransom); err != nil {
+	if err := s.Retire(ctx, testTenant, ransom, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "ransomware"})

@@ -30,6 +30,77 @@ import type {
 /** The four lenses (08 §8.4). */
 export type Lens = "summary" | "story" | "reasoning" | "response";
 
+/** The Knowledge document's sections (09 §9.1; impl §2.6). */
+export type KnowledgeSection = "procedures" | "cases" | "import" | "candidates";
+
+/** One document chosen for import (09 §9.5; parity §N): its parsed
+ * frontmatter from the server's dry run, and its outcome once imported. */
+export interface ImportRow {
+  /** The document's URI (identity across refreshes). */
+  id: string;
+  name: string;
+  dir: string;
+  /** An open editor's live buffer (unsaved edits included) rather than the file on disk. */
+  fromEditor: boolean;
+  dirty: boolean;
+  checked: boolean;
+  /** The dry run's reading of the document; absent until it answers, or an error. */
+  preview?: ImportDryRun;
+  previewError?: string;
+  result?: { outcome: "added" | "revised" | "failed"; title: string; message?: string };
+}
+
+/** The server's dry-run answer (impl §8.0: one parser, two modes). */
+export interface ImportDryRun {
+  title: string;
+  author?: string;
+  tags: string[];
+  recommendation?: string;
+  source: { system?: string; url: string; version?: string };
+  sourceDefaulted: boolean;
+  missing: string[];
+  outcome: "added" | "revised";
+  existingId?: string;
+  existingTitle?: string;
+}
+
+/** Search results (09 §9.2): both corpora with their relevance signals. */
+export interface SearchResults {
+  query: string;
+  procedures: { sopId: string; title: string; excerpt: string; score: number; rationale: string; tags: string[]; recommendation?: string; status: string; backend?: string }[];
+  cases: { investigationRef: string; title: string; excerpt: string; score: number; band: string; rationale: string; tags: string[]; backend?: string }[];
+  /** The coverage words of the two recalls, verbatim. */
+  coverage: { procedures: string; cases: string };
+}
+
+/** An Ask answer (09 §9.2, gap §6.23): streams in; null until the gap lands. */
+export interface Answer {
+  requestId: string;
+  question: string;
+  text: string;
+  citations: { n: number; target: InspectorTarget; title: string }[];
+  model: string;
+  toolsUsed: string[];
+}
+
+/** The Knowledge document's state (impl §3.1): CRUD views, no seq. Slices
+ * are re-posted whole after reads and after the host's own writes. */
+export interface KnowledgeState {
+  counts: { procedures: number; cases: number | null; candidates: number | null };
+  /** GET /api/sops?include_retired=true; the view hides retired rows by default. */
+  sops: SOPDoc[];
+  /** §6.21: null until the listing exists (the section shows the gap line). */
+  cases: CaseSummaryView[] | null;
+  /** §6.24: same. */
+  candidates: null;
+  /** The open procedure, whole (the row carries the body too; the detail re-reads it so an edit elsewhere shows). */
+  detail: SOPDoc | null;
+  results: SearchResults | null;
+  answer: Answer | null;
+  importRows: ImportRow[];
+  importing: boolean;
+}
+
 /**
  * What an inspector opens (impl §2.4, §4.2). A `ref` is any STIX / OCSF id:
  * the host and the webview resolve its renderer from the id's shape and the
@@ -159,6 +230,15 @@ export type RenderMessage =
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
   | { type: "inspector.error"; target: string; message: string }
+  // The Knowledge document (impl §2.6): slices re-posted whole after reads
+  // and the host's own writes; the answer streams by request id.
+  | { type: "knowledge.state"; state: Partial<KnowledgeState> }
+  | { type: "knowledge.answer.start"; requestId: string }
+  | { type: "knowledge.answer.delta"; requestId: string; text: string }
+  | { type: "knowledge.answer.done"; requestId: string; answer: Answer }
+  | { type: "knowledge.error"; message: string }
+  // Reveal a section (the reckon.importSOP command, a link with an id).
+  | { type: "knowledge.reveal"; section: KnowledgeSection; id?: string }
   | { type: "turn.start" }
   | { type: "turn.user"; text: string }
   // An aside (the "btw" lens): a scoped agent turn rendered collapsed.
@@ -183,6 +263,9 @@ export type InboundMessage =
   // The Knowledge section's scoped search (09 §9.6): the sidecar runs it and
   // the merged set comes back as a `knowledge` patch.
   | { type: "knowledge.search"; text: string }
+  // Reveal the Knowledge document (09 §9.1): the left region's toggle and the
+  // section's "Open the Knowledge view" link; a navigation act, never a swap.
+  | { type: "knowledge.open"; section?: KnowledgeSection; id?: string }
   // Request the outbound notification (08 §8.4 Response): a notify.* action
   // whose pre-send preview is the approval.
   | { type: "notify.request"; channel: "notify.email" | "notify.slack"; target: string; subject?: string; body: string }
@@ -230,4 +313,17 @@ export type InboundMessage =
   | { type: "export.open" }
   | { type: "copy"; text: string }
   | { type: "investigation.open"; id: string; title?: string }
-  | { type: "rename"; title: string };
+  | { type: "rename"; title: string }
+  // The Knowledge document only (impl §2.6, §4.2).
+  | { type: "knowledge.query"; mode: "search" | "ask"; text: string; filters?: { tags?: string[]; includeRetired?: boolean } }
+  | { type: "sop.get"; sopId: string }
+  | { type: "sop.save"; sopId: string; title: string; body: string; tags: string[]; recommendation?: string }
+  | { type: "sop.retire"; sopId: string; reason: string }
+  | { type: "cases.list"; filters?: { technique?: string; disposition?: string; from?: string; to?: string } }
+  | { type: "candidate.get"; id: string }
+  | { type: "candidate.accept"; id: string; body: string }
+  | { type: "candidate.discard"; id: string; reason: string }
+  | { type: "import.choose"; folder: boolean }
+  | { type: "import.toggle"; id: string; checked: boolean }
+  | { type: "import.run" }
+  | { type: "import.refresh" };

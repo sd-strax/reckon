@@ -168,16 +168,16 @@ behaviors kept, C4–C7 the section's additions from `09`.
 
 ## N. Import SOPs panel (`importView.ts`, `06 §2.4`, `13 §3`)
 
-Behaviors of the current Import SOPs panel, which becomes the Import section of the Knowledge
-document (`09 §9.5`, `workbench-react.md §2.6`); `importView.ts` is deleted when every row is ticked.
+Behaviors of the former Import SOPs panel, now the Import section of the Knowledge document
+(`09 §9.5`, `workbench-react.md §2.6`); `importView.ts` was deleted with PR 4b.
 
 | # | Behavior | New home | Status |
 |---|---|---|---|
-| N1 | `reckon.importSOP` command opens the panel (never the quick input) | the command keeps its id and opens the Knowledge document at Import | [ ] |
-| N2 | Add documents through the native file picker (multi-select); `file:` and `untitled:` URIs only | `<Import>` → `import.choose`; folder choice added per `09 §9.5` | [ ] |
-| N3 | One row per document: checkbox, parsed title, filename; toggle rows in and out | `<Import>` rows (`import.toggle`) | [ ] |
-| N4 | Import the checked rows; each `POST /api/sops/import_markdown` with the raw markdown | host `import.run` → `importSOPMarkdown` unchanged | [ ] |
-| N5 | Per-document outcome: created ("Added to the SOP library as …"), revised ("Revised existing SOP …"), failed with the server's message | `<Import>` outcome badges: added · revised (with version) · failed | [ ] |
-| N6 | Refresh re-reads the chosen documents from disk | `import.refresh` | [ ] |
-| N7 | "Imported — consultable now on the knowledge rail" line | reworded to name the Knowledge section | [ ] |
-| N8 | Parsed frontmatter shown before import; missing recommended fields flagged | *new* (`09 §9.5`): dry run, `workbench-react.md §8.0` | [ ] |
+| N1 | `reckon.importSOP` command opens the panel (never the quick input) | the command keeps its id and opens the Knowledge document at Import (`knowledge.reveal`); `reckon.openKnowledge` opens the document itself | [h] |
+| N2 | Add documents through the native file picker (multi-select); `file:` and `untitled:` URIs only | `<Import>` → `import.choose { folder }`; a folder is walked three levels for markdown/text; open editors are listed as before | [h] |
+| N3 | One row per document: checkbox, parsed title, filename; toggle rows in and out | `<Import>` rows (`import.toggle`); the title now comes from the server's dry run, not the filename | [h] |
+| N4 | Import the checked rows; each `POST /api/sops/import_markdown` with the raw markdown | host `import.run` → `importSOPMarkdown` unchanged (full path as the filename) | [h] |
+| N5 | Per-document outcome: created ("Added to the SOP library as …"), revised ("Revised existing SOP …"), failed with the server's message | `<Import>` outcome badges: added · revised · failed, with the line; the procedure list and counts re-post after the run | [h] |
+| N6 | Refresh re-reads the chosen documents from disk | `import.refresh`: every row re-read (editor rows from the live buffer) and the dry run re-run | [h] |
+| N7 | "Imported — consultable now on the knowledge rail" line | "N imported — consultable now in the Knowledge section of every investigation." | [h] |
+| N8 | Parsed frontmatter shown before import; missing recommended fields flagged | *new* (`09 §9.5`): `POST /api/sops/import_markdown?dry_run=true` per row; title · author · tags · recommendation · source · "will be added" / "will revise …"; missing fields in the warn tone; the parser's error verbatim | [h] |

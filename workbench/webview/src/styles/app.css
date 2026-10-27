@@ -631,3 +631,77 @@ body.loading #rail { opacity: 0.6; }
   #regions { position: relative; }
   #drawerToggle { display: block; position: absolute; right: 8px; bottom: 8px; z-index: 10; font-size: 16px; background: var(--he-primary); color: #fff; border-radius: var(--r-pill); width: 38px; height: 38px; }
 }
+
+
+/* =====================================================================
+   The Knowledge document (09 §9.1; impl §2.6): query bar · sections | main
+   ===================================================================== */
+#document.knowledge #regions { grid-template-columns: 250px minmax(0, 1fr); }
+#kheader { padding: var(--sp-2) var(--sp-5) var(--sp-2); border-bottom: 1px solid var(--border); }
+#kheader .titlerow { align-items: baseline; }
+#kheader .titlerow > .imeta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#querybar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+#querybar input[type="text"] { font: inherit; font-size: var(--fs-sm); color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--r-sm); padding: 5px 9px; }
+#querybar input[type="text"]:focus { outline: none; border-color: var(--he-primary); }
+#querybar #queryText { flex: 1; min-width: 0; }
+#querybar #queryTags { width: 16ch; font-family: var(--mono); }
+#querybar .qretired { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+#kmain { padding-top: var(--sp-3); }
+.knowledge .banner { border: 1px solid var(--bad-border); background: var(--bad-bg); border-radius: var(--r-sm); padding: 8px 10px; margin-bottom: 10px; }
+.knowledge .banner.warn { border-color: var(--warn-border); background: var(--warn-bg); }
+.ksections .qrow { display: flex; align-items: baseline; gap: 6px; }
+.ksections .qrow .qtitle { flex: 1; }
+.ksections .count { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-3); }
+.ksplit { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+.ksplit.open { grid-template-columns: minmax(0, 1fr) minmax(360px, 46%); }
+.kfilters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.kfilters input[type="text"], .kfilters select, .kfields input[type="text"] { font: inherit; font-size: var(--fs-sm); color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--r-sm); padding: 4px 8px; }
+.kfilters input[type="text"] { flex: 1; min-width: 14ch; }
+.kfilters label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.ktable { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.ktable th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.ktable td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.ktable td.mono { font-family: var(--mono); font-size: var(--fs-xs); }
+.ktable td.ktags { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.krow { cursor: pointer; }
+.krow:hover { background: var(--hover); }
+.krow.current { background: var(--selected); }
+.krow.retired .ktitle { color: var(--text-3); text-decoration: line-through; }
+.kdetail { border-left: 1px solid var(--border); padding-left: var(--sp-4); position: sticky; top: 0; }
+.kdhead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.kdhead .kdtitle { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 600; margin: 0; line-height: 1.35; }
+.kdhead .titleedit { flex: 1; }
+.kretired { margin-top: 4px; color: var(--warn); }
+.kbody { max-height: 60vh; overflow: auto; }
+.keditor .kfields { display: flex; gap: 8px; margin: 6px 0; }
+.keditor .kfields label { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-xs); color: var(--text-2); }
+.kpane { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-height: 40vh; }
+.kmd { font-family: var(--mono); font-size: var(--fs-xs); color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--r-sm); padding: 8px 10px; resize: vertical; min-height: 40vh; }
+.kmd:focus { outline: none; border-color: var(--he-primary); }
+.kpreview { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 10px; overflow: auto; max-height: 60vh; }
+.kpreview .kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); }
+.kimport .toolbar, .kimport .foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.kimport .foot { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
+.irowbox { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: start; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 11px; margin-bottom: 6px; }
+.irowbox.done { border-left: 2px solid var(--ok); }
+.irowbox.failed { border-left: 2px solid var(--bad); }
+.irowbox input { margin: 4px 0 0; }
+.irowbox .iname { font-weight: 600; word-break: break-all; font-size: var(--fs-sm); margin: 0; }
+.irowbox .idir { color: var(--text-3); font-size: var(--fs-xs); word-break: break-all; }
+.kprev { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-xs); color: var(--text-2); margin-top: 4px; }
+.kprev.failed { color: var(--bad); }
+.kprev .mono { font-family: var(--mono); }
+.kmissing { color: var(--warn); }
+.iresult { margin-top: 4px; font-size: var(--fs-sm); }
+.iresult.failed { color: var(--bad); }
+.kres { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.kresline { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.kresline a { color: var(--link); cursor: pointer; font-weight: 600; }
+.kcites { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.kcites a { color: var(--link); cursor: pointer; }
+.kfoot { border-top: 1px solid var(--border); padding-top: 6px; }
+.kopen { color: var(--link); cursor: pointer; }
+@container (max-width: 1100px) {
+  .ksplit.open { grid-template-columns: minmax(0, 1fr); }
+  .kdetail { border-left: none; padding-left: 0; position: static; }
+}

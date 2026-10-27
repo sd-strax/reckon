@@ -305,13 +305,18 @@ there, and a queue row opens its investigation (`investigation.open`). Each docu
 is fixed; the toggle only chooses what the region lists. The investigation's `<KnowledgeSection>`
 links "Open the Knowledge view" the same way, with the item's section and id.
 
-**Separation is enforced by type.** `<KnowledgeApp>` receives a `KnowledgeState` (§3.1) that
-holds no investigation slice; the only investigation facts it can show are the links the
-record carries (`reckon://investigation/<id>` on an accepted candidate, the `investigation_ref`
-of a case summary, the investigations in a where-used list), rendered as links that open the
-investigation document. The inspector in this document has no **In this case** fold, since
-there is no case; Procedure and Similar-case are the only renderers it hosts, and an Ask
-citation resolves to one of them.
+**Separation is enforced by the host, and the surface is a type.** `<KnowledgeApp>` renders a
+`KnowledgeState` (§3.1) slice of the shared store; the Knowledge host never posts an
+investigation message, so the investigation slices stay null there by construction, and the
+provider carries `surface: "investigation" | "knowledge"` so the shared pieces (the left region,
+the inspector renderers) know which document they are in. (The design first said "a separate
+state type"; sharing the provider is what lets the inspector dock, the dialogs and the left
+region be the same components, which is the point of §2.6. Implemented in PR 4b.) The only
+investigation facts it can show are the links the record carries (`reckon://investigation/<id>`
+on an accepted candidate, the `investigation_ref` of a case summary, the investigations in a
+where-used list), rendered as links that open the investigation document. The inspector in this
+document has no **In this case** fold, since there is no case; Procedure and Similar-case are
+the only renderers it hosts, and an Ask citation resolves to one of them.
 
 **Editing and importing stay in the document** (`13 §3`: operational input on a reckon panel,
 never the quick input). The procedure editor is an in-document markdown editor with preview;
@@ -363,14 +368,15 @@ interface InvestigationSnapshot {
 }
 
 interface KnowledgeState {            // the Knowledge document (§2.6); CRUD views, no seq
-  counts: { procedures: number; cases: number; candidates: number };
-  sops: SOPRow[];                     // GET /api/sops (+ include_retired); cited_in from §6.22 when present
-  cases: CaseSummaryRow[] | null;     // §6.21; null until the gap lands (section shows the gap line)
-  candidates: CandidateRow[] | null;  // §6.24; same
-  detail: SOPDetail | CaseSummaryView | CandidateDetail | null;   // the open row: body, revisions, where-used, closest procedure
+  counts: { procedures: number; cases: number | null; candidates: number | null }; // null = the gap's count
+  sops: SOPDoc[];                     // GET /api/sops?include_retired=true (the view hides retired); cited_in from §6.22 when present
+  cases: CaseSummaryView[] | null;    // §6.21; null until the gap lands (section shows the gap line)
+  candidates: null;                   // §6.24; same
+  detail: SOPDoc | null;              // the open procedure, re-read whole; revisions (§6.15) and where-used (§6.22) join it
   results: SearchResults | null;      // 09 §9.2 Search
   answer: Answer | null;              // 09 §9.2 Ask (§6.23); streams in
-  importRows: ImportRow[];            // parity §N: chosen documents, parsed frontmatter, outcome
+  importRows: ImportRow[];            // parity §N: chosen documents, the dry-run preview, outcome
+  importing: boolean;
 }
 ```
 
@@ -436,6 +442,7 @@ the types; the host narrows on `type`. One protocol, extended; no second one.
 | { type: "knowledge.answer.start"; requestId: string } | { type: "knowledge.answer.delta"; requestId: string; text: string }
 | { type: "knowledge.answer.done"; requestId: string; answer: Answer }   // §6.23: text, citations[], model, tools_used: []
 | { type: "knowledge.error"; message: string }
+| { type: "knowledge.reveal"; section: KnowledgeSection; id?: string }   // land on a section (the import command, a link with an id)
 ```
 
 Existing members kept as-is for the streaming channel (`turn.*`, `aside.start`), the draft
@@ -478,7 +485,7 @@ then drops the old ones).
 | { type: "view.state"; investigationId: string; lens?: Lens; companion?: "conversation" | "thread" } // mirrored to globalState so the tree can deep-link
 // Knowledge document only (§2.6)
 | { type: "knowledge.query"; mode: "search" | "ask"; text: string; filters?: { tags?: string[]; includeRetired?: boolean } }
-| { type: "sop.get"; sopId: string } | { type: "sop.save"; sopId: string; body: string } | { type: "sop.retire"; sopId: string; reason: string }
+| { type: "sop.get"; sopId: string } | { type: "sop.save"; sopId: string; title: string; body: string; tags: string[]; recommendation?: string } | { type: "sop.retire"; sopId: string; reason: string }
 | { type: "cases.list"; filters?: { technique?: string; disposition?: string; from?: string; to?: string } }   // §6.21
 | { type: "candidate.get"; id: string } | { type: "candidate.accept"; id: string; body: string } | { type: "candidate.discard"; id: string; reason: string } // §6.24
 | { type: "import.choose"; folder: boolean } | { type: "import.toggle"; id: string; checked: boolean } | { type: "import.run" } | { type: "import.refresh" }
@@ -732,15 +739,23 @@ For the Knowledge document (`09`), landing with the layout PR, no ADR:
   included; the host never calls the recall endpoints for the section, because the session owns
   what the model may read. No prompt change: a searched-in item reaches the model exactly as an
   implicitly retrieved one does, through the `[knowledge]` block.
-- **`DELETE /api/sops/{id}` takes `{ "reason": "…" }`**; the facade's `Retire` records it in the
-  entry meta of the retirement transition (the substrate's `Transition` carries principals only;
-  the reason is knowledge-domain meta). The procedure detail shows it on a retired row.
+- **`DELETE /api/sops/{id}` takes `{ "reason": "…" }`**; the facade's `Retire(ctx, tenant, id,
+  reason, by)` records the reason and the principal as `retired_reason` / `retired_by` in the
+  entry meta (the substrate's `Transition` carries principals only; the reason is knowledge-domain
+  meta, and the substrate never mutates a row's meta, so the retirement is one revision of the
+  current content carrying the meta, then the transition). The row and the detail show it on a
+  retired procedure. Landed in PR 4b, together with a fix the view surfaced: the facade's `Update`
+  now carries the entry meta forward, so an in-product edit no longer drops the import attribution
+  (before, a re-import after an edit opened a second lineage).
 - **`POST /api/sops/import_markdown?dry_run=true`** parses and returns the frontmatter the
   parser saw, the recommended fields it is missing (title, author, tags, source URL), and the
   outcome a real import would have (`added`, or `revised` naming the procedure whose source URL
-  it matches), writing nothing. One parser, two modes.
-- **`GET /api/sops` rows gain `revision_count`** and the `source.version` label; "v1.0" in the
-  mockup is the origin system's own version when the import recorded one, else "rev N".
+  it matches), writing nothing. One parser, two modes. Landed in PR 4b (`server.ImportDryRun`,
+  `knowledge.Store.LookupBySource`); "title" is missing only when neither the frontmatter nor a
+  leading heading supplied one.
+- **`GET /api/sops` rows gain `revision_count`** (the substrate revision of the current entry),
+  `retired_at`, `retired_reason` and `retired_by`; "v1.0" in the mockup is the origin system's own
+  version when the import recorded one, else "rev N". Landed in PR 4b.
   `GET /api/sops/{id}/revisions` (§8.4) backs Versions; comparing two is a client-side line diff
   over two revision bodies, fetched by hash.
 - **Query filters bind to tags.** `RecallRequest` and `SimilarRequest` carry `tags` today;
@@ -1071,6 +1086,10 @@ PRs in dependency order, each green on `make ci` and `make workbench-ci`, each r
    preview; `importView.ts` deleted; `reckon.importSOP` opens the section), Search results,
    the §8.0 knowledge additions, the recorded `KnowledgeState` harness snapshot. Past cases,
    Candidates and Ask ship their section frames with the gap line and light up below.
+   Landed: the harness stage `knowledge.json` is built from the demo pack by
+   `harness/build-knowledge-snapshot.mjs` until a seeded stack records it
+   (`npm run harness:record -- --knowledge`); the Work | Knowledge toggle is live on both
+   documents; `reckon.openKnowledge` is the command.
 5. **Engine gaps**, one PR each, each landing its UI slice so it is demoable:
    §6.12 (event views + titles; Timeline rows and inspector Details), §6.13 + §6.20 together
    (calls, call events, events endpoint; Story timeline, Around it, attack path, the Call

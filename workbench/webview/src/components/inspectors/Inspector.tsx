@@ -43,7 +43,9 @@ function PaneView({ pane, which }: { pane: Pane; which: "active" | "pinned" }) {
   const target = pane.stack[pane.stack.length - 1];
   const doc = target.kind === "ref" ? state.docs[target.ref] : undefined;
   const renderer = rendererFor(target, doc);
-  const name = targetName(target, state.snap, state.labels);
+  // The fetched record names the pane when the snapshot cannot (the Knowledge document has no snapshot).
+  const fetched = target.kind === "sop" ? state.sops[target.sopId]?.title : target.kind === "case" ? state.caseSummaries[target.investigationRef]?.title : undefined;
+  const name = fetched || targetName(target, state.snap, state.labels);
   const key = targetKey(target);
   const errKey = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
     : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "";
