@@ -1,7 +1,7 @@
 // The harness transport (impl §5.4): answers the webview from a recorded
 // snapshot set and echoes every intent, so a click's effect is visible and
 // component tests can assert on what the page asked the host for.
-import type { ActionRecord, Appearance, CaseSummaryView, EvidenceDoc, SOPDoc } from "../src/backend";
+import type { ActionRecord, Appearance, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/backend";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
@@ -19,6 +19,8 @@ export interface HarnessSnapshot {
   actionRecords?: Record<string, ActionRecord>;
   sops?: Record<string, SOPDoc>;
   caseSummaries?: Record<string, CaseSummaryView | null>;
+  /** The work queue (08 §8.3) as the host posts it. */
+  queue?: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string };
 }
 
 export class HarnessTransport implements WebviewTransport {
@@ -53,6 +55,17 @@ export class HarnessTransport implements WebviewTransport {
       }
       case "inspector.open":
         this.answerInspector(intent.target);
+        break;
+      case "queue.get":
+        this.postQueue();
+        break;
+      case "knowledge.search":
+        // The sidecar would merge its hits into the session's set; the harness
+        // appends one hit, excluded, so the section's behaviour is visible.
+        if (this.data) {
+          const items = this.data.snapshot.knowledge.concat([{ kind: "sop", ref: "sop-search-" + intent.text.replace(/\W+/g, "-").toLowerCase(), title: "Result for “" + intent.text + "”", excerpt: "", score: 0.5, included: false, rationale: "matched your search" }]);
+          this.emit({ type: "state.patch", seq: this.data.snapshot.seq, patch: { knowledge: items } });
+        }
         break;
       case "rename":
         this.emit({ type: "renamed", title: intent.title });
@@ -127,5 +140,12 @@ export class HarnessTransport implements WebviewTransport {
       return;
     }
     this.emit({ type: "state.snapshot", seq: this.data.snapshot.seq, snapshot: this.data.snapshot });
+    this.postQueue();
+    this.emit({ type: "me", name: "Analyst One", principal: "analyst-1" });
+  }
+
+  private postQueue(): void {
+    const q = this.data?.queue;
+    if (q) this.emit({ type: "queue", investigations: q.investigations, cases: q.cases, caseSource: q.caseSource });
   }
 }

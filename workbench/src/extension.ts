@@ -47,9 +47,14 @@ export function activate(context: vscode.ExtensionContext): void {
     getToken: (kind, force) => session.token(kind, force),
   }, log);
   const importSOPs = new ImportSOPsView(client, log);
-  const documents = new InvestigationDocuments(context.extensionUri, client, log, transport, (id, seq) => {
-    void seen.set(id, seq).then(() => investigations.refresh());
-  });
+  const documents = new InvestigationDocuments(
+    context.extensionUri, client, log, transport,
+    { backendUrl: () => backendUrl(), token: () => session.token() },
+    () => client.me().then((m) => ({ name: m.username, principal: m.subject })).catch(() => null),
+    (id, seq) => {
+      void seen.set(id, seq).then(() => investigations.refresh());
+    },
+  );
   // The case queue (adr/0030-cases-pane.md): the SoR's queue below
   // Investigations; a case opens read-only and an investigation starts from it.
   const cases = new CasesProvider(client, session, context.globalState);

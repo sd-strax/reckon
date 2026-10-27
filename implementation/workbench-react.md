@@ -1062,6 +1062,10 @@ PRs in dependency order, each green on `make ci` and `make workbench-ci`, each r
    scoped search via the sidecar, nudges, Open the Knowledge view), turn records and the
    activity disclosure, one-line prediction rows and the matrix, Response lens from the existing
    action data, `/api/stream` subscription, §8.0 view additions.
+   The left region's Work | Knowledge toggle is present but inert in this PR (it names the
+   Knowledge document, which 4b adds); the Knowledge section's "Open the Knowledge view" link
+   arrives with it. Export moves to the Summary lens; the companion keeps `08 §8.1`'s width
+   floors instead of an analyst-resized width.
 4b. **Knowledge document (L6)** — `knowledgeDocument.ts` and `<KnowledgeApp>`: Procedures (list,
    detail, editor, retire with reason), Import (every parity §N behavior plus the dry-run
    preview; `importView.ts` deleted; `reckon.importSOP` opens the section), Search results,
