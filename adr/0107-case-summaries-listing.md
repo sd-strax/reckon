@@ -14,9 +14,10 @@ against a query; a listing did not exist, so the section carried a gap line. Gap
 
 - **The corpus is the record; a listing is a read over it.** `knowledge.ListSummaries(ctx,
   tenant, SummaryFilter)` is the mirror of the empty-query browse the procedure facade already
-  owns: `substrate.List` over `case-summaries`, with the technique (or, failing that, the
-  disposition) applied at the substrate as the tag the producer already writes, the rest
-  applied from the structured meta; newest conclusion first; reserved tags stripped;
+  owns: `substrate.List` over `case-summaries`, every filter applied case-insensitively over
+  the structured fields (the substrate's tag match is exact and the producer writes technique
+  ids as they came, so a tag push-down would miss a differently cased query); newest
+  conclusion first; reserved tags stripped;
   `investigation_ref` recovered from the source tag. A re-derivation or an enrichment is a
   revision, so a case is one row.
 - **`GET /api/knowledge/case_summaries?technique=&disposition=&from=&to=&limit=`** (reader),
