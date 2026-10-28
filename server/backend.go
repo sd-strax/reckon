@@ -145,6 +145,9 @@ type BackendConfig struct {
 	// Knowledge, when non-nil, enables the SOP corpus routes (/api/sops,
 	// /api/knowledge/recall_sops — Phase C.5). Nil leaves them unregistered.
 	Knowledge *knowledge.Store
+	// Candidates is the procedure-candidate store (adr/0112); nil leaves the
+	// candidate routes a clean 503.
+	Candidates *knowledge.CandidateStore
 
 	// Comms, when non-nil, enables the comms-thread routes (Phase F, binding
 	// §4): GET /api/investigations/{id}/comms + /api/comms acts. Threads are
@@ -538,6 +541,8 @@ func (b *Backend) buildRouter(verifier *authz.Verifier) http.Handler {
 		api.Handle("/knowledge/recall_similar_investigations", authz.RequireAuth(verifier)(http.HandlerFunc(b.recallSimilar)))
 		api.Handle("/knowledge/summary_narrative", authz.RequireAuth(verifier)(http.HandlerFunc(b.summaryNarrative)))
 		api.Handle("/knowledge/case_summaries", authz.RequireAuth(verifier)(http.HandlerFunc(b.listCaseSummaries)))
+		api.Handle("/knowledge/candidates", authz.RequireAuth(verifier)(http.HandlerFunc(b.candidatesCollection)))
+		api.Handle("/knowledge/candidates/", authz.RequireAuth(verifier)(http.HandlerFunc(b.candidateItem)))
 		api.Handle("/knowledge/citations", authz.RequireAuth(verifier)(http.HandlerFunc(b.citations)))
 		api.Handle("/knowledge/citations/counts", authz.RequireAuth(verifier)(http.HandlerFunc(b.citationCounts)))
 		api.Handle("/knowledge/case_summaries/", authz.RequireAuth(verifier)(http.HandlerFunc(b.getCaseSummary)))

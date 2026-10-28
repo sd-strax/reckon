@@ -1174,14 +1174,12 @@ export class InvestigationDocuments {
   }
 
   /**
-   * Generalize a candidate SOP from the concluded investigation and let the
-   * analyst accept or discard it (design/06: the compounding loop). The draft
-   * opens as an editable markdown document — the review surface — so the analyst
-   * can refine it before accepting; "Add to SOP library" imports the CURRENT
-   * editor content through the same markdown path as `Import SOPs…`, so edits are
-   * honored and the source URL keys the SOP to this investigation (re-accepting
-   * revises rather than duplicates). Discarding leaves nothing behind. The whole
-   * thing is best-effort — a failed or unwarranted draft is silent.
+   * Generalize a candidate procedure from the concluded investigation and store
+   * it for review (adr/0112; design/06: the compounding loop). The draft goes to
+   * the Knowledge view's Candidates section — whoever manages knowledge reviews
+   * it there, whenever they choose; the investigation shows no prompt for it.
+   * When the model judges no new procedure worth capturing, nothing is stored
+   * and nothing is shown. Best-effort: a failed draft is silent.
    */
   private async proposeCandidateSOP(id: string): Promise<void> {
     let candidate: SOPCandidate;
@@ -1192,31 +1190,16 @@ export class InvestigationDocuments {
       return;
     }
     if (!candidate?.warranted || !candidate.title.trim() || !candidate.body.trim()) {
-      // The model judged no new procedure worth capturing (an existing SOP
-      // already covers it, or the case was too specific). Nothing to surface.
       return;
     }
-
-    const markdown = candidateSOPMarkdown(candidate, id);
-    const doc = await vscode.workspace.openTextDocument({ content: markdown, language: "markdown" });
-    await vscode.window.showTextDocument(doc, { preview: false });
-    const choice = await vscode.window.showInformationMessage(
-      `reckon: drafted a candidate SOP from this investigation — “${candidate.title.trim()}”. Review it, then add it to the library or discard.`,
-      "Add to SOP library",
-      "Discard",
-    );
-    if (choice !== "Add to SOP library") {
-      return; // discarded or dismissed — leave the untitled doc for the analyst to close
-    }
     try {
-      const content = doc.getText(); // honor any edits the analyst made while reviewing
-      const filename = slugifyTitle(candidate.title) + ".md";
-      const res = await this.client.importSOPMarkdown(filename, content);
-      void vscode.window.showInformationMessage(
-        `reckon: SOP “${res.title}” ${res.outcome === "revised" ? "updated" : "added"} — consultable in future investigations.`,
-      );
+      const row = await this.client.createCandidate(id, {
+        title: candidate.title.trim(), body: candidate.body.trim(), tags: candidate.tags ?? [],
+        recommendation: candidate.recommendation ?? "", rationale: candidate.rationale ?? "",
+      });
+      void vscode.window.setStatusBarMessage(`reckon: drafted a candidate procedure — “${row.title}” — waiting in Knowledge › Candidates`, 8000);
     } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: adding the SOP failed — ${errText(err)}`);
+      console.warn("reckon: storing the candidate procedure failed:", err);
     }
   }
 
@@ -1572,44 +1555,5 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/**
- * Render a candidate SOP as markdown + YAML frontmatter — the exact shape the
- * server's markdown import parses (design/06 §2.4). The source URL keys the SOP
- * to its originating investigation, so re-accepting a re-drafted candidate
- * revises the same SOP rather than creating a duplicate.
- */
-function candidateSOPMarkdown(c: SOPCandidate, investigationId: string): string {
-  const tags = (c.tags ?? []).map((t) => t.trim()).filter(Boolean);
-  const lines = [
-    "---",
-    `title: ${yamlScalar(c.title.trim())}`,
-    `tags: [${tags.map(yamlScalar).join(", ")}]`,
-  ];
-  if (c.recommendation?.trim()) {
-    lines.push(`recommendation: ${yamlScalar(c.recommendation.trim())}`);
-  }
-  lines.push(
-    "source:",
-    "  system: reckon",
-    `  url: reckon://investigation/${investigationId}`,
-    "---",
-    "",
-    c.body.trim(),
-    "",
-  );
-  return lines.join("\n");
-}
 
-/** Minimal YAML scalar quoting — quote when the value could be misread. */
-function yamlScalar(s: string): string {
-  return /^[\w .\-/]+$/.test(s) ? s : JSON.stringify(s);
-}
 
-/** A filesystem-safe slug from a SOP title, for the import filename. */
-function slugifyTitle(title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || "candidate-sop";
-}

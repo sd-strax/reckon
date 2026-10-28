@@ -226,7 +226,7 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "knowledge.state": {
       // Slices arrive whole; the first post carries every slice (the host's
       // load), later ones only what a read or a write touched.
-      const base: KnowledgeState = state.kdoc ?? { counts: { procedures: 0, cases: null, candidates: null }, sops: [], cases: null, candidates: null, citations: null, detailCitations: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows: [], importing: false };
+      const base: KnowledgeState = state.kdoc ?? { counts: { procedures: 0, cases: null, candidates: null }, sops: [], cases: null, candidates: null, candidateDetail: null, citations: null, detailCitations: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows: [], importing: false };
       return { ...state, loading: false, kerror: null, kdoc: { ...base, ...msg.state } };
     }
     case "knowledge.error":

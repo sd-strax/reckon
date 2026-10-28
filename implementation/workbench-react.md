@@ -1071,6 +1071,8 @@ DISCARDED. Under `gated` governance the import's own status rules apply unchange
 `SOPCandidate` the sidecar returns is unchanged; the editor-tab prompt and
 `proposeCandidateSOP`'s Add/Discard branches are deleted with this PR.
 
+**Landed** (`adr/0112`, PR #114) as specified.
+
 ---
 
 ## 9. What the mockups show that the record cannot back

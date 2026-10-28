@@ -32,7 +32,7 @@ describe("the Knowledge document", () => {
     expect(document.querySelector("#querybar")).toBeTruthy();
     expect(document.querySelector("#companion")).toBeNull(); // no investigation surface here
     const secs = Array.from(nav().querySelectorAll(".ksec")).map((s) => s.textContent);
-    expect(secs).toEqual(["Procedures3", "Past cases2", "Import4", "Candidates—"]);
+    expect(secs).toEqual(["Procedures3", "Past cases2", "Import4", "Candidates1"]);
     expect(main().querySelectorAll("tbody tr").length).toBe(3);
     expect(within(main()).getByText("2 investigations")).toBeTruthy(); // cited in N investigations (adr/0109)
     fireEvent.click(within(main()).getByLabelText("show retired"));
@@ -127,8 +127,31 @@ describe("the Knowledge document", () => {
     fireEvent.click(within(main()).getByText(/^\[1\] /));
     expect(transport.intents.some((i) => i.type === "inspector.open" && i.target.kind === "sop")).toBe(true);
     expect(transport.intents.filter((i) => i.type === "knowledge.query").length).toBe(1); // one question, no investigation act
+  });
+
+  it("Candidates: the drafts by status, the detail with the closest procedure, accept through the import path, discard with a reason (adr/0112)", () => {
+    const transport = mountKnowledge();
     section("Candidates");
-    expect(within(main()).getByText(/gap 00 §6.24/)).toBeTruthy();
+    const rows = () => Array.from(main().querySelectorAll("table[aria-label='Candidates'] tbody tr"));
+    expect(rows().length).toBe(1); // NEW by default
+    fireEvent.click(within(main()).getByRole("button", { name: "all" }));
+    expect(rows().length).toBe(2);
+    expect(within(main()).getByText(/credential reset runbook already covers it/)).toBeTruthy();
+    fireEvent.click(within(main()).getByRole("button", { name: "new" }));
+    fireEvent.click(within(main()).getByText("Confirm an unexpected interactive session with the account owner"));
+    expect(transport.intents.find((i) => i.type === "candidate.get")).toEqual({ type: "candidate.get", id: "cand-1" });
+    const detail = main().querySelector("section[aria-label='Candidate detail']") as HTMLElement;
+    expect(within(detail).getByText(/shares the containment steps/)).toBeTruthy(); // the closest procedure
+    const editor = within(detail).getByLabelText("Candidate body") as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: editor.value + "\n4. Note the outcome." } });
+    fireEvent.click(within(detail).getByText("Add to library"));
+    expect(transport.intents.find((i) => i.type === "candidate.accept")).toMatchObject({ id: "cand-1", body: expect.stringContaining("4. Note the outcome.") });
+    expect(within(detail).getByText("ACCEPTED")).toBeTruthy();
+    expect(within(detail).getByText("Revise in library")).toBeTruthy();
+    expect(main().querySelector(".kcands h3 .imeta")?.textContent).toBe("0"); // nothing left to review
+    section("Procedures");
+    expect(within(main()).getAllByText("Confirm an unexpected interactive session with the account owner").length).toBeGreaterThan(0);
+    expect(within(main()).getAllByText("from an investigation").length).toBeGreaterThan(0);
   });
 
   it("Past cases: every concluded summary newest first with its fields, narrowed by technique and disposition, and the row opens the case (adr/0107)", () => {

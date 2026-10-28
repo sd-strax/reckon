@@ -379,6 +379,7 @@ func serve(cfg config.Config) error {
 		ActionCatalog:  actionCatalog,
 		ActionResolver: actionResolver,
 		Knowledge:      knowledgeStore,
+		Candidates:     knowledge.NewCandidateStore(knowledgeDB),
 		Comms:          commsStore,
 		OwnerItems:     ownerItems,
 		Narratives:     summary.NewNarrativeStore(handler.DB()),

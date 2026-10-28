@@ -4,7 +4,7 @@
 // with a `knowledge` slice is the Knowledge document (impl §2.6): it posts
 // `knowledge.state` instead of an investigation snapshot and answers the
 // document's reads and writes from that slice.
-import type { CaseCitations, KnowledgeCitation, ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, RetrievalRow, RevisionContent, SOPDoc, SOPRevision } from "../src/backend";
+import type { CandidateDetail, CaseCitations, KnowledgeCitation, ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, RetrievalRow, RevisionContent, SOPDoc, SOPRevision } from "../src/backend";
 import type { ImportRow, InboundMessage, InspectorTarget, InvestigationSnapshot, KnowledgeState, RenderMessage, SearchResults } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
@@ -25,6 +25,8 @@ export interface HarnessSnapshot {
   /** Where knowledge was used (adr/0109): per procedure id the citing investigations; per case ref the citing investigations and the procedures learned. */
   sopCitations?: Record<string, KnowledgeCitation[]>;
   caseCitations?: Record<string, CaseCitations>;
+  /** Candidate details by id (adr/0112): the closest procedure for each. */
+  candidateDetails?: Record<string, CandidateDetail>;
   /** The capability calls the stage's events name (adr/0092). */
   calls?: Record<string, CallDetail>;
   /** Entity baselines (adr/0095); an entity absent here answers null. */
@@ -48,6 +50,8 @@ export interface HarnessKnowledge {
   /** Where knowledge was used (adr/0109): per procedure id the citing investigations; per case ref the citing investigations and the procedures learned. */
   sopCitations?: Record<string, KnowledgeCitation[]>;
   caseCitations?: Record<string, CaseCitations>;
+  /** Candidate details by id (adr/0112): the closest procedure for each. */
+  candidateDetails?: Record<string, CandidateDetail>;
   queue?: HarnessSnapshot["queue"];
   /** Each procedure's lineage and the revision bodies a compare can fetch (adr/0097). */
   revisions?: Record<string, SOPRevision[]>;
@@ -179,7 +183,7 @@ export class HarnessTransport implements WebviewTransport {
   private sendKnowledge(intent: InboundMessage): void {
     const k = this.know!;
     const doc = this.kdoc ?? (this.kdoc = structuredClone(k.knowledge));
-    const counts = () => ({ ...doc.counts, procedures: doc.sops.filter((s) => s.status !== "retired").length });
+    const counts = () => ({ ...doc.counts, procedures: doc.sops.filter((s) => s.status !== "retired").length, candidates: doc.candidates ? doc.candidates.filter((c) => c.status === "NEW").length : doc.counts.candidates });
     switch (intent.type) {
       case "ready":
       case "refresh":
@@ -269,6 +273,31 @@ export class HarnessTransport implements WebviewTransport {
       case "import.refresh":
         this.emit({ type: "knowledge.state", state: { importRows: doc.importRows } });
         break;
+      case "candidates.list":
+        this.emit({ type: "knowledge.state", state: { candidates: (doc.candidates || []).filter((c) => !intent.status || c.status === intent.status), counts: counts() } });
+        break;
+      case "candidate.get": {
+        const c = (doc.candidates || []).find((x) => x.id === intent.id);
+        if (c) this.emit({ type: "knowledge.state", state: { candidateDetail: { ...c, ...(k.candidateDetails?.[c.id] || {}) } } });
+        else this.emit({ type: "knowledge.error", message: "candidate not recorded in this harness stage" });
+        break;
+      }
+      case "candidate.accept": {
+        const c = (doc.candidates || []).find((x) => x.id === intent.id);
+        if (!c || c.status === "DISCARDED") break;
+        const sopId = c.acceptedSopId || "sop-from-" + c.id;
+        Object.assign(c, { status: "ACCEPTED", body: intent.body, acceptedSopId: sopId, decidedBy: "analyst-1", decidedByName: "Analyst One", decidedAt: new Date().toISOString() });
+        if (!doc.sops.some((s) => s.id === sopId)) doc.sops.push({ id: sopId, title: c.title, body: intent.body, tags: c.tags, status: "published", recommendation: c.recommendation, authorId: "reckon (drafted at conclusion)", source: { system: "reckon", url: "reckon://investigation/" + c.investigationId }, importedBy: "analyst-1", importedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), revisionCount: 1 });
+        this.emit({ type: "knowledge.state", state: { sops: doc.sops, candidates: doc.candidates, candidateDetail: { ...c }, counts: counts() } });
+        break;
+      }
+      case "candidate.discard": {
+        const c = (doc.candidates || []).find((x) => x.id === intent.id);
+        if (!c || c.status !== "NEW") break;
+        Object.assign(c, { status: "DISCARDED", discardReason: intent.reason, decidedBy: "analyst-1", decidedByName: "Analyst One", decidedAt: new Date().toISOString() });
+        this.emit({ type: "knowledge.state", state: { candidates: doc.candidates, candidateDetail: { ...c }, counts: counts() } });
+        break;
+      }
       case "cases.list": {
         // The listing is a read over the corpus (adr/0107): the stage's case summaries, newest first, narrowed.
         const f = intent.filters || {};

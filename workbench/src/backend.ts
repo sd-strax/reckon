@@ -322,6 +322,46 @@ export interface ActionRecord {
   };
 }
 
+/** A procedure candidate (mirrors knowledge.Candidate, adr/0112). */
+export interface CandidateRow {
+  id: string;
+  investigationId: string;
+  title: string;
+  body: string;
+  tags: string[];
+  recommendation?: string;
+  rationale?: string;
+  generatorModel?: string;
+  draftedAt: string;
+  draftedBy: string;
+  draftedByName?: string;
+  status: "NEW" | "ACCEPTED" | "DISCARDED" | string;
+  decidedBy?: string;
+  decidedByName?: string;
+  decidedAt?: string;
+  discardReason?: string;
+  acceptedSopId?: string;
+}
+
+/** A candidate with the closest existing procedure (server.CandidateDetail). */
+export interface CandidateDetail extends CandidateRow {
+  closest?: { sopId: string; title: string; excerpt: string; score: number; rationale: string };
+}
+
+interface RawCandidate {
+  id?: string; investigation_id?: string; title?: string; body?: string; tags?: string[]; recommendation?: string; rationale?: string; generator_model?: string;
+  drafted_at?: string; drafted_by?: string; drafted_by_name?: string; status?: string; decided_by?: string; decided_by_name?: string; decided_at?: string; discard_reason?: string; accepted_sop_id?: string;
+}
+
+function mapCandidate(r: RawCandidate): CandidateRow {
+  return {
+    id: r.id ?? "", investigationId: r.investigation_id ?? "", title: r.title ?? "", body: r.body ?? "", tags: r.tags ?? [],
+    recommendation: r.recommendation, rationale: r.rationale, generatorModel: r.generator_model,
+    draftedAt: r.drafted_at ?? "", draftedBy: r.drafted_by ?? "", draftedByName: r.drafted_by_name, status: r.status ?? "NEW",
+    decidedBy: r.decided_by, decidedByName: r.decided_by_name, decidedAt: r.decided_at, discardReason: r.discard_reason, acceptedSopId: r.accepted_sop_id,
+  };
+}
+
 /** One investigation's use of a piece of knowledge (mirrors aggregate.KnowledgeCitation, adr/0109). */
 export interface KnowledgeCitation {
   investigationId: string;
@@ -1765,6 +1805,35 @@ export class BackendClient {
       throw err;
     }
     return mapCaseSummary(r, investigationRef);
+  }
+
+  /** POST /api/knowledge/candidates — store the draft the conclude hook produced (adr/0112). */
+  async createCandidate(investigationId: string, c: { title: string; body: string; tags: string[]; recommendation: string; rationale: string; generatorModel?: string }): Promise<CandidateRow> {
+    const r = await this.authedPost<RawCandidate>("/api/knowledge/candidates", { investigation_id: investigationId, title: c.title, body: c.body, tags: c.tags, recommendation: c.recommendation, rationale: c.rationale, generator_model: c.generatorModel ?? "" });
+    return mapCandidate(r);
+  }
+
+  /** GET /api/knowledge/candidates?status= — the drafts, newest first (adr/0112). */
+  async candidates(status?: string): Promise<CandidateRow[]> {
+    const r = await this.authedGet<{ candidates?: RawCandidate[] }>(`/api/knowledge/candidates${status ? "?status=" + encodeURIComponent(status) : ""}`);
+    return (r.candidates ?? []).map(mapCandidate);
+  }
+
+  /** GET /api/knowledge/candidates/{id} — one draft with the closest existing procedure. */
+  async candidate(id: string): Promise<CandidateDetail> {
+    const r = await this.authedGet<RawCandidate & { closest?: { sop_id?: string; title?: string; excerpt?: string; score?: number; match_rationale?: string } }>(`/api/knowledge/candidates/${encodeURIComponent(id)}`);
+    return { ...mapCandidate(r), closest: r.closest ? { sopId: r.closest.sop_id ?? "", title: r.closest.title ?? "", excerpt: r.closest.excerpt ?? "", score: r.closest.score ?? 0, rationale: r.closest.match_rationale ?? "" } : undefined };
+  }
+
+  /** POST /api/knowledge/candidates/{id}/accept — import the edited body as a procedure. */
+  async acceptCandidate(id: string, body: string): Promise<{ candidate: CandidateRow; sopId: string; outcome: string }> {
+    const r = await this.authedPost<{ candidate?: RawCandidate; sop_id?: string; outcome?: string }>(`/api/knowledge/candidates/${encodeURIComponent(id)}/accept`, { body });
+    return { candidate: mapCandidate(r.candidate ?? {}), sopId: r.sop_id ?? "", outcome: r.outcome ?? "" };
+  }
+
+  /** POST /api/knowledge/candidates/{id}/discard — with the reviewer's reason. */
+  async discardCandidate(id: string, reason: string): Promise<CandidateRow> {
+    return mapCandidate(await this.authedPost<RawCandidate>(`/api/knowledge/candidates/${encodeURIComponent(id)}/discard`, { reason }));
   }
 
   /** GET /api/knowledge/citations/counts?kind=sop — "cited in N investigations" per procedure (adr/0109). */

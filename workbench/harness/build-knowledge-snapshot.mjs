@@ -107,6 +107,13 @@ const caseCitations = Object.fromEntries(caseRefs.map((ref, i) => [ref, i === 0
   ? { investigations: [{ ...stageInv, applied: true, interpretations: 1, firstAt: "2026-10-20T09:04:00Z", lastAt: "2026-10-20T09:04:00Z" }], learned: [{ sopId: sops[1].id, title: sops[1].title }] }
   : { investigations: [], learned: [] }]));
 
+// Candidates (adr/0112): one waiting for review, drafted at the stage's own investigation; one discarded.
+const candidates = [
+  { id: "cand-1", investigationId: stageInv.investigationId, title: "Confirm an unexpected interactive session with the account owner", body: "# Confirm an unexpected interactive session\n\n1. Reach the account owner out of band.\n2. Record the answer as an attestation on the prediction.\n3. If unrecognised, isolate the host and disable the account.", tags: ["identity", "containment"], recommendation: "isolate", rationale: "The case turned on an owner attestation; no procedure covers reaching the owner first.", generatorModel: "harness-model", draftedAt: "2026-10-20T11:00:00Z", draftedBy: "analyst-1", draftedByName: "Analyst One", status: "NEW" },
+  { id: "cand-2", investigationId: priorInv.investigationId, title: "Rotate a service account after misuse", body: "Rotate it.", tags: ["identity"], recommendation: "reset", rationale: "", generatorModel: "harness-model", draftedAt: "2026-09-12T16:00:00Z", draftedBy: "analyst-1", draftedByName: "Analyst One", status: "DISCARDED", decidedBy: "analyst-1", decidedByName: "Analyst One", decidedAt: "2026-09-13T09:00:00Z", discardReason: "the credential reset runbook already covers it" },
+];
+const candidateDetails = { "cand-1": { closest: { sopId: sops[0].id, title: sops[0].title, excerpt: sops[0].body.split("\n").slice(2, 4).join(" ").slice(0, 160), score: 0.61, rationale: "shares the containment steps" } } };
+
 const search = {
   procedures: sops.filter((s) => s.status !== "retired").slice(0, 2).map((s, i) => ({ sopId: s.id, title: s.title, excerpt: s.body.split("\n").slice(2, 5).join(" ").slice(0, 220), score: 0.82 - i * 0.2, rationale: i === 0 ? "the seed context names RDP lateral movement" : "shares the containment vocabulary", tags: s.tags, recommendation: s.recommendation, status: s.status, backend: "vector-cosine/text-embedding-3-small" })),
   cases: cases.map((c, i) => ({ investigationRef: c.investigation_ref, title: c.title, excerpt: (c.summary_text || "").slice(0, 220), score: 0.9 - i * 0.35, band: i === 0 ? "NEAR_DUPLICATE" : "DISTINCT", rationale: i === 0 ? "same technique and seed kind" : "different technique family", tags: (c.techniques || []).map((t) => "technique:" + t), backend: "vector-cosine/text-embedding-3-small" })),
@@ -116,8 +123,8 @@ const search = {
 const out = {
   name: "knowledge",
   knowledge: {
-    counts: { procedures: sops.filter((s) => s.status !== "retired").length, cases: Object.keys(caseSummaries).length, candidates: null },
-    sops, cases: Object.values(caseSummaries).sort((a, b) => (b.conclusionAt || "").localeCompare(a.conclusionAt || "")), candidates: null, citations, detailCitations: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows, importing: false,
+    counts: { procedures: sops.filter((s) => s.status !== "retired").length, cases: Object.keys(caseSummaries).length, candidates: candidates.filter((c) => c.status === "NEW").length },
+    sops, cases: Object.values(caseSummaries).sort((a, b) => (b.conclusionAt || "").localeCompare(a.conclusionAt || "")), candidates, candidateDetail: null, citations, detailCitations: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows, importing: false,
   },
   // Each procedure's lineage (adr/0097): one revision per rev count, the first imported, later ones edits; the bodies for a compare.
   revisions: Object.fromEntries(sops.map((s) => [s.id, Array.from({ length: s.revisionCount }, (_, i) => {
@@ -134,6 +141,7 @@ const out = {
   caseSummaries,
   sopCitations,
   caseCitations,
+  candidateDetails,
   queue: JSON.parse(readFileSync(join(here, "snapshots", "synthetic.json"), "utf8")).queue,
 };
 const file = join(here, "snapshots", "knowledge.json");

@@ -14,7 +14,7 @@
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
 import type { AgentTransport } from "./agentTransport";
-import { BackendClient, CaseSummaryView, InvestigationDetail, SOPDoc } from "./backend";
+import { BackendClient, CandidateRow, CaseSummaryView, InvestigationDetail, SOPDoc } from "./backend";
 import type { Answer, ImportDryRun, ImportRow, InboundMessage, InspectorTarget, KnowledgeSection, KnowledgeState, RenderMessage, SearchResults } from "./protocol";
 import { panelOptions, webviewShell } from "./webviewShell";
 import { openSOPOriginal } from "./investigationDocument";
@@ -43,6 +43,7 @@ export class KnowledgeDocument {
   private importing = false;
   private sops: SOPDoc[] = [];
   private cases: CaseSummaryView[] | null = null;
+  private candidates: CandidateRow[] | null = null;
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -127,10 +128,17 @@ export class KnowledgeDocument {
       case "cases.list":
         void this.listCases(msg.filters);
         return;
+      case "candidates.list":
+        void this.listCandidates(msg.status);
+        return;
       case "candidate.get":
+        void this.getCandidate(msg.id);
+        return;
       case "candidate.accept":
+        void this.acceptCandidate(msg.id, msg.body);
+        return;
       case "candidate.discard":
-        void this.post({ type: "knowledge.error", message: "Candidates land with gap 00 §6.24; until then a drafted procedure opens as an editor tab at conclusion." });
+        void this.discardCandidate(msg.id, msg.reason);
         return;
       case "import.choose":
         void this.choose(msg.folder);
@@ -191,13 +199,21 @@ export class KnowledgeDocument {
     } catch (err) {
       this.log.debug(`citation counts: ${errText(err)}`);
     }
+    // Candidates (adr/0112): the drafts waiting for review, with the decided ones.
+    try {
+      this.candidates = await this.client.candidates();
+    } catch (err) {
+      this.log.debug(`candidates: ${errText(err)}`);
+      this.candidates = null;
+    }
     const state: KnowledgeState = {
       counts: this.counts(),
       sops: this.sops,
       cases: this.cases,
+      candidates: this.candidates,
+      candidateDetail: null,
       citations,
       detailCitations: null,
-      candidates: null,
       detail: null,
       detailRevisions: null,
       revisionBodies: {},
@@ -218,7 +234,48 @@ export class KnowledgeDocument {
   }
 
   private counts(): KnowledgeState["counts"] {
-    return { procedures: this.sops.filter((s) => s.status !== "retired").length, cases: this.cases ? this.cases.length : null, candidates: null };
+    return { procedures: this.sops.filter((s) => s.status !== "retired").length, cases: this.cases ? this.cases.length : null, candidates: this.candidates ? this.candidates.filter((c) => c.status === "NEW").length : null };
+  }
+
+  /** The candidates (adr/0112): the list, one draft with its closest procedure, accept through the import path, discard with a reason. */
+  private async listCandidates(status?: string): Promise<void> {
+    try {
+      const candidates = await this.client.candidates(status);
+      if (!status) this.candidates = candidates;
+      await this.post({ type: "knowledge.state", state: { candidates, counts: this.counts() } });
+    } catch (err) {
+      await this.post({ type: "knowledge.error", message: `Could not list the candidates — ${errText(err)}` });
+    }
+  }
+
+  private async getCandidate(id: string): Promise<void> {
+    try {
+      await this.post({ type: "knowledge.state", state: { candidateDetail: await this.client.candidate(id) } });
+    } catch (err) {
+      await this.post({ type: "knowledge.error", message: `Could not read the candidate — ${errText(err)}` });
+    }
+  }
+
+  private async acceptCandidate(id: string, body: string): Promise<void> {
+    try {
+      const res = await this.client.acceptCandidate(id, body);
+      void vscode.window.setStatusBarMessage(`reckon: procedure “${res.candidate.title}” ${res.outcome === "revised" ? "revised" : "added"} — consultable in future investigations`, 6000);
+      this.sops = await this.client.sops(true).catch(() => this.sops);
+      await this.listCandidates();
+      await this.post({ type: "knowledge.state", state: { sops: this.sops, candidateDetail: await this.client.candidate(id).catch(() => null) } });
+    } catch (err) {
+      await this.post({ type: "knowledge.error", message: `Could not add the procedure — ${errText(err)}` });
+    }
+  }
+
+  private async discardCandidate(id: string, reason: string): Promise<void> {
+    try {
+      await this.client.discardCandidate(id, reason);
+      await this.listCandidates();
+      await this.post({ type: "knowledge.state", state: { candidateDetail: await this.client.candidate(id).catch(() => null) } });
+    } catch (err) {
+      await this.post({ type: "knowledge.error", message: `Could not discard the candidate — ${errText(err)}` });
+    }
   }
 
   /** Ask (09 §9.2, adr/0111): one knowledge-only loop on the client plane; the

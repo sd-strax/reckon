@@ -328,7 +328,8 @@ Motivated by the knowledge surfaces (`ui/09`, `adr/0084`), not yet built:
 24. **Stored procedure candidates** — the conclude hook's draft (`proposeSOP`) is kept as a
     candidate record (draft text, source investigation, drafted at, status, discard reason)
     instead of being shown once at conclude, so it can be reviewed later in the Knowledge
-    view (`ui/09 §9.7`). Accepting still imports through the existing path.
+    view (`ui/09 §9.7`). Accepting still imports through the existing path. **Landed** (`adr/0112`): `procedure_candidates`,
+    `GET/POST /api/knowledge/candidates`, `…/{id}`, `…/accept`, `…/discard`.
 
 ---
 

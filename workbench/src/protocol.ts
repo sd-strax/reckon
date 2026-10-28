@@ -10,6 +10,8 @@
 // one-object answers (labels, appearances) ride beside it unchanged.
 
 import type {
+  CandidateRow,
+  CandidateDetail,
   ActionRecord,
   ActionRow,
   Appearance,
@@ -106,8 +108,10 @@ export interface KnowledgeState {
   citations: Record<string, number> | null;
   /** The open procedure's Where used rows (adr/0109); null until read. */
   detailCitations: KnowledgeCitation[] | null;
-  /** §6.24: same. */
-  candidates: null;
+  /** Procedure candidates (adr/0112), newest first; null when the store could not be read. */
+  candidates: CandidateRow[] | null;
+  /** The open candidate with the closest existing procedure; null until read. */
+  candidateDetail: CandidateDetail | null;
   /** The open procedure, whole (the row carries the body too; the detail re-reads it so an edit elsewhere shows). */
   detail: SOPDoc | null;
   /** The open procedure's lineage (adr/0097) and the revision bodies fetched for a compare, by hash. */
@@ -368,6 +372,7 @@ export type InboundMessage =
   | { type: "sop.save"; sopId: string; title: string; body: string; tags: string[]; recommendation?: string }
   | { type: "sop.retire"; sopId: string; reason: string }
   | { type: "cases.list"; filters?: { technique?: string; disposition?: string; from?: string; to?: string } }
+  | { type: "candidates.list"; status?: string }
   | { type: "candidate.get"; id: string }
   | { type: "candidate.accept"; id: string; body: string }
   | { type: "candidate.discard"; id: string; reason: string }

@@ -4,7 +4,7 @@
     "counts": {
       "procedures": 3,
       "cases": 2,
-      "candidates": null
+      "candidates": 1
     },
     "sops": [
       {
@@ -178,7 +178,46 @@
         "revision": 1
       }
     ],
-    "candidates": null,
+    "candidates": [
+      {
+        "id": "cand-1",
+        "investigationId": "11111111-1111-4111-8111-111111111111",
+        "title": "Confirm an unexpected interactive session with the account owner",
+        "body": "# Confirm an unexpected interactive session\n\n1. Reach the account owner out of band.\n2. Record the answer as an attestation on the prediction.\n3. If unrecognised, isolate the host and disable the account.",
+        "tags": [
+          "identity",
+          "containment"
+        ],
+        "recommendation": "isolate",
+        "rationale": "The case turned on an owner attestation; no procedure covers reaching the owner first.",
+        "generatorModel": "harness-model",
+        "draftedAt": "2026-10-20T11:00:00Z",
+        "draftedBy": "analyst-1",
+        "draftedByName": "Analyst One",
+        "status": "NEW"
+      },
+      {
+        "id": "cand-2",
+        "investigationId": "22222222-2222-4222-8222-222222222222",
+        "title": "Rotate a service account after misuse",
+        "body": "Rotate it.",
+        "tags": [
+          "identity"
+        ],
+        "recommendation": "reset",
+        "rationale": "",
+        "generatorModel": "harness-model",
+        "draftedAt": "2026-09-12T16:00:00Z",
+        "draftedBy": "analyst-1",
+        "draftedByName": "Analyst One",
+        "status": "DISCARDED",
+        "decidedBy": "analyst-1",
+        "decidedByName": "Analyst One",
+        "decidedAt": "2026-09-13T09:00:00Z",
+        "discardReason": "the credential reset runbook already covers it"
+      }
+    ],
+    "candidateDetail": null,
     "citations": {
       "59f0a2cc-b599-44bc-8d72-0abda14ed4d2": 2,
       "5cce8c33-eda2-480d-8495-bb29f356c037": 1
@@ -638,6 +677,17 @@
     "grouping--a1a1a1a1-1111-4111-8111-111111111111": {
       "investigations": [],
       "learned": []
+    }
+  },
+  "candidateDetails": {
+    "cand-1": {
+      "closest": {
+        "sopId": "59f0a2cc-b599-44bc-8d72-0abda14ed4d2",
+        "title": "Credential Theft Triage",
+        "excerpt": "Scope: signs that account credentials were captured — LSASS access, credential dumping tooling (ATT&CK T1003), or a valid account used from an anomalous host",
+        "score": 0.61,
+        "rationale": "shares the containment steps"
+      }
     }
   },
   "queue": {

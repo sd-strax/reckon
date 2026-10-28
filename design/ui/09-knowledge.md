@@ -144,10 +144,10 @@ whenever they choose.
 
 | Element | Source |
 |---|---|
-| Rows: title, drafted from (the investigation, as a link), drafted at, status (`NEW` / `ACCEPTED` / `DISCARDED`) | Gap `00 §6.24` |
+| Rows: title, drafted from (the investigation, as a link), drafted at, status (`NEW` / `ACCEPTED` / `DISCARDED`) | `GET /api/knowledge/candidates?status=` (`adr/0112`) |
 | Detail: the draft as editable markdown with frontmatter; the closest existing procedure, when one exists, for comparison | The draft; procedure recall over its text (§9.2) |
-| **Add to library**: imports the edited draft with a `reckon://investigation/<id>` source URL, so accepting again revises rather than duplicates | `POST /api/sops/import_markdown` |
-| **Discard** with a reason | Gap `00 §6.24` |
+| **Add to library**: imports the edited draft with a `reckon://investigation/<id>` source URL, so accepting again revises rather than duplicates | `POST /api/knowledge/candidates/{id}/accept`, through the procedure import path |
+| **Discard** with a reason | `POST /api/knowledge/candidates/{id}/discard` |
 
 Nothing is added without an explicit accept. Under `gated` governance an accepted candidate
 enters as a draft for review (`06 §9.3`).
