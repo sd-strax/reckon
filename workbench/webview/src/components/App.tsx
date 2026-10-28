@@ -2,8 +2,9 @@
 // companion column as the regions grid; the inspector overlaying the
 // companion side of the lens area; the dialogs and the draft surface on top.
 // Below 1280px the work queue collapses to an icon rail; below 1024px the
-// companion becomes a toggled drawer (container queries on #root).
-import { useEffect, useState } from "react";
+// companion becomes a toggled drawer (container queries on #root). The
+// companion's width is the analyst's (dragged on its edge, view state).
+import { useEffect, useState, type CSSProperties } from "react";
 import { useApp } from "../app";
 import { Companion } from "./Companion";
 import { EnableForm, VerdictDialog } from "./Dialogs";
@@ -15,7 +16,7 @@ import { LensArea } from "./LensArea";
 import { PromptCard } from "./PromptCard";
 
 export function App() {
-  const { state, prompt, enableAdapter, verdictOpen } = useApp();
+  const { state, prompt, enableAdapter, verdictOpen, companionWidth } = useApp();
   const [drawer, setDrawer] = useState(false);
   useEffect(() => {
     document.body.classList.toggle("loading", state.loading);
@@ -24,7 +25,7 @@ export function App() {
     <>
       <div id="document" className={drawer ? "drawer-open" : ""}>
         <Header />
-        <div id="regions">
+        <div id="regions" style={companionWidth ? ({ "--companion-w": companionWidth + "px" } as CSSProperties) : undefined}>
           <LeftRegion />
           <div id="lensWrap">
             <LensArea />

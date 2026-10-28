@@ -13,21 +13,6 @@ body {
   border: 3px solid transparent; background-clip: content-box; border-radius: var(--r-pill);
 }
 
-/* ---- two-region layout: conversation + grip + state rail ---- */
-#main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-#railGrip {
-  flex: none; width: 5px; cursor: col-resize;
-  border-left: 1px solid var(--border);
-  transition: background var(--dur-fast) var(--ease);
-}
-#railGrip:hover, body.railDragging #railGrip { background: color-mix(in srgb, var(--he-primary) 40%, transparent); }
-body.railDragging { cursor: col-resize; user-select: none; }
-#rail {
-  flex: none; width: var(--rail-w, 400px); min-width: 200px; max-width: 60vw;
-  overflow-y: auto; padding: var(--sp-3) var(--sp-3) var(--sp-4);
-  background: var(--sidebar-bg);
-}
-@media (max-width: 640px) { #rail, #railGrip { display: none; } }
 
 header { padding: var(--sp-3) var(--sp-5) var(--sp-2); border-bottom: 1px solid var(--border); flex: none; }
 .titlerow { display: flex; align-items: baseline; gap: var(--sp-3); }
@@ -447,8 +432,10 @@ body.loading #rail { opacity: 0.6; }
    ===================================================================== */
 #root { display: block; height: 100vh; container-type: inline-size; }
 #document { display: flex; flex-direction: column; height: 100vh; }
-#regions { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr) 380px; }
-#lensWrap { position: relative; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+/* One row bounded by the window: each region scrolls inside it, so nothing
+   (a long conversation, a focused composer) can scroll the document itself. */
+#regions { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: 250px minmax(0, 1fr) min(var(--companion-w, 380px), 60%); }
+#lensWrap { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
 #lensArea { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .lensscroll { flex: 1; overflow-y: auto; padding: var(--sp-3) var(--sp-5) var(--sp-8); }
 .lens { max-width: 900px; }
@@ -592,9 +579,12 @@ body.loading #rail { opacity: 0.6; }
 .draftbody { font-family: var(--sans); white-space: pre-wrap; font-size: var(--fs-sm); margin: 6px 0; line-height: 1.5; }
 
 /* companion */
-#companion { display: flex; flex-direction: column; min-width: 0; background: var(--sidebar-bg); }
+#companion { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--sidebar-bg); }
+.companiongrip { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; transition: background var(--dur-fast) var(--ease); }
+.companiongrip:hover, .companiongrip:focus-visible, body.gripDragging .companiongrip { background: color-mix(in srgb, var(--he-primary) 40%, transparent); outline: none; }
+body.gripDragging { cursor: col-resize; user-select: none; }
 #companion .regionhead { padding: 6px var(--sp-3) 0; margin: 0; }
-.companionscroll { flex: 1; overflow-y: auto; padding: 4px var(--sp-3) var(--sp-4); }
+.companionscroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px var(--sp-3) var(--sp-4); }
 .ksection { border: 1px solid var(--border); border-radius: var(--r); padding: 7px 10px; margin: 6px 0 10px; background: var(--fill); }
 .khead { display: flex; align-items: baseline; gap: 8px; cursor: pointer; }
 .khead .kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); }
@@ -620,7 +610,7 @@ body.loading #rail { opacity: 0.6; }
 
 /* responsive floors (08 §8.1) */
 @container (max-width: 1279px) {
-  #regions { grid-template-columns: 44px minmax(0, 1fr) 340px; }
+  #regions { grid-template-columns: 44px minmax(0, 1fr) min(var(--companion-w, 340px), 60%); }
   #leftRegion { padding: var(--sp-2) 4px; }
   #leftRegion .queue, #leftRegion .railfold, #leftRegion .modetoggle { display: none; }
 }
@@ -628,6 +618,7 @@ body.loading #rail { opacity: 0.6; }
   #regions { grid-template-columns: 44px minmax(0, 1fr); }
   #companion { position: absolute; right: 0; top: 0; bottom: 0; width: min(420px, 92vw); border-left: 1px solid var(--border); box-shadow: var(--shadow-panel); transform: translateX(100%); transition: transform var(--dur) var(--ease); z-index: 9; }
   #document.drawer-open #companion { transform: none; }
+  .companiongrip { display: none; }
   #regions { position: relative; }
   #drawerToggle { display: block; position: absolute; right: 8px; bottom: 8px; z-index: 10; font-size: 16px; background: var(--he-primary); color: #fff; border-radius: var(--r-pill); width: 38px; height: 38px; }
 }

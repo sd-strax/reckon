@@ -7,6 +7,7 @@ import { AppProvider } from "../app";
 import { App } from "./App";
 import { HarnessTransport, type HarnessSnapshot } from "../../../harness/transport";
 import synthetic from "../../../harness/snapshots/synthetic.json";
+import css from "../styles/app.css?raw";
 
 const data = synthetic as unknown as HarnessSnapshot;
 
@@ -257,5 +258,38 @@ describe("the investigation document", () => {
     // Close is done; Contain and Notify honestly stay undone (the actions never settled); nothing is current.
     expect(document.querySelector(".stage .step:last-child")!.classList.contains("done")).toBe(true);
     expect(document.querySelector(".stage .step.current")).toBeNull();
+  });
+});
+
+describe("the companion pane", () => {
+  const grip = () => screen.getByRole("separator", { name: "Resize the companion" });
+  const width = () => (document.getElementById("regions") as HTMLElement).style.getPropertyValue("--companion-w");
+
+  it("resizes from its edge, remembers the width, and returns to the default on double-click", () => {
+    const { transport } = mount();
+    expect(width()).toBe("");
+    fireEvent.keyDown(grip(), { key: "ArrowLeft" });
+    expect(width()).toBe("304px"); // jsdom has no layout: the minimum width plus one step
+    expect(transport.getState<{ companionW?: number }>()?.companionW).toBe(304);
+    fireEvent.doubleClick(grip());
+    expect(width()).toBe("");
+    expect(transport.getState<{ companionW?: number }>()?.companionW).toBeUndefined();
+  });
+
+  it("opens at the width the analyst left it", () => {
+    const transport = new HarnessTransport(data);
+    transport.setState({ companionW: 520 });
+    render(<AppProvider transport={transport}><App /></AppProvider>);
+    expect(width()).toBe("520px");
+  });
+
+  // jsdom cannot lay out, so the rules that keep each region scrolling inside
+  // the window are checked as written: without them a long conversation grows
+  // the companion past the window and focusing the composer scrolls the
+  // whole document, header and lenses out of view.
+  it("bounds the regions to the window so each scrolls on its own", () => {
+    const rule = (sel: string) => css.match(new RegExp("^" + sel.replace(/[.#]/g, "\\$&") + " \\{([^}]*)\\}", "m"))?.[1] || "";
+    expect(rule("#regions")).toContain("grid-template-rows: minmax(0, 1fr)");
+    for (const sel of ["#lensWrap", "#companion", ".companionscroll"]) expect(rule(sel)).toContain("min-height: 0");
   });
 });
