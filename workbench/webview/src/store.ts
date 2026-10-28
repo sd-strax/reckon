@@ -81,6 +81,8 @@ export interface State {
   queue: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string } | null;
   /** The signed-in principal, for "edited by you" and attestations. */
   me: { name: string; principal: string } | null;
+  /** Actions with a decision sent and not yet settled by the host: every card for one disables. */
+  actionsInFlight: Record<string, true>;
 }
 
 export const initialState: State = {
@@ -105,13 +107,16 @@ export const initialState: State = {
   preserveLive: false,
   queue: null,
   me: null,
+  actionsInFlight: {},
 };
 
 export type Action =
   | { type: "msg"; msg: RenderMessage }
   | { type: "knowledge.toggle"; ref: string; included: boolean }
   | { type: "draft.submitting" }
-  | { type: "draft.searching"; status: string };
+  | { type: "draft.searching"; status: string }
+  /** A decision on this action was sent to the host. */
+  | { type: "action.sent"; actionId: string };
 
 function currentTurn(live: LiveItem[]): LiveTurn | null {
   const last = live[live.length - 1];
@@ -144,6 +149,8 @@ export function reducer(state: State, action: Action): State {
       return { ...state, draft: { ...state.draft, submitting: true, error: "" } };
     case "draft.searching":
       return { ...state, draft: { ...state.draft, status: action.status, cases: [] } };
+    case "action.sent":
+      return { ...state, actionsInFlight: { ...state.actionsInFlight, [action.actionId]: true } };
     case "msg":
       return onMessage(state, action.msg);
   }
@@ -223,6 +230,8 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...state, actionRecords: { ...state.actionRecords, [msg.actionId]: msg.record }, inspectorErrors: dropKey(state.inspectorErrors, msg.actionId) };
     case "inspector.case":
       return { ...state, caseSummaries: { ...state.caseSummaries, [msg.investigationRef]: msg.summary }, inspectorErrors: dropKey(state.inspectorErrors, msg.investigationRef) };
+    case "action.settled":
+      return { ...state, actionsInFlight: dropKey(state.actionsInFlight, msg.actionId) };
     case "inspector.error":
       return { ...state, inspectorErrors: { ...state.inspectorErrors, [msg.target]: msg.message }, docs: msg.target in state.docs ? state.docs : { ...state.docs, [msg.target]: null } };
     case "turn.user":

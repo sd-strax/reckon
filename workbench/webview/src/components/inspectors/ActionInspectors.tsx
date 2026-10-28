@@ -9,7 +9,7 @@ import { Json, KV, Loading, Section, Tabs } from "./primitives";
 const ESCALATION_THRESHOLD = 10; // 04 §1: T2→T3 above this many distinct targets
 
 export function ActionInspector({ actionId }: { actionId: string }) {
-  const { state, openInspector, openPrompt, send } = useApp();
+  const { state, dispatch, openInspector, openPrompt, send } = useApp();
   const row = state.snap?.actions?.find((a) => a.actionId === actionId);
   const rec = state.actionRecords[actionId];
   const a = rec?.action || row;
@@ -65,13 +65,16 @@ export function ActionInspector({ actionId }: { actionId: string }) {
               ]} />
               {reversible ? (
                 <div className="decide">
-                  <button onClick={() => openPrompt({
+                  <button disabled={Boolean(state.actionsInFlight[actionId])} onClick={() => openPrompt({
                     title: "Request reversal of " + a.actionType,
                     label: "Why reverse it?",
                     placeholder: "e.g. the host is confirmed clean; restore connectivity",
                     helper: "Requests the inverse action at the same tier; it lands in the approval queue like any action. The original stays SUCCEEDED until the reversal verifiably took effect.",
                     confirm: "Request reversal",
-                    onConfirm: (rationale) => send({ type: "action.reverse", actionId: a.actionId, rationale }),
+                    onConfirm: (rationale) => {
+                      dispatch({ type: "action.sent", actionId: a.actionId });
+                      send({ type: "action.reverse", actionId: a.actionId, rationale });
+                    },
                   })}>Request reversal</button>
                 </div>
               ) : null}

@@ -159,6 +159,9 @@ export type RenderMessage =
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
   | { type: "inspector.error"; target: string; message: string }
+  // The host finished handling a decision on this action (approve, reject,
+  // re-request, reversal), whatever the outcome, after refreshing the record.
+  | { type: "action.settled"; actionId: string }
   | { type: "turn.start" }
   | { type: "turn.user"; text: string }
   // An aside (the "btw" lens): a scoped agent turn rendered collapsed.
@@ -195,9 +198,10 @@ export type InboundMessage =
   // The analyst confirmed (and possibly edited) the case note (adr/0032).
   | { type: "caseNote.post"; body: string }
   | { type: "send"; text: string; includedKnowledge?: string[] }
-  | { type: "action.approve"; actionId: string; tier: string; actionType: string; challenge?: string }
-  | { type: "action.reject"; actionId: string; actionType: string; reason: string }
-  | { type: "action.rerequest"; actionId: string; actionType: string; rationale: string }
+  // Decisions name the action only; the host reads its tier and type from the record.
+  | { type: "action.approve"; actionId: string; challenge?: string }
+  | { type: "action.reject"; actionId: string; reason: string }
+  | { type: "action.rerequest"; actionId: string; rationale: string }
   // Request the inverse action of a SUCCEEDED reversible one (04 §7); lands in the queue like any action.
   | { type: "action.reverse"; actionId: string; rationale: string }
   | { type: "pin.add"; refs: string[]; finding: string }

@@ -3,24 +3,20 @@
 // Notification → External work, owner action items (gap §6.17: absent until
 // the record carries them), the notification draft assembled from the record
 // (the mandatory preview is the approval), and the comms threads.
-import { useState } from "react";
 import { useApp } from "../../app";
 import { hypName } from "../../derive/hyps";
 import { proceduresFollowed } from "../../derive/summary";
 import { ActionCard, GROUP_LABELS, groupOf } from "../ActionCard";
 import { Comms } from "../Rail";
 import { Empty } from "../shared";
-import type { ActionRow } from "../../../../src/backend";
 
 const ORDER = ["containment", "eradication", "recovery", "notification", "external"] as const;
 
 export function ResponseLens() {
   const { state, send, openPrompt } = useApp();
   const snap = state.snap;
-  const [lockedOn, setLockedOn] = useState<ActionRow[] | null>(null);
   if (!snap) return null;
   const actions = snap.actions || [];
-  const locked = lockedOn !== null && lockedOn === snap.actions;
   const hs = snap.hypotheses;
   const pending = actions.filter((a) => a.pending && !a.expired);
   const followed = proceduresFollowed(snap.thread || []);
@@ -62,7 +58,7 @@ export function ResponseLens() {
       {groups.map(({ g, rows }) => (
         <section key={g} className="lsection" id={g === "notification" ? "obj-notification" : undefined}>
           <h3>{GROUP_LABELS[g]}<span className="count">{rows.length}</span></h3>
-          {rows.slice().reverse().map((a) => <ActionCard key={a.actionId} a={a} variant="full" locked={locked} onLock={() => setLockedOn(snap.actions ?? null)} draft={draft} />)}
+          {rows.slice().reverse().map((a) => <ActionCard key={a.actionId} a={a} variant="full" draft={draft} />)}
         </section>
       ))}
       <section className="lsection">

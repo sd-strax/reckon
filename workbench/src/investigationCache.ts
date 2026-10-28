@@ -3,7 +3,7 @@
 // serializes every read of one investigation so a slower, older read can never
 // be posted after a newer one. It knows nothing of VS Code or the webview; the
 // investigation document posts what it returns.
-import type { BackendClient, ThreadEntry } from "./backend";
+import type { ActionRow, BackendClient, ThreadEntry } from "./backend";
 import type { ChronicleTurn, InvestigationSnapshot } from "./protocol";
 
 /** The backend reads the cache needs — the seam its tests fake. */
@@ -39,6 +39,8 @@ export class InvestigationCache {
   // Action records the inspector holds, per investigation, with the sequence
   // they were read at.
   private readonly records = new Map<string, Map<string, number>>();
+  // The actions as last read, per investigation: what a decision is checked against.
+  private readonly actions = new Map<string, ActionRow[]>();
   // Transcripts are immutable once committed: content-addressed, shared
   // across investigations.
   private readonly transcripts = new Map<string, string>();
@@ -82,9 +84,15 @@ export class InvestigationCache {
     return m ? [...m].filter(([, readAt]) => seq > readAt).map(([actionId]) => actionId) : [];
   }
 
+  /** An action as the record last showed it; undefined if no read has carried it. */
+  action(id: string, actionId: string): ActionRow | undefined {
+    return this.actions.get(id)?.find((a) => a.actionId === actionId);
+  }
+
   /** Drop what is held for an investigation whose panel closed. */
   forget(id: string): void {
     this.records.delete(id);
+    this.actions.delete(id);
     for (const key of [...this.requests.keys()]) {
       if (key.startsWith(id + ":")) this.requests.delete(key);
     }
@@ -187,7 +195,10 @@ export class InvestigationCache {
       projection.thread = thread;
       projection.turns = await this.turns(thread);
     }
-    if (actions !== undefined) projection.actions = actions;
+    if (actions !== undefined) {
+      projection.actions = actions;
+      this.actions.set(id, actions);
+    }
     if (pins !== undefined) projection.pins = pins;
     if (comms !== undefined) projection.comms = comms;
     return projection;

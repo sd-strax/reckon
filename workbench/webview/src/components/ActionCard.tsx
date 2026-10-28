@@ -7,6 +7,7 @@
 import { useApp } from "../app";
 import { actionStatusBadge } from "../derive/actions";
 import type { ActionRow } from "../../../src/backend";
+import type { InboundMessage } from "../../../src/protocol";
 import { Badge, Countdown, RefChip } from "./shared";
 
 const GROUP_ICON: Record<string, string> = { containment: "⛨", eradication: "✂", recovery: "↻", notification: "✉", external: "⇄" };
@@ -22,14 +23,21 @@ export function groupOf(a: Pick<ActionRow, "actionType">): "containment" | "erad
 }
 export const GROUP_LABELS: Record<ReturnType<typeof groupOf>, string> = { containment: "Containment", eradication: "Eradication", recovery: "Recovery", notification: "Notification", external: "External work" };
 
-export function ActionCard({ a, variant, locked, onLock, draft }: { a: ActionRow; variant: "full" | "compact"; locked: boolean; onLock: () => void; draft?: boolean }) {
-  const { send, openPrompt, openInspector, goTo } = useApp();
+export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full" | "compact"; draft?: boolean }) {
+  const { state, dispatch, send, openPrompt, openInspector, goTo } = useApp();
   const p = (a.parameters || {}) as Record<string, unknown>;
   const isNotify = a.actionType.startsWith("notify.");
   const sb = actionStatusBadge(a);
   const group = groupOf(a);
   const bodyText = typeof p.message === "string" && p.message ? p.message : typeof p.body === "string" ? p.body : "";
   const decide = a.pending && !a.expired;
+  // One decision at a time per action, across every card that renders it,
+  // until the host settles it.
+  const locked = Boolean(state.actionsInFlight[a.actionId]);
+  const decideOn = (intent: InboundMessage) => {
+    dispatch({ type: "action.sent", actionId: a.actionId });
+    send(intent);
+  };
 
   const approve = () => {
     if (a.tier === "T3") {
@@ -39,16 +47,15 @@ export function ActionCard({ a, variant, locked, onLock, draft }: { a: ActionRow
         helper: "High blast radius (" + a.targets.length + " targets). This action is "
           + (a.reversibility === "REVERSIBLE" ? "reversible." : a.reversibility === "BEST_EFFORT" ? "best-effort reversal — treat as permanent." : "irreversible."),
         confirm: "Approve",
-        onConfirm: (challenge) => send({ type: "action.approve", actionId: a.actionId, tier: a.tier, actionType: a.actionType, challenge }),
+        onConfirm: (challenge) => decideOn({ type: "action.approve", actionId: a.actionId, challenge }),
       });
     } else {
-      onLock();
-      send({ type: "action.approve", actionId: a.actionId, tier: a.tier, actionType: a.actionType });
+      decideOn({ type: "action.approve", actionId: a.actionId });
     }
   };
   const reject = () => openPrompt({
     title: "Reject " + a.actionType, label: "Why is this rejected?", placeholder: "recorded on the audit trail", confirm: "Reject", require: false,
-    onConfirm: (reason) => send({ type: "action.reject", actionId: a.actionId, actionType: a.actionType, reason }),
+    onConfirm: (reason) => decideOn({ type: "action.reject", actionId: a.actionId, reason }),
   });
   const buttons = decide ? (
     <div className="decide">
@@ -110,16 +117,16 @@ export function ActionCard({ a, variant, locked, onLock, draft }: { a: ActionRow
           <button className="primary" disabled={locked} title="Create a fresh request (same targets + evidence, new approval window)" onClick={() => openPrompt({
             title: "Re-request " + a.actionType, label: "Why is this still warranted?", placeholder: "e.g. the host still shows the beaconing — containment still needed",
             helper: "Creates a NEW action (same targets & evidence, fresh approval window) you then approve. The original stays expired, linked as lineage.", confirm: "↻ Re-request",
-            onConfirm: (rationale) => send({ type: "action.rerequest", actionId: a.actionId, actionType: a.actionType, rationale }),
+            onConfirm: (rationale) => decideOn({ type: "action.rerequest", actionId: a.actionId, rationale }),
           })}>↻ Re-request</button>
         </div>
       ) : null}
       {a.status === "SUCCEEDED" && a.reversibility === "REVERSIBLE" ? (
         <div className="decide">
-          <button className="ghost" onClick={() => openPrompt({
+          <button className="ghost" disabled={locked} onClick={() => openPrompt({
             title: "Request reversal of " + a.actionType, label: "Why reverse it?", placeholder: "e.g. the host is confirmed clean; restore connectivity",
             helper: "Requests the inverse action at the same tier; it lands in the approval queue like any action.", confirm: "Request reversal",
-            onConfirm: (rationale) => send({ type: "action.reverse", actionId: a.actionId, rationale }),
+            onConfirm: (rationale) => decideOn({ type: "action.reverse", actionId: a.actionId, rationale }),
           })}>Reverse…</button>
         </div>
       ) : null}

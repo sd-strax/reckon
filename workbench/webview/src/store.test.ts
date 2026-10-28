@@ -47,6 +47,16 @@ describe("reducer: sequence discipline", () => {
   });
 });
 
+describe("reducer: decisions in flight", () => {
+  it("marks an action in flight when a decision is sent, until the host settles it", () => {
+    let s = reducer(initialState, { type: "action.sent", actionId: "act-1" });
+    s = reducer(s, { type: "action.sent", actionId: "act-2" });
+    expect(s.actionsInFlight).toEqual({ "act-1": true, "act-2": true });
+    s = run([{ type: "action.settled", actionId: "act-1" }], s);
+    expect(s.actionsInFlight).toEqual({ "act-2": true });
+  });
+});
+
 describe("reducer: the live conversation", () => {
   it("streams text into one segment, settles tool rows FIFO, keeps a failed turn", () => {
     let s = run([
