@@ -28,7 +28,7 @@ func TestShippedActionScenario(t *testing.T) {
 		avail[s.Descriptor.ActionType] = s.Status
 	}
 	for _, at := range []string{
-		"host.isolate", "account.disable", "account.enable", "ioc.block", "ioc.unblock",
+		"host.isolate", "host.unisolate", "account.disable", "account.enable", "ioc.block", "ioc.unblock",
 		"ticket.create", "ticket.comment", "ticket.transition", "ticket.close",
 	} {
 		if avail[at] != ActionAvailable {
@@ -187,5 +187,30 @@ func TestShippedImpossibleTravelActionScenario(t *testing.T) {
 	}
 	if res.FinalOutcome != OutcomeSucceeded {
 		t.Errorf("account.disable outcome = %q; want SUCCEEDED", res.FinalOutcome)
+	}
+}
+
+// TestShippedScenariosBindEveryInverse guards the Reverse path in the demo: a
+// bound action whose catalog entry names an inverse must have that inverse bound
+// too, or the reversal is approved and then fails at dispatch with no binding.
+func TestShippedScenariosBindEveryInverse(t *testing.T) {
+	for _, path := range []string{
+		"../examples/action/lateral-movement.yaml",
+		"../examples/action/impossible-travel.yaml",
+	} {
+		cfg, err := LoadActionConfig(path)
+		if err != nil {
+			t.Fatalf("load %s: %v", path, err)
+		}
+		catalog := DefaultActionCatalog()
+		for at := range cfg.Bindings {
+			d, ok := catalog.Descriptor(at)
+			if !ok || d.ReversibleBy == "" {
+				continue
+			}
+			if len(cfg.Bindings[d.ReversibleBy]) == 0 {
+				t.Errorf("%s: %s is bound but its inverse %s is not", path, at, d.ReversibleBy)
+			}
+		}
 	}
 }
