@@ -274,6 +274,16 @@ conclusion/export flow, presence, dashboards. The slice is judged by one test: a
 run the fixture investigation end-to-end — seed to evidence-grounded action approval — without
 touching a terminal or a YAML file.
 
+**After v0** (`adr/0079`, `adr/0084`; `implementation/workbench-react.md`): the investigation
+document became the layout of `design/ui/08` — header with stage and primary action, the left
+region with the work queue and the Work | Knowledge toggle, four lenses (Reasoning, Response,
+Story, Summary), the companion with the Knowledge section and the thread, and the inspector that
+replaces step 6's editor tab; the Knowledge view of `design/ui/09` (Procedures, Past cases,
+Import, Candidates, Search and Ask) is its own document. The webview is React, bundled by esbuild,
+rendered from a typed `protocol.ts`, with a browser harness over recorded snapshots as the
+structural check. The engine gaps that package motivated are `design/ui/00 §6.12`–`§6.24`, each
+with its decision record.
+
 ---
 
 ## 8. Open questions / deferred to v1+

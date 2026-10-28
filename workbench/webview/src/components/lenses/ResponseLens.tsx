@@ -1,6 +1,6 @@
 // Response — containment and handoff (08 §8.4): the plan header, the action
 // cards in every engine state grouped Containment → Eradication → Recovery →
-// Notification → External work, owner action items (gap §6.17: absent until
+// Notification → External work, owner action items (adr/0101: absent until
 // the record carries them), the notification draft assembled from the record
 // (the mandatory preview is the approval), and the comms threads.
 import { useState } from "react";

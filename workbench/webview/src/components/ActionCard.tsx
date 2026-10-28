@@ -3,7 +3,7 @@
 // `compact` (a turn in the companion) carries the header, the Because chips
 // and the Approve/Reject pair, everything else a link to the full card. Both
 // render the same ActionRow, so they can never disagree. The policy fact is
-// gap §6.16: until it lands the card states the required mode the engine froze.
+// adr/0099: the policy fact folded onto the action, stated as the engine froze it.
 import { useApp } from "../app";
 import { actionStatusBadge } from "../derive/actions";
 import type { ActionRow } from "../../../src/backend";

@@ -154,7 +154,7 @@ action is not resolved.
 ## 3.7 External work
 
 > **Extended by `ui/08 §8.4` (Response)**: work only an owner outside reckon can do is an
-> owner action item, tracked to confirmation (gap `00 §6.17`).
+> owner action item, tracked to confirmation (`adr/0101`).
 
 Cards for tickets and notifications: 30px icon tile (ticket info / notification green), title,
 meta (`owner · system` or `template: …`), and a create/draft button that resolves to a state pill

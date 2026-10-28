@@ -35,7 +35,7 @@ command: `scripts/demo-reseed.sh` (or `make demo-reseed` from the repo) runs
 stop → reset → start → seed → restart unattended, because `start --detach`
 returns when the stack is up instead of holding the console.
 
-**Configure vector recall first.** The knowledge rail's relevance scores,
+**Configure vector recall first.** The Knowledge section's relevance scores,
 similarity bands, and the "have we seen this before?" case recall are all
 cosine-similarity over embeddings — the full product, not a keyword fallback.
 Add an embeddings backend to your config (`~/.reckon/config.yaml`) before the
@@ -128,8 +128,8 @@ Then, before pulling a single log, ask in the composer:
 The agent calls its `recall_sops` tool, finds **nothing**, and says so — *"no SOP
 on file for this."* It does **not** invent a procedure: the agent is explicitly
 instructed that an empty retrieval is evidence of absence. It may note the prior
-case it *does* remember — the RDP pivot on `FINANCE-07` — surfaced on the
-**knowledge rail** with a similarity band and a score (the LSASS case on
+case it *does* remember — the RDP pivot on `FINANCE-07` — surfaced in the
+companion's **Knowledge section** with a similarity band and a score (the LSASS case on
 `WORKSTATION-22` may appear further down, or not at all; promise the one). So
 the honest starting state: **we remember a similar incident, but we have no
 codified playbook.** That gap is the setup.
@@ -149,13 +149,14 @@ printed). Open it in a tab and walk the audience through it: plain markdown, YAM
 frontmatter — title, author, tags, recommendation. Ordinary institutional
 knowledge, the kind every SOC has.
 
-Bring it into reckon **live**: run **Import SOPs…**. The Import SOPs panel opens
-beside the document with the tab you're reading already listed and ticked —
-press **Import**. The row turns green: *Added to the SOP library as "Lateral
-Movement via RDP — Containment"*. No library to manage, no re-navigating to the
-file, no ceremony. *The import capability, shown, not seeded behind the
-curtain.* (**Add files…** on the same panel is the route for documents you
-haven't opened.) Now ask again:
+Bring it into reckon **live**: run **Import SOPs…**. The Knowledge view opens on
+its Import section with the tab you're reading already listed and ticked, its
+frontmatter parsed and previewed (a dry run on the server, nothing written yet) —
+press **Import**. The row reads *added: "Lateral Movement via RDP —
+Containment"*, and the procedure appears in the Procedures list beside it. No
+library to manage, no re-navigating to the file, no ceremony. *The import
+capability, shown, not seeded behind the curtain.* (**Choose files…** on the same
+section is the route for documents you haven't opened.) Now ask again:
 
 > *"Now — with our runbook in hand, what's the containment procedure here?"*
 
@@ -173,7 +174,7 @@ The agent queries the fixture telemetry, assembles the host timeline (the RDP
 logon, post-logon discovery, the C2 beacon), and the analytical surfaces
 (timeline, entities, evidence) populate as it works.
 
-**The compounding payoff.** As it reasons, the **knowledge rail** shows — with
+**The compounding payoff.** As it reasons, the **Knowledge section** shows — with
 relevance scores and similarity bands — the RDP SOP you just imported *and* the
 prior `FINANCE-07` case, flagged as a near-match. Nobody wired them to this
 investigation; the retriever found them by meaning. The analyst decides what the
@@ -265,10 +266,12 @@ on the BYOK key — **the backend never holds a model key**:
 
 2. **A candidate SOP is drafted.** The model generalizes across *this* case and
    the `FINANCE-07` case it consulted — not a retelling of one investigation,
-   but a reusable procedure — and opens it as an **editable markdown draft** with
-   a prompt: **Add to SOP library** or **Discard**. The analyst reviews it (edits
-   if they like), and accepts. *(If an existing SOP already covered it, the model
-   says so and proposes nothing — no duplicate clutter.)*
+   but a reusable procedure — and stores it for review: a status-bar line says
+   so, and the draft waits in the Knowledge view's **Candidates** section. Open
+   it there: the draft as an editable body, the closest existing procedure
+   beside it for comparison, **Add to library** or **Discard…** with a reason.
+   The analyst edits if they like, and accepts. *(If an existing SOP already
+   covered it, the model says so and proposes nothing — no duplicate clutter.)*
 
 **The other loop closes too.** This investigation was opened *from* a case, and
 any handoff the agent files on the way out (`ticket.create` for the reimage,
@@ -278,7 +281,7 @@ new seed — *cases are investigated, tickets are acted upon*, and the same reco
 can be both at different moments.
 
 **Close the loop out loud:** the corpus now holds a new SOP that *this*
-investigation produced. Start another investigation and its knowledge rail will
+investigation produced. Start another investigation and its Knowledge section will
 surface that very SOP. Each concluded case makes the next one better — with a
 human deciding, every time, both what gets acted on and what gets learned.
 

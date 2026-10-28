@@ -37,8 +37,9 @@ flow, the detection), narrates what it found, and **records a competing set**
 **`H1 rdp-lateral`** — *"WIN-FILE01 was accessed via RDP using a compromised
 service account"* — and one concrete alternative, **`H2 legit-admin`** —
 *"an administrator used svc_backup over RDP for maintenance."* The
-**Hypotheses** rail shows them as tabs with a scoreboard strip, and tool-result
-rows carry pinnable evidence chips.
+**Reasoning** lens shows them with their predictions as one-line rows and the
+discriminator matrix, and tool-result rows carry evidence chips that open the
+inspector (pin from there).
 
 *(If it investigates but doesn't record hypotheses, nudge: "Frame the competing
 hypotheses — your leading explanation and the alternative that would make it
@@ -128,9 +129,9 @@ Approve them. **Expect:** approving the first one **activates** the investigatio
 (the Draft badge flips to Active); dispatches succeed; the ticket returns an id;
 the notify opens an **External work** card (`#it-operations`, `awaiting_reply`,
 48h clock). Each act lands as a one-liner in the chronicle in causal order, and
-each action appears in the new **Actions** ledger on the rail with its status
-badge (`SUCCEEDED`, tier, target) — where it stays after completion, unlike the
-"Needs your approval" interrupt.
+each action appears as a card in the **Response** lens with its status badge
+(`SUCCEEDED`, tier, target) and the policy fact the engine froze — where it
+stays after completion, unlike the "Needs your approval" interrupt.
 
 ### 4a. Comms round-trip
 
@@ -165,29 +166,38 @@ leave a thread open to see the warning, then Mark done, then conclude).
 - **Chronicle:** read the document top-to-bottom — investigate → hypothesis acts
   → pins → verdict → the four remediations → comms → conclude, all in causal
   order. This is the "case file a colleague could read at handoff" test.
-- **Evidence card:** click any cited ref (a `WIN-FILE01` chip, a graph node, an
-  events-strip dot) → a **rendered card** opens beside the document: human title,
-  a provenance banner, structured fields, and cross-investigation memory (who
-  else has cited this entity). Raw JSON is one click away ("Open raw JSON tab")
-  for jq. One reused panel — clicking another ref updates it in place.
-- **Evidence graph** (header/rail fold): the **two-layer structure** —
-  interpretation-layer STIX objects (reasoning nodes + SCOs) on the left,
-  telemetry (OCSF) on the right, edges pointing from a produced object to the
-  evidence it cites. A reasoning object that reaches no evidence is flagged
-  **ungrounded** (the summary counts them). This is the structural lens; the
-  chronicle is the chronological one — they don't duplicate each other.
-- **Actions ledger** (rail): every action on the investigation with its status,
-  newest first — the durable record the chronicle can't be at a glance.
+- **Inspector:** click any cited ref (a `WIN-FILE01` chip, a timeline row, a
+  tool row) → the inspector opens beside the lens: the event's sentence and
+  curated fields, "Produced by" (the capability call, with its bundle) and
+  "Around it"; an entity's normal behaviour where the record holds a baseline;
+  a procedure's excerpt as the AI read it, with Versions; a person's roles as
+  their acts carried them. Raw JSON is a fold at the bottom. One pane, a back
+  stack; pin one to compare.
+- **Story** lens: the attack path and the timeline in *event* time, each row a
+  generated sentence with entity chips and the predictions that cite it; a
+  nightly repetition collapses into a baseline row.
+- **Response** lens: every action as a card with its status, tier, targets,
+  policy fact and approvals; the notification draft and comms threads; owner
+  action items tracked to confirmation.
+- **Summary** lens: where it stands — verdict, containment, notification and
+  open questions as tiles; the narrative (Draft from the record, or Write;
+  edits are revisions above the draft, with the authorship line); still to do;
+  Copy handoff note and Export report.
 - **Rename:** double-click the document title (or the ✎ pencil, or the tree
   row's context menu) → the title edits in place, file-rename style (Enter
   commits, Escape cancels). Human-only; refused on a concluded record.
-- **Event-time strip:** the two-clocks view — the decisive fact is a ~7-second
-  gap between the RDP logons; check it's visible in *event* time, not learn time.
+- **Two clocks:** the decisive fact is a ~7-second gap between the RDP logons;
+  check the Story timeline shows it in *event* time, and the thread in learn time.
 - **Enablement form:** find the `asset_criticality` gap hint → enable → apply →
   the capability surface updates **without a restart**; confirm your comments
   survived in `~/.reckon/capability/lateral-movement.yaml`.
-- **Markdown export:** the Export button → live `export.md`; it should read as a
-  coherent case, pins/hypotheses/actions/comms all present.
+- **Markdown export:** Summary lens → Export report → live `export.md`; it should
+  read as a coherent case, pins/hypotheses/actions/comms all present, and agree
+  with the handoff note.
+- **Knowledge view:** the Work | Knowledge toggle → Procedures (with "cited in N
+  investigations" and Where used), Past cases (the listing with filters),
+  Candidates (the draft from the conclusion), Search and Ask (an answer from the
+  knowledge base only, citing what it used).
 
 ---
 

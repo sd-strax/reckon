@@ -2,7 +2,7 @@
 // with their relevance signals, nothing summarized: "No procedure matches" is
 // information, a keyword-fallback answer is named as degraded (the backend
 // word verbatim). Ask is the knowledge-only agent (adr/0111): its frame
-// renders the gap line until it lands, then the answer with [n] citations
+// renders the streamed answer with [n] citations
 // opening the inspector and the footer from the sidecar's result.
 import { useApp } from "../../app";
 import { Badge, Empty } from "../shared";

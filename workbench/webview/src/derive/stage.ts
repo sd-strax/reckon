@@ -1,6 +1,6 @@
 // The stage indicator and the primary action (08 §8.2, impl §7.1): five steps
 // over the derived lifecycle — no new aggregate state. Owner items count
-// under Notify once gap §6.17 exists; until then the input is empty. Pure.
+// under Notify (adr/0101). Pure.
 import type { ActionRow, CommsThread, InvestigationSummary, Verdict } from "../../../src/backend";
 
 export type Step = "investigate" | "verdict" | "contain" | "notify" | "close";

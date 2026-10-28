@@ -1164,13 +1164,17 @@ PRs in dependency order, each green on `make ci` and `make workbench-ci`, each r
    deleted).
 6. **Cleanup** — dead code, `design/ui` sheet amendments forced by implementation (in the PRs
    that force them, this PR sweeps), `design/13 §7` note, road test and demo script updates.
+   **Landed**: the gap sources in `08`/`03` now name their decision records; `13 §7` carries the
+   after-v0 note; the demo script and road test describe the lenses, the inspector and the
+   Knowledge view; the parity inventory is retired as the bar (below).
 
 Done means (from the brief): `make ci` and `make workbench-ci` green; new Go has tests in the
 repo's style; components have harness tests; both scenarios run end to end through every lens,
 the inspector, approvals and conclude; every element names its source or is listed in §9; each
 harness screen matches its mockup in structure and tokens in both themes with no horizontal
-overflow at 1280px; the parity checklist is complete; `make eval` shows no regression when a key
-is set.
+overflow at 1280px; the harness component tests are the structural bar (the parity inventory was
+retired as a checklist, `workbench-parity.md`); `make eval` shows no regression when a key is
+set.
 
 ---
 

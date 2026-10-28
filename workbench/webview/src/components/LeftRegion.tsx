@@ -103,7 +103,7 @@ export interface KnowledgeNav {
 const SECTION_LABELS: Record<KnowledgeSection, string> = { procedures: "Procedures", cases: "Past cases", import: "Import", candidates: "Candidates" };
 
 /** The Knowledge document's sections with their counts (09 §9.1): listed
- * once, here; a count the record cannot give yet shows as a gap mark. */
+ * once, here; a count the host could not read shows as a dash. */
 function KnowledgeSections({ nav }: { nav: KnowledgeNav }) {
   const { state } = useApp();
   const k = state.kdoc;
@@ -115,9 +115,9 @@ function KnowledgeSections({ nav }: { nav: KnowledgeNav }) {
   };
   const titles: Record<KnowledgeSection, string> = {
     procedures: "The procedure corpus",
-    cases: "Concluded investigations' summaries; the listing is gap 00 §6.21",
+    cases: "Concluded investigations' summaries, newest first (adr/0107)",
     import: "Documents chosen for import",
-    candidates: "Procedures drafted at conclusion; gap 00 §6.24",
+    candidates: "Procedures drafted at conclusion, waiting for review (adr/0112)",
   };
   return (
     <section className="queue ksections" aria-label="Knowledge sections">

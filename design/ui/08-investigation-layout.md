@@ -87,9 +87,9 @@ per investigation overrides the default (view state, not investigation state, li
 | Element | Source |
 |---|---|
 | Four tiles: verdict, containment progress + nearest expiry, notification status, open questions | Verdict act; `/actions`; comms threads (`00 §4`); `/hypotheses` (`INCONCLUSIVE` / `UNTESTED`) |
-| "What happened" narrative, with its authorship line ("drafted by reckon · edited by …") | Gap `00 §6.18` |
+| "What happened" narrative, with its authorship line ("drafted by reckon · edited by …") | `GET /api/investigations/{id}/summary` (`adr/0103`): the latest narrative revision and its lineage |
 | Key entities with role and status | Grouping objects (`00 §2.1`) + citation roles; status words from the verdict and actions |
-| Still to do | `REQUESTED` actions with countdowns, owner action items (gap `00 §6.17`), outstanding notification, open predictions |
+| Still to do | `REQUESTED` actions with countdowns, owner action items (`adr/0101`), outstanding notification, open predictions |
 | Procedures followed | `consulted_*` with `used = true` (`00 §6.9`) |
 | Copy handoff note, Export report | `GET /api/investigations/{id}/export.md` (`00 §6.10`) |
 
@@ -102,8 +102,8 @@ investigation time appears once, as a divider where the investigation started.
 |---|---|
 | Attack path: entities as nodes, typed relations as the labels between them, the span in seconds | The two-layer graph (`01`), restricted to entities cited by a `SUPPORTED` hypothesis; ordered by first event time |
 | ATT&CK techniques | Detection finding types and hypothesis labels (`03 §4.12`) |
-| Timeline rows: time, source class, a generated sentence with entity chips, citing predictions | Cited OCSF events + an entity-scoped event query (gap `00 §6.13`); sentences per class (gap `00 §6.12`) |
-| Baseline row (collapsed repetition, e.g. a nightly logon) | Gap `00 §6.14` |
+| Timeline rows: time, source class, a generated sentence with entity chips, citing predictions | Cited OCSF events + the entity-scoped event query (`adr/0092`); sentences per class (`adr/0090`) |
+| Baseline row (collapsed repetition, e.g. a nightly logon) | `GET …/entities/{ref}/baseline` (`adr/0095`) |
 | Row emphasis: expected / unusual / cited-against | Cited by a `CONFIRMED` prediction of a `SUPPORTED` hypothesis → emphasized; attested-benign context → "expected" |
 | Divider: investigation start | Seed timestamp |
 | "Not yet known" note | `INCONCLUSIVE` / `UNTESTED` predictions |
@@ -121,7 +121,7 @@ The tracker of `02 §2.9` (`adr/0047`) with these changes:
   a `splits H<n>` marker when the prediction discriminates, and the evidence count (or
   "attested" for a manual test). Expanding shows the full statement, the attestation quote
   with its author by name, the evidence chips, and what it decides against. The short title
-  is gap `00 §6.12`; until it exists, the row shows the statement truncated to one line.
+  is `adr/0090` (author-supplied, with a deterministic derived fallback recorded at record time).
 - A **Cards / Matrix** toggle. The matrix lists every prediction against every live
   hypothesis: ✓ consistent, ✕ inconsistent, ? untested or inconclusive. A prediction's
   owner cell follows its outcome; each rival in its `discriminates` list gets the opposite;
@@ -134,9 +134,9 @@ The tracker of `02 §2.9` (`adr/0047`) with these changes:
 
 - **Requested action cards** keep every decision-grade element of `03 §3.3` and add a
   **policy** fact: whether the tenant's response policy pre-authorizes this action
-  (`AUTO_POLICY` would fire) or it needs an approval routed to its owner. Gap `00 §6.16`.
+  (`AUTO_POLICY` would fire) or it needs an approval routed to its owner. `adr/0099`.
 - **Owner action items**: work only an owner outside reckon can do (rotate a credential,
-  change a perimeter rule), tracked until confirmed. Gap `00 §6.17`.
+  change a perimeter rule), tracked until confirmed. `adr/0101`.
 - **Notification**: the outbound `notify.*` draft (`00 §4`) assembled from the case record
   (what happened, what was done, what is needed), with Edit and Preview & send — the
   mandatory preview is the approval.
@@ -177,10 +177,10 @@ two).
 
 | Element | Source |
 |---|---|
-| Sentence ("svc_backup interactive RDP logon to WIN-FILE01 from 10.0.4.20") | Gap `00 §6.12` |
-| Field table, curated per OCSF class (authentication: user, logon type, source, destination, result; process: name, pid, command line, parent, user; network: source, destination, port, domain, protocol) | `GET /api/evidence/{ref}` + gap `00 §6.12` |
+| Sentence ("svc_backup interactive RDP logon to WIN-FILE01 from 10.0.4.20") | `EvidenceView.view` (`adr/0090`) |
+| Field table, curated per OCSF class (authentication: user, logon type, source, destination, result; process: name, pid, command line, parent, user; network: source, destination, port, domain, protocol) | `GET /api/evidence/{ref}` (`adr/0090`) |
 | Encoded command lines shown decoded beside the original | Client-side decode of the cited field; the original is always shown |
-| "Around it": the events just before and after on the same entity | Gap `00 §6.13` |
+| "Around it": the events just before and after on the same entity | `GET …/events?entity=&around=` (`adr/0092`) |
 | Source line: capability verb, coverage word | The capability result envelope (`03 §6.1`) |
 | Provenance tab: verb, adapter, the query sent, coverage, ingest time, normalizer version, content hash | Capability provenance (`03 §4.13`) |
 | Raw tab: syntax-highlighted JSON, collapsible, copy | `GET /api/evidence/{ref}` |
@@ -191,7 +191,7 @@ two).
 |---|---|
 | Type, value, aliases (linked, never merged), id on hover | STIX object + alias edges (`00 §2.8`) |
 | Role and status in this case; event and action counts | Citations + `/actions` targets |
-| Normal behaviour: the baseline and how this case deviates | Gap `00 §6.14`; absent when no baseline exists — never inferred |
+| Normal behaviour: the baseline and how this case deviates | `GET …/entities/{ref}/baseline` (`adr/0095`); absent when no baseline exists — never inferred |
 | Actions on this entity | `/actions` where the entity is a target |
 | Other investigations | `GET /api/entities/{ref}/appearances` |
 | Pivot | Stages a question in the composer (`02 §2.4`) |
@@ -204,9 +204,9 @@ on the document's structure. Tabs: What the AI read · Whole document · Version
 |---|---|
 | Title, format, source name or URL, importer and import time | SOP entry meta (`06 §2.4`) |
 | In this case: which turn retrieved it, applied or only consulted, the actions it led to | `consulted_sops` on the interpretation (`00 §6.9`) |
-| The excerpt, verbatim, with "excerpt k of n retrieved", its location in the source, relevance band | The retrieved-snippet side store (`06 §6.2`) + gap `00 §6.15` (location) |
+| The excerpt, verbatim, with "excerpt k of n retrieved", its location in the source, relevance band | The retrieved-snippet side store (`06 §6.2`, `adr/0097`) with its location |
 | "Exactly as retrieved · hash matches current version" or "updated since this case consulted it" with a diff | Content hash at retrieval (`06 §6.2`) vs the current revision (`06 §2.2`) |
-| Open original at this location | Gap `00 §6.15` (retained original) |
+| Open original at this location | `GET /api/sops/{id}/original?rev=` (`adr/0097`) |
 
 ### 8.6.1 The remaining types
 
@@ -232,7 +232,7 @@ Tabs: Events · Envelope · Raw.
 | Event count, first and last observed | The `observed-data` envelope |
 | Events grouped by source (repetitions collapsed, each opening its evidence inspector) | The bundle's events via `GET /api/evidence/{ref}`; grouping is display |
 | Objects it contains | The envelope's object refs, as entity chips |
-| Produced by (opens the capability call) | Gap `00 §6.20` |
+| Produced by (opens the capability call) | `GET …/calls/{id}` (`adr/0092`) |
 
 **Detection finding** (Indicator + Sighting + vendor Identity, `03 §4.12`). Marked **inferred
 by the vendor**: the one inferred object the capability layer produces. Tabs: Finding ·
@@ -259,7 +259,7 @@ Evidence · Raw.
 
 | Element | Source |
 |---|---|
-| `P<n>`, short title, status, owner hypothesis, statement | `/hypotheses` (`adr/0047`); short title gap `00 §6.12` |
+| `P<n>`, short title, status, owner hypothesis, statement | `/hypotheses` (`adr/0047`); short title `adr/0090` |
 | Discriminates (the rivals expecting the opposite) | `discriminates` |
 | Test kind (tool or person), test results (each opening its inspector) | `test_kind`, `test_result_refs` |
 | History: proposed, accepted, tested, withdrawn, with actors | The thread's interpretation events for this prediction (`/thread`) |
@@ -294,7 +294,7 @@ Tabs: History · Authorization · Targets.
 | Follow-up dueness and the escalation rule (prompts, never sends) | Derived at read time (`00 §4`) |
 | The exact message sent | The frozen body on the approved action |
 
-**Owner action item.** Gap `00 §6.17`.
+**Owner action item.** `adr/0101`: the item, its history and the human acts (confirm, waive).
 
 | Element | Source |
 |---|---|
@@ -319,7 +319,7 @@ Consulted · Transcript.
 |---|---|
 | The analyst's ask, the answer, the model | The thread entry + `GET /api/interpretations/{id}/transcript` |
 | Records written, each with type and what it cites; derivation mode; actor and delegate | The interpretation events (`01`) |
-| Tool calls with coverage and counts, each opening its capability call | The committed turn record; gap `00 §6.20` for opening one |
+| Tool calls with coverage and counts, each opening its capability call | The committed turn record; `call_id` on each tool call (`adr/0092`) |
 | Consulted knowledge: applied or only consulted | `consulted_*` (`00 §6.9`) |
 
 **Capability call.** The object the Story timeline, the residual panel and the bundle point
@@ -332,7 +332,7 @@ at. Tabs: Call · Result · Raw.
 | Parameters sent, exactly | The templated parameters (`03 §3.3`) |
 | What it produced (bundle, absence object, or nothing) | The result's refs |
 | Other bindings for the verb, including installed-not-enabled | `GET /api/capabilities` (operator view, `13 §4`) |
-| Addressable by id from any surface | Gap `00 §6.20` |
+| Addressable by id from any surface | `GET …/calls/{id}` (`adr/0092`) |
 
 **Person** (a principal).
 

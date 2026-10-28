@@ -11,6 +11,11 @@ new surface and the old one is deleted.
 
 Legend: `[ ]` not yet · `[h]` harness · `[l]` live · `[x]` both.
 
+**Status.** Retired as the acceptance bar with the cleanup PR that closed the redesign: the
+harness component tests over recorded snapshots (`[h]`) are the structural check, and the live
+stack is exercised by the road test (`implementation/road-test.md`). The inventory stays as the
+map from the old surfaces to the new tree; its unticked rows are not open work.
+
 ## A. Seed (draft) mode
 
 | # | Behavior | New home | Status |
