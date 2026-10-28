@@ -54,12 +54,17 @@ export interface AppContextValue {
   setLens: (l: Lens) => void;
   companionMode: "conversation" | "thread";
   setCompanionMode: (m: "conversation" | "thread") => void;
+  /** The companion column's width in px; undefined keeps the layout's default. */
+  companionWidth: number | undefined;
+  /** Resize the companion; `remember` keeps the width across reloads (view state). */
+  setCompanionWidth: (w: number | undefined, remember: boolean) => void;
   /** Go to an object: switch lens if needed and scroll to it; a ref opens the inspector too. */
   goTo: (target: { kind: "lens"; lens: Lens; anchor?: string } | { kind: "ref"; ref: string }) => void;
 }
 
 interface PersistedView {
-  railW?: number;
+  /** The companion column's width in px, as the analyst dragged it. */
+  companionW?: number;
   lens?: Record<string, Lens>;
   companion?: "conversation" | "thread";
 }
@@ -103,6 +108,11 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
     setCompanionModeState(m);
     transport.setState({ ...(transport.getState<PersistedView>() || {}), companion: m });
     transport.send({ type: "view.state", companion: m });
+  }, [transport]);
+  const [companionWidth, setCompanionWidthState] = useState<number | undefined>(() => transport.getState<PersistedView>()?.companionW);
+  const setCompanionWidth = useCallback((w: number | undefined, remember: boolean) => {
+    setCompanionWidthState(w);
+    if (remember) transport.setState({ ...(transport.getState<PersistedView>() || {}), companionW: w });
   }, [transport]);
 
   useEffect(() => {
@@ -167,8 +177,8 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
     inspector, openInspector, inspectorBack, closeInspector, pinInspector,
     stage: (text) => setStaged((s) => ({ text, nonce: (s?.nonce ?? 0) + 1 })), staged,
     busy, setBusy,
-    lens, setLens, companionMode, setCompanionMode, goTo,
-  }), [state, send, transport, resolve, prompt, enableAdapter, verdictOpen, inspector, openInspector, inspectorBack, closeInspector, pinInspector, staged, busy, lens, setLens, companionMode, setCompanionMode, goTo]);
+    lens, setLens, companionMode, setCompanionMode, companionWidth, setCompanionWidth, goTo,
+  }), [state, send, transport, resolve, prompt, enableAdapter, verdictOpen, inspector, openInspector, inspectorBack, closeInspector, pinInspector, staged, busy, lens, setLens, companionMode, setCompanionMode, companionWidth, setCompanionWidth, goTo]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -3,7 +3,8 @@ import { defineConfig } from "vitest/config";
 // Component + derivation tests for the webview (impl §5.5), and tests of the
 // host modules that do not import vscode (the investigation cache). jsdom
 // stands in for the webview; the harness snapshots under harness/snapshots
-// feed the component tests.
+// feed the component tests. The stylesheet is loaded as text (`?raw`) for the
+// layout rules jsdom cannot compute.
 export default defineConfig({
   esbuild: { jsx: "automatic" },
   test: {
@@ -11,5 +12,6 @@ export default defineConfig({
     globals: true,
     include: ["webview/src/**/*.test.{ts,tsx}", "src/**/*.test.ts"],
     setupFiles: ["webview/src/test/setup.ts"],
+    css: { include: [/app\.css/] },
   },
 });
