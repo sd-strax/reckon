@@ -4,9 +4,9 @@ What the investigation-layout redesign (`implementation/workbench-react.md §10`
 `design/ui/09`) added, stated as **what an analyst can now do**, not as screens. A screen is
 where a capability is delivered; it is listed separately (§3) and is not itself a feature.
 
-The **Decision** column records whether a capability ships: **keep** · **hold** (stays on its
-branch or ships hidden, decided later) · **cut**. From here on a capability enters this list by
-decision, not as a byproduct of a mockup.
+The **Decision** column records whether a capability ships: **keep** · **defer** (its branch
+stays, unmerged, until it is decided again) · **cut**. Decisions recorded 2026-10-27. From here
+on a capability enters this list by decision, not as a byproduct of a mockup.
 
 Line counts are added lines, `wb` = `workbench/`, `go` = Go + migrations outside it (docs and
 ADRs excluded).
@@ -77,30 +77,30 @@ is a layout decision, reviewed as UX and architecture, not a feature to keep or 
 
 | # | The analyst can… | How | Engine | PR / ADR | Decision |
 |---|---|---|---|---|---|
-| C1 | **see where each case stands and what to do next** — the stage (investigate · verdict · contain · notify · close), the one next step, the nearest approval about to expire; cases needing them first | derived client-side from the record | list/detail view fields, no ADR | #88 | |
-| C2 | **read raw telemetry without reading JSON** — each event as one sentence with its entities linked; encoded commands decoded beside the original | `capability/ocsfview` renders per OCSF class | `view` on evidence reads | #91 · adr/0090 · wb 1,297 / go 1,375 | |
-| C3 | **audit what the agent actually queried** — every call's verb, the tool that answered, the parameters as sent, coverage, which bindings failed; every event any call returned, not only the cited ones; which call produced a piece of evidence | calls recorded as their own rows at invoke time | `capability_calls`, `call_events` tables; events endpoint | #94 · adr/0092 · wb 980 / go 992 | |
-| C4 | **see the attack's sequence across entities** — a timeline of the case's events and the path between hosts and accounts | derived from C3's events | — | #94 | |
-| C5 | **tell normal from abnormal for an entity** — "N logons over M days, usually around 09:00" and how this case deviates, only when the retrieved record shows a pattern | pure fold over retrieved events | baseline endpoint | #96 · adr/0095 · wb 859 / go 437 · needs C3 | |
-| C6 | **know why an action needs them** — no policy covers it, a policy requires a second approver from a named pool, or a policy auto-approved it; a shadow policy that would have | Gate 2's evaluation folded onto the action | `action_current.policy` | #100 · adr/0099 · wb 67 / go 149 | |
-| C7 | **see an action's full history** — every state change with who and when, how authorization was met, per-target results, reversal lineage | read from the action's own events | `GET /api/actions/{id}`, no ADR | #87 | |
-| C8 | **track asks to other teams to completion** — "identity team: rotate the credential" sent through a notification, marked sent only when the send succeeds, closed by the analyst with the owner's confirmation or waived with a reason; the agent may propose one; open asks block conclude | owner items, a CRUD record | `owner_items` table, endpoints, agent tool `propose_owner_item` | #102 · adr/0101 · wb 368 / go 713 | |
-| C9 | **hand a case off mid-flight** — a summary of where it stands at any state (not only concluded), an AI-drafted narrative they can edit with authorship shown, a handoff note to paste | summary facts + narrative revisions | `summary/` package, `investigation_narratives`, sidecar `draftNarrative` | #104 · adr/0103 · wb 377 / go 1,039 · counts C8 | |
-| C10 | **see under what authority each act was done** — the roles the actor held when they acted | roles captured from the token at command time, display only | `Actor.Roles` | #106 · adr/0105 · wb 87 / go 29 | |
-| C11 | **search the knowledge base mid-investigation** and offer hits to the agent (excluded until they include them) | sidecar `searchKnowledge` | — | #88 | |
-| C12 | **see changes by others as they happen** — another analyst's approval, a dispatch result — without reloading | websocket per open document | `/api/stream`, no ADR | #88 | |
+| C1 | **see where each case stands and what to do next** — the stage (investigate · verdict · contain · notify · close), the one next step, the nearest approval about to expire; cases needing them first | derived client-side from the record | list/detail view fields, no ADR | #88 | **keep** |
+| C2 | **read raw telemetry without reading JSON** — each event as one sentence with its entities linked; encoded commands decoded beside the original | `capability/ocsfview` renders per OCSF class | `view` on evidence reads | #91 · adr/0090 · wb 1,297 / go 1,375 | **keep** |
+| C3 | **audit what the agent actually queried** — every call's verb, the tool that answered, the parameters as sent, coverage, which bindings failed; every event any call returned, not only the cited ones; which call produced a piece of evidence | calls recorded as their own rows at invoke time | `capability_calls`, `call_events` tables; events endpoint | #94 · adr/0092 · wb 980 / go 992 | **keep** |
+| C4 | **see the attack's sequence across entities** — a timeline of the case's events and the path between hosts and accounts | derived from C3's events | — | #94 | **keep** |
+| C5 | **tell normal from abnormal for an entity** — "N logons over M days, usually around 09:00" and how this case deviates, only when the retrieved record shows a pattern | pure fold over retrieved events | baseline endpoint | #96 · adr/0095 · wb 859 / go 437 · needs C3 | **keep** |
+| C6 | **know why an action needs them** — no policy covers it, a policy requires a second approver from a named pool, or a policy auto-approved it; a shadow policy that would have | Gate 2's evaluation folded onto the action | `action_current.policy` | #100 · adr/0099 · wb 67 / go 149 | **defer** — a refinement of approving actions, not its own capability |
+| C7 | **see an action's full history** — every state change with who and when, how authorization was met, per-target results, reversal lineage | read from the action's own events | `GET /api/actions/{id}`, no ADR | #87 | **not a capability** — the inspector's read of an action's existing events; ships with the inspector |
+| C8 | **track asks to other teams to completion** — "identity team: rotate the credential" sent through a notification, marked sent only when the send succeeds, closed by the analyst with the owner's confirmation or waived with a reason; the agent may propose one; open asks block conclude | owner items, a CRUD record | `owner_items` table, endpoints, agent tool `propose_owner_item` | #102 · adr/0101 · wb 368 / go 713 | **cut** — `ticket.create` already hands work to another team; tracking it to completion is reading ticket status back (Phase F), not a parallel record |
+| C9 | **hand a case off mid-flight** — a summary of where it stands at any state (not only concluded), an AI-drafted narrative they can edit with authorship shown, a handoff note to paste | summary facts + narrative revisions | `summary/` package, `investigation_narratives`, sidecar `draftNarrative` | #104 · adr/0103 · wb 377 / go 1,039 · counts C8 | **defer** — no handoff support at this time |
+| C10 | **see under what authority each act was done** — the roles the actor held when they acted | roles captured from the token at command time, display only | `Actor.Roles` | #106 · adr/0105 · wb 87 / go 29 | **keep** |
+| C11 | **search the knowledge base mid-investigation** and offer hits to the agent (excluded until they include them) | sidecar `searchKnowledge` | — | #88 | **keep** |
+| C12 | **see changes by others as they happen** — another analyst's approval, a dispatch result — without reloading | websocket per open document | `/api/stream`, no ADR | #88 | **defer** — the host reloads after its own commands and keeps the dispatch poll |
 
 ### Managing what the organization knows
 
 | # | The analyst can… | How | Engine | PR / ADR | Decision |
 |---|---|---|---|---|---|
-| C13 | **maintain the procedure library in the product** — edit (each save a revision), retire with a reason, see versions | in-product editor | retire reason, list fields, no ADR | #89 · wb 2,475 / go 263 | |
-| C14 | **check an import before writing it** — parsed metadata, missing fields, whether it would create or revise | dry-run import | `import_markdown?dry_run=true`, no ADR | #89 | |
-| C15 | **verify exactly what procedure text the agent relied on** — the excerpt, where it sits in the document, which revision; the original imported file | excerpts stored at retrieval | `knowledge_retrievals` tables, revision + original endpoints | #98 · adr/0097 · wb 598 / go 749 | |
-| C16 | **browse past cases** by technique, disposition and date | a listing over the case-summary corpus | `GET /api/knowledge/case_summaries` | #108 · adr/0107 · wb 210 / go 216 | |
-| C17 | **see which knowledge is actually used** — how many investigations cited each procedure, whether it was applied, which procedures a case taught | citations projected from investigation events | `knowledge_citations` | #110 · adr/0109 · wb 206 / go 344 | |
-| C18 | **ask the knowledge base a question** outside any investigation, answered only from it, with checked citations | separate agent loop, no tools but recall | `agent.Ask`, second governed prompt, sidecar `askKnowledge` | #113 · adr/0111 · wb 95 / go 467 · prompt not yet eval-accepted | |
-| C19 | **review drafted procedures as a queue** instead of a prompt at conclude — with the closest existing procedure, accept (edited) or discard with a reason | candidates as a stored record | `procedure_candidates` | #114 · adr/0112 · wb 339 / go 570 · **changes** an existing capability | |
+| C13 | **maintain the procedure library in the product** — edit (each save a revision), retire with a reason, see versions | in-product editor | retire reason, list fields, no ADR | #89 · wb 2,475 / go 263 | **defer** — knowledge management is secondary; import from markdown and use, which exists, is enough |
+| C14 | **check an import before writing it** — parsed metadata, missing fields, whether it would create or revise | dry-run import | `import_markdown?dry_run=true`, no ADR | #89 | **defer** — knowledge management is secondary; import from markdown and use, which exists, is enough |
+| C15 | **verify exactly what procedure text the agent relied on** — the excerpt, where it sits in the document, which revision; the original imported file | excerpts stored at retrieval | `knowledge_retrievals` tables, revision + original endpoints | #98 · adr/0097 · wb 598 / go 749 | **defer** — knowledge management is secondary; import from markdown and use, which exists, is enough |
+| C16 | **browse past cases** by technique, disposition and date | a listing over the case-summary corpus | `GET /api/knowledge/case_summaries` | #108 · adr/0107 · wb 210 / go 216 | **defer** — knowledge management is secondary; import from markdown and use, which exists, is enough |
+| C17 | **see which knowledge is actually used** — how many investigations cited each procedure, whether it was applied, which procedures a case taught | citations projected from investigation events | `knowledge_citations` | #110 · adr/0109 · wb 206 / go 344 | **defer** — knowledge management is secondary; import from markdown and use, which exists, is enough |
+| C18 | **ask the knowledge base a question** outside any investigation, answered only from it, with checked citations | separate agent loop, no tools but recall | `agent.Ask`, second governed prompt, sidecar `askKnowledge` | #113 · adr/0111 · wb 95 / go 467 · prompt not yet eval-accepted | **defer** — knowledge management is secondary; import from markdown and use, which exists, is enough |
+| C19 | **review drafted procedures as a queue** instead of a prompt at conclude — with the closest existing procedure, accept (edited) or discard with a reason | candidates as a stored record | `procedure_candidates` | #114 · adr/0112 · wb 339 / go 570 · **changes** an existing capability | **defer** — knowledge management is secondary; import from markdown and use, which exists, is enough |
 
 ## 3. Screens — where capabilities are delivered (UX review, not keep/cut)
 
@@ -126,7 +126,7 @@ is a layout decision, reviewed as UX and architecture, not a feature to keep or 
 
 ## 5. Dependencies that constrain decisions
 
-- The stack is linear: holding a PR in the middle means re-stacking the ones above it onto its
+- The stack is linear: deferring a PR in the middle means re-stacking the ones above it onto its
   base.
 - C4 and C5 read the events C3 records. C9's summary counts C8's asks (none if C8 is cut).
 - C13–C19 live in the Knowledge document. C19 removes the conclude-time prompt, so cutting it
