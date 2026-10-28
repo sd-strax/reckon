@@ -3,27 +3,22 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../app";
 import { md } from "../markdown";
-import { chipClass, chipText, isEntityRef } from "../refs";
+import { chipClass, chipText } from "../refs";
 import { fmtRemaining } from "../derive/actions";
 
-/** A clickable citation (02 §2.8): every ref opens. Reads as evidence — a type
- * label immediately, enriched with the value once the host resolves it; the
- * full id is in the tooltip. Entity types open the popover; records open. */
+/** A clickable citation (02 §2.8, 08 §8.6): every ref opens the inspector.
+ * Reads as evidence — a type label immediately, enriched with the value once
+ * the host resolves it; the full id is in the tooltip. */
 export function RefChip({ refId: r, pinned, className }: { refId: string; pinned?: boolean; className?: string }) {
-  const { state, resolve, send, openPopover } = useApp();
+  const { state, resolve, openInspector } = useApp();
   const label = state.labels[r];
   useEffect(() => { if (label === undefined) resolve(r); }, [r, label, resolve]);
-  const entity = isEntityRef(r);
   return (
     <span
       className={chipClass(r) + (pinned ? " pinned" : "") + (className ? " " + className : "")}
       data-ref={r}
-      title={(entity ? "Entity details: " : "Open evidence: ") + r}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (entity) openPopover(r, (e.currentTarget as HTMLElement).getBoundingClientRect());
-        else send({ type: "evidence.open", ref: r });
-      }}
+      title={"Open in the inspector: " + r}
+      onClick={(e) => { e.stopPropagation(); openInspector({ kind: "ref", ref: r }); }}
     >
       {chipText(r, label)}
     </span>

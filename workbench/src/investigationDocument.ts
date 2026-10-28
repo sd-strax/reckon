@@ -17,7 +17,7 @@ import { randomUUID } from "crypto";
 import * as vscode from "vscode";
 import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, PinRow, ThreadEntry } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
-import type { ChronicleTurn, InboundMessage, InvestigationSnapshot, RenderMessage, RivalBrief } from "./protocol";
+import type { ChronicleTurn, InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage, RivalBrief } from "./protocol";
 import { buildDerivedViews } from "./derivedViews";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 
@@ -57,12 +57,15 @@ export class InvestigationDocuments {
     private readonly client: BackendClient,
     private readonly log: vscode.LogOutputChannel,
     private readonly transport: AgentTransport,
+    private readonly me: () => Promise<{ name: string; principal: string } | null>,
     /**
      * Called after each successful load with the last event sequence the
      * analyst has now seen — feeds the tree's unseen-changes cue (02 §2.12).
      * Last-seen is view state, never investigation state.
      */
     private readonly onLoaded?: (id: string, lastEventSequence: number) => void,
+    /** The lens / companion mode the analyst chose (view state the tree may deep-link). */
+    private readonly onViewState?: (id: string, lens?: string, companion?: string) => void,
   ) {}
 
   /** Open (or reveal) the document for one investigation. */
@@ -218,6 +221,8 @@ export class InvestigationDocuments {
       void this.reject(id, panel, msg);
     } else if (msg.type === "action.rerequest") {
       void this.rerequest(id, panel, msg);
+    } else if (msg.type === "action.reverse") {
+      void this.reverse(id, panel, msg);
     } else if (msg.type === "pin.add") {
       void this.pinCommit(id, panel, msg.refs, msg.finding);
     } else if (msg.type === "pin.unpin") {
@@ -256,14 +261,20 @@ export class InvestigationDocuments {
       void this.commsFollowUp(id, panel, msg);
     } else if (msg.type === "lifecycle") {
       void this.lifecycleTransition(id, panel, msg);
-    } else if (msg.type === "evidence.open") {
-      // The current investigation id rides along so the evidence card's
-      // cross-investigation memory can exclude it ("also seen in" = OTHERS).
-      void vscode.commands.executeCommand("reckon.openEvidence", msg.ref, id);
     } else if (msg.type === "evidence.resolve") {
       void this.resolveLabel(panel, msg.ref);
-    } else if (msg.type === "entity.info") {
-      void this.entityInfo(id, panel, msg.ref);
+    } else if (msg.type === "inspector.open") {
+      void this.answerInspector(id, panel, msg.target);
+    } else if (msg.type === "queue.get") {
+      void this.postQueue(panel);
+    } else if (msg.type === "queue.start") {
+      void this.startFromCase(msg.caseNumber);
+    } else if (msg.type === "knowledge.search") {
+      void this.searchKnowledge(id, panel, msg.text);
+    } else if (msg.type === "notify.request") {
+      void this.requestNotification(id, panel, msg);
+    } else if (msg.type === "view.state") {
+      this.onViewState?.(id, msg.lens, msg.companion);
     } else if (msg.type === "export.open") {
       void this.openMarkdownExport(id);
     } else if (msg.type === "copy") {
@@ -277,8 +288,6 @@ export class InvestigationDocuments {
       if (!InvestigationDocuments.isDraft(id)) {
         void this.applyRename(id, panel, msg.title);
       }
-    } else if (msg.type === "transcript.open") {
-      void this.openTranscript(msg.interpretationId);
     }
   }
 
@@ -440,6 +449,8 @@ export class InvestigationDocuments {
     this.seqs.set(id, snapshot.seq);
     void this.post(panel, { type: "state.snapshot", seq: snapshot.seq, snapshot });
     this.onLoaded?.(id, snapshot.seq);
+    void this.postQueue(panel);
+    void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal }); }).catch(() => undefined);
     // Dispatch is asynchronous (a Temporal workflow) and its result events are
     // recorded by the worker, not the HTTP path — keep refreshing while any
     // action is mid-dispatch so DISPATCHING never sticks past the outcome.
@@ -635,6 +646,72 @@ export class InvestigationDocuments {
   }
 
   /**
+   * The work queue (08 §8.3): the analyst's investigations, needs-me-first,
+   * and the case system's queue filtered to cases with no investigation. Both
+   * reads are best-effort: a missing case layer leaves the Cases section
+   * absent, never a broken document.
+   */
+  private async postQueue(panel: vscode.WebviewPanel): Promise<void> {
+    try {
+      const [investigations, queue] = await Promise.all([
+        this.client.investigations(),
+        this.client.cases().catch(() => null),
+      ]);
+      const cases = (queue?.cases ?? []).filter((c) => !c.investigation);
+      void this.post(panel, { type: "queue", investigations, cases, caseSource: queue?.queue });
+    } catch (err) {
+      this.log.debug(`queue: ${errText(err)}`);
+    }
+  }
+
+  /** Start an investigation from a case row: the seed path, then open it. */
+  private async startFromCase(caseNumber: string): Promise<void> {
+    try {
+      const created = await this.client.createInvestigationFromInput(caseNumber, "case");
+      this.show(created.id, created.title);
+      this.offerCaseNote(created);
+      void vscode.commands.executeCommand("reckon.refreshInvestigations");
+      void vscode.commands.executeCommand("reckon.refreshCases");
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: could not start from ${caseNumber} — ${errText(err)}`);
+    }
+  }
+
+  /** The Knowledge section's scoped search (09 §9.6): the session merges the hits. */
+  private async searchKnowledge(id: string, panel: vscode.WebviewPanel, text: string): Promise<void> {
+    try {
+      const items = await this.transport.searchKnowledge(id, text);
+      void this.patch(id, panel, { knowledge: items });
+    } catch (err) {
+      void vscode.window.showWarningMessage(`reckon: knowledge search failed — ${errText(err)}`);
+    }
+  }
+
+  /**
+   * The outbound notification (08 §8.4 Response): a notify.* action whose
+   * pre-send preview is the approval. Through Gate 2 like any action; it lands
+   * in the queue as a preview card.
+   */
+  private async requestNotification(id: string, panel: vscode.WebviewPanel, msg: { channel: string; target: string; subject?: string; body: string }): Promise<void> {
+    const parameters: Record<string, unknown> = msg.channel === "notify.email"
+      ? { subject: msg.subject || "Investigation update", body: msg.body }
+      : { message: msg.body };
+    try {
+      const res = await this.client.requestAction({
+        investigationRef: id,
+        actionType: msg.channel,
+        targets: [{ resolvedIdentifier: msg.target }],
+        parameters,
+        rationale: "stakeholder notification from the investigation record",
+      });
+      void vscode.window.showInformationMessage(`reckon: notification requested (${res.status}) — approve to send`);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: notification failed — ${errText(err)}`);
+    }
+    await this.postPending(id, panel);
+  }
+
+  /**
    * The derived lenses over the thread's citations (the event-time strip and
    * the evidence graph, src/derivedViews.ts), sharing one round of cached
    * evidence fetches — bounded; failures just leave gaps (both are lenses,
@@ -646,18 +723,57 @@ export class InvestigationDocuments {
   }
 
   /**
-   * The entity popover's data: every OTHER investigation citing this ref
-   * (cross-investigation memory, binding §6.1). Failure posts an empty list —
-   * the popover renders "first seen here" honestly rather than hanging.
+   * Answer an inspector pane (impl §2.4): the webview opened it from the
+   * snapshot and asks for what the record holds beyond it — the evidence
+   * document with its cross-investigation memory (current investigation
+   * excluded: "also seen in" means OTHERS), a procedure, a committed
+   * transcript, an action's record, a case summary. A failed fetch posts an
+   * honest error for that target; nothing else in the document is affected.
    */
-  private async entityInfo(id: string, panel: vscode.WebviewPanel, ref: string): Promise<void> {
-    let apps: Appearance[] = [];
+  private async answerInspector(id: string, panel: vscode.WebviewPanel, target: InspectorTarget): Promise<void> {
     try {
-      apps = (await this.client.appearances(ref)).filter((a) => a.investigationId !== id);
+      switch (target.kind) {
+        case "ref": {
+          const doc = await this.getDoc(target.ref);
+          if (!doc) {
+            void this.post(panel, { type: "inspector.error", target: target.ref, message: "no persisted record for this ref — it may predate telemetry persistence" });
+            return;
+          }
+          let apps: Appearance[] = [];
+          try {
+            apps = (await this.client.appearances(target.ref)).filter((a) => a.investigationId !== id);
+          } catch (err) {
+            this.log.debug(`appearances ${target.ref}: ${errText(err)}`);
+          }
+          void this.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps });
+          return;
+        }
+        case "sop":
+          void this.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop: await this.client.sop(target.sopId) });
+          return;
+        case "turn": {
+          let body = this.transcriptCache.get(target.interpretationId);
+          if (body === undefined) {
+            body = (await this.client.transcript(target.interpretationId)).body;
+            this.transcriptCache.set(target.interpretationId, body);
+          }
+          void this.post(panel, { type: "inspector.turn", interpretationId: target.interpretationId, body });
+          return;
+        }
+        case "action":
+          void this.post(panel, { type: "inspector.action", actionId: target.actionId, record: await this.client.actionRecord(target.actionId) });
+          return;
+        case "case":
+          void this.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary: await this.client.caseSummary(target.investigationRef) });
+          return;
+        default:
+          return; // thread, person: rendered from the snapshot alone
+      }
     } catch (err) {
-      this.log.debug(`appearances ${ref}: ${errText(err)}`);
+      const key = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
+        : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "";
+      void this.post(panel, { type: "inspector.error", target: key, message: errText(err) });
     }
-    void this.post(panel, { type: "entity.info", ref, appearances: apps });
   }
 
   /**
@@ -1044,6 +1160,37 @@ export class InvestigationDocuments {
   }
 
   /**
+   * Request the reversal of a SUCCEEDED action (04 §7): a NEW x-action of the
+   * descriptor's declared inverse type, at the same tier, linked by
+   * reversal_of_ref, which lands in the approval queue like any action. The
+   * engine validates the pairing and the original's status; the host only
+   * looks up the inverse type so the request names it.
+   */
+  private async reverse(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; rationale: string }): Promise<void> {
+    try {
+      const [record, types] = await Promise.all([this.client.actionRecord(msg.actionId), this.client.actionTypes()]);
+      const original = record.action;
+      const inverse = types.find((t) => t.actionType === original.actionType)?.reversibleBy;
+      if (!inverse) {
+        void vscode.window.showWarningMessage(`reckon: ${original.actionType} declares no reversal in the action catalog`);
+        return;
+      }
+      const res = await this.client.requestAction({
+        investigationRef: id,
+        actionType: inverse,
+        targets: original.targets.map((t) => ({ resolvedIdentifier: t })),
+        evidenceRefs: original.evidenceRefs,
+        rationale: msg.rationale.trim() || `reversal of ${original.actionType} ${original.actionId}`,
+        reversalOfRef: original.actionId,
+      });
+      void vscode.window.showInformationMessage(`reckon: reversal requested as ${inverse} (${res.status}) — approve to run it`);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: reversal failed — ${errText(err)}`);
+    }
+    await this.postPending(id, panel);
+  }
+
+  /**
    * The live markdown export in an editor tab (binding §6 item 10): rendered
    * backend-side from the projections, opened as an untitled markdown doc the
    * analyst can read, save, or paste into a ticket unedited.
@@ -1055,20 +1202,6 @@ export class InvestigationDocuments {
       await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: export failed — ${errText(err)}`);
-    }
-  }
-
-  /** Open a thread step's full committed transcript in a read-only tab. */
-  private async openTranscript(interpretationId: string): Promise<void> {
-    try {
-      const t = await this.client.transcript(interpretationId);
-      const doc = await vscode.workspace.openTextDocument({
-        content: t.body,
-        language: "plaintext",
-      });
-      await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside });
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: transcript unavailable — ${errText(err)}`);
     }
   }
 

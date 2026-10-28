@@ -41,14 +41,30 @@ type ActionDecisionResponse struct {
 // a clear 403).
 func (b *Backend) actionsItem(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/actions/")
-	parts := strings.Split(rest, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	parts := strings.Split(strings.TrimSuffix(rest, "/"), "/")
+	if len(parts) < 1 || len(parts) > 2 || parts[0] == "" {
 		writeJSONError(w, http.StatusNotFound, "not found")
 		return
 	}
 	actionID, err := uuid.Parse(parts[0])
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "action id is not a valid id")
+		return
+	}
+	// GET /api/actions/{id} — the action's record (history, authorization,
+	// results, lineage). Any authenticated reader.
+	if len(parts) == 1 {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, "GET")
+			return
+		}
+		b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, func(w http.ResponseWriter, r *http.Request) {
+			b.getActionRecord(w, r, actionID)
+		})
+		return
+	}
+	if parts[1] == "" {
+		writeJSONError(w, http.StatusNotFound, "not found")
 		return
 	}
 	if r.Method != http.MethodPost {

@@ -27,6 +27,7 @@ export const CHRONICLE_ACTS: Record<string, { icon: string; verb: string }> = {
 };
 
 function ActLine({ e }: { e: ThreadEntry }) {
+  const { openInspector } = useApp();
   const spec = CHRONICLE_ACTS[e.interpretationType];
   const refs: string[] = [];
   for (const r of (e.inputRefs || []).concat(e.outputRefs || [])) if (r && !refs.includes(r)) refs.push(r);
@@ -37,7 +38,7 @@ function ActLine({ e }: { e: ThreadEntry }) {
       + (e.interpretationType === "verdict" || e.interpretationType === "conclusion" ? " strong" : "")
       + (e.superseded ? " superseded" : "")}>
       <span className="acticon">{spec ? spec.icon : "·"}</span>
-      <span className="acttext" title={text}>{text}</span>
+      <span className="acttext" title={text + " — open"} style={{ cursor: "pointer" }} onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{text}</span>
       {e.superseded ? <span className="actsuperseded">superseded</span> : null}
       {refs.slice(0, 2).map((r) => <RefChip key={r} refId={r} />)}
       <span className="acttime">{fmtTime(e.occurredAt)}</span>
@@ -46,12 +47,12 @@ function ActLine({ e }: { e: ThreadEntry }) {
 }
 
 function TurnStub({ e }: { e: ThreadEntry }) {
-  const { send } = useApp();
+  const { openInspector } = useApp();
   return (
     <div
       className={"actline turnstub" + (e.actor.kind === "AI_DELEGATED" ? " ai" : "")}
       style={{ cursor: "pointer" }}
-      onClick={() => send({ type: "transcript.open", interpretationId: e.interpretationId })}
+      onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}
     >
       <span className="acticon">…</span>
       <span className="acttext">{(e.summary || "committed turn") + " — open transcript"}</span>
@@ -63,16 +64,17 @@ function TurnStub({ e }: { e: ThreadEntry }) {
 /** Knowledge-retrieval provenance (ui/02 §2.11): which SOPs / prior cases the
  * turn pulled, followed (solid) vs merely consulted (dashed). */
 export function KnowledgeChips({ e }: { e: ThreadEntry }) {
+  const { openInspector } = useApp();
   const sops = e.consultedSops || [];
   const similar = e.consultedSimilar || [];
   if (!sops.length && !similar.length) return null;
   return (
     <div className="usage">
       {sops.map((s, i) => (
-        <span key={"s" + i} className={"sopchip" + (s.used ? "" : " consulted")}>{(s.used ? "followed: " : "consulted: ") + (s.title || s.sopId)}</span>
+        <span key={"s" + i} className={"sopchip" + (s.used ? "" : " consulted")} title="Open the procedure" onClick={() => openInspector({ kind: "sop", sopId: s.sopId })}>{(s.used ? "followed: " : "consulted: ") + (s.title || s.sopId)}</span>
       ))}
       {similar.map((s, i) => (
-        <span key={"c" + i} className={"sopchip" + (s.used ? "" : " consulted")}>{(s.used ? "drew on case: " : "similar case: ") + (s.title || s.investigationRef)}</span>
+        <span key={"c" + i} className={"sopchip" + (s.used ? "" : " consulted")} title="Open the similar case" onClick={() => openInspector({ kind: "case", investigationRef: s.investigationRef })}>{(s.used ? "drew on case: " : "similar case: ") + (s.title || s.investigationRef)}</span>
       ))}
     </div>
   );

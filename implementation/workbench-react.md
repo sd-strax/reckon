@@ -49,7 +49,6 @@ workbench/
     investigationDocument.ts   InvestigationDocuments: panels, per-investigation cache, routing
     investigationCache.ts      the cache + sequence discipline (§3)
     knowledgeDocument.ts       the Knowledge document host: one panel, knowledge reads/writes, Ask (§2.6)
-    streamClient.ts            /api/stream WebSocket subscription per open investigation (§3.3)
     protocol.ts                the typed message unions, shared with the webview (§4)
     backend.ts                 HTTP client — still no `vscode` import (the browser surface reuses it)
     agentTransport.ts, auth.ts, casesTree.ts, caseDocument.ts — unchanged
@@ -81,9 +80,10 @@ host is not bundled; only the webview is. React 18 is a runtime dependency bundl
 webview file; nothing is fetched at runtime.
 
 Deleted by this work: `evidenceView.ts`, `evidenceProvider.ts`, the `reckon-evidence:` scheme,
-the `reckon.openEvidence` command, the inline template-string UI in `investigationDocument.ts`,
-the transcript-in-editor-tab path (`transcript.open` becomes an inspector view of the
-committed turn, §2.5), `importView.ts` (the Import SOPs panel becomes the Import section of the
+the `reckon.openEvidence` command and the `entity.info` message (all gone with the inspector PR;
+the popover's pivot / pin / copy / appearances live on the Entity inspector), the inline
+template-string UI in `investigationDocument.ts`, the transcript-in-editor-tab path
+(`transcript.open` becomes an inspector view of the committed turn, §2.5), `importView.ts` (the Import SOPs panel becomes the Import section of the
 Knowledge document, §2.6; the `reckon.importSOP` command keeps its id and opens that section),
 and the conclude-time candidate-SOP prompt (the draft is stored and reviewed in the Candidates
 section once gap §6.24 lands, §8.13; until then the prompt stays).
@@ -391,6 +391,10 @@ self-healing path for sleep/wake and dropped frames, not the normal path.
 
 ### 3.3 Live updates
 
+**Deferred** (`implementation/feature-inventory.md`, C12): the subscription below is not built;
+the host reloads after its own commands and keeps the bounded dispatch poll. The design stands
+for when it is taken up.
+
 The host opens one `/api/stream?investigation=<id>` WebSocket per open panel (`streamClient.ts`,
 bearer from the session; the server closes on token expiry → reconnect with a fresh token). On an
 `event` delta: if `sequence_no === cache.seq + 1`, refresh the slices the `event_type` family
@@ -460,7 +464,7 @@ then drops the old ones).
       | { kind: "case"; investigationRef: string }
       | { kind: "call"; callId: string }
       | { kind: "person"; principalId: string } }
-| { type: "capability.rerun"; verb: string; params: Record<string, unknown> }  // Absence "Re-run with a wider window": stages the verb in the composer (host builds the text)
+// Absence "Re-run with a wider window" stages the text in the composer webview-side; no host message
 | { type: "knowledge.search"; text: string }                              // 09 §9.6: sidecar searchKnowledge; the merged set comes back as `knowledge`
 | { type: "knowledge.open"; section?: "procedures" | "cases" | "import" | "candidates"; id?: string } // reveal the Knowledge document
 | { type: "events.get"; entity?: string }
@@ -1061,6 +1065,10 @@ PRs in dependency order, each green on `make ci` and `make workbench-ci`, each r
    scoped search via the sidecar, nudges, Open the Knowledge view), turn records and the
    activity disclosure, one-line prediction rows and the matrix, Response lens from the existing
    action data, `/api/stream` subscription, §8.0 view additions.
+   The left region's Work | Knowledge toggle is present but inert in this PR (it names the
+   Knowledge document, which 4b adds); the Knowledge section's "Open the Knowledge view" link
+   arrives with it. Export moves to the Summary lens; the companion keeps `08 §8.1`'s width
+   floors instead of an analyst-resized width.
 4b. **Knowledge document (L6)** — `knowledgeDocument.ts` and `<KnowledgeApp>`: Procedures (list,
    detail, editor, retire with reason), Import (every parity §N behavior plus the dry-run
    preview; `importView.ts` deleted; `reckon.importSOP` opens the section), Search results,
@@ -1107,8 +1115,8 @@ is set.
 8. **The entity popover is retired into the entity inspector**; pins, capability health and comms
    relocate per §2.1.
 9. **The webview's stylesheet is fully bundled**, so `style-src` loses `'unsafe-inline'`.
-10. **The `/api/stream` subscription is added now**; Temporal-emitted events keep the bounded
-    poll until a LISTEN/NOTIFY republisher exists.
+10. **The `/api/stream` subscription is deferred** (§3.3); the bounded dispatch poll and the
+    host's reload after its own commands stay.
 11. **The observed-data bundle of `08 §8.6.1` is the capability call** (§2.4, §8.9), because
     the engine mints one observed-data per event; an `observed-data--` ref opens its event.
 12. **§6.13 and §6.20 share one table set and one PR**, under one ADR listing both issues.

@@ -10,16 +10,39 @@
 // one-object answers (labels, appearances) ride beside it unchanged.
 
 import type {
+  ActionRecord,
   ActionRow,
   Appearance,
   Capability,
+  CaseRow,
+  CaseSummaryView,
   CommsThread,
   Enablement,
+  EvidenceDoc,
   Hypothesis,
   InvestigationDetail,
+  InvestigationSummary,
   PinRow,
+  SOPDoc,
   ThreadEntry,
 } from "./backend";
+
+/** The four lenses (08 §8.4). */
+export type Lens = "summary" | "story" | "reasoning" | "response";
+
+/**
+ * What an inspector opens (impl §2.4, §4.2). A `ref` is any STIX / OCSF id:
+ * the host and the webview resolve its renderer from the id's shape and the
+ * snapshot; the other kinds name records that are not STIX objects.
+ */
+export type InspectorTarget =
+  | { kind: "ref"; ref: string }
+  | { kind: "sop"; sopId: string }
+  | { kind: "turn"; interpretationId: string }
+  | { kind: "action"; actionId: string }
+  | { kind: "thread"; threadId: string }
+  | { kind: "case"; investigationRef: string }
+  | { kind: "person"; principalId: string };
 
 /** One implicit-retrieval item (design/06 §5.1): a SOP or a similar past case
  * with its relevance signals and the analyst's inclusion state. Mirrors the
@@ -115,6 +138,11 @@ export type RenderMessage =
   // The whole cache, and whole re-posts of the slices an act touched (§3.1).
   | { type: "state.snapshot"; seq: number; snapshot: InvestigationSnapshot }
   | { type: "state.patch"; seq: number; patch: Partial<InvestigationSnapshot> }
+  // The work queue (08 §8.3): the analyst's investigations and the case
+  // system's queue, posted on load and on refresh; `queue.get` re-asks.
+  | { type: "queue"; investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string }
+  // Who the signed-in principal is, for "edited by you" and attestations.
+  | { type: "me"; name: string; principal: string }
   | { type: "error"; message: string }
   // Open the in-document rename card (never the top-of-window quick input).
   | { type: "rename.begin"; title: string }
@@ -122,8 +150,15 @@ export type RenderMessage =
   | { type: "renamed"; title: string }
   // A resolved human label for an evidence ref (e.g. "host · WIN-FILE01").
   | { type: "evidence.label"; ref: string; label: string }
-  // The entity popover's cross-investigation memory (ui/02 §2.4).
-  | { type: "entity.info"; ref: string; appearances: Appearance[] }
+  // The inspector's one-object answers (impl §4.1): the webview opened a pane
+  // from the snapshot and asked for what the record holds beyond it.
+  | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; appearances: Appearance[] }
+  | { type: "inspector.procedure"; sopId: string; sop: SOPDoc }
+  | { type: "inspector.turn"; interpretationId: string; body: string }
+  | { type: "inspector.action"; actionId: string; record: ActionRecord }
+  // summary is null when the corpus holds none for the ref (an honest gap).
+  | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
+  | { type: "inspector.error"; target: string; message: string }
   | { type: "turn.start" }
   | { type: "turn.user"; text: string }
   // An aside (the "btw" lens): a scoped agent turn rendered collapsed.
@@ -142,6 +177,18 @@ export type InboundMessage =
   | { type: "refresh" | "ready" }
   // Resync: the webview saw a sequence gap it cannot fill (§3.2).
   | { type: "ui.resync" }
+  | { type: "queue.get" }
+  // Start an investigation from a case row in the work queue (08 §8.3).
+  | { type: "queue.start"; caseNumber: string }
+  // The Knowledge section's scoped search (09 §9.6): the sidecar runs it and
+  // the merged set comes back as a `knowledge` patch.
+  | { type: "knowledge.search"; text: string }
+  // Request the outbound notification (08 §8.4 Response): a notify.* action
+  // whose pre-send preview is the approval.
+  | { type: "notify.request"; channel: "notify.email" | "notify.slack"; target: string; subject?: string; body: string }
+  // The lens and companion mode the analyst chose, mirrored to globalState so
+  // the tree can deep-link (view state, never investigation state).
+  | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }
   // The seed surface (design/ui/02 §2.7): the analyst's confirmed root.
   | { type: "seed.submit"; value: string; kind: string }
   | { type: "seed.alert"; alertId: string; source: string }
@@ -153,6 +200,8 @@ export type InboundMessage =
   | { type: "action.approve"; actionId: string; tier: string; actionType: string; challenge?: string }
   | { type: "action.reject"; actionId: string; actionType: string; reason: string }
   | { type: "action.rerequest"; actionId: string; actionType: string; rationale: string }
+  // Request the inverse action of a SUCCEEDED reversible one (04 §7); lands in the queue like any action.
+  | { type: "action.reverse"; actionId: string; rationale: string }
   | { type: "pin.add"; refs: string[]; finding: string }
   | { type: "pin.unpin"; interpretationId: string; reason: string }
   | { type: "verdict.submit"; disposition: string; rationale: string; refs: string[] }
@@ -174,11 +223,11 @@ export type InboundMessage =
   | { type: "comms.snooze"; threadId: string; hours: number }
   | { type: "comms.followup"; threadId: string; actionType: string; target: string; subject: string; message: string; followUpHours: number }
   | { type: "lifecycle"; transition: string; reason?: string; summary?: string }
-  | { type: "evidence.open"; ref: string }
   | { type: "evidence.resolve"; ref: string }
-  | { type: "entity.info"; ref: string }
+  // The webview opened an inspector pane (view state) and needs the record
+  // behind it; the host answers with the matching inspector.* message.
+  | { type: "inspector.open"; target: InspectorTarget }
   | { type: "export.open" }
   | { type: "copy"; text: string }
   | { type: "investigation.open"; id: string; title?: string }
-  | { type: "rename"; title: string }
-  | { type: "transcript.open"; interpretationId: string };
+  | { type: "rename"; title: string };

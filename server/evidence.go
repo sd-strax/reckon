@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -161,6 +162,19 @@ type EvidenceView struct {
 	Time       *time.Time `json:"time,omitempty"`
 	RecordedAt *time.Time `json:"recorded_at,omitempty"`
 	SourceTool string     `json:"source_tool,omitempty"`
+
+	// Related is set on an `indicator--` ref (a detection finding, 03 §4.12):
+	// the sightings that cite it, the vendor identity that produced it, and the
+	// observed-data the finding recursed — so the Detection inspector is one
+	// fetch (design/ui 08 §8.6.1). Nil for every other type.
+	Related *EvidenceRelated `json:"related,omitempty"`
+}
+
+// EvidenceRelated is the detection finding's neighbourhood in the object store.
+type EvidenceRelated struct {
+	Sightings []EvidenceView `json:"sightings"`
+	Identity  *EvidenceView  `json:"identity,omitempty"`
+	Evidence  []EvidenceView `json:"evidence"`
 }
 
 // getEvidence serves GET /api/evidence/{ref}: the citation-open surface. A
@@ -196,7 +210,16 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusInternalServerError, "query stix object: "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, EvidenceView{Ref: ref, Kind: "stix", Type: typ, Payload: payload})
+		v := EvidenceView{Ref: ref, Kind: "stix", Type: typ, Payload: payload}
+		if typ == "indicator" {
+			related, err := b.loadIndicatorRelated(r.Context(), ref, payload)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, "query related objects: "+err.Error())
+				return
+			}
+			v.Related = related
+		}
+		writeJSON(w, http.StatusOK, v)
 		return
 	}
 
@@ -222,4 +245,83 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 	}
 	v.Ref, v.Kind, v.Payload, v.Time, v.RecordedAt = ref, "ocsf", payload, &t, &rec
 	writeJSON(w, http.StatusOK, v)
+}
+
+// loadIndicatorRelated assembles a detection finding's neighbourhood: every
+// sighting whose sighting_of_ref is the indicator, the vendor identity named
+// by created_by_ref, and the observed-data each sighting cites. Missing
+// neighbours are gaps, never errors: a finding whose vendor identity was not
+// persisted still opens.
+func (b *Backend) loadIndicatorRelated(ctx context.Context, ref string, payload []byte) (*EvidenceRelated, error) {
+	db := b.cfg.Handler.DB()
+	out := &EvidenceRelated{Sightings: []EvidenceView{}, Evidence: []EvidenceView{}}
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, payload FROM stix_objects WHERE type = 'sighting' AND payload->>'sighting_of_ref' = $1 ORDER BY created`, ref)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	var evidenceRefs []string
+	for rows.Next() {
+		var id uuid.UUID
+		var p []byte
+		if err := rows.Scan(&id, &p); err != nil {
+			return nil, err
+		}
+		out.Sightings = append(out.Sightings, EvidenceView{Ref: "sighting--" + id.String(), Kind: "stix", Type: "sighting", Payload: p})
+		var s struct {
+			ObservedDataRefs []string `json:"observed_data_refs"`
+		}
+		_ = json.Unmarshal(p, &s)
+		for _, r := range s.ObservedDataRefs {
+			if r != "" && !seen[r] {
+				seen[r] = true
+				evidenceRefs = append(evidenceRefs, r)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var ind struct {
+		CreatedByRef string `json:"created_by_ref"`
+	}
+	_ = json.Unmarshal(payload, &ind)
+	if ind.CreatedByRef != "" {
+		if v, ok, err := b.loadStixView(ctx, ind.CreatedByRef); err != nil {
+			return nil, err
+		} else if ok {
+			out.Identity = &v
+		}
+	}
+	for _, r := range evidenceRefs {
+		if v, ok, err := b.loadStixView(ctx, r); err != nil {
+			return nil, err
+		} else if ok {
+			out.Evidence = append(out.Evidence, v)
+		}
+	}
+	return out, nil
+}
+
+// loadStixView reads one STIX object as an EvidenceView; ok is false when the
+// ref is malformed or not persisted.
+func (b *Backend) loadStixView(ctx context.Context, ref string) (EvidenceView, bool, error) {
+	id, ok := stixRefUUID(ref)
+	if !ok {
+		return EvidenceView{}, false, nil
+	}
+	var typ string
+	var payload []byte
+	err := b.cfg.Handler.DB().QueryRowContext(ctx, `SELECT type, payload FROM stix_objects WHERE id = $1`, id).Scan(&typ, &payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return EvidenceView{}, false, nil
+	}
+	if err != nil {
+		return EvidenceView{}, false, err
+	}
+	return EvidenceView{Ref: ref, Kind: "stix", Type: typ, Payload: payload}, true, nil
 }

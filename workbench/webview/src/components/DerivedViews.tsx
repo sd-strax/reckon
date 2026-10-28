@@ -7,7 +7,7 @@ import { isReason, layoutGraph, type GraphRef } from "../derive/graph";
 import type { DerivedViews as Derived } from "../../../src/protocol";
 
 export function EventStrip({ items }: { items: Derived["strip"] }) {
-  const { send } = useApp();
+  const { openInspector } = useApp();
   if (!items || items.length < 2) return null;
   const t0 = Date.parse(items[0].time);
   const t1 = Date.parse(items[items.length - 1].time);
@@ -22,7 +22,7 @@ export function EventStrip({ items }: { items: Derived["strip"] }) {
             className={"evdot" + (it.label === "observed-data" ? " od" : "")}
             style={{ left: (((Date.parse(it.time) - t0) / span) * 100).toFixed(2) + "%" }}
             title={it.label + " · " + new Date(it.time).toLocaleString() + " — open record"}
-            onClick={() => send({ type: "evidence.open", ref: it.ref })}
+            onClick={() => openInspector({ kind: "ref", ref: it.ref })}
           />
         ))}
       </div>
@@ -34,7 +34,7 @@ export function EventStrip({ items }: { items: Derived["strip"] }) {
 const ROW = 24, TOP = 22, NW = [252, 240], CX = [30, 360];
 
 export function EvidenceGraph({ graph }: { graph: Derived["graph"] }) {
-  const { state, send } = useApp();
+  const { state, openInspector } = useApp();
   if (!graph || !graph.refs.length) return null;
   const { stix, ocsf, ungrounded } = layoutGraph(graph);
   const H = TOP + 10 + Math.max(stix.length, ocsf.length, 1) * ROW;
@@ -49,7 +49,7 @@ export function EvidenceGraph({ graph }: { graph: Derived["graph"] }) {
     let cls = "gnode " + (base === "stix" && isReason(n) ? "reason" : base);
     if (ungrounded.has(n.id)) cls += " ungrounded";
     return (
-      <g key={n.id} className={cls} transform={`translate(${CX[col]},${y})`} onClick={() => send({ type: "evidence.open", ref: n.id })}>
+      <g key={n.id} className={cls} transform={`translate(${CX[col]},${y})`} onClick={() => openInspector({ kind: "ref", ref: n.id })}>
         <rect width={NW[col]} height={17} />
         <text x={5} y={12}>{label(n)}</text>
       </g>

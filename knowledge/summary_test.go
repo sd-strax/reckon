@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -208,5 +209,60 @@ func TestRecallSimilar(t *testing.T) {
 	}
 	if !hasTag(top.Tags, "T1021.001") {
 		t.Errorf("expected technique facet in tags: %v", top.Tags)
+	}
+}
+
+// TestSummaryByInvestigation: the inspector's read of one summary by its
+// source investigation (design/ui 08 §8.6.1) returns the structured fields
+// the producer recorded and the current body — the narrative once enriched —
+// with reserved tags stripped; a ref with no summary is ErrNoSummary.
+func TestSummaryByInvestigation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	ref := "grouping--" + uuid.New().String()
+	sum := Summary{
+		InvestigationRef: ref, Title: "Prior case", ConclusionAt: time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC),
+		SummaryText: "baseline body", ExtractorVersion: "1",
+		SeedKind: "entity", SeedValue: "HOST-A", Techniques: []string{"T1021.001"}, PrimaryEntities: []string{"HOST-A", "user-a"},
+		ActionsTaken:      []SummaryAction{{ActionType: "host.isolate", TargetCount: 1, Outcome: "SUCCEEDED"}},
+		ConclusionOutcome: "succeeded", DurationHours: 6.5, VerdictDisposition: "MALICIOUS", VerdictRationale: "confirmed",
+	}
+	if _, err := s.WriteSummary(ctx, testTenant, sum); err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.SummaryByInvestigation(ctx, testTenant, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.InvestigationRef != ref || v.Title != "Prior case" || v.Body != "baseline body" || v.GeneratorModel != "" {
+		t.Errorf("view = %+v", v)
+	}
+	if v.ConclusionAt != "2026-05-14T10:00:00Z" || v.SeedValue != "HOST-A" || v.DurationHours != 6.5 || v.VerdictDisposition != "MALICIOUS" {
+		t.Errorf("structured fields = %+v", v)
+	}
+	if len(v.Techniques) != 1 || len(v.PrimaryEntities) != 2 || len(v.ActionsTaken) != 1 || v.ActionsTaken[0].Outcome != "SUCCEEDED" || v.ActionsTaken[0].TargetCount != 1 {
+		t.Errorf("lists = %+v", v)
+	}
+	for _, tag := range v.Tags {
+		if strings.HasPrefix(tag, summarySourcePrefix) {
+			t.Errorf("reserved tag leaked: %v", v.Tags)
+		}
+	}
+	// The client tier's narrative replaces the body on the next read.
+	if _, err := s.EnrichSummary(ctx, testTenant, ref, "the narrative", "model-x"); err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.SummaryByInvestigation(ctx, testTenant, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Body != "the narrative" || v.GeneratorModel != "model-x" || v.Revision != 2 {
+		t.Errorf("enriched view = %+v", v)
+	}
+	if _, err := s.SummaryByInvestigation(ctx, testTenant, "grouping--none"); !errors.Is(err, ErrNoSummary) {
+		t.Errorf("missing = %v; want ErrNoSummary", err)
 	}
 }

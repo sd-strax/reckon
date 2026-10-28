@@ -1,18 +1,20 @@
 // The hypothesis tracker — the drivable loop over a COMPETING SET (02 §2.9,
-// adr/0047). Every hypothesis is a card, live ones first, the claim in full:
-// the comparison IS the content. The decide guard appears beside ⚡ Decide and
-// as a mark on the outstanding discriminator — where it bites — never as a
-// banner telling the analyst what to do next.
+// adr/0047) with 08 §8.4's density: a prediction row is ONE LINE at rest
+// (glyph with its word for screen readers, the ordinal, a short title —
+// the statement truncated until gap §6.12 — a `splits H<n>` marker, the
+// evidence count or "attested"); expanding shows the statement, the
+// attestation with its author by name, the evidence chips, what it decides
+// against, the Pinned marker and the row's affordances.
+import { useState } from "react";
 import { useApp } from "../app";
-import { blockersOf, badgeTone, counted, hypName, isLive, nameOf, orderHypotheses, predName, rivalsOf, tested } from "../derive/hyps";
-import { Badge, Empty, Eyebrow, RefChip } from "./shared";
+import { blockersOf, badgeTone, counted, hypName, isLive, nameOf, predName, rivalsOf, tested } from "../derive/hyps";
+import { Badge, RefChip } from "./shared";
 import { pinSpec, type PromptExtra, type PromptSpec } from "./PromptCard";
 import type { CommsThread, Hypothesis, PinRow, Prediction } from "../../../src/backend";
 import type { InboundMessage } from "../../../src/protocol";
 
 /** Record a prediction's result as the analyst (adr/0054): outcome, who was
- * asked and how, and what they said — the attestation the outcome cites. A
- * reply already on a comms thread can be prefilled (quoted, not linked). */
+ * asked and how, and what they said — the attestation the outcome cites. */
 export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms: CommsThread[], send: (m: InboundMessage) => void): PromptSpec {
   const rivals = (p.discriminates || []).map((d) => nameOf(d, hs));
   const replies: { thread: CommsThread; entry: CommsThread["trail"][number] }[] = [];
@@ -28,10 +30,7 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
   if (replies.length) {
     extrasTop.push({
       kind: "select", id: "reply", label: "Prefill from a reply on a comms thread",
-      options: [{ value: "", label: "—" }].concat(replies.map((r, i) => ({
-        value: String(i),
-        label: (r.entry.author || r.thread.target) + " · " + new Date(r.entry.at).toLocaleString() + ": " + (r.entry.body.length > 60 ? r.entry.body.slice(0, 59) + "…" : r.entry.body),
-      }))),
+      options: [{ value: "", label: "—" }].concat(replies.map((r, i) => ({ value: String(i), label: (r.entry.author || r.thread.target) + " · " + new Date(r.entry.at).toLocaleString() + ": " + (r.entry.body.length > 60 ? r.entry.body.slice(0, 59) + "…" : r.entry.body) }))),
       onChange: (v, api) => {
         const r = replies[Number(v)];
         if (!r) return;
@@ -48,7 +47,7 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
   return {
     title: "Record result of " + predName(p) + " under " + hypName(h, hs),
     label: "What was observed — who said what, or what you found",
-    placeholder: "e.g. Called J. Doe at 14:02: confirmed starting the RDP session from home over VPN to finish the backup job.",
+    placeholder: "e.g. Called the owner at 14:02: confirmed starting the session to finish the backup job.",
     helper: "Recorded as yours — an attestation the outcome cites. The record shows it as a human statement, never as telemetry."
       + (rivals.length ? " This test discriminates vs " + rivals.join(", ") + ": a confirmed result counts against them; a disconfirmed one supports them." : ""),
     confirm: "Record result",
@@ -60,82 +59,75 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
   };
 }
 
+/** The short title (gap §6.12): the statement up to its first clause boundary, clipped. */
+export function shortTitle(p: Prediction): string {
+  const s = p.statement.trim();
+  const cut = s.search(/[,;:—–]| — | - /);
+  const head = cut > 24 ? s.slice(0, cut) : s;
+  return head.length > 72 ? head.slice(0, 71) + "…" : head;
+}
+
+const GLYPH: Record<string, { g: string; word: string; tone: string }> = {
+  CONFIRMED: { g: "✓", word: "confirmed", tone: "ok" },
+  DISCONFIRMED: { g: "✕", word: "disconfirmed", tone: "bad" },
+  INCONCLUSIVE: { g: "?", word: "inconclusive", tone: "" },
+  UNTESTED: { g: "?", word: "untested", tone: "" },
+  WITHDRAWN: { g: "–", word: "withdrawn", tone: "muted" },
+};
+
 function PredictionRow({ p, h, hs, pins }: { p: Prediction; h: Hypothesis; hs: Hypothesis[]; pins: PinRow[] }) {
-  const { state, send, openPrompt, busy } = useApp();
+  const { state, send, openPrompt, busy, openInspector } = useApp();
+  const [open, setOpen] = useState(false);
   const live = isLive(h);
-  const outstanding = live && p.status === "UNTESTED" && (p.discriminates || []).length > 0;
   const manual = p.testKind === "manual";
   const trefs = p.testResultRefs || [];
-  // A decided prediction is pinnable: the pin cites the PREDICTION NODE too, so
-  // an active pin is detectable and the affordance goes inert instead of
-  // minting duplicates (un-pin brings it back — supersession, not deletion).
+  const glyph = GLYPH[p.status] || GLYPH.UNTESTED;
+  const splits = (p.discriminates || []).map((d) => nameOf(d, hs));
   const alreadyPinned = pins.some((x) => !x.superseded && ((x.inputRefs || []).includes(p.id) || (trefs.length > 0 && trefs.every((r) => (x.inputRefs || []).includes(r)))));
+  const outstanding = live && p.status === "UNTESTED" && splits.length > 0;
   return (
-    <li className={outstanding ? "outstanding" : undefined} style={p.status === "WITHDRAWN" ? { opacity: 0.55 } : undefined}>
-      <div className="predline">
-        {p.ordinal ? <span className="pord" title="How to refer to this prediction — in the composer, and in the agent's reasoning state">P{p.ordinal}</span> : null}
-        <span className="predtext">{p.statement}</span>
+    <li className={"prow" + (open ? " open" : "") + (outstanding ? " outstanding" : "") + (p.status === "WITHDRAWN" ? " withdrawn" : "")} id={"obj-" + p.id}>
+      <div className="pline" onClick={() => setOpen((o) => !o)} role="button" aria-expanded={open}>
+        <span className={"pglyph " + glyph.tone} aria-hidden="true">{glyph.g}</span><span className="sr">{glyph.word}</span>
+        <span className="pord" title="Open this prediction" onClick={(e) => { e.stopPropagation(); openInspector({ kind: "ref", ref: p.id }); }}>{predName(p)}</span>
+        <span className="ptitle" title={p.statement}>{shortTitle(p)}</span>
+        {splits.length ? <span className="psplits" title="Discriminating test: these rivals predict the opposite outcome">splits {splits.join(", ")}</span> : null}
+        <span className="pcount">{manual && p.attestation ? "attested" : trefs.length ? `${trefs.length} evidence` : manual ? "a person tests this" : p.status === "UNTESTED" ? "untested" : ""}</span>
+        <span className="pchev" aria-hidden="true">{open ? "⌄" : "›"}</span>
       </div>
-      <div className="predrow">
-        <Badge tone={badgeTone(p.status)}>{p.status}</Badge>
-        {(p.discriminates || []).length ? (
-          <span className="discchip" title="Discriminating test: these rivals predict the opposite outcome. CONFIRMED counts against them; DISCONFIRMED supports them.">
-            vs <b>{p.discriminates.map((d) => nameOf(d, hs)).join(", ")}</b>
-          </span>
-        ) : null}
-        {manual ? (
-          <span className="manualchip" title={(p.testQuery && (p.testQuery.queryText || p.testQuery.tool))
-            ? "Ask " + (p.testQuery.tool || "them") + (p.testQuery.queryText ? ": " + p.testQuery.queryText : "") + " — then Record result. The agent cannot record it."
-            : "Decided by someone's answer, not a query. Ask them, then Record result. The agent cannot record it."}>a person tests this</span>
-        ) : null}
-        {outstanding ? <span className="outchip" title="This is the test that separates the hypotheses. Until it runs (or is withdrawn), neither side can be recorded decided.">undecided until tested</span> : null}
-        {trefs.map((r) => <RefChip key={r} refId={r} />)}
-        {p.status === "UNTESTED" ? (
-          <>
-            {live ? (
+      {open ? (
+        <div className="pbody">
+          <p className="pstatement">{p.statement}</p>
+          {p.attestation ? <div className="attestline"><q>{p.attestation.content}</q><br /><b>{p.attestation.source || "a person"}</b> · recorded by {p.attestation.authorName || p.attestation.author}{p.attestation.channel ? " by " + p.attestation.channel : ""}</div> : null}
+          {trefs.length ? <div className="pevidence">{trefs.map((r) => <RefChip key={r} refId={r} />)}</div> : null}
+          {p.testQuery?.queryText ? <div className="imeta">Query: <span className="mono">{p.testQuery.queryText}</span>{p.testQuery.tool ? ` via ${p.testQuery.tool}` : ""}</div> : null}
+          {splits.length ? <div className="imeta">Decides against {splits.join(", ")}{p.status === "CONFIRMED" ? " (counts against them)" : p.status === "DISCONFIRMED" ? " (supports them)" : ""}</div> : null}
+          {alreadyPinned ? <div className="imeta">📌 Pinned</div> : null}
+          <div className="predrow">
+            <Badge tone={badgeTone(p.status)}>{p.status}</Badge>
+            {outstanding ? <span className="outchip" title="Until this runs (or is withdrawn), neither side can be recorded decided.">undecided until tested</span> : null}
+            {p.status === "UNTESTED" ? (
               <>
-                <button className="ghost testbtn predact" title="Discard this test without deleting it (→ WITHDRAWN). To edit a test: withdraw it and add the corrected one." onClick={() => openPrompt({
-                  title: "Withdraw prediction",
-                  label: "Why (optional)",
-                  placeholder: "e.g. not testable with our verbs; same outcome under both hypotheses",
-                  helper: "The record keeps it as WITHDRAWN; the tally stops counting it.",
-                  confirm: "Withdraw",
-                  require: false,
-                  onConfirm: (reason) => send({ type: "pred.withdraw", predictionRef: p.id, reason }),
-                })}>Withdraw</button>
-                <button className={manual ? "testbtn" : "ghost testbtn"} title={manual
-                  ? "Record what the person said as the result of " + predName(p) + ". Kept as an attestation the outcome cites — a human statement, never telemetry."
-                  : "Record the result yourself — e.g. you checked it by hand, or asked someone. Kept as an attestation the outcome cites, distinct from telemetry."}
-                  onClick={() => openPrompt(resultSpec(p, h, hs, state.snap?.comms || [], send))}>Record result</button>
-              </>
-            ) : null}
-            {!manual ? (
-              <button className={"testbtn" + (live ? "" : " predact")} disabled={busy} title={p.testQuery && p.testQuery.queryText
-                ? "Runs just this test as an agent turn: " + p.testQuery.queryText + " — the outcome and its evidence land on this row."
-                : "Runs a test of just this prediction as an agent turn; the outcome and its evidence land on this row."}
-                onClick={() => {
+                {live ? (
+                  <>
+                    <button className="ghost testbtn" title="Discard this test without deleting it (→ WITHDRAWN)." onClick={() => openPrompt({
+                      title: "Withdraw prediction", label: "Why (optional)", placeholder: "e.g. not testable with our verbs; same outcome under both hypotheses",
+                      helper: "The record keeps it as WITHDRAWN; the tally stops counting it.", confirm: "Withdraw", require: false,
+                      onConfirm: (reason) => send({ type: "pred.withdraw", predictionRef: p.id, reason }),
+                    })}>Withdraw</button>
+                    <button className={manual ? "testbtn" : "ghost testbtn"} title={manual ? "Record what the person said as the result. The agent cannot record it." : "Record the result yourself — kept as an attestation the outcome cites."} onClick={() => openPrompt(resultSpec(p, h, hs, state.snap?.comms || [], send))}>Record result</button>
+                  </>
+                ) : null}
+                {!manual ? <button className="testbtn predact" disabled={busy} title={p.testQuery?.queryText ? "Runs just this test as an agent turn: " + p.testQuery.queryText : "Runs a test of just this prediction as an agent turn"} onClick={() => {
                   if (busy) return;
-                  send({
-                    type: "pred.test", predictionRef: p.id, predictionName: p.ordinal ? predName(p) : "this prediction",
-                    statement: p.statement, queryText: p.testQuery?.queryText, tool: p.testQuery?.tool,
-                    hypothesisRef: h.id, hypStatement: h.statement, handle: h.handle, rivals: rivalsOf(h, hs),
-                  });
-                }}>⚡ Test {p.ordinal ? predName(p) : "this"}</button>
+                  send({ type: "pred.test", predictionRef: p.id, predictionName: p.ordinal ? predName(p) : "this prediction", statement: p.statement, queryText: p.testQuery?.queryText, tool: p.testQuery?.tool, hypothesisRef: h.id, hypStatement: h.statement, handle: h.handle, rivals: rivalsOf(h, hs) });
+                }}>⚡ Test {p.ordinal ? predName(p) : "this"}</button> : null}
+              </>
+            ) : trefs.length ? (
+              <button className="pincta testbtn predact" disabled={alreadyPinned} title={alreadyPinned ? "Already in the pinned evidence — un-pin there to revise" : "Pin this decided prediction + its test evidence (feeds the verdict gate)"}
+                onClick={() => openPrompt(pinSpec([p.id].concat(trefs), "[" + p.status + "] " + p.statement, (finding) => send({ type: "pin.add", refs: [p.id].concat(trefs), finding })))}>{alreadyPinned ? "📌 pinned" : "📌 Pin"}</button>
             ) : null}
-          </>
-        ) : trefs.length ? (
-          <button className="pincta testbtn predact" disabled={alreadyPinned}
-            title={alreadyPinned ? "Already in the pinned evidence — un-pin there to revise" : "Pin this decided prediction + its test evidence (feeds the verdict gate)"}
-            onClick={() => openPrompt(pinSpec([p.id].concat(trefs), "[" + p.status + "] " + p.statement, (finding) => send({ type: "pin.add", refs: [p.id].concat(trefs), finding })))}>
-            {alreadyPinned ? "📌 pinned" : "📌 Pin"}
-          </button>
-        ) : null}
-      </div>
-      {p.attestation ? (
-        // A human statement as evidence reads as one (adr/0054): who attested,
-        // how, who was asked, and the words — never as a log line.
-        <div className="attestline">
-          <b>attested by {p.attestation.authorName || p.attestation.author}{p.attestation.channel ? " by " + p.attestation.channel : ""}{p.attestation.source ? " (" + p.attestation.source + ")" : ""}</b>: <q>{p.attestation.content}</q>
+          </div>
         </div>
       ) : null}
     </li>
@@ -143,149 +135,74 @@ function PredictionRow({ p, h, hs, pins }: { p: Prediction; h: Hypothesis; hs: H
 }
 
 export function HypothesisCard({ h, hs, pins }: { h: Hypothesis; hs: Hypothesis[]; pins: PinRow[] }) {
-  const { send, openPrompt, busy } = useApp();
+  const { send, openPrompt, busy, openInspector } = useApp();
   const live = isLive(h);
-  const preds = (h.predictions || []).filter(counted);
+  const preds = h.predictions.filter(counted);
   const anyTested = preds.some(tested);
   const hasUntested = preds.some((p) => p.status === "UNTESTED");
   const name = hypName(h, hs);
-  const all = h.predictions || [];
   const blockers = blockersOf(h, hs);
-
   const aside = (label: string, title: string, type: "hyp.proposeTests" | "hyp.runTests" | "hyp.decide") => (
-    <button className="askdecide" disabled={busy} title={title} onClick={() => {
-      if (busy) return;
-      send({ type, hypothesisRef: h.id, statement: h.statement, handle: h.handle, rivals: rivalsOf(h, hs) });
-    }}>{label}</button>
+    <button className="askdecide" disabled={busy} title={title} onClick={() => { if (!busy) send({ type, hypothesisRef: h.id, statement: h.statement, handle: h.handle, rivals: rivalsOf(h, hs) }); }}>{label}</button>
   );
-
   return (
-    <div className="card">
+    <div className="card hypcard" id={"obj-" + h.id}>
       <div className="hyphead">
         <span className="hyphandle" title={live ? "Rename this hypothesis" : h.status} onClick={live ? () => openPrompt({
-          title: "Rename " + name,
-          label: "Short handle — how you and the agent will refer to it",
-          value: name,
-          selectAll: true,
-          placeholder: "e.g. H2 legit-admin",
-          helper: "Appears in the tabs, the composer, the thread and the export.",
-          confirm: "Rename",
-          onConfirm: (handleText) => send(h.status === "PROPOSED"
-            ? { type: "hyp.ack", hypothesisRef: h.id, handle: handleText }
-            : { type: "hyp.revise", hypothesisRef: h.id, handle: handleText }),
+          title: "Rename " + name, label: "Short handle — how you and the agent will refer to it", value: name, selectAll: true, placeholder: "e.g. H2 legit-admin",
+          helper: "Appears in the tabs, the composer, the thread and the export.", confirm: "Rename",
+          onConfirm: (handleText) => send(h.status === "PROPOSED" ? { type: "hyp.ack", hypothesisRef: h.id, handle: handleText } : { type: "hyp.revise", hypothesisRef: h.id, handle: handleText }),
         }) : undefined}>{name}</span>
         <span className="hypmeta">
-          <Badge tone={badgeTone(h.status)} title={h.status === "PROPOSED"
-            ? "Proposed by the agent. Adopt it to take ownership. Until a human does, the agent can propose and run tests against it but cannot record it supported or refuted."
-            : h.status === "OPEN" ? "Adopted — yours. Decided by its tests against the rivals." : h.status}>{h.status}</Badge>
           {preds.length ? <span className="hypcount" title="Predictions tested over predictions recorded (withdrawn ones not counted)">{preds.filter(tested).length}/{preds.length} tested</span> : null}
+          <Badge tone={badgeTone(h.status)} title={h.status === "PROPOSED" ? "Proposed by the agent. Adopt it to take ownership." : h.status === "OPEN" ? "Adopted — yours. Decided by its tests against the rivals." : h.status}>{h.status}</Badge>
         </span>
       </div>
-      <span className="statement">{h.statement}</span>
+      <span className="statement" title="Open this hypothesis" onClick={() => openInspector({ kind: "ref", ref: h.id })}>{h.statement}</span>
+      <ul className="predictions rows">
+        {h.predictions.map((p) => <PredictionRow key={p.id} p={p} h={h} hs={hs} pins={pins} />)}
+      </ul>
+      {!h.predictions.length ? <div className="predhead">{live ? "No predictions yet — nothing can confirm or refute this until a test is recorded (⚡ Propose tests, or + prediction)." : "No predictions were recorded."}</div> : null}
       <div className="decide">
         {h.status === "PROPOSED" ? (
-          // Adopt = acknowledge-with-restatement (01 §x-hypothesis): the
-          // statement is editable in the card — sharpening the claim is the
-          // ownership moment. Unchanged text sends a plain acknowledgment.
-          <button className="primary" title="Take ownership of this AI-proposed line of inquiry (PROPOSED → OPEN), sharpening the claim if you want. A human act — the engine refuses it from the AI." onClick={() => openPrompt({
-            title: "Adopt " + name,
-            label: "The claim, as you would state it",
-            value: h.statement,
-            helper: anyTested
-              ? "Predictions under this hypothesis already carry results, so the wording is frozen — adopt as is; a changed theory is a new hypothesis."
-              : "Edit freely: the original stays in the thread, the tests are derived from what you adopt. Cmd/Ctrl+Enter to adopt.",
+          <button className="primary" title="Take ownership of this AI-proposed line of inquiry (PROPOSED → OPEN), sharpening the claim if you want." onClick={() => openPrompt({
+            title: "Adopt " + name, label: "The claim, as you would state it", value: h.statement,
+            helper: anyTested ? "Predictions under this hypothesis already carry results, so the wording is frozen — adopt as is." : "Edit freely: the original stays in the thread, the tests are derived from what you adopt. Cmd/Ctrl+Enter to adopt.",
             confirm: "✓ Adopt",
             onConfirm: (statement) => send({ type: "hyp.ack", hypothesisRef: h.id, restatement: statement !== h.statement ? statement : undefined }),
           })}>✓ Adopt</button>
         ) : null}
-        {/* The drive affordance (02 §2.9) follows the state of the work — one rung at a time. */}
         {h.status === "OPEN" ? (
-          !preds.length ? aside("⚡ Propose tests", "Runs a scoped agent turn over the whole competing set: record the falsifiable predictions that would decide this — at least one that comes out the opposite way under a rival. Lands as a collapsed aside; predictions appear here.", "hyp.proposeTests")
-          : hasUntested ? aside("⚡ Run tests", "Runs the untested predictions — they are independent, so they run in parallel where possible. Outcomes and evidence land back on these rows.", "hyp.runTests")
-          : (
-            <>
-              {aside("⚡ Decide", "Weighs the tested predictions AGAINST THE RIVALS and records the hypothesis outcome (supported / refuted / inconclusive) citing the decisive evidence. The engine refuses it while a rival's discriminating test is untested: test it, withdraw it, or record its result yourself. Terminal in v0.", "hyp.decide")}
-              {blockers.length ? (
-                <span className="guardnote" title="The engine will not record this hypothesis decided while a rival holds an untested prediction that comes out the opposite way under it. Test it, withdraw it, or record its result yourself (Record result on the row).">
-                  blocked: {blockers.map((x) => predName(x.p) + " (" + hypName(x.owner, hs) + ")").join(", ")}{blockers.length === 1 ? " is untested and splits it from " : " are untested and split it from "}{name}
-                </span>
-              ) : null}
-            </>
-          )
+          !preds.length ? aside("⚡ Propose tests", "Runs a scoped agent turn over the whole competing set: record the falsifiable predictions that would decide this.", "hyp.proposeTests")
+          : hasUntested ? aside("⚡ Run tests", "Runs the untested predictions — independent, so in parallel where possible.", "hyp.runTests")
+          : <>{aside("⚡ Decide", "Weighs the tested predictions AGAINST THE RIVALS and records the outcome citing the decisive evidence.", "hyp.decide")}
+              {blockers.length ? <span className="guardnote" title="The engine will not record this hypothesis decided while a rival holds an untested prediction that comes out the opposite way under it.">blocked: {blockers.map((x) => predName(x.p) + " (" + hypName(x.owner, hs) + ")").join(", ")} untested</span> : null}</>
         ) : null}
         {live ? (
           <>
-            <button className="ghost" title="Add your own test under this hypothesis — e.g. a baseline only you know. Lands UNTESTED; mark the rivals it would decide against." onClick={() => {
+            <button className="ghost" title="Add your own test under this hypothesis. Lands UNTESTED; mark the rivals it would decide against." onClick={() => {
               const rivals = hs.filter((r) => r.id !== h.id && isLive(r));
               openPrompt({
-                title: "New prediction under " + name,
-                label: "If " + name + " is true, we should observe…",
-                placeholder: "e.g. svc_backup's 30-day logon baseline shows only Network logons from BKP-01 at 02:00 — never RemoteInteractive, never from 10.0.4.20.",
-                helper: "Recorded as yours, UNTESTED. ⚡ Test on its row runs it as an agent turn that records the outcome with evidence. A test a person answers is yours to record, with what they said.",
-                confirm: "Record prediction",
+                title: "New prediction under " + name, label: "If " + name + " is true, we should observe…",
+                placeholder: "e.g. the account's 30-day logon history shows only network logons from the backup host at 02:00.",
+                helper: "Recorded as yours, UNTESTED. ⚡ Test on its row runs it as an agent turn. A test a person answers is yours to record.", confirm: "Record prediction",
                 choicesLabel: rivals.length ? "This test comes out the OPPOSITE way under (discriminates):" : "",
                 choices: rivals.map((r) => ({ id: r.id, label: hypName(r, hs) + " — " + (r.statement.length > 70 ? r.statement.slice(0, 69) + "…" : r.statement), title: r.statement, checked: rivals.length === 1 })),
-                extras: [{ kind: "check", id: "manual", label: "A person tests this — the account owner, the change owner, a phone call. No tool query; I record the result.", title: "A manual test (adr/0054): the agent can propose one and remind you of it, never record its result." }],
+                extras: [{ kind: "check", id: "manual", label: "A person tests this — the account owner, the change owner, a phone call. No tool query; I record the result.", title: "A manual test (adr/0054)." }],
                 onConfirm: (statement, picked, ex) => send({ type: "pred.new", hypothesisRef: h.id, statement, discriminates: picked || [], testKind: ex.manual ? "manual" : undefined }),
               });
             }}>+ prediction</button>
-            {h.status === "OPEN" && !anyTested ? (
-              <button className="ghost" title="Sharpen the claim (legal while nothing under it has been tested). The original stays in the thread." onClick={() => openPrompt({
-                title: "Restate " + name,
-                label: "The claim, sharpened",
-                value: h.statement,
-                helper: "Predictions already recorded stay as they are — withdraw any the new wording makes moot.",
-                confirm: "Restate",
-                onConfirm: (statement) => { if (statement !== h.statement) send({ type: "hyp.revise", hypothesisRef: h.id, restatement: statement }); },
-              })}>Restate</button>
-            ) : null}
-            <button className="ghost" title="Not pursuing this line of inquiry (→ ABANDONED, terminal; the thread keeps it). Keeps unadopted proposals from piling up." onClick={() => openPrompt({
-              title: "Abandon " + name,
-              label: "Why it is not being pursued (optional)",
-              placeholder: "e.g. superseded by H3; no evidence path available in this tenant",
-              helper: "Terminal: a later change of mind is a new hypothesis. The verdict residual stops listing it.",
-              confirm: "Abandon",
-              require: false,
+            {h.status === "OPEN" && !anyTested ? <button className="ghost" title="Sharpen the claim (legal while nothing under it has been tested)." onClick={() => openPrompt({
+              title: "Restate " + name, label: "The claim, sharpened", value: h.statement, helper: "Predictions already recorded stay as they are — withdraw any the new wording makes moot.", confirm: "Restate",
+              onConfirm: (statement) => { if (statement !== h.statement) send({ type: "hyp.revise", hypothesisRef: h.id, restatement: statement }); },
+            })}>Restate</button> : null}
+            <button className="ghost" title="Not pursuing this line of inquiry (→ ABANDONED, terminal; the thread keeps it)." onClick={() => openPrompt({
+              title: "Abandon " + name, label: "Why it is not being pursued (optional)", placeholder: "e.g. superseded by H3", helper: "Terminal: a later change of mind is a new hypothesis.", confirm: "Abandon", require: false,
               onConfirm: (reason) => send({ type: "hyp.abandon", hypothesisRef: h.id, reason }),
             })}>Abandon</button>
           </>
         ) : null}
       </div>
-      {/* The predictions name themselves (adr/0047, #52). */}
-      <div className="predhead" title="A prediction is a falsifiable test of the hypothesis. One marked “vs H2” is a discriminator: it comes out the opposite way under that rival, so its result moves both.">
-        {all.length
-          ? "Predictions — if this hypothesis is true, we should observe each of these. A confirmed one supports it; a disconfirmed one counts against it."
-          : (live ? "No predictions yet — nothing can confirm or refute this until a test is recorded (⚡ Propose tests, or + prediction)." : "No predictions were recorded.")}
-      </div>
-      {all.length ? (
-        <ul className="predictions">
-          {all.map((p) => <PredictionRow key={p.id} p={p} h={h} hs={hs} pins={pins} />)}
-        </ul>
-      ) : null}
     </div>
-  );
-}
-
-export function Hypotheses() {
-  const { state, send, openPrompt } = useApp();
-  const hs = state.snap?.hypotheses || [];
-  const pins = state.snap?.pins || [];
-  return (
-    <section>
-      <Eyebrow>
-        Hypotheses{" "}
-        <button className="railadd" title="Frame your own hypothesis — e.g. the alternate (benign or different-attacker) explanation. Lands OPEN, tested like any other." onClick={() => openPrompt({
-          title: "New hypothesis",
-          label: "The claim to test — ONE claim, often the ALTERNATE explanation",
-          placeholder: "e.g. The svc_backup RDP logon was legitimate maintenance by the backup team, not lateral movement.",
-          helper: "Recorded as yours, OPEN immediately, named H" + (hs.length + 1) + " (rename by clicking the handle). Then “Propose tests” on it — competing hypotheses are decided by evidence, not argument.",
-          confirm: "Record hypothesis",
-          onConfirm: (statement) => send({ type: "hyp.new", statement, handle: "H" + (hs.length + 1) }),
-        })}>+ new…</button>
-      </Eyebrow>
-      <div id="hyps">
-        {!hs.length ? <Empty>None yet</Empty> : orderHypotheses(hs).map((h) => <HypothesisCard key={h.id} h={h} hs={hs} pins={pins} />)}
-      </div>
-    </section>
   );
 }
