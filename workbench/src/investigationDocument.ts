@@ -89,7 +89,7 @@ export class InvestigationDocuments {
     const ref = { id };
     panel.webview.html = this.html(panel.webview);
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => this.open.delete(ref.id));
+    panel.onDidDispose(() => { this.open.delete(ref.id); this.servedActions.delete(ref.id); });
   }
 
   /**
@@ -116,7 +116,7 @@ export class InvestigationDocuments {
     // The webview asks for its initial state via "ready"; a draft key answers
     // with the unseeded render instead of a load().
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => this.open.delete(ref.id));
+    panel.onDidDispose(() => { this.open.delete(ref.id); this.servedActions.delete(ref.id); });
   }
 
   /** The page may load only the bundle and the vendored fonts (impl §5.1). */
@@ -266,9 +266,13 @@ export class InvestigationDocuments {
     } else if (msg.type === "evidence.resolve") {
       void this.resolveLabel(panel, msg.ref);
     } else if (msg.type === "inspector.open") {
-      void this.answerInspector(id, panel, msg.target);
+      // An action record is re-sent by reads (resendActionRecords); answering
+      // it in the same order keeps an older answer from overwriting a newer one.
+      void (msg.target.kind === "action"
+        ? this.cache.exclusive(id, () => this.answerInspector(id, panel, msg.target))
+        : this.answerInspector(id, panel, msg.target));
     } else if (msg.type === "queue.get") {
-      void this.postQueue(panel);
+      void this.cache.exclusive(id, () => this.postQueue(panel));
     } else if (msg.type === "queue.start") {
       void this.startFromCase(msg.caseNumber);
     } else if (msg.type === "knowledge.search") {
@@ -428,18 +432,22 @@ export class InvestigationDocuments {
         return;
       }
       panel.title = `⚖ ${snapshot.investigation.title}`;
-      this.servedActions.delete(id);
       void this.post(panel, { type: "state.snapshot", seq: snapshot.seq, snapshot });
       this.onLoaded?.(id, snapshot.seq);
-      void this.postQueue(panel);
       void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal }); }).catch(() => undefined);
       // Dispatch is asynchronous (a Temporal workflow) and its result events are
       // recorded by the worker, not the HTTP path — keep refreshing while any
       // action is mid-dispatch so DISPATCHING never sticks past the outcome.
       this.scheduleDispatchWatch(id, panel, snapshot.actions ?? []);
       // The event-time strip + evidence graph: lenses over the cited refs,
-      // stamped with the sequence of the thread they were built from.
+      // stamped with the sequence of the thread they were built from, so the
+      // webview drops them if a newer read lands first.
       void this.postDerivedViews(panel, snapshot.thread ?? [], snapshot.seq);
+      // The queue and the inspector's action records carry no sequence: they
+      // finish inside this operation, so a later read cannot be overtaken. A
+      // reload keeps the inspector open with its records, so a record whose
+      // action moved is re-sent like after any other read.
+      await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, snapshot.actions ?? [])]);
       // The enablement view (gap hints + form schemas). Absence is honest.
       void this.client.enablement()
         .then((data) => this.patch(id, panel, { enablement: data }))
@@ -487,12 +495,12 @@ export class InvestigationDocuments {
       this.onLoaded?.(id, seq);
       if (patch.actions) {
         this.scheduleDispatchWatch(id, panel, patch.actions);
-        void this.resendActionRecords(id, panel, patch.actions);
       }
       if (patch.thread) {
-        void this.postDerivedViews(panel, patch.thread, seq);
+        void this.postDerivedViews(panel, patch.thread, seq); // sequenced: a stale one is dropped
       }
-      void this.postQueue(panel);
+      // Unsequenced follow-ups finish inside this operation (see load).
+      await Promise.all([this.postQueue(panel), patch.actions ? this.resendActionRecords(id, panel, patch.actions) : undefined]);
     });
   }
 

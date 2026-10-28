@@ -74,9 +74,17 @@ describe("InvestigationCache: what a read carries", () => {
     expect((await cache.snapshot("inv-1")).pins).toEqual([]);
   });
 
-  it("fails the read when the investigation or its hypotheses cannot be read", async () => {
+  it("fails a snapshot without its hypotheses, but a refresh carries the rest without them", async () => {
     const cache = new InvestigationCache(fakeClient({ hypotheses: async () => { throw new Error("500"); } }).client, quiet);
-    await expect(cache.refresh("inv-1")).rejects.toThrow("500");
+    await expect(cache.snapshot("inv-1")).rejects.toThrow("500");
+    const { patch } = await cache.refresh("inv-1");
+    expect("hypotheses" in patch).toBe(false);
+    expect(patch.actions).toEqual([]);
+  });
+
+  it("fails any read when the investigation itself cannot be read", async () => {
+    const cache = new InvestigationCache(fakeClient({ getInvestigation: async () => { throw new Error("404"); } }).client, quiet);
+    await expect(cache.refresh("inv-1")).rejects.toThrow("404");
   });
 
   it("reads each committed transcript once", async () => {

@@ -18,8 +18,8 @@ export type Projection = Pick<
   "investigation" | "hypotheses" | "actions" | "pins" | "comms" | "thread" | "turns"
 >;
 
-/** A read: the investigation and its hypotheses always; the rest when they read. */
-type Read = Pick<Projection, "investigation" | "hypotheses"> & Partial<Projection>;
+/** A read: the investigation always; the rest when they read. */
+type Read = Pick<Projection, "investigation"> & Partial<Projection>;
 
 export interface Logger {
   debug(message: string): void;
@@ -66,14 +66,14 @@ export class InvestigationCache {
    */
   async snapshot(id: string): Promise<InvestigationSnapshot> {
     const [r, capabilities] = await Promise.all([
-      this.read(id, "snapshot"),
+      this.read(id, "snapshot", true),
       // A 503 means the capability layer is off; null renders as "unavailable".
       this.client.capabilities().catch(() => null),
     ]);
     return {
       seq: this.advance(id, r),
       investigation: r.investigation,
-      hypotheses: r.hypotheses,
+      hypotheses: r.hypotheses ?? [],
       actions: r.actions ?? null,
       pins: r.pins ?? [],
       comms: r.comms ?? null,
@@ -86,7 +86,9 @@ export class InvestigationCache {
   /**
    * The event-sourced slices after a write, read in parallel and stamped
    * together. A slice whose read fails is left out, so the webview keeps the
-   * copy it holds rather than blanking it.
+   * copy it holds rather than blanking it; only the investigation must read.
+   * Hypotheses are optional here, unlike a snapshot, so a transient failure of
+   * that one read cannot hold back the actions a write or a dispatch changed.
    */
   async refresh(id: string): Promise<{ seq: number; patch: Partial<Projection> }> {
     const r = await this.read(id, "refresh");
@@ -116,7 +118,8 @@ export class InvestigationCache {
     return body;
   }
 
-  private async read(id: string, why: string): Promise<Read> {
+  /** `strict`: the hypotheses must read too (a snapshot has no copy to fall back on). */
+  private async read(id: string, why: string, strict = false): Promise<Read> {
     const optional = <T>(what: string, p: Promise<T>): Promise<T | undefined> =>
       p.catch((err: unknown) => {
         this.log.debug(`${why} ${what} ${id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -124,13 +127,14 @@ export class InvestigationCache {
       });
     const [investigation, hypotheses, thread, actions, pins, comms] = await Promise.all([
       this.client.getInvestigation(id),
-      this.client.hypotheses(id),
+      strict ? this.client.hypotheses(id) : optional("hypotheses", this.client.hypotheses(id)),
       optional("thread", this.client.thread(id)),
       optional("actions", this.client.actions(id)),
       optional("pins", this.client.pins(id)),
       optional("comms", this.client.comms(id)),
     ]);
-    const projection: Read = { investigation, hypotheses };
+    const projection: Read = { investigation };
+    if (hypotheses !== undefined) projection.hypotheses = hypotheses;
     if (thread !== undefined) {
       projection.thread = thread;
       projection.turns = await this.turns(thread);
