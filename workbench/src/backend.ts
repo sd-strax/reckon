@@ -1690,7 +1690,9 @@ function mapAction(a: RawAction): ActionRow {
     expired: status === "EXPIRED" || (pending && Number.isFinite(expiry) && Date.now() > expiry),
     expiresAt: a.expires_at,
     isReversal: a.is_reversal ?? false,
-    reversibility: a.reversibility,
+    // The engine sends the classification lowercase ("best_effort"); the row
+    // carries it in the documented upper-case form every surface compares against.
+    reversibility: a.reversibility ? a.reversibility.toUpperCase() : undefined,
     tierEscalated: a.tier_escalated ?? false,
     evidenceRefs: a.evidence_refs ?? [],
     retryOf: a.retry_of,
