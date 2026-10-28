@@ -206,15 +206,17 @@ func (b *Backend) listActionTypes(w http.ResponseWriter, r *http.Request) {
 // that issues commands uses this ONE derivation, so the aggregate's allowlist
 // is a real second layer behind any endpoint-level delegate check.
 func actorFromClaims(c authz.Claims) aggregate.Actor {
+	roles := append([]string(nil), c.Roles...)
 	if c.DelegateKind != "" {
 		return aggregate.Actor{
 			PrincipalID:   c.Subject,
 			PrincipalName: c.PreferredUsername,
+			Roles:         roles,
 			Kind:          aggregate.ActorAIDelegated,
 			Delegate:      &aggregate.AIDelegate{Vendor: c.DelegateKind},
 		}
 	}
-	return aggregate.Actor{PrincipalID: c.Subject, PrincipalName: c.PreferredUsername, Kind: aggregate.ActorHuman}
+	return aggregate.Actor{PrincipalID: c.Subject, PrincipalName: c.PreferredUsername, Roles: roles, Kind: aggregate.ActorHuman}
 }
 
 // actionsCollection routes /api/actions. POST (request_action) requires the
@@ -512,7 +514,7 @@ func (b *Backend) rerequestAction(w http.ResponseWriter, r *http.Request, priorI
 	// Reconstruct the request from the original's FROZEN fields — a faithful
 	// "same action, fresh clock", not a client reconstruction that could drift.
 	b.dispatchActionRequest(w, r,
-		aggregate.Actor{PrincipalID: claims.Subject, Kind: aggregate.ActorHuman}, claims.Subject,
+		aggregate.Actor{PrincipalID: claims.Subject, PrincipalName: claims.PreferredUsername, Roles: append([]string(nil), claims.Roles...), Kind: aggregate.ActorHuman}, claims.Subject,
 		RequestActionBody{
 			ActionType:       prior.ActionType,
 			Targets:          prior.Targets,

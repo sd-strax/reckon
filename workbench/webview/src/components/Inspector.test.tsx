@@ -262,4 +262,20 @@ describe("the inspector", () => {
     expect(transport.intents.find((i) => i.type === "owner.waive")).toMatchObject({ id: "owner-2", reason: "window no longer needed" });
     expect(within(pane()).getByText("WAIVED")).toBeTruthy();
   });
+
+  it("shows a person's roles as the acts carried them, the acts that predate the field, and the issuer (adr/0105)", () => {
+    mount();
+    fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
+    fireEvent.click(within(lens()).getAllByTitle("Open the action record").find((a) => a.textContent === "host.isolate")!);
+    let p = pane();
+    fireEvent.click(within(p).getAllByText("Analyst One")[0]); // the approving actor opens the person
+    p = pane();
+    expect(within(p).getByText("Person")).toBeTruthy();
+    const roles = within(p).getByText("Roles carried on their acts").parentElement as HTMLElement;
+    expect(within(roles).getByText("analyst")).toBeTruthy();
+    expect(within(roles).getByText(/current roles may differ/)).toBeTruthy();
+    expect(within(roles).getByText(/1 act predates the record carrying roles/)).toBeTruthy(); // the pin at seq 6
+    expect(within(p).getAllByText(/· as analyst/).length).toBeGreaterThan(0);
+    expect(within(p).getByText("https://idp.example.test/realms/reckon")).toBeTruthy();
+  });
 });

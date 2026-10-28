@@ -203,17 +203,27 @@ export function PersonInspector({ principalId }: { principalId: string }) {
   const name = acts.find((e) => e.actor.principalName)?.actor.principalName || principalId;
   const approvals = acts.filter((e) => e.interpretationType === "action-approval").length;
   const opened = state.snap?.investigation.seed && acts.length && acts[0].sequenceNo <= 2;
+  // The roles each act carried (adr/0105): the token's roles at command time, as the record
+  // kept them. The union is what this principal was, across this case; an act recorded
+  // before the field existed carries none, and says so.
+  const roles = Array.from(new Set(acts.flatMap((e) => e.actor.roles || []))).sort();
+  const withoutRoles = acts.filter((e) => !(e.actor.roles && e.actor.roles.length)).length;
+  const issuer = state.me?.issuer;
   return (
     <>
-      <div className="isub">From the identity provider at the time of each act; reckon stores no roles of its own.</div>
+      <div className="isub">As the identity provider presented them at the time of each act; reckon stores no roles of its own and reads the live token to authorize.</div>
       <div className="ithiscase"><span className="kicker">In this case:</span> <span className="icite">{opened ? "opened it · " : ""}{acts.length} act{acts.length === 1 ? "" : "s"}{approvals ? ` · ${approvals} approval${approvals === 1 ? "" : "s"}` : ""}</span></div>
-      <Section title="Roles carried on their acts"><div className="empty">Roles live in the identity provider; the record does not carry them yet (gap 00 §6.19).</div></Section>
+      <Section title="Roles carried on their acts">
+        {roles.length ? <div className="irow">{roles.map((r) => <Badge key={r} tone="muted">{r}</Badge>)} <span className="imeta">at the time of the acts; current roles may differ</span></div> : null}
+        {withoutRoles ? <div className="imeta">{withoutRoles === acts.length ? "none recorded: these acts predate the record carrying roles" : `${withoutRoles} ${withoutRoles === 1 ? "act predates" : "acts predate"} the record carrying roles`}</div> : null}
+        {!acts.length ? <div className="empty">no acts in this investigation</div> : null}
+      </Section>
       <Section title="What they did here">
         {acts.length ? acts.map((e) => (
-          <div key={e.sequenceNo} className="irow"><span className="imeta">{fmtTime(e.occurredAt)}</span> {e.actor.kind === "AI_DELEGATED" ? "reckon on their behalf: " : ""}<a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || e.interpretationType}</a></div>
+          <div key={e.sequenceNo} className="irow"><span className="imeta">{fmtTime(e.occurredAt)}</span> {e.actor.kind === "AI_DELEGATED" ? "reckon on their behalf: " : ""}<a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || e.interpretationType}</a>{e.actor.roles?.length ? <span className="imeta"> · as {e.actor.roles.join(", ")}</span> : null}</div>
         )) : <div className="empty">no acts in this investigation</div>}
       </Section>
-      <Section title="Identity"><KV rows={[{ k: "Principal id", v: principalId, mono: true }, { k: "Display name", v: name }]} /></Section>
+      <Section title="Identity"><KV rows={[{ k: "Principal id", v: principalId, mono: true }, { k: "Display name", v: name }, ...(issuer ? [{ k: "Issuer", v: issuer, mono: true }] : [])]} /></Section>
     </>
   );
 }

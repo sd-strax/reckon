@@ -107,9 +107,15 @@ type Actor struct {
 	// provider presents it (Keycloak preferred_username), captured at command
 	// time for display — the record is keyed and authorized by PrincipalID,
 	// never by this (adr/0077). Empty on events recorded before it existed.
-	PrincipalName string      `json:"principal_name,omitempty"`
-	Kind          string      `json:"kind,omitempty"` // HUMAN | AI_DELEGATED | SYSTEM; empty = HUMAN
-	Delegate      *AIDelegate `json:"delegate,omitempty"`
+	PrincipalName string `json:"principal_name,omitempty"`
+	// Roles are the roles the principal's token carried at command time, kept
+	// beside PrincipalName for display (adr/0105): what authorized the act as
+	// the record saw it. Never read for authorization — the live token is —
+	// and never a mirror of the identity provider. Empty on events recorded
+	// before the field existed, and on SYSTEM actors.
+	Roles    []string    `json:"roles,omitempty"`
+	Kind     string      `json:"kind,omitempty"` // HUMAN | AI_DELEGATED | SYSTEM; empty = HUMAN
+	Delegate *AIDelegate `json:"delegate,omitempty"`
 }
 
 // IsAIDelegated reports whether the command was initiated by the AI on the

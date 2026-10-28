@@ -236,7 +236,7 @@ export type RenderMessage =
   // system's queue, posted on load and on refresh; `queue.get` re-asks.
   | { type: "queue"; investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string }
   // Who the signed-in principal is, for "edited by you" and attestations.
-  | { type: "me"; name: string; principal: string }
+  | { type: "me"; name: string; principal: string; issuer?: string }
   | { type: "error"; message: string }
   // Open the in-document rename card (never the top-of-window quick input).
   | { type: "rename.begin"; title: string }

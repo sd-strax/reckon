@@ -967,6 +967,9 @@ union of roles those acts carried, with the caption that current roles may diffe
 recorded before the field existed show no roles, and the inspector says so. Issuer is the
 `/api/auth-config` issuer.
 
+**Landed** (`adr/0105`, PR #106) as specified; the issuer rides the host's `me` message
+(`issuer`) rather than the snapshot, since it is a property of the session, not the record.
+
 ### 8.9 §6.20 — Addressable capability calls
 
 **Decision.** A capability call is a first-class, addressable record (`capability_calls`, §8.2),

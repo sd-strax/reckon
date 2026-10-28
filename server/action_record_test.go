@@ -69,6 +69,9 @@ func TestActionRecord_HistoryAndAuthorization(t *testing.T) {
 	if rec.History[0].Status != aggregate.ActionStatusRequested || rec.History[0].Actor.PrincipalName != "analyst-one" {
 		t.Errorf("requested entry = %+v; want status REQUESTED by analyst-one", rec.History[0])
 	}
+	if len(rec.History[0].Actor.Roles) != 1 || rec.History[0].Actor.Roles[0] != "analyst" {
+		t.Errorf("requested entry roles = %v; want the token's [analyst] (adr/0105)", rec.History[0].Actor.Roles)
+	}
 	if rec.History[1].Detail != "manual approval required · no policy pre-authorizes this" {
 		t.Errorf("policy line = %q", rec.History[1].Detail)
 	}

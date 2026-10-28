@@ -287,7 +287,7 @@ export interface ActionRecord {
     sequenceNo: number;
     eventType: string;
     occurredAt: string;
-    actor: { principal: string; principalName?: string; kind: string; model?: string };
+    actor: { principal: string; principalName?: string; roles?: string[]; kind: string; model?: string };
     status?: string;
     detail?: string;
   }[];
@@ -295,8 +295,8 @@ export interface ActionRecord {
     requiredMode?: string;
     mode?: string;
     stage?: string;
-    primaryApprover?: { principal: string; principalName?: string; at: string };
-    secondaryApprover?: { principal: string; principalName?: string; at: string };
+    primaryApprover?: { principal: string; principalName?: string; roles?: string[]; at: string };
+    secondaryApprover?: { principal: string; principalName?: string; roles?: string[]; at: string };
     secondaryApproverPool?: string[];
     policyRef?: string;
     policyVersion?: string;
@@ -640,7 +640,7 @@ export interface ToolCallRecord {
 export interface ThreadEntry {
   sequenceNo: number;
   occurredAt: string;
-  actor: { principal: string; principalName?: string; kind: string; model?: string };
+  actor: { principal: string; principalName?: string; roles?: string[]; kind: string; model?: string };
   interpretationId: string;
   interpretationType: string;
   summary: string;
@@ -1195,7 +1195,7 @@ export class BackendClient {
     interface Raw {
       sequence_no?: number;
       occurred_at?: string;
-      actor?: { principal?: string; principal_name?: string; kind?: string; model?: string };
+      actor?: { principal?: string; principal_name?: string; roles?: string[]; kind?: string; model?: string };
       interpretation_id?: string;
       interpretation_type?: string;
       summary?: string;
@@ -1217,6 +1217,7 @@ export class BackendClient {
       actor: {
         principal: e.actor?.principal ?? "",
         principalName: e.actor?.principal_name,
+        roles: e.actor?.roles,
         kind: e.actor?.kind ?? "HUMAN",
         model: e.actor?.model,
       },
@@ -1675,10 +1676,10 @@ export class BackendClient {
 
   /** GET /api/actions/{id} — the action's record (08 §8.6.1). */
   async actionRecord(actionId: string): Promise<ActionRecord> {
-    interface RawApprover { principal?: string; principal_name?: string; at?: string }
+    interface RawApprover { principal?: string; principal_name?: string; roles?: string[]; at?: string }
     interface Raw {
       action?: RawAction;
-      history?: { sequence_no?: number; event_type?: string; occurred_at?: string; actor?: { principal?: string; principal_name?: string; kind?: string; model?: string }; status?: string; detail?: string }[];
+      history?: { sequence_no?: number; event_type?: string; occurred_at?: string; actor?: { principal?: string; principal_name?: string; roles?: string[]; kind?: string; model?: string }; status?: string; detail?: string }[];
       authorization?: {
         required_mode?: string; mode?: string; stage?: string;
         primary_approver?: RawApprover; secondary_approver?: RawApprover; secondary_approver_pool?: string[];
@@ -1689,13 +1690,13 @@ export class BackendClient {
       links?: { retry_of?: string; retried_by?: string[]; reversal_of_ref?: string; reversed_by_ref?: string; reversal_attempted_by_ref?: string; requesting_interpretation_id?: string };
     }
     const r = await this.authedGet<Raw>(`/api/actions/${encodeURIComponent(actionId)}`);
-    const approver = (a?: RawApprover) => a ? { principal: a.principal ?? "", principalName: a.principal_name, at: a.at ?? "" } : undefined;
+    const approver = (a?: RawApprover) => a ? { principal: a.principal ?? "", principalName: a.principal_name, roles: a.roles, at: a.at ?? "" } : undefined;
     const auth = r.authorization ?? {};
     return {
       action: mapAction(r.action ?? {}),
       history: (r.history ?? []).map((h) => ({
         sequenceNo: h.sequence_no ?? 0, eventType: h.event_type ?? "", occurredAt: h.occurred_at ?? "",
-        actor: { principal: h.actor?.principal ?? "", principalName: h.actor?.principal_name, kind: h.actor?.kind ?? "HUMAN", model: h.actor?.model },
+        actor: { principal: h.actor?.principal ?? "", principalName: h.actor?.principal_name, roles: h.actor?.roles, kind: h.actor?.kind ?? "HUMAN", model: h.actor?.model },
         status: h.status, detail: h.detail,
       })),
       authorization: {
