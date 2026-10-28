@@ -16,6 +16,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/sd-strax/reckon/internal/pgmigrate"
+	"github.com/sd-strax/reckon/internal/testpg"
 )
 
 // testPg is a single embedded-postgres instance shared across all aggregate
@@ -46,9 +47,14 @@ func TestMain(m *testing.M) {
 	// deferred functions — same reason the gocritic linter flags this.
 	cleanupDir := func() { _ = os.RemoveAll(dir) }
 
+	port, err := testpg.FreePort()
+	if err != nil {
+		cleanupDir()
+		log.Fatalf("%v", err)
+	}
 	testPg = embeddedpostgres.NewDatabase(embeddedpostgres.DefaultConfig().
 		Version(embeddedpostgres.V16).
-		Port(15436).
+		Port(port).
 		RuntimePath(filepath.Join(dir, "runtime")).
 		DataPath(filepath.Join(dir, "data")).
 		Username("test").
@@ -60,7 +66,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("embedded postgres start: %v", err)
 	}
 
-	dsn := "host=localhost port=15436 user=test password=test dbname=reckon_test sslmode=disable"
+	dsn := testpg.DSN(port, "reckon_test")
 	if err := pgmigrate.Run(dsn, Migrations(), "reckon_main"); err != nil {
 		_ = testPg.Stop()
 		cleanupDir()

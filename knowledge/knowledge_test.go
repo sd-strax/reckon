@@ -16,6 +16,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/sd-strax/reckon/internal/pgmigrate"
+	"github.com/sd-strax/reckon/internal/testpg"
 	"github.com/sd-strax/reckon/knowledge/substrate"
 )
 
@@ -45,9 +46,14 @@ func TestMain(m *testing.M) {
 	}
 	cleanupDir := func() { _ = os.RemoveAll(dir) }
 
+	port, err := testpg.FreePort()
+	if err != nil {
+		cleanupDir()
+		log.Fatalf("%v", err)
+	}
 	testPg = embeddedpostgres.NewDatabase(embeddedpostgres.DefaultConfig().
 		Version(embeddedpostgres.V16).
-		Port(15437).
+		Port(port).
 		RuntimePath(filepath.Join(dir, "runtime")).
 		DataPath(filepath.Join(dir, "data")).
 		Username("test").Password("test").Database("reckon_knowledge"))
@@ -56,7 +62,7 @@ func TestMain(m *testing.M) {
 		cleanupDir()
 		log.Fatalf("embedded postgres start: %v", err)
 	}
-	dsn := "host=localhost port=15437 user=test password=test dbname=reckon_knowledge sslmode=disable"
+	dsn := testpg.DSN(port, "reckon_knowledge")
 	if err := pgmigrate.Run(dsn, Migrations(), "reckon_knowledge"); err != nil {
 		_ = testPg.Stop()
 		cleanupDir()
