@@ -913,9 +913,14 @@ export class InvestigationDocuments {
         case "action":
           void this.post(panel, { type: "inspector.action", actionId: target.actionId, record: await this.client.actionRecord(target.actionId) });
           return;
-        case "case":
-          void this.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary: await this.client.caseSummary(target.investigationRef) });
+        case "case": {
+          const [summary, citations] = await Promise.all([
+            this.client.caseSummary(target.investigationRef),
+            this.client.citations("case", target.investigationRef).catch((err: unknown) => { this.log.debug(`case citations: ${errText(err)}`); return null; }),
+          ]);
+          void this.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary, citations });
           return;
+        }
         case "call":
           void this.post(panel, { type: "inspector.call", callId: target.callId, call: await this.client.call(id, target.callId) });
           return;

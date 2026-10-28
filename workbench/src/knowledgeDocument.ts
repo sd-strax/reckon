@@ -181,10 +181,19 @@ export class KnowledgeDocument {
       this.log.debug(`case_summaries: ${errText(err)}`);
       this.cases = null;
     }
+    // "Cited in N investigations" (adr/0109): a read over the citation projection.
+    let citations: Record<string, number> | null = null;
+    try {
+      citations = await this.client.citationCounts("sop");
+    } catch (err) {
+      this.log.debug(`citation counts: ${errText(err)}`);
+    }
     const state: KnowledgeState = {
       counts: this.counts(),
       sops: this.sops,
       cases: this.cases,
+      citations,
+      detailCitations: null,
       candidates: null,
       detail: null,
       detailRevisions: null,
@@ -224,11 +233,12 @@ export class KnowledgeDocument {
 
   private async getSOP(id: string): Promise<void> {
     try {
-      const [detail, detailRevisions] = await Promise.all([
+      const [detail, detailRevisions, cited] = await Promise.all([
         this.client.sop(id),
         this.client.sopRevisions(id).catch((err: unknown) => { this.log.debug(`revisions ${id}: ${errText(err)}`); return null; }),
+        this.client.citations("sop", id).catch((err: unknown) => { this.log.debug(`citations ${id}: ${errText(err)}`); return null; }),
       ]);
-      await this.post({ type: "knowledge.state", state: { detail, detailRevisions } });
+      await this.post({ type: "knowledge.state", state: { detail, detailRevisions, detailCitations: cited ? cited.investigations : null } });
     } catch (err) {
       await this.post({ type: "knowledge.error", message: `Could not read the procedure — ${errText(err)}` });
     }
@@ -467,7 +477,11 @@ export class KnowledgeDocument {
         return;
       case "case":
         try {
-          await this.post({ type: "inspector.case", investigationRef: target.investigationRef, summary: await this.client.caseSummary(target.investigationRef) });
+          const [summary, citations] = await Promise.all([
+            this.client.caseSummary(target.investigationRef),
+            this.client.citations("case", target.investigationRef).catch((err: unknown) => { this.log.debug(`case citations: ${errText(err)}`); return null; }),
+          ]);
+          await this.post({ type: "inspector.case", investigationRef: target.investigationRef, summary, citations });
         } catch (err) {
           await this.post({ type: "inspector.error", target: target.investigationRef, message: errText(err) });
         }

@@ -34,6 +34,7 @@ describe("the Knowledge document", () => {
     const secs = Array.from(nav().querySelectorAll(".ksec")).map((s) => s.textContent);
     expect(secs).toEqual(["Procedures3", "Past cases2", "Import4", "Candidates—"]);
     expect(main().querySelectorAll("tbody tr").length).toBe(3);
+    expect(within(main()).getByText("2 investigations")).toBeTruthy(); // cited in N investigations (adr/0109)
     fireEvent.click(within(main()).getByLabelText("show retired"));
     const rows = main().querySelectorAll("tbody tr");
     expect(rows.length).toBe(4);
@@ -54,8 +55,11 @@ describe("the Knowledge document", () => {
     fireEvent.click(within(detail).getByRole("tab", { name: /^Versions/ }));
     expect(within(detail).getByText("rev 2")).toBeTruthy();
     expect(within(detail).getByText("current")).toBeTruthy();
-    fireEvent.click(within(detail).getByRole("tab", { name: "Where used" }));
-    expect(within(detail).getByText(/gap 00 §6.22/)).toBeTruthy();
+    fireEvent.click(within(detail).getByRole("tab", { name: /^Where used/ }));
+    expect(within(detail).getByText("applied")).toBeTruthy(); // the stage's own investigation applied it (adr/0109)
+    expect(within(detail).getByText("consulted, not applied")).toBeTruthy();
+    fireEvent.click(within(detail).getByText("Service account misuse"));
+    expect(transport.intents.find((i) => i.type === "investigation.open")).toMatchObject({ id: "22222222-2222-4222-8222-222222222222" });
     fireEvent.click(within(detail).getByText("Copy link"));
     expect(transport.intents.find((i) => i.type === "copy")).toEqual({ type: "copy", text: "reckon://procedure/" + first.id });
     fireEvent.click(within(detail).getByText("Edit"));

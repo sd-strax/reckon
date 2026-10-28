@@ -179,6 +179,11 @@
       }
     ],
     "candidates": null,
+    "citations": {
+      "59f0a2cc-b599-44bc-8d72-0abda14ed4d2": 2,
+      "5cce8c33-eda2-480d-8495-bb29f356c037": 1
+    },
+    "detailCitations": null,
     "detail": null,
     "detailRevisions": null,
     "revisionBodies": {},
@@ -575,6 +580,64 @@
         "technique:T1078"
       ],
       "revision": 1
+    }
+  },
+  "sopCitations": {
+    "59f0a2cc-b599-44bc-8d72-0abda14ed4d2": [
+      {
+        "investigationId": "11111111-1111-4111-8111-111111111111",
+        "title": "Workstation logon chain",
+        "status": "active",
+        "applied": true,
+        "interpretations": 2,
+        "firstAt": "2026-10-20T09:04:00Z",
+        "lastAt": "2026-10-20T09:40:00Z"
+      },
+      {
+        "investigationId": "22222222-2222-4222-8222-222222222222",
+        "title": "Service account misuse",
+        "status": "concluded",
+        "applied": false,
+        "interpretations": 1,
+        "firstAt": "2026-09-12T14:00:00Z",
+        "lastAt": "2026-09-12T14:00:00Z"
+      }
+    ],
+    "5cce8c33-eda2-480d-8495-bb29f356c037": [
+      {
+        "investigationId": "11111111-1111-4111-8111-111111111111",
+        "title": "Workstation logon chain",
+        "status": "active",
+        "applied": false,
+        "interpretations": 1,
+        "firstAt": "2026-10-20T09:04:00Z",
+        "lastAt": "2026-10-20T09:04:00Z"
+      }
+    ]
+  },
+  "caseCitations": {
+    "grouping--b2b2b2b2-2222-4222-8222-222222222222": {
+      "investigations": [
+        {
+          "investigationId": "11111111-1111-4111-8111-111111111111",
+          "title": "Workstation logon chain",
+          "status": "active",
+          "applied": true,
+          "interpretations": 1,
+          "firstAt": "2026-10-20T09:04:00Z",
+          "lastAt": "2026-10-20T09:04:00Z"
+        }
+      ],
+      "learned": [
+        {
+          "sopId": "5cce8c33-eda2-480d-8495-bb29f356c037",
+          "title": "Host Isolation Runbook"
+        }
+      ]
+    },
+    "grouping--a1a1a1a1-1111-4111-8111-111111111111": {
+      "investigations": [],
+      "learned": []
     }
   },
   "queue": {

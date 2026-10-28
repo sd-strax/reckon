@@ -83,7 +83,7 @@ func TestMain(m *testing.M) {
 		cleanupDir()
 		log.Fatalf("sql.Open: %v", err)
 	}
-	testHandler = aggregate.NewHandler(aggregate.NewStore(testDB), aggregate.InvestigationCurrentProjector{}, aggregate.ActionCurrentProjector{}, aggregate.ReasoningNodeProjector{}, aggregate.VerdictPinProjector{}, aggregate.RefAppearanceProjector{}).
+	testHandler = aggregate.NewHandler(aggregate.NewStore(testDB), aggregate.InvestigationCurrentProjector{}, aggregate.ActionCurrentProjector{}, aggregate.ReasoningNodeProjector{}, aggregate.VerdictPinProjector{}, aggregate.RefAppearanceProjector{}, aggregate.KnowledgeCitationProjector{}).
 		WithSideStore(aggregate.NewSideStore(testDB))
 
 	// Mock OIDC issuer that signs RS256 tokens. Used by every test that

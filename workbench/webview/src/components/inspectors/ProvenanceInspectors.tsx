@@ -72,6 +72,7 @@ export function TurnInspector({ interpretationId }: { interpretationId: string }
 export function CaseInspector({ investigationRef }: { investigationRef: string }) {
   const { surface, state, send, dispatch, openInspector } = useApp();
   const summary = state.caseSummaries[investigationRef];
+  const cited = state.caseCitations[investigationRef];
   const item = state.knowledge.find((k) => k.kind === "case" && k.ref === investigationRef);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSimilar || []).filter((s) => s.investigationRef === investigationRef).map((s) => ({ e, s })));
   return (
@@ -101,6 +102,16 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
                     { k: "Outcome", v: summary.conclusionOutcome },
                     { k: "Verdict", v: summary.verdictDisposition ? `${summary.verdictDisposition}${summary.verdictRationale ? " — " + summary.verdictRationale : ""}` : undefined },
                   ]} />
+                </Section>
+                <Section title="Procedures learned from this case">
+                  {cited === undefined || cited === null ? <div className="empty">not read</div>
+                    : cited.learned.length ? cited.learned.map((l) => <div key={l.sopId} className="irow"><a onClick={() => openInspector({ kind: "sop", sopId: l.sopId })}>{l.title || l.sopId}</a> <span className="imeta">accepted from a candidate drafted at this case's conclusion</span></div>)
+                    : <div className="empty">none: no candidate drafted at its conclusion was accepted</div>}
+                </Section>
+                <Section title="Drawn on by">
+                  {cited === undefined || cited === null ? <div className="empty">not read</div>
+                    : cited.investigations.length ? cited.investigations.map((r) => <div key={r.investigationId} className="irow"><a onClick={() => send({ type: "investigation.open", id: r.investigationId, title: r.title })}>{r.title || r.investigationId}</a> · <Badge tone={r.applied ? "ok" : "muted"}>{r.applied ? "drew on it" : "consulted, not applied"}</Badge><span className="imeta"> · {fmtDateTime(r.lastAt)}</span></div>)
+                    : <div className="empty">no later investigation has consulted this case</div>}
                 </Section>
               </>
             )

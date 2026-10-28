@@ -1025,6 +1025,9 @@ consulted and whether it was applied*: two facts, two stores, one event behind b
 "Procedures learned from this case" on a past case is the inverse read: SOPs whose
 `source.url` is `reckon://investigation/<ref>`.
 
+**Landed** (`adr/0109`, PR #110) as specified; the case read returns `learned` alongside the
+citing investigations, and the similar-case inspector shows both ("Drawn on by").
+
 ### 8.12 §6.23 — Ask outside an investigation
 
 **Decision.** A new sidecar method `askKnowledge { request_id, text }` runs **one bounded loop**

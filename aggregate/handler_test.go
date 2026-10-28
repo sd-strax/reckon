@@ -90,14 +90,14 @@ func resetTables(t *testing.T) {
 	if !testReady {
 		t.Skip("embedded postgres not available")
 	}
-	_, err := testDB.Exec(`TRUNCATE events, investigation_current, action_current, hypothesis_current, prediction_current, stix_objects, evidence_pin_current, ref_appearances`)
+	_, err := testDB.Exec(`TRUNCATE events, investigation_current, action_current, hypothesis_current, prediction_current, stix_objects, evidence_pin_current, ref_appearances, knowledge_citations`)
 	if err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 }
 
 func newTestHandler() *Handler {
-	return NewHandler(NewStore(testDB), InvestigationCurrentProjector{}, ActionCurrentProjector{}, ReasoningNodeProjector{}, VerdictPinProjector{}, RefAppearanceProjector{})
+	return NewHandler(NewStore(testDB), InvestigationCurrentProjector{}, ActionCurrentProjector{}, ReasoningNodeProjector{}, VerdictPinProjector{}, RefAppearanceProjector{}, KnowledgeCitationProjector{})
 }
 
 // testTenantID is the tenant stamped on envelopes built by the aggregate

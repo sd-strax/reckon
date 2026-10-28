@@ -34,6 +34,8 @@ import type {
   SOPDoc,
   SOPRevision,
   ThreadEntry,
+  CaseCitations,
+  KnowledgeCitation,
 } from "./backend";
 
 /** The four lenses (08 §8.4). */
@@ -98,8 +100,12 @@ export interface KnowledgeState {
   counts: { procedures: number; cases: number | null; candidates: number | null };
   /** GET /api/sops?include_retired=true; the view hides retired rows by default. */
   sops: SOPDoc[];
-  /** §6.21: null until the listing exists (the section shows the gap line). */
+  /** Past cases (adr/0107): every concluded summary, newest first; null when the listing could not be read. */
   cases: CaseSummaryView[] | null;
+  /** "Cited in N investigations" per procedure id (adr/0109); null when the counts could not be read. */
+  citations: Record<string, number> | null;
+  /** The open procedure's Where used rows (adr/0109); null until read. */
+  detailCitations: KnowledgeCitation[] | null;
   /** §6.24: same. */
   candidates: null;
   /** The open procedure, whole (the row carries the body too; the detail re-reads it so an edit elsewhere shows). */
@@ -252,7 +258,7 @@ export type RenderMessage =
   | { type: "inspector.turn"; interpretationId: string; body: string }
   | { type: "inspector.action"; actionId: string; record: ActionRecord }
   // summary is null when the corpus holds none for the ref (an honest gap).
-  | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
+  | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null; citations?: CaseCitations | null }
   | { type: "inspector.call"; callId: string; call: CallDetail }
   // An entity's baseline within the investigation (adr/0095); null when the record holds none.
   | { type: "inspector.baseline"; ref: string; baseline: BaselineView | null }

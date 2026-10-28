@@ -4,7 +4,7 @@
 // with a `knowledge` slice is the Knowledge document (impl §2.6): it posts
 // `knowledge.state` instead of an investigation snapshot and answers the
 // document's reads and writes from that slice.
-import type { ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, RetrievalRow, RevisionContent, SOPDoc, SOPRevision } from "../src/backend";
+import type { CaseCitations, KnowledgeCitation, ActionRecord, Appearance, BaselineView, CallDetail, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, RetrievalRow, RevisionContent, SOPDoc, SOPRevision } from "../src/backend";
 import type { ImportRow, InboundMessage, InspectorTarget, InvestigationSnapshot, KnowledgeState, RenderMessage, SearchResults } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
@@ -22,6 +22,9 @@ export interface HarnessSnapshot {
   actionRecords?: Record<string, ActionRecord>;
   sops?: Record<string, SOPDoc>;
   caseSummaries?: Record<string, CaseSummaryView | null>;
+  /** Where knowledge was used (adr/0109): per procedure id the citing investigations; per case ref the citing investigations and the procedures learned. */
+  sopCitations?: Record<string, KnowledgeCitation[]>;
+  caseCitations?: Record<string, CaseCitations>;
   /** The capability calls the stage's events name (adr/0092). */
   calls?: Record<string, CallDetail>;
   /** Entity baselines (adr/0095); an entity absent here answers null. */
@@ -42,6 +45,9 @@ export interface HarnessKnowledge {
   /** The canned search answer; the query is substituted. */
   search?: Omit<SearchResults, "query">;
   caseSummaries?: Record<string, CaseSummaryView | null>;
+  /** Where knowledge was used (adr/0109): per procedure id the citing investigations; per case ref the citing investigations and the procedures learned. */
+  sopCitations?: Record<string, KnowledgeCitation[]>;
+  caseCitations?: Record<string, CaseCitations>;
   queue?: HarnessSnapshot["queue"];
   /** Each procedure's lineage and the revision bodies a compare can fetch (adr/0097). */
   revisions?: Record<string, SOPRevision[]>;
@@ -184,7 +190,7 @@ export class HarnessTransport implements WebviewTransport {
         break;
       case "sop.get": {
         const sop = doc.sops.find((s) => s.id === intent.sopId);
-        if (sop) this.emit({ type: "knowledge.state", state: { detail: sop, detailRevisions: k.revisions?.[sop.id] ?? [] } });
+        if (sop) this.emit({ type: "knowledge.state", state: { detail: sop, detailRevisions: k.revisions?.[sop.id] ?? [], detailCitations: k.sopCitations?.[sop.id] ?? [] } });
         else this.emit({ type: "knowledge.error", message: "procedure not recorded in this harness stage" });
         break;
       }
@@ -267,7 +273,7 @@ export class HarnessTransport implements WebviewTransport {
           if (sop) this.emit({ type: "inspector.procedure", sopId: sop.id, sop });
           else this.emit({ type: "inspector.error", target: (intent.target as { sopId: string }).sopId, message: "procedure not recorded in this harness stage" });
         } else if (intent.target.kind === "case") {
-          this.emit({ type: "inspector.case", investigationRef: intent.target.investigationRef, summary: k.caseSummaries?.[intent.target.investigationRef] ?? null });
+          this.emit({ type: "inspector.case", investigationRef: intent.target.investigationRef, summary: k.caseSummaries?.[intent.target.investigationRef] ?? null, citations: k.caseCitations?.[intent.target.investigationRef] ?? { investigations: [], learned: [] } });
         }
         break;
       // Everything else (copy, investigation.open, queue.start) is only recorded.
@@ -307,7 +313,7 @@ export class HarnessTransport implements WebviewTransport {
         break;
       }
       case "case":
-        this.emit({ type: "inspector.case", investigationRef: target.investigationRef, summary: d?.caseSummaries?.[target.investigationRef] ?? null });
+        this.emit({ type: "inspector.case", investigationRef: target.investigationRef, summary: d?.caseSummaries?.[target.investigationRef] ?? null, citations: d?.caseCitations?.[target.investigationRef] ?? { investigations: [], learned: [] } });
         break;
       case "call": {
         const call = d?.calls?.[target.callId];

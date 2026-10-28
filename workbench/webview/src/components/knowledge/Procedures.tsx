@@ -5,7 +5,7 @@
 // procedures are hidden by default and shown marked when included.
 import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../../app";
-import type { SOPDoc } from "../../../../src/backend";
+import type { KnowledgeCitation, SOPDoc } from "../../../../src/backend";
 import { KV, Section, Tabs } from "../inspectors/primitives";
 import { Badge, Empty, Markdown, fmtDateTime } from "../shared";
 import { useKnowledgeView } from "./KnowledgeApp";
@@ -56,7 +56,7 @@ export function Procedures() {
         </div>
         {!k ? <Empty>loading…</Empty> : !rows.length ? <Empty>{all.length ? "no procedure matches the filter" : "no procedures yet — import some, or accept a candidate"}</Empty> : (
           <table className="ktable" aria-label="Procedures">
-            <thead><tr><th>Title</th><th>Tags</th><th>Recommends</th><th>Version</th><th>Status</th><th>Author</th><th>Updated</th></tr></thead>
+            <thead><tr><th>Title</th><th>Tags</th><th>Recommends</th><th>Version</th><th>Status</th><th>Author</th><th>Updated</th><th title="Distinct investigations whose reasoning consulted or applied it (adr/0109)">Cited</th></tr></thead>
             <tbody>
               {rows.map((s) => (
                 <tr key={s.id} className={"krow" + (s.id === view.selected ? " current" : "") + (s.status === "retired" ? " retired" : "")} onClick={() => view.select(s.id === view.selected ? null : s.id)}>
@@ -67,6 +67,7 @@ export function Procedures() {
                   <td><Badge tone={s.status === "published" ? "ok" : s.status === "retired" ? "muted" : "warn"}>{s.status}</Badge></td>
                   <td>{s.authorId || ""}</td>
                   <td className="imeta">{fmtDateTime(s.updatedAt)}</td>
+                  <td className="mono kcited">{k.citations ? (k.citations[s.id] ? `${k.citations[s.id]} investigation${k.citations[s.id] === 1 ? "" : "s"}` : "—") : "?"}</td>
                 </tr>
               ))}
             </tbody>
@@ -118,6 +119,7 @@ function ProcedureDetail({ sop }: { sop: SOPDoc }) {
   const { state, send, openPrompt, openInspector } = useApp();
   const view = useKnowledgeView();
   const revisions = state.kdoc?.detailRevisions;
+  const cited = state.kdoc?.detailCitations;
   const inv = fromInvestigation(sop);
   const retire = () => openPrompt({
     title: "Retire procedure",
@@ -161,7 +163,7 @@ function ProcedureDetail({ sop }: { sop: SOPDoc }) {
           </>
         ) },
         { id: "versions", label: `Versions · ${revisions ? revisions.length : sop.revisionCount ?? "?"}`, body: () => <Versions sop={sop} /> },
-        { id: "used", label: "Where used", body: () => <Empty>Which investigations consulted or applied this procedure is gap 00 §6.22 (the citation projector).</Empty> },
+        { id: "used", label: `Where used${cited ? " · " + cited.length : ""}`, body: () => <WhereUsed rows={cited} /> },
       ]} />
       <div className="decide"><button onClick={() => openInspector({ kind: "sop", sopId: sop.id })}>Open in the inspector</button></div>
     </>
@@ -204,6 +206,25 @@ function ProcedureEditor({ sop }: { sop: SOPDoc }) {
         <div className="kpreview"><div className="kicker">Preview</div><Markdown text={body} className="idoc kbody" /></div>
       </div>
       <div className="imeta">Saving writes revision {(sop.revisionCount ?? 0) + 1}; the prior content stays hash-addressable. The source pointer and the import attribution are carried forward.</div>
+    </div>
+  );
+}
+
+/** Where a procedure was used (adr/0109): the investigations whose reasoning consulted it, each
+ * applied or consulted-not-applied, with the act count and the last time; the row opens the investigation. */
+function WhereUsed({ rows }: { rows: KnowledgeCitation[] | null | undefined }) {
+  const { send } = useApp();
+  if (rows === undefined || rows === null) return <Empty>The citations could not be read.</Empty>;
+  if (!rows.length) return <Empty>No investigation's reasoning has consulted this procedure yet.</Empty>;
+  return (
+    <div className="kused">
+      {rows.map((r) => (
+        <div key={r.investigationId} className="irow">
+          <a onClick={() => send({ type: "investigation.open", id: r.investigationId, title: r.title })}>{r.title || r.investigationId}</a>
+          {" · "}<Badge tone={r.applied ? "ok" : "muted"}>{r.applied ? "applied" : "consulted, not applied"}</Badge>
+          <span className="imeta"> · {r.interpretations} act{r.interpretations === 1 ? "" : "s"} · last {fmtDateTime(r.lastAt)}{r.status ? " · " + r.status.toLowerCase() : ""}</span>
+        </div>
+      ))}
     </div>
   );
 }

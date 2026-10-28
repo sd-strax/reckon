@@ -70,7 +70,7 @@ author. Retired procedures are hidden by default and shown marked when included.
 | Element | Source |
 |---|---|
 | Rows, filters | `GET /api/sops`; empty-query recall browses by tag |
-| Cited in N investigations | Gap `00 §6.22` |
+| Cited in N investigations | `GET /api/knowledge/citations/counts?kind=sop` (`adr/0109`), distinct investigations whose reasoning consulted or applied it |
 | Added from an investigation (a candidate accepted from the queue, §9.7) | Source URL `reckon://investigation/<id>` |
 
 **Detail** (opens beside the list):

@@ -322,6 +322,24 @@ export interface ActionRecord {
   };
 }
 
+/** One investigation's use of a piece of knowledge (mirrors aggregate.KnowledgeCitation, adr/0109). */
+export interface KnowledgeCitation {
+  investigationId: string;
+  title: string;
+  status: string;
+  /** Any act in that investigation applied it; otherwise consulted, not applied. */
+  applied: boolean;
+  interpretations: number;
+  firstAt: string;
+  lastAt: string;
+}
+
+/** Where a piece of knowledge was used, and (for a past case) the procedures learned from it. */
+export interface CaseCitations {
+  investigations: KnowledgeCitation[];
+  learned: { sopId: string; title: string }[];
+}
+
 /** One concluded investigation's summary (mirrors knowledge.CaseSummaryView). */
 export interface CaseSummaryView {
   investigationRef: string;
@@ -1747,6 +1765,22 @@ export class BackendClient {
       throw err;
     }
     return mapCaseSummary(r, investigationRef);
+  }
+
+  /** GET /api/knowledge/citations/counts?kind=sop — "cited in N investigations" per procedure (adr/0109). */
+  async citationCounts(kind: "sop" | "case" = "sop"): Promise<Record<string, number>> {
+    const r = await this.authedGet<{ counts?: Record<string, number> }>(`/api/knowledge/citations/counts?kind=${kind}`);
+    return r.counts ?? {};
+  }
+
+  /** GET /api/knowledge/citations?kind=&ref= — the investigations that consulted one piece of knowledge, and for a case the procedures learned from it (adr/0109). */
+  async citations(kind: "sop" | "case", ref: string): Promise<CaseCitations> {
+    interface Raw { investigations?: { investigation_id?: string; title?: string; status?: string; applied?: boolean; interpretations?: number; first_at?: string; last_at?: string }[]; learned?: { sop_id?: string; title?: string }[] }
+    const r = await this.authedGet<Raw>(`/api/knowledge/citations?kind=${kind}&ref=${encodeURIComponent(ref)}`);
+    return {
+      investigations: (r.investigations ?? []).map((c) => ({ investigationId: c.investigation_id ?? "", title: c.title ?? "", status: c.status ?? "", applied: !!c.applied, interpretations: c.interpretations ?? 0, firstAt: c.first_at ?? "", lastAt: c.last_at ?? "" })),
+      learned: (r.learned ?? []).map((l) => ({ sopId: l.sop_id ?? "", title: l.title ?? "" })),
+    };
   }
 
   /** GET /api/knowledge/case_summaries — every concluded investigation's summary, newest first, narrowed (09 §9.4, adr/0107). */

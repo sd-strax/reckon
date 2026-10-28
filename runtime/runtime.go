@@ -254,7 +254,7 @@ func serve(cfg config.Config) error {
 		aggregate.ActionCurrentProjector{},
 		aggregate.ReasoningNodeProjector{},
 		aggregate.VerdictPinProjector{},
-		aggregate.RefAppearanceProjector{},
+		aggregate.RefAppearanceProjector{}, aggregate.KnowledgeCitationProjector{},
 	).WithSideStore(aggregate.NewSideStore(aggDB))
 
 	// The knowledge service uses its own database (reckon_knowledge); open it

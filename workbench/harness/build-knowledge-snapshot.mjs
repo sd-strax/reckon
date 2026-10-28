@@ -90,6 +90,23 @@ const importRows = [
   },
 ];
 
+// Citations (adr/0109): the first two procedures were consulted by the stage's own investigation and
+// one prior one; the second prior case was drawn on by the stage's investigation and taught one procedure.
+const stageInv = { investigationId: "11111111-1111-4111-8111-111111111111", title: "Workstation logon chain", status: "active" };
+const priorInv = { investigationId: "22222222-2222-4222-8222-222222222222", title: "Service account misuse", status: "concluded" };
+const sopCitations = {
+  [sops[0].id]: [
+    { ...stageInv, applied: true, interpretations: 2, firstAt: "2026-10-20T09:04:00Z", lastAt: "2026-10-20T09:40:00Z" },
+    { ...priorInv, applied: false, interpretations: 1, firstAt: "2026-09-12T14:00:00Z", lastAt: "2026-09-12T14:00:00Z" },
+  ],
+  [sops[1].id]: [{ ...stageInv, applied: false, interpretations: 1, firstAt: "2026-10-20T09:04:00Z", lastAt: "2026-10-20T09:04:00Z" }],
+};
+const citations = Object.fromEntries(Object.entries(sopCitations).map(([id, rows]) => [id, new Set(rows.map((r) => r.investigationId)).size]));
+const caseRefs = Object.keys(caseSummaries);
+const caseCitations = Object.fromEntries(caseRefs.map((ref, i) => [ref, i === 0
+  ? { investigations: [{ ...stageInv, applied: true, interpretations: 1, firstAt: "2026-10-20T09:04:00Z", lastAt: "2026-10-20T09:04:00Z" }], learned: [{ sopId: sops[1].id, title: sops[1].title }] }
+  : { investigations: [], learned: [] }]));
+
 const search = {
   procedures: sops.filter((s) => s.status !== "retired").slice(0, 2).map((s, i) => ({ sopId: s.id, title: s.title, excerpt: s.body.split("\n").slice(2, 5).join(" ").slice(0, 220), score: 0.82 - i * 0.2, rationale: i === 0 ? "the seed context names RDP lateral movement" : "shares the containment vocabulary", tags: s.tags, recommendation: s.recommendation, status: s.status, backend: "vector-cosine/text-embedding-3-small" })),
   cases: cases.map((c, i) => ({ investigationRef: c.investigation_ref, title: c.title, excerpt: (c.summary_text || "").slice(0, 220), score: 0.9 - i * 0.35, band: i === 0 ? "NEAR_DUPLICATE" : "DISTINCT", rationale: i === 0 ? "same technique and seed kind" : "different technique family", tags: (c.techniques || []).map((t) => "technique:" + t), backend: "vector-cosine/text-embedding-3-small" })),
@@ -100,7 +117,7 @@ const out = {
   name: "knowledge",
   knowledge: {
     counts: { procedures: sops.filter((s) => s.status !== "retired").length, cases: Object.keys(caseSummaries).length, candidates: null },
-    sops, cases: Object.values(caseSummaries).sort((a, b) => (b.conclusionAt || "").localeCompare(a.conclusionAt || "")), candidates: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows, importing: false,
+    sops, cases: Object.values(caseSummaries).sort((a, b) => (b.conclusionAt || "").localeCompare(a.conclusionAt || "")), candidates: null, citations, detailCitations: null, detail: null, detailRevisions: null, revisionBodies: {}, results: null, answer: null, importRows, importing: false,
   },
   // Each procedure's lineage (adr/0097): one revision per rev count, the first imported, later ones edits; the bodies for a compare.
   revisions: Object.fromEntries(sops.map((s) => [s.id, Array.from({ length: s.revisionCount }, (_, i) => {
@@ -115,6 +132,8 @@ const out = {
   }))),
   search,
   caseSummaries,
+  sopCitations,
+  caseCitations,
   queue: JSON.parse(readFileSync(join(here, "snapshots", "synthetic.json"), "utf8")).queue,
 };
 const file = join(here, "snapshots", "knowledge.json");
