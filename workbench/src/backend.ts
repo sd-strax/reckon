@@ -1038,8 +1038,9 @@ export class BackendClient {
 
   /** GET /api/action-types — the write-side catalog (08 §3): each type's declared inverse. */
   async actionTypes(): Promise<{ actionType: string; reversibleBy?: string; tier?: string }[]> {
-    const body = await this.authedGet<{ action_types?: { action_type?: string; reversible_by?: string; tier?: string }[] }>("/api/action-types");
-    return (body.action_types ?? []).map((a) => ({ actionType: a.action_type ?? "", reversibleBy: a.reversible_by || undefined, tier: a.tier }));
+    // Each entry nests the type's declaration under `descriptor`, beside its availability.
+    const body = await this.authedGet<{ action_types?: { descriptor?: { action_type?: string; reversible_by?: string; default_tier?: string } }[] }>("/api/action-types");
+    return (body.action_types ?? []).map(({ descriptor: d = {} }) => ({ actionType: d.action_type ?? "", reversibleBy: d.reversible_by || undefined, tier: d.default_tier }));
   }
 
   /** GET /api/investigations/{id}/pins — the pinned-evidence fold. */

@@ -21,3 +21,16 @@ describe("BackendClient: action rows", () => {
     expect(rows.map((r) => r.reversibility)).toEqual(["REVERSIBLE", "BEST_EFFORT", "IRREVERSIBLE", undefined]);
   });
 });
+
+describe("BackendClient: the action catalog", () => {
+  it("reads each type's inverse from its descriptor", async () => {
+    const client = clientAnswering({ action_types: [
+      { descriptor: { action_type: "host.isolate", default_tier: "T2", reversibility: "reversible", reversible_by: "host.unisolate" }, status: "available", bindings: 1 },
+      { descriptor: { action_type: "ticket.comment", default_tier: "T1", reversibility: "irreversible" }, status: "available", bindings: 1 },
+    ] });
+    expect(await client.actionTypes()).toEqual([
+      { actionType: "host.isolate", reversibleBy: "host.unisolate", tier: "T2" },
+      { actionType: "ticket.comment", reversibleBy: undefined, tier: "T1" },
+    ]);
+  });
+});
