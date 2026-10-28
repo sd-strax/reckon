@@ -13,11 +13,60 @@ ADRs excluded).
 
 ## 1. Capabilities the analyst already had (reference, no decision)
 
-The `design/13 §7` v0 slice: investigate with the agent in conversation; keep competing
-hypotheses and test their predictions; see the evidence behind any claim; approve or reject
-proposed actions (T2 confirm, T3 typed challenge); enable a missing capability; choose which
-retrieved procedures and past cases the agent may use; import procedures; conclude, with a
-summary that teaches the knowledge base and a drafted procedure offered for the library.
+As of `main` before the redesign (`46fc148`), in the workbench unless noted.
+
+**Access and setup**
+- Sign in and out (PKCE against the IdP); store their own model key in the OS keychain; check
+  the backend connection.
+- Apply or revert the workbench posture that trims the editor to an investigation profile.
+
+**Intake**
+- See the case system's queue, sorted by age or by priority then age, and open a case.
+- Start an investigation from an alert, an entity or a case (with case search); list their
+  investigations; open and rename one.
+
+**Investigating with the agent**
+- Work with the agent turn by turn, streamed, with every tool call and its result visible.
+- Have the agent query telemetry through the capability layer, see which capabilities are
+  available or degraded, and cite an absence when a complete search finds nothing.
+- Run a scoped side turn (propose tests, ⚡ Test one prediction) without derailing the main
+  thread.
+- Reset the agent's context, rebuilding it from the investigation record.
+- Enable a missing integration from where the gap shows up: a form derived from its schema,
+  secrets captured out of band, the change recorded.
+
+**Reasoning**
+- Keep competing hypotheses: propose, acknowledge (restating while untested), revise, abandon,
+  decide supported or refuted.
+- Attach predictions that discriminate between hypotheses; propose and run their tests; record a
+  result, including one a person attests to; withdraw an untested one.
+- Record a verdict; supersede an earlier interpretation.
+- Read the reasoning thread: every act with who did it (person, or the agent on their behalf)
+  and what it cites; open any turn's full transcript.
+
+**Evidence**
+- Open any cited evidence as raw OCSF; see an entity's other appearances across investigations;
+  pin evidence; see the cited events in time and a minimal evidence graph.
+
+**Knowledge**
+- See the procedures and similar past cases retrieved for this investigation with their
+  relevance; choose which the agent may use; see on each act what was consulted.
+- Import procedures from markdown (workbench panel, or `reckon knowledge import`).
+
+**Response**
+- Review actions the agent requests (each grounded in evidence): approve (T2 confirm, T3 typed
+  challenge), reject, re-request an expired one; policy auto-approval where a policy covers it;
+  dispatch and per-target results; reverse a completed action.
+- Notify people through notification actions; follow the thread with replies; acknowledge, mark
+  done, snooze, follow up.
+
+**Closing**
+- Pause, resume, conclude; post a note to the case; export the investigation as markdown.
+- On conclude: the case summary enters the knowledge base (with a narrative drafted from the
+  conversation) and a drafted procedure is offered for the library.
+
+**Operator (CLI)**
+- Seed, reset or switch the demo scenario; import procedures in bulk.
 
 The redesign **re-presents** these: the same capabilities, delivered by new screens (§3). That
 is a layout decision, reviewed as UX and architecture, not a feature to keep or cut.
