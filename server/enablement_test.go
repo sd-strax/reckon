@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,6 +24,7 @@ func enablementBackend(t *testing.T) (*Backend, string) {
 	b := newTestBackend(t)
 	b.cfg.CapabilityConfigPath = path
 	b.cfg.CapabilityFixtureRoot = "../fixtures"
+	b.cfg.Demo = true // fixture adapters require demo mode (the FIXTURE-class gate)
 	return b, path
 }
 
@@ -77,9 +79,10 @@ func TestEnablement_GapAndApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	applyBody, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("apply = %d", resp.StatusCode)
+		t.Fatalf("apply = %d: %s", resp.StatusCode, applyBody)
 	}
 
 	// The gap is closed on the next view, and the hot-swapped surface serves

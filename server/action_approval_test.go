@@ -44,6 +44,7 @@ func requestManualAction(t *testing.T, b *Backend, invID uuid.UUID) string {
 	t.Helper()
 	_, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -116,6 +117,7 @@ func TestApproveAction_TwoPartyFlow(t *testing.T) {
 	// Request → PENDING_TWO_PARTY.
 	_, req := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -166,6 +168,7 @@ func TestApproveAction_SecondaryCarriesPrimaryTime(t *testing.T) {
 
 	_, req := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -259,6 +262,7 @@ func TestApproveAction_T3RequiresChallenge(t *testing.T) {
 	// email.purge is T3; no policy → PENDING_MANUAL.
 	_, req := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "email.purge",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "email-message--1", ResolvedIdentifier: "<msg@x>"}},
 		Rationale:        "phish",
 		InvestigationRef: invID.String(),

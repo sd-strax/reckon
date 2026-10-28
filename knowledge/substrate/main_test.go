@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +18,20 @@ import (
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 	_ "github.com/lib/pq"
 )
+
+// freePort returns a loopback TCP port that was free a moment ago.
+func freePort() (uint32, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("free port: %w", err)
+	}
+	defer func() { _ = l.Close() }()
+	addr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("free port: unexpected address %v", l.Addr())
+	}
+	return uint32(addr.Port), nil //nolint:gosec // a TCP port fits in uint32
+}
 
 // One embedded Postgres shared across the substrate tests (reckon-patterns:
 // per-package TestMain with shared Pg). Port differs from other packages so
@@ -40,9 +55,17 @@ func TestMain(m *testing.M) {
 	}
 	cleanupDir := func() { _ = os.RemoveAll(dir) }
 
+	// A fresh port per run, so an instance orphaned by a panicked run does not
+	// block the next one. Inlined rather than internal/testpg: the substrate
+	// imports nothing from the host module, tests included (TestImportBoundary).
+	port, err := freePort()
+	if err != nil {
+		cleanupDir()
+		log.Fatalf("%v", err)
+	}
 	testPg = embeddedpostgres.NewDatabase(embeddedpostgres.DefaultConfig().
 		Version(embeddedpostgres.V16).
-		Port(15438).
+		Port(port).
 		RuntimePath(filepath.Join(dir, "runtime")).
 		DataPath(filepath.Join(dir, "data")).
 		Username("test").Password("test").Database("substrate_test"))
@@ -53,7 +76,7 @@ func TestMain(m *testing.M) {
 	}
 	stopPg := func() { _ = testPg.Stop() }
 
-	dsn := "host=localhost port=15438 user=test password=test dbname=substrate_test sslmode=disable"
+	dsn := fmt.Sprintf("host=localhost port=%d user=test password=test dbname=substrate_test sslmode=disable", port)
 	testDB, err = sql.Open("postgres", dsn)
 	if err != nil {
 		stopPg()

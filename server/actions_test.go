@@ -79,6 +79,7 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		InvestigationRef: invID.String(),
 	})
 	if resp.StatusCode != http.StatusCreated {
@@ -112,6 +113,7 @@ func TestRequestAction_ManualFallThrough(t *testing.T) {
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		InvestigationRef: invID.String(),
 	})
 	if out.Status != "PENDING_MANUAL" || out.Mode != action.ModeManual {
@@ -142,6 +144,7 @@ func TestRequestAction_InvisibleActivateOnDraft(t *testing.T) {
 
 	resp, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -324,6 +327,7 @@ func TestRerequestAction_LazyExpiry(t *testing.T) {
 		ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
 		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--l", ResolvedIdentifier: "WIN-L"}},
 		ExpiresAt: time.Now().Add(-time.Minute), Rationale: "contain",
+		EvidenceRefs: []string{"observed-data--od1"}, // the re-request inherits the original's grounding
 	}); err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -413,6 +417,7 @@ func TestExpiryTimer_RaceResolvesForTheHuman(t *testing.T) {
 		ActionID: pendingID, ActionType: "host.isolate", Tier: aggregate.TierT2,
 		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--p", ResolvedIdentifier: "WIN-P"}},
 		ExpiresAt: time.Now().Add(-time.Minute), Rationale: "contain",
+		EvidenceRefs: []string{"observed-data--od1"}, // the re-request inherits the original's grounding
 	}); err != nil {
 		t.Fatalf("request pending: %v", err)
 	}
@@ -570,6 +575,7 @@ func TestListInvestigationActions(t *testing.T) {
 	})
 	_, second := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "account.disable",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: "svc_backup"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -638,6 +644,7 @@ func TestRequestAction_AIDelegatedT3BaselineDeny(t *testing.T) {
 	token := mintToken(t, map[string]any{"delegate_kind": "claude"})
 	_, out := postAction(t, b, token, RequestActionBody{
 		ActionType:       "email.purge",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "email-message--1", ResolvedIdentifier: "<msg@x>"}},
 		Rationale:        "phish",
 		InvestigationRef: invID.String(),

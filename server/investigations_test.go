@@ -26,6 +26,7 @@ import (
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/internal/pgmigrate"
+	"github.com/sd-strax/reckon/internal/testpg"
 )
 
 // Shared across all server integration tests in this package.
@@ -57,9 +58,14 @@ func TestMain(m *testing.M) {
 	// fatal exit path.
 	cleanupDir := func() { _ = os.RemoveAll(dir) }
 
+	port, err := testpg.FreePort()
+	if err != nil {
+		cleanupDir()
+		log.Fatalf("%v", err)
+	}
 	testPg = embeddedpostgres.NewDatabase(embeddedpostgres.DefaultConfig().
 		Version(embeddedpostgres.V16).
-		Port(15437).
+		Port(port).
 		RuntimePath(filepath.Join(dir, "runtime")).
 		DataPath(filepath.Join(dir, "data")).
 		Username("test").
@@ -70,7 +76,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("embedded postgres: %v", err)
 	}
 
-	dsn := "host=localhost port=15437 user=test password=test dbname=reckon_test sslmode=disable"
+	dsn := testpg.DSN(port, "reckon_test")
 	if err := pgmigrate.Run(dsn, aggregate.Migrations(), "reckon_main"); err != nil {
 		_ = testPg.Stop()
 		cleanupDir()
