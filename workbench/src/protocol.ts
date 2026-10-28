@@ -84,7 +84,7 @@ export interface SearchResults {
   coverage: { procedures: string; cases: string };
 }
 
-/** An Ask answer (09 §9.2, gap §6.23): streams in; null until the gap lands. */
+/** An Ask answer (09 §9.2, adr/0111): streams in by request id; citations resolve to inspector targets. */
 export interface Answer {
   requestId: string;
   question: string;
@@ -266,7 +266,7 @@ export type RenderMessage =
   // The Knowledge document (impl §2.6): slices re-posted whole after reads
   // and the host's own writes; the answer streams by request id.
   | { type: "knowledge.state"; state: Partial<KnowledgeState> }
-  | { type: "knowledge.answer.start"; requestId: string }
+  | { type: "knowledge.answer.start"; requestId: string; question: string }
   | { type: "knowledge.answer.delta"; requestId: string; text: string }
   | { type: "knowledge.answer.done"; requestId: string; answer: Answer }
   | { type: "knowledge.error"; message: string }

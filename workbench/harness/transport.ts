@@ -56,6 +56,7 @@ export interface HarnessKnowledge {
 
 export class HarnessTransport implements WebviewTransport {
   private handlers: ((m: RenderMessage) => void)[] = [];
+  private askSeq = 0;
   private state: unknown = undefined;
   readonly intents: InboundMessage[] = [];
   /** The Knowledge document's live copy (writes mutate it like the host's cache). */
@@ -223,7 +224,19 @@ export class HarnessTransport implements WebviewTransport {
       }
       case "knowledge.query":
         if (intent.mode === "ask") {
-          // Gap §6.23: the frame renders the gap line; nothing is answered.
+          // Ask (adr/0111): the answer streams by request id and cites the stage's first procedure and first case.
+          const requestId = "ask-" + (++this.askSeq);
+          const sop = doc.sops[0];
+          const caseRef = Object.keys(k.caseSummaries || {})[0];
+          const text = `Isolate first, then preserve evidence [1]. A prior case did the same and the account was reset [2]. Nothing in the knowledge base covers rotation of the service account.`;
+          this.emit({ type: "knowledge.answer.start", requestId, question: intent.text });
+          const mid = Math.floor(text.length / 2);
+          this.emit({ type: "knowledge.answer.delta", requestId, text: text.slice(0, mid) });
+          this.emit({ type: "knowledge.answer.delta", requestId, text: text.slice(mid) });
+          this.emit({ type: "knowledge.answer.done", requestId, answer: { requestId, question: intent.text, text, model: "harness-model", toolsUsed: ["recall_sops", "recall_similar_investigations"], citations: [
+            ...(sop ? [{ n: 1, title: sop.title, target: { kind: "sop" as const, sopId: sop.id } }] : []),
+            ...(caseRef ? [{ n: 2, title: k.caseSummaries![caseRef]!.title, target: { kind: "case" as const, investigationRef: caseRef } }] : []),
+          ] } });
         } else if (k.search) {
           this.emit({ type: "knowledge.state", state: { results: { ...k.search, query: intent.text } } });
         } else {

@@ -115,12 +115,18 @@ describe("the Knowledge document", () => {
     expect(main().querySelectorAll("tbody tr").length).toBe(3);
   });
 
-  it("Ask shows the gap line until §6.23 lands; Candidates shows its own", () => {
-    mountKnowledge();
+  it("Ask streams an answer from the knowledge base with its citations opening the inspector, and records nothing (adr/0111); Candidates shows its gap line", () => {
+    const transport = mountKnowledge();
     fireEvent.click(screen.getByRole("tab", { name: "Ask" }));
-    fireEvent.change(document.querySelector("#queryText")!, { target: { value: "what do we do about rdp?" } });
+    fireEvent.change(document.querySelector("#queryText")!, { target: { value: "what do we do first?" } });
     fireEvent.click(within(document.querySelector("#querybar") as HTMLElement).getByRole("button", { name: "Ask" }));
-    expect(within(main()).getByText(/Ask lands with gap 00 §6.23/)).toBeTruthy();
+    expect(transport.intents.find((i) => i.type === "knowledge.query")).toMatchObject({ mode: "ask", text: "what do we do first?" });
+    expect(within(main()).getByText(/Isolate first, then preserve evidence \[1\]/)).toBeTruthy();
+    expect(within(main()).getByText(/answered from the knowledge base only/)).toBeTruthy();
+    expect(within(main()).getByText(/nothing recorded in any investigation/)).toBeTruthy();
+    fireEvent.click(within(main()).getByText(/^\[1\] /));
+    expect(transport.intents.some((i) => i.type === "inspector.open" && i.target.kind === "sop")).toBe(true);
+    expect(transport.intents.filter((i) => i.type === "knowledge.query").length).toBe(1); // one question, no investigation act
     section("Candidates");
     expect(within(main()).getByText(/gap 00 §6.24/)).toBeTruthy();
   });

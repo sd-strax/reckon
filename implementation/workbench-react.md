@@ -1046,6 +1046,9 @@ retrieve is dropped by the sidecar, so the footer's "answered from the knowledge
 a checked fact. The eval (`10`) gains no scenario for Ask at v0; the unit test drives the loop
 against a fake model.
 
+**Landed** (`adr/0111`, PR #112) as specified, with `agent.Ask` a function rather than an
+`AskSession` type (one call, no state to keep); `knowledge.answer.start` carries the question.
+
 ### 8.13 §6.24 — Stored procedure candidates
 
 **Decision.** A candidate is a **CRUD record in `reckon_knowledge`**, owned by the knowledge

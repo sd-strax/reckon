@@ -22,6 +22,10 @@ func TestPrompt_Frozen(t *testing.T) {
 		framingLeadingNull: "81dd8c5fea1f67845871dbac21829f053bc5f894a6ecc3d41d0a1d2ab3bd6327",
 		framingLeadingOnly: "5ab0f9cb2f79c07dba691253bd0fd998d10930f7c1782e4264881c67d93e17e4",
 	}
+	// The Ask prompt (adr/0111) is pinned the same way; it has no framing dial.
+	if got, want := AskPromptVersion(), "69b64b0447951bd3d403e2cb115f721bc20d6017ec6398d3920c5f1502ff1eae"; got != want {
+		t.Errorf("Ask prompt version = %s; want %s\n  the Ask prompt changed. If that is deliberate: update this golden and the askLedger entry of the rule that moved.", got, want)
+	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
 			t.Errorf("prompt version under %s = %s; want %s\n"+
@@ -38,7 +42,8 @@ func TestPrompt_Frozen(t *testing.T) {
 // wrong cannot hide here as prose.
 func TestPromptLedger_Complete(t *testing.T) {
 	seen := map[string]bool{}
-	for _, sec := range promptLedger {
+	// The Ask prompt (adr/0111) is held to the same discipline as the base prompt.
+	for _, sec := range append(append([]promptSection{}, promptLedger...), askLedger...) {
 		if sec.Title == "" || len(sec.Rules) == 0 {
 			t.Errorf("ledger section %q is empty", sec.Title)
 		}
@@ -84,6 +89,14 @@ func TestPromptLedger_Complete(t *testing.T) {
 				if !strings.Contains(p, "- "+r.render(dial)+"\n") {
 					t.Errorf("rule %s is in the ledger but not rendered under %s", r.ID, dial)
 				}
+			}
+		}
+	}
+	ask := askPrompt()
+	for _, sec := range askLedger {
+		for _, r := range sec.Rules {
+			if !strings.Contains(ask, "- "+r.Text+"\n") {
+				t.Errorf("rule %s is in the Ask ledger but not rendered", r.ID)
 			}
 		}
 	}

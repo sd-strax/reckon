@@ -59,6 +59,7 @@ func TestPrompt_NoScenarioVocabulary(t *testing.T) {
 	texts := map[string]string{
 		"prompt/" + framingLeadingNull: systemPrompt(Investigation{HypothesisFraming: framingLeadingNull}, nil),
 		"prompt/" + framingLeadingOnly: systemPrompt(Investigation{HypothesisFraming: framingLeadingOnly}, nil),
+		"prompt/ask":                   askPrompt(), // adr/0111: the Ask prompt is held to the same rule
 	}
 	for _, td := range intrinsicTools(nil) {
 		texts["tool/"+td.Name] = toolText(td)

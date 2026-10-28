@@ -56,7 +56,9 @@ relevance signals; nothing is summarized.
 
 **Ask.** The agent answers the question from the knowledge base only, citing what it used;
 each citation opens in the inspector (`ui/08 §8.6`). It has no telemetry tools and changes
-nothing. Source: gap `00 §6.23`.
+nothing. Source: the sidecar's `askKnowledge` (`adr/0111`): one bounded knowledge-only loop
+with no session; `[n]` markers are checked against what it retrieved, and the footer names the
+recall tools that ran.
 
 Both modes record nothing in any investigation.
 

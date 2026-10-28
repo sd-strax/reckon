@@ -238,7 +238,7 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "knowledge.reveal":
       return { ...state, kreveal: { section: msg.section, id: msg.id, nonce: (state.kreveal?.nonce ?? 0) + 1 } };
     case "knowledge.answer.start":
-      return state.kdoc ? { ...state, kdoc: { ...state.kdoc, answer: { requestId: msg.requestId, question: state.kdoc.answer?.question || "", text: "", citations: [], model: "", toolsUsed: [] } } } : state;
+      return state.kdoc ? { ...state, kdoc: { ...state.kdoc, answer: { requestId: msg.requestId, question: msg.question, text: "", citations: [], model: "", toolsUsed: [] } } } : state;
     case "knowledge.answer.delta":
       return state.kdoc?.answer && state.kdoc.answer.requestId === msg.requestId ? { ...state, kdoc: { ...state.kdoc, answer: { ...state.kdoc.answer, text: state.kdoc.answer.text + msg.text } } } : state;
     case "knowledge.answer.done":

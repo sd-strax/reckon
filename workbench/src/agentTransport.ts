@@ -88,6 +88,14 @@ export interface SOPCandidate {
   rationale: string;
 }
 
+/** The sidecar's Ask result (agent.AskResult, adr/0111). */
+export interface AskAnswer {
+  text: string;
+  citations: { n: number; kind: "sop" | "case" | string; ref: string; title: string; location?: unknown }[];
+  model: string;
+  toolsUsed: string[];
+}
+
 /**
  * The seam the investigation document drives. Sessions are keyed by
  * investigation id; the transport owns their lifecycle (including re-creation
@@ -103,6 +111,8 @@ export interface AgentTransport {
   summarizeConcluded(investigationId: string): Promise<void>;
   /** Draft the narrative of an OPEN investigation on the client plane (adr/0103): one BYOK completion; the sidecar records it as an AI revision. */
   draftNarrative(investigationId: string): Promise<void>;
+  /** One question to the knowledge base outside any investigation (adr/0111): no session, nothing recorded; text streams through onDelta. */
+  askKnowledge(requestId: string, text: string, onDelta: (text: string) => void): Promise<AskAnswer>;
   /**
    * The analyst's own query over both corpora (design/ui 09 §9.6): the hits
    * join the session's retrieved set, excluded; the merged set comes back.
@@ -151,6 +161,8 @@ export class SidecarTransport implements AgentTransport {
   private readonly inFlight = new Map<string, TurnProgress>();
   /** investigation id → implicit-retrieval knowledge from createSession (the rail). */
   private readonly knowledge = new Map<string, KnowledgeItem[]>();
+  /** Ask request id → the delta sink of the question in flight (adr/0111). */
+  private readonly asks = new Map<string, (text: string) => void>();
   private disposed = false;
 
   constructor(
@@ -234,6 +246,22 @@ export class SidecarTransport implements AgentTransport {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
     await conn.sendRequest("draftNarrative", { session_id: sessionId });
+  }
+
+  async askKnowledge(requestId: string, text: string, onDelta: (text: string) => void): Promise<AskAnswer> {
+    const conn = await this.ensureConnection();
+    this.asks.set(requestId, onDelta);
+    try {
+      const raw = await conn.sendRequest("askKnowledge", { request_id: requestId, text }) as { text?: string; citations?: { n?: number; kind?: string; ref?: string; title?: string; location?: unknown }[]; model?: string; tools_used?: string[] };
+      return {
+        text: raw.text ?? "",
+        citations: (raw.citations ?? []).map((c) => ({ n: c.n ?? 0, kind: c.kind ?? "sop", ref: c.ref ?? "", title: c.title ?? "", location: c.location })),
+        model: raw.model ?? "",
+        toolsUsed: raw.tools_used ?? [],
+      };
+    } finally {
+      this.asks.delete(requestId);
+    }
   }
 
   /**
@@ -320,6 +348,9 @@ export class SidecarTransport implements AgentTransport {
     });
     connection.onNotification("turn/text_delta", (p: { session_id?: string; text?: string }) => {
       this.inFlight.get(p?.session_id ?? "")?.onTextDelta(p?.text ?? "");
+    });
+    connection.onNotification("ask/text_delta", (p: { request_id?: string; text?: string }) => {
+      this.asks.get(p?.request_id ?? "")?.(p?.text ?? "");
     });
     connection.onNotification("turn/step", (p: { session_id?: string; round?: number }) => {
       this.inFlight.get(p?.session_id ?? "")?.onStep(p?.round ?? 0);

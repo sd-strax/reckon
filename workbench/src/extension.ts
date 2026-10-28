@@ -71,7 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // main area for adding, browsing, editing, retiring and querying knowledge
   // outside any investigation. The investigation document's left region and
   // its Knowledge section reveal it; `reckon.importSOP` opens its Import section.
-  const knowledge = new KnowledgeDocument(context.extensionUri, client, log, onInvestigationCreated);
+  const knowledge = new KnowledgeDocument(context.extensionUri, client, log, onInvestigationCreated, transport);
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("reckon.cases", cases),
     vscode.commands.registerCommand("reckon.openCase", (number?: string) => {

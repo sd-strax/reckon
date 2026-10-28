@@ -1,7 +1,7 @@
 // Search results and the Ask answer (09 §9.2). Search lists both corpora
 // with their relevance signals, nothing summarized: "No procedure matches" is
 // information, a keyword-fallback answer is named as degraded (the backend
-// word verbatim). Ask is the knowledge-only agent (gap §6.23): its frame
+// word verbatim). Ask is the knowledge-only agent (adr/0111): its frame
 // renders the gap line until it lands, then the answer with [n] citations
 // opening the inspector and the footer from the sidecar's result.
 import { useApp } from "../../app";
@@ -67,10 +67,10 @@ export function AnswerView() {
         <>
           <div className="md">{a.text || <Empty>answering…</Empty>}</div>
           {a.citations.length ? <div className="kcites">{a.citations.map((c) => <a key={c.n} onClick={() => openInspector(c.target)}>[{c.n}] {c.title}</a>)}</div> : null}
-          {a.model ? <div className="imeta kfoot">reckon · {a.model} · {a.toolsUsed.length ? a.toolsUsed.join(", ") : "no telemetry tools"} · nothing recorded in any investigation</div> : null}
+          {a.model || a.toolsUsed.length ? <div className="imeta kfoot">reckon{a.model ? " · " + a.model : ""} · {a.toolsUsed.length ? "answered from the knowledge base only (" + a.toolsUsed.join(", ") + ")" : "answered without consulting the knowledge base"} · nothing recorded in any investigation</div> : null}
         </>
       ) : (
-        <Empty>Ask lands with gap 00 §6.23: a knowledge-only agent answers from the corpus, cites what it used, runs no telemetry tools and records nothing. Search runs today — switch the mode to Search.</Empty>
+        <Empty>asking the knowledge base…</Empty>
       )}
     </div>
   );

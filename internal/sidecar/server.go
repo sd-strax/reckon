@@ -66,6 +66,7 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, opts Options) error {
 		"resetSession":       s.handleResetSession,
 		"summarizeConcluded": s.handleSummarizeConcluded,
 		"draftNarrative":     s.handleDraftNarrative,
+		"askKnowledge":       s.handleAskKnowledge,
 		"proposeSOP":         s.handleProposeSOP,
 		"searchKnowledge":    s.handleSearchKnowledge,
 		"cancel":             s.handleCancel,
@@ -605,6 +606,61 @@ func (s *service) handleDraftNarrative(ctx context.Context, raw json.RawMessage)
 		return nil, err
 	}
 	return map[string]any{"chars": len(text), "model": model}, nil
+}
+
+// askKnowledgeParams is one question to the knowledge base outside any
+// investigation (adr/0111); request_id routes the streamed deltas.
+type askKnowledgeParams struct {
+	RequestID string `json:"request_id"`
+	Text      string `json:"text"`
+}
+
+// askTextNote streams one text fragment of an Ask answer (ask/text_delta).
+type askTextNote struct {
+	RequestID string `json:"request_id"`
+	Text      string `json:"text"`
+}
+
+// handleAskKnowledge runs one bounded knowledge-only loop (agent.Ask) with no
+// session, no investigation and no record: the model may call the two recall
+// tools, then answers citing what it retrieved. Deltas stream as
+// ask/text_delta by request id; the result carries the text with only
+// resolvable citations, the citations, the model and the tools used.
+func (s *service) handleAskKnowledge(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p askKnowledgeParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, errInvalidParams("askKnowledge: %v", err)
+	}
+	if p.RequestID == "" || p.Text == "" {
+		return nil, errInvalidParams("askKnowledge: request_id and text are required")
+	}
+	s.mu.Lock()
+	backend, model, apiKey := s.backend, s.model, s.apiKey
+	s.mu.Unlock()
+	if backend == "" {
+		return nil, fmt.Errorf("not initialized — call initialize first")
+	}
+	client := agent.NewClient(backend,
+		&rpcTokenSource{conn: s.conn, kind: "delegate"},
+		&rpcTokenSource{conn: s.conn, kind: "human"},
+	)
+	res, err := agent.Ask(ctx, agent.AskConfig{
+		Backend: client,
+		LLM:     s.opts.NewLLM(model, apiKey),
+		OnTextDelta: func(delta string) {
+			s.conn.Notify("ask/text_delta", askTextNote{RequestID: p.RequestID, Text: delta})
+		},
+	}, p.Text)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"request_id": p.RequestID,
+		"text":       res.Text,
+		"citations":  res.Citations,
+		"model":      res.Model,
+		"tools_used": res.ToolsUsed,
+	}, nil
 }
 
 // proposeSOPParams identifies the session whose concluded investigation to

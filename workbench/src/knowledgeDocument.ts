@@ -12,8 +12,10 @@
 // (internal/sopdoc) stays the only parser.
 
 import * as vscode from "vscode";
+import { randomUUID } from "node:crypto";
+import type { AgentTransport } from "./agentTransport";
 import { BackendClient, CaseSummaryView, InvestigationDetail, SOPDoc } from "./backend";
-import type { ImportDryRun, ImportRow, InboundMessage, InspectorTarget, KnowledgeSection, KnowledgeState, RenderMessage, SearchResults } from "./protocol";
+import type { Answer, ImportDryRun, ImportRow, InboundMessage, InspectorTarget, KnowledgeSection, KnowledgeState, RenderMessage, SearchResults } from "./protocol";
 import { panelOptions, webviewShell } from "./webviewShell";
 import { openSOPOriginal } from "./investigationDocument";
 
@@ -50,6 +52,9 @@ export class KnowledgeDocument {
     // Called with an investigation started from the work queue shown in this
     // document's left region: the extension opens it and refreshes the trees.
     private readonly onInvestigationCreated: (created: InvestigationDetail) => void,
+    // The sidecar transport, for Ask (adr/0111): a knowledge-only loop with no
+    // session and nothing recorded. Optional so the document stands without it.
+    private readonly transport?: Pick<AgentTransport, "askKnowledge">,
   ) {}
 
   /** Open (or reveal) the document, at a section when one is named. */
@@ -99,9 +104,7 @@ export class KnowledgeDocument {
         return;
       case "knowledge.query":
         if (msg.mode === "ask") {
-          // Gap 00 §6.23: the webview's Ask frame carries the gap line; the
-          // sidecar method and the streamed answer land with it.
-          this.log.info(`ask (not yet served, gap §6.23): ${msg.text}`);
+          void this.ask(msg.text);
         } else {
           void this.search(msg.text, msg.filters);
         }
@@ -216,6 +219,30 @@ export class KnowledgeDocument {
 
   private counts(): KnowledgeState["counts"] {
     return { procedures: this.sops.filter((s) => s.status !== "retired").length, cases: this.cases ? this.cases.length : null, candidates: null };
+  }
+
+  /** Ask (09 §9.2, adr/0111): one knowledge-only loop on the client plane; the
+   * answer streams by request id, citations resolve to inspector targets, and
+   * the footer's "nothing recorded" is the sidecar's fact, not a promise. */
+  private async ask(text: string): Promise<void> {
+    const question = text.trim();
+    if (!question) return;
+    if (!this.transport) {
+      await this.post({ type: "knowledge.error", message: "Ask needs the agent sidecar, which this document was opened without." });
+      return;
+    }
+    const requestId = randomUUID();
+    await this.post({ type: "knowledge.answer.start", requestId, question });
+    try {
+      const a = await this.transport.askKnowledge(requestId, question, (delta) => { void this.post({ type: "knowledge.answer.delta", requestId, text: delta }); });
+      const answer: Answer = {
+        requestId, question, text: a.text, model: a.model, toolsUsed: a.toolsUsed,
+        citations: a.citations.map((c) => ({ n: c.n, title: c.title, target: c.kind === "case" ? { kind: "case", investigationRef: c.ref } : { kind: "sop", sopId: c.ref } })),
+      };
+      await this.post({ type: "knowledge.answer.done", requestId, answer });
+    } catch (err) {
+      await this.post({ type: "knowledge.error", message: `Ask failed — ${errText(err)}` });
+    }
   }
 
   /** The Past cases listing with the analyst's filters (09 §9.4, adr/0107). The

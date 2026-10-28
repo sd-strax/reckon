@@ -18,7 +18,12 @@ import (
 // prompt version (10 §4.4) — so it must be stable across runs on the same code
 // and differ whenever the model is read different instructions.
 func PromptVersion(framing string) string {
-	sum := sha256.Sum256([]byte(systemPrompt(Investigation{HypothesisFraming: framing}, nil)))
+	return hashText(systemPrompt(Investigation{HypothesisFraming: framing}, nil))
+}
+
+// hashText is the content hash the prompt versions are pinned by.
+func hashText(text string) string {
+	sum := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(sum[:])
 }
 

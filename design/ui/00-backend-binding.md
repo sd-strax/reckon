@@ -323,7 +323,8 @@ Motivated by the knowledge surfaces (`ui/09`, `adr/0084`), not yet built:
 23. **Ask outside an investigation** — an agent session not bound to an investigation,
     whose only tools are the two recall calls, which answers with citations and records
     nothing in any investigation (`ui/09 §9.2`). Same client-side loop and model key as
-    investigation turns (`05 §3.4`).
+    investigation turns (`05 §3.4`). **Landed** (`adr/0111`): sidecar `askKnowledge`, `agent.Ask`,
+    checked citations, the Ask prompt ledger.
 24. **Stored procedure candidates** — the conclude hook's draft (`proposeSOP`) is kept as a
     candidate record (draft text, source investigation, drafted at, status, discard reason)
     instead of being shown once at conclude, so it can be reviewed later in the Knowledge
