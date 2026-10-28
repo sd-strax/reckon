@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go.temporal.io/sdk/log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -278,9 +280,9 @@ func (a *Activities) recordCommsThread(ctx context.Context, actionID uuid.UUID, 
 	// (adr/0101): only a SUCCEEDED send moves them to SENT.
 	if a.ownerItems != nil {
 		if n, err := a.ownerItems.MarkSent(ctx, actionID, time.Now()); err != nil {
-			activity.GetLogger(ctx).Warn("owner items not marked sent", "action_id", actionID, "error", err)
+			activityLogger(ctx).Warn("owner items not marked sent", "action_id", actionID, "error", err)
 		} else if n > 0 {
-			activity.GetLogger(ctx).Info("owner items marked sent", "action_id", actionID, "count", n)
+			activityLogger(ctx).Info("owner items marked sent", "action_id", actionID, "count", n)
 		}
 	}
 	if a.comms == nil {
@@ -332,7 +334,7 @@ func (a *Activities) recordCommsThread(ctx context.Context, actionID uuid.UUID, 
 		At:            time.Now().UTC(),
 		ThreadRef:     threadRef,
 	}); err != nil {
-		activity.GetLogger(ctx).Warn("comms thread not recorded", "action_id", actionID, "error", err)
+		activityLogger(ctx).Warn("comms thread not recorded", "action_id", actionID, "error", err)
 	}
 }
 
@@ -452,4 +454,15 @@ func systemEnvelope(aggregateID, tenantID, approverID string) (aggregate.Envelop
 		Actor:         aggregate.Actor{PrincipalID: approverID, Kind: aggregate.ActorSystem},
 		OccurredAt:    time.Now().UTC(),
 	}, nil
+}
+
+// activityLogger is the activity's logger inside an activity and the process
+// logger outside one: the result-recording helpers are also driven directly
+// (tests, a replay tool), and the SDK's logger panics without an activity
+// context.
+func activityLogger(ctx context.Context) log.Logger {
+	if activity.IsActivity(ctx) {
+		return activity.GetLogger(ctx)
+	}
+	return log.NewStructuredLogger(slog.Default())
 }
