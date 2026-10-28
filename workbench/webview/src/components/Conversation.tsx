@@ -37,7 +37,7 @@ function AgentTurn({ t }: { t: Turn }) {
             ))}
           </ul>
         ) : null}
-        {requested.length ? <div className="proposed">{requested.map((a) => <ActionCard key={a.actionId} a={a} variant="compact" locked={false} onLock={() => undefined} />)}</div> : null}
+        {requested.length ? <div className="proposed">{requested.map((a) => <ActionCard key={a.actionId} a={a} variant="compact" />)}</div> : null}
         <KnowledgeChips e={t.entry} />
         {(tools.length || t.records.length) ? (
           <details className="activity">

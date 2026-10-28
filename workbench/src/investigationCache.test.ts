@@ -168,3 +168,16 @@ describe("InvestigationCache: the inspector's action records", () => {
     expect(cache.staleRecords("inv-1", 99)).toEqual([]);
   });
 });
+
+describe("InvestigationCache: the actions a decision is checked against", () => {
+  it("answers from the last read that carried actions, and forgets them with the panel", async () => {
+    const row = { actionId: "act-1", tier: "T3", actionType: "host.isolate", status: "PENDING_MANUAL" } as ActionRow;
+    const cache = new InvestigationCache(fakeClient({ actions: async () => [row] }).client, quiet);
+    expect(cache.action("inv-1", "act-1")).toBeUndefined();
+    await cache.refresh("inv-1");
+    expect(cache.action("inv-1", "act-1")?.tier).toBe("T3");
+    expect(cache.action("inv-1", "act-9")).toBeUndefined();
+    cache.forget("inv-1");
+    expect(cache.action("inv-1", "act-1")).toBeUndefined();
+  });
+});

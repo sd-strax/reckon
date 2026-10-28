@@ -1084,26 +1084,52 @@ export class InvestigationDocuments {
    * §5). A T3 approval carries the typed challenge (04 §5.5), collected in the
    * webview prompt card before this fires.
    */
-  private async approve(
+  private async approve(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; challenge?: string }): Promise<void> {
+    await this.decide(id, panel, msg.actionId, async (a) => {
+      // The server requires the challenge too; checking the record's tier here
+      // just saves the round trip when the prompt came back empty.
+      if (a.tier === "T3" && (!msg.challenge || msg.challenge.trim() === "")) {
+        return;
+      }
+      const decision = await this.client.approveAction(a.actionId, msg.challenge);
+      void vscode.window.showInformationMessage(
+        `reckon: ${a.actionType} → ${decision.status}${decision.stage ? ` (${decision.stage})` : ""}`,
+      );
+    }, "approve");
+    // The refresh armed the dispatch watch: the approved action is now
+    // APPROVED/EXECUTING, so the ledger keeps refreshing until it settles.
+  }
+
+  /**
+   * Run one decision on an action the record holds, then refresh and tell the
+   * webview the decision settled, whatever its outcome — that clears the
+   * in-flight state every card for the action shares. Tier and type come from
+   * the record, never from the message.
+   */
+  private async decide(
     id: string,
     panel: vscode.WebviewPanel,
-    msg: { actionId: string; tier: string; actionType: string; challenge?: string },
+    actionId: string,
+    act: (a: ActionRow) => Promise<void>,
+    verb: string,
   ): Promise<void> {
-    if (msg.tier === "T3" && (!msg.challenge || msg.challenge.trim() === "")) {
-      await this.refresh(id, panel); // no challenge — re-enable the buttons
-      return;
-    }
     try {
-      const decision = await this.client.approveAction(msg.actionId, msg.challenge);
-      void vscode.window.showInformationMessage(
-        `reckon: ${msg.actionType} → ${decision.status}${decision.stage ? ` (${decision.stage})` : ""}`,
-      );
+      let a = this.cache.action(id, actionId);
+      if (!a) {
+        await this.refresh(id, panel);
+        a = this.cache.action(id, actionId);
+      }
+      if (!a) {
+        void vscode.window.showErrorMessage(`reckon: ${verb} failed — the action is not in this investigation's record`);
+        return;
+      }
+      await act(a);
     } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: approve failed — ${errText(err)}`);
+      void vscode.window.showErrorMessage(`reckon: ${verb} failed — ${errText(err)}`);
+    } finally {
+      await this.refresh(id, panel);
+      void this.post(panel, { type: "action.settled", actionId });
     }
-    await this.refresh(id, panel);
-    // The refresh arms the dispatch watch: the approved action is now
-    // APPROVED/EXECUTING, so the ledger keeps refreshing until it settles.
   }
 
   /**
@@ -1139,21 +1165,11 @@ export class InvestigationDocuments {
   }
 
   /** Reject one action — human token only; reason from the webview prompt card. */
-  private async reject(
-    id: string,
-    panel: vscode.WebviewPanel,
-    msg: { actionId: string; actionType: string; reason: string },
-  ): Promise<void> {
-    try {
-      const decision = await this.client.rejectAction(
-        msg.actionId,
-        msg.reason.trim() === "" ? "rejected from the workbench" : msg.reason.trim(),
-      );
-      void vscode.window.showInformationMessage(`reckon: ${msg.actionType} → ${decision.status}`);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: reject failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+  private async reject(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; reason: string }): Promise<void> {
+    await this.decide(id, panel, msg.actionId, async (a) => {
+      const decision = await this.client.rejectAction(a.actionId, msg.reason.trim() === "" ? "rejected from the workbench" : msg.reason.trim());
+      void vscode.window.showInformationMessage(`reckon: ${a.actionType} → ${decision.status}`);
+    }, "reject");
   }
 
   /**
@@ -1161,18 +1177,11 @@ export class InvestigationDocuments {
    * new window, retry_of lineage) the analyst then approves. Not a bypass of
    * expiry: the conscious re-affirmation it exists to elicit.
    */
-  private async rerequest(
-    id: string,
-    panel: vscode.WebviewPanel,
-    msg: { actionId: string; actionType: string; rationale: string },
-  ): Promise<void> {
-    try {
-      await this.client.rerequestAction(msg.actionId, msg.rationale);
-      void vscode.window.showInformationMessage(`reckon: ${msg.actionType} re-requested — approve the new request`);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: re-request failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+  private async rerequest(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; rationale: string }): Promise<void> {
+    await this.decide(id, panel, msg.actionId, async (a) => {
+      await this.client.rerequestAction(a.actionId, msg.rationale);
+      void vscode.window.showInformationMessage(`reckon: ${a.actionType} re-requested — approve the new request`);
+    }, "re-request");
   }
 
   /**
@@ -1183,7 +1192,7 @@ export class InvestigationDocuments {
    * looks up the inverse type so the request names it.
    */
   private async reverse(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; rationale: string }): Promise<void> {
-    try {
+    await this.decide(id, panel, msg.actionId, async () => {
       const [record, types] = await Promise.all([this.client.actionRecord(msg.actionId), this.client.actionTypes()]);
       const original = record.action;
       const inverse = types.find((t) => t.actionType === original.actionType)?.reversibleBy;
@@ -1200,10 +1209,7 @@ export class InvestigationDocuments {
         reversalOfRef: original.actionId,
       });
       void vscode.window.showInformationMessage(`reckon: reversal requested as ${inverse} (${res.status}) — approve to run it`);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: reversal failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    }, "reversal");
   }
 
   /**

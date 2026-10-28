@@ -96,12 +96,26 @@ describe("the investigation document", () => {
     const dlg = screen.getByRole("dialog");
     fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "not warranted" } });
     fireEvent.click(within(dlg).getByText("Reject"));
-    expect(transport.intents.find((i) => i.type === "action.reject")).toMatchObject({ reason: "not warranted" });
+    expect(transport.intents.find((i) => i.type === "action.reject")).toEqual({ type: "action.reject", actionId: "act-3", reason: "not warranted" });
+    expect((within(lens()).getByText("Approve (challenge)…") as HTMLButtonElement).disabled).toBe(true); // act-3, in flight
+    act(() => transport.emit({ type: "action.settled", actionId: "act-3" }));
     fireEvent.click(within(lens()).getByText("Approve · Send"));
-    expect(transport.intents.find((i) => i.type === "action.approve")).toMatchObject({ actionId: "act-2", tier: "T1" });
-    expect((within(lens()).getByText("Approve (challenge)…") as HTMLButtonElement).disabled).toBe(true);
-    act(() => transport.emit({ type: "state.patch", seq: 15, patch: { actions: data.snapshot.actions!.filter((a) => a.actionId !== "act-2") } }));
+    const approved = transport.intents.find((i) => i.type === "action.approve");
+    expect(approved).toEqual({ type: "action.approve", actionId: "act-2" }); // the host reads tier and type from the record
+    // Only the decided action locks, until the host settles it; other cards stay live.
+    expect((within(lens()).getByText("Approve · Send") as HTMLButtonElement).disabled).toBe(true);
     expect((within(lens()).getByText("Approve (challenge)…") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(within(lens()).getByText("Approve · Send"));
+    expect(transport.intents.filter((i) => i.type === "action.approve").length).toBe(1); // no second POST
+    act(() => transport.emit({ type: "action.settled", actionId: "act-2" }));
+    expect((within(lens()).getByText("Approve · Send") as HTMLButtonElement).disabled).toBe(false);
+    // Requesting a reversal is a decision on the original too: one request, then locked until settled.
+    fireEvent.click(within(lens()).getByText("Reverse…"));
+    const rev = screen.getByRole("dialog");
+    fireEvent.change(within(rev).getByRole("textbox"), { target: { value: "host confirmed clean" } });
+    fireEvent.click(within(rev).getByText("Request reversal"));
+    expect(transport.intents.find((i) => i.type === "action.reverse")).toMatchObject({ actionId: "act-1" });
+    expect((within(lens()).getByText("Reverse…") as HTMLButtonElement).disabled).toBe(true);
     expect(within(lens()).getByText(/What happened: under investigation/)).toBeTruthy();
     fireEvent.click(within(lens()).getByText("Preview & send email…"));
     const send = screen.getByRole("dialog");
