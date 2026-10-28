@@ -383,11 +383,21 @@ are requested by the webview and answered one object per message, bounded (~64KB
 
 ### 3.2 Sequence discipline
 
-Every projection message carries `seq`. The webview keeps `state.seq`. If a `state.patch`
-arrives with `seq > state.seq + k` where the host did not also send the intervening slices, the
-webview requests `ui.resync` and the host re-posts a full snapshot. In practice the host always
-reloads after its own commands (as today) and after a stream delta, so a resync is the
-self-healing path for sleep/wake and dropped frames, not the normal path.
+Every projection message carries `seq`, the investigation's `last_event_sequence` when the slices
+were read (or the thread's last entry, if the thread read saw a newer event). The host's
+`InvestigationCache` (`src/investigationCache.ts`) owns the reads and the watermark and runs every
+read of one investigation in order, so an older read is never posted after a newer one. After a
+write — the analyst's, the agent's turn, or a dispatch landing — the host re-reads the event-sourced
+slices together (investigation, hypotheses, actions, pins, comms, thread with its transcripts) and
+posts one patch, with no loading state; the work queue, the derived views and any action record
+the inspector holds follow. Layers a write cannot change (capabilities, enablement, knowledge) are
+read on load only and posted with the current watermark. The webview drops a snapshot or patch
+older than what it holds for the same investigation.
+
+There is no gap detection at v0: every change the webview can know about comes from the host,
+which re-reads after its own writes and while a dispatch is in flight. Changes made elsewhere
+(another analyst, the agent outside this panel) arrive on the next read; recovering them without a
+read is the live-update stream's job (§3.3), and a resync message returns with it.
 
 ### 3.3 Live updates
 
@@ -451,7 +461,6 @@ then drops the old ones).
 ### 4.2 Webview → host (`InboundMessage`), additions
 
 ```ts
-| { type: "ui.resync" }
 | { type: "queue.get" }
 | { type: "queue.start"; caseNumber: string }                            // Start investigation from the work queue
 | { type: "inspector.open"; target:
@@ -574,9 +583,10 @@ renders.
 - **Component tests** (vitest + jsdom + testing-library) over the harness snapshots: each lens
   renders its mockup's elements from recorded data; each derivation in `derive/` has table
   tests (stage, default lens, matrix cells, in-this-case, turn grouping, preflight).
-- **Protocol tests**: the reducer applies/drops patches by `seq`; `ui.resync` after a gap.
-- **Host tests** are out of scope for v0 (no extension-host test runner in the repo today); the
-  host stays thin and the live road test (`implementation/road-test.md`) covers it.
+- **Protocol tests**: the reducer applies or drops snapshots and patches by `seq`.
+- **Host tests**: host modules that do not import `vscode` run under the same vitest (the
+  investigation cache: watermark, ordering, what a read after a write carries). The modules that
+  do (panels, routing) are covered by the live road test (`implementation/road-test.md`).
 
 ---
 

@@ -45,7 +45,6 @@ export class HarnessTransport implements WebviewTransport {
     switch (intent.type) {
       case "ready":
       case "refresh":
-      case "ui.resync":
         this.postInitial();
         break;
       case "evidence.resolve": {

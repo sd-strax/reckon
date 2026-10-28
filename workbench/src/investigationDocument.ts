@@ -15,11 +15,12 @@
 
 import { randomUUID } from "crypto";
 import * as vscode from "vscode";
-import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, PinRow, ThreadEntry } from "./backend";
+import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, ThreadEntry } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
-import type { ChronicleTurn, InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage, RivalBrief } from "./protocol";
+import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage, RivalBrief } from "./protocol";
 import { buildDerivedViews } from "./derivedViews";
 import { deriveEvidenceLabel } from "./evidenceLabel";
+import { InvestigationCache } from "./investigationCache";
 
 export class InvestigationDocuments {
   private readonly open = new Map<string, vscode.WebviewPanel>();
@@ -44,13 +45,11 @@ export class InvestigationDocuments {
   // Full evidence docs, cached for the same reason (null = unfetchable). Feeds
   // both label resolution and the event-time strip without duplicate fetches.
   private readonly docCache = new Map<string, EvidenceDoc | null>();
-  // Committed turn transcripts, keyed by interpretation id — immutable once
-  // committed, so the chronicle re-renders (after every act) reuse them instead
-  // of re-fetching. Shared across panels (content-addressed).
-  private readonly transcriptCache = new Map<string, string>();
-  // The last event sequence posted per investigation (impl §3.2): every slice
-  // re-post carries it so the webview can drop a stale patch.
-  private readonly seqs = new Map<string, number>();
+  // The projection reads, their watermark, and the per-investigation ordering
+  // that keeps an older read from being posted after a newer one (impl §3.1–§3.2).
+  private readonly cache: InvestigationCache;
+  // Investigations whose knowledge rail has been read since the panel opened.
+  private readonly knowledgeRead = new Set<string>();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -66,7 +65,9 @@ export class InvestigationDocuments {
     private readonly onLoaded?: (id: string, lastEventSequence: number) => void,
     /** The lens / companion mode the analyst chose (view state the tree may deep-link). */
     private readonly onViewState?: (id: string, lens?: string, companion?: string) => void,
-  ) {}
+  ) {
+    this.cache = new InvestigationCache(client, log);
+  }
 
   /** Open (or reveal) the document for one investigation. */
   show(id: string, titleHint?: string): void {
@@ -87,7 +88,7 @@ export class InvestigationDocuments {
     const ref = { id };
     panel.webview.html = this.html(panel.webview);
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => this.open.delete(ref.id));
+    panel.onDidDispose(() => this.forget(ref.id));
   }
 
   /**
@@ -114,7 +115,7 @@ export class InvestigationDocuments {
     // The webview asks for its initial state via "ready"; a draft key answers
     // with the unseeded render instead of a load().
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => this.open.delete(ref.id));
+    panel.onDidDispose(() => this.forget(ref.id));
   }
 
   /** The page may load only the bundle and the vendored fonts (impl §5.1). */
@@ -159,7 +160,7 @@ export class InvestigationDocuments {
   refreshOpen(id: string): void {
     const panel = this.open.get(id);
     if (panel) {
-      void this.load(id, panel);
+      void this.refresh(id, panel);
     }
   }
 
@@ -173,10 +174,10 @@ export class InvestigationDocuments {
       const applied = await this.client.renameInvestigation(id, trimmed);
       panel.title = `⚖ ${applied}`;
       void this.post(panel, { type: "renamed", title: applied });
-      // Full reload: the rename appended an event, so the seq meta line and
-      // the SeenTracker (via onLoaded) must advance — otherwise the analyst's
-      // own rename shows up in the tree as an unseen "● new" change.
-      await this.load(id, panel);
+      // The rename appended an event: the refresh advances the watermark and
+      // the SeenTracker (via onLoaded), so the analyst's own rename does not
+      // show in the tree as an unseen "● new" change.
+      await this.refresh(id, panel);
       void vscode.commands.executeCommand("reckon.refreshInvestigations");
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: rename failed — ${errText(err)}`);
@@ -186,7 +187,7 @@ export class InvestigationDocuments {
   /** Route one webview message using the panel's current (mutable) id. */
   private route(ref: { id: string }, panel: vscode.WebviewPanel, msg: InboundMessage): void {
     const id = ref.id;
-    if (msg.type === "ready" || msg.type === "refresh" || msg.type === "ui.resync") {
+    if (msg.type === "ready" || msg.type === "refresh") {
       if (InvestigationDocuments.isDraft(id)) {
         const mode = this.draftMode.get(id);
         this.draftMode.delete(id);
@@ -264,9 +265,13 @@ export class InvestigationDocuments {
     } else if (msg.type === "evidence.resolve") {
       void this.resolveLabel(panel, msg.ref);
     } else if (msg.type === "inspector.open") {
-      void this.answerInspector(id, panel, msg.target);
+      // An action record is re-sent by reads (resendActionRecords); answering
+      // it in the same order keeps an older answer from overwriting a newer one.
+      void (msg.target.kind === "action"
+        ? this.cache.exclusive(id, () => this.answerInspector(id, panel, msg.target))
+        : this.answerInspector(id, panel, msg.target));
     } else if (msg.type === "queue.get") {
-      void this.postQueue(panel);
+      void this.cache.exclusive(id, () => this.postQueue(panel));
     } else if (msg.type === "queue.start") {
       void this.startFromCase(msg.caseNumber);
     } else if (msg.type === "knowledge.search") {
@@ -374,7 +379,7 @@ export class InvestigationDocuments {
     try {
       const r = await this.client.requestCaseNote(id, body.trim() || undefined);
       void vscode.window.showInformationMessage(`reckon: case note requested (${r.status.toLowerCase().replace(/_/g, " ")})`);
-      void this.load(id, panel);
+      void this.refresh(id, panel);
     } catch (err) {
       void vscode.window.showWarningMessage(`reckon: could not request the case note: ${errText(err)}`);
     }
@@ -407,145 +412,154 @@ export class InvestigationDocuments {
     }
   }
 
+  /** Drop everything held for a closed panel, including a pending dispatch watch. */
+  private forget(id: string): void {
+    this.open.delete(id);
+    this.cache.forget(id);
+    this.knowledgeRead.delete(id);
+    const watch = this.dispatchWatch.get(id);
+    if (watch) {
+      clearTimeout(watch.timer);
+      this.dispatchWatch.delete(id);
+    }
+  }
+
+  /** Whether this panel is still the open document for the investigation. */
+  private isOpen(id: string, panel: vscode.WebviewPanel): boolean {
+    return this.open.get(id) === panel;
+  }
+
   /**
-   * Build the investigation's snapshot (impl §3.1) with one parallel fetch and
-   * post it whole; the optional layers' failures become null slices, never a
-   * broken panel. The bulkier lenses (chronicle bodies, the derived views, the
-   * knowledge rail, enablement) follow as slice patches so the document
-   * renders as soon as the core is in.
+   * Build the investigation's snapshot (impl §3.1) and post it whole; the
+   * optional layers' failures become null slices, never a broken panel. The
+   * bulkier lenses (the derived views, the knowledge rail, enablement) follow
+   * as slice patches so the document renders as soon as the core is in.
    */
-  private async load(id: string, panel: vscode.WebviewPanel): Promise<void> {
-    void this.post(panel, { type: "loading" });
-    let snapshot: InvestigationSnapshot;
-    try {
-      const [investigation, hypotheses, capabilities, thread, actions, pins, comms] = await Promise.all([
-        this.client.getInvestigation(id),
-        this.client.hypotheses(id),
-        // Capability health is a v0 rail surface (13 §4); a 503 just means the
-        // layer is off — null renders as "unavailable", never a broken panel.
-        this.client.capabilities().catch(() => null),
-        // The reasoning history — how the investigation got to its current
-        // state. Failure degrades to "history unavailable", not a broken panel.
-        this.client.thread(id).catch(() => null),
-        // The durable action queue rides every load: the panel always shows
-        // what actually awaits the analyst. A 503 means the layer is off.
-        this.client.actions(id).catch((err: unknown) => { this.log.debug(`list actions ${id}: ${errText(err)}`); return null; }),
-        this.client.pins(id).catch((err: unknown) => { this.log.debug(`list pins ${id}: ${errText(err)}`); return [] as PinRow[]; }),
-        this.client.comms(id).catch((err: unknown) => { this.log.debug(`list comms ${id}: ${errText(err)}`); return null; }),
-      ]);
-      panel.title = `⚖ ${investigation.title}`;
-      snapshot = {
-        seq: investigation.lastEventSequence,
-        investigation, hypotheses, actions, pins, comms, thread,
-        turns: await this.chronicleTurns(thread ?? []),
-        capabilities, enablement: null, knowledge: [], derived: null,
-      };
-    } catch (err) {
-      const message = errText(err);
-      this.log.error(`load investigation ${id}: ${message}`);
-      void this.post(panel, { type: "error", message });
+  private load(id: string, panel: vscode.WebviewPanel): Promise<void> {
+    return this.cache.exclusive(id, async () => {
+      void this.post(panel, { type: "loading" });
+      let snapshot: InvestigationSnapshot;
+      try {
+        snapshot = await this.cache.snapshot(id);
+      } catch (err) {
+        const message = errText(err);
+        this.log.error(`load investigation ${id}: ${message}`);
+        void this.post(panel, { type: "error", message });
+        return;
+      }
+      if (!this.isOpen(id, panel)) {
+        return; // closed while reading
+      }
+      panel.title = `⚖ ${snapshot.investigation.title}`;
+      void this.post(panel, { type: "state.snapshot", seq: snapshot.seq, snapshot });
+      this.onLoaded?.(id, snapshot.seq);
+      void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal }); }).catch(() => undefined);
+      // Dispatch is asynchronous (a Temporal workflow) and its result events are
+      // recorded by the worker, not the HTTP path — keep refreshing while any
+      // action is mid-dispatch so DISPATCHING never sticks past the outcome.
+      this.scheduleDispatchWatch(id, panel, snapshot.actions ?? []);
+      // The event-time strip + evidence graph: lenses over the cited refs,
+      // stamped with the sequence of the thread they were built from, so the
+      // webview drops them if a newer read lands first.
+      void this.postDerivedViews(panel, snapshot.thread ?? [], snapshot.seq);
+      // The queue and the inspector's action records carry no sequence: they
+      // finish inside this operation, so a later read cannot be overtaken. A
+      // reload keeps the inspector open with its records, so a record with
+      // newer events is re-sent like after any other read.
+      await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, snapshot.seq)]);
+      // The enablement view (gap hints + form schemas). Absence is honest.
+      const latestEnablement = this.cache.beginRequest(id, "enablement");
+      void this.client.enablement()
+        .then((data) => data, () => null)
+        .then((data) => { if (latestEnablement()) void this.patch(id, panel, { enablement: data }); });
+      // A reload re-reads the knowledge rail.
+      this.knowledgeRead.delete(id);
+      this.readKnowledge(id, panel, snapshot.investigation.state);
+    });
+  }
+
+  /**
+   * The implicit-retrieval knowledge rail (design/06 §5.1), once per panel and
+   * only while the investigation is workable — it spawns the sidecar and runs
+   * retrieval, so it is not worth it for a concluded or archived case. A
+   * refresh calls it too, so a case reopened in place gets its rail.
+   */
+  private readKnowledge(id: string, panel: vscode.WebviewPanel, state: string): void {
+    if (this.knowledgeRead.has(id) || !["DRAFT", "ACTIVE", "PAUSED"].includes(state)) {
       return;
     }
-    this.seqs.set(id, snapshot.seq);
-    void this.post(panel, { type: "state.snapshot", seq: snapshot.seq, snapshot });
-    this.onLoaded?.(id, snapshot.seq);
-    void this.postQueue(panel);
-    void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal }); }).catch(() => undefined);
-    // Dispatch is asynchronous (a Temporal workflow) and its result events are
-    // recorded by the worker, not the HTTP path — keep refreshing while any
-    // action is mid-dispatch so DISPATCHING never sticks past the outcome.
-    this.scheduleDispatchWatch(id, panel, snapshot.actions ?? []);
-    // The event-time strip + evidence graph ride the same load, fire-and-forget:
-    // both are lenses over the cited refs, sharing one round of cached fetches.
-    void this.postDerivedViews(id, panel, snapshot.thread ?? []);
-    // The enablement view (gap hints + form schemas). Absence is honest.
-    void this.client.enablement()
-      .then((data) => this.patch(id, panel, { enablement: data }))
-      .catch(() => this.patch(id, panel, { enablement: null }));
-    // The implicit-retrieval knowledge rail (design/06 §5.1), only while the
-    // investigation is workable — this spawns the sidecar + runs retrieval, so
-    // it is not worth it for a concluded/archived case. Best-effort.
-    if (["DRAFT", "ACTIVE", "PAUSED"].includes(snapshot.investigation.state)) {
-      void this.transport.getKnowledge(id)
-        .then((items) => this.patch(id, panel, { knowledge: items }))
-        .catch((err: unknown) => this.log.debug(`knowledge rail unavailable: ${errText(err)}`));
-    }
+    this.knowledgeRead.add(id);
+    const latest = this.cache.beginRequest(id, "knowledge");
+    void this.transport.getKnowledge(id)
+      .then((items) => { if (latest()) void this.patch(id, panel, { knowledge: items }); })
+      .catch((err: unknown) => this.log.debug(`knowledge rail unavailable: ${errText(err)}`));
   }
 
-  /** Post whole slices of the cache with the last known sequence (impl §3.1). */
+  /**
+   * Post slices that are not read from the event log (knowledge, enablement)
+   * with the current watermark, so the webview applies them over what it holds.
+   */
   private patch(id: string, panel: vscode.WebviewPanel, patch: Partial<InvestigationSnapshot>): Thenable<boolean> {
-    return this.post(panel, { type: "state.patch", seq: this.seqs.get(id) ?? 0, patch });
+    return this.post(panel, { type: "state.patch", seq: this.cache.watermark(id), patch });
   }
 
   /**
-   * Re-fetch the act-driven slices (actions, pins, comms, the thread + its
-   * transcripts) after an act that changed them, and post them as one patch.
-   * Every act is a sequenced interpretation, so the thread rides along. The
-   * investigation view itself is not re-read here: callers that need the
-   * status or the verdict (lifecycle, verdict, hypothesis acts) call load().
+   * Re-read the event-sourced slices after a write (the analyst's, the
+   * agent's, or a dispatch landing) and post them as one patch with the
+   * investigation's sequence — no loading state, no re-read of the layers a
+   * write cannot change. The work queue, the derived views and any action
+   * record the inspector holds follow when they changed.
    */
-  private async postPending(id: string, panel: vscode.WebviewPanel): Promise<void> {
-    const patch: Partial<InvestigationSnapshot> = {};
-    try {
-      patch.actions = await this.client.actions(id);
-      this.scheduleDispatchWatch(id, panel, patch.actions);
-    } catch (err) {
-      this.log.debug(`list actions ${id}: ${errText(err)}`);
-    }
-    try {
-      patch.pins = await this.client.pins(id);
-    } catch (err) {
-      this.log.debug(`list pins ${id}: ${errText(err)}`);
-    }
-    try {
-      patch.comms = await this.client.comms(id);
-    } catch (err) {
-      this.log.debug(`list comms ${id}: ${errText(err)}`);
-    }
-    try {
-      patch.thread = await this.client.thread(id);
-      patch.turns = await this.chronicleTurns(patch.thread);
-      const seq = patch.thread.length ? patch.thread[patch.thread.length - 1].sequenceNo : undefined;
-      if (seq !== undefined && seq > (this.seqs.get(id) ?? 0)) {
-        this.seqs.set(id, seq);
+  private refresh(id: string, panel: vscode.WebviewPanel): Promise<void> {
+    return this.cache.exclusive(id, async () => {
+      let read: Awaited<ReturnType<InvestigationCache["refresh"]>>;
+      try {
+        read = await this.cache.refresh(id);
+      } catch (err) {
+        this.log.debug(`refresh ${id}: ${errText(err)}`);
+        return;
       }
-    } catch (err) {
-      this.log.debug(`chronicle ${id}: ${errText(err)}`);
-    }
-    void this.patch(id, panel, patch);
+      if (!this.isOpen(id, panel)) {
+        return; // closed while reading: no title, no seen-tracker advance, no re-armed watch
+      }
+      const { seq, patch } = read;
+      if (patch.investigation) {
+        panel.title = `⚖ ${patch.investigation.title}`;
+        this.readKnowledge(id, panel, patch.investigation.state);
+      }
+      void this.post(panel, { type: "state.patch", seq, patch });
+      this.onLoaded?.(id, seq);
+      if (patch.actions) {
+        this.scheduleDispatchWatch(id, panel, patch.actions);
+      }
+      if (patch.thread) {
+        void this.postDerivedViews(panel, patch.thread, seq); // sequenced: a stale one is dropped
+      }
+      // Unsequenced follow-ups finish inside this operation (see load).
+      await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, seq)]);
+    });
   }
 
-  /**
-   * The committed turn transcripts for the most recent transcript-bearing
-   * entries. Transcripts are immutable once committed, so the cache makes this
-   * one thread query plus only newly-committed turns. A failed fetch leaves a
-   * stub the webview renders as "open transcript".
-   */
-  private async chronicleTurns(thread: ThreadEntry[]): Promise<ChronicleTurn[]> {
-    const withTranscript = thread.filter((e) => e.hasTranscript).slice(-40);
-    const turns = await Promise.all(withTranscript.map(async (e) => {
-      let body = this.transcriptCache.get(e.interpretationId);
-      if (body === undefined) {
-        try {
-          body = (await this.client.transcript(e.interpretationId)).body;
-          this.transcriptCache.set(e.interpretationId, body);
-        } catch {
-          return null;
-        }
+  /** Re-send the inspector's action records read before the investigation's newest event. */
+  private async resendActionRecords(id: string, panel: vscode.WebviewPanel, seq: number): Promise<void> {
+    for (const actionId of this.cache.staleRecords(id, seq)) {
+      try {
+        const record = await this.client.actionRecord(actionId);
+        this.cache.servedRecord(id, actionId, seq);
+        void this.post(panel, { type: "inspector.action", actionId, record });
+      } catch (err) {
+        this.log.debug(`action record ${actionId}: ${errText(err)}`);
       }
-      return { sequenceNo: e.sequenceNo, occurredAt: e.occurredAt, body };
-    }));
-    return turns.filter((t): t is ChronicleTurn => t !== null);
+    }
   }
 
-  /** Acknowledge a reply or mark a thread done — recorded on the trail. */
   private async commsAct(id: string, panel: vscode.WebviewPanel, threadId: string, verb: "ack" | "done"): Promise<void> {
     try {
       await this.client.commsAct(threadId, verb);
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: comms ${verb} failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /** Push a thread's follow-up clock. */
@@ -555,7 +569,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: snooze failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -593,7 +607,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: follow-up failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -609,7 +623,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: pin failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /** Fetch one evidence doc through the cache (null = unfetchable). */
@@ -679,9 +693,13 @@ export class InvestigationDocuments {
 
   /** The Knowledge section's scoped search (09 §9.6): the session merges the hits. */
   private async searchKnowledge(id: string, panel: vscode.WebviewPanel, text: string): Promise<void> {
+    // The search's answer is the session's whole set with the hits merged in,
+    // so it supersedes any knowledge read still in flight.
+    this.knowledgeRead.add(id);
+    const latest = this.cache.beginRequest(id, "knowledge");
     try {
       const items = await this.transport.searchKnowledge(id, text);
-      void this.patch(id, panel, { knowledge: items });
+      if (latest()) void this.patch(id, panel, { knowledge: items });
     } catch (err) {
       void vscode.window.showWarningMessage(`reckon: knowledge search failed — ${errText(err)}`);
     }
@@ -708,7 +726,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: notification failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -717,9 +735,9 @@ export class InvestigationDocuments {
    * evidence fetches — bounded; failures just leave gaps (both are lenses,
    * never load-bearing). Posted as a slice patch.
    */
-  private async postDerivedViews(id: string, panel: vscode.WebviewPanel, thread: ThreadEntry[]): Promise<void> {
+  private async postDerivedViews(panel: vscode.WebviewPanel, thread: ThreadEntry[], seq: number): Promise<void> {
     const derived = await buildDerivedViews(thread, (ref) => this.getDoc(ref));
-    void this.patch(id, panel, { derived });
+    void this.post(panel, { type: "state.patch", seq, patch: { derived } });
   }
 
   /**
@@ -752,17 +770,16 @@ export class InvestigationDocuments {
           void this.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop: await this.client.sop(target.sopId) });
           return;
         case "turn": {
-          let body = this.transcriptCache.get(target.interpretationId);
-          if (body === undefined) {
-            body = (await this.client.transcript(target.interpretationId)).body;
-            this.transcriptCache.set(target.interpretationId, body);
-          }
+          const body = await this.cache.transcript(target.interpretationId);
           void this.post(panel, { type: "inspector.turn", interpretationId: target.interpretationId, body });
           return;
         }
-        case "action":
-          void this.post(panel, { type: "inspector.action", actionId: target.actionId, record: await this.client.actionRecord(target.actionId) });
+        case "action": {
+          const record = await this.client.actionRecord(target.actionId);
+          this.cache.servedRecord(id, target.actionId, this.cache.watermark(id));
+          void this.post(panel, { type: "inspector.action", actionId: target.actionId, record });
           return;
+        }
         case "case":
           void this.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary: await this.client.caseSummary(target.investigationRef) });
           return;
@@ -789,7 +806,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: un-pin failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -806,7 +823,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: adopt failed — ${errText(err)}`);
     }
-    await this.load(id, panel);
+    await this.refresh(id, panel);
   }
 
   /** Rename / restate an OPEN hypothesis (01 §x-hypothesis; human, untested-only for the statement). */
@@ -821,7 +838,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: revise failed — ${errText(err)}`);
     }
-    await this.load(id, panel);
+    await this.refresh(id, panel);
   }
 
   /** Abandon a live hypothesis the analyst is not pursuing (terminal; the thread keeps it). */
@@ -831,7 +848,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: abandon failed — ${errText(err)}`);
     }
-    await this.load(id, panel);
+    await this.refresh(id, panel);
   }
 
   /** Record the analyst's own test under a hypothesis (01 §x-prediction: either actor authors predictions). */
@@ -844,7 +861,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: prediction failed — ${errText(err)}`);
     }
-    await this.load(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -871,7 +888,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: record result failed — ${errText(err)}`);
     }
-    await this.load(id, panel);
+    await this.refresh(id, panel);
   }
 
   /** Withdraw an untested prediction — a status, never a deletion. */
@@ -881,7 +898,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: withdraw failed — ${errText(err)}`);
     }
-    await this.load(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -898,7 +915,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: hypothesis failed — ${errText(err)}`);
     }
-    await this.load(id, panel);
+    await this.refresh(id, panel);
   }
 
   /** Record the verdict of record — always the analyst's act here (human token). */
@@ -913,7 +930,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: verdict failed — ${errText(err)}`);
     }
-    await this.load(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -971,8 +988,8 @@ export class InvestigationDocuments {
    * conclude/reopen/archive). Conclude mints the STIX Report id here — the
    * Report object itself is v1; the aggregate requires the reference — and the
    * aggregate refuses to conclude without a verdict of record, an error we
-   * surface verbatim. A full reload follows: status, thread, and (after
-   * conclude) the export trail all changed.
+   * surface verbatim. A refresh follows: status, thread, and (after conclude)
+   * the export trail all changed.
    */
   private async lifecycleTransition(
     id: string,
@@ -1011,8 +1028,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: ${msg.transition} failed — ${errText(err)}`);
     }
-    await this.load(id, panel);
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -1074,7 +1090,7 @@ export class InvestigationDocuments {
     msg: { actionId: string; tier: string; actionType: string; challenge?: string },
   ): Promise<void> {
     if (msg.tier === "T3" && (!msg.challenge || msg.challenge.trim() === "")) {
-      await this.postPending(id, panel); // no challenge — re-enable the buttons
+      await this.refresh(id, panel); // no challenge — re-enable the buttons
       return;
     }
     try {
@@ -1085,8 +1101,8 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: approve failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
-    // postPending arms the dispatch watch: the approved action is now
+    await this.refresh(id, panel);
+    // The refresh arms the dispatch watch: the approved action is now
     // APPROVED/EXECUTING, so the ledger keeps refreshing until it settles.
   }
 
@@ -1117,7 +1133,7 @@ export class InvestigationDocuments {
       return;
     }
     const timer = setTimeout(() => {
-      void this.postPending(id, panel); // re-arms (or clears) the watch from fresh state
+      void this.refresh(id, panel); // re-arms (or clears) the watch from fresh state
     }, 4000);
     this.dispatchWatch.set(id, { timer, ticks });
   }
@@ -1137,7 +1153,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: reject failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -1156,7 +1172,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: re-request failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -1187,7 +1203,7 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: reversal failed — ${errText(err)}`);
     }
-    await this.postPending(id, panel);
+    await this.refresh(id, panel);
   }
 
   /**
@@ -1334,12 +1350,16 @@ export class InvestigationDocuments {
       void this.post(panel, { type: "turn.end" });
     } finally {
       // Reasoning nodes may have changed — refresh the thread panel.
-      void this.load(id, panel);
+      void this.refresh(id, panel);
     }
   }
 
   private post(panel: vscode.WebviewPanel, msg: RenderMessage): Thenable<boolean> {
-    return panel.webview.postMessage(msg);
+    try {
+      return panel.webview.postMessage(msg);
+    } catch {
+      return Promise.resolve(false); // the panel was disposed while a read was in flight
+    }
   }
 
   /**
