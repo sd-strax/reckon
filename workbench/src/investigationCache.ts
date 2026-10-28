@@ -28,9 +28,17 @@ export interface Logger {
 /** How many of the newest transcript-bearing thread entries carry their bodies. */
 const TURN_WINDOW = 40;
 
+/** Slices not read from the event log: their answers carry no sequence. */
+export type UnsequencedSlice = "knowledge" | "enablement";
+
 export class InvestigationCache {
   private readonly watermarks = new Map<string, number>();
   private readonly chains = new Map<string, Promise<unknown>>();
+  // The latest request per unsequenced slice of each investigation.
+  private readonly requests = new Map<string, number>();
+  // Action records the inspector holds, per investigation, with the sequence
+  // they were read at.
+  private readonly records = new Map<string, Map<string, number>>();
   // Transcripts are immutable once committed: content-addressed, shared
   // across investigations.
   private readonly transcripts = new Map<string, string>();
@@ -40,6 +48,46 @@ export class InvestigationCache {
   /** The highest event sequence posted for the investigation; 0 before any. */
   watermark(id: string): number {
     return this.watermarks.get(id) ?? 0;
+  }
+
+  /**
+   * Start a request for an unsequenced slice. The returned check says whether
+   * it is still the latest request for that slice when its answer arrives, so
+   * a slow earlier answer is discarded instead of overwriting a newer one.
+   */
+  beginRequest(id: string, slice: UnsequencedSlice): () => boolean {
+    const key = `${id}:${slice}`;
+    const n = (this.requests.get(key) ?? 0) + 1;
+    this.requests.set(key, n);
+    return () => this.requests.get(key) === n;
+  }
+
+  /** Note that the inspector holds an action record read at sequence `seq`. */
+  servedRecord(id: string, actionId: string, seq: number): void {
+    let m = this.records.get(id);
+    if (!m) {
+      m = new Map();
+      this.records.set(id, m);
+    }
+    m.set(actionId, seq);
+  }
+
+  /**
+   * The held action records read before `seq`, the investigation's newest
+   * event. A record changes on events that leave the action's status alone (a
+   * re-request, a best-effort reversal), so any newer event re-sends it.
+   */
+  staleRecords(id: string, seq: number): string[] {
+    const m = this.records.get(id);
+    return m ? [...m].filter(([, readAt]) => seq > readAt).map(([actionId]) => actionId) : [];
+  }
+
+  /** Drop what is held for an investigation whose panel closed. */
+  forget(id: string): void {
+    this.records.delete(id);
+    for (const key of [...this.requests.keys()]) {
+      if (key.startsWith(id + ":")) this.requests.delete(key);
+    }
   }
 
   /**

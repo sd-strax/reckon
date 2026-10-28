@@ -128,3 +128,43 @@ describe("InvestigationCache: ordering", () => {
     await held;
   });
 });
+
+describe("InvestigationCache: unsequenced slices", () => {
+  it("accepts only the latest request's answer for a slice", () => {
+    const cache = new InvestigationCache(fakeClient().client, quiet);
+    const first = cache.beginRequest("inv-1", "knowledge");
+    const search = cache.beginRequest("inv-1", "knowledge");
+    expect(first()).toBe(false); // the initial read finished after the search started
+    expect(search()).toBe(true);
+  });
+
+  it("keeps slices and investigations apart, and starts over after forget", () => {
+    const cache = new InvestigationCache(fakeClient().client, quiet);
+    const knowledge = cache.beginRequest("inv-1", "knowledge");
+    cache.beginRequest("inv-1", "enablement");
+    cache.beginRequest("inv-2", "knowledge");
+    expect(knowledge()).toBe(true);
+    cache.forget("inv-1");
+    expect(knowledge()).toBe(false); // the panel closed: its answer is not posted
+  });
+});
+
+describe("InvestigationCache: the inspector's action records", () => {
+  it("re-sends a held record once a newer event lands, whatever the action's status", () => {
+    const cache = new InvestigationCache(fakeClient().client, quiet);
+    cache.servedRecord("inv-1", "act-1", 10);
+    cache.servedRecord("inv-1", "act-2", 12);
+    expect(cache.staleRecords("inv-1", 10)).toEqual([]);
+    expect(cache.staleRecords("inv-1", 11)).toEqual(["act-1"]);
+    expect(cache.staleRecords("inv-1", 13)).toEqual(["act-1", "act-2"]);
+    cache.servedRecord("inv-1", "act-1", 13);
+    expect(cache.staleRecords("inv-1", 13)).toEqual(["act-2"]);
+  });
+
+  it("holds nothing for an investigation whose panel closed", () => {
+    const cache = new InvestigationCache(fakeClient().client, quiet);
+    cache.servedRecord("inv-1", "act-1", 1);
+    cache.forget("inv-1");
+    expect(cache.staleRecords("inv-1", 99)).toEqual([]);
+  });
+});

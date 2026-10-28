@@ -48,9 +48,8 @@ export class InvestigationDocuments {
   // The projection reads, their watermark, and the per-investigation ordering
   // that keeps an older read from being posted after a newer one (impl §3.1–§3.2).
   private readonly cache: InvestigationCache;
-  // Action records the inspector holds, per investigation, with the status
-  // they were read at: a refresh that moves an action re-sends its record.
-  private readonly servedActions = new Map<string, Map<string, string>>();
+  // Investigations whose knowledge rail has been read since the panel opened.
+  private readonly knowledgeRead = new Set<string>();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -89,7 +88,7 @@ export class InvestigationDocuments {
     const ref = { id };
     panel.webview.html = this.html(panel.webview);
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => { this.open.delete(ref.id); this.servedActions.delete(ref.id); });
+    panel.onDidDispose(() => this.forget(ref.id));
   }
 
   /**
@@ -116,7 +115,7 @@ export class InvestigationDocuments {
     // The webview asks for its initial state via "ready"; a draft key answers
     // with the unseeded render instead of a load().
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => { this.open.delete(ref.id); this.servedActions.delete(ref.id); });
+    panel.onDidDispose(() => this.forget(ref.id));
   }
 
   /** The page may load only the bundle and the vendored fonts (impl §5.1). */
@@ -413,6 +412,23 @@ export class InvestigationDocuments {
     }
   }
 
+  /** Drop everything held for a closed panel, including a pending dispatch watch. */
+  private forget(id: string): void {
+    this.open.delete(id);
+    this.cache.forget(id);
+    this.knowledgeRead.delete(id);
+    const watch = this.dispatchWatch.get(id);
+    if (watch) {
+      clearTimeout(watch.timer);
+      this.dispatchWatch.delete(id);
+    }
+  }
+
+  /** Whether this panel is still the open document for the investigation. */
+  private isOpen(id: string, panel: vscode.WebviewPanel): boolean {
+    return this.open.get(id) === panel;
+  }
+
   /**
    * Build the investigation's snapshot (impl §3.1) and post it whole; the
    * optional layers' failures become null slices, never a broken panel. The
@@ -431,6 +447,9 @@ export class InvestigationDocuments {
         void this.post(panel, { type: "error", message });
         return;
       }
+      if (!this.isOpen(id, panel)) {
+        return; // closed while reading
+      }
       panel.title = `⚖ ${snapshot.investigation.title}`;
       void this.post(panel, { type: "state.snapshot", seq: snapshot.seq, snapshot });
       this.onLoaded?.(id, snapshot.seq);
@@ -445,22 +464,35 @@ export class InvestigationDocuments {
       void this.postDerivedViews(panel, snapshot.thread ?? [], snapshot.seq);
       // The queue and the inspector's action records carry no sequence: they
       // finish inside this operation, so a later read cannot be overtaken. A
-      // reload keeps the inspector open with its records, so a record whose
-      // action moved is re-sent like after any other read.
-      await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, snapshot.actions ?? [])]);
+      // reload keeps the inspector open with its records, so a record with
+      // newer events is re-sent like after any other read.
+      await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, snapshot.seq)]);
       // The enablement view (gap hints + form schemas). Absence is honest.
+      const latestEnablement = this.cache.beginRequest(id, "enablement");
       void this.client.enablement()
-        .then((data) => this.patch(id, panel, { enablement: data }))
-        .catch(() => this.patch(id, panel, { enablement: null }));
-      // The implicit-retrieval knowledge rail (design/06 §5.1), only while the
-      // investigation is workable — this spawns the sidecar + runs retrieval, so
-      // it is not worth it for a concluded/archived case. Best-effort.
-      if (["DRAFT", "ACTIVE", "PAUSED"].includes(snapshot.investigation.state)) {
-        void this.transport.getKnowledge(id)
-          .then((items) => this.patch(id, panel, { knowledge: items }))
-          .catch((err: unknown) => this.log.debug(`knowledge rail unavailable: ${errText(err)}`));
-      }
+        .then((data) => data, () => null)
+        .then((data) => { if (latestEnablement()) void this.patch(id, panel, { enablement: data }); });
+      // A reload re-reads the knowledge rail.
+      this.knowledgeRead.delete(id);
+      this.readKnowledge(id, panel, snapshot.investigation.state);
     });
+  }
+
+  /**
+   * The implicit-retrieval knowledge rail (design/06 §5.1), once per panel and
+   * only while the investigation is workable — it spawns the sidecar and runs
+   * retrieval, so it is not worth it for a concluded or archived case. A
+   * refresh calls it too, so a case reopened in place gets its rail.
+   */
+  private readKnowledge(id: string, panel: vscode.WebviewPanel, state: string): void {
+    if (this.knowledgeRead.has(id) || !["DRAFT", "ACTIVE", "PAUSED"].includes(state)) {
+      return;
+    }
+    this.knowledgeRead.add(id);
+    const latest = this.cache.beginRequest(id, "knowledge");
+    void this.transport.getKnowledge(id)
+      .then((items) => { if (latest()) void this.patch(id, panel, { knowledge: items }); })
+      .catch((err: unknown) => this.log.debug(`knowledge rail unavailable: ${errText(err)}`));
   }
 
   /**
@@ -487,9 +519,13 @@ export class InvestigationDocuments {
         this.log.debug(`refresh ${id}: ${errText(err)}`);
         return;
       }
+      if (!this.isOpen(id, panel)) {
+        return; // closed while reading: no title, no seen-tracker advance, no re-armed watch
+      }
       const { seq, patch } = read;
       if (patch.investigation) {
         panel.title = `⚖ ${patch.investigation.title}`;
+        this.readKnowledge(id, panel, patch.investigation.state);
       }
       void this.post(panel, { type: "state.patch", seq, patch });
       this.onLoaded?.(id, seq);
@@ -500,24 +536,16 @@ export class InvestigationDocuments {
         void this.postDerivedViews(panel, patch.thread, seq); // sequenced: a stale one is dropped
       }
       // Unsequenced follow-ups finish inside this operation (see load).
-      await Promise.all([this.postQueue(panel), patch.actions ? this.resendActionRecords(id, panel, patch.actions) : undefined]);
+      await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, seq)]);
     });
   }
 
-  /** Re-send the inspector's action records whose action changed status. */
-  private async resendActionRecords(id: string, panel: vscode.WebviewPanel, actions: ActionRow[]): Promise<void> {
-    const served = this.servedActions.get(id);
-    if (!served) {
-      return;
-    }
-    for (const [actionId, status] of served) {
-      const row = actions.find((a) => a.actionId === actionId);
-      if (!row || row.status === status) {
-        continue;
-      }
+  /** Re-send the inspector's action records read before the investigation's newest event. */
+  private async resendActionRecords(id: string, panel: vscode.WebviewPanel, seq: number): Promise<void> {
+    for (const actionId of this.cache.staleRecords(id, seq)) {
       try {
         const record = await this.client.actionRecord(actionId);
-        served.set(actionId, record.action.status);
+        this.cache.servedRecord(id, actionId, seq);
         void this.post(panel, { type: "inspector.action", actionId, record });
       } catch (err) {
         this.log.debug(`action record ${actionId}: ${errText(err)}`);
@@ -665,9 +693,13 @@ export class InvestigationDocuments {
 
   /** The Knowledge section's scoped search (09 §9.6): the session merges the hits. */
   private async searchKnowledge(id: string, panel: vscode.WebviewPanel, text: string): Promise<void> {
+    // The search's answer is the session's whole set with the hits merged in,
+    // so it supersedes any knowledge read still in flight.
+    this.knowledgeRead.add(id);
+    const latest = this.cache.beginRequest(id, "knowledge");
     try {
       const items = await this.transport.searchKnowledge(id, text);
-      void this.patch(id, panel, { knowledge: items });
+      if (latest()) void this.patch(id, panel, { knowledge: items });
     } catch (err) {
       void vscode.window.showWarningMessage(`reckon: knowledge search failed — ${errText(err)}`);
     }
@@ -744,12 +776,7 @@ export class InvestigationDocuments {
         }
         case "action": {
           const record = await this.client.actionRecord(target.actionId);
-          let served = this.servedActions.get(id);
-          if (!served) {
-            served = new Map();
-            this.servedActions.set(id, served);
-          }
-          served.set(target.actionId, record.action.status);
+          this.cache.servedRecord(id, target.actionId, this.cache.watermark(id));
           void this.post(panel, { type: "inspector.action", actionId: target.actionId, record });
           return;
         }
@@ -1328,7 +1355,11 @@ export class InvestigationDocuments {
   }
 
   private post(panel: vscode.WebviewPanel, msg: RenderMessage): Thenable<boolean> {
-    return panel.webview.postMessage(msg);
+    try {
+      return panel.webview.postMessage(msg);
+    } catch {
+      return Promise.resolve(false); // the panel was disposed while a read was in flight
+    }
   }
 
   /**
