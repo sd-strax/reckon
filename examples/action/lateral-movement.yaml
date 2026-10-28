@@ -19,6 +19,16 @@ action_bindings:
       params:
         device_id: "${target.resolved_identifier}"
 
+  # Reversal pair of host.isolate — restore connectivity once the host is
+  # confirmed clean.
+  host.unisolate:
+    - action_type: host.unisolate
+      adapter: fixture_write
+      operation: dispatch
+      priority: 100
+      params:
+        device_id: "${target.resolved_identifier}"
+
   account.disable:
     - action_type: account.disable
       adapter: fixture_write
