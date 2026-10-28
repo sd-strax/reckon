@@ -26,6 +26,21 @@ describe("reducer: sequence discipline", () => {
     expect(s.seq).toBe(6);
     expect(s.snap?.pins[0].finding).toBe("fresh");
   });
+  it("drops a snapshot older than the state it holds, for the same investigation only", () => {
+    let s = run([
+      { type: "state.snapshot", seq: 7, snapshot: snap(7, "newer") },
+      { type: "loading" },
+      { type: "state.snapshot", seq: 6, snapshot: snap(6, "older") },
+    ]);
+    expect(s.seq).toBe(7);
+    expect(s.title).toBe("newer");
+    expect(s.loading).toBe(false);
+    const other = snap(2, "another case");
+    other.investigation = { ...other.investigation, id: "inv-2" };
+    s = run([{ type: "state.snapshot", seq: 2, snapshot: other }], s);
+    expect(s.seq).toBe(2);
+    expect(s.title).toBe("another case");
+  });
   it("ignores a patch before any snapshot", () => {
     const s = run([{ type: "state.patch", seq: 1, patch: { pins: [] } }]);
     expect(s.snap).toBeNull();

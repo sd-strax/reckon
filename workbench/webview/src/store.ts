@@ -1,7 +1,7 @@
 // The webview's state: a reducer over the host's RenderMessages plus the few
 // local acts (knowledge toggles, draft submission guards). Projection slices
-// arrive whole with a sequence (impl §3.1/§3.2); a patch older than what the
-// webview holds is dropped. Everything here is view state or a mirror of the
+// arrive whole with a sequence (impl §3.1/§3.2); a snapshot or patch older than
+// what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
 import type { ActionRecord, Appearance, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/backend";
 import type { InvestigationSnapshot, KnowledgeItem, RenderMessage } from "../../src/protocol";
@@ -171,6 +171,11 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...state, draft: { ...state.draft, submitting: false, error: msg.message } };
     case "state.snapshot": {
       const snap = msg.snapshot;
+      // A snapshot older than what the webview holds for the same
+      // investigation lost a race with a newer read: keep the newer state.
+      if (state.snap && state.snap.investigation.id === snap.investigation.id && msg.seq < state.seq) {
+        return { ...state, loading: false };
+      }
       return {
         ...state,
         loading: false,

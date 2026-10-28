@@ -175,8 +175,6 @@ export type RenderMessage =
 /** What the webview posts back to the extension host. */
 export type InboundMessage =
   | { type: "refresh" | "ready" }
-  // Resync: the webview saw a sequence gap it cannot fill (§3.2).
-  | { type: "ui.resync" }
   | { type: "queue.get" }
   // Start an investigation from a case row in the work queue (08 §8.3).
   | { type: "queue.start"; caseNumber: string }
