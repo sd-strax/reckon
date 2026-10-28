@@ -349,19 +349,14 @@ type SummaryFilter struct {
 // ListSummaries lists concluded-investigation summaries from the DERIVED
 // case-summaries corpus (adr/0107): the mirror of the empty-query browse the
 // procedure facade owns. Recall needs a query; a listing is a read over the
-// corpus. The technique (or, failing that, the disposition) narrows at the
-// substrate as a tag; the rest narrows here from the structured fields the
-// producer wrote as meta. No new table — the corpus is the record. Reserved
+// corpus, narrowed here from the structured fields the producer wrote as meta. No new table — the corpus is the record. Reserved
 // tags are stripped; investigation_ref is recovered from the source tag.
 func (s *Store) ListSummaries(ctx context.Context, tenantID uuid.UUID, f SummaryFilter) ([]CaseSummaryView, error) {
-	lf := substrate.ListFilter{}
-	switch {
-	case f.Technique != "":
-		lf.Tag = f.Technique
-	case f.Disposition != "":
-		lf.Tag = "disposition:" + strings.ToUpper(f.Disposition)
-	}
-	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, lf)
+	// Every filter applies here, case-insensitively, over the structured
+	// fields: the substrate's tag match is exact, and the producer writes
+	// technique ids and dispositions as they came, so a tag push-down would
+	// miss "t1021.001" against "T1021.001".
+	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{})
 	if err != nil {
 		return nil, fmt.Errorf("list summaries: %w", err)
 	}
