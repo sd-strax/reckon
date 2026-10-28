@@ -79,6 +79,7 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		InvestigationRef: invID.String(),
 	})
 	if resp.StatusCode != http.StatusCreated {
@@ -112,6 +113,7 @@ func TestRequestAction_ManualFallThrough(t *testing.T) {
 		ActionType:       "host.isolate",
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		InvestigationRef: invID.String(),
 	})
 	if out.Status != "PENDING_MANUAL" || out.Mode != action.ModeManual {
