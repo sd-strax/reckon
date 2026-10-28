@@ -49,7 +49,6 @@ workbench/
     investigationDocument.ts   InvestigationDocuments: panels, per-investigation cache, routing
     investigationCache.ts      the cache + sequence discipline (§3)
     knowledgeDocument.ts       the Knowledge document host: one panel, knowledge reads/writes, Ask (§2.6)
-    streamClient.ts            /api/stream WebSocket subscription per open investigation (§3.3)
     protocol.ts                the typed message unions, shared with the webview (§4)
     backend.ts                 HTTP client — still no `vscode` import (the browser surface reuses it)
     agentTransport.ts, auth.ts, casesTree.ts, caseDocument.ts — unchanged
@@ -391,6 +390,10 @@ reloads after its own commands (as today) and after a stream delta, so a resync 
 self-healing path for sleep/wake and dropped frames, not the normal path.
 
 ### 3.3 Live updates
+
+**Deferred** (`implementation/feature-inventory.md`, C12): the subscription below is not built;
+the host reloads after its own commands and keeps the bounded dispatch poll. The design stands
+for when it is taken up.
 
 The host opens one `/api/stream?investigation=<id>` WebSocket per open panel (`streamClient.ts`,
 bearer from the session; the server closes on token expiry → reconnect with a fresh token). On an
@@ -1112,8 +1115,8 @@ is set.
 8. **The entity popover is retired into the entity inspector**; pins, capability health and comms
    relocate per §2.1.
 9. **The webview's stylesheet is fully bundled**, so `style-src` loses `'unsafe-inline'`.
-10. **The `/api/stream` subscription is added now**; Temporal-emitted events keep the bounded
-    poll until a LISTEN/NOTIFY republisher exists.
+10. **The `/api/stream` subscription is deferred** (§3.3); the bounded dispatch poll and the
+    host's reload after its own commands stay.
 11. **The observed-data bundle of `08 §8.6.1` is the capability call** (§2.4, §8.9), because
     the engine mints one observed-data per event; an `observed-data--` ref opens its event.
 12. **§6.13 and §6.20 share one table set and one PR**, under one ADR listing both issues.

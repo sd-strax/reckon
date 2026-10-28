@@ -1,8 +1,7 @@
-// The left region (08 §8.3, 09 §9.1; impl §2.6): the Work | Knowledge toggle,
-// the work queue (investigations needs-me-first with their stage step, then
-// the case system's queue filtered to cases with no investigation), and the
-// capability health fold at the bottom (13 §4 puts it in the container; v1).
-// The Knowledge document lands with its own PR; until then the toggle names it.
+// The left region (08 §8.3; impl §2.6): the work queue (investigations
+// needs-me-first with their stage step, then the case system's queue filtered
+// to cases with no investigation), and the capability health fold at the
+// bottom (13 §4 puts it in the container; v1).
 import { useState } from "react";
 import { useApp } from "../app";
 import { STEP_LABELS, rowStep } from "../derive/stage";
@@ -57,10 +56,6 @@ export function LeftRegion() {
   return (
     <nav id="leftRegion" className={collapsed ? "collapsed" : ""} aria-label="Work queue">
       <div className="regionhead">
-        <div className="modetoggle" role="tablist">
-          <button role="tab" aria-selected="true" className="on">Work</button>
-          <button role="tab" aria-selected="false" disabled title="The Knowledge view lands with the Knowledge document">Knowledge</button>
-        </div>
         <button className="iconbtn" title={collapsed ? "Expand the work queue" : "Collapse the work queue"} onClick={() => setCollapsed((c) => !c)}>{collapsed ? "»" : "«"}</button>
       </div>
       {!collapsed ? (

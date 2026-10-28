@@ -20,7 +20,6 @@ import { AgentTransport, SOPCandidate } from "./agentTransport";
 import type { ChronicleTurn, InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage, RivalBrief } from "./protocol";
 import { buildDerivedViews } from "./derivedViews";
 import { deriveEvidenceLabel } from "./evidenceLabel";
-import { StreamSubscription } from "./streamClient";
 
 export class InvestigationDocuments {
   private readonly open = new Map<string, vscode.WebviewPanel>();
@@ -52,17 +51,12 @@ export class InvestigationDocuments {
   // The last event sequence posted per investigation (impl §3.2): every slice
   // re-post carries it so the webview can drop a stale patch.
   private readonly seqs = new Map<string, number>();
-  // One /api/stream subscription per open investigation panel (impl §3.3).
-  private readonly streams = new Map<string, StreamSubscription>();
-  // Deltas that arrive while a reload is in flight collapse into one more.
-  private readonly reloadPending = new Set<string>();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly client: BackendClient,
     private readonly log: vscode.LogOutputChannel,
     private readonly transport: AgentTransport,
-    private readonly stream: { backendUrl: () => string; token: () => Promise<string> } | null,
     private readonly me: () => Promise<{ name: string; principal: string } | null>,
     /**
      * Called after each successful load with the last event sequence the
@@ -93,7 +87,7 @@ export class InvestigationDocuments {
     const ref = { id };
     panel.webview.html = this.html(panel.webview);
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => { this.open.delete(ref.id); this.unsubscribe(ref.id); });
+    panel.onDidDispose(() => this.open.delete(ref.id));
   }
 
   /**
@@ -120,7 +114,7 @@ export class InvestigationDocuments {
     // The webview asks for its initial state via "ready"; a draft key answers
     // with the unseeded render instead of a load().
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
-    panel.onDidDispose(() => { this.open.delete(ref.id); this.unsubscribe(ref.id); });
+    panel.onDidDispose(() => this.open.delete(ref.id));
   }
 
   /** The page may load only the bundle and the vendored fonts (impl §5.1). */
@@ -133,41 +127,6 @@ export class InvestigationDocuments {
         vscode.Uri.joinPath(this.extensionUri, "media"),
       ],
     };
-  }
-
-  /**
-   * Subscribe the panel to the investigation's projection deltas (impl §3.3).
-   * A delta refreshes the slices its event family touches; the host already
-   * reloads after its own commands, so this is the path for changes made
-   * elsewhere (the agent's acts, another panel, a policy auto-approval).
-   */
-  private subscribe(id: string, panel: vscode.WebviewPanel): void {
-    if (!this.stream || this.streams.has(id)) {
-      return;
-    }
-    const { backendUrl, token } = this.stream;
-    this.streams.set(id, new StreamSubscription(id, {
-      backendUrl, token, log: this.log,
-      onDelta: (d) => {
-        if (this.open.get(id) !== panel) {
-          return;
-        }
-        if (this.reloadPending.has(id)) {
-          return; // a reload is already queued; it will see this change too
-        }
-        this.reloadPending.add(id);
-        const family = (d.eventType || "").split(".")[0];
-        const run = family === "action" || family === "interpretation"
-          ? this.postPending(id, panel)
-          : this.load(id, panel);
-        void run.finally(() => this.reloadPending.delete(id));
-      },
-    }));
-  }
-
-  private unsubscribe(id: string): void {
-    this.streams.get(id)?.dispose();
-    this.streams.delete(id);
   }
 
   private static isDraft(key: string): boolean {
@@ -490,7 +449,6 @@ export class InvestigationDocuments {
     this.seqs.set(id, snapshot.seq);
     void this.post(panel, { type: "state.snapshot", seq: snapshot.seq, snapshot });
     this.onLoaded?.(id, snapshot.seq);
-    this.subscribe(id, panel);
     void this.postQueue(panel);
     void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal }); }).catch(() => undefined);
     // Dispatch is asynchronous (a Temporal workflow) and its result events are

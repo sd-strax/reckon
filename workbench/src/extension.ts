@@ -49,7 +49,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const importSOPs = new ImportSOPsView(client, log);
   const documents = new InvestigationDocuments(
     context.extensionUri, client, log, transport,
-    { backendUrl: () => backendUrl(), token: () => session.token() },
     () => client.me().then((m) => ({ name: m.username, principal: m.subject })).catch(() => null),
     (id, seq) => {
       void seen.set(id, seq).then(() => investigations.refresh());
