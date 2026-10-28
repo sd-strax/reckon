@@ -48,6 +48,7 @@ tidy: ## Run go mod tidy
 hooks: ## Install the OSS-leak prevention pre-commit hook
 	git config core.hooksPath .githooks/
 	@echo "pre-commit hook installed (core.hooksPath = .githooks/)"
+	@echo "optional identity check: git config --global --add reckon.authorEmail <your commit email>"
 
 clean: ## Remove built binaries
 	rm -rf bin/

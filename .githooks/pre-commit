@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# .githooks/pre-commit — OSS-leak prevention for the public reckon repo.
+# .githooks/pre-commit — OSS-leak prevention for the public reckon repo, and
+# an optional commit-identity check (below).
 #
 # Greps the staged diff for keywords that should never appear in OSS-bound
 # content (commercial framing, team-shape context, customer/partner names,
@@ -12,6 +13,29 @@
 # Activation: `git config core.hooksPath .githooks/` (run once per clone).
 
 set -euo pipefail
+
+# Commit identity. When `reckon.authorEmail` is set in git config (one or more
+# values, usually in ~/.gitconfig so it also covers worktrees and clones outside
+# the usual directory), the author and committer emails must be one of them. A
+# commit under the wrong identity becomes a co-author on squash-merge and stays
+# in the repo's contributor list. Unset, the check is skipped.
+ALLOWED=$(git config --get-all reckon.authorEmail || true)
+if [ -n "$ALLOWED" ]; then
+    for role in AUTHOR COMMITTER; do
+        email=$(git var "GIT_${role}_IDENT" | sed -E 's/.*<([^>]*)>.*/\1/')
+        if ! printf '%s\n' "$ALLOWED" | grep -qixF "$email"; then
+            cat <<EOF
+✗ Commit identity: the $(printf %s "$role" | tr A-Z a-z) email is <$email>, which is not one of
+  reckon.authorEmail:
+$(printf '%s\n' "$ALLOWED" | sed 's/^/    /')
+
+  Set the right identity for this clone (git config user.email …) and
+  commit again.
+EOF
+            exit 1
+        fi
+    done
+fi
 
 # Files that legitimately mention agent / collab terms and should be skipped
 # entirely. The agent-collaboration files exist for Claude Code / Codex / etc.
