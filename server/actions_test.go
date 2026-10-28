@@ -352,6 +352,7 @@ func TestRerequestAction_LazyExpiry(t *testing.T) {
 		ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
 		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--l", ResolvedIdentifier: "WIN-L"}},
 		ExpiresAt: time.Now().Add(-time.Minute), Rationale: "contain",
+		EvidenceRefs: []string{"observed-data--od1"}, // the re-request inherits the original's grounding
 	}); err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -441,6 +442,7 @@ func TestExpiryTimer_RaceResolvesForTheHuman(t *testing.T) {
 		ActionID: pendingID, ActionType: "host.isolate", Tier: aggregate.TierT2,
 		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--p", ResolvedIdentifier: "WIN-P"}},
 		ExpiresAt: time.Now().Add(-time.Minute), Rationale: "contain",
+		EvidenceRefs: []string{"observed-data--od1"}, // the re-request inherits the original's grounding
 	}); err != nil {
 		t.Fatalf("request pending: %v", err)
 	}

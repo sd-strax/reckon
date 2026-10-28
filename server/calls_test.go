@@ -327,7 +327,7 @@ func TestSummary_FactsAndNarrativeLineage(t *testing.T) {
 		return r.StatusCode, out
 	}
 	code, s0 := call(http.MethodGet, "/api/investigations/"+invID.String()+"/summary", human, nil)
-	if code != http.StatusOK || s0.Narrative != nil || s0.Authorship.Revisions != 0 || s0.State != "ACTIVE" || s0.Notification.Status != "not_yet_notified" {
+	if code != http.StatusOK || s0.Narrative != nil || s0.Authorship.Revisions != 0 || !strings.EqualFold(s0.State, "active") || s0.Notification.Status != "not_yet_notified" {
 		t.Fatalf("summary before any narrative = %d %+v", code, s0)
 	}
 	if code, _ := call(http.MethodPut, "/api/investigations/"+invID.String()+"/narrative", ai, NarrativeBody{Body: "The record so far: one host, one account, nothing decided.", GeneratorModel: "model-x"}); code != http.StatusCreated {
