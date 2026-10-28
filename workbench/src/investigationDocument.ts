@@ -14,6 +14,8 @@
 // network from the page.
 
 import { randomUUID } from "crypto";
+import * as os from "os";
+import * as path from "path";
 import * as vscode from "vscode";
 import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, ThreadEntry } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
@@ -1213,17 +1215,42 @@ export class InvestigationDocuments {
   }
 
   /**
-   * The live markdown export in an editor tab (binding §6 item 10): rendered
-   * backend-side from the projections, opened as an untitled markdown doc the
-   * analyst can read, save, or paste into a ticket unedited.
+   * The live markdown export (binding §6 item 10): rendered backend-side from
+   * the projections and shown as a rendered preview beside the panel. The
+   * preview reads a scratch file, not an untitled doc, so no unsaved source
+   * tab is left behind; Save report… writes it to a file the analyst picks.
    */
   private async openMarkdownExport(id: string): Promise<void> {
+    let md: string;
     try {
-      const md = await this.client.exportMarkdown(id);
-      const doc = await vscode.workspace.openTextDocument({ content: md, language: "markdown" });
-      await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+      md = await this.client.exportMarkdown(id);
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: export failed — ${errText(err)}`);
+      return;
+    }
+    const name = `reckon-report-${id.slice(0, 8)}.md`;
+    const scratch = vscode.Uri.file(path.join(os.tmpdir(), "reckon-exports", name));
+    try {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(scratch.fsPath)));
+      await vscode.workspace.fs.writeFile(scratch, Buffer.from(md, "utf8"));
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: export failed — ${errText(err)}`);
+      return;
+    }
+    await vscode.commands.executeCommand("markdown.showPreviewToSide", scratch);
+    const save = "Save report…";
+    if ((await vscode.window.showInformationMessage("reckon: report exported", save)) !== save) return;
+    const target = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), name)),
+      filters: { Markdown: ["md"] },
+      saveLabel: "Save report",
+    });
+    if (!target) return;
+    try {
+      await vscode.workspace.fs.writeFile(target, Buffer.from(md, "utf8"));
+      void vscode.window.showInformationMessage(`reckon: report saved to ${target.fsPath}`);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: saving the report failed — ${errText(err)}`);
     }
   }
 
