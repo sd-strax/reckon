@@ -142,6 +142,7 @@ func TestRequestAction_InvisibleActivateOnDraft(t *testing.T) {
 
 	resp, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -570,6 +571,7 @@ func TestListInvestigationActions(t *testing.T) {
 	})
 	_, second := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "account.disable",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: "svc_backup"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -638,6 +640,7 @@ func TestRequestAction_AIDelegatedT3BaselineDeny(t *testing.T) {
 	token := mintToken(t, map[string]any{"delegate_kind": "claude"})
 	_, out := postAction(t, b, token, RequestActionBody{
 		ActionType:       "email.purge",
+		EvidenceRefs:     []string{"observed-data--od1"},
 		Targets:          []aggregate.TargetSpec{{EntityRef: "email-message--1", ResolvedIdentifier: "<msg@x>"}},
 		Rationale:        "phish",
 		InvestigationRef: invID.String(),
