@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/log"
 	sdktemporal "go.temporal.io/sdk/temporal"
 
 	"github.com/sd-strax/reckon/action"
@@ -318,7 +320,7 @@ func (a *Activities) recordCommsThread(ctx context.Context, actionID uuid.UUID, 
 		At:            time.Now().UTC(),
 		ThreadRef:     threadRef,
 	}); err != nil {
-		activity.GetLogger(ctx).Warn("comms thread not recorded", "action_id", actionID, "error", err)
+		activityLogger(ctx).Warn("comms thread not recorded", "action_id", actionID, "error", err)
 	}
 }
 
@@ -438,4 +440,15 @@ func systemEnvelope(aggregateID, tenantID, approverID string) (aggregate.Envelop
 		Actor:         aggregate.Actor{PrincipalID: approverID, Kind: aggregate.ActorSystem},
 		OccurredAt:    time.Now().UTC(),
 	}, nil
+}
+
+// activityLogger is the activity's logger inside an activity and the process
+// logger outside one: the result-recording helpers are also driven directly
+// (tests, a replay tool), and the SDK's logger panics without an activity
+// context.
+func activityLogger(ctx context.Context) log.Logger {
+	if activity.IsActivity(ctx) {
+		return activity.GetLogger(ctx)
+	}
+	return log.NewStructuredLogger(slog.Default())
 }
