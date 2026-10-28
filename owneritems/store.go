@@ -115,7 +115,7 @@ func (s *Store) Create(ctx context.Context, n NewItem) (uuid.UUID, error) {
 // status stays OPEN until that action succeeds (MarkSent).
 func (s *Store) Attach(ctx context.Context, id, actionID uuid.UUID, principal, name string, at time.Time) error {
 	return s.step(ctx, id, HistoryEntry{At: at.UTC(), Actor: principal, ActorName: name, Act: "attached", Note: actionID.String()},
-		`notify_action_id = $4`, actionID, StatusOpen, StatusSent)
+		`notify_action_id = $4`, actionID)
 }
 
 // MarkSent moves every OPEN item attached to a succeeded notify.* action to

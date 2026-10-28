@@ -79,8 +79,8 @@ func TestOwnerItems_Lifecycle(t *testing.T) {
 
 	// Attach to a notification, then the notification succeeds → SENT.
 	actionID := uuid.New()
-	if code, _ := call(http.MethodPost, "/api/owner_items/"+proposedID+"/attach", human, map[string]any{"action_id": actionID.String()}); code != http.StatusOK {
-		t.Fatalf("attach = %d", code)
+	if code, out := call(http.MethodPost, "/api/owner_items/"+proposedID+"/attach", human, map[string]any{"action_id": actionID.String()}); code != http.StatusOK {
+		t.Fatalf("attach = %d %v", code, out) // the body names the store error
 	}
 	env := newEnvelope(invID, aggregate.Actor{PrincipalID: "test-subject"}, commandNow())
 	if _, err := testHandler.Handle(context.Background(), env, aggregate.RequestAction{
