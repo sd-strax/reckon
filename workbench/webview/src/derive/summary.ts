@@ -4,7 +4,7 @@
 import type { ActionRow, Hypothesis, PinRow, ThreadEntry, Seed, CommsThread, Verdict } from "../../../src/viewTypes";
 import { isEntityRef } from "../refs";
 import { terminal, isNotify } from "./stage";
-import { hypName } from "./hyps";
+import { hypName, outstanding } from "./hyps";
 
 export interface KeyEntity {
   ref: string;
@@ -66,9 +66,8 @@ export function stillToDo(actions: ActionRow[], comms: CommsThread[], hs: Hypoth
   }
   if (!actions.some(isNotify) && !notifyOpen.length && actions.length) out.push({ text: "Send the stakeholder notification", kind: "notify" });
   for (const h of hs) {
-    if (h.status === "ABANDONED") continue;
     for (const p of h.predictions) {
-      if (p.status === "UNTESTED" || p.status === "INCONCLUSIVE") out.push({ text: `${p.status === "UNTESTED" ? "Test" : "Resolve"} P${p.ordinal ?? "?"} under ${hypName(h, hs)}`, kind: "prediction", ref: p.id });
+      if (outstanding(p, h)) out.push({ text: `${p.status === "UNTESTED" ? "Test" : "Resolve"} P${p.ordinal ?? "?"} under ${hypName(h, hs)}`, kind: "prediction", ref: p.id });
     }
   }
   void labels;

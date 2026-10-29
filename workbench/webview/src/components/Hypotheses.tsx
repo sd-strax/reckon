@@ -70,7 +70,7 @@ export function shortTitle(p: Prediction): string {
 const GLYPH: Record<string, { g: string; word: string; tone: string }> = {
   CONFIRMED: { g: "✓", word: "confirmed", tone: "ok" },
   DISCONFIRMED: { g: "✕", word: "disconfirmed", tone: "bad" },
-  INCONCLUSIVE: { g: "?", word: "inconclusive", tone: "" },
+  INCONCLUSIVE: { g: "~", word: "inconclusive", tone: "warn" },
   UNTESTED: { g: "?", word: "untested", tone: "" },
   WITHDRAWN: { g: "–", word: "withdrawn", tone: "muted" },
 };
