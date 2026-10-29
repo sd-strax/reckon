@@ -28,7 +28,6 @@ export function StoryLens() {
   }, [snap?.derived?.strip, hs]);
   if (!snap) return null;
   const techniques = Array.from(new Set(hs.flatMap((h) => h.labels || []).filter((l) => /^T\d{4}/.test(l))));
-  const supported = hs.some((h) => h.status === "SUPPORTED");
   const open = hs.flatMap((h) => h.status === "ABANDONED" ? [] : h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
   const created = snap.investigation.createdAt ? Date.parse(snap.investigation.createdAt) : NaN;
   const shown = rows.filter((r) => filter === "all" || r.category === filter);
@@ -36,9 +35,8 @@ export function StoryLens() {
   return (
     <div className="lens story">
       <section className="lsection">
-        <h3>Attack path</h3>
-        {supported ? <Empty>The attack path (entities as nodes, typed relations between them) needs the entity-scoped event query — gap 00 §6.13. The evidence graph below shows what grounds what.</Empty> : <Empty>No hypothesis is SUPPORTED yet, so there is no attack path to show.</Empty>}
-        {snap.derived ? <EvidenceGraph graph={snap.derived.graph} /> : null}
+        <h3>Evidence graph</h3>
+        {snap.derived ? <EvidenceGraph graph={snap.derived.graph} /> : <Empty>Building the graph from the cited evidence…</Empty>}
       </section>
       <section className="lsection">
         <h3>ATT&CK</h3>
@@ -61,7 +59,7 @@ export function StoryLens() {
                   {divider ? <div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div> : null}
                   <span className="ttime mono">{new Date(r.time).toLocaleTimeString()}</span>
                   <span className={"tcat " + r.category}>{r.category.toUpperCase()}</span>
-                  <span className="tsentence"><RefChip refId={r.ref} /> <span className="imeta">{r.label} (the per-class sentence is gap 00 §6.12)</span></span>
+                  <span className="tsentence"><RefChip refId={r.ref} /> <span className="imeta">{r.label}</span></span>
                   <span className="tciting">{r.citing.map(({ h, p }) => <a key={p.id} className={"pcite " + (p.status === "CONFIRMED" ? "ok" : p.status === "DISCONFIRMED" ? "bad" : "")} title={`${p.status} under ${hypName(h, hs)}`} onClick={() => openInspector({ kind: "ref", ref: p.id })}>P{p.ordinal ?? "?"}</a>)}</span>
                 </li>
               );
@@ -69,7 +67,6 @@ export function StoryLens() {
             {!dividerDone && Number.isFinite(created) ? <li className="trow"><div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div></li> : null}
           </ol>
         )}
-        <p className="imeta">Baseline rows (collapsed repetitions) need gap 00 §6.14; the full entity-scoped record needs gap 00 §6.13.</p>
       </section>
       <section className="lsection">
         <h3>Not yet known</h3>

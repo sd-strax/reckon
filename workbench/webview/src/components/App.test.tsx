@@ -126,7 +126,7 @@ describe("the investigation document", () => {
     expect(transport.intents.find((i) => i.type === "notify.request")).toMatchObject({ channel: "notify.email", target: "ops@example.test" });
     expect(within(lens()).getByText("External work · 1 open")).toBeTruthy();
     expect(within(lens()).getByText("Acknowledge")).toBeTruthy();
-    expect(within(lens()).getByText(/gap 00 §6.17/)).toBeTruthy(); // owner items: honest gap line
+    expect(within(lens()).queryByText(/Owner action items/)).toBeNull(); // no placeholder section (#166)
   });
 
   it("Summary: four tiles, key entities with derivable words, still to do, procedures followed, the handoff note", () => {
@@ -135,7 +135,7 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText("none yet")).toBeTruthy(); // verdict tile
     expect(within(lens()).getByText("2 of 4 approved")).toBeTruthy(); // containment: SUCCEEDED + FAILED were approved; REQUESTED and EXPIRED were not
     expect(within(lens()).getByText("isolated")).toBeTruthy(); // host-a's derivable status word
-    expect(within(lens()).getByText(/No narrative has been drafted/)).toBeTruthy();
+    expect(within(lens()).getByText(/No narrative yet — it is written when the investigation concludes/)).toBeTruthy();
     expect(within(lens()).getByText("Procedure one")).toBeTruthy();
     fireEvent.click(within(lens()).getByText("Copy handoff note"));
     const copied = transport.intents.find((i) => i.type === "copy") as { text: string };

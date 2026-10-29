@@ -177,8 +177,8 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
       </div>
       <Tabs tabs={[
         { id: "read", label: "What the AI read", body: () => (
-          item?.excerpt ? <><blockquote className="iquote">{item.excerpt}</blockquote><div className="imeta">the excerpt retrieved for this investigation{item.band ? " · " + item.band : ""}{item.rationale ? " · " + item.rationale : ""}</div><p className="imeta">Excerpt provenance per turn (k of n, location in the source, hash check) is gap 00 §6.15.</p></>
-            : <div className="empty">No retrieved excerpt is held for this procedure in this investigation (excerpt provenance is gap 00 §6.15).</div>
+          item?.excerpt ? <><blockquote className="iquote">{item.excerpt}</blockquote><div className="imeta">the excerpt retrieved for this investigation{item.band ? " · " + item.band : ""}{item.rationale ? " · " + item.rationale : ""}</div></>
+            : <div className="empty">No excerpt of this procedure was retrieved in this investigation.</div>
         ) },
         { id: "whole", label: "Whole document", body: () => (
           sop === undefined ? <Loading what="procedure" /> : (
@@ -194,7 +194,6 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
             </>
           )
         ) },
-        { id: "versions", label: "Versions", body: () => <div className="empty">Revision history and the retained original land with gap 00 §6.15.</div> },
       ]} />
     </>
   );
@@ -210,7 +209,6 @@ export function PersonInspector({ principalId }: { principalId: string }) {
     <>
       <div className="isub">From the identity provider at the time of each act; reckon stores no roles of its own.</div>
       <div className="ithiscase"><span className="kicker">In this case:</span> <span className="icite">{opened ? "opened it · " : ""}{acts.length} act{acts.length === 1 ? "" : "s"}{approvals ? ` · ${approvals} approval${approvals === 1 ? "" : "s"}` : ""}</span></div>
-      <Section title="Roles carried on their acts"><div className="empty">Roles live in the identity provider; the record does not carry them yet (gap 00 §6.19).</div></Section>
       <Section title="What they did here">
         {acts.length ? acts.map((e) => (
           <div key={e.sequenceNo} className="irow"><span className="imeta">{fmtTime(e.occurredAt)}</span> {e.actor.kind === "AI_DELEGATED" ? "reckon on their behalf: " : ""}<a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || e.interpretationType}</a></div>

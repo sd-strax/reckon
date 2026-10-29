@@ -61,10 +61,6 @@ export function ResponseLens() {
           {rows.slice().reverse().map((a) => <ActionCard key={a.actionId} a={a} variant="full" draft={draft} />)}
         </section>
       ))}
-      <section className="lsection">
-        <h3>Owner action items</h3>
-        <Empty>Work only an owner outside reckon can do is tracked here once the record carries owner action items (gap 00 §6.17).</Empty>
-      </section>
       <section className="lsection" id="obj-notification-draft">
         <h3>Notification</h3>
         <div className="card draftcard">
