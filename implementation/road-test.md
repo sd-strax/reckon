@@ -2,7 +2,7 @@
 
 A manual, end-to-end exercise of the v0 fixture stack through the **workbench
 UI**. It follows the natural analyst loop: understand the host, drive the
-hypothesis to a verdict, *then* act — because remediation lands clean only when
+hypotheses to a verdict, *then* act — because remediation lands clean only when
 evidence precedes it.
 
 Everything is in the workbench except the one step tagged **[simulate vendor]**
@@ -10,134 +10,178 @@ Everything is in the workbench except the one step tagged **[simulate vendor]**
 the `lateral-movement-via-rdp` fixture scenario; there are no real adapters.
 
 > Keep this in sync when a surface changes. It doubles as the "does the whole
-> thing still hang together" check before a demo.
+> thing still hang together" check before a demo. Findings from a run are filed
+> as short issues under a `road-test-*` label; the known ones are noted inline
+> below as *(known: #N)* so a run does not re-report them.
 
 **Prereqs:** stack running on the current binary, **demo world seeded**
 (`reckon demo seed` once, after `start` + `dev-auth`, then restart — a plain
-`init` is fixture-free now, so the demo is opt-in), workbench reloaded, signed
-in, BYOK `ANTHROPIC_API_KEY` set. Start a **fresh** investigation so the arc is
+`init` is fixture-free, so the demo is opt-in), workbench reloaded, signed in,
+BYOK `ANTHROPIC_API_KEY` set. Start a **fresh** investigation so the arc is
 clean. (`reckon demo reset` wipes it all back afterward.)
+
+A change to the demo's capability or action config
+(`~/.reckon/capability/*.yaml`, fixtures) needs a **stack restart**; a workbench
+change needs only **Developer: Reload Window**.
+
+---
+
+## The layout
+
+One investigation panel, four regions:
+
+- **Header** — the title (double-click to rename), the stage strip
+  (Investigate · Verdict · Contain · Notify · Close — progress, not buttons),
+  **Verdict…**, and the lifecycle buttons (**Pause** / **Resume**,
+  **Conclude…**, **Reopen…**, **Archive…**).
+- **Left region** — **Investigations** (yours, in progress), **Cases** (the case
+  system's queue, with **Start investigation**), and the **Capabilities** fold
+  (what the tenant can query, with **Enable…** forms).
+- **Lenses** — four views over the same record:
+  - **Summary** — verdict, containment, notification, what happened, key
+    entities, still to do, procedures followed; **Copy handoff note**,
+    **Export report**.
+  - **Story** — attack path, ATT&CK, the event-time timeline, the evidence
+    graph, not yet known.
+  - **Reasoning** — the verdict-basis line, the hypothesis cards with their
+    predictions, **Pinned evidence**.
+  - **Response** — the actions grouped by kind, and the comms threads.
+- **Companion** (right, resizable from its left edge) — **Conversation** (the
+  agent chat and composer) or **Thread** (the whole record in order, every act
+  as a line), plus the **Knowledge** section.
+
+Clicking any chip, card title or act line opens an **inspector** pane over the
+lens (evidence, procedure, turn, action, comms thread, past case); **‹ back**
+walks the stack.
 
 ---
 
 ## 1. Seed + investigate — this populates the analytical surfaces
 
-**New Investigation** (`Ctrl/Cmd+Shift+I`) → type **`WIN-FILE01`** → confirm the
-live hint reads *"→ investigate host WIN-FILE01"* → **Start investigation**.
-
-Then, in the composer:
+**reckon: New investigation** (`Ctrl/Cmd+Shift+I`, Command Palette only for
+now — *known: #162*) → type **`WIN-FILE01`** → confirm the live hint reads
+*"→ investigate host WIN-FILE01"* → **Start investigation**. The new draft
+opens on an empty Summary *(known: #160)*: switch the companion to
+**Conversation** and start there.
 
 > *"Investigate WIN-FILE01 for signs of compromise — what happened on this host?
 > Pull the process, logon, and network telemetry and tell me if this looks like
 > lateral movement."*
 
 **Expect:** the agent queries the fixture telemetry (RDP logons, the C2 network
-flow, the detection), narrates what it found, and **records a competing set**
+flow, the detection), describes what it found, and **proposes a competing set**
 (default `reasoning.hypothesis_framing: leading_null`): a leader such as
-**`H1 rdp-lateral`** — *"WIN-FILE01 was accessed via RDP using a compromised
-service account"* — and one concrete alternative, **`H2 legit-admin`** —
-*"an administrator used svc_backup over RDP for maintenance."* The
-**Hypotheses** rail shows them as tabs with a scoreboard strip, and tool-result
-rows carry pinnable evidence chips.
+**`H1 svc_backup compromise`** and one concrete alternative such as
+**`H2 legitimate backup`**. They appear as cards in the **Reasoning** lens;
+tool-result rows in the conversation carry evidence chips and a **📌 Pin**.
 
-*(If it investigates but doesn't record hypotheses, nudge: "Frame the competing
-hypotheses — your leading explanation and the alternative that would make it
-wrong." Agent-proposed or human-authored both land in the tracker; `+ new…`
-frames your own.)*
+Read the answer as an analyst would: does it lead with the finding, cite each
+claim, say what it could not check, and keep hypotheses as proposals? *(known:
+#137 — shape, scoping before framing, "a connection is not exfiltration";
+#136 — rendering)*. It should notice **both** RDP logons (jdoe at 14:32:11,
+svc_backup at 14:32:47).
+
+Ask **"have we seen this before?"** only *after* telemetry: similar-case recall
+compares behaviour, and a bare host name has none. On a fresh demo there is one
+seeded prior case; after a concluded run on this host there should be two
+*(known: #163 — no exact by-entity lookup; an over-filtered recall reads as
+"not seen before")*.
 
 > **On activation (no button).** A fresh investigation starts as a **Draft**.
-> Reasoning, hypotheses, pins, and the verdict are all allowed while it's a
-> draft — so steps 1–3 work as-is. It **activates automatically** the moment you
-> approve its first external action (step 4); there is no "Activate" button.
-> (Conclude, step 5, requires an active investigation — which it is by then.)
+> Reasoning, hypotheses, pins and the verdict are all allowed in draft. It
+> **activates automatically** when you approve its first action (step 4).
+> A draft started by mistake cannot be discarded yet *(known: #161)*.
 
-## 2. Drive the hypothesis loop (the tracker's reason for existing)
+## 2. Drive the hypothesis loop
 
-The tracker is a **competing set** (`01 §x-hypothesis`): a scoreboard strip of
-tabs (handle · status · tested/total) above one working card. Click a tab to
-work that hypothesis; the strip keeps the rival in view. Walk the ladder on
-**H1**:
+Work the cards in the **Reasoning** lens:
 
-- **✓ Adopt** — if it's an AI-**proposed** hypothesis, this is **required
-  before the agent can go further**. Human-in-the-loop is the default: the agent
-  cannot run tests on, or decide, a still-`PROPOSED` hypothesis until a human
-  adopts it into `OPEN`. Skip it and the agent will refuse, honestly ("a human
-  must Acknowledge it first"). The adopt card shows the **statement editable**
-  — sharpen it (add the source IP and time) and adopt: the original stays in the
-  thread. Adopt **H2** as well. *(To let the agent drive the whole loop
-  autonomously, set the tenant dial `trust.ai_reasoning: true` — off by
-  default. `reasoning.hypothesis_framing: leading_only` returns to a single
-  agent-proposed hypothesis.)*
+- **✓ Adopt** — an AI-**proposed** hypothesis must be adopted before the agent
+  can test or decide it (`trust.ai_reasoning` is off by default). The adopt
+  card shows the **statement editable** — sharpen it (add the source IP and
+  time) and adopt; the original stays in the record. Adopt **H2** as well.
 - **⚡ Propose tests** → the agent reads *both* hypotheses and records
-  falsifiable predictions; at least one carries a **vs H2** chip (it
-  discriminates — H2 predicts the opposite outcome). The aside collapses to a
-  one-liner. **Expect** the account-baseline test: *"svc_backup's 30-day logon
-  baseline shows only Network logons from BKP-01 at 02:00…"*.
-- **+ prediction** on **H2** → add your own: *"a change ticket or maintenance
-  window covers WIN-FILE01 on 2026-04-20"*, ticking *discriminates H1*. Use
-  **Withdraw** on any test that would come out the same under both (a status,
-  never a deletion — to edit, withdraw and add).
-- **⚡ Run tests** → it executes the predictions and records outcomes citing
-  evidence. The baseline query (user-rooted, 30-day window) returns seven
-  nightly `Network` logons from `BKP-01` plus the one `RemoteInteractive` from
-  `10.0.4.20` → `CONFIRMED`; the change-record lookup returns COMPLETE with zero
-  cases → `DISCONFIRMED` for H2.
-- **📌 Pin** a decisive prediction's evidence (the button goes inert once pinned).
-- **⚡ Decide** on H1 while H2's test is still untested → the agent **declines**
-  and names the outstanding discriminating test (say "record it anyway" to
-  override). Run H2's test, then decide: **H2 REFUTED**, **H1 SUPPORTED**, each
-  citing the decisive evidence.
+  falsifiable predictions; at least one **discriminates** (the rival predicts
+  the opposite). **Expect** the account-baseline test: *"svc_backup's 30-day
+  logon baseline shows only Network logons from BKP-01 at 02:00…"*.
+- **+ prediction** on **H2** → add your own (*"a change ticket or maintenance
+  window covers WIN-FILE01 on 2026-04-20"*, discriminating H1). **Withdraw** any
+  test that comes out the same under both (a status, never a deletion).
+- **A person tests this** — a prediction only a human can answer (the account
+  owner confirms the session; choose this when adding the prediction) is
+  closed with **Record result** and an attestation (who, how). The agent
+  proposes such tests but never records them.
+- **⚡ Run tests** / **⚡ Test this** → outcomes recorded citing evidence. The
+  baseline query (user-rooted, 30-day window) → `CONFIRMED`; the change-record
+  lookup → COMPLETE, zero cases → `DISCONFIRMED` for H2.
+- **📌 Pin** the decisive evidence. It appears under **Pinned evidence**, where
+  the pin's remove button (with a reason) supersedes it — it stays visible,
+  struck.
+- **⚡ Decide** on H1 while a discriminating test is still untested → the agent
+  **declines** and names the outstanding test. Run it, then decide: **H2
+  REFUTED**, **H1 SUPPORTED**.
 
-**Expect:** each ⚡ fires a collapsed aside; predictions live only in the
-tracker; the **Next:** line above the strip points at the discriminating
-untested test across *all* hypotheses; the pin shows up in **Pinned evidence**;
-the verdict residual (step 3) lists any hypothesis still undecided.
+**Expect:** the cards and the Summary's **Still to do** agree on what is
+outstanding *(known: #140)*; act lines in the Thread say what each act was
+*(known: #138, #153)*.
 
 ## 3. Verdict — grounded in the pins
 
-**Verdict…** → the dialog shows the pin gate (you pinned evidence in step 2, so
-it's satisfied) → disposition **MALICIOUS** → rationale → **Record verdict**.
+**Verdict…** (header, top right — not the stage strip, *known: #142*) → the
+dialog shows the pin gate and the residual *(known: #143)* → **MALICIOUS** →
+rationale → **Record verdict**.
 
-**Expect:** the verdict badge appears in the header; the verdict act shows in the
-chronicle (⚖ line).
+**Expect:** the Summary's Verdict tile updates; a ⚖ line in the Thread.
 
-*Optional — verdict revision:* record a second verdict with a different
-disposition. **Expect:** the prior verdict is auto-superseded in the same
-transaction — the chronicle shows the old ⚖ line struck with a "superseded" tag,
-the badge and any later conclude consume only the new one.
+*Verdict revision:* record a second verdict. **Expect:** the earlier ⚖ line is
+struck and tagged SUPERSEDED in the Thread, and only the new one counts.
+*(known: #155 — the replaced verdict is dim, far up the Thread, and the line
+omits the disposition)*
 
-## 4. Remediate — now the agent is an ally, because evidence precedes action
+## 4. Remediate — evidence precedes action
 
-Everything the agent would refuse in a remediate-first run now lands clean. Ask,
-one at a time or together:
+Ask, one at a time or together:
 
-> *"Isolate WIN-FILE01, block the C2 IP at the perimeter, open a ticket to
-> reimage it in the IT queue, and notify #it-operations on Slack that it's
-> contained and ready for reimage — ask them to schedule it, follow up in 48h."*
+> *"Isolate WIN-FILE01, block the C2 IP at the perimeter, disable svc_backup,
+> and notify #itops on Slack that it's contained and ready for reimage — follow
+> up in 48h."*
 
-**Expect** a sequence of approval cards, each a decision-grade preview:
+**Expect** approval cards in the conversation and in the **Response** lens,
+each grounded (an action without cited evidence is refused by the engine):
 
-- `host.isolate` → target WIN-FILE01, reversibility stated
-- `ioc.block` → the C2 indicator
-- `ticket.create` → target the **IT queue** (WIN-FILE01 rides in evidence, not
-  targets), manual approval
-- `notify.slack` → **pre-send preview** ("Approve · Send") — the message text
-  *is* the approval surface
+- `host.isolate` → WIN-FILE01, REVERSIBLE
+- `ioc.block` → the C2 indicator, BEST_EFFORT
+- `account.disable` → CONTOSO\svc_backup, REVERSIBLE (any other account fails
+  in the demo, *known: #149*)
+- `notify.slack` → **Approve · Send**: the message text is the approval surface
+  *(known: #124, #127 — not every card shows what it will write; no edit
+  before approve)*
 
-Approve them. **Expect:** approving the first one **activates** the investigation
-(the Draft badge flips to Active); dispatches succeed; the ticket returns an id;
-the notify opens an **External work** card (`#it-operations`, `awaiting_reply`,
-48h clock). Each act lands as a one-liner in the chronicle in causal order, and
-each action appears in the new **Actions** ledger on the rail with its status
-badge (`SUCCEEDED`, tier, target) — where it stays after completion, unlike the
-"Needs your approval" interrupt.
+Approve them. **Expect:** the first approval **activates** the investigation;
+dispatches succeed; each card shows SUCCEEDED; the notify opens a comms thread
+under **Response** (`#itops`, awaiting reply, 48h clock).
 
-### 4a. Comms round-trip
+### 4a. Reverse
+
+On the succeeded **host.isolate · WIN-FILE01** card → **Reverse…** → reason →
+a **host.unisolate** card at the same tier → approve. **Expect:** the original
+shows **REVERSED**. Reverse is offered only on REVERSIBLE actions *(known:
+#151 — none for BEST_EFFORT `ioc.block`)*, and stays offered after a reversal
+was requested *(known: #152)*.
+
+### 4b. Expiry and re-request
+
+Leave a pending card alone past its window (30 minutes). **Expect:** it shows
+**EXPIRED** with **↻ Re-request…**; re-requesting creates a new card marked
+"↻ retry of …". Approve or reject it. *(known: #152 — the original keeps
+offering Re-request; repeated retries can send the same message twice)*
+
+### 4c. Comms round-trip
 
 **[simulate vendor]** IT replies. Grab the thread id, then post an inbound reply:
 
 ```bash
-INV=<the UUID under the title>
+INV=<the investigation id>
 curl -s http://localhost:8080/api/investigations/$INV/comms \
   -H "Authorization: Bearer $TOKEN" | jq -r '.threads[] | "\(.thread_id)  \(.target)  \(.status)"'
 
@@ -146,52 +190,62 @@ curl -s http://localhost:8080/api/comms/inbound \
   -d '{"thread_id":"<THREAD_ID>","author":"Mike Torres","body":"Reimage scheduled tomorrow 9am."}'
 ```
 
-**Expect:** the card flips to `replied` (green) with an unacked cue →
-**Acknowledge** → try **Follow up…** (goes through request → preview →
-Approve · Send, extending the *same* thread) → **Mark done** → `closed`.
+**Refresh** (live updates are not wired). **Expect:** the thread shows
+`replied` → **Acknowledge** → **Snooze 24h** → **Mark done**. (**Follow up…** is
+refused today, *known: #150*.)
 
-## 5. Conclude — both gates fire meaningfully
+## 5. Conclude
 
-**Conclude…** → the helper shows the verdict-of-record it consumes, and if you
-left a comms thread open, the ⚠ comms conclude-gate warning. Close cleanly (or
-leave a thread open to see the warning, then Mark done, then conclude).
+**Conclude…** → the helper shows the verdict it consumes and warns about open
+comms threads. **Expect:** status → CONCLUDED.
 
-**Expect:** status → CONCLUDED; if auto-export is on, the bundle fires.
+Concluding drafts a candidate SOP in the background; **don't reload the window
+for a minute** after concluding, or the draft is lost silently *(known: #156 —
+to become an explicit step; #157)*. If one is warranted, an editable draft
+opens with **Add to SOP library** / **Discard**.
+
+**Export report** (Summary lens) → the report opens rendered beside the panel;
+**Save report…** writes it where you choose. Read it as the ticket attachment
+it would be.
+
+**Reopen…** a concluded investigation with a reason → ACTIVE again; the earlier
+conclusion stays in the Thread. Concluded investigations leave the
+Investigations list *(known: #158)*.
 
 ---
 
 ## Lenses — check these anytime (they're views, not steps)
 
-- **Chronicle:** read the document top-to-bottom — investigate → hypothesis acts
-  → pins → verdict → the four remediations → comms → conclude, all in causal
-  order. This is the "case file a colleague could read at handoff" test.
-- **Evidence card:** click any cited ref (a `WIN-FILE01` chip, a graph node, an
-  events-strip dot) → a **rendered card** opens beside the document: human title,
-  a provenance banner, structured fields, and cross-investigation memory (who
-  else has cited this entity). Raw JSON is one click away ("Open raw JSON tab")
-  for jq. One reused panel — clicking another ref updates it in place.
-- **Evidence graph** (header/rail fold): the **two-layer structure** —
-  interpretation-layer STIX objects (reasoning nodes + SCOs) on the left,
-  telemetry (OCSF) on the right, edges pointing from a produced object to the
-  evidence it cites. A reasoning object that reaches no evidence is flagged
-  **ungrounded** (the summary counts them). This is the structural lens; the
-  chronicle is the chronological one — they don't duplicate each other.
-- **Actions ledger** (rail): every action on the investigation with its status,
-  newest first — the durable record the chronicle can't be at a glance.
-- **Rename:** double-click the document title (or the ✎ pencil, or the tree
-  row's context menu) → the title edits in place, file-rename style (Enter
-  commits, Escape cancels). Human-only; refused on a concluded record.
-- **Event-time strip:** the two-clocks view — the decisive fact is a ~7-second
-  gap between the RDP logons; check it's visible in *event* time, not learn time.
-- **Enablement form:** find the `asset_criticality` gap hint → enable → apply →
-  the capability surface updates **without a restart**; confirm your comments
-  survived in `~/.reckon/capability/lateral-movement.yaml`.
-- **Markdown export:** the Export button → live `export.md`; it should read as a
-  coherent case, pins/hypotheses/actions/comms all present.
+- **Thread** (companion): read top to bottom — investigate → hypothesis acts →
+  pins → verdict → actions → comms → conclude, in causal order. The "case file
+  a colleague could read at handoff" test.
+- **Evidence inspector:** click any cited chip → human title, provenance,
+  structured fields, and where else this entity was cited. Raw JSON is one
+  click away.
+- **Story → Timeline:** the two-clocks view — the decisive fact is the gap
+  between the two RDP logons, in *event* time. **Story → evidence graph:** the
+  two-layer structure, ungrounded reasoning flagged. *(known: #141 — both can
+  come up empty when the thread cites evidence only indirectly)*
+- **Response:** every action with its status, grouped by kind, newest first
+  *(known: #123, #125)*.
+- **Knowledge** (companion): the SOPs and past cases; **Search**; *Import SOPs…*
+  is still a command *(known: #128, #129–#132)*.
+- **Capabilities** (left): an unavailable integration → **Enable…** → a form
+  from the integration's schema → apply; the capability surface updates
+  without a restart.
+- **Pause / Resume** (header): the composer is parked while paused.
+- **reckon: Reset agent context** (Command Palette): a ⟲ boundary in the
+  Thread; the agent re-grounds from the record on the next turn.
+
+**Not reachable in the demo:** T3 approval with a typed challenge, two-party
+approval and policy auto-approval need a policy file under
+`capability.policy_dir` (see `examples/policies/`) and a restart; only
+`email.purge` defaults to T3. A filtered telemetry question never comes back
+empty, so a cited absence cannot be exercised *(known: #164)*.
 
 ---
 
-## Appendix — the dev token (only for the step-4a curl)
+## Appendix — the dev token (only for the step-4c curl)
 
 ```bash
 TOKEN=$(curl -s http://localhost:8543/realms/reckon/protocol/openid-connect/token \
@@ -204,5 +258,4 @@ once first to provision the local principal and enable the direct-access grant
 (dev/CI only).
 
 **As you go, note per surface:** did it work, did it read right, and did anything
-need a curl that should have had a UI. The difference from a remediate-first run:
-the agent stops fighting you, because step 4 rests on steps 1–3.
+need a curl that should have had a UI.
