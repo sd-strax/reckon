@@ -43,6 +43,8 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
   extrasTop.push(
     { kind: "text", id: "source", label: "Who was asked, or what was checked", placeholder: "e.g. J. Doe (account owner)" },
     { kind: "text", id: "channel", label: "How", placeholder: "e.g. phone, chat, email, in person" },
+    { kind: "text", id: "reference", label: "Where it happened (optional)", placeholder: "a message link, ticket number or message id" },
+    { kind: "check", id: "hashReference", label: "Keep only a fingerprint of it (SHA-256), not the reference itself" },
   );
   return {
     title: "Record result of " + predName(p) + " under " + hypName(h, hs),
@@ -55,6 +57,8 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
     onConfirm: (content, _picked, ex) => send({
       type: "pred.result", predictionRef: p.id, status: String(ex.status || "INCONCLUSIVE"),
       content, source: typeof ex.source === "string" ? ex.source : undefined, channel: typeof ex.channel === "string" ? ex.channel : undefined,
+      reference: typeof ex.reference === "string" && ex.reference.trim() ? ex.reference.trim() : undefined,
+      hashReference: ex.hashReference === true || undefined,
     }),
   };
 }

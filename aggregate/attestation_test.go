@@ -167,7 +167,7 @@ func TestAttestation_ProjectionAndReplay(t *testing.T) {
 	pRef := PredictionSTIXID(predID)
 	mustHandle(RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "owner confirmed",
 		PredictionRef: pRef, PredictionStatus: PredictionConfirmed,
-		Attestation: &Attestation{ID: noteID, Content: "Confirmed by phone: started it from home.", Source: "J. Doe", Channel: "phone"}})
+		Attestation: &Attestation{ID: noteID, Content: "Confirmed by phone: started it from home.", Source: "J. Doe", Channel: "phone", Reference: "INC0010042"}})
 
 	verify := func(phase string) {
 		t.Helper()
@@ -191,6 +191,11 @@ func TestAttestation_ProjectionAndReplay(t *testing.T) {
 		if typ != "note" || node["type"] != "note" || node["content"] != "Confirmed by phone: started it from home." ||
 			!strings.Contains(node["abstract"].(string), "attested by analyst-1 by phone: J. Doe") {
 			t.Errorf("[%s] note = %s %v", phase, typ, node)
+		}
+		// Where it happened rides the note as an external reference (#139).
+		ext, _ := node["external_references"].([]any)
+		if len(ext) != 1 || ext[0].(map[string]any)["external_id"] != "INC0010042" || p.Attestation.Reference != "INC0010042" {
+			t.Errorf("[%s] external_references = %v, reference = %q", phase, ext, p.Attestation.Reference)
 		}
 		refs, _ := node["object_refs"].([]any)
 		if len(refs) != 2 || refs[0] != pRef || refs[1] != hRef {
@@ -219,4 +224,20 @@ func TestAttestation_ProjectionAndReplay(t *testing.T) {
 		t.Fatalf("replay: %v", err)
 	}
 	verify("replayed")
+}
+
+// TestAttestationRefs: a reference becomes a URL, a hash or an external id (#139).
+func TestAttestationRefs(t *testing.T) {
+	if got := attestationRefs("https://chat.example/m/42"); len(got) != 1 || got[0].URL != "https://chat.example/m/42" {
+		t.Errorf("url: %+v", got)
+	}
+	if got := attestationRefs("sha256:ab12"); len(got) != 1 || got[0].Hashes["SHA-256"] != "ab12" {
+		t.Errorf("hash: %+v", got)
+	}
+	if got := attestationRefs("<msg-1@mail>"); len(got) != 1 || got[0].ExternalID != "<msg-1@mail>" {
+		t.Errorf("id: %+v", got)
+	}
+	if attestationRefs("") != nil {
+		t.Error("an empty reference should add none")
+	}
 }

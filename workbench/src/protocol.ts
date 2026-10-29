@@ -243,7 +243,7 @@ export type InboundMessage =
   | { type: "pred.new"; hypothesisRef: string; statement: string; discriminates: string[]; testKind?: string }
   | { type: "pred.withdraw"; predictionRef: string; reason: string }
   // The analyst records a prediction's result with an attestation (adr/0054).
-  | { type: "pred.result"; predictionRef: string; status: string; content: string; source?: string; channel?: string }
+  | { type: "pred.result"; predictionRef: string; status: string; content: string; source?: string; channel?: string; reference?: string; hashReference?: boolean }
   | { type: "hyp.proposeTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
   | { type: "hyp.runTests"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
   // One prediction's test, run as a scoped turn from its row (the ⚡ family).

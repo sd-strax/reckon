@@ -155,7 +155,7 @@ interface RawPrediction {
   discriminates?: string[];
   test_result_refs?: string[];
   test_kind?: string;
-  attestation?: { note_ref: string; author: string; author_name?: string; content: string; source?: string; channel?: string; observed_at?: string };
+  attestation?: { note_ref: string; author: string; author_name?: string; content: string; source?: string; channel?: string; observed_at?: string; reference?: string };
 }
 
 export class BackendClient {
@@ -456,6 +456,7 @@ export class BackendClient {
               source: p.attestation.source,
               channel: p.attestation.channel,
               observedAt: p.attestation.observed_at,
+              reference: p.attestation.reference || undefined,
             }
           : undefined,
       })),
@@ -765,7 +766,7 @@ export class BackendClient {
     predictionRef: string,
     status: string,
     rationale: string,
-    attestation: { content: string; source?: string; channel?: string },
+    attestation: { content: string; source?: string; channel?: string; reference?: string; hashReference?: boolean },
   ): Promise<void> {
     await this.authedPost("/api/interpretations", {
       investigation_ref: investigationId,
@@ -777,6 +778,7 @@ export class BackendClient {
         content: attestation.content,
         ...(attestation.source ? { source: attestation.source } : {}),
         ...(attestation.channel ? { channel: attestation.channel } : {}),
+        ...(attestation.reference ? { reference: attestation.reference, hash_reference: attestation.hashReference || undefined } : {}),
       },
     });
   }

@@ -1,8 +1,11 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -111,6 +114,11 @@ type AttestationBody struct {
 	Source     string     `json:"source,omitempty"`
 	Channel    string     `json:"channel,omitempty"`
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
+	// Reference says where it happened (#139): a message link, a ticket
+	// number or a message id. HashReference stores only its SHA-256, for a
+	// reference the analyst would not keep in the record as written.
+	Reference     string `json:"reference,omitempty"`
+	HashReference bool   `json:"hash_reference,omitempty"`
 }
 
 // TranscriptInput carries the raw transcript for the turn. Body is the text as a
@@ -273,6 +281,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 			Source:     body.Attestation.Source,
 			Channel:    body.Attestation.Channel,
 			ObservedAt: body.Attestation.ObservedAt,
+			Reference:  attestationReference(body.Attestation),
 		}
 	}
 	if body.Transcript != nil {
@@ -366,13 +375,25 @@ type AttestationView struct {
 	Source     string     `json:"source,omitempty"`
 	Channel    string     `json:"channel,omitempty"`
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
+	Reference  string     `json:"reference,omitempty"`
+}
+
+// attestationReference is the reference as recorded: as written, or only its
+// SHA-256 when the analyst asked for that (#139).
+func attestationReference(a *AttestationBody) string {
+	ref := strings.TrimSpace(a.Reference)
+	if ref == "" || !a.HashReference {
+		return ref
+	}
+	sum := sha256.Sum256([]byte(ref))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func attestationView(a *aggregate.AttestationRecorded) *AttestationView {
 	if a == nil {
 		return nil
 	}
-	return &AttestationView{NoteRef: a.ID, Author: a.Author, AuthorName: a.AuthorName, Content: a.Content, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt}
+	return &AttestationView{NoteRef: a.ID, Author: a.Author, AuthorName: a.AuthorName, Content: a.Content, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt, Reference: a.Reference}
 }
 
 // listInvestigationHypotheses serves GET /api/investigations/{id}/hypotheses:
