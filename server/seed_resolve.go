@@ -3,10 +3,13 @@ package server
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/identity"
 )
 
@@ -21,6 +24,11 @@ type seedResolution struct {
 // hexHash matches a bare md5/sha1/sha256 digest (the three algorithms the
 // identity resolver ranks). Any other length is not treated as a hash.
 var hexHash = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+
+// hostName is what a host seed may look like (#159): letters, digits, '-',
+// '_' and '.', starting and ending with a letter or digit. A value outside it
+// is a typo, not a host.
+var hostName = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,251}[A-Za-z0-9])?$`)
 
 // classifySeedKind applies the two rules an analyst can hold in their head: a
 // value that contains whitespace or ends in a question mark is a question
@@ -66,6 +74,9 @@ func resolveSeedInput(res *identity.Resolver, value, kind string) (seedResolutio
 		}
 		if strings.ContainsAny(v, " \t\n") {
 			return seedResolution{}, fmt.Errorf("%q looks like a question, not a host/IP/hash", v)
+		}
+		if net.ParseIP(v) == nil && !hexHash.MatchString(v) && !hostName.MatchString(v) {
+			return seedResolution{}, fmt.Errorf("%q is not a host name, IP address or file hash — check it for a typo", v)
 		}
 		ref, label := resolveEntityToken(res, v)
 		return seedResolution{
@@ -125,4 +136,24 @@ func resolveEntityToken(res *identity.Resolver, token string) (ref, label string
 		}
 	}
 	return string(res.Host(identity.HostIdentity{Hostname: token})), "host"
+}
+
+// unknownHost asks the tenant's host inventory whether a host seed exists
+// (#159). Only a COMPLETE answer with nothing in it reports the host unknown;
+// with no inventory connected, or an answer that was not complete, nothing can
+// vouch either way and the seed stands.
+func (b *Backend) unknownHost(r *http.Request, s seedResolution) (bool, string) {
+	if !strings.HasPrefix(s.Seed.EntityRef, "x-host--") {
+		return false, ""
+	}
+	resolver, catalog := b.capabilitySurface()
+	if resolver == nil || catalog == nil || !slices.Contains(resolver.AvailableVerbs(catalog), "get_host_context") {
+		return false, ""
+	}
+	host := s.Seed.EntityIdentifier
+	res, err := resolver.Resolve(r.Context(), "get_host_context", capability.CallInput{Entity: map[string]any{"host": map[string]any{"hostname": host}}})
+	if err != nil || res.Coverage != capability.CoverageComplete || len(res.ObservedDataRefs) > 0 || len(res.EntityRefs) > 0 {
+		return false, ""
+	}
+	return true, fmt.Sprintf("no host named %q in the host inventory reckon can see — check the name, or start anyway", host)
 }

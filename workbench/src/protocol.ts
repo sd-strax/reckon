@@ -132,7 +132,7 @@ export type RenderMessage =
   // "draft.error" reports a failed create without leaving the draft.
   | { type: "draft"; mode?: "case"; caseQueue?: string }
   | { type: "seeded" }
-  | { type: "draft.error"; message: string }
+  | { type: "draft.error"; message: string; unknownEntity?: boolean }
   // The "from a case" seed surface (13 §3): the SoR search results, and a
   // search failure rendered inline in the case sub-form.
   | { type: "draft.cases"; cases: { number: string; title: string; status: string }[] }
@@ -190,7 +190,7 @@ export type InboundMessage =
   // the tree can deep-link (view state, never investigation state).
   | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }
   // The seed surface (design/ui/02 §2.7): the analyst's confirmed root.
-  | { type: "seed.submit"; value: string; kind: string }
+  | { type: "seed.submit"; value: string; kind: string; allowUnknown?: boolean }
   | { type: "seed.alert"; alertId: string; source: string }
   | { type: "seed.caseSearch"; filter: string; queue?: string }
   | { type: "seed.case"; caseNumber: string }

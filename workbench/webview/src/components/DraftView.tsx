@@ -122,7 +122,9 @@ export function DraftView() {
             </div>
           </div>
         ) : null}
-        <div className="draftErr">{d.error}</div>
+        <div className="draftErr">{d.error}
+          {d.error && d.unknownEntity && v ? <button className="linklike" disabled={d.submitting} onClick={() => { dispatch({ type: "draft.submitting" }); send({ type: "seed.submit", value: v, kind: classifyDraft(v) ? kind : "", allowUnknown: true }); }}>Start anyway</button> : null}
+        </div>
       </div>
     </div>
   );
