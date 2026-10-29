@@ -17,7 +17,7 @@ import { randomUUID } from "crypto";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, ThreadEntry } from "./backend";
+import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, ThreadEntry, existingInvestigation } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "./protocol";
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
@@ -391,6 +391,16 @@ export class InvestigationDocuments {
       void vscode.commands.executeCommand("reckon.refreshInvestigations");
       void vscode.commands.executeCommand("reckon.refreshCases");
     } catch (err) {
+      // A case already investigated opens that investigation (#158): the draft
+      // panel closes and the existing record opens in its place.
+      const existing = existingInvestigation(err);
+      if (existing) {
+        void vscode.window.showInformationMessage(`reckon: ${seed.value ?? "this case"} already has an investigation — opening it`);
+        this.open.delete(ref.id);
+        panel.dispose();
+        this.show(existing);
+        return;
+      }
       void this.post(panel, { type: "draft.error", message: errText(err) });
     } finally {
       this.seeding.delete(draftKey);
@@ -757,6 +767,12 @@ export class InvestigationDocuments {
       void vscode.commands.executeCommand("reckon.refreshInvestigations");
       void vscode.commands.executeCommand("reckon.refreshCases");
     } catch (err) {
+      const existing = existingInvestigation(err);
+      if (existing) {
+        void vscode.window.showInformationMessage(`reckon: ${caseNumber} already has an investigation — opening it`);
+        this.show(existing);
+        return;
+      }
       void vscode.window.showErrorMessage(`reckon: could not start from ${caseNumber} — ${errText(err)}`);
     }
   }

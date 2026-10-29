@@ -8,7 +8,7 @@
 // nothing to record it against.
 
 import * as vscode from "vscode";
-import { BackendClient, CaseRow, InvestigationDetail } from "./backend";
+import { BackendClient, CaseRow, InvestigationDetail, existingInvestigation } from "./backend";
 
 type Outbound =
   | { type: "case"; case: CaseRow }
@@ -95,6 +95,12 @@ export class CaseDocuments {
       this.onInvestigationCreated(created);
       void this.load(number, panel);
     } catch (err) {
+      // Already investigated (#158): open that investigation instead.
+      const existing = existingInvestigation(err);
+      if (existing) {
+        void vscode.commands.executeCommand("reckon.openInvestigation", existing);
+        return;
+      }
       void panel.webview.postMessage({ type: "error", message: errText(err) } satisfies Outbound);
     } finally {
       this.starting.delete(number);

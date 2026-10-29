@@ -46,6 +46,21 @@ export type * from "./viewTypes";
  */
 export const SUPPORTED_API_VERSIONS: readonly number[] = [1];
 
+/** A refused request, with its status and the server's JSON body when it sent one. */
+export class BackendRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly body?: Record<string, unknown>) {
+    super(message);
+  }
+}
+
+/** The investigation a refused create points at — a case already investigated (#158) — or undefined. */
+export function existingInvestigation(err: unknown): string | undefined {
+  if (err instanceof BackendRequestError && err.status === 409 && typeof err.body?.investigation_id === "string") {
+    return err.body.investigation_id;
+  }
+  return undefined;
+}
+
 interface RawCase {
   number: string;
   title?: string;
@@ -1146,13 +1161,14 @@ export class BackendClient {
       // or a guarded transition is information, not noise (approve/reject
       // rejections carry their reason in the error body).
       let detail = "";
+      let parsed: Record<string, unknown> | undefined;
       try {
-        const body = (await res.json()) as { error?: string };
-        detail = body.error ? `: ${body.error}` : "";
+        parsed = (await res.json()) as Record<string, unknown>;
+        detail = typeof parsed.error === "string" && parsed.error ? `: ${parsed.error}` : "";
       } catch {
         // non-JSON error body — the status alone will have to do
       }
-      throw new Error(`${method} ${path} → ${res.status}${detail}`);
+      throw new BackendRequestError(`${method} ${path} → ${res.status}${detail}`, res.status, parsed);
     }
     return (await res.json()) as T;
   }
