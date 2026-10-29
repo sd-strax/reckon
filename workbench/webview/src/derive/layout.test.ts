@@ -29,16 +29,33 @@ describe("stage", () => {
     expect(notify.done.contain).toBe(true);
     const awaiting = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" })], comms: [{ status: "awaiting_reply" } as CommsThread], openOwnerItems: 0 });
     expect(awaiting.current).toBe("notify");
-    const close = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" })], comms: noComms, openOwnerItems: 0 });
+    const sent = A({ actionId: "n", actionType: "notify.slack", status: "SUCCEEDED" });
+    const close = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), sent], comms: noComms, openOwnerItems: 0 });
     expect(close.current).toBe("close");
     expect(stageOf({ status: "CONCLUDED", verdict, actions: [], comms: noComms, openOwnerItems: 0 }).current).toBeNull();
+  });
+  it("marks a step done only when something was done for it (#145)", () => {
+    // The road test: a MALICIOUS verdict, nothing contained, only the case-note comment.
+    const note = A({ actionId: "c", actionType: "ticket.comment", status: "SUCCEEDED" });
+    const nothing = stageOf({ status: "ACTIVE", verdict, actions: [note], comms: noComms, openOwnerItems: 0 });
+    expect(nothing.done.contain).toBe(false);
+    expect(nothing.done.notify).toBe(false);
+    expect(nothing.current).toBe("contain");
+    // A reversal is not containment; a failed isolation contained nothing.
+    const failed = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "FAILED" }), A({ actionId: "r", actionType: "host.unisolate", isReversal: true, status: "SUCCEEDED" })], comms: noComms, openOwnerItems: 0 });
+    expect(failed.done.contain).toBe(false);
+    // A benign verdict with nothing done reads as not needed, not as done.
+    const benign = stageOf({ status: "ACTIVE", verdict: { disposition: "BENIGN", verdictAt: "" }, actions: [note], comms: noComms, openOwnerItems: 0 });
+    expect(benign.done.contain || benign.done.notify).toBe(false);
+    expect(benign.notNeeded.contain && benign.notNeeded.notify).toBe(true);
+    expect(benign.current).toBe("close");
   });
   it("derives one primary action per stage", () => {
     const review = primaryAction({ status: "ACTIVE", verdict, actions: [A({ pending: true }), A({ actionId: "b", pending: true })], comms: noComms, openOwnerItems: 0 }, stageOf({ status: "ACTIVE", verdict, actions: [A({ pending: true })], comms: noComms, openOwnerItems: 0 }), false);
     expect(review).toEqual({ kind: "review", count: 2 });
     const i = { status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" })], comms: [{ status: "awaiting_reply" } as CommsThread], openOwnerItems: 0 };
     expect(primaryAction(i, stageOf(i), false)).toEqual({ kind: "notify" });
-    const j = { status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" })], comms: noComms, openOwnerItems: 0 };
+    const j = { status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), A({ actionId: "n", actionType: "notify.slack", status: "SUCCEEDED" })], comms: noComms, openOwnerItems: 0 };
     expect(primaryAction(j, stageOf(j), true)).toEqual({ kind: "conclude" });
     expect(primaryAction(j, stageOf(j), false)).toBeNull();
   });

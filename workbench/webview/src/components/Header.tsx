@@ -113,8 +113,9 @@ export function Header() {
         <div className="stagerow">
           <ol className="stage" aria-label="Stage">
             {STEPS.map((s) => (
-              <li key={s} className={"step" + (stage.done[s] ? " done" : "") + (stage.current === s ? " current" : "")}>
-                <span className="stepmark" aria-hidden="true">{stage.done[s] ? "✓" : stage.current === s ? "●" : "○"}</span>{STEP_LABELS[s]}
+              <li key={s} className={"step" + (stage.done[s] ? " done" : "") + (stage.notNeeded[s] ? " skip" : "") + (stage.current === s ? " current" : "")}
+                title={stage.notNeeded[s] ? STEP_LABELS[s] + " — not needed for a benign verdict" : undefined}>
+                <span className="stepmark" aria-hidden="true">{stage.done[s] ? "✓" : stage.notNeeded[s] ? "–" : stage.current === s ? "●" : "○"}</span>{STEP_LABELS[s]}
               </li>
             ))}
           </ol>
