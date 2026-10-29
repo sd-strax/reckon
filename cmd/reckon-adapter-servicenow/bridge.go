@@ -340,12 +340,37 @@ func (b *bridge) createIncident(ctx context.Context, client *snowClient, p adapt
 	if p.IdempotencyKey != "" {
 		fields["correlation_id"] = p.IdempotencyKey
 	}
+	// The engine's vendor-neutral priority (low | medium | high | critical,
+	// adr/0127) becomes ServiceNow urgency unless urgency was set; ServiceNow
+	// derives its own priority from urgency and impact, so it is not sent.
+	if pr, ok := fields["priority"].(string); ok {
+		delete(fields, "priority")
+		if u, set := fields["urgency"].(string); !set || u == "" {
+			fields["urgency"] = urgencyFor(pr)
+		}
+	}
+	if u, set := fields["urgency"].(string); !set || u == "" {
+		fields["urgency"] = urgencyFor("")
+	}
 
 	rec, status, err := client.createIncident(ctx, fields)
 	if err != nil {
 		return b.resultFromErr(target, p.IdempotencyKey, status, err), nil
 	}
 	return okResult(target, p.IdempotencyKey, rec.Number), nil
+}
+
+// urgencyFor maps the engine's vendor-neutral priority onto a ServiceNow
+// urgency label; anything unrecognised is the low default.
+func urgencyFor(priority string) string {
+	switch strings.ToLower(strings.TrimSpace(priority)) {
+	case "critical", "high":
+		return "1 - High"
+	case "medium":
+		return "2 - Medium"
+	default:
+		return "3 - Low"
+	}
 }
 
 // patchOp resolves the target incident to its sys_id and PATCHes the remaining

@@ -313,6 +313,14 @@ func foldActionEvent(actions map[uuid.UUID]actionState, e Event) error {
 			s.Status = ActionStatusApproved
 		}
 		set(p.ActionID, s)
+	case EventTypeActionEdited:
+		var p ActionEdited
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return fmt.Errorf("fold action.edited seq %d: %w", e.SequenceNo, err)
+		}
+		s := get(p.ActionID)
+		s.RequiredMode, s.SecondaryApproverPool = p.RequiredMode, p.SecondaryApproverPool
+		set(p.ActionID, s)
 	case EventTypeActionRejected:
 		var p ActionRejected
 		if err := json.Unmarshal(e.Payload, &p); err != nil {

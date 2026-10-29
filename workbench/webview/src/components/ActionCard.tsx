@@ -9,7 +9,7 @@ import { actionStatusBadge, canRerequest, canReverse, reversalEnded, successors 
 import { actionPreview, undoWords } from "../derive/actionPreview";
 import type { ActionRow } from "../../../src/viewTypes";
 import type { InboundMessage } from "../../../src/protocol";
-import { Badge, Countdown, RefChip } from "./shared";
+import { Badge, Countdown, RefChip, fmtTime } from "./shared";
 
 const GROUP_ICON: Record<string, string> = { containment: "⛨", eradication: "✂", recovery: "↻", notification: "✉", case_record: "⇄" };
 
@@ -44,6 +44,12 @@ function WillDo({ a }: { a: ActionRow }) {
     </div>
   );
 }
+
+/** A parameter's label on the edit form, in the words the preview uses. */
+const FIELD_LABEL = (actionType: string, key: string): string =>
+  key === "body" ? (actionType.startsWith("ticket.") ? "Comment" : "Message")
+    : ({ summary: "Summary", description: "Description", issue_type: "Type", assignee: "Assignee", to_status: "New state", resolution: "Resolution", subject: "Subject", message: "Message", follow_up_hours: "Follow up after (hours)", priority: "Priority (low, medium, high, critical)" } as Record<string, string>)[key]
+    || key.replace(/_/g, " ");
 
 /** The action's title: the catalog's human name, the id when there is none. */
 export function actionTitle(a: Pick<ActionRow, "actionType" | "name">): string {
@@ -97,9 +103,39 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
     title: "Reject " + a.actionType, label: "Why is this rejected?", placeholder: "recorded on the audit trail", confirm: "Reject", require: false,
     onConfirm: (reason) => decideOn({ type: "action.reject", actionId: a.actionId, reason }),
   });
+  // Edit before approve (adr/0127): the same request, its declared fields
+  // prefilled; the longest text is the main box, the rest are fields beside it.
+  const editable = (a.inputs || []).filter((i) => i.name !== "thread_ref");
+  const edit = () => {
+    const p = (a.parameters || {}) as Record<string, unknown>;
+    const main = ["body", "message", "description"].find((k) => editable.some((i) => i.name === k));
+    const others = editable.filter((i) => i.name !== main);
+    openPrompt({
+      title: "Edit " + actionTitle(a) + (a.targets.length ? " — " + a.targets.join(", ") : ""),
+      label: main ? FIELD_LABEL(a.actionType, main) : "Why are you changing it? (optional)",
+      value: main ? String(p[main] ?? "") : "",
+      require: Boolean(main && editable.find((i) => i.name === main)?.required),
+      extrasTop: others.map((i) => ({ kind: "text" as const, id: i.name, label: FIELD_LABEL(a.actionType, i.name) + (i.required ? "" : " (optional)"), value: p[i.name] === undefined ? "" : String(p[i.name]) })),
+      extras: main ? [{ kind: "text" as const, id: "__reason", label: "Why are you changing it? (optional)", value: "" }] : [],
+      helper: "Changes this request, not a new one: targets stay the same, the approval policies are checked again, and the record keeps what it said before.",
+      confirm: "Save changes",
+      onConfirm: (value, _picked, ex) => {
+        const next: Record<string, unknown> = { ...p };
+        if (main) next[main] = value;
+        for (const i of others) {
+          const v = String(ex[i.name] ?? "").trim();
+          if (!v) { delete next[i.name]; continue; }
+          next[i.name] = i.name === "follow_up_hours" && /^\d+$/.test(v) ? Number(v) : v;
+        }
+        const reason = String((main ? ex.__reason : value) ?? "").trim() || undefined;
+        decideOn({ type: "action.edit", actionId: a.actionId, parameters: next, reason });
+      },
+    });
+  };
   const buttons = decide ? (
     <div className="decide">
       <button className="primary" disabled={locked} onClick={approve}>{a.tier === "T3" ? "Approve (challenge)…" : isNotify ? "Approve · Send" : "Approve"}</button>
+      {editable.length && a.status === "REQUESTED" ? <button disabled={locked} onClick={edit}>Edit…</button> : null}
       <button disabled={locked} onClick={reject}>Reject…</button>
       {variant === "full" ? (aside.has(a.actionId)
         ? <button className="ghost" onClick={() => setAside(a.actionId, false)}>Bring back</button>
@@ -145,6 +181,7 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
         <div><dt>Approval</dt><dd>{a.pending ? (a.requiredMode === "TWO_PARTY" ? "two people must approve" : "needs your approval — no policy approves it on its own") : a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED" ? "approved" : a.status === "REJECTED" ? "rejected" : "—"}</dd></div>
         <div><dt>Time to decide</dt><dd>{a.pending && !a.expired && a.expiresAt ? <Countdown expiresAt={a.expiresAt} /> : a.expired ? "ran out" : "—"}</dd></div>
       </dl>
+      {a.editedAt ? <div className="cardmeta">✎ edited before approval · {fmtTime(a.editedAt)} — <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>see what changed</a></div> : null}
       {a.retryOf ? <div className="cardmeta">↻ retry of <a onClick={() => openInspector({ kind: "action", actionId: a.retryOf! })}>{a.retryOf.slice(0, 8)}…</a> (the original can never re-dispatch)</div> : null}
       {a.tierEscalated ? <div className="cardmeta">⚠ escalated to {a.tier}: {a.targets.length} targets (blast radius)</div> : null}
       {a.status === "FAILED" || a.status === "TIMEOUT" || a.status === "PARTIAL" ? (
