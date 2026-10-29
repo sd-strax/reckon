@@ -302,6 +302,8 @@ Per the 03-capability-layer.md coverage convention, retrieval emits a coarse out
 
 ### 5.1 Implicit retrieval at investigation seed time
 
+> **Superseded by `adr/0129`.** Knowledge reaches the agent only through its recall tools (§5.2); there is no implicit retrieval, no injection posture and no include checkbox. The section below is kept as the record of the earlier design.
+
 When an investigation enters ACTIVE state (or a new turn begins on an active investigation), the agent loop performs an automatic SOP recall against the seed context. The query is constructed from:
 - Seed kind and value
 - Initial entity types and IDs in the Grouping

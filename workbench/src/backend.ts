@@ -5,6 +5,7 @@
 // backend API versions it supports and fails closed with a diagnostic on
 // mismatch, rather than dispatching against an incompatible surface.
 
+import type { LibraryItem } from "./protocol";
 import type {
   ComponentStatus,
   BackendStatus,
@@ -98,7 +99,6 @@ interface RawInvestigation {
   updated_at?: string;
   pending_actions?: number;
   nearest_expiry?: string;
-  knowledge_injection?: string;
   has_verdict?: boolean;
   open_actions?: number;
   open_notifications?: number;
@@ -415,7 +415,6 @@ export class BackendClient {
       seedSummary: r.seed_summary,
       caseNoteOnSeed: r.case_note_on_seed,
       caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "", systemName: r.case_note.system_name } : undefined,
-      knowledgeInjection: r.knowledge_injection,
       createdAt: r.created_at,
       openedByName: r.opened_by_name,
     };
@@ -928,6 +927,33 @@ export class BackendClient {
     };
   }
 
+  /** GET /api/sops — the procedures in the library (adr/0129). */
+  async libraryProcedures(): Promise<LibraryItem[]> {
+    const r = await this.authedGet<{ sops?: { id?: string; title?: string; tags?: string[] }[] }>("/api/sops");
+    return (r.sops ?? []).filter((x) => x.id).map((x) => ({ kind: "sop" as const, ref: x.id!, title: x.title || x.id!, detail: (x.tags ?? []).join(", ") || undefined }));
+  }
+
+  /** GET /api/knowledge/case_summaries — the past cases in the library (adr/0129). */
+  async libraryCases(): Promise<LibraryItem[]> {
+    const r = await this.authedGet<{ case_summaries?: { investigation_ref?: string; title?: string; verdict_disposition?: string; conclusion_at?: string }[] }>("/api/knowledge/case_summaries");
+    return (r.case_summaries ?? []).filter((x) => x.investigation_ref).map((x) => ({
+      kind: "case" as const, ref: x.investigation_ref!, title: x.title || x.investigation_ref!,
+      detail: [x.verdict_disposition?.toLowerCase(), x.conclusion_at ? "concluded " + x.conclusion_at.slice(0, 10) : ""].filter(Boolean).join(" · ") || undefined,
+    }));
+  }
+
+  /** Search both corpora (adr/0129): the substrate's recall, relevance in words. */
+  async librarySearch(query: string): Promise<{ sops: LibraryItem[]; cases: LibraryItem[] }> {
+    const [s, c] = await Promise.all([
+      this.authedPost<{ results?: { sop_id?: string; title?: string; score?: number }[] }>("/api/knowledge/recall_sops", { query, limit: 10 }),
+      this.authedPost<{ results?: { investigation_ref?: string; title?: string; band?: string }[] }>("/api/knowledge/recall_similar_investigations", { query, limit: 10 }),
+    ]);
+    return {
+      sops: (s.results ?? []).filter((x) => x.sop_id).map((x) => ({ kind: "sop" as const, ref: x.sop_id!, title: x.title || x.sop_id!, relevance: relevanceOfScore(x.score) })),
+      cases: (c.results ?? []).filter((x) => x.investigation_ref).map((x) => ({ kind: "case" as const, ref: x.investigation_ref!, title: x.title || x.investigation_ref!, relevance: relevanceOfBand(x.band) })),
+    };
+  }
+
   /** GET /api/sops/{id} — one procedure, whole (08 §8.6 "Whole document"). */
   async sop(id: string): Promise<SOPDoc> {
     interface Raw {
@@ -1291,4 +1317,15 @@ function mapAction(a: RawAction): ActionRow {
     resultRef: a.result_ref,
     parameters: params,
   };
+}
+
+/** A search hit's relevance in words (#130), from the similarity band. */
+export function relevanceOfBand(band: string | undefined): string {
+  return band === "NEAR_DUPLICATE" ? "close match" : band === "RELATED" ? "related" : "loosely related";
+}
+
+/** A procedure hit's relevance in words (#130), from its score. */
+export function relevanceOfScore(score: number | undefined): string {
+  const v = score ?? 0;
+  return v >= 0.6 ? "close match" : v >= 0.4 ? "related" : "loosely related";
 }

@@ -1,29 +1,14 @@
 // The lens area (08 §8.4): one lens at a time behind four tabs with their
-// counts; the knowledge nudge (09 §9.6) heads the Reasoning and Response
-// lenses, beside the ⚡ buttons and the plan, and never includes anything.
+// counts, headed by a new investigation's first step.
 import { useEffect } from "react";
 import { useApp } from "../app";
 import { LENSES, LENS_LABELS } from "../derive/lens";
 import { isLive } from "../derive/hyps";
-import { knowledgeNudge } from "../derive/knowledgeNudge";
 import { firstStep, isFresh } from "../derive/firstStep";
 import { ReasoningLens } from "./lenses/ReasoningLens";
 import { ResponseLens } from "./lenses/ResponseLens";
 import { StoryLens } from "./lenses/StoryLens";
 import { SummaryLens } from "./lenses/SummaryLens";
-
-function KnowledgeNudge() {
-  const { state } = useApp();
-  const posture = state.snap?.investigation.knowledgeInjection || "opt_in";
-  const nudge = knowledgeNudge(state.knowledge, posture);
-  if (!nudge) return null;
-  return (
-    <div className="nudge" role="note">
-      <span className="dot" aria-hidden="true" />
-      {nudge.text} · <a onClick={() => document.getElementById("knowledgeSection")?.scrollIntoView({ block: "start" })}>Review</a>
-    </div>
-  );
-}
 
 /** The first step of a new investigation (#160): what it is rooted on and a
  * request staged in the composer — sent only when the analyst sends it. */
@@ -62,7 +47,6 @@ export function LensArea() {
       <div className="lensscroll">
         {state.error ? <div id="banner">Could not load: {state.error}</div> : null}
         <FirstStep />
-        {(lens === "reasoning" || lens === "response") ? <KnowledgeNudge /> : null}
         {!state.snap ? null : lens === "summary" ? <SummaryLens /> : lens === "story" ? <StoryLens /> : lens === "reasoning" ? <ReasoningLens /> : <ResponseLens />}
       </div>
     </main>

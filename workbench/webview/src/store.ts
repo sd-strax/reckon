@@ -1,10 +1,10 @@
 // The webview's state: a reducer over the host's RenderMessages plus the few
-// local acts (knowledge toggles, draft submission guards). Projection slices
+// local acts (library search, draft submission guards). Projection slices
 // arrive whole with a sequence (impl §3.1/§3.2); a snapshot or patch older than
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
 import type { ActionRecord, Appearance, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/viewTypes";
-import type { InvestigationSnapshot, KnowledgeItem, RenderMessage } from "../../src/protocol";
+import type { InvestigationSnapshot, LibraryItem, RenderMessage } from "../../src/protocol";
 
 export interface LiveToolResult {
   isError: boolean;
@@ -73,8 +73,8 @@ export interface State {
   actionRecords: Record<string, ActionRecord>;
   caseSummaries: Record<string, CaseSummaryView | null>;
   inspectorErrors: Record<string, string>;
-  /** The analyst's knowledge curation: the session's items with local toggles. */
-  knowledge: KnowledgeItem[];
+  /** The knowledge library (adr/0129): what there is, and the last search's hits. */
+  library: { sops: LibraryItem[]; cases: LibraryItem[]; loaded: boolean; results: { query: string; sops: LibraryItem[]; cases: LibraryItem[] } | null };
   live: LiveItem[];
   streaming: boolean;
   /** A failed turn's live copy is the only record of it: keep it until a new turn. */
@@ -103,7 +103,7 @@ export const initialState: State = {
   actionRecords: {},
   caseSummaries: {},
   inspectorErrors: {},
-  knowledge: [],
+  library: { sops: [], cases: [], loaded: false, results: null },
   live: [],
   streaming: false,
   preserveLive: false,
@@ -114,7 +114,7 @@ export const initialState: State = {
 
 export type Action =
   | { type: "msg"; msg: RenderMessage }
-  | { type: "knowledge.toggle"; ref: string; included: boolean }
+  | { type: "library.clear" }
   | { type: "draft.submitting" }
   | { type: "draft.searching"; status: string }
   /** A decision on this action was sent to the host. */
@@ -145,8 +145,8 @@ function appendText(t: LiveTurn, delta: string): void {
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case "knowledge.toggle":
-      return { ...state, knowledge: state.knowledge.map((k) => k.ref === action.ref ? { ...k, included: action.included } : k) };
+    case "library.clear":
+      return { ...state, library: { ...state.library, results: null } };
     case "draft.submitting":
       return { ...state, draft: { ...state.draft, submitting: true, error: "" } };
     case "draft.searching":
@@ -176,6 +176,10 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...state, draft: { ...state.draft, cases: msg.cases, status: "" } };
     case "draft.caseError":
       return { ...state, draft: { ...state.draft, submitting: false, status: msg.message, cases: [] } };
+    case "library":
+      return { ...state, library: { ...state.library, sops: msg.sops, cases: msg.cases, loaded: true } };
+    case "library.results":
+      return { ...state, library: { ...state.library, results: { query: msg.query, sops: msg.sops, cases: msg.cases } } };
     case "draft.error":
       return { ...state, draft: { ...state.draft, submitting: false, error: msg.message, unknownEntity: !!msg.unknownEntity } };
     case "state.snapshot": {
@@ -192,7 +196,6 @@ function onMessage(state: State, msg: RenderMessage): State {
         seq: msg.seq,
         snap,
         title: snap.investigation.title,
-        knowledge: mergeKnowledge(state.knowledge, snap.knowledge),
         // The committed thread now holds everything the live conversation
         // showed — unless a turn is streaming or a failed turn is preserved.
         live: state.streaming || state.preserveLive ? state.live : [],
@@ -202,7 +205,6 @@ function onMessage(state: State, msg: RenderMessage): State {
       if (!state.snap || msg.seq < state.seq) return state; // stale
       const snap = { ...state.snap, ...msg.patch };
       const next: State = { ...state, seq: msg.seq, snap, title: msg.patch.investigation ? msg.patch.investigation.title : state.title };
-      if (msg.patch.knowledge) next.knowledge = mergeKnowledge(state.knowledge, msg.patch.knowledge);
       if (msg.patch.thread !== undefined && !state.streaming && !state.preserveLive) next.live = [];
       return next;
     }
@@ -289,13 +291,6 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...next, streaming: false };
     }
   }
-}
-
-/** New knowledge items take the posture's initial inclusion; items the analyst
- * already toggled keep their toggle across re-posts of the slice. */
-function mergeKnowledge(prev: KnowledgeItem[], next: KnowledgeItem[]): KnowledgeItem[] {
-  const seen = new Map(prev.map((k) => [k.ref, k.included] as const));
-  return next.map((k) => seen.has(k.ref) ? { ...k, included: seen.get(k.ref)! } : k);
 }
 
 function dropKey<T>(m: Record<string, T>, k: string): Record<string, T> {

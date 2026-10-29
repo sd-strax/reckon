@@ -255,9 +255,6 @@ type Investigation struct {
 	// investigations.
 	Seed        *Seed  `json:"seed,omitempty"`
 	SeedSummary string `json:"seed_summary,omitempty"`
-	// KnowledgeInjection is the tenant's knowledge-injection posture (design/06
-	// §5.1): "opt_in" (default) or "auto". Empty is treated as opt_in.
-	KnowledgeInjection string `json:"knowledge_injection,omitempty"`
 	// HypothesisFraming is the tenant's competing-hypotheses dial (01
 	// §x-hypothesis): "leading_null" (default) or "leading_only". Empty is
 	// treated as leading_null.

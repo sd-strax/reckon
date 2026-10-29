@@ -121,8 +121,8 @@ type Reasoning struct {
 	//            rivals; decide weighs a hypothesis against its rivals.
 	//   "leading_only"          — a single leading hypothesis (the analyst may
 	//            still frame a rival by hand; the model is the same).
-	// Travels server → investigation view → agent session like
-	// knowledge.injection, so one tenant setting governs every client.
+	// Travels server → investigation view → agent session, so one tenant
+	// setting governs every client.
 	HypothesisFraming string `yaml:"hypothesis_framing"`
 }
 
@@ -298,44 +298,8 @@ type Capability struct {
 // so in its attribution — a degraded mode, not a broken one.
 type Knowledge struct {
 	Embeddings Embeddings `yaml:"embeddings"`
-
-	// Injection is the knowledge-injection posture dial (design/06 §5.1) — how
-	// much implicitly-retrieved knowledge (relevant SOPs, similar past cases)
-	// enters the agent's context automatically. Like the trust dials, it opens
-	// by configuration, never code:
-	//   "opt_in" (default) — retrieval runs and is SURFACED with its relevance
-	//            signals, but nothing reaches the model until the analyst
-	//            includes it. The controlled tryout.
-	//   "auto"           — strong matches enter context by default (the analyst
-	//            can still veto); weak ones stay surfaced-but-off.
-	// Both postures share the rail, the analyst gate, and the audit linkage;
-	// the dial only sets each retrieved item's INITIAL inclusion.
-	Injection string `yaml:"injection"`
-}
-
-// Knowledge-injection postures (design/06 §5.1).
-const (
-	KnowledgeInjectionOptIn = "opt_in"
-	KnowledgeInjectionAuto  = "auto"
-)
-
-// ValidInjection reports whether the injection posture is a known value; empty
-// resolves to the opt_in default at read time.
-func (k Knowledge) ValidInjection() bool {
-	switch k.Injection {
-	case "", KnowledgeInjectionOptIn, KnowledgeInjectionAuto:
-		return true
-	default:
-		return false
-	}
-}
-
-// InjectionOrDefault resolves the effective posture (empty → opt_in).
-func (k Knowledge) InjectionOrDefault() string {
-	if k.Injection == "" {
-		return KnowledgeInjectionOptIn
-	}
-	return k.Injection
+	// Knowledge reaches the agent only through its recall tools (adr/0129);
+	// there is no implicit retrieval and no injection posture.
 }
 
 // Embeddings selects the semantic-recall backend. reckon ships one client — an

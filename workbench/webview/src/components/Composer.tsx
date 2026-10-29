@@ -1,7 +1,7 @@
 // The composer: Enter sends, Shift+Enter newline. Parked honestly on closed
-// records (the engine would refuse the commit anyway). Carries the analyst's
-// knowledge curation with the turn (design/06 §5.1). Staged text (the pivot
-// pattern) lands here for review — never auto-fired.
+// records (the engine would refuse the commit anyway). Staged text (the pivot
+// pattern, "Ask reckon to use this" from the library) lands here for review —
+// never auto-fired.
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../app";
 
@@ -28,10 +28,7 @@ export function Composer() {
     if (!t || disabled) return;
     setText("");
     setBusy(true);
-    // Only send the set when retrieval surfaced something — otherwise leave
-    // inclusion to the sidecar's dial default (undefined).
-    const inc = state.knowledge.length ? state.knowledge.filter((k) => k.included).map((k) => k.ref) : undefined;
-    send({ type: "send", text: t, includedKnowledge: inc });
+    send({ type: "send", text: t });
   };
 
   const placeholder = engine === "ARCHIVED" ? "Archived — this record is final."

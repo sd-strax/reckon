@@ -341,16 +341,6 @@ func TestServe_FullFlow(t *testing.T) {
 	if cs.SessionID == "" || len(cs.Tools) == 0 {
 		t.Fatalf("createSession = %+v; want session id + tools", cs)
 	}
-	// Implicit retrieval rides createSession (design/06 §5.1): under "auto" the
-	// strong matches default in, each carrying its relevance signals.
-	if len(cs.Knowledge) != 2 {
-		t.Fatalf("createSession knowledge = %+v; want 2 items", cs.Knowledge)
-	}
-	for _, k := range cs.Knowledge {
-		if !k.Included || k.Rationale == "" {
-			t.Errorf("auto item should default in with a rationale: %+v", k)
-		}
-	}
 	hasVerb := false
 	for _, name := range cs.Tools {
 		if name == "enumerate_logons" {
@@ -361,9 +351,8 @@ func TestServe_FullFlow(t *testing.T) {
 		t.Errorf("tools %v missing the catalog verb", cs.Tools)
 	}
 
-	// turn — carrying the analyst's knowledge curation (drop the SOP, keep the case)
-	included := []string{"grouping--p1"}
-	resp = c.call("turn", turnParams{SessionID: cs.SessionID, Text: "any odd logons on h1?", IncludedKnowledge: &included})
+	// turn
+	resp = c.call("turn", turnParams{SessionID: cs.SessionID, Text: "any odd logons on h1?"})
 	if resp.Error != nil {
 		t.Fatalf("turn error: %+v", resp.Error)
 	}

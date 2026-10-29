@@ -381,7 +381,6 @@ func serve(cfg config.Config) error {
 		ExportAutoOnConclude:    cfg.Export.AutoOnConclude,
 		AllowAIVerdict:          cfg.Trust.AIVerdict,
 		AllowAIReasoning:        cfg.Trust.AIReasoning,
-		KnowledgeInjection:      cfg.Knowledge.InjectionOrDefault(),
 		HypothesisFraming:       cfg.Reasoning.HypothesisFramingOrDefault(),
 		CaseNoteOnSeed:          cfg.Cases.NoteOnSeedOrDefault(),
 	}
@@ -483,12 +482,8 @@ func buildGate2(cfg config.Config) (*action.Gate2, *action.ActionCatalog, error)
 // reading and secret resolution stay host concerns (00-substrate §12). With no
 // embeddings configured the substrate runs its attributed keyword fallback.
 func buildKnowledge(cfg config.Config, db *sql.DB) (*knowledge.Store, error) {
-	if !cfg.Knowledge.ValidInjection() {
-		return nil, fmt.Errorf("knowledge.injection: %q is not a valid posture (want %q or %q)",
-			cfg.Knowledge.Injection, config.KnowledgeInjectionOptIn, config.KnowledgeInjectionAuto)
-	}
-	// The reasoning dial is validated alongside its posture sibling — a typo
-	// must fail startup, not silently fall back to a default framing.
+	// The reasoning dial is validated here — a typo must fail startup, not
+	// silently fall back to a default framing.
 	if !cfg.Reasoning.ValidHypothesisFraming() {
 		return nil, fmt.Errorf("reasoning.hypothesis_framing: %q is not a valid shape (want %q or %q)",
 			cfg.Reasoning.HypothesisFraming, config.HypothesisFramingLeadingNull, config.HypothesisFramingLeadingOnly)

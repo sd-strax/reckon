@@ -76,7 +76,6 @@ async function main(): Promise<void> {
     const snapshot: InvestigationSnapshot = {
       seq: investigation.lastEventSequence,
       investigation, hypotheses, actions, pins, comms, thread, turns, capabilities, enablement,
-      knowledge: [], // the sidecar's retrieval is not recorded here; the harness shows the rail from a hand-written set
       derived,
     };
     // Every ref the snapshot cites gets its label and, for entities, its appearances.

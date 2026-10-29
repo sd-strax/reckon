@@ -139,7 +139,7 @@ describe("the inspector", () => {
     expect(within(p).getByText("ISO-1")).toBeTruthy();
   });
 
-  it("renders a notification thread and a turn, a procedure and a similar case from the knowledge rail", () => {
+  it("renders a notification thread and a turn, a procedure and a past case from the library", () => {
     const transport = mount();
     fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
     fireEvent.click(within(lens()).getAllByTitle("Open the thread")[0]);
@@ -159,7 +159,7 @@ describe("the inspector", () => {
     fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Procedure one"));
     p = pane();
     expect(within(p).getByText("Procedure")).toBeTruthy();
-    expect(within(p).getByText(/Confirm the session with the owner first/)).toBeTruthy(); // What the AI read
+    expect(within(p).getByText(/Confirm the session with the owner first/)).toBeTruthy(); // what the agent's recall carried (#132)
     fireEvent.click(within(p).getByRole("tab", { name: "Whole document" }));
     expect(within(p).getByText("confirm-with-owner")).toBeTruthy();
 
@@ -167,8 +167,9 @@ describe("the inspector", () => {
     p = pane();
     expect(within(p).getByText("Similar past case")).toBeTruthy();
     expect(within(p).getByText(/contained by isolating the host/, { selector: "p" })).toBeTruthy();
-    fireEvent.click(within(p).getByText("Include in context"));
-    expect(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("2 retrieved · 1 included")).toBeTruthy();
+    expect(within(p).queryByText("Include in context")).toBeNull(); // the library is not context (adr/0129)
+    fireEvent.click(within(p).getByRole("tab", { name: "What the agent read" }));
+    expect(within(p).getByText("The agent has not read this case in this investigation.")).toBeTruthy();
   });
 
   it("shows an honest error for a ref the record cannot open", () => {

@@ -9,7 +9,7 @@ import { useApp } from "../app";
 import { Chronicle } from "./Chronicle";
 import { Composer } from "./Composer";
 import { Conversation } from "./Conversation";
-import { KnowledgeSection } from "./KnowledgeSection";
+import { Library } from "./Library";
 import { LiveConversation } from "./LiveConversation";
 
 /** The narrowest the companion goes, and the share of the regions it may take. */
@@ -64,7 +64,7 @@ export function Companion() {
         {state.snap ? <span className="imeta">scoped to {state.snap.investigation.id.slice(0, 8)}</span> : null}
       </div>
       <div className="companionscroll">
-        <KnowledgeSection />
+        <Library />
         {companionMode === "conversation" ? <Conversation /> : <><Chronicle /><LiveConversation /></>}
       </div>
       <Composer />

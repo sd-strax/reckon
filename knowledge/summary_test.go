@@ -341,3 +341,25 @@ func TestRecallSimilar_EmptyUnderFilter(t *testing.T) {
 		t.Errorf("a filter every tag of which exists is not flagged: %+v", ok)
 	}
 }
+
+// TestListSummaries: the library lists past cases newest first (adr/0129).
+func TestListSummaries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	day := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	for i, title := range []string{"older", "newer"} {
+		if _, err := s.WriteSummary(ctx, testTenant, Summary{
+			InvestigationRef: "grouping--" + uuid.New().String(), Title: title, SummaryText: "b", ExtractorVersion: "2",
+			ConclusionAt: day.AddDate(0, 0, i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list, err := s.ListSummaries(ctx, testTenant, 10)
+	if err != nil || len(list) != 2 || list[0].Title != "newer" {
+		t.Fatalf("list = %+v %v; want newer first", list, err)
+	}
+}

@@ -80,15 +80,6 @@ type Session struct {
 	caps          []Capability
 	hyps          json.RawMessage
 
-	// Implicit-retrieval state (design/06 §5.1): what was surfaced this session
-	// and the posture dial that set its default inclusion. knowledgeShown is
-	// the set of refs whose content has been delivered to the model in this
-	// conversation — inclusion changes are delivered as a [knowledge] block on
-	// the next turn (pendingKnowledgeBlock), not by rewriting the system prompt.
-	retrieved      []KnowledgeItem
-	injection      string
-	knowledgeShown map[string]bool
-
 	pendingActions []ActionResponse // actions proposed this turn, for the surface to offer approval
 	// consulted accumulates the turn's recall_sops retrievals (by sop_id,
 	// keeping the best score) — the knowledge provenance the commit carries.
@@ -212,13 +203,6 @@ func (s *Session) refreshContext(ctx context.Context) error {
 
 	s.tools = buildTools(caps, actionTypes)
 	s.investigation, s.caps, s.hyps = inv, caps, hyps
-	// Implicit retrieval (design/06 §5.1): surface relevant SOPs + similar past
-	// cases with their relevance signals, defaulting inclusion per the posture
-	// dial. Included items reach the model as a [knowledge] block on the next
-	// turn (nothing, under opt_in, until the analyst curates); a (re)built
-	// context has shown the model nothing yet.
-	s.retrieveImplicit(ctx, inv)
-	s.knowledgeShown = nil
 	s.system = systemPrompt(inv, caps)
 	return nil
 }
@@ -388,9 +372,6 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	// read EVERY live hypothesis (01 §x-hypothesis). One GET; a failure keeps
 	// the last known set rather than failing the turn.
 	s.refreshHypotheses(ctx)
-	// Knowledge the analyst included as context is consulted this turn (§6),
-	// merged with the model's own recalls below.
-	s.knowledgeConsulted()
 	turnID := uuid.NewString()
 
 	var transcript strings.Builder
@@ -401,8 +382,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	var finalText strings.Builder
 
 	// Engine state rides the user message, never the system prompt (state.go):
-	// the turn clock, the knowledge the analyst (un)included since it was last
-	// shown, the hypothesis set as the engine holds it now, and — every
+	// the turn clock, the hypothesis set as the engine holds it now, and — every
 	// anchorEveryTurns and immediately after a ResetContext — the authoritative
 	// action record, so the model re-grounds on fact rather than its own
 	// accumulated narration. Each is deterministic: it states only what the
@@ -413,9 +393,6 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		fmt.Fprintf(&transcript, "[engine] %s\n", sanitizeTranscript(block))
 	}
 	engine(clockBlock(s.now()))
-	if kb := s.pendingKnowledgeBlock(); kb != "" {
-		engine(kb)
-	}
 	if hb := hypothesisStateBlock(s.hyps); hb != "" {
 		engine(hb)
 	}

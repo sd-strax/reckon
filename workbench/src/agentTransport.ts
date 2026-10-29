@@ -23,9 +23,6 @@ import {
   StreamMessageWriter,
 } from "vscode-jsonrpc/node";
 import { TokenKind } from "./auth";
-import type { KnowledgeItem } from "./protocol";
-
-export type { KnowledgeItem };
 
 /** The stdio protocol contract version (sidecar.ProtocolVersion). */
 const PROTOCOL_VERSION = 1;
@@ -94,18 +91,10 @@ export interface SOPCandidate {
  * after a sidecar respawn).
  */
 export interface AgentTransport {
-  turn(investigationId: string, text: string, progress: TurnProgress, includedKnowledge?: string[]): Promise<TurnOutcome>;
+  turn(investigationId: string, text: string, progress: TurnProgress): Promise<TurnOutcome>;
   cancel(investigationId: string): Promise<void>;
-  /** Implicit-retrieval knowledge for this investigation — the rail's data
-   * (design/06 §5.1). Ensures a session (spawns the sidecar + runs retrieval). */
-  getKnowledge(investigationId: string): Promise<KnowledgeItem[]>;
   /** Client-side knowledge-summary narrative at conclusion (design/06 §3.2). */
   summarizeConcluded(investigationId: string): Promise<void>;
-  /**
-   * The analyst's own query over both corpora (design/ui 09 §9.6): the hits
-   * join the session's retrieved set, excluded; the merged set comes back.
-   */
-  searchKnowledge(investigationId: string, text: string): Promise<KnowledgeItem[]>;
   /** Client-side candidate-SOP generalization at conclusion (design/06: the
    * compounding loop). Returns a draft for the analyst to accept or discard. */
   proposeSOP(investigationId: string): Promise<SOPCandidate>;
@@ -147,8 +136,6 @@ export class SidecarTransport implements AgentTransport {
   private readonly sessions = new Map<string, string>();
   /** session id → the in-flight turn's progress sink (for notifications). */
   private readonly inFlight = new Map<string, TurnProgress>();
-  /** investigation id → implicit-retrieval knowledge from createSession (the rail). */
-  private readonly knowledge = new Map<string, KnowledgeItem[]>();
   private disposed = false;
 
   constructor(
@@ -156,15 +143,12 @@ export class SidecarTransport implements AgentTransport {
     private readonly log: vscode.LogOutputChannel,
   ) {}
 
-  async turn(investigationId: string, text: string, progress: TurnProgress, includedKnowledge?: string[]): Promise<TurnOutcome> {
+  async turn(investigationId: string, text: string, progress: TurnProgress): Promise<TurnOutcome> {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
     this.inFlight.set(sessionId, progress);
     try {
-      const params: { session_id: string; text: string; included_knowledge?: string[] } = { session_id: sessionId, text };
-      if (includedKnowledge !== undefined) {
-        params.included_knowledge = includedKnowledge;
-      }
+      const params = { session_id: sessionId, text };
       const raw = await conn.sendRequest("turn", params) as WireTurnResult;
       return {
         text: raw.text ?? "",
@@ -238,15 +222,6 @@ export class SidecarTransport implements AgentTransport {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
     return (await conn.sendRequest("proposeSOP", { session_id: sessionId })) as SOPCandidate;
-  }
-
-  async searchKnowledge(investigationId: string, text: string): Promise<KnowledgeItem[]> {
-    const conn = await this.ensureConnection();
-    const sessionId = await this.ensureSession(conn, investigationId);
-    const res = (await conn.sendRequest("searchKnowledge", { session_id: sessionId, text })) as { knowledge?: KnowledgeItem[] };
-    const items = res.knowledge ?? [];
-    this.knowledge.set(investigationId, items);
-    return items;
   }
 
   dispose(): void {
@@ -361,21 +336,13 @@ export class SidecarTransport implements AgentTransport {
     const res = await conn.sendRequest("createSession", { investigation_id: investigationId }) as {
       session_id?: string;
       tools?: string[];
-      knowledge?: KnowledgeItem[];
     };
     if (!res.session_id) {
       throw new Error("sidecar returned no session id");
     }
-    this.log.info(`session ${res.session_id} over ${investigationId} (${res.tools?.length ?? 0} tools, ${res.knowledge?.length ?? 0} knowledge items)`);
+    this.log.info(`session ${res.session_id} over ${investigationId} (${res.tools?.length ?? 0} tools)`);
     this.sessions.set(investigationId, res.session_id);
-    this.knowledge.set(investigationId, res.knowledge ?? []);
     return res.session_id;
-  }
-
-  async getKnowledge(investigationId: string): Promise<KnowledgeItem[]> {
-    const conn = await this.ensureConnection();
-    await this.ensureSession(conn, investigationId); // populates the cache
-    return this.knowledge.get(investigationId) ?? [];
   }
 
   /** Drop the dead process's state; the next turn respawns and re-creates sessions. */
@@ -386,7 +353,6 @@ export class SidecarTransport implements AgentTransport {
     this.child = null;
     this.sessions.clear();
     this.inFlight.clear();
-    this.knowledge.clear();
     if (child && child.exitCode === null && !child.killed) {
       child.kill();
     }

@@ -105,9 +105,8 @@ export function targetName(t: InspectorTarget, snap: InvestigationSnapshot | nul
       return labels[t.ref] || refTypeLabel(t.ref);
     }
     case "sop": {
-      const k = snap?.knowledge.find((x) => x.kind === "sop" && x.ref === t.sopId);
       const consulted = snap?.thread?.flatMap((e) => e.consultedSops || []).find((s) => s.sopId === t.sopId);
-      return k?.title || consulted?.title || "Procedure";
+      return consulted?.title || "Procedure";
     }
     case "turn": {
       const e = snap?.thread?.find((x) => x.interpretationId === t.interpretationId);
@@ -122,9 +121,8 @@ export function targetName(t: InspectorTarget, snap: InvestigationSnapshot | nul
       return th ? (th.subject || th.target) : "Notification thread";
     }
     case "case": {
-      const k = snap?.knowledge.find((x) => x.kind === "case" && x.ref === t.investigationRef);
       const consulted = snap?.thread?.flatMap((e) => e.consultedSimilar || []).find((s) => s.investigationRef === t.investigationRef);
-      return k?.title || consulted?.title || "Similar past case";
+      return consulted?.title || "Past case";
     }
     case "person": {
       const e = snap?.thread?.find((x) => x.actor.principal === t.principalId && x.actor.principalName);
