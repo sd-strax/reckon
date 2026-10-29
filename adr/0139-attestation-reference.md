@@ -1,6 +1,6 @@
 # 0139 — An attestation can name where it happened, as written or as a fingerprint
 
-Issue: #139 · PR: #TBD · Status: accepted (references only; uploads deferred)
+Issue: #139 · PR: #199 · Status: accepted (references only; uploads deferred)
 
 ## Context
 
