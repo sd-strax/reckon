@@ -7,7 +7,7 @@ function snap(seq: number, title = "T"): InvestigationSnapshot {
     seq,
     investigation: { id: "inv-1", title, state: "ACTIVE", lastEventSequence: seq },
     hypotheses: [], actions: [], pins: [], comms: [], thread: [], turns: [],
-    capabilities: null, enablement: null, knowledge: [], derived: null,
+    capabilities: null, enablement: null, derived: null,
   };
 }
 
@@ -112,16 +112,18 @@ describe("reducer: the live conversation", () => {
   });
 });
 
-describe("reducer: knowledge toggles survive slice re-posts", () => {
-  it("keeps the analyst's choice when the rail is re-posted", () => {
-    const item = { kind: "sop" as const, ref: "sop-1", title: "S", excerpt: "", score: 0.9, included: false };
-    let s = run([{ type: "state.snapshot", seq: 1, snapshot: { ...snap(1), knowledge: [item] } }]);
-    s = reducer(s, { type: "knowledge.toggle", ref: "sop-1", included: true });
-    s = run([{ type: "state.patch", seq: 1, patch: { knowledge: [item] } }], s);
-    expect(s.knowledge[0].included).toBe(true);
+describe("reducer: the library", () => {
+  it("holds the browse lists and one search's hits, and clears the search", () => {
+    const item = { kind: "sop" as const, ref: "sop-1", title: "S" };
+    let s = run([{ type: "library", sops: [item], cases: [] }]);
+    expect(s.library.loaded).toBe(true);
+    s = run([{ type: "library.results", query: "rdp", sops: [{ ...item, relevance: "related" }], cases: [] }], s);
+    expect(s.library.results?.query).toBe("rdp");
+    s = reducer(s, { type: "library.clear" });
+    expect(s.library.results).toBeNull();
+    expect(s.library.sops).toEqual([item]);
   });
 });
-
 describe("reducer: rename", () => {
   it("updates the title in place and bumps a tree-initiated request", () => {
     let s = run([{ type: "state.snapshot", seq: 1, snapshot: snap(1, "Old") }, { type: "renamed", title: "New" }]);

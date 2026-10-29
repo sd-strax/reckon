@@ -5,7 +5,7 @@ import { firstStep, isFresh } from "./firstStep";
 const snap = (over: Partial<InvestigationSnapshot> = {}, inv: Record<string, unknown> = {}) => ({
   seq: 1, investigation: { id: "i", title: "host WIN-FILE01", state: "DRAFT", lastEventSequence: 1, seed: { type: "entity", entityIdentifier: "WIN-FILE01" }, ...inv },
   hypotheses: [], actions: [], pins: [], comms: [], thread: [{ interpretationType: "lifecycle", hasTranscript: false }], turns: [],
-  capabilities: null, enablement: null, knowledge: [], derived: null, ...over,
+  capabilities: null, enablement: null, derived: null, ...over,
 }) as unknown as InvestigationSnapshot;
 
 describe("a new investigation's first step (#160)", () => {

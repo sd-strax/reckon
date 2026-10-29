@@ -143,3 +143,26 @@ func TestHypothesisStateBlock_ManualPrediction(t *testing.T) {
 		t.Errorf("tool prediction marked manual:\n%s", b)
 	}
 }
+
+// lastUserMessage runs one turn and returns the text of the last user message the model was sent.
+func lastUserMessage(t *testing.T, s *Session, prompt string) string {
+	t.Helper()
+	if _, err := s.Turn(context.Background(), prompt); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	reqs := s.llm.(*scriptedLLM).requests
+	msgs := reqs[len(reqs)-1].Messages
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != RoleUser {
+			continue
+		}
+		var b strings.Builder
+		for _, c := range msgs[i].Content {
+			b.WriteString(c.Text)
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
+	t.Fatal("no user message in the model request")
+	return ""
+}

@@ -101,16 +101,18 @@ details.tool[open] .summaryPin { opacity: 0.9; }
 
 /* Knowledge rail (design/06 §5.1) */
 #knowledgeSection h2 .posture { font-size: var(--fs-xs); font-weight: 400; color: var(--text-3); margin-left: 6px; text-transform: none; letter-spacing: normal; }
-.kitem { display: flex; gap: 7px; padding: 6px 2px; border-top: 1px solid var(--border); }
-.kitem:first-child { border-top: none; }
-.kitem input { margin-top: 3px; flex: none; cursor: pointer; }
-.kitem .kbody { min-width: 0; flex: 1; }
-.kitem .ktitle { font-size: var(--fs-sm); }
-.kitem .kkind { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-right: 5px; }
-.kitem .kband { font-size: 9px; font-weight: 700; letter-spacing: 0.04em; padding: 0 5px; border-radius: var(--r-pill); border: 1px solid var(--info-border); color: var(--info); }
-.kitem .kband.near { color: var(--ok); border-color: var(--ok-border); }
-.kitem .kband.distinct { color: var(--text-3); border-color: var(--border); }
-.kitem .krationale { font-size: var(--fs-xs); color: var(--text-3); margin-top: 2px; }
+/* The knowledge library (adr/0129): procedures and past cases as separate lists. */
+.libgroup { margin: 8px 0; }
+.libhead { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); display: flex; gap: 6px; align-items: baseline; }
+.libitem { padding: 5px 2px; border-top: 1px solid var(--border); font-size: var(--fs-sm); }
+.libitem:first-of-type { border-top: none; }
+.libitem.sop .libtitle::before { content: "§ "; color: var(--text-3); }
+.libitem.case .libtitle::before { content: "◷ "; color: var(--text-3); }
+.libitem .librel { margin-left: 6px; font-size: var(--fs-xs); color: var(--text-3); }
+.libitem .librel.close-match { color: var(--ok); }
+.libitem .libask { display: inline-block; margin-top: 2px; font-size: var(--fs-xs); color: var(--link); cursor: pointer; }
+.libresults { margin-top: 4px; }
+.libfoot { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .kitem.excluded .kbody { opacity: 0.55; }
 
 /* micro-label eyebrow (01 §Scale): 10px, 700, tracked, uppercase */

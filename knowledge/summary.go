@@ -205,6 +205,24 @@ func (s *Store) RecallSimilar(ctx context.Context, tenantID uuid.UUID, req Simil
 	return out, nil
 }
 
+// ListSummaries returns the concluded investigations' summaries, most recently
+// concluded first — the library's past cases (adr/0129).
+func (s *Store) ListSummaries(ctx context.Context, tenantID uuid.UUID, limit int) ([]CaseSummaryView, error) {
+	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("list case summaries: %w", err)
+	}
+	out := make([]CaseSummaryView, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, caseSummaryView(e))
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].ConclusionAt > out[j].ConclusionAt })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // PriorRequest asks which concluded investigations involved an entity.
 type PriorRequest struct {
 	Entity string `json:"entity"`

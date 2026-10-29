@@ -14,7 +14,7 @@ export class TurnDriver {
   ) {}
 
   /** Drive one analyst turn through the transport, streaming progress to the webview. */
-  async run(id: string, panel: vscode.WebviewPanel, text: string, aside?: { label: string }, includedKnowledge?: string[]): Promise<void> {
+  async run(id: string, panel: vscode.WebviewPanel, text: string, aside?: { label: string }): Promise<void> {
     if (aside) {
       void this.post(panel, { type: "aside.start", label: aside.label });
     } else {
@@ -36,7 +36,7 @@ export class TurnDriver {
         // webview renders that honestly instead of a bogus "? · 0".
         onToolResult: (name, _content, isError, coverage, events, refs) =>
           void this.post(panel, { type: "turn.toolResult", name, isError, coverage, events, refs }),
-      }, includedKnowledge);
+      });
       if (outcome.interpretationId) {
         void this.post(panel, { type: "turn.committed", interpretationId: outcome.interpretationId });
       }

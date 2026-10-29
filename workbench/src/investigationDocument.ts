@@ -54,8 +54,6 @@ export class InvestigationDocuments {
   // The projection reads, their watermark, and the per-investigation ordering
   // that keeps an older read from being posted after a newer one (impl §3.1–§3.2).
   private readonly cache: InvestigationCache;
-  // Investigations whose knowledge rail has been read since the panel opened.
-  private readonly knowledgeRead = new Set<string>();
   private readonly turns: TurnDriver;
 
   constructor(
@@ -240,7 +238,7 @@ export class InvestigationDocuments {
         void this.postCaseNote(id, panel, msg.body);
       },
       send: (msg) => {
-        void this.turns.run(id, panel, msg.text, undefined, msg.includedKnowledge);
+        void this.turns.run(id, panel, msg.text);
       },
       "action.approve": (msg) => {
         void this.approve(id, panel, msg);
@@ -330,8 +328,14 @@ export class InvestigationDocuments {
       "queue.start": (msg) => {
         void this.startFromCase(msg.caseNumber);
       },
-      "knowledge.search": (msg) => {
-        void this.searchKnowledge(id, panel, msg.text);
+      "library.get": () => {
+        void this.postLibrary(panel);
+      },
+      "library.search": (msg) => {
+        void this.searchLibrary(panel, msg.text);
+      },
+      "library.import": () => {
+        void vscode.commands.executeCommand("reckon.importSOP");
       },
       "view.state": (msg) => {
         this.onViewState?.(id, msg.lens, msg.companion);
@@ -493,7 +497,6 @@ export class InvestigationDocuments {
   private forget(id: string): void {
     this.open.delete(id);
     this.cache.forget(id);
-    this.knowledgeRead.delete(id);
     const watch = this.dispatchWatch.get(id);
     if (watch) {
       clearTimeout(watch.timer);
@@ -551,31 +554,35 @@ export class InvestigationDocuments {
       void this.client.enablement()
         .then((data) => data, () => null)
         .then((data) => { if (latestEnablement()) void this.patch(id, panel, { enablement: data }); });
-      // A reload re-reads the knowledge rail.
-      this.knowledgeRead.delete(id);
-      this.readKnowledge(id, panel, snapshot.investigation.state);
+      void this.postLibrary(panel);
     });
   }
 
-  /**
-   * The implicit-retrieval knowledge rail (design/06 §5.1), once per panel and
-   * only while the investigation is workable — it spawns the sidecar and runs
-   * retrieval, so it is not worth it for a concluded or archived case. A
-   * refresh calls it too, so a case reopened in place gets its rail.
-   */
-  private readKnowledge(id: string, panel: vscode.WebviewPanel, state: string): void {
-    if (this.knowledgeRead.has(id) || !["DRAFT", "ACTIVE", "PAUSED"].includes(state)) {
-      return;
+  /** The knowledge library (adr/0129): every procedure and past case, to browse. */
+  private async postLibrary(panel: vscode.WebviewPanel): Promise<void> {
+    try {
+      const [sops, cases] = await Promise.all([
+        this.client.libraryProcedures().catch(() => []),
+        this.client.libraryCases().catch(() => []),
+      ]);
+      void this.post(panel, { type: "library", sops, cases });
+    } catch (err) {
+      this.log.debug(`library: ${errText(err)}`);
     }
-    this.knowledgeRead.add(id);
-    const latest = this.cache.beginRequest(id, "knowledge");
-    void this.transport.getKnowledge(id)
-      .then((items) => { if (latest()) void this.patch(id, panel, { knowledge: items }); })
-      .catch((err: unknown) => this.log.debug(`knowledge rail unavailable: ${errText(err)}`));
+  }
+
+  /** One library search over both corpora; the hits come back as their own list. */
+  private async searchLibrary(panel: vscode.WebviewPanel, text: string): Promise<void> {
+    try {
+      const found = await this.client.librarySearch(text);
+      void this.post(panel, { type: "library.results", query: text, ...found });
+    } catch (err) {
+      void vscode.window.showWarningMessage(`reckon: library search failed — ${errText(err)}`);
+    }
   }
 
   /**
-   * Post slices that are not read from the event log (knowledge, enablement)
+   * Post slices that are not read from the event log (enablement)
    * with the current watermark, so the webview applies them over what it holds.
    */
   private patch(id: string, panel: vscode.WebviewPanel, patch: Partial<InvestigationSnapshot>): Thenable<boolean> {
@@ -604,7 +611,6 @@ export class InvestigationDocuments {
       const { seq, patch } = read;
       if (patch.investigation) {
         panel.title = `⚖ ${patch.investigation.title}`;
-        this.readKnowledge(id, panel, patch.investigation.state);
       }
       void this.post(panel, { type: "state.patch", seq, patch });
       this.onLoaded?.(id, seq);
@@ -784,20 +790,6 @@ export class InvestigationDocuments {
         return;
       }
       void vscode.window.showErrorMessage(`reckon: could not start from ${caseNumber} — ${errText(err)}`);
-    }
-  }
-
-  /** The Knowledge section's scoped search (09 §9.6): the session merges the hits. */
-  private async searchKnowledge(id: string, panel: vscode.WebviewPanel, text: string): Promise<void> {
-    // The search's answer is the session's whole set with the hits merged in,
-    // so it supersedes any knowledge read still in flight.
-    this.knowledgeRead.add(id);
-    const latest = this.cache.beginRequest(id, "knowledge");
-    try {
-      const items = await this.transport.searchKnowledge(id, text);
-      if (latest()) void this.patch(id, panel, { knowledge: items });
-    } catch (err) {
-      void vscode.window.showWarningMessage(`reckon: knowledge search failed — ${errText(err)}`);
     }
   }
 

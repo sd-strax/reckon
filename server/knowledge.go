@@ -113,6 +113,24 @@ func (b *Backend) priorInvestigations(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// listCaseSummaries handles GET /api/knowledge/case_summaries: the concluded
+// investigations' summaries, most recent first — the library's past cases
+// (adr/0129). Any authenticated reader.
+func (b *Backend) listCaseSummaries(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, "GET")
+		return
+	}
+	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+		list, err := b.cfg.Knowledge.ListSummaries(r.Context(), module.SingleTenantUUID, 100)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "case_summaries: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"case_summaries": list})
+	})
+}
+
 // getCaseSummary handles GET /api/knowledge/case_summaries/{investigation_ref}
 // (design/ui 08 §8.6.1 "Similar past case"): one concluded investigation's
 // summary read back by its source ref, for the inspector. The demo's seeded

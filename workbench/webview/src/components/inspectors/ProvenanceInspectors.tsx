@@ -8,6 +8,8 @@ import { parseTranscript } from "../../transcript";
 import { Badge, Markdown, RefChip, fmtDateTime, fmtTime } from "../shared";
 import { ToolRow } from "../ToolRow";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
+import { received } from "../../derive/knowledgeUse";
+import { relevanceOfBand } from "../../../../src/backend";
 
 export function TurnInspector({ interpretationId }: { interpretationId: string }) {
   const { state, openInspector } = useApp();
@@ -111,20 +113,21 @@ export function ActInspector({ interpretationId }: { interpretationId: string })
 }
 
 export function CaseInspector({ investigationRef }: { investigationRef: string }) {
-  const { state, send, dispatch, openInspector } = useApp();
+  const { state, send, openInspector } = useApp();
   const summary = state.caseSummaries[investigationRef];
-  const item = state.knowledge.find((k) => k.kind === "case" && k.ref === investigationRef);
+  // How this case was used here (#132): only what the agent's recalls carried.
+  const got = received(state.snap, "case", investigationRef);
+  const match = got.find((g) => g.band || g.rationale);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSimilar || []).filter((s) => s.investigationRef === investigationRef).map((s) => ({ e, s })));
   return (
     <>
       <div className="isub">
-        {item?.band ? <Badge tone={item.band === "NEAR_DUPLICATE" ? "ok" : item.band === "DISTINCT" ? "muted" : "info"}>{item.band}</Badge> : null}
+        {match?.band ? <Badge tone={match.band === "NEAR_DUPLICATE" ? "ok" : match.band === "DISTINCT" ? "muted" : "info"}>{relevanceOfBand(match.band)}</Badge> : null}
         {summary ? <> Concluded {summary.conclusionAt ? fmtDateTime(summary.conclusionAt) : "—"}{summary.verdictDisposition ? " · " + summary.verdictDisposition.toLowerCase() : ""}{summary.durationHours ? ` · ${summary.durationHours} hours` : ""}</> : null}
       </div>
       <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
-        {item ? <span className="icite">retrieved at seed time · {item.included ? "included in context" : "not included"}</span> : null}
-        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.used ? "applied" : "consulted, not applied"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
-        {!item && !consulted.length ? <span className="empty">not consulted in this investigation</span> : null}
+        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.used ? "the agent drew on it" : "the agent recalled it, not used"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
+        {!consulted.length ? <span className="empty">the agent has not recalled it in this investigation</span> : null}
       </div>
       <Tabs tabs={[
         { id: "summary", label: "Summary", body: () => (
@@ -146,14 +149,17 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
               </>
             )
         ) },
-        { id: "why", label: "Why it matched", body: () => (
-          item ? <><p>{item.rationale || "no rationale recorded"}</p><KV rows={[{ k: "Score", v: item.score.toFixed(2), mono: true }, { k: "Band", v: item.band }]} />{item.excerpt ? <blockquote className="iquote">{item.excerpt}</blockquote> : null}</>
-            : <div className="empty">This case was not retrieved for this investigation, so there is no match rationale.</div>
+        { id: "read", label: "What the agent read", body: () => (
+          got.length ? got.map((g, i) => (
+            <div key={i}>
+              {g.excerpt ? <blockquote className="iquote">{g.excerpt}</blockquote> : null}
+              <div className="imeta">{[g.band ? relevanceOfBand(g.band) : "", g.rationale || ""].filter(Boolean).join(" · ")} — in <a onClick={() => openInspector({ kind: "turn", interpretationId: g.interpretationId })}>{g.summary || "a turn"}</a></div>
+            </div>
+          )) : <div className="empty">The agent has not read this case in this investigation.</div>
         ) },
       ]} />
       <div className="decide">
-        <button onClick={() => send({ type: "investigation.open", id: investigationRef.replace(/^grouping--/, ""), title: summary?.title || item?.title })}>Open that investigation</button>
-        {item ? <button className={item.included ? undefined : "primary"} onClick={() => dispatch({ type: "knowledge.toggle", ref: item.ref, included: !item.included })}>{item.included ? "Remove from context" : "Include in context"}</button> : null}
+        <button onClick={() => send({ type: "investigation.open", id: investigationRef.replace(/^grouping--/, ""), title: summary?.title })}>Open that investigation</button>
       </div>
       {summary ? <details className="iraw"><summary className="kicker">Raw</summary><Json value={summary} /></details> : null}
     </>
@@ -163,22 +169,25 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
 export function ProcedureInspector({ sopId }: { sopId: string }) {
   const { state, openInspector } = useApp();
   const sop = state.sops[sopId];
-  const item = state.knowledge.find((k) => k.kind === "sop" && k.ref === sopId);
+  const got = received(state.snap, "sop", sopId);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSops || []).filter((s) => s.sopId === sopId).map((s) => ({ e, s })));
   const ledTo = (state.snap?.actions || []).filter((a) => consulted.some(({ e }) => (e.outputRefs || []).includes(a.actionId)));
   return (
     <>
       <div className="isub">{sop ? <>{sop.source?.system ? sop.source.system + " · " : ""}{sop.source?.url ? <span className="mono">{sop.source.url}</span> : "markdown"}{sop.importedBy ? ` · imported by ${sop.importedBy}` : ""}{sop.importedAt ? ` · ${fmtDateTime(sop.importedAt)}` : ""}</> : null}</div>
       <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
-        {item ? <span className="icite">retrieved at seed time · {item.included ? "included in context" : "not included"}</span> : null}
-        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.used ? "applied" : "consulted, not applied"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
+        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.used ? "the agent applied it" : "the agent recalled it, not applied"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
         {ledTo.map((a) => <span key={a.actionId} className="icite">led to <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a></span>)}
-        {!item && !consulted.length ? <span className="empty">not consulted in this investigation</span> : null}
+        {!consulted.length ? <span className="empty">the agent has not recalled it in this investigation</span> : null}
       </div>
       <Tabs tabs={[
-        { id: "read", label: "What the AI read", body: () => (
-          item?.excerpt ? <><blockquote className="iquote">{item.excerpt}</blockquote><div className="imeta">the excerpt retrieved for this investigation{item.band ? " · " + item.band : ""}{item.rationale ? " · " + item.rationale : ""}</div></>
-            : <div className="empty">No excerpt of this procedure was retrieved in this investigation.</div>
+        { id: "read", label: "What the agent read", body: () => (
+          got.length ? got.map((g, i) => (
+            <div key={i}>
+              {g.excerpt ? <blockquote className="iquote">{g.excerpt}</blockquote> : <div className="empty">recalled without an excerpt</div>}
+              <div className="imeta">{g.rationale ? g.rationale + " — " : ""}in <a onClick={() => openInspector({ kind: "turn", interpretationId: g.interpretationId })}>{g.summary || "a turn"}</a></div>
+            </div>
+          )) : <div className="empty">The agent has not read this procedure in this investigation.</div>
         ) },
         { id: "whole", label: "Whole document", body: () => (
           sop === undefined ? <Loading what="procedure" /> : (

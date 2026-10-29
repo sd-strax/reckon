@@ -153,20 +153,19 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText("No cited events carry an event time yet.")).toBeTruthy();
   });
 
-  it("Companion: the Knowledge section with toggles, search and the nudge; turn records as links; the activity disclosure; Thread mode", () => {
+  it("Companion: the library to browse and search; turn records as links; the activity disclosure; Thread mode", () => {
     const { transport } = mount();
     const comp = document.querySelector("#companion") as HTMLElement;
-    expect(within(comp).getByText("2 retrieved · 0 included")).toBeTruthy();
-    expect(within(lens()).getByText(/1 procedure and 1 past case the auto posture would include are not included/)).toBeTruthy();
-    fireEvent.click(comp.querySelector("#knowledgeBox input[type=checkbox]")!);
-    expect(within(comp).getByText("2 retrieved · 1 included")).toBeTruthy();
-    expect(within(lens()).getByText(/1 past case the auto posture would include is not included/)).toBeTruthy();
-    fireEvent.change(comp.querySelector(".ksearch input")!, { target: { value: "isolation" } });
+    expect(within(comp).getByText("1 procedure · 1 past case")).toBeTruthy();
+    expect(comp.querySelector("#knowledgeSection input[type=checkbox]")).toBeNull(); // nothing to include: the agent recalls
+    fireEvent.change(comp.querySelector(".ksearch input")!, { target: { value: "procedure" } });
     fireEvent.keyDown(comp.querySelector(".ksearch input")!, { key: "Enter" });
-    expect(transport.intents.find((i) => i.type === "knowledge.search")).toEqual({ type: "knowledge.search", text: "isolation" });
-    expect(within(comp).getByText("3 retrieved · 1 included")).toBeTruthy(); // the hit joined, excluded
+    expect(transport.intents.find((i) => i.type === "library.search")).toEqual({ type: "library.search", text: "procedure" });
+    expect(within(comp).getByText(/Results for “procedure”/)).toBeTruthy();
+    fireEvent.click(within(comp).getByText("Clear"));
+    expect(within(comp).queryByText(/Results for/)).toBeNull();
     // The first turn's records and activity.
-    expect(within(comp).getByText(/Activity · 1 tool call/)).toBeTruthy();
+    expect(within(comp).getByText(/Activity · 2 tool calls/)).toBeTruthy(); // including the recall_sops call
     expect(within(comp).getByText("followed: Procedure one")).toBeTruthy();
     expect(within(comp).getByText(/committed · /)).toBeTruthy(); // the aside, collapsed
     expect(comp.querySelector(".actline")).toBeNull(); // no act lines in Conversation mode
@@ -178,13 +177,12 @@ describe("the investigation document", () => {
     expect(screen.getByRole("dialog", { name: "Pin as evidence" })).toBeTruthy();
   });
 
-  it("sends a turn with the included knowledge set and parks the composer during the turn", () => {
+  it("sends a turn and parks the composer during the turn; Ask reckon to use this stages a request", () => {
     const { transport } = mount();
-    fireEvent.click(document.querySelector("#knowledgeBox input[type=checkbox]")!);
     const input = document.querySelector("#input") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "continue" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(transport.intents.find((i) => i.type === "send")).toEqual({ type: "send", text: "continue", includedKnowledge: ["sop-1"] });
+    expect(transport.intents.find((i) => i.type === "send")).toEqual({ type: "send", text: "continue" });
     expect(input.disabled).toBe(true);
   });
 

@@ -50,11 +50,6 @@ type InvestigationView struct {
 	CreatedAt    *time.Time `json:"created_at,omitempty"`
 	OpenedByName string     `json:"opened_by_name,omitempty"`
 
-	// KnowledgeInjection is the effective knowledge-injection posture (design/06
-	// §5.1, config.Knowledge.Injection) — surfaced on the detail view so the
-	// agent loop knows whether implicitly-retrieved knowledge defaults in
-	// ("auto") or waits for the analyst ("opt_in"). Detail responses only.
-	KnowledgeInjection string `json:"knowledge_injection,omitempty"`
 
 	// HypothesisFraming is the tenant's competing-hypotheses dial
 	// (config.Reasoning.HypothesisFraming; 01 §x-hypothesis): "leading_null"
@@ -232,7 +227,6 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 		LastEventSequence:  ic.LastEventSequence,
 		Seed:               seedBody(ic.Seed),
 		SeedSummary:        ic.SeedSummary,
-		KnowledgeInjection: b.cfg.KnowledgeInjection,
 		HypothesisFraming:  b.cfg.HypothesisFraming,
 		CaseNoteOnSeed:     b.cfg.CaseNoteOnSeed,
 	}

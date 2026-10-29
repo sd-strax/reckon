@@ -126,7 +126,6 @@ export interface InvestigationDetail {
   /** On create of a case-rooted investigation: the default note to offer. */
   caseNote?: { caseId: string; body: string; systemName?: string };
   /** The knowledge-injection posture (06 §5.1): "opt_in" | "auto". Detail responses. */
-  knowledgeInjection?: string;
   /** The investigation's start (the Story lens's investigation-time divider). */
   createdAt?: string;
   /** Who opened it: the creating act's actor by display name (adr/0077). */

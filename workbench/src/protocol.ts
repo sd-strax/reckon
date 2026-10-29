@@ -44,18 +44,20 @@ export type InspectorTarget =
   | { kind: "case"; investigationRef: string }
   | { kind: "person"; principalId: string };
 
-/** One implicit-retrieval item (design/06 §5.1): a SOP or a similar past case
- * with its relevance signals and the analyst's inclusion state. Mirrors the
- * sidecar's KnowledgeItem (agent.KnowledgeItem). */
-export interface KnowledgeItem {
+/**
+ * One entry of the knowledge library (adr/0129): a procedure or a past case,
+ * browsed or found by search. Relevance is in words and only on search hits;
+ * nothing here is in the agent's context — the agent reads knowledge only
+ * through its recall tools.
+ */
+export interface LibraryItem {
   kind: "sop" | "case";
   ref: string;
   title: string;
-  excerpt: string;
-  score: number;
-  band?: string;
-  rationale?: string;
-  included: boolean;
+  /** A line under the title: tags for a procedure, the verdict and when for a case. */
+  detail?: string;
+  /** On a search hit: "close match" | "related" | "loosely related". */
+  relevance?: string;
 }
 
 /** A committed turn's line-framed transcript body, keyed by its thread position. */
@@ -108,7 +110,6 @@ export interface InvestigationSnapshot {
   turns: ChronicleTurn[];
   capabilities: Capability[] | null;
   enablement: Enablement | null;
-  knowledge: KnowledgeItem[];
   derived: DerivedViews | null;
 }
 
@@ -161,6 +162,9 @@ export type RenderMessage =
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
   | { type: "inspector.error"; target: string; message: string }
+  // The knowledge library (adr/0129): the browse lists, and one search's hits.
+  | { type: "library"; sops: LibraryItem[]; cases: LibraryItem[] }
+  | { type: "library.results"; query: string; sops: LibraryItem[]; cases: LibraryItem[] }
   // The host finished handling a decision on this action (approve, reject,
   // re-request, reversal), whatever the outcome, after refreshing the record.
   | { type: "action.settled"; actionId: string }
@@ -183,9 +187,10 @@ export type InboundMessage =
   | { type: "queue.get" }
   // Start an investigation from a case row in the work queue (08 §8.3).
   | { type: "queue.start"; caseNumber: string }
-  // The Knowledge section's scoped search (09 §9.6): the sidecar runs it and
-  // the merged set comes back as a `knowledge` patch.
-  | { type: "knowledge.search"; text: string }
+  // The knowledge library (adr/0129): load it, search it, import into it.
+  | { type: "library.get" }
+  | { type: "library.search"; text: string }
+  | { type: "library.import" }
   // The lens and companion mode the analyst chose, mirrored to globalState so
   // the tree can deep-link (view state, never investigation state).
   | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }
@@ -196,7 +201,7 @@ export type InboundMessage =
   | { type: "seed.case"; caseNumber: string }
   // The analyst confirmed (and possibly edited) the case note (adr/0032).
   | { type: "caseNote.post"; body: string }
-  | { type: "send"; text: string; includedKnowledge?: string[] }
+  | { type: "send"; text: string }
   // Decisions name the action only; the host reads its tier and type from the record.
   | { type: "action.approve"; actionId: string; challenge?: string }
   | { type: "action.reject"; actionId: string; reason: string }

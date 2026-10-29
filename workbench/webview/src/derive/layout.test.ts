@@ -5,7 +5,6 @@ import synthetic from "../../../harness/snapshots/synthetic.json";
 import { defaultLens } from "./lens";
 import { buildMatrix } from "./matrix";
 import { concludePreflight, concludeAllowed, preflightClean } from "./preflight";
-import { knowledgeNudge } from "./knowledgeNudge";
 import { nearestExpiry, primaryAction, rowStep, stageOf } from "./stage";
 import { handoffNote, keyEntities, proceduresFollowed, stillToDo } from "./summary";
 import { groupTurns, recordLine } from "./turns";
@@ -100,15 +99,6 @@ describe("preflight", () => {
     const clean = concludePreflight({ verdict, pins: [{ interpretationId: "p", finding: "", inputRefs: [], actor: "HUMAN", pinnedAt: "", superseded: false }], actions: [A({ status: "SUCCEEDED" })], comms: noComms, openOwnerItems: 0 });
     expect(preflightClean(clean)).toBe(true);
     expect(concludeAllowed(concludePreflight({ verdict, pins: [], actions: [], comms: noComms, openOwnerItems: 0 }))).toBe(true); // the engine gates only the verdict
-  });
-});
-
-describe("knowledge nudge", () => {
-  it("counts what auto would include under opt_in and stays silent otherwise", () => {
-    expect(knowledgeNudge(snap.knowledge, "opt_in")?.text).toBe("1 procedure and 1 past case the auto posture would include are not included");
-    expect(knowledgeNudge(snap.knowledge.map((k) => ({ ...k, included: true })), "opt_in")).toBeNull();
-    expect(knowledgeNudge(snap.knowledge, "auto")).toBeNull();
-    expect(knowledgeNudge([{ ...snap.knowledge[1], band: "DISTINCT" }], "opt_in")).toBeNull();
   });
 });
 

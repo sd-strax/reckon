@@ -331,7 +331,6 @@
         }
       ]
     },
-    "knowledge": [],
     "derived": {
       "strip": [],
       "graph": {
@@ -341,5 +340,9 @@
     }
   },
   "labels": {},
-  "appearances": {}
+  "appearances": {},
+  "library": {
+    "sops": [],
+    "cases": []
+  }
 }
