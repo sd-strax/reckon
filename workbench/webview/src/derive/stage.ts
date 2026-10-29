@@ -18,6 +18,8 @@ export interface StageInputs {
   comms: CommsThread[];
   /** Gap §6.17: OPEN/SENT owner items; empty until the record carries them. */
   openOwnerItems: number;
+  /** Every hypothesis is decided (supported, refuted or abandoned) — the verdict is due. */
+  allDecided?: boolean;
 }
 
 export interface Stage {
@@ -88,6 +90,7 @@ export function rowStep(r: InvestigationSummary): Step | null {
 }
 
 export type PrimaryAction =
+  | { kind: "verdict" }
   | { kind: "review"; count: number }
   | { kind: "notify" }
   | { kind: "conclude" }
@@ -98,6 +101,9 @@ export function primaryAction(i: StageInputs, stage: Stage, preflightOk: boolean
   if (stage.current === null) return null;
   const pending = i.actions.filter((a) => a.pending && !a.expired).length;
   if (pending > 0) return { kind: "review", count: pending };
+  // The step's action sits beside the step (#142): once every hypothesis is
+  // decided, recording the verdict is what comes next.
+  if (stage.current === "investigate" && i.allDecided) return { kind: "verdict" };
   if (stage.current === "notify" && !i.actions.some(isNotify)) return { kind: "notify" };
   if (preflightOk && String(i.status).toUpperCase() !== "CONCLUDED") return { kind: "conclude" };
   return null;
