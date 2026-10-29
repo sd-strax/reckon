@@ -35,7 +35,7 @@ function ProvenanceTab({ doc }: { doc: EvidenceDoc }) {
       { k: "Class", v: doc.classUid ? `${doc.type} (${doc.classUid})` : doc.type, mono: true },
     ]} />;
   }
-  if (!prov) return <div className="empty">No capability provenance on this object (03 §4.13): it was not produced by a normalizer.</div>;
+  if (!prov) return <div className="empty">No query provenance: this object was not produced by a capability query.</div>;
   return <KV rows={[
     { k: "Observed via", v: prov.tool as string, mono: true },
     { k: "Normalizer", v: prov.normalizer ? `${prov.normalizer}${prov.normalizer_version ? " v" + prov.normalizer_version : ""}` : undefined, mono: true },

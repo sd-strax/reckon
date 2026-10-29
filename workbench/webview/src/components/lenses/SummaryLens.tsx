@@ -54,7 +54,7 @@ export function SummaryLens() {
 
       <section className="lsection">
         <h3>What happened</h3>
-        <Empty>No narrative has been drafted for this investigation yet (gap 00 §6.18). The thread and the Story lens hold the record.</Empty>
+        <Empty>No narrative yet — it is written when the investigation concludes. The Thread and the Story lens hold the record.</Empty>
       </section>
 
       <section className="lsection">
