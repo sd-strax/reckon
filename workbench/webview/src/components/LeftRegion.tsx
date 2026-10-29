@@ -52,6 +52,8 @@ export function LeftRegion() {
   const q = state.queue;
   const current = state.snap?.investigation.id;
   const investigations = orderQueue((q?.investigations || []).filter((r) => !["CONCLUDED", "ARCHIVED", "DISCARDED"].includes(String(r.state).toUpperCase())));
+  // Concluded investigations stay findable (#158): reopening one is how a case comes back.
+  const concluded = (q?.investigations || []).filter((r) => String(r.state).toUpperCase() === "CONCLUDED");
   const cases = q?.cases || [];
   return (
     <nav id="leftRegion" className={collapsed ? "collapsed" : ""} aria-label="Work queue">
@@ -75,6 +77,17 @@ export function LeftRegion() {
                 </div>
               );
             })}
+            {concluded.length ? (
+              <details className="concludedfold">
+                <summary>Concluded<span className="count">{concluded.length}</span></summary>
+                {concluded.map((r) => (
+                  <div key={r.id} className={"qrow concluded" + (r.id === current ? " current" : "")} onClick={() => { if (r.id !== current) send({ type: "investigation.open", id: r.id, title: r.title }); }} title={r.seedSummary || r.title}>
+                    <div className="qtitle">{r.title}</div>
+                    {r.seed?.type === "case" && r.seed.caseId ? <div className="qcase">from {r.seed.caseId}</div> : null}
+                  </div>
+                ))}
+              </details>
+            ) : null}
           </section>
           <section className="queue">
             <h2>Cases{q?.caseSource ? <span className="qsource"> · {q.caseSource}</span> : null}{q ? <span className="count">{cases.length}</span> : null}</h2>
@@ -85,7 +98,7 @@ export function LeftRegion() {
                 <button className="qstart" onClick={() => send({ type: "queue.start", caseNumber: c.number })}>Start investigation</button>
               </div>
             ))}
-            {q && cases.length ? <div className="imeta">Cases already under investigation are listed above, not here.</div> : null}
+            {q && cases.length ? <div className="imeta">Cases with an investigation — open or concluded — are listed above, not here.</div> : null}
           </section>
           <CapabilityHealth />
         </>
