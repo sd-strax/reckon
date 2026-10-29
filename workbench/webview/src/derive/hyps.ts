@@ -7,6 +7,11 @@ export const isLive = (h: Hypothesis): boolean => h.status === "PROPOSED" || h.s
 /** WITHDRAWN predictions are out of the count: a discarded test, not a gap. */
 export const counted = (p: Prediction): boolean => p.status !== "WITHDRAWN";
 export const tested = (p: Prediction): boolean => counted(p) && p.status !== "UNTESTED";
+/** Still to work on (#140): an untested or inconclusive prediction under a live
+ * hypothesis. Once the hypothesis is decided or abandoned nothing under it is
+ * outstanding. The one rule every surface uses. */
+export const outstanding = (p: Prediction, h: Hypothesis): boolean =>
+  isLive(h) && (p.status === "UNTESTED" || p.status === "INCONCLUSIVE");
 
 /** A hypothesis is referred to by its handle (01 §x-hypothesis); a handle-less
  * one by its position (H1, H2 …) so every hypothesis has a stable short name. */
