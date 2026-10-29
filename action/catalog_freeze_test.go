@@ -47,6 +47,26 @@ func TestDefaultActionCatalog_Frozen(t *testing.T) {
 		"notify.email": {"T2", "irreversible", "", ""},
 	}
 
+	// The human name and category every surface reads (#123): a ticket write is
+	// a case-record write, never containment; an inverse is recovery.
+	names := map[string][2]string{
+		"host.isolate":      {"Isolate host", "containment"},
+		"host.unisolate":    {"Restore host network access", "recovery"},
+		"account.disable":   {"Disable account", "containment"},
+		"account.enable":    {"Re-enable account", "recovery"},
+		"email.quarantine":  {"Quarantine email", "containment"},
+		"email.release":     {"Release email from quarantine", "recovery"},
+		"email.purge":       {"Purge email from mailboxes", "eradication"},
+		"ioc.block":         {"Block indicator", "containment"},
+		"ioc.unblock":       {"Unblock indicator", "recovery"},
+		"ticket.create":     {"Open a ticket", "case_record"},
+		"ticket.comment":    {"Comment on a ticket", "case_record"},
+		"ticket.transition": {"Move a ticket to another state", "case_record"},
+		"ticket.close":      {"Close a ticket", "case_record"},
+		"notify.slack":      {"Post to a Slack channel", "notification"},
+		"notify.email":      {"Send an email", "notification"},
+	}
+
 	cat := DefaultActionCatalog()
 	got := cat.ActionTypes()
 	if len(got) != len(golden) {
@@ -73,6 +93,9 @@ func TestDefaultActionCatalog_Frozen(t *testing.T) {
 		}
 		if d.Intent == "" {
 			t.Errorf("%s: intent is empty — the agent-facing description must exist", at)
+		}
+		if n := names[at]; d.Name != n[0] || d.Category != n[1] {
+			t.Errorf("%s: name/category = %q/%q; frozen %q/%q", at, d.Name, d.Category, n[0], n[1])
 		}
 	}
 

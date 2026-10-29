@@ -426,6 +426,9 @@ export interface ActionRow {
   tierEscalated: boolean;
   /** Cited evidence — each ref opens (02 §2.8). */
   evidenceRefs: string[];
+  /** The catalog's human name ("Isolate host") and category (#123). */
+  name?: string;
+  category?: string;
   /** Lineage: the FAILED/EXPIRED action this request replaces. */
   retryOf?: string;
   /** Lineage: the action this one reverses (set when isReversal). */

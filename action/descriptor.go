@@ -46,7 +46,24 @@ type ActionDescriptor struct {
 	// targets, at the SAME tier (reversing is never lower-tier than the original).
 	ReversibleBy string `json:"reversible_by,omitempty"`
 	D3FEND       string `json:"d3fend,omitempty"`
+	// Name is the short human name a surface titles the action by ("Isolate
+	// host"); the action_type stays the machine id (#123).
+	Name string `json:"name"`
+	// Category is what the action does to the incident, so a surface groups it
+	// without guessing from the id: containment | eradication | recovery |
+	// notification | case_record (a write to the system of record, never
+	// containment) (#123).
+	Category string `json:"category"`
 }
+
+// The action categories (#123).
+const (
+	CategoryContainment  = "containment"
+	CategoryEradication  = "eradication"
+	CategoryRecovery     = "recovery"
+	CategoryNotification = "notification"
+	CategoryCaseRecord   = "case_record"
+)
 
 // ReliablyReversible reports whether a fully-successful dispatch of this
 // action's inverse may mark it REVERSED (04 §7.1 Position C). Only the
@@ -103,6 +120,8 @@ func DefaultActionCatalog() *ActionCatalog {
 	for _, d := range []ActionDescriptor{
 		{
 			ActionType:    "host.isolate",
+			Name:          "Isolate host",
+			Category:      CategoryContainment,
 			Intent:        "Network-isolate a host, cutting it off from everything but reckon's control channel. Reversible.",
 			Inputs:        []capability.InputParam{{Name: "host", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2,
@@ -112,6 +131,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "host.unisolate",
+			Name:          "Restore host network access",
+			Category:      CategoryRecovery,
 			Intent:        "Restore a host's network connectivity — the inverse of host.isolate.",
 			Inputs:        []capability.InputParam{{Name: "host", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2, // reversing is the same tier as the original (04 §7)
@@ -121,6 +142,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "account.disable",
+			Name:          "Disable account",
+			Category:      CategoryContainment,
 			Intent:        "Disable a user account, blocking new sessions until re-enabled. Reversible (account.enable); already-established sessions need session revocation separately.",
 			Inputs:        []capability.InputParam{{Name: "account", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2,
@@ -130,6 +153,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "account.enable",
+			Name:          "Re-enable account",
+			Category:      CategoryRecovery,
 			Intent:        "Re-enable a disabled user account — the inverse of account.disable. Use to retract over-containment once the account is cleared.",
 			Inputs:        []capability.InputParam{{Name: "account", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2, // reversing is the same tier as the original (04 §7)
@@ -139,6 +164,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "email.quarantine",
+			Name:          "Quarantine email",
+			Category:      CategoryContainment,
 			Intent:        "Quarantine a single message from a mailbox. Reversible (release).",
 			Inputs:        []capability.InputParam{{Name: "message", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2,
@@ -148,6 +175,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "email.release",
+			Name:          "Release email from quarantine",
+			Category:      CategoryRecovery,
 			Intent:        "Release a quarantined message back to its mailbox — the inverse of email.quarantine.",
 			Inputs:        []capability.InputParam{{Name: "message", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2,
@@ -157,6 +186,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "email.purge",
+			Name:          "Purge email from mailboxes",
+			Category:      CategoryEradication,
 			Intent:        "Permanently delete a message from mailboxes. IRREVERSIBLE.",
 			Inputs:        []capability.InputParam{{Name: "message", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT3,
@@ -165,6 +196,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:  "ioc.block",
+			Name:        "Block indicator",
+			Category:    CategoryContainment,
 			Intent:      "Block an IOC (hash/IP/domain) at the perimeter — firewall/proxy/DNS denylist. Use this to block a malicious IP, domain, or file hash. Reversible by ioc.unblock, but best-effort: whether removal fully undoes the block depends on the tenant's tooling (TTL lists, propagated RPZ, partner feeds).",
 			Inputs:      []capability.InputParam{{Name: "indicator", Type: "entity", Required: true}},
 			DefaultTier: aggregate.TierT2,
@@ -179,6 +212,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "ioc.unblock",
+			Name:          "Unblock indicator",
+			Category:      CategoryRecovery,
 			Intent:        "Remove an IOC (hash/IP/domain) from the perimeter denylist — the inverse of ioc.block. Best-effort: whether removal fully undoes propagation depends on the tenant's tooling.",
 			Inputs:        []capability.InputParam{{Name: "indicator", Type: "entity", Required: true}},
 			DefaultTier:   aggregate.TierT2, // reversing is the same tier as the original (04 §7)
@@ -195,6 +230,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		// (operational handoff, not a defensive technique).
 		{
 			ActionType: "ticket.create",
+			Name:       "Open a ticket",
+			Category:   CategoryCaseRecord,
 			Intent:     "Open a ticket/incident in the org's system of record (Jira, ServiceNow, Linear) — the operational-handoff vehicle. Target the DESTINATION project/queue (resolved_identifier = project key or assignment group); put the entities the ticket concerns in evidence_refs, NOT targets. Irreversible: the record is permanent; closing later is a forward transition (ticket.close), not an undo.",
 			Inputs: []capability.InputParam{
 				{Name: "summary", Type: "string", Required: true},
@@ -207,6 +244,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "ticket.comment",
+			Name:          "Comment on a ticket",
+			Category:      CategoryCaseRecord,
 			Intent:        "Add a comment to an existing ticket. Target the ticket (resolved_identifier = ticket id). Irreversible: comments are part of the permanent record.",
 			Inputs:        []capability.InputParam{{Name: "body", Type: "string", Required: true}},
 			DefaultTier:   aggregate.TierT2,
@@ -214,6 +253,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "ticket.transition",
+			Name:          "Move a ticket to another state",
+			Category:      CategoryCaseRecord,
 			Intent:        "Move an existing ticket to another workflow state (e.g. In Progress, Blocked). Target the ticket (resolved_identifier = ticket id). Irreversible: the state history is permanent; moving back is another forward transition.",
 			Inputs:        []capability.InputParam{{Name: "to_status", Type: "string", Required: true}},
 			DefaultTier:   aggregate.TierT2,
@@ -221,6 +262,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType:    "ticket.close",
+			Name:          "Close a ticket",
+			Category:      CategoryCaseRecord,
 			Intent:        "Close an existing ticket — a forward transition, NOT a reversal of ticket.create (the record stays). Target the ticket (resolved_identifier = ticket id).",
 			Inputs:        []capability.InputParam{{Name: "resolution", Type: "string"}},
 			DefaultTier:   aggregate.TierT2,
@@ -236,6 +279,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		// comms thread; the thread state itself lives in the comms package.
 		{
 			ActionType: "notify.slack",
+			Name:       "Post to a Slack channel",
+			Category:   CategoryNotification,
 			Intent:     "Send a Slack message from the investigation — coordination, hand-offs, notifications. Target the DESTINATION (resolved_identifier = #channel or @user). The analyst previews and approves before anything is sent; the message becomes a tracked comms thread with follow-up. Irreversible: a sent message is permanent.",
 			Inputs: []capability.InputParam{
 				{Name: "message", Type: "string", Required: true},
@@ -248,6 +293,8 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 		{
 			ActionType: "notify.email",
+			Name:       "Send an email",
+			Category:   CategoryNotification,
 			Intent:     "Send an email from the investigation — notifications with a formal record (compliance, management, external parties). Target the recipient (resolved_identifier = address). The analyst previews and approves before anything is sent; the message becomes a tracked comms thread with follow-up. Irreversible: a sent email is permanent.",
 			Inputs: []capability.InputParam{
 				{Name: "subject", Type: "string", Required: true},

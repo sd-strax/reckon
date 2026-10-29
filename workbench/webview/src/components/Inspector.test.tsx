@@ -126,7 +126,7 @@ describe("the inspector", () => {
   it("renders an action's record: history with actors, authorization, targets with results", () => {
     mount();
     fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
-    fireEvent.click(within(lens()).getAllByTitle("Open the action record").find((a) => a.textContent === "host.isolate")!);
+    fireEvent.click(within(lens()).getAllByTitle(/^Open the action record/).find((a) => a.textContent === "host.isolate")!);
     const p = pane();
     expect(within(p).getByText("Action")).toBeTruthy();
     expect(within(p).getByText(/approved by Analyst One/)).toBeTruthy();

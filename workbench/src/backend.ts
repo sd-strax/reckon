@@ -1212,6 +1212,8 @@ interface RawAction {
   reversibility?: string;
   tier_escalated?: boolean;
   evidence_refs?: string[];
+  name?: string;
+  category?: string;
   retry_of?: string;
   reversal_of_ref?: string;
   requesting_interpretation_id?: string;
@@ -1253,6 +1255,8 @@ function mapAction(a: RawAction): ActionRow {
     reversibility: a.reversibility ? a.reversibility.toUpperCase() : undefined,
     tierEscalated: a.tier_escalated ?? false,
     evidenceRefs: a.evidence_refs ?? [],
+    name: a.name || undefined,
+    category: a.category || undefined,
     retryOf: a.retry_of,
     reversalOfRef: a.reversal_of_ref,
     requestingInterpretationId: a.requesting_interpretation_id,
