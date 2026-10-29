@@ -1,10 +1,12 @@
 // The lens area (08 §8.4): one lens at a time behind four tabs with their
 // counts; the knowledge nudge (09 §9.6) heads the Reasoning and Response
 // lenses, beside the ⚡ buttons and the plan, and never includes anything.
+import { useEffect } from "react";
 import { useApp } from "../app";
 import { LENSES, LENS_LABELS } from "../derive/lens";
 import { isLive } from "../derive/hyps";
 import { knowledgeNudge } from "../derive/knowledgeNudge";
+import { firstStep, isFresh } from "../derive/firstStep";
 import { ReasoningLens } from "./lenses/ReasoningLens";
 import { ResponseLens } from "./lenses/ResponseLens";
 import { StoryLens } from "./lenses/StoryLens";
@@ -19,6 +21,26 @@ function KnowledgeNudge() {
     <div className="nudge" role="note">
       <span className="dot" aria-hidden="true" />
       {nudge.text} · <a onClick={() => document.getElementById("knowledgeSection")?.scrollIntoView({ block: "start" })}>Review</a>
+    </div>
+  );
+}
+
+/** The first step of a new investigation (#160): what it is rooted on and a
+ * request staged in the composer — sent only when the analyst sends it. */
+function FirstStep() {
+  const { state, stage, setCompanionMode } = useApp();
+  const fresh = isFresh(state.snap);
+  const id = state.snap?.investigation.id;
+  // Opening a new investigation lands on the conversation, where it starts.
+  useEffect(() => { if (fresh) setCompanionMode("conversation"); }, [fresh, id, setCompanionMode]);
+  if (!state.snap || !fresh) return null;
+  const step = firstStep(state.snap);
+  return (
+    <div className="card firststep" role="note">
+      <div className="kicker">New investigation</div>
+      <p>Rooted on <strong>{step.rootedOn}</strong>. Nothing has happened in it yet — start in the conversation.</p>
+      <button className="primary" onClick={() => { setCompanionMode("conversation"); stage(step.ask); }}>Start investigating…</button>
+      <div className="imeta">Puts a first request in the composer for you to edit and send.</div>
     </div>
   );
 }
@@ -39,6 +61,7 @@ export function LensArea() {
       </div>
       <div className="lensscroll">
         {state.error ? <div id="banner">Could not load: {state.error}</div> : null}
+        <FirstStep />
         {(lens === "reasoning" || lens === "response") ? <KnowledgeNudge /> : null}
         {!state.snap ? null : lens === "summary" ? <SummaryLens /> : lens === "story" ? <StoryLens /> : lens === "reasoning" ? <ReasoningLens /> : <ResponseLens />}
       </div>
