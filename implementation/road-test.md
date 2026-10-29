@@ -30,25 +30,28 @@ change needs only **Developer: Reload Window**.
 
 One investigation panel, four regions:
 
-- **Header** — the title (double-click to rename), the stage strip
-  (Investigate · Verdict · Contain · Notify · Close — progress, not buttons),
-  **Verdict…**, and the lifecycle buttons (**Pause** / **Resume**,
-  **Conclude…**, **Reopen…**, **Archive…**).
-- **Left region** — **Investigations** (yours, in progress), **Cases** (the case
-  system's queue, with **Start investigation**), and the **Capabilities** fold
-  (what the tenant can query, with **Enable…** forms).
+- **Header** — the title (double-click to rename), the **Progress** strip
+  (Investigate · Verdict · Contain · Notify · Close) with the next step's
+  action beside it, **Verdict…**, and the lifecycle buttons (**Discard
+  draft…** on a draft, **Pause** / **Resume**, **Conclude…**, **Reopen…**,
+  **Archive…**).
+- **Left region** — **Investigations** (yours, in progress, with **＋** to start
+  one; concluded ones under a **Concluded** fold), **Cases** (the case
+  system's queue, with **Start investigation** — a case already investigated
+  opens its investigation), and the **Capabilities** fold.
 - **Lenses** — four views over the same record:
   - **Summary** — verdict, containment, notification, what happened, key
     entities, still to do, procedures followed; **Copy handoff note**,
     **Export report**.
-  - **Story** — attack path, ATT&CK, the event-time timeline, the evidence
-    graph, not yet known.
+  - **Story** — the evidence graph, ATT&CK, the event-time timeline, not yet
+    known.
   - **Reasoning** — the verdict-basis line, the hypothesis cards with their
     predictions, **Pinned evidence**.
-  - **Response** — the actions grouped by kind, and the comms threads.
+  - **Response** — what is **Waiting on you** first, anything **Set aside**,
+    then the actions grouped by category, and the conversations with others.
 - **Companion** (right, resizable from its left edge) — **Conversation** (the
   agent chat and composer) or **Thread** (the whole record in order, every act
-  as a line), plus the **Knowledge** section.
+  as a line), plus the **Library** of procedures and past cases.
 
 Clicking any chip, card title or act line opens an **inspector** pane over the
 lens (evidence, procedure, turn, action, comms thread, past case); **‹ back**
@@ -58,11 +61,11 @@ walks the stack.
 
 ## 1. Seed + investigate — this populates the analytical surfaces
 
-**reckon: New investigation** (`Ctrl/Cmd+Shift+I`, Command Palette only for
-now — *known: #162*) → type **`WIN-FILE01`** → confirm the live hint reads
-*"→ investigate host WIN-FILE01"* → **Start investigation**. The new draft
-opens on an empty Summary *(known: #160)*: switch the companion to
-**Conversation** and start there.
+**＋** on the Investigations header (or **reckon: New investigation**,
+`Ctrl/Cmd+Shift+I`) → type **`WIN-FILE01`** → confirm the live hint reads
+*"→ investigate host WIN-FILE01"* → **Start investigation**. A typo
+("WIN-FILE)1") is refused. The new draft opens on its first step:
+**Start investigating…** puts a request in the composer, or type your own:
 
 > *"Investigate WIN-FILE01 for signs of compromise — what happened on this host?
 > Pull the process, logon, and network telemetry and tell me if this looks like
@@ -76,21 +79,24 @@ flow, the detection), describes what it found, and **proposes a competing set**
 tool-result rows in the conversation carry evidence chips and a **📌 Pin**.
 
 Read the answer as an analyst would: does it lead with the finding, cite each
-claim, say what it could not check, and keep hypotheses as proposals? *(known:
-#137 — shape, scoping before framing, "a connection is not exfiltration";
-#136 — rendering)*. It should notice **both** RDP logons (jdoe at 14:32:11,
-svc_backup at 14:32:47).
+claim, say what it could not check, and keep hypotheses as proposals? Evidence
+ids in its prose are chips; what it said on the way folds into the turn's
+Activity. *(known: #137 — the answer's shape, scoping before framing, "a
+connection is not exfiltration" — the governed prompt change.)* It should
+notice **both** RDP logons (jdoe at 14:32:11, svc_backup at 14:32:47).
 
-Ask **"have we seen this before?"** only *after* telemetry: similar-case recall
-compares behaviour, and a bare host name has none. On a fresh demo there is one
-seeded prior case; after a concluded run on this host there should be two
-*(known: #163 — no exact by-entity lookup; an over-filtered recall reads as
-"not seen before")*.
+Ask **"have we investigated WIN-FILE01 before?"** at any point: the agent's
+`prior_investigations` lookup finds concluded cases by the entities they
+involved. Ask **"have we seen this pattern before?"** *after* telemetry:
+similarity compares behaviour. Knowledge reaches the agent only through these
+recalls — the Library is to browse; **Ask reckon to use this** on an item
+stages the request.
 
 > **On activation (no button).** A fresh investigation starts as a **Draft**.
 > Reasoning, hypotheses, pins and the verdict are all allowed in draft. It
 > **activates automatically** when you approve its first action (step 4).
-> A draft started by mistake cannot be discarded yet *(known: #161)*.
+> A draft started by mistake can be discarded (**Discard draft…**, with a
+> reason); it leaves the queue and nothing is deleted.
 
 ## 2. Drive the hypothesis loop
 
@@ -109,8 +115,9 @@ Work the cards in the **Reasoning** lens:
   test that comes out the same under both (a status, never a deletion).
 - **A person tests this** — a prediction only a human can answer (the account
   owner confirms the session; choose this when adding the prediction) is
-  closed with **Record result** and an attestation (who, how). The agent
-  proposes such tests but never records them.
+  closed with **Record result** and an attestation (who, how, and optionally
+  where it happened — a link, ticket or message id, or only its fingerprint).
+  The agent proposes such tests but never records them.
 - **⚡ Run tests** / **⚡ Test this** → outcomes recorded citing evidence. The
   baseline query (user-rooted, 30-day window) → `CONFIRMED`; the change-record
   lookup → COMPLETE, zero cases → `DISCONFIRMED` for H2.
@@ -122,21 +129,21 @@ Work the cards in the **Reasoning** lens:
   REFUTED**, **H1 SUPPORTED**.
 
 **Expect:** the cards and the Summary's **Still to do** agree on what is
-outstanding *(known: #140)*; act lines in the Thread say what each act was
-*(known: #138, #153)*.
+outstanding (inconclusive reads `~`, untested `?`); act lines in the Thread say
+what each act was, in words. A pin offers **Request action on this…** for when
+the agent cannot act.
 
 ## 3. Verdict — grounded in the pins
 
-**Verdict…** (header, top right — not the stage strip, *known: #142*) → the
-dialog shows the pin gate and the residual *(known: #143)* → **MALICIOUS** →
-rationale → **Record verdict**.
+**Record verdict…** beside the Progress strip once every hypothesis is decided
+(or **Verdict…** at the top right) → the dialog shows the pin gate and what
+this verdict does not cover → **MALICIOUS** → rationale → **Record verdict**.
 
 **Expect:** the Summary's Verdict tile updates; a ⚖ line in the Thread.
 
-*Verdict revision:* record a second verdict. **Expect:** the earlier ⚖ line is
-struck and tagged SUPERSEDED in the Thread, and only the new one counts.
-*(known: #155 — the replaced verdict is dim, far up the Thread, and the line
-omits the disposition)*
+*Verdict revision:* record a second verdict. **Expect:** both ⚖ lines stand out
+in the Thread with their dispositions, linked ("replaced at …" / "replaces the
+… verdict"), and the Summary's verdict tile says it replaced an earlier one.
 
 ## 4. Remediate — evidence precedes action
 
@@ -151,11 +158,13 @@ each grounded (an action without cited evidence is refused by the engine):
 
 - `host.isolate` → WIN-FILE01, REVERSIBLE
 - `ioc.block` → the C2 indicator, BEST_EFFORT
-- `account.disable` → CONTOSO\svc_backup, REVERSIBLE (any other account fails
-  in the demo, *known: #149*)
+- `account.disable` → CONTOSO\svc_backup (or jdoe), REVERSIBLE
 - `notify.slack` → **Approve · Send**: the message text is the approval surface
-  *(known: #124, #127 — not every card shows what it will write; no edit
-  before approve)*
+
+Every open card shows **Will do** — what it will write or change — and a
+message or ticket write can be changed with **Edit…** before approving (the
+record keeps what it said before). **Decide later** sets a card aside until its
+window closes.
 
 Approve them. **Expect:** the first approval **activates** the investigation;
 dispatches succeed; each card shows SUCCEEDED; the notify opens a comms thread
@@ -165,16 +174,16 @@ under **Response** (`#itops`, awaiting reply, 48h clock).
 
 On the succeeded **host.isolate · WIN-FILE01** card → **Reverse…** → reason →
 a **host.unisolate** card at the same tier → approve. **Expect:** the original
-shows **REVERSED**. Reverse is offered only on REVERSIBLE actions *(known:
-#151 — none for BEST_EFFORT `ioc.block`)*, and stays offered after a reversal
-was requested *(known: #152)*.
+shows **REVERSED**. On `ioc.block` it reads **Reverse (best effort)…**: the
+original stays SUCCEEDED, marked reversal attempted. Once a reversal is
+requested the original shows it instead of the button.
 
 ### 4b. Expiry and re-request
 
 Leave a pending card alone past its window (30 minutes). **Expect:** it shows
 **EXPIRED** with **↻ Re-request…**; re-requesting creates a new card marked
-"↻ retry of …". Approve or reject it. *(known: #152 — the original keeps
-offering Re-request; repeated retries can send the same message twice)*
+"↻ retry of …"; the original then shows "↻ re-requested as …" in place of the
+button. Each action can be re-requested once.
 
 ### 4c. Comms round-trip
 
@@ -191,26 +200,26 @@ curl -s http://localhost:8080/api/comms/inbound \
 ```
 
 **Refresh** (live updates are not wired). **Expect:** the thread shows
-`replied` → **Acknowledge** → **Snooze 24h** → **Mark done**. (**Follow up…** is
-refused today, *known: #150*.)
+`replied` → **Acknowledge** → **Snooze 24h** → **Follow up…** (a new message
+on the same thread, approved like any) → **Mark done**.
 
 ## 5. Conclude
 
 **Conclude…** → the helper shows the verdict it consumes and warns about open
 comms threads. **Expect:** status → CONCLUDED.
 
-Concluding drafts a candidate SOP in the background; **don't reload the window
-for a minute** after concluding, or the draft is lost silently *(known: #156 —
-to become an explicit step; #157)*. If one is warranted, an editable draft
-opens with **Add to SOP library** / **Discard**.
+The Summary of the concluded case shows whether its knowledge summary's
+narrative was written. **Draft SOP from this case** asks reckon for a reusable
+procedure: a decline says why (**Draft anyway**); a draft opens beside the
+panel, editable, with **Add to SOP library** / **Discard** on the panel.
 
 **Export report** (Summary lens) → the report opens rendered beside the panel;
 **Save report…** writes it where you choose. Read it as the ticket attachment
 it would be.
 
 **Reopen…** a concluded investigation with a reason → ACTIVE again; the earlier
-conclusion stays in the Thread. Concluded investigations leave the
-Investigations list *(known: #158)*.
+conclusion stays in the Thread. Concluded investigations stay findable under
+**Concluded** in the left region.
 
 ---
 
@@ -224,12 +233,12 @@ Investigations list *(known: #158)*.
   click away.
 - **Story → Timeline:** the two-clocks view — the decisive fact is the gap
   between the two RDP logons, in *event* time. **Story → evidence graph:** the
-  two-layer structure, ungrounded reasoning flagged. *(known: #141 — both can
-  come up empty when the thread cites evidence only indirectly)*
-- **Response:** every action with its status, grouped by kind, newest first
-  *(known: #123, #125)*.
-- **Knowledge** (companion): the SOPs and past cases; **Search**; *Import SOPs…*
-  is still a command *(known: #128, #129–#132)*.
+  two-layer structure, every citing record's evidence, ungrounded reasoning
+  flagged.
+- **Response:** decisions first, then every action by category, newest first.
+- **Library** (companion): procedures and past cases as separate lists;
+  **Search** (relevance in words) with **Clear**; **Import procedures…**; a
+  procedure's inspector shows only what the agent actually read here.
 - **Capabilities** (left): an unavailable integration → **Enable…** → a form
   from the integration's schema → apply; the capability surface updates
   without a restart.
@@ -240,8 +249,11 @@ Investigations list *(known: #158)*.
 **Not reachable in the demo:** T3 approval with a typed challenge, two-party
 approval and policy auto-approval need a policy file under
 `capability.policy_dir` (see `examples/policies/`) and a restart; only
-`email.purge` defaults to T3. A filtered telemetry question never comes back
-empty, so a cited absence cannot be exercised *(known: #164)*.
+`email.purge` defaults to T3.
+
+A **cited absence**: ask *"did svc_backup log on to any host after 14:33Z on
+Apr 20?"* — the answer is a complete, empty search the agent cites as "nothing
+found".
 
 ---
 
