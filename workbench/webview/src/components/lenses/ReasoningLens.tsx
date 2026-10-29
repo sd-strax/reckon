@@ -4,23 +4,37 @@
 // for pins).
 import { useState } from "react";
 import { useApp } from "../../app";
-import { badgeTone, blockersOf, counted, hypName, isLive, orderHypotheses, tested } from "../../derive/hyps";
+import { badgeTone, blockersOf, counted, hypName, hypWords, isLive, orderHypotheses, outstanding, predWords, tested } from "../../derive/hyps";
 import { buildMatrix } from "../../derive/matrix";
 import { HypothesisCard } from "../Hypotheses";
 import { Badge, Empty, RefChip, fmtDateTime } from "../shared";
 
+/** The basis a verdict would rest on (#138), stated as it is: which hypotheses
+ * are decided, which are not, and what is still to test — in words, one item
+ * per hypothesis, with no "basis" claimed while nothing is decided. */
 function VerdictBasis() {
   const { state, openInspector } = useApp();
   const hs = state.snap?.hypotheses || [];
   const live = hs.filter((h) => h.status !== "ABANDONED");
-  const open = live.flatMap((h) => h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
+  const open = live.flatMap((h) => h.predictions.filter((p) => outstanding(p, h)).map((p) => ({ h, p })));
   const blocked = live.some((h) => blockersOf(h, hs).length > 0);
   if (!hs.length) return null;
+  const decided = live.filter((h) => h.status === "SUPPORTED" || h.status === "REFUTED");
   return (
     <div className="basis">
-      <span className="kicker">Verdict basis</span>
-      {live.map((h) => <span key={h.id} className="basisitem"><a className="hyphandle" onClick={() => openInspector({ kind: "ref", ref: h.id })}>{hypName(h, hs)}</a> <Badge tone={badgeTone(h.status)}>{h.status}</Badge></span>)}
-      <span className="imeta">Open: {open.length ? open.map(({ p }) => `P${p.ordinal ?? "?"} ${p.status.toLowerCase()}`).join(", ") : "none"} · {blocked ? "a discriminator is untested" : "all discriminators tested"}</span>
+      <span className="kicker">{decided.length ? "Verdict basis" : "No verdict basis yet — no hypothesis is decided"}</span>
+      <ul className="basislist">
+        {live.map((h) => (
+          <li key={h.id} className="basisitem">
+            hypothesis <a className="hyphandle" title={hypName(h, hs)} onClick={() => openInspector({ kind: "ref", ref: h.id })}>{hypWords(h, hs)}</a>{" "}
+            <Badge tone={badgeTone(h.status)}>{h.status.toLowerCase()}</Badge>
+          </li>
+        ))}
+      </ul>
+      <span className="imeta">
+        {open.length ? <>Still to test: {open.map(({ p }) => predWords(p)).join(", ")}</> : "Nothing left to test"}
+        {" · "}{blocked ? "a test that tells two hypotheses apart is still untested" : "every test that tells hypotheses apart is done"}
+      </span>
     </div>
   );
 }

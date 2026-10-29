@@ -1214,6 +1214,7 @@ interface RawAction {
   evidence_refs?: string[];
   retry_of?: string;
   reversal_of_ref?: string;
+  requesting_interpretation_id?: string;
   adapter?: string;
   planned_adapter?: string;
   error_detail?: string;
@@ -1254,6 +1255,7 @@ function mapAction(a: RawAction): ActionRow {
     evidenceRefs: a.evidence_refs ?? [],
     retryOf: a.retry_of,
     reversalOfRef: a.reversal_of_ref,
+    requestingInterpretationId: a.requesting_interpretation_id,
     adapter: a.adapter,
     plannedAdapter: a.planned_adapter,
     errorDetail: a.error_detail,

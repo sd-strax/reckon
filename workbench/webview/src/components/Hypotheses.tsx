@@ -7,7 +7,7 @@
 // against, the Pinned marker and the row's affordances.
 import { useState } from "react";
 import { useApp } from "../app";
-import { blockersOf, badgeTone, counted, hypName, isLive, nameOf, predName, rivalsOf, tested } from "../derive/hyps";
+import { blockersOf, badgeTone, counted, hypName, isLive, nameOf, predName, rivalsOf, shortTitle, tested } from "../derive/hyps";
 import { Badge, RefChip } from "./shared";
 import { pinSpec, type PromptExtra, type PromptSpec } from "./PromptCard";
 import type { CommsThread, Hypothesis, PinRow, Prediction } from "../../../src/viewTypes";
@@ -59,13 +59,6 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
   };
 }
 
-/** The short title (gap §6.12): the statement up to its first clause boundary, clipped. */
-export function shortTitle(p: Prediction): string {
-  const s = p.statement.trim();
-  const cut = s.search(/[,;:—–]| — | - /);
-  const head = cut > 24 ? s.slice(0, cut) : s;
-  return head.length > 72 ? head.slice(0, 71) + "…" : head;
-}
 
 const GLYPH: Record<string, { g: string; word: string; tone: string }> = {
   CONFIRMED: { g: "✓", word: "confirmed", tone: "ok" },

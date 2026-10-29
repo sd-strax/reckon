@@ -14,16 +14,18 @@ import (
 // targets, and where it sits in the lifecycle. Drives the action review queue
 // (a REQUESTED/PENDING_SECONDARY row is a pending approval) and the audit view.
 type ActionCurrent struct {
-	ActionID          uuid.UUID
-	AggregateID       AggregateID
-	ActionType        string
-	Tier              string
-	Status            string
-	Mode              string    // empty until approved
-	PrimaryApprover   string    // empty until approved
-	PrimaryApprovedAt time.Time // when the primary approval was recorded; zero until approved
-	IsReversal        bool
-	ReversalOfRef     uuid.UUID // set for reversals; drives the ReversalSaga
+	ActionID uuid.UUID
+	// RequestingInterpretationID is the act that requested the action (#153).
+	RequestingInterpretationID uuid.UUID
+	AggregateID                AggregateID
+	ActionType                 string
+	Tier                       string
+	Status                     string
+	Mode                       string    // empty until approved
+	PrimaryApprover            string    // empty until approved
+	PrimaryApprovedAt          time.Time // when the primary approval was recorded; zero until approved
+	IsReversal                 bool
+	ReversalOfRef              uuid.UUID // set for reversals; drives the ReversalSaga
 	// Reversibility is the classification frozen at request time (04 §7:
 	// reversible | best_effort | irreversible); empty for actions requested
 	// before it was frozen (callers fall back to the live catalog).
@@ -42,8 +44,8 @@ type ActionCurrent struct {
 	// EvidenceRefs are the STIX/OCSF refs that grounded the request (08 §2),
 	// surfaced from the ActionRequested event so the actions API (and the eval
 	// harness's G1 grader) can read grounding without walking the event log.
-	EvidenceRefs      []string
-	ExpiresAt         time.Time // approval deadline frozen at request time; zero = none
+	EvidenceRefs []string
+	ExpiresAt    time.Time // approval deadline frozen at request time; zero = none
 	// RetryOf is the prior FAILED/EXPIRED action this one replaces — lineage
 	// only (a retry is always a new action; the dispatch ledger forbids
 	// re-dispatching one id). Zero when not a retry.
@@ -105,12 +107,12 @@ func (ActionCurrentProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 				action_id, aggregate_id, tenant_id, action_type, tier, status,
 				is_reversal, reversal_of_ref, retry_of, reversibility, required_mode,
 				secondary_approver_pool, parameters, targets, evidence_refs, expires_at,
-				created_at, updated_at, last_event_sequence
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, $18)
+				created_at, updated_at, last_event_sequence, requesting_interpretation_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, $18, $19)
 			ON CONFLICT (action_id) DO NOTHING
 		`, p.ActionID, evt.AggregateID, evt.TenantID, p.ActionType, p.Tier, ActionStatusRequested,
 			p.IsReversal, nullUUID(p.ReversalOfRef), nullUUID(p.RetryOf), nullString(p.Reversibility), nullString(p.RequiredMode),
-			pool, params, targets, evidence, nullTime(p.ExpiresAt), evt.OccurredAt, evt.SequenceNo)
+			pool, params, targets, evidence, nullTime(p.ExpiresAt), evt.OccurredAt, evt.SequenceNo, nullUUID(p.RequestingInterpretationID))
 		if err != nil {
 			return fmt.Errorf("insert action_current: %w", err)
 		}
@@ -275,24 +277,25 @@ const actionCurrentColumns = `action_id, aggregate_id, action_type, tier, status
 	       primary_approver_ref, primary_approved_at, is_reversal, reversal_of_ref, retry_of,
 	       reversibility, reversed_by_ref, reversal_attempted_by_ref,
 	       required_mode, secondary_approver_pool, parameters, targets, evidence_refs,
-	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence`
+	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence, requesting_interpretation_id`
 
 // scanActionCurrent decodes one actionCurrentColumns row (sql.Row or sql.Rows).
 func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
 	var a ActionCurrent
 	var mode, approver, requiredMode, reversibility sql.NullString
 	var primaryAt, expiresAt sql.NullTime
-	var reversalOf, retryOf, reversedBy, attemptedBy uuid.NullUUID
+	var reversalOf, retryOf, reversedBy, attemptedBy, requesting uuid.NullUUID
 	var targets, pool, params, evidence []byte
 	err := scan(&a.ActionID, &a.AggregateID, &a.ActionType, &a.Tier, &a.Status,
 		&mode, &approver, &primaryAt, &a.IsReversal, &reversalOf, &retryOf,
 		&reversibility, &reversedBy, &attemptedBy,
 		&requiredMode, &pool, &params, &targets, &evidence, &expiresAt,
-		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence)
+		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence, &requesting)
 	if err != nil {
 		return ActionCurrent{}, err
 	}
 	a.Mode = mode.String
+	a.RequestingInterpretationID = requesting.UUID
 	a.PrimaryApprover = approver.String
 	a.PrimaryApprovedAt = primaryAt.Time
 	a.ExpiresAt = expiresAt.Time

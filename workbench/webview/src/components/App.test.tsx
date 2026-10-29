@@ -63,8 +63,8 @@ describe("the investigation document", () => {
 
   it("Reasoning: verdict basis, one-line prediction rows that expand, the matrix, the pinned fold", () => {
     mount();
-    expect(within(lens()).getByText("Verdict basis")).toBeTruthy();
-    expect(within(lens()).getByText(/all discriminators tested|a discriminator is untested/)).toBeTruthy();
+    expect(within(lens()).getByText(/^Verdict basis$|^No verdict basis yet — no hypothesis is decided$/)).toBeTruthy();
+    expect(within(lens()).getByText(/every test that tells hypotheses apart is done|a test that tells two hypotheses apart is still untested/)).toBeTruthy();
     const rows = lens().querySelectorAll(".prow");
     expect(rows.length).toBe(4);
     expect(rows[0].querySelector(".ptitle")?.textContent?.startsWith("user-a's 30-day logon history")).toBe(true); // the statement, clipped to one line until gap §6.12
