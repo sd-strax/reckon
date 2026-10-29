@@ -6,10 +6,12 @@ import { useApp } from "../../app";
 import { terminal } from "../../derive/stage";
 import { hypName } from "../../derive/hyps";
 import { handoffNote, keyEntities, proceduresFollowed, stillToDo } from "../../derive/summary";
-import { Badge, Countdown, Empty, RefChip } from "../shared";
+import { Badge, Countdown, Empty, RefChip, fmtTime } from "../shared";
+import { verdictLinks } from "../../derive/verdict";
+import { scrollToAct } from "../Chronicle";
 
 export function SummaryLens() {
-  const { state, send, openInspector, goTo } = useApp();
+  const { state, send, openInspector, goTo, setCompanionMode } = useApp();
   const snap = state.snap;
   if (!snap) return null;
   const hs = snap.hypotheses;
@@ -25,6 +27,9 @@ export function SummaryLens() {
   const ents = keyEntities(snap.investigation.seed, snap.thread || [], snap.pins, actions, state.labels, snap.derived?.entities);
   const todo = stillToDo(actions, comms, hs, state.labels);
   const followed = proceduresFollowed(snap.thread || []);
+  // The verdict of record replaced an earlier one (#155): say so where the verdict is read.
+  const current = (snap.thread || []).filter((e) => e.interpretationType === "verdict" && !e.superseded).pop();
+  const replacedVerdict = current ? verdictLinks(snap.thread || []).get(current.interpretationId)?.replaces : undefined;
   const supported = hs.filter((h) => h.status === "SUPPORTED").map((h) => hypName(h, hs));
   const refuted = hs.filter((h) => h.status === "REFUTED").map((h) => hypName(h, hs));
   return (
@@ -34,6 +39,11 @@ export function SummaryLens() {
           <div className="kicker">Verdict</div>
           <div className="tilemain">{verdict ? verdict.disposition.toLowerCase() : "none yet"}</div>
           <div className="imeta">{verdict ? [supported.length ? supported.join(", ") + " supported" : "", refuted.length ? refuted.join(", ") + " refuted" : ""].filter(Boolean).join(", ") || "recorded" : "record one from the Reasoning lens"}</div>
+          {replacedVerdict ? (
+            <a className="tilenote warnnote" onClick={(ev) => { ev.stopPropagation(); setCompanionMode("thread"); setTimeout(() => scrollToAct(replacedVerdict.interpretationId), 0); }}>
+              replaces {replacedVerdict.disposition ? `a ${replacedVerdict.disposition} verdict` : "an earlier verdict"} from {fmtTime(replacedVerdict.occurredAt)}
+            </a>
+          ) : null}
         </div>
         <div className="tile" onClick={() => goTo({ kind: "lens", lens: "response" })}>
           <div className="kicker">Containment</div>

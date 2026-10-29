@@ -1,6 +1,6 @@
 // The verdict dialog's preflight + residual (02 §2.10): the engine's gates
 // rendered BEFORE the attempt, and what the analyst is signing over. Pure.
-import type { Capability, Hypothesis, PinRow, Verdict } from "../../../src/viewTypes";
+import type { Capability, Hypothesis, PinRow, ThreadEntry, Verdict } from "../../../src/viewTypes";
 import type { ChronicleTurn } from "../../../src/protocol";
 import { parseTranscript } from "../transcript";
 import { hypName, isLive, outstanding } from "./hyps";
@@ -68,3 +68,22 @@ export function verdictRefs(pins: PinRow[]): string[] {
   }
   return refs;
 }
+
+/** How verdicts in the thread relate (#155): each replaced verdict and the one
+ * that replaced it (the next verdict in order), in both directions. */
+export interface VerdictLink { replacedBy?: ThreadEntry; replaces?: ThreadEntry }
+
+export function verdictLinks(thread: ThreadEntry[]): Map<string, VerdictLink> {
+  const verdicts = thread.filter((e) => e.interpretationType === "verdict").sort((a, b) => a.sequenceNo - b.sequenceNo);
+  const out = new Map<string, VerdictLink>();
+  verdicts.forEach((v, i) => {
+    const next = verdicts[i + 1];
+    if (!v.superseded || !next) return;
+    out.set(v.interpretationId, { ...out.get(v.interpretationId), replacedBy: next });
+    out.set(next.interpretationId, { ...out.get(next.interpretationId), replaces: v });
+  });
+  return out;
+}
+
+/** The thread line's id for an act, so a link can scroll to it. */
+export const actLineId = (interpretationId: string): string => "act-" + interpretationId;

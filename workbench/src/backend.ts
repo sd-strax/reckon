@@ -468,6 +468,7 @@ export class BackendClient {
       tool_calls?: number;
       has_transcript?: boolean;
       superseded?: boolean;
+      disposition?: string;
       consulted_sops?: { sop_id?: string; title?: string; used?: boolean }[];
       consulted_similar_investigations?: { investigation_ref?: string; title?: string; band?: string; used?: boolean }[];
     }
@@ -492,6 +493,7 @@ export class BackendClient {
       toolCalls: e.tool_calls ?? 0,
       hasTranscript: e.has_transcript ?? false,
       superseded: e.superseded ?? false,
+      disposition: e.disposition || undefined,
       consultedSops: (e.consulted_sops ?? []).map((c) => ({
         sopId: c.sop_id ?? "", title: c.title, used: c.used ?? false,
       })),

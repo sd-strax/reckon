@@ -55,6 +55,11 @@ type ThreadEntryView struct {
 	// thread — no deletion — but a surface renders it struck, not current.
 	Superseded bool `json:"superseded,omitempty"`
 
+	// Disposition is a verdict act's disposition (BENIGN | SUSPICIOUS |
+	// MALICIOUS), so the thread can say what a verdict was, and what a
+	// revision changed, without the rationale standing in for it.
+	Disposition string `json:"disposition,omitempty"`
+
 	// ConsultedSOPs is the act's knowledge-retrieval provenance
 	// (design/ui 02 §2.11 renders the chips).
 	ConsultedSOPs []aggregate.ConsultedSOP `json:"consulted_sops,omitempty"`
@@ -119,6 +124,10 @@ func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntr
 			return nil, fmt.Errorf("decode interpretation: %w", err)
 		}
 
+		disposition := ""
+		if rec.Verdict != nil {
+			disposition = rec.Verdict.Disposition
+		}
 		out = append(out, ThreadEntryView{
 			SequenceNo:         seq,
 			OccurredAt:         at,
@@ -132,6 +141,7 @@ func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntr
 			ToolCalls:          len(rec.ToolCallRefs),
 			HasTranscript:      rec.TranscriptRef != nil,
 			Superseded:         superseded[rec.InterpretationID.String()],
+			Disposition:        disposition,
 			ConsultedSOPs:      rec.ConsultedSOPs,
 			ConsultedSimilar:   rec.ConsultedSimilar,
 		})
