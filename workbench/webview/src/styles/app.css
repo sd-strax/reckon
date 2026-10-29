@@ -520,6 +520,9 @@ body.loading #rail { opacity: 0.6; }
 .lsection > h3 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); margin: 0 0 7px; display: flex; align-items: baseline; gap: 6px; }
 .lsection > h3 .imeta { text-transform: none; letter-spacing: normal; font-weight: 400; }
 .lenstools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0; }
+.afterconclusion { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.afterconclusion .err { color: var(--bad); }
+.sopdraft { border-color: var(--info-border); }
 .firststep { border-color: var(--info-border); background: var(--info-bg); margin: 0 0 12px; }
 .firststep p { margin: 4px 0 8px; }
 .nudge { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--text-2); border: 1px dashed var(--info-border); background: var(--info-bg); border-radius: var(--r-sm); padding: 4px 10px; margin: 0 0 10px; }

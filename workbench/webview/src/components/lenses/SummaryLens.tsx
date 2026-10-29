@@ -10,6 +10,36 @@ import { Badge, Countdown, Empty, RefChip, fmtTime } from "../shared";
 import { verdictLinks } from "../../derive/verdict";
 import { scrollToAct } from "../Chronicle";
 
+/** What concluding produced (adr/0156): the knowledge summary's outcome, and a
+ * procedure draft the analyst asked for — its progress, a decline with the
+ * reason, a failure, or the draft with Add to SOP library / Discard. */
+function AfterConclusion() {
+  const { state, send } = useApp();
+  const sum = state.summaryStatus;
+  const d = state.sopDraft;
+  return (
+    <div className="afterconclusion">
+      {sum ? <div className="imeta">Knowledge summary: {sum.state === "written" ? `narrative written${sum.detail ? " by " + sum.detail : ""}` : sum.state === "baseline" ? "the structured baseline only — no narrative was written" : `the narrative failed (${sum.detail || "unknown error"}); the structured baseline stands`}</div> : null}
+      {d?.state === "drafting" ? <div className="imeta">Drafting a procedure from this case…</div> : null}
+      {d?.state === "declined" ? <div className="imeta">No new procedure: {d.message} <a onClick={() => send({ type: "sop.draft", force: true })}>Draft anyway</a></div> : null}
+      {d?.state === "failed" ? <div className="imeta err">Drafting failed: {d.message} <a onClick={() => send({ type: "sop.draft" })}>Try again</a></div> : null}
+      {d?.state === "ready" ? (
+        <div className="card sopdraft">
+          <div className="kicker">Draft procedure</div>
+          <div><strong>{d.title}</strong> — open beside the panel; edit it there before adding.</div>
+          {d.message ? <div className="imeta">{d.message}</div> : null}
+          <div className="decide">
+            <button className="primary" onClick={() => send({ type: "sop.accept" })}>Add to SOP library</button>
+            <button onClick={() => send({ type: "sop.discard" })}>Discard</button>
+          </div>
+        </div>
+      ) : null}
+      {d?.state === "added" ? <div className="imeta">“{d.title}” {d.message}.</div> : null}
+      {d?.state === "discarded" ? <div className="imeta">Draft discarded.</div> : null}
+    </div>
+  );
+}
+
 export function SummaryLens() {
   const { state, send, openInspector, goTo, setCompanionMode } = useApp();
   const snap = state.snap;
@@ -18,6 +48,7 @@ export function SummaryLens() {
   const actions = snap.actions || [];
   const comms = snap.comms || [];
   const verdict = snap.investigation.verdict;
+  const concluded = String(snap.investigation.state).toUpperCase() === "CONCLUDED";
   const contain = actions.filter((a) => !a.actionType.startsWith("notify."));
   const approved = contain.filter((a) => a.status !== "REQUESTED" && a.status !== "PENDING_SECONDARY" && a.status !== "REJECTED" && a.status !== "EXPIRED").length;
   const nearest = actions.filter((a) => a.pending && !a.expired && a.expiresAt).map((a) => a.expiresAt!).sort()[0];
@@ -105,7 +136,9 @@ export function SummaryLens() {
       <div className="decide">
         <button onClick={() => send({ type: "copy", text: handoffNote(snap.investigation.title, verdict, actions, todo, hs, followed) })}>Copy handoff note</button>
         <button title="The live markdown snapshot — paste into a ticket unedited" onClick={() => send({ type: "export.open" })}>Export report</button>
+        {concluded ? <button title="Ask reckon to generalize a reusable procedure from this case; you review it before it joins the library" disabled={state.sopDraft?.state === "drafting"} onClick={() => send({ type: "sop.draft" })}>Draft SOP from this case</button> : null}
       </div>
+      {concluded ? <AfterConclusion /> : null}
     </div>
   );
 }
