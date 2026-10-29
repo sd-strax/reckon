@@ -153,6 +153,7 @@ details.tool[open] .summaryPin { opacity: 0.9; }
 .card { background: var(--fill); border: 1px solid var(--border); border-radius: var(--r); padding: 9px 11px; margin: 6px 0; font-size: var(--fs-sm); transition: border-color var(--dur-fast) var(--ease); }
 .card:hover { border-color: var(--border-strong); }
 .card .statement { font-weight: 600; font-size: var(--fs-base); }
+.card .actid { margin-left: 6px; font-size: var(--fs-xs); color: var(--text-3); }
 /* badge: neutral by default; semantic classes colour it as meaning */
 .badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: var(--r-pill); border: 1px solid var(--border); color: var(--text-2); margin-left: 6px; vertical-align: middle; white-space: nowrap; }
 .badge.ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-border); }

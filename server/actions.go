@@ -72,6 +72,10 @@ type ActionView struct {
 	// TierEscalated: the blast-radius escalator raised this above the type's
 	// default tier (04 §1) — the card says why it is T3.
 	TierEscalated bool `json:"tier_escalated,omitempty"`
+	// Name and Category come from the action catalog (#123): what a surface
+	// titles and groups the action by, so no surface guesses from the id.
+	Name     string `json:"name,omitempty"`
+	Category string `json:"category,omitempty"`
 	// RetryOf: lineage to the action this one replaces (zero when not a retry).
 	RetryOf string `json:"retry_of,omitempty"`
 	// ReversalOfRef: the action this one reverses (zero when not a reversal),
@@ -154,8 +158,10 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	// The escalation is derivable, not stored: the catalog's default tier
 	// for the type vs the frozen tier on the action.
 	if b.cfg.ActionCatalog != nil {
-		if d, ok := b.cfg.ActionCatalog.Descriptor(a.ActionType); ok && d.DefaultTier != a.Tier && a.Tier == aggregate.TierT3 {
-			v.TierEscalated = true
+		if d, ok := b.cfg.ActionCatalog.Descriptor(a.ActionType); ok {
+			v.TierEscalated = d.DefaultTier != a.Tier && a.Tier == aggregate.TierT3
+			// The human name and category the surfaces show (#123).
+			v.Name, v.Category = d.Name, d.Category
 		}
 	}
 	// Pre-approval preview: which adapter WOULD dispatch this if approved now

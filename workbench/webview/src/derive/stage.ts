@@ -30,8 +30,12 @@ export interface Stage {
 
 /** An action on the world that contains or removes a threat: not a message, not
  * a write to the case record, not the undo of an earlier action. */
-export const isContainment = (a: ActionRow): boolean =>
-  !isNotify(a) && !a.actionType.startsWith("ticket.") && !a.isReversal;
+export const isContainment = (a: ActionRow): boolean => {
+  if (a.isReversal) return false;
+  // The catalog says what the action does (#123); the id is the fallback.
+  if (a.category) return a.category === "containment" || a.category === "eradication";
+  return !isNotify(a) && !a.actionType.startsWith("ticket.");
+};
 
 const took = (a: ActionRow): boolean => a.status === "SUCCEEDED" || a.status === "PARTIAL" || a.status === "REVERSED";
 

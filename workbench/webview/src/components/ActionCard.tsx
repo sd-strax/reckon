@@ -10,17 +10,29 @@ import type { ActionRow } from "../../../src/viewTypes";
 import type { InboundMessage } from "../../../src/protocol";
 import { Badge, Countdown, RefChip } from "./shared";
 
-const GROUP_ICON: Record<string, string> = { containment: "⛨", eradication: "✂", recovery: "↻", notification: "✉", external: "⇄" };
+const GROUP_ICON: Record<string, string> = { containment: "⛨", eradication: "✂", recovery: "↻", notification: "✉", case_record: "⇄" };
 
-/** The response-plan group an action type belongs to (08 §8.4 Response). */
-export function groupOf(a: Pick<ActionRow, "actionType">): "containment" | "eradication" | "recovery" | "notification" | "external" {
+export type ActionGroup = "containment" | "eradication" | "recovery" | "notification" | "case_record";
+const GROUPS = new Set<string>(["containment", "eradication", "recovery", "notification", "case_record"]);
+
+/** The response group an action belongs to: the catalog's category (#123). The
+ * id-prefix guess stays only for a row served without one. */
+export function groupOf(a: Pick<ActionRow, "actionType" | "category">): ActionGroup {
+  if (a.category && GROUPS.has(a.category)) return a.category as ActionGroup;
   const t = a.actionType;
   if (t.startsWith("notify.")) return "notification";
-  if (t.startsWith("ticket.")) return "external";
-  if (t.startsWith("host.unisolate") || t.startsWith("account.enable") || t.startsWith("account.reset")) return "recovery";
-  if (t.startsWith("process.") || t.startsWith("file.") || t.startsWith("ioc.")) return t.startsWith("ioc.") ? "containment" : "eradication";
+  if (t.startsWith("ticket.")) return "case_record";
+  if (t.startsWith("host.unisolate") || t.startsWith("account.enable") || t.startsWith("ioc.unblock") || t.startsWith("email.release")) return "recovery";
+  if (t.startsWith("email.purge")) return "eradication";
   return "containment";
 }
+export const GROUP_LABELS: Record<ActionGroup, string> = { containment: "Containment", eradication: "Eradication", recovery: "Recovery", notification: "Notification", case_record: "Case record" };
+
+/** The action's title: the catalog's human name, the id when there is none. */
+export function actionTitle(a: Pick<ActionRow, "actionType" | "name">): string {
+  return a.name || a.actionType;
+}
+
 /** What a failed or partial outcome means for the targets, in plain words: the
  * engine records an unconfirmed effect as unknown, never as done or undone. */
 export function failureSentence(a: Pick<ActionRow, "status" | "targets">): string {
@@ -30,7 +42,6 @@ export function failureSentence(a: Pick<ActionRow, "status" | "targets">): strin
   return `Did not complete — reckon cannot confirm any change on ${on}.`;
 }
 
-export const GROUP_LABELS: Record<ReturnType<typeof groupOf>, string> = { containment: "Containment", eradication: "Eradication", recovery: "Recovery", notification: "Notification", external: "External work" };
 
 export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full" | "compact"; draft?: boolean }) {
   const { state, dispatch, send, openPrompt, openInspector, goTo } = useApp();
@@ -82,7 +93,8 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
     <div className="achead">
       <span className={"actile " + group} title={GROUP_LABELS[group]}>{GROUP_ICON[group]}</span>
       <span className="actitle">
-        <a className="statement" title="Open the action record" onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{(a.isReversal ? "↺ " : "") + a.actionType}</a>
+        <a className="statement" title={"Open the action record · " + a.actionType} onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{(a.isReversal ? "↺ " : "") + actionTitle(a)}</a>
+        {a.name ? <span className="mono actid">{a.actionType}</span> : null}
         <span className="actargets">{a.targets.map((t) => <span key={t} className="mono">{t}</span>)}</span>
       </span>
       <span className="acmeta">

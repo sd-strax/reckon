@@ -10,7 +10,7 @@ import { ActionCard, GROUP_LABELS, groupOf } from "../ActionCard";
 import { Comms } from "../Rail";
 import { Empty } from "../shared";
 
-const ORDER = ["containment", "eradication", "recovery", "notification", "external"] as const;
+const ORDER = ["containment", "eradication", "recovery", "notification", "case_record"] as const;
 
 export function ResponseLens() {
   const { state, send, openPrompt } = useApp();
