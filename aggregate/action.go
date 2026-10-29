@@ -251,6 +251,7 @@ type actionState struct {
 	ActionType            string    // e.g. "notify.slack" — for human-readable summaries
 	TargetLabel           string    // e.g. "#it-operations (+2)" — the target set, condensed
 	RetryOf               uuid.UUID // the action this one re-requests (lineage, adr/0152)
+	ExpiresAt             time.Time // the approval deadline, for a re-request of a lazily expired action
 	ReversalOf            uuid.UUID // the action this one reverses (lineage, adr/0152)
 }
 
@@ -298,7 +299,7 @@ func foldActionEvent(actions map[uuid.UUID]actionState, e Event) error {
 			Status: ActionStatusRequested, Tier: p.Tier, IsReversal: p.IsReversal,
 			RequiredMode: p.RequiredMode, SecondaryApproverPool: p.SecondaryApproverPool,
 			ActionType: p.ActionType, TargetLabel: targetLabel(p.Targets),
-			RetryOf: p.RetryOf, ReversalOf: p.ReversalOfRef,
+			RetryOf: p.RetryOf, ReversalOf: p.ReversalOfRef, ExpiresAt: p.ExpiresAt,
 		})
 	case EventTypeActionApproved:
 		var p ActionApproved
@@ -651,7 +652,7 @@ func applyRequestAction(env Envelope, state aggregateState, c RequestAction) ([]
 	if _, exists := state.Actions[c.ActionID]; exists {
 		return nil, fmt.Errorf("RequestAction rejected: action %s already exists", c.ActionID)
 	}
-	if err := checkLineage(state, c); err != nil {
+	if err := checkLineage(env, state, c); err != nil {
 		return nil, err
 	}
 
@@ -708,8 +709,9 @@ func dispatchSummary(label, adapter string) string {
 }
 
 // checkLineage keeps every action chain a line (adr/0152). A re-request names
-// an EXPIRED or FAILED action of the same type in this investigation that has
-// not been re-requested already: each action has at most one successor, so the
+// an action of the same type in this investigation that is EXPIRED, FAILED or
+// REJECTED — or still pending with its approval window elapsed (the expiry
+// timer has not written EXPIRED yet) — and has not been re-requested already: each action has at most one successor, so the
 // chain continues from its latest link and an answered request is never asked
 // again from behind it. A reversal names a SUCCEEDED action that has no
 // reversal pending or done; a failed, rejected or expired reversal may be tried
@@ -717,14 +719,16 @@ func dispatchSummary(label, adapter string) string {
 // transaction, so two requests racing on one original cannot both pass. A
 // fresh request (no lineage) is never limited: sending the same thing again
 // on purpose is the analyst's call.
-func checkLineage(state aggregateState, c RequestAction) error {
+func checkLineage(env Envelope, state aggregateState, c RequestAction) error {
 	if c.RetryOf != uuid.Nil {
 		orig, ok := state.Actions[c.RetryOf]
+		lapsed := (orig.Status == ActionStatusRequested || orig.Status == ActionStatusPendingSecondary) &&
+			!orig.ExpiresAt.IsZero() && orig.ExpiresAt.Before(env.OccurredAt)
 		switch {
 		case !ok:
 			return fmt.Errorf("RequestAction rejected: re-requested action %s is not in this investigation", c.RetryOf)
-		case orig.Status != ActionStatusExpired && orig.Status != ActionStatusFailed:
-			return fmt.Errorf("RequestAction rejected: %s is %s; only an EXPIRED or FAILED action can be re-requested", orig.label(), orig.Status)
+		case orig.Status != ActionStatusExpired && orig.Status != ActionStatusFailed && orig.Status != ActionStatusRejected && !lapsed:
+			return fmt.Errorf("RequestAction rejected: %s is %s; only an EXPIRED, FAILED or REJECTED action, or one whose approval window has elapsed, can be re-requested", orig.label(), orig.Status)
 		case orig.ActionType != c.ActionType:
 			return fmt.Errorf("RequestAction rejected: a re-request of %s must be %s, not %s", orig.label(), orig.ActionType, c.ActionType)
 		}
