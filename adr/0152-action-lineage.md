@@ -1,6 +1,6 @@
 # 0152 — Each action has at most one re-request and one live reversal, enforced by the engine and shown on the original
 
-Issue: #152 · PR: #TBD · Status: accepted
+Issue: #152 · PR: #168 · Status: accepted
 
 ## Context
 
