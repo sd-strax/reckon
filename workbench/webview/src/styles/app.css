@@ -77,7 +77,7 @@ button.primary:hover, .pincta:hover { background: var(--he-primary-deep); }
 .md .mdtable th { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; background: var(--fill); color: var(--text-2); white-space: nowrap; }
 
 /* tool rows: one-line summary, args behind the disclosure — data is mono */
-details.tool { font-family: var(--mono); font-size: var(--fs-sm); border: 1px solid var(--border); border-radius: var(--r); margin: 6px 0; max-width: 78ch; background: var(--fill); transition: border-color var(--dur-fast) var(--ease); }
+details.tool { font-family: var(--mono); font-size: var(--fs-sm); border: 1px solid var(--border); border-radius: var(--r); margin: 6px 0; background: var(--fill); transition: border-color var(--dur-fast) var(--ease); }
 details.tool:hover { border-color: var(--border-strong); }
 details.tool summary { cursor: pointer; padding: 5px 10px; list-style: none; display: flex; align-items: baseline; gap: var(--sp-2); overflow: hidden; min-height: 24px; box-sizing: border-box; }
 details.tool summary::-webkit-details-marker { display: none; }
@@ -97,7 +97,7 @@ details.tool[open] .summaryPin { opacity: 0.9; }
 .committed, .usage { font-size: var(--fs-xs); color: var(--text-3); margin: 5px 0; }
 .sopchip { display: inline-block; font-size: var(--fs-xs); padding: 0 7px; margin: 2px 3px 0 0; border: 1px solid var(--info-border); color: var(--info); background: var(--info-bg); border-radius: var(--r-pill); }
 .sopchip.consulted { border-style: dashed; opacity: 0.6; background: none; }
-.error { color: var(--bad); margin: 6px 0; max-width: 78ch; }
+.error { color: var(--bad); margin: 6px 0; }
 
 /* Knowledge rail (design/06 §5.1) */
 #knowledgeSection h2 .posture { font-size: var(--fs-xs); font-weight: 400; color: var(--text-3); margin-left: 6px; text-transform: none; letter-spacing: normal; }
@@ -119,7 +119,7 @@ details.tool[open] .summaryPin { opacity: 0.9; }
 }
 
 /* ---- event-time strip ---- */
-#stripWrap { margin: 10px 0 var(--sp-3); max-width: 78ch; }
+#stripWrap { margin: 10px 0 var(--sp-3); }
 #stripWrap > summary { cursor: pointer; margin-bottom: 6px; }
 #strip { position: relative; height: 26px; margin: 2px 6px 0; border-bottom: 1px solid var(--border); }
 #strip .evdot { position: absolute; bottom: -4px; width: 7px; height: 7px; border-radius: 50%; background: var(--info); border: 1px solid var(--editor-bg); cursor: pointer; transform: translateX(-50%); transition: transform var(--dur-fast) var(--ease); }
@@ -128,7 +128,7 @@ details.tool[open] .summaryPin { opacity: 0.9; }
 #stripAxis { display: flex; justify-content: space-between; margin: 6px 6px 0; font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-3); }
 
 /* ---- evidence graph ---- */
-#graphWrap { margin: 10px 0 var(--sp-3); max-width: 78ch; }
+#graphWrap { margin: 10px 0 var(--sp-3); }
 #graphWrap > summary { cursor: pointer; margin-bottom: 6px; }
 #graphBox { overflow-x: auto; }
 #graphBox svg { display: block; font-family: var(--mono); }
@@ -192,7 +192,7 @@ details.tool[open] .summaryPin { opacity: 0.9; }
 button.askdecide { color: var(--he-primary-soft); border: 1px dashed color-mix(in srgb, var(--he-primary) 45%, transparent); background: color-mix(in srgb, var(--he-primary) 8%, transparent); }
 button.askdecide:hover { background: color-mix(in srgb, var(--he-primary) 15%, transparent); }
 /* asides: a scoped turn as a collapsed one-liner */
-details.aside { margin: var(--sp-2) 0; max-width: 78ch; font-size: var(--fs-sm); border-left: 2px dashed color-mix(in srgb, var(--he-primary) 45%, transparent); padding-left: 10px; }
+details.aside { margin: var(--sp-2) 0; font-size: var(--fs-sm); border-left: 2px dashed color-mix(in srgb, var(--he-primary) 45%, transparent); padding-left: 10px; }
 details.aside > summary { cursor: pointer; list-style: none; color: var(--text-2); font-size: var(--fs-sm); }
 details.aside > summary::-webkit-details-marker { display: none; }
 details.aside > summary:hover { color: var(--text); }
@@ -450,7 +450,10 @@ body.loading #rail { opacity: 0.6; }
 #lensWrap { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
 #lensArea { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .lensscroll { flex: 1; overflow-y: auto; padding: var(--sp-3) var(--sp-5) var(--sp-8); }
-.lens { max-width: 900px; }
+/* Regions use the width they are given (#135); only running prose keeps a
+   reading measure. */
+.lens { max-width: none; }
+.lens p, .lens .md, .lens .empty { max-width: 80ch; }
 #drawerToggle { display: none; }
 
 /* header */
