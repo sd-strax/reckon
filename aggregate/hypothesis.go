@@ -166,6 +166,9 @@ type Attestation struct {
 	Source     string     `json:"source,omitempty"`      // who was asked, or what was checked
 	Channel    string     `json:"channel,omitempty"`     // phone, chat, email, in person…
 	ObservedAt *time.Time `json:"observed_at,omitempty"` // when; the act's time if omitted
+	// Reference says where it happened (#139): a message link, a ticket number
+	// or a message id — or "sha256:<hex>" of one the analyst would not store.
+	Reference string `json:"reference,omitempty"`
 }
 
 // AttestationRecorded is the note content recorded on the event when a human
@@ -180,6 +183,7 @@ type AttestationRecorded struct {
 	Source        string     `json:"source,omitempty"`
 	Channel       string     `json:"channel,omitempty"`
 	ObservedAt    *time.Time `json:"observed_at,omitempty"`
+	Reference     string     `json:"reference,omitempty"`
 }
 
 // --- event payload records ----------------------------------------------------
@@ -785,6 +789,7 @@ func applyPredictionOutcome(env Envelope, state aggregateState, c RecordInterpre
 			ID: noteID, PredictionRef: c.PredictionRef, HypothesisRef: ps.HypothesisRef,
 			Author: env.Actor.PrincipalID, AuthorName: env.Actor.PrincipalName, Content: strings.TrimSpace(a.Content),
 			Source: strings.TrimSpace(a.Source), Channel: strings.TrimSpace(a.Channel), ObservedAt: a.ObservedAt,
+			Reference: strings.TrimSpace(a.Reference),
 		}
 		refs = append([]string{noteID}, refs...)
 		rec.OutputRefs = append(rec.OutputRefs, noteID)

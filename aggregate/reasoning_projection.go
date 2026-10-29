@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,8 +93,34 @@ type stixNote struct {
 	Authors     []string        `json:"authors,omitempty"`
 	ObjectRefs  []string        `json:"object_refs"`
 	Attestation stixAttestation `json:"x_reckon_attestation"`
-	Created     string          `json:"created"`
-	Modified    string          `json:"modified"`
+	// ExternalReferences points at where the attestation happened (#139).
+	ExternalReferences []stixExternalRef `json:"external_references,omitempty"`
+	Created            string            `json:"created"`
+	Modified           string            `json:"modified"`
+}
+
+// stixExternalRef is a STIX 2.1 external reference: a URL, or an id in a
+// named source (a ticket number, a message id, or its hash).
+type stixExternalRef struct {
+	SourceName string            `json:"source_name"`
+	URL        string            `json:"url,omitempty"`
+	ExternalID string            `json:"external_id,omitempty"`
+	Hashes     map[string]string `json:"hashes,omitempty"`
+}
+
+// attestationRefs renders an attestation's reference as an external reference:
+// a URL as url, a "sha256:<hex>" as a hash, anything else as an external id.
+func attestationRefs(ref string) []stixExternalRef {
+	switch {
+	case ref == "":
+		return nil
+	case strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://"):
+		return []stixExternalRef{{SourceName: "attestation", URL: ref}}
+	case strings.HasPrefix(ref, "sha256:"):
+		return []stixExternalRef{{SourceName: "attestation", Hashes: map[string]string{"SHA-256": strings.TrimPrefix(ref, "sha256:")}}}
+	default:
+		return []stixExternalRef{{SourceName: "attestation", ExternalID: ref}}
+	}
 }
 
 type stixAttestation struct {
@@ -136,16 +163,17 @@ func insertAttestationNote(ctx context.Context, tx *sql.Tx, evt Event, a Attesta
 		refs = append(refs, a.HypothesisRef)
 	}
 	payload, err := json.Marshal(stixNote{
-		Type:        stixTypeNote,
-		SpecVersion: "2.1",
-		ID:          a.ID,
-		Abstract:    attestationAbstract(a),
-		Content:     a.Content,
-		Authors:     []string{a.Author},
-		ObjectRefs:  refs,
-		Attestation: stixAttestation{PredictionRef: a.PredictionRef, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt},
-		Created:     stixTime(evt.OccurredAt),
-		Modified:    stixTime(evt.OccurredAt),
+		Type:               stixTypeNote,
+		SpecVersion:        "2.1",
+		ID:                 a.ID,
+		Abstract:           attestationAbstract(a),
+		Content:            a.Content,
+		Authors:            []string{a.Author},
+		ObjectRefs:         refs,
+		Attestation:        stixAttestation{PredictionRef: a.PredictionRef, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt},
+		ExternalReferences: attestationRefs(a.Reference),
+		Created:            stixTime(evt.OccurredAt),
+		Modified:           stixTime(evt.OccurredAt),
 	})
 	if err != nil {
 		return fmt.Errorf("marshal note: %w", err)

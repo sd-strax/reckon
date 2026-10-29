@@ -287,6 +287,8 @@ export interface PredictionAttestation {
   source?: string;
   channel?: string;
   observedAt?: string;
+  /** Where it happened (#139): a link, ticket or message id, or "sha256:…" of one. */
+  reference?: string;
 }
 
 /** One reasoning node with its predictions nested (mirrors server.HypothesisView). */

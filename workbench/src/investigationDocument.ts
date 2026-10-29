@@ -961,7 +961,7 @@ export class InvestigationDocuments {
   private async recordPredictionResult(
     id: string,
     panel: vscode.WebviewPanel,
-    msg: { predictionRef: string; status: string; content: string; source?: string; channel?: string },
+    msg: { predictionRef: string; status: string; content: string; source?: string; channel?: string; reference?: string; hashReference?: boolean },
   ): Promise<void> {
     if (msg.content.trim() === "") {
       return;
@@ -972,6 +972,8 @@ export class InvestigationDocuments {
         content: msg.content.trim(),
         source: msg.source?.trim() || undefined,
         channel: msg.channel?.trim() || undefined,
+        reference: msg.reference?.trim() || undefined,
+        hashReference: msg.hashReference,
       });
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: record result failed — ${errText(err)}`);

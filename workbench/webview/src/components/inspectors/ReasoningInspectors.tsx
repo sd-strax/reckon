@@ -37,6 +37,7 @@ export function AttestationInspector({ refId }: { refId: string }) {
           { k: "Recorded by", v: a?.authorName || a?.author || recorded?.actor.principalName || recorded?.actor.principal },
           { k: "When", v: a?.observedAt ? fmtDateTime(a.observedAt) : recorded ? fmtDateTime(recorded.occurredAt) : undefined },
           { k: "How obtained", v: a?.channel },
+          { k: "Where it happened", v: a?.reference ? (a.reference.startsWith("sha256:") ? "fingerprint " + a.reference.slice(7, 19) + "… (the reference itself was not kept)" : a.reference) : undefined, mono: true },
         ]} />
       </Section>
       {owner ? (
@@ -73,7 +74,7 @@ export function PredictionInspector({ refId }: { refId: string }) {
             ]} />
             <Section title="Result">
               {(p.testResultRefs || []).length ? (p.testResultRefs || []).map((r) => <RefChip key={r} refId={r} />) : <div className="empty">no result recorded</div>}
-              {p.attestation ? <div className="attestline"><b>attested by {p.attestation.authorName || p.attestation.author}</b>: <q>{p.attestation.content}</q></div> : null}
+              {p.attestation ? <div className="attestline"><b>attested by {p.attestation.authorName || p.attestation.author}</b>: <q>{p.attestation.content}</q>{p.attestation.reference ? <span className="imeta"> · {p.attestation.reference.startsWith("sha256:") ? "reference kept as a fingerprint" : p.attestation.reference}</span> : null}</div> : null}
             </Section>
             {p.status === "UNTESTED" ? <p className="imeta">If it goes the other way: DISCONFIRMED counts against {hypName(h, hs)}{(p.discriminates || []).length ? " and for " + (p.discriminates || []).map((d) => nameOf(d, hs)).join(", ") : ""}. Withdrawing is only possible while untested.</p> : null}
           </>
