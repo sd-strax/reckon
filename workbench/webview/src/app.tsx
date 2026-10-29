@@ -5,7 +5,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { InboundMessage, InspectorTarget, Lens } from "../../src/protocol";
 import { defaultLens } from "./derive/lens";
-import { targetKey } from "./derive/inspect";
+import { targetKey, turnRenderer } from "./derive/inspect";
 import { initialState, reducer, type Action, type State } from "./store";
 import type { WebviewTransport } from "./transport";
 import type { PromptSpec } from "./components/PromptCard";
@@ -79,6 +79,9 @@ export function useApp(): AppContextValue {
 
 export function AppProvider({ transport, children }: { transport: WebviewTransport; children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  // The latest thread, for callbacks that must not re-create on every snapshot.
+  const threadRef = useRef(state.snap?.thread);
+  threadRef.current = state.snap?.thread;
   const [prompt, setPrompt] = useState<PromptSpec | null>(null);
   const [enableAdapter, setEnableAdapter] = useState<string | null>(null);
   const [verdictOpen, setVerdictOpen] = useState(false);
@@ -140,7 +143,12 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
       return { ...s, active: { stack } };
     });
     // Every pane asks the host once per target; the store caches the answer,
-    // and the host's own caches make a repeat ask cheap.
+    // and the host's own caches make a repeat ask cheap. A pin or a human act
+    // has no transcript, so there is nothing to ask for (#144).
+    if (target.kind === "turn") {
+      const entry = threadRef.current?.find((e) => e.interpretationId === target.interpretationId);
+      if (entry && turnRenderer(entry) !== "turn") return;
+    }
     transport.send({ type: "inspector.open", target });
   }, [transport]);
   const inspectorBack = useCallback(() => setInspector((s) => {
