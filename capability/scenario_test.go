@@ -3,6 +3,7 @@ package capability
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -41,6 +42,29 @@ func TestShippedLateralMovementScenario(t *testing.T) {
 	}
 	if logons.Coverage != CoverageComplete || len(logons.ObservedDataRefs) != 2 {
 		t.Errorf("enumerate_logons: coverage=%q refs=%d; want COMPLETE/2", logons.Coverage, len(logons.ObservedDataRefs))
+	}
+
+	// The incident-day logons answer to the account and the window asked for
+	// (#164): one account's logons exclude the other's, and a window after
+	// both is a complete, empty answer — a citeable absence.
+	user := func(name string, from time.Time) CallInput {
+		return CallInput{Entity: map[string]any{"user": map[string]any{"name": name}}, Window: TimeWindow{From: from}}
+	}
+	incident := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	jdoe, err := res.Resolve(ctx, "enumerate_logons", user("jdoe", incident))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jdoe.ObservedDataRefs) != 1 {
+		t.Errorf("jdoe's logons that day: refs=%d; want 1 (not svc_backup's)", len(jdoe.ObservedDataRefs))
+	}
+	after, err := res.Resolve(ctx, "enumerate_logons", user("svc_backup", time.Date(2026, 4, 20, 14, 33, 0, 0, time.UTC)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Coverage != CoverageComplete || after.NullObservation == nil {
+		t.Errorf("svc_backup after 14:33: coverage=%q null=%v refs=%d; want a COMPLETE empty answer with a null observation",
+			after.Coverage, after.NullObservation != nil, len(after.ObservedDataRefs))
 	}
 
 	// get_process_ancestry → the powershell process + parent.

@@ -3,9 +3,10 @@
     "scenario": "lateral-movement-via-rdp",
     "matches": {
       "verb": "enumerate_logons",
-      "params": { "target.hostname": "*", "outcome": "*" }
+      "params": { "target.hostname": "*", "outcome": "*", "target.user": [null, "jdoe", "CONTOSO\\jdoe"] }
     },
-    "delay_ms": 40
+    "delay_ms": 40,
+    "time_scoped": true
   },
   "ocsf": {
     "class_uid": 3002,
