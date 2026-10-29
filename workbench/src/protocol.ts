@@ -186,9 +186,6 @@ export type InboundMessage =
   // The Knowledge section's scoped search (09 §9.6): the sidecar runs it and
   // the merged set comes back as a `knowledge` patch.
   | { type: "knowledge.search"; text: string }
-  // Request the outbound notification (08 §8.4 Response): a notify.* action
-  // whose pre-send preview is the approval.
-  | { type: "notify.request"; channel: "notify.email" | "notify.slack"; target: string; subject?: string; body: string }
   // The lens and companion mode the analyst chose, mirrored to globalState so
   // the tree can deep-link (view state, never investigation state).
   | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }

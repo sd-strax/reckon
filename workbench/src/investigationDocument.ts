@@ -330,9 +330,6 @@ export class InvestigationDocuments {
       "knowledge.search": (msg) => {
         void this.searchKnowledge(id, panel, msg.text);
       },
-      "notify.request": (msg) => {
-        void this.requestNotification(id, panel, msg);
-      },
       "view.state": (msg) => {
         this.onViewState?.(id, msg.lens, msg.companion);
       },
@@ -776,30 +773,6 @@ export class InvestigationDocuments {
     } catch (err) {
       void vscode.window.showWarningMessage(`reckon: knowledge search failed — ${errText(err)}`);
     }
-  }
-
-  /**
-   * The outbound notification (08 §8.4 Response): a notify.* action whose
-   * pre-send preview is the approval. Through Gate 2 like any action; it lands
-   * in the queue as a preview card.
-   */
-  private async requestNotification(id: string, panel: vscode.WebviewPanel, msg: { channel: string; target: string; subject?: string; body: string }): Promise<void> {
-    const parameters: Record<string, unknown> = msg.channel === "notify.email"
-      ? { subject: msg.subject || "Investigation update", body: msg.body }
-      : { message: msg.body };
-    try {
-      const res = await this.client.requestAction({
-        investigationRef: id,
-        actionType: msg.channel,
-        targets: [{ resolvedIdentifier: msg.target }],
-        parameters,
-        rationale: "stakeholder notification from the investigation record",
-      });
-      void vscode.window.showInformationMessage(`reckon: notification requested (${res.status}) — approve to send`);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: notification failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
   }
 
   /**

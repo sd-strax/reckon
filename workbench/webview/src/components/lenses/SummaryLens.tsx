@@ -53,7 +53,7 @@ export function SummaryLens() {
         <div className="tile" onClick={() => goTo({ kind: "lens", lens: "response", anchor: "notification" })}>
           <div className="kicker">Notification</div>
           <div className="tilemain">{notify.some((a) => a.status === "SUCCEEDED") ? "notified" : notify.some((a) => a.pending) ? "awaiting approval" : "not yet notified"}</div>
-          <div className="imeta">{awaiting ? `${awaiting} reply outstanding` : notify.length ? `${notify.length} sent or requested` : "draft from the record"}</div>
+          <div className="imeta">{awaiting ? `${awaiting} reply outstanding` : notify.length ? `${notify.length} sent or requested` : "ask reckon in the conversation"}</div>
         </div>
         <div className="tile" onClick={() => goTo({ kind: "lens", lens: "reasoning" })}>
           <div className="kicker">Open questions</div>

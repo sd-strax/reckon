@@ -1,10 +1,8 @@
 // Response — containment and handoff (08 §8.4): the plan header, the action
-// cards in every engine state grouped Containment → Eradication → Recovery →
-// Notification → External work, owner action items (gap §6.17: absent until
-// the record carries them), the notification draft assembled from the record
-// (the mandatory preview is the approval), and the comms threads.
+// cards in every engine state grouped by the catalog's category, and the comms
+// threads. A notification is asked for in the conversation like any action
+// (#126); there is no second composer here.
 import { useApp } from "../../app";
-import { hypName } from "../../derive/hyps";
 import { proceduresFollowed } from "../../derive/summary";
 import { ActionCard, GROUP_LABELS, groupOf } from "../ActionCard";
 import { Comms } from "../Rail";
@@ -13,41 +11,15 @@ import { Empty } from "../shared";
 const ORDER = ["containment", "eradication", "recovery", "notification", "case_record"] as const;
 
 export function ResponseLens() {
-  const { state, send, openPrompt } = useApp();
+  const { state } = useApp();
   const snap = state.snap;
   if (!snap) return null;
   const actions = snap.actions || [];
-  const hs = snap.hypotheses;
   const pending = actions.filter((a) => a.pending && !a.expired);
   const followed = proceduresFollowed(snap.thread || []);
   const engine = String(snap.investigation.state).toUpperCase();
   const draft = engine === "DRAFT";
   const groups = ORDER.map((g) => ({ g, rows: actions.filter((a) => groupOf(a) === g) })).filter((x) => x.rows.length);
-  const verdict = snap.investigation.verdict;
-  const supported = hs.filter((h) => h.status === "SUPPORTED");
-  const done = actions.filter((a) => a.status === "SUCCEEDED" && !a.actionType.startsWith("notify."));
-  const outstanding = actions.filter((a) => a.pending);
-  const notifyDraft = [
-    "What happened: " + (verdict ? `${verdict.disposition.toLowerCase()}${supported.length ? " — " + supported.map((h) => h.statement).join(" ") : ""}` : "under investigation; no verdict of record yet"),
-    "What we did: " + (done.length ? done.map((a) => `${a.actionType} on ${a.targets.join(", ")}`).join("; ") : "no containment has taken effect yet"),
-    "What we need: " + (outstanding.length ? outstanding.map((a) => `approval of ${a.actionType} on ${a.targets.join(", ")}`).join("; ") : "nothing outstanding on our side"),
-  ].join("\n\n");
-  const sendNotification = (channel: "notify.email" | "notify.slack") => openPrompt({
-    title: "Preview & send — " + (channel === "notify.email" ? "email" : "channel message"),
-    label: "The exact message that will be sent (approving the action is sending it)",
-    value: notifyDraft,
-    extrasTop: [
-      { kind: "text", id: "target", label: channel === "notify.email" ? "To (address)" : "To (channel)", placeholder: channel === "notify.email" ? "security-contact@example.test" : "#incident-response" },
-      ...(channel === "notify.email" ? [{ kind: "text" as const, id: "subject", label: "Subject", value: "Investigation update: " + snap.investigation.title }] : []),
-    ],
-    helper: "Requests a " + channel + " action through the same approval path as any action; the approval card shows this text verbatim before it goes out.",
-    confirm: "Request to send",
-    onConfirm: (body, _picked, ex) => {
-      const target = String(ex.target || "").trim();
-      if (!target) return;
-      send({ type: "notify.request", channel, target, subject: typeof ex.subject === "string" ? ex.subject : undefined, body });
-    },
-  });
   return (
     <div className="lens response">
       <div className="planhead">
@@ -62,16 +34,8 @@ export function ResponseLens() {
         </section>
       ))}
       <section className="lsection" id="obj-notification-draft">
-        <h3>Notification</h3>
-        <div className="card draftcard">
-          <div className="kicker">Stakeholder notification · assembled from the record</div>
-          <pre className="draftbody">{notifyDraft}</pre>
-          <div className="imeta">{hs.length ? `basis: ${hs.filter((h) => h.status !== "ABANDONED").map((h) => `${hypName(h, hs)} ${h.status.toLowerCase()}`).join(", ")}` : "no hypotheses yet"}</div>
-          <div className="decide">
-            <button className="primary" disabled={engine === "CONCLUDED" || engine === "ARCHIVED"} onClick={() => sendNotification("notify.email")}>Preview & send email…</button>
-            <button disabled={engine === "CONCLUDED" || engine === "ARCHIVED"} onClick={() => sendNotification("notify.slack")}>Preview & send to a channel…</button>
-          </div>
-        </div>
+        <h3>Conversations with others</h3>
+        <div className="imeta">To notify someone, ask reckon in the conversation — the message arrives here as a card you approve before it is sent.</div>
         <Comms />
       </section>
     </div>
