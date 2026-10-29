@@ -29,8 +29,8 @@ describe("BackendClient: the action catalog", () => {
       { descriptor: { action_type: "ticket.comment", default_tier: "T1", reversibility: "irreversible" }, status: "available", bindings: 1 },
     ] });
     expect(await client.actionTypes()).toEqual([
-      { actionType: "host.isolate", reversibleBy: "host.unisolate", tier: "T2" },
-      { actionType: "ticket.comment", reversibleBy: undefined, tier: "T1" },
+      { actionType: "host.isolate", reversibleBy: "host.unisolate", tier: "T2", name: undefined, category: undefined, available: true, inputs: [] },
+      { actionType: "ticket.comment", reversibleBy: undefined, tier: "T1", name: undefined, category: undefined, available: true, inputs: [] },
     ]);
   });
 });

@@ -4,7 +4,7 @@
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
 import type { ActionRecord, Appearance, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/viewTypes";
-import type { InvestigationSnapshot, LibraryItem, RenderMessage } from "../../src/protocol";
+import type { ActionTypeView, InvestigationSnapshot, LibraryItem, RenderMessage } from "../../src/protocol";
 
 export interface LiveToolResult {
   isError: boolean;
@@ -73,6 +73,8 @@ export interface State {
   actionRecords: Record<string, ActionRecord>;
   caseSummaries: Record<string, CaseSummaryView | null>;
   inspectorErrors: Record<string, string>;
+  /** The action types the analyst may request directly (#146). */
+  actionTypes: ActionTypeView[];
   /** The knowledge library (adr/0129): what there is, and the last search's hits. */
   library: { sops: LibraryItem[]; cases: LibraryItem[]; loaded: boolean; results: { query: string; sops: LibraryItem[]; cases: LibraryItem[] } | null };
   live: LiveItem[];
@@ -104,6 +106,7 @@ export const initialState: State = {
   caseSummaries: {},
   inspectorErrors: {},
   library: { sops: [], cases: [], loaded: false, results: null },
+  actionTypes: [],
   live: [],
   streaming: false,
   preserveLive: false,
@@ -176,6 +179,8 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...state, draft: { ...state.draft, cases: msg.cases, status: "" } };
     case "draft.caseError":
       return { ...state, draft: { ...state.draft, submitting: false, status: msg.message, cases: [] } };
+    case "actionTypes":
+      return { ...state, actionTypes: msg.types };
     case "library":
       return { ...state, library: { ...state.library, sops: msg.sops, cases: msg.cases, loaded: true } };
     case "library.results":

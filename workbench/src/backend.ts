@@ -606,10 +606,15 @@ export class BackendClient {
   }
 
   /** GET /api/action-types — the write-side catalog (08 §3): each type's declared inverse. */
-  async actionTypes(): Promise<{ actionType: string; reversibleBy?: string; tier?: string }[]> {
+  async actionTypes(): Promise<{ actionType: string; reversibleBy?: string; tier?: string; name?: string; category?: string; available: boolean; inputs: { name: string; required: boolean }[] }[]> {
     // Each entry nests the type's declaration under `descriptor`, beside its availability.
-    const body = await this.authedGet<{ action_types?: { descriptor?: { action_type?: string; reversible_by?: string; default_tier?: string } }[] }>("/api/action-types");
-    return (body.action_types ?? []).map(({ descriptor: d = {} }) => ({ actionType: d.action_type ?? "", reversibleBy: d.reversible_by || undefined, tier: d.default_tier }));
+    type Raw = { descriptor?: { action_type?: string; reversible_by?: string; default_tier?: string; name?: string; category?: string; inputs?: { name?: string; type?: string; required?: boolean }[] }; status?: string };
+    const body = await this.authedGet<{ action_types?: Raw[] }>("/api/action-types");
+    return (body.action_types ?? []).map(({ descriptor: d = {}, status }) => ({
+      actionType: d.action_type ?? "", reversibleBy: d.reversible_by || undefined, tier: d.default_tier,
+      name: d.name || undefined, category: d.category || undefined, available: status === "available",
+      inputs: (d.inputs ?? []).filter((i) => i.type !== "entity" && i.name).map((i) => ({ name: i.name!, required: i.required ?? false })),
+    }));
   }
 
   /** GET /api/investigations/{id}/pins — the pinned-evidence fold. */

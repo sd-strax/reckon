@@ -60,6 +60,14 @@ export interface LibraryItem {
   relevance?: string;
 }
 
+/** An action type the analyst may request (#146): its name and its own fields. */
+export interface ActionTypeView {
+  actionType: string;
+  name?: string;
+  category?: string;
+  inputs: { name: string; required: boolean }[];
+}
+
 /** A committed turn's line-framed transcript body, keyed by its thread position. */
 export interface ChronicleTurn {
   sequenceNo: number;
@@ -162,6 +170,8 @@ export type RenderMessage =
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
   | { type: "inspector.error"; target: string; message: string }
+  // The action types the analyst can request directly (#146): available ones only.
+  | { type: "actionTypes"; types: ActionTypeView[] }
   // The knowledge library (adr/0129): the browse lists, and one search's hits.
   | { type: "library"; sops: LibraryItem[]; cases: LibraryItem[] }
   | { type: "library.results"; query: string; sops: LibraryItem[]; cases: LibraryItem[] }
@@ -208,6 +218,8 @@ export type InboundMessage =
   | { type: "action.rerequest"; actionId: string; rationale: string }
   // Change a pending request's parameters before approving it (adr/0127).
   | { type: "action.edit"; actionId: string; parameters: Record<string, unknown>; reason?: string }
+  // The analyst requests an action from a pinned finding, without the agent (#146).
+  | { type: "action.request"; actionType: string; target: string; parameters: Record<string, unknown>; rationale: string; evidenceRefs: string[] }
   // Request the inverse action of a SUCCEEDED reversible one (04 §7); lands in the queue like any action.
   | { type: "action.reverse"; actionId: string; rationale: string }
   | { type: "pin.add"; refs: string[]; finding: string }
