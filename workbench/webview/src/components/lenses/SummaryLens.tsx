@@ -22,7 +22,7 @@ export function SummaryLens() {
   const notify = actions.filter((a) => a.actionType.startsWith("notify."));
   const awaiting = comms.filter((t) => t.status === "awaiting_reply" || t.status === "followed_up").length;
   const open = hs.flatMap((h) => h.status === "ABANDONED" ? [] : h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
-  const ents = keyEntities(snap.investigation.seed, snap.thread || [], snap.pins, actions, state.labels);
+  const ents = keyEntities(snap.investigation.seed, snap.thread || [], snap.pins, actions, state.labels, snap.derived?.entities);
   const todo = stillToDo(actions, comms, hs, state.labels);
   const followed = proceduresFollowed(snap.thread || []);
   const supported = hs.filter((h) => h.status === "SUPPORTED").map((h) => hypName(h, hs));

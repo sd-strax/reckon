@@ -20,7 +20,7 @@ import * as vscode from "vscode";
 import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, ThreadEntry } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "./protocol";
-import { buildDerivedViews } from "./derivedViews";
+import { buildDerivedViews, type CitingRecords } from "./derivedViews";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 import { InvestigationCache } from "./investigationCache";
 import { candidateSOPMarkdown, errText, makeNonce, slugifyTitle } from "./documentText";
@@ -521,7 +521,9 @@ export class InvestigationDocuments {
       // The event-time strip + evidence graph: lenses over the cited refs,
       // stamped with the sequence of the thread they were built from, so the
       // webview drops them if a newer read lands first.
-      void this.postDerivedViews(panel, snapshot.thread ?? [], snapshot.seq);
+      void this.postDerivedViews(panel, snapshot.thread ?? [], snapshot.seq, {
+        hypotheses: snapshot.hypotheses, pins: snapshot.pins, actions: snapshot.actions ?? [], seed: snapshot.investigation.seed,
+      });
       // The queue and the inspector's action records carry no sequence: they
       // finish inside this operation, so a later read cannot be overtaken. A
       // reload keeps the inspector open with its records, so a record with
@@ -593,7 +595,9 @@ export class InvestigationDocuments {
         this.scheduleDispatchWatch(id, panel, patch.actions);
       }
       if (patch.thread) {
-        void this.postDerivedViews(panel, patch.thread, seq); // sequenced: a stale one is dropped
+        void this.postDerivedViews(panel, patch.thread, seq, { // sequenced: a stale one is dropped
+          hypotheses: patch.hypotheses, pins: patch.pins, actions: patch.actions ?? undefined, seed: patch.investigation?.seed,
+        });
       }
       // Unsequenced follow-ups finish inside this operation (see load).
       await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, seq)]);
@@ -804,8 +808,8 @@ export class InvestigationDocuments {
    * evidence fetches — bounded; failures just leave gaps (both are lenses,
    * never load-bearing). Posted as a slice patch.
    */
-  private async postDerivedViews(panel: vscode.WebviewPanel, thread: ThreadEntry[], seq: number): Promise<void> {
-    const derived = await buildDerivedViews(thread, (ref) => this.getDoc(ref));
+  private async postDerivedViews(panel: vscode.WebviewPanel, thread: ThreadEntry[], seq: number, citing: CitingRecords): Promise<void> {
+    const derived = await buildDerivedViews(thread, (ref) => this.getDoc(ref), citing);
     void this.post(panel, { type: "state.patch", seq, patch: { derived } });
   }
 

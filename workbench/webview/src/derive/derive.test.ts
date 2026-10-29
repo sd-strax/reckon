@@ -5,6 +5,7 @@ import { classifyDraft, effectiveDraftKind, entitySubLabel } from "./draft";
 import { layoutGraph } from "./graph";
 import { blockersOf, hypName, orderHypotheses, rivalsOf } from "./hyps";
 import { verdictChecklist, verdictRefs, verdictResidual } from "./verdict";
+import { keyEntities } from "./summary";
 
 const H = (id: string, status: string, preds: { id: string; status: string; discriminates?: string[] }[] = [], handle?: string): Hypothesis => ({
   id, statement: "claim " + id, status, handle, labels: [],
@@ -28,6 +29,13 @@ describe("hyps", () => {
     const h3 = H("h3", "ABANDONED", [{ id: "p4", status: "UNTESTED", discriminates: ["h1"] }]);
     expect(rivalsOf(h1, [h1, h2, h3])).toEqual([{ id: "h2", handle: undefined, statement: "claim h2", untestedDiscriminators: 1 }]);
     expect(blockersOf(h1, [h1, h2, h3]).map((b) => b.p.id)).toEqual(["p2"]); // the abandoned rival does not block
+  });
+});
+
+describe("key entities (#141)", () => {
+  it("lists what the cited evidence observed, seed first", () => {
+    const ents = keyEntities({ type: "entity", entityRef: "x-host--win" }, [], [], [], {}, [{ ref: "user-account--svc", citations: 3 }, { ref: "x-host--win", citations: 2 }]);
+    expect(ents.map((e) => [e.ref, e.role, e.citations])).toEqual([["x-host--win", "seed subject", 2], ["user-account--svc", "cited", 3]]);
   });
 });
 
