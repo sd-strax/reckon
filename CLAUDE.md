@@ -86,7 +86,7 @@ We adopt industry-standard public Go conventions rather than maintaining our own
 3. **[Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md)** — supplementary; especially the mutex placement and error wrapping sections.
 4. **`implementation/reckon-patterns.md`** — the small set of patterns specific to this codebase that the public guides don't address. ~5–6 patterns total. Read once; cite from new code as needed.
 
-`make lint` runs `golangci-lint` with a config (`.golangci.yml`) tuned to enforce most of the above mechanically — `staticcheck`, `errcheck`, `gosec`, `revive`, `gocritic`, `govet`, `bodyclose`, `errorlint`, `unused`. `make ci` (lint + test + build) is the pre-commit / pre-PR check.
+`make lint` runs `golangci-lint` with a config (`.golangci.yml`) tuned to enforce most of the above mechanically — `staticcheck`, `errcheck`, `gosec`, `revive`, `gocritic`, `govet`, `bodyclose`, `errorlint`, `unused`. `make ci` (lint + full test suite + build) is the pre-PR check, the same gate CI runs.
 
 When extending the code, prefer references to the public guides over re-arguing style locally. When a project-specific pattern emerges three+ times, add it to `reckon-patterns.md`.
 
@@ -96,10 +96,10 @@ When extending the code, prefer references to the public guides over re-arguing 
 
 - `make build` — builds both binaries to `bin/`: `reckon` (CLI/supervisor) and `reckon-backend`.
 - `make test` — fast suite: `go test -race -short ./...`. The `-short` flag skips the slow embedded-Postgres/Temporal/Keycloak lifecycle tests (those download and boot real subprocess binaries). Use this loop while developing.
-- `make test-all` — full suite including the embedded-deps lifecycle tests (`go test -race -count=1 ./...`); ~60s warm, several minutes cold. Run before a PR that touches `supervisor/`.
+- `make test-all` — full suite including the embedded-deps tests (`go test -race -count=1 ./...`): the packages whose `TestMain` boots embedded Postgres, the supervisor's Postgres/Temporal lifecycle, the worker round trip against a Temporal dev server. A few minutes; each embedded-Postgres boot is dominated by `initdb`.
 - `make lint` — `golangci-lint run ./...` (requires `brew install golangci-lint`).
-- `make ci` — lint + fast tests + build. The pre-commit / pre-PR gate.
-- `make ci-full` — lint + full tests + build. Pre-release.
+- `make ci` — lint + full test suite + build. The pre-PR gate, identical to the CI `engine` job (`adr/0225`).
+- `make ci-full` — alias for `make ci`.
 - `make hooks` — installs the OSS-leak pre-commit hook (`git config core.hooksPath .githooks/`). Run once after clone.
 - `make eval` — the behavioral eval run (`design/10`): drives the real agent loop against a RUNNING local stack with the real model. Costs tokens (BYOK `ANTHROPIC_API_KEY`); env-gated (`RECKON_EVAL=1`), never part of `test`/`ci`.
 

@@ -1,13 +1,12 @@
-# CI: the same gate as local `make ci` — lint + fast tests + build — plus the
-# workbench compile as its own job (mirroring the Makefile split: engine work
-# stays Go-only, `workbench-ci` is deliberately separate).
+# CI: the same gate as local `make ci` — lint + the full test suite + build —
+# plus the workbench compile as its own job (mirroring the Makefile split:
+# engine work stays Go-only, `workbench-ci` is deliberately separate).
 #
-# The slow embedded-deps lifecycle tests (`make test-all`) are NOT run here:
-# they download and boot real Postgres/Temporal/Keycloak distributions, which
-# is minutes of runner time per push for surfaces that change rarely. They
-# remain the local pre-PR discipline for supervisor/ changes (CLAUDE.md); a
-# scheduled or label-gated workflow can adopt them later if that discipline
-# proves insufficient.
+# The full suite includes the embedded-deps tests: every package that boots
+# embedded Postgres in its TestMain, the supervisor's Postgres and Temporal
+# lifecycle, and the worker round trip against a Temporal dev server. Their
+# downloaded binaries are cached between runs. If the job grows too slow for
+# a PR gate, the supervisor/Temporal lifecycle tests are the ones to move out.
 name: ci
 
 on:
@@ -22,19 +21,29 @@ concurrency:
 jobs:
   engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+      # Embedded-deps binaries: the Postgres archive (embedded-postgres's
+      # default cache) and the Temporal dev server (temporal/worker_test.go).
+      - name: cache test binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.embedded-postgres-go
+            /tmp/reckon-temporal-test-bin
+          key: test-binaries-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: test-binaries-${{ runner.os }}-
       - name: lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2 # keep in lockstep with the local install
       - name: test
-        run: go test -race -short ./...
+        run: make test-all
       - name: build
         run: make build
 

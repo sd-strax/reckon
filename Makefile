@@ -27,7 +27,7 @@ image: ## Build the engine container image (05 §12.4): supervisor-in-container,
 test: ## Fast tests: unit + httptest integration. Race detector on. Skips slow embedded-Pg/Temporal/Keycloak lifecycle tests.
 	go test -race -short ./...
 
-test-all: ## All tests including slow embedded-deps lifecycle tests. ~60s with binaries cached, several min cold.
+test-all: ## All tests including slow embedded-deps lifecycle tests (embedded Pg, Temporal dev server). A few minutes; binaries are cached after the first run.
 	go test -race -count=1 ./...
 
 test-race: test ## Alias for `test` (race detector is always on now)
@@ -53,9 +53,9 @@ hooks: ## Install the OSS-leak prevention pre-commit hook
 clean: ## Remove built binaries
 	rm -rf bin/
 
-ci: lint test build ## Pre-commit / PR check: lint + fast tests + build (~10s)
+ci: lint test-all build ## Pre-PR check, the same gate CI runs: lint + full test suite + build
 
-ci-full: lint test-all build ## Pre-release check: lint + full test suite incl. slow lifecycle tests + build
+ci-full: ci ## Alias for `ci` (the full suite is the PR gate now)
 
 bundle: build ## Build an air-gap-able distribution tarball for the current OS/arch
 	@bash scripts/build-bundle.sh

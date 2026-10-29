@@ -2,11 +2,13 @@ package temporal
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"go.temporal.io/sdk/client"
+	sdktemporal "go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
 	"github.com/sd-strax/reckon/internal/branding"
@@ -69,21 +71,24 @@ func TestWorkerPingRoundTrip(t *testing.T) {
 		t.Errorf("ping result = %q; want %q", out, "pong:abc")
 	}
 
-	// The skeleton domain workflows are registered but unimplemented:
-	// dispatching one through the real worker returns the non-retryable error,
-	// proving both that registration happened on the reckon task queue and that
-	// Phase C has a clear, loud TODO.
+	// RenormalizePass is the remaining skeleton: dispatching it through the
+	// real worker returns the non-retryable Unimplemented error at once,
+	// proving the domain inventory is registered on the reckon task queue.
+	// (A filled workflow would wait out its activities' retry budget here:
+	// this worker registers no activities.)
 	raw, err := client.Dial(client.Options{HostPort: hostPort, Namespace: "default"})
 	if err != nil {
 		t.Fatalf("dial raw client: %v", err)
 	}
 	defer raw.Close()
-	run, err := raw.ExecuteWorkflow(ctx, client.StartWorkflowOptions{TaskQueue: branding.CLI}, WorkflowActionLifecycle)
+	run, err := raw.ExecuteWorkflow(ctx, client.StartWorkflowOptions{TaskQueue: branding.CLI}, WorkflowRenormalizePass)
 	if err != nil {
-		t.Fatalf("dispatch ActionLifecycle: %v", err)
+		t.Fatalf("dispatch RenormalizePass: %v", err)
 	}
-	if err := run.Get(ctx, nil); err == nil {
-		t.Error("ActionLifecycle skeleton returned nil; want an unimplemented error")
+	err = run.Get(ctx, nil)
+	var appErr *sdktemporal.ApplicationError
+	if !errors.As(err, &appErr) || appErr.Type() != unimplementedErrType {
+		t.Errorf("RenormalizePass = %v; want an %s ApplicationError", err, unimplementedErrType)
 	}
 }
 
