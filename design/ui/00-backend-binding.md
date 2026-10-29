@@ -306,7 +306,10 @@ Motivated by the knowledge surfaces (`ui/09`, `adr/0084`), not yet built:
     whose only tools are the two recall calls, which answers with citations and records
     nothing in any investigation (`ui/09 §9.2`). Same client-side loop and model key as
     investigation turns (`05 §3.4`).
-24. **Stored procedure candidates** — the conclude hook's draft (`proposeSOP`) is kept as a
+24. **Stored procedure candidates** — *Superseded by `adr/0156`: there is no conclude-time
+    draft and no candidate queue. A procedure is drafted when the analyst presses **Draft SOP
+    from this case** in a concluded investigation's Summary, and is added or discarded there.
+    The original wording follows for the record.* The conclude hook's draft (`proposeSOP`) is kept as a
     candidate record (draft text, source investigation, drafted at, status, discard reason)
     instead of being shown once at conclude, so it can be reviewed later in the Knowledge
     view (`ui/09 §9.7`). Accepting still imports through the existing path.
