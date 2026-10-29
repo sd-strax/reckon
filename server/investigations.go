@@ -303,6 +303,19 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seed := resolved.Seed
+		// One investigation per case (#158): a case already investigated —
+		// open or concluded — opens that investigation; a concluded one is
+		// reopened, not started again.
+		if existing, err := b.investigationForCase(r, seed.CaseID); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "look up investigations: "+err.Error())
+			return
+		} else if existing != "" {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error":            "case " + seed.CaseID + " already has an investigation",
+				"investigation_id": existing,
+			})
+			return
+		}
 		cmd.Seed = &seed
 		if cmd.Title == "" {
 			cmd.Title = deriveSeedTitle(resolved.Display)

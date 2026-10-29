@@ -45,8 +45,9 @@ describe("the investigation document", () => {
   it("renders the work queue needs-me-first with stage steps, and starts an investigation from a case", () => {
     const { transport } = mount();
     const nav = document.querySelector("#leftRegion") as HTMLElement;
-    const rows = Array.from(nav.querySelectorAll(".qrow:not(.case)"));
-    expect(rows.length).toBe(2); // the concluded one is not in the open queue
+    const rows = Array.from(nav.querySelectorAll(".qrow:not(.case):not(.concluded)"));
+    expect(rows.length).toBe(2); // the concluded one is not in the open queue…
+    expect(nav.querySelectorAll(".concludedfold .qrow").length).toBe(1); // …but stays findable under Concluded (#158)
     expect(rows[0].classList.contains("current")).toBe(true);
     expect(rows[0].querySelector(".qstep")?.textContent).toBe("Investigate");
     expect(rows[1].querySelector(".qstep")?.textContent).toBe("Close");
