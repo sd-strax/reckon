@@ -118,3 +118,23 @@ func TestSummaryWriterSeam(t *testing.T) {
 		t.Errorf("writer received a malformed summary: %+v", w.got)
 	}
 }
+
+// TestBuildSummary_EntitiesFromActionTargets: a case-seeded investigation names
+// its host only as an action target; the summary records every target once, so
+// it can be found by the entity later (adr/0163).
+func TestBuildSummary_EntitiesFromActionTargets(t *testing.T) {
+	ic := aggregate.InvestigationCurrent{
+		Title: "Suspicious RDP logon", Status: aggregate.StatusConcluded,
+		Seed: &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "INC0010042"},
+	}
+	actions := []aggregate.ActionCurrent{
+		{ActionType: "host.isolate", Targets: []aggregate.TargetSpec{{ResolvedIdentifier: "WIN-FILE01"}}},
+		{ActionType: "account.disable", Targets: []aggregate.TargetSpec{{ResolvedIdentifier: "CONTOSO\\svc_backup"}}},
+		{ActionType: "host.unisolate", Targets: []aggregate.TargetSpec{{ResolvedIdentifier: "win-file01"}}}, // same host, other case
+		{ActionType: "ticket.comment", Targets: []aggregate.TargetSpec{{ResolvedIdentifier: " "}}},
+	}
+	sum := buildSummary("grouping--c", ic, nil, actions, time.Time{}, time.Time{})
+	if got := strings.Join(sum.PrimaryEntities, ","); got != "WIN-FILE01,CONTOSO\\svc_backup" {
+		t.Errorf("primary entities = %q", got)
+	}
+}

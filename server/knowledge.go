@@ -84,6 +84,35 @@ func (b *Backend) recallSimilar(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// priorInvestigations handles POST /api/knowledge/prior_investigations
+// (adr/0163): the exact lookup "have we investigated this entity before?" —
+// every concluded investigation whose summary records the entity. Any
+// authenticated reader.
+func (b *Backend) priorInvestigations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+		var req knowledge.PriorRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+			return
+		}
+		if strings.TrimSpace(req.Entity) == "" {
+			writeJSONError(w, http.StatusBadRequest, "prior_investigations: entity required")
+			return
+		}
+		res, err := b.cfg.Knowledge.PriorByEntity(r.Context(), module.SingleTenantUUID, req)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "prior_investigations: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
+}
+
 // getCaseSummary handles GET /api/knowledge/case_summaries/{investigation_ref}
 // (design/ui 08 §8.6.1 "Similar past case"): one concluded investigation's
 // summary read back by its source ref, for the inspector. The demo's seeded

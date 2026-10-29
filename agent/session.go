@@ -511,7 +511,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 			if tu.ToolName == ToolRecallSOPs && !isErr {
 				s.trackConsulted(content)
 			}
-			if tu.ToolName == ToolRecallSimilar && !isErr {
+			if (tu.ToolName == ToolRecallSimilar || tu.ToolName == ToolPriorInvestigations) && !isErr {
 				s.trackConsultedSimilar(content)
 			}
 			fmt.Fprintf(&transcript, "[tool_result %s id=%s error=%v] %s\n",
@@ -804,18 +804,22 @@ func (s *Session) consultedList(finalText string) []ConsultedSOP {
 // retrievals into the turn's case-knowledge provenance (dedup by
 // investigation_ref, best score kept).
 func (s *Session) trackConsultedSimilar(content string) {
+	type hit struct {
+		InvestigationRef string  `json:"investigation_ref"`
+		Title            string  `json:"title"`
+		Score            float64 `json:"score"`
+		Band             string  `json:"band"`
+	}
 	var res struct {
-		Results []struct {
-			InvestigationRef string  `json:"investigation_ref"`
-			Title            string  `json:"title"`
-			Score            float64 `json:"score"`
-			Band             string  `json:"band"`
-		} `json:"results"`
+		Results []hit `json:"results"`
+		// prior_investigations answers with the exact matches here (adr/0163):
+		// consulted the same way, with no similarity score.
+		Investigations []hit `json:"investigations"`
 	}
 	if json.Unmarshal([]byte(content), &res) != nil {
 		return
 	}
-	for _, r := range res.Results {
+	for _, r := range append(res.Results, res.Investigations...) {
 		if r.InvestigationRef == "" {
 			continue
 		}
