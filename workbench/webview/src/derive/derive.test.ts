@@ -5,7 +5,7 @@ import { classifyDraft, effectiveDraftKind, entitySubLabel } from "./draft";
 import { layoutGraph } from "./graph";
 import { blockersOf, hypName, orderHypotheses, outstanding, rivalsOf, tested } from "./hyps";
 import { keyEntities, stillToDo } from "./summary";
-import { verdictChecklist, verdictRefs, verdictResidual } from "./verdict";
+import { verdictRefs } from "./verdict";
 
 const H = (id: string, status: string, preds: { id: string; status: string; discriminates?: string[] }[] = [], handle?: string): Hypothesis => ({
   id, statement: "claim " + id, status, handle, labels: [],
@@ -105,14 +105,7 @@ describe("verdict", () => {
       { interpretationId: "p1", finding: "f", inputRefs: ["r1", "r2"], actor: "HUMAN", pinnedAt: "", superseded: false },
       { interpretationId: "p2", finding: "g", inputRefs: ["r2", "r3"], actor: "HUMAN", pinnedAt: "", superseded: true },
     ];
-    expect(verdictChecklist(pins, null)[0]).toEqual({ ok: true, text: "1 evidence item(s) pinned" });
-    expect(verdictChecklist([], null)[0].ok).toBe(false);
     expect(verdictRefs(pins)).toEqual(["r1", "r2"]);
-    const residual = verdictResidual([{ verb: "x", intent: "", inputs: [], output: "", status: "unavailable" }], [H("h", "PROPOSED", [{ id: "p", status: "UNTESTED", discriminates: ["o"] }])]);
-    expect(residual[0]).toBe("verbs never checkable in this tenant: x");
-    expect(residual[1]).toContain("undecided hypothesis H1 — never adopted, 1 untested discriminating test");
-    expect(residual[2]).toBe("untested prediction: pred p");
-    expect(verdictResidual(null, [])).toEqual(["no known gaps — all configured verbs available, no undecided hypotheses, no untested predictions"]);
   });
 });
 

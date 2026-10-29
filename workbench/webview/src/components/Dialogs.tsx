@@ -13,7 +13,7 @@ export function VerdictDialog() {
   const pins = state.snap?.pins || [];
   const verdict = state.snap?.investigation.verdict || null;
   const checklist = verdictChecklist(pins, verdict);
-  const residual = verdictResidual(state.snap?.capabilities ?? null, state.snap?.hypotheses || []);
+  const residual = verdictResidual(state.snap?.capabilities ?? null, state.snap?.hypotheses || [], state.snap?.turns || []);
   const pinsOk = pins.some((p) => !p.superseded);
   const close = () => setVerdictOpen(false);
   return (
@@ -32,7 +32,7 @@ export function VerdictDialog() {
         <div className="dlglabel">Rationale (required — this is the record)</div>
         <textarea id="verdictRationale" rows={3} value={rationale} onChange={(e) => setRationale(e.target.value)} />
         <div className="residual">
-          <div className="rtitle">Not investigated — you are signing over this residual</div>
+          <div className="rtitle">What this verdict does not cover</div>
           {residual.map((l, i) => <div key={i}>· {l}</div>)}
         </div>
         <div className="decide">
