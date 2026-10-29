@@ -9,6 +9,7 @@ import { parseTranscript } from "../transcript";
 import { Markdown, RefChip, fmtDateTime, fmtTime } from "./shared";
 import { ToolRow } from "./ToolRow";
 import { actLineId, verdictLinks, type VerdictLink } from "../derive/verdict";
+import { actionRequestText } from "../derive/turns";
 import type { ThreadEntry } from "../../../src/viewTypes";
 import type { ChronicleTurn } from "../../../src/protocol";
 
@@ -33,7 +34,8 @@ export function scrollToAct(interpretationId: string): void {
 }
 
 function ActLine({ e, link }: { e: ThreadEntry; link?: VerdictLink }) {
-  const { openInspector } = useApp();
+  const { state, openInspector } = useApp();
+  const actions = state.snap?.actions || [];
   const spec = CHRONICLE_ACTS[e.interpretationType];
   const refs: string[] = [];
   for (const r of (e.inputRefs || []).concat(e.outputRefs || [])) if (r && !refs.includes(r)) refs.push(r);
@@ -41,6 +43,7 @@ function ActLine({ e, link }: { e: ThreadEntry; link?: VerdictLink }) {
   // A verdict says what it was (#155): its disposition leads, the rationale follows.
   const text = verdict && e.disposition
     ? `Verdict ${e.disposition}` + (e.summary ? ` — ${e.summary}` : "")
+    : e.interpretationType === "action-request" ? actionRequestText(e, actions)
     : e.summary || (spec ? spec.verb : e.interpretationType);
   // A changed verdict is the opposite of noise: both ends stand out, linked.
   const replaced = verdict && e.superseded;

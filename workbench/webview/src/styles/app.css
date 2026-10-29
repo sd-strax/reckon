@@ -534,6 +534,7 @@ body.loading #rail { opacity: 0.6; }
 .basis { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 6px 0 8px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
 .basis .kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); }
 .basisitem .badge { margin-left: 3px; }
+.basislist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; width: 100%; }
 .hypcard .statement { cursor: pointer; }
 .predictions.rows { margin-top: 6px; }
 .prow { border-left: 2px solid var(--border); margin: 3px 0; padding: 0; }

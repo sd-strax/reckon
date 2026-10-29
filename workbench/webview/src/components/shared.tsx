@@ -5,14 +5,19 @@ import { useApp } from "../app";
 import { md } from "../markdown";
 import { chipClass, chipText } from "../refs";
 import { fmtRemaining } from "../derive/actions";
+import { hypWords, shortTitle } from "../derive/hyps";
+import type { InvestigationSnapshot } from "../../../src/protocol";
 
 /** A clickable citation (02 §2.8, 08 §8.6): every ref opens the inspector.
  * Reads as evidence — a type label immediately, enriched with the value once
  * the host resolves it; the full id is in the tooltip. */
 export function RefChip({ refId: r, pinned, className }: { refId: string; pinned?: boolean; className?: string }) {
   const { state, resolve, openInspector } = useApp();
-  const label = state.labels[r];
-  useEffect(() => { if (label === undefined) resolve(r); }, [r, label, resolve]);
+  // A chip names its object (#153): hypotheses and predictions by what the
+  // snapshot says they are, the seed entity by the identifier it was rooted on.
+  const resolved = state.labels[r];
+  const label = snapshotLabel(r, state.snap) ?? resolved;
+  useEffect(() => { if (resolved === undefined) resolve(r); }, [r, resolved, resolve]);
   return (
     <span
       className={chipClass(r) + (pinned ? " pinned" : "") + (className ? " " + className : "")}
@@ -23,6 +28,25 @@ export function RefChip({ refId: r, pinned, className }: { refId: string; pinned
       {chipText(r, label)}
     </span>
   );
+}
+
+/** What the snapshot already knows a ref to be, before any fetch. */
+function snapshotLabel(r: string, snap: InvestigationSnapshot | null): string | undefined {
+  if (!snap) return undefined;
+  const hs = snap.hypotheses || [];
+  if (r.startsWith("x-hypothesis--")) {
+    const h = hs.find((x) => x.id === r);
+    return h ? hypWords(h, hs) : undefined;
+  }
+  if (r.startsWith("x-prediction--")) {
+    for (const h of hs) {
+      const p = h.predictions.find((x) => x.id === r);
+      if (p) return (p.ordinal ? "P" + p.ordinal + " " : "") + shortTitle(p);
+    }
+    return undefined;
+  }
+  const seed = snap.investigation.seed;
+  return seed?.entityRef === r && seed.entityIdentifier ? seed.entityIdentifier : undefined;
 }
 
 /** A status / tier pill. tone: ok | warn | bad | info | muted | T1 | T2 | T3 | "". */
