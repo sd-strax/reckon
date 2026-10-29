@@ -465,6 +465,8 @@ export interface ActionRow {
   evidenceRefs: string[];
   /** Lineage: the FAILED/EXPIRED action this request replaces. */
   retryOf?: string;
+  /** Lineage: the action this one reverses (set when isReversal). */
+  reversalOfRef?: string;
   /**
    * The tool that dispatched the action (write-side provenance) — which of
    * several possible adapters actually acted. Empty until dispatched.
@@ -1658,6 +1660,7 @@ interface RawAction {
   tier_escalated?: boolean;
   evidence_refs?: string[];
   retry_of?: string;
+  reversal_of_ref?: string;
   adapter?: string;
   planned_adapter?: string;
   error_detail?: string;
@@ -1697,6 +1700,7 @@ function mapAction(a: RawAction): ActionRow {
     tierEscalated: a.tier_escalated ?? false,
     evidenceRefs: a.evidence_refs ?? [],
     retryOf: a.retry_of,
+    reversalOfRef: a.reversal_of_ref,
     adapter: a.adapter,
     plannedAdapter: a.planned_adapter,
     errorDetail: a.error_detail,

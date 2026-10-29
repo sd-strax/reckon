@@ -198,11 +198,11 @@ type ActionDispatched struct {
 // ActionResulted records the terminal outcome of a dispatched action (02 §3).
 // System-emitted. per_target_results is what makes PARTIAL outcomes auditable.
 type ActionResulted struct {
-	ActionID               uuid.UUID         `json:"action_id"`
-	FinalOutcome           string            `json:"final_outcome"` // SUCCEEDED | FAILED | PARTIAL | TIMEOUT
-	PerTargetResults       map[string]string `json:"per_target_results,omitempty"`
-	Attempts               int               `json:"attempts"`
-	RawResponseRef         string            `json:"raw_response_ref,omitempty"`
+	ActionID         uuid.UUID         `json:"action_id"`
+	FinalOutcome     string            `json:"final_outcome"` // SUCCEEDED | FAILED | PARTIAL | TIMEOUT
+	PerTargetResults map[string]string `json:"per_target_results,omitempty"`
+	Attempts         int               `json:"attempts"`
+	RawResponseRef   string            `json:"raw_response_ref,omitempty"`
 	// ErrorDetail is the adapter/dispatch reason for a non-success outcome
 	// (08 §6c) — what the analyst reads to know WHY a FAILED action failed.
 	// Empty on SUCCEEDED.
@@ -246,10 +246,12 @@ type actionState struct {
 	Tier                  string
 	IsReversal            bool
 	PrimaryApprover       string
-	RequiredMode          string   // Gate 2 requirement, frozen at request time
-	SecondaryApproverPool []string // who may be the secondary approver (TWO_PARTY)
-	ActionType            string   // e.g. "notify.slack" — for human-readable summaries
-	TargetLabel           string   // e.g. "#it-operations (+2)" — the target set, condensed
+	RequiredMode          string    // Gate 2 requirement, frozen at request time
+	SecondaryApproverPool []string  // who may be the secondary approver (TWO_PARTY)
+	ActionType            string    // e.g. "notify.slack" — for human-readable summaries
+	TargetLabel           string    // e.g. "#it-operations (+2)" — the target set, condensed
+	RetryOf               uuid.UUID // the action this one re-requests (lineage, adr/0152)
+	ReversalOf            uuid.UUID // the action this one reverses (lineage, adr/0152)
 }
 
 // label renders the action as "<type> → <target>" (or just the type when
@@ -296,6 +298,7 @@ func foldActionEvent(actions map[uuid.UUID]actionState, e Event) error {
 			Status: ActionStatusRequested, Tier: p.Tier, IsReversal: p.IsReversal,
 			RequiredMode: p.RequiredMode, SecondaryApproverPool: p.SecondaryApproverPool,
 			ActionType: p.ActionType, TargetLabel: targetLabel(p.Targets),
+			RetryOf: p.RetryOf, ReversalOf: p.ReversalOfRef,
 		})
 	case EventTypeActionApproved:
 		var p ActionApproved
@@ -640,6 +643,9 @@ func applyRequestAction(env Envelope, state aggregateState, c RequestAction) ([]
 	if _, exists := state.Actions[c.ActionID]; exists {
 		return nil, fmt.Errorf("RequestAction rejected: action %s already exists", c.ActionID)
 	}
+	if err := checkLineage(state, c); err != nil {
+		return nil, err
+	}
 
 	interpID := uuid.New()
 	payload, err := json.Marshal(ActionRequested{
@@ -682,6 +688,55 @@ func applyRequestAction(env Envelope, state aggregateState, c RequestAction) ([]
 		events = append(events, lifecycleDomainEvent(env, state.Seq+3, EventTypeActionPolicyEvaluated, pePayload))
 	}
 	return events, nil
+}
+
+// checkLineage keeps every action chain a line (adr/0152). A re-request names
+// an EXPIRED or FAILED action of the same type in this investigation that has
+// not been re-requested already: each action has at most one successor, so the
+// chain continues from its latest link and an answered request is never asked
+// again from behind it. A reversal names a SUCCEEDED action that has no
+// reversal pending or done; a failed, rejected or expired reversal may be tried
+// again. Checked here, against the folded stream and inside the command's
+// transaction, so two requests racing on one original cannot both pass. A
+// fresh request (no lineage) is never limited: sending the same thing again
+// on purpose is the analyst's call.
+func checkLineage(state aggregateState, c RequestAction) error {
+	if c.RetryOf != uuid.Nil {
+		orig, ok := state.Actions[c.RetryOf]
+		switch {
+		case !ok:
+			return fmt.Errorf("RequestAction rejected: re-requested action %s is not in this investigation", c.RetryOf)
+		case orig.Status != ActionStatusExpired && orig.Status != ActionStatusFailed:
+			return fmt.Errorf("RequestAction rejected: %s is %s; only an EXPIRED or FAILED action can be re-requested", orig.label(), orig.Status)
+		case orig.ActionType != c.ActionType:
+			return fmt.Errorf("RequestAction rejected: a re-request of %s must be %s, not %s", orig.label(), orig.ActionType, c.ActionType)
+		}
+		for id, a := range state.Actions {
+			if a.RetryOf == c.RetryOf {
+				return fmt.Errorf("RequestAction rejected: %s was already re-requested as %s (%s)", orig.label(), id, a.Status)
+			}
+		}
+	}
+	if c.ReversalOfRef != uuid.Nil {
+		orig, ok := state.Actions[c.ReversalOfRef]
+		switch {
+		case !ok:
+			return fmt.Errorf("RequestAction rejected: action %s to reverse is not in this investigation", c.ReversalOfRef)
+		case orig.Status != ActionStatusSucceeded:
+			return fmt.Errorf("RequestAction rejected: %s is %s; only a SUCCEEDED action can be reversed", orig.label(), orig.Status)
+		}
+		for id, a := range state.Actions {
+			if a.ReversalOf != c.ReversalOfRef {
+				continue
+			}
+			switch a.Status {
+			case ActionStatusFailed, ActionStatusRejected, ActionStatusExpired:
+			default:
+				return fmt.Errorf("RequestAction rejected: %s already has a reversal, %s (%s)", orig.label(), id, a.Status)
+			}
+		}
+	}
+	return nil
 }
 
 // applyApproveAction builds the (ActionApproved, action-approval Interpretation)

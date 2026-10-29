@@ -20,12 +20,36 @@ export function actionStatusBadge(a: ActionRow): { label: string; tone: string }
   }
 }
 
+/** What came after an action (adr/0152): its re-request, if any — the engine
+ * allows one — and its most recent reversal. Each chain is a line, so the
+ * original shows its successor instead of offering the step again. */
+export function successors(a: ActionRow, actions: ActionRow[]): { retry?: ActionRow; reversal?: ActionRow } {
+  const retry = actions.find((x) => x.retryOf === a.actionId);
+  const reversals = actions.filter((x) => x.reversalOfRef === a.actionId);
+  return { retry, reversal: reversals[reversals.length - 1] };
+}
+
+/** A reversal that ended without taking effect; the original may be reversed again. */
+export function reversalEnded(r: ActionRow): boolean {
+  return r.status === "FAILED" || r.status === "REJECTED" || r.status === "EXPIRED";
+}
+
+/** Re-request is offered on an EXPIRED or FAILED action that has not been re-requested. */
+export function canRerequest(a: ActionRow, actions: ActionRow[]): boolean {
+  return (a.status === "EXPIRED" || a.status === "FAILED") && !successors(a, actions).retry;
+}
+
+/** Reverse is offered on a SUCCEEDED REVERSIBLE action with no reversal pending or done. */
+export function canReverse(a: ActionRow, actions: ActionRow[]): boolean {
+  const { reversal } = successors(a, actions);
+  return a.status === "SUCCEEDED" && a.reversibility === "REVERSIBLE" && (!reversal || reversalEnded(reversal));
+}
+
 /** The approval queue: live pending rows plus EXPIRED ones that carry the
  * re-request affordance — but not an EXPIRED action that already has a
- * successor (retry_of pointing at it): a dangling button would mint duplicates. */
+ * successor: a dangling button would mint duplicates. */
 export function pendingQueue(actions: ActionRow[]): ActionRow[] {
-  const retried = new Set(actions.map((a) => a.retryOf).filter(Boolean));
-  return actions.filter((a) => a.pending || (a.status === "EXPIRED" && !retried.has(a.actionId)));
+  return actions.filter((a) => a.pending || (a.status === "EXPIRED" && canRerequest(a, actions)));
 }
 
 /** The derived presentation label (binding §2.4): ACTIVE reads as remediating

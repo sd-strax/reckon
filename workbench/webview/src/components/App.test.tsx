@@ -261,6 +261,23 @@ describe("the investigation document", () => {
   });
 });
 
+describe("action lineage on the cards (adr/0152)", () => {
+  it("an original shows its successor in place of the step it already took", () => {
+    const d = structuredClone(data);
+    d.snapshot.actions = [
+      ...(d.snapshot.actions || []),
+      { ...d.snapshot.actions![3], actionId: "act-6", status: "REJECTED", pending: false, expired: false, retryOf: "act-4" },
+      { ...d.snapshot.actions![0], actionId: "act-7", actionType: "host.unisolate", status: "REQUESTED", pending: true, isReversal: true, reversalOfRef: "act-1" },
+    ];
+    mount(d);
+    tab("Response");
+    expect(within(lens()).queryByText("↻ Re-request")).toBeNull();
+    expect(within(lens()).getByText(/re-requested as/)).toBeTruthy();
+    expect(within(lens()).queryByText(/^Reverse/)).toBeNull();
+    expect(within(lens()).getAllByText(/↺ reversal/).length).toBeGreaterThan(0);
+  });
+});
+
 describe("the companion pane", () => {
   const grip = () => screen.getByRole("separator", { name: "Resize the companion" });
   const width = () => (document.getElementById("regions") as HTMLElement).style.getPropertyValue("--companion-w");

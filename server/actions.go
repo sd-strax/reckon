@@ -74,6 +74,9 @@ type ActionView struct {
 	TierEscalated bool `json:"tier_escalated,omitempty"`
 	// RetryOf: lineage to the action this one replaces (zero when not a retry).
 	RetryOf string `json:"retry_of,omitempty"`
+	// ReversalOfRef: the action this one reverses (zero when not a reversal),
+	// so a surface can show an original's reversal on the original.
+	ReversalOfRef string `json:"reversal_of_ref,omitempty"`
 	// Adapter is the tool that dispatched the action (write-side provenance):
 	// which of several possible tools actually acted. Empty until dispatched.
 	Adapter string `json:"adapter,omitempty"`
@@ -140,6 +143,9 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	}
 	if a.RetryOf != (uuid.UUID{}) {
 		v.RetryOf = a.RetryOf.String()
+	}
+	if a.ReversalOfRef != (uuid.UUID{}) {
+		v.ReversalOfRef = a.ReversalOfRef.String()
 	}
 	if !a.ExpiresAt.IsZero() {
 		t := a.ExpiresAt

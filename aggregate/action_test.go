@@ -534,3 +534,85 @@ func foldInto(base map[uuid.UUID]actionState, events []Event) map[uuid.UUID]acti
 	}
 	return out
 }
+
+// TestRequestAction_Lineage: a chain of re-requests and reversals stays a line
+// (adr/0152) — one successor per action, built only from the state that allows
+// it, and only within this investigation.
+func TestRequestAction_Lineage(t *testing.T) {
+	env := newTestEnvelope("alice")
+	orig, sibling := uuid.New(), uuid.New()
+	state := func(actions map[uuid.UUID]actionState) aggregateState {
+		return aggregateState{Seq: 4, Exists: true, TenantID: env.TenantID, Status: StatusActive, Actions: actions}
+	}
+	isolate := func(status string) actionState {
+		return actionState{Status: status, Tier: TierT2, ActionType: "host.isolate", TargetLabel: "WIN-DC01"}
+	}
+	retry := func() RequestAction { r := sampleRequest(uuid.New()); r.RetryOf = orig; return r }
+	reversal := func() RequestAction {
+		r := sampleRequest(uuid.New())
+		r.ActionType, r.IsReversal, r.ReversalOfRef = "host.unisolate", true, orig
+		return r
+	}
+
+	cases := []struct {
+		name    string
+		actions map[uuid.UUID]actionState
+		cmd     RequestAction
+		ok      bool
+	}{
+		{"re-request an expired action", map[uuid.UUID]actionState{orig: isolate(ActionStatusExpired)}, retry(), true},
+		{"re-request a failed action", map[uuid.UUID]actionState{orig: isolate(ActionStatusFailed)}, retry(), true},
+		{"re-request an action not in this investigation", map[uuid.UUID]actionState{}, retry(), false},
+		{"re-request a succeeded action", map[uuid.UUID]actionState{orig: isolate(ActionStatusSucceeded)}, retry(), false},
+		{"re-request a rejected action", map[uuid.UUID]actionState{orig: isolate(ActionStatusRejected)}, retry(), false},
+		{"re-request as another type", map[uuid.UUID]actionState{orig: isolate(ActionStatusExpired)},
+			func() RequestAction { r := retry(); r.ActionType = "ioc.block"; return r }(), false},
+		{"re-request an action already re-requested", map[uuid.UUID]actionState{
+			orig: isolate(ActionStatusExpired), sibling: {Status: ActionStatusRejected, ActionType: "host.isolate", RetryOf: orig},
+		}, retry(), false},
+		{"reverse a succeeded action", map[uuid.UUID]actionState{orig: isolate(ActionStatusSucceeded)}, reversal(), true},
+		{"reverse an action not succeeded", map[uuid.UUID]actionState{orig: isolate(ActionStatusFailed)}, reversal(), false},
+		{"reverse while a reversal is pending", map[uuid.UUID]actionState{
+			orig: isolate(ActionStatusSucceeded), sibling: {Status: ActionStatusRequested, ActionType: "host.unisolate", ReversalOf: orig},
+		}, reversal(), false},
+		{"reverse after a reversal succeeded (best effort leaves it SUCCEEDED)", map[uuid.UUID]actionState{
+			orig: isolate(ActionStatusSucceeded), sibling: {Status: ActionStatusSucceeded, ActionType: "host.unisolate", ReversalOf: orig},
+		}, reversal(), false},
+		{"reverse again after a reversal failed", map[uuid.UUID]actionState{
+			orig: isolate(ActionStatusSucceeded), sibling: {Status: ActionStatusFailed, ActionType: "host.unisolate", ReversalOf: orig},
+		}, reversal(), true},
+		{"a fresh request is never limited", map[uuid.UUID]actionState{
+			orig: isolate(ActionStatusSucceeded), sibling: {Status: ActionStatusSucceeded, ActionType: "host.isolate"},
+		}, sampleRequest(uuid.New()), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := applyCommand(env, tc.cmd, state(tc.actions))
+			if tc.ok && err != nil {
+				t.Errorf("want accepted, got %v", err)
+			}
+			if !tc.ok && err == nil {
+				t.Error("want rejected, got accepted")
+			}
+		})
+	}
+}
+
+// TestFoldAction_KeepsLineage: the folded state remembers what each action
+// re-requests or reverses, so the lineage check sees the whole chain.
+func TestFoldAction_KeepsLineage(t *testing.T) {
+	orig, retryID, revID := uuid.New(), uuid.New(), uuid.New()
+	actions := map[uuid.UUID]actionState{}
+	for _, p := range []ActionRequested{
+		{ActionID: retryID, ActionType: "host.isolate", RetryOf: orig},
+		{ActionID: revID, ActionType: "host.unisolate", IsReversal: true, ReversalOfRef: orig},
+	} {
+		raw, _ := json.Marshal(p)
+		if err := foldActionEvent(actions, Event{Type: EventTypeActionRequested, Payload: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if actions[retryID].RetryOf != orig || actions[revID].ReversalOf != orig {
+		t.Errorf("lineage not folded: retry=%v reversal=%v", actions[retryID].RetryOf, actions[revID].ReversalOf)
+	}
+}
