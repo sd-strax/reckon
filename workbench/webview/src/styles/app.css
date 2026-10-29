@@ -294,6 +294,7 @@ body.loading #rail { opacity: 0.6; }
 .pinrow { border-left: 2px solid var(--pin); }
 .pinrow .finding { font-size: var(--fs-sm); }
 .pinrow.superseded { border-left-color: var(--border); }
+.pinrow .pinact { display: inline-block; margin-top: 4px; font-size: var(--fs-xs); color: var(--link); cursor: pointer; }
 .pinrow.superseded .finding { text-decoration: line-through; color: var(--text-3); }
 .pinrow .unpin { float: right; font-size: var(--fs-xs); padding: 0 6px; }
 .countdown.warn { color: var(--warn); font-weight: 600; }

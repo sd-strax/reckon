@@ -249,6 +249,9 @@ export class InvestigationDocuments {
       "action.edit": (msg) => {
         void this.edit(id, panel, msg);
       },
+      "action.request": (msg) => {
+        void this.requestFromPin(id, panel, msg);
+      },
       "action.rerequest": (msg) => {
         void this.rerequest(id, panel, msg);
       },
@@ -564,10 +567,42 @@ export class InvestigationDocuments {
         .then((data) => data, () => null)
         .then((data) => { if (latestEnablement()) void this.patch(id, panel, { enablement: data }); });
       void this.postLibrary(panel);
+      void this.postActionTypes(panel);
       if (String(snapshot.investigation.state).toUpperCase() === "CONCLUDED") {
         void this.postSummaryStatus(id, panel);
       }
     });
+  }
+
+  /** The action types the analyst can request directly (#146), available ones only. */
+  private async postActionTypes(panel: vscode.WebviewPanel): Promise<void> {
+    try {
+      const types = (await this.client.actionTypes()).filter((t) => t.available)
+        .map((t) => ({ actionType: t.actionType, name: t.name, category: t.category, inputs: t.inputs }));
+      void this.post(panel, { type: "actionTypes", types });
+    } catch (err) {
+      this.log.debug(`action types: ${errText(err)}`);
+    }
+  }
+
+  /**
+   * The analyst requests an action from a pinned finding (#146), when the
+   * agent cannot or should not: the pin's evidence is the citation, and the
+   * request is the analyst's — same approval policies, approval and dispatch.
+   */
+  private async requestFromPin(id: string, panel: vscode.WebviewPanel, msg: { actionType: string; target: string; parameters: Record<string, unknown>; rationale: string; evidenceRefs: string[] }): Promise<void> {
+    try {
+      const res = await this.client.requestAction({
+        investigationRef: id, actionType: msg.actionType,
+        targets: [{ resolvedIdentifier: msg.target }],
+        parameters: Object.keys(msg.parameters).length ? msg.parameters : undefined,
+        evidenceRefs: msg.evidenceRefs, rationale: msg.rationale,
+      });
+      void vscode.window.showInformationMessage(`reckon: ${msg.actionType} on ${msg.target} requested (${res.status}) — approve it in Response`);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: requesting ${msg.actionType} failed — ${errText(err)}`);
+    }
+    await this.refresh(id, panel);
   }
 
   /** The knowledge library (adr/0129): every procedure and past case, to browse. */
