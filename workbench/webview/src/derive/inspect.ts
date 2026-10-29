@@ -1,14 +1,21 @@
 // Resolving an inspector target to a renderer (impl §2.4): from the id's
 // shape and the snapshot, so most panes open instantly and only the ones that
 // need the record wait on a round trip. Pure.
-import type { EvidenceDoc } from "../../../src/viewTypes";
+import type { EvidenceDoc, ThreadEntry } from "../../../src/viewTypes";
 import type { InspectorTarget, InvestigationSnapshot } from "../../../src/protocol";
 import { refType, refTypeLabel } from "../refs";
 
 export type Renderer =
   | "evidence" | "entity" | "absence" | "detection" | "attestation"
   | "prediction" | "hypothesis" | "action" | "thread" | "case"
-  | "turn" | "person" | "alias" | "procedure";
+  | "turn" | "pin" | "act" | "person" | "alias" | "procedure";
+
+/** An agent turn has a transcript to show; a pin or a human act does not (#144). */
+export function turnRenderer(entry: ThreadEntry | undefined): "turn" | "pin" | "act" {
+  if (!entry || entry.hasTranscript) return "turn";
+  if (entry.interpretationType === "evidence-pin") return "pin";
+  return entry.actor.kind === "AI_DELEGATED" && entry.toolCalls ? "turn" : "act";
+}
 
 const ENTITY_TYPES = new Set([
   "x-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file",
@@ -31,10 +38,10 @@ export function targetKey(t: InspectorTarget): string {
 
 /** Which renderer a target takes. A `relationship--` ref is an alias only when
  * the fetched edge says so; until the doc arrives it renders as evidence. */
-export function rendererFor(t: InspectorTarget, doc?: EvidenceDoc | null): Renderer {
+export function rendererFor(t: InspectorTarget, doc?: EvidenceDoc | null, entry?: ThreadEntry): Renderer {
   switch (t.kind) {
     case "sop": return "procedure";
-    case "turn": return "turn";
+    case "turn": return turnRenderer(entry);
     case "action": return "action";
     case "thread": return "thread";
     case "case": return "case";
@@ -70,6 +77,8 @@ export function rendererLabel(r: Renderer): string {
     case "thread": return "Notification thread";
     case "case": return "Similar past case";
     case "turn": return "Turn";
+    case "pin": return "Pinned finding";
+    case "act": return "Act on the record";
     case "person": return "Person";
     case "alias": return "Alias";
     case "procedure": return "Procedure";

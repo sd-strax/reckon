@@ -11,7 +11,13 @@ import { AbsenceInspector, AliasInspector, DetectionInspector, EvidenceInspector
 import { EntityInspector } from "./EntityInspector";
 import { AttestationInspector, HypothesisInspector, PredictionInspector } from "./ReasoningInspectors";
 import { ActionInspector, ThreadInspector } from "./ActionInspectors";
-import { CaseInspector, PersonInspector, ProcedureInspector, TurnInspector } from "./ProvenanceInspectors";
+import { ActInspector, CaseInspector, PersonInspector, PinInspector, ProcedureInspector, TurnInspector } from "./ProvenanceInspectors";
+import type { ThreadEntry } from "../../../../src/viewTypes";
+
+/** The thread entry a turn target names, if the snapshot holds it. */
+function entryOf(target: InspectorTarget, thread: ThreadEntry[] | null | undefined): ThreadEntry | undefined {
+  return target.kind === "turn" ? (thread || []).find((e) => e.interpretationId === target.interpretationId) : undefined;
+}
 
 const RECORD_ONLY = new Set(["evidence", "absence", "detection", "alias"]);
 const SNAPSHOT_ONLY = new Set(["prediction", "hypothesis", "thread", "person"]);
@@ -19,7 +25,7 @@ const SNAPSHOT_ONLY = new Set(["prediction", "hypothesis", "thread", "person"]);
 function Body({ target }: { target: InspectorTarget }) {
   const { state } = useApp();
   const doc = target.kind === "ref" ? state.docs[target.ref] : undefined;
-  const r = rendererFor(target, doc);
+  const r = rendererFor(target, doc, entryOf(target, state.snap?.thread));
   switch (r) {
     case "evidence": return <EvidenceInspector target={target as { kind: "ref"; ref: string }} />;
     case "entity": return <EntityInspector refId={(target as { ref: string }).ref} />;
@@ -33,6 +39,8 @@ function Body({ target }: { target: InspectorTarget }) {
     case "thread": return <ThreadInspector threadId={(target as { threadId: string }).threadId} />;
     case "case": return <CaseInspector investigationRef={(target as { investigationRef: string }).investigationRef} />;
     case "turn": return <TurnInspector interpretationId={(target as { interpretationId: string }).interpretationId} />;
+    case "pin": return <PinInspector interpretationId={(target as { interpretationId: string }).interpretationId} />;
+    case "act": return <ActInspector interpretationId={(target as { interpretationId: string }).interpretationId} />;
     case "person": return <PersonInspector principalId={(target as { principalId: string }).principalId} />;
     case "procedure": return <ProcedureInspector sopId={(target as { sopId: string }).sopId} />;
   }
@@ -42,7 +50,7 @@ function PaneView({ pane, which }: { pane: Pane; which: "active" | "pinned" }) {
   const { state, inspectorBack, closeInspector, pinInspector } = useApp();
   const target = pane.stack[pane.stack.length - 1];
   const doc = target.kind === "ref" ? state.docs[target.ref] : undefined;
-  const renderer = rendererFor(target, doc);
+  const renderer = rendererFor(target, doc, entryOf(target, state.snap?.thread));
   const name = targetName(target, state.snap, state.labels);
   const key = targetKey(target);
   const errKey = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId

@@ -61,6 +61,55 @@ export function TurnInspector({ interpretationId }: { interpretationId: string }
   );
 }
 
+/** A pinned finding (#144): what was pinned, by whom, when, over which
+ * evidence, and whether it still stands. Never an agent turn. */
+export function PinInspector({ interpretationId }: { interpretationId: string }) {
+  const { state, openInspector } = useApp();
+  const e = state.snap?.thread?.find((x) => x.interpretationId === interpretationId);
+  const pin = (state.snap?.pins || []).find((p) => p.interpretationId === interpretationId);
+  if (!e && !pin) return <div className="empty">This pin is not in the current snapshot.</div>;
+  const refs = pin?.inputRefs || e?.inputRefs || [];
+  const who = e ? e.actor.principalName || e.actor.principal : pin?.actor === "AI_DELEGATED" ? "reckon" : "an analyst";
+  return (
+    <>
+      <div className="isub">
+        pinned by {e ? <a onClick={() => openInspector({ kind: "person", principalId: e.actor.principal })}>{who}</a> : who}
+        {e?.actor.kind === "AI_DELEGATED" ? " (reckon, on their behalf)" : ""} · {fmtDateTime(pin?.pinnedAt || e?.occurredAt)}
+        {(pin?.superseded || e?.superseded) ? <> · <Badge tone="muted">removed from evidence</Badge></> : null}
+      </div>
+      <Section title="Finding"><p>{pin?.finding || e?.summary}</p></Section>
+      <Section title="Over this evidence">
+        {refs.length ? refs.map((r) => <div key={r} className="irow"><RefChip refId={r} /></div>) : <div className="empty">no evidence cited</div>}
+      </Section>
+    </>
+  );
+}
+
+/** A human act on the record (#144) — a verdict, a rejection, a lifecycle
+ * step: who did it, when, what it says and cites. No transcript to fetch. */
+export function ActInspector({ interpretationId }: { interpretationId: string }) {
+  const { state, openInspector } = useApp();
+  const e = state.snap?.thread?.find((x) => x.interpretationId === interpretationId);
+  if (!e) return <div className="empty">This act is not in the current snapshot.</div>;
+  const who = e.actor.principalName || e.actor.principal;
+  return (
+    <>
+      <div className="isub">
+        by <a onClick={() => openInspector({ kind: "person", principalId: e.actor.principal })}>{who}</a>
+        {e.actor.kind === "AI_DELEGATED" ? " (reckon, on their behalf)" : e.actor.kind === "SYSTEM" ? " (the engine)" : ""} · {fmtDateTime(e.occurredAt)}
+        {" · "}<span className="mono">{e.interpretationType}</span>
+        {e.superseded ? <> · <Badge tone="muted">superseded</Badge></> : null}
+      </div>
+      <Section title="On the record"><p>{e.summary || <span className="empty">no text recorded</span>}</p></Section>
+      {(e.inputRefs || []).length || (e.outputRefs || []).length ? (
+        <Section title="Cites">
+          {[...(e.inputRefs || []), ...(e.outputRefs || [])].map((r) => <div key={r} className="irow"><RefChip refId={r} /></div>)}
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
 export function CaseInspector({ investigationRef }: { investigationRef: string }) {
   const { state, send, dispatch, openInspector } = useApp();
   const summary = state.caseSummaries[investigationRef];
