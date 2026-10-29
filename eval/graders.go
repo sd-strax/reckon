@@ -66,7 +66,7 @@ type Assertion struct {
 
 // CatalogueVersion attributes the assertion set to each run (10 §1.4). Bump on
 // any assertion addition, removal, or grading change.
-const CatalogueVersion = "v0.14" // v0.14: O3 accepts a section title followed by a parenthetical of refs ("**Findings** (observed-data--…)") — two of three Sonnet trials wrote the shape that way and failed on the title match alone. v0.13: +O3 (a findings report carries the answer shape — headline, Findings, Not covered, Hypotheses, numbered Next steps) and +A4 (containment before the verdict is recommended only on named evidence of harm in progress; judge-graded with anchors beside it — adr/0137). v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
+const CatalogueVersion = "v0.15" // v0.15: O3 grades the turn's final assistant block, not every block joined — the narration before tool calls had run into the headline (Opus, both scenarios). v0.14: O3 accepts a section title followed by a parenthetical of refs ("**Findings** (observed-data--…)") — two of three Sonnet trials wrote the shape that way and failed on the title match alone. v0.13: +O3 (a findings report carries the answer shape — headline, Findings, Not covered, Hypotheses, numbered Next steps) and +A4 (containment before the verdict is recommended only on named evidence of harm in progress; judge-graded with anchors beside it — adr/0137). v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
 
 // Catalogue is the v0 deterministic slice of the 10 §3 assertion catalogue —
 // the assertions gradeable from the committed transcript + tool-call log
@@ -943,6 +943,29 @@ func plainLine(line string) string {
 	return strings.TrimSpace(s)
 }
 
+// transcriptUnescape reverses the transcript's one-line-per-frame encoding
+// (agent.sanitizeTranscript escapes a block's newlines).
+var transcriptUnescape = strings.NewReplacer(`\n`, "\n", `\r`, "\r")
+
+// finalAnswer is the turn's last assistant block: the reply the analyst reads.
+// TurnRecord.Text joins every assistant block of the turn with no separator,
+// so the narration written before each tool call ("I'll start by…") would run
+// into the headline; the workbench folds that narration away (#136). The
+// engine's ground-truth footer rides as an assistant frame of its own and is
+// not the reply. Falls back to Text when the transcript has no such block.
+func finalAnswer(turn TurnRecord) string {
+	last := ""
+	for _, ev := range parseTranscript(turn.Transcript) {
+		if ev.Kind == "assistant" && !engineLines.MatchString(ev.Content) {
+			last = ev.Content
+		}
+	}
+	if last == "" {
+		return turn.Text
+	}
+	return transcriptUnescape.Replace(last)
+}
+
 // isSectionTitle reports whether line is the section's title line: the title
 // alone, or the title followed by a parenthetical (the refs the section
 // rests on, "**Findings** (observed-data--…)"). Title plus prose on the same
@@ -967,7 +990,7 @@ func isSectionTitle(line, title string) bool {
 // ground-truth footer is not part of the model's text and is skipped.
 func gradeO3(tr *TrialRecord, turn int, _ TurnSpec) Verdict {
 	var lines []string
-	for _, l := range strings.Split(tr.Turns[turn].Text, "\n") {
+	for _, l := range strings.Split(finalAnswer(tr.Turns[turn]), "\n") {
 		if strings.TrimSpace(l) == "" || engineLines.MatchString(l) {
 			continue
 		}
