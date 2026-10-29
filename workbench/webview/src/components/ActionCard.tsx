@@ -6,6 +6,7 @@
 // gap §6.16: until it lands the card states the required mode the engine froze.
 import { useApp } from "../app";
 import { actionStatusBadge, canRerequest, canReverse, reversalEnded, successors } from "../derive/actions";
+import { actionPreview, undoWords } from "../derive/actionPreview";
 import type { ActionRow } from "../../../src/viewTypes";
 import type { InboundMessage } from "../../../src/protocol";
 import { Badge, Countdown, RefChip } from "./shared";
@@ -28,6 +29,22 @@ export function groupOf(a: Pick<ActionRow, "actionType" | "category">): ActionGr
 }
 export const GROUP_LABELS: Record<ActionGroup, string> = { containment: "Containment", eradication: "Eradication", recovery: "Recovery", notification: "Notification", case_record: "Case record" };
 
+/** What the action will do (#124): the sentence and every parameter it carries,
+ * shown before Approve on every type, not only messages. */
+function WillDo({ a }: { a: ActionRow }) {
+  const pv = actionPreview(a);
+  return (
+    <div className={"willdo" + (a.actionType.startsWith("notify.") ? " sendpreview" : "")}>
+      <div className="kicker">{a.pending ? "Will do" : "Did"}</div>
+      <div className="wdsentence">{pv.sentence}</div>
+      {pv.fields.map((f) => (
+        <div key={f.label} className={"wdfield" + (f.long ? " long" : "")}><span className="wdlabel">{f.label}</span> <span className="wdvalue">{f.value}</span></div>
+      ))}
+      {pv.followUp ? <div className="imeta">↻ follow-up on an existing thread</div> : null}
+    </div>
+  );
+}
+
 /** The action's title: the catalog's human name, the id when there is none. */
 export function actionTitle(a: Pick<ActionRow, "actionType" | "name">): string {
   return a.name || a.actionType;
@@ -45,11 +62,9 @@ export function failureSentence(a: Pick<ActionRow, "status" | "targets">): strin
 
 export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full" | "compact"; draft?: boolean }) {
   const { state, dispatch, send, openPrompt, openInspector, goTo } = useApp();
-  const p = (a.parameters || {}) as Record<string, unknown>;
   const isNotify = a.actionType.startsWith("notify.");
   const sb = actionStatusBadge(a);
   const group = groupOf(a);
-  const bodyText = typeof p.message === "string" && p.message ? p.message : typeof p.body === "string" ? p.body : "";
   const decide = a.pending && !a.expired;
   // One decision at a time per action, across every card that renders it,
   // until the host settles it.
@@ -108,7 +123,8 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
     return (
       <div className={"card actioncard compact " + group}>
         {head}
-        {(a.evidenceRefs || []).length ? <div className="acbecause">Because {a.evidenceRefs.slice(0, 4).map((r) => <RefChip key={r} refId={r} />)}</div> : null}
+        {decide ? <WillDo a={a} /> : null}
+      {(a.evidenceRefs || []).length ? <div className="acbecause">Based on {a.evidenceRefs.slice(0, 4).map((r) => <RefChip key={r} refId={r} />)}</div> : null}
         {buttons}
         <div className="imeta"><a onClick={() => goTo({ kind: "lens", lens: "response" })}>Full card in Response ›</a></div>
       </div>
@@ -118,19 +134,13 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
   return (
     <div className={"card actioncard full " + group} id={"obj-" + a.actionId} style={a.expired && a.status === "EXPIRED" ? { opacity: 0.75 } : undefined}>
       {head}
-      {(a.evidenceRefs || []).length ? <div className="acbecause"><span className="kicker">Because</span> {a.evidenceRefs.map((r) => <RefChip key={r} refId={r} />)}</div> : null}
-      {isNotify && a.parameters ? (
-        <div className="sendpreview">
-          {typeof p.subject === "string" && p.subject ? <div className="subj">{p.subject}</div> : null}
-          {bodyText}
-          {typeof p.thread_ref === "string" && p.thread_ref ? <div className="imeta">↻ follow-up on an existing thread</div> : null}
-        </div>
-      ) : null}
+      <WillDo a={a} />
+      {(a.evidenceRefs || []).length ? <div className="acbecause"><span className="kicker">Based on</span> {a.evidenceRefs.map((r) => <RefChip key={r} refId={r} />)}</div> : null}
       <dl className="acfacts">
-        <div><dt>Undo</dt><dd>{a.reversibility === "REVERSIBLE" ? "reversible" : a.reversibility === "BEST_EFFORT" ? "best effort — treat as permanent" : a.reversibility === "IRREVERSIBLE" ? "irreversible" : "—"}</dd></div>
-        <div><dt>Runs via</dt><dd className="mono">{a.adapter || a.plannedAdapter || "—"}{a.resultRef ? " → " + a.resultRef : ""}</dd></div>
-        <div><dt>Response policy</dt><dd>{a.pending ? (a.requiredMode === "TWO_PARTY" ? "two-party: a second approver is needed" : `no policy pre-authorizes ${a.actionType} · needs your approval`) : a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED" ? "approved" : "—"}</dd></div>
-        <div><dt>Window</dt><dd>{a.pending && !a.expired && a.expiresAt ? <Countdown expiresAt={a.expiresAt} /> : a.expired ? "elapsed" : "—"}</dd></div>
+        <div><dt>Can be undone</dt><dd>{undoWords(a.reversibility)}</dd></div>
+        <div><dt>Runs on</dt><dd className="mono">{a.adapter || a.plannedAdapter || "no tool connected"}{a.resultRef ? " → " + a.resultRef : ""}</dd></div>
+        <div><dt>Approval</dt><dd>{a.pending ? (a.requiredMode === "TWO_PARTY" ? "two people must approve" : "needs your approval — no policy approves it on its own") : a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED" ? "approved" : a.status === "REJECTED" ? "rejected" : "—"}</dd></div>
+        <div><dt>Time to decide</dt><dd>{a.pending && !a.expired && a.expiresAt ? <Countdown expiresAt={a.expiresAt} /> : a.expired ? "ran out" : "—"}</dd></div>
       </dl>
       {a.retryOf ? <div className="cardmeta">↻ retry of <a onClick={() => openInspector({ kind: "action", actionId: a.retryOf! })}>{a.retryOf.slice(0, 8)}…</a> (the original can never re-dispatch)</div> : null}
       {a.tierEscalated ? <div className="cardmeta">⚠ escalated to {a.tier}: {a.targets.length} targets (blast radius)</div> : null}
