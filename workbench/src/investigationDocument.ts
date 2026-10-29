@@ -17,7 +17,7 @@ import { randomUUID } from "crypto";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import { ActionRow, Appearance, BackendClient, BackendRequestError, EvidenceDoc, InvestigationDetail, ThreadEntry, existingInvestigation } from "./backend";
+import { ActionRow, Appearance, type ArtifactLocation, BackendClient, BackendRequestError, EvidenceDoc, InvestigationDetail, ThreadEntry, existingInvestigation } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "./protocol";
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
@@ -996,7 +996,7 @@ export class InvestigationDocuments {
   private async recordPredictionResult(
     id: string,
     panel: vscode.WebviewPanel,
-    msg: { predictionRef: string; status: string; content: string; source?: string; channel?: string; reference?: string; hashReference?: boolean },
+    msg: { predictionRef: string; status: string; content: string; source?: string; channel?: string; reference?: string; hashReference?: boolean; artifact?: ArtifactLocation },
   ): Promise<void> {
     if (msg.content.trim() === "") {
       return;
@@ -1009,6 +1009,7 @@ export class InvestigationDocuments {
         channel: msg.channel?.trim() || undefined,
         reference: msg.reference?.trim() || undefined,
         hashReference: msg.hashReference,
+        artifact: msg.artifact,
       });
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: record result failed — ${errText(err)}`);

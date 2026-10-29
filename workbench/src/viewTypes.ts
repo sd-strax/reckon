@@ -289,6 +289,18 @@ export interface PredictionAttestation {
   observedAt?: string;
   /** Where it happened (#139): a link, ticket or message id, or "sha256:…" of one. */
   reference?: string;
+  /** Where the evidence itself is kept (adr/0139); reckon holds the location, never the file. */
+  artifact?: ArtifactLocation;
+}
+
+/** Where an artifact is kept, so someone else in the organization can fetch it
+ * (mirrors server.ArtifactBody): the system, the location in it, its SHA-256,
+ * and how to get access. */
+export interface ArtifactLocation {
+  system?: string;
+  location: string;
+  sha256?: string;
+  access?: string;
 }
 
 /** One reasoning node with its predictions nested (mirrors server.HypothesisView). */

@@ -167,7 +167,8 @@ func TestAttestation_ProjectionAndReplay(t *testing.T) {
 	pRef := PredictionSTIXID(predID)
 	mustHandle(RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "owner confirmed",
 		PredictionRef: pRef, PredictionStatus: PredictionConfirmed,
-		Attestation: &Attestation{ID: noteID, Content: "Confirmed by phone: started it from home.", Source: "J. Doe", Channel: "phone", Reference: "INC0010042"}})
+		Attestation: &Attestation{ID: noteID, Content: "Confirmed by phone: started it from home.", Source: "J. Doe", Channel: "phone", Reference: "INC0010042",
+			Artifact: &ArtifactLocation{System: "S3", Location: "s3://ir-evidence/2026/call-note.pdf", SHA256: "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08", Access: "ir-evidence-readers group"}}})
 
 	verify := func(phase string) {
 		t.Helper()
@@ -193,9 +194,19 @@ func TestAttestation_ProjectionAndReplay(t *testing.T) {
 			t.Errorf("[%s] note = %s %v", phase, typ, node)
 		}
 		// Where it happened rides the note as an external reference (#139).
+		// So does where the artifact is kept (adr/0139): location, digest, access.
 		ext, _ := node["external_references"].([]any)
-		if len(ext) != 1 || ext[0].(map[string]any)["external_id"] != "INC0010042" || p.Attestation.Reference != "INC0010042" {
-			t.Errorf("[%s] external_references = %v, reference = %q", phase, ext, p.Attestation.Reference)
+		if len(ext) != 2 || ext[0].(map[string]any)["external_id"] != "INC0010042" || p.Attestation.Reference != "INC0010042" {
+			t.Fatalf("[%s] external_references = %v, reference = %q", phase, ext, p.Attestation.Reference)
+		}
+		art := ext[1].(map[string]any)
+		hashes, _ := art["hashes"].(map[string]any)
+		if art["source_name"] != "S3" || art["url"] != "s3://ir-evidence/2026/call-note.pdf" || art["description"] != "ir-evidence-readers group" ||
+			hashes["SHA-256"] != "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" {
+			t.Errorf("[%s] artifact reference = %v", phase, art)
+		}
+		if a := p.Attestation.Artifact; a == nil || a.Location != "s3://ir-evidence/2026/call-note.pdf" || a.SHA256 != "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" {
+			t.Errorf("[%s] attestation artifact = %+v", phase, p.Attestation.Artifact)
 		}
 		refs, _ := node["object_refs"].([]any)
 		if len(refs) != 2 || refs[0] != pRef || refs[1] != hRef {
@@ -224,6 +235,44 @@ func TestAttestation_ProjectionAndReplay(t *testing.T) {
 		t.Fatalf("replay: %v", err)
 	}
 	verify("replayed")
+}
+
+// TestValidateArtifact: a location is required once any field is given, the
+// digest is a SHA-256, and a link carrying a credential is refused (adr/0139).
+func TestValidateArtifact(t *testing.T) {
+	att := func(a *ArtifactLocation) *Attestation {
+		return &Attestation{ID: uuid.New(), Content: "c", Artifact: a}
+	}
+	ok := map[string]*ArtifactLocation{
+		"none":        nil,
+		"all blank":   {System: " ", Location: " "},
+		"s3":          {System: "S3", Location: "s3://bucket/key.eml", SHA256: "sha256:" + strings.Repeat("AB", 32), Access: "ir group"},
+		"path":        {Location: `\\files\\ir\\note.txt`},
+		"plain query": {Location: "https://docs.example/d/42?version=3"},
+	}
+	for name, a := range ok {
+		if err := validateAttestation(att(a)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	bad := map[string]*ArtifactLocation{
+		"no location":   {System: "S3", Access: "ir group"},
+		"short digest":  {Location: "s3://b/k", SHA256: "abc"},
+		"presigned s3":  {Location: "https://b.s3.amazonaws.com/k?X-Amz-Credential=AKIA&X-Amz-Signature=deadbeef"},
+		"sas link":      {Location: "https://acct.blob.core.windows.net/c/k?sv=2024&sig=abc"},
+		"long location": {Location: "s3://b/" + strings.Repeat("k", artifactLocationMaxRunes)},
+	}
+	for name, a := range bad {
+		if err := validateAttestation(att(a)); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+	if a := trimArtifact(&ArtifactLocation{Location: " s3://b/k ", SHA256: " SHA256:AB "}); a.Location != "s3://b/k" || a.SHA256 != "ab" {
+		t.Errorf("trim = %+v", a)
+	}
+	if got := artifactRefs(&ArtifactLocation{Location: "case INC1 attachment 3"}); len(got) != 1 || got[0].SourceName != "artifact" || got[0].ExternalID != "case INC1 attachment 3" || got[0].URL != "" {
+		t.Errorf("no scheme: %+v", got)
+	}
 }
 
 // TestAttestationRefs: a reference becomes a URL, a hash or an external id (#139).

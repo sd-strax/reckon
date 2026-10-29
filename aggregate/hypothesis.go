@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -169,6 +172,22 @@ type Attestation struct {
 	// Reference says where it happened (#139): a message link, a ticket number
 	// or a message id — or "sha256:<hex>" of one the analyst would not store.
 	Reference string `json:"reference,omitempty"`
+	// Artifact says where the evidence itself is kept (adr/0139): reckon
+	// records where it lives, never the artifact.
+	Artifact *ArtifactLocation `json:"artifact,omitempty"`
+}
+
+// ArtifactLocation is where an artifact backing an attestation is kept, in
+// enough detail that someone else in the organization can fetch it: the
+// system that holds it, its location there, how to get access, and
+// optionally its SHA-256 so whoever fetches it can check it is the one that
+// was attested. reckon never stores, fetches or reads the artifact
+// (adr/0139); the location is a STIX external reference on the note.
+type ArtifactLocation struct {
+	System   string `json:"system,omitempty"` // what holds it: an object store, a document library, a case system
+	Location string `json:"location"`         // where in it: s3://bucket/key, a document URL, a path
+	SHA256   string `json:"sha256,omitempty"` // hex digest of the artifact's content
+	Access   string `json:"access,omitempty"` // how someone else gets it: the role, group or request path
 }
 
 // AttestationRecorded is the note content recorded on the event when a human
@@ -184,6 +203,8 @@ type AttestationRecorded struct {
 	Channel       string     `json:"channel,omitempty"`
 	ObservedAt    *time.Time `json:"observed_at,omitempty"`
 	Reference     string     `json:"reference,omitempty"`
+	// Artifact is where the evidence itself is kept (adr/0139), as recorded.
+	Artifact *ArtifactLocation `json:"artifact,omitempty"`
 }
 
 // --- event payload records ----------------------------------------------------
@@ -451,6 +472,69 @@ func validateAttestation(a *Attestation) error {
 	}
 	if utf8.RuneCountInString(a.Source) > attestationLabelMaxRunes || utf8.RuneCountInString(a.Channel) > attestationLabelMaxRunes {
 		return fmt.Errorf("RecordInterpretation: attestation.source/channel exceed %d chars", attestationLabelMaxRunes)
+	}
+	return validateArtifact(trimArtifact(a.Artifact))
+}
+
+// Bounds on an artifact location: a locator and an access note, not a document.
+const (
+	artifactLocationMaxRunes = 1024
+	artifactAccessMaxRunes   = 500
+)
+
+var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// credentialParams are query parameters that make a link a time-limited
+// credential (pre-signed object-store URLs, shared-access signatures, bearer
+// tokens). Such a link stops working, and while it works it grants access to
+// whoever reads the record: the location is the durable address instead.
+var credentialParams = []string{
+	"x-amz-signature", "x-amz-credential", "x-amz-security-token",
+	"x-goog-signature", "x-goog-credential", "sig", "signature", "token", "access_token",
+}
+
+// trimArtifact normalizes an artifact location: trimmed fields, a lowercase
+// digest; nil when it names no location.
+func trimArtifact(a *ArtifactLocation) *ArtifactLocation {
+	if a == nil {
+		return nil
+	}
+	out := &ArtifactLocation{
+		System:   strings.TrimSpace(a.System),
+		Location: strings.TrimSpace(a.Location),
+		SHA256:   strings.TrimPrefix(strings.ToLower(strings.TrimSpace(a.SHA256)), "sha256:"),
+		Access:   strings.TrimSpace(a.Access),
+	}
+	if *out == (ArtifactLocation{}) {
+		return nil
+	}
+	return out
+}
+
+// validateArtifact checks an artifact location (adr/0139): a location is
+// required once any field is given, the digest is a SHA-256, and the location
+// is a durable address rather than a link that carries a credential.
+func validateArtifact(a *ArtifactLocation) error {
+	if a == nil {
+		return nil
+	}
+	if a.Location == "" {
+		return errors.New("RecordInterpretation: attestation.artifact.location is required — where the artifact is kept, e.g. s3://bucket/key")
+	}
+	if utf8.RuneCountInString(a.Location) > artifactLocationMaxRunes || utf8.RuneCountInString(a.Access) > artifactAccessMaxRunes ||
+		utf8.RuneCountInString(a.System) > attestationLabelMaxRunes {
+		return fmt.Errorf("RecordInterpretation: attestation.artifact exceeds its bounds (location %d, access %d, system %d chars)",
+			artifactLocationMaxRunes, artifactAccessMaxRunes, attestationLabelMaxRunes)
+	}
+	if a.SHA256 != "" && !sha256Hex.MatchString(a.SHA256) {
+		return errors.New("RecordInterpretation: attestation.artifact.sha256 must be 64 hex characters")
+	}
+	if u, err := url.Parse(a.Location); err == nil {
+		for k := range u.Query() {
+			if slices.Contains(credentialParams, strings.ToLower(k)) {
+				return fmt.Errorf("RecordInterpretation: attestation.artifact.location carries a credential (%s) — a signed link expires and grants access to anyone reading the record; give the durable location (bucket and key, or the document's address) and say how to get access", k)
+			}
+		}
 	}
 	return nil
 }
@@ -789,7 +873,7 @@ func applyPredictionOutcome(env Envelope, state aggregateState, c RecordInterpre
 			ID: noteID, PredictionRef: c.PredictionRef, HypothesisRef: ps.HypothesisRef,
 			Author: env.Actor.PrincipalID, AuthorName: env.Actor.PrincipalName, Content: strings.TrimSpace(a.Content),
 			Source: strings.TrimSpace(a.Source), Channel: strings.TrimSpace(a.Channel), ObservedAt: a.ObservedAt,
-			Reference: strings.TrimSpace(a.Reference),
+			Reference: strings.TrimSpace(a.Reference), Artifact: trimArtifact(a.Artifact),
 		}
 		refs = append([]string{noteID}, refs...)
 		rec.OutputRefs = append(rec.OutputRefs, noteID)

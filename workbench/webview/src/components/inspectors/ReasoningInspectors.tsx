@@ -40,6 +40,17 @@ export function AttestationInspector({ refId }: { refId: string }) {
           { k: "Where it happened", v: a?.reference ? (a.reference.startsWith("sha256:") ? "fingerprint " + a.reference.slice(7, 19) + "… (the reference itself was not kept)" : a.reference) : undefined, mono: true },
         ]} />
       </Section>
+      {a?.artifact ? (
+        <Section title="Where the evidence is kept">
+          <KV rows={[
+            { k: "Location", v: a.artifact.location, mono: true },
+            { k: "Kept in", v: a.artifact.system },
+            { k: "Access", v: a.artifact.access },
+            { k: "SHA-256", v: a.artifact.sha256, mono: true },
+          ]} />
+          <div className="imeta">reckon records where the artifact is kept, not the artifact.</div>
+        </Section>
+      ) : null}
       {owner ? (
         <Section title="The question it answers">
           <p><a onClick={() => openInspector({ kind: "ref", ref: owner!.p.id })}>{predName(owner.p)}</a> under {hypName(owner.h, hs)}: {owner.p.statement}</p>

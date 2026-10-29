@@ -102,10 +102,11 @@ type stixNote struct {
 // stixExternalRef is a STIX 2.1 external reference: a URL, or an id in a
 // named source (a ticket number, a message id, or its hash).
 type stixExternalRef struct {
-	SourceName string            `json:"source_name"`
-	URL        string            `json:"url,omitempty"`
-	ExternalID string            `json:"external_id,omitempty"`
-	Hashes     map[string]string `json:"hashes,omitempty"`
+	SourceName  string            `json:"source_name"`
+	Description string            `json:"description,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	ExternalID  string            `json:"external_id,omitempty"`
+	Hashes      map[string]string `json:"hashes,omitempty"`
 }
 
 // attestationRefs renders an attestation's reference as an external reference:
@@ -121,6 +122,29 @@ func attestationRefs(ref string) []stixExternalRef {
 	default:
 		return []stixExternalRef{{SourceName: "attestation", ExternalID: ref}}
 	}
+}
+
+// artifactRefs renders where an attestation's artifact is kept (adr/0139) as
+// a STIX external reference: the holding system as source_name, a location
+// with a scheme as url and anything else as external_id, the content digest
+// as hashes, and how to get access as description.
+func artifactRefs(a *ArtifactLocation) []stixExternalRef {
+	if a == nil || a.Location == "" {
+		return nil
+	}
+	ref := stixExternalRef{SourceName: a.System, Description: a.Access}
+	if ref.SourceName == "" {
+		ref.SourceName = "artifact"
+	}
+	if strings.Contains(a.Location, "://") {
+		ref.URL = a.Location
+	} else {
+		ref.ExternalID = a.Location
+	}
+	if a.SHA256 != "" {
+		ref.Hashes = map[string]string{"SHA-256": a.SHA256}
+	}
+	return []stixExternalRef{ref}
 }
 
 type stixAttestation struct {
@@ -171,7 +195,7 @@ func insertAttestationNote(ctx context.Context, tx *sql.Tx, evt Event, a Attesta
 		Authors:            []string{a.Author},
 		ObjectRefs:         refs,
 		Attestation:        stixAttestation{PredictionRef: a.PredictionRef, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt},
-		ExternalReferences: attestationRefs(a.Reference),
+		ExternalReferences: append(attestationRefs(a.Reference), artifactRefs(a.Artifact)...),
 		Created:            stixTime(evt.OccurredAt),
 		Modified:           stixTime(evt.OccurredAt),
 	})
