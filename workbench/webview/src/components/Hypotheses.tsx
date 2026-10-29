@@ -10,7 +10,7 @@ import { useApp } from "../app";
 import { blockersOf, badgeTone, counted, hypName, isLive, nameOf, predName, rivalsOf, shortTitle, tested } from "../derive/hyps";
 import { Badge, RefChip } from "./shared";
 import { pinSpec, type PromptExtra, type PromptSpec } from "./PromptCard";
-import type { CommsThread, Hypothesis, PinRow, Prediction } from "../../../src/viewTypes";
+import type { ArtifactLocation, CommsThread, Hypothesis, PinRow, Prediction } from "../../../src/viewTypes";
 import type { InboundMessage } from "../../../src/protocol";
 
 /** Record a prediction's result as the analyst (adr/0054): outcome, who was
@@ -45,6 +45,10 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
     { kind: "text", id: "channel", label: "How", placeholder: "e.g. phone, chat, email, in person" },
     { kind: "text", id: "reference", label: "Where it happened (optional)", placeholder: "a message link, ticket number or message id" },
     { kind: "check", id: "hashReference", label: "Keep only a fingerprint of it (SHA-256), not the reference itself" },
+    { kind: "text", id: "artifactLocation", label: "Where the evidence is kept (optional) — reckon records the location, not the file", placeholder: "e.g. s3://ir-evidence/2026/call-note.pdf, or a document link" },
+    { kind: "text", id: "artifactSystem", label: "Kept in", placeholder: "e.g. S3, SharePoint, the case system" },
+    { kind: "text", id: "artifactAccess", label: "How a colleague gets access", placeholder: "e.g. ir-evidence-readers group, or request via the IR lead" },
+    { kind: "text", id: "artifactSha256", label: "SHA-256 of the file (optional)", placeholder: "so whoever fetches it can check it is the same file" },
   );
   return {
     title: "Record result of " + predName(p) + " under " + hypName(h, hs),
@@ -59,10 +63,18 @@ export function resultSpec(p: Prediction, h: Hypothesis, hs: Hypothesis[], comms
       content, source: typeof ex.source === "string" ? ex.source : undefined, channel: typeof ex.channel === "string" ? ex.channel : undefined,
       reference: typeof ex.reference === "string" && ex.reference.trim() ? ex.reference.trim() : undefined,
       hashReference: ex.hashReference === true || undefined,
+      artifact: artifactOf(ex),
     }),
   };
 }
 
+/** The artifact location from the Record result form, or undefined when no
+ * location was given (adr/0139). */
+function artifactOf(ex: Record<string, unknown>): ArtifactLocation | undefined {
+  const str = (k: string) => (typeof ex[k] === "string" && (ex[k] as string).trim() ? (ex[k] as string).trim() : undefined);
+  const location = str("artifactLocation");
+  return location ? { location, system: str("artifactSystem"), access: str("artifactAccess"), sha256: str("artifactSha256") } : undefined;
+}
 
 const GLYPH: Record<string, { g: string; word: string; tone: string }> = {
   CONFIRMED: { g: "✓", word: "confirmed", tone: "ok" },

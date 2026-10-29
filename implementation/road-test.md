@@ -116,8 +116,12 @@ Work the cards in the **Reasoning** lens:
 - **A person tests this** — a prediction only a human can answer (the account
   owner confirms the session; choose this when adding the prediction) is
   closed with **Record result** and an attestation (who, how, and optionally
-  where it happened — a link, ticket or message id, or only its fingerprint).
-  The agent proposes such tests but never records them.
+  where it happened — a link, ticket or message id, or only its fingerprint —
+  and where the evidence is kept: e.g. `s3://ir-evidence/2026/call-note.pdf`,
+  kept in S3, access via the IR readers group). The result's inspector shows
+  **Where the evidence is kept**. A pre-signed link (`?X-Amz-Signature=…`) is
+  refused with a reason. There is no upload: reckon records the location,
+  never the file. The agent proposes such tests but never records them.
 - **⚡ Run tests** / **⚡ Test this** → outcomes recorded citing evidence. The
   baseline query (user-rooted, 30-day window) → `CONFIRMED`; the change-record
   lookup → COMPLETE, zero cases → `DISCONFIRMED` for H2.

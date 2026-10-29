@@ -119,6 +119,26 @@ type AttestationBody struct {
 	// reference the analyst would not keep in the record as written.
 	Reference     string `json:"reference,omitempty"`
 	HashReference bool   `json:"hash_reference,omitempty"`
+	// Artifact says where the evidence itself is kept (adr/0139): reckon
+	// records the location, never the file.
+	Artifact *ArtifactBody `json:"artifact,omitempty"`
+}
+
+// ArtifactBody is where an artifact backing an attestation is kept
+// (aggregate.ArtifactLocation): the system, the location in it, its SHA-256,
+// and how someone else gets access.
+type ArtifactBody struct {
+	System   string `json:"system,omitempty"`
+	Location string `json:"location"`
+	SHA256   string `json:"sha256,omitempty"`
+	Access   string `json:"access,omitempty"`
+}
+
+func (a *ArtifactBody) location() *aggregate.ArtifactLocation {
+	if a == nil {
+		return nil
+	}
+	return &aggregate.ArtifactLocation{System: a.System, Location: a.Location, SHA256: a.SHA256, Access: a.Access}
 }
 
 // TranscriptInput carries the raw transcript for the turn. Body is the text as a
@@ -282,6 +302,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 			Channel:    body.Attestation.Channel,
 			ObservedAt: body.Attestation.ObservedAt,
 			Reference:  attestationReference(body.Attestation),
+			Artifact:   body.Attestation.Artifact.location(),
 		}
 	}
 	if body.Transcript != nil {
@@ -368,14 +389,15 @@ type PredictionView struct {
 
 // AttestationView is the read shape of a recorded attestation (adr/0054).
 type AttestationView struct {
-	NoteRef    string     `json:"note_ref"`
-	Author     string     `json:"author"`
-	AuthorName string     `json:"author_name,omitempty"` // the principal's display name at the time, if the record has it
-	Content    string     `json:"content"`
-	Source     string     `json:"source,omitempty"`
-	Channel    string     `json:"channel,omitempty"`
-	ObservedAt *time.Time `json:"observed_at,omitempty"`
-	Reference  string     `json:"reference,omitempty"`
+	NoteRef    string        `json:"note_ref"`
+	Author     string        `json:"author"`
+	AuthorName string        `json:"author_name,omitempty"` // the principal's display name at the time, if the record has it
+	Content    string        `json:"content"`
+	Source     string        `json:"source,omitempty"`
+	Channel    string        `json:"channel,omitempty"`
+	ObservedAt *time.Time    `json:"observed_at,omitempty"`
+	Reference  string        `json:"reference,omitempty"`
+	Artifact   *ArtifactBody `json:"artifact,omitempty"`
 }
 
 // attestationReference is the reference as recorded: as written, or only its
@@ -393,7 +415,11 @@ func attestationView(a *aggregate.AttestationRecorded) *AttestationView {
 	if a == nil {
 		return nil
 	}
-	return &AttestationView{NoteRef: a.ID, Author: a.Author, AuthorName: a.AuthorName, Content: a.Content, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt, Reference: a.Reference}
+	v := &AttestationView{NoteRef: a.ID, Author: a.Author, AuthorName: a.AuthorName, Content: a.Content, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt, Reference: a.Reference}
+	if x := a.Artifact; x != nil {
+		v.Artifact = &ArtifactBody{System: x.System, Location: x.Location, SHA256: x.SHA256, Access: x.Access}
+	}
+	return v
 }
 
 // listInvestigationHypotheses serves GET /api/investigations/{id}/hypotheses:

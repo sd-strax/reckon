@@ -34,6 +34,7 @@ import type {
   ActionRow,
   CommsThread,
   ActionDecision,
+  ArtifactLocation,
 } from "./viewTypes";
 // The view types moved to viewTypes.ts (types only); re-exported so host modules keep one import.
 export type * from "./viewTypes";
@@ -155,7 +156,7 @@ interface RawPrediction {
   discriminates?: string[];
   test_result_refs?: string[];
   test_kind?: string;
-  attestation?: { note_ref: string; author: string; author_name?: string; content: string; source?: string; channel?: string; observed_at?: string; reference?: string };
+  attestation?: { note_ref: string; author: string; author_name?: string; content: string; source?: string; channel?: string; observed_at?: string; reference?: string; artifact?: ArtifactLocation };
 }
 
 export class BackendClient {
@@ -457,6 +458,7 @@ export class BackendClient {
               channel: p.attestation.channel,
               observedAt: p.attestation.observed_at,
               reference: p.attestation.reference || undefined,
+              artifact: p.attestation.artifact?.location ? p.attestation.artifact : undefined,
             }
           : undefined,
       })),
@@ -766,7 +768,7 @@ export class BackendClient {
     predictionRef: string,
     status: string,
     rationale: string,
-    attestation: { content: string; source?: string; channel?: string; reference?: string; hashReference?: boolean },
+    attestation: { content: string; source?: string; channel?: string; reference?: string; hashReference?: boolean; artifact?: ArtifactLocation },
   ): Promise<void> {
     await this.authedPost("/api/interpretations", {
       investigation_ref: investigationId,
@@ -779,6 +781,7 @@ export class BackendClient {
         ...(attestation.source ? { source: attestation.source } : {}),
         ...(attestation.channel ? { channel: attestation.channel } : {}),
         ...(attestation.reference ? { reference: attestation.reference, hash_reference: attestation.hashReference || undefined } : {}),
+        ...(attestation.artifact ? { artifact: attestation.artifact } : {}),
       },
     });
   }
