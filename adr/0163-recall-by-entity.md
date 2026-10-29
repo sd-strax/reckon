@@ -1,6 +1,6 @@
 # 0163 — Past investigations are found by entity with an exact lookup; similarity recall is for patterns
 
-Issue: #163 · PR: #TBD · Status: accepted
+Issue: #163 · PR: #170 · Status: accepted
 
 ## Context
 
