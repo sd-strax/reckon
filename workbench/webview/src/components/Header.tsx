@@ -17,7 +17,8 @@ export function Header() {
   const actions = snap?.actions || [];
   const verdict = snap?.investigation.verdict || null;
   const comms = snap?.comms || [];
-  const inputs = { status: engine, verdict, actions, comms, openOwnerItems: 0 };
+  const hs = snap?.hypotheses || [];
+  const inputs = { status: engine, verdict, actions, comms, openOwnerItems: 0, allDecided: hs.length > 0 && !hs.some((h) => h.status === "PROPOSED" || h.status === "OPEN") };
   const stage = stageOf(inputs);
   const preflight = concludePreflight({ verdict, pins: snap?.pins || [], actions, comms, openOwnerItems: 0 });
   const primary = snap ? primaryAction(inputs, stage, preflightClean(preflight)) : null;
@@ -120,7 +121,8 @@ export function Header() {
       </div>
       {snap ? (
         <div className="stagerow">
-          <ol className="stage" aria-label="Stage">
+          <span className="stagelabel" aria-hidden="true">Progress</span>
+          <ol className="stage" aria-label="Progress">
             {STEPS.map((s) => (
               <li key={s} className={"step" + (stage.done[s] ? " done" : "") + (stage.notNeeded[s] ? " skip" : "") + (stage.current === s ? " current" : "")}
                 title={stage.notNeeded[s] ? STEP_LABELS[s] + " — not needed for a benign verdict" : undefined}>
@@ -129,6 +131,7 @@ export function Header() {
             ))}
           </ol>
           <span className="primaryaction">
+            {primary?.kind === "verdict" ? <button className="primary" onClick={() => setVerdictOpen(true)}>Record verdict…</button> : null}
             {primary?.kind === "review" ? <button className="primary" onClick={() => goTo({ kind: "lens", lens: "response" })}>Review {primary.count} proposed action{primary.count === 1 ? "" : "s"}</button> : null}
             {primary?.kind === "notify" ? <button className="primary" onClick={() => { setCompanionMode("conversation"); stageComposer("Draft the notification for this investigation's stakeholders — to "); }}>Ask reckon to notify…</button> : null}
             {primary?.kind === "conclude" ? <button className="primary" onClick={conclude}>Conclude</button> : null}
