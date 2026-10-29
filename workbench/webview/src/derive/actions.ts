@@ -39,10 +39,12 @@ export function canRerequest(a: ActionRow, actions: ActionRow[]): boolean {
   return (a.status === "EXPIRED" || a.status === "FAILED") && !successors(a, actions).retry;
 }
 
-/** Reverse is offered on a SUCCEEDED REVERSIBLE action with no reversal pending or done. */
+/** Reverse is offered on a SUCCEEDED action with a declared inverse — reversible
+ * or best effort (#151) — that has no reversal pending or done. */
 export function canReverse(a: ActionRow, actions: ActionRow[]): boolean {
   const { reversal } = successors(a, actions);
-  return a.status === "SUCCEEDED" && a.reversibility === "REVERSIBLE" && (!reversal || reversalEnded(reversal));
+  const undoable = a.reversibility === "REVERSIBLE" || a.reversibility === "BEST_EFFORT";
+  return a.status === "SUCCEEDED" && undoable && (!reversal || reversalEnded(reversal));
 }
 
 /** The approval queue: live pending rows plus EXPIRED ones that carry the

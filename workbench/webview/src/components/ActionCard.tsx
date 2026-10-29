@@ -164,10 +164,13 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
       {canReverse(a, rows) ? (
         <div className="decide">
           <button className="ghost" disabled={locked} onClick={() => openPrompt({
-            title: "Request reversal of " + a.actionType, label: "Why reverse it?", placeholder: "e.g. the host is confirmed clean; restore connectivity",
-            helper: "Requests the inverse action at the same tier; it lands in the approval queue like any action.", confirm: "Request reversal",
+            title: "Request reversal of " + actionTitle(a), label: "Why reverse it?", placeholder: "e.g. the host is confirmed clean; restore connectivity",
+            helper: a.reversibility === "BEST_EFFORT"
+              ? "Requests the inverse action at the same tier, like any action. This undo is best effort: reckon cannot confirm it took effect everywhere, so the original stays SUCCEEDED and is marked as reversal attempted."
+              : "Requests the inverse action at the same tier; it lands in the approval queue like any action.",
+            confirm: "Request reversal",
             onConfirm: (rationale) => decideOn({ type: "action.reverse", actionId: a.actionId, rationale }),
-          })}>{next.reversal ? "Reverse again…" : "Reverse…"}</button>
+          })}>{(next.reversal ? "Reverse again" : "Reverse") + (a.reversibility === "BEST_EFFORT" ? " (best effort)…" : "…")}</button>
         </div>
       ) : null}
     </div>

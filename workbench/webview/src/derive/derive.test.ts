@@ -69,7 +69,7 @@ describe("actions", () => {
     expect(canReverse(done, [done])).toBe(true);
     expect(canReverse(done, [done, pendingRev])).toBe(false);
     expect(canReverse(done, [done, failedRev])).toBe(true); // a failed reversal may be tried again
-    expect(canReverse(A({ status: "SUCCEEDED", reversibility: "BEST_EFFORT" }), [])).toBe(false);
+    expect(canReverse(A({ status: "SUCCEEDED", reversibility: "IRREVERSIBLE" }), [])).toBe(false); // best effort is offered (#151)
   });
   it("derives the presentation label", () => {
     expect(headerLabel("ACTIVE", [A({ pending: true })], null)).toBe("ACTIVE · REMEDIATING");
