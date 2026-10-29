@@ -217,8 +217,8 @@ type createSessionParams struct {
 }
 
 type createSessionResult struct {
-	SessionID string          `json:"session_id"`
-	Tools     []string        `json:"tools"`
+	SessionID string   `json:"session_id"`
+	Tools     []string `json:"tools"`
 }
 
 // handleCreateSession assembles one agent.Session over the initialized
@@ -545,6 +545,8 @@ func (s *service) handleSummarizeConcluded(ctx context.Context, raw json.RawMess
 // generalize into a candidate SOP.
 type proposeSOPParams struct {
 	SessionID string `json:"session_id"`
+	// Force asks for a draft even after the model declined (adr/0156).
+	Force bool `json:"force,omitempty"`
 }
 
 // handleProposeSOP runs the client tier of candidate-SOP generation: one BYOK
@@ -565,7 +567,7 @@ func (s *service) handleProposeSOP(ctx context.Context, raw json.RawMessage) (an
 	}
 	st.turnMu.Lock()
 	defer st.turnMu.Unlock()
-	cand, err := st.sess.ProposeSOP(ctx)
+	cand, err := st.sess.ProposeSOP(ctx, p.Force)
 	if err != nil {
 		return nil, err
 	}

@@ -60,6 +60,9 @@ export interface LibraryItem {
   relevance?: string;
 }
 
+/** Where a candidate procedure draft is (adr/0156). */
+export type SopDraftState = "drafting" | "ready" | "declined" | "failed" | "added" | "discarded";
+
 /** A committed turn's line-framed transcript body, keyed by its thread position. */
 export interface ChronicleTurn {
   sequenceNo: number;
@@ -162,6 +165,10 @@ export type RenderMessage =
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
   | { type: "inspector.error"; target: string; message: string }
+  // Drafting a procedure from a concluded case (adr/0156): where the draft is,
+  // and whether the case's knowledge summary was written.
+  | { type: "sop.status"; state: SopDraftState; title?: string; message?: string }
+  | { type: "summary.status"; state: "written" | "baseline" | "failed"; detail?: string }
   // The knowledge library (adr/0129): the browse lists, and one search's hits.
   | { type: "library"; sops: LibraryItem[]; cases: LibraryItem[] }
   | { type: "library.results"; query: string; sops: LibraryItem[]; cases: LibraryItem[] }
@@ -187,6 +194,10 @@ export type InboundMessage =
   | { type: "queue.get" }
   // Start an investigation from a case row in the work queue (08 §8.3).
   | { type: "queue.start"; caseNumber: string }
+  // Draft a procedure from this concluded case, then add or discard it (adr/0156).
+  | { type: "sop.draft"; force?: boolean }
+  | { type: "sop.accept" }
+  | { type: "sop.discard" }
   // The knowledge library (adr/0129): load it, search it, import into it.
   | { type: "library.get" }
   | { type: "library.search"; text: string }

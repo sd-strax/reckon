@@ -961,7 +961,7 @@ func TestSession_ProposeSOP(t *testing.T) {
 	}
 	msgsBefore := len(s.messages)
 
-	cand, err := s.ProposeSOP(context.Background())
+	cand, err := s.ProposeSOP(context.Background(), false)
 	if err != nil {
 		t.Fatalf("ProposeSOP: %v", err)
 	}
