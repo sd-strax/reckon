@@ -3,9 +3,9 @@ import type { ActionRow, Hypothesis } from "../../../src/viewTypes";
 import { actionStatusBadge, canRerequest, canReverse, caseNoteStatus, headerLabel, pendingQueue, successors } from "./actions";
 import { classifyDraft, effectiveDraftKind, entitySubLabel } from "./draft";
 import { layoutGraph } from "./graph";
-import { blockersOf, hypName, orderHypotheses, rivalsOf } from "./hyps";
+import { blockersOf, hypName, orderHypotheses, outstanding, rivalsOf, tested } from "./hyps";
+import { keyEntities, stillToDo } from "./summary";
 import { verdictChecklist, verdictRefs, verdictResidual } from "./verdict";
-import { keyEntities } from "./summary";
 
 const H = (id: string, status: string, preds: { id: string; status: string; discriminates?: string[] }[] = [], handle?: string): Hypothesis => ({
   id, statement: "claim " + id, status, handle, labels: [],
@@ -36,6 +36,15 @@ describe("key entities (#141)", () => {
   it("lists what the cited evidence observed, seed first", () => {
     const ents = keyEntities({ type: "entity", entityRef: "x-host--win" }, [], [], [], {}, [{ ref: "user-account--svc", citations: 3 }, { ref: "x-host--win", citations: 2 }]);
     expect(ents.map((e) => [e.ref, e.role, e.citations])).toEqual([["x-host--win", "seed subject", 2], ["user-account--svc", "cited", 3]]);
+describe("outstanding predictions (#140)", () => {
+  it("one rule: untested or inconclusive under a live hypothesis; nothing under a decided one", () => {
+    const refuted = H("h1", "REFUTED", [{ id: "p1", status: "DISCONFIRMED" }, { id: "p2", status: "DISCONFIRMED" }, { id: "p3", status: "INCONCLUSIVE" }]);
+    const open = H("h2", "OPEN", [{ id: "p4", status: "INCONCLUSIVE" }, { id: "p5", status: "UNTESTED" }, { id: "p6", status: "CONFIRMED" }]);
+    expect(refuted.predictions.filter(tested).length).toBe(3); // inconclusive was tested
+    expect(refuted.predictions.some((p) => outstanding(p, refuted))).toBe(false);
+    expect(open.predictions.filter((p) => outstanding(p, open)).map((p) => p.id)).toEqual(["p4", "p5"]);
+    const todo = stillToDo([], [], [refuted, open], {}).map((t) => t.ref);
+    expect(todo).toEqual(["p4", "p5"]); // the Summary agrees with the card
   });
 });
 
