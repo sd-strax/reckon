@@ -266,3 +266,78 @@ func TestSummaryByInvestigation(t *testing.T) {
 		t.Errorf("missing = %v; want ErrNoSummary", err)
 	}
 }
+
+// TestPriorByEntity: the exact lookup finds every concluded investigation that
+// recorded the entity, case-insensitively and most recent first, and is EMPTY
+// for an entity none recorded (adr/0163).
+func TestPriorByEntity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	older, newer, other := "grouping--"+uuid.New().String(), "grouping--"+uuid.New().String(), "grouping--"+uuid.New().String()
+	mk := func(ref string, at time.Time, entities ...string) {
+		if _, err := s.WriteSummary(ctx, testTenant, Summary{
+			InvestigationRef: ref, Title: "case " + ref, SummaryText: "body", ExtractorVersion: "2",
+			ConclusionAt: at, PrimaryEntities: entities, VerdictDisposition: "MALICIOUS",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	day := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	mk(older, day, "WIN-FILE01")
+	mk(newer, day.AddDate(0, 0, 7), "win-file01", "CONTOSO\\svc_backup")
+	mk(other, day, "WORKSTATION-22")
+
+	res, err := s.PriorByEntity(ctx, testTenant, PriorRequest{Entity: " Win-File01 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Coverage != "COMPLETE" || len(res.Investigations) != 2 {
+		t.Fatalf("want two prior investigations, got %+v", res)
+	}
+	if res.Investigations[0].InvestigationRef != newer || res.Investigations[1].InvestigationRef != older {
+		t.Errorf("order = %s, %s; want newest first", res.Investigations[0].InvestigationRef, res.Investigations[1].InvestigationRef)
+	}
+	none, err := s.PriorByEntity(ctx, testTenant, PriorRequest{Entity: "DC-99"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if none.Coverage != "EMPTY" || len(none.Investigations) != 0 {
+		t.Errorf("unknown entity: %+v", none)
+	}
+	if _, err := s.PriorByEntity(ctx, testTenant, PriorRequest{}); err == nil {
+		t.Error("an empty entity should be refused")
+	}
+}
+
+// TestRecallSimilar_EmptyUnderFilter: a recall emptied by a filter tag no
+// summary carries says so, instead of reading as "nothing alike" (adr/0163).
+func TestRecallSimilar_EmptyUnderFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	if _, err := s.WriteSummary(ctx, testTenant, Summary{
+		InvestigationRef: "grouping--" + uuid.New().String(), Title: "RDP lateral movement", SummaryText: "Attacker pivoted via RDP.",
+		ExtractorVersion: "2", SeedKind: "case",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.RecallSimilar(ctx, testTenant, SimilarRequest{Query: "lateral movement", Tags: []string{"seed:WIN-FILE01"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Coverage != CoverageEmptyUnderFilter || len(res.UnmatchedTags) != 1 || res.UnmatchedTags[0] != "seed:WIN-FILE01" {
+		t.Errorf("want EMPTY_UNDER_FILTER naming the tag, got %+v", res)
+	}
+	ok, err := s.RecallSimilar(ctx, testTenant, SimilarRequest{Query: "lateral movement", Tags: []string{"seed:case"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok.Coverage == CoverageEmptyUnderFilter {
+		t.Errorf("a filter every tag of which exists is not flagged: %+v", ok)
+	}
+}

@@ -15,6 +15,7 @@ import (
 const (
 	ToolRecallSOPs              = "recall_sops"
 	ToolRecallSimilar           = "recall_similar_investigations"
+	ToolPriorInvestigations     = "prior_investigations"
 	ToolProposeHypothesis       = "propose_hypothesis"
 	ToolRecordPrediction        = "record_prediction"
 	ToolEvaluateHypothesis      = "evaluate_hypothesis"
@@ -119,8 +120,15 @@ func intrinsicTools(actionTypes []ActionType) []ToolDef {
 			Description: "Recall concluded investigations similar to this one — 'have we handled something like this before?'. Query with the current investigation's situation (seed, entities, techniques). Results carry a similarity band (NEAR_DUPLICATE/RELATED/DISTINCT); EMPTY coverage means no prior similar case, evidence of absence.",
 			InputSchema: obj(map[string]any{
 				"query": str("the current situation to match against past cases (seed, entities, techniques, what you're seeing)"),
-				"tags":  strList("hard filter on summary tags (e.g. a technique id, seed:entity), optional"),
+				"tags":  strList("hard filter on summary tags, optional: a technique id, seed:<kind> (seed:host, seed:case, seed:alert), disposition:<verdict>, entity:<identifier>"),
 			}, "query"),
+		},
+		{
+			Name:        ToolPriorInvestigations,
+			Description: "Exact lookup: the concluded investigations that involved an entity (a host name, account, address or domain) as their seed or as an action target, most recent first. It answers 'have we investigated this before?' and works from the seed alone, before any telemetry; recall_similar_investigations answers 'have we seen this pattern before?' once there is behaviour to compare. EMPTY coverage means no concluded investigation recorded the entity.",
+			InputSchema: obj(map[string]any{
+				"entity": str("the identifier as the data names it: host name, DOMAIN\\account, IP address or domain"),
+			}, "entity"),
 		},
 		{
 			Name:        ToolProposeHypothesis,
@@ -433,6 +441,15 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 			body["tags"] = in.Tags
 		}
 		return s.backend.RecallSimilar(ctx, body)
+
+	case ToolPriorInvestigations:
+		var in struct {
+			Entity string `json:"entity"`
+		}
+		if err := json.Unmarshal(input, &in); err != nil {
+			return nil, fmt.Errorf("bad prior_investigations input: %w", err)
+		}
+		return s.backend.PriorInvestigations(ctx, map[string]any{"entity": in.Entity})
 
 	case ToolProposeHypothesis:
 		var in struct {

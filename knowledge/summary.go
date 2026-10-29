@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -139,7 +140,14 @@ type SimilarResult struct {
 	Results     []SimilarMatch `json:"results"`
 	Coverage    string         `json:"coverage"`
 	RetrievalAt time.Time      `json:"retrieval_at"`
+	// UnmatchedTags names the filter tags no summary carries, when they are
+	// why the answer is empty (Coverage EMPTY_UNDER_FILTER).
+	UnmatchedTags []string `json:"unmatched_tags,omitempty"`
 }
+
+// CoverageEmptyUnderFilter means the recall found nothing because a filter tag
+// matches no summary — not evidence that nothing alike exists.
+const CoverageEmptyUnderFilter = "EMPTY_UNDER_FILTER"
 
 // RecallSimilar runs SIMILARITY recall over the case-summaries corpus (06 §4):
 // "have we handled something like this before?" The query is the current
@@ -169,6 +177,18 @@ func (s *Store) RecallSimilar(ctx context.Context, tenantID uuid.UUID, req Simil
 		Results:     make([]SimilarMatch, 0, len(res.Results)),
 	}
 	backend := rankerLabel(res.Ranker)
+	if len(res.Results) == 0 && len(req.Tags) > 0 {
+		// An empty answer under a filter is only an absence if every filter tag
+		// exists; a tag no summary carries emptied it (adr/0163).
+		unmatched, err := s.unmatchedTags(ctx, tenantID, req.Tags)
+		if err != nil {
+			return SimilarResult{}, fmt.Errorf("recall_similar_investigations: %w", err)
+		}
+		if len(unmatched) > 0 {
+			out.Coverage = CoverageEmptyUnderFilter
+			out.UnmatchedTags = unmatched
+		}
+	}
 	for _, h := range res.Results {
 		out.Results = append(out.Results, SimilarMatch{
 			InvestigationRef: sourceRefOf(h.Tags),
@@ -181,6 +201,72 @@ func (s *Store) RecallSimilar(ctx context.Context, tenantID uuid.UUID, req Simil
 			ContentHash:      string(h.ContentHash),
 			Backend:          backend,
 		})
+	}
+	return out, nil
+}
+
+// PriorRequest asks which concluded investigations involved an entity.
+type PriorRequest struct {
+	Entity string `json:"entity"`
+	Limit  int    `json:"limit,omitempty"`
+}
+
+// PriorResult answers PriorRequest exactly: every concluded investigation whose
+// summary records the entity, most recently concluded first. Coverage is
+// COMPLETE with results, EMPTY with none — over the summaries that record
+// entities (those written since adr/0163, plus the seeded prior cases).
+type PriorResult struct {
+	Entity         string            `json:"entity"`
+	Coverage       string            `json:"coverage"`
+	Investigations []CaseSummaryView `json:"investigations"`
+}
+
+// PriorByEntity is the exact lookup "have we investigated this before?"
+// (adr/0163): a tag filter over the case-summaries corpus, usable from the
+// seed alone, before anything has been observed. Similarity recall stays the
+// question "have we seen this pattern before?".
+func (s *Store) PriorByEntity(ctx context.Context, tenantID uuid.UUID, req PriorRequest) (PriorResult, error) {
+	tag := EntityTag(req.Entity)
+	if tag == "" {
+		return PriorResult{}, fmt.Errorf("prior_investigations: entity required")
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = defaultRecallLimit
+	}
+	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{Tag: tag})
+	if err != nil {
+		return PriorResult{}, fmt.Errorf("prior_investigations: %w", err)
+	}
+	out := PriorResult{Entity: req.Entity, Coverage: "EMPTY", Investigations: []CaseSummaryView{}}
+	for _, e := range entries {
+		out.Investigations = append(out.Investigations, caseSummaryView(e))
+	}
+	sort.SliceStable(out.Investigations, func(i, j int) bool {
+		return out.Investigations[i].ConclusionAt > out.Investigations[j].ConclusionAt
+	})
+	if len(out.Investigations) > limit {
+		out.Investigations = out.Investigations[:limit]
+	}
+	if len(out.Investigations) > 0 {
+		out.Coverage = "COMPLETE"
+	}
+	return out, nil
+}
+
+// unmatchedTags returns the filter tags no summary carries. A similarity
+// recall whose filter names such a tag came back empty because of the
+// filter, not because the corpus has nothing alike.
+func (s *Store) unmatchedTags(ctx context.Context, tenantID uuid.UUID, tags []string) ([]string, error) {
+	var out []string
+	for _, t := range tags {
+		hits, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{Tag: t, Limit: 1})
+		if err != nil {
+			return nil, err
+		}
+		if len(hits) == 0 {
+			out = append(out, t)
+		}
 	}
 	return out, nil
 }
@@ -262,7 +348,28 @@ func summaryTags(sum Summary) []string {
 		tags = append(tags, "disposition:"+sum.VerdictDisposition)
 	}
 	tags = append(tags, sum.Techniques...)
+	for _, e := range sum.PrimaryEntities {
+		if t := EntityTag(e); t != "" {
+			tags = append(tags, t)
+		}
+	}
 	return tags
+}
+
+// entityTagPrefix marks the entities a summary involved, one tag each, so an
+// exact lookup by entity is a tag filter rather than a similarity guess
+// (adr/0163).
+const entityTagPrefix = "entity:"
+
+// EntityTag is the tag a summary carries for one entity: the identifier
+// trimmed and lowercased (host names, accounts and addresses compare without
+// case), or "" for an empty identifier.
+func EntityTag(entity string) string {
+	e := strings.ToLower(strings.TrimSpace(entity))
+	if e == "" {
+		return ""
+	}
+	return entityTagPrefix + e
 }
 
 // summaryMeta carries the structured fields as opaque metadata (design/06
