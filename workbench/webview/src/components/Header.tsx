@@ -10,7 +10,7 @@ import { STEPS, STEP_LABELS, nearestExpiry, primaryAction, stageOf } from "../de
 import { Countdown } from "./shared";
 
 export function Header() {
-  const { state, send, openPrompt, goTo, setVerdictOpen } = useApp();
+  const { state, send, openPrompt, goTo, setVerdictOpen, setCompanionMode, stage: stageComposer } = useApp();
   const snap = state.snap;
   const engine = snap ? String(snap.investigation.state).toUpperCase() : "";
   const closed = engine === "ARCHIVED" || engine === "CONCLUDED";
@@ -121,7 +121,7 @@ export function Header() {
           </ol>
           <span className="primaryaction">
             {primary?.kind === "review" ? <button className="primary" onClick={() => goTo({ kind: "lens", lens: "response" })}>Review {primary.count} proposed action{primary.count === 1 ? "" : "s"}</button> : null}
-            {primary?.kind === "notify" ? <button className="primary" onClick={() => goTo({ kind: "lens", lens: "response", anchor: "notification" })}>Send notification</button> : null}
+            {primary?.kind === "notify" ? <button className="primary" onClick={() => { setCompanionMode("conversation"); stageComposer("Draft the notification for this investigation's stakeholders — to "); }}>Ask reckon to notify…</button> : null}
             {primary?.kind === "conclude" ? <button className="primary" onClick={conclude}>Conclude</button> : null}
             {expiry ? <span className="expiry">⏳ first approval <Countdown expiresAt={expiry} className="inline" /></span> : null}
           </span>

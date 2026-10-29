@@ -82,7 +82,7 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText(/Pinned evidence · 1/)).toBeTruthy();
   });
 
-  it("Response: cards in every state, the approve lock, the notification draft → notify.request, the comms threads", () => {
+  it("Response: cards in every state, the approve lock, no notification composer, the comms threads", () => {
     const { transport } = mount();
     tab("Response");
     const cards = lens().querySelectorAll(".actioncard.full");
@@ -118,12 +118,9 @@ describe("the investigation document", () => {
     fireEvent.click(within(rev).getByText("Request reversal"));
     expect(transport.intents.find((i) => i.type === "action.reverse")).toMatchObject({ actionId: "act-1" });
     expect((within(lens()).getByText("Reverse…") as HTMLButtonElement).disabled).toBe(true);
-    expect(within(lens()).getByText(/What happened: under investigation/)).toBeTruthy();
-    fireEvent.click(within(lens()).getByText("Preview & send email…"));
-    const send = screen.getByRole("dialog");
-    fireEvent.change(send.querySelector("#promptExtra_target")!, { target: { value: "ops@example.test" } });
-    fireEvent.click(within(send).getByText("Request to send"));
-    expect(transport.intents.find((i) => i.type === "notify.request")).toMatchObject({ channel: "notify.email", target: "ops@example.test" });
+    // No second composer (#126): notifications are asked for in the conversation.
+    expect(within(lens()).queryByText("Preview & send email…")).toBeNull();
+    expect(within(lens()).getByText(/ask reckon in the conversation/)).toBeTruthy();
     expect(within(lens()).getByText("External work · 1 open")).toBeTruthy();
     expect(within(lens()).getByText("Acknowledge")).toBeTruthy();
     expect(within(lens()).queryByText(/Owner action items/)).toBeNull(); // no placeholder section (#166)
