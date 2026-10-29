@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActionRow, Hypothesis } from "../../../src/backend";
-import { actionStatusBadge, caseNoteStatus, headerLabel, pendingQueue } from "./actions";
+import { actionStatusBadge, canRerequest, canReverse, caseNoteStatus, headerLabel, pendingQueue, successors } from "./actions";
 import { classifyDraft, effectiveDraftKind, entitySubLabel } from "./draft";
 import { layoutGraph } from "./graph";
 import { blockersOf, hypName, orderHypotheses, rivalsOf } from "./hyps";
@@ -35,6 +35,21 @@ describe("actions", () => {
   it("queues pending and expired-without-successor rows", () => {
     const rows = [A({ actionId: "1", pending: true }), A({ actionId: "2", status: "EXPIRED" }), A({ actionId: "3", status: "EXPIRED" }), A({ actionId: "4", status: "REQUESTED", pending: true, retryOf: "3" })];
     expect(pendingQueue(rows).map((a) => a.actionId)).toEqual(["1", "2", "4"]);
+  });
+  it("keeps each chain a line: one re-request, one live reversal (adr/0152)", () => {
+    const expired = A({ actionId: "e", status: "EXPIRED", expired: true });
+    const retry = A({ actionId: "r", status: "REJECTED", retryOf: "e" });
+    expect(canRerequest(expired, [expired])).toBe(true);
+    expect(canRerequest(expired, [expired, retry])).toBe(false); // answered: the chain moves on from the retry
+    expect(successors(expired, [expired, retry]).retry?.actionId).toBe("r");
+
+    const done = A({ actionId: "o", status: "SUCCEEDED", reversibility: "REVERSIBLE" });
+    const pendingRev = A({ actionId: "v1", status: "REQUESTED", pending: true, isReversal: true, reversalOfRef: "o" });
+    const failedRev = A({ actionId: "v1", status: "FAILED", isReversal: true, reversalOfRef: "o" });
+    expect(canReverse(done, [done])).toBe(true);
+    expect(canReverse(done, [done, pendingRev])).toBe(false);
+    expect(canReverse(done, [done, failedRev])).toBe(true); // a failed reversal may be tried again
+    expect(canReverse(A({ status: "SUCCEEDED", reversibility: "BEST_EFFORT" }), [])).toBe(false);
   });
   it("derives the presentation label", () => {
     expect(headerLabel("ACTIVE", [A({ pending: true })], null)).toBe("ACTIVE · REMEDIATING");

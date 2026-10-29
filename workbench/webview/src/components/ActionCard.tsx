@@ -5,7 +5,7 @@
 // render the same ActionRow, so they can never disagree. The policy fact is
 // gap §6.16: until it lands the card states the required mode the engine froze.
 import { useApp } from "../app";
-import { actionStatusBadge } from "../derive/actions";
+import { actionStatusBadge, canRerequest, canReverse, reversalEnded, successors } from "../derive/actions";
 import type { ActionRow } from "../../../src/backend";
 import type { InboundMessage } from "../../../src/protocol";
 import { Badge, Countdown, RefChip } from "./shared";
@@ -34,6 +34,11 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
   // One decision at a time per action, across every card that renders it,
   // until the host settles it.
   const locked = Boolean(state.actionsInFlight[a.actionId]);
+  const rows = state.snap?.actions || [];
+  const next = successors(a, rows);
+  const successorLine = (label: string, s: ActionRow) => (
+    <div className="cardmeta">{label} <a onClick={() => openInspector({ kind: "action", actionId: s.actionId })}>{s.actionId.slice(0, 8)}…</a> · {actionStatusBadge(s).label}</div>
+  );
   const decideOn = (intent: InboundMessage) => {
     dispatch({ type: "action.sent", actionId: a.actionId });
     send(intent);
@@ -111,7 +116,9 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
       {a.errorDetail && (a.status === "FAILED" || a.status === "TIMEOUT" || a.status === "PARTIAL") ? <div className="armeta err">✗ {a.errorDetail}</div> : null}
       {draft && decide ? <div className="cardmeta actnote">First action on the world — approving activates the investigation.</div> : null}
       {buttons}
-      {a.expired && a.status === "EXPIRED" ? (
+      {next.retry ? successorLine("↻ re-requested as", next.retry) : null}
+      {next.reversal ? successorLine(reversalEnded(next.reversal) ? "↺ reversal did not take effect:" : "↺ reversal", next.reversal) : null}
+      {a.expired && a.status === "EXPIRED" && canRerequest(a, rows) ? (
         <div className="decide">
           <span className="cardmeta">approval window elapsed — the world may have moved on</span>
           <button className="primary" disabled={locked} title="Create a fresh request (same targets + evidence, new approval window)" onClick={() => openPrompt({
@@ -121,13 +128,13 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
           })}>↻ Re-request</button>
         </div>
       ) : null}
-      {a.status === "SUCCEEDED" && a.reversibility === "REVERSIBLE" ? (
+      {canReverse(a, rows) ? (
         <div className="decide">
           <button className="ghost" disabled={locked} onClick={() => openPrompt({
             title: "Request reversal of " + a.actionType, label: "Why reverse it?", placeholder: "e.g. the host is confirmed clean; restore connectivity",
             helper: "Requests the inverse action at the same tier; it lands in the approval queue like any action.", confirm: "Request reversal",
             onConfirm: (rationale) => decideOn({ type: "action.reverse", actionId: a.actionId, rationale }),
-          })}>Reverse…</button>
+          })}>{next.reversal ? "Reverse again…" : "Reverse…"}</button>
         </div>
       ) : null}
     </div>

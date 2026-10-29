@@ -480,6 +480,16 @@ func TestRequestAction_ReversalValidation(t *testing.T) {
 	if out.Tier != aggregate.TierT2 || out.Status != "PENDING_MANUAL" {
 		t.Errorf("valid reversal: tier=%q status=%q; want T2/PENDING_MANUAL", out.Tier, out.Status)
 	}
+
+	// A second reversal while the first is pending → 422 (adr/0152: one live
+	// reversal per original).
+	resp, _ = post(RequestActionBody{
+		ActionType: "host.unisolate", Targets: revTarget, Rationale: "undo again",
+		InvestigationRef: invID.String(), ReversalOfRef: origID.String(),
+	})
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("second reversal while one is pending: status %d; want 422", resp.StatusCode)
+	}
 }
 
 // TestListActionTypes: GET /api/action-types surfaces the frozen write catalog
