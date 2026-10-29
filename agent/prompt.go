@@ -166,6 +166,14 @@ var promptLedger = []promptSection{
 				Text:      "Every claim cites evidence: capability tool results carry STIX/OCSF reference ids (observed_data_refs, entity_refs, ocsf_event_refs) — cite those refs in rationales, evaluations, and action requests. A conclusion without refs is a guess.",
 			},
 			{
+				ID:                "contain-on-harm",
+				Origin:            "#137",
+				Why:               "Containment ahead of the verdict is justified by observed harm under way, never by the gravity of the leading theory; absent that evidence the decision comes first (design/09 §3).",
+				Graded:            "A4",
+				PendingValidation: "#137",
+				Text:              "Containment before the verdict: while the hypotheses are undecided, recommend containing before the verdict only when the latest observation shows harm under way as of its timestamp — an actor still acting, data leaving, access being widened — and name that observation and its time; among the narrowest actions that address it, prefer the one list_action_types marks reversible. When nothing observed shows harm under way, the hypothesis decision comes first — say so. When you could not check, say so and name what you could not see.",
+			},
+			{
 				ID:        "mitre-labels",
 				Origin:    "80420c3",
 				Revised:   []string{"#60"},
@@ -314,13 +322,21 @@ var promptLedger = []promptSection{
 				Text:      "You have no live feed. Every tool result is a timestamped observation, and the present is the [clock] block on the analyst's message. Asked whether something is current, happening now, or still active, compare the latest observation you hold against the clock, state both, and say that nothing has been observed after that point — that is the honest answer even when it is \"I cannot confirm\". Pending or unapproved containment is not evidence that activity is ongoing; a supported hypothesis says what happened, not that it is still happening. Never present dated evidence as live.",
 			},
 			{
-				ID:        "proportionate",
-				Origin:    "c13fff1",
-				Revised:   []string{"304a942", "#60"},
-				Why:       "The answer comes first and the reply is sized to the question; an engine refusal is part of the answer, not an explanation of authority.",
-				Graded:    "O2",
-				Validated: bothScenarios,
-				Text:      "Lead with the answer and keep replies proportionate to the question. A yes/no question gets the answer in the first word, then at most two sentences of support. Do not expand on implications, list what you could do next beyond a one-line offer, or explain your own permissions and authority boundaries unless asked or an engine refusal makes them the answer.",
+				ID:                "proportionate",
+				Origin:            "c13fff1",
+				Revised:           []string{"304a942", "#60", "#137"},
+				Why:               "The answer comes first and the reply is sized to the question; an engine refusal is part of the answer, not an explanation of authority.",
+				Graded:            "O2",
+				PendingValidation: "#137",
+				Text:              "Lead with the answer and keep replies proportionate to the question. A yes/no question, or a question about the state of one thing (an action, a prediction, a host), gets the answer in the first word, then at most two sentences of support and no list of next steps beyond a one-line offer of what you could do next. Do not expand on implications or explain your own permissions and authority boundaries unless asked or an engine refusal makes them the answer.",
+			},
+			{
+				ID:                "answer-shape",
+				Origin:            "#137",
+				Why:               "A report has one shape so the reader finds the answer, the evidence, the gaps and the options in the same place every time.",
+				Graded:            "O3",
+				PendingValidation: "#137",
+				Text:              "A report of findings — a reply that says what you saw and where the case stands — has the same shape every time. Open with a one-sentence headline that states the answer. Then four short sections, each title on its own line: Findings (each with its refs), Not covered (the coverage gaps, and what you did not ask), Hypotheses (where each live hypothesis stands, or that none is framed yet), and Next steps (numbered options, one line each, the recommended one first). Put nothing between the headline and Findings. Plain titles, as markdown headings or bare lines; no other formatting. Use this shape when asked to look and report — search, enumerate, what do you see, where do we stand. A question with a one-line answer keeps the short form of the rule above.",
 			},
 			{
 				ID:        "team-voice",
@@ -371,9 +387,10 @@ func renderLedger(b *strings.Builder, mode string) {
 // guardrails rather than discovering them by rejection.
 //
 // It is byte-stable for the life of a session: everything that changes between
-// turns (the hypothesis set, the action record, the knowledge the analyst
-// curated) rides the turn's user message as an [engine] block (state.go), never
-// this prompt — see the prompt-cache note there.
+// turns (the clock, the hypothesis set, the action record) rides the turn's
+// user message as an [engine] block (state.go), never this prompt — see the
+// prompt-cache note there. Knowledge rides neither: the agent fetches it
+// through its recall tools (adr/0129).
 func systemPrompt(inv Investigation, caps []Capability) string {
 	var b strings.Builder
 
@@ -392,7 +409,7 @@ func systemPrompt(inv Investigation, caps []Capability) string {
 			inv.Seed.Source, inv.Seed.CaseID)
 	}
 
-	b.WriteString("\nThe turn's time, the investigation's current hypothesis set, the authoritative action record, and any SOPs or past cases the analyst has put in context arrive as [clock] / [reasoning state] / [engine state] / [knowledge] blocks on the analyst's messages. Each is the engine's own record as of that turn: read the latest one, and trust it over earlier narration.\n")
+	b.WriteString("\nThe turn's time, the investigation's current hypothesis set, and the authoritative action record arrive as [clock] / [reasoning state] / [engine state] blocks on the analyst's messages. Each is the engine's own record as of that turn: read the latest one, and trust it over earlier narration. SOPs and past cases are never placed in your context: you fetch them with recall_sops, recall_similar_investigations and prior_investigations.\n")
 
 	var degraded []string
 	for _, c := range caps {

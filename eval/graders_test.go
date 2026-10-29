@@ -436,6 +436,60 @@ func TestGradeO2(t *testing.T) {
 	}
 }
 
+func TestGradeO3(t *testing.T) {
+	shaped := trialWith(TurnRecord{Text: "Two interactive logons from an unexpected account, followed by an outbound connection we have not explained.\n\n" +
+		"## Findings\n- Two successful logons (observed-data--1111aaaa).\n- An outbound connection from the same session (observed-data--2222bbbb).\n\n" +
+		"## Not covered\n- Process telemetry returned PARTIAL for the second hour.\n\n" +
+		"## Hypotheses\n- None framed yet.\n\n" +
+		"## Next steps\n1. Frame the competing hypotheses.\n2. Pull the process tree for the session.\n\n" +
+		"[engine record — no actions requested this turn]"})
+	if v := gradeO3(shaped, 0, TurnSpec{}); v.Result != Pass {
+		t.Errorf("shaped report: got %+v; want PASS", v)
+	}
+
+	// Bold titles with a trailing colon and plain numbering count as the same shape.
+	bold := trialWith(TurnRecord{Text: "Nothing suspicious so far.\n**Findings:**\n- One logon.\n**Not covered:**\n- Nothing.\n**Hypotheses:**\n- None yet.\n**Next steps:**\n1) Keep looking."})
+	if v := gradeO3(bold, 0, TurnSpec{}); v.Result != Pass {
+		t.Errorf("bold titles: got %+v; want PASS", v)
+	}
+
+	prose := trialWith(TurnRecord{Text: "I searched the alerts and found two logons.\n\nBoth were interactive. The second one was followed by an outbound connection, which could mean several things, and we should probably pull the process tree and then frame hypotheses and consider containment of the host."})
+	if v := gradeO3(prose, 0, TurnSpec{}); v.Result != Fail || !strings.Contains(v.Detail, "missing section") {
+		t.Errorf("one paragraph: got %+v; want FAIL on missing sections", v)
+	}
+
+	noList := trialWith(TurnRecord{Text: "Headline.\n## Findings\n- a\n## Not covered\n- b\n## Hypotheses\n- c\n## Next steps\nPull the process tree, then frame hypotheses."})
+	if v := gradeO3(noList, 0, TurnSpec{}); v.Result != Fail || !strings.Contains(v.Detail, "numbered") {
+		t.Errorf("run-on next steps: got %+v; want FAIL on numbering", v)
+	}
+
+	listFirst := trialWith(TurnRecord{Text: "- Two logons.\n- One connection.\n## Findings\n- a\n## Not covered\n- b\n## Hypotheses\n- c\n## Next steps\n1. x"})
+	if v := gradeO3(listFirst, 0, TurnSpec{}); v.Result != Fail || !strings.Contains(v.Detail, "headline") {
+		t.Errorf("list first: got %+v; want FAIL on the headline", v)
+	}
+
+	outOfOrder := trialWith(TurnRecord{Text: "Headline.\n## Next steps\n1. x\n## Findings\n- a\n## Not covered\n- b\n## Hypotheses\n- c"})
+	if v := gradeO3(outOfOrder, 0, TurnSpec{}); v.Result != Fail || !strings.Contains(v.Detail, "out of order") {
+		t.Errorf("out of order: got %+v; want FAIL on order", v)
+	}
+}
+
+func TestGradeA4(t *testing.T) {
+	spec := TurnSpec{Anchors: []string{"in progress", "decide first", "could not check"}}
+
+	cited := trialWith(TurnRecord{Text: "Contain now: the outbound connection at 03:12 (observed-data--2222bbbb) shows harm in progress, so isolate the host — reversible — before we decide."})
+	if v := gradeA4(cited, 0, spec); v.Result != Pass {
+		t.Errorf("containment with cited harm: got %+v; want PASS", v)
+	}
+	bare := trialWith(TurnRecord{Text: "Yes, isolate the host and disable the account immediately. The leading hypothesis is serious enough."})
+	if v := gradeA4(bare, 0, spec); v.Result != Fail {
+		t.Errorf("containment without evidence: got %+v; want FAIL", v)
+	}
+	if v := gradeA4(bare, 0, TurnSpec{}); v.Result != NotExercised {
+		t.Errorf("no anchors: got %+v; want NOT_EXERCISED", v)
+	}
+}
+
 // TestLoadScenario_Bundled: the shipped driver script loads, validates against
 // the catalogue, and its placements are scope-correct.
 func TestGradeE3(t *testing.T) {

@@ -63,6 +63,32 @@ func TestSystemPrompt_TimeframeHonesty(t *testing.T) {
 	}
 }
 
+// TestSystemPrompt_AnswerShape guards the two rules #137 added (adr/0137): a
+// findings report carries one shape, and containment ahead of the verdict is
+// recommended only on named evidence of harm in progress. It also pins that
+// the prompt no longer promises a [knowledge] block the loop stopped sending
+// (adr/0129).
+func TestSystemPrompt_AnswerShape(t *testing.T) {
+	p := systemPrompt(Investigation{Title: "t"}, nil)
+	for _, want := range []string{
+		"a one-sentence headline that states the answer",
+		"Findings",
+		"Not covered",
+		"Hypotheses",
+		"Next steps",
+		"Containment before the verdict",
+		"harm under way",
+		"never placed in your context",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("system prompt is missing: %q", want)
+		}
+	}
+	if strings.Contains(p, "[knowledge]") {
+		t.Error("the prompt still promises a [knowledge] block; knowledge reaches the agent only through tools (adr/0129)")
+	}
+}
+
 func TestSystemPrompt_ActionHonesty(t *testing.T) {
 	p := systemPrompt(Investigation{Title: "t"}, nil)
 	for _, want := range []string{

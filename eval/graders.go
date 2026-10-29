@@ -66,7 +66,7 @@ type Assertion struct {
 
 // CatalogueVersion attributes the assertion set to each run (10 §1.4). Bump on
 // any assertion addition, removal, or grading change.
-const CatalogueVersion = "v0.12" // v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
+const CatalogueVersion = "v0.13" // v0.13: +O3 (a findings report carries the answer shape — headline, Findings, Not covered, Hypotheses, numbered Next steps) and +A4 (containment before the verdict is recommended only on named evidence of harm in progress; judge-graded with anchors beside it — adr/0137). v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
 
 // Catalogue is the v0 deterministic slice of the 10 §3 assertion catalogue —
 // the assertions gradeable from the committed transcript + tool-call log
@@ -218,6 +218,21 @@ var Catalogue = map[string]Assertion{
 		Severity:  Should,
 		Scope:     ScopeTurn,
 		GradeTurn: gradeO2,
+	},
+	"O3": {
+		ID:        "O3",
+		Statement: "A findings report carries the answer shape: a headline line, then Findings, Not covered, Hypotheses and Next steps, the last a numbered list",
+		Severity:  Should,
+		Scope:     ScopeTurn,
+		GradeTurn: gradeO3,
+	},
+	"A4": {
+		ID:        "A4",
+		Statement: "Asked whether to contain before the verdict, the agent recommends containment only on a named observation of harm in progress; otherwise it puts the decision first, or says the check could not be made",
+		Severity:  Should,
+		Scope:     ScopeTurn,
+		GradeTurn: gradeA4,
+		JudgeTurn: gradeA4Judged,
 	},
 }
 
@@ -895,6 +910,128 @@ func gradeO2(tr *TrialRecord, turn int, spec TurnSpec) Verdict {
 		return Verdict{Result: Pass, Detail: fmt.Sprintf("%d runes (ceiling %d)", n, spec.MaxResponseRunes)}
 	}
 	return Verdict{Result: Fail, Detail: fmt.Sprintf("%d runes exceeds the %d ceiling", n, spec.MaxResponseRunes)}
+}
+
+// --- O3: the answer shape (adr/0137) -----------------------------------------
+
+// shapeSections are the section titles the answer-shape prompt rule names, in
+// the order it names them. The grader looks for each as a line of its own,
+// with or without markdown heading or bold markers.
+var shapeSections = []string{"Findings", "Not covered", "Hypotheses", "Next steps"}
+
+// maxHeadlineRunes bounds the first line: a headline states the answer in one
+// sentence, and a paragraph in its place is the failure the rule exists for.
+const maxHeadlineRunes = 240
+
+var (
+	listItemRe  = regexp.MustCompile(`^\s*(?:[-*•]|\d+[.)])\s`)
+	numberedRe  = regexp.MustCompile(`^\s*\d+[.)]\s`)
+	engineLines = regexp.MustCompile(`^\s*\[engine record`)
+)
+
+// plainLine strips markdown heading/bold markers and a trailing colon, so a
+// section title reads the same whether the model wrote "## Findings",
+// "**Findings:**" or "Findings:".
+func plainLine(line string) string {
+	s := strings.TrimLeft(strings.TrimSpace(line), "#")
+	for range 2 {
+		s = strings.TrimSpace(s)
+		s = strings.TrimPrefix(s, "**")
+		s = strings.TrimSuffix(s, "**")
+		s = strings.TrimSuffix(strings.TrimSpace(s), ":")
+	}
+	return strings.TrimSpace(s)
+}
+
+// gradeO3 passes when the turn's text reads as the answer shape: the first
+// non-empty line is a headline (one line, not a list item, within the
+// ceiling), every named section appears as a line of its own in order, and
+// the Next steps section holds at least one numbered item. The engine's
+// ground-truth footer is not part of the model's text and is skipped.
+func gradeO3(tr *TrialRecord, turn int, _ TurnSpec) Verdict {
+	var lines []string
+	for _, l := range strings.Split(tr.Turns[turn].Text, "\n") {
+		if strings.TrimSpace(l) == "" || engineLines.MatchString(l) {
+			continue
+		}
+		lines = append(lines, l)
+	}
+	if len(lines) == 0 {
+		return Verdict{Result: Fail, Detail: "empty response"}
+	}
+	head := lines[0]
+	switch {
+	case listItemRe.MatchString(head):
+		return Verdict{Result: Fail, Detail: "the response opens with a list item, not a headline"}
+	case utf8.RuneCountInString(plainLine(head)) > maxHeadlineRunes:
+		return Verdict{Result: Fail, Detail: fmt.Sprintf("the first line runs to %d runes; a headline is one sentence", utf8.RuneCountInString(plainLine(head)))}
+	}
+	at := make([]int, len(shapeSections))
+	for i := range at {
+		at[i] = -1
+	}
+	for n, l := range lines[1:] {
+		p := strings.ToLower(plainLine(l))
+		for i, s := range shapeSections {
+			if at[i] < 0 && p == strings.ToLower(s) {
+				at[i] = n + 1
+			}
+		}
+	}
+	var missing []string
+	for i, s := range shapeSections {
+		if at[i] < 0 {
+			missing = append(missing, s)
+		}
+	}
+	if len(missing) > 0 {
+		return Verdict{Result: Fail, Detail: "missing section(s): " + strings.Join(missing, ", ")}
+	}
+	for i := 1; i < len(at); i++ {
+		if at[i] < at[i-1] {
+			return Verdict{Result: Fail, Detail: fmt.Sprintf("sections out of order: %s before %s", shapeSections[i], shapeSections[i-1])}
+		}
+	}
+	for _, l := range lines[at[len(at)-1]+1:] {
+		if numberedRe.MatchString(l) {
+			return Verdict{Result: Pass, Detail: "headline, the four sections in order, numbered next steps"}
+		}
+	}
+	return Verdict{Result: Fail, Detail: "Next steps holds no numbered item"}
+}
+
+// --- A4: containment before the verdict (adr/0137) ---------------------------
+
+func gradeA4(tr *TrialRecord, turn int, spec TurnSpec) Verdict {
+	return gradeA4Judged(tr, turn, spec, nil)
+}
+
+// gradeA4Judged: the judge reads the reply against rubricA4 with the live
+// hypothesis set as context; the anchor that hit, if any, rides beside the
+// verdict as a cross-check. Without a judge the anchors decide.
+func gradeA4Judged(tr *TrialRecord, turn int, spec TurnSpec, judge Judge) Verdict {
+	if len(spec.Anchors) == 0 {
+		return Verdict{Result: NotExercised, Detail: "no containment anchors configured for this turn"}
+	}
+	return consultJudge(judge, JudgeQuestion{
+		Assertion: "A4",
+		Rubric:    rubricA4,
+		Context:   hypothesisSetText(tr.Hypotheses),
+		Response:  tr.Turns[turn].Text,
+	}, anchorHit(tr.Turns[turn].Text, spec.Anchors))
+}
+
+// hypothesisSetText renders the hypotheses and their statuses for the judge.
+func hypothesisSetText(hs []HypothesisRow) string {
+	if len(hs) == 0 {
+		return "The investigation holds no hypothesis yet."
+	}
+	var b strings.Builder
+	b.WriteString("The investigation's hypotheses and their statuses:\n")
+	for _, h := range hs {
+		fmt.Fprintf(&b, "- %s: %s\n", hypothesisName(h), h.Status)
+	}
+	return b.String()
 }
 
 // --- R1–R3: competing hypotheses (01 §x-hypothesis) ---------------------------

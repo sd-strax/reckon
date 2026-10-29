@@ -19,8 +19,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // test green — that is the point of pinning the hash rather than the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "81dd8c5fea1f67845871dbac21829f053bc5f894a6ecc3d41d0a1d2ab3bd6327",
-		framingLeadingOnly: "5ab0f9cb2f79c07dba691253bd0fd998d10930f7c1782e4264881c67d93e17e4",
+		framingLeadingNull: "a870ddbf8038fe4ee2049f35d02b498db86e2cdc7a73101286051b462237195e",
+		framingLeadingOnly: "5de9f5af462a6b9ce5068b5f539c35aae540045af849e577919721e6df2de9ba",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
