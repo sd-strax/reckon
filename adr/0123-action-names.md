@@ -1,6 +1,6 @@
 # 0123 — The action catalog names each action type and says what it does to the incident
 
-Issue: #123 · PR: #TBD · Status: accepted
+Issue: #123 · PR: #181 · Status: accepted
 
 ## Context
 
