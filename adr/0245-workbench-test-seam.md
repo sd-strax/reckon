@@ -1,6 +1,6 @@
 # 0245 — The workbench host is tested against a typed `vscode` fake, without an editor
 
-Issue: #245 · PR: #TBD · Status: accepted
+Issue: #245 · PR: #262 · Status: accepted
 
 ## Context
 
