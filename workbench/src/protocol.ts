@@ -83,6 +83,8 @@ export interface GraphView {
 export interface DerivedViews {
   strip: StripItem[];
   graph: GraphView;
+  /** The entities the cited evidence observed, most cited first (Summary key entities). */
+  entities?: { ref: string; citations: number }[];
 }
 
 /**

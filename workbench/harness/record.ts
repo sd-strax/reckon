@@ -72,7 +72,7 @@ async function main(): Promise<void> {
         turns.push({ sequenceNo: e.sequenceNo, occurredAt: e.occurredAt, body: (await client.transcript(e.interpretationId)).body });
       } catch { /* a stub in the chronicle */ }
     }
-    const derived = await buildDerivedViews(thread ?? [], getDoc);
+    const derived = await buildDerivedViews(thread ?? [], getDoc, { hypotheses, pins, actions: actions ?? [], seed: investigation.seed });
     const snapshot: InvestigationSnapshot = {
       seq: investigation.lastEventSequence,
       investigation, hypotheses, actions, pins, comms, thread, turns, capabilities, enablement,

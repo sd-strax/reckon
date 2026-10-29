@@ -24,11 +24,14 @@ const ACTION_WORDS: Record<string, [string, string]> = {
   "process.kill": ["kill requested", "killed"],
 };
 
-export function keyEntities(seed: Seed | undefined, thread: ThreadEntry[], pins: PinRow[], actions: ActionRow[], labels: Record<string, string>): KeyEntity[] {
+export function keyEntities(seed: Seed | undefined, thread: ThreadEntry[], pins: PinRow[], actions: ActionRow[], labels: Record<string, string>, observed: { ref: string; citations: number }[] = []): KeyEntity[] {
   const counts = new Map<string, number>();
-  const bump = (r: string) => { if (isEntityRef(r)) counts.set(r, (counts.get(r) || 0) + 1); };
+  const bump = (r: string, n = 1) => { if (isEntityRef(r)) counts.set(r, (counts.get(r) || 0) + n); };
   for (const e of thread) for (const r of [...(e.inputRefs || []), ...(e.outputRefs || [])]) bump(r);
   for (const p of pins) if (!p.superseded) for (const r of p.inputRefs || []) bump(r);
+  // The hosts, accounts and addresses the cited evidence observed (#141): the
+  // agent cites observations, rarely the entities themselves.
+  for (const o of observed) bump(o.ref, o.citations);
   if (seed?.entityRef) counts.set(seed.entityRef, (counts.get(seed.entityRef) || 0) + 1000);
   const out: KeyEntity[] = [];
   for (const [ref, n] of counts) {
