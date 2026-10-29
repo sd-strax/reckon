@@ -33,7 +33,7 @@ knowledge came from an investigation, the Knowledge view names that investigatio
 link and nothing more.
 
 The Knowledge view has a query bar (§9.2) above its content. Its sections — **Procedures**
-(§9.3), **Past cases** (§9.4), **Import** (§9.5) and **Candidates** (§9.7), each with its
+(§9.3), **Past cases** (§9.4), **Import** (§9.5) and **Candidates** (§9.7, superseded by `adr/0156`), each with its
 count — are listed once, in the left region, which holds the work queue in Work mode and
 these sections in Knowledge mode (`ui/08 §8.3`). There is no second row of the same items
 above the content. Running a query replaces the content with its results under a header
@@ -133,6 +133,12 @@ posture would include are not included · Review". It links to the Knowledge sec
 anything by itself.
 
 ## 9.7 Candidates
+
+> **Superseded by `adr/0156`.** There is no Candidates section. Concluding drafts nothing; the
+> analyst presses **Draft SOP from this case** in a concluded investigation's Summary, the
+> draft opens as editable markdown, and **Add to SOP library** / **Discard** sit on that panel.
+> A parked queue of unreviewed drafts was rejected as a second inbox to clear. The section
+> below is kept as the design that was replaced.
 
 When an investigation concludes, the agent may draft a **candidate procedure** generalized
 from it and from the knowledge it consulted (the existing conclude hook, `proposeSOP`), or
