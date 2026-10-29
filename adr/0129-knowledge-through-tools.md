@@ -1,6 +1,6 @@
 # 0129 — Knowledge reaches the agent only through its recall tools; the rail becomes a library
 
-Issue: #129 (with #128, #130, #131, #132) · PR: #TBD · Status: accepted · Supersedes: `design/06 §5.1` (implicit retrieval and the injection dial), the include section of `adr/0084`
+Issue: #129 (with #128, #130, #131, #132) · PR: #195 · Status: accepted · Supersedes: `design/06 §5.1` (implicit retrieval and the injection dial), the include section of `adr/0084`
 
 ## Context
 
