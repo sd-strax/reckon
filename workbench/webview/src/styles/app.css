@@ -280,6 +280,11 @@ body.loading #rail { opacity: 0.6; }
 .commscard .esc { font-size: var(--fs-xs); color: var(--bad); background: var(--bad-bg); border: 1px solid var(--bad-border); border-radius: var(--r-sm); padding: 4px 8px; margin-top: 5px; }
 .sendpreview { font-size: var(--fs-sm); background: var(--fill); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 9px; margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
 .sendpreview .subj { font-weight: 600; }
+.willdo { font-size: var(--fs-sm); background: var(--fill); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 9px; margin: 6px 0; }
+.willdo .wdsentence { font-weight: 600; margin: 2px 0 4px; }
+.willdo .wdfield { display: flex; gap: 6px; word-break: break-word; }
+.willdo .wdfield.long { flex-direction: column; gap: 2px; white-space: pre-wrap; }
+.willdo .wdlabel { color: var(--text-3); flex: none; }
 
 .pinrow { border-left: 2px solid var(--pin); }
 .pinrow .finding { font-size: var(--fs-sm); }
