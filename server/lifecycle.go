@@ -115,6 +115,8 @@ func lifecycleCommand(body LifecycleRequestBody) (aggregate.Command, error) {
 		return aggregate.ReopenInvestigation{Reason: body.Reason}, nil
 	case "archive":
 		return aggregate.ArchiveInvestigation{Reason: body.Reason}, nil
+	case "discard":
+		return aggregate.DiscardInvestigation{Reason: body.Reason}, nil
 	default:
 		return nil, fmt.Errorf("unknown transition %s", body.Transition)
 	}

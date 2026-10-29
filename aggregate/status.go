@@ -19,11 +19,14 @@ package aggregate
 // 2, "invisible activate"): the first APPROVAL of a draft's action transitions
 // draft→active in the same transaction, and auto-approve is suppressed until
 // then so that first action always gets a human. archived is terminal — the
-// aggregate accepts no further events.
+// aggregate accepts no further events. A draft started by mistake can be
+// discarded (draft ──discard──▶ discarded, adr/0161): terminal too, with the
+// reason on the record — never a deletion.
 const (
 	StatusDraft     = "draft"
 	StatusActive    = "active"
 	StatusPaused    = "paused"
 	StatusConcluded = "concluded"
 	StatusArchived  = "archived"
+	StatusDiscarded = "discarded"
 )

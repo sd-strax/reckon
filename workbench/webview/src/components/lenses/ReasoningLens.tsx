@@ -91,7 +91,7 @@ export function ReasoningLens() {
   const hs = state.snap?.hypotheses || [];
   const pins = state.snap?.pins || [];
   const engine = state.snap ? String(state.snap.investigation.state).toUpperCase() : "";
-  const closed = engine === "CONCLUDED" || engine === "ARCHIVED";
+  const closed = engine === "CONCLUDED" || engine === "ARCHIVED" || engine === "DISCARDED";
   const tally = hs.filter(isLive).map((h) => { const ps = h.predictions.filter(counted); return `${hypName(h, hs)} ${ps.filter(tested).length}/${ps.length}`; });
   void tally;
   return (

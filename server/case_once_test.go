@@ -39,4 +39,12 @@ func TestInvestigationForCase(t *testing.T) {
 	if got, _ := b.investigationForCase(req, "INC2"); got != "" {
 		t.Errorf("another case found %q", got)
 	}
+	// A discarded draft does not count (adr/0161).
+	env := newEnvelope(first, aggregate.Actor{PrincipalID: "test-subject"}, commandNow())
+	if _, err := testHandler.Handle(context.Background(), env, aggregate.DiscardInvestigation{Reason: "mistyped"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := b.investigationForCase(req, "INC1"); got != "" {
+		t.Errorf("a discarded draft still counts: %q", got)
+	}
 }

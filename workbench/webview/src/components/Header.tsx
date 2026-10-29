@@ -13,7 +13,7 @@ export function Header() {
   const { state, send, openPrompt, goTo, setVerdictOpen, setCompanionMode, stage: stageComposer } = useApp();
   const snap = state.snap;
   const engine = snap ? String(snap.investigation.state).toUpperCase() : "";
-  const closed = engine === "ARCHIVED" || engine === "CONCLUDED";
+  const closed = engine === "ARCHIVED" || engine === "CONCLUDED" || engine === "DISCARDED";
   const actions = snap?.actions || [];
   const verdict = snap?.investigation.verdict || null;
   const comms = snap?.comms || [];
@@ -52,6 +52,15 @@ export function Header() {
     <button key={text} title={disabledReason || title} disabled={!!disabledReason} onClick={disabledReason ? undefined : onClick}>{text}</button>,
   );
   switch (engine) {
+    case "DRAFT":
+      // A draft started by mistake leaves the queue with its reason (adr/0161).
+      mk("Discard draft…", "Set this draft aside for good — the record keeps it, with your reason", () => openPrompt({
+        title: "Discard this draft", label: "Why is it being discarded?", placeholder: "e.g. Started on a mistyped host name",
+        helper: "Discarding is final: the draft leaves your investigations and accepts no further changes. Nothing is deleted — the record keeps it, with this reason. Reject any pending request first.",
+        confirm: "Discard draft", require: false,
+        onConfirm: (reason) => send({ type: "lifecycle", transition: "discard", reason }),
+      }));
+      break;
     case "ACTIVE":
       mk("Pause", "A reversible hold — resume any time", () => send({ type: "lifecycle", transition: "pause" }));
       if (primary?.kind !== "conclude") mk("Conclude…", "Close with the verdict of record and a summary", conclude, concludeAllowed(preflight) ? "" : "Record a verdict first — a conclusion consumes the verdict of record");
@@ -89,7 +98,7 @@ export function Header() {
           )}
         </span>
         {verdict ? <span className={"state verdictbadge " + verdict.disposition} title={verdict.rationale || ""}>{verdict.disposition}</span> : null}
-        {engine === "PAUSED" || engine === "ARCHIVED" || engine === "DRAFT" ? <span className="state" data-engine={engine}>{engine}</span> : null}
+        {engine === "PAUSED" || engine === "ARCHIVED" || engine === "DRAFT" || engine === "DISCARDED" ? <span className="state" data-engine={engine}>{engine}</span> : null}
         <span className="headcontrols">
           {snap && !closed ? <button title="Record the disposition of record" onClick={() => setVerdictOpen(true)}>Verdict…</button> : null}
           {controls}

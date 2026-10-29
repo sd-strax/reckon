@@ -10,7 +10,7 @@ export function Composer() {
   const [text, setText] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   const engine = state.snap ? String(state.snap.investigation.state).toUpperCase() : "";
-  const closed = engine === "ARCHIVED" || engine === "CONCLUDED";
+  const closed = engine === "ARCHIVED" || engine === "CONCLUDED" || engine === "DISCARDED";
   const disabled = closed || busy || !state.snap;
 
   useEffect(() => {
@@ -35,6 +35,7 @@ export function Composer() {
   };
 
   const placeholder = engine === "ARCHIVED" ? "Archived — this record is final."
+    : engine === "DISCARDED" ? "Discarded — this draft was set aside and accepts no further changes."
     : engine === "CONCLUDED" ? "Concluded — reopen to continue the conversation."
     : "Ask reckon to investigate… (Enter to send, Shift+Enter for newline)";
 

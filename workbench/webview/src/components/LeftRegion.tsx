@@ -51,7 +51,7 @@ export function LeftRegion() {
   const [collapsed, setCollapsed] = useState(false);
   const q = state.queue;
   const current = state.snap?.investigation.id;
-  const investigations = orderQueue((q?.investigations || []).filter((r) => !["CONCLUDED", "ARCHIVED"].includes(String(r.state).toUpperCase())));
+  const investigations = orderQueue((q?.investigations || []).filter((r) => !["CONCLUDED", "ARCHIVED", "DISCARDED"].includes(String(r.state).toUpperCase())));
   // Concluded investigations stay findable (#158): reopening one is how a case comes back.
   const concluded = (q?.investigations || []).filter((r) => String(r.state).toUpperCase() === "CONCLUDED");
   const cases = q?.cases || [];

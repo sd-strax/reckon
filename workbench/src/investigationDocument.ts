@@ -1073,6 +1073,9 @@ export class InvestigationDocuments {
       const res = await this.client.lifecycle(id, body);
       const exportNote = res.exportWorkflowId ? " · export started" : "";
       void vscode.window.showInformationMessage(`reckon: investigation → ${res.status}${exportNote}`);
+      // Every transition moves the investigation between the tree's groups (a
+      // discarded draft leaves them altogether).
+      void vscode.commands.executeCommand("reckon.refreshInvestigations");
       if (msg.transition === "conclude") {
         // The client-side tier of the two-tier knowledge summary (design/06
         // §3.2): the sidecar — the only place the BYOK model key lives —

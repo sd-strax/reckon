@@ -4,7 +4,7 @@ import type { Lens } from "../../../src/protocol";
 
 export function defaultLens(status: string, hasVerdict: boolean): Lens {
   const s = String(status).toUpperCase();
-  if (s === "CONCLUDED" || s === "ARCHIVED") return "summary";
+  if (s === "CONCLUDED" || s === "ARCHIVED" || s === "DISCARDED") return "summary";
   if (hasVerdict) return "response";
   return "reasoning";
 }

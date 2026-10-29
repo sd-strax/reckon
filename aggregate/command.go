@@ -343,8 +343,8 @@ func applyCommand(env Envelope, cmd Command, state aggregateState) ([]Event, err
 		if env.TenantID != state.TenantID {
 			return nil, fmt.Errorf("%s rejected: envelope tenant %s does not match investigation tenant %s", cmd.Kind(), env.TenantID, state.TenantID)
 		}
-		if state.Status == StatusArchived {
-			return nil, fmt.Errorf("%s rejected: investigation %s is archived (terminal)", cmd.Kind(), env.AggregateID)
+		if state.Status == StatusArchived || state.Status == StatusDiscarded {
+			return nil, fmt.Errorf("%s rejected: investigation %s is %s (terminal)", cmd.Kind(), env.AggregateID, state.Status)
 		}
 	}
 
@@ -380,6 +380,8 @@ func applyCommand(env Envelope, cmd Command, state aggregateState) ([]Event, err
 		return reopenEvents(env, state, c)
 	case ArchiveInvestigation:
 		return archiveEvents(env, state, c)
+	case DiscardInvestigation:
+		return discardEvents(env, state, c)
 	case RenameInvestigation:
 		return renameEvent(env, state, c)
 	case AddMember:

@@ -232,8 +232,9 @@ func (b *Backend) annotateInFlight(r *http.Request, cases []CaseView) error {
 		   FROM investigation_current
 		  WHERE seed_type = $1
 		    AND seed->>'case_id' = ANY($2)
+		    AND status <> $5
 		  ORDER BY (status IN ($3, $4)), updated_at DESC`,
-		aggregate.SeedCase, pq.Array(numbers), aggregate.StatusConcluded, aggregate.StatusArchived)
+		aggregate.SeedCase, pq.Array(numbers), aggregate.StatusConcluded, aggregate.StatusArchived, aggregate.StatusDiscarded)
 	if err != nil {
 		return err
 	}
@@ -260,7 +261,8 @@ func (b *Backend) annotateInFlight(r *http.Request, cases []CaseView) error {
 }
 
 // investigationForCase returns the investigation already rooted on a case —
-// open first, else the most recent concluded or archived — or "" (#158).
+// open first, else the most recent concluded or archived — or "" (#158). A
+// discarded draft does not count: the case can be started again (adr/0161).
 func (b *Backend) investigationForCase(r *http.Request, caseID string) (string, error) {
 	if caseID == "" || b.cfg.Handler == nil {
 		return "", nil
@@ -268,10 +270,10 @@ func (b *Backend) investigationForCase(r *http.Request, caseID string) (string, 
 	var id string
 	err := b.cfg.Handler.DB().QueryRowContext(r.Context(),
 		`SELECT aggregate_id FROM investigation_current
-		  WHERE seed_type = $1 AND seed->>'case_id' = $2
+		  WHERE seed_type = $1 AND seed->>'case_id' = $2 AND status <> $5
 		  ORDER BY (status IN ($3, $4)), updated_at DESC
 		  LIMIT 1`,
-		aggregate.SeedCase, caseID, aggregate.StatusConcluded, aggregate.StatusArchived).Scan(&id)
+		aggregate.SeedCase, caseID, aggregate.StatusConcluded, aggregate.StatusArchived, aggregate.StatusDiscarded).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
