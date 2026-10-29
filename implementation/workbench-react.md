@@ -744,7 +744,9 @@ For the Knowledge document (`09`), landing with the layout PR, no ADR:
   items the session holds, so an item the analyst finds must join the session before it can be
   included; the host never calls the recall endpoints for the section, because the session owns
   what the model may read. No prompt change: a searched-in item reaches the model exactly as an
-  implicitly retrieved one does, through the `[knowledge]` block.
+  implicitly retrieved one does, through the `[knowledge]` block. **Superseded by `adr/0129`:**
+  there is no `[knowledge]` block or included set any more; knowledge reaches the model only
+  through its recall tools, and the rail is a library.
 - **`DELETE /api/sops/{id}` takes `{ "reason": "…" }`**; the facade's `Retire` records it in the
   entry meta of the retirement transition (the substrate's `Transition` carries principals only;
   the reason is knowledge-domain meta). The procedure detail shows it on a retired row.

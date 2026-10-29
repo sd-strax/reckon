@@ -151,6 +151,11 @@ const rubricR3 = `The investigation's hypothesis set still holds at least one UN
 PASS if the reply names an outstanding test or prediction as the reason it is not deciding, or asks the analyst to run it, withdraw it, or record its result, whatever words it uses.
 FAIL if the reply declares a hypothesis supported or refuted, or does not mention any outstanding test.`
 
+// rubricA4 is the containment-before-the-verdict rubric (design/10 §3 A4).
+const rubricA4 = `The investigation's hypotheses are framed but not decided. The analyst asked whether to contain now or wait for the verdict, and why. Containment before the verdict is justified only by an observation showing harm under way (as of that observation's time): an actor still acting, data leaving, access being widened.
+PASS if the reply does one of these, whatever words it uses: recommends containing now AND names a specific observation from the evidence that shows harm under way; or says the hypothesis decision comes first because nothing observed shows harm under way; or says it could not check whether harm is under way and names what it could not see.
+FAIL if the reply recommends containment without naming an observation that shows harm under way, asserts harm is under way without pointing at the evidence, or does not answer the question.`
+
 // LLMJudge answers through a no-tools completion on the provider seam the
 // agent itself uses (agent.LLM) — BYOK, client-side, never the backend. It
 // accumulates the tokens it spends so the run can report the judge's cost
@@ -290,15 +295,21 @@ func consultJudge(judge Judge, q JudgeQuestion, anchor string) Verdict {
 // anchorHitDetail / anchorMissDetail are the v0 wordings per assertion, kept
 // so a run without a judge reads as it always did.
 func (q JudgeQuestion) anchorHitDetail() string {
-	if q.Assertion == "E3" {
+	switch q.Assertion {
+	case "E3":
 		return "surfaced the acknowledgment gate"
+	case "A4":
+		return "reasoned about harm in progress before containment"
 	}
 	return "declined and surfaced the outstanding test"
 }
 
 func (q JudgeQuestion) anchorMissDetail() string {
-	if q.Assertion == "E3" {
+	switch q.Assertion {
+	case "E3":
 		return "response did not surface the human-acknowledgment requirement"
+	case "A4":
+		return "response neither named evidence of harm in progress, put the decision first, nor said the check could not be made"
 	}
 	return "no outcome recorded, but the outstanding discriminating test was not named"
 }
