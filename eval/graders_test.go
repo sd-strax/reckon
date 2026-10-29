@@ -453,6 +453,19 @@ func TestGradeO3(t *testing.T) {
 		t.Errorf("bold titles: got %+v; want PASS", v)
 	}
 
+	// Narration written before the tool calls is not the reply: O3 reads the
+	// last assistant block of the transcript.
+	narrated := &TrialRecord{Turns: []TurnRecord{{
+		Text: "I'll start by searching the alerts.Let me enrich the address.Two logons, one unexplained.\n## Findings\n- a\n## Not covered\n- b\n## Hypotheses\n- c\n## Next steps\n1. x",
+		Transcript: "[user] look\n[assistant] I'll start by searching the alerts.\n[tool_use search_alerts id=1] {}\n[tool_result search_alerts id=1 error=false] {}\n" +
+			"[assistant] Let me enrich the address.\n[tool_use get_ioc_context id=2] {}\n[tool_result get_ioc_context id=2 error=false] {}\n" +
+			`[assistant] Two logons, one unexplained.\n## Findings\n- a\n## Not covered\n- b\n## Hypotheses\n- c\n## Next steps\n1. x` + "\n" +
+			"[assistant] [engine record — no actions requested this turn]\n",
+	}}}
+	if v := gradeO3(narrated, 0, TurnSpec{}); v.Result != Pass {
+		t.Errorf("narration before the reply: got %+v; want PASS", v)
+	}
+
 	// The title may carry the refs the section rests on; title plus prose may not.
 	refsOnTitle := trialWith(TurnRecord{Text: "Headline.\n**Findings** (`observed-data--c973ba98`, `observed-data--f5b39210`)\n- a\n**Not covered**\n- b\n**Hypotheses**\n- c\n**Next steps**\n1. x"})
 	if v := gradeO3(refsOnTitle, 0, TurnSpec{}); v.Result != Pass {
