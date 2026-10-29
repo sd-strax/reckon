@@ -36,6 +36,9 @@ describe("key entities (#141)", () => {
   it("lists what the cited evidence observed, seed first", () => {
     const ents = keyEntities({ type: "entity", entityRef: "x-host--win" }, [], [], [], {}, [{ ref: "user-account--svc", citations: 3 }, { ref: "x-host--win", citations: 2 }]);
     expect(ents.map((e) => [e.ref, e.role, e.citations])).toEqual([["x-host--win", "seed subject", 2], ["user-account--svc", "cited", 3]]);
+  });
+});
+
 describe("outstanding predictions (#140)", () => {
   it("one rule: untested or inconclusive under a live hypothesis; nothing under a decided one", () => {
     const refuted = H("h1", "REFUTED", [{ id: "p1", status: "DISCONFIRMED" }, { id: "p2", status: "DISCONFIRMED" }, { id: "p3", status: "INCONCLUSIVE" }]);
