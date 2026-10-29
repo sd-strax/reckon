@@ -56,7 +56,31 @@ export function Badge({ tone, title, children, className }: { tone?: string; tit
 
 /** The escape-first markdown renderer — the only consumer of md()'s HTML. */
 export function Markdown({ text, live, className }: { text: string; live?: boolean; className?: string }) {
-  return <div className={"md" + (live ? " live" : "") + (className ? " " + className : "")} dangerouslySetInnerHTML={{ __html: md(text) }} />;
+  const { state, openInspector } = useApp();
+  // A chip in the prose opens its evidence (#136). A shortened id resolves to
+  // the one full id in the record it starts with; otherwise it stays a label.
+  const onClick = (e: React.MouseEvent) => {
+    const el = (e.target as HTMLElement).closest("[data-ref]") as HTMLElement | null;
+    if (!el) return;
+    const ref = fullRef(el.dataset.ref || "", state.snap);
+    if (ref) { e.stopPropagation(); openInspector({ kind: "ref", ref }); }
+  };
+  return <div className={"md" + (live ? " live" : "") + (className ? " " + className : "")} onClick={onClick} dangerouslySetInnerHTML={{ __html: md(text) }} />;
+}
+
+/** The full id a (possibly shortened) ref in prose names, from the refs the record holds. */
+export function fullRef(ref: string, snap: InvestigationSnapshot | null): string | undefined {
+  if (/--[0-9a-f]{8}-[0-9a-f]{4}-/.test(ref)) return ref;
+  if (!snap) return undefined;
+  const known = new Set<string>();
+  for (const e of snap.thread || []) for (const r of [...(e.inputRefs || []), ...(e.outputRefs || [])]) known.add(r);
+  for (const p of snap.pins) for (const r of p.inputRefs || []) known.add(r);
+  for (const h of snap.hypotheses) for (const p of h.predictions) for (const r of p.testResultRefs || []) known.add(r);
+  for (const a of snap.actions || []) for (const r of a.evidenceRefs || []) known.add(r);
+  for (const s of snap.derived?.strip || []) known.add(s.ref);
+  for (const n of snap.derived?.graph.refs || []) known.add(n.id);
+  const hits = [...known].filter((k) => k.startsWith(ref));
+  return hits.length === 1 ? hits[0] : undefined;
 }
 
 /** Live approval-window countdown (03 §3.3): the analyst's only warning for lazy expiry. */

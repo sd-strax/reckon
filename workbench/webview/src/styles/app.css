@@ -65,6 +65,9 @@ button.primary:hover, .pincta:hover { background: var(--he-primary-deep); }
 
 /* markdown-rendered assistant text */
 .md p { margin: 7px 0; }
+.md .mdref { cursor: pointer; }
+.enginenote { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin: 6px 0; font-size: var(--fs-xs); color: var(--text-3); }
+.activity .narration { color: var(--text-3); font-size: var(--fs-sm); margin: 4px 0; }
 .md ul, .md ol { margin: 6px 0; padding-left: 22px; }
 .md li { margin: 2px 0; }
 .md .mdh { font-weight: 600; margin: 11px 0 5px; }

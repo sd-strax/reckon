@@ -4,16 +4,24 @@
 // lists, fenced blocks, light headings, pipe tables); everything else renders
 // as written. The <Markdown> component is the only consumer of the HTML string.
 
+import { chipClass, refTypeLabel } from "./refs";
+
 export function esc(s: unknown): string {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[c] as string);
 }
 
+// An evidence id written into the prose (#136) — a full STIX id or the
+// shortened "type--first8" form the agent often uses — becomes a chip the
+// <Markdown> component makes clickable; the raw id never reads as text.
+const REF_IN_TEXT = /\b([a-z][a-z0-9-]*--[0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)\b/g;
+
 function inlineMd(s: string): string {
   let out = esc(s);
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(REF_IN_TEXT, (_m, ref: string) => `<span class="${chipClass(ref)} mdref" data-ref="${ref}" title="${ref}">${esc(refTypeLabel(ref))}</span>`);
   return out;
 }
 
@@ -61,6 +69,14 @@ export function md(src: unknown): string {
   };
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    // The engine's ground-truth footer (agent honesty, #136): a compact badge,
+    // not a paragraph of bracketed text.
+    const note = /^\s*\[engine record — (.*)\]\s*$/.exec(line);
+    if (note) {
+      flushPara(); flushList();
+      out.push('<div class="enginenote"><span class="badge info">engine-verified</span> ' + inlineMd(note[1]) + "</div>");
+      continue;
+    }
     if (/^\s*```/.test(line)) {
       flushPara(); flushList();
       const buf: string[] = [];
