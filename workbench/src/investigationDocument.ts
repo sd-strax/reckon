@@ -248,6 +248,9 @@ export class InvestigationDocuments {
       "action.reject": (msg) => {
         void this.reject(id, panel, msg);
       },
+      "action.edit": (msg) => {
+        void this.edit(id, panel, msg);
+      },
       "action.rerequest": (msg) => {
         void this.rerequest(id, panel, msg);
       },
@@ -1223,6 +1226,14 @@ export class InvestigationDocuments {
    * new window, retry_of lineage) the analyst then approves. Not a bypass of
    * expiry: the conscious re-affirmation it exists to elicit.
    */
+  /** Edit a pending request before approving it (adr/0127): the same action, new parameters, on the record. */
+  private async edit(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; parameters: Record<string, unknown>; reason?: string }): Promise<void> {
+    await this.decide(id, panel, msg.actionId, async (a) => {
+      await this.client.editAction(a.actionId, msg.parameters, msg.reason);
+      void vscode.window.showInformationMessage(`reckon: ${a.actionType} edited — review it and approve`);
+    }, "edit");
+  }
+
   private async rerequest(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; rationale: string }): Promise<void> {
     await this.decide(id, panel, msg.actionId, async (a) => {
       await this.client.rerequestAction(a.actionId, msg.rationale);

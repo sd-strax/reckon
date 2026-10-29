@@ -94,7 +94,8 @@ action_bindings:
         short_description: "${parameters.summary}"
         description: "${parameters.description?}"
         assigned_to: "${parameters.assignee?}"
-        urgency: "${parameters.urgency ?? 3 - Low}"
+        urgency: "${parameters.urgency?}"
+        priority: "${parameters.priority?}"
 
   # comment / transition / close target the incident itself — the adapter accepts
   # either a sys_id or a display number (INC…) and resolves the number to sys_id.

@@ -201,6 +201,8 @@ export type InboundMessage =
   | { type: "action.approve"; actionId: string; challenge?: string }
   | { type: "action.reject"; actionId: string; reason: string }
   | { type: "action.rerequest"; actionId: string; rationale: string }
+  // Change a pending request's parameters before approving it (adr/0127).
+  | { type: "action.edit"; actionId: string; parameters: Record<string, unknown>; reason?: string }
   // Request the inverse action of a SUCCEEDED reversible one (04 §7); lands in the queue like any action.
   | { type: "action.reverse"; actionId: string; rationale: string }
   | { type: "pin.add"; refs: string[]; finding: string }

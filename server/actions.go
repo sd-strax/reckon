@@ -72,6 +72,11 @@ type ActionView struct {
 	// TierEscalated: the blast-radius escalator raised this above the type's
 	// default tier (04 §1) — the card says why it is T3.
 	TierEscalated bool `json:"tier_escalated,omitempty"`
+	// EditedAt is when the request was last edited before approval (adr/0127).
+	EditedAt *time.Time `json:"edited_at,omitempty"`
+	// Inputs are the type's declared non-entity parameters — what an edit may
+	// set — so a surface can offer the fields the request did not fill.
+	Inputs []EditableInput `json:"inputs,omitempty"`
 	// Name and Category come from the action catalog (#123): what a surface
 	// titles and groups the action by, so no surface guesses from the id.
 	Name     string `json:"name,omitempty"`
@@ -128,6 +133,12 @@ func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"actions": out})
 }
 
+// EditableInput is one parameter an edit may set (adr/0127).
+type EditableInput struct {
+	Name     string `json:"name"`
+	Required bool   `json:"required,omitempty"`
+}
+
 // actionView maps one projected x-action to the list/record view: the frozen
 // request facts plus the two derived facts (tier escalation against the
 // catalog's default, the pre-approval planned adapter).
@@ -157,6 +168,10 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	if a.RequestingInterpretationID != (uuid.UUID{}) {
 		v.RequestingInterpretationID = a.RequestingInterpretationID.String()
 	}
+	if !a.EditedAt.IsZero() {
+		t := a.EditedAt
+		v.EditedAt = &t
+	}
 	if !a.ExpiresAt.IsZero() {
 		t := a.ExpiresAt
 		v.ExpiresAt = &t
@@ -168,6 +183,11 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 			v.TierEscalated = d.DefaultTier != a.Tier && a.Tier == aggregate.TierT3
 			// The human name and category the surfaces show (#123).
 			v.Name, v.Category = d.Name, d.Category
+			for _, in := range d.Inputs {
+				if in.Type != "entity" {
+					v.Inputs = append(v.Inputs, EditableInput{Name: in.Name, Required: in.Required})
+				}
+			}
 		}
 	}
 	// Pre-approval preview: which adapter WOULD dispatch this if approved now

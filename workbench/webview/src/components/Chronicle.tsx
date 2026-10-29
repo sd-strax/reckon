@@ -18,6 +18,7 @@ export const CHRONICLE_ACTS: Record<string, { icon: string; verb: string }> = {
   "action-request": { icon: "▹", verb: "requested" },
   "action-approval": { icon: "✔", verb: "approved" },
   "action-rejection": { icon: "✕", verb: "rejected" },
+  "action-edit": { icon: "✎", verb: "edited before approval" },
   "action-dispatch": { icon: "→", verb: "dispatched" },
   "action-result": { icon: "●", verb: "" },
   "action-reversal": { icon: "↺", verb: "reversed" },

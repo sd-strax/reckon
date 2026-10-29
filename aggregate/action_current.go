@@ -63,6 +63,9 @@ type ActionCurrent struct {
 	// system of record.
 	RawResponseRef    string
 	LastEventSequence int64
+	// EditedAt is when the request was last edited before approval (adr/0127);
+	// zero when it never was.
+	EditedAt time.Time
 }
 
 // ActionCurrentProjector populates the action_current table — one row per
@@ -140,6 +143,29 @@ func (ActionCurrentProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 			nullTime(p.Authorization.PrimaryApprovedAt), evt.SequenceNo, evt.OccurredAt)
 		if err != nil {
 			return fmt.Errorf("update action_current (approve): %w", err)
+		}
+		return nil
+
+	case EventTypeActionEdited:
+		var p ActionEdited
+		if err := json.Unmarshal(evt.Payload, &p); err != nil {
+			return fmt.Errorf("unmarshal ActionEdited: %w", err)
+		}
+		var pool []byte
+		if len(p.SecondaryApproverPool) > 0 {
+			var err error
+			if pool, err = json.Marshal(p.SecondaryApproverPool); err != nil {
+				return fmt.Errorf("marshal secondary_approver_pool: %w", err)
+			}
+		}
+		_, err := tx.ExecContext(ctx, `
+			UPDATE action_current
+			SET parameters = $2, required_mode = $3, secondary_approver_pool = $4,
+			    edited_at = $5, updated_at = $5, last_event_sequence = $6
+			WHERE action_id = $1
+		`, p.ActionID, []byte(p.Parameters), nullString(p.RequiredMode), pool, evt.OccurredAt, evt.SequenceNo)
+		if err != nil {
+			return fmt.Errorf("update action_current (edit): %w", err)
 		}
 		return nil
 
@@ -277,25 +303,26 @@ const actionCurrentColumns = `action_id, aggregate_id, action_type, tier, status
 	       primary_approver_ref, primary_approved_at, is_reversal, reversal_of_ref, retry_of,
 	       reversibility, reversed_by_ref, reversal_attempted_by_ref,
 	       required_mode, secondary_approver_pool, parameters, targets, evidence_refs,
-	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence, requesting_interpretation_id`
+	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence, requesting_interpretation_id, edited_at`
 
 // scanActionCurrent decodes one actionCurrentColumns row (sql.Row or sql.Rows).
 func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
 	var a ActionCurrent
 	var mode, approver, requiredMode, reversibility sql.NullString
-	var primaryAt, expiresAt sql.NullTime
+	var primaryAt, expiresAt, editedAt sql.NullTime
 	var reversalOf, retryOf, reversedBy, attemptedBy, requesting uuid.NullUUID
 	var targets, pool, params, evidence []byte
 	err := scan(&a.ActionID, &a.AggregateID, &a.ActionType, &a.Tier, &a.Status,
 		&mode, &approver, &primaryAt, &a.IsReversal, &reversalOf, &retryOf,
 		&reversibility, &reversedBy, &attemptedBy,
 		&requiredMode, &pool, &params, &targets, &evidence, &expiresAt,
-		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence, &requesting)
+		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence, &requesting, &editedAt)
 	if err != nil {
 		return ActionCurrent{}, err
 	}
 	a.Mode = mode.String
 	a.RequestingInterpretationID = requesting.UUID
+	a.EditedAt = editedAt.Time
 	a.PrimaryApprover = approver.String
 	a.PrimaryApprovedAt = primaryAt.Time
 	a.ExpiresAt = expiresAt.Time

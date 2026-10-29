@@ -257,7 +257,7 @@ func foldState(events []Event) (aggregateState, error) {
 			s.ConclusionRef = ""
 		case EventTypeArchived:
 			s.Status = StatusArchived
-		case EventTypeActionRequested, EventTypeActionApproved, EventTypeActionRejected,
+		case EventTypeActionRequested, EventTypeActionApproved, EventTypeActionRejected, EventTypeActionEdited,
 			EventTypeActionExpired, EventTypeActionDispatched, EventTypeActionResulted,
 			EventTypeActionReversed, EventTypeActionPolicyEvaluated:
 			// PolicyEvaluated is audit-only (no status change); foldActionEvent
@@ -394,6 +394,8 @@ func applyCommand(env Envelope, cmd Command, state aggregateState) ([]Event, err
 		return applyApproveAction(env, state, c)
 	case RejectAction:
 		return applyRejectAction(env, state, c)
+	case EditAction:
+		return applyEditAction(env, state, c)
 	case ExpireAction:
 		return applyExpireAction(env, state, c)
 	case DispatchAction:

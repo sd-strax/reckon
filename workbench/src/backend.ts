@@ -947,6 +947,11 @@ export class BackendClient {
    * token). The backend rebuilds it from the original's frozen fields with a
    * fresh window and retry_of lineage; the analyst then approves the new one.
    */
+  /** POST /api/actions/{id}/edit — change a pending request's parameters before approval (adr/0127). */
+  async editAction(actionId: string, parameters: Record<string, unknown>, reason?: string): Promise<void> {
+    await this.authedPost(`/api/actions/${encodeURIComponent(actionId)}/edit`, { parameters, reason });
+  }
+
   async rerequestAction(actionId: string, rationale: string): Promise<void> {
     await this.authedPost(`/api/actions/${encodeURIComponent(actionId)}/rerequest`, { rationale });
   }
@@ -1212,6 +1217,8 @@ interface RawAction {
   reversibility?: string;
   tier_escalated?: boolean;
   evidence_refs?: string[];
+  edited_at?: string;
+  inputs?: { name?: string; required?: boolean }[];
   name?: string;
   category?: string;
   retry_of?: string;
@@ -1257,6 +1264,8 @@ function mapAction(a: RawAction): ActionRow {
     evidenceRefs: a.evidence_refs ?? [],
     name: a.name || undefined,
     category: a.category || undefined,
+    editedAt: a.edited_at || undefined,
+    inputs: (a.inputs ?? []).map((x) => ({ name: x.name ?? "", required: x.required ?? false })).filter((x) => x.name),
     retryOf: a.retry_of,
     reversalOfRef: a.reversal_of_ref,
     requestingInterpretationId: a.requesting_interpretation_id,

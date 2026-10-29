@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -231,6 +232,17 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 				out.Authorization.PrimaryApprover = &approver
 			}
 			entry.Detail = approvalLine(a, approver)
+		case aggregate.EventTypeActionEdited:
+			var p aggregate.ActionEdited
+			_ = json.Unmarshal(payloadRaw, &p)
+			entry.Status = aggregate.ActionStatusRequested
+			entry.Detail = "edited before approval"
+			if p.Reason != "" {
+				entry.Detail += ": " + p.Reason
+			}
+			if changes := paramChanges(p.PriorParameters, p.Parameters); changes != "" {
+				entry.Detail += " — " + changes
+			}
 		case aggregate.EventTypeActionRejected:
 			var p aggregate.ActionRejected
 			_ = json.Unmarshal(payloadRaw, &p)
@@ -337,4 +349,43 @@ func resultLine(p aggregate.ActionResulted, ok, total int) string {
 		line += " · " + p.ErrorDetail
 	}
 	return line
+}
+
+// paramChanges renders what an edit changed (adr/0127) as `key: “before” →
+// “after”` per changed parameter, each side clipped, so the record says what
+// the approver's text replaced.
+func paramChanges(before, after json.RawMessage) string {
+	var b, a map[string]any
+	_ = json.Unmarshal(before, &b)
+	_ = json.Unmarshal(after, &a)
+	keys := map[string]bool{}
+	for k := range b {
+		keys[k] = true
+	}
+	for k := range a {
+		keys[k] = true
+	}
+	names := make([]string, 0, len(keys))
+	for k := range keys {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	clip := func(v any) string {
+		if v == nil {
+			return "—"
+		}
+		s := fmt.Sprint(v)
+		if r := []rune(s); len(r) > 60 {
+			s = string(r[:59]) + "…"
+		}
+		return "“" + s + "”"
+	}
+	var parts []string
+	for _, k := range names {
+		if fmt.Sprint(b[k]) == fmt.Sprint(a[k]) {
+			continue
+		}
+		parts = append(parts, k+": "+clip(b[k])+" → "+clip(a[k]))
+	}
+	return strings.Join(parts, "; ")
 }

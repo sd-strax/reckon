@@ -512,3 +512,13 @@ func TestInvokeUnknownOperation(t *testing.T) {
 		t.Fatal("unknown read op should error")
 	}
 }
+
+// TestUrgencyFor: the engine's vendor-neutral priority becomes a ServiceNow
+// urgency label (adr/0127); anything else is the low default.
+func TestUrgencyFor(t *testing.T) {
+	for in, want := range map[string]string{"critical": "1 - High", "High": "1 - High", "medium": "2 - Medium", "low": "3 - Low", "": "3 - Low", "urgent!": "3 - Low"} {
+		if got := urgencyFor(in); got != want {
+			t.Errorf("urgencyFor(%q) = %q; want %q", in, got, want)
+		}
+	}
+}

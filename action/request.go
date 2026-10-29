@@ -97,6 +97,13 @@ func BuildRequestCommand(catalog *ActionCatalog, req ActionRequest, now time.Tim
 	}, nil
 }
 
+// ValidateParameters is validateParameters for callers outside the request
+// path — editing a request before approval (adr/0127) checks the new
+// parameters against the same declared inputs.
+func ValidateParameters(d ActionDescriptor, raw json.RawMessage) error {
+	return validateParameters(d, raw)
+}
+
 // validateParameters checks a request's parameters against the descriptor's
 // declared Inputs (08 §3: Inputs is THE schema for request_action.parameters).
 // Entity-typed inputs ride the targets list (validated above), so only

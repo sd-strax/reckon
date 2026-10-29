@@ -429,6 +429,10 @@ export interface ActionRow {
   /** The catalog's human name ("Isolate host") and category (#123). */
   name?: string;
   category?: string;
+  /** When the request was edited before approval (adr/0127). */
+  editedAt?: string;
+  /** The parameters an edit may set: the type's declared non-entity inputs. */
+  inputs?: { name: string; required: boolean }[];
   /** Lineage: the FAILED/EXPIRED action this request replaces. */
   retryOf?: string;
   /** Lineage: the action this one reverses (set when isReversal). */

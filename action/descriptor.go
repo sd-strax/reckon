@@ -238,6 +238,9 @@ func DefaultActionCatalog() *ActionCatalog {
 				{Name: "description", Type: "string"},
 				{Name: "issue_type", Type: "string"},
 				{Name: "assignee", Type: "string"},
+				// Vendor-neutral urgency (adr/0127): low | medium | high | critical;
+				// each ticketing binding maps it onto its own field.
+				{Name: "priority", Type: "string"},
 			},
 			DefaultTier:   aggregate.TierT2,
 			Reversibility: ReversibilityIrreversible,
