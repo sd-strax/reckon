@@ -342,6 +342,9 @@ export class InvestigationDocuments {
       copy: (msg) => {
         void vscode.env.clipboard.writeText(msg.text);
       },
+      "investigation.new": () => {
+        void vscode.commands.executeCommand("reckon.newInvestigation");
+      },
       "investigation.open": (msg) => {
         void vscode.commands.executeCommand("reckon.openInvestigation", msg.id, msg.title);
       },

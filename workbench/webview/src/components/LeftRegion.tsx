@@ -63,7 +63,9 @@ export function LeftRegion() {
       {!collapsed ? (
         <>
           <section className="queue">
-            <h2>Investigations{q ? <span className="count">{investigations.length}</span> : null}</h2>
+            <h2>Investigations{q ? <span className="count">{investigations.length}</span> : null}
+              <button className="iconbtn addbtn" title="New investigation — from an entity, an alert or a case" aria-label="New investigation" onClick={() => send({ type: "investigation.new" })}>＋</button>
+            </h2>
             {!q ? <Empty>loading…</Empty> : !investigations.length ? <Empty>none open</Empty> : investigations.map((r) => {
               const step = rowStep(r);
               return (

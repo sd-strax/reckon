@@ -233,4 +233,6 @@ export type InboundMessage =
   | { type: "export.open" }
   | { type: "copy"; text: string }
   | { type: "investigation.open"; id: string; title?: string }
+  // Start a new investigation: the seed surface, as the command opens it (#162).
+  | { type: "investigation.new" }
   | { type: "rename"; title: string };
