@@ -1,6 +1,6 @@
 # 0225 — The PR gate runs the full test suite, embedded-deps tests included
 
-Issue: #225 · PR: #TBD · Status: accepted
+Issue: #225 · PR: #263 · Status: accepted
 
 ## Context
 
