@@ -23,6 +23,7 @@ import {
   StreamMessageWriter,
 } from "vscode-jsonrpc/node";
 import { TokenKind } from "./auth";
+import { SingleFlight } from "./singleFlight";
 
 /** The stdio protocol contract version (sidecar.ProtocolVersion). */
 const PROTOCOL_VERSION = 1;
@@ -134,6 +135,8 @@ export class SidecarTransport implements AgentTransport {
   private initializing: Promise<MessageConnection> | null = null;
   /** investigation id → live session id on the CURRENT sidecar process. */
   private readonly sessions = new Map<string, string>();
+  /** investigation id → a session being created, shared by concurrent callers. */
+  private readonly creating = new SingleFlight<string>();
   /** session id → the in-flight turn's progress sink (for notifications). */
   private readonly inFlight = new Map<string, TurnProgress>();
   private disposed = false;
@@ -328,11 +331,20 @@ export class SidecarTransport implements AgentTransport {
     return connection;
   }
 
-  private async ensureSession(conn: MessageConnection, investigationId: string): Promise<string> {
+  /**
+   * One session per investigation (#157): calls racing on the same
+   * investigation — the conclude-time summary and an analyst's turn — share
+   * the session being created rather than each creating their own.
+   */
+  private ensureSession(conn: MessageConnection, investigationId: string): Promise<string> {
     const existing = this.sessions.get(investigationId);
     if (existing) {
-      return existing;
+      return Promise.resolve(existing);
     }
+    return this.creating.run(investigationId, () => this.createSession(conn, investigationId));
+  }
+
+  private async createSession(conn: MessageConnection, investigationId: string): Promise<string> {
     const res = await conn.sendRequest("createSession", { investigation_id: investigationId }) as {
       session_id?: string;
       tools?: string[];
@@ -352,6 +364,7 @@ export class SidecarTransport implements AgentTransport {
     const child = this.child;
     this.child = null;
     this.sessions.clear();
+    this.creating.clear();
     this.inFlight.clear();
     if (child && child.exitCode === null && !child.killed) {
       child.kill();
