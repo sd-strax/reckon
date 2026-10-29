@@ -1,6 +1,6 @@
 # 0127 — A requested action can be edited before approval, as the same action, on the record
 
-Issue: #127 · PR: #TBD · Status: accepted
+Issue: #127 · PR: #186 · Status: accepted
 
 ## Context
 
