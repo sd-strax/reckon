@@ -328,6 +328,15 @@ export class InvestigationDocuments {
       "queue.start": (msg) => {
         void this.startFromCase(msg.caseNumber);
       },
+      "sop.draft": (msg) => {
+        void this.draftSOP(id, panel, msg.force);
+      },
+      "sop.accept": () => {
+        void this.acceptSOP(id, panel);
+      },
+      "sop.discard": () => {
+        void this.discardSOP(id, panel);
+      },
       "library.get": () => {
         void this.postLibrary(panel);
       },
@@ -555,6 +564,9 @@ export class InvestigationDocuments {
         .then((data) => data, () => null)
         .then((data) => { if (latestEnablement()) void this.patch(id, panel, { enablement: data }); });
       void this.postLibrary(panel);
+      if (String(snapshot.investigation.state).toUpperCase() === "CONCLUDED") {
+        void this.postSummaryStatus(id, panel);
+      }
     });
   }
 
@@ -568,6 +580,18 @@ export class InvestigationDocuments {
       void this.post(panel, { type: "library", sops, cases });
     } catch (err) {
       this.log.debug(`library: ${errText(err)}`);
+    }
+  }
+
+  /** Whether a concluded case's knowledge summary carries a narrative (adr/0156). */
+  private async postSummaryStatus(id: string, panel: vscode.WebviewPanel): Promise<void> {
+    try {
+      const sum = await this.client.caseSummary(id);
+      if (sum) void this.post(panel, sum.generatorModel
+        ? { type: "summary.status", state: "written", detail: sum.generatorModel }
+        : { type: "summary.status", state: "baseline" });
+    } catch (err) {
+      this.log.debug(`summary status: ${errText(err)}`);
     }
   }
 
@@ -1081,16 +1105,14 @@ export class InvestigationDocuments {
         // writes the narrative from its own conversation and posts it.
         // Fire-and-forget: the server's structured baseline stands either
         // way; a narrative failure must never look like a conclude failure.
+        // The summary's outcome is shown beside the report (adr/0156), not only
+        // in a status bar message that fades.
         void this.transport.summarizeConcluded(id).then(
-          () => vscode.window.setStatusBarMessage("reckon: knowledge summary written", 5000),
-          (err: unknown) => console.warn("reckon: knowledge summary narrative failed (baseline stands):", err),
+          () => this.post(panel, { type: "summary.status", state: "written" }),
+          (err: unknown) => this.post(panel, { type: "summary.status", state: "failed", detail: errText(err) }),
         );
-        // Candidate-SOP generalization (design/06: the compounding loop) — the
-        // model drafts a reusable SOP from this case + the SOPs and similar past
-        // cases it consulted; the analyst reviews and accepts or discards it.
-        // Fire-and-forget, like the summary: a failed draft never touches the
-        // conclude UX.
-        void this.proposeCandidateSOP(id);
+        // Drafting a procedure from the case is the analyst's step now
+        // (adr/0156): Draft SOP from this case, in the Summary lens.
       }
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: ${msg.transition} failed — ${errText(err)}`);
@@ -1098,52 +1120,53 @@ export class InvestigationDocuments {
     await this.refresh(id, panel);
   }
 
+  /** The open candidate drafts, per investigation: the editor document and its title. */
+  private readonly sopDrafts = new Map<string, { doc: vscode.TextDocument; title: string }>();
+
   /**
-   * Generalize a candidate SOP from the concluded investigation and let the
-   * analyst accept or discard it (design/06: the compounding loop). The draft
-   * opens as an editable markdown document — the review surface — so the analyst
-   * can refine it before accepting; "Add to SOP library" imports the CURRENT
-   * editor content through the same markdown path as `Import SOPs…`, so edits are
-   * honored and the source URL keys the SOP to this investigation (re-accepting
-   * revises rather than duplicates). Discarding leaves nothing behind. The whole
-   * thing is best-effort — a failed or unwarranted draft is silent.
+   * Draft a procedure from this concluded case (adr/0156) — the analyst's
+   * step, from the Summary lens. One completion over the session's own
+   * conversation; the draft opens as an editable document and the panel offers
+   * Add to SOP library / Discard. A decline says why and can be overridden.
    */
-  private async proposeCandidateSOP(id: string): Promise<void> {
+  private async draftSOP(id: string, panel: vscode.WebviewPanel, force?: boolean): Promise<void> {
+    void this.post(panel, { type: "sop.status", state: "drafting" });
     let candidate: SOPCandidate;
     try {
-      candidate = await this.transport.proposeSOP(id);
+      candidate = await this.transport.proposeSOP(id, force);
     } catch (err) {
-      console.warn("reckon: candidate SOP generation failed:", err);
+      void this.post(panel, { type: "sop.status", state: "failed", message: errText(err) });
       return;
     }
     if (!candidate?.warranted || !candidate.title.trim() || !candidate.body.trim()) {
-      // The model judged no new procedure worth capturing (an existing SOP
-      // already covers it, or the case was too specific). Nothing to surface.
+      void this.post(panel, { type: "sop.status", state: "declined", message: candidate?.rationale?.trim() || "No new procedure: the model judged nothing here to generalize." });
       return;
     }
+    const doc = await vscode.workspace.openTextDocument({ content: candidateSOPMarkdown(candidate, id), language: "markdown" });
+    await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+    this.sopDrafts.set(id, { doc, title: candidate.title.trim() });
+    void this.post(panel, { type: "sop.status", state: "ready", title: candidate.title.trim(), message: candidate.rationale?.trim() || undefined });
+  }
 
-    const markdown = candidateSOPMarkdown(candidate, id);
-    const doc = await vscode.workspace.openTextDocument({ content: markdown, language: "markdown" });
-    await vscode.window.showTextDocument(doc, { preview: false });
-    const choice = await vscode.window.showInformationMessage(
-      `reckon: drafted a candidate SOP from this investigation — “${candidate.title.trim()}”. Review it, then add it to the library or discard.`,
-      "Add to SOP library",
-      "Discard",
-    );
-    if (choice !== "Add to SOP library") {
-      return; // discarded or dismissed — leave the untitled doc for the analyst to close
-    }
+  /** Add the draft — as it reads now, with the analyst's edits — to the library. */
+  private async acceptSOP(id: string, panel: vscode.WebviewPanel): Promise<void> {
+    const draft = this.sopDrafts.get(id);
+    if (!draft) return;
     try {
-      const content = doc.getText(); // honor any edits the analyst made while reviewing
-      const filename = slugifyTitle(candidate.title) + ".md";
-      const res = await this.client.importSOPMarkdown(filename, content);
-      void vscode.window.showInformationMessage(
-        `reckon: SOP “${res.title}” ${res.outcome === "revised" ? "updated" : "added"} — consultable in future investigations.`,
-      );
+      const res = await this.client.importSOPMarkdown(slugifyTitle(draft.title) + ".md", draft.doc.getText());
+      this.sopDrafts.delete(id);
+      void this.post(panel, { type: "sop.status", state: "added", title: res.title, message: res.outcome === "revised" ? "updated in the library" : "added to the library" });
     } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: adding the SOP failed — ${errText(err)}`);
+      void this.post(panel, { type: "sop.status", state: "ready", title: draft.title, message: "adding it failed — " + errText(err) });
     }
   }
+
+  /** Discard the draft: nothing is kept. */
+  private async discardSOP(id: string, panel: vscode.WebviewPanel): Promise<void> {
+    this.sopDrafts.delete(id);
+    void this.post(panel, { type: "sop.status", state: "discarded" });
+  }
+
 
   /**
    * Approve one action — the analyst's own act, extension→backend on the

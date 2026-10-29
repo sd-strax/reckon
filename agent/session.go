@@ -646,8 +646,8 @@ type SOPCandidate struct {
 }
 
 // proposeSOPInstruction asks for one structured candidate SOP. It leans on the
-// SOPs + similar past cases already in the session context (the system prompt
-// carries the included set) so the model generalizes rather than duplicates.
+// SOPs + similar past cases the session recalled (they are in its
+// conversation) so the model generalizes rather than duplicates.
 const proposeSOPInstruction = "The investigation has just been concluded. Consider whether it yields a " +
 	"REUSABLE procedure worth capturing as a standing SOP — a generalization a future analyst could " +
 	"follow on a similar case, not a retelling of this one. Draw on the SOPs and similar past " +
@@ -660,6 +660,12 @@ const proposeSOPInstruction = "The investigation has just been concluded. Consid
 	`warranted, why not)}. If warranted is false, leave title/body/tags/recommendation empty and explain ` +
 	"in rationale."
 
+// proposeSOPAnyway is added when the analyst asked for a draft after the model
+// declined (adr/0156): the analyst has judged it worth a procedure.
+const proposeSOPAnyway = " The analyst has read your earlier answer and asked for a draft anyway: set " +
+	"warranted to true and write the best generalizable procedure you can, and say in rationale which " +
+	"existing SOP it overlaps, if any."
+
 // ProposeSOP runs one BYOK model completion over the session's own conversation
 // and returns a candidate SOP generalized from the concluded investigation — the
 // client tier of candidate-SOP generation (design/06: the compounding loop). It
@@ -668,12 +674,16 @@ const proposeSOPInstruction = "The investigation has just been concluded. Consid
 // a turn), and a fresh session (sidecar respawn) rehydrates from the committed
 // thread first. Unlike the summary, nothing is written here — the candidate goes
 // back to the workbench for the analyst to accept (create the SOP) or discard.
-func (s *Session) ProposeSOP(ctx context.Context) (SOPCandidate, error) {
+func (s *Session) ProposeSOP(ctx context.Context, force bool) (SOPCandidate, error) {
 	if len(s.messages) == 0 {
 		s.rehydrate(ctx)
 	}
+	instruction := proposeSOPInstruction
+	if force {
+		instruction += proposeSOPAnyway
+	}
 	msgs := append(append([]Message{}, s.messages...),
-		Message{Role: RoleUser, Content: []ContentBlock{TextBlock(proposeSOPInstruction)}})
+		Message{Role: RoleUser, Content: []ContentBlock{TextBlock(instruction)}})
 	resp, err := s.llm.Complete(ctx, CompleteRequest{
 		System:    s.system,
 		Messages:  msgs,
