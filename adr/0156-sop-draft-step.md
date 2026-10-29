@@ -1,6 +1,6 @@
 # 0156 — Drafting a procedure from a concluded case is the analyst's step, with every outcome shown
 
-Issue: #156 · PR: #TBD · Status: accepted
+Issue: #156 · PR: #197 · Status: accepted
 
 ## Context
 
