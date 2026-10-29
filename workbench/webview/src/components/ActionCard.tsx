@@ -6,7 +6,7 @@
 // gap §6.16: until it lands the card states the required mode the engine froze.
 import { useApp } from "../app";
 import { actionStatusBadge, canRerequest, canReverse, reversalEnded, successors } from "../derive/actions";
-import type { ActionRow } from "../../../src/backend";
+import type { ActionRow } from "../../../src/viewTypes";
 import type { InboundMessage } from "../../../src/protocol";
 import { Badge, Countdown, RefChip } from "./shared";
 

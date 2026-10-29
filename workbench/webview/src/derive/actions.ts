@@ -1,5 +1,5 @@
 // Derivations over the action queue (03 §3.3, binding §2.3/§2.4). Pure.
-import type { ActionRow, Seed, Verdict } from "../../../src/backend";
+import type { ActionRow, Seed, Verdict } from "../../../src/viewTypes";
 
 /** The status badge for a settled or in-flight action: label + tone. Pending
  * rows keep their approval vocabulary; the rest map the engine's lifecycle

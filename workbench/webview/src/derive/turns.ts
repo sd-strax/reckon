@@ -3,7 +3,7 @@
 // without a transcript recorded since the previous turn are that turn's
 // records, each rendered as one link line. Human acts are not records of a
 // turn: they live in the Thread mode and on their objects. Pure.
-import type { Hypothesis, ThreadEntry } from "../../../src/backend";
+import type { Hypothesis, ThreadEntry } from "../../../src/viewTypes";
 import type { ChronicleTurn } from "../../../src/protocol";
 import { hypName } from "./hyps";
 

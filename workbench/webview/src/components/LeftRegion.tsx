@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useApp } from "../app";
 import { STEP_LABELS, rowStep } from "../derive/stage";
 import { Countdown, Empty } from "./shared";
-import type { InvestigationSummary } from "../../../src/backend";
+import type { InvestigationSummary } from "../../../src/viewTypes";
 
 /** Needs-me-first (ui/06): soonest expiry, more pending, then recency. */
 export function orderQueue(rows: InvestigationSummary[]): InvestigationSummary[] {

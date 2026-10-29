@@ -10,7 +10,7 @@ import { useApp } from "../app";
 import { blockersOf, badgeTone, counted, hypName, isLive, nameOf, predName, rivalsOf, tested } from "../derive/hyps";
 import { Badge, RefChip } from "./shared";
 import { pinSpec, type PromptExtra, type PromptSpec } from "./PromptCard";
-import type { CommsThread, Hypothesis, PinRow, Prediction } from "../../../src/backend";
+import type { CommsThread, Hypothesis, PinRow, Prediction } from "../../../src/viewTypes";
 import type { InboundMessage } from "../../../src/protocol";
 
 /** Record a prediction's result as the analyst (adr/0054): outcome, who was

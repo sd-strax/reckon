@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ActionRow, Hypothesis } from "../../../src/backend";
+import type { ActionRow, Hypothesis } from "../../../src/viewTypes";
 import { actionStatusBadge, canRerequest, canReverse, caseNoteStatus, headerLabel, pendingQueue, successors } from "./actions";
 import { classifyDraft, effectiveDraftKind, entitySubLabel } from "./draft";
 import { layoutGraph } from "./graph";

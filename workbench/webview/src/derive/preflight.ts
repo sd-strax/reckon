@@ -1,7 +1,7 @@
 // The conclude preflight (02 §2.10, impl §7.8): the engine's gates rendered
 // BEFORE the attempt, each unmet item naming the surface that satisfies it.
 // The verdict preflight stays in derive/verdict.ts. Pure.
-import type { ActionRow, CommsThread, PinRow, Verdict } from "../../../src/backend";
+import type { ActionRow, CommsThread, PinRow, Verdict } from "../../../src/viewTypes";
 import type { Lens } from "../../../src/protocol";
 import { terminal } from "./stage";
 

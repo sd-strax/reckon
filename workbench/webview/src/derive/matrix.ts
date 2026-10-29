@@ -2,7 +2,7 @@
 // WITHDRAWN under any hypothesis not ABANDONED, against the live columns. The
 // owner cell follows the outcome; each rival in `discriminates` gets the
 // opposite; other cells are blank. Pure.
-import type { Hypothesis, Prediction } from "../../../src/backend";
+import type { Hypothesis, Prediction } from "../../../src/viewTypes";
 
 export type Cell = "✓" | "✕" | "?" | "";
 

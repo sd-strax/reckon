@@ -25,7 +25,7 @@ import type {
   PinRow,
   SOPDoc,
   ThreadEntry,
-} from "./backend";
+} from "./viewTypes";
 
 /** The four lenses (08 §8.4). */
 export type Lens = "summary" | "story" | "reasoning" | "response";

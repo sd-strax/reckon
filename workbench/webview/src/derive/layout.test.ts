@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ActionRow, CommsThread, Hypothesis, ThreadEntry } from "../../../src/backend";
+import type { ActionRow, CommsThread, Hypothesis, ThreadEntry } from "../../../src/viewTypes";
 import type { InvestigationSnapshot } from "../../../src/protocol";
 import synthetic from "../../../harness/snapshots/synthetic.json";
 import { defaultLens } from "./lens";

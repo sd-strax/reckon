@@ -19,10 +19,14 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, ThreadEntry } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
-import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage, RivalBrief } from "./protocol";
+import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "./protocol";
 import { buildDerivedViews } from "./derivedViews";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 import { InvestigationCache } from "./investigationCache";
+import { candidateSOPMarkdown, errText, makeNonce, slugifyTitle } from "./documentText";
+import { routeInbound, type InboundHandlers } from "./documentRouter";
+import { TurnDriver } from "./turnDriver";
+import { decideTurn, proposeTestsTurn, runTestsTurn, testPredictionTurn, type ScopedTurn } from "./scopedTurns";
 
 export class InvestigationDocuments {
   private readonly open = new Map<string, vscode.WebviewPanel>();
@@ -52,6 +56,7 @@ export class InvestigationDocuments {
   private readonly cache: InvestigationCache;
   // Investigations whose knowledge rail has been read since the panel opened.
   private readonly knowledgeRead = new Set<string>();
+  private readonly turns: TurnDriver;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -69,6 +74,7 @@ export class InvestigationDocuments {
     private readonly onViewState?: (id: string, lens?: string, companion?: string) => void,
   ) {
     this.cache = new InvestigationCache(client, log);
+    this.turns = new TurnDriver(transport, (panel, msg) => this.post(panel, msg), (id, panel) => this.refresh(id, panel));
   }
 
   /** Open (or reveal) the document for one investigation. */
@@ -186,116 +192,168 @@ export class InvestigationDocuments {
     }
   }
 
+  /** The panel is ready or asked to refresh: the draft surface, or a load of the record. */
+  private opened(ref: { id: string }, panel: vscode.WebviewPanel): void {
+    const id = ref.id;
+    if (InvestigationDocuments.isDraft(id)) {
+      const mode = this.draftMode.get(id);
+      this.draftMode.delete(id);
+      void this.postDraft(panel, mode);
+    } else {
+      // A rename invoked from the tree opened this panel; start the in-place
+      // edit only AFTER the load has posted its data (so the title field is
+      // populated), preserving message order to the webview.
+      const pending = this.pendingRename.get(id);
+      this.pendingRename.delete(id);
+      void this.load(id, panel).then(() => {
+        if (pending !== undefined) {
+          void this.post(panel, { type: "rename.begin", title: pending });
+        }
+      });
+    }
+  }
+
   /** Route one webview message using the panel's current (mutable) id. */
   private route(ref: { id: string }, panel: vscode.WebviewPanel, msg: InboundMessage): void {
+    routeInbound(this.handlers(ref, panel), msg);
+  }
+
+  /** Every inbound message's handler for one panel (the router's table). */
+  private handlers(ref: { id: string }, panel: vscode.WebviewPanel): InboundHandlers {
     const id = ref.id;
-    if (msg.type === "ready" || msg.type === "refresh") {
-      if (InvestigationDocuments.isDraft(id)) {
-        const mode = this.draftMode.get(id);
-        this.draftMode.delete(id);
-        void this.postDraft(panel, mode);
-      } else {
-        // A rename invoked from the tree opened this panel; start the in-place
-        // edit only AFTER the load has posted its data (so the title field is
-        // populated), preserving message order to the webview.
-        const pending = this.pendingRename.get(id);
-        this.pendingRename.delete(id);
-        void this.load(id, panel).then(() => {
-          if (pending !== undefined) {
-            void this.post(panel, { type: "rename.begin", title: pending });
-          }
-        });
-      }
-    } else if (msg.type === "seed.submit") {
-      void this.seedDraft(ref, panel, { value: msg.value, kind: msg.kind });
-    } else if (msg.type === "seed.alert") {
-      void this.seedDraft(ref, panel, { alertId: msg.alertId, source: msg.source });
-    } else if (msg.type === "seed.caseSearch") {
-      void this.searchCases(panel, msg.filter, msg.queue);
-    } else if (msg.type === "seed.case") {
-      void this.seedDraft(ref, panel, { value: msg.caseNumber, kind: "case" });
-    } else if (msg.type === "caseNote.post") {
-      void this.postCaseNote(id, panel, msg.body);
-    } else if (msg.type === "send") {
-      void this.runTurn(id, panel, msg.text, undefined, msg.includedKnowledge);
-    } else if (msg.type === "action.approve") {
-      void this.approve(id, panel, msg);
-    } else if (msg.type === "action.reject") {
-      void this.reject(id, panel, msg);
-    } else if (msg.type === "action.rerequest") {
-      void this.rerequest(id, panel, msg);
-    } else if (msg.type === "action.reverse") {
-      void this.reverse(id, panel, msg);
-    } else if (msg.type === "pin.add") {
-      void this.pinCommit(id, panel, msg.refs, msg.finding);
-    } else if (msg.type === "pin.unpin") {
-      void this.unpin(id, panel, msg.interpretationId, msg.reason);
-    } else if (msg.type === "verdict.submit") {
-      void this.submitVerdict(id, panel, msg);
-    } else if (msg.type === "hyp.ack") {
-      void this.ackHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
-    } else if (msg.type === "hyp.revise") {
-      void this.reviseHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
-    } else if (msg.type === "hyp.abandon") {
-      void this.abandonHypothesis(id, panel, msg.hypothesisRef, msg.reason);
-    } else if (msg.type === "hyp.new") {
-      void this.newHypothesis(id, panel, msg.statement, msg.handle);
-    } else if (msg.type === "pred.new") {
-      void this.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates, msg.testKind);
-    } else if (msg.type === "pred.result") {
-      void this.recordPredictionResult(id, panel, msg);
-    } else if (msg.type === "pred.withdraw") {
-      void this.withdrawPrediction(id, panel, msg.predictionRef, msg.reason);
-    } else if (msg.type === "hyp.proposeTests") {
-      void this.proposeTests(id, panel, msg.hypothesisRef, msg.statement, msg.handle, msg.rivals);
-    } else if (msg.type === "pred.test") {
-      void this.testPrediction(id, panel, msg);
-    } else if (msg.type === "hyp.runTests") {
-      void this.runTests(id, panel, msg.hypothesisRef, msg.statement, msg.handle, msg.rivals);
-    } else if (msg.type === "hyp.decide") {
-      void this.decideHypothesis(id, panel, msg.hypothesisRef, msg.statement, msg.handle, msg.rivals);
-    } else if (msg.type === "enablement.apply") {
-      void this.applyEnablement(id, panel, msg);
-    } else if (msg.type === "comms.act") {
-      void this.commsAct(id, panel, msg.threadId, msg.verb);
-    } else if (msg.type === "comms.snooze") {
-      void this.commsSnooze(id, panel, msg.threadId, msg.hours);
-    } else if (msg.type === "comms.followup") {
-      void this.commsFollowUp(id, panel, msg);
-    } else if (msg.type === "lifecycle") {
-      void this.lifecycleTransition(id, panel, msg);
-    } else if (msg.type === "evidence.resolve") {
-      void this.resolveLabel(panel, msg.ref);
-    } else if (msg.type === "inspector.open") {
-      // An action record is re-sent by reads (resendActionRecords); answering
-      // it in the same order keeps an older answer from overwriting a newer one.
-      void (msg.target.kind === "action"
-        ? this.cache.exclusive(id, () => this.answerInspector(id, panel, msg.target))
-        : this.answerInspector(id, panel, msg.target));
-    } else if (msg.type === "queue.get") {
-      void this.cache.exclusive(id, () => this.postQueue(panel));
-    } else if (msg.type === "queue.start") {
-      void this.startFromCase(msg.caseNumber);
-    } else if (msg.type === "knowledge.search") {
-      void this.searchKnowledge(id, panel, msg.text);
-    } else if (msg.type === "notify.request") {
-      void this.requestNotification(id, panel, msg);
-    } else if (msg.type === "view.state") {
-      this.onViewState?.(id, msg.lens, msg.companion);
-    } else if (msg.type === "export.open") {
-      void this.openMarkdownExport(id);
-    } else if (msg.type === "copy") {
-      void vscode.env.clipboard.writeText(msg.text);
-    } else if (msg.type === "investigation.open") {
-      void vscode.commands.executeCommand("reckon.openInvestigation", msg.id, msg.title);
-    } else if (msg.type === "rename") {
-      // The in-document rename card confirmed. Drafts have no aggregate id yet
-      // (the pencil is hidden there), but guard so a synthetic __draft__ key
-      // never reaches the backend.
-      if (!InvestigationDocuments.isDraft(id)) {
-        void this.applyRename(id, panel, msg.title);
-      }
-    }
+    return {
+      ready: () => this.opened(ref, panel),
+      refresh: () => this.opened(ref, panel),
+      "seed.submit": (msg) => {
+        void this.seedDraft(ref, panel, { value: msg.value, kind: msg.kind });
+      },
+      "seed.alert": (msg) => {
+        void this.seedDraft(ref, panel, { alertId: msg.alertId, source: msg.source });
+      },
+      "seed.caseSearch": (msg) => {
+        void this.searchCases(panel, msg.filter, msg.queue);
+      },
+      "seed.case": (msg) => {
+        void this.seedDraft(ref, panel, { value: msg.caseNumber, kind: "case" });
+      },
+      "caseNote.post": (msg) => {
+        void this.postCaseNote(id, panel, msg.body);
+      },
+      send: (msg) => {
+        void this.turns.run(id, panel, msg.text, undefined, msg.includedKnowledge);
+      },
+      "action.approve": (msg) => {
+        void this.approve(id, panel, msg);
+      },
+      "action.reject": (msg) => {
+        void this.reject(id, panel, msg);
+      },
+      "action.rerequest": (msg) => {
+        void this.rerequest(id, panel, msg);
+      },
+      "action.reverse": (msg) => {
+        void this.reverse(id, panel, msg);
+      },
+      "pin.add": (msg) => {
+        void this.pinCommit(id, panel, msg.refs, msg.finding);
+      },
+      "pin.unpin": (msg) => {
+        void this.unpin(id, panel, msg.interpretationId, msg.reason);
+      },
+      "verdict.submit": (msg) => {
+        void this.submitVerdict(id, panel, msg);
+      },
+      "hyp.ack": (msg) => {
+        void this.ackHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
+      },
+      "hyp.revise": (msg) => {
+        void this.reviseHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
+      },
+      "hyp.abandon": (msg) => {
+        void this.abandonHypothesis(id, panel, msg.hypothesisRef, msg.reason);
+      },
+      "hyp.new": (msg) => {
+        void this.newHypothesis(id, panel, msg.statement, msg.handle);
+      },
+      "pred.new": (msg) => {
+        void this.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates, msg.testKind);
+      },
+      "pred.result": (msg) => {
+        void this.recordPredictionResult(id, panel, msg);
+      },
+      "pred.withdraw": (msg) => {
+        void this.withdrawPrediction(id, panel, msg.predictionRef, msg.reason);
+      },
+      "hyp.proposeTests": (msg) => {
+        void this.runScoped(id, panel, proposeTestsTurn(msg.hypothesisRef, msg.statement, msg.handle, msg.rivals));
+      },
+      "pred.test": (msg) => {
+        void this.runScoped(id, panel, testPredictionTurn(msg));
+      },
+      "hyp.runTests": (msg) => {
+        void this.runScoped(id, panel, runTestsTurn(msg.hypothesisRef, msg.statement, msg.handle, msg.rivals));
+      },
+      "hyp.decide": (msg) => {
+        void this.runScoped(id, panel, decideTurn(msg.hypothesisRef, msg.statement, msg.handle, msg.rivals));
+      },
+      "enablement.apply": (msg) => {
+        void this.applyEnablement(id, panel, msg);
+      },
+      "comms.act": (msg) => {
+        void this.commsAct(id, panel, msg.threadId, msg.verb);
+      },
+      "comms.snooze": (msg) => {
+        void this.commsSnooze(id, panel, msg.threadId, msg.hours);
+      },
+      "comms.followup": (msg) => {
+        void this.commsFollowUp(id, panel, msg);
+      },
+      lifecycle: (msg) => {
+        void this.lifecycleTransition(id, panel, msg);
+      },
+      "evidence.resolve": (msg) => {
+        void this.resolveLabel(panel, msg.ref);
+      },
+      "inspector.open": (msg) => {
+        // An action record is re-sent by reads (resendActionRecords); answering
+        // it in the same order keeps an older answer from overwriting a newer one.
+        void (msg.target.kind === "action"
+          ? this.cache.exclusive(id, () => this.answerInspector(id, panel, msg.target))
+          : this.answerInspector(id, panel, msg.target));
+      },
+      "queue.get": () => {
+        void this.cache.exclusive(id, () => this.postQueue(panel));
+      },
+      "queue.start": (msg) => {
+        void this.startFromCase(msg.caseNumber);
+      },
+      "knowledge.search": (msg) => {
+        void this.searchKnowledge(id, panel, msg.text);
+      },
+      "notify.request": (msg) => {
+        void this.requestNotification(id, panel, msg);
+      },
+      "view.state": (msg) => {
+        this.onViewState?.(id, msg.lens, msg.companion);
+      },
+      "export.open": () => {
+        void this.openMarkdownExport(id);
+      },
+      copy: (msg) => {
+        void vscode.env.clipboard.writeText(msg.text);
+      },
+      "investigation.open": (msg) => {
+        void vscode.commands.executeCommand("reckon.openInvestigation", msg.id, msg.title);
+      },
+      rename: (msg) => {
+        // The in-document rename card confirmed. Drafts have no aggregate id yet
+        // (the pencil is hidden there), but guard so a synthetic __draft__ key
+        // never reaches the backend.
+        if (!InvestigationDocuments.isDraft(id)) {
+          void this.applyRename(id, panel, msg.title);
+        }
+      },
+    };
   }
 
   /**
@@ -1263,137 +1321,9 @@ export class InvestigationDocuments {
     }
   }
 
-  /**
-   * Fire the propose-tests aside (ui/02 §2.9, the "btw" lens): a scoped
-   * agent turn the analyst ordered with one click. Same audit record as any
-   * turn — the transcript commits to the one thread — but rendered collapsed
-   * in the conversation; the predictions it records land on the tracker.
-   * The "⚡ Propose tests:" prefix doubles as the cold-restore marker.
-   */
-  private async proposeTests(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, handle?: string, rivals?: RivalBrief[]): Promise<void> {
-    const name = hypLabel(handle, statement);
-    const instruction = `⚡ Propose tests: for the hypothesis ${hypCite(handle, statement, hypothesisRef)}, `
-      + "record the falsifiable predictions that would decide it — one prediction per test, "
-      + "each with a concrete test query against the available capability verbs. Prove it or break it. "
-      + rivalsClause(rivals, "Read the live rivals too and make at least one prediction DISCRIMINATE — "
-        + "opposite expected outcome under this hypothesis and a rival — and set its discriminates to that rival's id. "
-        + "A test that comes out the same under both tells us nothing.")
-      + "Record them with the tools ONLY. This turn ENDS when the predictions are recorded: do not run any test, "
-      + "do not record any prediction outcome, do not record any hypothesis outcome — Run tests and Decide are "
-      + "separate steps the analyst orders. Keep your final message to one sentence and do not "
-      + "restate the predictions in prose — the tracker renders them.";
-    await this.runTurn(id, panel, instruction, { label: `⚡ propose tests · ${name}` });
-  }
-
-  /**
-   * Run the untested predictions — the execute half of the drivable loop.
-   * They are independent claims, so the agent runs them in parallel where
-   * possible; outcomes must cite what was observed (the aggregate refuses a
-   * CONFIRMED/DISCONFIRMED without test_result_refs).
-   */
-  private async runTests(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, handle?: string, rivals?: RivalBrief[]): Promise<void> {
-    const name = hypLabel(handle, statement);
-    const instruction = `⚡ Run tests: execute the UNTESTED predictions under the hypothesis ${hypCite(handle, statement, hypothesisRef)}. `
-      + "They are independent — run their declared test queries in parallel where possible, then record each "
-      + "outcome (CONFIRMED / DISCONFIRMED / INCONCLUSIVE) citing the observed evidence as test_result_refs. "
-      + "Skip any prediction marked manual — a person tests it and I record its result; name it in one clause and move on. "
-      + rivalsClause(rivals, "Where a prediction discriminates against a rival, say in one clause which way the result cuts for that rival. ")
-      + "This turn ENDS when the outcomes are recorded: do not record a hypothesis outcome — Decide is a separate "
-      + "step the analyst orders. Keep your final message to one or two sentences on what was decisive — do not restate the outcomes; the tracker renders them.";
-    await this.runTurn(id, panel, instruction, { label: `⚡ run tests · ${name}` });
-  }
-
-  /**
-   * Run ONE prediction's declared test — the per-row member of the ⚡ family
-   * (adr/0075). Same contract as Run tests, scoped to a single prediction: the
-   * outcome is recorded citing evidence, and the turn ends there.
-   */
-  private async testPrediction(id: string, panel: vscode.WebviewPanel, m: {
-    predictionRef: string; predictionName: string; statement: string; queryText?: string; tool?: string;
-    hypothesisRef: string; hypStatement: string; handle?: string; rivals?: RivalBrief[];
-  }): Promise<void> {
-    const name = hypLabel(m.handle, m.hypStatement);
-    const declared = m.queryText
-      ? `Its declared test${m.tool ? " via " + m.tool : ""}: ${m.queryText} `
-      : "";
-    const instruction = `⚡ Test ${m.predictionName}: run the test for prediction ${m.predictionRef} under the hypothesis ${hypCite(m.handle, m.hypStatement, m.hypothesisRef)} — "${m.statement}". `
-      + declared
-      + "Record its outcome (CONFIRMED / DISCONFIRMED / INCONCLUSIVE) citing the observed evidence as test_result_refs. "
-      + rivalsClause(m.rivals, "If it discriminates against a rival, say in one clause which way the result cuts for that rival. ")
-      + "This turn ENDS when that one outcome is recorded: do not run other tests and do not record a hypothesis outcome — Decide is a separate step the analyst orders. "
-      + "Keep your final message to one or two sentences on what was decisive; the tracker renders the outcome.";
-    await this.runTurn(id, panel, instruction, { label: `⚡ test ${m.predictionName} · ${name}` });
-  }
-
-  /**
-   * Decide the hypothesis — the judgment rung, ordered by the analyst once
-   * every prediction is decided. The agent weighs the outcomes AGAINST THE
-   * RIVALS and records support / refutation / inconclusive citing the
-   * decisive test evidence; it declines while a rival's discriminator is
-   * untested unless the analyst overrides. Terminal in v0 (01): a changed
-   * judgment later is a NEW hypothesis chained via parent_ref.
-   */
-  private async decideHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, handle?: string, rivals?: RivalBrief[]): Promise<void> {
-    const name = hypLabel(handle, statement);
-    const instruction = `⚡ Decide: every prediction under the hypothesis ${hypCite(handle, statement, hypothesisRef)} has been tested. `
-      + "Weigh the outcomes and record the hypothesis outcome — support, refutation, or inconclusive — citing the "
-      + "decisive test evidence. Be honest about mixed results: confirmed predictions support only what they actually tested. "
-      + rivalsClause(rivals, "Decide against the rivals, not by counting confirmations: if a live rival still has an UNTESTED prediction "
-        + "that discriminates between you, do NOT record an outcome — the engine refuses it; name that test and ask to run it first (I can run it, withdraw it, or record the outcome myself). ")
-      + "Keep your final message to one or two sentences on the judgment and why — the tracker renders the status.";
-    await this.runTurn(id, panel, instruction, { label: `⚡ decide · ${name}` });
-  }
-
-  /** Drive one analyst turn through the transport, streaming progress to the webview. */
-  private async runTurn(id: string, panel: vscode.WebviewPanel, text: string, aside?: { label: string }, includedKnowledge?: string[]): Promise<void> {
-    if (aside) {
-      void this.post(panel, { type: "aside.start", label: aside.label });
-    } else {
-      void this.post(panel, { type: "turn.user", text });
-      void this.post(panel, { type: "turn.start" });
-    }
-    try {
-      const outcome = await this.transport.turn(id, text, {
-        // Both text paths land on the same appendable turn.text case: deltas
-        // stream token-by-token (E.4); round-complete text arrives only from a
-        // non-streaming provider (mutually exclusive per completion, enforced
-        // sidecar-side — never both for the same text).
-        onText: (chunk) => void this.post(panel, { type: "turn.text", delta: chunk }),
-        onTextDelta: (chunk) => void this.post(panel, { type: "turn.text", delta: chunk }),
-        onStep: (round) => void this.post(panel, { type: "turn.step", round }),
-        onToolCall: (name, input) => void this.post(panel, { type: "turn.tool", name, input }),
-        // coverage/events come distilled from the sidecar (from the full,
-        // unclipped payload) — absent for non-envelope results, and the
-        // webview renders that honestly instead of a bogus "? · 0".
-        onToolResult: (name, _content, isError, coverage, events, refs) =>
-          void this.post(panel, { type: "turn.toolResult", name, isError, coverage, events, refs }),
-      }, includedKnowledge);
-      if (outcome.interpretationId) {
-        void this.post(panel, { type: "turn.committed", interpretationId: outcome.interpretationId });
-      }
-      // Pending actions are NOT posted from the outcome: the finally-load
-      // re-fetches the durable queue, so the panel renders the backend's
-      // truth (including actions from earlier turns/sessions) with the
-      // approve/reject affordances attached.
-      if (outcome.error) {
-        void this.post(panel, { type: "turn.error", message: outcome.error });
-      }
-      void this.post(panel, {
-        type: "turn.end",
-        rounds: outcome.toolRounds,
-        usage: {
-          input: outcome.usage.input + outcome.usage.cacheRead + outcome.usage.cacheWrite,
-          output: outcome.usage.output,
-          cacheRead: outcome.usage.cacheRead,
-        },
-      });
-    } catch (err) {
-      void this.post(panel, { type: "turn.error", message: errText(err) });
-      void this.post(panel, { type: "turn.end" });
-    } finally {
-      // Reasoning nodes may have changed — refresh the thread panel.
-      void this.refresh(id, panel);
-    }
+  /** Run a ⚡ scoped turn: rendered collapsed under its label. */
+  private runScoped(id: string, panel: vscode.WebviewPanel, t: ScopedTurn): Promise<void> {
+    return this.turns.run(id, panel, t.instruction, { label: t.label });
   }
 
   private post(panel: vscode.WebviewPanel, msg: RenderMessage): Thenable<boolean> {
@@ -1436,92 +1366,4 @@ export class InvestigationDocuments {
 </body>
 </html>`;
   }
-}
-
-function makeNonce(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let out = "";
-  for (let i = 0; i < 32; i++) {
-    out += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return out;
-}
-
-/** The short name a hypothesis is referred to by: its handle, else a clipped statement. */
-function hypLabel(handle: string | undefined, statement: string): string {
-  if (handle && handle.trim()) {
-    return handle.trim();
-  }
-  return statement.length > 60 ? statement.slice(0, 59) + "…" : statement;
-}
-
-/** How a scoped turn cites the hypothesis it acts on: handle + claim + id. */
-function hypCite(handle: string | undefined, statement: string, ref: string): string {
-  const h = handle && handle.trim() ? `${handle.trim()}: ` : "";
-  return `"${h}${statement}" (${ref})`;
-}
-
-/**
- * The rivals clause of a scoped turn: the live competing hypotheses, named by
- * handle and id, followed by the set-wide instruction. Empty when there is no
- * rival — a single-hypothesis investigation is still a legal shape.
- */
-function rivalsClause(rivals: RivalBrief[] | undefined, instruction: string): string {
-  if (!rivals || !rivals.length) {
-    return "";
-  }
-  const list = rivals.map((r) => {
-    const name = r.handle && r.handle.trim() ? `${r.handle.trim()}: ` : "";
-    const pending = r.untestedDiscriminators > 0
-      ? ` [${r.untestedDiscriminators} untested discriminating prediction${r.untestedDiscriminators === 1 ? "" : "s"}]`
-      : "";
-    return `${name}"${r.statement}" (${r.id})${pending}`;
-  });
-  return `Live rivals: ${list.join("; ")}. ${instruction}`;
-}
-
-function errText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-/**
- * Render a candidate SOP as markdown + YAML frontmatter — the exact shape the
- * server's markdown import parses (design/06 §2.4). The source URL keys the SOP
- * to its originating investigation, so re-accepting a re-drafted candidate
- * revises the same SOP rather than creating a duplicate.
- */
-function candidateSOPMarkdown(c: SOPCandidate, investigationId: string): string {
-  const tags = (c.tags ?? []).map((t) => t.trim()).filter(Boolean);
-  const lines = [
-    "---",
-    `title: ${yamlScalar(c.title.trim())}`,
-    `tags: [${tags.map(yamlScalar).join(", ")}]`,
-  ];
-  if (c.recommendation?.trim()) {
-    lines.push(`recommendation: ${yamlScalar(c.recommendation.trim())}`);
-  }
-  lines.push(
-    "source:",
-    "  system: reckon",
-    `  url: reckon://investigation/${investigationId}`,
-    "---",
-    "",
-    c.body.trim(),
-    "",
-  );
-  return lines.join("\n");
-}
-
-/** Minimal YAML scalar quoting — quote when the value could be misread. */
-function yamlScalar(s: string): string {
-  return /^[\w .\-/]+$/.test(s) ? s : JSON.stringify(s);
-}
-
-/** A filesystem-safe slug from a SOP title, for the import filename. */
-function slugifyTitle(title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || "candidate-sop";
 }
