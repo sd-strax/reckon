@@ -1,6 +1,6 @@
 # 0164 — The demo answers the questions its scenario invites, and a failed action says what it means for the target
 
-Issue: #164, #149 · PR: #TBD · Status: accepted
+Issue: #164, #149 · PR: #171 · Status: accepted
 
 ## Context
 
