@@ -66,7 +66,7 @@ type Assertion struct {
 
 // CatalogueVersion attributes the assertion set to each run (10 §1.4). Bump on
 // any assertion addition, removal, or grading change.
-const CatalogueVersion = "v0.13" // v0.13: +O3 (a findings report carries the answer shape — headline, Findings, Not covered, Hypotheses, numbered Next steps) and +A4 (containment before the verdict is recommended only on named evidence of harm in progress; judge-graded with anchors beside it — adr/0137). v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
+const CatalogueVersion = "v0.14" // v0.14: O3 accepts a section title followed by a parenthetical of refs ("**Findings** (observed-data--…)") — two of three Sonnet trials wrote the shape that way and failed on the title match alone. v0.13: +O3 (a findings report carries the answer shape — headline, Findings, Not covered, Hypotheses, numbered Next steps) and +A4 (containment before the verdict is recommended only on named evidence of harm in progress; judge-graded with anchors beside it — adr/0137). v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
 
 // Catalogue is the v0 deterministic slice of the 10 §3 assertion catalogue —
 // the assertions gradeable from the committed transcript + tool-call log
@@ -943,6 +943,23 @@ func plainLine(line string) string {
 	return strings.TrimSpace(s)
 }
 
+// isSectionTitle reports whether line is the section's title line: the title
+// alone, or the title followed by a parenthetical (the refs the section
+// rests on, "**Findings** (observed-data--…)"). Title plus prose on the same
+// line is not a title line; the prompt asks for the title on its own line.
+func isSectionTitle(line, title string) bool {
+	p := plainLine(line)
+	if strings.EqualFold(p, title) {
+		return true
+	}
+	s := strings.TrimSpace(strings.ReplaceAll(strings.TrimLeft(strings.TrimSpace(line), "#"), "**", ""))
+	if len(s) < len(title) || !strings.EqualFold(s[:len(title)], title) {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s[len(title):]), ":"))
+	return strings.HasPrefix(rest, "(") && strings.HasSuffix(rest, ")")
+}
+
 // gradeO3 passes when the turn's text reads as the answer shape: the first
 // non-empty line is a headline (one line, not a list item, within the
 // ceiling), every named section appears as a line of its own in order, and
@@ -971,9 +988,8 @@ func gradeO3(tr *TrialRecord, turn int, _ TurnSpec) Verdict {
 		at[i] = -1
 	}
 	for n, l := range lines[1:] {
-		p := strings.ToLower(plainLine(l))
 		for i, s := range shapeSections {
-			if at[i] < 0 && p == strings.ToLower(s) {
+			if at[i] < 0 && isSectionTitle(l, s) {
 				at[i] = n + 1
 			}
 		}

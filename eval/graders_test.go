@@ -453,6 +453,16 @@ func TestGradeO3(t *testing.T) {
 		t.Errorf("bold titles: got %+v; want PASS", v)
 	}
 
+	// The title may carry the refs the section rests on; title plus prose may not.
+	refsOnTitle := trialWith(TurnRecord{Text: "Headline.\n**Findings** (`observed-data--c973ba98`, `observed-data--f5b39210`)\n- a\n**Not covered**\n- b\n**Hypotheses**\n- c\n**Next steps**\n1. x"})
+	if v := gradeO3(refsOnTitle, 0, TurnSpec{}); v.Result != Pass {
+		t.Errorf("refs on the title line: got %+v; want PASS", v)
+	}
+	proseOnTitle := trialWith(TurnRecord{Text: "Headline.\nFindings: two logons and a process.\n## Not covered\n- b\n## Hypotheses\n- c\n## Next steps\n1. x"})
+	if v := gradeO3(proseOnTitle, 0, TurnSpec{}); v.Result != Fail || !strings.Contains(v.Detail, "Findings") {
+		t.Errorf("prose on the title line: got %+v; want FAIL on Findings", v)
+	}
+
 	prose := trialWith(TurnRecord{Text: "I searched the alerts and found two logons.\n\nBoth were interactive. The second one was followed by an outbound connection, which could mean several things, and we should probably pull the process tree and then frame hypotheses and consider containment of the host."})
 	if v := gradeO3(prose, 0, TurnSpec{}); v.Result != Fail || !strings.Contains(v.Detail, "missing section") {
 		t.Errorf("one paragraph: got %+v; want FAIL on missing sections", v)

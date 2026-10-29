@@ -55,8 +55,9 @@ small lie the model may act on (waiting for context that will not arrive).
 - **Two assertions grade the two rules** (catalogue v0.13). `O3` is a
   deterministic transcript grader on the pivot turn of both scenarios: a
   headline line (not a list item, within a one-sentence ceiling), the four
-  titles as lines of their own in order (markdown heading or bold markers and
-  a trailing colon tolerated), and a numbered item under `Next steps`. `A4`
+  titles as lines of their own in order (markdown heading or bold markers, a
+  trailing colon, and a trailing parenthetical of refs tolerated — catalogue
+  v0.14, after the first Sonnet run wrote `**Findings** (refs…)`), and a numbered item under `Next steps`. `A4`
   is a new turn after framing in both scripts — "should we contain now, or
   wait for the verdict? Say why." — judge-graded against `rubricA4` with the
   anchors beside it (the adr/0059 shape): PASS on containment with a named
@@ -135,7 +136,7 @@ disposition:
 ## Consequences
 
 - The prompt version moves (`a870ddbf` / `5de9f5af`); four baseline runs
-  follow, with the catalogue at v0.13 and the two new turn placements.
+  follow, with the catalogue at v0.14 and the two new turn placements.
 - `proportionate` is pending again; its validated wording was one clause
   away from the new text, so a regression on O2 is the signal to watch.
 - The workbench's markdown renderer already handles headings, bold and
