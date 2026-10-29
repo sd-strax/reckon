@@ -135,6 +135,18 @@ func TestVerdictFlow_EndToEnd(t *testing.T) {
 	if verdict["rationale"] != "encoded execution confirms hostility" {
 		t.Errorf("verdict rationale = %v; want the revision's", verdict["rationale"])
 	}
+	// The thread says what each verdict was, and which one was replaced (#155).
+	thread, _ := get(humanToken, "/api/investigations/"+invID.String()+"/thread")["thread"].([]any)
+	var verdicts []map[string]any
+	for _, e := range thread {
+		if m, _ := e.(map[string]any); m["interpretation_type"] == "verdict" {
+			verdicts = append(verdicts, m)
+		}
+	}
+	if len(verdicts) != 2 || verdicts[0]["disposition"] != "SUSPICIOUS" || verdicts[0]["superseded"] != true ||
+		verdicts[1]["disposition"] != "MALICIOUS" || verdicts[1]["superseded"] == true {
+		t.Errorf("thread verdicts = %v; want SUSPICIOUS (superseded) then MALICIOUS", verdicts)
+	}
 
 	// 6. The pin list serves the pin; superseding it (un-pin) flags it.
 	pins := get(humanToken, "/api/investigations/"+invID.String()+"/pins")

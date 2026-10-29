@@ -336,6 +336,11 @@ body.loading #rail { opacity: 0.6; }
 .actline.superseded { opacity: 0.6; }
 .actline.superseded.strong { font-weight: 400; }
 .actline.superseded .acttext { text-decoration: line-through; color: var(--text-3); }
+.tile .tilenote { display: block; margin-top: 4px; font-size: var(--fs-xs); cursor: pointer; }
+.tile .warnnote { color: var(--warn); font-weight: 600; text-decoration: underline; }
+.actline.replaced, .actline.revised { border-left: 3px solid var(--warn); padding-left: 6px; background: var(--warn-bg); }
+.actline.replaced .acttext { text-decoration: line-through; color: var(--text); }
+.actline .actreplaced { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--warn); cursor: pointer; text-decoration: underline; }
 .actline .actsuperseded { flex: none; font-size: 10px; font-style: italic; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
 .actnote { font-style: italic; opacity: 0.85; margin: 2px 0 6px; }
 

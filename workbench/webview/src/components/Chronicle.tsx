@@ -8,6 +8,7 @@ import { useApp } from "../app";
 import { parseTranscript } from "../transcript";
 import { Markdown, RefChip, fmtDateTime, fmtTime } from "./shared";
 import { ToolRow } from "./ToolRow";
+import { actLineId, verdictLinks, type VerdictLink } from "../derive/verdict";
 import type { ThreadEntry } from "../../../src/viewTypes";
 import type { ChronicleTurn } from "../../../src/protocol";
 
@@ -26,20 +27,34 @@ export const CHRONICLE_ACTS: Record<string, { icon: string; verb: string }> = {
   "conclusion": { icon: "■", verb: "concluded" },
 };
 
-function ActLine({ e }: { e: ThreadEntry }) {
+/** Scroll the thread to an act's line. */
+export function scrollToAct(interpretationId: string): void {
+  document.getElementById(actLineId(interpretationId))?.scrollIntoView({ block: "center" });
+}
+
+function ActLine({ e, link }: { e: ThreadEntry; link?: VerdictLink }) {
   const { openInspector } = useApp();
   const spec = CHRONICLE_ACTS[e.interpretationType];
   const refs: string[] = [];
   for (const r of (e.inputRefs || []).concat(e.outputRefs || [])) if (r && !refs.includes(r)) refs.push(r);
-  const text = e.summary || (spec ? spec.verb : e.interpretationType);
+  const verdict = e.interpretationType === "verdict";
+  // A verdict says what it was (#155): its disposition leads, the rationale follows.
+  const text = verdict && e.disposition
+    ? `Verdict ${e.disposition}` + (e.summary ? ` — ${e.summary}` : "")
+    : e.summary || (spec ? spec.verb : e.interpretationType);
+  // A changed verdict is the opposite of noise: both ends stand out, linked.
+  const replaced = verdict && e.superseded;
   return (
-    <div className={"actline"
+    <div id={actLineId(e.interpretationId)} className={"actline"
       + (e.actor.kind === "AI_DELEGATED" ? " ai" : "")
-      + (e.interpretationType === "verdict" || e.interpretationType === "conclusion" ? " strong" : "")
-      + (e.superseded ? " superseded" : "")}>
+      + (verdict || e.interpretationType === "conclusion" ? " strong" : "")
+      + (replaced ? " replaced" : e.superseded ? " superseded" : "")
+      + (link?.replaces ? " revised" : "")}>
       <span className="acticon">{spec ? spec.icon : "·"}</span>
       <span className="acttext" title={text + " — open"} style={{ cursor: "pointer" }} onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{text}</span>
-      {e.superseded ? <span className="actsuperseded">superseded</span> : null}
+      {replaced && link?.replacedBy ? <a className="actreplaced" onClick={() => scrollToAct(link.replacedBy!.interpretationId)}>replaced at {fmtTime(link.replacedBy.occurredAt)}</a>
+        : e.superseded ? <span className="actsuperseded">superseded</span> : null}
+      {link?.replaces ? <a className="actreplaced" onClick={() => scrollToAct(link.replaces!.interpretationId)}>replaces the {fmtTime(link.replaces.occurredAt)} verdict{link.replaces.disposition ? ` (${link.replaces.disposition})` : ""}</a> : null}
       {refs.slice(0, 2).map((r) => <RefChip key={r} refId={r} />)}
       <span className="acttime">{fmtTime(e.occurredAt)}</span>
     </div>
@@ -111,6 +126,7 @@ export function Chronicle() {
   const turns = state.snap?.turns || [];
   const bodies = useMemo(() => new Map(turns.map((t) => [t.sequenceNo, t])), [turns]);
   const entries = useMemo(() => thread.slice().sort((a, b) => a.sequenceNo - b.sequenceNo), [thread]);
+  const links = useMemo(() => verdictLinks(thread), [thread]);
   return (
     <div id="restored">
       {entries.map((e) => {
@@ -123,7 +139,7 @@ export function Chronicle() {
         if (body) {
           return <div key={e.sequenceNo}><RestoredTurn turn={body} /><KnowledgeChips e={e} /></div>;
         }
-        if (CHRONICLE_ACTS[e.interpretationType]) return <ActLine key={e.sequenceNo} e={e} />;
+        if (CHRONICLE_ACTS[e.interpretationType]) return <ActLine key={e.sequenceNo} e={e} link={links.get(e.interpretationId)} />;
         if (e.hasTranscript) return <TurnStub key={e.sequenceNo} e={e} />;
         return null;
       })}

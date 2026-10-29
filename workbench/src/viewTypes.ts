@@ -390,6 +390,8 @@ export interface ThreadEntry {
   toolCalls: number;
   hasTranscript: boolean;
   superseded: boolean;
+  /** A verdict act's disposition (BENIGN | SUSPICIOUS | MALICIOUS). */
+  disposition?: string;
   consultedSops: { sopId: string; title?: string; used: boolean }[];
   consultedSimilar: { investigationRef: string; title?: string; band?: string; used: boolean }[];
 }
