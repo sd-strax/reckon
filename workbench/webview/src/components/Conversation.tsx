@@ -17,7 +17,11 @@ function AgentTurn({ t }: { t: Turn }) {
   const { state, goTo, openInspector } = useApp();
   const parsed = useMemo(() => (t.transcript ? parseTranscript(t.transcript.body) : null), [t.transcript]);
   const asks = parsed?.items.filter((i) => i.kind === "user") || [];
-  const answers = parsed?.items.filter((i) => i.kind === "assistant") || [];
+  const said = parsed?.items.filter((i) => i.kind === "assistant") || [];
+  // The answer is what the agent said last (#136); what it said on the way —
+  // "I'll pull the telemetry…" — folds into the activity with the tool calls.
+  const answers = said.slice(-1);
+  const narration = said.slice(0, -1);
   const tools = parsed?.items.filter((i) => i.kind === "tool") || [];
   const requested = (state.snap?.actions || []).filter((a) => t.records.some((r) => r.entry.interpretationType === "action-request" && (a.requestingInterpretationId === r.entry.interpretationId || (r.entry.outputRefs || []).includes(a.actionId))));
   const who = t.entry.actor.principalName || t.entry.actor.principal;
@@ -39,9 +43,10 @@ function AgentTurn({ t }: { t: Turn }) {
         ) : null}
         {requested.length ? <div className="proposed">{requested.map((a) => <ActionCard key={a.actionId} a={a} variant="compact" />)}</div> : null}
         <KnowledgeChips e={t.entry} />
-        {(tools.length || t.records.length) ? (
+        {(tools.length || t.records.length || narration.length) ? (
           <details className="activity">
             <summary>Activity · {tools.length || t.entry.toolCalls} tool call{(tools.length || t.entry.toolCalls) === 1 ? "" : "s"}, {t.records.length} record{t.records.length === 1 ? "" : "s"}</summary>
+            {narration.map((n, i) => n.kind === "assistant" ? <Markdown key={"n" + i} className="narration" text={n.text} /> : null)}
             {tools.map((x, i) => x.kind === "tool" ? <ToolRow key={i} name={x.name} argsHint={x.argsRaw} argsPretty={x.argsPretty} result={x.result} /> : null)}
             {t.records.map((r, i) => <div key={"r" + i} className="imeta">{r.entry.interpretationType}: {r.text}</div>)}
             <div className="imeta"><a onClick={() => openInspector({ kind: "turn", interpretationId: t.entry.interpretationId })}>Open the turn</a></div>
