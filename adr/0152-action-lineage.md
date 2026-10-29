@@ -28,9 +28,12 @@ own.
   in `aggregate/action.go`), so two requests racing on one original cannot
   both pass:
   - a **re-request** names an action of this investigation, of the same type,
-    that is EXPIRED or FAILED and has not been re-requested already. Each
-    action has at most one re-request; the chain continues from its latest
-    link.
+    that is EXPIRED, FAILED or REJECTED — or still pending with its approval
+    window elapsed, before the expiry timer has written EXPIRED — and has not
+    been re-requested already. Each action has at most one re-request; the
+    chain continues from its latest link. (The statuses match what the
+    re-request endpoint already accepted; the deadline is folded into the
+    aggregate's action state so the check can see it.)
   - a **reversal** names a SUCCEEDED action of this investigation with no
     reversal pending or done. A reversal that FAILED, was REJECTED or EXPIRED
     did not take effect, so the original may be reversed again.
@@ -52,10 +55,10 @@ own.
 
 - **Hide the button in the workbench only.** Another client, the CLI or the
   agent could still branch a chain, and two quick clicks race the refresh.
-- **Allow a re-request after a rejected re-request.** The rejection is the
-  analyst's answer to that request; asking again from behind it reopens a
-  decided question. A new request through the conversation is the way to ask
-  afresh.
+- **Allow a second re-request from behind one that was rejected.** The
+  rejection is the analyst's answer to that request; asking again from behind
+  it reopens a decided question. A new request through the conversation is
+  the way to ask afresh.
 - **Refuse a second send of the same message to the same recipient.** The
   engine cannot tell an accidental repeat from a deliberate one (a reminder,
   a corrected recipient list), and the preview already puts the decision in

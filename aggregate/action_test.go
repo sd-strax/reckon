@@ -564,7 +564,9 @@ func TestRequestAction_Lineage(t *testing.T) {
 		{"re-request a failed action", map[uuid.UUID]actionState{orig: isolate(ActionStatusFailed)}, retry(), true},
 		{"re-request an action not in this investigation", map[uuid.UUID]actionState{}, retry(), false},
 		{"re-request a succeeded action", map[uuid.UUID]actionState{orig: isolate(ActionStatusSucceeded)}, retry(), false},
-		{"re-request a rejected action", map[uuid.UUID]actionState{orig: isolate(ActionStatusRejected)}, retry(), false},
+		{"re-request a rejected action", map[uuid.UUID]actionState{orig: isolate(ActionStatusRejected)}, retry(), true},
+		{"re-request a pending action whose window elapsed", map[uuid.UUID]actionState{orig: {Status: ActionStatusRequested, ActionType: "host.isolate", ExpiresAt: time.Now().Add(-time.Minute)}}, retry(), true},
+		{"re-request a pending action still in its window", map[uuid.UUID]actionState{orig: {Status: ActionStatusRequested, ActionType: "host.isolate", ExpiresAt: time.Now().Add(time.Hour)}}, retry(), false},
 		{"re-request as another type", map[uuid.UUID]actionState{orig: isolate(ActionStatusExpired)},
 			func() RequestAction { r := retry(); r.ActionType = "ioc.block"; return r }(), false},
 		{"re-request an action already re-requested", map[uuid.UUID]actionState{
