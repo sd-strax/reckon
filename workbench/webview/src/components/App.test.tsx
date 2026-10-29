@@ -94,7 +94,7 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText(/Did not complete — reckon cannot confirm any change on/)).toBeTruthy();
     expect(within(lens()).getByText("Reason: ticket is read-only")).toBeTruthy();
     expect(within(lens()).getAllByText(/no policy approves it on its own/).length).toBeGreaterThan(0);
-    fireEvent.click(within(lens()).getAllByText("Reject…")[0]);
+    fireEvent.click(within(document.getElementById("obj-act-3")!).getByText("Reject…"));
     const dlg = screen.getByRole("dialog");
     fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "not warranted" } });
     fireEvent.click(within(dlg).getByText("Reject"));

@@ -61,7 +61,7 @@ export function failureSentence(a: Pick<ActionRow, "status" | "targets">): strin
 
 
 export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full" | "compact"; draft?: boolean }) {
-  const { state, dispatch, send, openPrompt, openInspector, goTo } = useApp();
+  const { state, dispatch, send, openPrompt, openInspector, goTo, aside, setAside } = useApp();
   const isNotify = a.actionType.startsWith("notify.");
   const sb = actionStatusBadge(a);
   const group = groupOf(a);
@@ -101,6 +101,9 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
     <div className="decide">
       <button className="primary" disabled={locked} onClick={approve}>{a.tier === "T3" ? "Approve (challenge)…" : isNotify ? "Approve · Send" : "Approve"}</button>
       <button disabled={locked} onClick={reject}>Reject…</button>
+      {variant === "full" ? (aside.has(a.actionId)
+        ? <button className="ghost" onClick={() => setAside(a.actionId, false)}>Bring back</button>
+        : <button className="ghost" title="Leave it for now: it stays open until its approval window closes" onClick={() => setAside(a.actionId, true)}>Decide later</button>) : null}
     </div>
   ) : a.expired && a.pending !== false && a.status === "EXPIRED" ? null : null;
 

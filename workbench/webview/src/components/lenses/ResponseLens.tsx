@@ -11,22 +11,39 @@ import { Empty } from "../shared";
 const ORDER = ["containment", "eradication", "recovery", "notification", "case_record"] as const;
 
 export function ResponseLens() {
-  const { state } = useApp();
+  const { state, aside } = useApp();
   const snap = state.snap;
   if (!snap) return null;
   const actions = snap.actions || [];
-  const pending = actions.filter((a) => a.pending && !a.expired);
+  const open = actions.filter((a) => a.pending && !a.expired);
+  const waiting = open.filter((a) => !aside.has(a.actionId));
+  const setAside = open.filter((a) => aside.has(a.actionId));
   const followed = proceduresFollowed(snap.thread || []);
   const engine = String(snap.investigation.state).toUpperCase();
   const draft = engine === "DRAFT";
-  const groups = ORDER.map((g) => ({ g, rows: actions.filter((a) => groupOf(a) === g) })).filter((x) => x.rows.length);
+  // Decisions come first (#125); the groups hold everything already decided.
+  const decided = actions.filter((a) => !(a.pending && !a.expired));
+  const groups = ORDER.map((g) => ({ g, rows: decided.filter((a) => groupOf(a) === g) })).filter((x) => x.rows.length);
   return (
     <div className="lens response">
       <div className="planhead">
-        <h3>Containment plan</h3>
-        <span className="imeta">{actions.length} action{actions.length === 1 ? "" : "s"}{pending.length ? ` · ${pending.length} awaiting your decision` : ""}{followed.length ? ` · from procedures ${followed.map((f) => f.title).join(", ")}` : ""}</span>
+        <h3>Response</h3>
+        <span className="imeta">{actions.length} action{actions.length === 1 ? "" : "s"}{open.length ? ` · ${open.length} waiting on a decision` : ""}{followed.length ? ` · from procedures ${followed.map((f) => f.title).join(", ")}` : ""}</span>
       </div>
-      {!actions.length ? <Empty>No actions proposed yet. The agent proposes them from the evidence; you approve each one.</Empty> : null}
+      {!actions.length ? <Empty>No actions requested yet. Ask reckon in the conversation; each request arrives here for you to approve.</Empty> : null}
+      {waiting.length ? (
+        <section className="lsection" id="obj-waiting">
+          <h3>Waiting on you<span className="count">{waiting.length}</span></h3>
+          {waiting.map((a) => <ActionCard key={a.actionId} a={a} variant="full" draft={draft} />)}
+        </section>
+      ) : null}
+      {setAside.length ? (
+        <section className="lsection" id="obj-aside">
+          <h3>Set aside<span className="count">{setAside.length}</span></h3>
+          <div className="imeta">Leaving a request undecided is a choice: it stays open until its approval window closes, then expires.</div>
+          {setAside.map((a) => <ActionCard key={a.actionId} a={a} variant="full" draft={draft} />)}
+        </section>
+      ) : null}
       {groups.map(({ g, rows }) => (
         <section key={g} className="lsection" id={g === "notification" ? "obj-notification" : undefined}>
           <h3>{GROUP_LABELS[g]}<span className="count">{rows.length}</span></h3>
