@@ -451,6 +451,7 @@ body.loading #rail { opacity: 0.6; }
 .stage .step { display: flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: var(--r-pill); }
 .stage .step + .step::before { content: "—"; margin-right: 8px; color: var(--border-strong); }
 .stage .step.done { color: var(--ok); }
+.stage .step.skip { color: var(--text-3); }
 .stage .step.current { color: var(--text); font-weight: 600; background: color-mix(in srgb, var(--he-primary) 14%, transparent); }
 .stage .stepmark { font-size: 10px; }
 .primaryaction { display: inline-flex; align-items: center; gap: 10px; }

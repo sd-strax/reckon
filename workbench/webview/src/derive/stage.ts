@@ -22,33 +22,55 @@ export interface StageInputs {
 
 export interface Stage {
   done: Record<Step, boolean>;
+  /** A step that does not apply: a benign verdict with nothing contained or sent (#145). */
+  notNeeded: Record<Step, boolean>;
   /** The step the investigation is at; null once closed. */
   current: Step | null;
 }
 
+/** An action on the world that contains or removes a threat: not a message, not
+ * a write to the case record, not the undo of an earlier action. */
+export const isContainment = (a: ActionRow): boolean =>
+  !isNotify(a) && !a.actionType.startsWith("ticket.") && !a.isReversal;
+
+const took = (a: ActionRow): boolean => a.status === "SUCCEEDED" || a.status === "PARTIAL" || a.status === "REVERSED";
+
+/**
+ * The progress row (#145). Investigate → Verdict is a sequence; Contain and
+ * Notify are done only when something was done for them — a containment that
+ * took effect, a message that was sent with no reply outstanding — and nothing
+ * for them is still open. With a benign verdict and nothing done, they read as
+ * not needed. An empty list is never "done".
+ */
 export function stageOf(i: StageInputs): Stage {
   const status = String(i.status).toUpperCase();
   const hasVerdict = !!i.verdict;
-  const nonNotify = i.actions.filter((a) => !isNotify(a));
+  const benign = String(i.verdict?.disposition || "").toUpperCase() === "BENIGN";
+  const contain = i.actions.filter(isContainment);
   const notify = i.actions.filter(isNotify);
-  const containDone = hasVerdict && nonNotify.every(terminal);
   const awaiting = i.comms.some((t) => t.status === "awaiting_reply" || t.status === "followed_up");
-  const notifyDone = notify.every(terminal) && !awaiting && i.openOwnerItems === 0;
+  const containDone = contain.some(took) && contain.every(terminal);
+  const notifyDone = notify.some((a) => a.status === "SUCCEEDED") && notify.every(terminal) && !awaiting && i.openOwnerItems === 0;
   const closed = status === "CONCLUDED" || status === "ARCHIVED";
+  const notNeeded: Record<Step, boolean> = {
+    investigate: false, verdict: false, close: false,
+    contain: hasVerdict && benign && contain.length === 0,
+    notify: hasVerdict && benign && notify.length === 0 && !awaiting,
+  };
   const done: Record<Step, boolean> = {
     investigate: hasVerdict,
     verdict: hasVerdict,
     contain: containDone,
-    notify: containDone && notifyDone,
+    notify: notifyDone,
     close: closed,
   };
   let current: Step | null;
   if (closed) current = null;
   else if (!hasVerdict) current = "investigate";
-  else if (!containDone) current = "contain";
-  else if (!notifyDone) current = "notify";
+  else if (!containDone && !notNeeded.contain) current = "contain";
+  else if (!notifyDone && !notNeeded.notify) current = "notify";
   else current = "close";
-  return { done, current };
+  return { done, notNeeded, current };
 }
 
 /** The work queue's one-word step for a list row (08 §8.3), from the list view's stage inputs. */
