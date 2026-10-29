@@ -320,3 +320,25 @@ func TestFixtureAnyOf(t *testing.T) {
 		}
 	}
 }
+
+// TestFixtureNullMatchesAbsentParam: a null alternative answers a query that
+// did not pass the param, while the listed values still keep the fixture out
+// of a query about another value (#164).
+func TestFixtureNullMatchesAbsentParam(t *testing.T) {
+	var f fixtureFile
+	f.FixtureMeta.Matches.Verb = "enumerate_logons"
+	f.FixtureMeta.Matches.Params = map[string]any{"target.user": []any{nil, "jdoe"}}
+	cases := []struct {
+		params map[string]any
+		want   bool
+	}{
+		{map[string]any{"verb": "enumerate_logons"}, true},
+		{map[string]any{"verb": "enumerate_logons", "target": map[string]any{"user": "jdoe"}}, true},
+		{map[string]any{"verb": "enumerate_logons", "target": map[string]any{"user": "svc_backup"}}, false},
+	}
+	for _, c := range cases {
+		if got := fixtureMatches(f, "enumerate_logons", c.params); got != c.want {
+			t.Errorf("params %v: match=%v; want %v", c.params, got, c.want)
+		}
+	}
+}

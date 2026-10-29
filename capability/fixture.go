@@ -212,7 +212,9 @@ func (a *FixtureAdapter) Health() HealthStatus {
 // values matches any one of them (§9.1) — how a fixture answers to
 // `outcome: SUCCESS` and `outcome: ALL` without also answering to `FAILURE`,
 // so a scenario can carry failed and successful logons that a query tells
-// apart.
+// apart. A null in the list matches a param the caller did not pass, so a
+// fixture can answer "this account, or no account asked for" and stay out of
+// a query about another account.
 func fixtureMatches(f fixtureFile, verb string, params map[string]any) bool {
 	if f.FixtureMeta.Matches.Verb != "" && f.FixtureMeta.Matches.Verb != verb {
 		return false
@@ -222,10 +224,14 @@ func fixtureMatches(f fixtureFile, verb string, params map[string]any) bool {
 			continue
 		}
 		got, ok := lookupPath(params, path)
+		alternatives, isList := want.([]any)
 		if !ok {
+			if isList && anyNil(alternatives) {
+				continue
+			}
 			return false
 		}
-		if alternatives, isList := want.([]any); isList {
+		if isList {
 			if !anyValueEqual(got, alternatives) {
 				return false
 			}
@@ -236,6 +242,16 @@ func fixtureMatches(f fixtureFile, verb string, params map[string]any) bool {
 		}
 	}
 	return true
+}
+
+// anyNil reports whether the alternatives include null (matches an absent param).
+func anyNil(alternatives []any) bool {
+	for _, alt := range alternatives {
+		if alt == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // anyValueEqual reports whether got equals any of the alternatives.

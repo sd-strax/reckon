@@ -124,8 +124,13 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 		result.Attempts = 3
 		result.ErrorDetail = dispErr.Error() // the honest reason the analyst sees
 		var appErr *sdktemporal.ApplicationError
-		if errors.As(dispErr, &appErr) && appErr.Type() == fatalErrorType {
-			result.Attempts = 1
+		if errors.As(dispErr, &appErr) {
+			// The activity's own reason, without the workflow engine's wrapper
+			// (activity type, event ids, worker identity) the analyst cannot use.
+			result.ErrorDetail = appErr.Message()
+			if appErr.Type() == fatalErrorType {
+				result.Attempts = 1
+			}
 		}
 	} else {
 		result.FinalOutcome = out.FinalOutcome

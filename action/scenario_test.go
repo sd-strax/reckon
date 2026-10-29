@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sd-strax/reckon/aggregate"
 )
 
@@ -212,5 +214,38 @@ func TestShippedScenariosBindEveryInverse(t *testing.T) {
 				t.Errorf("%s: %s is bound but its inverse %s is not", path, at, d.ReversibleBy)
 			}
 		}
+	}
+}
+
+// TestShippedScenarioContainsEveryAccountItSurfaces: the RDP scenario surfaces
+// two accounts (svc_backup and jdoe); disabling and re-enabling either one
+// completes in the demo, and an account the scenario never mentions still
+// fails honestly (#149).
+func TestShippedScenarioContainsEveryAccountItSurfaces(t *testing.T) {
+	cfg, err := LoadActionConfig("../examples/action/lateral-movement.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, _, err := BuildActionResolver(cfg, "../fixtures", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch := func(actionType, account string) (WriteResult, error) {
+		res, _, err := resolver.Resolve(context.Background(), DispatchRequest{
+			ActionID: uuid.New(), ActionType: actionType,
+			Targets: []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: account}},
+		})
+		return res, err
+	}
+	for _, account := range []string{`CONTOSO\svc_backup`, `CONTOSO\jdoe`} {
+		for _, at := range []string{"account.disable", "account.enable"} {
+			res, err := dispatch(at, account)
+			if err != nil || res.FinalOutcome != OutcomeSucceeded {
+				t.Errorf("%s %s: outcome=%q err=%v; want SUCCEEDED", at, account, res.FinalOutcome, err)
+			}
+		}
+	}
+	if _, err := dispatch("account.disable", `CONTOSO\nobody`); err == nil {
+		t.Error("an account the scenario never mentions should fail, not succeed")
 	}
 }

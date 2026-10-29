@@ -175,6 +175,7 @@ details.tool[open] .summaryPin { opacity: 0.9; }
 .actrow .artgt, .actrow .armeta { color: var(--text-3); font-size: var(--fs-xs); margin-top: 2px; }
 .actrow .armeta.via { font-family: var(--mono); color: var(--text-2); }
 .actrow .armeta.err { color: var(--bad); word-break: break-word; }
+.errdetail { color: var(--text-3); }
 /* Context-reset boundary: a visible break in the chronicle */
 .ctxreset { display: flex; align-items: center; gap: 10px; margin: 14px 0; color: var(--text-2); font-size: var(--fs-xs); font-style: italic; white-space: nowrap; }
 .ctxreset::before, .ctxreset::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }

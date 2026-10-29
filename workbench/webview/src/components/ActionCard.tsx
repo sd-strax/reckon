@@ -21,6 +21,15 @@ export function groupOf(a: Pick<ActionRow, "actionType">): "containment" | "erad
   if (t.startsWith("process.") || t.startsWith("file.") || t.startsWith("ioc.")) return t.startsWith("ioc.") ? "containment" : "eradication";
   return "containment";
 }
+/** What a failed or partial outcome means for the targets, in plain words: the
+ * engine records an unconfirmed effect as unknown, never as done or undone. */
+export function failureSentence(a: Pick<ActionRow, "status" | "targets">): string {
+  const on = a.targets.length ? a.targets.join(", ") : "the target";
+  if (a.status === "PARTIAL") return `Partly done — some of ${on} may be changed; check each before relying on it.`;
+  if (a.status === "TIMEOUT") return `No answer from the tool — whether ${on} changed is unknown.`;
+  return `Did not complete — reckon cannot confirm any change on ${on}.`;
+}
+
 export const GROUP_LABELS: Record<ReturnType<typeof groupOf>, string> = { containment: "Containment", eradication: "Eradication", recovery: "Recovery", notification: "Notification", external: "External work" };
 
 export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full" | "compact"; draft?: boolean }) {
@@ -113,7 +122,9 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
       </dl>
       {a.retryOf ? <div className="cardmeta">↻ retry of <a onClick={() => openInspector({ kind: "action", actionId: a.retryOf! })}>{a.retryOf.slice(0, 8)}…</a> (the original can never re-dispatch)</div> : null}
       {a.tierEscalated ? <div className="cardmeta">⚠ escalated to {a.tier}: {a.targets.length} targets (blast radius)</div> : null}
-      {a.errorDetail && (a.status === "FAILED" || a.status === "TIMEOUT" || a.status === "PARTIAL") ? <div className="armeta err">✗ {a.errorDetail}</div> : null}
+      {a.status === "FAILED" || a.status === "TIMEOUT" || a.status === "PARTIAL" ? (
+        <div className="armeta err">✗ {failureSentence(a)}{a.errorDetail ? <span className="errdetail"> Reason: {a.errorDetail}</span> : null}</div>
+      ) : null}
       {draft && decide ? <div className="cardmeta actnote">First action on the world — approving activates the investigation.</div> : null}
       {buttons}
       {next.retry ? successorLine("↻ re-requested as", next.retry) : null}
