@@ -5,7 +5,7 @@
 import { useApp } from "../app";
 import { RefChip } from "./shared";
 import { pinSpec } from "./PromptCard";
-import type { PinRow } from "../../../src/backend";
+import type { PinRow } from "../../../src/viewTypes";
 
 export interface ToolRowResult {
   isError: boolean;

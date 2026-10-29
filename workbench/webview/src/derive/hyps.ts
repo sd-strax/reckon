@@ -1,6 +1,6 @@
 // The hypothesis tracker's derivations (02 §2.9, adr/0047, adr/0051). Pure
 // functions over the server views; the components only render their output.
-import type { Hypothesis, Prediction } from "../../../src/backend";
+import type { Hypothesis, Prediction } from "../../../src/viewTypes";
 import type { RivalBrief } from "../../../src/protocol";
 
 export const isLive = (h: Hypothesis): boolean => h.status === "PROPOSED" || h.status === "OPEN";

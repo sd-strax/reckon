@@ -3,7 +3,7 @@
 // or targeting it, pins that hold it, the acts that read or produced it, and
 // the seed. Derived from the snapshot alone; the cross-investigation fold
 // stays server-side. Pure.
-import type { ActionRow, Hypothesis, PinRow, Prediction, ThreadEntry } from "../../../src/backend";
+import type { ActionRow, Hypothesis, PinRow, Prediction, ThreadEntry } from "../../../src/viewTypes";
 import type { InvestigationSnapshot } from "../../../src/protocol";
 
 export interface InThisCase {

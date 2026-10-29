@@ -1,6 +1,6 @@
 // The verdict dialog's preflight + residual (02 §2.10): the engine's gates
 // rendered BEFORE the attempt, and what the analyst is signing over. Pure.
-import type { Capability, Hypothesis, PinRow, Verdict } from "../../../src/backend";
+import type { Capability, Hypothesis, PinRow, Verdict } from "../../../src/viewTypes";
 import { hypName } from "./hyps";
 
 export interface ChecklistItem { ok: boolean; text: string }

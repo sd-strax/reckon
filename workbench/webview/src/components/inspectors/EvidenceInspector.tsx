@@ -4,7 +4,7 @@
 // (08 §8.6, §8.6.1). The per-class sentence and curated field table are gap
 // §6.12; until it lands the generic field renderer shows every field.
 import { useApp } from "../../app";
-import type { EvidenceDoc } from "../../../../src/backend";
+import type { EvidenceDoc } from "../../../../src/viewTypes";
 import { refType, refTypeLabel } from "../../refs";
 import { RefChip, fmtDateTime } from "../shared";
 import { Fields, Json, KV, Loading, Section, Tabs } from "./primitives";

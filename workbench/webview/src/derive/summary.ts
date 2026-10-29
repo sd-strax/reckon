@@ -1,7 +1,7 @@
 // The Summary lens's facts (08 §8.4, impl §9): key entities with role and the
 // derivable status words, still-to-do, procedures followed, the handoff note.
 // Status words come only from the verdict and the actions — never invented.
-import type { ActionRow, Hypothesis, PinRow, ThreadEntry, Seed, CommsThread, Verdict } from "../../../src/backend";
+import type { ActionRow, Hypothesis, PinRow, ThreadEntry, Seed, CommsThread, Verdict } from "../../../src/viewTypes";
 import { isEntityRef } from "../refs";
 import { terminal, isNotify } from "./stage";
 import { hypName } from "./hyps";

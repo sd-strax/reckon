@@ -2,7 +2,7 @@
 // (Record · Wording history) — the reasoning inspectors (08 §8.6.1). Their
 // data is in the snapshot; the history comes from the thread's events.
 import { useApp } from "../../app";
-import type { Hypothesis, Prediction } from "../../../../src/backend";
+import type { Hypothesis, Prediction } from "../../../../src/viewTypes";
 import { badgeTone, blockersOf, counted, hypName, nameOf, predName, tested } from "../../derive/hyps";
 import { Badge, RefChip, fmtDateTime, fmtTime } from "../shared";
 import { Fields, Json, KV, Loading, Section, Tabs } from "./primitives";

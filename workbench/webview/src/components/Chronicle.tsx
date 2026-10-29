@@ -8,7 +8,7 @@ import { useApp } from "../app";
 import { parseTranscript } from "../transcript";
 import { Markdown, RefChip, fmtDateTime, fmtTime } from "./shared";
 import { ToolRow } from "./ToolRow";
-import type { ThreadEntry } from "../../../src/backend";
+import type { ThreadEntry } from "../../../src/viewTypes";
 import type { ChronicleTurn } from "../../../src/protocol";
 
 /** The act types that render as compact chronicle lines. */

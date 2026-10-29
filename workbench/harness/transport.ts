@@ -1,7 +1,7 @@
 // The harness transport (impl §5.4): answers the webview from a recorded
 // snapshot set and echoes every intent, so a click's effect is visible and
 // component tests can assert on what the page asked the host for.
-import type { ActionRecord, Appearance, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/backend";
+import type { ActionRecord, Appearance, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/viewTypes";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 

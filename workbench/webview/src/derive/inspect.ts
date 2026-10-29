@@ -1,7 +1,7 @@
 // Resolving an inspector target to a renderer (impl §2.4): from the id's
 // shape and the snapshot, so most panes open instantly and only the ones that
 // need the record wait on a round trip. Pure.
-import type { EvidenceDoc } from "../../../src/backend";
+import type { EvidenceDoc } from "../../../src/viewTypes";
 import type { InspectorTarget, InvestigationSnapshot } from "../../../src/protocol";
 import { refType, refTypeLabel } from "../refs";
 
