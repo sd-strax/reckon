@@ -51,7 +51,7 @@ export function LeftRegion() {
   const [collapsed, setCollapsed] = useState(false);
   const q = state.queue;
   const current = state.snap?.investigation.id;
-  const investigations = orderQueue((q?.investigations || []).filter((r) => !["CONCLUDED", "ARCHIVED"].includes(String(r.state).toUpperCase())));
+  const investigations = orderQueue((q?.investigations || []).filter((r) => !["CONCLUDED", "ARCHIVED", "DISCARDED"].includes(String(r.state).toUpperCase())));
   const cases = q?.cases || [];
   return (
     <nav id="leftRegion" className={collapsed ? "collapsed" : ""} aria-label="Work queue">

@@ -55,7 +55,7 @@ export function stageOf(i: StageInputs): Stage {
   const awaiting = i.comms.some((t) => t.status === "awaiting_reply" || t.status === "followed_up");
   const containDone = contain.some(took) && contain.every(terminal);
   const notifyDone = notify.some((a) => a.status === "SUCCEEDED") && notify.every(terminal) && !awaiting && i.openOwnerItems === 0;
-  const closed = status === "CONCLUDED" || status === "ARCHIVED";
+  const closed = status === "CONCLUDED" || status === "ARCHIVED" || status === "DISCARDED";
   const notNeeded: Record<Step, boolean> = {
     investigate: false, verdict: false, close: false,
     contain: hasVerdict && benign && contain.length === 0,
@@ -80,7 +80,7 @@ export function stageOf(i: StageInputs): Stage {
 /** The work queue's one-word step for a list row (08 §8.3), from the list view's stage inputs. */
 export function rowStep(r: InvestigationSummary): Step | null {
   const status = String(r.state).toUpperCase();
-  if (status === "CONCLUDED" || status === "ARCHIVED") return null;
+  if (status === "CONCLUDED" || status === "ARCHIVED" || status === "DISCARDED") return null;
   if (!r.hasVerdict) return "investigate";
   if (r.openActions > 0) return "contain";
   if (r.openNotifications > 0) return "notify";

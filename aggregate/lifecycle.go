@@ -76,6 +76,30 @@ func (PauseInvestigation) Kind() string { return "PauseInvestigation" }
 // Validate checks the envelope shape.
 func (PauseInvestigation) Validate(env Envelope) error { return validateEnvelope(env) }
 
+// DiscardInvestigation moves draft→discarded (adr/0161): a draft started by
+// mistake leaves the work queue with its reason on the record. Terminal.
+type DiscardInvestigation struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// Kind returns "DiscardInvestigation".
+func (DiscardInvestigation) Kind() string { return "DiscardInvestigation" }
+
+// Validate checks the envelope shape.
+func (DiscardInvestigation) Validate(env Envelope) error { return validateEnvelope(env) }
+
+// discardEvents is the draft→discarded transition. Refused while an action
+// request is still awaiting a decision: the analyst rejects it first, so no
+// request is left open on a record nobody will look at again.
+func discardEvents(env Envelope, state aggregateState, c DiscardInvestigation) ([]Event, error) {
+	for _, a := range state.Actions {
+		if a.Status == ActionStatusRequested || a.Status == ActionStatusPendingSecondary {
+			return nil, fmt.Errorf("cannot discard investigation %s: %s is still awaiting a decision — reject it first", env.AggregateID, a.label())
+		}
+	}
+	return statusTransition(env, state, StatusDraft, StatusDiscarded, c.Reason)
+}
+
 // ResumeInvestigation moves paused→active.
 type ResumeInvestigation struct {
 	Reason string `json:"reason,omitempty"`
