@@ -3,6 +3,8 @@ tsconfig.json
 .gitignore
 .vscode/**
 **/*.map
+out/test/**
+out/**/*.test.js
 webview/**
 harness/**
 esbuild.mjs
