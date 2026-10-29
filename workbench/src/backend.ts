@@ -1039,8 +1039,8 @@ export class BackendClient {
    * derives the title — the workbench never handles ids. Title is optional; the
    * server derives it from the seed's display line.
    */
-  async createInvestigationFromInput(value: string, kind: string, title?: string): Promise<InvestigationDetail> {
-    const body: Record<string, unknown> = { seed_input: { value, kind } };
+  async createInvestigationFromInput(value: string, kind: string, title?: string, allowUnknown?: boolean): Promise<InvestigationDetail> {
+    const body: Record<string, unknown> = { seed_input: { value, kind, allow_unknown: allowUnknown || undefined } };
     if (title) body.title = title;
     return this.mapCreated(await this.authedPost<RawInvestigation>("/api/investigations", body));
   }

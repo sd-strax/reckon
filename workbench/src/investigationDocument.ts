@@ -17,7 +17,7 @@ import { randomUUID } from "crypto";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import { ActionRow, Appearance, BackendClient, EvidenceDoc, InvestigationDetail, ThreadEntry, existingInvestigation } from "./backend";
+import { ActionRow, Appearance, BackendClient, BackendRequestError, EvidenceDoc, InvestigationDetail, ThreadEntry, existingInvestigation } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "./protocol";
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
@@ -225,7 +225,7 @@ export class InvestigationDocuments {
       ready: () => this.opened(ref, panel),
       refresh: () => this.opened(ref, panel),
       "seed.submit": (msg) => {
-        void this.seedDraft(ref, panel, { value: msg.value, kind: msg.kind });
+        void this.seedDraft(ref, panel, { value: msg.value, kind: msg.kind, allowUnknown: msg.allowUnknown });
       },
       "seed.alert": (msg) => {
         void this.seedDraft(ref, panel, { alertId: msg.alertId, source: msg.source });
@@ -367,7 +367,7 @@ export class InvestigationDocuments {
   private async seedDraft(
     ref: { id: string },
     panel: vscode.WebviewPanel,
-    seed: { value?: string; kind?: string; alertId?: string; source?: string },
+    seed: { value?: string; kind?: string; alertId?: string; source?: string; allowUnknown?: boolean },
   ): Promise<void> {
     // Second line of the double-submit defense (the webview also guards): once
     // this draft key has a create in flight, or has already been re-keyed to a
@@ -382,7 +382,7 @@ export class InvestigationDocuments {
         ? await this.client.createInvestigation("", {
             type: "alert", alertId: seed.alertId, source: seed.source,
           })
-        : await this.client.createInvestigationFromInput(seed.value ?? "", seed.kind ?? "");
+        : await this.client.createInvestigationFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown);
       this.open.delete(ref.id);
       ref.id = created.id;
       this.open.set(created.id, panel);
@@ -407,7 +407,11 @@ export class InvestigationDocuments {
         this.show(existing);
         return;
       }
-      void this.post(panel, { type: "draft.error", message: errText(err) });
+      // An entity the host inventory has never seen (#159): say so, and let
+      // the analyst start anyway.
+      const unknownEntity = err instanceof BackendRequestError && err.status === 422 && err.body?.unknown_entity === true;
+      const message = unknownEntity && typeof err.body?.error === "string" ? err.body.error : errText(err);
+      void this.post(panel, { type: "draft.error", message, unknownEntity });
     } finally {
       this.seeding.delete(draftKey);
     }

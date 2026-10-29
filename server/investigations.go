@@ -115,6 +115,9 @@ type SeedInputBody struct {
 	Value       string `json:"value"`
 	Kind        string `json:"kind,omitempty"`
 	SourceScope string `json:"source_scope,omitempty"`
+	// AllowUnknown starts the investigation even though the tenant's host
+	// inventory has never seen the entity — the analyst knows better (#159).
+	AllowUnknown bool `json:"allow_unknown,omitempty"`
 }
 
 // CreateInvestigationRequest is the body of POST /api/investigations. Exactly
@@ -325,6 +328,13 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, "resolve seed: "+err.Error())
 			return
+		}
+		// Report an entity nothing knows about rather than root on it (#159).
+		if resolved.Seed.Type == aggregate.SeedEntity && !req.SeedInput.AllowUnknown {
+			if unknown, msg := b.unknownHost(r, resolved); unknown {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": msg, "unknown_entity": true})
+				return
+			}
 		}
 		seed := resolved.Seed
 		cmd.Seed = &seed

@@ -48,6 +48,8 @@ export interface DraftState {
   cases: CaseSummary[] | null;
   status: string;
   error: string;
+  /** The error is "nothing knows this entity" (#159): the analyst may start anyway. */
+  unknownEntity?: boolean;
   /** One submit per draft (both the Enter path and the buttons). */
   submitting: boolean;
 }
@@ -175,7 +177,7 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "draft.caseError":
       return { ...state, draft: { ...state.draft, submitting: false, status: msg.message, cases: [] } };
     case "draft.error":
-      return { ...state, draft: { ...state.draft, submitting: false, error: msg.message } };
+      return { ...state, draft: { ...state.draft, submitting: false, error: msg.message, unknownEntity: !!msg.unknownEntity } };
     case "state.snapshot": {
       const snap = msg.snapshot;
       // A snapshot older than what the webview holds for the same
