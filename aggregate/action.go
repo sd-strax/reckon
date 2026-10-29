@@ -690,6 +690,15 @@ func applyRequestAction(env Envelope, state aggregateState, c RequestAction) ([]
 	return events, nil
 }
 
+// dispatchSummary names the tool an action went to; a dispatch that reached no
+// tool says only that it was dispatched, never "via" nothing (#153).
+func dispatchSummary(label, adapter string) string {
+	if adapter == "" {
+		return label + ": dispatched"
+	}
+	return label + ": dispatched via " + adapter
+}
+
 // checkLineage keeps every action chain a line (adr/0152). A re-request names
 // an EXPIRED or FAILED action of the same type in this investigation that has
 // not been re-requested already: each action has at most one successor, so the
@@ -903,7 +912,7 @@ func applyDispatchAction(env Envelope, state aggregateState, c DispatchAction) (
 	}
 	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionDispatched, payload)
 	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionDispatch,
-		fmt.Sprintf("%s: dispatched via %s", act.label(), c.Adapter), nil)
+		dispatchSummary(act.label(), c.Adapter), nil)
 	if err != nil {
 		return nil, err
 	}

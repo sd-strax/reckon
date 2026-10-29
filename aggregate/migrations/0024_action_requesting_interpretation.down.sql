@@ -1,0 +1,1 @@
+ALTER TABLE action_current DROP COLUMN requesting_interpretation_id;

@@ -616,3 +616,14 @@ func TestFoldAction_KeepsLineage(t *testing.T) {
 		t.Errorf("lineage not folded: retry=%v reversal=%v", actions[retryID].RetryOf, actions[revID].ReversalOf)
 	}
 }
+
+// TestDispatchSummary: a dispatch names its tool, and one that reached no
+// tool never reads "dispatched via" with nothing after it (#153).
+func TestDispatchSummary(t *testing.T) {
+	if got := dispatchSummary("host.isolate → WIN-FILE01", "fixture_write"); got != "host.isolate → WIN-FILE01: dispatched via fixture_write" {
+		t.Errorf("with adapter: %q", got)
+	}
+	if got := dispatchSummary("host.unisolate → WIN-FILE01", ""); got != "host.unisolate → WIN-FILE01: dispatched" {
+		t.Errorf("without adapter: %q", got)
+	}
+}

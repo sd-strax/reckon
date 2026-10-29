@@ -19,7 +19,7 @@ function AgentTurn({ t }: { t: Turn }) {
   const asks = parsed?.items.filter((i) => i.kind === "user") || [];
   const answers = parsed?.items.filter((i) => i.kind === "assistant") || [];
   const tools = parsed?.items.filter((i) => i.kind === "tool") || [];
-  const requested = (state.snap?.actions || []).filter((a) => t.records.some((r) => r.entry.interpretationType === "action-request" && (r.entry.outputRefs || []).includes(a.actionId)));
+  const requested = (state.snap?.actions || []).filter((a) => t.records.some((r) => r.entry.interpretationType === "action-request" && (a.requestingInterpretationId === r.entry.interpretationId || (r.entry.outputRefs || []).includes(a.actionId))));
   const who = t.entry.actor.principalName || t.entry.actor.principal;
   const body = (
     <>
@@ -32,7 +32,7 @@ function AgentTurn({ t }: { t: Turn }) {
             {t.records.map((r, i) => (
               <li key={i} className={r.tone}>
                 <span className="rglyph" aria-hidden="true">{r.tone === "ok" ? "✓" : r.tone === "bad" ? "✕" : "→"}</span>
-                {r.target ? <a onClick={() => r.target!.kind === "ref" ? goTo({ kind: "ref", ref: r.target!.ref }) : goTo({ kind: "lens", lens: r.target!.lens })}>{r.text}</a> : r.text}
+                {r.target ? <a title={r.title} onClick={() => r.target!.kind === "ref" ? goTo({ kind: "ref", ref: r.target!.ref }) : goTo({ kind: "lens", lens: r.target!.lens })}>{r.text}</a> : <span title={r.title}>{r.text}</span>}
               </li>
             ))}
           </ul>
@@ -60,7 +60,7 @@ function AgentTurn({ t }: { t: Turn }) {
 export function Conversation() {
   const { state } = useApp();
   const snap = state.snap;
-  const turns = useMemo(() => groupTurns(snap?.thread || [], snap?.turns || [], snap?.hypotheses || []), [snap?.thread, snap?.turns, snap?.hypotheses]);
+  const turns = useMemo(() => groupTurns(snap?.thread || [], snap?.turns || [], snap?.hypotheses || [], snap?.actions || []), [snap?.thread, snap?.turns, snap?.hypotheses, snap?.actions]);
   return (
     <div id="conversationMode">
       {turns.map((t) => (

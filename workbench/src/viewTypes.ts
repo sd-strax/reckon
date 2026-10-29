@@ -433,6 +433,8 @@ export interface ActionRow {
   retryOf?: string;
   /** Lineage: the action this one reverses (set when isReversal). */
   reversalOfRef?: string;
+  /** The act that requested it (#153): the thread's request line names this action. */
+  requestingInterpretationId?: string;
   /**
    * The tool that dispatched the action (write-side provenance) — which of
    * several possible adapters actually acted. Empty until dispatched.

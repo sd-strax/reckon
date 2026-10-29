@@ -78,6 +78,9 @@ type ActionView struct {
 	Category string `json:"category,omitempty"`
 	// RetryOf: lineage to the action this one replaces (zero when not a retry).
 	RetryOf string `json:"retry_of,omitempty"`
+	// RequestingInterpretationID: the act that requested it, so the thread's
+	// request line can name the action (#153).
+	RequestingInterpretationID string `json:"requesting_interpretation_id,omitempty"`
 	// ReversalOfRef: the action this one reverses (zero when not a reversal),
 	// so a surface can show an original's reversal on the original.
 	ReversalOfRef string `json:"reversal_of_ref,omitempty"`
@@ -150,6 +153,9 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	}
 	if a.ReversalOfRef != (uuid.UUID{}) {
 		v.ReversalOfRef = a.ReversalOfRef.String()
+	}
+	if a.RequestingInterpretationID != (uuid.UUID{}) {
+		v.RequestingInterpretationID = a.RequestingInterpretationID.String()
 	}
 	if !a.ExpiresAt.IsZero() {
 		t := a.ExpiresAt

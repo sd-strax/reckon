@@ -55,6 +55,11 @@ func TestAction_RequestApproveProjection(t *testing.T) {
 	if len(ac.EvidenceRefs) != 2 || ac.EvidenceRefs[0] != "observed-data--od1" {
 		t.Errorf("evidence_refs not projected: %+v", ac.EvidenceRefs)
 	}
+	// The requesting act rides the projection too (#153): the thread's request
+	// line finds its action through it.
+	if ac.RequestingInterpretationID == uuid.Nil {
+		t.Error("requesting_interpretation_id not projected")
+	}
 
 	// Approve (principal "alice" == approver).
 	mustHandle(t, h, cmdEnv(aggID), ApproveAction{

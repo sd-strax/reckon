@@ -26,6 +26,29 @@ export function nameOf(id: string, all: Hypothesis[]): string {
   return r ? hypName(r, all) : id;
 }
 
+/** The short title: the statement up to its first clause boundary, clipped. */
+export function shortTitle(p: Pick<Prediction, "statement">): string {
+  const s = p.statement.trim();
+  const cut = s.search(/[,;:—–]| — | - /);
+  const head = cut > 24 ? s.slice(0, cut) : s;
+  return head.length > 72 ? head.slice(0, 71) + "…" : head;
+}
+
+/** A hypothesis in words for a reading surface (#138): its handle when it has
+ * one (a handle names the mechanism), its clipped claim otherwise — never a
+ * bare position code. */
+export function hypWords(h: Hypothesis, all: Hypothesis[]): string {
+  if (h.handle) return h.handle;
+  const s = h.statement.trim();
+  void all;
+  return "“" + (s.length > 56 ? s.slice(0, 55) + "…" : s) + "”";
+}
+
+/** A prediction in words for a reading surface (#138): what it claims. */
+export function predWords(p: Pick<Prediction, "statement">): string {
+  return "“" + shortTitle(p) + "”";
+}
+
 /** A prediction's short name (adr/0047): its ordinal from the server view. */
 export function predName(p: Prediction): string {
   return p.ordinal ? "P" + p.ordinal : "this prediction";
