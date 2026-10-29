@@ -1,6 +1,6 @@
 # 0137 — A findings report has one shape, and containment ahead of the verdict is argued from observed harm
 
-Issue: #137 · PR: #202 · Status: accepted (pending validation)
+Issue: #137 · PR: #202 · Status: accepted
 
 ## Context
 
@@ -66,9 +66,14 @@ small lie the model may act on (waiting for context that will not arrive).
   observation of harm in progress, on decision-first because none is evident,
   or on "could not check" naming the gap; FAIL on containment with no
   observation named, or harm asserted without evidence.
-- **Pending validation.** The two new rules and the reworded
-  `proportionate` carry `PendingValidation: "#137"` until both scenarios'
-  baselines accept the new prompt version on both models.
+- **Validated.** The two new rules and the reworded `proportionate` were
+  accepted on both scenarios and both models (Opus, Sonnet) under prompt
+  `a870ddbf`, catalogue v0.15: O3 10/12 trials, A4 11/12, every MUST passing,
+  no regression against the prior baselines beyond one trial. The misses are
+  recorded in the baselines, not fixed by prompt: a 258-rune headline (Opus,
+  lateral), a reply that framed hypotheses instead of reporting (Sonnet,
+  impossible travel), and one containment recommended on a structural risk
+  rather than an observed harm (Sonnet, impossible travel).
 
 ## Independent review
 

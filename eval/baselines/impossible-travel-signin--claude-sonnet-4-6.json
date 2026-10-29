@@ -1,18 +1,18 @@
 {
   "attribution": {
-    "prompt_version": "81dd8c5fea1f67845871dbac21829f053bc5f894a6ecc3d41d0a1d2ab3bd6327",
+    "prompt_version": "a870ddbf8038fe4ee2049f35d02b498db86e2cdc7a73101286051b462237195e",
     "hypothesis_framing": "leading_null",
     "model": "claude-sonnet-4-6",
-    "action_catalog_hash": "f813897746bb9c846d5330c1ed3ea096124485b6295e60d432f403f56cbe0fe4",
+    "action_catalog_hash": "a6a4bdae7a1f8916d7ba36c87068dce7bd7775232959528227a6f6b0384d8f1b",
     "scenario_id": "impossible-travel-signin",
-    "driver_hash": "ce67947e05ba7a0d37b869cb2532af8a8bd648b6494221ad575ea9a4cdbafdde",
-    "catalogue_version": "v0.12",
+    "driver_hash": "5b6fa2a85250531f34151b0dfde2720a6ccb3b4d6d754d8fb3852ae16ab667be",
+    "catalogue_version": "v0.15",
     "trials": 3,
     "judge_model": "claude-sonnet-4-6",
     "judge_rubric": "v1"
   },
   "results": {
-    "A2@turn11": {
+    "A2@turn12": {
       "severity": "MUST",
       "result": "PASS",
       "passed": 3,
@@ -24,22 +24,28 @@
       "passed": 3,
       "exercised": 3
     },
-    "E1@turn8": {
+    "A4@turn3": {
+      "severity": "SHOULD",
+      "result": "FAIL",
+      "passed": 2,
+      "exercised": 3
+    },
+    "E1@turn9": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
       "exercised": 3
     },
-    "E2@turn9": {
+    "E2@turn10": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
       "exercised": 3
     },
-    "E3@turn3": {
+    "E3@turn4": {
       "severity": "SHOULD",
-      "result": "PASS",
-      "passed": 3,
+      "result": "FAIL",
+      "passed": 2,
       "exercised": 3
     },
     "G1": {
@@ -66,7 +72,7 @@
       "passed": 3,
       "exercised": 3
     },
-    "H4@turn7": {
+    "H4@turn8": {
       "severity": "MUST",
       "result": "PASS",
       "passed": 3,
@@ -84,19 +90,19 @@
       "passed": 3,
       "exercised": 3
     },
-    "H7@turn7": {
+    "H7@turn8": {
       "severity": "SHOULD",
       "result": "NOT_EXERCISED",
       "passed": 0,
       "exercised": 0
     },
-    "H8@turn10": {
+    "H8@turn11": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
       "exercised": 3
     },
-    "H8@turn6": {
+    "H8@turn7": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
@@ -114,10 +120,16 @@
       "passed": 3,
       "exercised": 3
     },
-    "O2@turn9": {
+    "O2@turn10": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
+      "exercised": 3
+    },
+    "O3@turn0": {
+      "severity": "SHOULD",
+      "result": "FAIL",
+      "passed": 2,
       "exercised": 3
     },
     "R1@turn2": {
@@ -126,19 +138,19 @@
       "passed": 3,
       "exercised": 3
     },
-    "R2@turn4": {
-      "severity": "SHOULD",
-      "result": "PASS",
-      "passed": 3,
-      "exercised": 3
-    },
-    "R3@turn4": {
+    "R2@turn5": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
       "exercised": 3
     },
     "R3@turn5": {
+      "severity": "SHOULD",
+      "result": "PASS",
+      "passed": 3,
+      "exercised": 3
+    },
+    "R3@turn6": {
       "severity": "SHOULD",
       "result": "PASS",
       "passed": 3,
