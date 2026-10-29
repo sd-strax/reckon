@@ -435,6 +435,16 @@ func (c *Client) RecallSimilar(ctx context.Context, body map[string]any) (json.R
 	return out, nil
 }
 
+// PriorInvestigations runs the exact by-entity lookup of concluded
+// investigations (agent token, adr/0163), returning the raw response.
+func (c *Client) PriorInvestigations(ctx context.Context, body map[string]any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := c.do(ctx, http.MethodPost, "/api/knowledge/prior_investigations", c.agentSrc, body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SubmitSummaryNarrative posts the client-authored knowledge-summary narrative
 // for a concluded investigation (agent token; design/06 §3.2 two-tier — the
 // BYOK client writes the prose, the server holds no model key).

@@ -511,6 +511,7 @@ func (b *Backend) buildRouter(verifier *authz.Verifier) http.Handler {
 	if b.cfg.Knowledge != nil {
 		api.Handle("/knowledge/recall_sops", authz.RequireAuth(verifier)(http.HandlerFunc(b.recallSOPs)))
 		api.Handle("/knowledge/recall_similar_investigations", authz.RequireAuth(verifier)(http.HandlerFunc(b.recallSimilar)))
+		api.Handle("/knowledge/prior_investigations", authz.RequireAuth(verifier)(http.HandlerFunc(b.priorInvestigations)))
 		api.Handle("/knowledge/summary_narrative", authz.RequireAuth(verifier)(http.HandlerFunc(b.summaryNarrative)))
 		api.Handle("/knowledge/case_summaries/", authz.RequireAuth(verifier)(http.HandlerFunc(b.getCaseSummary)))
 		api.Handle("/sops", authz.RequireAuth(verifier)(http.HandlerFunc(b.sopsCollection)))

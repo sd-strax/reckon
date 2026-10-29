@@ -18,7 +18,7 @@ import (
 // summaryExtractorVersion stamps every summary's provenance (design/06 §3.1
 // extractor_version). Bump when the extraction shape changes so a re-derivation
 // is distinguishable from the prior version's output.
-const summaryExtractorVersion = "1"
+const summaryExtractorVersion = "2" // 2: action targets join the primary entities (adr/0163)
 
 // summaryWriter is the narrow consumer seam the producer needs — the knowledge
 // facade maps the domain summary onto the substrate's DERIVED corpus. Kept an
@@ -145,6 +145,10 @@ func buildSummary(groupingID string, ic aggregate.InvestigationCurrent, hyps []a
 		}
 	}
 
+	// The concrete things the investigation acted on are its entities too: an
+	// investigation seeded from a case names its host only as an action target.
+	entities = appendEntities(entities, actions)
+
 	techniques := extractTechniques(hyps)
 	summaryActions := make([]knowledge.SummaryAction, 0, len(actions))
 	for _, ac := range actions {
@@ -178,6 +182,27 @@ func buildSummary(groupingID string, ic aggregate.InvestigationCurrent, hyps []a
 	}
 	sum.SummaryText = renderSummaryBody(sum)
 	return sum
+}
+
+// appendEntities adds each action target's resolved identifier once (compared
+// case-insensitively, first spelling kept), so a prior investigation can be
+// found by the host, account or address it involved (adr/0163).
+func appendEntities(entities []string, actions []aggregate.ActionCurrent) []string {
+	seen := map[string]bool{}
+	for _, e := range entities {
+		seen[strings.ToLower(e)] = true
+	}
+	for _, ac := range actions {
+		for _, t := range ac.Targets {
+			id := strings.TrimSpace(t.ResolvedIdentifier)
+			if id == "" || seen[strings.ToLower(id)] {
+				continue
+			}
+			seen[strings.ToLower(id)] = true
+			entities = append(entities, id)
+		}
+	}
+	return entities
 }
 
 // seedValueOf renders the seed's identifying value per kind (design/06 §3.2).
