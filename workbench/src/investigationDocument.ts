@@ -596,11 +596,20 @@ export class InvestigationDocuments {
       parameters.message = msg.message;
     }
     try {
+      // A follow-up rests on the grounds of the message it follows up on: the
+      // engine refuses an outbound action that cites no evidence.
+      const thread = (await this.client.comms(id)).find((t) => t.threadId === msg.threadId);
+      const origin = thread?.actionId ? (await this.client.actionRecord(thread.actionId)).action : undefined;
+      if (!origin?.evidenceRefs.length) {
+        void vscode.window.showErrorMessage("reckon: follow-up not requested — the original message's evidence could not be read");
+        return;
+      }
       const res = await this.client.requestAction({
         investigationRef: id,
         actionType: msg.actionType,
         targets: [{ resolvedIdentifier: msg.target }],
         parameters,
+        evidenceRefs: origin.evidenceRefs,
         rationale: `follow-up on comms thread ${msg.threadId}`,
       });
       void vscode.window.showInformationMessage(
