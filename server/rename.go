@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -42,8 +41,7 @@ func (b *Backend) renameInvestigation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body RenameRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 	title := strings.TrimSpace(body.Title)

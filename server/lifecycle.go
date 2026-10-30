@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -55,8 +54,7 @@ func (b *Backend) investigationLifecycle(w http.ResponseWriter, r *http.Request)
 	}
 
 	var body LifecycleRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 	cmd, err := lifecycleCommand(body)

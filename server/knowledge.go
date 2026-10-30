@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -46,8 +45,7 @@ func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
 	}
 	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
 		var req knowledge.RecallRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+		if !decodeBody(w, r, &req, maxBodyBytes) {
 			return
 		}
 		res, err := b.cfg.Knowledge.RecallSOPs(r.Context(), module.SingleTenantUUID, req)
@@ -71,8 +69,7 @@ func (b *Backend) recallSimilar(w http.ResponseWriter, r *http.Request) {
 	}
 	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
 		var req knowledge.SimilarRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+		if !decodeBody(w, r, &req, maxBodyBytes) {
 			return
 		}
 		res, err := b.cfg.Knowledge.RecallSimilar(r.Context(), module.SingleTenantUUID, req)
@@ -96,8 +93,7 @@ func (b *Backend) priorInvestigations(w http.ResponseWriter, r *http.Request) {
 	}
 	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
 		var req knowledge.PriorRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+		if !decodeBody(w, r, &req, maxBodyBytes) {
 			return
 		}
 		if strings.TrimSpace(req.Entity) == "" {
@@ -182,8 +178,7 @@ func (b *Backend) summaryNarrative(w http.ResponseWriter, r *http.Request) {
 	}
 	b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
 		var body SummaryNarrativeBody
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+		if !decodeBody(w, r, &body, maxBodyBytes) {
 			return
 		}
 		id, err := b.cfg.Knowledge.EnrichSummary(r.Context(), module.SingleTenantUUID, body.InvestigationRef, body.Narrative, body.GeneratorModel)
@@ -212,8 +207,7 @@ func (b *Backend) importSOP(w http.ResponseWriter, r *http.Request) {
 	}
 	b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
 		var body SOPImportBody
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+		if !decodeBody(w, r, &body, maxBodyBytes) {
 			return
 		}
 		claims, _ := authz.FromContext(r.Context())
@@ -268,8 +262,7 @@ func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 	}
 	b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
 		var body SOPMarkdownBody
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+		if !decodeBody(w, r, &body, maxBodyBytes) {
 			return
 		}
 		name := body.Filename
@@ -347,8 +340,7 @@ func (b *Backend) sopsItem(w http.ResponseWriter, r *http.Request) {
 
 func (b *Backend) createSOP(w http.ResponseWriter, r *http.Request) {
 	var body SOPBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 	claims, _ := authz.FromContext(r.Context())
@@ -390,8 +382,7 @@ func (b *Backend) getSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 
 func (b *Backend) updateSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var body SOPBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 	err := b.cfg.Knowledge.Update(r.Context(), module.SingleTenantUUID, id, body.Title, body.Body, body.Tags, body.Recommendation)

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,11 +9,6 @@ import (
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/capability"
 )
-
-// maxCapabilityBodyBytes bounds the /api/capability/{verb} request body. Verb
-// inputs are an entity, a window, and small extras — far below this; the bound
-// exists so a buggy or hostile client cannot stream an unbounded body.
-const maxCapabilityBodyBytes = 1 << 20 // 1 MiB
 
 // CapabilityInvokeBody is a verb call's input (03 §2): the entity the binding
 // templates resolve against, an optional time window, and extra template roots.
@@ -111,9 +105,7 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body CapabilityInvokeBody
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxCapabilityBodyBytes))
-	if err := dec.Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 
