@@ -1,6 +1,6 @@
 # 0222 — The backend's WebSocket stream is removed; clients learn of changes by reading
 
-Issue: #222 · PR: — · Status: accepted
+Issue: #222 · PR: #273 · Status: accepted
 
 ## Context
 
