@@ -34,8 +34,11 @@ export interface ParsedTranscript {
   asideLabel: string;
 }
 
+/** The exact inverse of the engine's transcript escaping (agent
+ * sanitizeTranscript, adr/0235): `\\`, `\n` and `\r` decode in one
+ * left-to-right pass; a backslash before anything else is kept. */
 export function unescapeT(s: unknown): string {
-  return String(s ?? "").replace(/\\n/g, "\n").replace(/\\r/g, "\r");
+  return String(s ?? "").replace(/\\([\\nr])/g, (_, c: string) => (c === "n" ? "\n" : c === "r" ? "\r" : "\\"));
 }
 
 /** Distill a tool_result body exactly as the sidecar does live. */

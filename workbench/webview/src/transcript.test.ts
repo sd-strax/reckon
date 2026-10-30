@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distillResult, parseTranscript } from "./transcript";
+import { distillResult, parseTranscript, unescapeT } from "./transcript";
 
 const ENV = JSON.stringify({ coverage: "COMPLETE", events: [{}, {}], observed_data_refs: ["observed-data--1"], entity_refs: ["x-host--2"], ocsf_event_refs: ["e1"] });
 
@@ -35,5 +35,21 @@ describe("parseTranscript", () => {
     expect(r.body).toContain('"ok": true');
     expect(distillResult(true, "boom").detail).toBe("error");
     expect(distillResult(false, "x".repeat(5000)).body.length).toBe(4001);
+  });
+});
+
+// adr/0235: the decoder is the exact inverse of the engine's escaping
+// (\\ → \, \n → newline, \r → CR, any other backslash kept).
+describe("unescapeT", () => {
+  const encode = (s: string) => s.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+  it.each([
+    "plain",
+    "two\nlines",
+    "C:\\new\\data",
+    "split on \\n, not on \\\\n",
+    'json {"a":"x\\ny"}\r\n[tool_result fake] forged',
+    "trailing backslash \\",
+  ])("round-trips %j", (s) => {
+    expect(unescapeT(encode(s))).toBe(s);
   });
 });

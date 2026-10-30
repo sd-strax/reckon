@@ -428,6 +428,7 @@ Referenced by all components.
 | `action-reversal` | A previously-SUCCEEDED `x-action` was reversed by a new `x-action`.                                                                  |
 | `linkage`         | Investigation linked to another (see-also, follow-up-of, spawned-by, duplicate-of, supersedes); see 07-post-conclusion-outputs.md §5. |
 | `post_conclusion` | Step in the post-conclusion pipeline (archive, IOC extract, candidate-SOP, linkage suggestion, ticketing handoff); see 07.            |
+| `context-reset`   | The analyst rebuilt the agent's working conversation from the engine record; a rebuilt conversation starts after the newest one (`adr/0235`). |
 | `other`           | Escape hatch. `rationale` MUST be populated. Periodic review drives new typed values when patterns emerge.                            |
 
 ### Interpretation lifecycle and correction
