@@ -245,6 +245,12 @@
           "default": "claude-opus-4-8",
           "description": "Anthropic model the investigation agent uses (BYOK). Runs against your own API key."
         },
+        "reckon.agent.maxToolResultKB": {
+          "type": "number",
+          "default": 128,
+          "minimum": 16,
+          "description": "Size in KB one tool result may reach before the agent is shown it a page at a time, with a digest of the whole result. Larger values fill the model's context faster."
+        },
         "reckon.sidecarPath": {
           "type": "string",
           "default": "",

@@ -106,6 +106,8 @@ export interface AgentTransport {
 export interface SidecarDeps {
   backendUrl(): string;
   model(): string;
+  /** KB one tool result may reach before the model reads it a page at a time; 0 = the agent default. */
+  maxToolResultKB(): number;
   /** The BYOK key from SecretStorage; undefined lets the sidecar try its own fallback (env / OS keychain). */
   apiKey(): Thenable<string | undefined>;
   /** Short-lived access tokens from the auth session — the getToken answer. */
@@ -321,6 +323,7 @@ export class SidecarTransport implements AgentTransport {
       backend_url: this.deps.backendUrl(),
       model: this.deps.model(),
       anthropic_api_key: (await this.deps.apiKey()) ?? "",
+      max_tool_result_kb: this.deps.maxToolResultKB(),
     }) as { protocol_version?: number; backend_api_version?: number; server_version?: string };
     this.log.info(
       `sidecar ready: ${init.server_version ?? "?"} (protocol v${init.protocol_version}, backend api v${init.backend_api_version})`,

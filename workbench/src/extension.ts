@@ -43,6 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const transport = new SidecarTransport({
     backendUrl: () => backendUrl(),
     model: () => vscode.workspace.getConfiguration("reckon").get<string>("model", "claude-opus-4-8"),
+    maxToolResultKB: () => vscode.workspace.getConfiguration("reckon").get<number>("agent.maxToolResultKB", 128),
     apiKey: () => context.secrets.get(ANTHROPIC_KEY_SECRET),
     getToken: (kind, force) => session.token(kind, force),
   }, log);

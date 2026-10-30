@@ -92,6 +92,7 @@ function deps(over: Partial<SidecarDeps> = {}): SidecarDeps {
   return {
     backendUrl: () => "http://127.0.0.1:7700",
     model: () => "claude-test",
+    maxToolResultKB: () => 256,
     apiKey: async () => undefined,
     getToken: async (kind) => `tok-${kind}`,
     ...over,
@@ -121,6 +122,7 @@ describe("SidecarTransport: start", () => {
     expect([children()[0].command, ...children()[0].args]).toEqual(["reckon", "investigate", "--stdio"]);
     expect(sc.initialize).toEqual([{
       protocol_version: 1, backend_url: "http://127.0.0.1:7700", model: "claude-test", anthropic_api_key: "sk-byok",
+      max_tool_result_kb: 256,
     }]);
   });
 
