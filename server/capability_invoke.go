@@ -123,7 +123,7 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Template render failure — a tenant-config bug, not the caller's.
-		writeJSONError(w, http.StatusInternalServerError, verb+": "+err.Error())
+		writeInternalError(w, verb, err)
 		return
 	}
 
@@ -133,7 +133,7 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 	// invocation rather than minting dangling citations.
 	if b.cfg.Handler != nil {
 		if err := persistInvokeResult(r, b.cfg.Handler.DB(), res); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, verb+": persist results: "+err.Error())
+			writeInternalError(w, verb+": persist results", err)
 			return
 		}
 	}

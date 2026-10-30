@@ -441,12 +441,12 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 
 	hs, err := aggregate.ListHypotheses(r.Context(), b.cfg.Handler.DB(), invID)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "list hypotheses: "+err.Error())
+		writeInternalError(w, "list hypotheses", err)
 		return
 	}
 	ps, err := aggregate.ListPredictions(r.Context(), b.cfg.Handler.DB(), invID)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "list predictions: "+err.Error())
+		writeInternalError(w, "list predictions", err)
 		return
 	}
 

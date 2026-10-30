@@ -22,6 +22,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.Paid.Governance.Mode != "lightweight" {
 		t.Errorf("default governance mode = %q; want %q", cfg.Paid.Governance.Mode, "lightweight")
 	}
+	if cfg.Keycloak.ClientID != branding.CLI {
+		t.Errorf("default keycloak.client_id = %q; want %q (the audience check is always on, adr/0220)", cfg.Keycloak.ClientID, branding.CLI)
+	}
 	if cfg.Postgres.Port != 5435 {
 		t.Errorf("default postgres port = %d; want 5435", cfg.Postgres.Port)
 	}

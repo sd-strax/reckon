@@ -41,7 +41,7 @@ func (b *Backend) listInvestigationPins(w http.ResponseWriter, r *http.Request) 
 	}
 	pins, err := aggregate.ListEvidencePins(r.Context(), b.cfg.Handler.DB(), invID)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "list pins: "+err.Error())
+		writeInternalError(w, "list pins", err)
 		return
 	}
 	out := []PinView{}

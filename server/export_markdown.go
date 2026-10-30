@@ -46,7 +46,7 @@ func (b *Backend) getInvestigationMarkdown(w http.ResponseWriter, r *http.Reques
 			writeJSONError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, "export markdown", err)
 		return
 	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")

@@ -82,7 +82,7 @@ func (b *Backend) listInvestigationThread(w http.ResponseWriter, r *http.Request
 	}
 	out, err := b.loadThread(r.Context(), invID)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, "load thread", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"thread": out})

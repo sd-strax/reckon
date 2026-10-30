@@ -123,7 +123,7 @@ func (b *Backend) getActionRecord(w http.ResponseWriter, r *http.Request, action
 			writeJSONError(w, http.StatusNotFound, "action not found")
 			return
 		}
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, "load action record", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rec)

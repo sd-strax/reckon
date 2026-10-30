@@ -47,7 +47,7 @@ func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 
 	apps, err := aggregate.ListRefAppearances(r.Context(), b.cfg.Handler.DB(), ref)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "list appearances: "+err.Error())
+		writeInternalError(w, "list appearances", err)
 		return
 	}
 	out := []AppearanceView{}
@@ -100,16 +100,16 @@ func (b *Backend) getInterpretationTranscript(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "query interpretation: "+err.Error())
+		writeInternalError(w, "query interpretation", err)
 		return
 	}
 	if err := aggregate.CheckEventVersion(aggregate.EventTypeInterpretationRecorded, version); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, "read interpretation", err)
 		return
 	}
 	var rec aggregate.InterpretationRecorded
 	if err := json.Unmarshal(payload, &rec); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "decode interpretation: "+err.Error())
+		writeInternalError(w, "decode interpretation", err)
 		return
 	}
 	if rec.TranscriptRef == nil {
@@ -126,7 +126,7 @@ func (b *Backend) getInterpretationTranscript(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "query transcript: "+err.Error())
+		writeInternalError(w, "query transcript", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

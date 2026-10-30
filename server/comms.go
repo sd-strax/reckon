@@ -58,7 +58,7 @@ func (b *Backend) listInvestigationComms(w http.ResponseWriter, r *http.Request)
 	}
 	threads, err := b.cfg.Comms.List(r.Context(), invID, time.Now())
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "list comms: "+err.Error())
+		writeInternalError(w, "list comms", err)
 		return
 	}
 	out := make([]CommsThreadView, 0, len(threads))

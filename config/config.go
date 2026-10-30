@@ -240,12 +240,11 @@ type Keycloak struct {
 	// Realm is the bootstrap realm imported on first start.
 	// Default branding.CLI (e.g. "reckon").
 	Realm string `yaml:"realm"`
-	// ClientID, when set, locks the backend's JWT audience check to this
-	// client: tokens whose aud claim does not include it are rejected.
-	// Default empty = audience check off (dev/OSS-solo). The bundled realm's
-	// "reckon" client carries an audience mapper so `client_id: reckon` works
-	// out of the box on fresh installs; realms imported before the mapper
-	// existed need the mapper added in the Keycloak admin console first.
+	// ClientID is the audience the backend requires on every JWT: a token
+	// whose aud claim does not include it is rejected (adr/0220). The check
+	// cannot be switched off. Default branding.CLI; the bundled realm's
+	// clients stamp that audience. A realm whose tokens carry another
+	// audience sets it here.
 	ClientID string `yaml:"client_id"`
 }
 
@@ -363,6 +362,7 @@ func Default() Config {
 			HTTPPort:       8543,
 			ManagementPort: 9543,
 			Realm:          branding.CLI,
+			ClientID:       branding.CLI,
 		},
 		Backend: Backend{
 			HTTPPort: 8080,

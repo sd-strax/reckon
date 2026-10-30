@@ -212,3 +212,29 @@ func base64URLEncode(b []byte) string {
 
 // Compile-time guard against accidentally importing fmt without using it.
 var _ = fmt.Sprintf
+
+// TestVerifier_RejectsOtherAudience: a genuine token from the realm that was
+// issued for another client is refused (adr/0220).
+func TestVerifier_RejectsOtherAudience(t *testing.T) {
+	tk := newTestKeycloak(t)
+	v, err := NewVerifier(context.Background(), VerifierConfig{
+		Issuer:   tk.srv.URL,
+		ClientID: "reckon",
+	})
+	if err != nil {
+		t.Fatalf("NewVerifier: %v", err)
+	}
+	raw := tk.mintToken(t, map[string]any{"aud": "some-other-app"})
+	if _, err := v.Verify(context.Background(), raw); err == nil {
+		t.Fatal("expected error for a token issued for another audience; got nil")
+	}
+}
+
+// TestNewVerifier_RequiresClientID: there is no way to build a verifier that
+// skips the audience check (adr/0220).
+func TestNewVerifier_RequiresClientID(t *testing.T) {
+	tk := newTestKeycloak(t)
+	if _, err := NewVerifier(context.Background(), VerifierConfig{Issuer: tk.srv.URL}); err == nil {
+		t.Fatal("NewVerifier with no client id: expected error; got nil")
+	}
+}

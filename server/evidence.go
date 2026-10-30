@@ -207,14 +207,14 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "query stix object: "+err.Error())
+			writeInternalError(w, "query stix object", err)
 			return
 		}
 		v := EvidenceView{Ref: ref, Kind: "stix", Type: typ, Payload: payload}
 		if typ == "indicator" {
 			related, err := b.loadIndicatorRelated(r.Context(), ref, payload)
 			if err != nil {
-				writeJSONError(w, http.StatusInternalServerError, "query related objects: "+err.Error())
+				writeInternalError(w, "query related objects", err)
 				return
 			}
 			v.Related = related
@@ -240,7 +240,7 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "query ocsf event: "+err.Error())
+		writeInternalError(w, "query ocsf event", err)
 		return
 	}
 	v.Ref, v.Kind, v.Payload, v.Time, v.RecordedAt = ref, "ocsf", payload, &t, &rec
