@@ -255,6 +255,9 @@ export class InvestigationDocuments {
       "action.rerequest": (msg) => {
         void this.rerequest(id, panel, msg);
       },
+      "action.resolve": (msg) => {
+        void this.resolve(id, panel, msg);
+      },
       "action.reverse": (msg) => {
         void this.reverse(id, panel, msg);
       },
@@ -1298,6 +1301,18 @@ export class InvestigationDocuments {
       const decision = await this.client.rejectAction(a.actionId, msg.reason.trim() === "" ? "rejected from the workbench" : msg.reason.trim());
       void vscode.window.showInformationMessage(`reckon: ${a.actionType} → ${decision.status}`);
     }, "reject");
+  }
+
+  /** Resolve an action whose outcome is unknown (adr/0216) — human token only. */
+  private async resolve(
+    id: string,
+    panel: vscode.WebviewPanel,
+    msg: { actionId: string; outcome: "SUCCEEDED" | "FAILED"; note: string; reference?: string; artifact?: ArtifactLocation },
+  ): Promise<void> {
+    await this.decide(id, panel, msg.actionId, async (a) => {
+      const decision = await this.client.resolveAction(a.actionId, msg);
+      void vscode.window.showInformationMessage(`reckon: ${a.actionType} resolved → ${decision.status}`);
+    }, "resolve");
   }
 
   /**

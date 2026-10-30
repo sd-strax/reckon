@@ -61,10 +61,9 @@ func NewActivities(handler *aggregate.Handler, resolver *action.AtomicResolver, 
 	return &Activities{handler: handler, resolver: resolver, comms: comms}
 }
 
-// CheckDispatched is the dispatch-ledger guard (08 §6b): it reports whether the
-// action already has a dispatch recorded (status EXECUTING or terminal). A
-// re-triggered workflow sees this and short-circuits re-issue — reckon owns the
-// guarantee from its own event log, independent of the vendor honoring the key.
+// CheckDispatched is the dispatch-ledger guard (08 §6b) as workflows recorded it
+// before ActionDispatchState replaced it (adr/0216). It stays registered so a
+// workflow history that scheduled it still replays; new runs never call it.
 func (a *Activities) CheckDispatched(ctx context.Context, actionID string) (bool, error) {
 	id, err := uuid.Parse(actionID)
 	if err != nil {
@@ -84,6 +83,70 @@ func (a *Activities) CheckDispatched(ctx context.Context, actionID string) (bool
 	default:
 		return false, nil
 	}
+}
+
+// DispatchState is where an action stands when a workflow run starts: its
+// status, and the outcome on record once there is one (SUCCEEDED | FAILED |
+// PARTIAL | TIMEOUT from the result, or a person's resolution).
+type DispatchState struct {
+	Status  string
+	Outcome string
+}
+
+// ActionDispatchState is the dispatch-ledger guard (08 §6b): it reads where
+// the action stands so a run never dispatches twice. Nothing projected yet or
+// APPROVED means dispatch; EXECUTING means a dispatch is recorded with no
+// result, which a new run can only see after the run that dispatched stopped
+// (one execution per workflow id); anything later carries its recorded
+// outcome, so a restarted run returns what happened instead of nothing.
+func (a *Activities) ActionDispatchState(ctx context.Context, actionID string) (DispatchState, error) {
+	id, err := uuid.Parse(actionID)
+	if err != nil {
+		return DispatchState{}, badInput(fmt.Errorf("ActionDispatchState: bad action id: %w", err))
+	}
+	ac, err := aggregate.LoadActionCurrent(ctx, a.handler.DB(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DispatchState{}, nil
+	}
+	if err != nil {
+		return DispatchState{}, err
+	}
+	st := DispatchState{Status: ac.Status}
+	switch ac.Status {
+	case aggregate.ActionStatusSucceeded, aggregate.ActionStatusFailed, aggregate.ActionStatusReversed:
+		if st.Outcome, err = aggregate.LoadRecordedOutcome(ctx, a.handler.DB(), id); err != nil {
+			return DispatchState{}, err
+		}
+	}
+	return st, nil
+}
+
+// EmitOutcomeUnknownInput identifies the action whose outcome is unknown.
+type EmitOutcomeUnknownInput struct {
+	ActionID    string
+	AggregateID string
+	TenantID    string
+	ApproverID  string
+}
+
+// outcomeUnknownDetail is the reason recorded on an OUTCOME_UNKNOWN action,
+// read by the analyst on the card.
+const outcomeUnknownDetail = "the workflow that dispatched it stopped before recording a result, " +
+	"so whether the tool acted is unknown; check the tool, then resolve the action to what it shows"
+
+// EmitOutcomeUnknown records OUTCOME_UNKNOWN on an action dispatched by a run
+// that stopped before recording its result (adr/0216). System-emitted.
+func (a *Activities) EmitOutcomeUnknown(ctx context.Context, in EmitOutcomeUnknownInput) error {
+	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, in.ApproverID)
+	if err != nil {
+		return err
+	}
+	id, err := uuid.Parse(in.ActionID)
+	if err != nil {
+		return badInput(err)
+	}
+	_, err = a.handler.Handle(ctx, env, aggregate.RecordOutcomeUnknown{ActionID: id, Detail: outcomeUnknownDetail})
+	return emitErr(err)
 }
 
 // EmitDispatchedInput carries what EmitDispatched needs to record the ledger

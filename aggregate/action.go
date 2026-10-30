@@ -66,6 +66,9 @@ const (
 	ActionStatusSucceeded        = "SUCCEEDED"
 	ActionStatusFailed           = "FAILED"
 	ActionStatusReversed         = "REVERSED"
+	// ActionStatusOutcomeUnknown: dispatched, but the run that made the call
+	// stopped before recording a result; it waits for a person (adr/0216).
+	ActionStatusOutcomeUnknown = "OUTCOME_UNKNOWN"
 )
 
 // Trust tiers (04 §1). T0/T1 don't produce x-actions (they stay in the
@@ -382,6 +385,22 @@ func foldActionEvent(actions map[uuid.UUID]actionState, e Event) error {
 		s := get(p.OriginalActionID)
 		s.ReversalAttemptedBy = p.ReversingActionID
 		set(p.OriginalActionID, s)
+	case EventTypeActionOutcomeUnknown:
+		var p ActionOutcomeUnknown
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return fmt.Errorf("fold action.outcome_unknown seq %d: %w", e.SequenceNo, err)
+		}
+		s := get(p.ActionID)
+		s.Status = ActionStatusOutcomeUnknown
+		set(p.ActionID, s)
+	case EventTypeActionOutcomeResolved:
+		var p ActionOutcomeResolved
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return fmt.Errorf("fold action.outcome_resolved seq %d: %w", e.SequenceNo, err)
+		}
+		s := get(p.ActionID)
+		s.Status = p.Outcome
+		set(p.ActionID, s)
 	}
 	return nil
 }
@@ -639,7 +658,7 @@ func (c RecordReversalAttempt) Validate(env Envelope) error {
 // command from forging a dispatch, outcome, or reversal.
 func systemOnly(cmd Command) bool {
 	switch cmd.(type) {
-	case DispatchAction, ResultAction, ExpireAction, ReverseAction, RecordReversalAttempt:
+	case DispatchAction, ResultAction, ExpireAction, ReverseAction, RecordReversalAttempt, RecordOutcomeUnknown:
 		return true
 	default:
 		return false

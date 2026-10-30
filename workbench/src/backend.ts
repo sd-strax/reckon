@@ -1030,6 +1030,21 @@ export class BackendClient {
     return { status: r.status ?? "", exportWorkflowId: r.export_workflow_id };
   }
 
+  /**
+   * POST /api/actions/{id}/resolve — a person who checked the tool records what
+   * it shows for an action whose outcome is unknown (adr/0216). Human token only.
+   */
+  async resolveAction(
+    actionId: string,
+    body: { outcome: "SUCCEEDED" | "FAILED"; note: string; reference?: string; artifact?: ArtifactLocation },
+  ): Promise<ActionDecision> {
+    const r = await this.authedPost<{ action_id?: string; status?: string }>(
+      `/api/actions/${encodeURIComponent(actionId)}/resolve`,
+      { outcome: body.outcome, note: body.note, reference: body.reference, artifact: body.artifact },
+    );
+    return { actionId: r.action_id ?? actionId, status: r.status ?? "" };
+  }
+
   /** POST /api/actions/{id}/reject — ditto, human token only. */
   async rejectAction(actionId: string, reason: string): Promise<ActionDecision> {
     const r = await this.authedPost<{ action_id?: string; status?: string; stage?: string }>(

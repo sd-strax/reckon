@@ -423,7 +423,8 @@ Referenced by all components.
 | `action-rejection`| `x-action` denied.                                                                                                                   |
 | `action-expiry`   | `x-action` timed out unapproved (system-emitted).                                                                                    |
 | `action-dispatch` | `x-action` sent to its capability adapter (system-emitted).                                                                          |
-| `action-result`   | `x-action` terminal outcome — SUCCEEDED, FAILED, PARTIAL, TIMEOUT (system-emitted).                                                  |
+| `action-result`   | `x-action` terminal outcome — SUCCEEDED, FAILED, PARTIAL, TIMEOUT — or OUTCOME_UNKNOWN when nobody can tell (system-emitted).       |
+| `action-resolution` | A person checked the tool and resolved an OUTCOME_UNKNOWN `x-action` to SUCCEEDED or FAILED.                                     |
 | `action-reversal` | A previously-SUCCEEDED `x-action` was reversed by a new `x-action`.                                                                  |
 | `linkage`         | Investigation linked to another (see-also, follow-up-of, spawned-by, duplicate-of, supersedes); see 07-post-conclusion-outputs.md §5. |
 | `post_conclusion` | Step in the post-conclusion pipeline (archive, IOC extract, candidate-SOP, linkage suggestion, ticketing handoff); see 07.            |
@@ -569,7 +570,10 @@ x-action
                        REVERSED claim, 04-action-authorization.md §7.1)
   status              REQUESTED | PENDING_SECONDARY | APPROVED |
                       EXECUTING | SUCCEEDED | FAILED | REJECTED |
-                      EXPIRED | REVERSED
+                      EXPIRED | REVERSED | OUTCOME_UNKNOWN
+                      (OUTCOME_UNKNOWN: dispatched, but the run that made
+                       the call stopped before its result; a person
+                       resolves it, 04-action-authorization.md §6.2)
   targets             list<TargetSpec>
                       (TargetSpec = { entity_ref: StixId,
                                       resolved_identifier: string,
@@ -613,7 +617,7 @@ x-action
 **Conceptual notes:**
 
 - `x-action` is a **sibling primitive** to `x-hypothesis` and `x-prediction` — it has its own lifecycle (the `status` field) rather than being a single recorded act.
-- The producing reasoning is captured by an Interpretation of type `action-request`; subsequent state changes produce `action-approval`, `action-rejection`, `action-expiry`, `action-dispatch`, `action-result`, or `action-reversal` Interpretations. See 04-action-authorization.md §3.2 for the full state machine and §3.3 / §6 for the authorization and execution sub-records.
+- The producing reasoning is captured by an Interpretation of type `action-request`; subsequent state changes produce `action-approval`, `action-rejection`, `action-expiry`, `action-dispatch`, `action-result`, `action-resolution`, or `action-reversal` Interpretations. See 04-action-authorization.md §3.2 for the full state machine and §3.3 / §6 for the authorization and execution sub-records.
 
 
 EDGE TYPES (v0 vocabulary, open)

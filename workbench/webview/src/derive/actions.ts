@@ -16,6 +16,7 @@ export function actionStatusBadge(a: ActionRow): { label: string; tone: string }
     case "EXPIRED": return { label: "EXPIRED", tone: "warn" };
     case "APPROVED": return { label: "APPROVED", tone: "info" };
     case "EXECUTING": return { label: "DISPATCHING", tone: "info" };
+    case "OUTCOME_UNKNOWN": return { label: "OUTCOME UNKNOWN", tone: "bad" };
     default: return { label: a.status || "—", tone: "" };
   }
 }
@@ -47,6 +48,13 @@ export function canReverse(a: ActionRow, actions: ActionRow[]): boolean {
   return a.status === "SUCCEEDED" && undoable && (!reversal || reversalEnded(reversal));
 }
 
+/** Resolve is offered on an action whose outcome is unknown (adr/0216): only a
+ * person who checked the tool can say what happened, and nothing reruns it
+ * until they do. */
+export function canResolve(a: ActionRow): boolean {
+  return a.status === "OUTCOME_UNKNOWN";
+}
+
 /** The approval queue: live pending rows plus EXPIRED ones that carry the
  * re-request affordance — but not an EXPIRED action that already has a
  * successor: a dangling button would mint duplicates. */
@@ -59,7 +67,7 @@ export function pendingQueue(actions: ActionRow[]): ActionRow[] {
 export function headerLabel(engine: string, actions: ActionRow[], verdict: Verdict | null | undefined): string {
   if (engine !== "ACTIVE") return engine;
   const open = actions.some((a) => a.pending && !a.expired) ||
-    actions.some((a) => a.status === "APPROVED" || a.status === "EXECUTING");
+    actions.some((a) => a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "OUTCOME_UNKNOWN");
   if (open) return "ACTIVE · REMEDIATING";
   if (verdict) return "ACTIVE · VERDICT REACHED";
   return engine;

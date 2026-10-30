@@ -11,6 +11,10 @@ import (
 	"github.com/sd-strax/reckon/aggregate"
 )
 
+// dispatchStateChange versions the dispatch-ledger guard: histories recorded
+// before adr/0216 ran the boolean CheckDispatched, new runs ActionDispatchState.
+const dispatchStateChange = "dispatch-state"
+
 // ActionLifecycleInput is the frozen action content the workflow dispatches
 // (04 §8.1: resolution is frozen at request time). ApproverID is the human
 // principal the workflow carries onto the system-emitted events (05 §6.2).
@@ -35,8 +39,10 @@ type ActionLifecycleInput struct {
 // double-execute a real-world effect.
 //
 // Sequence:
-//  1. Dispatch-ledger guard (08 §6b): if an ActionDispatched already exists,
-//     short-circuit — never re-issue.
+//  1. Dispatch-ledger guard (08 §6b): read where the action stands. A dispatch
+//     recorded with no result means the run that made the call stopped, so the
+//     outcome is unknown: record OUTCOME_UNKNOWN and never re-issue (adr/0216).
+//     An action that already has an outcome returns it.
 //  2. Record ActionDispatched BEFORE the outbound call (the ledger entry the
 //     guard reads), with adapter_request_id = the workflow id (05 §6.2).
 //  3. Dispatch through the action resolver under the retry budget (04 §6.1:
@@ -60,13 +66,42 @@ func ActionLifecycle(ctx workflow.Context, in ActionLifecycleInput) (string, err
 	var a *Activities // nil receiver — Temporal resolves activities by name
 
 	// 1. Dispatch-ledger guard.
-	var alreadyDispatched bool
-	if err := workflow.ExecuteActivity(ctx, a.CheckDispatched, in.ActionID).Get(ctx, &alreadyDispatched); err != nil {
-		return "", err
-	}
-	if alreadyDispatched {
-		log.Info("action already dispatched; short-circuiting (idempotency guard)", "action_id", in.ActionID)
-		return "", nil
+	if v := workflow.GetVersion(ctx, dispatchStateChange, workflow.DefaultVersion, 1); v == workflow.DefaultVersion {
+		// A history recorded before adr/0216 replays the boolean guard.
+		var alreadyDispatched bool
+		if err := workflow.ExecuteActivity(ctx, a.CheckDispatched, in.ActionID).Get(ctx, &alreadyDispatched); err != nil {
+			return "", err
+		}
+		if alreadyDispatched {
+			log.Info("action already dispatched; short-circuiting (idempotency guard)", "action_id", in.ActionID)
+			return "", nil
+		}
+	} else {
+		var st DispatchState
+		if err := workflow.ExecuteActivity(ctx, a.ActionDispatchState, in.ActionID).Get(ctx, &st); err != nil {
+			return "", err
+		}
+		switch st.Status {
+		case aggregate.ActionStatusExecuting:
+			// Dispatched, no result, and no other run can be live: the run that
+			// made the call stopped. Whether the tool acted is unknown, and
+			// dispatching again could do it twice. Say so and wait for a person.
+			log.Warn("dispatch recorded with no result; outcome unknown", "action_id", in.ActionID)
+			if err := workflow.ExecuteActivity(ctx, a.EmitOutcomeUnknown, EmitOutcomeUnknownInput{
+				ActionID:    in.ActionID,
+				AggregateID: in.AggregateID,
+				TenantID:    in.TenantID,
+				ApproverID:  in.ApproverID,
+			}).Get(ctx, nil); err != nil {
+				return "", err
+			}
+			return aggregate.ActionStatusOutcomeUnknown, nil
+		case aggregate.ActionStatusOutcomeUnknown:
+			return aggregate.ActionStatusOutcomeUnknown, nil
+		case aggregate.ActionStatusSucceeded, aggregate.ActionStatusFailed, aggregate.ActionStatusReversed:
+			log.Info("action already has an outcome; returning it (idempotency guard)", "action_id", in.ActionID, "outcome", st.Outcome)
+			return st.Outcome, nil
+		}
 	}
 
 	requestID := workflow.GetInfo(ctx).WorkflowExecution.ID

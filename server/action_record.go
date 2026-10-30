@@ -29,7 +29,20 @@ type ActionRecordView struct {
 	History       []ActionHistoryEntry `json:"history"`
 	Authorization ActionAuthorization  `json:"authorization"`
 	Result        *ActionResultView    `json:"result,omitempty"`
-	Links         ActionLinks          `json:"links"`
+	// Resolution is a person's resolution of an unknown outcome (adr/0216):
+	// what they found, what they checked, and where the evidence is.
+	Resolution *ActionResolutionView `json:"resolution,omitempty"`
+	Links      ActionLinks           `json:"links"`
+}
+
+// ActionResolutionView is what a person recorded when they resolved an
+// OUTCOME_UNKNOWN action after checking the tool.
+type ActionResolutionView struct {
+	Outcome   string                      `json:"outcome"`
+	Note      string                      `json:"note"`
+	Reference string                      `json:"reference,omitempty"`
+	Artifact  *aggregate.ArtifactLocation `json:"artifact,omitempty"`
+	By        ActionApproverView          `json:"by"`
 }
 
 // ActionHistoryEntry is one action.* event on the action, in sequence order.
@@ -289,6 +302,24 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 			var p aggregate.ActionReversalAttempted
 			_ = json.Unmarshal(payloadRaw, &p)
 			entry.Detail = "reversal attempted by " + p.ReversingActionID.String() + " — effect not verified; status unchanged"
+		case aggregate.EventTypeActionOutcomeUnknown:
+			var p aggregate.ActionOutcomeUnknown
+			_ = json.Unmarshal(payloadRaw, &p)
+			entry.Status = aggregate.ActionStatusOutcomeUnknown
+			entry.Detail = p.Detail
+		case aggregate.EventTypeActionOutcomeResolved:
+			var p aggregate.ActionOutcomeResolved
+			_ = json.Unmarshal(payloadRaw, &p)
+			entry.Status = p.Outcome
+			by := ActionApproverView{Principal: actor.PrincipalID, Name: actor.PrincipalName, At: at}
+			out.Resolution = &ActionResolutionView{
+				Outcome: p.Outcome, Note: p.Note, Reference: p.Reference, Artifact: p.Artifact, By: by,
+			}
+			who := by.Name
+			if who == "" {
+				who = by.Principal
+			}
+			entry.Detail = "resolved " + p.Outcome + " by " + who + " after checking the tool: " + p.Note
 		}
 		out.History = append(out.History, entry)
 	}

@@ -63,19 +63,31 @@ func (c *Client) Close() { c.c.Close() }
 // StartActionLifecycle starts (fire-and-forget) the ActionLifecycle workflow
 // for an approved action and returns the workflow id (which becomes the
 // adapter_request_id, 05 §6.2). The workflow id is derived from the action id,
-// so a duplicate trigger while one is running is rejected by Temporal — a second
-// idempotency layer above the dispatch-ledger guard (08 §6b). Does not block on
-// the workflow's completion; the lifecycle runs durably.
+// so a trigger while a run is live is refused by Temporal — a second
+// idempotency layer above the dispatch-ledger guard (08 §6b) — and that refusal
+// is success here: the live run owns the action, so starting it from the
+// approval path and from the stranded-action sweep is safe (adr/0216). Does not
+// block on the workflow's completion; the lifecycle runs durably.
 func (c *Client) StartActionLifecycle(ctx context.Context, in ActionLifecycleInput) (string, error) {
 	id := "action-lifecycle-" + in.ActionID
-	run, err := c.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
-		ID:        id,
-		TaskQueue: c.taskQueue,
-	}, WorkflowActionLifecycle, in)
-	if err != nil {
+	if err := c.startOnce(ctx, id, WorkflowActionLifecycle, in); err != nil {
 		return "", fmt.Errorf("start ActionLifecycle for %s: %w", in.ActionID, err)
 	}
-	return run.GetID(), nil
+	return id, nil
+}
+
+// startOnce starts a workflow under a fixed id, treating a run already live
+// under that id as started.
+func (c *Client) startOnce(ctx context.Context, id string, workflowType string, in any) error {
+	_, err := c.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        id,
+		TaskQueue: c.taskQueue,
+	}, workflowType, in)
+	var already *serviceerror.WorkflowExecutionAlreadyStarted
+	if errors.As(err, &already) {
+		return nil
+	}
+	return err
 }
 
 // StartActionExpiryTimer starts (fire-and-forget) the durable expiry timer for
@@ -84,15 +96,7 @@ func (c *Client) StartActionLifecycle(ctx context.Context, in ActionLifecycleInp
 // rejected by Temporal and swallowed here. An already-elapsed deadline fires
 // the timer immediately.
 func (c *Client) StartActionExpiryTimer(ctx context.Context, in ActionExpiryTimerInput) error {
-	_, err := c.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
-		ID:        "action-expiry-" + in.ActionID,
-		TaskQueue: c.taskQueue,
-	}, WorkflowActionExpiryTimer, in)
-	var already *serviceerror.WorkflowExecutionAlreadyStarted
-	if errors.As(err, &already) {
-		return nil // the timer is running — exactly what we wanted
-	}
-	if err != nil {
+	if err := c.startOnce(ctx, "action-expiry-"+in.ActionID, WorkflowActionExpiryTimer, in); err != nil {
 		return fmt.Errorf("start ActionExpiryTimer for %s: %w", in.ActionID, err)
 	}
 	return nil
@@ -100,17 +104,14 @@ func (c *Client) StartActionExpiryTimer(ctx context.Context, in ActionExpiryTime
 
 // StartReversalSaga starts (fire-and-forget) the ReversalSaga for a reversal
 // action, returning the workflow id. Like StartActionLifecycle, the id is
-// derived from the reversing action id so a duplicate trigger is rejected.
+// derived from the reversing action id, and a run already live under it counts
+// as started.
 func (c *Client) StartReversalSaga(ctx context.Context, in ReversalSagaInput) (string, error) {
 	id := "reversal-saga-" + in.Reversing.ActionID
-	run, err := c.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
-		ID:        id,
-		TaskQueue: c.taskQueue,
-	}, WorkflowReversalSaga, in)
-	if err != nil {
+	if err := c.startOnce(ctx, id, WorkflowReversalSaga, in); err != nil {
 		return "", fmt.Errorf("start ReversalSaga for %s: %w", in.Reversing.ActionID, err)
 	}
-	return run.GetID(), nil
+	return id, nil
 }
 
 // StartPostConclusionPipeline starts (fire-and-forget) the post-conclusion

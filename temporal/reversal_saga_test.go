@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"go.temporal.io/sdk/testsuite"
+
+	"github.com/sd-strax/reckon/aggregate"
 )
 
 // TestReversalSaga_SucceededReverses: when the reversing action's
@@ -111,4 +113,27 @@ func TestReversalSaga_FailedDoesNotReverse(t *testing.T) {
 		t.Fatalf("saga not clean: err=%v", env.GetWorkflowError())
 	}
 	env.AssertNotCalled(t, "EmitReversed", mock.Anything, mock.Anything)
+}
+
+// TestReversalSaga_UnknownDoesNotReverse: a reversing action whose outcome is
+// unknown leaves the original untouched; nobody knows the undo happened
+// (adr/0216).
+func TestReversalSaga_UnknownDoesNotReverse(t *testing.T) {
+	ts := &testsuite.WorkflowTestSuite{}
+	env := ts.NewTestWorkflowEnvironment()
+
+	env.OnWorkflow(ActionLifecycle, mock.Anything, mock.Anything).Return(aggregate.ActionStatusOutcomeUnknown, nil)
+	// EmitReversed / EmitReversalAttempted intentionally NOT mocked.
+
+	env.ExecuteWorkflow(ReversalSaga, ReversalSagaInput{
+		OriginalActionID: "orig-42",
+		Reversing:        lifecycleInput(),
+		OriginalReliable: true,
+	})
+
+	if !env.IsWorkflowCompleted() || env.GetWorkflowError() != nil {
+		t.Fatalf("saga not clean: err=%v", env.GetWorkflowError())
+	}
+	env.AssertNotCalled(t, "EmitReversed", mock.Anything, mock.Anything)
+	env.AssertNotCalled(t, "EmitReversalAttempted", mock.Anything, mock.Anything)
 }
