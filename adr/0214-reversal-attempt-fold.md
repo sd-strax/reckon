@@ -1,6 +1,6 @@
 # 0214 — The write-side fold records a reversal attempt, and refuses an event type it does not know
 
-Issue: #214 · PR: TBD · Status: accepted
+Issue: #214 · PR: #264 · Status: accepted
 
 ## Context
 
