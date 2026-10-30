@@ -1,6 +1,6 @@
 # 0234 — Summary and SOP-draft completions take a turn's path into the model
 
-Issue: #234 · PR: TBD · Status: accepted
+Issue: #234 · PR: #274 · Status: accepted
 
 ## Context
 
