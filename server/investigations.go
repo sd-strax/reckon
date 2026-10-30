@@ -163,7 +163,7 @@ func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
 		 FROM investigation_current i
 		 ORDER BY i.updated_at DESC LIMIT 200`)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "query: "+err.Error())
+		writeInternalError(w, "query", err)
 		return
 	}
 	defer rows.Close()
@@ -176,7 +176,7 @@ func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
 		var seedRaw []byte
 		if err := rows.Scan(&id, &v.Title, &v.Status, &v.LastEventSequence, &v.SeedSummary,
 			&updatedAt, &v.PendingActions, &nearest, &v.HasVerdict, &v.OpenActions, &v.OpenNotifications, &seedRaw); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "scan: "+err.Error())
+			writeInternalError(w, "scan", err)
 			return
 		}
 		v.AggregateID = id.String()
@@ -217,7 +217,7 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, "load investigation", err)
 		return
 	}
 	view := InvestigationView{
@@ -303,7 +303,7 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 		// open or concluded — opens that investigation; a concluded one is
 		// reopened, not started again.
 		if existing, err := b.investigationForCase(r, seed.CaseID); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "look up investigations: "+err.Error())
+			writeInternalError(w, "look up investigations", err)
 			return
 		} else if existing != "" {
 			writeJSON(w, http.StatusConflict, map[string]string{

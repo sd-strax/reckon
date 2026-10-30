@@ -9,11 +9,14 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -62,9 +65,8 @@ type BackendConfig struct {
 	// exists — and (2) constructs an authz.Verifier from this URL.
 	KeycloakIssuer string
 
-	// KeycloakClientID, if set, locks the Verifier's audience check to this
-	// client. Empty string disables aud-check (acceptable in OSS-solo dev;
-	// production paid deployments wire the real client_id).
+	// KeycloakClientID is the audience the Verifier requires on every token
+	// (adr/0220). Required; Start fails without it.
 	KeycloakClientID string
 
 	// KeycloakLoginClientID is the public OIDC client the interactive human
@@ -176,7 +178,6 @@ type BackendConfig struct {
 	// enabling ref so the aggregate permits full AI-driven hypothesis analysis.
 	AllowAIReasoning bool
 
-
 	// HypothesisFraming is the effective competing-hypotheses dial
 	// (config.Reasoning.HypothesisFraming: "leading_null" default |
 	// "leading_only"), surfaced to the agent on the investigation detail view
@@ -275,9 +276,8 @@ func (b *Backend) Start(ctx context.Context) error {
 	}
 
 	verifier, err := authz.NewVerifier(ctx, authz.VerifierConfig{
-		Issuer:            b.cfg.KeycloakIssuer,
-		ClientID:          b.cfg.KeycloakClientID,
-		SkipClientIDCheck: b.cfg.KeycloakClientID == "",
+		Issuer:   b.cfg.KeycloakIssuer,
+		ClientID: b.cfg.KeycloakClientID,
 	})
 	if err != nil {
 		return fmt.Errorf("init verifier: %w", err)
@@ -986,6 +986,27 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]any{"error": msg})
 }
 
+// writeInternalError answers a server-side failure with a 500 that names what
+// failed but not why (adr/0220): the error text can carry table, constraint
+// and connection details the client has no use for. The cause is logged with a
+// short reference, and the same reference rides the response so a reported
+// failure can be found in the log.
+func writeInternalError(w http.ResponseWriter, what string, err error) {
+	ref := newErrorRef()
+	slog.Error("internal error", "what", what, "ref", ref, "err", err)
+	writeJSON(w, http.StatusInternalServerError, map[string]any{
+		"error": what + ": internal error (ref " + ref + ")",
+		"ref":   ref,
+	})
+}
+
+// newErrorRef returns a short random reference for one internal error.
+func newErrorRef() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
 // methodNotAllowed writes the 405 + Allow-header pair every route uses for an
 // unsupported method.
 func methodNotAllowed(w http.ResponseWriter, allow string) {
@@ -1013,6 +1034,6 @@ func writeCommandError(w http.ResponseWriter, action string, err error) {
 	case errors.As(err, &rejected):
 		writeJSONError(w, http.StatusUnprocessableEntity, action+": "+err.Error())
 	default:
-		writeJSONError(w, http.StatusInternalServerError, action+": "+err.Error())
+		writeInternalError(w, action, err)
 	}
 }

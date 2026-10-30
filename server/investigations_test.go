@@ -146,6 +146,7 @@ func mintToken(t *testing.T, override map[string]any) string {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss":                testIssuerSrv.URL,
+		"aud":                "reckon",
 		"sub":                "test-subject",
 		"exp":                now.Add(time.Hour).Unix(),
 		"iat":                now.Unix(),
@@ -167,8 +168,8 @@ func mintToken(t *testing.T, override map[string]any) string {
 func newTestBackend(t *testing.T) *Backend {
 	t.Helper()
 	v, err := authz.NewVerifier(context.Background(), authz.VerifierConfig{
-		Issuer:            testIssuerSrv.URL,
-		SkipClientIDCheck: true,
+		Issuer:   testIssuerSrv.URL,
+		ClientID: "reckon",
 	})
 	if err != nil {
 		t.Fatalf("NewVerifier: %v", err)

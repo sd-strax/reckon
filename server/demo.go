@@ -58,7 +58,7 @@ func (b *Backend) seedDemoKnowledge(w http.ResponseWriter, r *http.Request) {
 		}
 		state, err := b.demoInstallState(r.Context())
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "check install state: "+err.Error())
+			writeInternalError(w, "check install state", err)
 			return
 		}
 		if state.Investigations > 0 || state.SOPs > 0 {
@@ -73,7 +73,7 @@ func (b *Backend) seedDemoKnowledge(w http.ResponseWriter, r *http.Request) {
 
 		res, err := b.loadDemoKnowledge(r.Context())
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "seed knowledge: "+err.Error())
+			writeInternalError(w, "seed knowledge", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, res)

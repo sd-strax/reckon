@@ -27,15 +27,10 @@ type VerifierConfig struct {
 	// "http://localhost:8543/realms/reckon".
 	Issuer string
 
-	// ClientID identifies the OIDC client whose tokens we accept. For the
-	// bundled deployment this is "reckon". Set to empty string to disable
-	// audience checking (useful in tests; not recommended in production).
+	// ClientID is the audience every accepted token must carry in its aud
+	// claim. Required: the audience check is never skipped (adr/0220). For
+	// the bundled deployment this is "reckon".
 	ClientID string
-
-	// SkipClientIDCheck disables the `aud` claim check entirely. Useful for
-	// dev / tests where a Keycloak direct-grant token's `aud` may not match
-	// the client_id. Production deployments leave this false.
-	SkipClientIDCheck bool
 }
 
 // NewVerifier discovers the issuer's JWKS and returns a Verifier ready to
@@ -44,14 +39,14 @@ func NewVerifier(ctx context.Context, cfg VerifierConfig) (*Verifier, error) {
 	if cfg.Issuer == "" {
 		return nil, errors.New("authz: issuer URL is required")
 	}
+	if cfg.ClientID == "" {
+		return nil, errors.New("authz: client id (the required token audience) is required")
+	}
 	provider, err := oidc.NewProvider(ctx, cfg.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("oidc discovery: %w", err)
 	}
-	oidcConfig := &oidc.Config{
-		ClientID:          cfg.ClientID,
-		SkipClientIDCheck: cfg.SkipClientIDCheck,
-	}
+	oidcConfig := &oidc.Config{ClientID: cfg.ClientID}
 	return &Verifier{
 		verifier: provider.Verifier(oidcConfig),
 		clientID: cfg.ClientID,
