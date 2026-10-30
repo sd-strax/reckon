@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -50,7 +52,11 @@ type Config struct {
 	InvestigationID string
 	MaxToolRounds   int
 	MaxTokens       int
-	Hooks           Hooks
+	// MaxToolResultBytes bounds one tool result fed back to the model; a
+	// larger one is shown a page at a time (adr/0209). Zero means
+	// DefaultMaxToolResultBytes.
+	MaxToolResultBytes int
+	Hooks              Hooks
 	// Clock is the engine's notion of now, stamped on every turn as a [clock]
 	// block (state.go) and used wherever a tool result pre-judges time for the
 	// model (list_actions' expired flag). nil means time.Now; tests fix it.
@@ -65,12 +71,15 @@ type Session struct {
 	investigationID string
 	maxRounds       int
 	maxTokens       int
+	maxResultBytes  int
 	hooks           Hooks
 	now             func() time.Time
 
 	system   string
 	tools    []ToolDef
 	messages []Message
+	// results holds large tool results the model reads in pages (adr/0209).
+	results resultStore
 
 	// Standing context (refreshContext is the only writer) and the hypothesis
 	// set as last read (refreshHypotheses, every turn). hyps never enters the
@@ -141,6 +150,7 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 		investigationID: cfg.InvestigationID,
 		maxRounds:       cfg.MaxToolRounds,
 		maxTokens:       cfg.MaxTokens,
+		maxResultBytes:  cfg.MaxToolResultBytes,
 		hooks:           cfg.Hooks,
 		now:             cfg.Clock,
 		// The investigation id is always a legit engine id — never a fabrication
@@ -152,6 +162,9 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 	}
 	if s.maxTokens <= 0 {
 		s.maxTokens = defaultMaxTokens
+	}
+	if s.maxResultBytes <= 0 {
+		s.maxResultBytes = DefaultMaxToolResultBytes
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -237,6 +250,7 @@ func (s *Session) ResetContext(ctx context.Context) error {
 		return err
 	}
 	s.messages = nil
+	s.results.clear()                     // the model no longer holds the result ids
 	s.turnsSinceAnchor = anchorEveryTurns // anchor immediately on the next turn
 
 	// Durability: without the marker, the next sidecar respawn would rehydrate
@@ -436,10 +450,14 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 			}, fmt.Errorf("agent: model call: %w", err)
 		}
 		turnUsage.Add(resp.Usage)
-		s.messages = append(s.messages, Message{Role: RoleAssistant, Content: resp.Content})
+		// History must stay serializable: a call whose input is not a JSON
+		// object (a max_tokens cut-off mid-input) enters it as {} and never runs.
+		assistant, cutOff := sealToolInputs(resp.Content)
+		s.messages = append(s.messages, Message{Role: RoleAssistant, Content: assistant})
 
 		var toolUses []ContentBlock
-		for _, blk := range resp.Content {
+		var cutResults []ContentBlock
+		for _, blk := range assistant {
 			switch blk.Type {
 			case BlockText:
 				if blk.Text != "" {
@@ -452,6 +470,12 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 					}
 				}
 			case BlockToolUse:
+				if n, cut := cutOff[blk.ToolUseID]; cut {
+					fmt.Fprintf(&transcript, "[tool_use %s id=%s] input cut off after %d bytes; not run\n",
+						sanitizeTranscript(blk.ToolName), sanitizeTranscript(blk.ToolUseID), n)
+					cutResults = append(cutResults, abandonedResults(&transcript, []ContentBlock{blk}, cutOffReason)...)
+					continue
+				}
 				toolUses = append(toolUses, blk)
 			}
 		}
@@ -462,17 +486,19 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 			// answered by a tool_result, or the NEXT turn's model call — this
 			// session's message history is reused across turns — is a contract
 			// violation the provider rejects. Close them off.
-			s.abandonToolUses(&transcript, toolUses, "turn ended before this tool was dispatched")
+			s.answerToolUses(append(cutResults,
+				abandonedResults(&transcript, toolUses, "turn ended before this tool was dispatched")...))
 			break
 		}
 		rounds++
 		if rounds > s.maxRounds {
 			fmt.Fprintf(&transcript, "[loop] tool budget exhausted after %d rounds\n", s.maxRounds)
-			s.abandonToolUses(&transcript, toolUses, "tool budget exhausted; tool not dispatched")
+			s.answerToolUses(append(cutResults,
+				abandonedResults(&transcript, toolUses, "tool budget exhausted; tool not dispatched")...))
 			break
 		}
 
-		var results []ContentBlock
+		results := cutResults
 		for _, tu := range toolUses {
 			fmt.Fprintf(&transcript, "[tool_use %s id=%s] %s\n",
 				sanitizeTranscript(tu.ToolName), sanitizeTranscript(tu.ToolUseID), sanitizeTranscript(string(tu.Input)))
@@ -860,17 +886,54 @@ func (s *Session) refreshPending(ctx context.Context) []ActionStatus {
 	return out
 }
 
-// abandonToolUses closes off tool calls the turn accepted but is breaking away
-// from without dispatching (the round budget is spent, or the model stopped
-// mid-tool_use on max_tokens). The Messages API requires every tool_use to be
-// answered by a tool_result; because the session reuses its message history
-// across turns, a dangling tool_use would make every subsequent turn's model
-// call fail. Synthetic is_error results keep the conversation valid and tell the
-// model why the call did not run.
-func (s *Session) abandonToolUses(transcript *strings.Builder, toolUses []ContentBlock, reason string) {
-	if len(toolUses) == 0 {
-		return
+// cutOffReason answers a tool call whose input did not arrive whole.
+const cutOffReason = "this call's input was cut off at the output limit and was not run; " +
+	"issue it again with a shorter input"
+
+// sealToolInputs returns content with every tool_use input that is not a JSON
+// object replaced by {}, and the byte length each such input arrived with,
+// keyed by tool_use id. A stream stopped on max_tokens mid-tool_use delivers
+// the input JSON unfinished; kept as received it would fail to marshal on every
+// later model call, since the session reuses its history across turns. The
+// input is never repaired: closing the brackets would invent arguments the
+// model did not finish (half a target list), so a sealed call is not run.
+// An empty input is a call with no arguments, not a cut-off.
+func sealToolInputs(content []ContentBlock) ([]ContentBlock, map[string]int) {
+	var cutOff map[string]int
+	var out []ContentBlock
+	for i, blk := range content {
+		if blk.Type != BlockToolUse || isJSONObject(blk.Input) {
+			continue
+		}
+		if out == nil {
+			out = slices.Clone(content)
+			cutOff = map[string]int{}
+		}
+		if len(blk.Input) > 0 {
+			cutOff[blk.ToolUseID] = len(blk.Input)
+		}
+		out[i].Input = json.RawMessage(`{}`)
 	}
+	if out == nil {
+		return content, nil
+	}
+	return out, cutOff
+}
+
+// isJSONObject reports whether raw is a well-formed JSON object.
+func isJSONObject(raw json.RawMessage) bool {
+	t := bytes.TrimSpace(raw)
+	return len(t) > 0 && t[0] == '{' && json.Valid(t)
+}
+
+// abandonedResults closes off tool calls the turn accepted but will not
+// dispatch (the round budget is spent, the model stopped mid-tool_use on
+// max_tokens, or the input was cut off). The Messages API requires every
+// tool_use to be answered by a tool_result; because the session reuses its
+// message history across turns, a dangling tool_use would make every
+// subsequent turn's model call fail. Synthetic is_error results keep the
+// conversation valid and tell the model why the call did not run.
+func abandonedResults(transcript *strings.Builder, toolUses []ContentBlock, reason string) []ContentBlock {
 	results := make([]ContentBlock, 0, len(toolUses))
 	for _, tu := range toolUses {
 		fmt.Fprintf(transcript, "[tool_result %s id=%s error=true] %s\n",
@@ -881,6 +944,15 @@ func (s *Session) abandonToolUses(transcript *strings.Builder, toolUses []Conten
 			Content:   reason,
 			IsError:   true,
 		})
+	}
+	return results
+}
+
+// answerToolUses appends the tool results that answer the last assistant
+// message, as one user message.
+func (s *Session) answerToolUses(results []ContentBlock) {
+	if len(results) == 0 {
+		return
 	}
 	s.messages = append(s.messages, Message{Role: RoleUser, Content: results})
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,9 +101,10 @@ func runInvestigate(invID string) error {
 	r := &repl{client: client, invID: invID}
 
 	session, err := agent.NewSession(ctx, agent.Config{
-		Backend:         client,
-		LLM:             llm,
-		InvestigationID: invID,
+		Backend:            client,
+		LLM:                llm,
+		InvestigationID:    invID,
+		MaxToolResultBytes: maxToolResultKB() << 10,
 		Hooks: agent.Hooks{
 			// OnText fires only when the provider cannot stream (agent.Hooks
 			// contract); with Anthropic the deltas below carry the text.
@@ -447,4 +449,15 @@ func clip(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// maxToolResultKB reads RECKON_MAX_TOOL_RESULT_KB, the size one tool result
+// may reach before the model is shown it a page at a time (adr/0209). Unset or
+// invalid means the agent default.
+func maxToolResultKB() int {
+	n, err := strconv.Atoi(os.Getenv("RECKON_MAX_TOOL_RESULT_KB"))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }

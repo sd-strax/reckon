@@ -22,11 +22,8 @@ const (
 	ToolRecordPredictionOutcome = "record_prediction_outcome"
 	ToolRequestAction           = "request_action"
 	ToolListActions             = "list_actions"
+	ToolReadResult              = "read_result"
 )
-
-// maxToolResultBytes bounds a tool result fed back to the model. Fixture
-// envelopes are small; the cap guards a future real adapter returning bulk.
-const maxToolResultBytes = 64 << 10
 
 // buildTools assembles the session's tool definitions: one tool per AVAILABLE
 // capability verb (unavailable/degraded verbs are trimmed, 03 §6.3 — the model
@@ -206,6 +203,17 @@ func intrinsicTools(actionTypes []ActionType) []ToolDef {
 			Name:        ToolListActions,
 			Description: "List this investigation's requested actions with their CURRENT engine status (REQUESTED = awaiting the analyst's approval in this surface; APPROVED/EXECUTING/SUCCEEDED/FAILED/REJECTED/EXPIRED/REVERSED/OUTCOME_UNKNOWN). Use this for ground truth about whether an action was approved or executed — never assume. OUTCOME_UNKNOWN means the action was dispatched but nobody knows whether the tool acted: say so, and leave it to the analyst, who checks the tool and resolves it; never request it again while it is unknown. Each row carries a computed `expired` flag (and the result carries `now`): expired=true means the approval window elapsed and the engine will refuse an approve even though status may still read REQUESTED — such an action is dead; a new request is the only way forward.",
 			InputSchema: obj(map[string]any{}),
+		},
+		{
+			Name: ToolReadResult,
+			Description: "Read another page of a tool result too large to return whole. Such a result carries " +
+				"result_bounded with a result_id, the returned/total count of each list, next_offset, and on the " +
+				"first page an exact digest of the whole result. Pass the result_id and next_offset; every page " +
+				"comes from the same snapshot. Read only what the question needs, or narrow the original query instead.",
+			InputSchema: obj(map[string]any{
+				"result_id": str("the result_id from result_bounded"),
+				"offset":    map[string]any{"type": "integer", "description": "the item offset to start from: next_offset from the previous page"},
+			}, "result_id", "offset"),
 		},
 	}
 }
@@ -406,10 +414,10 @@ func (s *Session) dispatchTool(ctx context.Context, name string, input json.RawM
 		}
 		return "tool dispatch failed: " + err.Error(), true
 	}
-	if len(out) > maxToolResultBytes {
-		out = append(out[:maxToolResultBytes], []byte(`… [truncated]`)...)
+	if name == ToolReadResult {
+		return string(out), false // already a page
 	}
-	return string(out), false
+	return string(s.boundResult(out)), false
 }
 
 func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessage) ([]byte, error) {
@@ -585,6 +593,9 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 		}
 		s.pendingActions = append(s.pendingActions, resp)
 		return json.Marshal(resp)
+
+	case ToolReadResult:
+		return s.readResult(input)
 
 	case ToolListActions:
 		acts, err := s.backend.ListActions(ctx, s.investigationID)

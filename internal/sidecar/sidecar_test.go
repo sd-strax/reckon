@@ -636,3 +636,15 @@ func TestServe_CancelAbortsTurn(t *testing.T) {
 		t.Fatal("turn did not return after cancel")
 	}
 }
+
+// TestSummarizeEnvelope_PagedResultCountsWhole: a result the model reads a
+// page at a time (adr/0209) reports the whole result's event count, not the
+// page's.
+func TestSummarizeEnvelope_PagedResultCountsWhole(t *testing.T) {
+	page := `{"coverage":"COMPLETE","events":[{"id":"e1"},{"id":"e2"}],"ocsf_event_refs":["e1","e2"],` +
+		`"result_bounded":{"result_id":"res-1","lists":{"events":{"returned":2,"total":2000}}}}`
+	cov, n, refs, ok := summarizeEnvelope(page)
+	if !ok || cov != "COMPLETE" || n != 2000 || len(refs) != 2 {
+		t.Errorf("got coverage=%q count=%d refs=%v ok=%v; want COMPLETE, 2000, the page's 2 refs", cov, n, refs, ok)
+	}
+}
