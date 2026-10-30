@@ -174,7 +174,7 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 	// name the original as original_action_id; they belong to the original's
 	// history too (the reversed / reversal_attempted transitions).
 	rows, err := db.QueryContext(ctx, `
-		SELECT sequence_no, event_type, occurred_at, actor, payload
+		SELECT sequence_no, event_type, occurred_at, actor, payload, event_version
 		FROM events
 		WHERE aggregate_id = $1
 		  AND event_type LIKE 'action.%'
@@ -191,9 +191,13 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 			at         time.Time
 			actorRaw   []byte
 			payloadRaw []byte
+			version    int
 		)
-		if err := rows.Scan(&seq, &typ, &at, &actorRaw, &payloadRaw); err != nil {
+		if err := rows.Scan(&seq, &typ, &at, &actorRaw, &payloadRaw, &version); err != nil {
 			return ActionRecordView{}, fmt.Errorf("scan action event: %w", err)
+		}
+		if err := aggregate.CheckEventVersion(typ, version); err != nil {
+			return ActionRecordView{}, err
 		}
 		var actor aggregate.Actor
 		_ = json.Unmarshal(actorRaw, &actor)

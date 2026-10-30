@@ -11,6 +11,8 @@ package aggregate
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,9 +45,9 @@ type Event struct {
 	EventID uuid.UUID `json:"event_id"`
 
 	// Version is the payload schema version for this event type
-	// (02-persistence.md §5). Bump per event type when its payload shape
-	// changes, and upcast old versions at read time. Everything is version 1
-	// today (schemaVersion).
+	// (02-persistence.md §5). Every reader of a payload passes it through
+	// CheckEventVersion, so a version this binary does not know is an error,
+	// never a silent misread. Everything is version 1 today (schemaVersion).
 	Version int `json:"event_version"`
 
 	// RecordedAt is the DB-stamped write time, as opposed to the
@@ -69,6 +71,25 @@ type Event struct {
 // built by this package (Event.Version). Bump per event type — not globally —
 // when a payload shape changes; see 02-persistence.md §5.
 const schemaVersion = 1
+
+// ErrUnknownEventVersion is returned for an event whose payload version this
+// binary does not know how to read.
+var ErrUnknownEventVersion = errors.New("unknown event payload version")
+
+// CheckEventVersion is the one place a payload version is checked (adr/0217).
+// Every code path that reads an event's payload calls it first: the store's
+// row scan, and each query that reads payloads from the events table
+// directly. Every event type is at schemaVersion today. A payload shape
+// change raises its type's version here and adds the upcaster that reads the
+// older versions into the new shape, at the same time; until then an older
+// or newer payload stops the read instead of being decoded as the wrong
+// shape.
+func CheckEventVersion(eventType string, version int) error {
+	if version != schemaVersion {
+		return fmt.Errorf("%w: %s at version %d (this binary reads %d)", ErrUnknownEventVersion, eventType, version, schemaVersion)
+	}
+	return nil
+}
 
 // Envelope is the request-time metadata accompanying every command. TenantID is
 // resolved at the request boundary (module.TenancyModule.ResolveTenant; the OSS

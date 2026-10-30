@@ -263,10 +263,10 @@ func TestRerequestAction(t *testing.T) {
 		t.Fatalf("re-request of a live action = %d; want 422", resp.StatusCode)
 	}
 
-	// Expire it (SYSTEM actor, as the Temporal timer does).
+	// Expire it (SYSTEM actor on the requester's behalf, as the Temporal timer does).
 	expEnv := aggregate.Envelope{
 		AggregateID: invID, TenantID: module.SingleTenantUUID, CorrelationID: uuid.New(),
-		Actor: aggregate.Actor{PrincipalID: "system", Kind: aggregate.ActorSystem}, OccurredAt: time.Now().UTC(),
+		Actor: aggregate.Actor{PrincipalID: "test-subject", Kind: aggregate.ActorSystem}, OccurredAt: time.Now().UTC(),
 	}
 	if _, err := testHandler.Handle(context.Background(), expEnv, aggregate.ExpireAction{ActionID: origID}); err != nil {
 		t.Fatalf("expire: %v", err)
@@ -431,6 +431,21 @@ func TestExpiryTimer_RaceResolvesForTheHuman(t *testing.T) {
 	pc, _ := aggregate.LoadActionCurrent(context.Background(), testDB, pendingID)
 	if pc.Status != aggregate.ActionStatusExpired {
 		t.Errorf("pending action status = %q; want EXPIRED (the timer's transition)", pc.Status)
+	}
+	// Nobody approved the expiry: it is recorded on the requester's behalf
+	// (adr/0217).
+	var actorRaw []byte
+	if err := testDB.QueryRowContext(context.Background(),
+		`SELECT actor FROM events WHERE aggregate_id = $1 AND event_type = $2 ORDER BY sequence_no DESC LIMIT 1`,
+		invID, aggregate.EventTypeActionExpired).Scan(&actorRaw); err != nil {
+		t.Fatalf("load the expiry event: %v", err)
+	}
+	var actor aggregate.Actor
+	if err := json.Unmarshal(actorRaw, &actor); err != nil {
+		t.Fatalf("unmarshal actor: %v", err)
+	}
+	if actor.PrincipalID != "test-subject" || actor.Kind != aggregate.ActorSystem {
+		t.Errorf("expiry actor %+v; want SYSTEM on the requester's (test-subject) behalf", actor)
 	}
 }
 

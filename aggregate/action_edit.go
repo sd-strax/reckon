@@ -66,7 +66,7 @@ func (c EditAction) Validate(env Envelope) error {
 // plus the policy re-evaluation's audit event in the same transaction. Legal
 // only while the action is REQUESTED: once a first approver signed (two-party
 // PENDING_SECONDARY) the content they approved must not change under them.
-func applyEditAction(env Envelope, state aggregateState, c EditAction) ([]Event, error) {
+func applyEditAction(env Envelope, state aggregateState, c EditAction, newID idSource) ([]Event, error) {
 	act, ok := state.Actions[c.ActionID]
 	if !ok {
 		return nil, fmt.Errorf("EditAction rejected: action %s does not exist", c.ActionID)
@@ -74,7 +74,7 @@ func applyEditAction(env Envelope, state aggregateState, c EditAction) ([]Event,
 	if act.Status != ActionStatusRequested {
 		return nil, fmt.Errorf("EditAction rejected: %s is %s; only a request nobody has approved can be edited", act.label(), act.Status)
 	}
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionEdited{
 		ActionID:              c.ActionID,
 		Parameters:            c.Parameters,

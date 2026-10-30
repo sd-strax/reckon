@@ -38,7 +38,7 @@ func sampleRequest(id uuid.UUID) RequestAction {
 func TestRequestAction_ProducesPairedEvents(t *testing.T) {
 	env := newTestEnvelope("alice")
 	id := uuid.New()
-	events, err := applyCommand(env, sampleRequest(id), activeStateWithAction(env, id, ""))
+	events, err := applyCommand(env, sampleRequest(id), activeStateWithAction(env, id, ""), testIDs())
 	if err != nil {
 		t.Fatalf("applyCommand: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestRequestAction_EmitsPolicyEvaluated(t *testing.T) {
 	}
 	cmd.MatchedPolicyRef = ""
 
-	events, err := applyCommand(env, cmd, activeStateWithAction(env, id, ""))
+	events, err := applyCommand(env, cmd, activeStateWithAction(env, id, ""), testIDs())
 	if err != nil {
 		t.Fatalf("applyCommand: %v", err)
 	}
@@ -122,17 +122,17 @@ func TestRequestAction_StatePreconditions(t *testing.T) {
 	// activate): it is recorded, and the investigation stays DRAFT until the
 	// action is approved.
 	draft := aggregateState{Seq: 1, Exists: true, TenantID: env.TenantID, Status: StatusDraft, Actions: map[uuid.UUID]actionState{}}
-	if _, err := applyCommand(env, sampleRequest(id), draft); err != nil {
+	if _, err := applyCommand(env, sampleRequest(id), draft, testIDs()); err != nil {
 		t.Errorf("RequestAction on DRAFT should be allowed (invisible activate): %v", err)
 	}
 
 	concluded := aggregateState{Seq: 1, Exists: true, TenantID: env.TenantID, Status: StatusConcluded, Actions: map[uuid.UUID]actionState{}}
-	if _, err := applyCommand(env, sampleRequest(id), concluded); err == nil {
+	if _, err := applyCommand(env, sampleRequest(id), concluded, testIDs()); err == nil {
 		t.Error("non-reversal RequestAction on CONCLUDED should be rejected")
 	}
 	rev := sampleRequest(id)
 	rev.IsReversal = true
-	if _, err := applyCommand(env, rev, concluded); err != nil {
+	if _, err := applyCommand(env, rev, concluded, testIDs()); err != nil {
 		t.Errorf("reversal RequestAction on CONCLUDED should be allowed: %v", err)
 	}
 }
@@ -166,7 +166,7 @@ func TestApproveAction_InvisibleActivate(t *testing.T) {
 	solo := ApproveAction{ActionID: id, Authorization: Authorization{
 		Mode: AuthModeManual, Stage: AuthStageSolo, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
 	}}
-	events, err := applyCommand(env, solo, draftWithRequested(""))
+	events, err := applyCommand(env, solo, draftWithRequested(""), testIDs())
 	if err != nil {
 		t.Fatalf("solo approve on draft: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestApproveAction_InvisibleActivate(t *testing.T) {
 	primary := ApproveAction{ActionID: id, Authorization: Authorization{
 		Mode: AuthModeTwoParty, Stage: AuthStagePrimary, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
 	}}
-	ev2, err := applyCommand(env, primary, draftWithRequested(AuthModeTwoParty))
+	ev2, err := applyCommand(env, primary, draftWithRequested(AuthModeTwoParty), testIDs())
 	if err != nil {
 		t.Fatalf("two-party primary on draft: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestApproveAction_ActorApproverInvariant(t *testing.T) {
 	mismatch := ApproveAction{ActionID: id, Authorization: Authorization{
 		Mode: AuthModeManual, Stage: AuthStageSolo, PrimaryApproverRef: "bob", PrimaryApprovedAt: time.Now(),
 	}}
-	if _, err := applyCommand(env, mismatch, state); err == nil {
+	if _, err := applyCommand(env, mismatch, state, testIDs()); err == nil {
 		t.Error("approval by a non-approver principal should be rejected")
 	}
 
@@ -207,7 +207,7 @@ func TestApproveAction_ActorApproverInvariant(t *testing.T) {
 	ok := ApproveAction{ActionID: id, Authorization: Authorization{
 		Mode: AuthModeManual, Stage: AuthStageSolo, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
 	}}
-	events, err := applyCommand(env, ok, state)
+	events, err := applyCommand(env, ok, state, testIDs())
 	if err != nil {
 		t.Fatalf("valid approval rejected: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestApproveAction_TwoPartyStages(t *testing.T) {
 	primary := ApproveAction{ActionID: id, Authorization: Authorization{
 		Mode: AuthModeTwoParty, Stage: AuthStagePrimary, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
 	}}
-	events, err := applyCommand(env, primary, reqState)
+	events, err := applyCommand(env, primary, reqState, testIDs())
 	if err != nil {
 		t.Fatalf("primary approval: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestApproveAction_TwoPartyStages(t *testing.T) {
 		Mode: AuthModeTwoParty, Stage: AuthStageSecondary,
 		PrimaryApproverRef: "alice", SecondaryApproverRef: "bob", SecondaryApprovedAt: &secTime,
 	}}
-	events2, err := applyCommand(env2, secondary, pendState)
+	events2, err := applyCommand(env2, secondary, pendState, testIDs())
 	if err != nil {
 		t.Fatalf("secondary approval: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestAIWriteProtection(t *testing.T) {
 	id := uuid.New()
 
 	// Request is permitted for the AI.
-	if _, err := applyCommand(env, sampleRequest(id), activeStateWithAction(env, id, "")); err != nil {
+	if _, err := applyCommand(env, sampleRequest(id), activeStateWithAction(env, id, ""), testIDs()); err != nil {
 		t.Errorf("AI RequestAction should be allowed: %v", err)
 	}
 
@@ -275,7 +275,7 @@ func TestAIWriteProtection(t *testing.T) {
 		ExpireAction{ActionID: id},
 	}
 	for _, cmd := range forbidden {
-		if _, err := applyCommand(env, cmd, state); err == nil {
+		if _, err := applyCommand(env, cmd, state, testIDs()); err == nil {
 			t.Errorf("AI_DELEGATED %s should be rejected", cmd.Kind())
 		}
 	}
@@ -289,14 +289,14 @@ func TestDispatchResult_SystemOnlyAndTransitions(t *testing.T) {
 	// A human cannot dispatch — system-only guard.
 	human := newTestEnvelope("alice")
 	approved := activeStateWithAction(human, id, ActionStatusApproved)
-	if _, err := applyCommand(human, DispatchAction{ActionID: id}, approved); err == nil {
+	if _, err := applyCommand(human, DispatchAction{ActionID: id}, approved, testIDs()); err == nil {
 		t.Error("human DispatchAction should be rejected (system-only)")
 	}
 
 	// SYSTEM dispatches an APPROVED action → EXECUTING.
 	sys := newTestEnvelope("alice")
 	sys.Actor.Kind = ActorSystem
-	events, err := applyCommand(sys, DispatchAction{ActionID: id, Adapter: "fx", AdapterRequestID: "wf-1"}, approved)
+	events, err := applyCommand(sys, DispatchAction{ActionID: id, Adapter: "fx", AdapterRequestID: "wf-1"}, approved, testIDs())
 	if err != nil {
 		t.Fatalf("system dispatch: %v", err)
 	}
@@ -310,13 +310,13 @@ func TestDispatchResult_SystemOnlyAndTransitions(t *testing.T) {
 
 	// Dispatch requires APPROVED — from REQUESTED it's rejected.
 	req := activeStateWithAction(sys, id, ActionStatusRequested)
-	if _, err := applyCommand(sys, DispatchAction{ActionID: id}, req); err == nil {
+	if _, err := applyCommand(sys, DispatchAction{ActionID: id}, req, testIDs()); err == nil {
 		t.Error("DispatchAction from REQUESTED should be rejected")
 	}
 
 	// SYSTEM records the result on the EXECUTING action → SUCCEEDED.
 	execState := aggregateState{Seq: 8, Exists: true, TenantID: sys.TenantID, Status: StatusActive, Actions: executing}
-	revents, err := applyCommand(sys, ResultAction{ActionID: id, FinalOutcome: "SUCCEEDED", PerTargetResults: map[string]string{"0": "OK"}, Attempts: 1}, execState)
+	revents, err := applyCommand(sys, ResultAction{ActionID: id, FinalOutcome: "SUCCEEDED", PerTargetResults: map[string]string{"0": "OK"}, Attempts: 1}, execState, testIDs())
 	if err != nil {
 		t.Fatalf("system result: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestReverseAction(t *testing.T) {
 	sys.Actor.Kind = ActorSystem
 	succeeded := activeStateWithAction(sys, origID, ActionStatusSucceeded)
 
-	events, err := applyCommand(sys, ReverseAction{OriginalActionID: origID, ReversingActionID: revID}, succeeded)
+	events, err := applyCommand(sys, ReverseAction{OriginalActionID: origID, ReversingActionID: revID}, succeeded, testIDs())
 	if err != nil {
 		t.Fatalf("reverse: %v", err)
 	}
@@ -347,13 +347,13 @@ func TestReverseAction(t *testing.T) {
 
 	// Only a SUCCEEDED action can be reversed.
 	req := activeStateWithAction(sys, origID, ActionStatusRequested)
-	if _, err := applyCommand(sys, ReverseAction{OriginalActionID: origID, ReversingActionID: revID}, req); err == nil {
+	if _, err := applyCommand(sys, ReverseAction{OriginalActionID: origID, ReversingActionID: revID}, req, testIDs()); err == nil {
 		t.Error("reversing a non-SUCCEEDED action should be rejected")
 	}
 
 	// System-only: a human cannot forge a reversal.
 	human := newTestEnvelope("alice")
-	if _, err := applyCommand(human, ReverseAction{OriginalActionID: origID, ReversingActionID: revID}, succeeded); err == nil {
+	if _, err := applyCommand(human, ReverseAction{OriginalActionID: origID, ReversingActionID: revID}, succeeded, testIDs()); err == nil {
 		t.Error("human ReverseAction should be rejected (system-only)")
 	}
 }
@@ -369,7 +369,7 @@ func TestRecordReversalAttempt(t *testing.T) {
 	sys.Actor.Kind = ActorSystem
 	succeeded := activeStateWithAction(sys, origID, ActionStatusSucceeded)
 
-	events, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, succeeded)
+	events, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, succeeded, testIDs())
 	if err != nil {
 		t.Fatalf("record attempt: %v", err)
 	}
@@ -388,13 +388,13 @@ func TestRecordReversalAttempt(t *testing.T) {
 
 	// Only a SUCCEEDED action has an effect to attempt to reverse.
 	req := activeStateWithAction(sys, origID, ActionStatusRequested)
-	if _, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, req); err == nil {
+	if _, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, req, testIDs()); err == nil {
 		t.Error("attempt on a non-SUCCEEDED action should be rejected")
 	}
 
 	// System-only: a human cannot forge an attempt record.
 	human := newTestEnvelope("alice")
-	if _, err := applyCommand(human, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, succeeded); err == nil {
+	if _, err := applyCommand(human, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, succeeded, testIDs()); err == nil {
 		t.Error("human RecordReversalAttempt should be rejected (system-only)")
 	}
 }
@@ -409,13 +409,13 @@ func TestRecordReversalAttempt_Repeat(t *testing.T) {
 	sys.Actor.Kind = ActorSystem
 	state := activeStateWithAction(sys, origID, ActionStatusSucceeded)
 
-	first, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, state)
+	first, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, state, testIDs())
 	if err != nil {
 		t.Fatalf("first attempt: %v", err)
 	}
 	state.Actions = foldInto(state.Actions, first)
 
-	again, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, state)
+	again, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, state, testIDs())
 	if err != nil {
 		t.Fatalf("repeat of the same attempt should be accepted as already recorded: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestRecordReversalAttempt_Repeat(t *testing.T) {
 		t.Errorf("repeat of the same attempt appended %d events; want 0", len(again))
 	}
 
-	if _, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: uuid.New()}, state); err == nil {
+	if _, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: uuid.New()}, state, testIDs()); err == nil {
 		t.Error("an attempt by a different reversing action should be rejected")
 	}
 }
@@ -437,13 +437,13 @@ func TestAIAllowlist(t *testing.T) {
 
 	// T1: lifecycle draft→active is AI-permitted (04 §1).
 	draft := aggregateState{Seq: 1, Exists: true, TenantID: env.TenantID, Status: StatusDraft, Actions: map[uuid.UUID]actionState{}}
-	if _, err := applyCommand(env, ActivateInvestigation{}, draft); err != nil {
+	if _, err := applyCommand(env, ActivateInvestigation{}, draft, testIDs()); err != nil {
 		t.Errorf("AI Activate (T1) should be allowed: %v", err)
 	}
 
 	// Concluding an investigation is a human act — denied by default.
 	active := aggregateState{Seq: 1, Exists: true, TenantID: env.TenantID, Status: StatusActive, Actions: map[uuid.UUID]actionState{}}
-	if _, err := applyCommand(env, ConcludeInvestigation{ReportRef: "r", Summary: "s"}, active); err == nil {
+	if _, err := applyCommand(env, ConcludeInvestigation{ReportRef: "r", Summary: "s"}, active, testIDs()); err == nil {
 		t.Error("AI ConcludeInvestigation should be denied (not in allowlist)")
 	}
 }
@@ -459,14 +459,14 @@ func TestApproveAction_ModeStageConsistency(t *testing.T) {
 	bypass := ApproveAction{ActionID: id, Authorization: Authorization{
 		Mode: AuthModeTwoParty, Stage: AuthStageSolo, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
 	}}
-	if _, err := applyCommand(env, bypass, state); err == nil {
+	if _, err := applyCommand(env, bypass, state, testIDs()); err == nil {
 		t.Error("TWO_PARTY with stage SOLO must be rejected (one-step secondary bypass)")
 	}
 
 	malformed := ApproveAction{ActionID: id, Authorization: Authorization{
 		Mode: AuthModeManual, Stage: AuthStagePrimary, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
 	}}
-	if _, err := applyCommand(env, malformed, state); err == nil {
+	if _, err := applyCommand(env, malformed, state, testIDs()); err == nil {
 		t.Error("MANUAL with stage PRIMARY must be rejected")
 	}
 }
@@ -489,7 +489,7 @@ func TestApproveAction_TwoPartyIntegrity(t *testing.T) {
 		Mode: AuthModeTwoParty, Stage: AuthStageSecondary,
 		PrimaryApproverRef: "alice", SecondaryApproverRef: "alice",
 	}}
-	if _, err := applyCommand(self, sameHuman, pending); err == nil {
+	if _, err := applyCommand(self, sameHuman, pending, testIDs()); err == nil {
 		t.Error("secondary approver == primary approver must be rejected (TWO_PARTY requires two humans)")
 	}
 
@@ -500,7 +500,7 @@ func TestApproveAction_TwoPartyIntegrity(t *testing.T) {
 		Mode: AuthModeTwoParty, Stage: AuthStageSecondary,
 		PrimaryApproverRef: "mallory", SecondaryApproverRef: "bob",
 	}}
-	if _, err := applyCommand(bob, rewrite, pending); err == nil {
+	if _, err := applyCommand(bob, rewrite, pending, testIDs()); err == nil {
 		t.Error("primary_approver_ref mismatching the recorded primary must be rejected")
 	}
 }
@@ -622,7 +622,7 @@ func TestRequestAction_Lineage(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := applyCommand(env, tc.cmd, state(tc.actions))
+			_, err := applyCommand(env, tc.cmd, state(tc.actions), testIDs())
 			if tc.ok && err != nil {
 				t.Errorf("want accepted, got %v", err)
 			}
@@ -660,5 +660,47 @@ func TestDispatchSummary(t *testing.T) {
 	}
 	if got := dispatchSummary("host.unisolate → WIN-FILE01", ""); got != "host.unisolate → WIN-FILE01: dispatched" {
 		t.Errorf("without adapter: %q", got)
+	}
+}
+
+// TestExpireAction_PrincipalIsRequester: the fold remembers who requested an
+// action, and an expiry, which nobody approved, is recorded only on the
+// requester's behalf (adr/0217).
+func TestExpireAction_PrincipalIsRequester(t *testing.T) {
+	alice := newTestEnvelope("alice")
+	id := uuid.New()
+	events, err := applyCommand(alice, sampleRequest(id), activeStateWithAction(alice, id, ""), testIDs())
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	actions := map[uuid.UUID]actionState{}
+	if err := foldActionEvent(actions, events[0]); err != nil {
+		t.Fatalf("fold: %v", err)
+	}
+	if actions[id].RequestedBy != "alice" {
+		t.Fatalf("folded requester %q; want alice", actions[id].RequestedBy)
+	}
+
+	state := activeStateWithAction(alice, id, "")
+	state.Actions[id] = actions[id]
+	sys := func(principal string) Envelope {
+		env := alice
+		env.Actor = Actor{PrincipalID: principal, Kind: ActorSystem}
+		return env
+	}
+	if _, err := applyCommand(sys("system"), ExpireAction{ActionID: id}, state, testIDs()); err == nil {
+		t.Error("an expiry naming no human was accepted")
+	}
+	if _, err := applyCommand(sys("bob"), ExpireAction{ActionID: id}, state, testIDs()); err == nil {
+		t.Error("an expiry on behalf of someone other than the requester was accepted")
+	}
+	expired, err := applyCommand(sys("alice"), ExpireAction{ActionID: id}, state, testIDs())
+	if err != nil {
+		t.Fatalf("expire on the requester's behalf: %v", err)
+	}
+	for _, e := range expired {
+		if e.Actor.PrincipalID != "alice" || e.Actor.Kind != ActorSystem {
+			t.Errorf("%s actor %+v; want SYSTEM on alice's behalf", e.Type, e.Actor)
+		}
 	}
 }

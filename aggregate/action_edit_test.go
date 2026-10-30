@@ -20,7 +20,7 @@ func TestEditAction_Rules(t *testing.T) {
 	}
 	edit := EditAction{ActionID: id, Parameters: json.RawMessage(`{"subject":"s","body":"new"}`), PriorParameters: json.RawMessage(`{"subject":"s","body":"old"}`), Reason: "real recipient wording", RequiredMode: "MANUAL",
 		PolicyEvaluations: []PolicyEvaluationRecord{{PolicyRef: "p", Effect: "AUTO_APPROVE"}}}
-	events, err := applyCommand(env, edit, state(ActionStatusRequested))
+	events, err := applyCommand(env, edit, state(ActionStatusRequested), testIDs())
 	if err != nil {
 		t.Fatalf("edit of a REQUESTED action: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestEditAction_Rules(t *testing.T) {
 		t.Errorf("interpretation = %q %q", rec.InterpretationType, rec.Summary)
 	}
 	for _, status := range []string{ActionStatusPendingSecondary, ActionStatusApproved, ActionStatusRejected} {
-		if _, err := applyCommand(env, edit, state(status)); err == nil {
+		if _, err := applyCommand(env, edit, state(status), testIDs()); err == nil {
 			t.Errorf("edit of a %s action accepted", status)
 		}
 	}

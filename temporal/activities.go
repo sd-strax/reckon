@@ -478,9 +478,10 @@ type EmitExpiredInput struct {
 // 02 §3). The race with a human decision resolves in the human's favor: the
 // aggregate rejects ExpireAction on anything no longer pending, and that
 // rejection is a benign no-op here — never an error to retry. Only
-// infrastructure failures (DB unreachable) propagate for retry.
+// infrastructure failures (DB unreachable) propagate for retry. Nobody
+// approved an expiry, so its principal is the requester (adr/0217).
 func (a *Activities) EmitExpired(ctx context.Context, in EmitExpiredInput) error {
-	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, "system")
+	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, "")
 	if err != nil {
 		return err
 	}
@@ -488,6 +489,14 @@ func (a *Activities) EmitExpired(ctx context.Context, in EmitExpiredInput) error
 	if err != nil {
 		return badInput(err)
 	}
+	requester, err := a.handler.ActionRequester(ctx, env.AggregateID, id)
+	if errors.Is(err, aggregate.ErrNotFound) {
+		return badInput(err)
+	}
+	if err != nil {
+		return err
+	}
+	env.Actor.PrincipalID = requester
 	_, err = a.handler.Handle(ctx, env, aggregate.ExpireAction{ActionID: id})
 	var rejected *aggregate.RejectedError
 	if errors.As(err, &rejected) {
@@ -499,12 +508,13 @@ func (a *Activities) EmitExpired(ctx context.Context, in EmitExpiredInput) error
 }
 
 // systemEnvelope builds the SYSTEM-actor envelope the workflow uses to emit
-// lifecycle events. The principal is the action's approver (a named human, per
-// the actor invariant); Kind is SYSTEM. The correlation id is the activity's
+// lifecycle events. The principal is the named human the system acts for (the
+// approver; the requester for an expiry), per the actor invariant; Kind is
+// SYSTEM. The correlation id is the activity's
 // own (systemCorrelationID), so the aggregate recognises a retry as the same
 // command. time here is fine — activities are not under the workflow
 // determinism constraint.
-func systemEnvelope(ctx context.Context, aggregateID, tenantID, approverID string) (aggregate.Envelope, error) {
+func systemEnvelope(ctx context.Context, aggregateID, tenantID, principalID string) (aggregate.Envelope, error) {
 	aggID, err := uuid.Parse(aggregateID)
 	if err != nil {
 		return aggregate.Envelope{}, badInput(fmt.Errorf("bad aggregate id: %w", err))
@@ -517,7 +527,7 @@ func systemEnvelope(ctx context.Context, aggregateID, tenantID, approverID strin
 		AggregateID:   aggID,
 		TenantID:      tid,
 		CorrelationID: systemCorrelationID(ctx),
-		Actor:         aggregate.Actor{PrincipalID: approverID, Kind: aggregate.ActorSystem},
+		Actor:         aggregate.Actor{PrincipalID: principalID, Kind: aggregate.ActorSystem},
 		OccurredAt:    time.Now().UTC(),
 	}, nil
 }

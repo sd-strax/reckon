@@ -91,13 +91,13 @@ func (DiscardInvestigation) Validate(env Envelope) error { return validateEnvelo
 // discardEvents is the draft→discarded transition. Refused while an action
 // request is still awaiting a decision: the analyst rejects it first, so no
 // request is left open on a record nobody will look at again.
-func discardEvents(env Envelope, state aggregateState, c DiscardInvestigation) ([]Event, error) {
+func discardEvents(env Envelope, state aggregateState, c DiscardInvestigation, newID idSource) ([]Event, error) {
 	for _, a := range state.Actions {
 		if a.Status == ActionStatusRequested || a.Status == ActionStatusPendingSecondary {
 			return nil, fmt.Errorf("cannot discard investigation %s: %s is still awaiting a decision — reject it first", env.AggregateID, a.label())
 		}
 	}
-	return statusTransition(env, state, StatusDraft, StatusDiscarded, c.Reason)
+	return statusTransition(env, state, StatusDraft, StatusDiscarded, c.Reason, newID)
 }
 
 // ResumeInvestigation moves paused→active.
@@ -189,11 +189,11 @@ func StatusAfter(events []Event) string {
 // statusTransition builds the paired (StatusChanged, InterpretationRecorded)
 // events for a from→to lifecycle move, rejecting the command if the
 // investigation is not currently in the from state.
-func statusTransition(env Envelope, state aggregateState, from, to, reason string) ([]Event, error) {
+func statusTransition(env Envelope, state aggregateState, from, to, reason string, newID idSource) ([]Event, error) {
 	if state.Status != from {
 		return nil, fmt.Errorf("cannot move %s→%s: investigation %s is %s", from, to, env.AggregateID, state.Status)
 	}
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(InvestigationStatusChanged{
 		From: from, To: to, Reason: reason, LifecycleInterpretationRef: interpID,
 	})
@@ -212,7 +212,7 @@ func statusTransition(env Envelope, state aggregateState, from, to, reason strin
 // concludeEvents builds the (InvestigationConcluded, InterpretationRecorded)
 // pair. Conclusion is recorded as a "conclusion" interpretation rather than a
 // plain "lifecycle" one (01-domain-model.md §Interpretation types).
-func concludeEvents(env Envelope, state aggregateState, c ConcludeInvestigation) ([]Event, error) {
+func concludeEvents(env Envelope, state aggregateState, c ConcludeInvestigation, newID idSource) ([]Event, error) {
 	if state.Status != StatusActive {
 		return nil, fmt.Errorf("cannot conclude investigation %s: it is %s, not %s", env.AggregateID, state.Status, StatusActive)
 	}
@@ -222,7 +222,7 @@ func concludeEvents(env Envelope, state aggregateState, c ConcludeInvestigation)
 	if state.CurrentVerdict() == "" {
 		return nil, fmt.Errorf("cannot conclude investigation %s: no verdict of record — record a verdict (with pinned evidence) first", env.AggregateID)
 	}
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(InvestigationConcluded{
 		ReportRef: c.ReportRef, Summary: c.Summary, LifecycleInterpretationRef: interpID,
 	})
@@ -238,11 +238,11 @@ func concludeEvents(env Envelope, state aggregateState, c ConcludeInvestigation)
 }
 
 // reopenEvents builds the (InvestigationReopened, InterpretationRecorded) pair.
-func reopenEvents(env Envelope, state aggregateState, c ReopenInvestigation) ([]Event, error) {
+func reopenEvents(env Envelope, state aggregateState, c ReopenInvestigation, newID idSource) ([]Event, error) {
 	if state.Status != StatusConcluded {
 		return nil, fmt.Errorf("cannot reopen investigation %s: it is %s, not %s", env.AggregateID, state.Status, StatusConcluded)
 	}
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(InvestigationReopened{Reason: c.Reason, LifecycleInterpretationRef: interpID})
 	if err != nil {
 		return nil, err
@@ -258,11 +258,11 @@ func reopenEvents(env Envelope, state aggregateState, c ReopenInvestigation) ([]
 // archiveEvents builds the (InvestigationArchived, InterpretationRecorded) pair.
 // Both are written in the archiving transaction; afterwards the terminal guard
 // in applyCommand rejects every further command.
-func archiveEvents(env Envelope, state aggregateState, c ArchiveInvestigation) ([]Event, error) {
+func archiveEvents(env Envelope, state aggregateState, c ArchiveInvestigation, newID idSource) ([]Event, error) {
 	if state.Status != StatusConcluded {
 		return nil, fmt.Errorf("cannot archive investigation %s: it is %s, not %s", env.AggregateID, state.Status, StatusConcluded)
 	}
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(InvestigationArchived{Reason: c.Reason, LifecycleInterpretationRef: interpID})
 	if err != nil {
 		return nil, err

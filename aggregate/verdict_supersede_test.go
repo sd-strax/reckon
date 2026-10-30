@@ -41,7 +41,7 @@ func TestVerdict_ReRecordAutoSupersedes(t *testing.T) {
 	state := verdictState(verdictEntry{InterpID: priorID, Disposition: VerdictBenign})
 
 	cmd, newID := recordVerdictCmd(VerdictMalicious)
-	events, err := applyCommand(env, cmd, state)
+	events, err := applyCommand(env, cmd, state, testIDs())
 	if err != nil {
 		t.Fatalf("re-record verdict rejected: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestVerdict_ReRecordAutoSupersedes(t *testing.T) {
 func TestVerdict_FirstRecordNoSupersede(t *testing.T) {
 	env := newTestEnvelope("alice")
 	cmd, _ := recordVerdictCmd(VerdictMalicious)
-	events, err := applyCommand(env, cmd, verdictState())
+	events, err := applyCommand(env, cmd, verdictState(), testIDs())
 	if err != nil {
 		t.Fatalf("first verdict rejected: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestVerdict_ReRecordFoldsToNewDisposition(t *testing.T) {
 	state := verdictState(verdictEntry{InterpID: priorID, Disposition: VerdictBenign})
 
 	cmd, newID := recordVerdictCmd(VerdictMalicious)
-	events, err := applyCommand(env, cmd, state)
+	events, err := applyCommand(env, cmd, state, testIDs())
 	if err != nil {
 		t.Fatalf("re-record verdict rejected: %v", err)
 	}

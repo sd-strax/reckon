@@ -149,14 +149,14 @@ func TestHypothesisLifecycle_Apply(t *testing.T) {
 			Hypothesis:         &HypothesisNode{ID: id, Statement: "C2 via DNS"},
 		}
 	}
-	aiEvents, err := applyCommand(ai, mk(uuid.New()), reasoningState(nil, nil))
+	aiEvents, err := applyCommand(ai, mk(uuid.New()), reasoningState(nil, nil), testIDs())
 	if err != nil {
 		t.Fatalf("AI create: %v", err)
 	}
 	if rec := recFromEvents(t, aiEvents); rec.Hypothesis.Status != HypothesisProposed {
 		t.Errorf("AI-authored status = %q; want PROPOSED", rec.Hypothesis.Status)
 	}
-	humanEvents, err := applyCommand(human, mk(uuid.New()), reasoningState(nil, nil))
+	humanEvents, err := applyCommand(human, mk(uuid.New()), reasoningState(nil, nil), testIDs())
 	if err != nil {
 		t.Fatalf("human create: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestHypothesisLifecycle_Apply(t *testing.T) {
 	// A refinement's parent must exist.
 	orphan := mk(uuid.New())
 	orphan.Hypothesis.ParentRef = HypothesisSTIXID(uuid.New())
-	if _, err := applyCommand(human, orphan, reasoningState(nil, nil)); err == nil {
+	if _, err := applyCommand(human, orphan, reasoningState(nil, nil), testIDs()); err == nil {
 		t.Error("refinement with nonexistent parent accepted")
 	}
 
@@ -187,10 +187,10 @@ func TestHypothesisLifecycle_Apply(t *testing.T) {
 		Rationale:          "worth pursuing",
 		HypothesisRef:      ref,
 	}
-	if _, err := applyCommand(ai, ack, proposed()); err == nil {
+	if _, err := applyCommand(ai, ack, proposed(), testIDs()); err == nil {
 		t.Error("AI acknowledgment accepted (human act)")
 	}
-	ackEvents, err := applyCommand(human, ack, proposed())
+	ackEvents, err := applyCommand(human, ack, proposed(), testIDs())
 	if err != nil {
 		t.Fatalf("human ack: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestHypothesisLifecycle_Apply(t *testing.T) {
 		Rationale:          "three confirmed predictions",
 		HypothesisRef:      ref,
 	}
-	supEvents, err := applyCommand(ai, sup, open)
+	supEvents, err := applyCommand(ai, sup, open, testIDs())
 	if err != nil {
 		t.Fatalf("support: %v", err)
 	}
@@ -214,19 +214,19 @@ func TestHypothesisLifecycle_Apply(t *testing.T) {
 		t.Errorf("support transition to %q; want SUPPORTED", tr.To)
 	}
 	terminal := reasoningState(map[string]hypothesisState{ref: {Status: HypothesisSupported}}, nil)
-	if _, err := applyCommand(human, sup, terminal); err == nil {
+	if _, err := applyCommand(human, sup, terminal, testIDs()); err == nil {
 		t.Error("outcome on a terminal hypothesis accepted")
 	}
 
 	// Human-in-the-loop by default (01 §Interpretation types): an AI delegate may
 	// NOT record a decisive outcome on its own un-acknowledged (PROPOSED)
 	// hypothesis — a human must Acknowledge it into OPEN first.
-	if _, err := applyCommand(ai, sup, proposed()); err == nil {
+	if _, err := applyCommand(ai, sup, proposed(), testIDs()); err == nil {
 		t.Error("AI decisive outcome on an un-acknowledged (PROPOSED) hypothesis should be denied by default")
 	}
 	// A human may, though — engaging with the AI's proposal is the human taking
 	// the loop.
-	if _, err := applyCommand(human, sup, proposed()); err != nil {
+	if _, err := applyCommand(human, sup, proposed(), testIDs()); err != nil {
 		t.Errorf("human outcome on a PROPOSED hypothesis should be allowed: %v", err)
 	}
 	// The trust.ai_reasoning dial reopens full automation: with the enabling ref
@@ -234,7 +234,7 @@ func TestHypothesisLifecycle_Apply(t *testing.T) {
 	// drives PROPOSED→SUPPORTED autonomously.
 	autoSup := sup
 	autoSup.AIReasoningConfigRef = "trust.ai_reasoning"
-	aiSup, err := applyCommand(ai, autoSup, proposed())
+	aiSup, err := applyCommand(ai, autoSup, proposed(), testIDs())
 	if err != nil {
 		t.Fatalf("AI outcome on PROPOSED with trust.ai_reasoning enabled rejected: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestHypothesisLifecycle_Apply(t *testing.T) {
 	}
 	// And once decided, the hypothesis can never be acked — analyst disagreement
 	// chains a new hypothesis via parent_ref instead.
-	if _, err := applyCommand(human, ack, terminal); err == nil {
+	if _, err := applyCommand(human, ack, terminal, testIDs()); err == nil {
 		t.Error("acknowledgment of a terminal hypothesis accepted")
 	}
 
@@ -251,7 +251,7 @@ func TestHypothesisLifecycle_Apply(t *testing.T) {
 	inc := sup
 	inc.InterpretationType = InterpretationInconclusive
 	inc.Abandoned = true
-	incEvents, err := applyCommand(human, inc, reasoningState(map[string]hypothesisState{ref: {Status: HypothesisOpen}}, nil))
+	incEvents, err := applyCommand(human, inc, reasoningState(map[string]hypothesisState{ref: {Status: HypothesisOpen}}, nil), testIDs())
 	if err != nil {
 		t.Fatalf("inconclusive/abandoned: %v", err)
 	}
@@ -292,17 +292,17 @@ func TestPredictionOutcome_AIReasoningGate(t *testing.T) {
 	}
 
 	// AI, dial off → denied.
-	if _, err := applyCommand(ai, outcome(), state); err == nil {
+	if _, err := applyCommand(ai, outcome(), state, testIDs()); err == nil {
 		t.Error("AI prediction outcome on a PROPOSED-parent hypothesis should be denied by default")
 	}
 	// Human → allowed.
-	if _, err := applyCommand(human, outcome(), state); err != nil {
+	if _, err := applyCommand(human, outcome(), state, testIDs()); err != nil {
 		t.Errorf("human prediction outcome should be allowed: %v", err)
 	}
 	// AI with the dial enabled → allowed.
 	auto := outcome()
 	auto.AIReasoningConfigRef = "trust.ai_reasoning"
-	if _, err := applyCommand(ai, auto, state); err != nil {
+	if _, err := applyCommand(ai, auto, state, testIDs()); err != nil {
 		t.Errorf("AI prediction outcome with trust.ai_reasoning enabled rejected: %v", err)
 	}
 }
@@ -321,15 +321,15 @@ func TestPredictionLifecycle_Apply(t *testing.T) {
 	}
 
 	// Hypothesis must exist and be live.
-	if _, err := applyCommand(env, mk(hRef), reasoningState(nil, nil)); err == nil {
+	if _, err := applyCommand(env, mk(hRef), reasoningState(nil, nil), testIDs()); err == nil {
 		t.Error("prediction against nonexistent hypothesis accepted")
 	}
 	refuted := reasoningState(map[string]hypothesisState{hRef: {Status: HypothesisRefuted}}, nil)
-	if _, err := applyCommand(env, mk(hRef), refuted); err == nil {
+	if _, err := applyCommand(env, mk(hRef), refuted, testIDs()); err == nil {
 		t.Error("prediction against a terminal hypothesis accepted")
 	}
 	open := reasoningState(map[string]hypothesisState{hRef: {Status: HypothesisOpen}}, nil)
-	events, err := applyCommand(env, mk(hRef), open)
+	events, err := applyCommand(env, mk(hRef), open, testIDs())
 	if err != nil {
 		t.Fatalf("prediction create: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestPredictionLifecycle_Apply(t *testing.T) {
 		map[string]hypothesisState{hRef: {Status: HypothesisOpen}},
 		map[string]predictionState{pRef: {Status: PredictionUntested}},
 	)
-	outEvents, err := applyCommand(env, outcome, untested)
+	outEvents, err := applyCommand(env, outcome, untested, testIDs())
 	if err != nil {
 		t.Fatalf("outcome: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestPredictionLifecycle_Apply(t *testing.T) {
 		map[string]hypothesisState{hRef: {Status: HypothesisOpen}},
 		map[string]predictionState{pRef: {Status: PredictionConfirmed}},
 	)
-	if _, err := applyCommand(env, outcome, tested); err == nil {
+	if _, err := applyCommand(env, outcome, tested, testIDs()); err == nil {
 		t.Error("second outcome on a tested prediction accepted")
 	}
 }
@@ -501,32 +501,32 @@ func TestOutstandingDiscriminatorGate(t *testing.T) {
 
 	// H2 holds an untested prediction that discriminates against H1.
 	st := reasoningState(live, map[string]predictionState{p2: {Status: PredictionUntested, HypothesisRef: h2, Discriminates: []string{h1}}})
-	if _, err := applyCommand(ai, support(h1), st); err == nil {
+	if _, err := applyCommand(ai, support(h1), st, testIDs()); err == nil {
 		t.Error("AI recorded H1 SUPPORTED over H2's untested discriminator")
 	}
-	if _, err := applyCommand(ai, refute(h2), st); err == nil {
+	if _, err := applyCommand(ai, refute(h2), st, testIDs()); err == nil {
 		t.Error("AI recorded H2 REFUTED while its own discriminator against H1 is untested")
 	}
-	if _, err := applyCommand(human, support(h1), st); err != nil {
+	if _, err := applyCommand(human, support(h1), st, testIDs()); err != nil {
 		t.Errorf("human override refused: %v", err)
 	}
 
 	// Tested (or withdrawn): the way is clear.
 	for _, status := range []string{PredictionConfirmed, PredictionWithdrawn} {
 		st := reasoningState(live, map[string]predictionState{p2: {Status: status, HypothesisRef: h2, Discriminates: []string{h1}}})
-		if _, err := applyCommand(ai, support(h1), st); err != nil {
+		if _, err := applyCommand(ai, support(h1), st, testIDs()); err != nil {
 			t.Errorf("prediction %s: AI support refused: %v", status, err)
 		}
 	}
 	// A merely-consistent untested prediction (no discriminates) blocks nothing.
 	st = reasoningState(live, map[string]predictionState{p2: {Status: PredictionUntested, HypothesisRef: h2}})
-	if _, err := applyCommand(ai, support(h1), st); err != nil {
+	if _, err := applyCommand(ai, support(h1), st, testIDs()); err != nil {
 		t.Errorf("non-discriminating prediction blocked a decision: %v", err)
 	}
 	// A rival that is no longer live cannot hold anything outstanding.
 	st = reasoningState(map[string]hypothesisState{h1: {Status: HypothesisOpen}, h2: {Status: HypothesisAbandoned}},
 		map[string]predictionState{p2: {Status: PredictionUntested, HypothesisRef: h2, Discriminates: []string{h1}}})
-	if _, err := applyCommand(ai, support(h1), st); err != nil {
+	if _, err := applyCommand(ai, support(h1), st, testIDs()); err != nil {
 		t.Errorf("abandoned rival's prediction blocked a decision: %v", err)
 	}
 }
@@ -545,7 +545,7 @@ func TestCompetingHypotheses_Apply(t *testing.T) {
 		InterpretationID: uuid.New(), InterpretationType: InterpretationHypothesis, Rationale: "r",
 		Hypothesis: &HypothesisNode{ID: uuid.New(), Statement: "stolen creds", Handle: "H1 rdp-lateral"},
 	}
-	ev, err := applyCommand(ai, create, reasoningState(nil, nil))
+	ev, err := applyCommand(ai, create, reasoningState(nil, nil), testIDs())
 	if err != nil {
 		t.Fatalf("create with handle: %v", err)
 	}
@@ -566,14 +566,14 @@ func TestCompetingHypotheses_Apply(t *testing.T) {
 			Prediction: &PredictionNode{ID: uuid.New(), HypothesisRef: h1, Statement: "baseline shows no RDP", Discriminates: d},
 		}
 	}
-	ev, err = applyCommand(ai, pred(h2), both)
+	ev, err = applyCommand(ai, pred(h2), both, testIDs())
 	if err != nil {
 		t.Fatalf("discriminating prediction: %v", err)
 	}
 	if rec := recFromEvents(t, ev); len(rec.Prediction.Discriminates) != 1 || rec.Prediction.Discriminates[0] != h2 {
 		t.Errorf("discriminates = %v; want [%s]", rec.Prediction.Discriminates, h2)
 	}
-	if _, err := applyCommand(ai, pred(HypothesisSTIXID(uuid.New())), both); err == nil {
+	if _, err := applyCommand(ai, pred(HypothesisSTIXID(uuid.New())), both, testIDs()); err == nil {
 		t.Error("discriminating a nonexistent hypothesis accepted")
 	}
 	if err := pred(h1).Validate(human); err == nil {
@@ -590,10 +590,10 @@ func TestCompetingHypotheses_Apply(t *testing.T) {
 		HypothesisRef: h1, Restatement: "stolen svc_backup creds used over RDP from 10.0.4.20", Handle: "H1 rdp-lateral",
 	}
 	proposed := reasoningState(map[string]hypothesisState{h1: {Status: HypothesisProposed}}, nil)
-	if _, err := applyCommand(ai, ack, proposed); err == nil {
+	if _, err := applyCommand(ai, ack, proposed, testIDs()); err == nil {
 		t.Error("AI restatement accepted (human act)")
 	}
-	ev, err = applyCommand(human, ack, proposed)
+	ev, err = applyCommand(human, ack, proposed, testIDs())
 	if err != nil {
 		t.Fatalf("ack with restatement: %v", err)
 	}
@@ -605,31 +605,31 @@ func TestCompetingHypotheses_Apply(t *testing.T) {
 	tested := reasoningState(
 		map[string]hypothesisState{h1: {Status: HypothesisProposed}},
 		map[string]predictionState{p1: {Status: PredictionConfirmed, HypothesisRef: h1}})
-	if _, err := applyCommand(human, ack, tested); err == nil {
+	if _, err := applyCommand(human, ack, tested, testIDs()); err == nil {
 		t.Error("restatement over a tested prediction accepted (wording is frozen)")
 	}
 	// A withdrawn prediction does not freeze the wording.
 	withdrawn := reasoningState(
 		map[string]hypothesisState{h1: {Status: HypothesisProposed}},
 		map[string]predictionState{p1: {Status: PredictionWithdrawn, HypothesisRef: h1}})
-	if _, err := applyCommand(human, ack, withdrawn); err != nil {
+	if _, err := applyCommand(human, ack, withdrawn, testIDs()); err != nil {
 		t.Errorf("restatement over a withdrawn prediction rejected: %v", err)
 	}
 	// Plain ack (no restatement) is still fine over tested predictions.
 	plain := ack
 	plain.Restatement, plain.Handle = "", ""
-	if _, err := applyCommand(human, plain, tested); err != nil {
+	if _, err := applyCommand(human, plain, tested, testIDs()); err != nil {
 		t.Errorf("plain ack over tested predictions rejected: %v", err)
 	}
 
 	// Revise an OPEN hypothesis: needs a field; keeps status.
 	open := reasoningState(map[string]hypothesisState{h1: {Status: HypothesisOpen}}, nil)
-	if _, err := applyCommand(human, plain, open); err == nil {
+	if _, err := applyCommand(human, plain, open, testIDs()); err == nil {
 		t.Error("bare ack on an OPEN hypothesis accepted")
 	}
 	rename := plain
 	rename.Handle = "H1 stolen-creds"
-	ev, err = applyCommand(human, rename, open)
+	ev, err = applyCommand(human, rename, open, testIDs())
 	if err != nil {
 		t.Fatalf("rename on OPEN: %v", err)
 	}
@@ -650,10 +650,10 @@ func TestCompetingHypotheses_Apply(t *testing.T) {
 		InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "wrong test",
 		PredictionRef: p1, PredictionStatus: PredictionWithdrawn,
 	}
-	if _, err := applyCommand(ai, withdraw, untested); err == nil {
+	if _, err := applyCommand(ai, withdraw, untested, testIDs()); err == nil {
 		t.Error("AI withdrawal accepted (human act)")
 	}
-	ev, err = applyCommand(human, withdraw, untested)
+	ev, err = applyCommand(human, withdraw, untested, testIDs())
 	if err != nil {
 		t.Fatalf("human withdraw: %v", err)
 	}
@@ -665,7 +665,7 @@ func TestCompetingHypotheses_Apply(t *testing.T) {
 	if err := withRefs.Validate(human); err == nil {
 		t.Error("withdrawal carrying evidence accepted")
 	}
-	if _, err := applyCommand(human, withdraw, tested); err == nil {
+	if _, err := applyCommand(human, withdraw, tested, testIDs()); err == nil {
 		t.Error("withdrawing a CONFIRMED prediction accepted")
 	}
 }

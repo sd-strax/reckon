@@ -222,7 +222,7 @@ Stance: **version events; allow controlled rewrites within a defined freeze wind
 
 Concrete rules:
 
-- Every event carries `event_version`, starting at 1.
+- Every event carries `event_version`, starting at 1. Every reader of an event payload checks it first (`aggregate.CheckEventVersion`): a version the binary does not know stops the read with an error instead of being decoded as the current shape. The upcasters below live at that check.
 - For non-breaking changes (new optional field, additional metadata), bump version, write upcasters that read old versions into the new shape on fold. History stays untouched.
 - For breaking changes within the **freeze window** (defined per-event-type; default proposal: 90 days from first production write of that event type), in-place rewrite is permitted with an explicit migration record. The migration record itself is a row in a `schema_migrations` table noting what was rewritten, when, by whom, and why.
 - After the freeze window closes for an event type, that type is frozen. Breaking changes require new event types and upcasters.
@@ -291,8 +291,10 @@ Every event records a human principal. AI involvement is captured as a delegate,
 actor
   principal       { user_id, display_name }       -- always a human
   delegate?       { agent_id, agent_kind, model } -- optional; the AI agent if any
-  kind            HUMAN | AI_DELEGATED            -- derived: HUMAN if delegate is null
+  kind            HUMAN | AI_DELEGATED | SYSTEM   -- derived: HUMAN if delegate is null
 ```
+
+SYSTEM marks an event a workflow emitted on a named human's behalf: the approver for dispatch and result, the requester for an expiry (`adr/0217`). The principal is still that human.
 
 ### Why this shape
 

@@ -252,6 +252,9 @@ type actionState struct {
 	RequiredMode          string    // Gate 2 requirement, frozen at request time
 	SecondaryApproverPool []string  // who may be the secondary approver (TWO_PARTY)
 	ActionType            string    // e.g. "notify.slack" — for human-readable summaries
+	// RequestedBy is the principal of the request: the named human an expiry,
+	// which nobody approved, is recorded on behalf of (adr/0217).
+	RequestedBy string
 	TargetLabel           string    // e.g. "#it-operations (+2)" — the target set, condensed
 	RetryOf               uuid.UUID // the action this one re-requests (lineage, adr/0152)
 	ExpiresAt             time.Time // the approval deadline, for a re-request of a lazily expired action
@@ -303,7 +306,7 @@ func foldActionEvent(actions map[uuid.UUID]actionState, e Event) error {
 			return fmt.Errorf("fold action.requested seq %d: %w", e.SequenceNo, err)
 		}
 		set(p.ActionID, actionState{
-			Status: ActionStatusRequested, Tier: p.Tier, IsReversal: p.IsReversal,
+			Status: ActionStatusRequested, Tier: p.Tier, IsReversal: p.IsReversal, RequestedBy: e.Actor.PrincipalID,
 			RequiredMode: p.RequiredMode, SecondaryApproverPool: p.SecondaryApproverPool,
 			ActionType: p.ActionType, TargetLabel: targetLabel(p.Targets),
 			RetryOf: p.RetryOf, ReversalOf: p.ReversalOfRef, ExpiresAt: p.ExpiresAt,
@@ -670,7 +673,7 @@ func systemOnly(cmd Command) bool {
 // applyRequestAction builds the (ActionRequested, action-request Interpretation)
 // pair. Permitted while the investigation is ACTIVE, or CONCLUDED when the
 // request is a reversal (04 §9.1).
-func applyRequestAction(env Envelope, state aggregateState, c RequestAction) ([]Event, error) {
+func applyRequestAction(env Envelope, state aggregateState, c RequestAction, newID idSource) ([]Event, error) {
 	switch {
 	case state.Status == StatusActive:
 	case state.Status == StatusDraft: // invisible activate (01 §Extension 2): a
@@ -687,7 +690,7 @@ func applyRequestAction(env Envelope, state aggregateState, c RequestAction) ([]
 		return nil, err
 	}
 
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionRequested{
 		ActionID:                   c.ActionID,
 		ActionType:                 c.ActionType,
@@ -794,7 +797,7 @@ func checkLineage(env Envelope, state aggregateState, c RequestAction) error {
 // applyApproveAction builds the (ActionApproved, action-approval Interpretation)
 // pair, enforcing the actor/approver invariant (04 §3.3): the acting principal
 // must equal the approver whose stage this approval records.
-func applyApproveAction(env Envelope, state aggregateState, c ApproveAction) ([]Event, error) {
+func applyApproveAction(env Envelope, state aggregateState, c ApproveAction, newID idSource) ([]Event, error) {
 	act, ok := state.Actions[c.ActionID]
 	if !ok {
 		return nil, fmt.Errorf("ApproveAction rejected: action %s does not exist", c.ActionID)
@@ -856,7 +859,7 @@ func applyApproveAction(env Envelope, state aggregateState, c ApproveAction) ([]
 	seq := state.Seq
 	fullyApproved := c.Authorization.Mode != AuthModeTwoParty || stage != AuthStagePrimary
 	if fullyApproved && state.Status == StatusDraft {
-		activate, err := statusTransition(env, state, StatusDraft, StatusActive, "first action approved")
+		activate, err := statusTransition(env, state, StatusDraft, StatusActive, "first action approved", newID)
 		if err != nil {
 			return nil, err
 		}
@@ -864,7 +867,7 @@ func applyApproveAction(env Envelope, state aggregateState, c ApproveAction) ([]
 		seq += int64(len(activate))
 	}
 
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionApproved{
 		ActionID:                 c.ActionID,
 		Authorization:            c.Authorization,
@@ -903,7 +906,7 @@ func checkApprover(env Envelope, auth Authorization, stage string) error {
 
 // applyRejectAction builds the (ActionRejected, action-rejection Interpretation)
 // pair.
-func applyRejectAction(env Envelope, state aggregateState, c RejectAction) ([]Event, error) {
+func applyRejectAction(env Envelope, state aggregateState, c RejectAction, newID idSource) ([]Event, error) {
 	act, ok := state.Actions[c.ActionID]
 	if !ok {
 		return nil, fmt.Errorf("RejectAction rejected: action %s does not exist", c.ActionID)
@@ -912,7 +915,7 @@ func applyRejectAction(env Envelope, state aggregateState, c RejectAction) ([]Ev
 		return nil, fmt.Errorf("RejectAction rejected: action %s is %s (not pending)", c.ActionID, act.Status)
 	}
 
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionRejected{
 		ActionID:                  c.ActionID,
 		Reason:                    c.Reason,
@@ -933,7 +936,7 @@ func applyRejectAction(env Envelope, state aggregateState, c RejectAction) ([]Ev
 // Interpretation) pair. Legal only from APPROVED. Its presence in the stream is
 // the dispatch-ledger guard (08 §6b): a re-triggered workflow sees it and
 // short-circuits re-issue.
-func applyDispatchAction(env Envelope, state aggregateState, c DispatchAction) ([]Event, error) {
+func applyDispatchAction(env Envelope, state aggregateState, c DispatchAction, newID idSource) ([]Event, error) {
 	act, ok := state.Actions[c.ActionID]
 	if !ok {
 		return nil, fmt.Errorf("DispatchAction rejected: action %s does not exist", c.ActionID)
@@ -942,7 +945,7 @@ func applyDispatchAction(env Envelope, state aggregateState, c DispatchAction) (
 		return nil, fmt.Errorf("DispatchAction rejected: action %s is %s, not APPROVED", c.ActionID, act.Status)
 	}
 
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionDispatched{
 		ActionID:                 c.ActionID,
 		Adapter:                  c.Adapter,
@@ -964,7 +967,7 @@ func applyDispatchAction(env Envelope, state aggregateState, c DispatchAction) (
 
 // applyResultAction builds the (ActionResulted, action-result Interpretation)
 // pair. Legal only from EXECUTING.
-func applyResultAction(env Envelope, state aggregateState, c ResultAction) ([]Event, error) {
+func applyResultAction(env Envelope, state aggregateState, c ResultAction, newID idSource) ([]Event, error) {
 	act, ok := state.Actions[c.ActionID]
 	if !ok {
 		return nil, fmt.Errorf("ResultAction rejected: action %s does not exist", c.ActionID)
@@ -973,7 +976,7 @@ func applyResultAction(env Envelope, state aggregateState, c ResultAction) ([]Ev
 		return nil, fmt.Errorf("ResultAction rejected: action %s is %s, not EXECUTING", c.ActionID, act.Status)
 	}
 
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionResulted{
 		ActionID:               c.ActionID,
 		FinalOutcome:           c.FinalOutcome,
@@ -1003,7 +1006,7 @@ func applyResultAction(env Envelope, state aggregateState, c ResultAction) ([]Ev
 // applyReverseAction builds the (ActionReversed, action-reversal Interpretation)
 // pair on the ORIGINAL action. Legal only from SUCCEEDED — you can only reverse
 // an action that actually took effect (04 §7).
-func applyReverseAction(env Envelope, state aggregateState, c ReverseAction) ([]Event, error) {
+func applyReverseAction(env Envelope, state aggregateState, c ReverseAction, newID idSource) ([]Event, error) {
 	orig, ok := state.Actions[c.OriginalActionID]
 	if !ok {
 		return nil, fmt.Errorf("ReverseAction rejected: original action %s does not exist", c.OriginalActionID)
@@ -1012,7 +1015,7 @@ func applyReverseAction(env Envelope, state aggregateState, c ReverseAction) ([]
 		return nil, fmt.Errorf("ReverseAction rejected: original action %s is %s, not SUCCEEDED", c.OriginalActionID, orig.Status)
 	}
 
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionReversed{
 		OriginalActionID:         c.OriginalActionID,
 		ReversingActionID:        c.ReversingActionID,
@@ -1036,7 +1039,7 @@ func applyReverseAction(env Envelope, state aggregateState, c ReverseAction) ([]
 // The interpretation_type reuses the canonical action-reversal (01: the enum is
 // closed); the domain event — not the interpretation — carries the
 // verified/unverified distinction.
-func applyReversalAttempt(env Envelope, state aggregateState, c RecordReversalAttempt) ([]Event, error) {
+func applyReversalAttempt(env Envelope, state aggregateState, c RecordReversalAttempt, newID idSource) ([]Event, error) {
 	orig, ok := state.Actions[c.OriginalActionID]
 	if !ok {
 		return nil, fmt.Errorf("RecordReversalAttempt rejected: original action %s does not exist", c.OriginalActionID)
@@ -1054,7 +1057,7 @@ func applyReversalAttempt(env Envelope, state aggregateState, c RecordReversalAt
 		return nil, fmt.Errorf("RecordReversalAttempt rejected: original action %s already has a reversal attempt by %s", c.OriginalActionID, orig.ReversalAttemptedBy)
 	}
 
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionReversalAttempted{
 		OriginalActionID:         c.OriginalActionID,
 		ReversingActionID:        c.ReversingActionID,
@@ -1074,7 +1077,7 @@ func applyReversalAttempt(env Envelope, state aggregateState, c RecordReversalAt
 
 // applyExpireAction builds the (ActionExpired, action-expiry Interpretation)
 // pair for a pending action that lapsed.
-func applyExpireAction(env Envelope, state aggregateState, c ExpireAction) ([]Event, error) {
+func applyExpireAction(env Envelope, state aggregateState, c ExpireAction, newID idSource) ([]Event, error) {
 	act, ok := state.Actions[c.ActionID]
 	if !ok {
 		return nil, fmt.Errorf("ExpireAction rejected: action %s does not exist", c.ActionID)
@@ -1082,8 +1085,13 @@ func applyExpireAction(env Envelope, state aggregateState, c ExpireAction) ([]Ev
 	if act.Status != ActionStatusRequested && act.Status != ActionStatusPendingSecondary {
 		return nil, fmt.Errorf("ExpireAction rejected: action %s is %s (not pending)", c.ActionID, act.Status)
 	}
+	// Nobody approved an expiry: it carries out the request's own deadline,
+	// so its principal is the requester (the actor invariant, event.go).
+	if env.Actor.PrincipalID != act.RequestedBy {
+		return nil, fmt.Errorf("ExpireAction rejected: principal %q is not the requester %q", env.Actor.PrincipalID, act.RequestedBy)
+	}
 
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionExpired{ActionID: c.ActionID, ExpiryInterpretationID: interpID})
 	if err != nil {
 		return nil, err

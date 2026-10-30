@@ -29,7 +29,7 @@ func TestManualPrediction_Apply(t *testing.T) {
 		Prediction: &PredictionNode{ID: predID, HypothesisRef: hRef, Statement: "the account owner confirms starting the 02:14 session", TestKind: TestKindManual,
 			TestQuery: &QuerySpec{Tool: "person", QueryText: "call the owner; ask whether they started the RDP session"}},
 	}
-	events, err := applyCommand(ai, create, reasoningState(live, nil))
+	events, err := applyCommand(ai, create, reasoningState(live, nil), testIDs())
 	if err != nil {
 		t.Fatalf("AI proposing a manual prediction: %v", err)
 	}
@@ -71,20 +71,20 @@ func TestManualPrediction_Apply(t *testing.T) {
 
 	// The AI cannot record any outcome on a manual prediction — even with refs.
 	for _, status := range []string{PredictionConfirmed, PredictionDisconfirmed, PredictionInconclusive} {
-		if _, err := applyCommand(ai, outcome(status, nil, "observed-data--1"), state); err == nil || !strings.Contains(err.Error(), "tested by a person") {
+		if _, err := applyCommand(ai, outcome(status, nil, "observed-data--1"), state, testIDs()); err == nil || !strings.Contains(err.Error(), "tested by a person") {
 			t.Errorf("AI %s on a manual prediction: err = %v; want the manual guard", status, err)
 		}
 	}
 	// Nor carry an attestation on any prediction, manual or not.
 	toolState := reasoningState(live, map[string]predictionState{pRef: {Status: PredictionUntested, HypothesisRef: hRef}})
-	if _, err := applyCommand(ai, outcome(PredictionConfirmed, att()), toolState); err == nil || !strings.Contains(err.Error(), "human act") {
+	if _, err := applyCommand(ai, outcome(PredictionConfirmed, att()), toolState, testIDs()); err == nil || !strings.Contains(err.Error(), "human act") {
 		t.Errorf("AI attestation on a tool prediction: err = %v; want the human-act guard", err)
 	}
 
 	// The human records the result with an attestation and no telemetry refs:
 	// the note is minted, cited first, and listed among the outputs.
 	a := att()
-	events, err = applyCommand(human, outcome(PredictionConfirmed, a), state)
+	events, err = applyCommand(human, outcome(PredictionConfirmed, a), state, testIDs())
 	if err != nil {
 		t.Fatalf("human attested outcome: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestManualPrediction_Apply(t *testing.T) {
 		t.Errorf("output refs %v lack the note", rec.OutputRefs)
 	}
 	// An attestation alongside telemetry refs: the note comes first.
-	events, err = applyCommand(human, outcome(PredictionDisconfirmed, att(), "observed-data--9"), toolState)
+	events, err = applyCommand(human, outcome(PredictionDisconfirmed, att(), "observed-data--9"), toolState, testIDs())
 	if err != nil {
 		t.Fatalf("human attested outcome with refs on a tool prediction: %v", err)
 	}
@@ -125,14 +125,14 @@ func TestManualPrediction_Apply(t *testing.T) {
 		}
 	}
 	// Withdraw stays legal (and human) on a manual prediction.
-	if _, err := applyCommand(human, outcome(PredictionWithdrawn, nil), state); err != nil {
+	if _, err := applyCommand(human, outcome(PredictionWithdrawn, nil), state, testIDs()); err != nil {
 		t.Errorf("human withdraw of a manual prediction: %v", err)
 	}
 	// The decide gate reads a manual discriminator like any other (adr/0051).
 	rival := HypothesisSTIXID(uuid.New())
 	gated := reasoningState(map[string]hypothesisState{hRef: {Status: HypothesisOpen}, rival: {Status: HypothesisOpen}},
 		map[string]predictionState{pRef: {Status: PredictionUntested, HypothesisRef: hRef, Manual: true, Discriminates: []string{rival}}})
-	if _, err := applyCommand(ai, RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: InterpretationSupport, Rationale: "r", HypothesisRef: rival}, gated); err == nil {
+	if _, err := applyCommand(ai, RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: InterpretationSupport, Rationale: "r", HypothesisRef: rival}, gated, testIDs()); err == nil {
 		t.Error("AI decided the rival over an untested manual discriminator")
 	}
 }
