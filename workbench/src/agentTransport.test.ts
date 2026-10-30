@@ -93,6 +93,7 @@ function deps(over: Partial<SidecarDeps> = {}): SidecarDeps {
     backendUrl: () => "http://127.0.0.1:7700",
     model: () => "claude-test",
     maxToolResultKB: () => 256,
+    contextWindowTokens: () => 150000,
     apiKey: async () => undefined,
     getToken: async (kind) => `tok-${kind}`,
     ...over,
@@ -123,6 +124,7 @@ describe("SidecarTransport: start", () => {
     expect(sc.initialize).toEqual([{
       protocol_version: 1, backend_url: "http://127.0.0.1:7700", model: "claude-test", anthropic_api_key: "sk-byok",
       max_tool_result_kb: 256,
+      context_window_tokens: 150000,
     }]);
   });
 
@@ -150,6 +152,7 @@ describe("SidecarTransport: turns", () => {
         child.peer.sendNotification("turn/tool_result", {
           session_id: p.session_id, name: "query", content: "{}", is_error: false, coverage: "COMPLETE", event_count: 3, refs: ["r-1"],
         });
+        child.peer.sendNotification("turn/context_compacted", { session_id: p.session_id, text: "Context condensed" });
         child.peer.sendNotification("turn/text_delta", { session_id: p.session_id, text: "done" });
         // Another session's notification never reaches this turn.
         child.peer.sendNotification("turn/text_delta", { session_id: "someone-else", text: "leak" });
@@ -167,11 +170,14 @@ describe("SidecarTransport: turns", () => {
       onStep: (r) => seen.push(`step ${r}`),
       onToolCall: (n, i) => seen.push(`call ${n} ${JSON.stringify(i)}`),
       onToolResult: (n, _c, e, cov, ev, refs) => seen.push(`result ${n} ${e} ${cov} ${ev} ${refs?.join(",")}`),
+      onContextCompacted: (note) => seen.push(`compacted ${note}`),
     };
     transport = new SidecarTransport(deps(), fakeLog());
     const out = await transport.turn("inv-1", "go", sink);
 
-    expect(seen).toEqual(["step 1", 'call query {"q":1}', "result query false COMPLETE 3 r-1", "delta done"]);
+    expect(seen).toEqual([
+      "step 1", 'call query {"q":1}', "result query false COMPLETE 3 r-1", "compacted Context condensed", "delta done",
+    ]);
     expect(out).toEqual({
       text: "done", interpretationId: "i-1", toolRounds: 1,
       usage: { input: 10, output: 2, cacheRead: 4, cacheWrite: 0 },

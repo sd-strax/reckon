@@ -24,7 +24,8 @@ export type LiveSegment =
   | { kind: "text"; text: string }
   | { kind: "tool"; row: LiveToolRow }
   | { kind: "step"; round: number }
-  | { kind: "usage"; text: string };
+  | { kind: "usage"; text: string }
+  | { kind: "notice"; text: string };
 
 export interface LiveTurn {
   kind: "assistant";
@@ -268,6 +269,8 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "turn.step":
       // A subtle step divider from round 2 on (round 1 is the turn start).
       return msg.round > 1 ? withTurn(state, (t) => { t.segments.push({ kind: "step", round: msg.round }); }) : state;
+    case "turn.notice":
+      return withTurn(state, (t) => { t.segments.push({ kind: "notice", text: msg.text }); });
     case "turn.tool":
       return withTurn(state, (t) => { t.segments.push({ kind: "tool", row: { name: msg.name, input: msg.input } }); });
     case "turn.toolResult": {

@@ -518,6 +518,10 @@ func TestSession_Rehydrates(t *testing.T) {
 	if s.messages[3].Role != RoleAssistant || !strings.Contains(s.messages[3].Content[0].Text, "10.0.4.20") {
 		t.Errorf("last message = %+v; want the model's last prose", s.messages[3])
 	}
+	// Each rehydrated pair is a turn already in its collapsed shape (adr/0230).
+	if len(s.turns) != 2 || s.turns[1].start != 2 || !s.turns[0].collapsed || s.turns[1].analyst != "who is svc_backup?" {
+		t.Errorf("rehydrated turns = %+v; want two collapsed turns at 0 and 2", s.turns)
+	}
 	// Tool lines were collapsed — no tool_use blocks in the rehydrated history.
 	for _, m := range s.messages {
 		for _, b := range m.Content {

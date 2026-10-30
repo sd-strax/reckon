@@ -14,6 +14,7 @@ function Turn({ t, streaming }: { t: LiveTurn; streaming: boolean }) {
         if (s.kind === "text") return <Markdown key={i} text={s.text} live={streaming && s === last} />;
         if (s.kind === "step") return <div key={i} className="stepmark">· step {s.round} ·</div>;
         if (s.kind === "usage") return <div key={i} className="usage">{s.text}</div>;
+        if (s.kind === "notice") return <div key={i} className="notice">{s.text}</div>;
         return (
           <ToolRow
             key={i}

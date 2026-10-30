@@ -101,10 +101,11 @@ func runInvestigate(invID string) error {
 	r := &repl{client: client, invID: invID}
 
 	session, err := agent.NewSession(ctx, agent.Config{
-		Backend:            client,
-		LLM:                llm,
-		InvestigationID:    invID,
-		MaxToolResultBytes: maxToolResultKB() << 10,
+		Backend:             client,
+		LLM:                 llm,
+		InvestigationID:     invID,
+		MaxToolResultBytes:  envInt("RECKON_MAX_TOOL_RESULT_KB") << 10,
+		ContextWindowTokens: envInt("RECKON_CONTEXT_WINDOW_TOKENS"),
 		Hooks: agent.Hooks{
 			// OnText fires only when the provider cannot stream (agent.Hooks
 			// contract); with Anthropic the deltas below carry the text.
@@ -124,6 +125,10 @@ func runInvestigate(invID string) error {
 				r.breakStream()
 				fmt.Printf("  → %s %s\n", sanitizeTerminal(name), sanitizeTerminal(compactJSON(input)))
 				r.lastTools = append(r.lastTools, toolExchange{name: name, input: string(input)})
+			},
+			OnContextCompacted: func(note string) {
+				r.breakStream()
+				fmt.Printf("  ⋯ %s\n", note)
 			},
 			OnToolResult: func(name, content string, isError bool) {
 				mark := "✓"
@@ -451,11 +456,11 @@ func clip(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// maxToolResultKB reads RECKON_MAX_TOOL_RESULT_KB, the size one tool result
-// may reach before the model is shown it a page at a time (adr/0209). Unset or
-// invalid means the agent default.
-func maxToolResultKB() int {
-	n, err := strconv.Atoi(os.Getenv("RECKON_MAX_TOOL_RESULT_KB"))
+// envInt reads a non-negative integer setting from the environment:
+// RECKON_MAX_TOOL_RESULT_KB (adr/0209) and RECKON_CONTEXT_WINDOW_TOKENS
+// (adr/0230). Unset or invalid means the agent default.
+func envInt(name string) int {
+	n, err := strconv.Atoi(os.Getenv(name))
 	if err != nil || n < 0 {
 		return 0
 	}

@@ -251,6 +251,12 @@
           "minimum": 16,
           "description": "Size in KB one tool result may reach before the agent is shown it a page at a time, with a digest of the whole result. Larger values fill the model's context faster."
         },
+        "reckon.agent.contextWindowTokens": {
+          "type": "number",
+          "default": 200000,
+          "minimum": 16000,
+          "description": "The model's context window in tokens. The agent condenses older turns when the conversation nears it, and adopts the provider's own limit if a request is refused as too long."
+        },
         "reckon.sidecarPath": {
           "type": "string",
           "default": "",

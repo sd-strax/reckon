@@ -91,6 +91,18 @@ describe("reducer: the live conversation", () => {
     s = run([{ type: "turn.user", text: "again" }], s);
     expect(s.preserveLive).toBe(false);
   });
+  it("shows a context compaction notice in the live turn", () => {
+    const s = run([
+      { type: "state.snapshot", seq: 1, snapshot: snap(1) },
+      { type: "turn.user", text: "hi" }, { type: "turn.start" },
+      { type: "turn.notice", text: "Context condensed to fit the model's window: 2 earlier turns reduced to their text." },
+    ]);
+    const turn = s.live[1];
+    if (turn.kind !== "assistant") throw new Error();
+    expect(turn.segments).toEqual([
+      { kind: "notice", text: "Context condensed to fit the model's window: 2 earlier turns reduced to their text." },
+    ]);
+  });
   it("clears the live view once the committed thread re-posts after an idle turn", () => {
     let s = run([
       { type: "state.snapshot", seq: 1, snapshot: snap(1) },
