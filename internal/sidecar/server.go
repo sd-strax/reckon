@@ -98,6 +98,7 @@ type service struct {
 	backend  string // backend base URL (set at initialize)
 	model    string
 	apiKey   string
+	resultKB int
 	sessions map[string]*sessionState
 }
 
@@ -122,6 +123,9 @@ type initializeParams struct {
 	// SecretStorage. Optional when the sidecar host can resolve one itself
 	// (env / OS keychain via Options.FallbackAPIKey).
 	AnthropicAPIKey string `json:"anthropic_api_key,omitempty"`
+	// MaxToolResultKB bounds one tool result fed back to the model; a larger
+	// one is shown a page at a time (adr/0209). Zero means the agent default.
+	MaxToolResultKB int `json:"max_tool_result_kb,omitempty"`
 }
 
 type initializeResult struct {
@@ -172,7 +176,7 @@ func (s *service) handleInitialize(ctx context.Context, raw json.RawMessage) (an
 	}
 
 	s.mu.Lock()
-	s.backend, s.model, s.apiKey = p.BackendURL, model, apiKey
+	s.backend, s.model, s.apiKey, s.resultKB = p.BackendURL, model, apiKey, max(p.MaxToolResultKB, 0)
 	s.mu.Unlock()
 	s.opts.Logf("initialized: backend %s (api v%d), model %s", p.BackendURL, apiVersion, model)
 
@@ -233,7 +237,7 @@ func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) 
 		return nil, errInvalidParams("createSession: investigation_id is required")
 	}
 	s.mu.Lock()
-	backend, model, apiKey := s.backend, s.model, s.apiKey
+	backend, model, apiKey, resultKB := s.backend, s.model, s.apiKey, s.resultKB
 	s.mu.Unlock()
 	if backend == "" {
 		return nil, fmt.Errorf("not initialized — call initialize first")
@@ -245,9 +249,10 @@ func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) 
 	)
 	sessionID := uuid.NewString()
 	sess, err := agent.NewSession(ctx, agent.Config{
-		Backend:         client,
-		LLM:             s.opts.NewLLM(model, apiKey),
-		InvestigationID: p.InvestigationID,
+		Backend:            client,
+		LLM:                s.opts.NewLLM(model, apiKey),
+		InvestigationID:    p.InvestigationID,
+		MaxToolResultBytes: resultKB << 10,
 		Hooks: agent.Hooks{
 			// The two text hooks are mutually exclusive per completion (agent.Hooks
 			// contract): a streaming provider delivers via turn/text_delta and
@@ -396,6 +401,13 @@ func summarizeEnvelope(content string) (coverage string, eventCount int, refs []
 		ObservedDataRefs []string          `json:"observed_data_refs"`
 		EntityRefs       []string          `json:"entity_refs"`
 		OcsfEventRefs    []string          `json:"ocsf_event_refs"`
+		// A result too large for the model arrives a page at a time
+		// (adr/0209); the count is the whole result's, not the page's.
+		Bounded *struct {
+			Lists map[string]struct {
+				Total int `json:"total"`
+			} `json:"lists"`
+		} `json:"result_bounded"`
 	}
 	if err := json.Unmarshal([]byte(content), &env); err != nil || env.Coverage == "" {
 		return "", 0, nil, false
@@ -403,7 +415,13 @@ func summarizeEnvelope(content string) (coverage string, eventCount int, refs []
 	refs = append(refs, env.ObservedDataRefs...)
 	refs = append(refs, env.EntityRefs...)
 	refs = append(refs, env.OcsfEventRefs...)
-	return env.Coverage, len(env.Events), refs, true
+	eventCount = len(env.Events)
+	if env.Bounded != nil {
+		if l, ok := env.Bounded.Lists["events"]; ok {
+			eventCount = l.Total
+		}
+	}
+	return env.Coverage, eventCount, refs, true
 }
 
 func (s *service) handleTurn(ctx context.Context, raw json.RawMessage) (any, error) {

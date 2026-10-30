@@ -1045,6 +1045,160 @@ func TestSession_MaxTokensStopClosesToolUse(t *testing.T) {
 	}
 }
 
+// assertHistorySerializable fails if any tool_use input in msgs is not a JSON
+// object, or if the history does not marshal onto the provider wire.
+func assertHistorySerializable(t *testing.T, msgs []Message) {
+	t.Helper()
+	for i, m := range msgs {
+		for _, b := range m.Content {
+			if b.Type == BlockToolUse && !isJSONObject(b.Input) {
+				t.Fatalf("message %d: tool_use %q holds input %q, not a JSON object", i, b.ToolUseID, b.Input)
+			}
+		}
+	}
+	if _, err := json.Marshal(toAnthropicMessages(msgs)); err != nil {
+		t.Fatalf("history does not marshal: %v", err)
+	}
+}
+
+// TestSession_CutOffToolInputNeverEntersHistory (#229): a max_tokens stop
+// mid-tool_use delivers unfinished input JSON. It enters history as {}, the
+// call is not run, the model is told why, and the record says so.
+func TestSession_CutOffToolInputNeverEntersHistory(t *testing.T) {
+	f := newFakeBackend(t)
+	const cut = `{"query":"lateral mov`
+	llm := &scriptedLLM{script: []CompleteResponse{
+		{StopReason: StopMaxTokens, Content: []ContentBlock{
+			TextBlock("checking"), toolUse("tx", ToolRecallSOPs, cut),
+		}},
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("done")}},
+	}}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1"})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	res, err := s.Turn(context.Background(), "go")
+	if err != nil {
+		t.Fatalf("turn 1: %v", err)
+	}
+	assertToolUsesAnswered(t, s.messages)
+	assertHistorySerializable(t, s.messages)
+
+	if n := len(f.callsTo("/api/knowledge/recall_sops")); n != 0 {
+		t.Errorf("a cut-off call was dispatched %d times", n)
+	}
+	last := s.messages[len(s.messages)-1]
+	if len(last.Content) != 1 || !last.Content[0].IsError || last.Content[0].Content != cutOffReason {
+		t.Errorf("cut-off call answered with %+v; want one is_error result carrying cutOffReason", last.Content)
+	}
+	want := fmt.Sprintf("[tool_use recall_sops id=tx] input cut off after %d bytes; not run", len(cut))
+	if !strings.Contains(res.Transcript, want) {
+		t.Errorf("transcript does not record the cut-off call (%q):\n%s", want, res.Transcript)
+	}
+
+	if _, err := s.Turn(context.Background(), "again"); err != nil {
+		t.Fatalf("turn 2 must not fail: %v", err)
+	}
+	assertHistorySerializable(t, llm.requests[len(llm.requests)-1].Messages)
+}
+
+// TestSession_CutOffCallBesideValidCalls: when a tool_use stop carries a
+// malformed input beside a well-formed one, the well-formed call still runs,
+// and both are answered in a single user message.
+func TestSession_CutOffCallBesideValidCalls(t *testing.T) {
+	f := newFakeBackend(t)
+	llm := &scriptedLLM{script: []CompleteResponse{
+		{StopReason: StopToolUse, Content: []ContentBlock{
+			toolUse("ok", ToolRecallSOPs, `{"query":"a"}`),
+			toolUse("bad", ToolRecallSOPs, `{"query":`),
+		}},
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("done")}},
+	}}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1"})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if _, err := s.Turn(context.Background(), "go"); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	assertToolUsesAnswered(t, s.messages)
+	assertHistorySerializable(t, s.messages)
+	if n := len(f.callsTo("/api/knowledge/recall_sops")); n != 1 {
+		t.Errorf("recall_sops dispatched %d times; want 1 (the well-formed call only)", n)
+	}
+	for _, m := range s.messages {
+		for _, b := range m.Content {
+			if b.Type == BlockToolResult && b.ToolUseID == "bad" && (!b.IsError || b.Content != cutOffReason) {
+				t.Errorf("malformed call answered with %+v", b)
+			}
+		}
+	}
+}
+
+// TestSession_StreamCutOffMidToolInput (#229) drives the real Anthropic
+// adapter: the first stream stops on max_tokens partway through a tool call's
+// input_json_delta, and the next turn's request must still be valid JSON.
+func TestSession_StreamCutOffMidToolInput(t *testing.T) {
+	cutStream := sseBody(
+		`event: message_start
+data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}`,
+		`event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu1","name":"recall_sops","input":{}}}`,
+		`event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"lat"}}`,
+		`event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":4096}}`,
+		`event: message_stop
+data: {"type":"message_stop"}`,
+	)
+	doneStream := sseBody(
+		`event: message_start
+data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}`,
+		`event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		`event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
+		`event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`,
+		`event: message_stop
+data: {"type":"message_stop"}`,
+	)
+	var bodies [][]byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if len(bodies) == 1 {
+			_, _ = w.Write([]byte(cutStream))
+			return
+		}
+		_, _ = w.Write([]byte(doneStream))
+	}))
+	defer srv.Close()
+
+	f := newFakeBackend(t)
+	s, err := NewSession(context.Background(), Config{
+		Backend: f.client(), InvestigationID: "inv-1",
+		LLM:   &Anthropic{APIKey: "k", BaseURL: srv.URL, RetryBaseDelay: time.Millisecond},
+		Hooks: Hooks{OnTextDelta: func(string) {}},
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if _, err := s.Turn(context.Background(), "go"); err != nil {
+		t.Fatalf("turn 1: %v", err)
+	}
+	if _, err := s.Turn(context.Background(), "again"); err != nil {
+		t.Fatalf("turn 2 must not fail after a cut-off stream: %v", err)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("provider saw %d requests; want 2", len(bodies))
+	}
+	if !json.Valid(bodies[1]) {
+		t.Errorf("second request body is not valid JSON:\n%s", bodies[1])
+	}
+}
+
 // TestSession_TranscriptFramingIsInjectionSafe: model text containing forged
 // framing lines is neutralized in the committed transcript — an injected
 // newline can never open a fake "[tool_result ...]" line that masquerades as
