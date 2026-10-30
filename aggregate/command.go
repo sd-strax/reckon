@@ -214,6 +214,17 @@ type aggregateState struct {
 	SupersededInterps map[uuid.UUID]bool
 	Pins              map[uuid.UUID]bool // evidence-pin id → still active
 	Verdicts          []verdictEntry     // in fold order; last non-superseded wins
+
+	// Turns maps each committed agent turn's id to the interpretation that
+	// recorded it, so a retried turn commit is recognised (adr/0231).
+	Turns map[string]recordedTurn
+}
+
+// recordedTurn is the interpretation a turn was committed as, and the content
+// hash of its transcript.
+type recordedTurn struct {
+	InterpretationID uuid.UUID
+	ContentHash      string
 }
 
 // foldState replays an event stream into the current aggregateState. Only
@@ -231,6 +242,7 @@ func foldState(events []Event) (aggregateState, error) {
 		Interpretations:   make(map[uuid.UUID]string),
 		SupersededInterps: make(map[uuid.UUID]bool),
 		Pins:              make(map[uuid.UUID]bool),
+		Turns:             make(map[string]recordedTurn),
 	}
 	for _, e := range events {
 		s.Seq = e.SequenceNo
@@ -276,6 +288,9 @@ func foldState(events []Event) (aggregateState, error) {
 			}
 			foldReasoningEvent(&s, rec)
 			s.Interpretations[rec.InterpretationID] = rec.InterpretationType
+			if t := rec.TranscriptRef; t != nil && t.TurnID != "" {
+				s.Turns[t.TurnID] = recordedTurn{InterpretationID: rec.InterpretationID, ContentHash: t.ContentHash}
+			}
 			switch rec.InterpretationType {
 			case InterpretationEvidencePin:
 				s.Pins[rec.InterpretationID] = true

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -97,6 +98,12 @@ type Session struct {
 	tokensPerByte float64
 	fixedBytes    int
 
+	// held is turns whose commit never reached the backend, oldest first;
+	// they are committed before the next one (adr/0231). commitBackoff is the
+	// wait before each retry of a commit.
+	held          []InterpretationRequest
+	commitBackoff []time.Duration
+
 	// Standing context (refreshContext is the only writer) and the hypothesis
 	// set as last read (refreshHypotheses, every turn). hyps never enters the
 	// system prompt: it is rendered per turn as a [reasoning state] block on
@@ -169,6 +176,7 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 		maxResultBytes:  cfg.MaxToolResultBytes,
 		contextTokens:   cfg.ContextWindowTokens,
 		tokensPerByte:   defaultTokensPerByte,
+		commitBackoff:   defaultCommitBackoff,
 		hooks:           cfg.Hooks,
 		now:             cfg.Clock,
 		// The investigation id is always a legit engine id — never a fabrication
@@ -274,6 +282,12 @@ func (s *Session) ResetContext(ctx context.Context) error {
 	s.turns = nil
 	s.results.clear()                     // the model no longer holds the result ids
 	s.turnsSinceAnchor = anchorEveryTurns // anchor immediately on the next turn
+
+	// Turns still held from a failed commit go on the thread before the
+	// marker, so rehydration treats them as reset away (adr/0231).
+	if err := s.flushHeld(ctx); err != nil {
+		return fmt.Errorf("context reset applied to the live session, but an earlier turn could not be recorded before it: %w", err)
+	}
 
 	// Durability: without the marker, the next sidecar respawn would rehydrate
 	// the discarded narration straight back. The reset is itself a recorded,
@@ -399,8 +413,11 @@ func (s *Session) HypothesisFraming() string {
 // Turn runs one analyst turn: the model reasons and dispatches tools until it
 // ends its turn (or the round budget is spent), then the whole turn — full
 // transcript bytes plus the tool-call log — is committed to the reasoning
-// thread as one interpretation (05 §3.4). The turn is returned even when the
-// final commit fails; the error reports the commit failure.
+// thread as one interpretation (05 §3.4). A turn that ends early, on a model
+// error or a cancel, is committed too, with a line saying how it ended
+// (adr/0231). The turn is returned even when the model call or the commit
+// fails; the error reports both. A commit that cannot reach the backend is
+// held and committed before the next turn's.
 func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error) {
 	s.pendingActions = nil
 	s.consulted = map[string]ConsultedSOP{}
@@ -462,24 +479,23 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	}
 
 	rounds := 0
+	var turnErr error
 	for {
 		if s.hooks.OnRoundStart != nil {
 			s.hooks.OnRoundStart(rounds + 1)
 		}
 		resp, streamed, err := s.completeFitted(ctx, &transcript)
 		if err != nil {
-			// Return a partial result rather than nil: any action the model
-			// already requested this turn is recorded server-side and pending —
-			// dropping the result would strand it past the surface's approval
-			// offer (the exact failure mode the durable queue exists to fix).
-			return &TurnResult{
-				Text:           finalText.String(),
-				PendingActions: s.refreshPending(ctx),
-				ToolRounds:     rounds,
-				Transcript:     transcript.String(),
-				ToolCalls:      toolLog,
-				Usage:          turnUsage,
-			}, fmt.Errorf("agent: model call: %w", err)
+			// The turn ends here but is still closed and committed below: tool
+			// calls earlier in it may already have recorded hypotheses or
+			// requested actions, and the record must say why (adr/0231).
+			turnErr = fmt.Errorf("agent: model call: %w", err)
+			ended := "model call failed: " + err.Error()
+			if ctx.Err() != nil {
+				ended = "cancelled by the analyst"
+			}
+			fmt.Fprintf(&transcript, "[engine] turn ended early: %s\n", sanitizeTranscript(ended))
+			break
 		}
 		turnUsage.Add(resp.Usage)
 		// History must stay serializable: a call whose input is not a JSON
@@ -564,13 +580,18 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		s.messages = append(s.messages, Message{Role: RoleUser, Content: results})
 	}
 
+	// The turn's closing work runs even when the turn was cancelled: a cancel
+	// stops the model, not the record (adr/0231).
+	closing, cancelClosing := context.WithTimeout(context.WithoutCancel(ctx), commitTimeout)
+	defer cancelClosing()
+
 	// Deterministic ground-truth backstop (the prompt honesty rules have proven
 	// insufficient): state the real status of every action_id the model cited,
 	// and attest when a creation claim had no matching request_action — so a
 	// fabricated id or narrated-but-never-made call is corrected IN PLACE:
 	// visible to the analyst, committed to the transcript, and folded into the
 	// assistant message so the correction is in the model's own history.
-	if gt := s.turnFooter(ctx, finalText.String(), len(s.pendingActions), s.seenIDs); gt != "" {
+	if gt := s.turnFooter(closing, finalText.String(), len(s.pendingActions), s.seenIDs); gt != "" {
 		fmt.Fprintf(&transcript, "[assistant] %s\n", sanitizeTranscript(gt))
 		finalText.WriteString("\n\n")
 		finalText.WriteString(gt)
@@ -582,9 +603,11 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		}
 	}
 
+	// PendingActions rides even a failed turn: an action the model already
+	// requested is pending server-side, and the surface must offer it.
 	res := &TurnResult{
 		Text:           finalText.String(),
-		PendingActions: s.refreshPending(ctx),
+		PendingActions: s.refreshPending(closing),
 		ToolRounds:     rounds,
 		Transcript:     transcript.String(),
 		ToolCalls:      toolLog,
@@ -596,10 +619,14 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	// transaction (05 §3.4). The rationale is the terse summary; the transcript
 	// is the record.
 	rationale := clipRunes(strings.TrimSpace(finalText.String()), maxRationaleRunes)
-	if rationale == "" {
+	switch {
+	case rationale != "":
+	case turnErr != nil:
+		rationale = "(turn ended early — see transcript)"
+	default:
 		rationale = "(no final text — see transcript)"
 	}
-	interp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+	id, err := s.commitTurn(closing, InterpretationRequest{
 		InvestigationRef:   s.investigationID,
 		InterpretationType: "other",
 		Rationale:          rationale,
@@ -608,11 +635,8 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		ConsultedSOPs:      s.consultedList(finalText.String()),
 		ConsultedSimilar:   s.consultedSimilarList(finalText.String()),
 	})
-	if err != nil {
-		return res, fmt.Errorf("agent: commit turn: %w", err)
-	}
-	res.InterpretationID = interp.InterpretationID
-	return res, nil
+	res.InterpretationID = id
+	return res, errors.Join(turnErr, err)
 }
 
 // summarizeInstruction asks the model for the knowledge-base narrative at
