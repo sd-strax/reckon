@@ -1,6 +1,6 @@
 # 0235 — The context-reset marker is a type, and transcript escaping round-trips
 
-Issue: #235 · PR: TBD · Status: accepted
+Issue: #235 · PR: #276 · Status: accepted
 
 ## Context
 
