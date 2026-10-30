@@ -24,6 +24,18 @@ import (
 // maps to, so the workflow's retry budget skips it (08 §5, §6).
 const fatalErrorType = "FATAL_ERROR"
 
+// Non-retryable ApplicationError types for the emit activities. A rejection
+// is the aggregate deciding against the stream, and a malformed id never
+// parses: retrying either only spends the budget before the same failure.
+const (
+	rejectedErrorType = "AGGREGATE_REJECTED"
+	badInputErrorType = "BAD_INPUT"
+)
+
+// correlationNamespace scopes the UUIDv5 correlation ids derived for
+// system-emitted commands (systemCorrelationID).
+var correlationNamespace = uuid.MustParse("e194f0f3-748e-4c70-8a5d-77121aa7dbe5")
+
 // Activities are the side-effecting steps the ActionLifecycle workflow calls.
 // They hold the aggregate handler (to emit lifecycle events) and the action
 // resolver (to dispatch). Activities run outside the workflow's determinism
@@ -56,7 +68,7 @@ func NewActivities(handler *aggregate.Handler, resolver *action.AtomicResolver, 
 func (a *Activities) CheckDispatched(ctx context.Context, actionID string) (bool, error) {
 	id, err := uuid.Parse(actionID)
 	if err != nil {
-		return false, fmt.Errorf("CheckDispatched: bad action id: %w", err)
+		return false, badInput(fmt.Errorf("CheckDispatched: bad action id: %w", err))
 	}
 	ac, err := aggregate.LoadActionCurrent(ctx, a.handler.DB(), id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -100,13 +112,13 @@ type EmitDispatchedInput struct {
 // adapter (no applicable binding) is not fatal here: DoDispatch surfaces the
 // no-binding error authoritatively.
 func (a *Activities) EmitDispatched(ctx context.Context, in EmitDispatchedInput) error {
-	env, err := systemEnvelope(in.AggregateID, in.TenantID, in.ApproverID)
+	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, in.ApproverID)
 	if err != nil {
 		return err
 	}
 	id, err := uuid.Parse(in.ActionID)
 	if err != nil {
-		return err
+		return badInput(err)
 	}
 	adapter := ""
 	if a.resolver != nil {
@@ -127,7 +139,7 @@ func (a *Activities) EmitDispatched(ctx context.Context, in EmitDispatchedInput)
 		Adapter:          adapter,
 		AdapterRequestID: in.AdapterRequestID,
 	})
-	return err
+	return emitErr(err)
 }
 
 // DispatchInput is the frozen action content the resolver dispatches.
@@ -238,15 +250,15 @@ type EmitResultedInput struct {
 
 // EmitResulted records ActionResulted, closing the action.
 func (a *Activities) EmitResulted(ctx context.Context, in EmitResultedInput) error {
-	env, err := systemEnvelope(in.AggregateID, in.TenantID, in.ApproverID)
+	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, in.ApproverID)
 	if err != nil {
 		return err
 	}
 	id, err := uuid.Parse(in.ActionID)
 	if err != nil {
-		return err
+		return badInput(err)
 	}
-	_, err = a.handler.Handle(ctx, env, aggregate.ResultAction{
+	res, err := a.handler.Handle(ctx, env, aggregate.ResultAction{
 		ActionID:         id,
 		FinalOutcome:     in.FinalOutcome,
 		PerTargetResults: in.PerTargetResults,
@@ -256,14 +268,17 @@ func (a *Activities) EmitResulted(ctx context.Context, in EmitResultedInput) err
 		RawResponseRef:   in.RawResponseRef,
 	})
 	if err != nil {
-		return err
+		return emitErr(err)
 	}
 	// Phase F: a SUCCEEDED notify.* dispatch opens/extends its comms thread.
-	// Best-effort by design: the result event is committed; failing (and
-	// retrying) this activity for thread bookkeeping would attempt a second
-	// result on the aggregate and be refused. A miss logs and the analyst
-	// still has the action record.
-	a.recordCommsThread(ctx, id, in)
+	// Best-effort by design: the result event is committed, so a miss logs and
+	// the analyst still has the action record. Only the attempt that recorded
+	// the result does it: a retry finding its result already on the stream
+	// applies nothing, and comms.Outbound is not idempotent (it would open a
+	// second thread).
+	if len(res.AppliedEvents) > 0 {
+		a.recordCommsThread(ctx, id, in)
+	}
 	return nil
 }
 
@@ -345,23 +360,23 @@ type EmitReversedInput struct {
 // EmitReversed records ActionReversed on the original action once its reversing
 // action succeeded (04 §7). System-emitted by the ReversalSaga.
 func (a *Activities) EmitReversed(ctx context.Context, in EmitReversedInput) error {
-	env, err := systemEnvelope(in.AggregateID, in.TenantID, in.ApproverID)
+	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, in.ApproverID)
 	if err != nil {
 		return err
 	}
 	origID, err := uuid.Parse(in.OriginalActionID)
 	if err != nil {
-		return err
+		return badInput(err)
 	}
 	revID, err := uuid.Parse(in.ReversingActionID)
 	if err != nil {
-		return err
+		return badInput(err)
 	}
 	_, err = a.handler.Handle(ctx, env, aggregate.ReverseAction{
 		OriginalActionID:  origID,
 		ReversingActionID: revID,
 	})
-	return err
+	return emitErr(err)
 }
 
 // EmitReversalAttempted records ActionReversalAttempted on the original action:
@@ -370,23 +385,23 @@ func (a *Activities) EmitReversed(ctx context.Context, in EmitReversedInput) err
 // back-reference is recorded (04 §7.1 Position C). System-emitted by the
 // ReversalSaga. Shares EmitReversedInput: same identifiers, different claim.
 func (a *Activities) EmitReversalAttempted(ctx context.Context, in EmitReversedInput) error {
-	env, err := systemEnvelope(in.AggregateID, in.TenantID, in.ApproverID)
+	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, in.ApproverID)
 	if err != nil {
 		return err
 	}
 	origID, err := uuid.Parse(in.OriginalActionID)
 	if err != nil {
-		return err
+		return badInput(err)
 	}
 	revID, err := uuid.Parse(in.ReversingActionID)
 	if err != nil {
-		return err
+		return badInput(err)
 	}
 	_, err = a.handler.Handle(ctx, env, aggregate.RecordReversalAttempt{
 		OriginalActionID:  origID,
 		ReversingActionID: revID,
 	})
-	return err
+	return emitErr(err)
 }
 
 // EmitExpiredInput identifies the action the expiry timer is closing out.
@@ -402,13 +417,13 @@ type EmitExpiredInput struct {
 // rejection is a benign no-op here — never an error to retry. Only
 // infrastructure failures (DB unreachable) propagate for retry.
 func (a *Activities) EmitExpired(ctx context.Context, in EmitExpiredInput) error {
-	env, err := systemEnvelope(in.AggregateID, in.TenantID, "system")
+	env, err := systemEnvelope(ctx, in.AggregateID, in.TenantID, "system")
 	if err != nil {
 		return err
 	}
 	id, err := uuid.Parse(in.ActionID)
 	if err != nil {
-		return err
+		return badInput(err)
 	}
 	_, err = a.handler.Handle(ctx, env, aggregate.ExpireAction{ActionID: id})
 	var rejected *aggregate.RejectedError
@@ -422,21 +437,23 @@ func (a *Activities) EmitExpired(ctx context.Context, in EmitExpiredInput) error
 
 // systemEnvelope builds the SYSTEM-actor envelope the workflow uses to emit
 // lifecycle events. The principal is the action's approver (a named human, per
-// the actor invariant); Kind is SYSTEM. uuid/time here are fine — activities are
-// not under the workflow determinism constraint.
-func systemEnvelope(aggregateID, tenantID, approverID string) (aggregate.Envelope, error) {
+// the actor invariant); Kind is SYSTEM. The correlation id is the activity's
+// own (systemCorrelationID), so the aggregate recognises a retry as the same
+// command. time here is fine — activities are not under the workflow
+// determinism constraint.
+func systemEnvelope(ctx context.Context, aggregateID, tenantID, approverID string) (aggregate.Envelope, error) {
 	aggID, err := uuid.Parse(aggregateID)
 	if err != nil {
-		return aggregate.Envelope{}, fmt.Errorf("bad aggregate id: %w", err)
+		return aggregate.Envelope{}, badInput(fmt.Errorf("bad aggregate id: %w", err))
 	}
 	tid, err := uuid.Parse(tenantID)
 	if err != nil {
-		return aggregate.Envelope{}, fmt.Errorf("bad tenant id: %w", err)
+		return aggregate.Envelope{}, badInput(fmt.Errorf("bad tenant id: %w", err))
 	}
 	return aggregate.Envelope{
 		AggregateID:   aggID,
 		TenantID:      tid,
-		CorrelationID: uuid.New(),
+		CorrelationID: systemCorrelationID(ctx),
 		Actor:         aggregate.Actor{PrincipalID: approverID, Kind: aggregate.ActorSystem},
 		OccurredAt:    time.Now().UTC(),
 	}, nil
@@ -446,6 +463,41 @@ func systemEnvelope(aggregateID, tenantID, approverID string) (aggregate.Envelop
 // logger outside one: the result-recording helpers are also driven directly
 // (tests, a replay tool), and the SDK's logger panics without an activity
 // context.
+// systemCorrelationID derives the correlation id of a system-emitted command
+// from the activity that issues it: workflow id, run id and activity id. Every
+// retry of one activity gets the same id, so the aggregate recognises a retry
+// after a commit whose completion was lost (aggregate.alreadyApplied). A new
+// run or another activity gets a different id. The run id is required:
+// activity ids restart per run, and an action's workflow id is fixed. Outside
+// an activity (unit tests) it falls back to a random id.
+func systemCorrelationID(ctx context.Context) uuid.UUID {
+	if !activity.IsActivity(ctx) {
+		return uuid.New()
+	}
+	info := activity.GetInfo(ctx)
+	return correlationIDFor(info.WorkflowExecution.ID, info.WorkflowExecution.RunID, info.ActivityID)
+}
+
+// correlationIDFor is the UUIDv5 of one activity's identity.
+func correlationIDFor(workflowID, runID, activityID string) uuid.UUID {
+	return uuid.NewSHA1(correlationNamespace, []byte(workflowID+"/"+runID+"/"+activityID))
+}
+
+// emitErr marks an aggregate rejection non-retryable. ErrConcurrent and
+// infrastructure errors pass through unchanged and stay retryable.
+func emitErr(err error) error {
+	var rejected *aggregate.RejectedError
+	if errors.As(err, &rejected) {
+		return sdktemporal.NewNonRetryableApplicationError(err.Error(), rejectedErrorType, err)
+	}
+	return err
+}
+
+// badInput marks a malformed input non-retryable.
+func badInput(err error) error {
+	return sdktemporal.NewNonRetryableApplicationError(err.Error(), badInputErrorType, err)
+}
+
 func activityLogger(ctx context.Context) log.Logger {
 	if activity.IsActivity(ctx) {
 		return activity.GetLogger(ctx)
