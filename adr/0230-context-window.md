@@ -1,6 +1,6 @@
 # 0230 — The session keeps its history within the context window by condensing it, and recovers from an overflow
 
-Issue: #230 · PR: TBD · Status: accepted
+Issue: #230 · PR: #268 · Status: accepted
 
 ## Context
 
