@@ -1,6 +1,6 @@
 # 0216 — A stranded action is restarted by a sweep, and one whose outcome is unknown waits for a person
 
-Issue: #216 · PR: TBD · Status: accepted
+Issue: #216 · PR: #267 · Status: accepted
 
 ## Context
 
