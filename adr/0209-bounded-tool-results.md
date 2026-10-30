@@ -1,6 +1,6 @@
 # 0209 — A tool result over the limit is shown a page at a time from a session-held snapshot, with a digest of the whole
 
-Issue: #209 · PR: TBD · Status: accepted
+Issue: #209 · PR: #266 · Status: accepted
 
 ## Context
 

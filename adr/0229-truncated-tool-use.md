@@ -1,6 +1,6 @@
 # 0229 — A tool call whose input did not arrive whole enters history as `{}` and is never run
 
-Issue: #229 · PR: TBD · Status: accepted
+Issue: #229 · PR: #266 · Status: accepted
 
 ## Context
 
