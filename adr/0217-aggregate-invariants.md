@@ -1,6 +1,6 @@
 # 0217 — The aggregate's stated invariants hold in its code: a pure decide step, a checked payload version, a named human on every expiry
 
-Issue: #217 · PR: TBD · Status: accepted
+Issue: #217 · PR: #271 · Status: accepted
 
 ## Context
 
