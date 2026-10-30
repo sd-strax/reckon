@@ -377,9 +377,13 @@ func TestRecordReversalAttempt(t *testing.T) {
 		t.Errorf("domain type = %q; want reversal_attempted", events[0].Type)
 	}
 	// The honest-state assertion: folding the attempt leaves the original
-	// SUCCEEDED (no case in foldActionEvent touches it, by design).
-	if got := foldInto(succeeded.Actions, events)[origID].Status; got != ActionStatusSucceeded {
-		t.Errorf("original status after attempt = %q; must stay SUCCEEDED", got)
+	// SUCCEEDED; it records only who attempted the reversal.
+	attempted := foldInto(succeeded.Actions, events)[origID]
+	if attempted.Status != ActionStatusSucceeded {
+		t.Errorf("original status after attempt = %q; must stay SUCCEEDED", attempted.Status)
+	}
+	if attempted.ReversalAttemptedBy != revID {
+		t.Errorf("ReversalAttemptedBy = %v; want %v", attempted.ReversalAttemptedBy, revID)
 	}
 
 	// Only a SUCCEEDED action has an effect to attempt to reverse.
@@ -392,6 +396,35 @@ func TestRecordReversalAttempt(t *testing.T) {
 	human := newTestEnvelope("alice")
 	if _, err := applyCommand(human, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, succeeded); err == nil {
 		t.Error("human RecordReversalAttempt should be rejected (system-only)")
+	}
+}
+
+// TestRecordReversalAttempt_Repeat: the write side folds the attempt, so a
+// retried or re-run ReversalSaga repeating its own write appends nothing, and
+// an attempt by a different reversing action is refused (#214).
+func TestRecordReversalAttempt_Repeat(t *testing.T) {
+	origID, revID := uuid.New(), uuid.New()
+
+	sys := newTestEnvelope("alice")
+	sys.Actor.Kind = ActorSystem
+	state := activeStateWithAction(sys, origID, ActionStatusSucceeded)
+
+	first, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, state)
+	if err != nil {
+		t.Fatalf("first attempt: %v", err)
+	}
+	state.Actions = foldInto(state.Actions, first)
+
+	again, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: revID}, state)
+	if err != nil {
+		t.Fatalf("repeat of the same attempt should be accepted as already recorded: %v", err)
+	}
+	if len(again) != 0 {
+		t.Errorf("repeat of the same attempt appended %d events; want 0", len(again))
+	}
+
+	if _, err := applyCommand(sys, RecordReversalAttempt{OriginalActionID: origID, ReversingActionID: uuid.New()}, state); err == nil {
+		t.Error("an attempt by a different reversing action should be rejected")
 	}
 }
 

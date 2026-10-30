@@ -253,6 +253,10 @@ type actionState struct {
 	RetryOf               uuid.UUID // the action this one re-requests (lineage, adr/0152)
 	ExpiresAt             time.Time // the approval deadline, for a re-request of a lazily expired action
 	ReversalOf            uuid.UUID // the action this one reverses (lineage, adr/0152)
+	// ReversalAttemptedBy is the reversing action whose unverified attempt is
+	// recorded on this one (04 §7.1 Position C); zero when none. Status stays
+	// SUCCEEDED, so this is what lets a repeat attempt be recognised.
+	ReversalAttemptedBy uuid.UUID
 }
 
 // label renders the action as "<type> → <target>" (or just the type when
@@ -281,10 +285,10 @@ func targetLabel(targets []TargetSpec) string {
 }
 
 // foldActionEvent applies one action event to the per-action state map. Kept
-// separate from foldState so the switch there stays readable; all eight types
-// are handled so the machine is complete for the C.4 dispatch events.
-// action.reversal_attempted deliberately has no case: it never changes folded
-// state (the original stays SUCCEEDED, 04 §7.1) — it only feeds the projection.
+// separate from foldState so the switch there stays readable. Every action.*
+// type the projectors see is folded here: action.reversal_attempted leaves the
+// original SUCCEEDED (04 §7.1) but records the attempt, so a repeat is
+// recognised rather than recorded twice.
 func foldActionEvent(actions map[uuid.UUID]actionState, e Event) error {
 	get := func(id uuid.UUID) actionState { return actions[id] }
 	set := func(id uuid.UUID, s actionState) { actions[id] = s }
@@ -369,6 +373,14 @@ func foldActionEvent(actions map[uuid.UUID]actionState, e Event) error {
 		}
 		s := get(p.OriginalActionID)
 		s.Status = ActionStatusReversed
+		set(p.OriginalActionID, s)
+	case EventTypeActionReversalAttempted:
+		var p ActionReversalAttempted
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return fmt.Errorf("fold action.reversal_attempted seq %d: %w", e.SequenceNo, err)
+		}
+		s := get(p.OriginalActionID)
+		s.ReversalAttemptedBy = p.ReversingActionID
 		set(p.OriginalActionID, s)
 	}
 	return nil
@@ -1012,6 +1024,15 @@ func applyReversalAttempt(env Envelope, state aggregateState, c RecordReversalAt
 	}
 	if orig.Status != ActionStatusSucceeded {
 		return nil, fmt.Errorf("RecordReversalAttempt rejected: original action %s is %s, not SUCCEEDED", c.OriginalActionID, orig.Status)
+	}
+	switch orig.ReversalAttemptedBy {
+	case uuid.Nil:
+	case c.ReversingActionID:
+		// Already recorded: a retried or re-run ReversalSaga repeating its own
+		// write. Nothing new happened, so nothing is appended.
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("RecordReversalAttempt rejected: original action %s already has a reversal attempt by %s", c.OriginalActionID, orig.ReversalAttemptedBy)
 	}
 
 	interpID := uuid.New()
