@@ -89,17 +89,22 @@ func (b *Backend) getInterpretationTranscript(w http.ResponseWriter, r *http.Req
 	db := b.cfg.Handler.DB()
 
 	var payload []byte
+	var version int
 	err := db.QueryRowContext(r.Context(), `
-		SELECT payload FROM events
+		SELECT payload, event_version FROM events
 		WHERE event_type = $1 AND payload->>'interpretation_id' = $2
 		LIMIT 1
-	`, aggregate.EventTypeInterpretationRecorded, interpID.String()).Scan(&payload)
+	`, aggregate.EventTypeInterpretationRecorded, interpID.String()).Scan(&payload, &version)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSONError(w, http.StatusNotFound, "no such interpretation")
 		return
 	}
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "query interpretation: "+err.Error())
+		return
+	}
+	if err := aggregate.CheckEventVersion(aggregate.EventTypeInterpretationRecorded, version); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var rec aggregate.InterpretationRecorded

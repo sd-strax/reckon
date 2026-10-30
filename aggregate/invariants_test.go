@@ -44,7 +44,7 @@ func TestApplyCommand_LifecyclePairing(t *testing.T) {
 				// The conclude gate requires a verdict of record (01).
 				st.Verdicts = []verdictEntry{{InterpID: uuid.New(), Disposition: VerdictMalicious}}
 			}
-			events, err := applyCommand(env, tc.cmd, st)
+			events, err := applyCommand(env, tc.cmd, st, testIDs())
 			if err != nil {
 				t.Fatalf("applyCommand: %v", err)
 			}
@@ -93,12 +93,50 @@ func TestApplyCommand_LifecyclePairing(t *testing.T) {
 	}
 }
 
+// TestApplyCommand_Pure: the same envelope, command, state and id source
+// yield the same events, interpretation ids included (adr/0217). The paired
+// interpretation's id is the one the domain payload references.
+func TestApplyCommand_Pure(t *testing.T) {
+	env := newTestEnvelope("alice")
+	id := uuid.New()
+	st := activeStateWithAction(env, id, "")
+	cmd := sampleRequest(id)
+	first, err := applyCommand(env, cmd, st, testIDs())
+	if err != nil {
+		t.Fatalf("applyCommand: %v", err)
+	}
+	again, err := applyCommand(env, cmd, st, testIDs())
+	if err != nil {
+		t.Fatalf("applyCommand again: %v", err)
+	}
+	a, _ := json.Marshal(first)
+	b, _ := json.Marshal(again)
+	if string(a) != string(b) {
+		t.Errorf("two runs over the same input differ:\n%s\n%s", a, b)
+	}
+	want := testIDs()()
+	var req ActionRequested
+	var interp InterpretationRecorded
+	for _, e := range first {
+		switch e.Type {
+		case EventTypeActionRequested:
+			_ = json.Unmarshal(e.Payload, &req)
+		case EventTypeInterpretationRecorded:
+			_ = json.Unmarshal(e.Payload, &interp)
+		}
+	}
+	if interp.InterpretationID != want || req.RequestingInterpretationID != want {
+		t.Errorf("interpretation id %s, referenced as %s; want the id source's first, %s",
+			interp.InterpretationID, req.RequestingInterpretationID, want)
+	}
+}
+
 // TestApplyCommand_TenantMismatchRejected: an aggregate belongs to the tenant
 // that created it; a command arriving under any other tenant is refused.
 func TestApplyCommand_TenantMismatchRejected(t *testing.T) {
 	env := newTestEnvelope("alice")
 	state := aggregateState{Seq: 1, Exists: true, TenantID: uuid.New(), Status: StatusDraft}
-	if _, err := applyCommand(env, ActivateInvestigation{}, state); err == nil {
+	if _, err := applyCommand(env, ActivateInvestigation{}, state, testIDs()); err == nil {
 		t.Fatal("expected tenant-mismatch rejection; got nil")
 	}
 }
@@ -256,5 +294,45 @@ func TestEnvelopeColumnsRoundTrip(t *testing.T) {
 	}
 	if e.CausationID.Valid {
 		t.Errorf("CausationID = %v; want NULL for command-initiated events", e.CausationID)
+	}
+}
+
+// TestCheckEventVersion: only the version this binary reads passes.
+func TestCheckEventVersion(t *testing.T) {
+	if err := CheckEventVersion(EventTypeCreated, schemaVersion); err != nil {
+		t.Errorf("current version: %v", err)
+	}
+	for _, v := range []int{0, schemaVersion + 1} {
+		if err := CheckEventVersion(EventTypeCreated, v); !errors.Is(err, ErrUnknownEventVersion) {
+			t.Errorf("version %d: %v; want ErrUnknownEventVersion", v, err)
+		}
+	}
+}
+
+// TestUnknownEventVersion_StopsTheRead: an event at a version this binary
+// does not know stops the stream load and every command on that aggregate,
+// instead of being folded as the current shape (adr/0217).
+func TestUnknownEventVersion_StopsTheRead(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping aggregate integration test in short mode")
+	}
+	resetTables(t)
+	ctx := context.Background()
+	h := newTestHandler()
+	env := newTestEnvelope("alice")
+	if _, err := h.Handle(ctx, env, CreateInvestigation{Title: "x"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := testDB.ExecContext(ctx, `UPDATE events SET event_version = $2 WHERE aggregate_id = $1`,
+		env.AggregateID, schemaVersion+1); err != nil {
+		t.Fatalf("bump version: %v", err)
+	}
+	if _, err := NewStore(testDB).LoadStream(ctx, env.AggregateID); !errors.Is(err, ErrUnknownEventVersion) {
+		t.Errorf("LoadStream: %v; want ErrUnknownEventVersion", err)
+	}
+	next := env
+	next.CorrelationID = uuid.New()
+	if _, err := h.Handle(ctx, next, ActivateInvestigation{}); !errors.Is(err, ErrUnknownEventVersion) {
+		t.Errorf("Handle: %v; want ErrUnknownEventVersion", err)
 	}
 }

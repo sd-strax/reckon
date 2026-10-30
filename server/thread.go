@@ -92,7 +92,7 @@ func (b *Backend) listInvestigationThread(w http.ResponseWriter, r *http.Request
 // the thread endpoint and the markdown export (one behavior, two renderings).
 func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntryView, error) {
 	rows, err := b.cfg.Handler.DB().QueryContext(ctx,
-		`SELECT sequence_no, occurred_at, actor, payload
+		`SELECT sequence_no, occurred_at, actor, payload, event_version
 		 FROM events
 		 WHERE aggregate_id = $1 AND event_type = $2
 		 ORDER BY sequence_no`,
@@ -114,8 +114,12 @@ func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntr
 		var seq int64
 		var at time.Time
 		var actorRaw, payloadRaw []byte
-		if err := rows.Scan(&seq, &at, &actorRaw, &payloadRaw); err != nil {
+		var version int
+		if err := rows.Scan(&seq, &at, &actorRaw, &payloadRaw, &version); err != nil {
 			return nil, fmt.Errorf("scan thread: %w", err)
+		}
+		if err := aggregate.CheckEventVersion(aggregate.EventTypeInterpretationRecorded, version); err != nil {
+			return nil, err
 		}
 		var actor aggregate.Actor
 		_ = json.Unmarshal(actorRaw, &actor)
@@ -156,7 +160,7 @@ func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntr
 // interpretation.superseded event on this investigation.
 func (b *Backend) loadSupersededIDs(ctx context.Context, invID uuid.UUID) (map[string]bool, error) {
 	rows, err := b.cfg.Handler.DB().QueryContext(ctx,
-		`SELECT payload FROM events
+		`SELECT payload, event_version FROM events
 		 WHERE aggregate_id = $1 AND event_type = $2`,
 		invID, aggregate.EventTypeInterpretationSuperseded)
 	if err != nil {
@@ -167,8 +171,12 @@ func (b *Backend) loadSupersededIDs(ctx context.Context, invID uuid.UUID) (map[s
 	out := map[string]bool{}
 	for rows.Next() {
 		var payloadRaw []byte
-		if err := rows.Scan(&payloadRaw); err != nil {
+		var version int
+		if err := rows.Scan(&payloadRaw, &version); err != nil {
 			return nil, fmt.Errorf("scan supersession: %w", err)
+		}
+		if err := aggregate.CheckEventVersion(aggregate.EventTypeInterpretationSuperseded, version); err != nil {
+			return nil, err
 		}
 		var p aggregate.InterpretationSupersededPayload
 		if err := json.Unmarshal(payloadRaw, &p); err != nil {

@@ -466,19 +466,26 @@ func nullUUID(id uuid.UUID) uuid.NullUUID {
 // the projection because the projection folds PARTIAL into SUCCEEDED, and a
 // caller deciding whether a reversal fully took effect must see PARTIAL.
 func LoadRecordedOutcome(ctx context.Context, db *sql.DB, actionID uuid.UUID) (string, error) {
-	var outcome sql.NullString
+	var (
+		outcome   sql.NullString
+		eventType string
+		version   int
+	)
 	err := db.QueryRowContext(ctx, `
-		SELECT COALESCE(payload->>'final_outcome', payload->>'outcome')
+		SELECT COALESCE(payload->>'final_outcome', payload->>'outcome'), event_type, event_version
 		FROM events
 		WHERE event_type IN ($1, $2) AND payload->>'action_id' = $3
 		ORDER BY sequence_no DESC
 		LIMIT 1`,
-		EventTypeActionResulted, EventTypeActionOutcomeResolved, actionID.String()).Scan(&outcome)
+		EventTypeActionResulted, EventTypeActionOutcomeResolved, actionID.String()).Scan(&outcome, &eventType, &version)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("load recorded outcome: %w", err)
+	}
+	if err := CheckEventVersion(eventType, version); err != nil {
+		return "", err
 	}
 	return outcome.String, nil
 }
@@ -490,7 +497,9 @@ func LoadRecordedOutcome(ctx context.Context, db *sql.DB, actionID uuid.UUID) (s
 // with neither reversed_by_ref nor reversal_attempted_by_ref — the saga
 // stopped between the reversing action's result and the original's update.
 // The caller starts each action's workflow; one already running refuses the
-// start, so listing an action that is not stranded is harmless.
+// start, so listing an action that is not stranded is harmless. The recorded
+// outcome is read through LoadRecordedOutcome, so its payload version is
+// checked (adr/0217).
 func ListStrandedActionCurrents(ctx context.Context, db *sql.DB) ([]ActionCurrent, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT `+actionCurrentColumns+` FROM action_current a
@@ -498,27 +507,42 @@ func ListStrandedActionCurrents(ctx context.Context, db *sql.DB) ([]ActionCurren
 		   OR (a.status = $3 AND a.is_reversal AND a.reversal_of_ref IS NOT NULL
 		       AND EXISTS (SELECT 1 FROM action_current o
 		                   WHERE o.action_id = a.reversal_of_ref AND o.status = $3
-		                     AND o.reversed_by_ref IS NULL AND o.reversal_attempted_by_ref IS NULL)
-		       AND (SELECT COALESCE(e.payload->>'final_outcome', e.payload->>'outcome')
-		            FROM events e
-		            WHERE e.aggregate_id = a.aggregate_id AND e.event_type IN ($4, $5)
-		              AND e.payload->>'action_id' = a.action_id::text
-		            ORDER BY e.sequence_no DESC LIMIT 1) = $3)
+		                     AND o.reversed_by_ref IS NULL AND o.reversal_attempted_by_ref IS NULL))
 		ORDER BY a.created_at, a.action_id`,
-		ActionStatusApproved, ActionStatusExecuting, ActionStatusSucceeded,
-		EventTypeActionResulted, EventTypeActionOutcomeResolved)
+		ActionStatusApproved, ActionStatusExecuting, ActionStatusSucceeded)
 	if err != nil {
 		return nil, fmt.Errorf("query stranded action_current: %w", err)
 	}
-	defer rows.Close()
-
-	var out []ActionCurrent
+	var candidates []ActionCurrent
 	for rows.Next() {
 		a, err := scanActionCurrent(rows.Scan)
 		if err != nil {
+			_ = rows.Close()
 			return nil, fmt.Errorf("scan action_current: %w", err)
+		}
+		candidates = append(candidates, a)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// A SUCCEEDED reversal is stranded only when its recorded outcome is
+	// SUCCEEDED: a PARTIAL one never marks the original.
+	var out []ActionCurrent
+	for _, a := range candidates {
+		if a.Status == ActionStatusSucceeded {
+			outcome, err := LoadRecordedOutcome(ctx, db, a.ActionID)
+			if err != nil {
+				return nil, err
+			}
+			if outcome != ActionStatusSucceeded {
+				continue
+			}
 		}
 		out = append(out, a)
 	}
-	return out, rows.Err()
+	return out, nil
 }

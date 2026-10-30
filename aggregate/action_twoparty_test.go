@@ -24,7 +24,7 @@ func TestApproveAction_TwoPartyRequiredRejectsSolo(t *testing.T) {
 	solo := ApproveAction{ActionID: id, Authorization: Authorization{
 		Mode: AuthModeManual, Stage: AuthStageSolo, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
 	}}
-	if _, err := applyCommand(env, solo, state); err == nil {
+	if _, err := applyCommand(env, solo, state, testIDs()); err == nil {
 		t.Fatal("a solo MANUAL approval on a TWO_PARTY-required action was accepted")
 	}
 
@@ -32,7 +32,7 @@ func TestApproveAction_TwoPartyRequiredRejectsSolo(t *testing.T) {
 	primary := ApproveAction{ActionID: id, Authorization: Authorization{
 		Mode: AuthModeTwoParty, Stage: AuthStagePrimary, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
 	}}
-	if _, err := applyCommand(env, primary, state); err != nil {
+	if _, err := applyCommand(env, primary, state, testIDs()); err != nil {
 		t.Fatalf("proper primary approval rejected: %v", err)
 	}
 }
@@ -62,7 +62,7 @@ func TestApproveAction_SecondaryApproverPool(t *testing.T) {
 		Mode: AuthModeTwoParty, Stage: AuthStageSecondary,
 		PrimaryApproverRef: "alice", SecondaryApproverRef: "carol", SecondaryApprovedAt: &secTime,
 	}}
-	if _, err := applyCommand(carol, carolSec, pend()); err == nil {
+	if _, err := applyCommand(carol, carolSec, pend(), testIDs()); err == nil {
 		t.Error("out-of-pool secondary approver was accepted")
 	}
 
@@ -72,7 +72,7 @@ func TestApproveAction_SecondaryApproverPool(t *testing.T) {
 		Mode: AuthModeTwoParty, Stage: AuthStageSecondary,
 		PrimaryApproverRef: "alice", SecondaryApproverRef: "bob", SecondaryApprovedAt: &secTime,
 	}}
-	events, err := applyCommand(bob, bobSec, pend())
+	events, err := applyCommand(bob, bobSec, pend(), testIDs())
 	if err != nil {
 		t.Fatalf("in-pool secondary approver rejected: %v", err)
 	}

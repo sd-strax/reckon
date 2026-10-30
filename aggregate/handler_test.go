@@ -3,6 +3,7 @@ package aggregate
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"flag"
 	"log"
@@ -117,6 +118,18 @@ func newTestEnvelope(actorID string) Envelope {
 		CorrelationID: uuid.New(),
 		Actor:         Actor{PrincipalID: actorID},
 		OccurredAt:    time.Now().UTC().Truncate(time.Microsecond),
+	}
+}
+
+// testIDs is a fixed id source for applyCommand: the nth id it mints is
+// 00000000-0000-0000-0000-<n>, so two runs over the same input mint the same ids.
+func testIDs() idSource {
+	var n uint64
+	return func() uuid.UUID {
+		n++
+		var id uuid.UUID
+		binary.BigEndian.PutUint64(id[8:], n)
+		return id
 	}
 }
 
@@ -352,7 +365,7 @@ func TestApplyCommand_CreateInvestigationOnExistingAggregate(t *testing.T) {
 		OccurredAt:    time.Now(),
 	}
 	existing := aggregateState{Seq: 5, Exists: true, Status: StatusActive}
-	_, err := applyCommand(env, CreateInvestigation{Title: "x"}, existing)
+	_, err := applyCommand(env, CreateInvestigation{Title: "x"}, existing, testIDs())
 	if err == nil {
 		t.Fatal("expected error for CreateInvestigation on existing aggregate")
 	}
@@ -367,7 +380,8 @@ func TestApplyCommand_ValidatesEnvelope(t *testing.T) {
 		TenantID:      testTenantID,
 		CorrelationID: uuid.New(),
 		OccurredAt:    time.Now(),
-	}, CreateInvestigation{Title: "x"}, fresh)
+	}, CreateInvestigation{Title: "x"}, fresh, testIDs())
+
 	if err == nil {
 		t.Error("expected envelope validation failure for missing PrincipalID")
 	}
@@ -378,7 +392,8 @@ func TestApplyCommand_ValidatesEnvelope(t *testing.T) {
 		CorrelationID: uuid.New(),
 		Actor:         Actor{PrincipalID: "alice"},
 		OccurredAt:    time.Now(),
-	}, CreateInvestigation{Title: "x"}, fresh)
+	}, CreateInvestigation{Title: "x"}, fresh, testIDs())
+
 	if err == nil {
 		t.Error("expected envelope validation failure for missing TenantID")
 	}
@@ -389,7 +404,8 @@ func TestApplyCommand_ValidatesEnvelope(t *testing.T) {
 		TenantID:    testTenantID,
 		Actor:       Actor{PrincipalID: "alice"},
 		OccurredAt:  time.Now(),
-	}, CreateInvestigation{Title: "x"}, fresh)
+	}, CreateInvestigation{Title: "x"}, fresh, testIDs())
+
 	if err == nil {
 		t.Error("expected envelope validation failure for missing CorrelationID")
 	}
@@ -401,7 +417,8 @@ func TestApplyCommand_ValidatesEnvelope(t *testing.T) {
 		CorrelationID: uuid.New(),
 		Actor:         Actor{PrincipalID: "alice"},
 		OccurredAt:    time.Now(),
-	}, CreateInvestigation{Title: ""}, fresh)
+	}, CreateInvestigation{Title: ""}, fresh, testIDs())
+
 	if err == nil {
 		t.Error("expected command validation failure for empty title")
 	}

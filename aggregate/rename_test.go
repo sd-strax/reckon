@@ -14,7 +14,7 @@ func liveState() aggregateState {
 // interpretation (a rename is metadata, not a reasoning act).
 func TestRename_HappyPath(t *testing.T) {
 	env := newTestEnvelope("alice")
-	events, err := applyCommand(env, RenameInvestigation{Title: "  RDP lateral movement — WIN-FILE01  "}, liveState())
+	events, err := applyCommand(env, RenameInvestigation{Title: "  RDP lateral movement — WIN-FILE01  "}, liveState(), testIDs())
 	if err != nil {
 		t.Fatalf("rename rejected: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestRename_HappyPath(t *testing.T) {
 // TestRename_BlankRejected: whitespace-only titles are refused at the write path.
 func TestRename_BlankRejected(t *testing.T) {
 	env := newTestEnvelope("alice")
-	if _, err := applyCommand(env, RenameInvestigation{Title: "   "}, liveState()); err == nil {
+	if _, err := applyCommand(env, RenameInvestigation{Title: "   "}, liveState(), testIDs()); err == nil {
 		t.Fatal("a blank title was accepted")
 	}
 }
@@ -46,7 +46,7 @@ func TestRename_ConcludedRejected(t *testing.T) {
 	env := newTestEnvelope("alice")
 	concluded := liveState()
 	concluded.Status = StatusConcluded
-	if _, err := applyCommand(env, RenameInvestigation{Title: "new"}, concluded); err == nil {
+	if _, err := applyCommand(env, RenameInvestigation{Title: "new"}, concluded, testIDs()); err == nil {
 		t.Fatal("renaming a concluded investigation was accepted")
 	}
 }
@@ -56,7 +56,7 @@ func TestRename_ConcludedRejected(t *testing.T) {
 func TestRename_AIDenied(t *testing.T) {
 	env := newTestEnvelope("agent")
 	env.Actor.Kind = ActorAIDelegated
-	if _, err := applyCommand(env, RenameInvestigation{Title: "AI pick"}, liveState()); err == nil {
+	if _, err := applyCommand(env, RenameInvestigation{Title: "AI pick"}, liveState(), testIDs()); err == nil {
 		t.Fatal("an AI delegate was allowed to rename")
 	}
 }
@@ -64,7 +64,7 @@ func TestRename_AIDenied(t *testing.T) {
 // TestRename_NonexistentRejected: rename requires the aggregate to exist.
 func TestRename_NonexistentRejected(t *testing.T) {
 	env := newTestEnvelope("alice")
-	if _, err := applyCommand(env, RenameInvestigation{Title: "x"}, aggregateState{TenantID: env.TenantID}); err == nil {
+	if _, err := applyCommand(env, RenameInvestigation{Title: "x"}, aggregateState{TenantID: env.TenantID}, testIDs()); err == nil {
 		t.Fatal("rename on a non-existent investigation was accepted")
 	}
 }
