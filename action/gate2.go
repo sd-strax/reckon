@@ -14,10 +14,9 @@ import (
 )
 
 // Gate2 is the action-authorization engine (04 §4): it evaluates CEL policies
-// over a flattened context and resolves an authorization Decision. It replaces
-// the authz.PermissiveGate2 stub. The non-deletable baseline DENY (AI-no-T3) is
-// always prepended, so an AI-delegated T3 can never auto-approve regardless of
-// tenant policies.
+// over a flattened context and resolves an authorization Decision. The
+// non-deletable baseline DENY (AI-no-T3) is always prepended, so an
+// AI-delegated T3 can never auto-approve regardless of tenant policies.
 type Gate2 struct {
 	env      *cel.Env
 	policies []compiledPolicy
