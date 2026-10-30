@@ -137,7 +137,7 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "load action: "+err.Error())
+		writeInternalError(w, "load action", err)
 		return
 	}
 
@@ -278,7 +278,7 @@ func (b *Backend) rejectAction(w http.ResponseWriter, r *http.Request, actionID 
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "load action: "+err.Error())
+		writeInternalError(w, "load action", err)
 		return
 	}
 
@@ -325,7 +325,7 @@ func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, a
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "load action: "+err.Error())
+		writeInternalError(w, "load action", err)
 		return
 	}
 

@@ -123,7 +123,7 @@ func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Reques
 
 	acts, err := aggregate.ListActionCurrents(r.Context(), b.cfg.Handler.DB(), invID)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "list actions: "+err.Error())
+		writeInternalError(w, "list actions", err)
 		return
 	}
 	out := make([]ActionView, 0, len(acts))
@@ -375,7 +375,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	// Gate 2: evaluate policies over the (post-escalator) request.
 	decision, err := b.cfg.Gate2.Evaluate(action.EvalInputForCommand(cmd, actor.Kind, subject, now))
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "policy evaluation: "+err.Error())
+		writeInternalError(w, "policy evaluation", err)
 		return
 	}
 	cmd = action.ApplyDecision(cmd, decision)

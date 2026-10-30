@@ -55,7 +55,7 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "load action: "+err.Error())
+		writeInternalError(w, "load action", err)
 		return
 	}
 	d, ok := b.cfg.ActionCatalog.Descriptor(ac.ActionType)
@@ -77,7 +77,7 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 	}
 	decision, err := b.cfg.Gate2.Evaluate(action.EvalInputForCommand(probe, actor.Kind, claims.Subject, now))
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "policy evaluation: "+err.Error())
+		writeInternalError(w, "policy evaluation", err)
 		return
 	}
 	probe = action.ApplyDecision(probe, decision)

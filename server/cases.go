@@ -120,7 +120,7 @@ func (b *Backend) listCases(w http.ResponseWriter, r *http.Request) {
 	cases := casesFromResult(res)
 	if b.cfg.Handler != nil {
 		if err := b.annotateInFlight(r, cases); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "look up investigations: "+err.Error())
+			writeInternalError(w, "look up investigations", err)
 			return
 		}
 	}
@@ -151,7 +151,7 @@ func (b *Backend) getCase(w http.ResponseWriter, r *http.Request, number string)
 	}
 	if b.cfg.Handler != nil {
 		if err := b.annotateInFlight(r, cases[:1]); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "look up investigations: "+err.Error())
+			writeInternalError(w, "look up investigations", err)
 			return
 		}
 	}

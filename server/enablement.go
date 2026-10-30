@@ -98,7 +98,7 @@ func (b *Backend) enablementRoute(w http.ResponseWriter, r *http.Request) {
 func (b *Backend) getEnablement(w http.ResponseWriter, _ *http.Request) {
 	tc, err := capability.LoadTenantConfig(b.cfg.CapabilityConfigPath)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "load tenant config: "+err.Error())
+		writeInternalError(w, "load tenant config", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, buildEnablementView(b.cfg.CapabilityConfigPath, tc))
@@ -173,7 +173,7 @@ func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapte
 
 	tc, err := capability.LoadTenantConfig(b.cfg.CapabilityConfigPath)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "load tenant config: "+err.Error())
+		writeInternalError(w, "load tenant config", err)
 		return
 	}
 	spec, present := tc.Adapters[adapter]
@@ -192,7 +192,7 @@ func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapte
 	}
 
 	if err := capability.UpdateAdapterEnablement(b.cfg.CapabilityConfigPath, adapter, body.Enabled, body.Config); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, "update adapter enablement", err)
 		return
 	}
 
@@ -201,8 +201,7 @@ func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapte
 	// build. A rebuild failure after a write is surfaced loudly (the file
 	// changed, the surface didn't) so the operator fixes or reverts.
 	if err := b.rebuildCapabilityFromFile(); err != nil {
-		writeJSONError(w, http.StatusInternalServerError,
-			"config written but rebuild failed (fix the file or revert): "+err.Error())
+		writeInternalError(w, "config written but rebuild failed (fix the file or revert)", err)
 		return
 	}
 

@@ -50,7 +50,7 @@ func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
 		}
 		res, err := b.cfg.Knowledge.RecallSOPs(r.Context(), module.SingleTenantUUID, req)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "recall_sops: "+err.Error())
+			writeInternalError(w, "recall_sops", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, res)
@@ -74,7 +74,7 @@ func (b *Backend) recallSimilar(w http.ResponseWriter, r *http.Request) {
 		}
 		res, err := b.cfg.Knowledge.RecallSimilar(r.Context(), module.SingleTenantUUID, req)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "recall_similar_investigations: "+err.Error())
+			writeInternalError(w, "recall_similar_investigations", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, res)
@@ -102,7 +102,7 @@ func (b *Backend) priorInvestigations(w http.ResponseWriter, r *http.Request) {
 		}
 		res, err := b.cfg.Knowledge.PriorByEntity(r.Context(), module.SingleTenantUUID, req)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "prior_investigations: "+err.Error())
+			writeInternalError(w, "prior_investigations", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, res)
@@ -120,7 +120,7 @@ func (b *Backend) listCaseSummaries(w http.ResponseWriter, r *http.Request) {
 	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
 		list, err := b.cfg.Knowledge.ListSummaries(r.Context(), module.SingleTenantUUID, 100)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "case_summaries: "+err.Error())
+			writeInternalError(w, "case_summaries", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"case_summaries": list})
@@ -149,7 +149,7 @@ func (b *Backend) getCaseSummary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "case_summaries: "+err.Error())
+			writeInternalError(w, "case_summaries", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, v)
@@ -365,7 +365,7 @@ func (b *Backend) listSOPs(w http.ResponseWriter, r *http.Request) {
 	includeRetired := r.URL.Query().Get("include_retired") == "true"
 	sops, err := b.cfg.Knowledge.List(r.Context(), module.SingleTenantUUID, includeRetired)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "list sops: "+err.Error())
+		writeInternalError(w, "list sops", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sops": sops})
@@ -391,7 +391,7 @@ func (b *Backend) updateSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "update sop: "+err.Error())
+		writeInternalError(w, "update sop", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -404,7 +404,7 @@ func (b *Backend) retireSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "retire sop: "+err.Error())
+		writeInternalError(w, "retire sop", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

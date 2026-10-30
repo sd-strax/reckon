@@ -69,7 +69,7 @@ func (b *Backend) exportInvestigation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "load investigation: "+err.Error())
+		writeInternalError(w, "load investigation", err)
 		return
 	}
 	if ic.Status != aggregate.StatusConcluded {
@@ -88,7 +88,7 @@ func (b *Backend) exportInvestigation(w http.ResponseWriter, r *http.Request) {
 
 	wfID, err := starter.StartPostConclusionPipeline(r.Context(), b.exportInput(id))
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "start export: "+err.Error())
+		writeInternalError(w, "start export", err)
 		return
 	}
 
