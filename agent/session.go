@@ -43,6 +43,11 @@ type Hooks struct {
 	// OnRoundStart fires as each model↔tool round begins (1-based) — the
 	// step marker surfaces group tool calls under (design/ui binding §2.6).
 	OnRoundStart func(round int)
+
+	// OnContextCompacted fires when the history was condensed to fit the
+	// model's context window (adr/0230), with a one-line account of what the
+	// model no longer sees.
+	OnContextCompacted func(note string)
 }
 
 // Config assembles a session.
@@ -56,7 +61,11 @@ type Config struct {
 	// larger one is shown a page at a time (adr/0209). Zero means
 	// DefaultMaxToolResultBytes.
 	MaxToolResultBytes int
-	Hooks              Hooks
+	// ContextWindowTokens is the model's context window, which the session
+	// keeps the history within (adr/0230). Zero means
+	// DefaultContextWindowTokens.
+	ContextWindowTokens int
+	Hooks               Hooks
 	// Clock is the engine's notion of now, stamped on every turn as a [clock]
 	// block (state.go) and used wherever a tool result pre-judges time for the
 	// model (list_actions' expired flag). nil means time.Now; tests fix it.
@@ -72,6 +81,7 @@ type Session struct {
 	maxRounds       int
 	maxTokens       int
 	maxResultBytes  int
+	contextTokens   int
 	hooks           Hooks
 	now             func() time.Time
 
@@ -80,6 +90,12 @@ type Session struct {
 	messages []Message
 	// results holds large tool results the model reads in pages (adr/0209).
 	results resultStore
+	// turns marks each analyst turn in messages; tokensPerByte calibrates the
+	// size estimate from reported usage; fixedBytes is the system prompt and
+	// tool definitions (adr/0230).
+	turns         []turnSpan
+	tokensPerByte float64
+	fixedBytes    int
 
 	// Standing context (refreshContext is the only writer) and the hypothesis
 	// set as last read (refreshHypotheses, every turn). hyps never enters the
@@ -151,6 +167,8 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 		maxRounds:       cfg.MaxToolRounds,
 		maxTokens:       cfg.MaxTokens,
 		maxResultBytes:  cfg.MaxToolResultBytes,
+		contextTokens:   cfg.ContextWindowTokens,
+		tokensPerByte:   defaultTokensPerByte,
 		hooks:           cfg.Hooks,
 		now:             cfg.Clock,
 		// The investigation id is always a legit engine id — never a fabrication
@@ -165,6 +183,9 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 	}
 	if s.maxResultBytes <= 0 {
 		s.maxResultBytes = DefaultMaxToolResultBytes
+	}
+	if s.contextTokens <= 0 {
+		s.contextTokens = DefaultContextWindowTokens
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -250,6 +271,7 @@ func (s *Session) ResetContext(ctx context.Context) error {
 		return err
 	}
 	s.messages = nil
+	s.turns = nil
 	s.results.clear()                     // the model no longer holds the result ids
 	s.turnsSinceAnchor = anchorEveryTurns // anchor immediately on the next turn
 
@@ -297,23 +319,26 @@ func (s *Session) rehydrate(ctx context.Context) {
 		withTranscript = withTranscript[len(withTranscript)-maxRehydratedTurns:]
 	}
 	var msgs []Message
+	var turns []turnSpan
 	for _, e := range withTranscript {
 		body, terr := s.backend.Transcript(ctx, e.InterpretationID)
 		if terr != nil {
 			continue
 		}
 		userMsg, assistantMsg := parseTranscriptTurn(body)
-		if userMsg != "" {
-			msgs = append(msgs, Message{Role: RoleUser, Content: []ContentBlock{TextBlock(userMsg)}})
+		// A rehydrated turn is already its words and prose: a whole pair, or
+		// nothing, so the history alternates and every turn starts on the
+		// analyst.
+		if userMsg == "" || assistantMsg == "" {
+			continue
 		}
-		if assistantMsg != "" {
-			msgs = append(msgs, Message{Role: RoleAssistant, Content: []ContentBlock{TextBlock(assistantMsg)}})
-		}
+		turns = append(turns, turnSpan{start: len(msgs), analyst: userMsg, collapsed: true})
+		msgs = append(msgs,
+			Message{Role: RoleUser, Content: []ContentBlock{TextBlock(userMsg)}},
+			Message{Role: RoleAssistant, Content: []ContentBlock{TextBlock(assistantMsg)}})
 	}
-	// Only adopt a well-formed history (ends on an assistant turn), so the next
-	// live user message extends a valid alternating conversation.
-	if n := len(msgs); n > 0 && msgs[n-1].Role == RoleAssistant {
-		s.messages = msgs
+	if len(msgs) > 0 {
+		s.messages, s.turns = msgs, turns
 	}
 }
 
@@ -423,9 +448,16 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	// user message (the tool results, or the aborted turn's own text). Merge
 	// rather than append a sibling — consecutive same-role messages violate the
 	// provider contract.
+	// The merged turn joins the aborted one's span (adr/0230).
 	if n := len(s.messages); n > 0 && s.messages[n-1].Role == RoleUser {
 		s.messages[n-1].Content = append(s.messages[n-1].Content, userContent...)
+		if t := len(s.turns); t > 0 {
+			s.turns[t-1].analyst += "\n" + userMsg
+		} else {
+			s.turns = append(s.turns, turnSpan{start: 0, analyst: userMsg})
+		}
 	} else {
+		s.turns = append(s.turns, turnSpan{start: len(s.messages), analyst: userMsg})
 		s.messages = append(s.messages, Message{Role: RoleUser, Content: userContent})
 	}
 
@@ -434,7 +466,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		if s.hooks.OnRoundStart != nil {
 			s.hooks.OnRoundStart(rounds + 1)
 		}
-		resp, streamed, err := s.complete(ctx)
+		resp, streamed, err := s.completeFitted(ctx, &transcript)
 		if err != nil {
 			// Return a partial result rather than nil: any action the model
 			// already requested this turn is recorded server-side and pending —

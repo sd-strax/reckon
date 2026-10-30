@@ -193,6 +193,8 @@ export type RenderMessage =
   | { type: "turn.reasoning"; delta: string }
   | { type: "turn.text"; delta: string }
   | { type: "turn.step"; round: number }
+  // The history was condensed to fit the model's context window (adr/0230).
+  | { type: "turn.notice"; text: string }
   | { type: "turn.tool"; name: string; input: unknown }
   | { type: "turn.toolResult"; name: string; isError: boolean; coverage?: string; events?: number; refs?: string[] }
   | { type: "turn.committed"; interpretationId: string }

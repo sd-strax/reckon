@@ -44,6 +44,7 @@ export function activate(context: vscode.ExtensionContext): void {
     backendUrl: () => backendUrl(),
     model: () => vscode.workspace.getConfiguration("reckon").get<string>("model", "claude-opus-4-8"),
     maxToolResultKB: () => vscode.workspace.getConfiguration("reckon").get<number>("agent.maxToolResultKB", 128),
+    contextWindowTokens: () => vscode.workspace.getConfiguration("reckon").get<number>("agent.contextWindowTokens", 200000),
     apiKey: () => context.secrets.get(ANTHROPIC_KEY_SECRET),
     getToken: (kind, force) => session.token(kind, force),
   }, log);

@@ -99,6 +99,7 @@ type service struct {
 	model    string
 	apiKey   string
 	resultKB int
+	window   int
 	sessions map[string]*sessionState
 }
 
@@ -126,6 +127,9 @@ type initializeParams struct {
 	// MaxToolResultKB bounds one tool result fed back to the model; a larger
 	// one is shown a page at a time (adr/0209). Zero means the agent default.
 	MaxToolResultKB int `json:"max_tool_result_kb,omitempty"`
+	// ContextWindowTokens is the model's context window the session keeps
+	// its history within (adr/0230). Zero means the agent default.
+	ContextWindowTokens int `json:"context_window_tokens,omitempty"`
 }
 
 type initializeResult struct {
@@ -176,7 +180,8 @@ func (s *service) handleInitialize(ctx context.Context, raw json.RawMessage) (an
 	}
 
 	s.mu.Lock()
-	s.backend, s.model, s.apiKey, s.resultKB = p.BackendURL, model, apiKey, max(p.MaxToolResultKB, 0)
+	s.backend, s.model, s.apiKey = p.BackendURL, model, apiKey
+	s.resultKB, s.window = max(p.MaxToolResultKB, 0), max(p.ContextWindowTokens, 0)
 	s.mu.Unlock()
 	s.opts.Logf("initialized: backend %s (api v%d), model %s", p.BackendURL, apiVersion, model)
 
@@ -237,7 +242,7 @@ func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) 
 		return nil, errInvalidParams("createSession: investigation_id is required")
 	}
 	s.mu.Lock()
-	backend, model, apiKey, resultKB := s.backend, s.model, s.apiKey, s.resultKB
+	backend, model, apiKey, resultKB, window := s.backend, s.model, s.apiKey, s.resultKB, s.window
 	s.mu.Unlock()
 	if backend == "" {
 		return nil, fmt.Errorf("not initialized — call initialize first")
@@ -249,10 +254,11 @@ func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) 
 	)
 	sessionID := uuid.NewString()
 	sess, err := agent.NewSession(ctx, agent.Config{
-		Backend:            client,
-		LLM:                s.opts.NewLLM(model, apiKey),
-		InvestigationID:    p.InvestigationID,
-		MaxToolResultBytes: resultKB << 10,
+		Backend:             client,
+		LLM:                 s.opts.NewLLM(model, apiKey),
+		InvestigationID:     p.InvestigationID,
+		MaxToolResultBytes:  resultKB << 10,
+		ContextWindowTokens: window,
 		Hooks: agent.Hooks{
 			// The two text hooks are mutually exclusive per completion (agent.Hooks
 			// contract): a streaming provider delivers via turn/text_delta and
@@ -268,6 +274,9 @@ func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) 
 				// The per-round step marker (binding §2.6) — additive, groups
 				// the round's tool calls under one reasoning step client-side.
 				s.conn.Notify("turn/step", turnStepNote{SessionID: sessionID, Round: round})
+			},
+			OnContextCompacted: func(note string) {
+				s.conn.Notify("turn/context_compacted", turnTextNote{SessionID: sessionID, Text: note})
 			},
 			OnToolCall: func(name string, input json.RawMessage) {
 				s.conn.Notify("turn/tool_call", turnToolCallNote{SessionID: sessionID, Name: name, Input: input})

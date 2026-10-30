@@ -49,6 +49,8 @@ export interface TurnProgress {
    * act on.
    */
   onToolResult(name: string, content: string, isError: boolean, coverage?: string, eventCount?: number, refs?: string[]): void;
+  /** The history was condensed to fit the model's context window (adr/0230): what the model no longer sees. */
+  onContextCompacted?(note: string): void;
 }
 
 /** One action awaiting the analyst (mirrors sidecar.pendingAction). */
@@ -108,6 +110,8 @@ export interface SidecarDeps {
   model(): string;
   /** KB one tool result may reach before the model reads it a page at a time; 0 = the agent default. */
   maxToolResultKB(): number;
+  /** The model's context window in tokens; 0 = the agent default (adr/0230). */
+  contextWindowTokens(): number;
   /** The BYOK key from SecretStorage; undefined lets the sidecar try its own fallback (env / OS keychain). */
   apiKey(): Thenable<string | undefined>;
   /** Short-lived access tokens from the auth session — the getToken answer. */
@@ -315,6 +319,9 @@ export class SidecarTransport implements AgentTransport {
         );
       },
     );
+    connection.onNotification("turn/context_compacted", (p: { session_id?: string; text?: string }) => {
+      this.inFlight.get(p?.session_id ?? "")?.onContextCompacted?.(p?.text ?? "");
+    });
     connection.listen();
 
     // The stdio handshake (§4) — fail closed with the sidecar's diagnostic.
@@ -324,6 +331,7 @@ export class SidecarTransport implements AgentTransport {
       model: this.deps.model(),
       anthropic_api_key: (await this.deps.apiKey()) ?? "",
       max_tool_result_kb: this.deps.maxToolResultKB(),
+      context_window_tokens: this.deps.contextWindowTokens(),
     }) as { protocol_version?: number; backend_api_version?: number; server_version?: string };
     this.log.info(
       `sidecar ready: ${init.server_version ?? "?"} (protocol v${init.protocol_version}, backend api v${init.backend_api_version})`,
