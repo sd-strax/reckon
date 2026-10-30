@@ -1,6 +1,6 @@
 # 0220 — Every token must carry reckon's audience; a 500 names what failed, not why
 
-Issue: #220 · PR: — · Status: accepted
+Issue: #220 · PR: #275 · Status: accepted
 
 ## Context
 
