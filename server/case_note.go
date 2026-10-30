@@ -160,11 +160,8 @@ func (b *Backend) requestCaseNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req CaseNoteRequest
-	if r.Body != nil && r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
-			return
-		}
+	if !decodeOptionalBody(w, r, &req, maxBodyBytes) {
+		return
 	}
 	ic, err := aggregate.LoadInvestigationCurrent(r.Context(), b.cfg.Handler.DB(), id)
 	if err != nil {

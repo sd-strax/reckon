@@ -2,7 +2,6 @@ package server
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -129,8 +128,8 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 	}
 
 	var body ApproveActionBody
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&body) // body is optional
+	if !decodeOptionalBody(w, r, &body, maxBodyBytes) {
+		return
 	}
 
 	// T3 approval requires the typed challenge (04 §5.5): the panel renders the
@@ -272,8 +271,8 @@ func (b *Backend) rejectAction(w http.ResponseWriter, r *http.Request, actionID 
 	}
 
 	var body RejectActionBody
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&body)
+	if !decodeOptionalBody(w, r, &body, maxBodyBytes) {
+		return
 	}
 
 	env := newEnvelope(ac.AggregateID, actorFromClaims(claims), commandNow()) // actor derived, so the allowlist backs the 403 above

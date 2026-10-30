@@ -146,7 +146,7 @@ func TestRecordInterpretation_BadTranscriptID(t *testing.T) {
 }
 
 // TestRecordInterpretation_BodyTooLarge: the route carries transcript bytes by
-// design, so it is explicitly bounded — an over-limit body is a 400, not an
+// design, so it is explicitly bounded — an over-limit body is a 413, not an
 // unbounded read into memory and the side store.
 func TestRecordInterpretation_BodyTooLarge(t *testing.T) {
 	if testing.Short() {
@@ -162,8 +162,8 @@ func TestRecordInterpretation_BodyTooLarge(t *testing.T) {
 		Rationale:          "huge transcript",
 		Transcript:         &TranscriptInput{Body: strings.Repeat("x", maxInterpretationBodyBytes+1)},
 	})
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("status = %d; want 400", resp.StatusCode)
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d; want 413", resp.StatusCode)
 	}
 }
 

@@ -196,14 +196,10 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// This route carries transcript bytes by design — bound the body so a
-	// runaway client cannot exhaust memory or the side store. 10MB is generous
-	// for a single turn's transcript + tool calls.
-	r.Body = http.MaxBytesReader(w, r.Body, maxInterpretationBodyBytes)
-
+	// This route carries transcript bytes by design, so its bound is the
+	// larger one.
 	var body RecordInterpretationBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxInterpretationBodyBytes) {
 		return
 	}
 	investigationID, err := uuid.Parse(body.InvestigationRef)

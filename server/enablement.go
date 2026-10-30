@@ -167,8 +167,7 @@ func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapte
 	}
 
 	var body ApplyEnablementBody
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 

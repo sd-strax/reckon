@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -356,5 +357,44 @@ func TestApproveAction_NotFound(t *testing.T) {
 	resp, _ := postActionDecision(t, b, mintToken(t, nil), uuid.NewString(), "approve", nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("unknown action approve: status %d; want 404", resp.StatusCode)
+	}
+}
+
+// TestActionDecision_BadBodyRecordsNothing: approve and reject bodies are
+// optional, but a body that is present is decoded strictly (adr/0219). A
+// malformed body or an undeclared field is a 400, and the action stays pending;
+// before, the decode error was discarded and the decision went through on zero
+// values.
+func TestActionDecision_BadBodyRecordsNothing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	b := actionBackend(t)
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+
+	actionID := requestManualAction(t, b, invID)
+	for _, c := range []struct{ verb, body string }{
+		{"approve", `{"challenge_response":`},
+		{"approve", `{"challenge":"ISOLATE WIN-A"}`},
+		{"reject", `{"why":"not warranted"}`},
+	} {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/actions/"+actionID+"/"+c.verb, strings.NewReader(c.body))
+		req.Header.Set("Authorization", "Bearer "+mintToken(t, nil))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s %s: status = %d; want 400", c.verb, c.body, resp.StatusCode)
+		}
+	}
+
+	ac, _ := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(actionID))
+	if ac.Status != aggregate.ActionStatusRequested {
+		t.Errorf("projected %s; want REQUESTED (nothing recorded)", ac.Status)
 	}
 }
