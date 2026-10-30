@@ -116,7 +116,7 @@ func (c ResolveActionOutcome) Validate(env Envelope) error {
 
 // applyOutcomeUnknown builds the (ActionOutcomeUnknown, action-result
 // Interpretation) pair. Legal only from EXECUTING.
-func applyOutcomeUnknown(env Envelope, state aggregateState, c RecordOutcomeUnknown) ([]Event, error) {
+func applyOutcomeUnknown(env Envelope, state aggregateState, c RecordOutcomeUnknown, newID idSource) ([]Event, error) {
 	act, ok := state.Actions[c.ActionID]
 	if !ok {
 		return nil, fmt.Errorf("RecordOutcomeUnknown rejected: action %s does not exist", c.ActionID)
@@ -124,7 +124,7 @@ func applyOutcomeUnknown(env Envelope, state aggregateState, c RecordOutcomeUnkn
 	if act.Status != ActionStatusExecuting {
 		return nil, fmt.Errorf("RecordOutcomeUnknown rejected: action %s is %s, not EXECUTING", c.ActionID, act.Status)
 	}
-	interpID := uuid.New()
+	interpID := newID()
 	payload, err := json.Marshal(ActionOutcomeUnknown{
 		ActionID:               c.ActionID,
 		Detail:                 c.Detail,
@@ -148,7 +148,7 @@ func applyOutcomeUnknown(env Envelope, state aggregateState, c RecordOutcomeUnkn
 // applyResolveOutcome builds the (ActionOutcomeResolved, action-resolution
 // Interpretation) pair. Legal only from OUTCOME_UNKNOWN, and only for a
 // person.
-func applyResolveOutcome(env Envelope, state aggregateState, c ResolveActionOutcome) ([]Event, error) {
+func applyResolveOutcome(env Envelope, state aggregateState, c ResolveActionOutcome, newID idSource) ([]Event, error) {
 	if env.Actor.Kind == ActorSystem {
 		return nil, errors.New("ResolveActionOutcome rejected: only a person who checked the tool can resolve an outcome")
 	}
@@ -159,7 +159,7 @@ func applyResolveOutcome(env Envelope, state aggregateState, c ResolveActionOutc
 	if act.Status != ActionStatusOutcomeUnknown {
 		return nil, fmt.Errorf("ResolveActionOutcome rejected: %s is %s; only an action whose outcome is unknown can be resolved", act.label(), act.Status)
 	}
-	interpID := uuid.New()
+	interpID := newID()
 	note := strings.TrimSpace(c.Note)
 	payload, err := json.Marshal(ActionOutcomeResolved{
 		ActionID:                   c.ActionID,

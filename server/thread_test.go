@@ -1,10 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/sd-strax/reckon/aggregate"
 )
 
 // TestInvestigationThread_ReassemblesReasoning: reasoning acts recorded through
@@ -84,5 +88,26 @@ func TestInvestigationThread_ReassemblesReasoning(t *testing.T) {
 	}
 	if !sawLifecycle {
 		t.Error("no lifecycle interpretation — domain transitions missing from the thread")
+	}
+}
+
+// TestLoadThread_UnknownEventVersion: a reader that queries payloads
+// directly checks the version too, so an interpretation at a version this
+// binary does not know stops the thread instead of rendering as the current
+// shape (adr/0217).
+func TestLoadThread_UnknownEventVersion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	b := actionBackend(t)
+	if _, err := testDB.ExecContext(context.Background(),
+		`UPDATE events SET event_version = 2 WHERE aggregate_id = $1 AND event_type = $2`,
+		invID, aggregate.EventTypeInterpretationRecorded); err != nil {
+		t.Fatalf("bump version: %v", err)
+	}
+	if _, err := b.loadThread(context.Background(), invID); !errors.Is(err, aggregate.ErrUnknownEventVersion) {
+		t.Errorf("loadThread: %v; want ErrUnknownEventVersion", err)
 	}
 }

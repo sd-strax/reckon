@@ -308,11 +308,7 @@ func (b *Backend) Start(ctx context.Context) error {
 	b.mu.Lock()
 	b.verifier = verifier
 	b.dispatchClient = dispatchClient
-	b.srv = &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+	b.srv = newHTTPServer(addr, mux)
 	b.started = true
 	srv := b.srv
 	b.mu.Unlock()
@@ -965,6 +961,31 @@ func (b *Backend) probeKeycloak(ctx context.Context) error {
 			disc.Issuer, b.cfg.KeycloakIssuer)
 	}
 	return nil
+}
+
+// Server timeouts (adr/0219). ReadTimeout covers the whole request, so the
+// largest body (a turn's transcript, maxInterpretationBodyBytes) has room.
+// WriteTimeout runs from the end of the headers to the end of the response; it
+// sits above the agent client's 60s so a slow capability call is ended by the
+// client, not cut mid-response by the server. The WebSocket stream is not
+// affected: net/http clears the connection's deadlines when it is hijacked.
+const (
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 30 * time.Second
+	writeTimeout      = 90 * time.Second
+	idleTimeout       = 120 * time.Second
+)
+
+// newHTTPServer is the backend's listener configuration.
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+	}
 }
 
 // writeJSON writes a JSON response with the given status. Every handler's JSON

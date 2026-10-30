@@ -284,8 +284,7 @@ func (b *Backend) requestAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body RequestActionBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 	b.dispatchActionRequest(w, r, actorFromClaims(claims), claims.Subject, body)
@@ -534,8 +533,8 @@ func (b *Backend) rerequestAction(w http.ResponseWriter, r *http.Request, priorI
 	}
 
 	var body RerequestBody
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&body)
+	if !decodeOptionalBody(w, r, &body, maxBodyBytes) {
+		return
 	}
 	rationale := body.Rationale
 	if rationale == "" {

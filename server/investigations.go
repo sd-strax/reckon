@@ -279,8 +279,7 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req CreateInvestigationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &req, maxBodyBytes) {
 		return
 	}
 

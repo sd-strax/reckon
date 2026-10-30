@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -134,8 +133,7 @@ func (b *Backend) commsRoute(w http.ResponseWriter, r *http.Request) {
 
 func (b *Backend) commsInbound(w http.ResponseWriter, r *http.Request) {
 	var body CommsInboundBody
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 	threadID, err := uuid.Parse(body.ThreadID)
@@ -167,8 +165,7 @@ func (b *Backend) commsAct(w http.ResponseWriter, r *http.Request, threadID uuid
 		var body struct {
 			Hours int `json:"hours"`
 		}
-		if derr := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); derr != nil {
-			writeJSONError(w, http.StatusBadRequest, "bad request body: "+derr.Error())
+		if !decodeBody(w, r, &body, maxBodyBytes) {
 			return
 		}
 		if body.Hours <= 0 {

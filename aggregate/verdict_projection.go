@@ -108,7 +108,7 @@ func rederiveVerdict(ctx context.Context, tx *sql.Tx, evt Event) error {
 
 	// Latest non-superseded verdict act, walking newest-first.
 	vrows, err := tx.QueryContext(ctx, `
-		SELECT payload, occurred_at FROM events
+		SELECT payload, occurred_at, event_version FROM events
 		WHERE aggregate_id = $1 AND event_type = $2 AND payload ? 'verdict'
 		ORDER BY sequence_no DESC
 	`, evt.AggregateID, EventTypeInterpretationRecorded)
@@ -119,8 +119,12 @@ func rederiveVerdict(ctx context.Context, tx *sql.Tx, evt Event) error {
 	for vrows.Next() {
 		var raw []byte
 		var at sql.NullTime
-		if err := vrows.Scan(&raw, &at); err != nil {
+		var version int
+		if err := vrows.Scan(&raw, &at, &version); err != nil {
 			return fmt.Errorf("scan verdict act: %w", err)
+		}
+		if err := CheckEventVersion(EventTypeInterpretationRecorded, version); err != nil {
+			return err
 		}
 		var rec InterpretationRecorded
 		if err := json.Unmarshal(raw, &rec); err != nil {
@@ -160,7 +164,7 @@ func rederiveVerdict(ctx context.Context, tx *sql.Tx, evt Event) error {
 // aggregate, in the projection transaction.
 func supersededSet(ctx context.Context, tx *sql.Tx, aggID AggregateID) (map[uuid.UUID]bool, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT payload FROM events
+		SELECT payload, event_version FROM events
 		WHERE aggregate_id = $1 AND event_type = $2
 	`, aggID, EventTypeInterpretationSuperseded)
 	if err != nil {
@@ -171,8 +175,12 @@ func supersededSet(ctx context.Context, tx *sql.Tx, aggID AggregateID) (map[uuid
 	out := map[uuid.UUID]bool{}
 	for rows.Next() {
 		var raw []byte
-		if err := rows.Scan(&raw); err != nil {
+		var version int
+		if err := rows.Scan(&raw, &version); err != nil {
 			return nil, fmt.Errorf("scan supersession: %w", err)
+		}
+		if err := CheckEventVersion(EventTypeInterpretationSuperseded, version); err != nil {
+			return nil, err
 		}
 		var p InterpretationSupersededPayload
 		if err := json.Unmarshal(raw, &p); err != nil {

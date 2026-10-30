@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -112,8 +111,7 @@ func (b *Backend) supersedeInterpretation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var body SupersedeBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "bad request body: "+err.Error())
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 	invID, err := uuid.Parse(body.InvestigationRef)

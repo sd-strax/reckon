@@ -42,7 +42,10 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 		return
 	}
 	var body EditActionBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Parameters) == 0 {
+	if !decodeBody(w, r, &body, maxBodyBytes) {
+		return
+	}
+	if len(body.Parameters) == 0 {
 		writeJSONError(w, http.StatusBadRequest, "edit: parameters required")
 		return
 	}

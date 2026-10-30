@@ -63,7 +63,7 @@ func TestEvidencePin_RequiresCitation(t *testing.T) {
 	env := newTestEnvelope("alice")
 	cmd := pinCmd()
 	cmd.InputRefs = nil
-	if _, err := applyCommand(env, cmd, activeState(env)); err == nil {
+	if _, err := applyCommand(env, cmd, activeState(env), testIDs()); err == nil {
 		t.Fatal("evidence-pin without input_refs accepted")
 	}
 }
@@ -72,7 +72,7 @@ func TestEvidencePin_RequiresCitation(t *testing.T) {
 // investigation with zero pinned evidence.
 func TestVerdict_RequiresPin(t *testing.T) {
 	env := newTestEnvelope("alice")
-	if _, err := applyCommand(env, verdictCmd(), activeState(env)); err == nil ||
+	if _, err := applyCommand(env, verdictCmd(), activeState(env), testIDs()); err == nil ||
 		!strings.Contains(err.Error(), "pinned evidence") {
 		t.Fatalf("verdict without a pin: err = %v; want the pinned-evidence rejection", err)
 	}
@@ -86,19 +86,19 @@ func TestVerdict_ShapeGuards(t *testing.T) {
 
 	bad := verdictCmd()
 	bad.Verdict.Disposition = "GUILTY"
-	if _, err := applyCommand(env, bad, st); err == nil {
+	if _, err := applyCommand(env, bad, st, testIDs()); err == nil {
 		t.Error("invalid disposition accepted")
 	}
 
 	noEvidence := verdictCmd()
 	noEvidence.InputRefs = nil
-	if _, err := applyCommand(env, noEvidence, st); err == nil {
+	if _, err := applyCommand(env, noEvidence, st, testIDs()); err == nil {
 		t.Error("verdict without cited evidence accepted")
 	}
 
 	smuggled := pinCmd()
 	smuggled.Verdict = &VerdictNode{Disposition: VerdictBenign}
-	if _, err := applyCommand(env, smuggled, st); err == nil {
+	if _, err := applyCommand(env, smuggled, st, testIDs()); err == nil {
 		t.Error("verdict payload on a non-verdict type accepted")
 	}
 
@@ -106,7 +106,7 @@ func TestVerdict_ShapeGuards(t *testing.T) {
 		InterpretationID: uuid.New(), InterpretationType: InterpretationPivot,
 		Rationale: "r", AIVerdictConfigRef: "trust.ai_verdict",
 	}
-	if _, err := applyCommand(env, stampSmuggle, st); err == nil {
+	if _, err := applyCommand(env, stampSmuggle, st, testIDs()); err == nil {
 		t.Error("ai_verdict_config_ref on a non-verdict type accepted")
 	}
 }
@@ -121,14 +121,14 @@ func TestVerdict_AIDialDefaultDeny(t *testing.T) {
 	st := activeState(env)
 	st.Pins[uuid.New()] = true
 
-	if _, err := applyCommand(env, verdictCmd(), st); err == nil ||
+	if _, err := applyCommand(env, verdictCmd(), st, testIDs()); err == nil ||
 		!strings.Contains(err.Error(), "denied by default") {
 		t.Fatalf("AI verdict without stamp: err = %v; want the default-deny rejection", err)
 	}
 
 	stamped := verdictCmd()
 	stamped.AIVerdictConfigRef = "trust.ai_verdict"
-	events, err := applyCommand(env, stamped, st)
+	events, err := applyCommand(env, stamped, st, testIDs())
 	if err != nil {
 		t.Fatalf("AI verdict with stamp: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestVerdict_HumanCarriesNoConfigRef(t *testing.T) {
 	st := activeState(env)
 	st.Pins[uuid.New()] = true
 
-	events, err := applyCommand(env, verdictCmd(), st)
+	events, err := applyCommand(env, verdictCmd(), st, testIDs())
 	if err != nil {
 		t.Fatalf("human verdict: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestSupersede_UnpinsAndGuards(t *testing.T) {
 	st.Interpretations[lifecycleID] = InterpretationLifecycle
 	st.Pins[pinID] = true
 
-	events, err := applyCommand(env, SupersedeInterpretation{SupersededID: pinID, Reason: "wrong host"}, st)
+	events, err := applyCommand(env, SupersedeInterpretation{SupersededID: pinID, Reason: "wrong host"}, st, testIDs())
 	if err != nil {
 		t.Fatalf("supersede pin: %v", err)
 	}
@@ -204,17 +204,17 @@ func TestSupersede_UnpinsAndGuards(t *testing.T) {
 	if st.activePinCount() != 0 {
 		t.Error("pin still active after supersession")
 	}
-	if _, err := applyCommand(env, verdictCmd(), st); err == nil {
+	if _, err := applyCommand(env, verdictCmd(), st, testIDs()); err == nil {
 		t.Error("verdict accepted with only a superseded pin")
 	}
 
-	if _, err := applyCommand(env, SupersedeInterpretation{SupersededID: pinID, Reason: "again"}, st); err == nil {
+	if _, err := applyCommand(env, SupersedeInterpretation{SupersededID: pinID, Reason: "again"}, st, testIDs()); err == nil {
 		t.Error("double supersession accepted")
 	}
-	if _, err := applyCommand(env, SupersedeInterpretation{SupersededID: uuid.New(), Reason: "r"}, st); err == nil {
+	if _, err := applyCommand(env, SupersedeInterpretation{SupersededID: uuid.New(), Reason: "r"}, st, testIDs()); err == nil {
 		t.Error("superseding an unknown interpretation accepted")
 	}
-	if _, err := applyCommand(env, SupersedeInterpretation{SupersededID: lifecycleID, Reason: "r"}, st); err == nil {
+	if _, err := applyCommand(env, SupersedeInterpretation{SupersededID: lifecycleID, Reason: "r"}, st, testIDs()); err == nil {
 		t.Error("superseding a lifecycle (transition-paired) interpretation accepted")
 	}
 }
@@ -224,12 +224,12 @@ func TestSupersede_UnpinsAndGuards(t *testing.T) {
 func TestConclude_RequiresVerdict(t *testing.T) {
 	env := newTestEnvelope("alice")
 	st := activeState(env)
-	if _, err := applyCommand(env, ConcludeInvestigation{ReportRef: "r", Summary: "s"}, st); err == nil ||
+	if _, err := applyCommand(env, ConcludeInvestigation{ReportRef: "r", Summary: "s"}, st, testIDs()); err == nil ||
 		!strings.Contains(err.Error(), "no verdict of record") {
 		t.Fatalf("conclude without verdict: err = %v; want the no-verdict rejection", err)
 	}
 	st.Verdicts = []verdictEntry{{InterpID: uuid.New(), Disposition: VerdictBenign}}
-	if _, err := applyCommand(env, ConcludeInvestigation{ReportRef: "r", Summary: "s"}, st); err != nil {
+	if _, err := applyCommand(env, ConcludeInvestigation{ReportRef: "r", Summary: "s"}, st, testIDs()); err != nil {
 		t.Fatalf("conclude with verdict: %v", err)
 	}
 }

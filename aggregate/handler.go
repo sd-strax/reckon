@@ -135,7 +135,7 @@ func (h *Handler) Handle(ctx context.Context, env Envelope, cmd Command) (res Re
 		return Result{AggregateID: env.AggregateID, NewSequenceNo: state.Seq, RecordedInterpretationID: recorded}, nil
 	}
 
-	events, err := applyCommand(env, cmd, state)
+	events, err := applyCommand(env, cmd, state, uuid.New)
 	if err != nil {
 		return Result{}, &RejectedError{Err: err}
 	}
@@ -260,6 +260,25 @@ func (h *Handler) Replay(ctx context.Context) error {
 	}
 	committed = true
 	return nil
+}
+
+// ActionRequester returns the principal who requested the action, folded
+// from the stream: the named human a system-emitted expiry is recorded on
+// behalf of (adr/0217).
+func (h *Handler) ActionRequester(ctx context.Context, aggID AggregateID, actionID uuid.UUID) (string, error) {
+	stream, err := h.store.LoadStream(ctx, aggID)
+	if err != nil {
+		return "", err
+	}
+	state, err := foldState(stream)
+	if err != nil {
+		return "", err
+	}
+	act, ok := state.Actions[actionID]
+	if !ok {
+		return "", fmt.Errorf("action %s on investigation %s: %w", actionID, aggID, ErrNotFound)
+	}
+	return act.RequestedBy, nil
 }
 
 // DB returns the underlying *sql.DB. Useful for callers that need to read

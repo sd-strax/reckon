@@ -127,6 +127,9 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 		if err := rows.Scan(&e.AggregateID, &e.SequenceNo, &e.TenantID, &e.Type, &payloadBytes, &actorBytes, &e.OccurredAt, &e.CorrelationID, &e.EventID, &e.Version, &e.RecordedAt, &e.CausationID); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
+		if err := CheckEventVersion(e.Type, e.Version); err != nil {
+			return nil, fmt.Errorf("seq %d: %w", e.SequenceNo, err)
+		}
 		e.Payload = json.RawMessage(payloadBytes)
 		if err := json.Unmarshal(actorBytes, &e.Actor); err != nil {
 			return nil, fmt.Errorf("unmarshal actor for seq %d: %w", e.SequenceNo, err)

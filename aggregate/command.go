@@ -325,15 +325,21 @@ func foldState(events []Event) (aggregateState, error) {
 // being created.
 const EventTypeCreated = "investigation.created"
 
+// idSource mints the interpretation ids that applyCommand's events pair with.
+// Handle passes uuid.New; tests pass a fixed sequence, so the same envelope,
+// command and state always yield the same events.
+type idSource func() uuid.UUID
+
 // applyCommand translates (Envelope, Command, current state) into the events to
-// persist + apply. It is the pure-function layer — no database, no transaction;
-// the Handler folds the state, wraps the transaction, and projects.
+// persist + apply. It is the pure-function layer — no database, no transaction,
+// no id it mints itself (newID supplies them); the Handler folds the state,
+// wraps the transaction, and projects.
 //
 // Two cross-cutting guards run before dispatch: every command except
 // CreateInvestigation requires the aggregate to exist, and an archived
 // investigation is terminal — it accepts no further events of any kind
 // (01-domain-model.md §Extension 2).
-func applyCommand(env Envelope, cmd Command, state aggregateState) ([]Event, error) {
+func applyCommand(env Envelope, cmd Command, state aggregateState, newID idSource) ([]Event, error) {
 	if err := cmd.Validate(env); err != nil {
 		return nil, err
 	}
@@ -394,19 +400,19 @@ func applyCommand(env Envelope, cmd Command, state aggregateState) ([]Event, err
 			CorrelationID: env.CorrelationID,
 		}}, nil
 	case ActivateInvestigation:
-		return statusTransition(env, state, StatusDraft, StatusActive, c.Reason)
+		return statusTransition(env, state, StatusDraft, StatusActive, c.Reason, newID)
 	case PauseInvestigation:
-		return statusTransition(env, state, StatusActive, StatusPaused, c.Reason)
+		return statusTransition(env, state, StatusActive, StatusPaused, c.Reason, newID)
 	case ResumeInvestigation:
-		return statusTransition(env, state, StatusPaused, StatusActive, c.Reason)
+		return statusTransition(env, state, StatusPaused, StatusActive, c.Reason, newID)
 	case ConcludeInvestigation:
-		return concludeEvents(env, state, c)
+		return concludeEvents(env, state, c, newID)
 	case ReopenInvestigation:
-		return reopenEvents(env, state, c)
+		return reopenEvents(env, state, c, newID)
 	case ArchiveInvestigation:
-		return archiveEvents(env, state, c)
+		return archiveEvents(env, state, c, newID)
 	case DiscardInvestigation:
-		return discardEvents(env, state, c)
+		return discardEvents(env, state, c, newID)
 	case RenameInvestigation:
 		return renameEvent(env, state, c)
 	case AddMember:
@@ -416,27 +422,27 @@ func applyCommand(env Envelope, cmd Command, state aggregateState) ([]Event, err
 	case AttachEvidence:
 		return membershipEvent(env, state, EventTypeEvidenceAttached, EvidenceAttached(c))
 	case RequestAction:
-		return applyRequestAction(env, state, c)
+		return applyRequestAction(env, state, c, newID)
 	case ApproveAction:
-		return applyApproveAction(env, state, c)
+		return applyApproveAction(env, state, c, newID)
 	case RejectAction:
-		return applyRejectAction(env, state, c)
+		return applyRejectAction(env, state, c, newID)
 	case EditAction:
-		return applyEditAction(env, state, c)
+		return applyEditAction(env, state, c, newID)
 	case ExpireAction:
-		return applyExpireAction(env, state, c)
+		return applyExpireAction(env, state, c, newID)
 	case DispatchAction:
-		return applyDispatchAction(env, state, c)
+		return applyDispatchAction(env, state, c, newID)
 	case ResultAction:
-		return applyResultAction(env, state, c)
+		return applyResultAction(env, state, c, newID)
 	case ReverseAction:
-		return applyReverseAction(env, state, c)
+		return applyReverseAction(env, state, c, newID)
 	case RecordReversalAttempt:
-		return applyReversalAttempt(env, state, c)
+		return applyReversalAttempt(env, state, c, newID)
 	case RecordOutcomeUnknown:
-		return applyOutcomeUnknown(env, state, c)
+		return applyOutcomeUnknown(env, state, c, newID)
 	case ResolveActionOutcome:
-		return applyResolveOutcome(env, state, c)
+		return applyResolveOutcome(env, state, c, newID)
 	case RecordInterpretation:
 		return applyRecordInterpretation(env, state, c)
 	case SupersedeInterpretation:
