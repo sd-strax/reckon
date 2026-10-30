@@ -88,7 +88,7 @@ is a layout decision, reviewed as UX and architecture, not a feature to keep or 
 | C9 | **hand a case off mid-flight** — a summary of where it stands at any state (not only concluded), an AI-drafted narrative they can edit with authorship shown, a handoff note to paste | summary facts + narrative revisions | `summary/` package, `investigation_narratives`, sidecar `draftNarrative` | #104 · adr/0103 · wb 377 / go 1,039 · counts C8 | **defer** — no handoff support at this time |
 | C10 | **see under what authority each act was done** — the roles the actor held when they acted | roles captured from the token at command time, display only | `Actor.Roles` | #106 · adr/0105 · wb 87 / go 29 | **keep** |
 | C11 | **search the knowledge base mid-investigation** and offer hits to the agent (excluded until they include them) | sidecar `searchKnowledge` | — | #88 | **keep** |
-| C12 | **see changes by others as they happen** — another analyst's approval, a dispatch result — without reloading | websocket per open document | `/api/stream`, no ADR | #88 | **defer** — the host reloads after its own commands and keeps the dispatch poll |
+| C12 | **see changes by others as they happen** — another analyst's approval, a dispatch result — without reloading | websocket per open document | none: the stream was removed (adr/0222) | #88 | **defer** — the host reloads after its own commands and keeps the dispatch poll |
 
 ### Managing what the organization knows
 

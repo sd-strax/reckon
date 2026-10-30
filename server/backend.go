@@ -217,10 +217,6 @@ type Backend struct {
 	// stopSweeps ends the action sweeps started at Start.
 	stopSweeps context.CancelFunc
 
-	// hub fans projection deltas out to subscribed WebSocket clients. Set at
-	// construction so it outlives individual Start/Stop cycles.
-	hub *hub
-
 	// capOverride, when set (under mu), supersedes cfg.CapabilityResolver/
 	// Catalog — the enablement endpoint's hot swap after a config rewrite.
 	capOverride *capabilitySurface
@@ -257,7 +253,7 @@ func NewBackend(cfg BackendConfig, sup *supervisor.Supervisor) *Backend {
 	if cfg.HTTPPort == 0 {
 		cfg.HTTPPort = 8080
 	}
-	return &Backend{cfg: cfg, sup: sup, hub: newHub()}
+	return &Backend{cfg: cfg, sup: sup}
 }
 
 // Name returns "backend" — same identifier the supervisor knew it by when
@@ -359,9 +355,6 @@ func (b *Backend) Stop(ctx context.Context) error {
 	}
 	if srv == nil {
 		return nil
-	}
-	if b.hub != nil {
-		b.hub.closeAll()
 	}
 	return srv.Shutdown(ctx)
 }
@@ -532,16 +525,6 @@ func (b *Backend) buildRouter(verifier *authz.Verifier) http.Handler {
 		// enforced in the handler so it can never contaminate a working install.
 		api.Handle("/admin/demo/seed", authz.RequireAuth(verifier)(http.HandlerFunc(b.seedDemoKnowledge)))
 	}
-
-	// /stream — projection-delta WebSocket. Authenticated at the handshake
-	// inside the handler (a WS upgrade can't go through RequireAuth, which
-	// would write a non-WS error after the upgrade), not by middleware.
-	if b.hub == nil {
-		b.hub = newHub()
-	}
-	api.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
-		b.handleStream(w, r, verifier)
-	})
 
 	mux.Handle("/api/", http.StripPrefix("/api", api))
 

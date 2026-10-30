@@ -396,23 +396,15 @@ older than what it holds for the same investigation.
 
 There is no gap detection at v0: every change the webview can know about comes from the host,
 which re-reads after its own writes and while a dispatch is in flight. Changes made elsewhere
-(another analyst, the agent outside this panel) arrive on the next read; recovering them without a
-read is the live-update stream's job (§3.3), and a resync message returns with it.
+(another analyst, the agent outside this panel) arrive on the next read; the backend has no
+push channel (§3.3).
 
 ### 3.3 Live updates
 
-**Deferred** (`implementation/feature-inventory.md`, C12): the subscription below is not built;
-the host reloads after its own commands and keeps the bounded dispatch poll. The design stands
-for when it is taken up.
-
-The host opens one `/api/stream?investigation=<id>` WebSocket per open panel (`streamClient.ts`,
-bearer from the session; the server closes on token expiry → reconnect with a fresh token). On an
-`event` delta: if `sequence_no === cache.seq + 1`, refresh the slices the `event_type` family
-touches (`action.*` → actions + thread; `interpretation.*` → hypotheses + pins + thread + verdict;
-`lifecycle.*` → investigation + thread; rename → investigation); otherwise reload everything.
-The hub only fans out HTTP-handler writes — Temporal-emitted dispatch/result events do not reach
-it (`server/hub.go`) — so the existing bounded dispatch poll (`scheduleDispatchWatch`) stays
-until the LISTEN/NOTIFY republisher lands. Nothing in the webview knows a WebSocket exists.
+**Not built** (`implementation/feature-inventory.md`, C12): the backend's `/api/stream`
+WebSocket had no consumer and was removed (`adr/0222`). The host reloads after its own commands
+and keeps the bounded dispatch poll (`scheduleDispatchWatch`). A push channel comes back when
+something consumes it; `adr/0222` records what the removed one did and lacked.
 
 ---
 
@@ -1076,7 +1068,7 @@ PRs in dependency order, each green on `make ci` and `make workbench-ci`, each r
    companion column with the Knowledge section (replacing the rail: toggles, collapsed summary,
    scoped search via the sidecar, nudges, Open the Knowledge view), turn records and the
    activity disclosure, one-line prediction rows and the matrix, Response lens from the existing
-   action data, `/api/stream` subscription, §8.0 view additions.
+   action data, §8.0 view additions.
    The left region's Work | Knowledge toggle is present but inert in this PR (it names the
    Knowledge document, which 4b adds); the Knowledge section's "Open the Knowledge view" link
    arrives with it. Export moves to the Summary lens; the companion keeps `08 §8.1`'s width
@@ -1127,8 +1119,8 @@ is set.
 8. **The entity popover is retired into the entity inspector**; pins, capability health and comms
    relocate per §2.1.
 9. **The webview's stylesheet is fully bundled**, so `style-src` loses `'unsafe-inline'`.
-10. **The `/api/stream` subscription is deferred** (§3.3); the bounded dispatch poll and the
-    host's reload after its own commands stay.
+10. **There is no `/api/stream` subscription** (§3.3, `adr/0222`); the bounded dispatch poll and
+    the host's reload after its own commands stay.
 11. **The observed-data bundle of `08 §8.6.1` is the capability call** (§2.4, §8.9), because
     the engine mints one observed-data per event; an `observed-data--` ref opens its event.
 12. **§6.13 and §6.20 share one table set and one PR**, under one ADR listing both issues.

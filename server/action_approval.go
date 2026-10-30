@@ -165,13 +165,11 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 	// already rejected delegate tokens, and deriving keeps the aggregate's
 	// AI-write-protection a REAL second layer behind that check.
 	env := newEnvelope(ac.AggregateID, actorFromClaims(claims), now)
-	res, err := b.cfg.Handler.Handle(r.Context(), env, aggregate.ApproveAction{ActionID: actionID, Authorization: auth})
+	_, err = b.cfg.Handler.Handle(r.Context(), env, aggregate.ApproveAction{ActionID: actionID, Authorization: auth})
 	if err != nil {
 		writeCommandError(w, "approve action", err)
 		return
 	}
-	b.publishDeltas(res)
-
 	resp := ActionDecisionResponse{ActionID: actionID.String(), Stage: auth.Stage}
 	if willApprove {
 		resp.Status = aggregate.ActionStatusApproved
@@ -290,13 +288,11 @@ func (b *Backend) rejectAction(w http.ResponseWriter, r *http.Request, actionID 
 	}
 
 	env := newEnvelope(ac.AggregateID, actorFromClaims(claims), commandNow()) // actor derived, so the allowlist backs the 403 above
-	res, err := b.cfg.Handler.Handle(r.Context(), env, aggregate.RejectAction{ActionID: actionID, Reason: body.Reason})
+	_, err = b.cfg.Handler.Handle(r.Context(), env, aggregate.RejectAction{ActionID: actionID, Reason: body.Reason})
 	if err != nil {
 		writeCommandError(w, "reject action", err)
 		return
 	}
-	b.publishDeltas(res)
-
 	writeJSON(w, http.StatusOK, ActionDecisionResponse{
 		ActionID: actionID.String(),
 		Status:   aggregate.ActionStatusRejected,
@@ -339,7 +335,7 @@ func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, a
 	}
 
 	env := newEnvelope(ac.AggregateID, actorFromClaims(claims), commandNow())
-	res, err := b.cfg.Handler.Handle(r.Context(), env, aggregate.ResolveActionOutcome{
+	_, err = b.cfg.Handler.Handle(r.Context(), env, aggregate.ResolveActionOutcome{
 		ActionID:  actionID,
 		Outcome:   body.Outcome,
 		Note:      body.Note,
@@ -350,8 +346,6 @@ func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, a
 		writeCommandError(w, "resolve action outcome", err)
 		return
 	}
-	b.publishDeltas(res)
-
 	resp := ActionDecisionResponse{ActionID: actionID.String(), Status: body.Outcome}
 	if ac.ReversalOfRef != uuid.Nil && body.Outcome == aggregate.ActionStatusSucceeded {
 		resp.WorkflowID = b.startActionWorkflow(r.Context(), specFromCurrent(ac))
