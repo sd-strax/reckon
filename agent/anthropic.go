@@ -67,12 +67,18 @@ type Anthropic struct {
 // Messages API wire shapes (only the fields the loop uses).
 
 type anthropicRequest struct {
-	Model     string             `json:"model"`
-	MaxTokens int                `json:"max_tokens"`
-	System    []anthropicText    `json:"system,omitempty"`
-	Messages  []anthropicMessage `json:"messages"`
-	Tools     []anthropicTool    `json:"tools,omitempty"`
-	Stream    bool               `json:"stream,omitempty"`
+	Model      string               `json:"model"`
+	MaxTokens  int                  `json:"max_tokens"`
+	System     []anthropicText      `json:"system,omitempty"`
+	Messages   []anthropicMessage   `json:"messages"`
+	Tools      []anthropicTool      `json:"tools,omitempty"`
+	ToolChoice *anthropicToolChoice `json:"tool_choice,omitempty"`
+	Stream     bool                 `json:"stream,omitempty"`
+}
+
+// anthropicToolChoice is the request's tool_choice; only "none" is sent.
+type anthropicToolChoice struct {
+	Type string `json:"type"`
 }
 
 // anthropicText is a system-prompt block (the array form of `system`, which the
@@ -194,6 +200,9 @@ func (a *Anthropic) complete(ctx context.Context, req CompleteRequest, onDelta f
 		wire.Tools = append(wire.Tools, anthropicTool{
 			Name: t.Name, Description: t.Description, InputSchema: t.InputSchema,
 		})
+	}
+	if req.ToolChoiceNone && len(wire.Tools) > 0 {
+		wire.ToolChoice = &anthropicToolChoice{Type: "none"}
 	}
 	// Prompt caching (05 §2.7): the agentic loop resends the same system prompt
 	// and tool set on every call (~15 per trial), and a growing conversation
