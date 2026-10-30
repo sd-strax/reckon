@@ -1,6 +1,6 @@
 # 0215 — A system command retried after its commit is recognised by its correlation id
 
-Issue: #215 · PR: TBD · Status: accepted
+Issue: #215 · PR: #265 · Status: accepted
 
 ## Context
 
