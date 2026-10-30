@@ -259,7 +259,7 @@ func foldState(events []Event) (aggregateState, error) {
 			s.Status = StatusArchived
 		case EventTypeActionRequested, EventTypeActionApproved, EventTypeActionRejected, EventTypeActionEdited,
 			EventTypeActionExpired, EventTypeActionDispatched, EventTypeActionResulted,
-			EventTypeActionReversed, EventTypeActionPolicyEvaluated:
+			EventTypeActionReversed, EventTypeActionReversalAttempted, EventTypeActionPolicyEvaluated:
 			// PolicyEvaluated is audit-only (no status change); foldActionEvent
 			// ignores it. The rest drive the per-action state machine.
 			if err := foldActionEvent(s.Actions, e); err != nil {
@@ -291,6 +291,15 @@ func foldState(events []Event) (aggregateState, error) {
 				return aggregateState{}, fmt.Errorf("fold interpretation.superseded seq %d: %w", e.SequenceNo, err)
 			}
 			foldSupersession(&s, p)
+		case EventTypeRenamed, EventTypeMemberAdded, EventTypeMemberRemoved, EventTypeEvidenceAttached:
+			// Metadata only: no command's legality depends on them, so the
+			// write side carries nothing. Listed so the default below stays
+			// an error.
+		default:
+			// A type the write side does not know would otherwise be dropped
+			// silently, and every check after it would run on a state that
+			// is missing a fact.
+			return aggregateState{}, fmt.Errorf("fold seq %d: unknown event type %q", e.SequenceNo, e.Type)
 		}
 	}
 	return s, nil

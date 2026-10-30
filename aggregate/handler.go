@@ -68,9 +68,11 @@ func (e *RejectedError) Unwrap() error { return e.Err }
 //
 //  1. BEGIN TX
 //  2. Read the aggregate's current sequence number
-//  3. applyCommand → list of events to persist
-//  4. For each event: AppendEventTx + every Projector's Apply
-//  5. COMMIT
+//  3. A SYSTEM command already on the stream (same correlation id) returns
+//     success with no events (alreadyApplied)
+//  4. applyCommand → list of events to persist
+//  5. For each event: AppendEventTx + every Projector's Apply
+//  6. COMMIT
 //
 // If anything fails, the transaction rolls back; nothing is persisted.
 // Returns ErrConcurrent if another writer beat us to the aggregate
@@ -108,6 +110,16 @@ func (h *Handler) Handle(ctx context.Context, env Envelope, cmd Command) (res Re
 	state, err := foldState(stream)
 	if err != nil {
 		return Result{}, err
+	}
+
+	// A system command retried after its commit is already on the stream:
+	// nothing new happened, so nothing is appended.
+	done, err := alreadyApplied(env, cmd, stream)
+	if err != nil {
+		return Result{}, &RejectedError{Err: err}
+	}
+	if done {
+		return Result{AggregateID: env.AggregateID, NewSequenceNo: state.Seq}, nil
 	}
 
 	events, err := applyCommand(env, cmd, state)
