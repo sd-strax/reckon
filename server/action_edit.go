@@ -87,7 +87,7 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 	}
 
 	env := newEnvelope(ac.AggregateID, actor, now)
-	res, err := b.cfg.Handler.Handle(r.Context(), env, aggregate.EditAction{
+	_, err = b.cfg.Handler.Handle(r.Context(), env, aggregate.EditAction{
 		ActionID: actionID, Parameters: body.Parameters, PriorParameters: ac.Parameters, Reason: body.Reason,
 		RequiredMode: mode, SecondaryApproverPool: probe.SecondaryApproverPool,
 		PolicyEvaluations: probe.PolicyEvaluations, MatchedPolicyRef: probe.MatchedPolicyRef,
@@ -96,6 +96,5 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 		writeCommandError(w, "edit action", err)
 		return
 	}
-	b.publishDeltas(res)
 	writeJSON(w, http.StatusOK, ActionDecisionResponse{ActionID: actionID.String(), Status: aggregate.ActionStatusRequested})
 }

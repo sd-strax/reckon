@@ -359,8 +359,6 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 		writeCommandError(w, "create investigation", err)
 		return
 	}
-	b.publishDeltas(res)
-
 	writeJSON(w, http.StatusCreated, CreateInvestigationResponse{
 		InvestigationView: InvestigationView{
 			AggregateID:       res.AggregateID.String(),
@@ -377,27 +375,6 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 		},
 		NewSequenceNo: res.NewSequenceNo,
 	})
-}
-
-// publishDeltas fans a command's committed events out to subscribed WebSocket
-// clients. Called after a successful Handle on the client-initiated write path
-// (design/05-component-architecture.md §9). System-emitted events from Temporal
-// workflows reach subscribers via the Postgres LISTEN/NOTIFY path (deferred to
-// v1); see the hub doc comment.
-func (b *Backend) publishDeltas(res aggregate.Result) {
-	if b.hub == nil {
-		return
-	}
-	for _, e := range res.AppliedEvents {
-		b.hub.publish(Delta{
-			Type:        "event",
-			AggregateID: e.AggregateID.String(),
-			EventType:   e.Type,
-			SequenceNo:  e.SequenceNo,
-			OccurredAt:  e.OccurredAt,
-			Payload:     e.Payload,
-		})
-	}
 }
 
 // investigationIDFromPath parses the UUID out of `/investigations/{id}`.

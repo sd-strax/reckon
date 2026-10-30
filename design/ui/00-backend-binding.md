@@ -33,7 +33,7 @@ Seam rules for this subtree (they bind every sheet here):
 | File watcher, reconcile-on-external-edit, self-write suppression, hydrate-the-workspace | Deleted. No workspace files (`13 §3`: an investigation is not a directory — or a file). The tree lists investigations from `GET /api/investigations`. |
 | Client-enforced state machines gating mutations | **Display knowledge only.** The aggregate command handler is the arbiter (approver invariant, AI write-protection, optimistic concurrency — enforced at one layer so no path bypasses them). The UI uses transition tables to decide which affordances to show; engine rejections surface verbatim, which is already the sheets' own rule ("the UI surfaces the *reason*, never a bare invalid"). |
 | Client-computed entity identity (fixed-namespace UUIDv5, TS canonicalization) | Deleted. Identity is tenant-scoped UUIDv5 minted by the engine's identity resolver — the single arbiter (`03 §7`). Ids reach the UI as opaque `<type>--<uuid>` strings. The entity popover's "Deterministic ID" row displays the engine's id. |
-| `POST /investigations/:id/turns` → SSE from the backend | The agent loop is **client-side by architectural commitment** (`05 §2.7`: BYOK model key never crosses to the backend; every loop call carries the AI-delegate token). Turns run through the stdio sidecar (`implementation/agent-sidecar.md`); progress arrives as `turn/*` notifications. Projection changes (action state, thread growth from other sessions) arrive on the `/api/stream` WebSocket. See §2.6. |
+| `POST /investigations/:id/turns` → SSE from the backend | The agent loop is **client-side by architectural commitment** (`05 §2.7`: BYOK model key never crosses to the backend; every loop call carries the AI-delegate token). Turns run through the stdio sidecar (`implementation/agent-sidecar.md`); progress arrives as `turn/*` notifications. Projection changes (action state, thread growth from other sessions) are read, not pushed: the host re-reads after its own commands and while a dispatch is in flight (`adr/0222`). See §2.6. |
 | Validation code catalog (`E1xx`) | The *pattern* (named, specific, analyst-readable refusal reasons) is engine behavior already; the catalog re-derives from engine rules (expiry, approver invariants, tier gates, conclude preconditions). File-integrity codes die with the file. |
 | Scenario fixtures (the prototype's scripted investigation) | The reference scenario survives in the sheets (`05 §5.1` worked example, `03 §3.4` canonical plan); bind walkthroughs and demos to the shipped OCSF fixture scenario (`fixtures/lateral-movement-via-rdp/`, `03 §9`) so design review and the eval harness run the same story. |
 
@@ -141,7 +141,7 @@ preconditions (all actions terminal) are enforced engine-side (§6.3).
 | `tool.status` / `tool.result` | `turn/tool_call` / `turn/tool_result`, with engine-distilled coverage + event count |
 | `step.begin/end` | Per-round markers — gap §6.4 |
 | `file.append` | Derived client-side: document and export render from the same events |
-| `action.state` | `/api/stream` WebSocket projection deltas |
+| `action.state` | Re-read after the host's own commands and by the bounded dispatch poll; the backend has no push channel (`adr/0222`) |
 | `confidence` | Replaced — see §5 |
 | `comms.event` | Phase F (§4) |
 

@@ -382,13 +382,11 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 
 	// Record the request + its policy evaluation in one transaction.
 	env := newEnvelope(investigationID, actor, now)
-	res, err := b.cfg.Handler.Handle(r.Context(), env, cmd)
+	_, err = b.cfg.Handler.Handle(r.Context(), env, cmd)
 	if err != nil {
 		writeCommandError(w, "request action", err)
 		return
 	}
-	b.publishDeltas(res)
-
 	resp := RequestActionResponse{
 		ActionID:         cmd.ActionID.String(),
 		Tier:             cmd.Tier,
@@ -571,7 +569,7 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 	// the recorded principal — satisfying the actor/approver invariant.
 	approveEnv := newEnvelope(reqEnv.AggregateID,
 		aggregate.Actor{PrincipalID: decision.PolicyAccountable, Kind: aggregate.ActorHuman}, now)
-	approveRes, err := b.cfg.Handler.Handle(ctx, approveEnv, aggregate.ApproveAction{
+	_, err := b.cfg.Handler.Handle(ctx, approveEnv, aggregate.ApproveAction{
 		ActionID: cmd.ActionID,
 		Authorization: aggregate.Authorization{
 			Mode:               aggregate.AuthModeAutoPolicy,
@@ -585,8 +583,6 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 		log.Printf("action %s: auto-approve failed: %v", cmd.ActionID, err)
 		return "PENDING_MANUAL", ""
 	}
-	b.publishDeltas(approveRes)
-
 	// Trigger the durable dispatch workflow (C.4). If the trigger fails, the
 	// action is APPROVED and durable in the event log, and the stranded-action
 	// sweep starts it (adr/0216). With no dispatch client wired it stays

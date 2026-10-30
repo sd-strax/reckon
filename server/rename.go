@@ -56,8 +56,6 @@ func (b *Backend) renameInvestigation(w http.ResponseWriter, r *http.Request) {
 		writeCommandError(w, "rename", err)
 		return
 	}
-	b.publishDeltas(res)
-
 	writeJSON(w, http.StatusOK, RenameResponse{
 		InvestigationRef: id.String(),
 		Title:            title,
