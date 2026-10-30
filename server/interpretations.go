@@ -336,8 +336,6 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 		writeCommandError(w, "record interpretation", err)
 		return
 	}
-	b.publishDeltas(res)
-
 	if res.RecordedInterpretationID != (uuid.UUID{}) {
 		// A retried turn commit: the turn is already recorded, under the id
 		// its first attempt was given (adr/0231).

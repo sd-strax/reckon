@@ -129,7 +129,6 @@ func (b *Backend) supersedeInterpretation(w http.ResponseWriter, r *http.Request
 		writeCommandError(w, "supersede interpretation", err)
 		return
 	}
-	b.publishDeltas(res)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"superseded_id": interpID.String(),
 		"sequence_no":   res.NewSequenceNo,

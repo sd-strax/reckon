@@ -69,8 +69,6 @@ func (b *Backend) investigationLifecycle(w http.ResponseWriter, r *http.Request)
 		writeCommandError(w, body.Transition, err)
 		return
 	}
-	b.publishDeltas(res)
-
 	resp := LifecycleResponse{
 		InvestigationRef: id.String(),
 		// The committed events are the authority on the resulting status —
