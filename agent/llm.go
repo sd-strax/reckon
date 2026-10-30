@@ -76,12 +76,15 @@ const (
 )
 
 // CompleteRequest is one model call: the system prompt, the conversation so
-// far, and the tool definitions.
+// far, and the tool definitions. ToolChoiceNone keeps the tools defined (the
+// history may hold tool calls, and the cached prefix stays the same) but lets
+// the model call none of them (adr/0234).
 type CompleteRequest struct {
-	System    string
-	Messages  []Message
-	Tools     []ToolDef
-	MaxTokens int
+	System         string
+	Messages       []Message
+	Tools          []ToolDef
+	MaxTokens      int
+	ToolChoiceNone bool
 }
 
 // CompleteResponse is the model's reply: content blocks (text and/or tool_use),

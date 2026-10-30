@@ -3,6 +3,7 @@ package sidecar
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -103,9 +104,9 @@ type service struct {
 	sessions map[string]*sessionState
 }
 
-// sessionState is one investigation's live session. turnMu serializes turns
-// (agent.Session is not safe for concurrent turns); cancel aborts the
-// in-flight one.
+// sessionState is one investigation's live session. turnMu is held by
+// whatever uses the conversation — a turn, a reset, a summary, a SOP draft
+// (begin; agent.Session is not safe for concurrent use); cancel aborts it.
 type sessionState struct {
 	sess   *agent.Session
 	turnMu sync.Mutex
@@ -442,21 +443,11 @@ func (s *service) handleTurn(ctx context.Context, raw json.RawMessage) (any, err
 	if err != nil {
 		return nil, err
 	}
-	if !st.turnMu.TryLock() {
-		return nil, fmt.Errorf("a turn is already in progress on session %s", p.SessionID)
+	turnCtx, release, err := st.begin(ctx, fmt.Sprintf("a turn is already in progress on session %s", p.SessionID))
+	if err != nil {
+		return nil, err
 	}
-	defer st.turnMu.Unlock()
-
-	turnCtx, cancel := context.WithCancel(ctx)
-	st.mu.Lock()
-	st.cancel = cancel
-	st.mu.Unlock()
-	defer func() {
-		cancel()
-		st.mu.Lock()
-		st.cancel = nil
-		st.mu.Unlock()
-	}()
+	defer release()
 
 	res, turnErr := st.sess.Turn(turnCtx, p.Text)
 	if res == nil {
@@ -517,8 +508,8 @@ type resetSessionParams struct {
 // handleResetSession is the analyst's context reset (agent.Session.
 // ResetContext): drop the model's working conversation — the vector for
 // narrative poisoning — and re-ground on the engine record. The durable
-// investigation state is untouched. Serialized with turns via turnMu so a
-// reset never yanks the history out from under an in-flight completion.
+// investigation state is untouched. It holds the session like a turn (begin),
+// so a reset never yanks the history out from under an in-flight completion.
 func (s *service) handleResetSession(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p resetSessionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
@@ -528,11 +519,12 @@ func (s *service) handleResetSession(ctx context.Context, raw json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
-	if !st.turnMu.TryLock() {
-		return nil, fmt.Errorf("a turn is in flight — wait for it to finish (or cancel) before resetting")
+	resetCtx, release, err := st.begin(ctx, "a turn is in flight — wait for it to finish (or cancel) before resetting")
+	if err != nil {
+		return nil, err
 	}
-	defer st.turnMu.Unlock()
-	if err := st.sess.ResetContext(ctx); err != nil {
+	defer release()
+	if err := st.sess.ResetContext(resetCtx); err != nil {
 		return nil, err
 	}
 	return struct{}{}, nil
@@ -546,8 +538,8 @@ type summarizeConcludedParams struct {
 
 // handleSummarizeConcluded runs the client-side tier of the two-tier knowledge
 // summary (design/06 §3.2): one BYOK model completion over the session's own
-// conversation, posted to the backend as the summary narrative. Serialized
-// with turns via turnMu — it reads the conversation a turn would mutate.
+// conversation, posted to the backend as the summary narrative. It holds the
+// session like a turn (begin) — it reads the conversation a turn would mutate.
 // Failure is the caller's to soften: the narrative is an enhancement; the
 // server's structured baseline stands either way.
 func (s *service) handleSummarizeConcluded(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -559,11 +551,14 @@ func (s *service) handleSummarizeConcluded(ctx context.Context, raw json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	st.turnMu.Lock()
-	defer st.turnMu.Unlock()
-	narrative, err := st.sess.SummarizeConcluded(ctx)
+	runCtx, release, err := st.begin(ctx, "a turn is in progress — the summary narrative was not written")
 	if err != nil {
 		return nil, err
+	}
+	defer release()
+	narrative, err := st.sess.SummarizeConcluded(runCtx)
+	if err != nil {
+		return nil, cancelledOr(runCtx, err)
 	}
 	return map[string]any{"chars": len(narrative)}, nil
 }
@@ -580,8 +575,8 @@ type proposeSOPParams struct {
 // model completion over the session's own conversation, returning a candidate
 // SOP generalized from the concluded investigation (the compounding loop). The
 // candidate is NOT persisted — it goes back to the workbench for the analyst to
-// accept or discard. Serialized with turns via turnMu (it reads the
-// conversation a turn would mutate). Best-effort: the caller softens failure,
+// accept or discard. It holds the session like a turn (begin;
+// it reads the conversation a turn would mutate). Best-effort: the caller softens failure,
 // and warranted=false is a valid, non-error "no new SOP worth it" answer.
 func (s *service) handleProposeSOP(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p proposeSOPParams
@@ -592,11 +587,14 @@ func (s *service) handleProposeSOP(ctx context.Context, raw json.RawMessage) (an
 	if err != nil {
 		return nil, err
 	}
-	st.turnMu.Lock()
-	defer st.turnMu.Unlock()
-	cand, err := st.sess.ProposeSOP(ctx, p.Force)
+	runCtx, release, err := st.begin(ctx, "a turn is in progress — wait for it to finish, then draft the SOP")
 	if err != nil {
 		return nil, err
+	}
+	defer release()
+	cand, err := st.sess.ProposeSOP(runCtx, p.Force)
+	if err != nil {
+		return nil, cancelledOr(runCtx, err)
 	}
 	return cand, nil
 }
@@ -616,6 +614,35 @@ func (s *service) handleCancel(_ context.Context, raw json.RawMessage) (any, err
 	}
 	st.mu.Unlock()
 	return struct{}{}, nil
+}
+
+// begin is the one entry for everything that uses the session's conversation
+// (a turn, a reset, a summary, a SOP draft; adr/0234): it refuses at once with
+// busy when something already holds the session, and registers the cancel so
+// `cancel` reaches whatever is running. release undoes both.
+func (st *sessionState) begin(ctx context.Context, busy string) (context.Context, func(), error) {
+	if !st.turnMu.TryLock() {
+		return nil, nil, errors.New(busy)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	st.mu.Lock()
+	st.cancel = cancel
+	st.mu.Unlock()
+	return runCtx, func() {
+		cancel()
+		st.mu.Lock()
+		st.cancel = nil
+		st.mu.Unlock()
+		st.turnMu.Unlock()
+	}, nil
+}
+
+// cancelledOr reports a call stopped by `cancel` as cancelled, else err.
+func cancelledOr(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return &rpcErr{Code: codeCancelled, Message: "canceled"}
+	}
+	return err
 }
 
 func (s *service) session(id string) (*sessionState, error) {
