@@ -227,7 +227,7 @@ TargetSpec:
 
 Every `x-action` has a `produced-by` edge to an Interpretation of type `action-request` (a value in the canonical `interpretation_type` enum — this *is* a kind of reasoning, even though the action itself is not). This piggybacks on the existing produced-by mechanism in the domain model and keeps the reasoning thread intact.
 
-The `x-action` lifecycle is **event-sourced as part of the investigation aggregate** (02-persistence.md §1, §2.1, §3). The `status` field above is a projection — the canonical state machine lives in eight action lifecycle events: `ActionRequested`, `ActionApproved`, `ActionRejected`, `ActionExpired`, `ActionDispatched`, `ActionResulted`, `ActionReversed`, `ActionReversalAttempted` (the last records an unverified reversal attempt on the original *without* a status change, §7.1). Same-aggregate placement means the `x-action` and its producing Interpretation are recorded in one transaction (a shared `correlation_id` ties them); no cross-aggregate consistency story is needed.
+The `x-action` lifecycle is **event-sourced as part of the investigation aggregate** (02-persistence.md §1, §2.1, §3). The `status` field above is a projection — the canonical state machine lives in the action lifecycle events: `ActionRequested`, `ActionApproved`, `ActionRejected`, `ActionExpired`, `ActionDispatched`, `ActionResulted`, `ActionOutcomeUnknown`, `ActionOutcomeResolved`, `ActionReversed`, `ActionReversalAttempted` (the last records an unverified reversal attempt on the original *without* a status change, §7.1). Same-aggregate placement means the `x-action` and its producing Interpretation are recorded in one transaction (a shared `correlation_id` ties them); no cross-aggregate consistency story is needed.
 
 ### 3.2 Lifecycle and emitted Interpretations
 
@@ -254,6 +254,12 @@ REQUESTED          -> EXECUTING           interpretation_type = "action-dispatch
                                           is recorded from the orchestrator's callback)
 APPROVED           -> EXECUTING           interpretation_type = "action-dispatch"   (system-emitted)
 EXECUTING          -> SUCCEEDED | FAILED  interpretation_type = "action-result"     (system-emitted)
+EXECUTING          -> OUTCOME_UNKNOWN     interpretation_type = "action-result"     (system-emitted:
+                                          the run that dispatched stopped before its
+                                          result, §6.2)
+OUTCOME_UNKNOWN    -> SUCCEEDED | FAILED  interpretation_type = "action-resolution"
+                                          (human-only: what the tool shows when a
+                                          person checks it)
 SUCCEEDED          -> REVERSED            recorded on the *reversing* x-action via reversal_of_ref;
                                           reversed x-action is mutated to status REVERSED
                                           and emits an "action-reversal" Interpretation.
@@ -577,6 +583,8 @@ Attempt:
 - **Approved, dispatched, partial success across targets:** status `SUCCEEDED` but `final_outcome=PARTIAL`. Per-target results recorded. The action is *not* re-dispatched for the failed targets automatically — partial-failure recovery requires a new action request, because re-dispatching silently violates the principle that every action is auditable on its own.
 - **Timeout:** the adapter call exceeded the action-type timeout. Status moves to `FAILED` with `final_outcome=TIMEOUT`. The system explicitly does *not* infer success from timeout. The audit record makes this state visible to the analyst, who decides whether to re-request.
 - **Approval expired before dispatch (rare; should mostly happen for stale T2 prompts):** status `EXPIRED`. New request required.
+- **Approved, but the dispatch workflow never started:** status stays `APPROVED`. Nothing has left reckon (the dispatch is recorded before any call), so starting the workflow again is safe; a sweep at startup and on a periodic tick starts every APPROVED action's workflow, and an approval stands however long it waited.
+- **Dispatched, then the run stopped before recording a result:** status `OUTCOME_UNKNOWN`. The call may have left reckon; nobody knows whether the tool acted, and dispatching again could act twice. The next run of the action's workflow (the same sweep starts it) records the status instead of dispatching. It waits for a person, with no timeout: someone checks the tool and resolves the action to `SUCCEEDED` or `FAILED`, saying what they checked. There is no re-request from `OUTCOME_UNKNOWN`; a rerun is a resolution to `FAILED` followed by a re-request, so nobody reruns blind.
 
 The key invariant: **the audit record never lies about uncertainty.** If the system doesn't know whether the host was actually isolated, the record says so. SOC teams need to make recovery decisions on accurate state, and "I think we isolated it" is worse than "we don't know."
 

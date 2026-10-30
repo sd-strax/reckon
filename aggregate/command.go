@@ -259,7 +259,8 @@ func foldState(events []Event) (aggregateState, error) {
 			s.Status = StatusArchived
 		case EventTypeActionRequested, EventTypeActionApproved, EventTypeActionRejected, EventTypeActionEdited,
 			EventTypeActionExpired, EventTypeActionDispatched, EventTypeActionResulted,
-			EventTypeActionReversed, EventTypeActionReversalAttempted, EventTypeActionPolicyEvaluated:
+			EventTypeActionReversed, EventTypeActionReversalAttempted, EventTypeActionPolicyEvaluated,
+			EventTypeActionOutcomeUnknown, EventTypeActionOutcomeResolved:
 			// PolicyEvaluated is audit-only (no status change); foldActionEvent
 			// ignores it. The rest drive the per-action state machine.
 			if err := foldActionEvent(s.Actions, e); err != nil {
@@ -417,6 +418,10 @@ func applyCommand(env Envelope, cmd Command, state aggregateState) ([]Event, err
 		return applyReverseAction(env, state, c)
 	case RecordReversalAttempt:
 		return applyReversalAttempt(env, state, c)
+	case RecordOutcomeUnknown:
+		return applyOutcomeUnknown(env, state, c)
+	case ResolveActionOutcome:
+		return applyResolveOutcome(env, state, c)
 	case RecordInterpretation:
 		return applyRecordInterpretation(env, state, c)
 	case SupersedeInterpretation:

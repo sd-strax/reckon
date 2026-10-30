@@ -52,8 +52,11 @@ func ReversalSaga(ctx workflow.Context, in ReversalSagaInput) error {
 	// (the honest-state principle, 04 §7). A PARTIAL/FAILED/TIMEOUT reversing
 	// action leaves the original SUCCEEDED; the reversing action's own record
 	// carries the per-target detail for the analyst to act on.
+	// OUTCOME_UNKNOWN is the same: nobody knows whether the undo happened, so
+	// the original is untouched until a person resolves the reversing action;
+	// resolving it SUCCEEDED starts this saga again (adr/0216).
 	if outcome != "SUCCEEDED" {
-		log.Warn("reversing action did not fully take effect; original stays SUCCEEDED",
+		log.Warn("reversing action did not fully take effect, or its outcome is unknown; original stays SUCCEEDED",
 			"original", in.OriginalActionID, "reversing", in.Reversing.ActionID, "outcome", outcome)
 		return nil
 	}

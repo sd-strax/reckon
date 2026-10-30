@@ -230,6 +230,8 @@ export type InboundMessage =
   | { type: "action.approve"; actionId: string; challenge?: string }
   | { type: "action.reject"; actionId: string; reason: string }
   | { type: "action.rerequest"; actionId: string; rationale: string }
+  // Resolve an action whose outcome is unknown (adr/0216): what the tool shows.
+  | { type: "action.resolve"; actionId: string; outcome: "SUCCEEDED" | "FAILED"; note: string; reference?: string; artifact?: ArtifactLocation }
   // Change a pending request's parameters before approving it (adr/0127).
   | { type: "action.edit"; actionId: string; parameters: Record<string, unknown>; reason?: string }
   // The analyst requests an action from a pinned finding, without the agent (#146).

@@ -27,6 +27,10 @@ describe("stage", () => {
     const notify = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), A({ actionId: "n", actionType: "notify.email", status: "REQUESTED", pending: true })], comms: noComms, openOwnerItems: 0 });
     expect(notify.current).toBe("notify");
     expect(notify.done.contain).toBe(true);
+    // A containment whose outcome is unknown is not done until a person resolves it (adr/0216).
+    const unknown = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), A({ actionId: "u", status: "OUTCOME_UNKNOWN" })], comms: noComms, openOwnerItems: 0 });
+    expect(unknown.current).toBe("contain");
+    expect(unknown.done.contain).toBe(false);
     const awaiting = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" })], comms: [{ status: "awaiting_reply" } as CommsThread], openOwnerItems: 0 });
     expect(awaiting.current).toBe("notify");
     const sent = A({ actionId: "n", actionType: "notify.slack", status: "SUCCEEDED" });

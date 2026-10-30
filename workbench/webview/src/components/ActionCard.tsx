@@ -5,7 +5,7 @@
 // render the same ActionRow, so they can never disagree. The policy fact is
 // gap §6.16: until it lands the card states the required mode the engine froze.
 import { useApp } from "../app";
-import { actionStatusBadge, canRerequest, canReverse, reversalEnded, successors } from "../derive/actions";
+import { actionStatusBadge, canRerequest, canResolve, canReverse, reversalEnded, successors } from "../derive/actions";
 import { actionPreview, undoWords } from "../derive/actionPreview";
 import type { ActionRow } from "../../../src/viewTypes";
 import type { InboundMessage } from "../../../src/protocol";
@@ -60,6 +60,7 @@ export function actionTitle(a: Pick<ActionRow, "actionType" | "name">): string {
  * engine records an unconfirmed effect as unknown, never as done or undone. */
 export function failureSentence(a: Pick<ActionRow, "status" | "targets">): string {
   const on = a.targets.length ? a.targets.join(", ") : "the target";
+  if (a.status === "OUTCOME_UNKNOWN") return `Sent, but the run stopped before the tool answered — whether ${on} changed is unknown. Check the tool, then resolve it to what it shows.`;
   if (a.status === "PARTIAL") return `Partly done — some of ${on} may be changed; check each before relying on it.`;
   if (a.status === "TIMEOUT") return `No answer from the tool — whether ${on} changed is unknown.`;
   return `Did not complete — reckon cannot confirm any change on ${on}.`;
@@ -99,6 +100,36 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
       decideOn({ type: "action.approve", actionId: a.actionId });
     }
   };
+  // Resolve an unknown outcome (adr/0216): the person checked the tool and
+  // records what it shows, what they checked, and where the evidence is.
+  const resolve = () => openPrompt({
+    title: "Resolve " + actionTitle(a) + (a.targets.length ? " — " + a.targets.join(", ") : ""),
+    label: "What did you check, and what did it show?",
+    placeholder: "e.g. the EDR console shows the host isolated since 14:02",
+    extrasTop: [{
+      kind: "select", id: "outcome", label: "The tool shows the action",
+      options: [{ value: "SUCCEEDED", label: "took effect" }, { value: "FAILED", label: "did not take effect" }],
+    }],
+    extras: [
+      { kind: "text", id: "reference", label: "Where you checked (optional)", placeholder: "e.g. a console link or the tool's job id" },
+      { kind: "text", id: "artifactLocation", label: "Where the evidence is kept (optional) — reckon records the location, not the file", placeholder: "e.g. s3://ir-evidence/2026/console-capture.png" },
+      { kind: "text", id: "artifactSystem", label: "Kept in", placeholder: "e.g. S3, SharePoint, the case system" },
+      { kind: "text", id: "artifactAccess", label: "How a colleague gets access", placeholder: "e.g. ir-evidence-readers group" },
+    ],
+    helper: "Recorded as yours. Took effect: the action counts as done and can be reversed. Did not take effect: it counts as failed, and you can request it again.",
+    confirm: "Resolve",
+    onConfirm: (note, _picked, ex) => {
+      const str = (k: string) => String(ex[k] ?? "").trim();
+      const location = str("artifactLocation");
+      decideOn({
+        type: "action.resolve", actionId: a.actionId,
+        outcome: str("outcome") === "FAILED" ? "FAILED" : "SUCCEEDED",
+        note: note.trim(),
+        reference: str("reference") || undefined,
+        artifact: location ? { location, system: str("artifactSystem") || undefined, access: str("artifactAccess") || undefined } : undefined,
+      });
+    },
+  });
   const reject = () => openPrompt({
     title: "Reject " + a.actionType, label: "Why is this rejected?", placeholder: "recorded on the audit trail", confirm: "Reject", require: false,
     onConfirm: (reason) => decideOn({ type: "action.reject", actionId: a.actionId, reason }),
@@ -178,7 +209,7 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
       <dl className="acfacts">
         <div><dt>Can be undone</dt><dd>{undoWords(a.reversibility)}</dd></div>
         <div><dt>Runs on</dt><dd className="mono">{a.adapter || a.plannedAdapter || "no tool connected"}{a.resultRef ? " → " + a.resultRef : ""}</dd></div>
-        <div><dt>Approval</dt><dd>{a.pending ? (a.requiredMode === "TWO_PARTY" ? "two people must approve" : "needs your approval — no policy approves it on its own") : a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED" ? "approved" : a.status === "REJECTED" ? "rejected" : "—"}</dd></div>
+        <div><dt>Approval</dt><dd>{a.pending ? (a.requiredMode === "TWO_PARTY" ? "two people must approve" : "needs your approval — no policy approves it on its own") : a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED" || a.status === "OUTCOME_UNKNOWN" ? "approved" : a.status === "REJECTED" ? "rejected" : "—"}</dd></div>
         <div><dt>Time to decide</dt><dd>{a.pending && !a.expired && a.expiresAt ? <Countdown expiresAt={a.expiresAt} /> : a.expired ? "ran out" : "—"}</dd></div>
       </dl>
       {a.editedAt ? <div className="cardmeta">✎ edited before approval · {fmtTime(a.editedAt)} — <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>see what changed</a></div> : null}
@@ -186,6 +217,14 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
       {a.tierEscalated ? <div className="cardmeta">⚠ escalated to {a.tier}: {a.targets.length} targets (blast radius)</div> : null}
       {a.status === "FAILED" || a.status === "TIMEOUT" || a.status === "PARTIAL" ? (
         <div className="armeta err">✗ {failureSentence(a)}{a.errorDetail ? <span className="errdetail"> Reason: {a.errorDetail}</span> : null}</div>
+      ) : null}
+      {canResolve(a) ? (
+        <>
+          <div className="armeta err">⚠ {failureSentence(a)}</div>
+          <div className="decide">
+            <button className="primary" disabled={locked} title="Record what the tool shows. Nothing reruns this action until someone does." onClick={resolve}>Resolve…</button>
+          </div>
+        </>
       ) : null}
       {draft && decide ? <div className="cardmeta actnote">First action on the world — approving activates the investigation.</div> : null}
       {buttons}

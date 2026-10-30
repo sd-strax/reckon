@@ -257,7 +257,10 @@ crash/replay case; the key catches the residual races (a) can't see.
 
 **(c) The honest residual.** If the call left reckon but no result returned (network partition after
 send, adapter died mid-call), the per-target result is `UNKNOWN` and the action terminates `FAILED`
-with `confidence = LOW` and **no success inference** — the analyst re-requests. This is the same
+with `confidence = LOW` and **no success inference** — the analyst re-requests. If the run itself
+stopped after recording the dispatch and before any result, the next run of the workflow finds the
+dispatch with no result and records `OUTCOME_UNKNOWN` instead of calling again; a person checks the
+tool and resolves it (`04 §6.2`). This is the same
 non-inference rule `04 §6.2` already applies to `TIMEOUT`: reckon never pretends to know an effect it
 cannot confirm. Pre-dispatch state reconciliation (a `probe(target)` op that lets the executor skip a
 call when the target is already in the desired state) would shrink this residual but is **not**

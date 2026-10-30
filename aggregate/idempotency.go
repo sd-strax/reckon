@@ -17,6 +17,8 @@ func systemEventType(cmd Command) string {
 		return EventTypeActionReversed
 	case RecordReversalAttempt:
 		return EventTypeActionReversalAttempted
+	case RecordOutcomeUnknown:
+		return EventTypeActionOutcomeUnknown
 	default:
 		return ""
 	}
