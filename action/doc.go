@@ -13,7 +13,7 @@
 // versioned policies over a flattened context (EvalInput → ctx.*) and resolves
 // an authorization Decision by priority (DENY > REQUIRE_TWO_PARTY > AUTO_APPROVE
 // > manual), with the non-deletable baseline DENY (AI-no-T3) always prepended.
-// It supersedes authz.PermissiveGate2. ApplyDecision threads the evaluation onto
+// ApplyDecision threads the evaluation onto
 // the RequestAction command so the PolicyEvaluated audit event (02 §3) is
 // written in the same transaction as ActionRequested.
 //
