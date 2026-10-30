@@ -648,3 +648,67 @@ func TestSummarizeEnvelope_PagedResultCountsWhole(t *testing.T) {
 		t.Errorf("got coverage=%q count=%d refs=%v ok=%v; want COMPLETE, 2000, the page's 2 refs", cov, n, refs, ok)
 	}
 }
+
+// parkLLM parks every call until its context ends, saying when it has.
+type parkLLM struct{ parked chan struct{} }
+
+func (l *parkLLM) Complete(ctx context.Context, _ agent.CompleteRequest) (agent.CompleteResponse, error) {
+	l.parked <- struct{}{}
+	<-ctx.Done()
+	return agent.CompleteResponse{}, ctx.Err()
+}
+
+// TestServe_SideCompletionsShareTurnEntry (adr/0234): a SOP draft holds the
+// session like a turn. A turn or a summary asked for meanwhile is refused at
+// once instead of waiting, and cancel stops the draft with the coded
+// cancellation.
+func TestServe_SideCompletionsShareTurnEntry(t *testing.T) {
+	backend := fakeBackend(t)
+	llm := &parkLLM{parked: make(chan struct{}, 1)}
+	c := startSidecar(t, llm)
+	if resp := c.call("initialize", initParams(backend.URL)); resp.Error != nil {
+		t.Fatalf("initialize: %+v", resp.Error)
+	}
+	resp := c.call("createSession", createSessionParams{InvestigationID: "inv-1"})
+	if resp.Error != nil {
+		t.Fatalf("createSession: %+v", resp.Error)
+	}
+	var cs createSessionResult
+	_ = json.Unmarshal(resp.Result, &cs)
+
+	draft := make(chan *message, 1)
+	go func() { draft <- c.call("proposeSOP", proposeSOPParams{SessionID: cs.SessionID}) }()
+	select {
+	case <-llm.parked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the draft never reached the model")
+	}
+
+	for method, params := range map[string]any{
+		"turn":               turnParams{SessionID: cs.SessionID, Text: "go"},
+		"summarizeConcluded": summarizeConcludedParams{SessionID: cs.SessionID},
+	} {
+		done := make(chan *message, 1)
+		go func() { done <- c.call(method, params) }()
+		select {
+		case resp := <-done:
+			if resp.Error == nil || !strings.Contains(resp.Error.Message, "in progress") {
+				t.Errorf("%s during a draft = %+v; want refused as in progress", method, resp.Error)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s waited behind the draft instead of being refused", method)
+		}
+	}
+
+	if resp := c.call("cancel", cancelParams{SessionID: cs.SessionID}); resp.Error != nil {
+		t.Fatalf("cancel: %+v", resp.Error)
+	}
+	select {
+	case resp := <-draft:
+		if resp.Error == nil || resp.Error.Code != codeCancelled {
+			t.Errorf("draft after cancel = %+v; want the coded cancellation", resp.Error)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancel did not reach the draft")
+	}
+}

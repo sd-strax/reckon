@@ -917,10 +917,11 @@ func TestSession_SummarizeConcluded(t *testing.T) {
 		t.Errorf("SummarizeConcluded mutated the conversation: %d -> %d messages", msgsBefore, len(s.messages))
 	}
 
-	// The summarize completion must carry no tools (single narrative call).
+	// The tools stay defined (the history may hold tool calls) but the model
+	// may call none of them (adr/0234).
 	last := llm.requests[len(llm.requests)-1]
-	if len(last.Tools) != 0 {
-		t.Errorf("summarize completion carried %d tools; want none", len(last.Tools))
+	if len(last.Tools) == 0 || !last.ToolChoiceNone {
+		t.Errorf("summarize completion: %d tools, ToolChoiceNone=%v; want the tools with none callable", len(last.Tools), last.ToolChoiceNone)
 	}
 
 	calls := f.callsTo("/api/knowledge/summary_narrative")
@@ -978,10 +979,10 @@ func TestSession_ProposeSOP(t *testing.T) {
 	if len(s.messages) != msgsBefore {
 		t.Errorf("ProposeSOP mutated the conversation: %d -> %d messages", msgsBefore, len(s.messages))
 	}
-	// No tools on the propose completion; nothing persisted server-side.
+	// Tools defined but not callable (adr/0234); nothing persisted server-side.
 	last := llm.requests[len(llm.requests)-1]
-	if len(last.Tools) != 0 {
-		t.Errorf("propose completion carried %d tools; want none", len(last.Tools))
+	if len(last.Tools) == 0 || !last.ToolChoiceNone {
+		t.Errorf("propose completion: %d tools, ToolChoiceNone=%v; want the tools with none callable", len(last.Tools), last.ToolChoiceNone)
 	}
 	if calls := f.callsTo("/api/sops/import"); len(calls) != 0 {
 		t.Errorf("ProposeSOP persisted a SOP (%d calls); it must not — the analyst decides", len(calls))

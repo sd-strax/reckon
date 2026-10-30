@@ -97,18 +97,18 @@ func historyBytes(msgs []Message) int {
 }
 
 // requestBytes approximates the wire size of the next request: the system
-// prompt and tool definitions, which count against the window too, plus the
-// history.
-func (s *Session) requestBytes() int {
+// prompt and tool definitions, which count against the window too, the
+// history, and a side completion's instruction.
+func (s *Session) requestBytes(side []ContentBlock) int {
 	if s.fixedBytes == 0 {
 		tools, _ := json.Marshal(s.tools)
 		s.fixedBytes = len(s.system) + len(tools)
 	}
-	return s.fixedBytes + historyBytes(s.messages)
+	return s.fixedBytes + historyBytes(s.messages) + historyBytes([]Message{{Content: side}})
 }
 
 func (s *Session) estimateTokens() int {
-	return int(float64(s.requestBytes()) * s.tokensPerByte)
+	return int(float64(s.requestBytes(nil)) * s.tokensPerByte)
 }
 
 // fitContext compacts the history when the next request is estimated above
@@ -245,12 +245,14 @@ func elidedPlaceholder(content string) string {
 // completeFitted runs one model call on a history that fits the context
 // window. It compacts first when needed; on a provider's overflow refusal it
 // adopts the reported window, compacts hard and retries once. Each call that
-// reports usage recalibrates the bytes-to-tokens estimate.
-func (s *Session) completeFitted(ctx context.Context, transcript *strings.Builder) (CompleteResponse, bool, error) {
-	s.noteCompaction(transcript, s.fitContext(false))
+// reports usage recalibrates the bytes-to-tokens estimate. side, when set, is a
+// side completion's instruction (adr/0234): it rides the request, not the
+// history.
+func (s *Session) completeFitted(ctx context.Context, transcript *strings.Builder, side []ContentBlock) (CompleteResponse, bool, error) {
+	s.noteCompaction(transcript, s.fitContext(false), &side)
 	for retried := false; ; retried = true {
-		reqBytes := s.requestBytes()
-		resp, streamed, err := s.complete(ctx)
+		reqBytes := s.requestBytes(side)
+		resp, streamed, err := s.complete(ctx, side)
 		var overflow *ContextOverflowError
 		if err != nil && errors.As(err, &overflow) && !retried {
 			if overflow.Limit > 0 {
@@ -259,7 +261,7 @@ func (s *Session) completeFitted(ctx context.Context, transcript *strings.Builde
 			if overflow.Tokens > 0 && reqBytes > 0 {
 				s.tokensPerByte = float64(overflow.Tokens) / float64(reqBytes)
 			}
-			s.noteCompaction(transcript, s.fitContext(true))
+			s.noteCompaction(transcript, s.fitContext(true), &side)
 			continue
 		}
 		if err == nil {
@@ -273,9 +275,16 @@ func (s *Session) completeFitted(ctx context.Context, transcript *strings.Builde
 
 // noteCompaction tells the model, the record and the analyst what a
 // compaction removed. The model's note rides the last message, which before a
-// model call is always the analyst's or the tool results'.
-func (s *Session) noteCompaction(transcript *strings.Builder, c compaction) {
+// turn's model call is always the analyst's or the tool results'. For a side
+// completion it rides the instruction, and the analyst is not told: there is
+// no live turn to show it in.
+func (s *Session) noteCompaction(transcript *strings.Builder, c compaction, side *[]ContentBlock) {
 	if !c.any() {
+		return
+	}
+	if *side != nil {
+		*side = append(*side, TextBlock(modelNote))
+		fmt.Fprintf(transcript, "[engine] %s\n", sanitizeTranscript(c.analystNote()))
 		return
 	}
 	if n := len(s.messages); n > 0 && s.messages[n-1].Role == RoleUser {

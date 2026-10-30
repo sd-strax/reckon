@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -484,7 +485,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		if s.hooks.OnRoundStart != nil {
 			s.hooks.OnRoundStart(rounds + 1)
 		}
-		resp, streamed, err := s.completeFitted(ctx, &transcript)
+		resp, streamed, err := s.completeFitted(ctx, &transcript, nil)
 		if err != nil {
 			// The turn ends here but is still closed and committed below: tool
 			// calls earlier in it may already have recorded hypotheses or
@@ -660,17 +661,7 @@ const summarizeInstruction = "The investigation has just been concluded. Write a
 // conversation — it is a side product, not a turn. A fresh session (sidecar
 // respawn) rehydrates from the committed thread first. Returns the narrative.
 func (s *Session) SummarizeConcluded(ctx context.Context) (string, error) {
-	if len(s.messages) == 0 {
-		s.rehydrate(ctx)
-	}
-	msgs := append(append([]Message{}, s.messages...),
-		Message{Role: RoleUser, Content: []ContentBlock{TextBlock(summarizeInstruction)}})
-	resp, err := s.llm.Complete(ctx, CompleteRequest{
-		System:    s.system,
-		Messages:  msgs,
-		MaxTokens: s.maxTokens,
-		// No tools: this is a single narrative completion, not an agentic turn.
-	})
+	resp, err := s.sideCompletion(ctx, summarizeInstruction)
 	if err != nil {
 		return "", fmt.Errorf("agent: summarize concluded: %w", err)
 	}
@@ -692,7 +683,8 @@ func (s *Session) SummarizeConcluded(ctx context.Context) (string, error) {
 	// may still be in flight moments after conclude — retry once on not-found
 	// before giving up (the narrative is an enhancement; the baseline stands).
 	err = s.backend.SubmitSummaryNarrative(ctx, s.investigationID, text, model)
-	if err != nil && strings.Contains(err.Error(), "404") {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
 		select {
 		case <-time.After(summaryRetryDelay):
 		case <-ctx.Done():
@@ -751,27 +743,17 @@ const proposeSOPAnyway = " The analyst has read your earlier answer and asked fo
 // ProposeSOP runs one BYOK model completion over the session's own conversation
 // and returns a candidate SOP generalized from the concluded investigation — the
 // client tier of candidate-SOP generation (design/06: the compounding loop). It
-// is the twin of SummarizeConcluded: no tools, the model key never leaves this
+// is the twin of SummarizeConcluded: no tool calls, the model key never leaves this
 // process, the exchange is NOT appended to the conversation (a side product, not
 // a turn), and a fresh session (sidecar respawn) rehydrates from the committed
 // thread first. Unlike the summary, nothing is written here — the candidate goes
 // back to the workbench for the analyst to accept (create the SOP) or discard.
 func (s *Session) ProposeSOP(ctx context.Context, force bool) (SOPCandidate, error) {
-	if len(s.messages) == 0 {
-		s.rehydrate(ctx)
-	}
 	instruction := proposeSOPInstruction
 	if force {
 		instruction += proposeSOPAnyway
 	}
-	msgs := append(append([]Message{}, s.messages...),
-		Message{Role: RoleUser, Content: []ContentBlock{TextBlock(instruction)}})
-	resp, err := s.llm.Complete(ctx, CompleteRequest{
-		System:    s.system,
-		Messages:  msgs,
-		MaxTokens: s.maxTokens,
-		// No tools: a single structured completion, not an agentic turn.
-	})
+	resp, err := s.sideCompletion(ctx, instruction)
 	if err != nil {
 		return SOPCandidate{}, fmt.Errorf("agent: propose sop: %w", err)
 	}
@@ -805,17 +787,55 @@ func parseSOPCandidate(text string) (SOPCandidate, error) {
 	return cand, nil
 }
 
-// complete runs one model call, streaming when both sides can (the surface
-// registered OnTextDelta and the provider implements StreamingLLM). streamed
-// reports whether deltas carried the text, so the caller skips OnText for it.
-func (s *Session) complete(ctx context.Context) (resp CompleteResponse, streamed bool, err error) {
+// sideCompletion is the shared entry of SummarizeConcluded and ProposeSOP
+// (adr/0234): one model call over the session's conversation with instruction
+// as the analyst's last message, never appended to the history. It takes the
+// same path as a turn's model call, so the request is well-formed after a
+// failed turn and fits the context window; the tools stay defined, since the
+// history may hold tool calls, but the model may call none. A fresh session
+// (sidecar respawn) rehydrates from the committed thread first.
+func (s *Session) sideCompletion(ctx context.Context, instruction string) (CompleteResponse, error) {
+	if len(s.messages) == 0 {
+		s.rehydrate(ctx)
+	}
+	var scratch strings.Builder // a side completion has no transcript
+	resp, _, err := s.completeFitted(ctx, &scratch, []ContentBlock{TextBlock(instruction)})
+	return resp, err
+}
+
+// request is the next model call over the history. side, when set, is added
+// as the analyst's last message on a copy of the history, merged into a
+// trailing analyst message as Turn merges after a failed turn (consecutive
+// same-role messages violate the provider contract), with tool calls turned
+// off.
+func (s *Session) request(side []ContentBlock) CompleteRequest {
 	req := CompleteRequest{
 		System:    s.system,
 		Messages:  s.messages,
 		Tools:     s.tools,
 		MaxTokens: s.maxTokens,
 	}
-	if s.hooks.OnTextDelta != nil {
+	if side == nil {
+		return req
+	}
+	msgs := slices.Clone(s.messages)
+	if n := len(msgs); n > 0 && msgs[n-1].Role == RoleUser {
+		msgs[n-1] = Message{Role: RoleUser, Content: append(slices.Clone(msgs[n-1].Content), side...)}
+	} else {
+		msgs = append(msgs, Message{Role: RoleUser, Content: side})
+	}
+	req.Messages = msgs
+	req.ToolChoiceNone = true
+	return req
+}
+
+// complete runs one model call, streaming when both sides can (the surface
+// registered OnTextDelta and the provider implements StreamingLLM) and the
+// call is a turn's. streamed reports whether deltas carried the text, so the
+// caller skips OnText for it.
+func (s *Session) complete(ctx context.Context, side []ContentBlock) (resp CompleteResponse, streamed bool, err error) {
+	req := s.request(side)
+	if side == nil && s.hooks.OnTextDelta != nil {
 		if sl, ok := s.llm.(StreamingLLM); ok {
 			resp, err = sl.CompleteStream(ctx, req, s.hooks.OnTextDelta)
 			return resp, true, err
