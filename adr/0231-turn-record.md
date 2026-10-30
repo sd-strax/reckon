@@ -1,6 +1,6 @@
 # 0231 — Every agent turn is committed, including one that ends early, and a failed commit is retried
 
-Issue: #231 · PR: TBD · Status: accepted
+Issue: #231 · PR: #270 · Status: accepted
 
 ## Context
 
