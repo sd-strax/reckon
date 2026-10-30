@@ -26,6 +26,16 @@ type RejectActionBody struct {
 	Reason string `json:"reason"`
 }
 
+// ResolveOutcomeBody is the body of a resolve request (adr/0216): what the
+// person found when they checked the tool, what they checked, and optionally
+// where the evidence is (adr/0139).
+type ResolveOutcomeBody struct {
+	Outcome   string                      `json:"outcome"` // SUCCEEDED | FAILED
+	Note      string                      `json:"note"`
+	Reference string                      `json:"reference,omitempty"`
+	Artifact  *aggregate.ArtifactLocation `json:"artifact,omitempty"`
+}
+
 // ActionDecisionResponse reports where an approve/reject left the action.
 type ActionDecisionResponse struct {
 	ActionID   string `json:"action_id"`
@@ -87,6 +97,10 @@ func (b *Backend) actionsItem(w http.ResponseWriter, r *http.Request) {
 	case "rerequest":
 		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
 			b.rerequestAction(w, r, actionID)
+		})
+	case "resolve":
+		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+			b.resolveActionOutcome(w, r, actionID)
 		})
 	default:
 		writeJSONError(w, http.StatusNotFound, "not found")
@@ -287,4 +301,60 @@ func (b *Backend) rejectAction(w http.ResponseWriter, r *http.Request, actionID 
 		ActionID: actionID.String(),
 		Status:   aggregate.ActionStatusRejected,
 	})
+}
+
+// resolveActionOutcome handles POST /api/actions/{id}/resolve: a person who
+// checked the tool records what it shows for an OUTCOME_UNKNOWN action
+// (adr/0216). Human-only; an AI delegate is denied here and again by the
+// aggregate's allowlist. A reversing action resolved SUCCEEDED restarts its
+// saga, which then marks the original.
+func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, actionID uuid.UUID) {
+	if b.cfg.Handler == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "action layer not configured")
+		return
+	}
+	claims, ok := authz.FromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusInternalServerError, "auth context missing")
+		return
+	}
+	if claims.DelegateKind != "" {
+		writeJSONError(w, http.StatusForbidden, "an AI delegate cannot resolve an action's outcome")
+		return
+	}
+
+	ac, err := aggregate.LoadActionCurrent(r.Context(), b.cfg.Handler.DB(), actionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSONError(w, http.StatusNotFound, "action not found")
+		return
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "load action: "+err.Error())
+		return
+	}
+
+	var body ResolveOutcomeBody
+	if !decodeBody(w, r, &body, maxBodyBytes) {
+		return
+	}
+
+	env := newEnvelope(ac.AggregateID, actorFromClaims(claims), commandNow())
+	res, err := b.cfg.Handler.Handle(r.Context(), env, aggregate.ResolveActionOutcome{
+		ActionID:  actionID,
+		Outcome:   body.Outcome,
+		Note:      body.Note,
+		Reference: body.Reference,
+		Artifact:  body.Artifact,
+	})
+	if err != nil {
+		writeCommandError(w, "resolve action outcome", err)
+		return
+	}
+	b.publishDeltas(res)
+
+	resp := ActionDecisionResponse{ActionID: actionID.String(), Status: body.Outcome}
+	if ac.ReversalOfRef != uuid.Nil && body.Outcome == aggregate.ActionStatusSucceeded {
+		resp.WorkflowID = b.startActionWorkflow(r.Context(), specFromCurrent(ac))
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

@@ -587,9 +587,10 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 	}
 	b.publishDeltas(approveRes)
 
-	// Trigger the durable dispatch workflow (C.4). If the client isn't wired or
-	// the trigger fails, the action is APPROVED and durable in the event log —
-	// a supervisor sweep or manual retrigger can pick it up.
+	// Trigger the durable dispatch workflow (C.4). If the trigger fails, the
+	// action is APPROVED and durable in the event log, and the stranded-action
+	// sweep starts it (adr/0216). With no dispatch client wired it stays
+	// APPROVED: nothing can run it.
 	wfID := b.startActionWorkflow(ctx, dispatchSpec{
 		ActionID:      cmd.ActionID,
 		AggregateID:   reqEnv.AggregateID,
@@ -618,11 +619,12 @@ type dispatchSpec struct {
 }
 
 // startActionWorkflow triggers the ActionLifecycle (or ReversalSaga for a
-// reversal, 04 §7) for a now-APPROVED action. Returns the workflow id, or ""
-// when the dispatch client is not wired or the trigger fails — in which case the
-// action is APPROVED and durable in the event log for a later retrigger.
+// reversal, 04 §7) for an action. Returns the workflow id, or "" when the
+// dispatch client is not wired or the trigger fails; the stranded-action sweep
+// tries a failed trigger again (adr/0216). A run already live counts as
+// started.
 func (b *Backend) startActionWorkflow(ctx context.Context, s dispatchSpec) string {
-	client := b.getDispatchClient()
+	client := b.getActionStarter()
 	if client == nil {
 		return ""
 	}
@@ -682,7 +684,7 @@ func (b *Backend) startActionWorkflow(ctx context.Context, s dispatchSpec) strin
 		wfID, err = client.StartActionLifecycle(ctx, lifecycle)
 	}
 	if err != nil {
-		log.Printf("action %s: approved but workflow trigger failed: %v", s.ActionID, err)
+		log.Printf("action %s: workflow trigger failed (the stranded-action sweep will retry): %v", s.ActionID, err)
 		return ""
 	}
 	return wfID

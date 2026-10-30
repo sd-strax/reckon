@@ -36,6 +36,7 @@ export class TurnDriver {
         // webview renders that honestly instead of a bogus "? · 0".
         onToolResult: (name, _content, isError, coverage, events, refs) =>
           void this.post(panel, { type: "turn.toolResult", name, isError, coverage, events, refs }),
+        onContextCompacted: (note) => void this.post(panel, { type: "turn.notice", text: note }),
       });
       if (outcome.interpretationId) {
         void this.post(panel, { type: "turn.committed", interpretationId: outcome.interpretationId });

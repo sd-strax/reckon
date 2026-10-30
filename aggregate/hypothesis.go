@@ -473,7 +473,7 @@ func validateAttestation(a *Attestation) error {
 	if utf8.RuneCountInString(a.Source) > attestationLabelMaxRunes || utf8.RuneCountInString(a.Channel) > attestationLabelMaxRunes {
 		return fmt.Errorf("RecordInterpretation: attestation.source/channel exceed %d chars", attestationLabelMaxRunes)
 	}
-	return validateArtifact(trimArtifact(a.Artifact))
+	return validateArtifact("RecordInterpretation: attestation.artifact", trimArtifact(a.Artifact))
 }
 
 // Bounds on an artifact location: a locator and an access note, not a document.
@@ -513,26 +513,28 @@ func trimArtifact(a *ArtifactLocation) *ArtifactLocation {
 
 // validateArtifact checks an artifact location (adr/0139): a location is
 // required once any field is given, the digest is a SHA-256, and the location
-// is a durable address rather than a link that carries a credential.
-func validateArtifact(a *ArtifactLocation) error {
+// is a durable address rather than a link that carries a credential. field
+// names the location in the error, e.g. "RecordInterpretation:
+// attestation.artifact".
+func validateArtifact(field string, a *ArtifactLocation) error {
 	if a == nil {
 		return nil
 	}
 	if a.Location == "" {
-		return errors.New("RecordInterpretation: attestation.artifact.location is required — where the artifact is kept, e.g. s3://bucket/key")
+		return errors.New(field + ".location is required — where the artifact is kept, e.g. s3://bucket/key")
 	}
 	if utf8.RuneCountInString(a.Location) > artifactLocationMaxRunes || utf8.RuneCountInString(a.Access) > artifactAccessMaxRunes ||
 		utf8.RuneCountInString(a.System) > attestationLabelMaxRunes {
-		return fmt.Errorf("RecordInterpretation: attestation.artifact exceeds its bounds (location %d, access %d, system %d chars)",
-			artifactLocationMaxRunes, artifactAccessMaxRunes, attestationLabelMaxRunes)
+		return fmt.Errorf("%s exceeds its bounds (location %d, access %d, system %d chars)",
+			field, artifactLocationMaxRunes, artifactAccessMaxRunes, attestationLabelMaxRunes)
 	}
 	if a.SHA256 != "" && !sha256Hex.MatchString(a.SHA256) {
-		return errors.New("RecordInterpretation: attestation.artifact.sha256 must be 64 hex characters")
+		return errors.New(field + ".sha256 must be 64 hex characters")
 	}
 	if u, err := url.Parse(a.Location); err == nil {
 		for k := range u.Query() {
 			if slices.Contains(credentialParams, strings.ToLower(k)) {
-				return fmt.Errorf("RecordInterpretation: attestation.artifact.location carries a credential (%s) — a signed link expires and grants access to anyone reading the record; give the durable location (bucket and key, or the document's address) and say how to get access", k)
+				return fmt.Errorf("%s.location carries a credential (%s) — a signed link expires and grants access to anyone reading the record; give the durable location (bucket and key, or the document's address) and say how to get access", field, k)
 			}
 		}
 	}

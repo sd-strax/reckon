@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -279,7 +280,7 @@ func (a *Anthropic) doOnce(ctx context.Context, base string, httpc *http.Client,
 			msg = out.Error.Type + ": " + out.Error.Message
 		}
 		return CompleteResponse{}, isRetryableStatus(resp.StatusCode), retryAfter(resp.Header),
-			fmt.Errorf("anthropic: %d %s", resp.StatusCode, msg)
+			statusError(resp.StatusCode, msg)
 	}
 
 	var out anthropicResponse
@@ -340,7 +341,7 @@ func (a *Anthropic) doOnceStream(ctx context.Context, base string, httpc *http.C
 			msg = out.Error.Type + ": " + out.Error.Message
 		}
 		return CompleteResponse{}, isRetryableStatus(resp.StatusCode), retryAfter(resp.Header),
-			fmt.Errorf("anthropic: %d %s", resp.StatusCode, msg)
+			statusError(resp.StatusCode, msg)
 	}
 
 	emitted := false
@@ -525,6 +526,27 @@ func markCacheBreakpoints(wire *anthropicRequest) {
 			wire.Messages[n-1].Content[c-1].CacheControl = ephemeral()
 		}
 	}
+}
+
+// promptTooLong matches the API's refusal of an over-window request, e.g.
+// "prompt is too long: 215000 tokens > 200000 maximum".
+var promptTooLong = regexp.MustCompile(`prompt is too long(?::\s*(\d+) tokens > (\d+) maximum)?`)
+
+// statusError builds the error for a non-200 response. A prompt over the
+// context window is a *ContextOverflowError, so the session can compact and
+// retry instead of failing every later turn (adr/0230).
+func statusError(code int, msg string) error {
+	err := fmt.Errorf("anthropic: %d %s", code, msg)
+	if code != http.StatusBadRequest {
+		return err
+	}
+	m := promptTooLong.FindStringSubmatch(msg)
+	if m == nil {
+		return err
+	}
+	tokens, _ := strconv.Atoi(m[1])
+	limit, _ := strconv.Atoi(m[2])
+	return &ContextOverflowError{Tokens: tokens, Limit: limit, Err: err}
 }
 
 // isRetryableStatus reports whether an HTTP status is provider-side backpressure

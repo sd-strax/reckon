@@ -98,6 +98,7 @@ details.tool summary::-webkit-details-marker { display: none; }
 details.tool[open] .summaryPin { opacity: 0.9; }
 
 .committed, .usage { font-size: var(--fs-xs); color: var(--text-3); margin: 5px 0; }
+.notice { font-size: var(--fs-xs); color: var(--text-2); margin: 6px 0; padding-left: 8px; border-left: 2px solid var(--border); }
 .sopchip { display: inline-block; font-size: var(--fs-xs); padding: 0 7px; margin: 2px 3px 0 0; border: 1px solid var(--info-border); color: var(--info); background: var(--info-bg); border-radius: var(--r-pill); }
 .sopchip.consulted { border-style: dashed; opacity: 0.6; background: none; }
 .error { color: var(--bad); margin: 6px 0; }

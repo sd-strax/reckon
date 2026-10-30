@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActionRow, Hypothesis } from "../../../src/viewTypes";
-import { actionStatusBadge, canRerequest, canReverse, caseNoteStatus, headerLabel, pendingQueue, successors } from "./actions";
+import { actionStatusBadge, canRerequest, canResolve, canReverse, caseNoteStatus, headerLabel, pendingQueue, successors } from "./actions";
 import { classifyDraft, effectiveDraftKind, entitySubLabel } from "./draft";
 import { layoutGraph } from "./graph";
 import { blockersOf, hypName, orderHypotheses, outstanding, rivalsOf, tested } from "./hyps";
@@ -84,6 +84,16 @@ describe("actions", () => {
     expect(caseNoteStatus(seed, [A({ actionType: "ticket.comment", targets: ["INC1"], status: "SUCCEEDED" })])).toBe("posted");
     expect(caseNoteStatus(seed, [A({ actionType: "ticket.comment", targets: ["INC1"], pending: true })])).toBe("awaiting approval");
     expect(caseNoteStatus(seed, [])).toBeNull();
+  });
+  it("holds an unknown outcome for a person to resolve (adr/0216)", () => {
+    const unknown = A({ actionId: "u", status: "OUTCOME_UNKNOWN", reversibility: "REVERSIBLE" });
+    expect(actionStatusBadge(unknown)).toEqual({ label: "OUTCOME UNKNOWN", tone: "bad" });
+    expect(canResolve(unknown)).toBe(true);
+    expect(canResolve(A({ status: "FAILED" }))).toBe(false);
+    // Nothing reruns or reverses it blind: no re-request, no reversal, until resolved.
+    expect(canRerequest(unknown, [unknown])).toBe(false);
+    expect(canReverse(unknown, [unknown])).toBe(false);
+    expect(headerLabel("ACTIVE", [unknown], null)).toBe("ACTIVE · REMEDIATING");
   });
 });
 

@@ -210,6 +210,13 @@ type Backend struct {
 	// pipeline starter; nil in production (the live dispatchClient is used).
 	pipelineOverride pipelineStarter
 
+	// actionStarterOverride is the same test-only seam for the action
+	// workflows (approval, resolution, stranded-action sweep).
+	actionStarterOverride actionStarter
+
+	// stopSweeps ends the action sweeps started at Start.
+	stopSweeps context.CancelFunc
+
 	// hub fans projection deltas out to subscribed WebSocket clients. Set at
 	// construction so it outlives individual Start/Stop cycles.
 	hub *hub
@@ -312,14 +319,17 @@ func (b *Backend) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Expiry-timer reconciliation: ensure every pending action has its durable
-	// timer (covers actions requested before the timer existed, and any missed
-	// start). Idempotent per action; background — never blocks startup.
+	// Action reconciliation: every pending action gets its durable expiry
+	// timer, and every stranded action its workflow (adr/0216), at startup and
+	// then on a tick. Idempotent per action; background — never blocks startup.
 	if b.cfg.Handler != nil {
-		//nolint:gosec // G118: deliberately not request-scoped — Start's ctx is a
-		// startup deadline; the sweep is a background reconciliation that must
-		// outlive it.
-		go b.sweepExpiryTimers(context.Background())
+		// Deliberately not derived from Start's ctx, which is a startup
+		// deadline: the sweeps run until Stop.
+		sweepCtx, cancel := context.WithCancel(context.Background())
+		b.mu.Lock()
+		b.stopSweeps = cancel
+		b.mu.Unlock()
+		go b.runActionSweeps(sweepCtx)
 	}
 
 	return nil
@@ -332,11 +342,17 @@ func (b *Backend) Stop(ctx context.Context) error {
 	b.mu.Lock()
 	srv := b.srv
 	dispatchClient := b.dispatchClient
+	stopSweeps := b.stopSweeps
 	b.srv = nil
 	b.started = false
 	b.verifier = nil
 	b.dispatchClient = nil
+	b.stopSweeps = nil
 	b.mu.Unlock()
+
+	if stopSweeps != nil {
+		stopSweeps()
+	}
 
 	if dispatchClient != nil {
 		dispatchClient.Close()

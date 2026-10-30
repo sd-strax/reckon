@@ -201,7 +201,7 @@ func intrinsicTools(actionTypes []ActionType) []ToolDef {
 		},
 		{
 			Name:        ToolListActions,
-			Description: "List this investigation's requested actions with their CURRENT engine status (REQUESTED = awaiting the analyst's approval in this surface; APPROVED/EXECUTING/SUCCEEDED/FAILED/REJECTED/EXPIRED/REVERSED). Use this for ground truth about whether an action was approved or executed — never assume. Each row carries a computed `expired` flag (and the result carries `now`): expired=true means the approval window elapsed and the engine will refuse an approve even though status may still read REQUESTED — such an action is dead; a new request is the only way forward.",
+			Description: "List this investigation's requested actions with their CURRENT engine status (REQUESTED = awaiting the analyst's approval in this surface; APPROVED/EXECUTING/SUCCEEDED/FAILED/REJECTED/EXPIRED/REVERSED/OUTCOME_UNKNOWN). Use this for ground truth about whether an action was approved or executed — never assume. OUTCOME_UNKNOWN means the action was dispatched but nobody knows whether the tool acted: say so, and leave it to the analyst, who checks the tool and resolves it; never request it again while it is unknown. Each row carries a computed `expired` flag (and the result carries `now`): expired=true means the approval window elapsed and the engine will refuse an approve even though status may still read REQUESTED — such an action is dead; a new request is the only way forward.",
 			InputSchema: obj(map[string]any{}),
 		},
 		{
