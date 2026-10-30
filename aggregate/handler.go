@@ -49,6 +49,10 @@ type Result struct {
 	AggregateID   AggregateID
 	AppliedEvents []Event
 	NewSequenceNo int64
+	// RecordedInterpretationID is set when a RecordInterpretation repeated an
+	// agent turn already on the stream: nothing was appended, and this is the
+	// interpretation the turn was first recorded as (adr/0231).
+	RecordedInterpretationID uuid.UUID
 }
 
 // RejectedError marks a domain rejection: the command was well-formed at the
@@ -120,6 +124,15 @@ func (h *Handler) Handle(ctx context.Context, env Envelope, cmd Command) (res Re
 	}
 	if done {
 		return Result{AggregateID: env.AggregateID, NewSequenceNo: state.Seq}, nil
+	}
+	// A turn commit retried after its first attempt landed is the same: the
+	// turn is already recorded.
+	recorded, err := turnAlreadyRecorded(state, cmd)
+	if err != nil {
+		return Result{}, &RejectedError{Err: err}
+	}
+	if recorded != (uuid.UUID{}) {
+		return Result{AggregateID: env.AggregateID, NewSequenceNo: state.Seq, RecordedInterpretationID: recorded}, nil
 	}
 
 	events, err := applyCommand(env, cmd, state, uuid.New)

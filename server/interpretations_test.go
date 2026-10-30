@@ -102,6 +102,39 @@ func TestRecordInterpretation_Records(t *testing.T) {
 	}
 }
 
+// TestRecordInterpretation_TurnRetry: a turn commit sent again after its
+// response was lost answers 200 with the interpretation the turn was first
+// recorded as, and records nothing new (adr/0231).
+func TestRecordInterpretation_TurnRetry(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	b := newTestBackend(t)
+	token := mintToken(t, map[string]any{"delegate_kind": "claude"})
+	turn := func(body string) RecordInterpretationBody {
+		return RecordInterpretationBody{
+			InvestigationRef:   invID.String(),
+			InterpretationType: "other",
+			Rationale:          "turn",
+			Transcript:         &TranscriptInput{TurnID: "turn-retry", Body: body},
+		}
+	}
+
+	resp, first := postInterpretation(t, b, token, turn("[user] contain it\n"))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first commit status = %d; want 201", resp.StatusCode)
+	}
+	resp, again := postInterpretation(t, b, token, turn("[user] contain it\n"))
+	if resp.StatusCode != http.StatusOK || again.InterpretationID != first.InterpretationID || again.SequenceNo != first.SequenceNo {
+		t.Fatalf("retry = %d %+v; want 200 with %+v", resp.StatusCode, again, first)
+	}
+	if resp, _ := postInterpretation(t, b, token, turn("[user] something else\n")); resp.StatusCode < 400 {
+		t.Errorf("same turn id, different transcript: status %d; want a rejection", resp.StatusCode)
+	}
+}
+
 // TestRecordInterpretation_BadType: a lifecycle/action tag on the free-form
 // reasoning path is rejected (422) — it would record a transition interpretation
 // with no matching domain event.

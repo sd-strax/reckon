@@ -338,6 +338,15 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 	}
 	b.publishDeltas(res)
 
+	if res.RecordedInterpretationID != (uuid.UUID{}) {
+		// A retried turn commit: the turn is already recorded, under the id
+		// its first attempt was given (adr/0231).
+		writeJSON(w, http.StatusOK, RecordInterpretationResponse{
+			InterpretationID: res.RecordedInterpretationID.String(),
+			SequenceNo:       res.NewSequenceNo,
+		})
+		return
+	}
 	writeJSON(w, http.StatusCreated, RecordInterpretationResponse{
 		InterpretationID: cmd.InterpretationID.String(),
 		SequenceNo:       res.NewSequenceNo,
