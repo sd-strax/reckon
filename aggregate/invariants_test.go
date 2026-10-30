@@ -103,6 +103,24 @@ func TestApplyCommand_TenantMismatchRejected(t *testing.T) {
 	}
 }
 
+// TestFoldState_UnknownEventType: the write-side fold accepts the metadata-only
+// types it carries nothing for, and refuses a type it does not know instead of
+// dropping it silently (#214).
+func TestFoldState_UnknownEventType(t *testing.T) {
+	stream := []Event{{SequenceNo: 1, Type: EventTypeCreated}}
+	for i, typ := range []string{EventTypeRenamed, EventTypeMemberAdded, EventTypeMemberRemoved, EventTypeEvidenceAttached} {
+		stream = append(stream, Event{SequenceNo: int64(i + 2), Type: typ, Payload: json.RawMessage(`{}`)})
+	}
+	if _, err := foldState(stream); err != nil {
+		t.Fatalf("metadata-only events should fold: %v", err)
+	}
+
+	stream = append(stream, Event{SequenceNo: int64(len(stream) + 1), Type: "investigation.unheard_of", Payload: json.RawMessage(`{}`)})
+	if _, err := foldState(stream); err == nil {
+		t.Fatal("an unknown event type should fail the fold")
+	}
+}
+
 // --- transactional invariant tests (need Pg) -----------------------------------
 
 // failingProjector fails Apply on one event type, letting tests prove the
