@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -91,51 +89,21 @@ func (b *Backend) listInvestigationThread(w http.ResponseWriter, r *http.Request
 // loadThread reassembles the thread views for one investigation — shared by
 // the thread endpoint and the markdown export (one behavior, two renderings).
 func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntryView, error) {
-	rows, err := b.cfg.Handler.DB().QueryContext(ctx,
-		`SELECT sequence_no, occurred_at, actor, payload, event_version
-		 FROM events
-		 WHERE aggregate_id = $1 AND event_type = $2
-		 ORDER BY sequence_no`,
-		invID, aggregate.EventTypeInterpretationRecorded)
-	if err != nil {
-		return nil, fmt.Errorf("query thread: %w", err)
-	}
-	defer rows.Close()
-
-	// Which acts a later supersession retracted — so the thread can render them
-	// struck rather than as current. One extra query keeps the main scan simple.
-	superseded, err := b.loadSupersededIDs(ctx, invID)
+	acts, err := b.cfg.Handler.Reads().Thread(ctx, invID)
 	if err != nil {
 		return nil, err
 	}
-
-	out := []ThreadEntryView{}
-	for rows.Next() {
-		var seq int64
-		var at time.Time
-		var actorRaw, payloadRaw []byte
-		var version int
-		if err := rows.Scan(&seq, &at, &actorRaw, &payloadRaw, &version); err != nil {
-			return nil, fmt.Errorf("scan thread: %w", err)
-		}
-		if err := aggregate.CheckEventVersion(aggregate.EventTypeInterpretationRecorded, version); err != nil {
-			return nil, err
-		}
-		var actor aggregate.Actor
-		_ = json.Unmarshal(actorRaw, &actor)
-		var rec aggregate.InterpretationRecorded
-		if err := json.Unmarshal(payloadRaw, &rec); err != nil {
-			return nil, fmt.Errorf("decode interpretation: %w", err)
-		}
-
+	out := make([]ThreadEntryView, 0, len(acts))
+	for _, a := range acts {
+		rec := a.Interpretation
 		disposition := ""
 		if rec.Verdict != nil {
 			disposition = rec.Verdict.Disposition
 		}
 		out = append(out, ThreadEntryView{
-			SequenceNo:         seq,
-			OccurredAt:         at,
-			Actor:              threadActor(actor),
+			SequenceNo:         a.SequenceNo,
+			OccurredAt:         a.OccurredAt,
+			Actor:              threadActor(a.Actor),
 			InterpretationID:   rec.InterpretationID.String(),
 			InterpretationType: rec.InterpretationType,
 			Summary:            rec.Summary,
@@ -144,48 +112,11 @@ func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntr
 			OutputRefs:         rec.OutputRefs,
 			ToolCalls:          len(rec.ToolCallRefs),
 			HasTranscript:      rec.TranscriptRef != nil,
-			Superseded:         superseded[rec.InterpretationID.String()],
+			Superseded:         a.Superseded,
 			Disposition:        disposition,
 			ConsultedSOPs:      rec.ConsultedSOPs,
 			ConsultedSimilar:   rec.ConsultedSimilar,
 		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate thread: %w", err)
-	}
-	return out, nil
-}
-
-// loadSupersededIDs returns the set of interpretation ids retracted by an
-// interpretation.superseded event on this investigation.
-func (b *Backend) loadSupersededIDs(ctx context.Context, invID uuid.UUID) (map[string]bool, error) {
-	rows, err := b.cfg.Handler.DB().QueryContext(ctx,
-		`SELECT payload, event_version FROM events
-		 WHERE aggregate_id = $1 AND event_type = $2`,
-		invID, aggregate.EventTypeInterpretationSuperseded)
-	if err != nil {
-		return nil, fmt.Errorf("query supersessions: %w", err)
-	}
-	defer rows.Close()
-
-	out := map[string]bool{}
-	for rows.Next() {
-		var payloadRaw []byte
-		var version int
-		if err := rows.Scan(&payloadRaw, &version); err != nil {
-			return nil, fmt.Errorf("scan supersession: %w", err)
-		}
-		if err := aggregate.CheckEventVersion(aggregate.EventTypeInterpretationSuperseded, version); err != nil {
-			return nil, err
-		}
-		var p aggregate.InterpretationSupersededPayload
-		if err := json.Unmarshal(payloadRaw, &p); err != nil {
-			return nil, fmt.Errorf("decode supersession: %w", err)
-		}
-		out[p.SupersededID.String()] = true
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate supersessions: %w", err)
 	}
 	return out, nil
 }

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
@@ -131,8 +130,8 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 		return
 	}
 
-	ac, err := aggregate.LoadActionCurrent(r.Context(), b.cfg.Handler.DB(), actionID)
-	if errors.Is(err, sql.ErrNoRows) {
+	ac, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), actionID)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return
 	}
@@ -272,8 +271,8 @@ func (b *Backend) rejectAction(w http.ResponseWriter, r *http.Request, actionID 
 		return
 	}
 
-	ac, err := aggregate.LoadActionCurrent(r.Context(), b.cfg.Handler.DB(), actionID)
-	if errors.Is(err, sql.ErrNoRows) {
+	ac, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), actionID)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return
 	}
@@ -319,8 +318,8 @@ func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, a
 		return
 	}
 
-	ac, err := aggregate.LoadActionCurrent(r.Context(), b.cfg.Handler.DB(), actionID)
-	if errors.Is(err, sql.ErrNoRows) {
+	ac, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), actionID)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return
 	}

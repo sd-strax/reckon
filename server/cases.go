@@ -1,14 +1,11 @@
 package server
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/lib/pq"
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
@@ -224,38 +221,14 @@ func (b *Backend) annotateInFlight(r *http.Request, cases []CaseView) error {
 	for _, c := range cases {
 		numbers = append(numbers, c.Number)
 	}
-	// Every investigation of the case counts (#158): a concluded one still
-	// answers it — reopening it is the way back, not a second investigation.
-	// An open one wins over a concluded one; newest first within each.
-	rows, err := b.cfg.Handler.DB().QueryContext(r.Context(),
-		`SELECT aggregate_id, title, status, seed->>'case_id'
-		   FROM investigation_current
-		  WHERE seed_type = $1
-		    AND seed->>'case_id' = ANY($2)
-		    AND status <> $5
-		  ORDER BY (status IN ($3, $4)), updated_at DESC`,
-		aggregate.SeedCase, pq.Array(numbers), aggregate.StatusConcluded, aggregate.StatusArchived, aggregate.StatusDiscarded)
+	byCase, err := b.cfg.Handler.Reads().InvestigationsForCases(r.Context(), numbers)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	byCase := map[string]*CaseInvestigationRef{}
-	for rows.Next() {
-		var ref CaseInvestigationRef
-		var caseID string
-		if err := rows.Scan(&ref.ID, &ref.Title, &ref.Status, &caseID); err != nil {
-			return err
-		}
-		if _, seen := byCase[caseID]; !seen { // newest wins (ORDER BY updated_at DESC)
-			r := ref
-			byCase[caseID] = &r
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
 	for i := range cases {
-		cases[i].Investigation = byCase[cases[i].Number]
+		if ref, ok := byCase[cases[i].Number]; ok {
+			cases[i].Investigation = &CaseInvestigationRef{ID: ref.ID, Title: ref.Title, Status: ref.Status}
+		}
 	}
 	return nil
 }
@@ -267,14 +240,8 @@ func (b *Backend) investigationForCase(r *http.Request, caseID string) (string, 
 	if caseID == "" || b.cfg.Handler == nil {
 		return "", nil
 	}
-	var id string
-	err := b.cfg.Handler.DB().QueryRowContext(r.Context(),
-		`SELECT aggregate_id FROM investigation_current
-		  WHERE seed_type = $1 AND seed->>'case_id' = $2 AND status <> $5
-		  ORDER BY (status IN ($3, $4)), updated_at DESC
-		  LIMIT 1`,
-		aggregate.SeedCase, caseID, aggregate.StatusConcluded, aggregate.StatusArchived, aggregate.StatusDiscarded).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
+	id, err := b.cfg.Handler.Reads().InvestigationForCase(r.Context(), caseID)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		return "", nil
 	}
 	return id, err

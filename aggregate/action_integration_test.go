@@ -41,7 +41,7 @@ func TestAction_RequestApproveProjection(t *testing.T) {
 	})
 
 	// Projected as REQUESTED with no mode yet.
-	ac, err := LoadActionCurrent(ctx, testDB, actionID)
+	ac, err := testReads().LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		t.Fatalf("LoadActionCurrent: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestAction_RequestApproveProjection(t *testing.T) {
 		},
 	})
 
-	ac, err = LoadActionCurrent(ctx, testDB, actionID)
+	ac, err = testReads().LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		t.Fatalf("LoadActionCurrent after approve: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestAction_DispatchProjectsAdapter(t *testing.T) {
 	})
 
 	// Before dispatch: no adapter yet.
-	ac, err := LoadActionCurrent(ctx, testDB, actionID)
+	ac, err := testReads().LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		t.Fatalf("LoadActionCurrent: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestAction_DispatchProjectsAdapter(t *testing.T) {
 		ActionID: actionID, Adapter: "crowdstrike-response", AdapterRequestID: "wf-1",
 	})
 
-	ac, err = LoadActionCurrent(ctx, testDB, actionID)
+	ac, err = testReads().LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		t.Fatalf("LoadActionCurrent after dispatch: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestAction_DispatchProjectsAdapter(t *testing.T) {
 		Attempts:         1, ErrorDetail: "HTTP 401: User Not Authenticated",
 		Adapter: "crowdstrike-response-v2", // the live selection differed
 	})
-	ac, err = LoadActionCurrent(ctx, testDB, actionID)
+	ac, err = testReads().LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		t.Fatalf("LoadActionCurrent after result: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestAction_ReplayRebuildsProjection(t *testing.T) {
 	})
 	mustHandle(t, h, cmdEnv(aggID), RejectAction{ActionID: actionID, Reason: "false positive"})
 
-	before, err := LoadActionCurrent(ctx, testDB, actionID)
+	before, err := testReads().LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestAction_ReplayRebuildsProjection(t *testing.T) {
 		t.Fatalf("Replay: %v", err)
 	}
 
-	after, err := LoadActionCurrent(ctx, testDB, actionID)
+	after, err := testReads().LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		t.Fatalf("LoadActionCurrent after replay: %v", err)
 	}

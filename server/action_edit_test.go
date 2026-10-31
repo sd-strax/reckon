@@ -43,7 +43,7 @@ func TestEditAction_Endpoint(t *testing.T) {
 	if r, _ := postActionDecision(t, b, human, id, "edit", map[string]any{"parameters": map[string]any{"subject": "Breach", "body": "final wording"}, "reason": "tone"}); r.StatusCode != http.StatusOK {
 		t.Fatalf("edit: %d", r.StatusCode)
 	}
-	ac, err := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(id))
+	ac, err := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(id))
 	if err != nil {
 		t.Fatal(err)
 	}

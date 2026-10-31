@@ -75,7 +75,7 @@ func TestApproveAction_ManualSolo(t *testing.T) {
 		t.Errorf("out = %+v; want APPROVED/SOLO", out)
 	}
 
-	ac, _ := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(actionID))
+	ac, _ := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(actionID))
 	if ac.Status != aggregate.ActionStatusApproved || ac.PrimaryApprover != "test-subject" {
 		t.Errorf("projected %s/%s; want APPROVED/test-subject", ac.Status, ac.PrimaryApprover)
 	}
@@ -95,7 +95,7 @@ func TestRejectAction(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || out.Status != aggregate.ActionStatusRejected {
 		t.Fatalf("resp %d out %+v; want 200/REJECTED", resp.StatusCode, out)
 	}
-	ac, _ := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(actionID))
+	ac, _ := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(actionID))
 	if ac.Status != aggregate.ActionStatusRejected {
 		t.Errorf("projected %s; want REJECTED", ac.Status)
 	}
@@ -146,7 +146,7 @@ func TestApproveAction_TwoPartyFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || out.Status != aggregate.ActionStatusApproved || out.Stage != aggregate.AuthStageSecondary {
 		t.Fatalf("secondary approval resp %d out %+v; want 200 APPROVED/SECONDARY", resp.StatusCode, out)
 	}
-	ac, _ := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(actionID))
+	ac, _ := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(actionID))
 	if ac.Status != aggregate.ActionStatusApproved {
 		t.Errorf("projected %s; want APPROVED", ac.Status)
 	}
@@ -180,7 +180,7 @@ func TestApproveAction_SecondaryCarriesPrimaryTime(t *testing.T) {
 	if _, out := postActionDecision(t, b, mintToken(t, nil), actionID, "approve", nil); out.Status != aggregate.ActionStatusPendingSecondary {
 		t.Fatalf("primary: %+v", out)
 	}
-	acAfterPrimary, err := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(actionID))
+	acAfterPrimary, err := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(actionID))
 	if err != nil || acAfterPrimary.PrimaryApprovedAt.IsZero() {
 		t.Fatalf("projection primary_approved_at missing: %+v err=%v", acAfterPrimary, err)
 	}
@@ -393,7 +393,7 @@ func TestActionDecision_BadBodyRecordsNothing(t *testing.T) {
 		}
 	}
 
-	ac, _ := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(actionID))
+	ac, _ := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(actionID))
 	if ac.Status != aggregate.ActionStatusRequested {
 		t.Errorf("projected %s; want REQUESTED (nothing recorded)", ac.Status)
 	}

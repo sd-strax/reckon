@@ -2,7 +2,6 @@ package aggregate
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -281,6 +280,5 @@ func (h *Handler) ActionRequester(ctx context.Context, aggID AggregateID, action
 	return act.RequestedBy, nil
 }
 
-// DB returns the underlying *sql.DB. Useful for callers that need to read
-// projection tables directly without going through the Handler.
-func (h *Handler) DB() *sql.DB { return h.store.db }
+// Reads returns the read model over the handler's database.
+func (h *Handler) Reads() *ReadModel { return &ReadModel{db: h.store.db, store: h.store} }

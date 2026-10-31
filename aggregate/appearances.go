@@ -107,8 +107,8 @@ type RefAppearance struct {
 
 // ListRefAppearances returns every investigation citing a ref, most recently
 // touched first.
-func ListRefAppearances(ctx context.Context, db *sql.DB, ref string) ([]RefAppearance, error) {
-	rows, err := db.QueryContext(ctx, `
+func (r *ReadModel) ListRefAppearances(ctx context.Context, ref string) ([]RefAppearance, error) {
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT r.aggregate_id, i.title, i.status, COALESCE(i.seed_summary, ''), r.first_seen, r.last_seen, r.mentions
 		FROM ref_appearances r
 		JOIN investigation_current i ON i.aggregate_id = r.aggregate_id

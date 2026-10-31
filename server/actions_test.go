@@ -90,7 +90,7 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 	}
 
 	// The projection reflects APPROVED, attributed to the policy's human.
-	ac, err := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(out.ActionID))
+	ac, err := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(out.ActionID))
 	if err != nil {
 		t.Fatalf("LoadActionCurrent: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestRequestAction_ManualFallThrough(t *testing.T) {
 	if out.Status != "PENDING_MANUAL" || out.Mode != action.ModeManual {
 		t.Errorf("status=%q mode=%q; want PENDING_MANUAL/MANUAL", out.Status, out.Mode)
 	}
-	ac, _ := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(out.ActionID))
+	ac, _ := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(out.ActionID))
 	if ac.Status != aggregate.ActionStatusRequested {
 		t.Errorf("projected status = %q; want REQUESTED", ac.Status)
 	}
@@ -157,7 +157,7 @@ func TestRequestAction_InvisibleActivateOnDraft(t *testing.T) {
 		t.Fatalf("mode=%q status=%q; want AUTO_POLICY/PENDING_MANUAL (auto-approve suppressed on draft)", out.Mode, out.Status)
 	}
 	// Still a draft — no action has been cleared yet.
-	ic, err := aggregate.LoadInvestigationCurrent(context.Background(), testDB, invID)
+	ic, err := testHandler.Reads().LoadInvestigationCurrent(context.Background(), invID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestRequestAction_InvisibleActivateOnDraft(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	ic, err = aggregate.LoadInvestigationCurrent(context.Background(), testDB, invID)
+	ic, err = testHandler.Reads().LoadInvestigationCurrent(context.Background(), invID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestRerequestAction(t *testing.T) {
 		t.Fatal("re-request reused the original id; a retry must be a NEW action")
 	}
 	newID := uuid.MustParse(out.ActionID)
-	nc, err := aggregate.LoadActionCurrent(context.Background(), testDB, newID)
+	nc, err := testHandler.Reads().LoadActionCurrent(context.Background(), newID)
 	if err != nil {
 		t.Fatalf("load new action: %v", err)
 	}
@@ -352,12 +352,12 @@ func TestRerequestAction_LazyExpiry(t *testing.T) {
 	// the REQUESTED→EXPIRED transition (timer = scheduling); the gate checked
 	// the deadline (the invariant) directly. With no Temporal in this harness
 	// the original simply remains REQUESTED.
-	oc, _ := aggregate.LoadActionCurrent(context.Background(), testDB, actionID)
+	oc, _ := testHandler.Reads().LoadActionCurrent(context.Background(), actionID)
 	if oc.Status != aggregate.ActionStatusRequested {
 		t.Errorf("original status = %q; the endpoint must not transition it (the timer owns expiry)", oc.Status)
 	}
 	// The new action links to it.
-	nc, _ := aggregate.LoadActionCurrent(context.Background(), testDB, uuid.MustParse(out.ActionID))
+	nc, _ := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(out.ActionID))
 	if nc.RetryOf != actionID || nc.Status != aggregate.ActionStatusRequested {
 		t.Errorf("new action = {status:%q retry_of:%s}; want REQUESTED linked to the original", nc.Status, nc.RetryOf)
 	}
@@ -406,7 +406,7 @@ func TestExpiryTimer_RaceResolvesForTheHuman(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("EmitExpired on an approved action must be a benign no-op, got: %v", err)
 	}
-	ac, _ := aggregate.LoadActionCurrent(context.Background(), testDB, actionID)
+	ac, _ := testHandler.Reads().LoadActionCurrent(context.Background(), actionID)
 	if ac.Status != aggregate.ActionStatusApproved {
 		t.Errorf("status = %q; the human decision must stand", ac.Status)
 	}
@@ -428,7 +428,7 @@ func TestExpiryTimer_RaceResolvesForTheHuman(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("EmitExpired on a pending action: %v", err)
 	}
-	pc, _ := aggregate.LoadActionCurrent(context.Background(), testDB, pendingID)
+	pc, _ := testHandler.Reads().LoadActionCurrent(context.Background(), pendingID)
 	if pc.Status != aggregate.ActionStatusExpired {
 		t.Errorf("pending action status = %q; want EXPIRED (the timer's transition)", pc.Status)
 	}

@@ -144,7 +144,7 @@ func TestResolveActionOutcome_Endpoint(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || out.Status != aggregate.ActionStatusFailed {
 		t.Fatalf("resolve: resp %d out %+v; want 200/FAILED", resp.StatusCode, out)
 	}
-	ac, _ := aggregate.LoadActionCurrent(context.Background(), testDB, plain)
+	ac, _ := testHandler.Reads().LoadActionCurrent(context.Background(), plain)
 	if ac.Status != aggregate.ActionStatusFailed {
 		t.Errorf("projected %s; want FAILED", ac.Status)
 	}

@@ -65,7 +65,7 @@ func TestEditAction_Projection(t *testing.T) {
 		EvidenceRefs: []string{"observed-data--od1"}, ExpiresAt: time.Now().Add(time.Hour), Rationale: "tell the CISO",
 	})
 	mustHandle(t, h, cmdEnv(aggID), EditAction{ActionID: actionID, Parameters: json.RawMessage(`{"subject":"s","body":"new"}`), RequiredMode: "MANUAL"})
-	ac, err := LoadActionCurrent(ctx, testDB, actionID)
+	ac, err := testReads().LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,7 +2,6 @@ package temporal
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"regexp"
 	"sort"
@@ -75,24 +74,24 @@ func (a *SummaryActivities) Summarize(ctx context.Context, in SummarizeInput) (S
 	if err != nil {
 		return SummarizeOutput{}, fmt.Errorf("bad grouping id %q: %w", in.GroupingID, err)
 	}
-	db := a.handler.DB()
+	reads := a.handler.Reads()
 
-	ic, err := aggregate.LoadInvestigationCurrent(ctx, db, aggID)
+	ic, err := reads.LoadInvestigationCurrent(ctx, aggID)
 	if err != nil {
 		return SummarizeOutput{}, fmt.Errorf("load investigation: %w", err)
 	}
 	if ic.Status != aggregate.StatusConcluded {
 		return SummarizeOutput{}, fmt.Errorf("investigation %s is %s; only a CONCLUDED investigation is summarized", in.GroupingID, ic.Status)
 	}
-	hyps, err := aggregate.ListHypotheses(ctx, db, aggID)
+	hyps, err := reads.ListHypotheses(ctx, aggID)
 	if err != nil {
 		return SummarizeOutput{}, fmt.Errorf("load hypotheses: %w", err)
 	}
-	actions, err := aggregate.ListActionCurrents(ctx, db, aggID)
+	actions, err := reads.ListActionCurrents(ctx, aggID)
 	if err != nil {
 		return SummarizeOutput{}, fmt.Errorf("load actions: %w", err)
 	}
-	createdAt, concludedAt, err := investigationSpan(ctx, db, aggID)
+	createdAt, concludedAt, err := investigationSpan(ctx, reads, aggID)
 	if err != nil {
 		return SummarizeOutput{}, err
 	}
@@ -113,8 +112,8 @@ func (a *SummaryActivities) Summarize(ctx context.Context, in SummarizeInput) (S
 // investigationSpan reads the create → conclusion span from the event stream
 // (created = first event's occurred-at, concluded = the InvestigationConcluded
 // event's). Both feed duration_hours (design/06 §3.2).
-func investigationSpan(ctx context.Context, db *sql.DB, aggID uuid.UUID) (created, concluded time.Time, err error) {
-	stream, err := aggregate.NewStore(db).LoadStream(ctx, aggID)
+func investigationSpan(ctx context.Context, reads *aggregate.ReadModel, aggID uuid.UUID) (created, concluded time.Time, err error) {
+	stream, err := reads.LoadStream(ctx, aggID)
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("load event stream: %w", err)
 	}

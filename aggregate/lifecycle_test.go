@@ -52,7 +52,7 @@ func recordVerdictFixture(t *testing.T, h *Handler, aggID uuid.UUID) {
 
 func assertProjection(t *testing.T, aggID uuid.UUID, wantStatus, wantConclusion string) {
 	t.Helper()
-	ic, err := LoadInvestigationCurrent(context.Background(), testDB, aggID)
+	ic, err := testReads().LoadInvestigationCurrent(context.Background(), aggID)
 	if err != nil {
 		t.Fatalf("LoadInvestigationCurrent: %v", err)
 	}
@@ -224,14 +224,14 @@ func TestLifecycle_ReplayIdentical(t *testing.T) {
 	recordVerdictFixture(t, h, aggID)
 	mustHandle(t, h, cmdEnv(aggID), ConcludeInvestigation{ReportRef: "report--z", Summary: "s"})
 
-	before, err := LoadInvestigationCurrent(ctx, testDB, aggID)
+	before, err := testReads().LoadInvestigationCurrent(ctx, aggID)
 	if err != nil {
 		t.Fatalf("load before: %v", err)
 	}
 	if err := h.Replay(ctx); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	after, err := LoadInvestigationCurrent(ctx, testDB, aggID)
+	after, err := testReads().LoadInvestigationCurrent(ctx, aggID)
 	if err != nil {
 		t.Fatalf("load after: %v", err)
 	}

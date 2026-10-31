@@ -432,14 +432,14 @@ func TestReasoningNodes_ProjectionAndReplay(t *testing.T) {
 
 	verify := func(phase string) {
 		t.Helper()
-		hs, err := ListHypotheses(ctx, testDB, invID)
+		hs, err := testReads().ListHypotheses(ctx, invID)
 		if err != nil || len(hs) != 1 {
 			t.Fatalf("[%s] ListHypotheses = %v, %v; want 1", phase, hs, err)
 		}
 		if hs[0].ID != hRef || hs[0].Status != HypothesisSupported || len(hs[0].Labels) != 1 {
 			t.Errorf("[%s] hypothesis = %+v; want %s SUPPORTED with 1 label", phase, hs[0], hRef)
 		}
-		ps, err := ListPredictions(ctx, testDB, invID)
+		ps, err := testReads().ListPredictions(ctx, invID)
 		if err != nil || len(ps) != 1 {
 			t.Fatalf("[%s] ListPredictions = %v, %v; want 1", phase, ps, err)
 		}
@@ -737,7 +737,7 @@ func TestCompetingHypotheses_Projection(t *testing.T) {
 
 	verify := func(phase string) {
 		t.Helper()
-		hs, err := ListHypotheses(ctx, testDB, invID)
+		hs, err := testReads().ListHypotheses(ctx, invID)
 		if err != nil || len(hs) != 2 {
 			t.Fatalf("[%s] ListHypotheses = %v, %v; want 2", phase, hs, err)
 		}
@@ -748,7 +748,7 @@ func TestCompetingHypotheses_Projection(t *testing.T) {
 		if hs[1].Handle != "H2 legit-admin" || hs[1].Status != HypothesisProposed {
 			t.Errorf("[%s] H2 = %+v; want PROPOSED with handle", phase, hs[1])
 		}
-		ps, err := ListPredictions(ctx, testDB, invID)
+		ps, err := testReads().ListPredictions(ctx, invID)
 		if err != nil || len(ps) != 2 {
 			t.Fatalf("[%s] ListPredictions = %v, %v; want 2", phase, ps, err)
 		}

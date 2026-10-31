@@ -127,10 +127,7 @@ func (ActionCurrentProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 		if err := json.Unmarshal(evt.Payload, &p); err != nil {
 			return fmt.Errorf("unmarshal ActionApproved: %w", err)
 		}
-		status := ActionStatusApproved
-		if p.Authorization.Mode == AuthModeTwoParty && p.Authorization.Stage == AuthStagePrimary {
-			status = ActionStatusPendingSecondary
-		}
+		status := approvalStatus(p.Authorization)
 		// primary_approved_at persists the PRIMARY approval's true time so the
 		// secondary stage can cite it (never the secondary's clock). The
 		// secondary event's Authorization threads the same value back, so the
@@ -206,10 +203,7 @@ func (ActionCurrentProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 		if err := json.Unmarshal(evt.Payload, &p); err != nil {
 			return fmt.Errorf("unmarshal ActionResulted: %w", err)
 		}
-		status := ActionStatusSucceeded
-		if p.FinalOutcome == "FAILED" || p.FinalOutcome == "TIMEOUT" {
-			status = ActionStatusFailed
-		}
+		status := resultStatus(p.FinalOutcome)
 		// Store the failure reason alongside the terminal status so the ledger
 		// can say WHY a FAILED action failed (08 §6c) — and converge adapter to
 		// the tool the dispatch ACTUALLY used when the resulted event carries it
@@ -395,19 +389,20 @@ func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
 }
 
 // LoadActionCurrent returns the materialized state for one x-action, or
-// sql.ErrNoRows if it has not been projected.
-func LoadActionCurrent(ctx context.Context, db *sql.DB, actionID uuid.UUID) (ActionCurrent, error) {
-	row := db.QueryRowContext(ctx,
+// ErrNoRecord if it has not been projected.
+func (r *ReadModel) LoadActionCurrent(ctx context.Context, actionID uuid.UUID) (ActionCurrent, error) {
+	row := r.db.QueryRowContext(ctx,
 		`SELECT `+actionCurrentColumns+` FROM action_current WHERE action_id = $1`, actionID)
-	return scanActionCurrent(row.Scan)
+	a, err := scanActionCurrent(row.Scan)
+	return a, notFound(err)
 }
 
 // ListActionCurrents returns every x-action of one investigation, oldest first
 // — the action review queue (a REQUESTED/PENDING_SECONDARY row is a pending
 // approval) and the audit list, with full targets/mode detail (unlike
 // ListActionSummaries, which serves the export report's lightweight view).
-func ListActionCurrents(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]ActionCurrent, error) {
-	rows, err := db.QueryContext(ctx,
+func (r *ReadModel) ListActionCurrents(ctx context.Context, aggregateID uuid.UUID) ([]ActionCurrent, error) {
+	rows, err := r.db.QueryContext(ctx,
 		`SELECT `+actionCurrentColumns+` FROM action_current
 		 WHERE aggregate_id = $1 ORDER BY created_at, action_id`, aggregateID)
 	if err != nil {
@@ -430,8 +425,8 @@ func ListActionCurrents(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) 
 // (REQUESTED / PENDING_SECONDARY) across ALL investigations — the expiry
 // timer's startup-sweep input: each pending action gets (or already has) a
 // durable timer for its frozen deadline.
-func ListPendingActionCurrents(ctx context.Context, db *sql.DB) ([]ActionCurrent, error) {
-	rows, err := db.QueryContext(ctx,
+func (r *ReadModel) ListPendingActionCurrents(ctx context.Context) ([]ActionCurrent, error) {
+	rows, err := r.db.QueryContext(ctx,
 		`SELECT `+actionCurrentColumns+` FROM action_current
 		 WHERE status IN ($1, $2) ORDER BY created_at, action_id`,
 		ActionStatusRequested, ActionStatusPendingSecondary)
@@ -465,13 +460,13 @@ func nullUUID(id uuid.UUID) uuid.NullUUID {
 // FAILED). Empty when neither is recorded. It reads the events rather than
 // the projection because the projection folds PARTIAL into SUCCEEDED, and a
 // caller deciding whether a reversal fully took effect must see PARTIAL.
-func LoadRecordedOutcome(ctx context.Context, db *sql.DB, actionID uuid.UUID) (string, error) {
+func (r *ReadModel) LoadRecordedOutcome(ctx context.Context, actionID uuid.UUID) (string, error) {
 	var (
 		outcome   sql.NullString
 		eventType string
 		version   int
 	)
-	err := db.QueryRowContext(ctx, `
+	err := r.db.QueryRowContext(ctx, `
 		SELECT COALESCE(payload->>'final_outcome', payload->>'outcome'), event_type, event_version
 		FROM events
 		WHERE event_type IN ($1, $2) AND payload->>'action_id' = $3
@@ -500,8 +495,8 @@ func LoadRecordedOutcome(ctx context.Context, db *sql.DB, actionID uuid.UUID) (s
 // start, so listing an action that is not stranded is harmless. The recorded
 // outcome is read through LoadRecordedOutcome, so its payload version is
 // checked (adr/0217).
-func ListStrandedActionCurrents(ctx context.Context, db *sql.DB) ([]ActionCurrent, error) {
-	rows, err := db.QueryContext(ctx, `
+func (r *ReadModel) ListStrandedActionCurrents(ctx context.Context) ([]ActionCurrent, error) {
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT `+actionCurrentColumns+` FROM action_current a
 		WHERE a.status IN ($1, $2)
 		   OR (a.status = $3 AND a.is_reversal AND a.reversal_of_ref IS NOT NULL
@@ -534,7 +529,7 @@ func ListStrandedActionCurrents(ctx context.Context, db *sql.DB) ([]ActionCurren
 	var out []ActionCurrent
 	for _, a := range candidates {
 		if a.Status == ActionStatusSucceeded {
-			outcome, err := LoadRecordedOutcome(ctx, db, a.ActionID)
+			outcome, err := r.LoadRecordedOutcome(ctx, a.ActionID)
 			if err != nil {
 				return nil, err
 			}

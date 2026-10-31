@@ -102,13 +102,13 @@ func (a *ArchiveActivities) ArchiveBundle(ctx context.Context, in ArchiveBundleI
 // projections + side stores. It refuses a non-CONCLUDED investigation — an
 // export bundle is a finalized artifact (07 §2).
 func (a *ArchiveActivities) loadInvestigation(ctx context.Context, in ArchiveBundleInput) (archive.Investigation, error) {
-	db := a.handler.DB()
+	reads := a.handler.Reads()
 	aggID, err := uuid.Parse(in.GroupingID)
 	if err != nil {
 		return archive.Investigation{}, fmt.Errorf("bad grouping id: %w", err)
 	}
 
-	ic, err := aggregate.LoadInvestigationCurrent(ctx, db, aggID)
+	ic, err := reads.LoadInvestigationCurrent(ctx, aggID)
 	if err != nil {
 		return archive.Investigation{}, fmt.Errorf("load investigation: %w", err)
 	}
@@ -117,7 +117,7 @@ func (a *ArchiveActivities) loadInvestigation(ctx context.Context, in ArchiveBun
 	}
 
 	// Event stream → events.jsonl (each event serialized in sequence order).
-	stream, err := aggregate.NewStore(db).LoadStream(ctx, aggID)
+	stream, err := reads.LoadStream(ctx, aggID)
 	if err != nil {
 		return archive.Investigation{}, fmt.Errorf("load event stream: %w", err)
 	}
@@ -149,15 +149,15 @@ func (a *ArchiveActivities) loadInvestigation(ctx context.Context, in ArchiveBun
 		}
 	}
 
-	stixObjects, err := aggregate.ListReasoningStixPayloads(ctx, db, aggID)
+	stixObjects, err := reads.ListReasoningStixPayloads(ctx, aggID)
 	if err != nil {
 		return archive.Investigation{}, err
 	}
-	hyps, err := aggregate.ListHypotheses(ctx, db, aggID)
+	hyps, err := reads.ListHypotheses(ctx, aggID)
 	if err != nil {
 		return archive.Investigation{}, err
 	}
-	actions, err := aggregate.ListActionSummaries(ctx, db, aggID)
+	actions, err := reads.ListActionSummaries(ctx, aggID)
 	if err != nil {
 		return archive.Investigation{}, err
 	}
@@ -197,30 +197,19 @@ func (a *ArchiveActivities) loadInvestigation(ctx context.Context, in ArchiveBun
 // tool calls (by investigation) and transcripts (by content hash gathered from
 // the reasoning events + tool-call rows).
 func (a *ArchiveActivities) loadSideStores(ctx context.Context, aggID uuid.UUID, tenantID string, transcriptHashes map[string]struct{}, inv *archive.Investigation) error {
-	db := a.handler.DB()
+	reads := a.handler.Reads()
 
-	rows, err := db.QueryContext(ctx, `
-		SELECT tool_args, transcript_hash FROM ai_tool_calls WHERE investigation_id = $1 ORDER BY occurred_at, id
-	`, aggID)
+	calls, err := reads.ListToolCalls(ctx, aggID)
 	if err != nil {
-		return fmt.Errorf("query ai_tool_calls: %w", err)
+		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var args []byte
-		var transcriptHash *string
-		if err := rows.Scan(&args, &transcriptHash); err != nil {
-			return fmt.Errorf("scan tool call: %w", err)
-		}
+	for _, c := range calls {
 		// Blob hash = content hash of the stored (byte-exact) args, so it matches
 		// the event's tool_call_ref (D.2 stores normalized args byte-exact).
-		inv.ToolCalls = append(inv.ToolCalls, archive.Blob{Hash: aggregate.HashContent(args), Bytes: args})
-		if transcriptHash != nil && *transcriptHash != "" {
-			transcriptHashes[*transcriptHash] = struct{}{}
+		inv.ToolCalls = append(inv.ToolCalls, archive.Blob{Hash: aggregate.HashContent(c.Args), Bytes: c.Args})
+		if c.TranscriptHash != "" {
+			transcriptHashes[c.TranscriptHash] = struct{}{}
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
 	}
 
 	tid, err := uuid.Parse(tenantID)
@@ -228,9 +217,7 @@ func (a *ArchiveActivities) loadSideStores(ctx context.Context, aggID uuid.UUID,
 		return fmt.Errorf("bad tenant id: %w", err)
 	}
 	for hash := range transcriptHashes {
-		var body []byte
-		err := db.QueryRowContext(ctx,
-			`SELECT body FROM ai_transcripts WHERE tenant_id = $1 AND hash = $2`, tid, hash).Scan(&body)
+		body, err := reads.TranscriptBody(ctx, tid, hash)
 		if err != nil {
 			// A referenced transcript that isn't in the store is a gap worth
 			// surfacing, not silently dropping.

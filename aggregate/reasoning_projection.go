@@ -519,8 +519,8 @@ type PredictionCurrent struct {
 }
 
 // ListHypotheses returns the hypotheses of one investigation, oldest first.
-func ListHypotheses(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]HypothesisCurrent, error) {
-	rows, err := db.QueryContext(ctx, `
+func (r *ReadModel) ListHypotheses(ctx context.Context, aggregateID uuid.UUID) ([]HypothesisCurrent, error) {
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, aggregate_id, statement, handle, status, parent_ref, rooted_at_ref, labels, last_event_sequence
 		FROM hypothesis_current
 		WHERE aggregate_id = $1
@@ -552,8 +552,8 @@ func ListHypotheses(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]H
 // ListPredictions returns the predictions of one investigation, oldest first.
 // The declared test query rides along from the canonical STIX payload, so the
 // tracker can stage it ("Test this") without a second fetch.
-func ListPredictions(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]PredictionCurrent, error) {
-	rows, err := db.QueryContext(ctx, `
+func (r *ReadModel) ListPredictions(ctx context.Context, aggregateID uuid.UUID) ([]PredictionCurrent, error) {
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT p.id, p.hypothesis_ref, p.aggregate_id, p.statement, p.status,
 		       p.test_result_refs, p.discriminates, p.last_event_sequence,
 		       s.payload -> 'test_query', p.test_kind, p.attestation
@@ -599,8 +599,8 @@ func ListPredictions(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]
 // stix_objects keys by the bare uuid, so we join on the uuid extracted from the
 // full id (split on the STIX "--" separator). Ordered by type+id for a stable
 // bundle.
-func ListReasoningStixPayloads(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]json.RawMessage, error) {
-	rows, err := db.QueryContext(ctx, `
+func (r *ReadModel) ListReasoningStixPayloads(ctx context.Context, aggregateID uuid.UUID) ([]json.RawMessage, error) {
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT payload FROM stix_objects
 		WHERE id IN (
 			SELECT split_part(id, '--', 2)::uuid FROM hypothesis_current WHERE aggregate_id = $1
@@ -640,8 +640,8 @@ type ActionSummary struct {
 
 // ListActionSummaries returns every x-action of one investigation, oldest
 // first, for the export report + audit view.
-func ListActionSummaries(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]ActionSummary, error) {
-	rows, err := db.QueryContext(ctx, `
+func (r *ReadModel) ListActionSummaries(ctx context.Context, aggregateID uuid.UUID) ([]ActionSummary, error) {
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT action_id, action_type, tier, status
 		FROM action_current
 		WHERE aggregate_id = $1

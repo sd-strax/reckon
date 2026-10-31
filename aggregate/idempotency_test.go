@@ -91,7 +91,7 @@ func TestHandle_SystemRetryIsNoOp(t *testing.T) {
 		t.Error("a second dispatch under a new correlation id should be rejected (not APPROVED)")
 	}
 
-	ac, err := LoadActionCurrent(ctx, testDB, actionID)
+	ac, err := testReads().LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		t.Fatalf("LoadActionCurrent: %v", err)
 	}

@@ -157,7 +157,7 @@ func TestOutcomeUnknown_ProjectionAndSweep(t *testing.T) {
 	}
 	mustHandle(t, h, sysEnv2(aggID), RecordOutcomeUnknown{ActionID: unknown, Detail: "the run stopped"})
 
-	ac, err := LoadActionCurrent(ctx, testDB, unknown)
+	ac, err := testReads().LoadActionCurrent(ctx, unknown)
 	if err != nil {
 		t.Fatalf("LoadActionCurrent: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestOutcomeUnknown_ProjectionAndSweep(t *testing.T) {
 		t.Errorf("projected status=%q detail=%q; want OUTCOME_UNKNOWN with its reason", ac.Status, ac.ErrorDetail)
 	}
 
-	stranded, err := ListStrandedActionCurrents(ctx, testDB)
+	stranded, err := testReads().ListStrandedActionCurrents(ctx)
 	if err != nil {
 		t.Fatalf("ListStrandedActionCurrents: %v", err)
 	}
@@ -178,17 +178,17 @@ func TestOutcomeUnknown_ProjectionAndSweep(t *testing.T) {
 	}
 
 	mustHandle(t, h, cmdEnv(aggID), ResolveActionOutcome{ActionID: unknown, Outcome: ActionStatusFailed, Note: "the console shows no isolation"})
-	ac, err = LoadActionCurrent(ctx, testDB, unknown)
+	ac, err = testReads().LoadActionCurrent(ctx, unknown)
 	if err != nil {
 		t.Fatalf("LoadActionCurrent after resolve: %v", err)
 	}
 	if ac.Status != ActionStatusFailed || ac.ErrorDetail != "the console shows no isolation" {
 		t.Errorf("after resolve status=%q detail=%q; want FAILED with the person's finding", ac.Status, ac.ErrorDetail)
 	}
-	if outcome, err := LoadRecordedOutcome(ctx, testDB, unknown); err != nil || outcome != ActionStatusFailed {
+	if outcome, err := testReads().LoadRecordedOutcome(ctx, unknown); err != nil || outcome != ActionStatusFailed {
 		t.Errorf("recorded outcome = %q, %v; want FAILED", outcome, err)
 	}
-	if outcome, err := LoadRecordedOutcome(ctx, testDB, waiting); err != nil || outcome != "" {
+	if outcome, err := testReads().LoadRecordedOutcome(ctx, waiting); err != nil || outcome != "" {
 		t.Errorf("recorded outcome of an undispatched action = %q, %v; want empty", outcome, err)
 	}
 }
@@ -226,7 +226,7 @@ func TestStrandedReversal(t *testing.T) {
 	run(revA, "SUCCEEDED")
 	run(revB, "PARTIAL")
 
-	stranded, err := ListStrandedActionCurrents(ctx, testDB)
+	stranded, err := testReads().ListStrandedActionCurrents(ctx)
 	if err != nil {
 		t.Fatalf("ListStrandedActionCurrents: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestStrandedReversal(t *testing.T) {
 
 	// Once the saga marks the original, the reversal is no longer stranded.
 	mustHandle(t, h, sysEnv2(aggID), ReverseAction{OriginalActionID: origA.ActionID, ReversingActionID: revA.ActionID})
-	if stranded, err = ListStrandedActionCurrents(ctx, testDB); err != nil || len(stranded) != 0 {
+	if stranded, err = testReads().ListStrandedActionCurrents(ctx); err != nil || len(stranded) != 0 {
 		t.Errorf("after the original is marked: stranded = %d, %v; want none", len(stranded), err)
 	}
 }

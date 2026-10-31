@@ -1,8 +1,6 @@
 package server
 
 import (
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -49,7 +47,6 @@ type InvestigationView struct {
 	// creating act's actor by display name (adr/0077). Detail responses.
 	CreatedAt    *time.Time `json:"created_at,omitempty"`
 	OpenedByName string     `json:"opened_by_name,omitempty"`
-
 
 	// HypothesisFraming is the tenant's competing-hypotheses dial
 	// (config.Reasoning.HypothesisFraming; 01 §x-hypothesis): "leading_null"
@@ -139,60 +136,29 @@ func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
 		return
 	}
-	// The pending subqueries feed the tree's needs-me-first ordering (ui/06):
-	// REQUESTED / PENDING_SECONDARY are the statuses still awaiting a human.
-	rows, err := b.cfg.Handler.DB().QueryContext(r.Context(),
-		`SELECT i.aggregate_id, i.title, i.status, i.last_event_sequence,
-		        COALESCE(i.seed_summary, ''), i.updated_at,
-		        (SELECT COUNT(*) FROM action_current a
-		          WHERE a.aggregate_id = i.aggregate_id
-		            AND a.status IN ('REQUESTED', 'PENDING_SECONDARY')),
-		        (SELECT MIN(a.expires_at) FROM action_current a
-		          WHERE a.aggregate_id = i.aggregate_id
-		            AND a.status IN ('REQUESTED', 'PENDING_SECONDARY')),
-		        COALESCE(i.verdict_disposition, '') <> '',
-		        (SELECT COUNT(*) FROM action_current a
-		          WHERE a.aggregate_id = i.aggregate_id
-		            AND a.action_type NOT LIKE 'notify.%'
-		            AND a.status NOT IN ('SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT', 'REJECTED', 'EXPIRED', 'REVERSED')),
-		        (SELECT COUNT(*) FROM action_current a
-		          WHERE a.aggregate_id = i.aggregate_id
-		            AND a.action_type LIKE 'notify.%'
-		            AND a.status NOT IN ('SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT', 'REJECTED', 'EXPIRED', 'REVERSED')),
-		        i.seed
-		 FROM investigation_current i
-		 ORDER BY i.updated_at DESC LIMIT 200`)
+	rows, err := b.cfg.Handler.Reads().ListInvestigations(r.Context())
 	if err != nil {
-		writeInternalError(w, "query", err)
+		writeInternalError(w, "list investigations", err)
 		return
 	}
-	defer rows.Close()
 	var out []InvestigationView
-	for rows.Next() {
-		var v InvestigationView
-		var id uuid.UUID
-		var updatedAt time.Time
-		var nearest sql.NullTime
-		var seedRaw []byte
-		if err := rows.Scan(&id, &v.Title, &v.Status, &v.LastEventSequence, &v.SeedSummary,
-			&updatedAt, &v.PendingActions, &nearest, &v.HasVerdict, &v.OpenActions, &v.OpenNotifications, &seedRaw); err != nil {
-			writeInternalError(w, "scan", err)
-			return
-		}
-		v.AggregateID = id.String()
+	for i := range rows {
+		row := &rows[i]
 		// The seed rides list rows too (the queue shows the case reference).
-		if len(seedRaw) > 0 {
-			var seed aggregate.Seed
-			if json.Unmarshal(seedRaw, &seed) == nil && seed.Type != "" {
-				v.Seed = seedBody(&seed)
-			}
-		}
-		v.UpdatedAt = &updatedAt
-		if nearest.Valid {
-			t := nearest.Time
-			v.NearestExpiry = &t
-		}
-		out = append(out, v)
+		out = append(out, InvestigationView{
+			AggregateID:       row.AggregateID.String(),
+			Title:             row.Title,
+			Status:            row.Status,
+			LastEventSequence: row.LastEventSequence,
+			SeedSummary:       row.SeedSummary,
+			Seed:              seedBody(row.Seed),
+			UpdatedAt:         &row.UpdatedAt,
+			PendingActions:    row.PendingActions,
+			NearestExpiry:     row.NearestExpiry,
+			HasVerdict:        row.HasVerdict,
+			OpenActions:       row.OpenActions,
+			OpenNotifications: row.OpenNotifications,
+		})
 	}
 	if out == nil {
 		out = []InvestigationView{}
@@ -211,8 +177,8 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
-	ic, err := aggregate.LoadInvestigationCurrent(r.Context(), b.cfg.Handler.DB(), id)
-	if errors.Is(err, errNoRows()) {
+	ic, err := b.cfg.Handler.Reads().LoadInvestigationCurrent(r.Context(), id)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "investigation not found")
 		return
 	}
@@ -221,14 +187,14 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view := InvestigationView{
-		AggregateID:        ic.AggregateID.String(),
-		Title:              ic.Title,
-		Status:             ic.Status,
-		LastEventSequence:  ic.LastEventSequence,
-		Seed:               seedBody(ic.Seed),
-		SeedSummary:        ic.SeedSummary,
-		HypothesisFraming:  b.cfg.HypothesisFraming,
-		CaseNoteOnSeed:     b.cfg.CaseNoteOnSeed,
+		AggregateID:       ic.AggregateID.String(),
+		Title:             ic.Title,
+		Status:            ic.Status,
+		LastEventSequence: ic.LastEventSequence,
+		Seed:              seedBody(ic.Seed),
+		SeedSummary:       ic.SeedSummary,
+		HypothesisFraming: b.cfg.HypothesisFraming,
+		CaseNoteOnSeed:    b.cfg.CaseNoteOnSeed,
 	}
 	// The case-note offer rides the detail view too (adr/0032 as amended):
 	// the note is on demand from the document, not a creation-time choice, so
@@ -248,17 +214,11 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
 	}
 	// The investigation's start and who opened it: the creating act (sequence
 	// 1) and its actor's display name (adr/0077).
-	var createdAt time.Time
-	var actorRaw []byte
-	if err := b.cfg.Handler.DB().QueryRowContext(r.Context(),
-		`SELECT occurred_at, actor FROM events WHERE aggregate_id = $1 AND sequence_no = 1`, id).Scan(&createdAt, &actorRaw); err == nil {
-		view.CreatedAt = &createdAt
-		var actor aggregate.Actor
-		if json.Unmarshal(actorRaw, &actor) == nil {
-			view.OpenedByName = actor.PrincipalName
-			if view.OpenedByName == "" {
-				view.OpenedByName = actor.PrincipalID
-			}
+	if at, actor, err := b.cfg.Handler.Reads().InvestigationOpening(r.Context(), id); err == nil {
+		view.CreatedAt = &at
+		view.OpenedByName = actor.PrincipalName
+		if view.OpenedByName == "" {
+			view.OpenedByName = actor.PrincipalID
 		}
 	}
 	writeJSON(w, http.StatusOK, view)
@@ -395,10 +355,4 @@ func investigationIDFromPath(p string) (uuid.UUID, bool) {
 		return uuid.UUID{}, false
 	}
 	return id, true
-}
-
-// errNoRows returns sql.ErrNoRows. Wrapped so the import stays localized to
-// this file rather than spread across handlers.
-func errNoRows() error {
-	return sqlNoRowsSentinel
 }

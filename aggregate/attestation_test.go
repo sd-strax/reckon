@@ -172,7 +172,7 @@ func TestAttestation_ProjectionAndReplay(t *testing.T) {
 
 	verify := func(phase string) {
 		t.Helper()
-		ps, err := ListPredictions(ctx, testDB, invID)
+		ps, err := testReads().ListPredictions(ctx, invID)
 		if err != nil || len(ps) != 1 {
 			t.Fatalf("[%s] ListPredictions = %v, %v; want 1", phase, ps, err)
 		}
@@ -212,7 +212,7 @@ func TestAttestation_ProjectionAndReplay(t *testing.T) {
 		if len(refs) != 2 || refs[0] != pRef || refs[1] != hRef {
 			t.Errorf("[%s] note object_refs = %v; want [%s %s]", phase, refs, pRef, hRef)
 		}
-		payloads, err := ListReasoningStixPayloads(ctx, testDB, invID)
+		payloads, err := testReads().ListReasoningStixPayloads(ctx, invID)
 		if err != nil {
 			t.Fatalf("[%s] ListReasoningStixPayloads: %v", phase, err)
 		}

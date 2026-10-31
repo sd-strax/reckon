@@ -439,12 +439,12 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	hs, err := aggregate.ListHypotheses(r.Context(), b.cfg.Handler.DB(), invID)
+	hs, err := b.cfg.Handler.Reads().ListHypotheses(r.Context(), invID)
 	if err != nil {
 		writeInternalError(w, "list hypotheses", err)
 		return
 	}
-	ps, err := aggregate.ListPredictions(r.Context(), b.cfg.Handler.DB(), invID)
+	ps, err := b.cfg.Handler.Reads().ListPredictions(r.Context(), invID)
 	if err != nil {
 		writeInternalError(w, "list predictions", err)
 		return
