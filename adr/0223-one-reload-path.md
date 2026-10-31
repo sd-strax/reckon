@@ -1,6 +1,6 @@
 # 0223 — SIGHUP and the enablement endpoint run one reload routine, applying both sides or neither
 
-Issue: #223 · PR: #TBD · Status: accepted
+Issue: #223 · PR: #277 · Status: accepted
 
 ## Context
 
