@@ -1,6 +1,6 @@
 # 0218 — The server reads through a read model and writes evidence through a store
 
-Issue: #218 · PR: #TBD · Status: accepted
+Issue: #218 · PR: #280 · Status: accepted
 
 ## Context
 
