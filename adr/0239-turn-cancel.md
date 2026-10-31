@@ -1,6 +1,6 @@
 # 0239 — A cancel stops a turn between steps, and the sidecar process is the transport's from the moment it spawns
 
-Issue: #239 · PR: · Status: accepted
+Issue: #239 · PR: #281 · Status: accepted
 
 ## Context
 
