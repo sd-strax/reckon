@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -120,4 +121,94 @@ func TestRunRestartsAHungComponent(t *testing.T) {
 
 	cancel()
 	<-runDone
+}
+
+// stuckStopComponent's Stop ignores its context and blocks until release,
+// the worst case the stop bound has to survive.
+type stuckStopComponent struct {
+	fakeComponent
+	release chan struct{}
+}
+
+func newStuckStopComponent(name string) *stuckStopComponent {
+	return &stuckStopComponent{fakeComponent: fakeComponent{name: name}, release: make(chan struct{})}
+}
+
+func (s *stuckStopComponent) Stop(ctx context.Context) error {
+	<-s.release
+	return s.fakeComponent.Stop(ctx)
+}
+
+func withStopTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	orig := stopTimeout
+	stopTimeout = d
+	t.Cleanup(func() { stopTimeout = orig })
+}
+
+// TestStop_HungStopReturnsAtTheBound: a Stop that never returns is given up
+// on once stopTimeout passes, even though it ignores its context.
+func TestStop_HungStopReturnsAtTheBound(t *testing.T) {
+	withStopTimeout(t, 50*time.Millisecond)
+	c := newStuckStopComponent("stuck")
+	t.Cleanup(func() { close(c.release) })
+
+	began := time.Now()
+	err := stop(context.Background(), c)
+	if !errors.Is(err, errStopTimedOut) {
+		t.Fatalf("err = %v, want errStopTimedOut", err)
+	}
+	if took := time.Since(began); took > time.Second {
+		t.Errorf("stop took %s, want about stopTimeout", took)
+	}
+}
+
+// TestRunDoesNotRestartOverAHungStop: when the Stop before a restart hangs,
+// the watcher does not Start the component over it; it escalates, and Run
+// still returns.
+func TestRunDoesNotRestartOverAHungStop(t *testing.T) {
+	withFastWatcher(t)
+	withStopTimeout(t, 50*time.Millisecond)
+	c := newStuckStopComponent("stuck")
+	t.Cleanup(func() { close(c.release) })
+	sup := New()
+	sup.Register(c, RestartOnExit)
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- sup.Run(context.Background()) }()
+
+	waitFor(t, time.Second, "initial start", func() bool { return c.getStartCalls() == 1 })
+	c.setHealthy(false)
+
+	select {
+	case <-runDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return after a restart's Stop hung")
+	}
+	if n := c.getStartCalls(); n != 1 {
+		t.Errorf("Start called %d times, want 1 (no Start over a hung Stop)", n)
+	}
+}
+
+// TestShutdown_HungStopDoesNotBlockTheRest: a component whose Stop hangs
+// does not keep the ones before it from being stopped.
+func TestShutdown_HungStopDoesNotBlockTheRest(t *testing.T) {
+	withStopTimeout(t, 50*time.Millisecond)
+	first := &fakeComponent{name: "first"}
+	stuck := newStuckStopComponent("stuck")
+	t.Cleanup(func() { close(stuck.release) })
+	sup := New()
+	sup.Register(first, RestartOnExit)
+	sup.Register(stuck, RestartOnExit)
+	if err := sup.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	err := sup.Stop(context.Background())
+	if !errors.Is(err, errStopTimedOut) {
+		t.Errorf("err = %v, want errStopTimedOut", err)
+	}
+	if n := first.getStopCalls(); n != 1 {
+		t.Errorf("first stopped %d times, want 1", n)
+	}
 }

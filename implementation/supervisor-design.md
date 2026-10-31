@@ -58,7 +58,7 @@ err := sup.Run(ctx)
 1. Calls `Start` on every component in order. On any Start failure, Stop runs in reverse on the components already started, then Run returns the error.
 2. Spawns one watcher goroutine per component.
 3. Blocks on the run-context done channel.
-4. When run-context is cancelled, waits for all watchers to exit, then runs orderly Stop.
+4. When run-context is cancelled, waits for all watchers to exit, then runs orderly Stop. Each component's Stop is waited on for at most `stopTimeout`, whether or not it honours its context, so one that hangs neither blocks the rest nor keeps Run from returning.
 
 `Start` and `Stop` are also exported for tests or for code that wants tighter lifecycle control; `Run` is the normal supervisor invocation.
 
@@ -91,13 +91,13 @@ Every Health call runs under `probeTimeout` (3s). A probe that has not answered 
 
 - **`FatalOnExit`** — call `fatalCancel()` on the run-context. Run's `<-ctx.Done()` unblocks; orderly Stop runs; Run returns nil. Used for Postgres (mid-transaction corruption risk on unclean exit).
 
-- **`RestartOnExit`** — call `Stop` (bounded by `restartStopTimeout`, its error logged) then `Start`. Record the restart timestamp. If the rolling 5-minute window contains ≥3 restarts, escalate to fatal-cancel. If the Start call fails, escalate immediately.
+- **`RestartOnExit`** — call `Stop` (bounded by `stopTimeout`, its error logged) then `Start`. A Stop that has not returned by `stopTimeout` escalates to fatal-cancel instead, since a `Start` would race the old `Stop`. Record the restart timestamp. If the rolling 5-minute window contains ≥3 restarts, escalate to fatal-cancel. If the Start call fails, escalate immediately.
 
 ### Tuning vars (package private, vars not consts so tests override)
 
 ```go
 probeTimeout           = 3 * time.Second
-restartStopTimeout     = 30 * time.Second
+stopTimeout            = 30 * time.Second
 watchInterval          = 5 * time.Second
 watchConsecutiveMisses = 2
 watchMaxRestarts       = 3

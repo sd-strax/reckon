@@ -18,7 +18,9 @@ misses twice (`implementation/supervisor-design.md`). Four things undercut it:
   stalled it too.
 - `Postgres.Health` opened a new pool on every probe and closed it.
 - A restart dropped `Stop`'s error. If `Start` then failed, the escalation
-  logged the second failure without the first.
+  logged the second failure without the first. Nothing bounded `Stop`
+  either, and the Temporal, Postgres and worker `Stop`s do not watch their
+  context, so a hung one blocked its watcher and, through it, shutdown.
 
 The issue also asked that a restart carry the components that depend on the
 one restarted.
@@ -33,7 +35,12 @@ one restarted.
   whether or not it honours its context. The rollup runs the probes at once.
 - **Postgres keeps one handle.** `Start` opens it, `Health` pings it, `Stop`
   closes it.
-- **A restart's `Stop` is bounded and its error logged** before `Start`.
+- **Every `Stop` is bounded.** The supervisor waits on a `Stop` for at most
+  `stopTimeout` (30s), whether or not it honours its context, both before a
+  restart's `Start` and for each component in a shutdown. A restart logs
+  `Stop`'s error before `Start`. A `Stop` that times out is not restarted
+  over, since the old `Stop` may still be changing the component; the
+  watcher escalates to fatal instead.
 - **No restart cascade.** A restart is of the one component. Its dependents
   reconnect on their own: the worker and the backend's dispatch client
   carried on through a Temporal stop and start on the same port and SQLite
@@ -47,16 +54,19 @@ one restarted.
 - **Declared dependencies with a cascading restart:** it adds stop/start
   ordering inside the watcher for dependents that already recover; the test
   that shows they recover is cheaper and fails if that stops being true.
-- **Trust each probe to honour its context:** the deadline has to hold for a
-  probe that blocks on something else, or the watcher is only as live as the
-  worst probe.
+- **Trust each probe and `Stop` to honour its context:** the deadline has to
+  hold for a call that blocks on something else, or the watcher is only as
+  live as the worst component.
 
 ## Consequences
 
 - A backend whose server dies is restarted within two polls.
 - A dependency that hangs is declared down after two probe deadlines, and
   `/status` answers within one.
-- A probe that ignores its context leaves a goroutine blocked until it
-  returns; the watcher does not wait for it.
+- A probe or `Stop` that ignores its context leaves a goroutine blocked
+  until it returns; the supervisor does not wait for it.
+- A component whose `Stop` hangs on a restart ends the supervisor rather
+  than being restarted, and a shutdown takes at most `stopTimeout` per
+  component.
 - If a future component holds state that a dependency's restart invalidates,
   it reports that in its own `Health`, and the watcher restarts it.

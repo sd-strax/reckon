@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -113,8 +114,10 @@ func (s *Supervisor) Start(ctx context.Context) error {
 }
 
 // Stop every started component in reverse order. Best-effort: stop errors
-// are logged but don't prevent the next component from being stopped. The
-// first error encountered (if any) is returned.
+// are logged but don't prevent the next component from being stopped. Each
+// component's Stop is waited on for at most stopTimeout, so one that hangs
+// does not keep the rest from stopping. The first error encountered (if any)
+// is returned.
 func (s *Supervisor) Stop(ctx context.Context) error {
 	return s.shutdown(ctx)
 }
@@ -129,7 +132,7 @@ func (s *Supervisor) shutdown(ctx context.Context) error {
 	for i := len(started) - 1; i >= 0; i-- {
 		c := started[i]
 		log.Printf("supervisor: stopping %s", c.Name())
-		if err := c.Stop(ctx); err != nil {
+		if err := stop(ctx, c); err != nil {
 			log.Printf("supervisor: %s stop error: %v", c.Name(), err)
 			if firstErr == nil {
 				firstErr = err
@@ -183,19 +186,40 @@ func probe(ctx context.Context, c Component) HealthStatus {
 	}
 }
 
+// errStopTimedOut marks a Stop that had not returned by stopTimeout.
+var errStopTimedOut = errors.New("stop did not return")
+
+// stop calls c.Stop under stopTimeout and waits no longer than that, even
+// for a Stop that ignores its context. The bound runs from now whether or
+// not ctx is already cancelled: a shutdown still gives each component its
+// time to stop. A Stop that times out is left running, so the caller must
+// not Start c over it.
+func stop(ctx context.Context, c Component) error {
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Stop(sctx) }()
+	select {
+	case err := <-done:
+		return err
+	case <-sctx.Done():
+		return fmt.Errorf("%w within %s", errStopTimedOut, stopTimeout)
+	}
+}
+
 // Watcher tuning. Conservative defaults: 5s polling, 2 consecutive misses
 // before declaring exit (so a single transient blip doesn't trigger a
 // restart cascade), 3 restarts in a rolling 5-minute window before escalating
 // to fatal. Aggressive enough to catch real outages, lenient enough not to
 // fight with normal startup jitter.
 //
-// probeTimeout bounds each Health call; restartStopTimeout bounds the Stop
-// before a restart's Start.
+// probeTimeout bounds each Health call; stopTimeout bounds each Stop, the
+// one before a restart's Start and each one in a shutdown.
 //
 // These are vars (not consts) so tests can override them via t.Cleanup.
 var (
 	probeTimeout           = 3 * time.Second
-	restartStopTimeout     = 30 * time.Second
+	stopTimeout            = 30 * time.Second
 	watchInterval          = 5 * time.Second
 	watchConsecutiveMisses = 2
 	watchMaxRestarts       = 3
@@ -237,9 +261,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	log.Println("supervisor: run cancelled; awaiting watchers")
 	wg.Wait()
 
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer stopCancel()
-	if err := s.Stop(stopCtx); err != nil {
+	if err := s.Stop(context.Background()); err != nil {
 		return fmt.Errorf("supervisor stop: %w", err)
 	}
 	return nil
@@ -302,13 +324,22 @@ func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, 
 			}
 			log.Printf("supervisor: restarting %s (attempt %d of %d in the last %s)",
 				spec.Name(), len(restartTimes)+1, maxRestarts, watchRestartWindow)
-			stopCtx, cancel := context.WithTimeout(ctx, restartStopTimeout)
-			if err := spec.Stop(stopCtx); err != nil {
+			if err := stop(ctx, spec.Component); err != nil {
+				if errors.Is(err, errStopTimedOut) {
+					// The old Stop may still be changing the component;
+					// a Start now would race it.
+					log.Printf("supervisor: %s %v; not restarting over it — escalating to fatal",
+						spec.Name(), err)
+					fatalCancel()
+					return
+				}
 				// Start may still succeed (a process already gone); if it
 				// fails, this line carries the cause.
 				log.Printf("supervisor: %s stop before restart: %v", spec.Name(), err)
 			}
-			cancel()
+			if ctx.Err() != nil {
+				return
+			}
 			if err := spec.Start(ctx); err != nil {
 				log.Printf("supervisor: %s restart failed: %v — escalating to fatal",
 					spec.Name(), err)
