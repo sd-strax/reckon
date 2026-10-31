@@ -392,6 +392,56 @@ describe("SidecarTransport: stopping a turn", () => {
     await vi.waitFor(() => expect(sc.cancel).toHaveLength(1));
     expect(sc.cancel[0].reason).toBe("timeout");
     end({ stopped: true, tool_rounds: 0 });
-    expect((await turn).error).toBe("turn timed out after 0.0001 minutes");
+    const outcome = await turn;
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.notice).toBe("turn timed out after 0.0001 minutes");
+  });
+
+  it("a hung handshake cannot outlast the limit, and the next turn starts clean", async () => {
+    let hang = true;
+    const sc = installSidecar({
+      init: () => hang ? new Promise(() => undefined) : Promise.resolve({ protocol_version: 1, backend_api_version: 1 }),
+    });
+    transport = new SidecarTransport(deps({ turnTimeoutMinutes: () => 0.0001 }), fakeLog());
+
+    const outcome = await transport.turn("inv-1", "a", silent);
+    expect(outcome.notice).toBe("turn timed out after 0.0001 minutes");
+    expect(children()[0].killed).toBe(true);
+    expect(transport.turnRunning("inv-1")).toBe(false);
+
+    hang = false;
+    await transport.turn("inv-1", "b", silent);
+    expect(children()).toHaveLength(2);
+    expect(sc.createSession).toEqual(["inv-1"]);
+  });
+
+  it("Stop gets out of a hung handshake", async () => {
+    const sc = installSidecar({ init: () => new Promise(() => undefined) });
+    transport = new SidecarTransport(deps(), fakeLog());
+    const turn = transport.turn("inv-1", "a", silent);
+    await vi.waitFor(() => expect(sc.initialize).toHaveLength(1));
+
+    await transport.cancel("inv-1");
+
+    expect((await turn).error).toBeUndefined();
+    expect(children()[0].killed).toBe(true);
+  });
+
+  it("Stop gets out of a hung session creation, and leaves the process running", async () => {
+    const sc = installSidecar();
+    transport = new SidecarTransport(deps(), fakeLog());
+    await transport.turn("inv-1", "a", silent);
+    spawned.onSpawn = () => undefined;
+    children()[0].peer.onRequest("createSession", (p: { investigation_id: string }) => {
+      sc.createSession.push(p.investigation_id);
+      return new Promise(() => undefined);
+    });
+    const turn = transport.turn("inv-2", "b", silent);
+    await vi.waitFor(() => expect(sc.createSession).toContain("inv-2"));
+
+    await transport.cancel("inv-2");
+
+    expect((await turn).error).toBeUndefined();
+    expect(children()[0].killed).toBe(false);
   });
 });

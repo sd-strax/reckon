@@ -16,15 +16,17 @@ Progress sinks were keyed by session, and only the webview's `busy` flag kept tw
 
 **A cancel takes effect between steps, never inside a tool call.** A model call is cancelled at once; it writes nothing. A dispatched tool runs to completion on a context the cancel does not reach, bounded by `toolTimeout`. The loop then stops before the next model call, and that response's undispatched `tool_use`s are answered as not run. Stop, the time limit and `closeSession` (adr/0237) share this path, so the history always matches what the backend recorded.
 
-**A stopped turn is not a failed turn.** `TurnResult.Stopped` and the wire's `stopped` replace an error for a cancel. The turn is committed as adr/0231 decided, with the `[engine] turn ended early` line. `Turn`'s error now carries only real failures. The line says `timed out` when the cancel carried that cause (`cancel`'s `reason`, a context cause in Go), so the record does not attribute a time limit to the analyst.
+**A stopped turn is not a failed turn.** `TurnResult.Stopped` and the wire's `stopped` replace an error for a cancel. The turn is committed as adr/0231 decided, with the `[engine] turn ended early` line. `Turn`'s error now carries only real failures. The line, and the text answering skipped tools, says `timed out` when the cancel carried that cause (`cancel`'s `reason`, a context cause in Go), so the record does not attribute a time limit to the analyst.
 
 **The panel has a Stop button.** While a turn runs, Send is Stop and posts `turn.stop`; the label reads Stopping… until the turn ends, which a running tool can delay. The host calls `transport.cancel`. Actions already requested stay in the queue.
 
-**Turns have a limit**, `reckon.agent.turnTimeoutMinutes` (default 10, minimum 1). On expiry the transport cancels with reason `timeout` and the panel shows the turn timed out.
+**Turns have a limit**, `reckon.agent.turnTimeoutMinutes` (default 10, minimum 1). On expiry the transport cancels with reason `timeout` and the panel shows a notice. It is not `turn.error`, which the webview reads as an uncommitted failure: a timed-out turn is committed.
 
 **The transport owns the process from spawn.** `this.child` is set at spawn, and any failure in the handshake tears down. A teardown during the handshake disposes the handshake's connection, which fails it.
 
-**One turn per investigation, on the host.** `turn()` refuses before touching the sink map, and a sink is deleted only by its owner. `TurnDriver` checks first and posts a notice, so a refused turn does not end the running turn's state in the webview. A stop requested before a turn reaches the sidecar keeps it from starting, which also covers a panel closing during the handshake.
+**One turn per investigation, on the host.** `turn()` refuses before touching the sink map, and a sink is deleted only by its owner. `TurnDriver` checks first and posts a notice, so a refused turn does not end the running turn's state in the webview.
+
+**The limit and Stop run from the turn's entry.** Starting the process or the session can hang too, so a turn races them against its stop. A turn stopped there never starts, which also covers a panel closing during the handshake. If the process is not up, it is torn down, or the next turn would join the same stuck start; a turn waiting on that same start for another investigation fails and can be retried. A hung session creation leaves the process alone.
 
 ## Alternatives rejected
 

@@ -215,6 +215,34 @@ func TestTurn_TimeLimitRecordedAsSuch(t *testing.T) {
 	}
 }
 
+// TestTurn_TimeLimitNamedOnSkippedTools (adr/0239): a tool skipped because the
+// limit ran out says so, matching the turn's closing line.
+func TestTurn_TimeLimitNamedOnSkippedTools(t *testing.T) {
+	f := newFakeBackend(t)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	action := `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
+	s := commitSession(t, f, &scriptedLLM{script: []CompleteResponse{
+		{StopReason: StopToolUse, Content: []ContentBlock{
+			toolUse("t1", ToolRequestAction, action),
+			toolUse("t2", ToolRequestAction, action),
+		}},
+	}})
+	s.hooks.OnToolCall = func(string, json.RawMessage) { cancel(ErrTurnTimedOut) }
+
+	res, err := s.Turn(ctx, "contain H1")
+	if err != nil || !res.Stopped {
+		t.Fatalf("Turn = %+v, %v; want a stopped turn and no error", res, err)
+	}
+	last := s.messages[len(s.messages)-1]
+	if got := last.Content[1].Content; got != "timed out; tool not dispatched" {
+		t.Errorf("skipped tool's result = %q", got)
+	}
+	if strings.Contains(res.Transcript, "analyst") {
+		t.Errorf("a timed-out turn names the analyst:\n%s", res.Transcript)
+	}
+}
+
 // TestTurn_CommitRetried: a commit that fails in transit is retried with the
 // same turn id, and the turn is recorded (adr/0231).
 func TestTurn_CommitRetried(t *testing.T) {

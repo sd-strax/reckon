@@ -586,7 +586,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		results := cutResults
 		for i, tu := range toolUses {
 			if ctx.Err() != nil {
-				results = append(results, abandonedResults(&transcript, toolUses[i:], "stopped by the analyst; tool not dispatched")...)
+				results = append(results, abandonedResults(&transcript, toolUses[i:], stopReason(ctx)+"; tool not dispatched")...)
 				break
 			}
 			fmt.Fprintf(&transcript, "[tool_use %s id=%s] %s\n",

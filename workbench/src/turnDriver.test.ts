@@ -83,4 +83,10 @@ describe("TurnDriver", () => {
     expect(posted()).toEqual([{ type: "turn.notice", text: "a turn is already running on this investigation" }]);
     expect(refresh).not.toHaveBeenCalled();
   });
+
+  it("shows a timed-out turn as a notice: it is committed, so it is not a failure", async () => {
+    const { panel, driver, posted } = setup(transport(() => undefined, async () => outcome({ interpretationId: "i-9", notice: "turn timed out after 10 minutes" })));
+    await driver.run("inv-1", panel, "go");
+    expect(posted().map((m) => m.type)).toEqual(["turn.user", "turn.start", "turn.committed", "turn.notice", "turn.end"]);
+  });
 });

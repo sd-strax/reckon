@@ -53,6 +53,9 @@ export class TurnDriver {
       if (outcome.error) {
         void this.post(panel, { type: "turn.error", message: outcome.error });
       }
+      if (outcome.notice) {
+        void this.post(panel, { type: "turn.notice", text: outcome.notice });
+      }
       void this.post(panel, {
         type: "turn.end",
         rounds: outcome.toolRounds,
