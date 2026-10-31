@@ -35,6 +35,7 @@ const transport = {
   closeSession: vi.fn(async () => undefined),
   cancel: vi.fn(async () => undefined),
   summarizeConcluded: vi.fn(async () => undefined),
+  proposeSOP: vi.fn(async () => ({ warranted: true, title: "T", body: "B", tags: [], recommendation: "", rationale: "" })),
 } as unknown as AgentTransport;
 
 function documents(client: BackendClient) {
@@ -160,5 +161,104 @@ describe("InvestigationDocuments: closing", () => {
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "turn.stop" });
     expect(transport.cancel).toHaveBeenCalledWith("inv-1");
+  });
+
+  const evidenceDoc = { ref: "ref-1", kind: "observed-data", type: "observed-data", payload: {} };
+
+  it("does not keep a failed evidence read, and tells the panel", async () => {
+    let down = true;
+    const evidence = vi.fn(async () => {
+      if (down) throw new Error("503");
+      return evidenceDoc;
+    });
+    const { client } = backend({ evidence });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0];
+
+    panel.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(types()).toContain("evidence.unresolved"));
+
+    down = false;
+    panel.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledTimes(2));
+  });
+
+  it("closes every panel when the identity changes, and reads again for the next person", async () => {
+    const evidence = vi.fn(async () => evidenceDoc);
+    const { client } = backend({ evidence });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    docs.showDraft();
+    const [first, draft] = createdPanels();
+    first.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+
+    expect(first.disposed).toBe(true);
+    expect(draft.disposed).toBe(true);
+    docs.show("inv-1");
+    createdPanels()[2].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not cache an evidence read that lands after the identity changed", async () => {
+    let land!: (d: typeof evidenceDoc) => void;
+    const evidence = vi.fn((): Promise<typeof evidenceDoc> => new Promise((r) => { land = r; }));
+    const { client } = backend({ evidence });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+    land(evidenceDoc);
+    await new Promise((r) => setTimeout(r, 0));
+
+    docs.show("inv-1");
+    createdPanels()[1].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not pop a rename from a panel closed before it was ready", async () => {
+    const { docs } = documents(backend().client);
+    docs.beginRename("inv-1", "T");
+    createdPanels()[0].dispose();
+
+    docs.show("inv-1");
+    const panel = createdPanels()[1];
+    panel.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(panel.webview.posted.map((m) => (m as RenderMessage).type)).toContain("state.snapshot"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(panel.webview.posted.map((m) => (m as RenderMessage).type)).not.toContain("rename.begin");
+  });
+
+  it("closes a SOP draft when the identity changes, unsaved text included, and nobody is asked to save it", async () => {
+    const { docs } = documents(backend().client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "sop.draft" });
+    await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("workbench.action.revertAndCloseActiveEditor"));
+  });
+
+  it("closes a report's preview and deletes its scratch file when the identity changes, and leaves other tabs", async () => {
+    const { docs } = documents(backend({ exportMarkdown: async () => "# report" }).client);
+    docs.show("inv-12345678");
+    createdPanels()[0].webview.receive({ type: "export.open" });
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
+    const preview = { label: "Preview reckon-report-inv-1234.md", input: new vscode.TabInputWebview("mainThreadWebview-markdown.preview") };
+    const mine = { label: "Preview notes.md", input: new vscode.TabInputWebview("mainThreadWebview-markdown.preview") };
+    (vscode.window.tabGroups as unknown as { all: unknown[] }).all = [{ tabs: [preview, mine] }];
+
+    docs.identityChanged();
+
+    await vi.waitFor(() => expect(vscode.window.tabGroups.close).toHaveBeenCalledWith([preview]));
+    await vi.waitFor(() => expect(vscode.workspace.fs.delete).toHaveBeenCalledOnce());
+    (vscode.window.tabGroups as unknown as { all: unknown[] }).all = [];
   });
 });

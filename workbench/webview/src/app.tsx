@@ -95,6 +95,9 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
   const [staged, setStaged] = useState<{ text: string; nonce: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const requested = useRef(new Set<string>());
+  // Refs whose read failed: asked for again after the next refresh, not on
+  // every render, so a ref that will never resolve is not fetched in a loop.
+  const unresolved = useRef(new Set<string>());
   const [chosenLens, setChosenLens] = useState<Lens | null>(null);
   const [companionMode, setCompanionModeState] = useState<"conversation" | "thread">(() => transport.getState<PersistedView>()?.companion || "conversation");
   const investigationId = state.snap?.investigation.id;
@@ -138,6 +141,11 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
       dispatch({ type: "msg", msg });
       // The composer re-enables when a turn ends; the lifecycle may keep it
       // parked (closed records), which the Composer decides from the state.
+      if (msg.type === "evidence.unresolved") unresolved.current.add(msg.ref);
+      if (msg.type === "state.snapshot" || msg.type === "state.patch") {
+        for (const ref of unresolved.current) requested.current.delete(ref);
+        unresolved.current.clear();
+      }
       if (msg.type === "turn.end") setBusy(false);
       if (msg.type === "turn.start" || msg.type === "aside.start") setBusy(true);
     });

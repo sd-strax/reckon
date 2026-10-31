@@ -16,12 +16,14 @@ import { SidecarTransport } from "./agentTransport";
 import { InvestigationDocuments } from "./investigationDocument";
 import { ImportSOPsView } from "./importView";
 import { CasesProvider } from "./casesTree";
+import { SeenTracker } from "./seenTracker";
 import { CaseDocuments } from "./caseDocument";
 
 /** Where the BYOK Anthropic key lives — never in settings, never on disk in the clear. */
 const ANTHROPIC_KEY_SECRET = "reckon.anthropicApiKey";
 
 export function activate(context: vscode.ExtensionContext): void {
+  let started = false;
   const log = vscode.window.createOutputChannel("reckon", { log: true });
   log.info(`workbench activated (backend ${backendUrl()})`);
 
@@ -35,7 +37,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Last-seen event sequences — view state behind the tree's unseen-changes
   // cue (ui/02 §2.12). Never investigation state; lives in globalState.
-  const seen = new SeenTracker(context.globalState);
+  const seen = new SeenTracker(context.globalState, () => session.subject);
   const investigations = new InvestigationsProvider(client, session, seen);
   // The agent loop lives in the Go sidecar (implementation/agent-sidecar.md);
   // this transport spawns it and answers its getToken callbacks from the auth
@@ -83,7 +85,16 @@ export function activate(context: vscode.ExtensionContext): void {
     session,
     { dispose: () => transport.dispose() },
     { dispose: () => importSOPs.dispose() },
-    session.onDidChangeIdentity(() => transport.endSessions()),
+    session.onDidChangeIdentity(() => {
+      transport.endSessions();
+      documents.identityChanged();
+      caseDocs.closeAll();
+      importSOPs.dispose();
+      // Not on the restore at start-up: nobody changed, the window just opened.
+      if (started) {
+        void vscode.commands.executeCommand("workbench.view.extension.reckon");
+      }
+    }),
     session.onDidChange(() => {
       void vscode.commands.executeCommand("setContext", "reckon.signedIn", session.signedIn);
       investigations.refresh();
@@ -281,6 +292,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Fire-and-forget: restore a prior session, then seed the signed-in context key.
   void session.restore().finally(() => {
+    started = true;
     void vscode.commands.executeCommand("setContext", "reckon.signedIn", session.signedIn);
   });
 }
@@ -326,30 +338,6 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-
-/**
- * Per-investigation last-seen event sequence, in globalState. The tree's
- * unseen-changes cue compares this against the backend's last_event_sequence:
- * strictly view state (ui/02 §2.12), so it never touches the record.
- */
-class SeenTracker {
-  private static readonly KEY = "reckon.seenSeq";
-
-  constructor(private readonly memento: vscode.Memento) {}
-
-  get(id: string): number {
-    return this.memento.get<Record<string, number>>(SeenTracker.KEY, {})[id] ?? 0;
-  }
-
-  async set(id: string, seq: number): Promise<void> {
-    const all = { ...this.memento.get<Record<string, number>>(SeenTracker.KEY, {}) };
-    if ((all[id] ?? 0) >= seq) {
-      return;
-    }
-    all[id] = seq;
-    await this.memento.update(SeenTracker.KEY, all);
-  }
-}
 
 /** Display order + collapsed defaults for the status groups (ui/06). */
 const TREE_GROUPS: { status: string; label: string; collapsed: boolean }[] = [

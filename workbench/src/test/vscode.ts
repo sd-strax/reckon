@@ -100,6 +100,10 @@ export class TabInputText {
   constructor(readonly uri: Uri) {}
 }
 
+export class TabInputWebview {
+  constructor(readonly viewType: string) {}
+}
+
 // --- webviews -----------------------------------------------------------------
 
 /** A webview the test drives: `receive` plays the page, `posted` is what the host sent. */
@@ -244,6 +248,8 @@ export const workspace = {
   fs: {
     readFile: vi.fn(async (..._args: unknown[]): Promise<Uint8Array> => new Uint8Array()),
     writeFile: vi.fn(async (..._args: unknown[]) => undefined),
+    createDirectory: vi.fn(async (..._args: unknown[]) => undefined),
+    delete: vi.fn(async (..._args: unknown[]) => undefined),
   },
   openTextDocument: vi.fn(async (..._args: unknown[]) => ({}) as vscode.TextDocument),
   textDocuments: [] as vscode.TextDocument[],

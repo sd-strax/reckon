@@ -17,6 +17,7 @@ import { randomUUID } from "crypto";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
+import { SingleFlight } from "./singleFlight";
 import { ActionRow, Appearance, type ArtifactLocation, BackendClient, BackendRequestError, EvidenceDoc, InvestigationDetail, ThreadEntry, existingInvestigation } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "./protocol";
@@ -48,11 +49,19 @@ export class InvestigationDocuments {
   // (set by beginRename from the tree; consumed in the ready handshake).
   private readonly pendingRename = new Map<string, string>();
   // Resolved evidence-ref labels, shared across panels — deterministic ids
-  // mean a ref resolves to the same thing everywhere, so cache once.
+  // mean a ref resolves to the same thing everywhere, so cache once. Failures
+  // are not cached, and everything here is cleared when the identity changes.
   private readonly labelCache = new Map<string, string>();
-  // Full evidence docs, cached for the same reason (null = unfetchable). Feeds
-  // both label resolution and the event-time strip without duplicate fetches.
-  private readonly docCache = new Map<string, EvidenceDoc | null>();
+  // Full evidence docs, cached for the same reason. Feeds both label resolution
+  // and the event-time strip without duplicate fetches.
+  private readonly docCache = new Map<string, EvidenceDoc>();
+  private readonly docReads = new SingleFlight<EvidenceDoc | null>();
+  // Bumped when the identity changes: a read begun before it is not cached.
+  private generation = 0;
+  // What reckon opened outside its panels, closed when the identity changes:
+  // candidate SOP drafts, and exported reports (their scratch files, by path).
+  private readonly draftEditors = new Set<vscode.TextDocument>();
+  private readonly reports = new Map<string, vscode.Uri>();
   // The projection reads, their watermark, and the per-investigation ordering
   // that keeps an older read from being posted after a newer one (impl §3.1–§3.2).
   private readonly cache: InvestigationCache;
@@ -515,10 +524,70 @@ export class InvestigationDocuments {
     }
   }
 
+  /**
+   * The person behind the session changed (adr/0241). Everything here was read
+   * as someone else, so it goes, and everything reckon opened closes: a panel
+   * the new person cannot read would otherwise keep the last snapshot on screen,
+   * and its tab the title.
+   */
+  identityChanged(): void {
+    this.generation++;
+    this.docCache.clear();
+    this.docReads.clear();
+    this.labelCache.clear();
+    this.cache.clear();
+    this.sopDrafts.clear();
+    this.pendingRename.clear();
+    for (const panel of [...this.open.values()]) {
+      panel.dispose();
+    }
+    void this.closeEditors();
+  }
+
+  /**
+   * Close what reckon opened outside its panels, and only that. A draft's
+   * unsaved text is reverted, not offered to the next person to save, and a
+   * report's scratch file goes with its preview.
+   */
+  private async closeEditors(): Promise<void> {
+    const drafts = [...this.draftEditors];
+    const reports = [...this.reports.values()];
+    this.draftEditors.clear();
+    this.reports.clear();
+    for (const doc of drafts) {
+      if (doc.isClosed) {
+        continue;
+      }
+      try {
+        await vscode.window.showTextDocument(doc);
+        await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+      } catch (err) {
+        this.log.warn(`closing a SOP draft: ${errText(err)}`);
+      }
+    }
+    const names = reports.map((uri) => path.basename(uri.fsPath));
+    const previews = vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) =>
+      tab.input instanceof vscode.TabInputWebview && tab.input.viewType.includes("markdown.preview")
+      && names.some((name) => tab.label.includes(name)));
+    try {
+      await vscode.window.tabGroups.close(previews);
+    } catch (err) {
+      this.log.warn(`closing a report preview: ${errText(err)}`);
+    }
+    for (const uri of reports) {
+      await Promise.resolve(vscode.workspace.fs.delete(uri)).catch((err: unknown) => {
+        this.log.warn(`deleting a report's scratch file: ${errText(err)}`);
+      });
+    }
+  }
+
   /** Drop everything held for a closed panel, including a pending dispatch watch. */
   private forget(id: string): void {
     this.open.delete(id);
     this.cache.forget(id);
+    this.sopDrafts.delete(id);
+    this.pendingRename.delete(id);
+    this.draftMode.delete(id);
     const watch = this.dispatchWatch.get(id);
     if (watch) {
       clearTimeout(watch.timer);
@@ -803,33 +872,45 @@ export class InvestigationDocuments {
     await this.refresh(id, panel);
   }
 
-  /** Fetch one evidence doc through the cache (null = unfetchable). */
+  /** Fetch one evidence doc through the cache (null = unfetchable, this time). */
   private async getDoc(ref: string): Promise<EvidenceDoc | null> {
     const hit = this.docCache.get(ref);
-    if (hit !== undefined) {
+    if (hit) {
       return hit;
     }
-    let doc: EvidenceDoc | null;
-    try {
-      doc = await this.client.evidence(ref);
-    } catch {
-      doc = null;
-    }
-    this.docCache.set(ref, doc);
-    return doc;
+    const generation = this.generation;
+    return this.docReads.run(ref, async () => {
+      try {
+        const doc = await this.client.evidence(ref);
+        if (generation === this.generation) {
+          this.docCache.set(ref, doc);
+        }
+        return doc;
+      } catch {
+        return null;
+      }
+    });
   }
 
   /**
    * Resolve a human label for an evidence ref (host · WIN-FILE01, account ·
-   * svc_backup) from the evidence endpoint, cached. Posts back only on a hit;
-   * a ref that can't be opened keeps its type-only label in the webview.
+   * svc_backup) from the evidence endpoint, cached. Posts back only on a hit; a
+   * ref that can't be opened keeps its type-only label in the webview, and a
+   * failed read says so, so the webview can ask again.
    */
   private async resolveLabel(panel: vscode.WebviewPanel, ref: string): Promise<void> {
     let label = this.labelCache.get(ref);
     if (label === undefined) {
+      const generation = this.generation;
       const doc = await this.getDoc(ref);
-      label = doc ? deriveEvidenceLabel(doc) : "";
-      this.labelCache.set(ref, label);
+      if (!doc) {
+        void this.post(panel, { type: "evidence.unresolved", ref });
+        return;
+      }
+      label = deriveEvidenceLabel(doc);
+      if (generation === this.generation) {
+        this.labelCache.set(ref, label);
+      }
     }
     if (label) {
       void this.post(panel, { type: "evidence.label", ref, label });
@@ -1211,6 +1292,7 @@ export class InvestigationDocuments {
     const doc = await vscode.workspace.openTextDocument({ content: candidateSOPMarkdown(candidate, id), language: "markdown" });
     await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
     this.sopDrafts.set(id, { doc, title: candidate.title.trim() });
+    this.draftEditors.add(doc);
     void this.post(panel, { type: "sop.status", state: "ready", title: candidate.title.trim(), message: candidate.rationale?.trim() || undefined });
   }
 
@@ -1411,6 +1493,7 @@ export class InvestigationDocuments {
       void vscode.window.showErrorMessage(`reckon: export failed — ${errText(err)}`);
       return;
     }
+    this.reports.set(scratch.fsPath, scratch);
     await vscode.commands.executeCommand("markdown.showPreviewToSide", scratch);
     const save = "Save report…";
     if ((await vscode.window.showInformationMessage("reckon: report exported", save)) !== save) return;

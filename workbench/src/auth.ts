@@ -84,14 +84,18 @@ export class Session {
    * onDidChange, so it is gone before anything re-renders.
    */
   readonly onDidChangeIdentity = this.identityChanged.event;
-  /** Whose session this is: the human token's `sub`. */
-  private subject: string | undefined;
+  private knownSubject: string | undefined;
 
   constructor(
     private readonly secrets: vscode.SecretStorage,
     private readonly loadAuthConfig: () => Promise<AuthConfig>,
     private readonly log: vscode.LogOutputChannel,
   ) {}
+
+  /** Whose session this is: the human token's `sub`. Undefined when signed out. */
+  get subject(): string | undefined {
+    return this.knownSubject;
+  }
 
   /** Signed in means the HUMAN session is live; the delegate side may lag (see token). */
   get signedIn(): boolean {
@@ -219,9 +223,9 @@ export class Session {
     const set = this.tokens.get("human");
     const subject = set ? tokenSubject(set.accessToken) : undefined;
     // A token with no readable subject cannot be shown to be the same person.
-    const same = subject === this.subject && (subject !== undefined || !set);
+    const same = subject === this.knownSubject && (subject !== undefined || !set);
     if (!same) {
-      this.subject = subject;
+      this.knownSubject = subject;
       this.identityChanged.fire();
     }
   }
