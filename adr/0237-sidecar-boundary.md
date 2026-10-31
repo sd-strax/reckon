@@ -1,6 +1,6 @@
 # 0237 — The sidecar depends on no backend code, and a session ends when its panel or its person does
 
-Issue: #237 · PR: · Status: accepted
+Issue: #237 · PR: #279 · Status: accepted
 
 ## Context
 
