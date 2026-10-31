@@ -1,6 +1,6 @@
 # 0241 — Nothing read as one person outlives their session, and a failed read is not an answer
 
-Issue: #241 · PR: · Status: accepted
+Issue: #241 · PR: #284 · Status: accepted
 
 ## Context
 
