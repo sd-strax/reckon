@@ -86,8 +86,10 @@ type ExtraMigrationSet struct {
 type Postgres struct {
 	cfg PostgresConfig
 
-	mu sync.Mutex // guards pg; Health runs concurrently with watcher Stop/Start
+	mu sync.Mutex // guards pg and db; Health runs concurrently with watcher Stop/Start
 	pg *embeddedpostgres.EmbeddedPostgres
+	// db is the one handle Health pings, opened at Start and closed at Stop.
+	db *sql.DB
 }
 
 // NewPostgres constructs the Postgres component (not yet started).
@@ -151,9 +153,15 @@ func (p *Postgres) Start(ctx context.Context) error {
 		_ = pg.Stop()
 		return fmt.Errorf("ensure databases: %w", err)
 	}
+	db, err := p.open(ctx, "postgres")
+	if err != nil {
+		_ = pg.Stop()
+		return fmt.Errorf("open health handle: %w", err)
+	}
 
 	p.mu.Lock()
 	p.pg = pg
+	p.db = db
 	p.mu.Unlock()
 	return nil
 }
@@ -161,9 +169,12 @@ func (p *Postgres) Start(ctx context.Context) error {
 // Stop the embedded Pg process. Idempotent — multiple calls return nil.
 func (p *Postgres) Stop(_ context.Context) error {
 	p.mu.Lock()
-	pg := p.pg
-	p.pg = nil
+	pg, db := p.pg, p.db
+	p.pg, p.db = nil, nil
 	p.mu.Unlock()
+	if db != nil {
+		_ = db.Close()
+	}
 	if pg == nil {
 		return nil
 	}
@@ -176,16 +187,11 @@ func (p *Postgres) Stop(_ context.Context) error {
 // Health returns Ready=true when the maintenance database accepts a ping.
 func (p *Postgres) Health(ctx context.Context) HealthStatus {
 	p.mu.Lock()
-	pg := p.pg
+	db := p.db
 	p.mu.Unlock()
-	if pg == nil {
+	if db == nil {
 		return HealthStatus{Ready: false, Message: "not started"}
 	}
-	db, err := p.open(ctx, "postgres")
-	if err != nil {
-		return HealthStatus{Ready: false, Message: err.Error()}
-	}
-	defer db.Close()
 	if err := db.PingContext(ctx); err != nil {
 		return HealthStatus{Ready: false, Message: err.Error()}
 	}

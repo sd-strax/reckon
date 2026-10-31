@@ -209,9 +209,12 @@ type Backend struct {
 	// across its file write too, so two applies cannot lose each other's edit.
 	reloadMu sync.Mutex
 
-	mu       sync.Mutex
-	srv      *http.Server
-	started  bool
+	mu      sync.Mutex
+	srv     *http.Server
+	started bool
+	// serveErr is why the HTTP server stopped serving on its own; Health
+	// reports it so the supervisor restarts the backend.
+	serveErr error
 	verifier *authz.Verifier
 
 	// dispatchClient is the shared Temporal client: it starts ActionLifecycle/
@@ -319,14 +322,11 @@ func (b *Backend) Start(ctx context.Context) error {
 	b.dispatchClient = dispatchClient
 	b.srv = newHTTPServer(addr, mux)
 	b.started = true
+	b.serveErr = nil
 	srv := b.srv
 	b.mu.Unlock()
 
-	go func() {
-		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Printf("backend http server: %v", err)
-		}
-	}()
+	go b.serve(srv, listener)
 
 	// Action reconciliation: every pending action gets its durable expiry
 	// timer, and every stranded action its workflow (adr/0216), at startup and
@@ -344,9 +344,23 @@ func (b *Backend) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop gracefully shuts the HTTP server down within ctx's deadline. Active
-// WebSocket streams are torn down explicitly via the hub — they are hijacked
-// connections, which http.Server.Shutdown neither closes nor waits for.
+// serve runs srv until it stops. A stop that is not Shutdown is recorded for
+// Health, so the supervisor sees a backend that no longer serves.
+func (b *Backend) serve(srv *http.Server, listener net.Listener) {
+	err := srv.Serve(listener)
+	if errors.Is(err, http.ErrServerClosed) {
+		return
+	}
+	log.Printf("backend http server: %v", err)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.srv == srv { // not a server a later Start replaced
+		b.serveErr = fmt.Errorf("http server exited: %w", err)
+	}
+}
+
+// Stop gracefully shuts the HTTP server down within ctx's deadline, and ends
+// the action sweeps and the dispatch client.
 func (b *Backend) Stop(ctx context.Context) error {
 	b.mu.Lock()
 	srv := b.srv
@@ -384,10 +398,13 @@ func (b *Backend) getDispatchClient() *temporal.Client {
 // view is at /status (which calls into the supervisor's Health rollup).
 func (b *Backend) Health(_ context.Context) HealthStatus {
 	b.mu.Lock()
-	started := b.started
+	started, serveErr := b.started, b.serveErr
 	b.mu.Unlock()
 	if !started {
 		return HealthStatus{Ready: false, Message: "not started"}
+	}
+	if serveErr != nil {
+		return HealthStatus{Ready: false, Message: serveErr.Error()}
 	}
 	return HealthStatus{Ready: true, Message: fmt.Sprintf("http :%d", b.cfg.HTTPPort)}
 }

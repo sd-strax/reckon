@@ -141,17 +141,46 @@ func (s *Supervisor) shutdown(ctx context.Context) error {
 	return firstErr
 }
 
-// Health rolls up the current status of every started Component.
+// Health rolls up the current status of every started Component. The probes
+// run at once, each under probeTimeout, so one hung probe neither stalls the
+// rollup nor hides the others.
 func (s *Supervisor) Health(ctx context.Context) map[string]HealthStatus {
 	s.mu.Lock()
 	started := append([]Component(nil), s.started...)
 	s.mu.Unlock()
 
+	results := make([]HealthStatus, len(started))
+	var wg sync.WaitGroup
+	for i, c := range started {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = probe(ctx, c)
+		}()
+	}
+	wg.Wait()
+
 	out := make(map[string]HealthStatus, len(started))
-	for _, c := range started {
-		out[c.Name()] = c.Health(ctx)
+	for i, c := range started {
+		out[c.Name()] = results[i]
 	}
 	return out
+}
+
+// probe runs one Health call under probeTimeout. A probe that has not
+// answered by then is a miss, even if it ignores its context: the caller
+// moves on and the late answer is dropped.
+func probe(ctx context.Context, c Component) HealthStatus {
+	pctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	done := make(chan HealthStatus, 1)
+	go func() { done <- c.Health(pctx) }()
+	select {
+	case h := <-done:
+		return h
+	case <-pctx.Done():
+		return HealthStatus{Ready: false, Message: fmt.Sprintf("health probe did not answer within %s", probeTimeout)}
+	}
 }
 
 // Watcher tuning. Conservative defaults: 5s polling, 2 consecutive misses
@@ -160,8 +189,13 @@ func (s *Supervisor) Health(ctx context.Context) map[string]HealthStatus {
 // to fatal. Aggressive enough to catch real outages, lenient enough not to
 // fight with normal startup jitter.
 //
+// probeTimeout bounds each Health call; restartStopTimeout bounds the Stop
+// before a restart's Start.
+//
 // These are vars (not consts) so tests can override them via t.Cleanup.
 var (
+	probeTimeout           = 3 * time.Second
+	restartStopTimeout     = 30 * time.Second
 	watchInterval          = 5 * time.Second
 	watchConsecutiveMisses = 2
 	watchMaxRestarts       = 3
@@ -236,7 +270,7 @@ func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, 
 		case <-ticker.C:
 		}
 
-		h := spec.Health(ctx)
+		h := probe(ctx, spec.Component)
 		if h.Ready {
 			consecutiveMisses = 0
 			continue
@@ -268,7 +302,13 @@ func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, 
 			}
 			log.Printf("supervisor: restarting %s (attempt %d of %d in the last %s)",
 				spec.Name(), len(restartTimes)+1, maxRestarts, watchRestartWindow)
-			_ = spec.Stop(ctx)
+			stopCtx, cancel := context.WithTimeout(ctx, restartStopTimeout)
+			if err := spec.Stop(stopCtx); err != nil {
+				// Start may still succeed (a process already gone); if it
+				// fails, this line carries the cause.
+				log.Printf("supervisor: %s stop before restart: %v", spec.Name(), err)
+			}
+			cancel()
 			if err := spec.Start(ctx); err != nil {
 				log.Printf("supervisor: %s restart failed: %v — escalating to fatal",
 					spec.Name(), err)
