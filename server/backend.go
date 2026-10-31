@@ -901,12 +901,14 @@ func (b *Backend) reloadLocked() error {
 	b.mu.Lock()
 	b.capOverride = &capabilitySurface{resolver: s.CapabilityResolver, catalog: s.CapabilityCatalog}
 	if s.ActionResolver != nil {
+		// Dispatch first, then the readout: /action-types never advertises a
+		// binding the worker cannot yet dispatch through.
+		if b.cfg.ActionDispatch != nil {
+			b.cfg.ActionDispatch.Store(s.ActionResolver)
+		}
 		b.actionOverride = s.ActionResolver
 	}
 	b.mu.Unlock()
-	if s.ActionResolver != nil && b.cfg.ActionDispatch != nil {
-		b.cfg.ActionDispatch.Store(s.ActionResolver)
-	}
 	return nil
 }
 
