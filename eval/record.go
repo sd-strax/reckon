@@ -10,7 +10,11 @@
 // of -short or `make ci` (10 §1.5).
 package eval
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/sd-strax/reckon/agent"
+)
 
 // TurnRecord is one analyst turn of one trial: the driver's input and the
 // committed record it produced. Transcript is byte-identical to the side-store
@@ -154,9 +158,20 @@ type transcriptEvent struct {
 	Content string // the payload after the frame
 }
 
-// parseTranscript splits a committed transcript body into ordered events.
-// Unrecognized lines are ignored (forward compatibility with new frames).
+// parseTranscript splits a committed transcript body into ordered events,
+// each event's content decoded back to the text as written
+// (agent.UnescapeTranscript, adr/0235). Unrecognized lines are ignored
+// (forward compatibility with new frames).
 func parseTranscript(body string) []transcriptEvent {
+	events := parseFrames(body)
+	for i := range events {
+		events[i].Content = agent.UnescapeTranscript(events[i].Content)
+	}
+	return events
+}
+
+// parseFrames splits a transcript body into its framed lines.
+func parseFrames(body string) []transcriptEvent {
 	var events []transcriptEvent
 	for _, line := range strings.Split(body, "\n") {
 		if line == "" {

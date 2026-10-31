@@ -9,7 +9,7 @@ import { parseTranscript } from "../transcript";
 import { Markdown, RefChip, fmtDateTime, fmtTime } from "./shared";
 import { ToolRow } from "./ToolRow";
 import { actLineId, verdictLinks, type VerdictLink } from "../derive/verdict";
-import { actionRequestText } from "../derive/turns";
+import { actionRequestText, isContextReset } from "../derive/turns";
 import type { ThreadEntry } from "../../../src/viewTypes";
 import type { ChronicleTurn } from "../../../src/protocol";
 
@@ -135,9 +135,8 @@ export function Chronicle() {
   return (
     <div id="restored">
       {entries.map((e) => {
-        // A context reset is a BOUNDARY, not a line (prefix contract shared
-        // with the agent's rehydrate marker — keep in lockstep).
-        if (e.summary && e.summary.indexOf("context reset:") === 0) {
+        // A context reset is a BOUNDARY, not a line (adr/0235).
+        if (isContextReset(e)) {
           return <div key={e.sequenceNo} className="ctxreset">⟲ context reset — agent re-grounded from the investigation record{e.occurredAt ? " · " + fmtTime(e.occurredAt) : ""}</div>;
         }
         const body = bodies.get(e.sequenceNo);

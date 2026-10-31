@@ -43,6 +43,9 @@ const (
 	InterpretationVerdict      = "verdict"
 	InterpretationPivot        = "pivot"
 	InterpretationOther        = "other"
+	// InterpretationContextReset marks the analyst's context reset: a
+	// rehydrated conversation starts after the newest one (adr/0235).
+	InterpretationContextReset = "context-reset"
 )
 
 // reasoningTypes is the set RecordInterpretation accepts. Keeping it a closed
@@ -61,6 +64,7 @@ var reasoningTypes = map[string]bool{
 	InterpretationVerdict:      true,
 	InterpretationPivot:        true,
 	InterpretationOther:        true,
+	InterpretationContextReset: true,
 }
 
 // rationaleMaxRunes bounds the interpretation rationale (01-domain-model.md

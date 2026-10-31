@@ -93,6 +93,12 @@ export function recordLine(e: ThreadEntry, hs: Hypothesis[], actions: ActionRow[
   }
 }
 
+/** A context-reset marker, recognised by its interpretation type alone: a
+ * turn's summary is the model's own text and may say anything (adr/0235). */
+export function isContextReset(e: ThreadEntry): boolean {
+  return e.interpretationType === "context-reset";
+}
+
 export function groupTurns(thread: ThreadEntry[], turns: ChronicleTurn[], hs: Hypothesis[], actions: ActionRow[] = []): Turn[] {
   const bodies = new Map(turns.map((t) => [t.sequenceNo, t]));
   const entries = thread.slice().sort((a, b) => a.sequenceNo - b.sequenceNo);
@@ -100,7 +106,7 @@ export function groupTurns(thread: ThreadEntry[], turns: ChronicleTurn[], hs: Hy
   let pendingRecords: TurnRecord[] = [];
   let pendingReset: ThreadEntry | null = null;
   for (const e of entries) {
-    if (e.summary && e.summary.indexOf("context reset:") === 0) { pendingReset = e; continue; }
+    if (isContextReset(e)) { pendingReset = e; continue; }
     if (e.hasTranscript) {
       const transcript = bodies.get(e.sequenceNo) || null;
       const aside = !!transcript && /^\[user\] ⚡ /.test(transcript.body);

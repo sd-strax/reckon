@@ -436,7 +436,7 @@
           "kind": "HUMAN"
         },
         "interpretationId": "interp-reset-1",
-        "interpretationType": "note",
+        "interpretationType": "context-reset",
         "summary": "context reset: agent re-grounded",
         "inputRefs": [],
         "outputRefs": [],

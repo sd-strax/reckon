@@ -260,10 +260,14 @@ func (s *Session) refreshHypotheses(ctx context.Context) {
 	s.hyps = hyps
 }
 
-// contextResetRationale marks a context reset in the reasoning thread. It makes
+// interpretationContextReset is the type of the context-reset marker. It makes
 // the reset DURABLE: rehydrate refuses to replay transcripts from before the
 // newest marker, so a sidecar respawn cannot re-import the discarded narration.
-// Written by ResetContext, matched by rehydrate — keep them in lockstep.
+// The marker is its type, which only ResetContext records; the rationale is
+// for the reader (adr/0235).
+const interpretationContextReset = "context-reset"
+
+// contextResetRationale is the marker's rationale.
 const contextResetRationale = "context reset: the analyst rebuilt the agent's working conversation from the engine record; earlier narration is not replayed"
 
 // ResetContext is the analyst's context reset: it discards the model's working
@@ -295,7 +299,7 @@ func (s *Session) ResetContext(ctx context.Context) error {
 	// attributed act on the thread.
 	if _, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
 		InvestigationRef:   s.investigationID,
-		InterpretationType: "other",
+		InterpretationType: interpretationContextReset,
 		Rationale:          contextResetRationale,
 	}); err != nil {
 		return fmt.Errorf("context reset applied to the live session, but recording it failed (a sidecar respawn would replay the old narration): %w", err)
@@ -320,7 +324,7 @@ func (s *Session) rehydrate(ctx context.Context) {
 	}
 	var resetAfter int64 = -1
 	for _, e := range thread {
-		if strings.HasPrefix(e.Summary, "context reset:") && e.SequenceNo > resetAfter {
+		if e.InterpretationType == interpretationContextReset && e.SequenceNo > resetAfter {
 			resetAfter = e.SequenceNo
 		}
 	}
@@ -370,24 +374,47 @@ func parseTranscriptTurn(body string) (userMsg, assistantMsg string) {
 			if user.Len() > 0 {
 				user.WriteByte('\n')
 			}
-			user.WriteString(unsanitizeTranscript(rest))
+			user.WriteString(UnescapeTranscript(rest))
 		} else if rest, ok := strings.CutPrefix(line, "[assistant] "); ok {
 			if assistant.Len() > 0 {
 				assistant.WriteByte('\n')
 			}
-			assistant.WriteString(unsanitizeTranscript(rest))
+			assistant.WriteString(UnescapeTranscript(rest))
 		}
 	}
 	return strings.TrimSpace(user.String()), strings.TrimSpace(assistant.String())
 }
 
-// unsanitizeTranscript reverses sanitizeTranscript's newline escaping so a
-// rehydrated message reads as the model wrote it.
-func unsanitizeTranscript(s string) string {
+// UnescapeTranscript is the exact inverse of sanitizeTranscript: it decodes
+// the content of one transcript line back to the text as written, for
+// rehydration and for anything else that reads a committed transcript. One left-to-right pass: an
+// escape is a backslash and the character after it; a backslash before
+// anything else is kept as it is.
+func UnescapeTranscript(s string) string {
 	if !strings.Contains(s, "\\") {
 		return s
 	}
-	return strings.NewReplacer("\\n", "\n", "\\r", "\r").Replace(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 == len(s) {
+			b.WriteByte(s[i])
+			continue
+		}
+		switch s[i+1] {
+		case '\\':
+			b.WriteByte('\\')
+		case 'n':
+			b.WriteByte('\n')
+		case 'r':
+			b.WriteByte('\r')
+		default:
+			b.WriteByte(s[i])
+			continue
+		}
+		i++
+	}
+	return b.String()
 }
 
 // Tools exposes the assembled tool set (for surfaces that display it).
@@ -1039,13 +1066,17 @@ func (s *Session) answerToolUses(results []ContentBlock) {
 // tool result) could embed a literal newline followed by a fake "[tool_result
 // ...]" / "[tool_use ...]" line and masquerade as reckon's own framing. The
 // structured tool-call log is built from the real dispatch, not this text, so it
-// is unaffected either way — this closes the human-readable-record gap.
+// is unaffected either way — this closes the human-readable-record gap. The
+// backslash is escaped too, so UnescapeTranscript is its exact inverse: a
+// literal "\n" in the text is not read back as a line break (adr/0235).
 func sanitizeTranscript(s string) string {
-	if !strings.ContainsAny(s, "\r\n") {
+	if !strings.ContainsAny(s, "\\\r\n") {
 		return s
 	}
-	return strings.NewReplacer("\n", "\\n", "\r", "\\r").Replace(s)
+	return transcriptEscaper.Replace(s)
 }
+
+var transcriptEscaper = strings.NewReplacer("\\", "\\\\", "\n", "\\n", "\r", "\\r")
 
 // clipRunes truncates s to at most n runes.
 func clipRunes(s string, n int) string {

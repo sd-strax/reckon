@@ -530,9 +530,17 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 		if err := json.Unmarshal(input, &in); err != nil {
 			return nil, fmt.Errorf("bad evaluate_hypothesis input: %w", err)
 		}
+		// The disposition becomes the interpretation type, so only the three
+		// outcomes pass: anything else would let the model record another
+		// type, the context-reset marker among them (adr/0235).
+		switch in.Disposition {
+		case "support", "refutation", "inconclusive":
+		default:
+			return nil, fmt.Errorf("evaluate_hypothesis: disposition must be support, refutation or inconclusive, not %q", in.Disposition)
+		}
 		resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
 			InvestigationRef:   s.investigationID,
-			InterpretationType: in.Disposition, // support | refutation | inconclusive — the aggregate validates
+			InterpretationType: in.Disposition,
 			Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
 			Confidence:         in.Confidence,
 			HypothesisRef:      in.HypothesisRef,
