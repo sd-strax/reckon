@@ -167,7 +167,7 @@ func TestStop_HungStopReturnsAtTheBound(t *testing.T) {
 	t.Cleanup(func() { close(c.release) })
 
 	began := time.Now()
-	err := New().stop(context.Background(), c)
+	err := New().stop(context.Background(), &registration{Spec: Spec{Component: c}})
 	if !errors.Is(err, errStopTimedOut) {
 		t.Fatalf("err = %v, want errStopTimedOut", err)
 	}
@@ -237,13 +237,50 @@ func TestShutdown_HungStopDoesNotBlockTheRest(t *testing.T) {
 // the component calls Stop afresh (a restart's Stop, then the shutdown's).
 func TestStop_FinishedStopIsNotReused(t *testing.T) {
 	c := &fakeComponent{name: "c"}
+	r := &registration{Spec: Spec{Component: c}}
 	sup := New()
 	for i := 0; i < 2; i++ {
-		if err := sup.stop(context.Background(), c); err != nil {
+		if err := sup.stop(context.Background(), r); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if n := c.getStopCalls(); n != 2 {
 		t.Errorf("Stop called %d times, want 2", n)
+	}
+}
+
+// sliceComponent is a Component whose concrete type is not comparable,
+// which the interface allows.
+type sliceComponent []*stuckStopComponent
+
+func (s sliceComponent) Name() string                            { return s[0].Name() }
+func (s sliceComponent) Start(ctx context.Context) error         { return s[0].Start(ctx) }
+func (s sliceComponent) Stop(ctx context.Context) error          { return s[0].Stop(ctx) }
+func (s sliceComponent) Health(ctx context.Context) HealthStatus { return s[0].Health(ctx) }
+
+// TestRun_NonComparableComponent: a component of a non-comparable type
+// goes through a hung restart Stop and the shutdown after it without a
+// panic, and its Stop is entered once.
+func TestRun_NonComparableComponent(t *testing.T) {
+	withFastWatcher(t)
+	withStopTimeout(t, 50*time.Millisecond)
+	inner := newStuckStopComponent("slice")
+	t.Cleanup(func() { close(inner.release) })
+	sup := New()
+	sup.Register(sliceComponent{inner}, RestartOnExit)
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- sup.Run(context.Background()) }()
+
+	waitFor(t, time.Second, "initial start", func() bool { return inner.getStartCalls() == 1 })
+	inner.setHealthy(false)
+
+	select {
+	case <-runDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	if n := inner.getEntries(); n != 1 {
+		t.Errorf("Stop entered %d times, want 1", n)
 	}
 }

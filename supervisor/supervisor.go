@@ -61,15 +61,23 @@ type Spec struct {
 	MaxRestarts int
 }
 
+// registration is one RegisterSpec call: the Spec plus the supervisor's own
+// state for it. The supervisor tracks a component through its registration,
+// held by pointer, so nothing depends on the component's own type being
+// comparable.
+type registration struct {
+	Spec
+
+	// stopping is the Stop in flight, nil when none; guarded by
+	// Supervisor.mu.
+	stopping *stopCall
+}
+
 // Supervisor manages the lifecycle of a set of Components.
 type Supervisor struct {
-	specs   []Spec
+	specs   []*registration
 	mu      sync.Mutex
-	started []Component // for stop ordering
-
-	// stopping holds each Stop still running, so a second stop of the same
-	// component waits on it instead of calling Stop again.
-	stopping map[Component]*stopCall
+	started []*registration // for stop ordering
 
 	// OnReady, when set, is called by Run exactly once, after Start has
 	// brought every registered component up and before the health watchers
@@ -95,7 +103,7 @@ func (s *Supervisor) Register(c Component, policy RestartPolicy) {
 // RegisterSpec adds a Component with an explicit supervision Spec, for
 // callers that need a non-default restart budget.
 func (s *Supervisor) RegisterSpec(spec Spec) {
-	s.specs = append(s.specs, spec)
+	s.specs = append(s.specs, &registration{Spec: spec})
 }
 
 // Start every registered component in order. On the first failure,
@@ -110,7 +118,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 			return fmt.Errorf("start %s: %w", spec.Name(), err)
 		}
 		s.mu.Lock()
-		s.started = append(s.started, spec.Component)
+		s.started = append(s.started, spec)
 		s.mu.Unlock()
 		log.Printf("supervisor: %s ready", spec.Name())
 	}
@@ -153,7 +161,7 @@ func (s *Supervisor) shutdown(ctx context.Context) error {
 // rollup nor hides the others.
 func (s *Supervisor) Health(ctx context.Context) map[string]HealthStatus {
 	s.mu.Lock()
-	started := append([]Component(nil), s.started...)
+	started := append([]*registration(nil), s.started...)
 	s.mu.Unlock()
 
 	results := make([]HealthStatus, len(started))
@@ -162,7 +170,7 @@ func (s *Supervisor) Health(ctx context.Context) map[string]HealthStatus {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i] = probe(ctx, c)
+			results[i] = probe(ctx, c.Component)
 		}()
 	}
 	wg.Wait()
@@ -199,27 +207,24 @@ type stopCall struct {
 	err  error
 }
 
-// stop calls c.Stop under stopTimeout and waits no longer than that, even
+// stop calls r's Stop under stopTimeout and waits no longer than that, even
 // for a Stop that ignores its context. The bound runs from now whether or
 // not ctx is already cancelled: a shutdown still gives each component its
 // time to stop. A Stop that times out is left running, so the caller must
-// not Start c over it, and a later stop of c waits on that same call rather
+// not Start r over it, and a later stop of r waits on that same call rather
 // than calling Stop a second time.
-func (s *Supervisor) stop(ctx context.Context, c Component) error {
+func (s *Supervisor) stop(ctx context.Context, r *registration) error {
 	s.mu.Lock()
-	call, inFlight := s.stopping[c]
-	if !inFlight {
-		if s.stopping == nil {
-			s.stopping = make(map[Component]*stopCall)
-		}
+	call := r.stopping
+	if call == nil {
 		call = &stopCall{done: make(chan struct{})}
-		s.stopping[c] = call
+		r.stopping = call
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
 		go func() {
 			defer cancel()
-			call.err = c.Stop(sctx)
+			call.err = r.Stop(sctx)
 			s.mu.Lock()
-			delete(s.stopping, c)
+			r.stopping = nil
 			s.mu.Unlock()
 			close(call.done)
 		}()
@@ -280,7 +285,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	for _, spec := range s.specs {
 		wg.Add(1)
-		go func(spec Spec) {
+		go func(spec *registration) {
 			defer wg.Done()
 			s.watch(runCtx, fatalCancel, spec)
 		}(spec)
@@ -302,7 +307,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 //
 // Exits early on ctx cancellation (i.e., when Run is shutting down) — the
 // caller's wg.Wait then knows it's safe to call Stop without races.
-func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, spec Spec) {
+func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, spec *registration) {
 	ticker := time.NewTicker(watchInterval)
 	defer ticker.Stop()
 
@@ -353,7 +358,7 @@ func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, 
 			}
 			log.Printf("supervisor: restarting %s (attempt %d of %d in the last %s)",
 				spec.Name(), len(restartTimes)+1, maxRestarts, watchRestartWindow)
-			if err := s.stop(ctx, spec.Component); err != nil {
+			if err := s.stop(ctx, spec); err != nil {
 				if errors.Is(err, errStopTimedOut) {
 					// The old Stop may still be changing the component;
 					// a Start now would race it.
