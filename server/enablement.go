@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/capability"
 )
@@ -150,7 +151,7 @@ type ApplyEnablementBody struct {
 }
 
 // applyEnablement rewrites the adapter's stanza in the tenant config file,
-// rebuilds the capability surface from the file, hot-swaps it, and records
+// reloads both sides from the file (Reload, adr/0223), and records
 // the attributed audit line. Only a HUMAN principal may apply (11 §5.1).
 func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapter string) {
 	claims, ok := authz.FromContext(r.Context())
@@ -171,6 +172,11 @@ func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapte
 		return
 	}
 
+	// One reload at a time, and this apply's read-modify-write of the file
+	// inside it (adr/0223).
+	b.reloadMu.Lock()
+	defer b.reloadMu.Unlock()
+
 	tc, err := capability.LoadTenantConfig(b.cfg.CapabilityConfigPath)
 	if err != nil {
 		writeInternalError(w, "load tenant config", err)
@@ -185,7 +191,7 @@ func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapte
 	// A plugin (out-of-process) adapter can only be hot-enabled when the
 	// plugin-aware rebuild closure is wired (runtime injects it). Without it,
 	// only the fixture class can be spawned in-package — the honest v0 gate.
-	if body.Enabled && spec.Class != capability.ClassFixture && b.cfg.CapabilityRebuild == nil {
+	if body.Enabled && spec.Class != capability.ClassFixture && b.cfg.Rebuild == nil {
 		writeJSONError(w, http.StatusUnprocessableEntity,
 			fmt.Sprintf("adapter %q has class %q and no plugin rebuild is wired; enable it via the tenant config + a restart", adapter, spec.Class))
 		return
@@ -196,12 +202,11 @@ func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapte
 		return
 	}
 
-	// Rebuild from the FILE (the authority) and hot-swap — through the full
-	// plugin path when the closure is wired, else the fixture-only in-package
-	// build. A rebuild failure after a write is surfaced loudly (the file
-	// changed, the surface didn't) so the operator fixes or reverts.
-	if err := b.rebuildCapabilityFromFile(); err != nil {
-		writeInternalError(w, "config written but rebuild failed (fix the file or revert)", err)
+	// Reload both sides from the FILE (the authority), the same routine SIGHUP
+	// runs. A failure after a write is surfaced loudly (the file changed, the
+	// running config didn't) so the operator fixes or reverts.
+	if err := b.reloadLocked(); err != nil {
+		writeInternalError(w, "config written but reload failed (fix the file or revert)", err)
 		return
 	}
 
@@ -215,18 +220,14 @@ func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapte
 	})
 }
 
-// rebuildCapabilityFromFile rebuilds + hot-swaps the capability surface from
-// the tenant config on disk: the injected plugin-aware closure when wired
-// (11 §5.1, the full adapter path), else the fixture-only in-package build (the
-// v0 path with no adapter host). Shared by the enablement endpoint and any
-// reload trigger.
-func (b *Backend) rebuildCapabilityFromFile() error {
-	if b.cfg.CapabilityRebuild != nil {
-		return b.ReloadCapability()
-	}
+// buildInPackage is Reload's build when runtime injected none: the
+// capability side from the tenant config with the in-package adapter classes
+// only, and the action side the same way when one was wired at boot. No
+// adapter host, so a plugin adapter needs a restart on this path.
+func (b *Backend) buildInPackage() (ReloadedSurface, error) {
 	tc, err := capability.LoadTenantConfig(b.cfg.CapabilityConfigPath)
 	if err != nil {
-		return err
+		return ReloadedSurface{}, err
 	}
 	ns := uuid.Nil
 	if b.cfg.TenantNamespace != "" {
@@ -234,10 +235,21 @@ func (b *Backend) rebuildCapabilityFromFile() error {
 	}
 	resolver, catalog, err := capability.BuildResolver(tc, b.cfg.CapabilityFixtureRoot, ns, b.cfg.Demo)
 	if err != nil {
-		return err
+		return ReloadedSurface{}, err
 	}
-	b.setCapabilitySurface(resolver, catalog)
-	return nil
+	s := ReloadedSurface{CapabilityResolver: resolver, CapabilityCatalog: catalog}
+	if b.cfg.ActionResolver == nil && b.cfg.ActionDispatch == nil {
+		return s, nil // action layer off
+	}
+	ac, err := action.LoadActionConfig(b.cfg.CapabilityConfigPath)
+	if err != nil {
+		return ReloadedSurface{}, fmt.Errorf("load action config: %w", err)
+	}
+	s.ActionResolver, _, err = action.BuildActionResolverWithAdapters(ac, b.cfg.CapabilityFixtureRoot, nil, b.cfg.Demo)
+	if err != nil {
+		return ReloadedSurface{}, fmt.Errorf("build action resolver: %w", err)
+	}
+	return s, nil
 }
 
 // appendEnablementAudit records one config-plane change (11 §5.1: "casual
