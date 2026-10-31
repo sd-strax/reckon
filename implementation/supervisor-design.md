@@ -91,7 +91,7 @@ Every Health call runs under `probeTimeout` (3s). A probe that has not answered 
 
 - **`FatalOnExit`** — call `fatalCancel()` on the run-context. Run's `<-ctx.Done()` unblocks; orderly Stop runs; Run returns nil. Used for Postgres (mid-transaction corruption risk on unclean exit).
 
-- **`RestartOnExit`** — call `Stop` (bounded by `stopTimeout`, its error logged) then `Start`. A Stop that has not returned by `stopTimeout` escalates to fatal-cancel instead, since a `Start` would race the old `Stop`. Record the restart timestamp. If the rolling 5-minute window contains ≥3 restarts, escalate to fatal-cancel. If the Start call fails, escalate immediately.
+- **`RestartOnExit`** — call `Stop` (bounded by `stopTimeout`, its error logged) then `Start`. A Stop that has not returned by `stopTimeout` escalates to fatal-cancel instead, since a `Start` would race the old `Stop`; the shutdown that follows waits on that same `Stop` rather than calling it a second time. Record the restart timestamp. If the rolling 5-minute window contains ≥3 restarts, escalate to fatal-cancel. If the Start call fails, escalate immediately.
 
 ### Tuning vars (package private, vars not consts so tests override)
 

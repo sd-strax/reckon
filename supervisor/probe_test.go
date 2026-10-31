@@ -124,10 +124,14 @@ func TestRunRestartsAHungComponent(t *testing.T) {
 }
 
 // stuckStopComponent's Stop ignores its context and blocks until release,
-// the worst case the stop bound has to survive.
+// the worst case the stop bound has to survive. entries counts Stop calls
+// as they begin, since a stuck one never reaches the embedded counter.
 type stuckStopComponent struct {
 	fakeComponent
 	release chan struct{}
+
+	emu     sync.Mutex
+	entries int
 }
 
 func newStuckStopComponent(name string) *stuckStopComponent {
@@ -135,8 +139,17 @@ func newStuckStopComponent(name string) *stuckStopComponent {
 }
 
 func (s *stuckStopComponent) Stop(ctx context.Context) error {
+	s.emu.Lock()
+	s.entries++
+	s.emu.Unlock()
 	<-s.release
 	return s.fakeComponent.Stop(ctx)
+}
+
+func (s *stuckStopComponent) getEntries() int {
+	s.emu.Lock()
+	defer s.emu.Unlock()
+	return s.entries
 }
 
 func withStopTimeout(t *testing.T, d time.Duration) {
@@ -154,7 +167,7 @@ func TestStop_HungStopReturnsAtTheBound(t *testing.T) {
 	t.Cleanup(func() { close(c.release) })
 
 	began := time.Now()
-	err := stop(context.Background(), c)
+	err := New().stop(context.Background(), c)
 	if !errors.Is(err, errStopTimedOut) {
 		t.Fatalf("err = %v, want errStopTimedOut", err)
 	}
@@ -164,8 +177,9 @@ func TestStop_HungStopReturnsAtTheBound(t *testing.T) {
 }
 
 // TestRunDoesNotRestartOverAHungStop: when the Stop before a restart hangs,
-// the watcher does not Start the component over it; it escalates, and Run
-// still returns.
+// the watcher does not Start the component over it; it escalates, Run still
+// returns, and the shutdown waits on the hung Stop instead of calling Stop
+// again.
 func TestRunDoesNotRestartOverAHungStop(t *testing.T) {
 	withFastWatcher(t)
 	withStopTimeout(t, 50*time.Millisecond)
@@ -187,6 +201,9 @@ func TestRunDoesNotRestartOverAHungStop(t *testing.T) {
 	}
 	if n := c.getStartCalls(); n != 1 {
 		t.Errorf("Start called %d times, want 1 (no Start over a hung Stop)", n)
+	}
+	if n := c.getEntries(); n != 1 {
+		t.Errorf("Stop entered %d times, want 1 (no second Stop over a hung one)", n)
 	}
 }
 
@@ -210,5 +227,23 @@ func TestShutdown_HungStopDoesNotBlockTheRest(t *testing.T) {
 	}
 	if n := first.getStopCalls(); n != 1 {
 		t.Errorf("first stopped %d times, want 1", n)
+	}
+	if n := stuck.getEntries(); n != 1 {
+		t.Errorf("stuck Stop entered %d times, want 1", n)
+	}
+}
+
+// TestStop_FinishedStopIsNotReused: once a Stop returns, the next stop of
+// the component calls Stop afresh (a restart's Stop, then the shutdown's).
+func TestStop_FinishedStopIsNotReused(t *testing.T) {
+	c := &fakeComponent{name: "c"}
+	sup := New()
+	for i := 0; i < 2; i++ {
+		if err := sup.stop(context.Background(), c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := c.getStopCalls(); n != 2 {
+		t.Errorf("Stop called %d times, want 2", n)
 	}
 }

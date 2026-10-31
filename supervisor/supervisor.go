@@ -67,6 +67,10 @@ type Supervisor struct {
 	mu      sync.Mutex
 	started []Component // for stop ordering
 
+	// stopping holds each Stop still running, so a second stop of the same
+	// component waits on it instead of calling Stop again.
+	stopping map[Component]*stopCall
+
 	// OnReady, when set, is called by Run exactly once, after Start has
 	// brought every registered component up and before the health watchers
 	// take over. It is the supervisor's "the whole stack is serving" signal
@@ -132,7 +136,7 @@ func (s *Supervisor) shutdown(ctx context.Context) error {
 	for i := len(started) - 1; i >= 0; i-- {
 		c := started[i]
 		log.Printf("supervisor: stopping %s", c.Name())
-		if err := stop(ctx, c); err != nil {
+		if err := s.stop(ctx, c); err != nil {
 			log.Printf("supervisor: %s stop error: %v", c.Name(), err)
 			if firstErr == nil {
 				firstErr = err
@@ -189,20 +193,45 @@ func probe(ctx context.Context, c Component) HealthStatus {
 // errStopTimedOut marks a Stop that had not returned by stopTimeout.
 var errStopTimedOut = errors.New("stop did not return")
 
+// stopCall is one Stop in flight; err is set before done is closed.
+type stopCall struct {
+	done chan struct{}
+	err  error
+}
+
 // stop calls c.Stop under stopTimeout and waits no longer than that, even
 // for a Stop that ignores its context. The bound runs from now whether or
 // not ctx is already cancelled: a shutdown still gives each component its
 // time to stop. A Stop that times out is left running, so the caller must
-// not Start c over it.
-func stop(ctx context.Context, c Component) error {
-	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- c.Stop(sctx) }()
+// not Start c over it, and a later stop of c waits on that same call rather
+// than calling Stop a second time.
+func (s *Supervisor) stop(ctx context.Context, c Component) error {
+	s.mu.Lock()
+	call, inFlight := s.stopping[c]
+	if !inFlight {
+		if s.stopping == nil {
+			s.stopping = make(map[Component]*stopCall)
+		}
+		call = &stopCall{done: make(chan struct{})}
+		s.stopping[c] = call
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
+		go func() {
+			defer cancel()
+			call.err = c.Stop(sctx)
+			s.mu.Lock()
+			delete(s.stopping, c)
+			s.mu.Unlock()
+			close(call.done)
+		}()
+	}
+	s.mu.Unlock()
+
+	timer := time.NewTimer(stopTimeout)
+	defer timer.Stop()
 	select {
-	case err := <-done:
-		return err
-	case <-sctx.Done():
+	case <-call.done:
+		return call.err
+	case <-timer.C:
 		return fmt.Errorf("%w within %s", errStopTimedOut, stopTimeout)
 	}
 }
@@ -324,7 +353,7 @@ func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, 
 			}
 			log.Printf("supervisor: restarting %s (attempt %d of %d in the last %s)",
 				spec.Name(), len(restartTimes)+1, maxRestarts, watchRestartWindow)
-			if err := stop(ctx, spec.Component); err != nil {
+			if err := s.stop(ctx, spec.Component); err != nil {
 				if errors.Is(err, errStopTimedOut) {
 					// The old Stop may still be changing the component;
 					// a Start now would race it.

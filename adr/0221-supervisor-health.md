@@ -40,7 +40,9 @@ one restarted.
   restart's `Start` and for each component in a shutdown. A restart logs
   `Stop`'s error before `Start`. A `Stop` that times out is not restarted
   over, since the old `Stop` may still be changing the component; the
-  watcher escalates to fatal instead.
+  watcher escalates to fatal instead. A component is never in two `Stop`s
+  at once: the shutdown that follows waits on the `Stop` still running
+  rather than calling it again, since the contract is Stop once.
 - **No restart cascade.** A restart is of the one component. Its dependents
   reconnect on their own: the worker and the backend's dispatch client
   carried on through a Temporal stop and start on the same port and SQLite
