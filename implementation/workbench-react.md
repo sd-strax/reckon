@@ -797,7 +797,7 @@ the baselines are expected to stand.
 inferred later, and the unit of membership is the **capability call** (§8.9): one row per
 invocation, and every event it returned joined to it. `CapabilityInvokeBody` gains
 `investigation_ref` (the agent loop and the workbench already know it; empty keeps today's
-behavior for ad-hoc calls). `persistInvokeResult` writes, in the same transaction:
+behavior for ad-hoc calls). `evidence.Store.Persist` writes, in the same transaction:
 
 ```sql
 capability_calls (id UUID PK, tenant_id, aggregate_id, verb, binding, adapter, operation, priority, params_sent JSONB,

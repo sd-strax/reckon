@@ -83,22 +83,17 @@ func (b *Backend) caseSystemName(ctx context.Context, seed *aggregate.Seed) stri
 	if name, ok := caseSystemDisplayNames[strings.ToLower(seed.Source)]; ok {
 		return name
 	}
-	if b.cfg.Handler == nil || seed.CaseRef == "" {
+	if b.cfg.Evidence == nil || seed.CaseRef == "" {
 		return ""
 	}
-	id, ok := stixRefUUID(seed.CaseRef)
-	if !ok {
-		return ""
-	}
-	var payload []byte
-	if err := b.cfg.Handler.DB().QueryRowContext(ctx,
-		`SELECT payload FROM stix_objects WHERE id = $1`, id).Scan(&payload); err != nil {
+	obj, err := b.cfg.Evidence.Object(ctx, seed.CaseRef)
+	if err != nil {
 		return ""
 	}
 	var od struct {
 		Extensions map[string]any `json:"extensions"`
 	}
-	if err := json.Unmarshal(payload, &od); err != nil {
+	if err := json.Unmarshal(obj.Payload, &od); err != nil {
 		return ""
 	}
 	sor, _ := od.Extensions["sor"].(string)

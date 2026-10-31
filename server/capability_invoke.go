@@ -131,8 +131,8 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 	// are persisted before the refs leave the building — a ref the caller cites
 	// must be openable later (design/ui 02 §2.8). Persist failure fails the
 	// invocation rather than minting dangling citations.
-	if b.cfg.Handler != nil {
-		if err := persistInvokeResult(r, b.cfg.Handler.DB(), res); err != nil {
+	if b.cfg.Evidence != nil {
+		if err := b.cfg.Evidence.Persist(r.Context(), res); err != nil {
 			writeInternalError(w, verb+": persist results", err)
 			return
 		}

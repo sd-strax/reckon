@@ -25,6 +25,7 @@ import (
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
+	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/internal/pgmigrate"
 	"github.com/sd-strax/reckon/internal/testpg"
 )
@@ -178,6 +179,7 @@ func newTestBackend(t *testing.T) *Backend {
 		cfg: BackendConfig{
 			HTTPPort: 0, // unused for in-process tests
 			Handler:  testHandler,
+			Evidence: evidence.NewStore(testDB),
 		},
 		verifier: v,
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/comms"
 	"github.com/sd-strax/reckon/config"
+	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/internal/adapterplugin"
 	"github.com/sd-strax/reckon/internal/branding"
 	"github.com/sd-strax/reckon/internal/secretref"
@@ -341,6 +342,7 @@ func serve(cfg config.Config) error {
 	}
 
 	backendCfg := server.BackendConfig{
+		Evidence:         evidence.NewStore(aggDB),
 		HTTPPort:         cfg.Backend.HTTPPort,
 		PgDSN:            pg.DSN("reckon_main"),
 		TemporalHostPort: supervisor.TemporalHostPort(cfg.Temporal.FrontendPort),

@@ -31,6 +31,7 @@ import (
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/comms"
+	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/apiversion"
 	"github.com/sd-strax/reckon/knowledge"
@@ -90,6 +91,10 @@ type BackendConfig struct {
 	// with a 503 if absent so the server still serves /healthz cleanly when
 	// the engine is being torn down).
 	Handler *aggregate.Handler
+
+	// Evidence persists what capability invocations return and opens cited
+	// refs. Nil skips persistence, and evidence routes answer 503.
+	Evidence *evidence.Store
 
 	// Middleware, when non-nil, wraps the entire router — it carries the
 	// telemetry tracing/metrics layer (telemetry.Provider.HTTPMiddleware).
