@@ -1,6 +1,6 @@
 # 0221 — A component's health is what it supervises, every probe has a deadline, and a restart is of one component
 
-Issue: #221 · PR: #TBD · Status: accepted
+Issue: #221 · PR: #283 · Status: accepted
 
 ## Context
 
