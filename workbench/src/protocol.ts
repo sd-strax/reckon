@@ -165,6 +165,8 @@ export type RenderMessage =
   | { type: "renamed"; title: string }
   // A resolved human label for an evidence ref (e.g. "host · WIN-FILE01").
   | { type: "evidence.label"; ref: string; label: string }
+  // The read failed: the webview may ask again after the next refresh.
+  | { type: "evidence.unresolved"; ref: string }
   // The inspector's one-object answers (impl §4.1): the webview opened a pane
   // from the snapshot and asked for what the record holds beyond it.
   | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; appearances: Appearance[] }

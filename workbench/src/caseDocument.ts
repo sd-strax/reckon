@@ -33,6 +33,13 @@ export class CaseDocuments {
     private readonly onInvestigationCreated: (created: InvestigationDetail) => void,
   ) {}
 
+  /** The person behind the session changed: a case on screen was read as someone else (adr/0241). */
+  closeAll(): void {
+    for (const panel of [...this.panels.values()]) {
+      panel.dispose();
+    }
+  }
+
   /** Open (or reveal) the document for one case number and (re)load it. */
   open(number: string): void {
     const existing = this.panels.get(number);

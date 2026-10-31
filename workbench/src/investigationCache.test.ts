@@ -181,3 +181,64 @@ describe("InvestigationCache: the actions a decision is checked against", () => 
     expect(cache.action("inv-1", "act-1")).toBeUndefined();
   });
 });
+
+describe("InvestigationCache: identity and forget (adr/0241)", () => {
+  it("clear drops everything, the shared transcripts included", async () => {
+    const { client, calls } = fakeClient();
+    const cache = new InvestigationCache(client, quiet);
+    await cache.snapshot("inv-1");
+    await cache.transcript("i-1");
+    cache.servedRecord("inv-1", "a-1", 1);
+
+    cache.clear();
+
+    expect(cache.watermark("inv-1")).toBe(0);
+    expect(cache.staleRecords("inv-1", 9)).toEqual([]);
+    await cache.transcript("i-1");
+    expect(calls.transcript).toBe(2);
+  });
+
+  it("a read that began before a clear does not fill the cache after it", async () => {
+    let answer!: (v: { body: string }) => void;
+    let actions!: (v: ActionRow[]) => void;
+    const { client } = fakeClient({
+      transcript: () => new Promise((r) => { answer = r; }),
+      actions: () => new Promise((r) => { actions = r; }),
+    });
+    const cache = new InvestigationCache(client, quiet);
+    const transcript = cache.transcript("i-1");
+    const read = cache.snapshot("inv-1");
+    await new Promise((r) => setTimeout(r, 0));
+
+    cache.clear();
+    answer({ body: "the previous person's" });
+    actions([{ actionId: "a-1" } as ActionRow]);
+    await transcript;
+    await read;
+
+    expect(cache.watermark("inv-1")).toBe(0);
+    expect(cache.action("inv-1", "a-1")).toBeUndefined();
+    answer = () => undefined;
+    let reread = false;
+    client.transcript = async () => { reread = true; return { body: "b" } as never; };
+    await cache.transcript("i-1");
+    expect(reread).toBe(true);
+  });
+
+  it("forget drops the watermark, and what a running read writes when it lands", async () => {
+    let actions!: (v: ActionRow[]) => void;
+    const { client } = fakeClient({ actions: () => new Promise((r) => { actions = r; }) });
+    const cache = new InvestigationCache(client, quiet);
+    const read = cache.exclusive("inv-1", () => cache.snapshot("inv-1"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    cache.forget("inv-1");
+    actions([{ actionId: "a-1" } as ActionRow]);
+    await read;
+    await cache.exclusive("inv-1", async () => undefined);
+
+    expect(cache.watermark("inv-1")).toBe(0);
+    expect(cache.action("inv-1", "a-1")).toBeUndefined();
+  });
+});
+

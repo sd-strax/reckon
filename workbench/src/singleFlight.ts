@@ -7,7 +7,9 @@ export class SingleFlight<T> {
   run(key: string, start: () => Promise<T>): Promise<T> {
     const inFlight = this.pending.get(key);
     if (inFlight) return inFlight;
-    const p = start().finally(() => this.pending.delete(key));
+    const p: Promise<T> = start().finally(() => {
+      if (this.pending.get(key) === p) this.pending.delete(key);
+    });
     this.pending.set(key, p);
     return p;
   }

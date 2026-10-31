@@ -36,4 +36,20 @@ describe("one session per investigation (#157)", () => {
     expect(settled).toBe(true);
     await sf.settled("none");
   });
+  it("a run from before a clear does not end a newer run's share", async () => {
+    const sf = new SingleFlight<string>();
+    let finishOld!: (v: string) => void;
+    const old = sf.run("k", () => new Promise((r) => { finishOld = r; }));
+    sf.clear();
+    let finishNew!: (v: string) => void;
+    let runs = 0;
+    const fresh = sf.run("k", () => { runs++; return new Promise((r) => { finishNew = r; }); });
+    finishOld("old");
+    await old;
+    const joined = sf.run("k", () => { runs++; return Promise.resolve("again"); });
+    finishNew("new");
+    expect(await fresh).toBe("new");
+    expect(await joined).toBe("new");
+    expect(runs).toBe(1);
+  });
 });

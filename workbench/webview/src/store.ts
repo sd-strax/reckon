@@ -233,6 +233,8 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...state, title: msg.title, snap: state.snap ? { ...state.snap, investigation: { ...state.snap.investigation, title: msg.title } } : null };
     case "evidence.label":
       return { ...state, labels: { ...state.labels, [msg.ref]: msg.label } };
+    case "evidence.unresolved":
+      return state; // the app's own request bookkeeping; nothing renders it
     case "inspector.evidence": {
       return {
         ...state,
