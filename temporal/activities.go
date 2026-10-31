@@ -489,7 +489,7 @@ func (a *Activities) EmitExpired(ctx context.Context, in EmitExpiredInput) error
 		return badInput(err)
 	}
 	requester, err := a.handler.ActionRequester(ctx, env.AggregateID, id)
-	if errors.Is(err, aggregate.ErrNoRecord) {
+	if errors.Is(err, aggregate.ErrNotFound) {
 		return badInput(err)
 	}
 	if err != nil {

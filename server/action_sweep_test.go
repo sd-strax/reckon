@@ -2,14 +2,17 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	sdktemporal "go.temporal.io/sdk/temporal"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/module"
 	"github.com/sd-strax/reckon/temporal"
 )
 
@@ -170,5 +173,22 @@ func TestResolveActionOutcome_Endpoint(t *testing.T) {
 	}
 	if len(fake.sagas) != 1 || fake.sagas[0] != reversing.String() {
 		t.Errorf("sagas started %v; want the reversal's saga", fake.sagas)
+	}
+}
+
+// TestEmitExpired_UnknownActionIsBadInput: a timer for an action the stream
+// does not hold can never succeed, so it fails without spending the retry
+// budget (the activity needs the real handler, which this package's harness has).
+func TestEmitExpired_UnknownActionIsBadInput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	a := temporal.NewActivities(testHandler, nil, nil)
+	err := a.EmitExpired(context.Background(), temporal.EmitExpiredInput{
+		ActionID: uuid.NewString(), AggregateID: uuid.NewString(), TenantID: module.SingleTenantUUID.String(),
+	})
+	var appErr *sdktemporal.ApplicationError
+	if !errors.As(err, &appErr) || !appErr.NonRetryable() {
+		t.Errorf("err = %v; want a non-retryable ApplicationError", err)
 	}
 }
