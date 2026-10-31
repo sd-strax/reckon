@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -60,11 +61,23 @@ type Spec struct {
 	MaxRestarts int
 }
 
+// registration is one RegisterSpec call: the Spec plus the supervisor's own
+// state for it. The supervisor tracks a component through its registration,
+// held by pointer, so nothing depends on the component's own type being
+// comparable.
+type registration struct {
+	Spec
+
+	// stopping is the Stop in flight, nil when none; guarded by
+	// Supervisor.mu.
+	stopping *stopCall
+}
+
 // Supervisor manages the lifecycle of a set of Components.
 type Supervisor struct {
-	specs   []Spec
+	specs   []*registration
 	mu      sync.Mutex
-	started []Component // for stop ordering
+	started []*registration // for stop ordering
 
 	// OnReady, when set, is called by Run exactly once, after Start has
 	// brought every registered component up and before the health watchers
@@ -90,7 +103,7 @@ func (s *Supervisor) Register(c Component, policy RestartPolicy) {
 // RegisterSpec adds a Component with an explicit supervision Spec, for
 // callers that need a non-default restart budget.
 func (s *Supervisor) RegisterSpec(spec Spec) {
-	s.specs = append(s.specs, spec)
+	s.specs = append(s.specs, &registration{Spec: spec})
 }
 
 // Start every registered component in order. On the first failure,
@@ -105,7 +118,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 			return fmt.Errorf("start %s: %w", spec.Name(), err)
 		}
 		s.mu.Lock()
-		s.started = append(s.started, spec.Component)
+		s.started = append(s.started, spec)
 		s.mu.Unlock()
 		log.Printf("supervisor: %s ready", spec.Name())
 	}
@@ -113,8 +126,10 @@ func (s *Supervisor) Start(ctx context.Context) error {
 }
 
 // Stop every started component in reverse order. Best-effort: stop errors
-// are logged but don't prevent the next component from being stopped. The
-// first error encountered (if any) is returned.
+// are logged but don't prevent the next component from being stopped. Each
+// component's Stop is waited on for at most stopTimeout, so one that hangs
+// does not keep the rest from stopping. The first error encountered (if any)
+// is returned.
 func (s *Supervisor) Stop(ctx context.Context) error {
 	return s.shutdown(ctx)
 }
@@ -129,7 +144,7 @@ func (s *Supervisor) shutdown(ctx context.Context) error {
 	for i := len(started) - 1; i >= 0; i-- {
 		c := started[i]
 		log.Printf("supervisor: stopping %s", c.Name())
-		if err := c.Stop(ctx); err != nil {
+		if err := s.stop(ctx, c); err != nil {
 			log.Printf("supervisor: %s stop error: %v", c.Name(), err)
 			if firstErr == nil {
 				firstErr = err
@@ -141,17 +156,89 @@ func (s *Supervisor) shutdown(ctx context.Context) error {
 	return firstErr
 }
 
-// Health rolls up the current status of every started Component.
+// Health rolls up the current status of every started Component. The probes
+// run at once, each under probeTimeout, so one hung probe neither stalls the
+// rollup nor hides the others.
 func (s *Supervisor) Health(ctx context.Context) map[string]HealthStatus {
 	s.mu.Lock()
-	started := append([]Component(nil), s.started...)
+	started := append([]*registration(nil), s.started...)
 	s.mu.Unlock()
 
+	results := make([]HealthStatus, len(started))
+	var wg sync.WaitGroup
+	for i, c := range started {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = probe(ctx, c.Component)
+		}()
+	}
+	wg.Wait()
+
 	out := make(map[string]HealthStatus, len(started))
-	for _, c := range started {
-		out[c.Name()] = c.Health(ctx)
+	for i, c := range started {
+		out[c.Name()] = results[i]
 	}
 	return out
+}
+
+// probe runs one Health call under probeTimeout. A probe that has not
+// answered by then is a miss, even if it ignores its context: the caller
+// moves on and the late answer is dropped.
+func probe(ctx context.Context, c Component) HealthStatus {
+	pctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	done := make(chan HealthStatus, 1)
+	go func() { done <- c.Health(pctx) }()
+	select {
+	case h := <-done:
+		return h
+	case <-pctx.Done():
+		return HealthStatus{Ready: false, Message: fmt.Sprintf("health probe did not answer within %s", probeTimeout)}
+	}
+}
+
+// errStopTimedOut marks a Stop that had not returned by stopTimeout.
+var errStopTimedOut = errors.New("stop did not return")
+
+// stopCall is one Stop in flight; err is set before done is closed.
+type stopCall struct {
+	done chan struct{}
+	err  error
+}
+
+// stop calls r's Stop under stopTimeout and waits no longer than that, even
+// for a Stop that ignores its context. The bound runs from now whether or
+// not ctx is already cancelled: a shutdown still gives each component its
+// time to stop. A Stop that times out is left running, so the caller must
+// not Start r over it, and a later stop of r waits on that same call rather
+// than calling Stop a second time.
+func (s *Supervisor) stop(ctx context.Context, r *registration) error {
+	s.mu.Lock()
+	call := r.stopping
+	if call == nil {
+		call = &stopCall{done: make(chan struct{})}
+		r.stopping = call
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
+		go func() {
+			defer cancel()
+			call.err = r.Stop(sctx)
+			s.mu.Lock()
+			r.stopping = nil
+			s.mu.Unlock()
+			close(call.done)
+		}()
+	}
+	s.mu.Unlock()
+
+	timer := time.NewTimer(stopTimeout)
+	defer timer.Stop()
+	select {
+	case <-call.done:
+		return call.err
+	case <-timer.C:
+		return fmt.Errorf("%w within %s", errStopTimedOut, stopTimeout)
+	}
 }
 
 // Watcher tuning. Conservative defaults: 5s polling, 2 consecutive misses
@@ -160,8 +247,13 @@ func (s *Supervisor) Health(ctx context.Context) map[string]HealthStatus {
 // to fatal. Aggressive enough to catch real outages, lenient enough not to
 // fight with normal startup jitter.
 //
+// probeTimeout bounds each Health call; stopTimeout bounds each Stop, the
+// one before a restart's Start and each one in a shutdown.
+//
 // These are vars (not consts) so tests can override them via t.Cleanup.
 var (
+	probeTimeout           = 3 * time.Second
+	stopTimeout            = 30 * time.Second
 	watchInterval          = 5 * time.Second
 	watchConsecutiveMisses = 2
 	watchMaxRestarts       = 3
@@ -193,7 +285,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	for _, spec := range s.specs {
 		wg.Add(1)
-		go func(spec Spec) {
+		go func(spec *registration) {
 			defer wg.Done()
 			s.watch(runCtx, fatalCancel, spec)
 		}(spec)
@@ -203,9 +295,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	log.Println("supervisor: run cancelled; awaiting watchers")
 	wg.Wait()
 
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer stopCancel()
-	if err := s.Stop(stopCtx); err != nil {
+	if err := s.Stop(context.Background()); err != nil {
 		return fmt.Errorf("supervisor stop: %w", err)
 	}
 	return nil
@@ -217,7 +307,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 //
 // Exits early on ctx cancellation (i.e., when Run is shutting down) — the
 // caller's wg.Wait then knows it's safe to call Stop without races.
-func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, spec Spec) {
+func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, spec *registration) {
 	ticker := time.NewTicker(watchInterval)
 	defer ticker.Stop()
 
@@ -236,7 +326,7 @@ func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, 
 		case <-ticker.C:
 		}
 
-		h := spec.Health(ctx)
+		h := probe(ctx, spec.Component)
 		if h.Ready {
 			consecutiveMisses = 0
 			continue
@@ -268,7 +358,22 @@ func (s *Supervisor) watch(ctx context.Context, fatalCancel context.CancelFunc, 
 			}
 			log.Printf("supervisor: restarting %s (attempt %d of %d in the last %s)",
 				spec.Name(), len(restartTimes)+1, maxRestarts, watchRestartWindow)
-			_ = spec.Stop(ctx)
+			if err := s.stop(ctx, spec); err != nil {
+				if errors.Is(err, errStopTimedOut) {
+					// The old Stop may still be changing the component;
+					// a Start now would race it.
+					log.Printf("supervisor: %s %v; not restarting over it — escalating to fatal",
+						spec.Name(), err)
+					fatalCancel()
+					return
+				}
+				// Start may still succeed (a process already gone); if it
+				// fails, this line carries the cause.
+				log.Printf("supervisor: %s stop before restart: %v", spec.Name(), err)
+			}
+			if ctx.Err() != nil {
+				return
+			}
 			if err := spec.Start(ctx); err != nil {
 				log.Printf("supervisor: %s restart failed: %v — escalating to fatal",
 					spec.Name(), err)

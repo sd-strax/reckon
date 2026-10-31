@@ -58,7 +58,7 @@ err := sup.Run(ctx)
 1. Calls `Start` on every component in order. On any Start failure, Stop runs in reverse on the components already started, then Run returns the error.
 2. Spawns one watcher goroutine per component.
 3. Blocks on the run-context done channel.
-4. When run-context is cancelled, waits for all watchers to exit, then runs orderly Stop.
+4. When run-context is cancelled, waits for all watchers to exit, then runs orderly Stop. Each component's Stop is waited on for at most `stopTimeout`, whether or not it honours its context, so one that hangs neither blocks the rest nor keeps Run from returning.
 
 `Start` and `Stop` are also exported for tests or for code that wants tighter lifecycle control; `Run` is the normal supervisor invocation.
 
@@ -85,15 +85,19 @@ for {
 
 Two consecutive misses (10s default) before declaring unexpected exit. Tunable via `watchConsecutiveMisses`; tests override via `withFastWatcher`.
 
+Every Health call runs under `probeTimeout` (3s). A probe that has not answered by then is a miss, even one that ignores its context, so a hung dependency is declared down instead of stalling its watcher. The `/status` rollup runs the probes at once under the same deadline (`adr/0221`).
+
 ### Policies
 
 - **`FatalOnExit`** — call `fatalCancel()` on the run-context. Run's `<-ctx.Done()` unblocks; orderly Stop runs; Run returns nil. Used for Postgres (mid-transaction corruption risk on unclean exit).
 
-- **`RestartOnExit`** — call `Stop` then `Start`. Record the restart timestamp. If the rolling 5-minute window contains ≥3 restarts, escalate to fatal-cancel. If the Start call fails, escalate immediately.
+- **`RestartOnExit`** — call `Stop` (bounded by `stopTimeout`, its error logged) then `Start`. A Stop that has not returned by `stopTimeout` escalates to fatal-cancel instead, since a `Start` would race the old `Stop`; the shutdown that follows waits on that same `Stop` rather than calling it a second time. Record the restart timestamp. If the rolling 5-minute window contains ≥3 restarts, escalate to fatal-cancel. If the Start call fails, escalate immediately.
 
 ### Tuning vars (package private, vars not consts so tests override)
 
 ```go
+probeTimeout           = 3 * time.Second
+stopTimeout            = 30 * time.Second
 watchInterval          = 5 * time.Second
 watchConsecutiveMisses = 2
 watchMaxRestarts       = 3
@@ -110,11 +114,13 @@ watchRestartWindow     = 5 * time.Minute
 
 If a component's Start logic isn't repeatable, the watcher will misbehave on the first restart. Fix it in the component, not the supervisor.
 
+A restart is of the one component; its dependents are not restarted with it. The ones that hold connections to it reconnect: the worker and the backend's dispatch client carry on through a Temporal restart on the same port and SQLite file (`temporal.TestClientsSurviveTemporalRestart`), and the backend's token verifier refetches Keycloak's signing keys, which live in Keycloak's database.
+
 ---
 
 ## In-process Backend gotcha
 
-Backend has no subprocess to monitor — its Health() reflects only "is my HTTP listener up." The watcher's Health-polling can't distinguish "the backend was intentionally Stop'd" from "the backend crashed."
+Backend has no subprocess to monitor — its Health() reflects only "is my HTTP server still serving": a `Serve` that returns for any reason but `Shutdown` makes it not-ready, and the watcher restarts it. The watcher's Health-polling can't distinguish "the backend was intentionally Stop'd" from "the backend crashed."
 
 Resolution: when shutdown is initiated (ctx cancel → fatal-cancel), the run-ctx propagates. Watchers exit on `<-ctx.Done()` BEFORE Stop is called. So Backend's Stop transitions through "started → not started" only after watchers have already exited; no false-positive restart.
 
