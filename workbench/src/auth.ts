@@ -77,6 +77,15 @@ export class Session {
 
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChange = this.changed.event;
+  private readonly identityChanged = new vscode.EventEmitter<void>();
+  /**
+   * Fires when the person behind the session changes, signing out included:
+   * whatever was held for the previous person must go (adr/0237). Fires before
+   * onDidChange, so it is gone before anything re-renders.
+   */
+  readonly onDidChangeIdentity = this.identityChanged.event;
+  /** Whose session this is: the human token's `sub`. */
+  private subject: string | undefined;
 
   constructor(
     private readonly secrets: vscode.SecretStorage,
@@ -120,6 +129,7 @@ export class Session {
       }
     }
     if (this.signedIn) {
+      this.noteIdentity();
       this.changed.fire();
     }
   }
@@ -135,6 +145,8 @@ export class Session {
     await this.ensureDiscovery();
     await this.pkceFlow("human", this.config!.clientId);
     this.log.info("signed in (human client)");
+    // Now, not after the agent flow: the human tokens are already the new person's.
+    this.noteIdentity();
 
     const agentClient = this.config!.agentClientId;
     if (agentClient) {
@@ -160,6 +172,7 @@ export class Session {
       await this.secrets.delete(key);
     }
     this.log.info("signed out");
+    this.noteIdentity();
     this.changed.fire();
   }
 
@@ -196,9 +209,22 @@ export class Session {
       clearTimeout(timer);
     }
     this.changed.dispose();
+    this.identityChanged.dispose();
   }
 
   // --- internals ------------------------------------------------------------
+
+  /** Fire onDidChangeIdentity if the human tokens now belong to someone else. */
+  private noteIdentity(): void {
+    const set = this.tokens.get("human");
+    const subject = set ? tokenSubject(set.accessToken) : undefined;
+    // A token with no readable subject cannot be shown to be the same person.
+    const same = subject === this.subject && (subject !== undefined || !set);
+    if (!same) {
+      this.subject = subject;
+      this.identityChanged.fire();
+    }
+  }
 
   private clientIdFor(kind: TokenKind): string | undefined {
     return kind === "human" ? this.config?.clientId : this.config?.agentClientId;
@@ -362,6 +388,16 @@ export class Session {
         this.log.info(`background ${kind} token refresh failed (${errText(err)}); will retry on demand`);
       });
     }, delay));
+  }
+}
+
+/** The `sub` claim of a JWT; undefined if the token has none to read. For keying, not trust: the backend verifies the token. */
+function tokenSubject(token: string): string | undefined {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()) as { sub?: unknown };
+    return typeof payload.sub === "string" ? payload.sub : undefined;
+  } catch {
+    return undefined;
   }
 }
 

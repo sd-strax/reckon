@@ -50,10 +50,11 @@ func (s *Session) commitTurn(ctx context.Context, req InterpretationRequest) (st
 	return "", errors.Join(errs...)
 }
 
-// flushHeld commits the turns held from earlier commits, best-effort. A reset
+// FlushHeld commits the turns held from earlier commits, best-effort. A reset
 // marker must follow them on the thread, or rehydration would replay a turn
-// the analyst reset away.
-func (s *Session) flushHeld(ctx context.Context) error {
+// the analyst reset away, and a session that is closing must not take them with
+// it. Not safe to run alongside a turn.
+func (s *Session) FlushHeld(ctx context.Context) error {
 	queue := s.held
 	s.held = nil
 	for i, r := range queue {

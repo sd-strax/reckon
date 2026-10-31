@@ -31,7 +31,10 @@ function backend(over: Record<string, (...args: never[]) => Promise<unknown>> = 
   return { client, calls };
 }
 
-const transport = {} as AgentTransport;
+const transport = {
+  closeSession: vi.fn(async () => undefined),
+  summarizeConcluded: vi.fn(async () => undefined),
+} as unknown as AgentTransport;
 
 function documents(client: BackendClient) {
   const onLoaded = vi.fn();
@@ -42,7 +45,10 @@ function documents(client: BackendClient) {
 const posted = (i = 0) => createdPanels()[i].webview.posted as RenderMessage[];
 const types = (i = 0) => posted(i).map((m) => m.type);
 
-beforeEach(() => resetVscodeFake());
+beforeEach(() => {
+  resetVscodeFake();
+  vi.clearAllMocks();
+});
 afterEach(() => vi.useRealTimers());
 
 describe("InvestigationDocuments: opening", () => {
@@ -112,5 +118,38 @@ describe("InvestigationDocuments: closing", () => {
     panel.dispose();
     await vi.advanceTimersByTimeAsync(20_000);
     expect(reads()).toBe(before + 1);
+  });
+
+  it("ends the agent session when the panel closes", async () => {
+    const { client } = backend();
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].dispose();
+    expect(transport.closeSession).toHaveBeenCalledWith("inv-1");
+  });
+
+  it("leaves a session with a panel open alone", () => {
+    const { client } = backend();
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    docs.releaseSession("inv-1");
+    expect(transport.closeSession).not.toHaveBeenCalled();
+  });
+
+  it("lets a conclude-time summary finish before ending the session of a closed panel", async () => {
+    let finish!: () => void;
+    vi.mocked(transport.summarizeConcluded).mockImplementationOnce(() => new Promise((r) => { finish = r; }));
+    const { client } = backend();
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0];
+    panel.webview.receive({ type: "lifecycle", transition: "conclude", summary: "done" });
+    await vi.waitFor(() => expect(transport.summarizeConcluded).toHaveBeenCalledWith("inv-1"));
+
+    panel.dispose();
+    expect(transport.closeSession).not.toHaveBeenCalled();
+
+    finish();
+    await vi.waitFor(() => expect(transport.closeSession).toHaveBeenCalledWith("inv-1"));
   });
 });

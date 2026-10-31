@@ -8,13 +8,17 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sd-strax/reckon/agent"
-	"github.com/sd-strax/reckon/server"
+	"github.com/sd-strax/reckon/internal/apiversion"
 )
 
 // TestFraming_RoundTrip: a written frame reads back byte-identical, and extra
@@ -160,7 +164,7 @@ func fakeBackend(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"overall": "ok", "api_version": server.APIVersion})
+		_ = json.NewEncoder(w).Encode(map[string]any{"overall": "ok", "api_version": apiversion.Current})
 	})
 	requireDelegate := func(r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer tok-delegate" {
@@ -325,8 +329,8 @@ func TestServe_FullFlow(t *testing.T) {
 	if err := json.Unmarshal(resp.Result, &ini); err != nil {
 		t.Fatal(err)
 	}
-	if ini.ProtocolVersion != ProtocolVersion || ini.BackendAPIVersion != server.APIVersion {
-		t.Errorf("handshake = %+v; want protocol v%d api v%d", ini, ProtocolVersion, server.APIVersion)
+	if ini.ProtocolVersion != ProtocolVersion || ini.BackendAPIVersion != apiversion.Current {
+		t.Errorf("handshake = %+v; want protocol v%d api v%d", ini, ProtocolVersion, apiversion.Current)
 	}
 
 	// createSession
@@ -710,5 +714,163 @@ func TestServe_SideCompletionsShareTurnEntry(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancel did not reach the draft")
+	}
+}
+
+// TestSidecar_DoesNotLinkTheBackend (adr/0237): the sidecar reads the API
+// version from the leaf package, so the client plane does not depend on the
+// server or anything behind it.
+func TestSidecar_DoesNotLinkTheBackend(t *testing.T) {
+	cmd := exec.Command("go", "list", "-deps", ".")
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	for dep := range strings.FieldsSeq(string(out)) {
+		if dep == "github.com/sd-strax/reckon/server" {
+			t.Errorf("internal/sidecar depends on %s", dep)
+		}
+	}
+}
+
+// openSession initializes the sidecar and creates a session over inv-1.
+func openSession(t *testing.T, c *testClient, backendURL string) string {
+	t.Helper()
+	if resp := c.call("initialize", initParams(backendURL)); resp.Error != nil {
+		t.Fatalf("initialize: %+v", resp.Error)
+	}
+	resp := c.call("createSession", createSessionParams{InvestigationID: "inv-1"})
+	if resp.Error != nil {
+		t.Fatalf("createSession: %+v", resp.Error)
+	}
+	var cs createSessionResult
+	if err := json.Unmarshal(resp.Result, &cs); err != nil {
+		t.Fatal(err)
+	}
+	return cs.SessionID
+}
+
+// TestServe_CloseSessionEndsIt (adr/0237): closing a session stops the turn
+// running on it, the turn's record is still committed, and the session is gone.
+func TestServe_CloseSessionEndsIt(t *testing.T) {
+	backend := fakeBackend(t)
+	var commits atomic.Int32
+	inner := backend.Config.Handler
+	backend.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/interpretations" {
+			commits.Add(1)
+		}
+		inner.ServeHTTP(w, r)
+	})
+	llm := &parkLLM{parked: make(chan struct{}, 1)}
+	c := startSidecar(t, llm)
+	id := openSession(t, c, backend.URL)
+
+	turnDone := make(chan *message, 1)
+	go func() { turnDone <- c.call("turn", turnParams{SessionID: id, Text: "go"}) }()
+	select {
+	case <-llm.parked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("turn never reached the model")
+	}
+
+	if resp := c.call("closeSession", closeSessionParams{SessionID: id}); resp.Error != nil {
+		t.Fatalf("closeSession: %+v", resp.Error)
+	}
+	select {
+	case <-turnDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("turn did not stop when its session closed")
+	}
+	if got := commits.Load(); got != 1 {
+		t.Errorf("commits = %d; want the stopped turn's record", got)
+	}
+	if resp := c.call("turn", turnParams{SessionID: id, Text: "again"}); resp.Error == nil {
+		t.Error("a turn on a closed session was accepted")
+	}
+}
+
+// TestServe_CloseSessionRecordsHeldTurn (adr/0237): a turn held by a failed
+// commit is recorded when its session closes, and the close answers only then.
+func TestServe_CloseSessionRecordsHeldTurn(t *testing.T) {
+	backend := fakeBackend(t)
+	var recorded atomic.Int32
+	var down atomic.Bool
+	down.Store(true)
+	inner := backend.Config.Handler
+	backend.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/interpretations" {
+			if down.Load() {
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			recorded.Add(1)
+		}
+		inner.ServeHTTP(w, r)
+	})
+	c := startSidecar(t, &sopLLM{text: "done"})
+	id := openSession(t, c, backend.URL)
+
+	resp := c.call("turn", turnParams{SessionID: id, Text: "go"})
+	if resp.Error != nil {
+		t.Fatalf("turn: %+v", resp.Error)
+	}
+	var tr turnResult
+	_ = json.Unmarshal(resp.Result, &tr)
+	if !strings.Contains(tr.Error, "held") {
+		t.Fatalf("turn error = %q; want the turn held", tr.Error)
+	}
+
+	down.Store(false)
+	if resp := c.call("closeSession", closeSessionParams{SessionID: id}); resp.Error != nil {
+		t.Fatalf("closeSession: %+v", resp.Error)
+	}
+	if got := recorded.Load(); got != 1 {
+		t.Errorf("recorded = %d; want the held turn", got)
+	}
+}
+
+// TestServe_CloseUnknownSession: an unknown session is the same coded error as
+// on every other method.
+func TestServe_CloseUnknownSession(t *testing.T) {
+	backend := fakeBackend(t)
+	c := startSidecar(t, &sopLLM{})
+	if resp := c.call("initialize", initParams(backend.URL)); resp.Error != nil {
+		t.Fatalf("initialize: %+v", resp.Error)
+	}
+	resp := c.call("closeSession", closeSessionParams{SessionID: "nope"})
+	if resp.Error == nil || resp.Error.Code != codeInvalidParams {
+		t.Errorf("closeSession(unknown) = %+v; want invalid params", resp.Error)
+	}
+}
+
+// sopLLM answers every completion with the same text.
+type sopLLM struct{ text string }
+
+func (l *sopLLM) Complete(context.Context, agent.CompleteRequest) (agent.CompleteResponse, error) {
+	return agent.CompleteResponse{Content: []agent.ContentBlock{agent.TextBlock(l.text)}, StopReason: agent.StopEndTurn}, nil
+}
+
+// TestServe_ProposeSOPWireShape (adr/0237): the candidate's wire keys are the
+// protocol's own, pinned here against the agent's type changing under them.
+func TestServe_ProposeSOPWireShape(t *testing.T) {
+	backend := fakeBackend(t)
+	c := startSidecar(t, &sopLLM{text: `{"warranted":true,"title":"T","body":"B","tags":["a"],"recommendation":"R","rationale":"W"}`})
+	id := openSession(t, c, backend.URL)
+
+	resp := c.call("proposeSOP", proposeSOPParams{SessionID: id})
+	if resp.Error != nil {
+		t.Fatalf("proposeSOP: %+v", resp.Error)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(resp.Result, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"warranted": true, "title": "T", "body": "B", "tags": []any{"a"}, "recommendation": "R", "rationale": "W",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("wire = %v; want %v", got, want)
 	}
 }

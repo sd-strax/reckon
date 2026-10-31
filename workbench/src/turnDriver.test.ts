@@ -16,6 +16,7 @@ function transport(script: (p: TurnProgress) => void, settle: () => Promise<Turn
   return {
     turn: async (_id, _text, p) => { script(p); return settle(); },
     cancel: async () => undefined,
+    closeSession: async () => undefined,
     summarizeConcluded: async () => undefined,
     proposeSOP: async () => { throw new Error("unused"); },
     dispose: () => undefined,

@@ -32,6 +32,7 @@ import (
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/comms"
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/apiversion"
 	"github.com/sd-strax/reckon/knowledge"
 	"github.com/sd-strax/reckon/supervisor"
 	"github.com/sd-strax/reckon/temporal"
@@ -548,14 +549,8 @@ func (b *Backend) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintln(w, "ok")
 }
 
-// APIVersion is the backend's HTTP API contract version — a single integer
-// bumped only on a breaking change to the /api surface the workbench consumes
-// (route removal, response-shape change, auth-flow change). It is NOT the
-// product/marketing version; it is the compatibility signal the workbench pins
-// against, the same philosophy as the adapter plugin protocol version
-// (11 §4.1). A client that supports version N keeps working against every
-// backend that serves N.
-const APIVersion = 1
+// APIVersion is the backend's HTTP API contract version (see internal/apiversion).
+const APIVersion = apiversion.Current
 
 // StatusResponse is the JSON shape served by /status and consumed by
 // `reckon status` and the workbench version handshake (design/13 §2).

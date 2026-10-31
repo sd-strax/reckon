@@ -83,7 +83,7 @@ deliberately small:
 
 - `initialize` — versions exchanged (see below), backend URL, model, config.
 - `createSession(investigationID)` / `turn(sessionID, userText)` /
-  `cancel(sessionID)`.
+  `cancel(sessionID)` / `closeSession(sessionID)` (`adr/0237`).
 - Server→client notifications: turn progress (tool use, tool results, text).
   Streaming (E.4, built): `turn/text_delta` carries fragments as the model
   generates them; `turn/text` carries round-complete text only when the

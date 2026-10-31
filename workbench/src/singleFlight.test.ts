@@ -23,4 +23,17 @@ describe("one session per investigation (#157)", () => {
     await expect(sf.run("k", async () => { throw new Error("boom"); })).rejects.toThrow("boom");
     expect(await sf.run("k", async () => "ok")).toBe("ok");
   });
+  it("settled waits out a run, success or failure, and is immediate with none", async () => {
+    const sf = new SingleFlight<string>();
+    let fail!: (e: Error) => void;
+    void sf.run("k", () => new Promise((_, reject) => { fail = reject; })).catch(() => undefined);
+    let settled = false;
+    const waiting = sf.settled("k").then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    fail(new Error("boom"));
+    await waiting;
+    expect(settled).toBe(true);
+    await sf.settled("none");
+  });
 });

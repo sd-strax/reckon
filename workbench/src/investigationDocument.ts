@@ -39,6 +39,8 @@ export class InvestigationDocuments {
   private draftSeq = 0;
   // Draft keys with a create in flight (the host half of the double-submit guard).
   private readonly seeding = new Set<string>();
+  // Investigations with a conclude-time summary running: it outlives the panel.
+  private readonly summarizing = new Set<string>();
   // A draft opened in "from a case" mode (via reckon.seedFromCase) — consumed in
   // the ready handshake so the panel opens with the case search already expanded.
   private readonly draftMode = new Map<string, "case">();
@@ -238,7 +240,7 @@ export class InvestigationDocuments {
         void this.postCaseNote(id, panel, msg.body);
       },
       send: (msg) => {
-        void this.turns.run(id, panel, msg.text);
+        void this.turns.run(id, panel, msg.text).finally(() => this.releaseSession(id));
       },
       "action.approve": (msg) => {
         void this.approve(id, panel, msg);
@@ -516,6 +518,18 @@ export class InvestigationDocuments {
     if (watch) {
       clearTimeout(watch.timer);
       this.dispatchWatch.delete(id);
+    }
+    this.releaseSession(id);
+  }
+
+  /**
+   * End the agent session of an investigation no panel holds (adr/0237). Runs
+   * when a panel closes, and after work that outlived its panel or never had
+   * one, which would otherwise leave a session nothing ever ends.
+   */
+  releaseSession(id: string): void {
+    if (!this.open.has(id) && !this.summarizing.has(id)) {
+      void this.transport.closeSession(id);
     }
   }
 
@@ -1148,10 +1162,14 @@ export class InvestigationDocuments {
         // way; a narrative failure must never look like a conclude failure.
         // The summary's outcome is shown beside the report (adr/0156), not only
         // in a status bar message that fades.
+        this.summarizing.add(id);
         void this.transport.summarizeConcluded(id).then(
           () => this.post(panel, { type: "summary.status", state: "written" }),
           (err: unknown) => this.post(panel, { type: "summary.status", state: "failed", detail: errText(err) }),
-        );
+        ).finally(() => {
+          this.summarizing.delete(id);
+          this.releaseSession(id);
+        });
         // Drafting a procedure from the case is the analyst's step now
         // (adr/0156): Draft SOP from this case, in the Summary lens.
       }
@@ -1178,6 +1196,8 @@ export class InvestigationDocuments {
     } catch (err) {
       void this.post(panel, { type: "sop.status", state: "failed", message: errText(err) });
       return;
+    } finally {
+      this.releaseSession(id);
     }
     if (!candidate?.warranted || !candidate.title.trim() || !candidate.body.trim()) {
       void this.post(panel, { type: "sop.status", state: "declined", message: candidate?.rationale?.trim() || "No new procedure: the model judged nothing here to generalize." });
@@ -1405,7 +1425,7 @@ export class InvestigationDocuments {
 
   /** Run a ⚡ scoped turn: rendered collapsed under its label. */
   private runScoped(id: string, panel: vscode.WebviewPanel, t: ScopedTurn): Promise<void> {
-    return this.turns.run(id, panel, t.instruction, { label: t.label });
+    return this.turns.run(id, panel, t.instruction, { label: t.label }).finally(() => this.releaseSession(id));
   }
 
   private post(panel: vscode.WebviewPanel, msg: RenderMessage): Thenable<boolean> {
