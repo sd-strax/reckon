@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/evidence"
 )
 
 // Live markdown export (design/ui binding §6 item 10): the portable,
@@ -88,7 +88,7 @@ func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID)
 		return "", err
 	}
 
-	rl := newRefLabeler(ctx, db)
+	rl := newRefLabeler(ctx, b.cfg.Evidence)
 	var md strings.Builder
 
 	// --- frontmatter (ui/05 §5.1, engine vocabulary) -----------------------
@@ -349,13 +349,13 @@ func yamlString(s string) string {
 // within one render, and ALWAYS falls back to the raw ref — a missing or opaque
 // object degrades to the id, never a broken document.
 type refLabeler struct {
-	ctx   context.Context
-	db    *sql.DB
-	cache map[string]string
+	ctx      context.Context
+	evidence *evidence.Store
+	cache    map[string]string
 }
 
-func newRefLabeler(ctx context.Context, db *sql.DB) *refLabeler {
-	return &refLabeler{ctx: ctx, db: db, cache: map[string]string{}}
+func newRefLabeler(ctx context.Context, store *evidence.Store) *refLabeler {
+	return &refLabeler{ctx: ctx, evidence: store, cache: map[string]string{}}
 }
 
 func (rl *refLabeler) label(ref string) string {
@@ -371,18 +371,15 @@ func (rl *refLabeler) label(ref string) string {
 }
 
 func (rl *refLabeler) resolve(ref string) string {
+	if rl.evidence == nil {
+		return ref
+	}
 	if strings.Contains(ref, "--") {
-		id, ok := stixRefUUID(ref)
-		if !ok {
+		obj, err := rl.evidence.Object(rl.ctx, ref)
+		if err != nil {
 			return ref
 		}
-		var typ string
-		var payload []byte
-		if err := rl.db.QueryRowContext(rl.ctx,
-			`SELECT type, payload FROM stix_objects WHERE id = $1`, id).Scan(&typ, &payload); err != nil {
-			return ref
-		}
-		if lbl := stixLabel(typ, payload); lbl != "" {
+		if lbl := stixLabel(obj.Type, obj.Payload); lbl != "" {
 			return lbl
 		}
 		return ref
@@ -391,13 +388,11 @@ func (rl *refLabeler) resolve(ref string) string {
 	if err != nil {
 		return ref
 	}
-	var class string
-	var t time.Time
-	if err := rl.db.QueryRowContext(rl.ctx,
-		`SELECT class_name, time FROM ocsf_events WHERE id = $1`, id).Scan(&class, &t); err != nil {
+	e, err := rl.evidence.Event(rl.ctx, id)
+	if err != nil {
 		return ref
 	}
-	return fmt.Sprintf("%s @ %s", class, t.UTC().Format("15:04:05Z"))
+	return fmt.Sprintf("%s @ %s", e.ClassName, e.Time.UTC().Format("15:04:05Z"))
 }
 
 // labeledList renders refs as their human labels in backticks, comma-joined.

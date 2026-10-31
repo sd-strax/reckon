@@ -53,8 +53,8 @@ func (b *Backend) resolveCaseSeed(r *http.Request, caseID, sourceScope string) (
 
 	// Persist BEFORE minting case_ref, so the ref is a durable, openable object
 	// rather than a dangling deterministic id (§3 step 2).
-	if b.cfg.Handler != nil {
-		if err := persistInvokeResult(r, b.cfg.Handler.DB(), res); err != nil {
+	if b.cfg.Evidence != nil {
+		if err := b.cfg.Evidence.Persist(r.Context(), res); err != nil {
 			return seedResolution{}, http.StatusInternalServerError, fmt.Errorf("persist case %q: %w", caseID, err)
 		}
 	}

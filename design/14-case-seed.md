@@ -144,7 +144,7 @@ source_scope?: "<org>"}`:
    in-process capability resolver, threading `source_scope` (empty ⇒ unscoped,
    the single-org default). Apply §2's fail-closed contract to the result.
 2. **Persist the result through the eager-promotion path**
-   (`persistInvokeResult` / `03 §4.13`) — the same path the HTTP invoke route
+   (`evidence.Store.Persist` / `03 §4.13`) — the same path the HTTP invoke route
    uses — *before* minting `case_ref`, so the ref names a durable, queryable
    `ObservedData` rather than a dangling deterministic id.
 3. `Seed.Source` = the result's `provenance.tool` (the binding that served the
