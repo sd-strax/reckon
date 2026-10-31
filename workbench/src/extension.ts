@@ -82,6 +82,7 @@ export function activate(context: vscode.ExtensionContext): void {
     session,
     { dispose: () => transport.dispose() },
     { dispose: () => importSOPs.dispose() },
+    session.onDidChangeIdentity(() => transport.endSessions()),
     session.onDidChange(() => {
       void vscode.commands.executeCommand("setContext", "reckon.signedIn", session.signedIn);
       investigations.refresh();
@@ -185,6 +186,7 @@ export function activate(context: vscode.ExtensionContext): void {
         // The reset is a committed act on the thread; refresh an open panel so
         // the chronicle shows the boundary immediately.
         documents.refreshOpen(row.invId);
+        documents.releaseSession(row.invId);
         void vscode.window.showInformationMessage(
           "reckon: agent context reset — the next turn starts from the engine record.",
         );

@@ -58,6 +58,9 @@ const children = () => spawned.children as FakeChild[];
 interface Sidecar {
   initialize: unknown[];
   createSession: string[];
+  closeSession: string[];
+  /** Answer closeSession; a test holding it open models a slow close. */
+  close(): Promise<unknown>;
   turn(child: FakeChild, params: { session_id: string; text: string }): Promise<unknown>;
 }
 
@@ -65,6 +68,8 @@ function installSidecar(over: Partial<Sidecar> = {}): Sidecar {
   const sc: Sidecar = {
     initialize: [],
     createSession: [],
+    closeSession: [],
+    close: async () => ({}),
     turn: async () => ({ text: "", tool_rounds: 0 }),
     ...over,
   };
@@ -77,6 +82,10 @@ function installSidecar(over: Partial<Sidecar> = {}): Sidecar {
     child.peer.onRequest("createSession", (p: { investigation_id: string }) => {
       sc.createSession.push(p.investigation_id);
       return { session_id: `s-${children().indexOf(child)}-${++n}`, tools: ["a", "b"] };
+    });
+    child.peer.onRequest("closeSession", (p: { session_id: string }) => {
+      sc.closeSession.push(p.session_id);
+      return sc.close();
     });
     child.peer.onRequest("turn", (p: { session_id: string; text: string }) => sc.turn(child, p));
   };
@@ -235,5 +244,61 @@ describe("SidecarTransport: lifecycle", () => {
     transport.dispose();
     expect(children()[0].killed).toBe(true);
     await expect(transport.turn("inv-1", "b", silent)).rejects.toThrow("transport disposed");
+  });
+
+  it("closes a session, and the next turn opens a new one", async () => {
+    const sc = installSidecar();
+    transport = new SidecarTransport(deps(), fakeLog());
+    await transport.turn("inv-1", "a", silent);
+    await transport.closeSession("inv-1");
+    expect(sc.closeSession).toHaveLength(1);
+    await transport.turn("inv-1", "b", silent);
+    expect(sc.createSession).toEqual(["inv-1", "inv-1"]);
+  });
+
+  it("does nothing closing an investigation with no session", async () => {
+    const sc = installSidecar();
+    transport = new SidecarTransport(deps(), fakeLog());
+    await transport.turn("inv-1", "a", silent);
+    await transport.closeSession("inv-2");
+    expect(sc.closeSession).toEqual([]);
+  });
+
+  it("waits for a close before opening the next session, so rehydration sees the whole thread", async () => {
+    let finish!: (v: unknown) => void;
+    const sc = installSidecar({ close: () => new Promise((r) => { finish = r; }) });
+    transport = new SidecarTransport(deps(), fakeLog());
+    await transport.turn("inv-1", "a", silent);
+    void transport.closeSession("inv-1");
+    await vi.waitFor(() => expect(sc.closeSession).toHaveLength(1));
+
+    const next = transport.turn("inv-1", "b", silent);
+    await new Promise((r) => setImmediate(r));
+    expect(sc.createSession).toEqual(["inv-1"]);
+
+    finish({});
+    await next;
+    expect(sc.createSession).toEqual(["inv-1", "inv-1"]);
+  });
+
+  it("a close that fails is logged, not thrown", async () => {
+    installSidecar({ close: async () => { throw new Error("held turn lost"); } });
+    const log = fakeLog();
+    transport = new SidecarTransport(deps(), log);
+    await transport.turn("inv-1", "a", silent);
+    await expect(transport.closeSession("inv-1")).resolves.toBeUndefined();
+    expect(log.lines.some((l) => l.includes("held turn lost"))).toBe(true);
+  });
+
+  it("ends every session with the process when the identity changes", async () => {
+    const sc = installSidecar();
+    transport = new SidecarTransport(deps(), fakeLog());
+    await transport.turn("inv-1", "a", silent);
+    transport.endSessions();
+    expect(children()[0].killed).toBe(true);
+
+    await transport.turn("inv-1", "b", silent);
+    expect(children()).toHaveLength(2);
+    expect(sc.createSession).toEqual(["inv-1", "inv-1"]);
   });
 });

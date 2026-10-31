@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/agent"
-	"github.com/sd-strax/reckon/server"
+	"github.com/sd-strax/reckon/internal/apiversion"
 )
 
 // ProtocolVersion is the stdio protocol contract version, asserted at
@@ -26,6 +26,9 @@ const ProtocolVersion = 1
 // notification. The full result went to the model and into the committed
 // transcript; the notification is a render hint, not the record.
 const toolResultClip = 4096
+
+// closeFlushTimeout bounds committing a closing session's held turns.
+const closeFlushTimeout = 30 * time.Second
 
 // Options assembles a Serve run.
 type Options struct {
@@ -47,8 +50,9 @@ type Options struct {
 // (EOF), `shutdown` is called, or ctx is canceled. The transport is
 // LSP-framed JSON-RPC 2.0 — what vscode-jsonrpc speaks natively.
 //
-// Method surface (§4): initialize, createSession, turn, cancel, shutdown;
-// notifications turn/text, turn/text_delta, turn/tool_call, turn/tool_result;
+// Method surface (§4): initialize, createSession, closeSession, turn, cancel,
+// shutdown; notifications turn/text, turn/text_delta, turn/tool_call,
+// turn/tool_result;
 // and the getToken(kind, force) request BACK to the client — the token
 // handoff (§5): the extension owns auth and refresh, this process holds
 // tokens only per-call, in memory.
@@ -63,6 +67,7 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, opts Options) error {
 	s.conn = newConn(w, map[string]handler{
 		"initialize":         s.handleInitialize,
 		"createSession":      s.handleCreateSession,
+		"closeSession":       s.handleCloseSession,
 		"turn":               s.handleTurn,
 		"resetSession":       s.handleResetSession,
 		"summarizeConcluded": s.handleSummarizeConcluded,
@@ -89,8 +94,7 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, opts Options) error {
 }
 
 // service is the protocol state: what initialize established, and the live
-// sessions. (Not named "server" — that's the imported backend package whose
-// APIVersion constant is the handshake pin.)
+// sessions.
 type service struct {
 	opts Options
 	conn *conn
@@ -113,6 +117,7 @@ type sessionState struct {
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
+	closed bool // set by closeSession: nothing new may begin
 }
 
 // --- initialize -------------------------------------------------------------
@@ -161,9 +166,9 @@ func (s *service) handleInitialize(ctx context.Context, raw json.RawMessage) (an
 	if err != nil {
 		return nil, fmt.Errorf("backend handshake at %s: %w", p.BackendURL, err)
 	}
-	if apiVersion != server.APIVersion {
+	if apiVersion != apiversion.Current {
 		return nil, fmt.Errorf("backend API v%d unsupported (this sidecar speaks v%d) — align versions",
-			apiVersion, server.APIVersion)
+			apiVersion, apiversion.Current)
 	}
 
 	apiKey := p.AnthropicAPIKey
@@ -370,6 +375,9 @@ type turnTextNote struct {
 	Text      string `json:"text"`
 }
 
+// turnToolCallNote is display data: Name and Input are opaque to the protocol,
+// which promises no tool vocabulary, and a client renders them without
+// branching on a tool's name (adr/0237).
 type turnToolCallNote struct {
 	SessionID string          `json:"session_id"`
 	Name      string          `json:"name"`
@@ -571,6 +579,17 @@ type proposeSOPParams struct {
 	Force bool `json:"force,omitempty"`
 }
 
+// proposeSOPResult is the wire shape of a candidate SOP. It is owned here, so a
+// change to the agent's own type cannot change the protocol unnoticed.
+type proposeSOPResult struct {
+	Warranted      bool     `json:"warranted"`
+	Title          string   `json:"title"`
+	Body           string   `json:"body"`
+	Tags           []string `json:"tags"`
+	Recommendation string   `json:"recommendation"`
+	Rationale      string   `json:"rationale"`
+}
+
 // handleProposeSOP runs the client tier of candidate-SOP generation: one BYOK
 // model completion over the session's own conversation, returning a candidate
 // SOP generalized from the concluded investigation (the compounding loop). The
@@ -596,7 +615,14 @@ func (s *service) handleProposeSOP(ctx context.Context, raw json.RawMessage) (an
 	if err != nil {
 		return nil, cancelledOr(runCtx, err)
 	}
-	return cand, nil
+	return proposeSOPResult{
+		Warranted:      cand.Warranted,
+		Title:          cand.Title,
+		Body:           cand.Body,
+		Tags:           cand.Tags,
+		Recommendation: cand.Recommendation,
+		Rationale:      cand.Rationale,
+	}, nil
 }
 
 func (s *service) handleCancel(_ context.Context, raw json.RawMessage) (any, error) {
@@ -616,6 +642,45 @@ func (s *service) handleCancel(_ context.Context, raw json.RawMessage) (any, err
 	return struct{}{}, nil
 }
 
+type closeSessionParams struct {
+	SessionID string `json:"session_id"`
+}
+
+// handleCloseSession ends a session (adr/0237): nothing new may begin on it,
+// what is running is cancelled, and once that has stopped any turn still held
+// from a failed commit is recorded. The answer comes after that, so a client
+// reopening the investigation can wait for the thread to be complete before it
+// rehydrates. An error means a held turn could not be recorded and is lost.
+func (s *service) handleCloseSession(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p closeSessionParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, errInvalidParams("closeSession: %v", err)
+	}
+	st, err := s.session(p.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	delete(s.sessions, p.SessionID)
+	s.mu.Unlock()
+
+	st.mu.Lock()
+	st.closed = true
+	if st.cancel != nil {
+		st.cancel()
+	}
+	st.mu.Unlock()
+
+	st.turnMu.Lock()
+	defer st.turnMu.Unlock()
+	flushCtx, cancel := context.WithTimeout(ctx, closeFlushTimeout)
+	defer cancel()
+	if err := st.sess.FlushHeld(flushCtx); err != nil {
+		return nil, err
+	}
+	return struct{}{}, nil
+}
+
 // begin is the one entry for everything that uses the session's conversation
 // (a turn, a reset, a summary, a SOP draft; adr/0234): it refuses at once with
 // busy when something already holds the session, and registers the cancel so
@@ -626,6 +691,12 @@ func (st *sessionState) begin(ctx context.Context, busy string) (context.Context
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	st.mu.Lock()
+	if st.closed {
+		st.mu.Unlock()
+		cancel()
+		st.turnMu.Unlock()
+		return nil, nil, errors.New("the session is closed")
+	}
 	st.cancel = cancel
 	st.mu.Unlock()
 	return runCtx, func() {

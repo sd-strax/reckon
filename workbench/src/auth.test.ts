@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Session } from "./auth";
-import { FakeSecretStorage, fakeLog, resetVscodeFake } from "./test/vscode";
+import * as http from "http";
+import { env, FakeSecretStorage, fakeLog, resetVscodeFake } from "./test/vscode";
 
 const ISSUER = "http://127.0.0.1:8180/realms/reckon";
 const TOKEN_URL = `${ISSUER}/protocol/openid-connect/token`;
@@ -12,6 +13,7 @@ function idp() {
   const grants: Record<string, string>[] = [];
   let refuse = false;
   let n = 0;
+  let subject: string | undefined;
   const fetch = vi.fn(async (url: string, init?: { body?: string }) => {
     if (url.endsWith("/.well-known/openid-configuration")) {
       return Response.json({ authorization_endpoint: `${ISSUER}/auth`, token_endpoint: TOKEN_URL });
@@ -22,9 +24,13 @@ function idp() {
       return Response.json({ error: "invalid_grant", error_description: "Token is not active" }, { status: 400 });
     }
     n++;
+    if (subject && form.client_id === "reckon") {
+      const claims = Buffer.from(JSON.stringify({ sub: subject })).toString("base64url");
+      return Response.json({ access_token: `h.${claims}.s`, refresh_token: `rt-${n}`, expires_in: 60 });
+    }
     return Response.json({ access_token: `${form.client_id}-at-${n}`, refresh_token: `${form.client_id}-rt-${n}`, expires_in: 60 });
   });
-  return { fetch, grants, refuse: () => { refuse = true; } };
+  return { fetch, grants, refuse: () => { refuse = true; }, as: (sub: string) => { subject = sub; } };
 }
 
 function session(secrets = new FakeSecretStorage()) {
@@ -143,5 +149,72 @@ describe("Session.signOut", () => {
     expect(changes).toHaveBeenCalledOnce();
     expect([...secrets.data.keys()]).toEqual([]);
     await expect(s.token()).rejects.toThrow("not signed in");
+  });
+});
+
+describe("Session.onDidChangeIdentity", () => {
+  /** A session that notes identity changes and restores from a stored token. */
+  async function restored(sub: string) {
+    const made = session();
+    open = made.s;
+    const identity = vi.fn();
+    made.s.onDidChangeIdentity(identity);
+    server.as(sub);
+    await made.secrets.store("reckon.refreshToken", "human-rt");
+    await made.s.restore();
+    return { ...made, identity };
+  }
+
+  /** The browser side of a login: Keycloak redirecting straight back. */
+  function browserReturnsToLoopback(): void {
+    vi.mocked(env.openExternal).mockImplementation(async (target) => {
+      const auth = new URL(target.toString());
+      const back = `${auth.searchParams.get("redirect_uri")}?code=c&state=${auth.searchParams.get("state")}`;
+      http.get(back.replace("localhost", "127.0.0.1"), (res) => res.resume());
+      return true;
+    });
+  }
+
+  it("fires when a session is restored and when it signs out, before the UI is told", async () => {
+    const { s, identity, changes } = await restored("alice");
+    expect(identity).toHaveBeenCalledOnce();
+
+    const order: string[] = [];
+    identity.mockImplementation(() => order.push("identity"));
+    changes.mockImplementation(() => order.push("changed"));
+    await s.signOut();
+    expect(order).toEqual(["identity", "changed"]);
+  });
+
+  it("does not fire on a refresh of the same person's token", async () => {
+    const { s, identity } = await restored("alice");
+    identity.mockClear();
+    await s.token("human", true);
+    expect(identity).not.toHaveBeenCalled();
+  });
+
+  it("fires when someone else signs in over the session, and not for the same person", async () => {
+    const { s, identity } = await restored("alice");
+    browserReturnsToLoopback();
+
+    identity.mockClear();
+    await s.signIn();
+    expect(identity).not.toHaveBeenCalled();
+
+    server.as("bob");
+    await s.signIn();
+    expect(identity).toHaveBeenCalledOnce();
+  });
+
+  it("treats a token with no readable subject as a change", async () => {
+    const { s, secrets, changes } = session();
+    open = s;
+    const identity = vi.fn();
+    s.onDidChangeIdentity(identity);
+    await secrets.store("reckon.refreshToken", "human-rt");
+    await s.restore();
+    await s.restore();
+    expect(changes).toHaveBeenCalledTimes(2);
+    expect(identity).toHaveBeenCalledTimes(2);
   });
 });

@@ -12,6 +12,11 @@ export class SingleFlight<T> {
     return p;
   }
 
+  /** Resolves once the in-flight run for the key, if any, has settled. */
+  settled(key: string): Promise<void> {
+    return Promise.resolve(this.pending.get(key)).then(() => undefined, () => undefined);
+  }
+
   clear(): void {
     this.pending.clear();
   }

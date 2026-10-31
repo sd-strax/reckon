@@ -96,6 +96,8 @@ export interface SOPCandidate {
 export interface AgentTransport {
   turn(investigationId: string, text: string, progress: TurnProgress): Promise<TurnOutcome>;
   cancel(investigationId: string): Promise<void>;
+  /** End the investigation's session, stopping what runs on it (adr/0237). */
+  closeSession(investigationId: string): Promise<void>;
   /** Client-side knowledge-summary narrative at conclusion (design/06 §3.2). */
   summarizeConcluded(investigationId: string): Promise<void>;
   /** Client-side candidate-SOP generalization at conclusion (design/06: the
@@ -143,6 +145,8 @@ export class SidecarTransport implements AgentTransport {
   private readonly sessions = new Map<string, string>();
   /** investigation id → a session being created, shared by concurrent callers. */
   private readonly creating = new SingleFlight<string>();
+  /** investigation id → a close in flight; a new session waits for it (see closeSession). */
+  private readonly closing = new Map<string, Promise<void>>();
   /** session id → the in-flight turn's progress sink (for notifications). */
   private readonly inFlight = new Map<string, TurnProgress>();
   private disposed = false;
@@ -190,6 +194,40 @@ export class SidecarTransport implements AgentTransport {
       return; // nothing in flight on this process — cancel is idempotent
     }
     await this.connection.sendRequest("cancel", { session_id: sessionId });
+  }
+
+  /**
+   * End the investigation's session: the sidecar stops what runs on it and
+   * records any turn still held, so the thread is complete before a later
+   * session rehydrates from it. No session is a no-op. A failure is logged: it
+   * means a held turn is lost, and no caller can act on that.
+   */
+  async closeSession(investigationId: string): Promise<void> {
+    await this.creating.settled(investigationId);
+    const sessionId = this.sessions.get(investigationId);
+    if (!sessionId || !this.connection) {
+      return;
+    }
+    this.sessions.delete(investigationId);
+    const closing = this.connection.sendRequest("closeSession", { session_id: sessionId }).then(
+      () => undefined,
+      (err: unknown) => this.log.warn(`closing session ${sessionId}: ${err instanceof Error ? err.message : String(err)}`),
+    ).finally(() => {
+      if (this.closing.get(investigationId) === closing) {
+        this.closing.delete(investigationId);
+      }
+    });
+    this.closing.set(investigationId, closing);
+    await closing;
+  }
+
+  /**
+   * End every session by ending the process: the identity changed, and nothing
+   * of the previous person's conversation may reach the next turn (adr/0237).
+   * The next turn spawns clean.
+   */
+  endSessions(): void {
+    this.teardown("identity changed");
   }
 
   /**
@@ -347,10 +385,11 @@ export class SidecarTransport implements AgentTransport {
    * investigation — the conclude-time summary and an analyst's turn — share
    * the session being created rather than each creating their own.
    */
-  private ensureSession(conn: MessageConnection, investigationId: string): Promise<string> {
+  private async ensureSession(conn: MessageConnection, investigationId: string): Promise<string> {
+    await this.closing.get(investigationId);
     const existing = this.sessions.get(investigationId);
     if (existing) {
-      return Promise.resolve(existing);
+      return existing;
     }
     return this.creating.run(investigationId, () => this.createSession(conn, investigationId));
   }
@@ -376,6 +415,7 @@ export class SidecarTransport implements AgentTransport {
     this.child = null;
     this.sessions.clear();
     this.creating.clear();
+    this.closing.clear();
     this.inFlight.clear();
     if (child && child.exitCode === null && !child.killed) {
       child.kill();

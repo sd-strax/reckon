@@ -290,7 +290,7 @@ func (s *Session) ResetContext(ctx context.Context) error {
 
 	// Turns still held from a failed commit go on the thread before the
 	// marker, so rehydration treats them as reset away (adr/0231).
-	if err := s.flushHeld(ctx); err != nil {
+	if err := s.FlushHeld(ctx); err != nil {
 		return fmt.Errorf("context reset applied to the live session, but an earlier turn could not be recorded before it: %w", err)
 	}
 
