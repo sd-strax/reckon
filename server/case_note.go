@@ -158,7 +158,7 @@ func (b *Backend) requestCaseNote(w http.ResponseWriter, r *http.Request) {
 	if !decodeOptionalBody(w, r, &req, maxBodyBytes) {
 		return
 	}
-	ic, err := aggregate.LoadInvestigationCurrent(r.Context(), b.cfg.Handler.DB(), id)
+	ic, err := b.cfg.Handler.Reads().LoadInvestigationCurrent(r.Context(), id)
 	if err != nil {
 		writeJSONError(w, http.StatusNotFound, "investigation not found")
 		return

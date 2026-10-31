@@ -39,7 +39,7 @@ func (b *Backend) listInvestigationPins(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
-	pins, err := aggregate.ListEvidencePins(r.Context(), b.cfg.Handler.DB(), invID)
+	pins, err := b.cfg.Handler.Reads().ListEvidencePins(r.Context(), invID)
 	if err != nil {
 		writeInternalError(w, "list pins", err)
 		return

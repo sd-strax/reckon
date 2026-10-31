@@ -59,27 +59,27 @@ func (b *Backend) getInvestigationMarkdown(w http.ResponseWriter, r *http.Reques
 // renderInvestigationMarkdown assembles the projections and renders the
 // document. Every line of it names engine truth — no client-invented state.
 func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID) (string, error) {
-	db := b.cfg.Handler.DB()
-	ic, err := aggregate.LoadInvestigationCurrent(ctx, db, id)
+	reads := b.cfg.Handler.Reads()
+	ic, err := reads.LoadInvestigationCurrent(ctx, id)
 	if err != nil {
-		if errors.Is(err, errNoRows()) {
+		if errors.Is(err, aggregate.ErrNoRecord) {
 			return "", fmt.Errorf("investigation not found")
 		}
 		return "", fmt.Errorf("load investigation: %w", err)
 	}
-	pins, err := aggregate.ListEvidencePins(ctx, db, id)
+	pins, err := reads.ListEvidencePins(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("list pins: %w", err)
 	}
-	hyps, err := aggregate.ListHypotheses(ctx, db, id)
+	hyps, err := reads.ListHypotheses(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("list hypotheses: %w", err)
 	}
-	preds, err := aggregate.ListPredictions(ctx, db, id)
+	preds, err := reads.ListPredictions(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("list predictions: %w", err)
 	}
-	actions, err := aggregate.ListActionCurrents(ctx, db, id)
+	actions, err := reads.ListActionCurrents(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("list actions: %w", err)
 	}

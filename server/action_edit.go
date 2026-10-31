@@ -1,7 +1,6 @@
 package server
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -49,8 +48,8 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 		writeJSONError(w, http.StatusBadRequest, "edit: parameters required")
 		return
 	}
-	ac, err := aggregate.LoadActionCurrent(r.Context(), b.cfg.Handler.DB(), actionID)
-	if errors.Is(err, sql.ErrNoRows) {
+	ac, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), actionID)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return
 	}

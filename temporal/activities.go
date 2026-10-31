@@ -2,7 +2,6 @@ package temporal
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,8 +68,8 @@ func (a *Activities) CheckDispatched(ctx context.Context, actionID string) (bool
 	if err != nil {
 		return false, badInput(fmt.Errorf("CheckDispatched: bad action id: %w", err))
 	}
-	ac, err := aggregate.LoadActionCurrent(ctx, a.handler.DB(), id)
-	if errors.Is(err, sql.ErrNoRows) {
+	ac, err := a.handler.Reads().LoadActionCurrent(ctx, id)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		return false, nil // no projection yet → not dispatched
 	}
 	if err != nil {
@@ -104,8 +103,8 @@ func (a *Activities) ActionDispatchState(ctx context.Context, actionID string) (
 	if err != nil {
 		return DispatchState{}, badInput(fmt.Errorf("ActionDispatchState: bad action id: %w", err))
 	}
-	ac, err := aggregate.LoadActionCurrent(ctx, a.handler.DB(), id)
-	if errors.Is(err, sql.ErrNoRows) {
+	ac, err := a.handler.Reads().LoadActionCurrent(ctx, id)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		return DispatchState{}, nil
 	}
 	if err != nil {
@@ -114,7 +113,7 @@ func (a *Activities) ActionDispatchState(ctx context.Context, actionID string) (
 	st := DispatchState{Status: ac.Status}
 	switch ac.Status {
 	case aggregate.ActionStatusSucceeded, aggregate.ActionStatusFailed, aggregate.ActionStatusReversed:
-		if st.Outcome, err = aggregate.LoadRecordedOutcome(ctx, a.handler.DB(), id); err != nil {
+		if st.Outcome, err = a.handler.Reads().LoadRecordedOutcome(ctx, id); err != nil {
 			return DispatchState{}, err
 		}
 	}
@@ -352,7 +351,7 @@ func (a *Activities) recordCommsThread(ctx context.Context, actionID uuid.UUID, 
 	if a.comms == nil || in.FinalOutcome != aggregate.ActionStatusSucceeded {
 		return
 	}
-	ac, err := aggregate.LoadActionCurrent(ctx, a.handler.DB(), actionID)
+	ac, err := a.handler.Reads().LoadActionCurrent(ctx, actionID)
 	if err != nil || !strings.HasPrefix(ac.ActionType, "notify.") {
 		return
 	}

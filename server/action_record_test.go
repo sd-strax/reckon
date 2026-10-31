@@ -1,10 +1,13 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/aggregate"
@@ -152,5 +155,21 @@ func TestActionRecord_AutoPolicy(t *testing.T) {
 	}
 	if last := rec.History[len(rec.History)-1]; last.Detail != "auto-approved by policy policy/auto-isolate/1.0.0 · accountable: secops-lead" {
 		t.Errorf("approval line = %q", last.Detail)
+	}
+}
+
+// TestActionRecord_StoreFailureIsNotA404: a read that failed says so, rather
+// than reporting the action missing.
+func TestActionRecord_StoreFailureIsNotA404(t *testing.T) {
+	db, err := sql.Open("postgres", "host=127.0.0.1 sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	b := &Backend{cfg: BackendConfig{Handler: aggregate.NewHandler(aggregate.NewStore(db))}}
+	w := httptest.NewRecorder()
+	b.getActionRecord(w, httptest.NewRequest(http.MethodGet, "/api/actions/x", nil), uuid.New())
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d; want 500", w.Code)
 	}
 }

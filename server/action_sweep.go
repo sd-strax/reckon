@@ -64,7 +64,7 @@ func (b *Backend) sweepStrandedActions(ctx context.Context) {
 	if b.getActionStarter() == nil {
 		return // no dispatch client: approvals cannot run, and stay APPROVED
 	}
-	stranded, err := aggregate.ListStrandedActionCurrents(ctx, b.cfg.Handler.DB())
+	stranded, err := b.cfg.Handler.Reads().ListStrandedActionCurrents(ctx)
 	if err != nil {
 		log.Printf("stranded-action sweep: list actions: %v", err)
 		return

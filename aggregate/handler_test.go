@@ -162,7 +162,7 @@ func TestHandleCreateInvestigation(t *testing.T) {
 	}
 
 	// Projection is queryable
-	ic, err := LoadInvestigationCurrent(ctx, h.DB(), env.AggregateID)
+	ic, err := h.Reads().LoadInvestigationCurrent(ctx, env.AggregateID)
 	if err != nil {
 		t.Fatalf("LoadInvestigationCurrent: %v", err)
 	}
@@ -423,3 +423,5 @@ func TestApplyCommand_ValidatesEnvelope(t *testing.T) {
 		t.Error("expected command validation failure for empty title")
 	}
 }
+
+func testReads() *ReadModel { return NewHandler(NewStore(testDB)).Reads() }

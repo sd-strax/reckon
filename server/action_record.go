@@ -119,7 +119,7 @@ func (b *Backend) getActionRecord(w http.ResponseWriter, r *http.Request, action
 	}
 	rec, err := b.loadActionRecord(r.Context(), actionID)
 	if err != nil {
-		if errors.Is(err, errActionNotFound) {
+		if errors.Is(err, aggregate.ErrNoRecord) {
 			writeJSONError(w, http.StatusNotFound, "action not found")
 			return
 		}
@@ -129,13 +129,11 @@ func (b *Backend) getActionRecord(w http.ResponseWriter, r *http.Request, action
 	writeJSON(w, http.StatusOK, rec)
 }
 
-var errActionNotFound = errors.New("action not found")
-
 func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (ActionRecordView, error) {
-	db := b.cfg.Handler.DB()
-	cur, err := aggregate.LoadActionCurrent(ctx, db, actionID)
+	reads := b.cfg.Handler.Reads()
+	cur, err := reads.LoadActionCurrent(ctx, actionID)
 	if err != nil {
-		return ActionRecordView{}, errActionNotFound
+		return ActionRecordView{}, err
 	}
 	out := ActionRecordView{
 		Action: b.actionView(cur),
@@ -160,7 +158,7 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 	}
 
 	// Lineage forward: the actions in the same investigation that retried this one.
-	siblings, err := aggregate.ListActionCurrents(ctx, db, cur.AggregateID)
+	siblings, err := reads.ListActionCurrents(ctx, cur.AggregateID)
 	if err != nil {
 		return ActionRecordView{}, fmt.Errorf("list actions: %w", err)
 	}
@@ -170,72 +168,34 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 		}
 	}
 
-	// The action's own events, in the aggregate's order. A reversal's events
-	// name the original as original_action_id; they belong to the original's
-	// history too (the reversed / reversal_attempted transitions).
-	rows, err := db.QueryContext(ctx, `
-		SELECT sequence_no, event_type, occurred_at, actor, payload, event_version
-		FROM events
-		WHERE aggregate_id = $1
-		  AND event_type LIKE 'action.%'
-		  AND (payload->>'action_id' = $2 OR payload->>'original_action_id' = $2)
-		ORDER BY sequence_no`, cur.AggregateID, actionID.String())
+	history, err := reads.ActionHistory(ctx, cur.AggregateID, actionID)
 	if err != nil {
-		return ActionRecordView{}, fmt.Errorf("query action events: %w", err)
+		return ActionRecordView{}, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			seq        int64
-			typ        string
-			at         time.Time
-			actorRaw   []byte
-			payloadRaw []byte
-			version    int
-		)
-		if err := rows.Scan(&seq, &typ, &at, &actorRaw, &payloadRaw, &version); err != nil {
-			return ActionRecordView{}, fmt.Errorf("scan action event: %w", err)
-		}
-		if err := aggregate.CheckEventVersion(typ, version); err != nil {
-			return ActionRecordView{}, err
-		}
-		var actor aggregate.Actor
-		_ = json.Unmarshal(actorRaw, &actor)
-		entry := ActionHistoryEntry{SequenceNo: seq, EventType: typ, OccurredAt: at, Actor: threadActor(actor)}
-		switch typ {
-		case aggregate.EventTypeActionRequested:
-			var p aggregate.ActionRequested
-			_ = json.Unmarshal(payloadRaw, &p)
-			entry.Status = aggregate.ActionStatusRequested
+	for _, e := range history {
+		actor := e.Actor
+		entry := ActionHistoryEntry{SequenceNo: e.SequenceNo, EventType: e.Type, OccurredAt: e.OccurredAt, Actor: threadActor(actor), Status: e.Status}
+		switch p := e.Event.(type) {
+		case aggregate.ActionRequested:
 			entry.Detail = fmt.Sprintf("%s · %s · %d target(s)", p.ActionType, p.Tier, len(p.Targets))
 			if p.RequestingInterpretationID != (uuid.UUID{}) {
 				out.Links.RequestingInterpretationID = p.RequestingInterpretationID.String()
 			}
-		case aggregate.EventTypeActionPolicyEvaluated:
-			var p aggregate.ActionPolicyEvaluated
-			_ = json.Unmarshal(payloadRaw, &p)
+		case aggregate.ActionPolicyEvaluated:
 			out.Authorization.Evaluations = p.Evaluations
 			out.Authorization.MatchedPolicyRef = p.MatchedPolicyRef
 			entry.Detail = policyDecisionLine(cur.RequiredMode, p)
-		case aggregate.EventTypeActionApproved:
-			var p aggregate.ActionApproved
-			_ = json.Unmarshal(payloadRaw, &p)
+		case aggregate.ActionApproved:
 			a := p.Authorization
 			out.Authorization.Mode, out.Authorization.Stage = a.Mode, a.Stage
 			out.Authorization.PolicyRef, out.Authorization.PolicyVersion = a.PolicyRef, a.PolicyVersion
 			out.Authorization.ChallengeAnswered = out.Authorization.ChallengeAnswered || a.ChallengeResponse != ""
 			approver := ActionApproverView{Principal: a.PrimaryApproverRef, At: a.PrimaryApprovedAt}
-			switch {
-			case a.Stage == aggregate.AuthStageSecondary:
+			if a.Stage == aggregate.AuthStageSecondary {
 				approver = ActionApproverView{Principal: a.SecondaryApproverRef}
 				if a.SecondaryApprovedAt != nil {
 					approver.At = *a.SecondaryApprovedAt
 				}
-				entry.Status = aggregate.ActionStatusApproved
-			case a.Mode == aggregate.AuthModeTwoParty:
-				entry.Status = aggregate.ActionStatusPendingSecondary
-			default:
-				entry.Status = aggregate.ActionStatusApproved
 			}
 			// The display name comes from the approving act's actor when the
 			// actor IS the approver; a policy's accountable human (AUTO_POLICY)
@@ -249,10 +209,7 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 				out.Authorization.PrimaryApprover = &approver
 			}
 			entry.Detail = approvalLine(a, approver)
-		case aggregate.EventTypeActionEdited:
-			var p aggregate.ActionEdited
-			_ = json.Unmarshal(payloadRaw, &p)
-			entry.Status = aggregate.ActionStatusRequested
+		case aggregate.ActionEdited:
 			entry.Detail = "edited before approval"
 			if p.Reason != "" {
 				entry.Detail += ": " + p.Reason
@@ -260,23 +217,13 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 			if changes := paramChanges(p.PriorParameters, p.Parameters); changes != "" {
 				entry.Detail += " — " + changes
 			}
-		case aggregate.EventTypeActionRejected:
-			var p aggregate.ActionRejected
-			_ = json.Unmarshal(payloadRaw, &p)
-			entry.Status = aggregate.ActionStatusRejected
+		case aggregate.ActionRejected:
 			entry.Detail = p.Reason
-		case aggregate.EventTypeActionExpired:
-			entry.Status = aggregate.ActionStatusExpired
+		case aggregate.ActionExpired:
 			entry.Detail = "approval window elapsed"
-		case aggregate.EventTypeActionDispatched:
-			var p aggregate.ActionDispatched
-			_ = json.Unmarshal(payloadRaw, &p)
-			entry.Status = aggregate.ActionStatusExecuting
+		case aggregate.ActionDispatched:
 			entry.Detail = "via " + p.Adapter
-		case aggregate.EventTypeActionResulted:
-			var p aggregate.ActionResulted
-			_ = json.Unmarshal(payloadRaw, &p)
-			entry.Status = p.FinalOutcome
+		case aggregate.ActionResulted:
 			res := &ActionResultView{
 				FinalOutcome: p.FinalOutcome, Attempts: p.Attempts, Adapter: p.Adapter,
 				ErrorDetail: p.ErrorDetail, RawResponseRef: p.RawResponseRef,
@@ -295,27 +242,16 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 			}
 			out.Result = res
 			entry.Detail = resultLine(p, ok, len(keys))
-		case aggregate.EventTypeActionReversed:
-			var p aggregate.ActionReversed
-			_ = json.Unmarshal(payloadRaw, &p)
+		case aggregate.ActionReversed:
 			if p.OriginalActionID == actionID {
-				entry.Status = aggregate.ActionStatusReversed
 				entry.Detail = "reversed by " + p.ReversingActionID.String()
 			}
-		case aggregate.EventTypeActionReversalAttempted:
-			var p aggregate.ActionReversalAttempted
-			_ = json.Unmarshal(payloadRaw, &p)
+		case aggregate.ActionReversalAttempted:
 			entry.Detail = "reversal attempted by " + p.ReversingActionID.String() + " — effect not verified; status unchanged"
-		case aggregate.EventTypeActionOutcomeUnknown:
-			var p aggregate.ActionOutcomeUnknown
-			_ = json.Unmarshal(payloadRaw, &p)
-			entry.Status = aggregate.ActionStatusOutcomeUnknown
+		case aggregate.ActionOutcomeUnknown:
 			entry.Detail = p.Detail
-		case aggregate.EventTypeActionOutcomeResolved:
-			var p aggregate.ActionOutcomeResolved
-			_ = json.Unmarshal(payloadRaw, &p)
-			entry.Status = p.Outcome
-			by := ActionApproverView{Principal: actor.PrincipalID, Name: actor.PrincipalName, At: at}
+		case aggregate.ActionOutcomeResolved:
+			by := ActionApproverView{Principal: actor.PrincipalID, Name: actor.PrincipalName, At: e.OccurredAt}
 			out.Resolution = &ActionResolutionView{
 				Outcome: p.Outcome, Note: p.Note, Reference: p.Reference, Artifact: p.Artifact, By: by,
 			}
@@ -326,9 +262,6 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 			entry.Detail = "resolved " + p.Outcome + " by " + who + " after checking the tool: " + p.Note
 		}
 		out.History = append(out.History, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return ActionRecordView{}, fmt.Errorf("iterate action events: %w", err)
 	}
 	if out.History == nil {
 		out.History = []ActionHistoryEntry{}

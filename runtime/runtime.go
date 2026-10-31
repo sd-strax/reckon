@@ -293,7 +293,7 @@ func serve(cfg config.Config) error {
 	// The comms-thread store (Phase F, binding §4) rides the main DB: the
 	// result path opens threads for SUCCEEDED notify.* dispatches, and the
 	// backend serves/acts on them.
-	commsStore := comms.NewStore(handler.DB())
+	commsStore := comms.NewStore(aggDB)
 	activities, dispatchResolver, err := buildActionActivities(cfg, handler, commsStore, adapterHost)
 	if err != nil {
 		return err

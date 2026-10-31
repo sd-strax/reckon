@@ -121,7 +121,7 @@ func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	acts, err := aggregate.ListActionCurrents(r.Context(), b.cfg.Handler.DB(), invID)
+	acts, err := b.cfg.Handler.Reads().ListActionCurrents(r.Context(), invID)
 	if err != nil {
 		writeInternalError(w, "list actions", err)
 		return
@@ -318,7 +318,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 			writeJSONError(w, http.StatusBadRequest, "reversal_of_ref is not a valid id")
 			return
 		}
-		orig, err := aggregate.LoadActionCurrent(r.Context(), b.cfg.Handler.DB(), reversalOf)
+		orig, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), reversalOf)
 		if err != nil {
 			writeJSONError(w, http.StatusUnprocessableEntity, "reversal_of_ref: original action not found")
 			return
@@ -401,7 +401,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	// still evaluated and was recorded (would-have-fired); it just doesn't drive
 	// this first decision.
 	draft := false
-	if ic, ierr := aggregate.LoadInvestigationCurrent(r.Context(), b.cfg.Handler.DB(), investigationID); ierr == nil {
+	if ic, ierr := b.cfg.Handler.Reads().LoadInvestigationCurrent(r.Context(), investigationID); ierr == nil {
 		draft = ic.Status == aggregate.StatusDraft
 	}
 	switch decision.Mode {
@@ -459,7 +459,7 @@ func (b *Backend) startExpiryTimer(ctx context.Context, actionID, aggregateID, t
 // already-elapsed deadlines fire immediately, converging stored statuses that
 // lazy expiry left behind.
 func (b *Backend) sweepExpiryTimers(ctx context.Context) {
-	pending, err := aggregate.ListPendingActionCurrents(ctx, b.cfg.Handler.DB())
+	pending, err := b.cfg.Handler.Reads().ListPendingActionCurrents(ctx)
 	if err != nil {
 		log.Printf("expiry sweep: list pending actions: %v", err)
 		return
@@ -502,7 +502,7 @@ func (b *Backend) rerequestAction(w http.ResponseWriter, r *http.Request, priorI
 		writeJSONError(w, http.StatusInternalServerError, "auth context missing")
 		return
 	}
-	prior, err := aggregate.LoadActionCurrent(r.Context(), b.cfg.Handler.DB(), priorID)
+	prior, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), priorID)
 	if err != nil {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return
@@ -642,7 +642,7 @@ func (b *Backend) startActionWorkflow(ctx context.Context, s dispatchSpec) strin
 	// write finds no binding rather than mis-routing) and a no-op for a
 	// single-organization one.
 	if b.cfg.Handler != nil {
-		if inv, err := aggregate.LoadInvestigationCurrent(ctx, b.cfg.Handler.DB(), s.AggregateID); err != nil {
+		if inv, err := b.cfg.Handler.Reads().LoadInvestigationCurrent(ctx, s.AggregateID); err != nil {
 			log.Printf("action %s: source-scope lookup failed, dispatch will be unscoped: %v", s.ActionID, err)
 		} else if inv.Seed != nil {
 			lifecycle.SourceScope = inv.Seed.SourceScope
@@ -663,7 +663,7 @@ func (b *Backend) startActionWorkflow(ctx context.Context, s dispatchSpec) strin
 		// field existed. A lookup failure defaults to NOT reliable — the
 		// conservative, honest choice.
 		reliable := false
-		if orig, lerr := aggregate.LoadActionCurrent(ctx, b.cfg.Handler.DB(), s.ReversalOfRef); lerr != nil {
+		if orig, lerr := b.cfg.Handler.Reads().LoadActionCurrent(ctx, s.ReversalOfRef); lerr != nil {
 			log.Printf("action %s: reversal reliability lookup for original %s failed (defaulting to best-effort): %v",
 				s.ActionID, s.ReversalOfRef, lerr)
 		} else if orig.Reversibility != "" {

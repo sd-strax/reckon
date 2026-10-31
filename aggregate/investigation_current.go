@@ -23,9 +23,9 @@ type InvestigationCurrent struct {
 	// The verdict of record (01 §Verdict) — the fold over verdict-typed
 	// interpretation acts, maintained by VerdictPinProjector. All empty when
 	// the investigation has no verdict (the honest zero).
-	VerdictDisposition     string
-	VerdictRationale       string
-	VerdictAt              sql.NullTime
+	VerdictDisposition      string
+	VerdictRationale        string
+	VerdictAt               sql.NullTime
 	VerdictInterpretationID uuid.UUID
 
 	// The seed (01 §Extension 1). Nil for pre-seed investigations.
@@ -173,13 +173,13 @@ func (InvestigationCurrentProjector) Reset(ctx context.Context, tx *sql.Tx) erro
 }
 
 // LoadInvestigationCurrent returns the materialized basic state for one
-// aggregate, or sql.ErrNoRows if no event has yet been projected.
-func LoadInvestigationCurrent(ctx context.Context, db *sql.DB, aggID AggregateID) (InvestigationCurrent, error) {
+// aggregate, or ErrNoRecord if no event has yet been projected.
+func (r *ReadModel) LoadInvestigationCurrent(ctx context.Context, aggID AggregateID) (InvestigationCurrent, error) {
 	var ic InvestigationCurrent
 	var conclusionRef, vDisp, vRat, seedSummary sql.NullString
 	var vID uuid.NullUUID
 	var seedJSON []byte
-	err := db.QueryRowContext(ctx, `
+	err := r.db.QueryRowContext(ctx, `
 		SELECT aggregate_id, title, status, conclusion_ref, last_event_sequence,
 		       verdict_disposition, verdict_rationale, verdict_at, verdict_interpretation_id,
 		       seed, seed_summary
@@ -197,5 +197,5 @@ func LoadInvestigationCurrent(ctx context.Context, db *sql.DB, aggID AggregateID
 			ic.Seed = &s
 		}
 	}
-	return ic, err
+	return ic, notFound(err)
 }

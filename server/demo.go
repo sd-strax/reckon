@@ -89,10 +89,11 @@ func (b *Backend) demoInstallState(ctx context.Context) (demoInstallState, error
 	if b.cfg.Handler == nil {
 		return st, fmt.Errorf("aggregate handler not configured")
 	}
-	if err := b.cfg.Handler.DB().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM investigation_current`).Scan(&st.Investigations); err != nil {
-		return st, fmt.Errorf("count investigations: %w", err)
+	n, err := b.cfg.Handler.Reads().CountInvestigations(ctx)
+	if err != nil {
+		return st, err
 	}
+	st.Investigations = n
 	sops, err := b.cfg.Knowledge.List(ctx, module.SingleTenantUUID, true /*includeRetired*/)
 	if err != nil {
 		return st, fmt.Errorf("count sops: %w", err)

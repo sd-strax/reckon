@@ -1,14 +1,13 @@
 package server
 
 import (
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/module"
 )
 
 // Cross-investigation appearances + transcript-open: the two "memory" read
@@ -45,7 +44,7 @@ func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apps, err := aggregate.ListRefAppearances(r.Context(), b.cfg.Handler.DB(), ref)
+	apps, err := b.cfg.Handler.Reads().ListRefAppearances(r.Context(), ref)
 	if err != nil {
 		writeInternalError(w, "list appearances", err)
 		return
@@ -86,30 +85,15 @@ func (b *Backend) getInterpretationTranscript(w http.ResponseWriter, r *http.Req
 		writeJSONError(w, http.StatusBadRequest, "invalid interpretation id in path")
 		return
 	}
-	db := b.cfg.Handler.DB()
+	reads := b.cfg.Handler.Reads()
 
-	var payload []byte
-	var version int
-	err := db.QueryRowContext(r.Context(), `
-		SELECT payload, event_version FROM events
-		WHERE event_type = $1 AND payload->>'interpretation_id' = $2
-		LIMIT 1
-	`, aggregate.EventTypeInterpretationRecorded, interpID.String()).Scan(&payload, &version)
-	if errors.Is(err, sql.ErrNoRows) {
+	rec, err := reads.LoadInterpretation(r.Context(), interpID)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "no such interpretation")
 		return
 	}
 	if err != nil {
-		writeInternalError(w, "query interpretation", err)
-		return
-	}
-	if err := aggregate.CheckEventVersion(aggregate.EventTypeInterpretationRecorded, version); err != nil {
 		writeInternalError(w, "read interpretation", err)
-		return
-	}
-	var rec aggregate.InterpretationRecorded
-	if err := json.Unmarshal(payload, &rec); err != nil {
-		writeInternalError(w, "decode interpretation", err)
 		return
 	}
 	if rec.TranscriptRef == nil {
@@ -117,11 +101,8 @@ func (b *Backend) getInterpretationTranscript(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	var body []byte
-	err = db.QueryRowContext(r.Context(),
-		`SELECT body FROM ai_transcripts WHERE hash = $1 LIMIT 1`,
-		rec.TranscriptRef.ContentHash).Scan(&body)
-	if errors.Is(err, sql.ErrNoRows) {
+	body, err := reads.TranscriptBody(r.Context(), module.SingleTenantUUID, rec.TranscriptRef.ContentHash)
+	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "transcript body not in the side store")
 		return
 	}

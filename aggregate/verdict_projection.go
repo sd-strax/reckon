@@ -216,8 +216,8 @@ type EvidencePin struct {
 // ListEvidencePins returns an investigation's pins, oldest first. Superseded
 // pins are included (the caller filters or renders them struck) — the record
 // of what was once considered load-bearing is part of the thread.
-func ListEvidencePins(ctx context.Context, db *sql.DB, aggregateID uuid.UUID) ([]EvidencePin, error) {
-	rows, err := db.QueryContext(ctx, `
+func (r *ReadModel) ListEvidencePins(ctx context.Context, aggregateID uuid.UUID) ([]EvidencePin, error) {
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT interpretation_id, aggregate_id, finding, input_refs, actor, pinned_at, superseded
 		FROM evidence_pin_current
 		WHERE aggregate_id = $1
