@@ -142,8 +142,8 @@ func TestTurn_CancelCommitsTurn(t *testing.T) {
 	s := commitSession(t, f, llm)
 
 	res, err := s.Turn(ctx, "contain H1")
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("Turn error = %v; want the cancel", err)
+	if err != nil || !res.Stopped {
+		t.Fatalf("Turn = %+v, %v; want a stopped turn and no error", res, err)
 	}
 	commits := f.turnCommits(t)
 	if len(commits) != 1 || !strings.Contains(commits[0].Transcript.Body, "[engine] turn ended early: cancelled by the analyst") {
@@ -151,6 +151,95 @@ func TestTurn_CancelCommitsTurn(t *testing.T) {
 	}
 	if res.InterpretationID == "" || len(res.PendingActions) != 1 {
 		t.Errorf("result: interpretation %q, pending %+v; want both despite the cancel", res.InterpretationID, res.PendingActions)
+	}
+}
+
+// TestTurn_CancelLetsDispatchedToolFinish (adr/0239): a cancel arriving as a
+// write tool is dispatched does not cut it off. Its real result enters the
+// history, the tool after it never runs and is answered as such, and no further
+// model call is made.
+func TestTurn_CancelLetsDispatchedToolFinish(t *testing.T) {
+	f := newFakeBackend(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	action := `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
+	llm := &scriptedLLM{script: []CompleteResponse{
+		{StopReason: StopToolUse, Content: []ContentBlock{
+			toolUse("t1", ToolRequestAction, action),
+			toolUse("t2", ToolRequestAction, action),
+		}},
+	}}
+	s := commitSession(t, f, llm)
+	s.hooks.OnToolCall = func(string, json.RawMessage) { cancel() }
+
+	res, err := s.Turn(ctx, "contain H1")
+	if err != nil || !res.Stopped {
+		t.Fatalf("Turn = %+v, %v; want a stopped turn and no error", res, err)
+	}
+	if got := len(f.callsTo("/api/actions")); got != 1 {
+		t.Errorf("actions requested = %d; want the dispatched one only", got)
+	}
+	if len(res.ToolCalls) != 1 {
+		t.Errorf("tool calls = %+v; want the dispatched one only", res.ToolCalls)
+	}
+	last := s.messages[len(s.messages)-1]
+	if last.Role != RoleUser || len(last.Content) != 2 {
+		t.Fatalf("last message = %+v; want both tool_uses answered", last)
+	}
+	if done := last.Content[0]; done.IsError {
+		t.Errorf("dispatched tool's result = %+v; want its real result", done)
+	}
+	if skipped := last.Content[1]; !skipped.IsError || !strings.Contains(skipped.Content, "not dispatched") {
+		t.Errorf("undispatched tool's result = %+v; want it answered as not run", skipped)
+	}
+	if !strings.Contains(res.Transcript, "[engine] turn ended early: cancelled by the analyst") {
+		t.Errorf("transcript lacks the cancel line:\n%s", res.Transcript)
+	}
+}
+
+// TestTurn_TimeLimitRecordedAsSuch (adr/0239): the record says a turn timed
+// out, not that the analyst stopped it.
+func TestTurn_TimeLimitRecordedAsSuch(t *testing.T) {
+	f := newFakeBackend(t)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	cancel(ErrTurnTimedOut)
+	s := commitSession(t, f, &scriptedLLM{})
+
+	res, err := s.Turn(ctx, "go")
+	if err != nil || !res.Stopped {
+		t.Fatalf("Turn = %+v, %v; want a stopped turn and no error", res, err)
+	}
+	if !strings.Contains(res.Transcript, "[engine] turn ended early: timed out") {
+		t.Errorf("transcript:\n%s", res.Transcript)
+	}
+}
+
+// TestTurn_TimeLimitNamedOnSkippedTools (adr/0239): a tool skipped because the
+// limit ran out says so, matching the turn's closing line.
+func TestTurn_TimeLimitNamedOnSkippedTools(t *testing.T) {
+	f := newFakeBackend(t)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	action := `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
+	s := commitSession(t, f, &scriptedLLM{script: []CompleteResponse{
+		{StopReason: StopToolUse, Content: []ContentBlock{
+			toolUse("t1", ToolRequestAction, action),
+			toolUse("t2", ToolRequestAction, action),
+		}},
+	}})
+	s.hooks.OnToolCall = func(string, json.RawMessage) { cancel(ErrTurnTimedOut) }
+
+	res, err := s.Turn(ctx, "contain H1")
+	if err != nil || !res.Stopped {
+		t.Fatalf("Turn = %+v, %v; want a stopped turn and no error", res, err)
+	}
+	last := s.messages[len(s.messages)-1]
+	if got := last.Content[1].Content; got != "timed out; tool not dispatched" {
+		t.Errorf("skipped tool's result = %q", got)
+	}
+	if strings.Contains(res.Transcript, "analyst") {
+		t.Errorf("a timed-out turn names the analyst:\n%s", res.Transcript)
 	}
 }
 

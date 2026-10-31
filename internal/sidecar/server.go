@@ -116,7 +116,7 @@ type sessionState struct {
 	turnMu sync.Mutex
 
 	mu     sync.Mutex
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc
 	closed bool // set by closeSession: nothing new may begin
 }
 
@@ -342,7 +342,9 @@ type turnResult struct {
 	ToolRounds       int             `json:"tool_rounds"`
 	Usage            turnUsage       `json:"usage"`
 	PendingActions   []pendingAction `json:"pending_actions,omitempty"`
-	Error            string          `json:"error,omitempty"`
+	// Stopped: a cancel ended the turn. Not an error (adr/0239).
+	Stopped bool   `json:"stopped,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type turnUsage struct {
@@ -467,6 +469,7 @@ func (s *service) handleTurn(ctx context.Context, raw json.RawMessage) (any, err
 	}
 	out := turnResult{
 		Text:             res.Text,
+		Stopped:          res.Stopped,
 		InterpretationID: res.InterpretationID,
 		ToolRounds:       res.ToolRounds,
 		Usage: turnUsage{
@@ -504,7 +507,13 @@ func (s *service) handleTurn(ctx context.Context, raw json.RawMessage) (any, err
 
 type cancelParams struct {
 	SessionID string `json:"session_id"`
+	// Reason says why, for the record: cancelReasonTimeout, or empty for the
+	// analyst's own stop.
+	Reason string `json:"reason,omitempty"`
 }
+
+// cancelReasonTimeout is the client's time limit on a turn running out.
+const cancelReasonTimeout = "timeout"
 
 // handleCancel aborts the session's in-flight turn, if any. Idempotent — a
 // cancel that races the turn's natural end is a no-op.
@@ -634,9 +643,13 @@ func (s *service) handleCancel(_ context.Context, raw json.RawMessage) (any, err
 	if err != nil {
 		return nil, err
 	}
+	var cause error
+	if p.Reason == cancelReasonTimeout {
+		cause = agent.ErrTurnTimedOut
+	}
 	st.mu.Lock()
 	if st.cancel != nil {
-		st.cancel()
+		st.cancel(cause)
 	}
 	st.mu.Unlock()
 	return struct{}{}, nil
@@ -667,7 +680,7 @@ func (s *service) handleCloseSession(ctx context.Context, raw json.RawMessage) (
 	st.mu.Lock()
 	st.closed = true
 	if st.cancel != nil {
-		st.cancel()
+		st.cancel(nil)
 	}
 	st.mu.Unlock()
 
@@ -689,18 +702,18 @@ func (st *sessionState) begin(ctx context.Context, busy string) (context.Context
 	if !st.turnMu.TryLock() {
 		return nil, nil, errors.New(busy)
 	}
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancelCause(ctx)
 	st.mu.Lock()
 	if st.closed {
 		st.mu.Unlock()
-		cancel()
+		cancel(nil)
 		st.turnMu.Unlock()
 		return nil, nil, errors.New("the session is closed")
 	}
 	st.cancel = cancel
 	st.mu.Unlock()
 	return runCtx, func() {
-		cancel()
+		cancel(nil)
 		st.mu.Lock()
 		st.cancel = nil
 		st.mu.Unlock()

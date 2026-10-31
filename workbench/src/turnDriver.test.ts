@@ -15,6 +15,7 @@ const outcome = (over: Partial<TurnOutcome> = {}): TurnOutcome => ({
 function transport(script: (p: TurnProgress) => void, settle: () => Promise<TurnOutcome>): AgentTransport {
   return {
     turn: async (_id, _text, p) => { script(p); return settle(); },
+    turnRunning: () => false,
     cancel: async () => undefined,
     closeSession: async () => undefined,
     summarizeConcluded: async () => undefined,
@@ -73,5 +74,19 @@ describe("TurnDriver", () => {
     await driver.run("inv-1", panel, "x");
     expect(posted().slice(-2)).toEqual([{ type: "turn.error", message: "sidecar gone" }, { type: "turn.end" }]);
     expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a second turn without touching the running turn's state", async () => {
+    const t = { ...transport(() => undefined, async () => outcome()), turnRunning: () => true };
+    const { panel, refresh, driver, posted } = setup(t);
+    await driver.run("inv-1", panel, "again");
+    expect(posted()).toEqual([{ type: "turn.notice", text: "a turn is already running on this investigation" }]);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("shows a timed-out turn as a notice: it is committed, so it is not a failure", async () => {
+    const { panel, driver, posted } = setup(transport(() => undefined, async () => outcome({ interpretationId: "i-9", notice: "turn timed out after 10 minutes" })));
+    await driver.run("inv-1", panel, "go");
+    expect(posted().map((m) => m.type)).toEqual(["turn.user", "turn.start", "turn.committed", "turn.notice", "turn.end"]);
   });
 });

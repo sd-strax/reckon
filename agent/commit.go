@@ -14,6 +14,14 @@ import (
 // (adr/0231).
 const commitTimeout = 30 * time.Second
 
+// toolTimeout bounds one dispatched tool, which runs on through a cancel
+// (adr/0239). Each backend request has its own, shorter limit.
+const toolTimeout = 2 * time.Minute
+
+// ErrTurnTimedOut is the cancel cause of a turn stopped by its time limit, so
+// the record does not say the analyst stopped it (adr/0239).
+var ErrTurnTimedOut = errors.New("turn timed out")
+
 // defaultCommitBackoff is the wait before each retry of a turn commit that
 // failed in transit.
 var defaultCommitBackoff = []time.Duration{time.Second, 4 * time.Second}

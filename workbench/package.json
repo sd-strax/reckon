@@ -257,6 +257,12 @@
           "minimum": 16000,
           "description": "The model's context window in tokens. The agent condenses older turns when the conversation nears it, and adopts the provider's own limit if a request is refused as too long."
         },
+        "reckon.agent.turnTimeoutMinutes": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "description": "How long one agent turn may run before it is stopped. What the turn did so far is kept on the record."
+        },
         "reckon.sidecarPath": {
           "type": "string",
           "default": "",

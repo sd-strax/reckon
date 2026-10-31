@@ -259,6 +259,8 @@ export type InboundMessage =
   | { type: "comms.snooze"; threadId: string; hours: number }
   | { type: "comms.followup"; threadId: string; actionType: string; target: string; subject: string; message: string; followUpHours: number }
   | { type: "lifecycle"; transition: string; reason?: string; summary?: string }
+  // The analyst stopped the running turn.
+  | { type: "turn.stop" }
   | { type: "evidence.resolve"; ref: string }
   // The webview opened an inspector pane (view state) and needs the record
   // behind it; the host answers with the matching inspector.* message.

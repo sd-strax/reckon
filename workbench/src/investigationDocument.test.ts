@@ -33,6 +33,7 @@ function backend(over: Record<string, (...args: never[]) => Promise<unknown>> = 
 
 const transport = {
   closeSession: vi.fn(async () => undefined),
+  cancel: vi.fn(async () => undefined),
   summarizeConcluded: vi.fn(async () => undefined),
 } as unknown as AgentTransport;
 
@@ -151,5 +152,13 @@ describe("InvestigationDocuments: closing", () => {
 
     finish();
     await vi.waitFor(() => expect(transport.closeSession).toHaveBeenCalledWith("inv-1"));
+  });
+
+  it("stops the running turn on the analyst's word", async () => {
+    const { client } = backend();
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "turn.stop" });
+    expect(transport.cancel).toHaveBeenCalledWith("inv-1");
   });
 });
