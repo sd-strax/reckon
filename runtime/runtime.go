@@ -364,12 +364,30 @@ func serve(cfg config.Config) error {
 		CapabilityConfigPath:  cfg.Capability.ConfigPath,
 		CapabilityFixtureRoot: cfg.Capability.FixtureRoot,
 		Demo:                  cfg.Demo.Enabled,
-		// The no-restart reload closure: re-run the full plugin build path
-		// (adapter host + out-of-process adapters + catalog reconciliation).
-		// Injected here because only runtime holds adapterHost.
-		CapabilityRebuild: func() (*capability.Resolver, *capability.Catalog, error) {
-			return buildCapability(cfg, adapterHost)
+		// The no-restart reload (11 §5.1, adr/0223): rescan the adapter host,
+		// then build both sides from the file through the full plugin path.
+		// Backend.Reload applies them together or not at all. Injected here
+		// because only runtime holds adapterHost.
+		Rebuild: func() (server.ReloadedSurface, error) {
+			// Pick up adapters installed since boot (or since the last
+			// reload): the host's scan-once cache would otherwise leave a new
+			// install invisible until a restart.
+			for _, p := range adapterHost.Rescan() {
+				log.Printf("%s: adapter scan: %s: %s", branding.CLI, p.Dir, p.Message)
+			}
+			capR, capC, err := buildCapability(cfg, adapterHost)
+			if err != nil {
+				return server.ReloadedSurface{}, err
+			}
+			out := server.ReloadedSurface{CapabilityResolver: capR, CapabilityCatalog: capC}
+			if dispatchResolver != nil {
+				if out.ActionResolver, err = buildActionResolverFromFile(cfg, adapterHost); err != nil {
+					return server.ReloadedSurface{}, err
+				}
+			}
+			return out, nil
 		},
+		ActionDispatch: dispatchResolver,
 		Gate2:          gate2,
 		ActionCatalog:  actionCatalog,
 		ActionResolver: actionResolver,
@@ -391,8 +409,9 @@ func serve(cfg config.Config) error {
 	sup.Register(backend, supervisor.RestartOnExit)
 
 	// SIGHUP is the no-restart reload (11 §5.1): `reckon adapter setup`/`reload`
-	// signals the running supervisor after editing the tenant config, and both
-	// the read layer AND the write-dispatch resolver rebuild in place —
+	// signals the running supervisor after editing the tenant config. It runs
+	// the same routine as the enablement endpoint (adr/0223): both the read
+	// layer AND the write-dispatch resolver rebuild in place, and
 	// Postgres/Temporal/Keycloak never bounce because a YAML file changed. The
 	// write swap covers even enabling the first write adapter, because the
 	// worker always registers the action activities when the action layer is
@@ -407,30 +426,10 @@ func serve(cfg config.Config) error {
 			case <-ctx.Done():
 				return
 			case <-hup:
-				// Pick up adapters installed since boot (or since the last
-				// reload): `adapter setup <new adapter>` signals HUP right after
-				// installing, and the host's scan-once cache would otherwise
-				// leave the new install invisible until a restart.
-				for _, p := range adapterHost.Rescan() {
-					log.Printf("%s: adapter scan: %s: %s", branding.CLI, p.Dir, p.Message)
-				}
-				// Reads: rebuild + swap the capability surface.
-				if err := backend.ReloadCapability(); err != nil {
-					log.Printf("%s: capability reload failed (running surface unchanged): %v", branding.CLI, err)
+				if err := backend.Reload(); err != nil {
+					log.Printf("%s: reload failed (running config unchanged): %v", branding.CLI, err)
 				} else {
-					log.Printf("%s: capability layer reloaded from %s", branding.CLI, cfg.Capability.ConfigPath)
-				}
-				// Writes: rebuild the action resolver once, swap it into both the
-				// worker's dispatch path and the backend's /action-types readout.
-				if dispatchResolver != nil {
-					newAR, aerr := buildActionResolverFromFile(cfg, adapterHost)
-					if aerr != nil {
-						log.Printf("%s: action reload failed (running dispatch unchanged): %v", branding.CLI, aerr)
-					} else {
-						dispatchResolver.Store(newAR)
-						backend.SetActionResolver(newAR)
-						log.Printf("%s: action-dispatch layer reloaded", branding.CLI)
-					}
+					log.Printf("%s: reloaded from %s", branding.CLI, cfg.Capability.ConfigPath)
 				}
 			}
 		}

@@ -117,19 +117,18 @@ type BackendConfig struct {
 
 	// Demo mirrors config.Demo.Enabled: this install is the bundled demo
 	// sandbox, so the FIXTURE adapter class is permitted. A hot reload
-	// (rebuildCapabilityFromFile) must carry it so fixtures can't be re-wired
+	// (the in-package build behind Reload) must carry it so fixtures can't be re-wired
 	// against a real install after a config edit.
 	Demo bool
 
-	// CapabilityRebuild re-reads the tenant capability config from disk and
-	// builds a fresh resolver + catalog through the FULL plugin path (the
-	// adapter host, out-of-process adapters, catalog reconciliation) — the
-	// no-restart reload (11 §5.1). It is injected by runtime because only
-	// runtime holds the adapter host; the server calls it without importing the
-	// plugin layer. Nil falls back to the fixture-only in-package rebuild, which
-	// is why enabling a plugin adapter without this closure still needs a
-	// restart.
-	CapabilityRebuild func() (*capability.Resolver, *capability.Catalog, error)
+	// Rebuild re-reads the tenant config from disk and builds both sides of
+	// the no-restart reload (11 §5.1) through the FULL plugin path: the
+	// capability resolver + catalog and the write-side action resolver
+	// (adr/0223). It is injected by runtime because only runtime holds the
+	// adapter host; the server calls it without importing the plugin layer. Nil
+	// falls back to the in-package build (fixture adapters only), which is why
+	// enabling a plugin adapter without it still needs a restart.
+	Rebuild func() (ReloadedSurface, error)
 
 	// Gate2 and ActionCatalog, when both non-nil, enable the POST /api/actions
 	// (request_action) route (the write-side authorization path, Phase C). Nil
@@ -141,6 +140,10 @@ type BackendConfig struct {
 	// agent's write-side catalog with per-type dispatchability. Nil leaves the
 	// route a clean 503.
 	ActionResolver *action.ActionResolver
+	// ActionDispatch is the Temporal worker's dispatch holder. A reload swaps
+	// it in step with the /action-types readout. Nil when the action layer is
+	// off.
+	ActionDispatch *action.AtomicResolver
 
 	// Knowledge, when non-nil, enables the SOP corpus routes (/api/sops,
 	// /api/knowledge/recall_sops — Phase C.5). Nil leaves them unregistered.
@@ -196,6 +199,10 @@ type Backend struct {
 	cfg BackendConfig
 	sup *supervisor.Supervisor
 
+	// reloadMu serialises reloads (adr/0223). The enablement endpoint holds it
+	// across its file write too, so two applies cannot lose each other's edit.
+	reloadMu sync.Mutex
+
 	mu       sync.Mutex
 	srv      *http.Server
 	started  bool
@@ -219,7 +226,7 @@ type Backend struct {
 	stopSweeps context.CancelFunc
 
 	// capOverride, when set (under mu), supersedes cfg.CapabilityResolver/
-	// Catalog — the enablement endpoint's hot swap after a config rewrite.
+	// Catalog — the hot swap a reload installs.
 	capOverride *capabilitySurface
 
 	// actionOverride, when set (under mu), supersedes cfg.ActionResolver for the
@@ -837,15 +844,6 @@ func (b *Backend) capabilitySurface() (*capability.Resolver, *capability.Catalog
 	return b.cfg.CapabilityResolver, b.cfg.CapabilityCatalog
 }
 
-// setCapabilitySurface installs a rebuilt resolver + catalog (enablement hot
-// swap). In-flight requests keep the pair they already read — safe, since a
-// resolver is immutable once built.
-func (b *Backend) setCapabilitySurface(r *capability.Resolver, c *capability.Catalog) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.capOverride = &capabilitySurface{resolver: r, catalog: c}
-}
-
 // capabilitySurface bundles the pair so the override is one pointer swap.
 type capabilitySurface struct {
 	resolver *capability.Resolver
@@ -865,31 +863,52 @@ func (b *Backend) actionResolver() *action.ActionResolver {
 	return b.cfg.ActionResolver
 }
 
-// SetActionResolver installs a rebuilt action resolver (reload write-side swap
-// for the availability readout). Exported because runtime rebuilds it (it holds
-// the adapter host) and calls this in the SIGHUP handler.
-func (b *Backend) SetActionResolver(r *action.ActionResolver) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.actionOverride = r
+// ReloadedSurface is what one reload builds from the tenant config: both
+// sides, applied together or not at all.
+type ReloadedSurface struct {
+	CapabilityResolver *capability.Resolver
+	CapabilityCatalog  *capability.Catalog
+	// ActionResolver is nil when the action layer is off.
+	ActionResolver *action.ActionResolver
 }
 
-// ReloadCapability rebuilds the capability surface from the tenant config on
-// disk (through the full plugin path) and hot-swaps it — the no-restart reload
-// (11 §5.1), triggered by SIGHUP or the enablement endpoint. In-flight requests
-// keep the surface they already read (a resolver is immutable once built). A
-// rebuild failure leaves the running surface untouched and returns the error,
-// so a broken config edit degrades to "the change didn't take" rather than
-// taking the layer down. Returns nil (no-op) when no rebuild closure is wired.
-func (b *Backend) ReloadCapability() error {
-	if b.cfg.CapabilityRebuild == nil {
-		return nil
+// Reload rebuilds both sides from the tenant config on disk and swaps them in:
+// the capability surface, the /action-types readout and the worker's dispatch
+// holder. It is the one reload routine, called by SIGHUP and the enablement
+// endpoint (adr/0223). A build failure on either side swaps nothing, so a
+// broken edit degrades to "the change didn't take" and the process never runs
+// half a file. In-flight requests keep the resolvers they already read (a
+// resolver is immutable once built).
+func (b *Backend) Reload() error {
+	b.reloadMu.Lock()
+	defer b.reloadMu.Unlock()
+	return b.reloadLocked()
+}
+
+// reloadLocked is Reload for a caller already holding reloadMu.
+func (b *Backend) reloadLocked() error {
+	rebuild := b.cfg.Rebuild
+	if rebuild == nil {
+		if b.cfg.CapabilityConfigPath == "" {
+			return nil // nothing to reload from
+		}
+		rebuild = b.buildInPackage
 	}
-	resolver, catalog, err := b.cfg.CapabilityRebuild()
+	s, err := rebuild()
 	if err != nil {
-		return fmt.Errorf("capability reload: %w", err)
+		return fmt.Errorf("reload: %w", err)
 	}
-	b.setCapabilitySurface(resolver, catalog)
+	b.mu.Lock()
+	b.capOverride = &capabilitySurface{resolver: s.CapabilityResolver, catalog: s.CapabilityCatalog}
+	if s.ActionResolver != nil {
+		// Dispatch first, then the readout: /action-types never advertises a
+		// binding the worker cannot yet dispatch through.
+		if b.cfg.ActionDispatch != nil {
+			b.cfg.ActionDispatch.Store(s.ActionResolver)
+		}
+		b.actionOverride = s.ActionResolver
+	}
+	b.mu.Unlock()
 	return nil
 }
 
