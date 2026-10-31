@@ -239,6 +239,11 @@ export class InvestigationDocuments {
       "caseNote.post": (msg) => {
         void this.postCaseNote(id, panel, msg.body);
       },
+      "turn.stop": () => {
+        this.transport.cancel(id).catch((err: unknown) => {
+          void vscode.window.showErrorMessage(`reckon: stopping the turn failed — ${errText(err)}`);
+        });
+      },
       send: (msg) => {
         void this.turns.run(id, panel, msg.text).finally(() => this.releaseSession(id));
       },

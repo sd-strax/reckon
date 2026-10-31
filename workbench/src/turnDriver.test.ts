@@ -15,6 +15,7 @@ const outcome = (over: Partial<TurnOutcome> = {}): TurnOutcome => ({
 function transport(script: (p: TurnProgress) => void, settle: () => Promise<TurnOutcome>): AgentTransport {
   return {
     turn: async (_id, _text, p) => { script(p); return settle(); },
+    turnRunning: () => false,
     cancel: async () => undefined,
     closeSession: async () => undefined,
     summarizeConcluded: async () => undefined,
@@ -73,5 +74,13 @@ describe("TurnDriver", () => {
     await driver.run("inv-1", panel, "x");
     expect(posted().slice(-2)).toEqual([{ type: "turn.error", message: "sidecar gone" }, { type: "turn.end" }]);
     expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a second turn without touching the running turn's state", async () => {
+    const t = { ...transport(() => undefined, async () => outcome()), turnRunning: () => true };
+    const { panel, refresh, driver, posted } = setup(t);
+    await driver.run("inv-1", panel, "again");
+    expect(posted()).toEqual([{ type: "turn.notice", text: "a turn is already running on this investigation" }]);
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

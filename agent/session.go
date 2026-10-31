@@ -138,6 +138,9 @@ type Session struct {
 type TurnResult struct {
 	// Text is the model's final response text.
 	Text string
+	// Stopped is true when a cancel ended the turn: not a failure, and the
+	// turn is committed like any other (adr/0239).
+	Stopped bool
 	// InterpretationID is the committed turn-summary reasoning act.
 	InterpretationID string
 	// PendingActions are ALL of the investigation's actions still awaiting the
@@ -508,21 +511,27 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 
 	rounds := 0
 	var turnErr error
+	stopped := false
 	for {
+		// A cancel takes effect here, between steps (adr/0239).
+		if ctx.Err() != nil {
+			stopped = true
+			break
+		}
 		if s.hooks.OnRoundStart != nil {
 			s.hooks.OnRoundStart(rounds + 1)
 		}
 		resp, streamed, err := s.completeFitted(ctx, &transcript, nil)
+		if err != nil && ctx.Err() != nil {
+			stopped = true
+			break
+		}
 		if err != nil {
 			// The turn ends here but is still closed and committed below: tool
 			// calls earlier in it may already have recorded hypotheses or
 			// requested actions, and the record must say why (adr/0231).
 			turnErr = fmt.Errorf("agent: model call: %w", err)
-			ended := "model call failed: " + err.Error()
-			if ctx.Err() != nil {
-				ended = "cancelled by the analyst"
-			}
-			fmt.Fprintf(&transcript, "[engine] turn ended early: %s\n", sanitizeTranscript(ended))
+			fmt.Fprintf(&transcript, "[engine] turn ended early: %s\n", sanitizeTranscript("model call failed: "+err.Error()))
 			break
 		}
 		turnUsage.Add(resp.Usage)
@@ -575,7 +584,11 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		}
 
 		results := cutResults
-		for _, tu := range toolUses {
+		for i, tu := range toolUses {
+			if ctx.Err() != nil {
+				results = append(results, abandonedResults(&transcript, toolUses[i:], "stopped by the analyst; tool not dispatched")...)
+				break
+			}
 			fmt.Fprintf(&transcript, "[tool_use %s id=%s] %s\n",
 				sanitizeTranscript(tu.ToolName), sanitizeTranscript(tu.ToolUseID), sanitizeTranscript(string(tu.Input)))
 			toolLog = append(toolLog, ToolCall{CallID: tu.ToolUseID, ToolName: tu.ToolName, Args: tu.Input})
@@ -583,7 +596,12 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 				s.hooks.OnToolCall(tu.ToolName, tu.Input)
 			}
 
-			content, isErr := s.dispatchTool(ctx, tu.ToolName, tu.Input)
+			// A dispatched tool finishes whatever happens to the turn: a cancel
+			// cutting a write off can leave it recorded while the model's history
+			// says it failed (adr/0239).
+			toolCtx, cancelTool := context.WithTimeout(context.WithoutCancel(ctx), toolTimeout)
+			content, isErr := s.dispatchTool(toolCtx, tu.ToolName, tu.Input)
+			cancelTool()
 			if !isErr {
 				s.rememberIDs(content)
 			}
@@ -606,6 +624,10 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 			})
 		}
 		s.messages = append(s.messages, Message{Role: RoleUser, Content: results})
+	}
+
+	if stopped {
+		fmt.Fprintf(&transcript, "[engine] turn ended early: %s\n", stopReason(ctx))
 	}
 
 	// The turn's closing work runs even when the turn was cancelled: a cancel
@@ -635,6 +657,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	// requested is pending server-side, and the surface must offer it.
 	res := &TurnResult{
 		Text:           finalText.String(),
+		Stopped:        stopped,
 		PendingActions: s.refreshPending(closing),
 		ToolRounds:     rounds,
 		Transcript:     transcript.String(),
@@ -649,7 +672,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	rationale := clipRunes(strings.TrimSpace(finalText.String()), maxRationaleRunes)
 	switch {
 	case rationale != "":
-	case turnErr != nil:
+	case turnErr != nil, stopped:
 		rationale = "(turn ended early — see transcript)"
 	default:
 		rationale = "(no final text — see transcript)"
@@ -665,6 +688,14 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	})
 	res.InterpretationID = id
 	return res, errors.Join(turnErr, err)
+}
+
+// stopReason names what cancelled ctx, for the record.
+func stopReason(ctx context.Context) string {
+	if errors.Is(context.Cause(ctx), ErrTurnTimedOut) {
+		return "timed out"
+	}
+	return "cancelled by the analyst"
 }
 
 // summarizeInstruction asks the model for the knowledge-base narrative at

@@ -95,6 +95,8 @@ export interface SOPCandidate {
  */
 export interface AgentTransport {
   turn(investigationId: string, text: string, progress: TurnProgress): Promise<TurnOutcome>;
+  /** Whether a turn is underway on the investigation; one runs at a time. */
+  turnRunning(investigationId: string): boolean;
   cancel(investigationId: string): Promise<void>;
   /** End the investigation's session, stopping what runs on it (adr/0237). */
   closeSession(investigationId: string): Promise<void>;
@@ -114,6 +116,8 @@ export interface SidecarDeps {
   maxToolResultKB(): number;
   /** The model's context window in tokens; 0 = the agent default (adr/0230). */
   contextWindowTokens(): number;
+  /** How long a turn may run before it is stopped (adr/0239). */
+  turnTimeoutMinutes(): number;
   /** The BYOK key from SecretStorage; undefined lets the sidecar try its own fallback (env / OS keychain). */
   apiKey(): Thenable<string | undefined>;
   /** Short-lived access tokens from the auth session — the getToken answer. */
@@ -134,12 +138,39 @@ interface WireTurnResult {
     targets?: string[];
     expired?: boolean;
   }[];
+  /** A cancel ended the turn: not an error. */
+  stopped?: boolean;
   error?: string;
+}
+
+function toOutcome(raw: WireTurnResult): TurnOutcome {
+  return {
+    text: raw.text ?? "",
+    interpretationId: raw.interpretation_id,
+    toolRounds: raw.tool_rounds ?? 0,
+    usage: {
+      input: raw.usage?.input ?? 0,
+      output: raw.usage?.output ?? 0,
+      cacheRead: raw.usage?.cache_read ?? 0,
+      cacheWrite: raw.usage?.cache_write ?? 0,
+    },
+    pendingActions: (raw.pending_actions ?? []).map((a) => ({
+      actionId: a.action_id ?? "",
+      actionType: a.action_type ?? "",
+      tier: a.tier ?? "",
+      status: a.status ?? "",
+      targets: a.targets ?? [],
+      expired: a.expired ?? false,
+    })),
+    error: raw.error,
+  };
 }
 
 export class SidecarTransport implements AgentTransport {
   private child: ChildProcess | null = null;
   private connection: MessageConnection | null = null;
+  /** The connection of a process still in its handshake. */
+  private handshaking: MessageConnection | null = null;
   private initializing: Promise<MessageConnection> | null = null;
   /** investigation id → live session id on the CURRENT sidecar process. */
   private readonly sessions = new Map<string, string>();
@@ -149,6 +180,10 @@ export class SidecarTransport implements AgentTransport {
   private readonly closing = new Map<string, Promise<void>>();
   /** session id → the in-flight turn's progress sink (for notifications). */
   private readonly inFlight = new Map<string, TurnProgress>();
+  /** Investigations with a turn underway, from the call on (host-side, so one runs at a time). */
+  private readonly running = new Set<string>();
+  /** Running turns told to stop: one not yet at the sidecar never starts. */
+  private readonly stopRequested = new Set<string>();
   private disposed = false;
 
   constructor(
@@ -157,38 +192,51 @@ export class SidecarTransport implements AgentTransport {
   ) {}
 
   async turn(investigationId: string, text: string, progress: TurnProgress): Promise<TurnOutcome> {
+    if (this.running.has(investigationId)) {
+      throw new Error("a turn is already running on this investigation");
+    }
+    this.running.add(investigationId);
+    try {
+      return await this.runTurn(investigationId, text, progress);
+    } finally {
+      this.running.delete(investigationId);
+      this.stopRequested.delete(investigationId);
+    }
+  }
+
+  turnRunning(investigationId: string): boolean {
+    return this.running.has(investigationId);
+  }
+
+  private async runTurn(investigationId: string, text: string, progress: TurnProgress): Promise<TurnOutcome> {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
+    if (this.stopRequested.has(investigationId)) {
+      return toOutcome({ stopped: true });
+    }
     this.inFlight.set(sessionId, progress);
+    const minutes = this.deps.turnTimeoutMinutes();
+    let timedOut = false;
+    const limit = setTimeout(() => {
+      timedOut = true;
+      conn.sendRequest("cancel", { session_id: sessionId, reason: "timeout" }).catch((err: unknown) => {
+        this.log.warn(`cancelling a timed-out turn: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }, minutes * 60_000);
     try {
-      const params = { session_id: sessionId, text };
-      const raw = await conn.sendRequest("turn", params) as WireTurnResult;
-      return {
-        text: raw.text ?? "",
-        interpretationId: raw.interpretation_id,
-        toolRounds: raw.tool_rounds ?? 0,
-        usage: {
-          input: raw.usage?.input ?? 0,
-          output: raw.usage?.output ?? 0,
-          cacheRead: raw.usage?.cache_read ?? 0,
-          cacheWrite: raw.usage?.cache_write ?? 0,
-        },
-        pendingActions: (raw.pending_actions ?? []).map((a) => ({
-          actionId: a.action_id ?? "",
-          actionType: a.action_type ?? "",
-          tier: a.tier ?? "",
-          status: a.status ?? "",
-          targets: a.targets ?? [],
-          expired: a.expired ?? false,
-        })),
-        error: raw.error,
-      };
+      const raw = await conn.sendRequest("turn", { session_id: sessionId, text }) as WireTurnResult;
+      const outcome = toOutcome(raw);
+      return timedOut && raw.stopped ? { ...outcome, error: `turn timed out after ${minutes} minutes` } : outcome;
     } finally {
-      this.inFlight.delete(sessionId);
+      clearTimeout(limit);
+      if (this.inFlight.get(sessionId) === progress) {
+        this.inFlight.delete(sessionId);
+      }
     }
   }
 
   async cancel(investigationId: string): Promise<void> {
+    this.requestStop(investigationId);
     const sessionId = this.sessions.get(investigationId);
     if (!sessionId || !this.connection) {
       return; // nothing in flight on this process — cancel is idempotent
@@ -203,6 +251,7 @@ export class SidecarTransport implements AgentTransport {
    * means a held turn is lost, and no caller can act on that.
    */
   async closeSession(investigationId: string): Promise<void> {
+    this.requestStop(investigationId);
     await this.creating.settled(investigationId);
     const sessionId = this.sessions.get(investigationId);
     if (!sessionId || !this.connection) {
@@ -278,6 +327,12 @@ export class SidecarTransport implements AgentTransport {
 
   // --- internals ------------------------------------------------------------
 
+  private requestStop(investigationId: string): void {
+    if (this.running.has(investigationId)) {
+      this.stopRequested.add(investigationId);
+    }
+  }
+
   /** Spawn + initialize once; reuse until the process dies, then respawn lazily. */
   private ensureConnection(): Promise<MessageConnection> {
     if (this.connection) {
@@ -296,6 +351,22 @@ export class SidecarTransport implements AgentTransport {
     const command = this.sidecarCommand();
     this.log.info(`spawning agent sidecar: ${command} investigate --stdio`);
     const child = spawn(command, ["investigate", "--stdio"], { stdio: ["pipe", "pipe", "pipe"] });
+    // Owned from here: however the rest ends, the process ends with the
+    // transport (adr/0239).
+    this.child = child;
+    try {
+      return await this.handshake(child);
+    } catch (err) {
+      if (this.child === child) {
+        this.teardown(`start failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      throw err;
+    } finally {
+      this.handshaking = null;
+    }
+  }
+
+  private async handshake(child: ChildProcess): Promise<MessageConnection> {
 
     const spawned = new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);
@@ -305,6 +376,9 @@ export class SidecarTransport implements AgentTransport {
         )));
     });
     await spawned;
+    if (this.child !== child) {
+      throw new Error("the sidecar was stopped while it started");
+    }
 
     child.stderr?.on("data", (chunk: Buffer) => {
       this.log.debug(`sidecar: ${chunk.toString().trimEnd()}`);
@@ -320,6 +394,7 @@ export class SidecarTransport implements AgentTransport {
       new StreamMessageReader(child.stdout!),
       new StreamMessageWriter(child.stdin!),
     );
+    this.handshaking = connection;
 
     // The token handoff (§5): the loop asks, the auth session answers.
     connection.onRequest("getToken", async (params: { kind?: string; force?: boolean }) => {
@@ -375,7 +450,9 @@ export class SidecarTransport implements AgentTransport {
       `sidecar ready: ${init.server_version ?? "?"} (protocol v${init.protocol_version}, backend api v${init.backend_api_version})`,
     );
 
-    this.child = child;
+    if (this.child !== child) {
+      throw new Error("the sidecar was stopped while it started");
+    }
     this.connection = connection;
     return connection;
   }
@@ -409,6 +486,8 @@ export class SidecarTransport implements AgentTransport {
 
   /** Drop the dead process's state; the next turn respawns and re-creates sessions. */
   private teardown(reason: string): void {
+    this.handshaking?.dispose();
+    this.handshaking = null;
     this.connection?.dispose();
     this.connection = null;
     const child = this.child;

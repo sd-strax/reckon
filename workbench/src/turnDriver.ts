@@ -15,6 +15,11 @@ export class TurnDriver {
 
   /** Drive one analyst turn through the transport, streaming progress to the webview. */
   async run(id: string, panel: vscode.WebviewPanel, text: string, aside?: { label: string }): Promise<void> {
+    if (this.transport.turnRunning(id)) {
+      // Not turn.end: the running turn's stream and the composer's state are its own.
+      void this.post(panel, { type: "turn.notice", text: "a turn is already running on this investigation" });
+      return;
+    }
     if (aside) {
       void this.post(panel, { type: "aside.start", label: aside.label });
     } else {

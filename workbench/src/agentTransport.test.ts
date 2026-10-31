@@ -59,6 +59,9 @@ interface Sidecar {
   initialize: unknown[];
   createSession: string[];
   closeSession: string[];
+  cancel: { session_id: string; reason?: string }[];
+  /** Answer initialize; a test overrides it to model a refused or stalled handshake. */
+  init(): Promise<unknown>;
   /** Answer closeSession; a test holding it open models a slow close. */
   close(): Promise<unknown>;
   turn(child: FakeChild, params: { session_id: string; text: string }): Promise<unknown>;
@@ -69,6 +72,8 @@ function installSidecar(over: Partial<Sidecar> = {}): Sidecar {
     initialize: [],
     createSession: [],
     closeSession: [],
+    cancel: [],
+    init: async () => ({ protocol_version: 1, backend_api_version: 1, server_version: "test" }),
     close: async () => ({}),
     turn: async () => ({ text: "", tool_rounds: 0 }),
     ...over,
@@ -77,11 +82,15 @@ function installSidecar(over: Partial<Sidecar> = {}): Sidecar {
   spawned.onSpawn = (child: FakeChild) => {
     child.peer.onRequest("initialize", (p: unknown) => {
       sc.initialize.push(p);
-      return { protocol_version: 1, backend_api_version: 1, server_version: "test" };
+      return sc.init();
     });
     child.peer.onRequest("createSession", (p: { investigation_id: string }) => {
       sc.createSession.push(p.investigation_id);
       return { session_id: `s-${children().indexOf(child)}-${++n}`, tools: ["a", "b"] };
+    });
+    child.peer.onRequest("cancel", (p: { session_id: string; reason?: string }) => {
+      sc.cancel.push(p);
+      return {};
     });
     child.peer.onRequest("closeSession", (p: { session_id: string }) => {
       sc.closeSession.push(p.session_id);
@@ -103,6 +112,7 @@ function deps(over: Partial<SidecarDeps> = {}): SidecarDeps {
     model: () => "claude-test",
     maxToolResultKB: () => 256,
     contextWindowTokens: () => 150000,
+    turnTimeoutMinutes: () => 10,
     apiKey: async () => undefined,
     getToken: async (kind) => `tok-${kind}`,
     ...over,
@@ -300,5 +310,88 @@ describe("SidecarTransport: lifecycle", () => {
     await transport.turn("inv-1", "b", silent);
     expect(children()).toHaveLength(2);
     expect(sc.createSession).toEqual(["inv-1", "inv-1"]);
+  });
+
+  it("kills the child when the handshake fails, so a retry leaves nothing behind", async () => {
+    installSidecar({ init: async () => { throw new Error("backend API v9 unsupported"); } });
+    transport = new SidecarTransport(deps(), fakeLog());
+    await expect(transport.turn("inv-1", "a", silent)).rejects.toThrow("backend API v9 unsupported");
+    await expect(transport.turn("inv-1", "b", silent)).rejects.toThrow("backend API v9 unsupported");
+    expect(children()).toHaveLength(2);
+    expect(children().every((c) => c.killed)).toBe(true);
+  });
+
+  it("kills the child when disposed during the handshake", async () => {
+    const sc = installSidecar({ init: () => new Promise(() => undefined) });
+    transport = new SidecarTransport(deps(), fakeLog());
+    const turn = transport.turn("inv-1", "a", silent);
+    await vi.waitFor(() => expect(sc.initialize).toHaveLength(1));
+    transport.dispose();
+    await expect(turn).rejects.toThrow();
+    expect(children()[0].killed).toBe(true);
+  });
+});
+
+describe("SidecarTransport: stopping a turn", () => {
+  /** A sidecar whose turn parks until the test ends it. */
+  function parkedTurn() {
+    let finish!: (r: unknown) => void;
+    const sc = installSidecar({ turn: () => new Promise((r) => { finish = r; }) });
+    return { sc, end: (r: unknown) => finish(r) };
+  }
+
+  it("refuses a second turn, and the first keeps its sink", async () => {
+    let child!: FakeChild;
+    let finish!: (r: unknown) => void;
+    let session = "";
+    installSidecar({
+      turn: (c, p) => { child = c; session = p.session_id; return new Promise((r) => { finish = r; }); },
+    });
+    transport = new SidecarTransport(deps(), fakeLog());
+    const text: string[] = [];
+    const first = transport.turn("inv-1", "a", { ...silent, onText: (t) => text.push(t) });
+    await vi.waitFor(() => expect(session).not.toBe(""));
+    expect(transport.turnRunning("inv-1")).toBe(true);
+
+    await expect(transport.turn("inv-1", "b", silent)).rejects.toThrow("already running");
+
+    await child.peer.sendNotification("turn/text", { session_id: session, text: "still here" });
+    await vi.waitFor(() => expect(text).toEqual(["still here"]));
+    finish({ text: "", tool_rounds: 0 });
+    await first;
+    expect(transport.turnRunning("inv-1")).toBe(false);
+  });
+
+  it("does not start a turn stopped before it reached the sidecar", async () => {
+    let turns = 0;
+    installSidecar({ turn: async () => { turns++; return {}; } });
+    transport = new SidecarTransport(deps(), fakeLog());
+    const turn = transport.turn("inv-1", "a", silent);
+    await transport.cancel("inv-1");
+    await turn;
+    expect(turns).toBe(0);
+  });
+
+  it("does not report a stopped turn as a failure", async () => {
+    const { sc, end } = parkedTurn();
+    transport = new SidecarTransport(deps(), fakeLog());
+    const turn = transport.turn("inv-1", "a", silent);
+    await vi.waitFor(() => expect(sc.createSession).toHaveLength(1));
+    await new Promise((r) => setImmediate(r));
+    await transport.cancel("inv-1");
+    expect(sc.cancel).toHaveLength(1);
+    expect(sc.cancel[0].reason).toBeUndefined();
+    end({ stopped: true, tool_rounds: 1 });
+    expect((await turn).error).toBeUndefined();
+  });
+
+  it("stops a turn past its time limit and says so", async () => {
+    const { sc, end } = parkedTurn();
+    transport = new SidecarTransport(deps({ turnTimeoutMinutes: () => 0.0001 }), fakeLog());
+    const turn = transport.turn("inv-1", "a", silent);
+    await vi.waitFor(() => expect(sc.cancel).toHaveLength(1));
+    expect(sc.cancel[0].reason).toBe("timeout");
+    end({ stopped: true, tool_rounds: 0 });
+    expect((await turn).error).toBe("turn timed out after 0.0001 minutes");
   });
 });

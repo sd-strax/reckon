@@ -633,8 +633,8 @@ func TestServe_CancelAbortsTurn(t *testing.T) {
 		}
 		var tr turnResult
 		_ = json.Unmarshal(resp.Result, &tr)
-		if tr.Error == "" || !strings.Contains(tr.Error, "context canceled") {
-			t.Errorf("turn result after cancel = %+v; want the cancellation surfaced", tr)
+		if !tr.Stopped || tr.Error != "" {
+			t.Errorf("turn result after cancel = %+v; want it stopped, not failed", tr)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("turn did not return after cancel")
