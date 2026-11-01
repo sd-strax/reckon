@@ -66,7 +66,7 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 		return
 	}
 
-	ac, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), actionID)
+	ac, err := b.cfg.Reads.LoadActionCurrent(r.Context(), actionID)
 	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return
@@ -207,7 +207,7 @@ func (b *Backend) rejectAction(w http.ResponseWriter, r *http.Request, actionID 
 		return
 	}
 
-	ac, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), actionID)
+	ac, err := b.cfg.Reads.LoadActionCurrent(r.Context(), actionID)
 	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return
@@ -254,7 +254,7 @@ func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, a
 		return
 	}
 
-	ac, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), actionID)
+	ac, err := b.cfg.Reads.LoadActionCurrent(r.Context(), actionID)
 	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return

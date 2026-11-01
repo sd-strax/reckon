@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
-	"github.com/sd-strax/reckon/evidence"
 )
 
 // Live markdown export (design/ui binding §6 item 10): the portable,
@@ -54,7 +53,7 @@ func (b *Backend) getInvestigationMarkdown(w http.ResponseWriter, r *http.Reques
 // renderInvestigationMarkdown assembles the projections and renders the
 // document. Every line of it names engine truth — no client-invented state.
 func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID) (string, error) {
-	reads := b.cfg.Handler.Reads()
+	reads := b.cfg.Reads
 	ic, err := reads.LoadInvestigationCurrent(ctx, id)
 	if err != nil {
 		if errors.Is(err, aggregate.ErrNoRecord) {
@@ -345,11 +344,11 @@ func yamlString(s string) string {
 // object degrades to the id, never a broken document.
 type refLabeler struct {
 	ctx      context.Context
-	evidence *evidence.Store
+	evidence evidenceStore
 	cache    map[string]string
 }
 
-func newRefLabeler(ctx context.Context, store *evidence.Store) *refLabeler {
+func newRefLabeler(ctx context.Context, store evidenceStore) *refLabeler {
 	return &refLabeler{ctx: ctx, evidence: store, cache: map[string]string{}}
 }
 

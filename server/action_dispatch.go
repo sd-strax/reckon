@@ -101,7 +101,7 @@ func (b *Backend) startActionWorkflow(ctx context.Context, s dispatchSpec) strin
 	// write finds no binding rather than mis-routing) and a no-op for a
 	// single-organization one.
 	if b.cfg.Handler != nil {
-		if inv, err := b.cfg.Handler.Reads().LoadInvestigationCurrent(ctx, s.AggregateID); err != nil {
+		if inv, err := b.cfg.Reads.LoadInvestigationCurrent(ctx, s.AggregateID); err != nil {
 			log.Printf("action %s: source-scope lookup failed, dispatch will be unscoped: %v", s.ActionID, err)
 		} else if inv.Seed != nil {
 			lifecycle.SourceScope = inv.Seed.SourceScope
@@ -122,7 +122,7 @@ func (b *Backend) startActionWorkflow(ctx context.Context, s dispatchSpec) strin
 		// field existed. A lookup failure defaults to NOT reliable — the
 		// conservative, honest choice.
 		reliable := false
-		if orig, lerr := b.cfg.Handler.Reads().LoadActionCurrent(ctx, s.ReversalOfRef); lerr != nil {
+		if orig, lerr := b.cfg.Reads.LoadActionCurrent(ctx, s.ReversalOfRef); lerr != nil {
 			log.Printf("action %s: reversal reliability lookup for original %s failed (defaulting to best-effort): %v",
 				s.ActionID, s.ReversalOfRef, lerr)
 		} else if orig.Reversibility != "" {

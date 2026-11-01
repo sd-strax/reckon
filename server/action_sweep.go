@@ -66,7 +66,7 @@ func (b *Backend) sweepStrandedActions(ctx context.Context) {
 	if b.getActionStarter() == nil {
 		return // no dispatch client: approvals cannot run, and stay APPROVED
 	}
-	stranded, err := b.cfg.Handler.Reads().ListStrandedActionCurrents(ctx)
+	stranded, err := b.cfg.Reads.ListStrandedActionCurrents(ctx)
 	if err != nil {
 		log.Printf("stranded-action sweep: list actions: %v", err)
 		return
@@ -126,7 +126,7 @@ func (b *Backend) startExpiryTimer(ctx context.Context, actionID, aggregateID, t
 // already-elapsed deadlines fire immediately, converging stored statuses that
 // lazy expiry left behind.
 func (b *Backend) sweepExpiryTimers(ctx context.Context) {
-	pending, err := b.cfg.Handler.Reads().ListPendingActionCurrents(ctx)
+	pending, err := b.cfg.Reads.ListPendingActionCurrents(ctx)
 	if err != nil {
 		log.Printf("expiry sweep: list pending actions: %v", err)
 		return

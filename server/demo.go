@@ -81,7 +81,7 @@ func (b *Backend) demoInstallState(ctx context.Context) (demoInstallState, error
 	if b.cfg.Handler == nil {
 		return st, fmt.Errorf("aggregate handler not configured")
 	}
-	n, err := b.cfg.Handler.Reads().CountInvestigations(ctx)
+	n, err := b.cfg.Reads.CountInvestigations(ctx)
 	if err != nil {
 		return st, err
 	}

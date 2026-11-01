@@ -155,7 +155,7 @@ func (b *Backend) requestCaseNote(w http.ResponseWriter, r *http.Request, id uui
 	if !decodeOptionalBody(w, r, &req, maxBodyBytes) {
 		return
 	}
-	ic, err := b.cfg.Handler.Reads().LoadInvestigationCurrent(r.Context(), id)
+	ic, err := b.cfg.Reads.LoadInvestigationCurrent(r.Context(), id)
 	if err != nil {
 		writeJSONError(w, http.StatusNotFound, "investigation not found")
 		return

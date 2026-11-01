@@ -20,13 +20,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/action"
-	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/capability"
-	"github.com/sd-strax/reckon/comms"
-	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/identity"
-	"github.com/sd-strax/reckon/knowledge"
 	"github.com/sd-strax/reckon/supervisor"
 	"github.com/sd-strax/reckon/temporal"
 )
@@ -82,11 +78,16 @@ type BackendConfig struct {
 	// be non-nil for any /api route to function (routes guard internally
 	// with a 503 if absent so the server still serves /healthz cleanly when
 	// the engine is being torn down).
-	Handler *aggregate.Handler
+	Handler commandHandler
+
+	// Reads is the aggregate's read side. Handlers take a non-nil Handler to
+	// mean the aggregate is there, so the two are set together; NewBackend
+	// refuses one without the other.
+	Reads readModel
 
 	// Evidence persists what capability invocations return and opens cited
 	// refs. Nil skips persistence, and evidence routes answer 503.
-	Evidence *evidence.Store
+	Evidence evidenceStore
 
 	// Middleware, when non-nil, wraps the entire router — it carries the
 	// telemetry tracing/metrics layer (telemetry.Provider.HTTPMiddleware).
@@ -145,12 +146,12 @@ type BackendConfig struct {
 
 	// Knowledge, when non-nil, enables the SOP corpus routes (/api/sops,
 	// /api/knowledge/recall_sops — Phase C.5). Nil leaves them unregistered.
-	Knowledge *knowledge.Store
+	Knowledge knowledgeStore
 
 	// Comms, when non-nil, enables the comms-thread routes (Phase F, binding
 	// §4): GET /api/investigations/{id}/comms + /api/comms acts. Threads are
 	// opened by the action-result path, never by these routes.
-	Comms *comms.Store
+	Comms commsStore
 
 	// TenantNamespace is this install's identity namespace UUID (03 §7.1),
 	// stamped onto export bundles + their archive path (D.5).
@@ -257,8 +258,12 @@ func (b *Backend) identityResolver() *identity.Resolver {
 
 // NewBackend constructs the Backend (not yet started). The supervisor
 // reference lets /status roll up every registered component including
-// Backend itself.
+// Backend itself. Handler without Reads, or Reads without Handler, is a wiring
+// mistake, so it stops the process here rather than on a request or in a sweep.
 func NewBackend(cfg BackendConfig, sup *supervisor.Supervisor) *Backend {
+	if (cfg.Handler == nil) != (cfg.Reads == nil) {
+		panic("server: BackendConfig.Handler and Reads are set together")
+	}
 	if cfg.HTTPPort == 0 {
 		cfg.HTTPPort = 8080
 	}

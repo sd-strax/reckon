@@ -198,7 +198,7 @@ func (b *Backend) annotateInFlight(r *http.Request, cases []CaseView) error {
 	for _, c := range cases {
 		numbers = append(numbers, c.Number)
 	}
-	byCase, err := b.cfg.Handler.Reads().InvestigationsForCases(r.Context(), numbers)
+	byCase, err := b.cfg.Reads.InvestigationsForCases(r.Context(), numbers)
 	if err != nil {
 		return err
 	}
@@ -217,7 +217,7 @@ func (b *Backend) investigationForCase(r *http.Request, caseID string) (string, 
 	if caseID == "" || b.cfg.Handler == nil {
 		return "", nil
 	}
-	id, err := b.cfg.Handler.Reads().InvestigationForCase(r.Context(), caseID)
+	id, err := b.cfg.Reads.InvestigationForCase(r.Context(), caseID)
 	if errors.Is(err, aggregate.ErrNoRecord) {
 		return "", nil
 	}

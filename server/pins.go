@@ -33,7 +33,7 @@ func (b *Backend) listInvestigationPins(w http.ResponseWriter, r *http.Request, 
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
 		return
 	}
-	pins, err := b.cfg.Handler.Reads().ListEvidencePins(r.Context(), invID)
+	pins, err := b.cfg.Reads.ListEvidencePins(r.Context(), invID)
 	if err != nil {
 		writeInternalError(w, "list pins", err)
 		return

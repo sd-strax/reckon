@@ -358,6 +358,7 @@ func serve(cfg config.Config) error {
 		KeycloakLoginClientID: branding.CLI,
 		KeycloakAgentClientID: branding.CLI + "-agent",
 		Handler:               handler,
+		Reads:                 handler.Reads(),
 		Middleware:            tel.HTTPMiddleware,
 		CapabilityResolver:    capResolver,
 		CapabilityCatalog:     capCatalog,

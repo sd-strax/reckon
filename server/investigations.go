@@ -136,7 +136,7 @@ func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
 		return
 	}
-	rows, err := b.cfg.Handler.Reads().ListInvestigations(r.Context())
+	rows, err := b.cfg.Reads.ListInvestigations(r.Context())
 	if err != nil {
 		writeInternalError(w, "list investigations", err)
 		return
@@ -172,7 +172,7 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request, id uu
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
 		return
 	}
-	ic, err := b.cfg.Handler.Reads().LoadInvestigationCurrent(r.Context(), id)
+	ic, err := b.cfg.Reads.LoadInvestigationCurrent(r.Context(), id)
 	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "investigation not found")
 		return
@@ -209,7 +209,7 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request, id uu
 	}
 	// The investigation's start and who opened it: the creating act (sequence
 	// 1) and its actor's display name (adr/0077).
-	if at, actor, err := b.cfg.Handler.Reads().InvestigationOpening(r.Context(), id); err == nil {
+	if at, actor, err := b.cfg.Reads.InvestigationOpening(r.Context(), id); err == nil {
 		view.CreatedAt = &at
 		view.OpenedByName = actor.PrincipalName
 		if view.OpenedByName == "" {

@@ -58,7 +58,7 @@ func (b *Backend) exportInvestigation(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	ic, err := b.cfg.Handler.Reads().LoadInvestigationCurrent(r.Context(), id)
+	ic, err := b.cfg.Reads.LoadInvestigationCurrent(r.Context(), id)
 	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "investigation not found")
 		return

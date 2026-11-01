@@ -130,7 +130,7 @@ func (b *Backend) getActionRecord(w http.ResponseWriter, r *http.Request, action
 }
 
 func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (ActionRecordView, error) {
-	reads := b.cfg.Handler.Reads()
+	reads := b.cfg.Reads
 	cur, err := reads.LoadActionCurrent(ctx, actionID)
 	if err != nil {
 		return ActionRecordView{}, err

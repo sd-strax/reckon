@@ -34,7 +34,7 @@ func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ref := r.PathValue("ref")
-	apps, err := b.cfg.Handler.Reads().ListRefAppearances(r.Context(), ref)
+	apps, err := b.cfg.Reads.ListRefAppearances(r.Context(), ref)
 	if err != nil {
 		writeInternalError(w, "list appearances", err)
 		return
@@ -70,7 +70,7 @@ func (b *Backend) getInterpretationTranscript(w http.ResponseWriter, r *http.Req
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
 		return
 	}
-	reads := b.cfg.Handler.Reads()
+	reads := b.cfg.Reads
 
 	rec, err := reads.LoadInterpretation(r.Context(), interpID)
 	if errors.Is(err, aggregate.ErrNoRecord) {

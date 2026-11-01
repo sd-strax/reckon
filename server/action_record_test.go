@@ -1,7 +1,6 @@
 package server
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -161,12 +160,7 @@ func TestActionRecord_AutoPolicy(t *testing.T) {
 // TestActionRecord_StoreFailureIsNotA404: a read that failed says so, rather
 // than reporting the action missing.
 func TestActionRecord_StoreFailureIsNotA404(t *testing.T) {
-	db, err := sql.Open("postgres", "host=127.0.0.1 sslmode=disable")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = db.Close()
-	b := &Backend{cfg: BackendConfig{Handler: aggregate.NewHandler(aggregate.NewStore(db))}}
+	b := &Backend{cfg: BackendConfig{Handler: &fakeCommands{}, Reads: &fakeReads{actionErr: errStoreDown}}}
 	w := httptest.NewRecorder()
 	b.getActionRecord(w, httptest.NewRequest(http.MethodGet, "/api/actions/x", nil), uuid.New())
 	if w.Code != http.StatusInternalServerError {
