@@ -24,6 +24,8 @@ type Inbound =
 export class CaseDocuments {
   private readonly panels = new Map<string, vscode.WebviewPanel>();
   private readonly starting = new Set<string>();
+  // Bumped when the identity changes: a start begun before it opens nothing.
+  private generation = 0;
 
   constructor(
     private readonly client: BackendClient,
@@ -35,6 +37,7 @@ export class CaseDocuments {
 
   /** The person behind the session changed: a case on screen was read as someone else (adr/0241). */
   closeAll(): void {
+    this.generation++;
     for (const panel of [...this.panels.values()]) {
       panel.dispose();
     }
@@ -95,13 +98,16 @@ export class CaseDocuments {
       return;
     }
     this.starting.add(number);
+    const generation = this.generation;
     void panel.webview.postMessage({ type: "starting" } satisfies Outbound);
     try {
       const created = await this.client.createInvestigationFromInput(number, "case");
+      if (generation !== this.generation) return;
       this.log.info(`case ${number}: investigation ${created.id} started`);
       this.onInvestigationCreated(created);
       void this.load(number, panel);
     } catch (err) {
+      if (generation !== this.generation) return;
       // Already investigated (#158): open that investigation instead.
       const existing = existingInvestigation(err);
       if (existing) {

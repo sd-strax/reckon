@@ -16,6 +16,8 @@ Failures were cached too. `getDoc` stored `null` for any error, and `labelCache`
 
 **A read in flight cannot refill it.** A generation counter is bumped at the clear; a read that began before it may answer its caller but is not cached.
 
+**Work in flight does not cross the change.** What the previous person began neither opens anything nor writes once the identity has changed. Each path takes a check before its await and tests it after. An investigation, SOP draft or report that lands late is dropped, and a preview that opened across the change is closed. A multi-step write stops before its write: a token is taken per call, so the next step would land as the next person. That covers a running SOP import, an approval or reversal, a comms follow-up, an enablement or context reset confirmed in a dialog, and the summary after a conclude. A prompt reckon cannot dismiss, such as Save report…, does nothing when answered. A single request already on the wire is not recalled.
+
 **Everything reckon opened closes.** Investigation, case and import documents close, not blank: that removes the content, the tab title and the registry entry together, where a blanked panel would keep the title and stay bound to the previous person's investigation. SOP drafts close with their unsaved text reverted, so nobody is asked to save someone else's work. An exported report's preview closes and its scratch file is deleted. Only what reckon opened is touched, tracked as it opens; other editors stay. The Cases and Investigations views then come up for the new person. On the restore at window start nobody changed, so nothing is revealed.
 
 **Last-seen marks are per person**, keyed by subject in `globalState`. They survive sign-out for that person. The old shared key is deleted, so cues reset once on upgrade. With nobody signed in, nothing is read or written.
@@ -36,5 +38,6 @@ Failures were cached too. `getDoc` stored `null` for any error, and `labelCache`
 
 - A change of person closes every reckon document; the next person starts from their own views.
 - Unsaved edits to a SOP draft are lost on a change of person. A draft or report the analyst saved to a file is theirs, and stays.
-- The preview tab is found by its view type and label, which belong to VS Code's markdown extension and could change.
+- The preview tab is found by its view type and label, which belong to VS Code's markdown extension and could change. Tracking the tab is not possible: the extension reuses an unlocked preview, so an export may open no tab of its own. A scratch file's name carries a per-window tag instead, so a report the analyst saved under the default name never matches. The tag shows in the preview's title.
+- An investigation created by a request that lands after the change exists, and shows in the previous person's list. It is only not opened.
 - `SeenTracker` no longer lives in `extension.ts`, so it is testable.

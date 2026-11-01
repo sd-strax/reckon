@@ -251,8 +251,10 @@ describe("InvestigationDocuments: closing", () => {
     docs.show("inv-12345678");
     createdPanels()[0].webview.receive({ type: "export.open" });
     await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
-    const preview = { label: "Preview reckon-report-inv-1234.md", input: new vscode.TabInputWebview("mainThreadWebview-markdown.preview") };
-    const mine = { label: "Preview notes.md", input: new vscode.TabInputWebview("mainThreadWebview-markdown.preview") };
+    const scratch = vi.mocked(vscode.commands.executeCommand).mock.calls.find(([c]) => c === "markdown.showPreviewToSide")![1] as vscode.Uri;
+    const preview = { label: `Preview ${scratch.path.split("/").pop()}`, input: new vscode.TabInputWebview("mainThreadWebview-markdown.preview") };
+    // The analyst's saved copy of the same report is not reckon's to close.
+    const mine = { label: "Preview reckon-report-inv-1234.md", input: new vscode.TabInputWebview("mainThreadWebview-markdown.preview") };
     (vscode.window.tabGroups as unknown as { all: unknown[] }).all = [{ tabs: [preview, mine] }];
 
     docs.identityChanged();
@@ -260,5 +262,196 @@ describe("InvestigationDocuments: closing", () => {
     await vi.waitFor(() => expect(vscode.window.tabGroups.close).toHaveBeenCalledWith([preview]));
     await vi.waitFor(() => expect(vscode.workspace.fs.delete).toHaveBeenCalledOnce());
     (vscode.window.tabGroups as unknown as { all: unknown[] }).all = [];
+  });
+});
+
+describe("InvestigationDocuments: work in flight when the identity changes", () => {
+  const gate = <T>() => {
+    let open!: (v: T) => void;
+    const opened = new Promise<T>((r) => { open = r; });
+    return { opened, open };
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const fromCase = { id: "inv-2", title: "Alice's case", caseNote: { caseId: "C-1" }, caseNoteOnSeed: "auto" } as unknown as InvestigationDetail;
+
+  it("does not open an export that lands after the change", async () => {
+    const md = gate<string>();
+    const { docs } = documents(backend({ exportMarkdown: () => md.opened }).client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "export.open" });
+
+    docs.identityChanged();
+    md.open("# Alice's report");
+    await settle();
+
+    expect(vscode.workspace.fs.writeFile).not.toHaveBeenCalled();
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything());
+  });
+
+  it("closes a preview that opened across the change", async () => {
+    const shown = gate<void>();
+    vi.mocked(vscode.commands.executeCommand).mockImplementationOnce(() => shown.opened);
+    const { docs } = documents(backend({ exportMarkdown: async () => "# r" }).client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "export.open" });
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
+
+    docs.identityChanged();
+    await settle();
+    vi.mocked(vscode.workspace.fs.delete).mockClear();
+    shown.open();
+
+    await vi.waitFor(() => expect(vscode.workspace.fs.delete).toHaveBeenCalledOnce());
+    expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not save a report from a prompt that outlived the change", async () => {
+    const answer = gate<string | undefined>();
+    vi.mocked(vscode.window.showInformationMessage).mockImplementationOnce(() => answer.opened as never);
+    const { docs } = documents(backend({ exportMarkdown: async () => "# r" }).client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "export.open" });
+    await vi.waitFor(() => expect(vscode.window.showInformationMessage).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+    answer.open("Save report…");
+    await settle();
+
+    expect(vscode.window.showSaveDialog).not.toHaveBeenCalled();
+  });
+
+  it("does not take over a closed draft when its seed lands, nor write its case note", async () => {
+    const created = gate<InvestigationDetail>();
+    const { client, calls } = backend({ createInvestigationFromInput: () => created.opened });
+    const { docs } = documents(client);
+    docs.showDraft();
+    createdPanels()[0].webview.receive({ type: "seed.submit", value: "host-a", kind: "" });
+
+    docs.identityChanged();
+    created.open(fromCase);
+    await settle();
+
+    expect(createdPanels()).toHaveLength(1);
+    expect(calls).not.toContain("requestCaseNote");
+  });
+
+  it("does not open an investigation started from a case row before the change", async () => {
+    const created = gate<InvestigationDetail>();
+    const { client, calls } = backend({ createInvestigationFromInput: () => created.opened });
+    const { docs } = documents(client);
+    docs.showDraft();
+    createdPanels()[0].webview.receive({ type: "queue.start", caseNumber: "C-1" });
+    await vi.waitFor(() => expect(calls).toContain("createInvestigationFromInput"));
+
+    docs.identityChanged();
+    created.open(fromCase);
+    await settle();
+
+    expect(createdPanels()).toHaveLength(1);
+    expect(calls).not.toContain("requestCaseNote");
+  });
+
+  it("does not open a SOP draft that lands after the change", async () => {
+    const candidate = gate<{ warranted: boolean; title: string; body: string; tags: string[]; recommendation: string; rationale: string }>();
+    vi.mocked(transport.proposeSOP).mockImplementationOnce(() => candidate.opened as never);
+    const { docs } = documents(backend().client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "sop.draft" });
+    await vi.waitFor(() => expect(transport.proposeSOP).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+    candidate.open({ warranted: true, title: "T", body: "B", tags: [], recommendation: "", rationale: "" });
+    await settle();
+
+    expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+  });
+
+  it("does not approve on the next person's token when the change lands during the read before it", async () => {
+    const actions = gate<ActionRow[]>();
+    const approveAction = vi.fn(async () => ({ status: "APPROVED" }));
+    const { client } = backend({ actions: () => actions.opened, approveAction });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "action.approve", actionId: "a-1" });
+    await settle();
+
+    docs.identityChanged();
+    actions.open([{ actionId: "a-1", tier: "T1", status: "PROPOSED" } as ActionRow]);
+    await settle();
+
+    expect(approveAction).not.toHaveBeenCalled();
+    expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not request a reversal on the next person's token", async () => {
+    const record = gate<{ action: { actionType: string; targets: string[]; evidenceRefs: string[]; actionId: string } }>();
+    const requestAction = vi.fn(async () => ({ status: "PROPOSED" }));
+    const { client } = backend({
+      actions: async () => [{ actionId: "a-1", tier: "T1", status: "SUCCEEDED" } as ActionRow],
+      actionRecord: () => record.opened,
+      actionTypes: async () => [{ actionType: "x", reversibleBy: "y" }],
+      requestAction,
+    });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "action.reverse", actionId: "a-1", rationale: "r" });
+    await settle();
+    await settle();
+
+    docs.identityChanged();
+    record.open({ action: { actionType: "x", targets: ["t"], evidenceRefs: ["e"], actionId: "a-1" } });
+    await settle();
+
+    expect(requestAction).not.toHaveBeenCalled();
+  });
+
+  it("does not request a comms follow-up on the next person's token", async () => {
+    const comms = gate<{ threadId: string; actionId: string }[]>();
+    const requestAction = vi.fn(async () => ({ status: "PROPOSED" }));
+    const { client, calls } = backend({
+      comms: () => comms.opened,
+      actionRecord: async () => ({ action: { evidenceRefs: ["e"] } }),
+      requestAction,
+    });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "comms.followup", threadId: "t-1", actionType: "notify.chat", target: "x", subject: "", message: "m", followUpHours: 1 });
+    await vi.waitFor(() => expect(calls).toContain("comms"));
+
+    docs.identityChanged();
+    comms.open([{ threadId: "t-1", actionId: "a-1" }]);
+    await settle();
+
+    expect(requestAction).not.toHaveBeenCalled();
+  });
+
+  it("does not apply an enablement confirmed before the change", async () => {
+    const answer = gate<string | undefined>();
+    vi.mocked(vscode.window.showWarningMessage).mockImplementationOnce(() => answer.opened as never);
+    const applyEnablement = vi.fn(async () => undefined);
+    const { docs } = documents(backend({ applyEnablement }).client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, secretFields: [] });
+
+    docs.identityChanged();
+    answer.open("Enable");
+    await settle();
+
+    expect(applyEnablement).not.toHaveBeenCalled();
+  });
+
+  it("does not start the conclude summary for the next person", async () => {
+    const concluded = gate<{ status: string }>();
+    const { client, calls } = backend({ lifecycle: () => concluded.opened });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "lifecycle", transition: "conclude", summary: "done" });
+    await vi.waitFor(() => expect(calls).toContain("lifecycle"));
+
+    docs.identityChanged();
+    concluded.open({ status: "CONCLUDED" });
+    await settle();
+
+    expect(transport.summarizeConcluded).not.toHaveBeenCalled();
   });
 });

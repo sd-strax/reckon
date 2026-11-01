@@ -231,7 +231,11 @@ export const window = {
   createOutputChannel: vi.fn((..._args: unknown[]) => fakeLog()),
   registerTreeDataProvider: vi.fn((..._args: unknown[]) => new Disposable(() => undefined)),
   activeTextEditor: undefined as vscode.TextEditor | undefined,
-  tabGroups: { all: [] as vscode.TabGroup[], close: vi.fn(async (..._args: unknown[]) => true) },
+  tabGroups: {
+    all: [] as vscode.TabGroup[],
+    close: vi.fn(async (..._args: unknown[]) => true),
+    onDidChangeTabs: () => new Disposable(() => undefined),
+  },
 } satisfies Members<typeof vscode.window>;
 
 export const workspace = {

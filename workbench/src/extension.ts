@@ -89,7 +89,7 @@ export function activate(context: vscode.ExtensionContext): void {
       transport.endSessions();
       documents.identityChanged();
       caseDocs.closeAll();
-      importSOPs.dispose();
+      importSOPs.identityChanged();
       // Not on the restore at start-up: nobody changed, the window just opened.
       if (started) {
         void vscode.commands.executeCommand("workbench.view.extension.reckon");
@@ -182,6 +182,7 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       const row = arg as { invId: string; invTitle?: string };
+      const subject = session.subject;
       const ok = await vscode.window.showWarningMessage(
         `reckon: reset the agent's conversation context for "${row.invTitle ?? row.invId}"? ` +
         "The investigation record (evidence, hypotheses, actions, chronicle) is untouched — " +
@@ -190,7 +191,7 @@ export function activate(context: vscode.ExtensionContext): void {
         { modal: true },
         "Reset context",
       );
-      if (ok !== "Reset context") {
+      if (ok !== "Reset context" || session.subject !== subject) {
         return;
       }
       try {
