@@ -9,39 +9,40 @@
 // implementation/agent-sidecar.md) — this file is the renderer + message
 // bridge, nothing more.
 //
+// This controller owns the panels, the routing, load and refresh, and the
+// identity; the document's acts live in domain classes (draftFlow,
+// actionDecisions, reasoningWrites, evidenceReads, knowledgeFlow,
+// reportExport) that reach it only through DocumentHost (adr/0243).
+//
 // The extension host holds the tokens and the Anthropic key and does every
 // call; the webview only renders messages posted to it. The CSP forbids all
 // network from the page.
 
 import { randomUUID } from "crypto";
-import * as os from "os";
-import * as path from "path";
 import * as vscode from "vscode";
-import { SingleFlight } from "./singleFlight";
-import { ActionRow, Appearance, type ArtifactLocation, BackendClient, BackendRequestError, EvidenceDoc, InvestigationDetail, ThreadEntry, existingInvestigation } from "./backend";
-import { AgentTransport, SOPCandidate } from "./agentTransport";
-import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "./protocol";
-import { buildDerivedViews, type CitingRecords } from "./derivedViews";
-import { deriveEvidenceLabel } from "./evidenceLabel";
+import { BackendClient, InvestigationDetail } from "./backend";
+import { AgentTransport } from "./agentTransport";
+import type { InboundMessage, InvestigationSnapshot, RenderMessage } from "./protocol";
 import { InvestigationCache } from "./investigationCache";
-import { candidateSOPMarkdown, slugifyTitle } from "./documentText";
 import { errText, panelTitle } from "./util";
 import { panelHtml, panelOptions } from "./panelHtml";
 import { routeInbound, type InboundHandlers } from "./documentRouter";
 import { TurnDriver } from "./turnDriver";
 import { decideTurn, proposeTestsTurn, runTestsTurn, testPredictionTurn, type ScopedTurn } from "./scopedTurns";
+import type { DocumentHost } from "./documentHost";
+import { DraftFlow, isDraftKey } from "./draftFlow";
+import { ActionDecisions } from "./actionDecisions";
+import { ReasoningWrites } from "./reasoningWrites";
+import { EvidenceReads } from "./evidenceReads";
+import { KnowledgeFlow } from "./knowledgeFlow";
+import { ReportExport } from "./reportExport";
 
-export class InvestigationDocuments {
+export class InvestigationDocuments implements DocumentHost {
   private readonly open = new Map<string, vscode.WebviewPanel>();
-  // Per-investigation refresh timers for in-flight dispatches (APPROVED/
-  // EXECUTING → poll until terminal; see scheduleDispatchWatch).
-  private readonly dispatchWatch = new Map<string, { timer: ReturnType<typeof setTimeout>; ticks: number }>();
   // Monotonic key for not-yet-seeded draft panels (design/ui/02 §2.7): a draft
   // has no investigation id until its seed is typed, so it lives under a
   // synthetic key until seedDraft re-keys it to the real aggregate id.
   private draftSeq = 0;
-  // Draft keys with a create in flight (the host half of the double-submit guard).
-  private readonly seeding = new Set<string>();
   // Investigations with a conclude-time summary running: it outlives the panel.
   private readonly summarizing = new Set<string>();
   // A draft opened in "from a case" mode (via reckon.seedFromCase) — consumed in
@@ -50,34 +51,26 @@ export class InvestigationDocuments {
   // Investigations whose rename card should pop once their panel goes live
   // (set by beginRename from the tree; consumed in the ready handshake).
   private readonly pendingRename = new Map<string, string>();
-  // Resolved evidence-ref labels, shared across panels — deterministic ids
-  // mean a ref resolves to the same thing everywhere, so cache once. Failures
-  // are not cached, and everything here is cleared when the identity changes.
-  private readonly labelCache = new Map<string, string>();
-  // Full evidence docs, cached for the same reason. Feeds both label resolution
-  // and the event-time strip without duplicate fetches.
-  private readonly docCache = new Map<string, EvidenceDoc>();
-  private readonly docReads = new SingleFlight<EvidenceDoc | null>();
   // Bumped when the identity changes: a read begun before it is not cached, and
   // work begun before it neither opens anything nor writes (see sameIdentity).
   private generation = 0;
-  // In the scratch name of this window's reports: their preview tabs are found
-  // by that name, and a report the analyst saved must not match it.
-  private readonly exportTag = randomUUID().slice(0, 8);
-  // What reckon opened outside its panels, closed when the identity changes:
-  // candidate SOP drafts, and exported reports (their scratch files, by path).
-  private readonly draftEditors = new Set<vscode.TextDocument>();
-  private readonly reports = new Map<string, vscode.Uri>();
   // The projection reads, their watermark, and the per-investigation ordering
   // that keeps an older read from being posted after a newer one (impl §3.1–§3.2).
-  private readonly cache: InvestigationCache;
+  readonly cache: InvestigationCache;
   private readonly turns: TurnDriver;
+  // The document's domains (adr/0243), each given this controller as its host.
+  private readonly draft: DraftFlow;
+  private readonly actions: ActionDecisions;
+  private readonly reasoning: ReasoningWrites;
+  private readonly evidence: EvidenceReads;
+  private readonly knowledge: KnowledgeFlow;
+  private readonly export: ReportExport;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly client: BackendClient,
-    private readonly log: vscode.LogOutputChannel,
-    private readonly transport: AgentTransport,
+    readonly client: BackendClient,
+    readonly log: vscode.LogOutputChannel,
+    readonly transport: AgentTransport,
     private readonly me: () => Promise<{ name: string; principal: string } | null>,
     /**
      * Called after each successful load with the last event sequence the
@@ -90,6 +83,23 @@ export class InvestigationDocuments {
   ) {
     this.cache = new InvestigationCache(client, log);
     this.turns = new TurnDriver(transport, (panel, msg) => this.post(panel, msg), (id, panel) => this.refresh(id, panel));
+    this.draft = new DraftFlow(this);
+    this.actions = new ActionDecisions(this);
+    this.reasoning = new ReasoningWrites(this);
+    this.evidence = new EvidenceReads(this);
+    this.knowledge = new KnowledgeFlow(this);
+    this.export = new ReportExport(this);
+  }
+
+  /** Apply the tenant's case write-back posture to a just-created investigation (adr/0032). */
+  offerCaseNote(created: InvestigationDetail): void {
+    this.draft.offerCaseNote(created);
+  }
+
+  /** A draft panel became the live investigation: it is held under the real id now. */
+  rekey(from: string, to: string, panel: vscode.WebviewPanel): void {
+    this.open.delete(from);
+    this.open.set(to, panel);
   }
 
   /** Open (or reveal) the document for one investigation. */
@@ -143,10 +153,6 @@ export class InvestigationDocuments {
 
   /** The page may load only the bundle and the vendored fonts (impl §5.1). */
 
-  private static isDraft(key: string): boolean {
-    return key.startsWith("__draft__");
-  }
-
   /**
    * Rename an investigation on its own document surface: reveal the panel and
    * pop the in-document rename card (never the top-of-window quick input). Used
@@ -178,7 +184,7 @@ export class InvestigationDocuments {
   }
 
   /** The trees re-read: Investigations always, Cases too when a case changed hands. */
-  private refreshTrees(opts: { cases?: boolean } = {}): void {
+  refreshTrees(opts: { cases?: boolean } = {}): void {
     void vscode.commands.executeCommand("reckon.refreshInvestigations");
     if (opts.cases) {
       void vscode.commands.executeCommand("reckon.refreshCases");
@@ -191,44 +197,13 @@ export class InvestigationDocuments {
    * to show what the server holds. `reload` re-reads the whole snapshot, for a
    * write that changes slices the refresh does not carry.
    */
-  private async mutate(id: string, panel: vscode.WebviewPanel, verb: string, fn: () => Promise<void>, opts: { reload?: boolean } = {}): Promise<void> {
+  async mutate(id: string, panel: vscode.WebviewPanel, verb: string, fn: () => Promise<void>, opts: { reload?: boolean } = {}): Promise<void> {
     try {
       await fn();
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: ${verb} failed — ${errText(err)}`);
     }
     await (opts.reload ? this.load(id, panel) : this.refresh(id, panel));
-  }
-
-  /**
-   * Create an investigation, or open the one a case already has: a create the
-   * server refuses because the case is already investigated (#158) opens that
-   * investigation instead. On success `opened` places the record (a new panel,
-   * or the draft re-keyed), then the write-back posture applies and both trees
-   * re-read. Nothing opens or writes after a change of person.
-   */
-  private async createOrOpen(
-    create: () => Promise<InvestigationDetail>,
-    opened: (created: InvestigationDetail) => void,
-    existing: (id: string) => void,
-    failed: (err: unknown) => void,
-  ): Promise<void> {
-    const current = this.sameIdentity();
-    try {
-      const created = await create();
-      if (!current()) return;
-      opened(created);
-      this.offerCaseNote(created);
-      this.refreshTrees({ cases: true });
-    } catch (err) {
-      if (!current()) return;
-      const found = existingInvestigation(err);
-      if (found) {
-        existing(found);
-        return;
-      }
-      failed(err);
-    }
   }
 
   /** Apply a confirmed rename, then update the tab + webview title in place. */
@@ -256,10 +231,10 @@ export class InvestigationDocuments {
   /** The panel is ready or asked to refresh: the draft surface, or a load of the record. */
   private opened(ref: { id: string }, panel: vscode.WebviewPanel): void {
     const id = ref.id;
-    if (InvestigationDocuments.isDraft(id)) {
+    if (isDraftKey(id)) {
       const mode = this.draftMode.get(id);
       this.draftMode.delete(id);
-      void this.postDraft(panel, mode);
+      void this.draft.postDraft(panel, mode);
     } else {
       // A rename invoked from the tree opened this panel; start the in-place
       // edit only AFTER the load has posted its data (so the title field is
@@ -286,19 +261,19 @@ export class InvestigationDocuments {
       ready: () => this.opened(ref, panel),
       refresh: () => this.opened(ref, panel),
       "seed.submit": (msg) => {
-        void this.seedDraft(ref, panel, { value: msg.value, kind: msg.kind, allowUnknown: msg.allowUnknown });
+        void this.draft.seedDraft(ref, panel, { value: msg.value, kind: msg.kind, allowUnknown: msg.allowUnknown });
       },
       "seed.alert": (msg) => {
-        void this.seedDraft(ref, panel, { alertId: msg.alertId, source: msg.source });
+        void this.draft.seedDraft(ref, panel, { alertId: msg.alertId, source: msg.source });
       },
       "seed.caseSearch": (msg) => {
-        void this.searchCases(panel, msg.filter, msg.queue);
+        void this.draft.searchCases(panel, msg.filter, msg.queue);
       },
       "seed.case": (msg) => {
-        void this.seedDraft(ref, panel, { value: msg.caseNumber, kind: "case" });
+        void this.draft.seedDraft(ref, panel, { value: msg.caseNumber, kind: "case" });
       },
       "caseNote.post": (msg) => {
-        void this.postCaseNote(id, panel, msg.body);
+        void this.draft.postCaseNote(id, panel, msg.body);
       },
       "turn.stop": () => {
         this.transport.cancel(id).catch((err: unknown) => {
@@ -309,55 +284,55 @@ export class InvestigationDocuments {
         void this.turns.run(id, panel, msg.text).finally(() => this.releaseSession(id));
       },
       "action.approve": (msg) => {
-        void this.approve(id, panel, msg);
+        void this.actions.approve(id, panel, msg);
       },
       "action.reject": (msg) => {
-        void this.reject(id, panel, msg);
+        void this.actions.reject(id, panel, msg);
       },
       "action.edit": (msg) => {
-        void this.edit(id, panel, msg);
+        void this.actions.edit(id, panel, msg);
       },
       "action.request": (msg) => {
-        void this.requestFromPin(id, panel, msg);
+        void this.actions.requestFromPin(id, panel, msg);
       },
       "action.rerequest": (msg) => {
-        void this.rerequest(id, panel, msg);
+        void this.actions.rerequest(id, panel, msg);
       },
       "action.resolve": (msg) => {
-        void this.resolve(id, panel, msg);
+        void this.actions.resolve(id, panel, msg);
       },
       "action.reverse": (msg) => {
-        void this.reverse(id, panel, msg);
+        void this.actions.reverse(id, panel, msg);
       },
       "pin.add": (msg) => {
-        void this.pinCommit(id, panel, msg.refs, msg.finding);
+        void this.reasoning.pinCommit(id, panel, msg.refs, msg.finding);
       },
       "pin.unpin": (msg) => {
-        void this.unpin(id, panel, msg.interpretationId, msg.reason);
+        void this.reasoning.unpin(id, panel, msg.interpretationId, msg.reason);
       },
       "verdict.submit": (msg) => {
-        void this.submitVerdict(id, panel, msg);
+        void this.reasoning.submitVerdict(id, panel, msg);
       },
       "hyp.ack": (msg) => {
-        void this.ackHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
+        void this.reasoning.ackHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
       },
       "hyp.revise": (msg) => {
-        void this.reviseHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
+        void this.reasoning.reviseHypothesis(id, panel, msg.hypothesisRef, msg.restatement, msg.handle);
       },
       "hyp.abandon": (msg) => {
-        void this.abandonHypothesis(id, panel, msg.hypothesisRef, msg.reason);
+        void this.reasoning.abandonHypothesis(id, panel, msg.hypothesisRef, msg.reason);
       },
       "hyp.new": (msg) => {
-        void this.newHypothesis(id, panel, msg.statement, msg.handle);
+        void this.reasoning.newHypothesis(id, panel, msg.statement, msg.handle);
       },
       "pred.new": (msg) => {
-        void this.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates, msg.testKind);
+        void this.reasoning.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates, msg.testKind);
       },
       "pred.result": (msg) => {
-        void this.recordPredictionResult(id, panel, msg);
+        void this.reasoning.recordPredictionResult(id, panel, msg);
       },
       "pred.withdraw": (msg) => {
-        void this.withdrawPrediction(id, panel, msg.predictionRef, msg.reason);
+        void this.reasoning.withdrawPrediction(id, panel, msg.predictionRef, msg.reason);
       },
       "hyp.proposeTests": (msg) => {
         void this.runScoped(id, panel, proposeTestsTurn(msg.hypothesisRef, msg.statement, msg.handle, msg.rivals));
@@ -375,47 +350,47 @@ export class InvestigationDocuments {
         void this.applyEnablement(id, panel, msg);
       },
       "comms.act": (msg) => {
-        void this.commsAct(id, panel, msg.threadId, msg.verb);
+        void this.actions.commsAct(id, panel, msg.threadId, msg.verb);
       },
       "comms.snooze": (msg) => {
-        void this.commsSnooze(id, panel, msg.threadId, msg.hours);
+        void this.actions.commsSnooze(id, panel, msg.threadId, msg.hours);
       },
       "comms.followup": (msg) => {
-        void this.commsFollowUp(id, panel, msg);
+        void this.actions.commsFollowUp(id, panel, msg);
       },
       lifecycle: (msg) => {
         void this.lifecycleTransition(id, panel, msg);
       },
       "evidence.resolve": (msg) => {
-        void this.resolveLabel(panel, msg.ref);
+        void this.evidence.resolveLabel(panel, msg.ref);
       },
       "inspector.open": (msg) => {
         // An action record is re-sent by reads (resendActionRecords); answering
         // it in the same order keeps an older answer from overwriting a newer one.
         void (msg.target.kind === "action"
-          ? this.cache.exclusive(id, () => this.answerInspector(id, panel, msg.target))
-          : this.answerInspector(id, panel, msg.target));
+          ? this.cache.exclusive(id, () => this.evidence.answerInspector(id, panel, msg.target))
+          : this.evidence.answerInspector(id, panel, msg.target));
       },
       "queue.get": () => {
         void this.cache.exclusive(id, () => this.postQueue(panel));
       },
       "queue.start": (msg) => {
-        void this.startFromCase(msg.caseNumber);
+        void this.draft.startFromCase(msg.caseNumber);
       },
       "sop.draft": (msg) => {
-        void this.draftSOP(id, panel, msg.force);
+        void this.knowledge.draftSOP(id, panel, msg.force);
       },
       "sop.accept": () => {
-        void this.acceptSOP(id, panel);
+        void this.knowledge.acceptSOP(id, panel);
       },
       "sop.discard": () => {
-        void this.discardSOP(id, panel);
+        void this.knowledge.discardSOP(id, panel);
       },
       "library.get": () => {
-        void this.postLibrary(panel);
+        void this.knowledge.postLibrary(panel);
       },
       "library.search": (msg) => {
-        void this.searchLibrary(panel, msg.text);
+        void this.knowledge.searchLibrary(panel, msg.text);
       },
       "library.import": () => {
         void vscode.commands.executeCommand("reckon.importSOP");
@@ -424,7 +399,7 @@ export class InvestigationDocuments {
         this.onViewState?.(id, msg.lens, msg.companion);
       },
       "export.open": () => {
-        void this.openMarkdownExport(id);
+        void this.export.openMarkdownExport(id);
       },
       copy: (msg) => {
         void vscode.env.clipboard.writeText(msg.text);
@@ -439,140 +414,18 @@ export class InvestigationDocuments {
         // The in-document rename card confirmed. Drafts have no aggregate id yet
         // (the pencil is hidden there), but guard so a synthetic __draft__ key
         // never reaches the backend.
-        if (!InvestigationDocuments.isDraft(id)) {
+        if (!isDraftKey(id)) {
           void this.applyRename(id, panel, msg.title);
         }
       },
     };
   }
 
-  /**
-   * Persist a draft's seed and become the live investigation. On success the
-   * panel is re-keyed from its synthetic draft key to the real aggregate id and
-   * loaded in place — the surface never closes, it transforms.
-   */
-  private async seedDraft(
-    ref: { id: string },
-    panel: vscode.WebviewPanel,
-    seed: { value?: string; kind?: string; alertId?: string; source?: string; allowUnknown?: boolean },
-  ): Promise<void> {
-    // Second line of the double-submit defense (the webview also guards): once
-    // this draft key has a create in flight, or has already been re-keyed to a
-    // real id, further seed messages are dropped — never a duplicate POST.
-    if (!InvestigationDocuments.isDraft(ref.id) || this.seeding.has(ref.id)) {
-      return;
-    }
-    this.seeding.add(ref.id);
-    const draftKey = ref.id;
-    try {
-      await this.createOrOpen(
-        () => seed.alertId !== undefined
-          ? this.client.investigations.create("", { type: "alert", alertId: seed.alertId, source: seed.source })
-          : this.client.investigations.createFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown),
-        (created) => {
-          // A panel closed meanwhile stays closed: the create cannot be recalled,
-          // so the investigation surfaces through the trees and opens from there.
-          // The case write-back offer (adr/0032) opens once the load has rendered.
-          if (this.isOpen(draftKey, panel)) {
-            this.open.delete(draftKey);
-            ref.id = created.id;
-            this.open.set(created.id, panel);
-            panel.title = panelTitle(created.title);
-            void this.post(panel, { type: "seeded" });
-            void this.load(created.id, panel);
-          }
-        },
-        (existing) => {
-          // The draft panel closes and the existing record opens in its place.
-          if (!this.isOpen(draftKey, panel)) {
-            void vscode.window.showInformationMessage(`reckon: ${seed.value ?? "this case"} already has an investigation`);
-            return;
-          }
-          void vscode.window.showInformationMessage(`reckon: ${seed.value ?? "this case"} already has an investigation — opening it`);
-          this.open.delete(draftKey);
-          panel.dispose();
-          this.show(existing);
-        },
-        (err) => {
-          // An entity the host inventory has never seen (#159): say so, and let
-          // the analyst start anyway.
-          const unknownEntity = err instanceof BackendRequestError && err.status === 422 && err.body?.unknown_entity === true;
-          const message = unknownEntity && typeof err.body?.error === "string" ? err.body.error : errText(err);
-          void this.post(panel, { type: "draft.error", message, unknownEntity });
-        },
-      );
-    } finally {
-      this.seeding.delete(draftKey);
-    }
-  }
-
-  /**
-   * Search the case system of record for the draft's "from a case" surface
-   * (14 §4.1): the query and its results live on the panel, never the
-   * top-of-window quick input (13 §3). A read failure surfaces inline in the
-   * sub-form; seeding from a picked case runs the ordinary seedDraft path
-   * (kind "case"), which fails closed server-side on a bad case id.
-   */
-  private async searchCases(panel: vscode.WebviewPanel, filter: string, queue?: string): Promise<void> {
-    try {
-      const cases = await this.client.cases.search(filter.trim() || undefined, queue || undefined);
-      void this.post(panel, { type: "draft.cases", cases });
-    } catch (err) {
-      void this.post(panel, { type: "draft.caseError", message: errText(err) });
-    }
-  }
-
-  /**
-   * Apply the tenant's case write-back posture to a just-created
-   * investigation (adr/0032 as amended). Only "auto" acts here: it requests
-   * the note now. Under "confirm" (the default) nothing happens at creation —
-   * the document carries a "Note the case" action on its seed line, usable
-   * whenever the analyst wants, once. "off" (or a non-case seed) sends no
-   * offer at all, so the absence of created.caseNote is the whole test.
-   */
-  offerCaseNote(created: InvestigationDetail): void {
-    if (!created.caseNote || created.caseNoteOnSeed !== "auto") {
-      return;
-    }
-    void this.client.investigations.requestCaseNote(created.id).then(
-      (r) => void vscode.window.showInformationMessage(`reckon: note on ${created.caseNote?.caseId} requested (${r.status.toLowerCase().replace(/_/g, " ")})`),
-      (err: unknown) => void vscode.window.showWarningMessage(`reckon: could not request the case note: ${errText(err)}`),
-    );
-  }
-
-  /** The analyst confirmed the note: request it as an action, then reload. */
-  private async postCaseNote(id: string, panel: vscode.WebviewPanel, body: string): Promise<void> {
-    try {
-      const r = await this.client.investigations.requestCaseNote(id, body.trim() || undefined);
-      void vscode.window.showInformationMessage(`reckon: case note requested (${r.status.toLowerCase().replace(/_/g, " ")})`);
-      void this.refresh(id, panel);
-    } catch (err) {
-      void vscode.window.showWarningMessage(`reckon: could not request the case note: ${errText(err)}`);
-    }
-  }
-
-  /**
-   * Render the unseeded draft, carrying the tenant's configured case queue
-   * (14 §4.2) when the capability layer reports one, so the "From a case…"
-   * path opens on the analyst's queue instead of a blank search. A missing or
-   * unreachable capability layer is not an error here — the draft simply
-   * behaves as before.
-   */
-  private async postDraft(panel: vscode.WebviewPanel, mode?: "case"): Promise<void> {
-    let caseQueue: string | undefined;
-    try {
-      caseQueue = await this.client.cases.configuredQueue();
-    } catch {
-      caseQueue = undefined;
-    }
-    void this.post(panel, { type: "draft", mode, caseQueue });
-  }
-
   /** Refresh every open document (e.g. after sign-out flips to sign-in). */
   refreshAll(): void {
     for (const [id, panel] of this.open) {
       // Drafts have no aggregate id — loading one is a guaranteed 4xx.
-      if (!InvestigationDocuments.isDraft(id)) {
+      if (!isDraftKey(id)) {
         void this.load(id, panel);
       }
     }
@@ -586,11 +439,8 @@ export class InvestigationDocuments {
    */
   identityChanged(): void {
     this.generation++;
-    this.docCache.clear();
-    this.docReads.clear();
-    this.labelCache.clear();
+    this.evidence.clear();
     this.cache.clear();
-    this.sopDrafts.clear();
     this.pendingRename.clear();
     for (const panel of [...this.open.values()]) {
       panel.dispose();
@@ -604,56 +454,8 @@ export class InvestigationDocuments {
    * report's scratch file goes with its preview.
    */
   private async closeEditors(): Promise<void> {
-    const drafts = [...this.draftEditors];
-    const reports = [...this.reports.values()];
-    this.draftEditors.clear();
-    this.reports.clear();
-    for (const doc of drafts) {
-      await this.closeDraft(doc);
-    }
-    await this.closeReports(reports);
-  }
-
-  /**
-   * Revert and close a draft in every group that holds it. The command acts on
-   * the active editor, so each group's tab is made active by column: shown with
-   * no column, the draft would open again in the active group and only that copy
-   * would close. `shownIn` is a column the tabs may not report yet.
-   */
-  private async closeDraft(doc: vscode.TextDocument, shownIn?: vscode.ViewColumn): Promise<void> {
-    const uri = doc.uri.toString();
-    const columns = new Set(vscode.window.tabGroups.all
-      .filter((group) => group.tabs.some((tab) => tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === uri))
-      .map((group) => group.viewColumn));
-    if (shownIn !== undefined) columns.add(shownIn);
-    for (const viewColumn of columns) {
-      if (doc.isClosed) {
-        return;
-      }
-      try {
-        await vscode.window.showTextDocument(doc, { viewColumn });
-        await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
-      } catch (err) {
-        this.log.warn(`closing a SOP draft: ${errText(err)}`);
-      }
-    }
-  }
-
-  private async closeReports(reports: vscode.Uri[]): Promise<void> {
-    const names = reports.map((uri) => path.basename(uri.fsPath));
-    const previews = vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) =>
-      tab.input instanceof vscode.TabInputWebview && tab.input.viewType.includes("markdown.preview")
-      && names.some((name) => tab.label.includes(name)));
-    try {
-      await vscode.window.tabGroups.close(previews);
-    } catch (err) {
-      this.log.warn(`closing a report preview: ${errText(err)}`);
-    }
-    for (const uri of reports) {
-      await Promise.resolve(vscode.workspace.fs.delete(uri)).catch((err: unknown) => {
-        this.log.warn(`deleting a report's scratch file: ${errText(err)}`);
-      });
-    }
+    await this.knowledge.clear();
+    await this.export.clear();
   }
 
   /**
@@ -661,7 +463,7 @@ export class InvestigationDocuments {
    * await, it stops what the previous person began from opening anything for
    * the next one, or from writing on the next one's token.
    */
-  private sameIdentity(): () => boolean {
+  sameIdentity(): () => boolean {
     const generation = this.generation;
     return () => generation === this.generation;
   }
@@ -670,14 +472,10 @@ export class InvestigationDocuments {
   private forget(id: string): void {
     this.open.delete(id);
     this.cache.forget(id);
-    this.sopDrafts.delete(id);
+    this.knowledge.forget(id);
+    this.actions.forget(id);
     this.pendingRename.delete(id);
     this.draftMode.delete(id);
-    const watch = this.dispatchWatch.get(id);
-    if (watch) {
-      clearTimeout(watch.timer);
-      this.dispatchWatch.delete(id);
-    }
     this.releaseSession(id);
   }
 
@@ -693,7 +491,7 @@ export class InvestigationDocuments {
   }
 
   /** Whether this panel is still the open document for the investigation. */
-  private isOpen(id: string, panel: vscode.WebviewPanel): boolean {
+  isOpen(id: string, panel: vscode.WebviewPanel): boolean {
     return this.open.get(id) === panel;
   }
 
@@ -703,7 +501,7 @@ export class InvestigationDocuments {
    * bulkier lenses (the derived views, the knowledge rail, enablement) follow
    * as slice patches so the document renders as soon as the core is in.
    */
-  private load(id: string, panel: vscode.WebviewPanel): Promise<void> {
+  load(id: string, panel: vscode.WebviewPanel): Promise<void> {
     return this.cache.exclusive(id, async () => {
       void this.post(panel, { type: "loading" });
       let snapshot: InvestigationSnapshot;
@@ -725,92 +523,29 @@ export class InvestigationDocuments {
       // Dispatch is asynchronous (a Temporal workflow) and its result events are
       // recorded by the worker, not the HTTP path — keep refreshing while any
       // action is mid-dispatch so DISPATCHING never sticks past the outcome.
-      this.scheduleDispatchWatch(id, panel, snapshot.actions ?? []);
+      this.actions.scheduleDispatchWatch(id, panel, snapshot.actions ?? []);
       // The event-time strip + evidence graph: lenses over the cited refs,
       // stamped with the sequence of the thread they were built from, so the
       // webview drops them if a newer read lands first.
-      void this.postDerivedViews(panel, snapshot.thread ?? [], snapshot.seq, {
+      void this.evidence.postDerivedViews(panel, snapshot.thread ?? [], snapshot.seq, {
         hypotheses: snapshot.hypotheses, pins: snapshot.pins, actions: snapshot.actions ?? [], seed: snapshot.investigation.seed,
       });
       // The queue and the inspector's action records carry no sequence: they
       // finish inside this operation, so a later read cannot be overtaken. A
       // reload keeps the inspector open with its records, so a record with
       // newer events is re-sent like after any other read.
-      await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, snapshot.seq)]);
+      await Promise.all([this.postQueue(panel), this.actions.resendActionRecords(id, panel, snapshot.seq)]);
       // The enablement view (gap hints + form schemas). Absence is honest.
       const latestEnablement = this.cache.beginRequest(id, "enablement");
       void this.client.capabilities.enablement()
         .then((data) => data, () => null)
         .then((data) => { if (latestEnablement()) void this.patch(id, panel, { enablement: data }); });
-      void this.postLibrary(panel);
-      void this.postActionTypes(panel);
+      void this.knowledge.postLibrary(panel);
+      void this.actions.postActionTypes(panel);
       if (String(snapshot.investigation.state).toUpperCase() === "CONCLUDED") {
-        void this.postSummaryStatus(id, panel);
+        void this.knowledge.postSummaryStatus(id, panel);
       }
     });
-  }
-
-  /** The action types the analyst can request directly (#146), available ones only. */
-  private async postActionTypes(panel: vscode.WebviewPanel): Promise<void> {
-    try {
-      const types = (await this.client.actions.types()).filter((t) => t.available)
-        .map((t) => ({ actionType: t.actionType, name: t.name, category: t.category, inputs: t.inputs }));
-      void this.post(panel, { type: "actionTypes", types });
-    } catch (err) {
-      this.log.debug(`action types: ${errText(err)}`);
-    }
-  }
-
-  /**
-   * The analyst requests an action from a pinned finding (#146), when the
-   * agent cannot or should not: the pin's evidence is the citation, and the
-   * request is the analyst's — same approval policies, approval and dispatch.
-   */
-  private requestFromPin(id: string, panel: vscode.WebviewPanel, msg: { actionType: string; target: string; parameters: Record<string, unknown>; rationale: string; evidenceRefs: string[] }): Promise<void> {
-    return this.mutate(id, panel, `requesting ${msg.actionType}`, async () => {
-      const res = await this.client.actions.request({
-        investigationRef: id, actionType: msg.actionType,
-        targets: [{ resolvedIdentifier: msg.target }],
-        parameters: Object.keys(msg.parameters).length ? msg.parameters : undefined,
-        evidenceRefs: msg.evidenceRefs, rationale: msg.rationale,
-      });
-      void vscode.window.showInformationMessage(`reckon: ${msg.actionType} on ${msg.target} requested (${res.status}) — approve it in Response`);
-    });
-  }
-
-  /** The knowledge library (adr/0129): every procedure and past case, to browse. */
-  private async postLibrary(panel: vscode.WebviewPanel): Promise<void> {
-    try {
-      const [sops, cases] = await Promise.all([
-        this.client.knowledge.procedures().catch(() => []),
-        this.client.knowledge.cases().catch(() => []),
-      ]);
-      void this.post(panel, { type: "library", sops, cases });
-    } catch (err) {
-      this.log.debug(`library: ${errText(err)}`);
-    }
-  }
-
-  /** Whether a concluded case's knowledge summary carries a narrative (adr/0156). */
-  private async postSummaryStatus(id: string, panel: vscode.WebviewPanel): Promise<void> {
-    try {
-      const sum = await this.client.knowledge.caseSummary(id);
-      if (sum) void this.post(panel, sum.generatorModel
-        ? { type: "summary.status", state: "written", detail: sum.generatorModel }
-        : { type: "summary.status", state: "baseline" });
-    } catch (err) {
-      this.log.debug(`summary status: ${errText(err)}`);
-    }
-  }
-
-  /** One library search over both corpora; the hits come back as their own list. */
-  private async searchLibrary(panel: vscode.WebviewPanel, text: string): Promise<void> {
-    try {
-      const found = await this.client.knowledge.search(text);
-      void this.post(panel, { type: "library.results", query: text, ...found });
-    } catch (err) {
-      void vscode.window.showWarningMessage(`reckon: library search failed — ${errText(err)}`);
-    }
   }
 
   /**
@@ -828,7 +563,7 @@ export class InvestigationDocuments {
    * write cannot change. The work queue, the derived views and any action
    * record the inspector holds follow when they changed.
    */
-  private refresh(id: string, panel: vscode.WebviewPanel): Promise<void> {
+  refresh(id: string, panel: vscode.WebviewPanel): Promise<void> {
     return this.cache.exclusive(id, async () => {
       let read: Awaited<ReturnType<InvestigationCache["refresh"]>>;
       try {
@@ -847,140 +582,16 @@ export class InvestigationDocuments {
       void this.post(panel, { type: "state.patch", seq, patch });
       this.onLoaded?.(id, seq);
       if (patch.actions) {
-        this.scheduleDispatchWatch(id, panel, patch.actions);
+        this.actions.scheduleDispatchWatch(id, panel, patch.actions);
       }
       if (patch.thread) {
-        void this.postDerivedViews(panel, patch.thread, seq, { // sequenced: a stale one is dropped
+        void this.evidence.postDerivedViews(panel, patch.thread, seq, { // sequenced: a stale one is dropped
           hypotheses: patch.hypotheses, pins: patch.pins, actions: patch.actions ?? undefined, seed: patch.investigation?.seed,
         });
       }
       // Unsequenced follow-ups finish inside this operation (see load).
-      await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, seq)]);
+      await Promise.all([this.postQueue(panel), this.actions.resendActionRecords(id, panel, seq)]);
     });
-  }
-
-  /** Re-send the inspector's action records read before the investigation's newest event. */
-  private async resendActionRecords(id: string, panel: vscode.WebviewPanel, seq: number): Promise<void> {
-    for (const actionId of this.cache.staleRecords(id, seq)) {
-      try {
-        const record = await this.client.actions.record(actionId);
-        this.cache.servedRecord(id, actionId, seq);
-        void this.post(panel, { type: "inspector.action", actionId, record });
-      } catch (err) {
-        this.log.debug(`action record ${actionId}: ${errText(err)}`);
-      }
-    }
-  }
-
-  private commsAct(id: string, panel: vscode.WebviewPanel, threadId: string, verb: "ack" | "done"): Promise<void> {
-    return this.mutate(id, panel, `comms ${verb}`, () => this.client.actions.commsAct(threadId, verb));
-  }
-
-  /** Push a thread's follow-up clock. */
-  private commsSnooze(id: string, panel: vscode.WebviewPanel, threadId: string, hours: number): Promise<void> {
-    return this.mutate(id, panel, "snooze", () => this.client.actions.commsSnooze(threadId, hours));
-  }
-
-  /**
-   * Send a follow-up: a NEW notify.* action carrying thread_ref (binding §4 —
-   * every outbound message is an action through Gate 2), which lands in the
-   * approval queue as a preview card. On its SUCCEEDED dispatch the thread's
-   * counter increments and its clock restarts.
-   */
-  private async commsFollowUp(
-    id: string,
-    panel: vscode.WebviewPanel,
-    msg: { threadId: string; actionType: string; target: string; subject: string; message: string; followUpHours: number },
-  ): Promise<void> {
-    const parameters: Record<string, unknown> = {
-      thread_ref: msg.threadId,
-      follow_up_hours: msg.followUpHours,
-    };
-    if (msg.actionType === "notify.email") {
-      parameters.subject = msg.subject ? `Re: ${msg.subject}` : "Follow-up";
-      parameters.body = msg.message;
-    } else {
-      parameters.message = msg.message;
-    }
-    const current = this.sameIdentity();
-    await this.mutate(id, panel, "follow-up", async () => {
-      // A follow-up rests on the grounds of the message it follows up on: the
-      // engine refuses an outbound action that cites no evidence.
-      const thread = (await this.client.actions.comms(id)).find((t) => t.threadId === msg.threadId);
-      const origin = thread?.actionId ? (await this.client.actions.record(thread.actionId)).action : undefined;
-      if (!origin?.evidenceRefs.length) {
-        void vscode.window.showErrorMessage("reckon: follow-up not requested — the original message's evidence could not be read");
-        return;
-      }
-      if (!current()) return;
-      const res = await this.client.actions.request({
-        investigationRef: id,
-        actionType: msg.actionType,
-        targets: [{ resolvedIdentifier: msg.target }],
-        parameters,
-        evidenceRefs: origin.evidenceRefs,
-        rationale: `follow-up on comms thread ${msg.threadId}`,
-      });
-      void vscode.window.showInformationMessage(
-        `reckon: follow-up requested (${res.status}) — approve to send`,
-      );
-    });
-  }
-
-  /**
-   * Pin evidence — the analyst's curation act, on the human token. The finding
-   * note is collected in-webview (the pin card), so this just records it.
-   */
-  private async pinCommit(id: string, panel: vscode.WebviewPanel, refs: string[], finding: string): Promise<void> {
-    if (!refs.length || finding.trim() === "") {
-      return;
-    }
-    await this.mutate(id, panel, "pin", () => this.client.investigations.pinEvidence(id, finding.trim(), refs));
-  }
-
-  /** Fetch one evidence doc through the cache (null = unfetchable, this time). */
-  private async getDoc(ref: string): Promise<EvidenceDoc | null> {
-    const hit = this.docCache.get(ref);
-    if (hit) {
-      return hit;
-    }
-    const generation = this.generation;
-    return this.docReads.run(ref, async () => {
-      try {
-        const doc = await this.client.evidence.get(ref);
-        if (generation === this.generation) {
-          this.docCache.set(ref, doc);
-        }
-        return doc;
-      } catch {
-        return null;
-      }
-    });
-  }
-
-  /**
-   * Resolve a human label for an evidence ref (host · WIN-FILE01, account ·
-   * svc_backup) from the evidence endpoint, cached. Posts back only on a hit; a
-   * ref that can't be opened keeps its type-only label in the webview, and a
-   * failed read says so, so the webview can ask again.
-   */
-  private async resolveLabel(panel: vscode.WebviewPanel, ref: string): Promise<void> {
-    let label = this.labelCache.get(ref);
-    if (label === undefined) {
-      const generation = this.generation;
-      const doc = await this.getDoc(ref);
-      if (!doc) {
-        void this.post(panel, { type: "evidence.unresolved", ref });
-        return;
-      }
-      label = deriveEvidenceLabel(doc);
-      if (generation === this.generation) {
-        this.labelCache.set(ref, label);
-      }
-    }
-    if (label) {
-      void this.post(panel, { type: "evidence.label", ref, label });
-    }
   }
 
   /**
@@ -1000,183 +611,6 @@ export class InvestigationDocuments {
     } catch (err) {
       this.log.debug(`queue: ${errText(err)}`);
     }
-  }
-
-  /** Start an investigation from a case row: the seed path, then open it. */
-  private startFromCase(caseNumber: string): Promise<void> {
-    return this.createOrOpen(
-      () => this.client.investigations.createFromInput(caseNumber, "case"),
-      (created) => this.show(created.id, created.title),
-      (existing) => {
-        void vscode.window.showInformationMessage(`reckon: ${caseNumber} already has an investigation — opening it`);
-        this.show(existing);
-      },
-      (err) => void vscode.window.showErrorMessage(`reckon: could not start from ${caseNumber} — ${errText(err)}`),
-    );
-  }
-
-  /**
-   * The derived lenses over the thread's citations (the event-time strip and
-   * the evidence graph, src/derivedViews.ts), sharing one round of cached
-   * evidence fetches — bounded; failures just leave gaps (both are lenses,
-   * never load-bearing). Posted as a slice patch.
-   */
-  private async postDerivedViews(panel: vscode.WebviewPanel, thread: ThreadEntry[], seq: number, citing: CitingRecords): Promise<void> {
-    const derived = await buildDerivedViews(thread, (ref) => this.getDoc(ref), citing);
-    void this.post(panel, { type: "state.patch", seq, patch: { derived } });
-  }
-
-  /**
-   * Answer an inspector pane (impl §2.4): the webview opened it from the
-   * snapshot and asks for what the record holds beyond it — the evidence
-   * document with its cross-investigation memory (current investigation
-   * excluded: "also seen in" means OTHERS), a procedure, a committed
-   * transcript, an action's record, a case summary. A failed fetch posts an
-   * honest error for that target; nothing else in the document is affected.
-   */
-  private async answerInspector(id: string, panel: vscode.WebviewPanel, target: InspectorTarget): Promise<void> {
-    try {
-      switch (target.kind) {
-        case "ref": {
-          const doc = await this.getDoc(target.ref);
-          if (!doc) {
-            void this.post(panel, { type: "inspector.error", target: target.ref, message: "no persisted record for this ref — it may predate telemetry persistence" });
-            return;
-          }
-          let apps: Appearance[] = [];
-          try {
-            apps = (await this.client.evidence.appearances(target.ref)).filter((a) => a.investigationId !== id);
-          } catch (err) {
-            this.log.debug(`appearances ${target.ref}: ${errText(err)}`);
-          }
-          void this.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps });
-          return;
-        }
-        case "sop":
-          void this.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop: await this.client.knowledge.sop(target.sopId) });
-          return;
-        case "turn": {
-          const body = await this.cache.transcript(target.interpretationId);
-          void this.post(panel, { type: "inspector.turn", interpretationId: target.interpretationId, body });
-          return;
-        }
-        case "action": {
-          const record = await this.client.actions.record(target.actionId);
-          this.cache.servedRecord(id, target.actionId, this.cache.watermark(id));
-          void this.post(panel, { type: "inspector.action", actionId: target.actionId, record });
-          return;
-        }
-        case "case":
-          void this.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary: await this.client.knowledge.caseSummary(target.investigationRef) });
-          return;
-        default:
-          return; // thread, person: rendered from the snapshot alone
-      }
-    } catch (err) {
-      const key = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
-        : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "";
-      void this.post(panel, { type: "inspector.error", target: key, message: errText(err) });
-    }
-  }
-
-  /**
-   * Un-pin = supersession with a reason; the pin stays visible, struck. The
-   * reason is collected in the webview prompt card, so this just records it.
-   */
-  private async unpin(id: string, panel: vscode.WebviewPanel, interpretationId: string, reason: string): Promise<void> {
-    if (reason.trim() === "") {
-      return;
-    }
-    await this.mutate(id, panel, "un-pin", () => this.client.investigations.supersedeInterpretation(interpretationId, id, reason.trim()));
-  }
-
-  /**
-   * Acknowledge an AI-PROPOSED hypothesis — the human taking ownership of the
-   * line of inquiry (02 §2.9). The aggregate enforces that this is a human act;
-   * a rejection surfaces verbatim.
-   */
-  private ackHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, restatement?: string, handle?: string): Promise<void> {
-    return this.mutate(id, panel, "adopt", () => this.client.investigations.acknowledgeHypothesis(id, hypothesisRef, {
-      restatement: restatement?.trim() || undefined,
-      handle: handle?.trim() || undefined,
-    }));
-  }
-
-  /** Rename / restate an OPEN hypothesis (01 §x-hypothesis; human, untested-only for the statement). */
-  private async reviseHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, restatement?: string, handle?: string): Promise<void> {
-    const r = restatement?.trim() || undefined;
-    const h = handle?.trim() || undefined;
-    if (!r && !h) {
-      return;
-    }
-    await this.mutate(id, panel, "revise", () => this.client.investigations.reviseHypothesis(id, hypothesisRef, { restatement: r, handle: h }));
-  }
-
-  /** Abandon a live hypothesis the analyst is not pursuing (terminal; the thread keeps it). */
-  private abandonHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, reason: string): Promise<void> {
-    return this.mutate(id, panel, "abandon", () => this.client.investigations.abandonHypothesis(id, hypothesisRef, reason.trim() || "abandoned from the workbench — not pursued"));
-  }
-
-  /** Record the analyst's own test under a hypothesis (01 §x-prediction: either actor authors predictions). */
-  private async newPrediction(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, discriminates: string[], testKind?: string): Promise<void> {
-    if (statement.trim() === "") {
-      return;
-    }
-    await this.mutate(id, panel, "prediction", () => this.client.investigations.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind));
-  }
-
-  /**
-   * The analyst records a prediction's result themselves (adr/0054): the
-   * outcome plus what was observed — a person's answer, a check made by hand —
-   * which the engine keeps as an attestation the outcome cites. Rejections
-   * (e.g. the prediction is no longer UNTESTED) surface verbatim.
-   */
-  private async recordPredictionResult(
-    id: string,
-    panel: vscode.WebviewPanel,
-    msg: { predictionRef: string; status: string; content: string; source?: string; channel?: string; reference?: string; hashReference?: boolean; artifact?: ArtifactLocation },
-  ): Promise<void> {
-    if (msg.content.trim() === "") {
-      return;
-    }
-    const how = msg.channel?.trim() ? ` by ${msg.channel.trim()}` : "";
-    await this.mutate(id, panel, "record result", () => this.client.investigations.recordPredictionResult(id, msg.predictionRef, msg.status, `result recorded by the analyst${how}`, {
-      content: msg.content.trim(),
-      source: msg.source?.trim() || undefined,
-      channel: msg.channel?.trim() || undefined,
-      reference: msg.reference?.trim() || undefined,
-      hashReference: msg.hashReference,
-      artifact: msg.artifact,
-    }));
-  }
-
-  /** Withdraw an untested prediction — a status, never a deletion. */
-  private withdrawPrediction(id: string, panel: vscode.WebviewPanel, predictionRef: string, reason: string): Promise<void> {
-    return this.mutate(id, panel, "withdraw", () => this.client.investigations.withdrawPrediction(id, predictionRef, reason.trim() || "withdrawn from the workbench"));
-  }
-
-  /**
-   * Record an analyst-authored hypothesis — e.g. the alternate explanation
-   * that competes with the AI's. Lands OPEN (human-authored); rejections
-   * surface verbatim.
-   */
-  private async newHypothesis(id: string, panel: vscode.WebviewPanel, statement: string, handle?: string): Promise<void> {
-    if (statement.trim() === "") {
-      return;
-    }
-    await this.mutate(id, panel, "hypothesis", () => this.client.investigations.recordHypothesis(id, statement.trim(), handle?.trim() || undefined));
-  }
-
-  /** Record the verdict of record — always the analyst's act here (human token). */
-  private submitVerdict(
-    id: string,
-    panel: vscode.WebviewPanel,
-    msg: { disposition: string; rationale: string; refs: string[] },
-  ): Promise<void> {
-    return this.mutate(id, panel, "verdict", async () => {
-      await this.client.investigations.recordVerdict(id, msg.disposition, msg.rationale, msg.refs);
-      void vscode.window.showInformationMessage(`reckon: verdict recorded — ${msg.disposition}`);
-    });
   }
 
   /**
@@ -1279,287 +713,12 @@ export class InvestigationDocuments {
     });
   }
 
-  /** The open candidate drafts, per investigation: the editor document and its title. */
-  private readonly sopDrafts = new Map<string, { doc: vscode.TextDocument; title: string }>();
-
-  /**
-   * Draft a procedure from this concluded case (adr/0156) — the analyst's
-   * step, from the Summary lens. One completion over the session's own
-   * conversation; the draft opens as an editable document and the panel offers
-   * Add to SOP library / Discard. A decline says why and can be overridden.
-   */
-  private async draftSOP(id: string, panel: vscode.WebviewPanel, force?: boolean): Promise<void> {
-    void this.post(panel, { type: "sop.status", state: "drafting" });
-    const current = this.sameIdentity();
-    let candidate: SOPCandidate;
-    try {
-      candidate = await this.transport.proposeSOP(id, force);
-    } catch (err) {
-      void this.post(panel, { type: "sop.status", state: "failed", message: errText(err) });
-      return;
-    } finally {
-      this.releaseSession(id);
-    }
-    if (!current()) return;
-    if (!candidate?.warranted || !candidate.title.trim() || !candidate.body.trim()) {
-      void this.post(panel, { type: "sop.status", state: "declined", message: candidate?.rationale?.trim() || "No new procedure: the model judged nothing here to generalize." });
-      return;
-    }
-    const doc = await vscode.workspace.openTextDocument({ content: candidateSOPMarkdown(candidate, id), language: "markdown" });
-    if (!current()) return;
-    const editor = await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
-    if (!current()) {
-      await this.closeDraft(doc, editor.viewColumn);
-      return;
-    }
-    this.sopDrafts.set(id, { doc, title: candidate.title.trim() });
-    this.draftEditors.add(doc);
-    void this.post(panel, { type: "sop.status", state: "ready", title: candidate.title.trim(), message: candidate.rationale?.trim() || undefined });
-  }
-
-  /** Add the draft — as it reads now, with the analyst's edits — to the library. */
-  private async acceptSOP(id: string, panel: vscode.WebviewPanel): Promise<void> {
-    const draft = this.sopDrafts.get(id);
-    if (!draft) return;
-    try {
-      const res = await this.client.knowledge.importMarkdown(slugifyTitle(draft.title) + ".md", draft.doc.getText());
-      this.sopDrafts.delete(id);
-      void this.post(panel, { type: "sop.status", state: "added", title: res.title, message: res.outcome === "revised" ? "updated in the library" : "added to the library" });
-    } catch (err) {
-      void this.post(panel, { type: "sop.status", state: "ready", title: draft.title, message: "adding it failed — " + errText(err) });
-    }
-  }
-
-  /** Discard the draft: nothing is kept. */
-  private async discardSOP(id: string, panel: vscode.WebviewPanel): Promise<void> {
-    this.sopDrafts.delete(id);
-    void this.post(panel, { type: "sop.status", state: "discarded" });
-  }
-
-
-  /**
-   * Approve one action — the analyst's own act, extension→backend on the
-   * HUMAN token, never through the sidecar (implementation/agent-sidecar.md
-   * §5). A T3 approval carries the typed challenge (04 §5.5), collected in the
-   * webview prompt card before this fires.
-   */
-  private async approve(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; challenge?: string }): Promise<void> {
-    await this.decide(id, panel, msg.actionId, async (a) => {
-      // The server requires the challenge too; checking the record's tier here
-      // just saves the round trip when the prompt came back empty.
-      if (a.tier === "T3" && (!msg.challenge || msg.challenge.trim() === "")) {
-        return;
-      }
-      const decision = await this.client.actions.approve(a.actionId, msg.challenge);
-      void vscode.window.showInformationMessage(
-        `reckon: ${a.actionType} → ${decision.status}${decision.stage ? ` (${decision.stage})` : ""}`,
-      );
-    }, "approve");
-    // The refresh armed the dispatch watch: the approved action is now
-    // APPROVED/EXECUTING, so the ledger keeps refreshing until it settles.
-  }
-
-  /**
-   * Run one decision on an action the record holds, then refresh and tell the
-   * webview the decision settled, whatever its outcome — that clears the
-   * in-flight state every card for the action shares. Tier and type come from
-   * the record, never from the message.
-   */
-  private async decide(
-    id: string,
-    panel: vscode.WebviewPanel,
-    actionId: string,
-    act: (a: ActionRow) => Promise<void>,
-    verb: string,
-  ): Promise<void> {
-    const current = this.sameIdentity();
-    let acted = false;
-    try {
-      let a = this.cache.action(id, actionId);
-      if (!a) {
-        await this.refresh(id, panel);
-        a = this.cache.action(id, actionId);
-      }
-      if (!a) {
-        // After a change of identity the read was not kept: nothing to approve,
-        // and nothing to tell the next person.
-        if (current()) void vscode.window.showErrorMessage(`reckon: ${verb} failed — the action is not in this investigation's record`);
-        return;
-      }
-      acted = true;
-      await act(a);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: ${verb} failed — ${errText(err)}`);
-    } finally {
-      // The record just read to find the action is current; only a decision
-      // attempted over it changes what the panel should show.
-      if (acted) {
-        await this.refresh(id, panel);
-      }
-      void this.post(panel, { type: "action.settled", actionId });
-    }
-  }
-
-  /**
-   * Keep the ledger honest through an async dispatch: while any action sits in
-   * a transient state (APPROVED/EXECUTING), re-fetch on a short interval until
-   * everything is terminal — regardless of which surface (this panel, the
-   * agent, auto-approval) started the dispatch. Bounded (~3 min) so a truly
-   * wedged workflow cannot poll forever; the ledger then shows the honest
-   * transient state until the next interaction.
-   */
-  private scheduleDispatchWatch(id: string, panel: vscode.WebviewPanel, actions: ActionRow[]): void {
-    const existing = this.dispatchWatch.get(id);
-    const inFlight = actions.some((a) => a.status === "APPROVED" || a.status === "EXECUTING");
-    if (!inFlight) {
-      if (existing) {
-        clearTimeout(existing.timer);
-        this.dispatchWatch.delete(id);
-      }
-      return;
-    }
-    const ticks = existing ? existing.ticks + 1 : 0;
-    if (existing) {
-      clearTimeout(existing.timer);
-    }
-    if (ticks >= 45 || this.open.get(id) !== panel) {
-      this.dispatchWatch.delete(id);
-      return;
-    }
-    const timer = setTimeout(() => {
-      void this.refresh(id, panel); // re-arms (or clears) the watch from fresh state
-    }, 4000);
-    this.dispatchWatch.set(id, { timer, ticks });
-  }
-
-  /** Reject one action — human token only; reason from the webview prompt card. */
-  private async reject(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; reason: string }): Promise<void> {
-    await this.decide(id, panel, msg.actionId, async (a) => {
-      const decision = await this.client.actions.reject(a.actionId, msg.reason.trim() === "" ? "rejected from the workbench" : msg.reason.trim());
-      void vscode.window.showInformationMessage(`reckon: ${a.actionType} → ${decision.status}`);
-    }, "reject");
-  }
-
-  /** Resolve an action whose outcome is unknown (adr/0216) — human token only. */
-  private async resolve(
-    id: string,
-    panel: vscode.WebviewPanel,
-    msg: { actionId: string; outcome: "SUCCEEDED" | "FAILED"; note: string; reference?: string; artifact?: ArtifactLocation },
-  ): Promise<void> {
-    await this.decide(id, panel, msg.actionId, async (a) => {
-      const decision = await this.client.actions.resolve(a.actionId, msg);
-      void vscode.window.showInformationMessage(`reckon: ${a.actionType} resolved → ${decision.status}`);
-    }, "resolve");
-  }
-
-  /**
-   * Re-request an expired action — a fresh request (same targets & evidence,
-   * new window, retry_of lineage) the analyst then approves. Not a bypass of
-   * expiry: the conscious re-affirmation it exists to elicit.
-   */
-  /** Edit a pending request before approving it (adr/0127): the same action, new parameters, on the record. */
-  private async edit(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; parameters: Record<string, unknown>; reason?: string }): Promise<void> {
-    await this.decide(id, panel, msg.actionId, async (a) => {
-      await this.client.actions.edit(a.actionId, msg.parameters, msg.reason);
-      void vscode.window.showInformationMessage(`reckon: ${a.actionType} edited — review it and approve`);
-    }, "edit");
-  }
-
-  private async rerequest(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; rationale: string }): Promise<void> {
-    await this.decide(id, panel, msg.actionId, async (a) => {
-      await this.client.actions.rerequest(a.actionId, msg.rationale);
-      void vscode.window.showInformationMessage(`reckon: ${a.actionType} re-requested — approve the new request`);
-    }, "re-request");
-  }
-
-  /**
-   * Request the reversal of a SUCCEEDED action (04 §7): a NEW x-action of the
-   * descriptor's declared inverse type, at the same tier, linked by
-   * reversal_of_ref, which lands in the approval queue like any action. The
-   * engine validates the pairing and the original's status; the host only
-   * looks up the inverse type so the request names it.
-   */
-  private async reverse(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; rationale: string }): Promise<void> {
-    await this.decide(id, panel, msg.actionId, async () => {
-      const current = this.sameIdentity();
-      const [record, types] = await Promise.all([this.client.actions.record(msg.actionId), this.client.actions.types()]);
-      const original = record.action;
-      const inverse = types.find((t) => t.actionType === original.actionType)?.reversibleBy;
-      if (!inverse) {
-        void vscode.window.showWarningMessage(`reckon: ${original.actionType} declares no reversal in the action catalog`);
-        return;
-      }
-      if (!current()) return;
-      const res = await this.client.actions.request({
-        investigationRef: id,
-        actionType: inverse,
-        targets: original.targets.map((t) => ({ resolvedIdentifier: t })),
-        evidenceRefs: original.evidenceRefs,
-        rationale: msg.rationale.trim() || `reversal of ${original.actionType} ${original.actionId}`,
-        reversalOfRef: original.actionId,
-      });
-      void vscode.window.showInformationMessage(`reckon: reversal requested as ${inverse} (${res.status}) — approve to run it`);
-    }, "reversal");
-  }
-
-  /**
-   * The live markdown export (binding §6 item 10): rendered backend-side from
-   * the projections and shown as a rendered preview beside the panel. The
-   * preview reads a scratch file, not an untitled doc, so no unsaved source
-   * tab is left behind; Save report… writes it to a file the analyst picks.
-   */
-  private async openMarkdownExport(id: string): Promise<void> {
-    const current = this.sameIdentity();
-    let md: string;
-    try {
-      md = await this.client.investigations.exportMarkdown(id);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: export failed — ${errText(err)}`);
-      return;
-    }
-    if (!current()) return;
-    const name = `reckon-report-${id.slice(0, 8)}`;
-    const scratch = vscode.Uri.file(path.join(os.tmpdir(), "reckon-exports", `${name}-${this.exportTag}.md`));
-    try {
-      await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(scratch.fsPath)));
-      await vscode.workspace.fs.writeFile(scratch, Buffer.from(md, "utf8"));
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: export failed — ${errText(err)}`);
-      return;
-    }
-    if (!current()) {
-      await this.closeReports([scratch]);
-      return;
-    }
-    this.reports.set(scratch.fsPath, scratch);
-    await vscode.commands.executeCommand("markdown.showPreviewToSide", scratch);
-    if (!current()) {
-      await this.closeReports([scratch]);
-      return;
-    }
-    const save = "Save report…";
-    // The prompt cannot be dismissed from here, so it can outlive the identity.
-    if ((await vscode.window.showInformationMessage("reckon: report exported", save)) !== save || !current()) return;
-    const target = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file(path.join(os.homedir(), `${name}.md`)),
-      filters: { Markdown: ["md"] },
-      saveLabel: "Save report",
-    });
-    if (!target || !current()) return;
-    try {
-      await vscode.workspace.fs.writeFile(target, Buffer.from(md, "utf8"));
-      void vscode.window.showInformationMessage(`reckon: report saved to ${target.fsPath}`);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: saving the report failed — ${errText(err)}`);
-    }
-  }
-
   /** Run a ⚡ scoped turn: rendered collapsed under its label. */
   private runScoped(id: string, panel: vscode.WebviewPanel, t: ScopedTurn): Promise<void> {
     return this.turns.run(id, panel, t.instruction, { label: t.label }).finally(() => this.releaseSession(id));
   }
 
-  private post(panel: vscode.WebviewPanel, msg: RenderMessage): Thenable<boolean> {
+  post(panel: vscode.WebviewPanel, msg: RenderMessage): Thenable<boolean> {
     try {
       return panel.webview.postMessage(msg);
     } catch {
