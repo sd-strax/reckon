@@ -17,6 +17,7 @@ import { randomUUID } from "crypto";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
+import { SingleFlight } from "./singleFlight";
 import { ActionRow, Appearance, type ArtifactLocation, BackendClient, BackendRequestError, EvidenceDoc, InvestigationDetail, ThreadEntry, existingInvestigation } from "./backend";
 import { AgentTransport, SOPCandidate } from "./agentTransport";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "./protocol";
@@ -48,11 +49,23 @@ export class InvestigationDocuments {
   // (set by beginRename from the tree; consumed in the ready handshake).
   private readonly pendingRename = new Map<string, string>();
   // Resolved evidence-ref labels, shared across panels — deterministic ids
-  // mean a ref resolves to the same thing everywhere, so cache once.
+  // mean a ref resolves to the same thing everywhere, so cache once. Failures
+  // are not cached, and everything here is cleared when the identity changes.
   private readonly labelCache = new Map<string, string>();
-  // Full evidence docs, cached for the same reason (null = unfetchable). Feeds
-  // both label resolution and the event-time strip without duplicate fetches.
-  private readonly docCache = new Map<string, EvidenceDoc | null>();
+  // Full evidence docs, cached for the same reason. Feeds both label resolution
+  // and the event-time strip without duplicate fetches.
+  private readonly docCache = new Map<string, EvidenceDoc>();
+  private readonly docReads = new SingleFlight<EvidenceDoc | null>();
+  // Bumped when the identity changes: a read begun before it is not cached, and
+  // work begun before it neither opens anything nor writes (see sameIdentity).
+  private generation = 0;
+  // In the scratch name of this window's reports: their preview tabs are found
+  // by that name, and a report the analyst saved must not match it.
+  private readonly exportTag = randomUUID().slice(0, 8);
+  // What reckon opened outside its panels, closed when the identity changes:
+  // candidate SOP drafts, and exported reports (their scratch files, by path).
+  private readonly draftEditors = new Set<vscode.TextDocument>();
+  private readonly reports = new Map<string, vscode.Uri>();
   // The projection reads, their watermark, and the per-investigation ordering
   // that keeps an older read from being posted after a newer one (impl §3.1–§3.2).
   private readonly cache: InvestigationCache;
@@ -403,12 +416,14 @@ export class InvestigationDocuments {
     }
     this.seeding.add(ref.id);
     const draftKey = ref.id;
+    const current = this.sameIdentity();
     try {
       const created = seed.alertId !== undefined
         ? await this.client.createInvestigation("", {
             type: "alert", alertId: seed.alertId, source: seed.source,
           })
         : await this.client.createInvestigationFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown);
+      if (!current()) return;
       this.open.delete(ref.id);
       ref.id = created.id;
       this.open.set(created.id, panel);
@@ -423,6 +438,7 @@ export class InvestigationDocuments {
       void vscode.commands.executeCommand("reckon.refreshInvestigations");
       void vscode.commands.executeCommand("reckon.refreshCases");
     } catch (err) {
+      if (!current()) return;
       // A case already investigated opens that investigation (#158): the draft
       // panel closes and the existing record opens in its place.
       const existing = existingInvestigation(err);
@@ -515,10 +531,101 @@ export class InvestigationDocuments {
     }
   }
 
+  /**
+   * The person behind the session changed (adr/0241). Everything here was read
+   * as someone else, so it goes, and everything reckon opened closes: a panel
+   * the new person cannot read would otherwise keep the last snapshot on screen,
+   * and its tab the title.
+   */
+  identityChanged(): void {
+    this.generation++;
+    this.docCache.clear();
+    this.docReads.clear();
+    this.labelCache.clear();
+    this.cache.clear();
+    this.sopDrafts.clear();
+    this.pendingRename.clear();
+    for (const panel of [...this.open.values()]) {
+      panel.dispose();
+    }
+    void this.closeEditors();
+  }
+
+  /**
+   * Close what reckon opened outside its panels, and only that. A draft's
+   * unsaved text is reverted, not offered to the next person to save, and a
+   * report's scratch file goes with its preview.
+   */
+  private async closeEditors(): Promise<void> {
+    const drafts = [...this.draftEditors];
+    const reports = [...this.reports.values()];
+    this.draftEditors.clear();
+    this.reports.clear();
+    for (const doc of drafts) {
+      await this.closeDraft(doc);
+    }
+    await this.closeReports(reports);
+  }
+
+  /**
+   * Revert and close a draft in every group that holds it. The command acts on
+   * the active editor, so each group's tab is made active by column: shown with
+   * no column, the draft would open again in the active group and only that copy
+   * would close. `shownIn` is a column the tabs may not report yet.
+   */
+  private async closeDraft(doc: vscode.TextDocument, shownIn?: vscode.ViewColumn): Promise<void> {
+    const uri = doc.uri.toString();
+    const columns = new Set(vscode.window.tabGroups.all
+      .filter((group) => group.tabs.some((tab) => tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === uri))
+      .map((group) => group.viewColumn));
+    if (shownIn !== undefined) columns.add(shownIn);
+    for (const viewColumn of columns) {
+      if (doc.isClosed) {
+        return;
+      }
+      try {
+        await vscode.window.showTextDocument(doc, { viewColumn });
+        await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+      } catch (err) {
+        this.log.warn(`closing a SOP draft: ${errText(err)}`);
+      }
+    }
+  }
+
+  private async closeReports(reports: vscode.Uri[]): Promise<void> {
+    const names = reports.map((uri) => path.basename(uri.fsPath));
+    const previews = vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) =>
+      tab.input instanceof vscode.TabInputWebview && tab.input.viewType.includes("markdown.preview")
+      && names.some((name) => tab.label.includes(name)));
+    try {
+      await vscode.window.tabGroups.close(previews);
+    } catch (err) {
+      this.log.warn(`closing a report preview: ${errText(err)}`);
+    }
+    for (const uri of reports) {
+      await Promise.resolve(vscode.workspace.fs.delete(uri)).catch((err: unknown) => {
+        this.log.warn(`deleting a report's scratch file: ${errText(err)}`);
+      });
+    }
+  }
+
+  /**
+   * A check that holds until the identity changes (adr/0241). Taken before an
+   * await, it stops what the previous person began from opening anything for
+   * the next one, or from writing on the next one's token.
+   */
+  private sameIdentity(): () => boolean {
+    const generation = this.generation;
+    return () => generation === this.generation;
+  }
+
   /** Drop everything held for a closed panel, including a pending dispatch watch. */
   private forget(id: string): void {
     this.open.delete(id);
     this.cache.forget(id);
+    this.sopDrafts.delete(id);
+    this.pendingRename.delete(id);
+    this.draftMode.delete(id);
     const watch = this.dispatchWatch.get(id);
     if (watch) {
       clearTimeout(watch.timer);
@@ -761,6 +868,7 @@ export class InvestigationDocuments {
     } else {
       parameters.message = msg.message;
     }
+    const current = this.sameIdentity();
     try {
       // A follow-up rests on the grounds of the message it follows up on: the
       // engine refuses an outbound action that cites no evidence.
@@ -770,6 +878,7 @@ export class InvestigationDocuments {
         void vscode.window.showErrorMessage("reckon: follow-up not requested — the original message's evidence could not be read");
         return;
       }
+      if (!current()) return;
       const res = await this.client.requestAction({
         investigationRef: id,
         actionType: msg.actionType,
@@ -803,33 +912,45 @@ export class InvestigationDocuments {
     await this.refresh(id, panel);
   }
 
-  /** Fetch one evidence doc through the cache (null = unfetchable). */
+  /** Fetch one evidence doc through the cache (null = unfetchable, this time). */
   private async getDoc(ref: string): Promise<EvidenceDoc | null> {
     const hit = this.docCache.get(ref);
-    if (hit !== undefined) {
+    if (hit) {
       return hit;
     }
-    let doc: EvidenceDoc | null;
-    try {
-      doc = await this.client.evidence(ref);
-    } catch {
-      doc = null;
-    }
-    this.docCache.set(ref, doc);
-    return doc;
+    const generation = this.generation;
+    return this.docReads.run(ref, async () => {
+      try {
+        const doc = await this.client.evidence(ref);
+        if (generation === this.generation) {
+          this.docCache.set(ref, doc);
+        }
+        return doc;
+      } catch {
+        return null;
+      }
+    });
   }
 
   /**
    * Resolve a human label for an evidence ref (host · WIN-FILE01, account ·
-   * svc_backup) from the evidence endpoint, cached. Posts back only on a hit;
-   * a ref that can't be opened keeps its type-only label in the webview.
+   * svc_backup) from the evidence endpoint, cached. Posts back only on a hit; a
+   * ref that can't be opened keeps its type-only label in the webview, and a
+   * failed read says so, so the webview can ask again.
    */
   private async resolveLabel(panel: vscode.WebviewPanel, ref: string): Promise<void> {
     let label = this.labelCache.get(ref);
     if (label === undefined) {
+      const generation = this.generation;
       const doc = await this.getDoc(ref);
-      label = doc ? deriveEvidenceLabel(doc) : "";
-      this.labelCache.set(ref, label);
+      if (!doc) {
+        void this.post(panel, { type: "evidence.unresolved", ref });
+        return;
+      }
+      label = deriveEvidenceLabel(doc);
+      if (generation === this.generation) {
+        this.labelCache.set(ref, label);
+      }
     }
     if (label) {
       void this.post(panel, { type: "evidence.label", ref, label });
@@ -857,13 +978,16 @@ export class InvestigationDocuments {
 
   /** Start an investigation from a case row: the seed path, then open it. */
   private async startFromCase(caseNumber: string): Promise<void> {
+    const current = this.sameIdentity();
     try {
       const created = await this.client.createInvestigationFromInput(caseNumber, "case");
+      if (!current()) return;
       this.show(created.id, created.title);
       this.offerCaseNote(created);
       void vscode.commands.executeCommand("reckon.refreshInvestigations");
       void vscode.commands.executeCommand("reckon.refreshCases");
     } catch (err) {
+      if (!current()) return;
       const existing = existingInvestigation(err);
       if (existing) {
         void vscode.window.showInformationMessage(`reckon: ${caseNumber} already has an investigation — opening it`);
@@ -1096,6 +1220,7 @@ export class InvestigationDocuments {
     msg: { adapter: string; enabled: boolean; config: Record<string, string>; secretFields: string[] },
   ): Promise<void> {
     const verb = msg.enabled ? "Enable" : "Disable";
+    const current = this.sameIdentity();
     const pick = await vscode.window.showWarningMessage(
       `reckon: ${verb} adapter "${msg.adapter}"? This edits the tenant config file (the source of truth) and records an attributed config-plane audit entry.`,
       { modal: true },
@@ -1119,6 +1244,7 @@ export class InvestigationDocuments {
         config[field] = v.trim();
       }
     }
+    if (!current()) return;
     try {
       await this.client.applyEnablement(msg.adapter, msg.enabled, config);
       void vscode.window.showInformationMessage(
@@ -1144,6 +1270,7 @@ export class InvestigationDocuments {
     panel: vscode.WebviewPanel,
     msg: { transition: string; reason?: string; summary?: string },
   ): Promise<void> {
+    const current = this.sameIdentity();
     try {
       const body: { transition: string; reason?: string; reportRef?: string; summary?: string } = {
         transition: msg.transition,
@@ -1159,7 +1286,7 @@ export class InvestigationDocuments {
       // Every transition moves the investigation between the tree's groups (a
       // discarded draft leaves them altogether).
       void vscode.commands.executeCommand("reckon.refreshInvestigations");
-      if (msg.transition === "conclude") {
+      if (msg.transition === "conclude" && current()) {
         // The client-side tier of the two-tier knowledge summary (design/06
         // §3.2): the sidecar — the only place the BYOK model key lives —
         // writes the narrative from its own conversation and posts it.
@@ -1195,6 +1322,7 @@ export class InvestigationDocuments {
    */
   private async draftSOP(id: string, panel: vscode.WebviewPanel, force?: boolean): Promise<void> {
     void this.post(panel, { type: "sop.status", state: "drafting" });
+    const current = this.sameIdentity();
     let candidate: SOPCandidate;
     try {
       candidate = await this.transport.proposeSOP(id, force);
@@ -1204,13 +1332,20 @@ export class InvestigationDocuments {
     } finally {
       this.releaseSession(id);
     }
+    if (!current()) return;
     if (!candidate?.warranted || !candidate.title.trim() || !candidate.body.trim()) {
       void this.post(panel, { type: "sop.status", state: "declined", message: candidate?.rationale?.trim() || "No new procedure: the model judged nothing here to generalize." });
       return;
     }
     const doc = await vscode.workspace.openTextDocument({ content: candidateSOPMarkdown(candidate, id), language: "markdown" });
-    await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+    if (!current()) return;
+    const editor = await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+    if (!current()) {
+      await this.closeDraft(doc, editor.viewColumn);
+      return;
+    }
     this.sopDrafts.set(id, { doc, title: candidate.title.trim() });
+    this.draftEditors.add(doc);
     void this.post(panel, { type: "sop.status", state: "ready", title: candidate.title.trim(), message: candidate.rationale?.trim() || undefined });
   }
 
@@ -1269,6 +1404,7 @@ export class InvestigationDocuments {
     act: (a: ActionRow) => Promise<void>,
     verb: string,
   ): Promise<void> {
+    const current = this.sameIdentity();
     try {
       let a = this.cache.action(id, actionId);
       if (!a) {
@@ -1276,7 +1412,9 @@ export class InvestigationDocuments {
         a = this.cache.action(id, actionId);
       }
       if (!a) {
-        void vscode.window.showErrorMessage(`reckon: ${verb} failed — the action is not in this investigation's record`);
+        // After a change of identity the read was not kept: nothing to approve,
+        // and nothing to tell the next person.
+        if (current()) void vscode.window.showErrorMessage(`reckon: ${verb} failed — the action is not in this investigation's record`);
         return;
       }
       await act(a);
@@ -1369,6 +1507,7 @@ export class InvestigationDocuments {
    */
   private async reverse(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; rationale: string }): Promise<void> {
     await this.decide(id, panel, msg.actionId, async () => {
+      const current = this.sameIdentity();
       const [record, types] = await Promise.all([this.client.actionRecord(msg.actionId), this.client.actionTypes()]);
       const original = record.action;
       const inverse = types.find((t) => t.actionType === original.actionType)?.reversibleBy;
@@ -1376,6 +1515,7 @@ export class InvestigationDocuments {
         void vscode.window.showWarningMessage(`reckon: ${original.actionType} declares no reversal in the action catalog`);
         return;
       }
+      if (!current()) return;
       const res = await this.client.requestAction({
         investigationRef: id,
         actionType: inverse,
@@ -1395,6 +1535,7 @@ export class InvestigationDocuments {
    * tab is left behind; Save report… writes it to a file the analyst picks.
    */
   private async openMarkdownExport(id: string): Promise<void> {
+    const current = this.sameIdentity();
     let md: string;
     try {
       md = await this.client.exportMarkdown(id);
@@ -1402,8 +1543,9 @@ export class InvestigationDocuments {
       void vscode.window.showErrorMessage(`reckon: export failed — ${errText(err)}`);
       return;
     }
-    const name = `reckon-report-${id.slice(0, 8)}.md`;
-    const scratch = vscode.Uri.file(path.join(os.tmpdir(), "reckon-exports", name));
+    if (!current()) return;
+    const name = `reckon-report-${id.slice(0, 8)}`;
+    const scratch = vscode.Uri.file(path.join(os.tmpdir(), "reckon-exports", `${name}-${this.exportTag}.md`));
     try {
       await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(scratch.fsPath)));
       await vscode.workspace.fs.writeFile(scratch, Buffer.from(md, "utf8"));
@@ -1411,15 +1553,25 @@ export class InvestigationDocuments {
       void vscode.window.showErrorMessage(`reckon: export failed — ${errText(err)}`);
       return;
     }
+    if (!current()) {
+      await this.closeReports([scratch]);
+      return;
+    }
+    this.reports.set(scratch.fsPath, scratch);
     await vscode.commands.executeCommand("markdown.showPreviewToSide", scratch);
+    if (!current()) {
+      await this.closeReports([scratch]);
+      return;
+    }
     const save = "Save report…";
-    if ((await vscode.window.showInformationMessage("reckon: report exported", save)) !== save) return;
+    // The prompt cannot be dismissed from here, so it can outlive the identity.
+    if ((await vscode.window.showInformationMessage("reckon: report exported", save)) !== save || !current()) return;
     const target = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file(path.join(os.homedir(), name)),
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), `${name}.md`)),
       filters: { Markdown: ["md"] },
       saveLabel: "Save report",
     });
-    if (!target) return;
+    if (!target || !current()) return;
     try {
       await vscode.workspace.fs.writeFile(target, Buffer.from(md, "utf8"));
       void vscode.window.showInformationMessage(`reckon: report saved to ${target.fsPath}`);

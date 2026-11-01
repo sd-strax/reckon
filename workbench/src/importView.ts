@@ -29,6 +29,8 @@ export class ImportSOPsView {
   private panel?: vscode.WebviewPanel;
   private rows: Row[] = [];
   private disposables: vscode.Disposable[] = [];
+  // Bumped when the identity changes: what was begun before it goes no further.
+  private generation = 0;
 
   constructor(
     private readonly client: BackendClient,
@@ -93,6 +95,16 @@ export class ImportSOPsView {
     this.panel?.dispose();
   }
 
+  /**
+   * The person behind the session changed (adr/0241). The panel closes, and an
+   * import still running stops: each document takes a token as it goes, so the
+   * rest of one person's selection would land as the next person's.
+   */
+  identityChanged(): void {
+    this.generation++;
+    this.dispose();
+  }
+
   /** Rebuild the open-editor rows from the live tab set, preserving the
    * analyst's checkbox choices and results for rows that are still open. */
   private rescan(): void {
@@ -137,13 +149,14 @@ export class ImportSOPsView {
   }
 
   private async addFromDisk(): Promise<void> {
+    const generation = this.generation;
     const uris = await vscode.window.showOpenDialog({
       title: "Add SOP documents",
       canSelectMany: true,
       openLabel: "Add",
       filters: { "Markdown / text": SOP_EXTENSIONS },
     });
-    if (!uris || uris.length === 0) {
+    if (!uris || uris.length === 0 || generation !== this.generation) {
       return;
     }
     const have = new Set(this.rows.map((r) => r.uri.toString()));
@@ -170,6 +183,7 @@ export class ImportSOPsView {
       return;
     }
     this.push({ busy: true });
+    const generation = this.generation;
     let ok = 0;
     for (const row of selected) {
       try {
@@ -178,6 +192,9 @@ export class ImportSOPsView {
           // openTextDocument returns the live buffer when the file is open —
           // unsaved edits included — so what is imported is what is on screen.
           : (await vscode.workspace.openTextDocument(row.uri)).getText();
+        if (generation !== this.generation) {
+          return;
+        }
         // The FULL path goes as the filename: when the document carries no
         // frontmatter source, the server keys the re-import lineage on it, and
         // a bare basename would make two different "runbook.md" files silently
@@ -190,6 +207,9 @@ export class ImportSOPsView {
       } catch (err) {
         row.result = { outcome: "failed", title: row.name, message: err instanceof Error ? err.message : String(err) };
         this.log.warn(`SOP import failed: ${row.name}: ${row.result.message}`);
+      }
+      if (generation !== this.generation) {
+        return;
       }
       this.push({ busy: true });
     }

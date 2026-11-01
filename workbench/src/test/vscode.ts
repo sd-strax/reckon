@@ -100,6 +100,10 @@ export class TabInputText {
   constructor(readonly uri: Uri) {}
 }
 
+export class TabInputWebview {
+  constructor(readonly viewType: string) {}
+}
+
 // --- webviews -----------------------------------------------------------------
 
 /** A webview the test drives: `receive` plays the page, `posted` is what the host sent. */
@@ -223,11 +227,15 @@ export const window = {
   showInputBox: vi.fn(async (..._args: unknown[]): Promise<string | undefined> => undefined),
   showOpenDialog: vi.fn(async (..._args: unknown[]): Promise<Uri[] | undefined> => undefined),
   showSaveDialog: vi.fn(async (..._args: unknown[]): Promise<Uri | undefined> => undefined),
-  showTextDocument: vi.fn(async (..._args: unknown[]) => undefined),
+  showTextDocument: vi.fn(async (..._args: unknown[]) => ({}) as vscode.TextEditor),
   createOutputChannel: vi.fn((..._args: unknown[]) => fakeLog()),
   registerTreeDataProvider: vi.fn((..._args: unknown[]) => new Disposable(() => undefined)),
   activeTextEditor: undefined as vscode.TextEditor | undefined,
-  tabGroups: { all: [] as vscode.TabGroup[], close: vi.fn(async (..._args: unknown[]) => true) },
+  tabGroups: {
+    all: [] as vscode.TabGroup[],
+    close: vi.fn(async (..._args: unknown[]) => true),
+    onDidChangeTabs: () => new Disposable(() => undefined),
+  },
 } satisfies Members<typeof vscode.window>;
 
 export const workspace = {
@@ -244,6 +252,8 @@ export const workspace = {
   fs: {
     readFile: vi.fn(async (..._args: unknown[]): Promise<Uint8Array> => new Uint8Array()),
     writeFile: vi.fn(async (..._args: unknown[]) => undefined),
+    createDirectory: vi.fn(async (..._args: unknown[]) => undefined),
+    delete: vi.fn(async (..._args: unknown[]) => undefined),
   },
   openTextDocument: vi.fn(async (..._args: unknown[]) => ({}) as vscode.TextDocument),
   textDocuments: [] as vscode.TextDocument[],

@@ -35,6 +35,7 @@ const transport = {
   closeSession: vi.fn(async () => undefined),
   cancel: vi.fn(async () => undefined),
   summarizeConcluded: vi.fn(async () => undefined),
+  proposeSOP: vi.fn(async () => ({ warranted: true, title: "T", body: "B", tags: [], recommendation: "", rationale: "" })),
 } as unknown as AgentTransport;
 
 function documents(client: BackendClient) {
@@ -160,5 +161,355 @@ describe("InvestigationDocuments: closing", () => {
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "turn.stop" });
     expect(transport.cancel).toHaveBeenCalledWith("inv-1");
+  });
+
+  const evidenceDoc = { ref: "ref-1", kind: "observed-data", type: "observed-data", payload: {} };
+
+  it("does not keep a failed evidence read, and tells the panel", async () => {
+    let down = true;
+    const evidence = vi.fn(async () => {
+      if (down) throw new Error("503");
+      return evidenceDoc;
+    });
+    const { client } = backend({ evidence });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0];
+
+    panel.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(types()).toContain("evidence.unresolved"));
+
+    down = false;
+    panel.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledTimes(2));
+  });
+
+  it("closes every panel when the identity changes, and reads again for the next person", async () => {
+    const evidence = vi.fn(async () => evidenceDoc);
+    const { client } = backend({ evidence });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    docs.showDraft();
+    const [first, draft] = createdPanels();
+    first.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+
+    expect(first.disposed).toBe(true);
+    expect(draft.disposed).toBe(true);
+    docs.show("inv-1");
+    createdPanels()[2].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not cache an evidence read that lands after the identity changed", async () => {
+    let land!: (d: typeof evidenceDoc) => void;
+    const evidence = vi.fn((): Promise<typeof evidenceDoc> => new Promise((r) => { land = r; }));
+    const { client } = backend({ evidence });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+    land(evidenceDoc);
+    await new Promise((r) => setTimeout(r, 0));
+
+    docs.show("inv-1");
+    createdPanels()[1].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    await vi.waitFor(() => expect(evidence).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not pop a rename from a panel closed before it was ready", async () => {
+    const { docs } = documents(backend().client);
+    docs.beginRename("inv-1", "T");
+    createdPanels()[0].dispose();
+
+    docs.show("inv-1");
+    const panel = createdPanels()[1];
+    panel.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(panel.webview.posted.map((m) => (m as RenderMessage).type)).toContain("state.snapshot"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(panel.webview.posted.map((m) => (m as RenderMessage).type)).not.toContain("rename.begin");
+  });
+
+  describe("closing a SOP draft when the identity changes", () => {
+    const uri = vscode.Uri.parse("untitled:Untitled-1");
+    const draftTab = () => ({ input: new vscode.TabInputText(uri) });
+    const other = { input: new vscode.TabInputText(vscode.Uri.file("/mine.md")) };
+    const setGroups = (all: unknown[]) => { (vscode.window.tabGroups as unknown as { all: unknown[] }).all = all; };
+    const revert = "workbench.action.revertAndCloseActiveEditor";
+    afterEach(() => setGroups([]));
+
+    async function drafted() {
+      vi.mocked(vscode.workspace.openTextDocument).mockResolvedValueOnce({ uri, isClosed: false } as vscode.TextDocument);
+      const { docs } = documents(backend().client);
+      docs.show("inv-1");
+      createdPanels()[0].webview.receive({ type: "sop.draft" });
+      await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledOnce());
+      await new Promise((r) => setTimeout(r, 0));
+      vi.mocked(vscode.window.showTextDocument).mockClear();
+      return docs;
+    }
+
+    it("reverts it in the group that holds it, not the active one, and nobody is asked to save it", async () => {
+      const docs = await drafted();
+      setGroups([{ viewColumn: 1, tabs: [other] }, { viewColumn: 2, tabs: [draftTab()] }]);
+
+      docs.identityChanged();
+
+      await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith(revert));
+      expect(vscode.window.showTextDocument).toHaveBeenCalledOnce();
+      expect(vscode.window.showTextDocument).toHaveBeenCalledWith(expect.objectContaining({ uri }), { viewColumn: 2 });
+    });
+
+    it("reverts it in every group that holds it", async () => {
+      const docs = await drafted();
+      setGroups([{ viewColumn: 1, tabs: [draftTab()] }, { viewColumn: 3, tabs: [draftTab()] }]);
+
+      docs.identityChanged();
+
+      await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(vi.mocked(vscode.commands.executeCommand).mock.calls.filter(([c]) => c === revert)).toHaveLength(2));
+      expect(vscode.window.showTextDocument).toHaveBeenCalledWith(expect.anything(), { viewColumn: 3 });
+    });
+
+    it("does not reopen a draft no group holds", async () => {
+      const docs = await drafted();
+      setGroups([{ viewColumn: 1, tabs: [other] }]);
+
+      docs.identityChanged();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+    });
+  });
+
+  it("closes a report's preview and deletes its scratch file when the identity changes, and leaves other tabs", async () => {
+    const { docs } = documents(backend({ exportMarkdown: async () => "# report" }).client);
+    docs.show("inv-12345678");
+    createdPanels()[0].webview.receive({ type: "export.open" });
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
+    const scratch = vi.mocked(vscode.commands.executeCommand).mock.calls.find(([c]) => c === "markdown.showPreviewToSide")![1] as vscode.Uri;
+    const preview = { label: `Preview ${scratch.path.split("/").pop()}`, input: new vscode.TabInputWebview("mainThreadWebview-markdown.preview") };
+    // The analyst's saved copy of the same report is not reckon's to close.
+    const mine = { label: "Preview reckon-report-inv-1234.md", input: new vscode.TabInputWebview("mainThreadWebview-markdown.preview") };
+    (vscode.window.tabGroups as unknown as { all: unknown[] }).all = [{ tabs: [preview, mine] }];
+
+    docs.identityChanged();
+
+    await vi.waitFor(() => expect(vscode.window.tabGroups.close).toHaveBeenCalledWith([preview]));
+    await vi.waitFor(() => expect(vscode.workspace.fs.delete).toHaveBeenCalledOnce());
+    (vscode.window.tabGroups as unknown as { all: unknown[] }).all = [];
+  });
+});
+
+describe("InvestigationDocuments: work in flight when the identity changes", () => {
+  const gate = <T>() => {
+    let open!: (v: T) => void;
+    const opened = new Promise<T>((r) => { open = r; });
+    return { opened, open };
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const fromCase = { id: "inv-2", title: "Alice's case", caseNote: { caseId: "C-1" }, caseNoteOnSeed: "auto" } as unknown as InvestigationDetail;
+
+  it("does not open an export that lands after the change", async () => {
+    const md = gate<string>();
+    const { docs } = documents(backend({ exportMarkdown: () => md.opened }).client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "export.open" });
+
+    docs.identityChanged();
+    md.open("# Alice's report");
+    await settle();
+
+    expect(vscode.workspace.fs.writeFile).not.toHaveBeenCalled();
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything());
+  });
+
+  it("closes a preview that opened across the change", async () => {
+    const shown = gate<void>();
+    vi.mocked(vscode.commands.executeCommand).mockImplementationOnce(() => shown.opened);
+    const { docs } = documents(backend({ exportMarkdown: async () => "# r" }).client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "export.open" });
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
+
+    docs.identityChanged();
+    await settle();
+    vi.mocked(vscode.workspace.fs.delete).mockClear();
+    shown.open();
+
+    await vi.waitFor(() => expect(vscode.workspace.fs.delete).toHaveBeenCalledOnce());
+    expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not save a report from a prompt that outlived the change", async () => {
+    const answer = gate<string | undefined>();
+    vi.mocked(vscode.window.showInformationMessage).mockImplementationOnce(() => answer.opened as never);
+    const { docs } = documents(backend({ exportMarkdown: async () => "# r" }).client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "export.open" });
+    await vi.waitFor(() => expect(vscode.window.showInformationMessage).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+    answer.open("Save report…");
+    await settle();
+
+    expect(vscode.window.showSaveDialog).not.toHaveBeenCalled();
+  });
+
+  it("does not take over a closed draft when its seed lands, nor write its case note", async () => {
+    const created = gate<InvestigationDetail>();
+    const { client, calls } = backend({ createInvestigationFromInput: () => created.opened });
+    const { docs } = documents(client);
+    docs.showDraft();
+    createdPanels()[0].webview.receive({ type: "seed.submit", value: "host-a", kind: "" });
+
+    docs.identityChanged();
+    created.open(fromCase);
+    await settle();
+
+    expect(createdPanels()).toHaveLength(1);
+    expect(calls).not.toContain("requestCaseNote");
+  });
+
+  it("does not open an investigation started from a case row before the change", async () => {
+    const created = gate<InvestigationDetail>();
+    const { client, calls } = backend({ createInvestigationFromInput: () => created.opened });
+    const { docs } = documents(client);
+    docs.showDraft();
+    createdPanels()[0].webview.receive({ type: "queue.start", caseNumber: "C-1" });
+    await vi.waitFor(() => expect(calls).toContain("createInvestigationFromInput"));
+
+    docs.identityChanged();
+    created.open(fromCase);
+    await settle();
+
+    expect(createdPanels()).toHaveLength(1);
+    expect(calls).not.toContain("requestCaseNote");
+  });
+
+  it("does not open a SOP draft that lands after the change", async () => {
+    const candidate = gate<{ warranted: boolean; title: string; body: string; tags: string[]; recommendation: string; rationale: string }>();
+    vi.mocked(transport.proposeSOP).mockImplementationOnce(() => candidate.opened as never);
+    const { docs } = documents(backend().client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "sop.draft" });
+    await vi.waitFor(() => expect(transport.proposeSOP).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+    candidate.open({ warranted: true, title: "T", body: "B", tags: [], recommendation: "", rationale: "" });
+    await settle();
+
+    expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+  });
+
+  it("closes a SOP draft shown across the change, in the column it was shown in", async () => {
+    const shown = gate<{ viewColumn: number }>();
+    const doc = { uri: vscode.Uri.parse("untitled:Untitled-1"), isClosed: false } as vscode.TextDocument;
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValueOnce(doc);
+    vi.mocked(vscode.window.showTextDocument).mockImplementationOnce(() => shown.opened as never);
+    const { docs } = documents(backend().client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "sop.draft" });
+    await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+    shown.open({ viewColumn: 2 });
+
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("workbench.action.revertAndCloseActiveEditor"));
+    expect(vscode.window.showTextDocument).toHaveBeenLastCalledWith(doc, { viewColumn: 2 });
+  });
+
+  it("does not approve on the next person's token when the change lands during the read before it", async () => {
+    const actions = gate<ActionRow[]>();
+    const approveAction = vi.fn(async () => ({ status: "APPROVED" }));
+    const { client } = backend({ actions: () => actions.opened, approveAction });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "action.approve", actionId: "a-1" });
+    await settle();
+
+    docs.identityChanged();
+    actions.open([{ actionId: "a-1", tier: "T1", status: "PROPOSED" } as ActionRow]);
+    await settle();
+
+    expect(approveAction).not.toHaveBeenCalled();
+    expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not request a reversal on the next person's token", async () => {
+    const record = gate<{ action: { actionType: string; targets: string[]; evidenceRefs: string[]; actionId: string } }>();
+    const requestAction = vi.fn(async () => ({ status: "PROPOSED" }));
+    const { client } = backend({
+      actions: async () => [{ actionId: "a-1", tier: "T1", status: "SUCCEEDED" } as ActionRow],
+      actionRecord: () => record.opened,
+      actionTypes: async () => [{ actionType: "x", reversibleBy: "y" }],
+      requestAction,
+    });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "action.reverse", actionId: "a-1", rationale: "r" });
+    await settle();
+    await settle();
+
+    docs.identityChanged();
+    record.open({ action: { actionType: "x", targets: ["t"], evidenceRefs: ["e"], actionId: "a-1" } });
+    await settle();
+
+    expect(requestAction).not.toHaveBeenCalled();
+  });
+
+  it("does not request a comms follow-up on the next person's token", async () => {
+    const comms = gate<{ threadId: string; actionId: string }[]>();
+    const requestAction = vi.fn(async () => ({ status: "PROPOSED" }));
+    const { client, calls } = backend({
+      comms: () => comms.opened,
+      actionRecord: async () => ({ action: { evidenceRefs: ["e"] } }),
+      requestAction,
+    });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "comms.followup", threadId: "t-1", actionType: "notify.chat", target: "x", subject: "", message: "m", followUpHours: 1 });
+    await vi.waitFor(() => expect(calls).toContain("comms"));
+
+    docs.identityChanged();
+    comms.open([{ threadId: "t-1", actionId: "a-1" }]);
+    await settle();
+
+    expect(requestAction).not.toHaveBeenCalled();
+  });
+
+  it("does not apply an enablement confirmed before the change", async () => {
+    const answer = gate<string | undefined>();
+    vi.mocked(vscode.window.showWarningMessage).mockImplementationOnce(() => answer.opened as never);
+    const applyEnablement = vi.fn(async () => undefined);
+    const { docs } = documents(backend({ applyEnablement }).client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, secretFields: [] });
+
+    docs.identityChanged();
+    answer.open("Enable");
+    await settle();
+
+    expect(applyEnablement).not.toHaveBeenCalled();
+  });
+
+  it("does not start the conclude summary for the next person", async () => {
+    const concluded = gate<{ status: string }>();
+    const { client, calls } = backend({ lifecycle: () => concluded.opened });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "lifecycle", transition: "conclude", summary: "done" });
+    await vi.waitFor(() => expect(calls).toContain("lifecycle"));
+
+    docs.identityChanged();
+    concluded.open({ status: "CONCLUDED" });
+    await settle();
+
+    expect(transport.summarizeConcluded).not.toHaveBeenCalled();
   });
 });

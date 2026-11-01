@@ -44,6 +44,8 @@ export class InvestigationCache {
   // Transcripts are immutable once committed: content-addressed, shared
   // across investigations.
   private readonly transcripts = new Map<string, string>();
+  // Bumped by clear: a read that began before it may not fill the cache after.
+  private generation = 0;
 
   constructor(private readonly client: CacheClient, private readonly log: Logger) {}
 
@@ -93,9 +95,31 @@ export class InvestigationCache {
   forget(id: string): void {
     this.records.delete(id);
     this.actions.delete(id);
+    this.watermarks.delete(id);
     for (const key of [...this.requests.keys()]) {
       if (key.startsWith(id + ":")) this.requests.delete(key);
     }
+    // A read still running writes these when it lands, so they go again after
+    // it. An operation chain deletes itself when it settles.
+    void this.exclusive(id, async () => {
+      this.actions.delete(id);
+      this.watermarks.delete(id);
+    });
+  }
+
+  /**
+   * Drop everything: the identity changed, and all of this was read as someone
+   * else, the shared transcripts included (adr/0241). Reads still running are
+   * not cached when they land.
+   */
+  clear(): void {
+    this.generation++;
+    this.watermarks.clear();
+    this.chains.clear();
+    this.requests.clear();
+    this.records.clear();
+    this.actions.clear();
+    this.transcripts.clear();
   }
 
   /**
@@ -121,13 +145,14 @@ export class InvestigationCache {
    * are not read here.
    */
   async snapshot(id: string): Promise<InvestigationSnapshot> {
+    const generation = this.generation;
     const [r, capabilities] = await Promise.all([
       this.read(id, "snapshot", true),
       // A 503 means the capability layer is off; null renders as "unavailable".
       this.client.capabilities().catch(() => null),
     ]);
     return {
-      seq: this.advance(id, r),
+      seq: this.advance(id, r, generation),
       investigation: r.investigation,
       hypotheses: r.hypotheses ?? [],
       actions: r.actions ?? null,
@@ -147,8 +172,9 @@ export class InvestigationCache {
    * that one read cannot hold back the actions a write or a dispatch changed.
    */
   async refresh(id: string): Promise<{ seq: number; patch: Partial<Projection> }> {
+    const generation = this.generation;
     const r = await this.read(id, "refresh");
-    return { seq: this.advance(id, r), patch: r };
+    return { seq: this.advance(id, r, generation), patch: r };
   }
 
   /**
@@ -168,14 +194,16 @@ export class InvestigationCache {
   async transcript(interpretationId: string): Promise<string> {
     let body = this.transcripts.get(interpretationId);
     if (body === undefined) {
+      const generation = this.generation;
       body = (await this.client.transcript(interpretationId)).body;
-      this.transcripts.set(interpretationId, body);
+      if (generation === this.generation) this.transcripts.set(interpretationId, body);
     }
     return body;
   }
 
   /** `strict`: the hypotheses must read too (a snapshot has no copy to fall back on). */
   private async read(id: string, why: string, strict = false): Promise<Read> {
+    const generation = this.generation;
     const optional = <T>(what: string, p: Promise<T>): Promise<T | undefined> =>
       p.catch((err: unknown) => {
         this.log.debug(`${why} ${what} ${id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -197,7 +225,7 @@ export class InvestigationCache {
     }
     if (actions !== undefined) {
       projection.actions = actions;
-      this.actions.set(id, actions);
+      if (generation === this.generation) this.actions.set(id, actions);
     }
     if (pins !== undefined) projection.pins = pins;
     if (comms !== undefined) projection.comms = comms;
@@ -209,10 +237,10 @@ export class InvestigationCache {
    * entry if the thread was read after a newer event landed. The watermark
    * keeps the highest sequence read.
    */
-  private advance(id: string, r: Read): number {
+  private advance(id: string, r: Read, generation: number): number {
     const last = r.thread && r.thread.length ? r.thread[r.thread.length - 1].sequenceNo : 0;
     const seq = Math.max(r.investigation.lastEventSequence, last);
-    if (seq > this.watermark(id)) this.watermarks.set(id, seq);
+    if (generation === this.generation && seq > this.watermark(id)) this.watermarks.set(id, seq);
     return seq;
   }
 }
