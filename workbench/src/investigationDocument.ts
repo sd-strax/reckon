@@ -561,17 +561,30 @@ export class InvestigationDocuments {
     const reports = [...this.reports.values()];
     this.draftEditors.clear();
     this.reports.clear();
-    await this.closeDrafts(drafts);
+    for (const doc of drafts) {
+      await this.closeDraft(doc);
+    }
     await this.closeReports(reports);
   }
 
-  private async closeDrafts(drafts: vscode.TextDocument[]): Promise<void> {
-    for (const doc of drafts) {
+  /**
+   * Revert and close a draft in every group that holds it. The command acts on
+   * the active editor, so each group's tab is made active by column: shown with
+   * no column, the draft would open again in the active group and only that copy
+   * would close. `shownIn` is a column the tabs may not report yet.
+   */
+  private async closeDraft(doc: vscode.TextDocument, shownIn?: vscode.ViewColumn): Promise<void> {
+    const uri = doc.uri.toString();
+    const columns = new Set(vscode.window.tabGroups.all
+      .filter((group) => group.tabs.some((tab) => tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === uri))
+      .map((group) => group.viewColumn));
+    if (shownIn !== undefined) columns.add(shownIn);
+    for (const viewColumn of columns) {
       if (doc.isClosed) {
-        continue;
+        return;
       }
       try {
-        await vscode.window.showTextDocument(doc);
+        await vscode.window.showTextDocument(doc, { viewColumn });
         await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
       } catch (err) {
         this.log.warn(`closing a SOP draft: ${errText(err)}`);
@@ -1326,9 +1339,9 @@ export class InvestigationDocuments {
     }
     const doc = await vscode.workspace.openTextDocument({ content: candidateSOPMarkdown(candidate, id), language: "markdown" });
     if (!current()) return;
-    await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+    const editor = await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
     if (!current()) {
-      await this.closeDrafts([doc]);
+      await this.closeDraft(doc, editor.viewColumn);
       return;
     }
     this.sopDrafts.set(id, { doc, title: candidate.title.trim() });

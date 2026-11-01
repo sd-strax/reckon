@@ -227,7 +227,7 @@ export const window = {
   showInputBox: vi.fn(async (..._args: unknown[]): Promise<string | undefined> => undefined),
   showOpenDialog: vi.fn(async (..._args: unknown[]): Promise<Uri[] | undefined> => undefined),
   showSaveDialog: vi.fn(async (..._args: unknown[]): Promise<Uri | undefined> => undefined),
-  showTextDocument: vi.fn(async (..._args: unknown[]) => undefined),
+  showTextDocument: vi.fn(async (..._args: unknown[]) => ({}) as vscode.TextEditor),
   createOutputChannel: vi.fn((..._args: unknown[]) => fakeLog()),
   registerTreeDataProvider: vi.fn((..._args: unknown[]) => new Disposable(() => undefined)),
   activeTextEditor: undefined as vscode.TextEditor | undefined,

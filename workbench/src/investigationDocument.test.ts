@@ -235,15 +235,56 @@ describe("InvestigationDocuments: closing", () => {
     expect(panel.webview.posted.map((m) => (m as RenderMessage).type)).not.toContain("rename.begin");
   });
 
-  it("closes a SOP draft when the identity changes, unsaved text included, and nobody is asked to save it", async () => {
-    const { docs } = documents(backend().client);
-    docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "sop.draft" });
-    await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledOnce());
+  describe("closing a SOP draft when the identity changes", () => {
+    const uri = vscode.Uri.parse("untitled:Untitled-1");
+    const draftTab = () => ({ input: new vscode.TabInputText(uri) });
+    const other = { input: new vscode.TabInputText(vscode.Uri.file("/mine.md")) };
+    const setGroups = (all: unknown[]) => { (vscode.window.tabGroups as unknown as { all: unknown[] }).all = all; };
+    const revert = "workbench.action.revertAndCloseActiveEditor";
+    afterEach(() => setGroups([]));
 
-    docs.identityChanged();
+    async function drafted() {
+      vi.mocked(vscode.workspace.openTextDocument).mockResolvedValueOnce({ uri, isClosed: false } as vscode.TextDocument);
+      const { docs } = documents(backend().client);
+      docs.show("inv-1");
+      createdPanels()[0].webview.receive({ type: "sop.draft" });
+      await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledOnce());
+      await new Promise((r) => setTimeout(r, 0));
+      vi.mocked(vscode.window.showTextDocument).mockClear();
+      return docs;
+    }
 
-    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("workbench.action.revertAndCloseActiveEditor"));
+    it("reverts it in the group that holds it, not the active one, and nobody is asked to save it", async () => {
+      const docs = await drafted();
+      setGroups([{ viewColumn: 1, tabs: [other] }, { viewColumn: 2, tabs: [draftTab()] }]);
+
+      docs.identityChanged();
+
+      await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith(revert));
+      expect(vscode.window.showTextDocument).toHaveBeenCalledOnce();
+      expect(vscode.window.showTextDocument).toHaveBeenCalledWith(expect.objectContaining({ uri }), { viewColumn: 2 });
+    });
+
+    it("reverts it in every group that holds it", async () => {
+      const docs = await drafted();
+      setGroups([{ viewColumn: 1, tabs: [draftTab()] }, { viewColumn: 3, tabs: [draftTab()] }]);
+
+      docs.identityChanged();
+
+      await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(vi.mocked(vscode.commands.executeCommand).mock.calls.filter(([c]) => c === revert)).toHaveLength(2));
+      expect(vscode.window.showTextDocument).toHaveBeenCalledWith(expect.anything(), { viewColumn: 3 });
+    });
+
+    it("does not reopen a draft no group holds", async () => {
+      const docs = await drafted();
+      setGroups([{ viewColumn: 1, tabs: [other] }]);
+
+      docs.identityChanged();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+    });
   });
 
   it("closes a report's preview and deletes its scratch file when the identity changes, and leaves other tabs", async () => {
@@ -364,6 +405,23 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     await settle();
 
     expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+  });
+
+  it("closes a SOP draft shown across the change, in the column it was shown in", async () => {
+    const shown = gate<{ viewColumn: number }>();
+    const doc = { uri: vscode.Uri.parse("untitled:Untitled-1"), isClosed: false } as vscode.TextDocument;
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValueOnce(doc);
+    vi.mocked(vscode.window.showTextDocument).mockImplementationOnce(() => shown.opened as never);
+    const { docs } = documents(backend().client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "sop.draft" });
+    await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledOnce());
+
+    docs.identityChanged();
+    shown.open({ viewColumn: 2 });
+
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("workbench.action.revertAndCloseActiveEditor"));
+    expect(vscode.window.showTextDocument).toHaveBeenLastCalledWith(doc, { viewColumn: 2 });
   });
 
   it("does not approve on the next person's token when the change lands during the read before it", async () => {
