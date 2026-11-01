@@ -1,6 +1,6 @@
 # 0248 — Every reckon panel is a surface of the one bundle, loaded by one page under one policy
 
-Issue: #248 · PR: pending · Status: accepted
+Issue: #248 · PR: #292 · Status: accepted
 
 ## Context
 

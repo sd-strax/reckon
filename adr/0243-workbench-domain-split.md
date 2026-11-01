@@ -1,6 +1,6 @@
 # 0243 — The workbench host is split by domain: one client per domain, one module per group of the document's acts
 
-Issue: #243 · PR: pending · Status: accepted
+Issue: #243 · PR: #292 · Status: accepted
 
 ## Context
 
