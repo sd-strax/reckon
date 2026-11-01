@@ -42,12 +42,44 @@ var (
 	testKID       = "server-test-key"
 )
 
+// startTestIssuer serves a mock OIDC issuer that signs RS256 tokens, for every
+// test that drives an authenticated request through the router.
+func startTestIssuer() {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		log.Fatalf("rsa key: %v", err)
+	}
+	testRSAKey = priv
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":   testIssuerSrv.URL,
+			"jwks_uri": testIssuerSrv.URL + "/jwks",
+		})
+	})
+	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"keys": []map[string]any{
+				{
+					"kty": "RSA", "use": "sig", "alg": "RS256", "kid": testKID,
+					"n": base64URLEncode(priv.N.Bytes()),
+					"e": base64URLEncode(big.NewInt(int64(priv.E)).Bytes()),
+				},
+			},
+		})
+	})
+	testIssuerSrv = httptest.NewServer(mux)
+}
+
 func TestMain(m *testing.M) {
 	// flag.Parse so testing.Short() works before m.Run.
 	flag.Parse()
 
+	startTestIssuer()
 	if testing.Short() {
-		os.Exit(m.Run())
+		code := m.Run()
+		testIssuerSrv.Close()
+		os.Exit(code)
 	}
 
 	dir, err := os.MkdirTemp("", "server-test-pg-*")
@@ -93,35 +125,6 @@ func TestMain(m *testing.M) {
 	testHandler = aggregate.NewHandler(aggregate.NewStore(testDB), aggregate.InvestigationCurrentProjector{}, aggregate.ActionCurrentProjector{}, aggregate.ReasoningNodeProjector{}, aggregate.VerdictPinProjector{}, aggregate.RefAppearanceProjector{}).
 		WithSideStore(aggregate.NewSideStore(testDB))
 
-	// Mock OIDC issuer that signs RS256 tokens. Used by every test that
-	// needs to drive an authenticated request through the router.
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		_ = testPg.Stop()
-		cleanupDir()
-		log.Fatalf("rsa key: %v", err)
-	}
-	testRSAKey = priv
-	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"issuer":   testIssuerSrv.URL,
-			"jwks_uri": testIssuerSrv.URL + "/jwks",
-		})
-	})
-	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"keys": []map[string]any{
-				{
-					"kty": "RSA", "use": "sig", "alg": "RS256", "kid": testKID,
-					"n": base64URLEncode(priv.N.Bytes()),
-					"e": base64URLEncode(big.NewInt(int64(priv.E)).Bytes()),
-				},
-			},
-		})
-	})
-	testIssuerSrv = httptest.NewServer(mux)
-
 	testReady = true
 	code := m.Run()
 
@@ -166,7 +169,7 @@ func mintToken(t *testing.T, override map[string]any) string {
 	return signed
 }
 
-func newTestBackend(t *testing.T) *Backend {
+func testVerifier(t *testing.T) *authz.Verifier {
 	t.Helper()
 	v, err := authz.NewVerifier(context.Background(), authz.VerifierConfig{
 		Issuer:   testIssuerSrv.URL,
@@ -175,13 +178,19 @@ func newTestBackend(t *testing.T) *Backend {
 	if err != nil {
 		t.Fatalf("NewVerifier: %v", err)
 	}
+	return v
+}
+
+func newTestBackend(t *testing.T) *Backend {
+	t.Helper()
 	b := &Backend{
 		cfg: BackendConfig{
 			HTTPPort: 0, // unused for in-process tests
 			Handler:  testHandler,
+			Reads:    testHandler.Reads(),
 			Evidence: evidence.NewStore(testDB),
 		},
-		verifier: v,
+		verifier: testVerifier(t),
 	}
 	return b
 }

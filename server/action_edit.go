@@ -48,7 +48,7 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 		writeJSONError(w, http.StatusBadRequest, "edit: parameters required")
 		return
 	}
-	ac, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), actionID)
+	ac, err := b.cfg.Reads.LoadActionCurrent(r.Context(), actionID)
 	if errors.Is(err, aggregate.ErrNoRecord) {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return

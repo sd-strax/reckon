@@ -13,6 +13,13 @@ import (
 
 func enablementBackend(t *testing.T) (*Backend, string) {
 	t.Helper()
+	b := newTestBackend(t)
+	return b, withEnablementConfig(t, b)
+}
+
+// withEnablementConfig points b at a private copy of the shipped tenant config.
+func withEnablementConfig(t *testing.T, b *Backend) string {
+	t.Helper()
 	src, err := os.ReadFile("../examples/capability/lateral-movement.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -21,11 +28,10 @@ func enablementBackend(t *testing.T) (*Backend, string) {
 	if err := os.WriteFile(path, src, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	b := newTestBackend(t)
 	b.cfg.CapabilityConfigPath = path
 	b.cfg.CapabilityFixtureRoot = "../fixtures"
 	b.cfg.Demo = true // fixture adapters require demo mode (the FIXTURE-class gate)
-	return b, path
+	return path
 }
 
 // TestEnablement_GapAndApply: the shipped config's installed-not-enabled gap

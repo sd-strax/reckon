@@ -84,7 +84,7 @@ func (b *Backend) listInvestigationThread(w http.ResponseWriter, r *http.Request
 // loadThread reassembles the thread views for one investigation — shared by
 // the thread endpoint and the markdown export (one behavior, two renderings).
 func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntryView, error) {
-	acts, err := b.cfg.Handler.Reads().Thread(ctx, invID)
+	acts, err := b.cfg.Reads.Thread(ctx, invID)
 	if err != nil {
 		return nil, err
 	}

@@ -112,7 +112,7 @@ func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	acts, err := b.cfg.Handler.Reads().ListActionCurrents(r.Context(), invID)
+	acts, err := b.cfg.Reads.ListActionCurrents(r.Context(), invID)
 	if err != nil {
 		writeInternalError(w, "list actions", err)
 		return
@@ -269,7 +269,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 			writeJSONError(w, http.StatusBadRequest, "reversal_of_ref is not a valid id")
 			return
 		}
-		orig, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), reversalOf)
+		orig, err := b.cfg.Reads.LoadActionCurrent(r.Context(), reversalOf)
 		if err != nil {
 			writeJSONError(w, http.StatusUnprocessableEntity, "reversal_of_ref: original action not found")
 			return
@@ -352,7 +352,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	// still evaluated and was recorded (would-have-fired); it just doesn't drive
 	// this first decision.
 	draft := false
-	if ic, ierr := b.cfg.Handler.Reads().LoadInvestigationCurrent(r.Context(), investigationID); ierr == nil {
+	if ic, ierr := b.cfg.Reads.LoadInvestigationCurrent(r.Context(), investigationID); ierr == nil {
 		draft = ic.Status == aggregate.StatusDraft
 	}
 	switch decision.Mode {
@@ -409,7 +409,7 @@ func (b *Backend) rerequestAction(w http.ResponseWriter, r *http.Request, priorI
 		writeJSONError(w, http.StatusInternalServerError, "auth context missing")
 		return
 	}
-	prior, err := b.cfg.Handler.Reads().LoadActionCurrent(r.Context(), priorID)
+	prior, err := b.cfg.Reads.LoadActionCurrent(r.Context(), priorID)
 	if err != nil {
 		writeJSONError(w, http.StatusNotFound, "action not found")
 		return

@@ -1,8 +1,6 @@
 package server
 
 import (
-	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -13,39 +11,7 @@ import (
 
 	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/authz"
-	"github.com/sd-strax/reckon/comms"
-	"github.com/sd-strax/reckon/knowledge"
-	"github.com/sd-strax/reckon/knowledge/substrate"
 )
-
-// errNoCorpus answers every substrate call. A route only has to reach its
-// handler here; what the corpus holds is the knowledge tests' concern.
-var errNoCorpus = errors.New("no corpus in routing tests")
-
-type noCorpus struct{}
-
-func (noCorpus) Put(context.Context, string, string, substrate.Entry) (substrate.Entry, error) {
-	return substrate.Entry{}, errNoCorpus
-}
-func (noCorpus) Revise(context.Context, string, string, uuid.UUID, substrate.Revision) (substrate.Entry, error) {
-	return substrate.Entry{}, errNoCorpus
-}
-func (noCorpus) Transition(context.Context, string, string, uuid.UUID, substrate.Transition) error {
-	return errNoCorpus
-}
-func (noCorpus) Purge(context.Context, string, string, uuid.UUID) error { return errNoCorpus }
-func (noCorpus) Get(context.Context, string, string, uuid.UUID) (substrate.Entry, error) {
-	return substrate.Entry{}, errNoCorpus
-}
-func (noCorpus) List(context.Context, string, string, substrate.ListFilter) ([]substrate.Entry, error) {
-	return nil, errNoCorpus
-}
-func (noCorpus) Recall(context.Context, string, substrate.RecallQuery) (substrate.RecallResult, error) {
-	return substrate.RecallResult{}, errNoCorpus
-}
-func (noCorpus) Snapshot(context.Context, string, substrate.ContentHash) (substrate.Snapshot, error) {
-	return substrate.Snapshot{}, errNoCorpus
-}
 
 // routeCases is every authorized route, written out independently of the
 // router so a route that drops its role check, or drops out, fails here.
@@ -112,16 +78,11 @@ func routeCases() []struct {
 // A 404 only counts as reached with a JSON body, since the router's own is
 // plain text. Every other method on the path is a 405 naming the allowed ones.
 func TestRouteAuthorization(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test skipped in short mode")
-	}
-	resetInvestigations(t)
-	b, _ := enablementBackend(t)
+	b := newFakeBackend(t)
+	withEnablementConfig(t, b)
 	b.cfg.CapabilityResolver, b.cfg.CapabilityCatalog = buildInvokeCapability(t)
 	b.cfg.ActionCatalog = action.DefaultActionCatalog()
 	b.cfg.ActionResolver = newActionResolver()
-	b.cfg.Comms = comms.NewStore(testDB)
-	b.cfg.Knowledge = knowledge.NewStore(noCorpus{})
 	srv := httptest.NewServer(b.buildRouter(b.verifier))
 	t.Cleanup(srv.Close)
 
@@ -219,11 +180,7 @@ func TestRouteAuthorization(t *testing.T) {
 // TestRouter_Unrouted: the mux answers what no route takes, before auth, and a
 // trailing slash is a different path. HEAD works wherever GET does (adr/0227).
 func TestRouter_Unrouted(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test skipped in short mode")
-	}
-	resetInvestigations(t)
-	b := newTestBackend(t)
+	b := newFakeBackend(t)
 	srv := httptest.NewServer(b.buildRouter(b.verifier))
 	t.Cleanup(srv.Close)
 	id := uuid.NewString()
@@ -260,10 +217,8 @@ func TestRouter_Unrouted(t *testing.T) {
 // TestRouter_UnconfiguredLayer: a layer that is not configured answers 503 to a
 // caller with the role, whatever the body, and 403 to one without (adr/0227).
 func TestRouter_UnconfiguredLayer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test skipped in short mode")
-	}
-	b := newTestBackend(t)
+	b := newFakeBackend(t)
+	b.cfg.Comms = nil
 	srv := httptest.NewServer(b.buildRouter(b.verifier))
 	t.Cleanup(srv.Close)
 	viewer := mintToken(t, map[string]any{"realm_access": map[string]any{"roles": []string{"viewer"}}})
@@ -304,10 +259,7 @@ func TestMountRoutes_RefusesARouteWithNoRoles(t *testing.T) {
 
 // TestRouteAuthorization_Me: /api/me takes any signed-in person and no one else.
 func TestRouteAuthorization_Me(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test skipped in short mode")
-	}
-	b := newTestBackend(t)
+	b := newFakeBackend(t)
 	srv := httptest.NewServer(b.buildRouter(b.verifier))
 	t.Cleanup(srv.Close)
 
