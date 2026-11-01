@@ -193,12 +193,14 @@ export class InvestigationDocuments {
     }
     try {
       const applied = await this.client.renameInvestigation(id, trimmed);
-      panel.title = `⚖ ${applied}`;
-      void this.post(panel, { type: "renamed", title: applied });
-      // The rename appended an event: the refresh advances the watermark and
-      // the SeenTracker (via onLoaded), so the analyst's own rename does not
-      // show in the tree as an unseen "● new" change.
-      await this.refresh(id, panel);
+      if (this.isOpen(id, panel)) {
+        panel.title = `⚖ ${applied}`;
+        void this.post(panel, { type: "renamed", title: applied });
+        // The rename appended an event: the refresh advances the watermark and
+        // the SeenTracker (via onLoaded), so the analyst's own rename does not
+        // show in the tree as an unseen "● new" change.
+        await this.refresh(id, panel);
+      }
       void vscode.commands.executeCommand("reckon.refreshInvestigations");
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: rename failed — ${errText(err)}`);
@@ -424,12 +426,16 @@ export class InvestigationDocuments {
           })
         : await this.client.createInvestigationFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown);
       if (!current()) return;
-      this.open.delete(ref.id);
-      ref.id = created.id;
-      this.open.set(created.id, panel);
-      panel.title = `⚖ ${created.title}`;
-      void this.post(panel, { type: "seeded" });
-      void this.load(created.id, panel);
+      // A panel closed meanwhile stays closed: the create cannot be recalled,
+      // so the investigation surfaces through the trees and opens from there.
+      if (this.isOpen(draftKey, panel)) {
+        this.open.delete(draftKey);
+        ref.id = created.id;
+        this.open.set(created.id, panel);
+        panel.title = `⚖ ${created.title}`;
+        void this.post(panel, { type: "seeded" });
+        void this.load(created.id, panel);
+      }
       // Case-rooted: apply the write-back posture (adr/0032) — the offer
       // opens once the load above has rendered.
       this.offerCaseNote(created);
@@ -443,8 +449,12 @@ export class InvestigationDocuments {
       // panel closes and the existing record opens in its place.
       const existing = existingInvestigation(err);
       if (existing) {
+        if (!this.isOpen(draftKey, panel)) {
+          void vscode.window.showInformationMessage(`reckon: ${seed.value ?? "this case"} already has an investigation`);
+          return;
+        }
         void vscode.window.showInformationMessage(`reckon: ${seed.value ?? "this case"} already has an investigation — opening it`);
-        this.open.delete(ref.id);
+        this.open.delete(draftKey);
         panel.dispose();
         this.show(existing);
         return;

@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTransport } from "./agentTransport";
-import type { ActionRow, BackendClient, InvestigationDetail } from "./backend";
+import { BackendRequestError, type ActionRow, type BackendClient, type InvestigationDetail } from "./backend";
 import { InvestigationDocuments } from "./investigationDocument";
 import type { RenderMessage } from "./protocol";
 import { createdPanels, fakeLog, resetVscodeFake } from "./test/vscode";
@@ -511,5 +511,98 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     await settle();
 
     expect(transport.summarizeConcluded).not.toHaveBeenCalled();
+  });
+});
+
+describe("InvestigationDocuments: a panel closed during an await", () => {
+  const gate = <T>() => {
+    let open!: (v: T) => void;
+    let fail!: (e: unknown) => void;
+    const opened = new Promise<T>((res, rej) => { open = res; fail = rej; });
+    return { opened, open, fail };
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const created = { id: "inv-2", title: "RDP from host-a" } as InvestigationDetail;
+
+  function seeding() {
+    const create = gate<InvestigationDetail>();
+    const { client, calls } = backend({ createInvestigationFromInput: () => create.opened, requestCaseNote: async () => ({ status: "PROPOSED" }) });
+    const { docs } = documents(client);
+    docs.showDraft();
+    createdPanels()[0].webview.receive({ type: "seed.submit", value: "host-a", kind: "" });
+    return { create, calls, docs };
+  }
+
+  it("does not register a draft closed while its seed was in flight, and the investigation still opens", async () => {
+    const { create, docs } = seeding();
+
+    createdPanels()[0].dispose();
+    create.open(created);
+    await settle();
+
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshInvestigations");
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshCases");
+    expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+    docs.show("inv-2");
+    expect(createdPanels()).toHaveLength(2);
+  });
+
+  it("still applies the case note posture when the draft closed: the create stands", async () => {
+    const { create, calls } = seeding();
+
+    createdPanels()[0].dispose();
+    create.open({ ...created, caseNote: { caseId: "C-1" }, caseNoteOnSeed: "auto" } as unknown as InvestigationDetail);
+    await settle();
+
+    expect(calls).toContain("requestCaseNote");
+  });
+
+  it("re-keys a draft still open when its seed lands", async () => {
+    const { create, docs } = seeding();
+
+    create.open(created);
+    await settle();
+
+    expect(createdPanels()[0].title).toBe("⚖ RDP from host-a");
+    docs.show("inv-2");
+    expect(createdPanels()).toHaveLength(1);
+  });
+
+  it("opens nothing for an already investigated case when the draft closed", async () => {
+    const { create } = seeding();
+
+    createdPanels()[0].dispose();
+    create.fail(new BackendRequestError("exists", 409, { investigation_id: "inv-9" }));
+    await settle();
+
+    expect(createdPanels()).toHaveLength(1);
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledOnce();
+  });
+
+  it("opens the existing investigation in place of a draft still open", async () => {
+    const { create } = seeding();
+
+    create.fail(new BackendRequestError("exists", 409, { investigation_id: "inv-9" }));
+    await settle();
+
+    expect(createdPanels()).toHaveLength(2);
+    expect(createdPanels()[0].disposed).toBe(true);
+  });
+
+  it("does not report a rename that succeeded as failed when its panel closed, and refreshes the tree", async () => {
+    const rename = gate<string>();
+    const { client } = backend({ renameInvestigation: () => rename.opened });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0];
+    panel.webview.receive({ type: "rename", title: "New" });
+    await settle();
+
+    panel.dispose();
+    rename.open("New");
+    await settle();
+
+    expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshInvestigations");
   });
 });
