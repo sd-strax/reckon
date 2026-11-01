@@ -1,0 +1,28 @@
+{
+  "sops": [
+    {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "tenant_id": "00000000-0000-0000-0000-000000000000",
+      "title": "x",
+      "body": "x",
+      "tags": [
+        "x"
+      ],
+      "status": "x",
+      "recommendation": "x",
+      "author_id": "x",
+      "signer_id": "x",
+      "created_at": "2026-01-02T03:04:05Z",
+      "updated_at": "2026-01-02T03:04:05Z",
+      "published_at": "2026-01-02T03:04:05Z",
+      "retired_at": "2026-01-02T03:04:05Z",
+      "source": {
+        "system": "x",
+        "url": "x",
+        "version": "x"
+      },
+      "imported_by": "x",
+      "imported_at": "2026-01-02T03:04:05Z"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "pins": [
+    {
+      "interpretation_id": "x",
+      "finding": "x",
+      "input_refs": [
+        "x"
+      ],
+      "actor": "x",
+      "pinned_at": "2026-01-02T03:04:05Z",
+      "superseded": true
+    }
+  ]
+}

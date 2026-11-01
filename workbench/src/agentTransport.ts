@@ -24,9 +24,12 @@ import {
 } from "vscode-jsonrpc/node";
 import { TokenKind } from "./auth";
 import { SingleFlight } from "./singleFlight";
+import { errText } from "./util";
+import { decode, type Decoded, type Decoder } from "./wire/decode";
+import * as shapes from "./wire/sidecarShapes";
 
 /** The stdio protocol contract version (sidecar.ProtocolVersion). */
-const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 1;
 
 /** Progress callbacks one turn renders. */
 export interface TurnProgress {
@@ -126,47 +129,36 @@ export interface SidecarDeps {
   getToken(kind: TokenKind, force: boolean): Promise<string>;
 }
 
-/** Wire shapes (snake_case, mirroring the Go structs). */
-interface WireTurnResult {
-  text?: string;
-  interpretation_id?: string;
-  tool_rounds?: number;
-  usage?: { input?: number; output?: number; cache_read?: number; cache_write?: number };
-  pending_actions?: {
-    action_id?: string;
-    action_type?: string;
-    tier?: string;
-    status?: string;
-    targets?: string[];
-    expired?: boolean;
-  }[];
-  /** A cancel ended the turn: not an error. */
-  stopped?: boolean;
-  error?: string;
-}
-
-function toOutcome(raw: WireTurnResult): TurnOutcome {
+function toOutcome(raw: Decoded<typeof shapes.turn>): TurnOutcome {
   return {
-    text: raw.text ?? "",
+    text: raw.text,
     interpretationId: raw.interpretation_id,
-    toolRounds: raw.tool_rounds ?? 0,
+    toolRounds: raw.tool_rounds,
     usage: {
-      input: raw.usage?.input ?? 0,
-      output: raw.usage?.output ?? 0,
-      cacheRead: raw.usage?.cache_read ?? 0,
-      cacheWrite: raw.usage?.cache_write ?? 0,
+      input: raw.usage.input,
+      output: raw.usage.output,
+      cacheRead: raw.usage.cache_read,
+      cacheWrite: raw.usage.cache_write,
     },
     pendingActions: (raw.pending_actions ?? []).map((a) => ({
-      actionId: a.action_id ?? "",
-      actionType: a.action_type ?? "",
-      tier: a.tier ?? "",
-      status: a.status ?? "",
+      actionId: a.action_id,
+      actionType: a.action_type,
+      tier: a.tier,
+      status: a.status,
       targets: a.targets ?? [],
       expired: a.expired ?? false,
     })),
     error: raw.error,
   };
 }
+
+/** A turn that never reached the sidecar: stopped during startup. */
+const stoppedOutcome: TurnOutcome = {
+  text: "",
+  toolRounds: 0,
+  usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  pendingActions: [],
+};
 
 export class SidecarTransport implements AgentTransport {
   private child: ChildProcess | null = null;
@@ -182,6 +174,8 @@ export class SidecarTransport implements AgentTransport {
   private readonly closing = new Map<string, Promise<void>>();
   /** session id → the in-flight turn's progress sink (for notifications). */
   private readonly inFlight = new Map<string, TurnProgress>();
+  /** session id → why this turn's live view lost a piece, told at its end. */
+  private readonly malformed = new Map<string, string>();
   /** Investigations with a turn underway, from the call on (one at a time), and how to stop each. */
   private readonly running = new Map<string, () => void>();
   private disposed = false;
@@ -235,7 +229,7 @@ export class SidecarTransport implements AgentTransport {
         if (!this.connection) {
           this.teardown("a turn was stopped during startup");
         }
-        return { ...toOutcome({ stopped: true }), notice: timedOut ? timedOutNotice : undefined };
+        return { ...stoppedOutcome, notice: timedOut ? timedOutNotice : undefined };
       }
       const { conn, sessionId } = opened;
       cancelAtSidecar = (reason) => {
@@ -245,9 +239,11 @@ export class SidecarTransport implements AgentTransport {
       };
       this.inFlight.set(sessionId, progress);
       try {
-        const raw = await conn.sendRequest("turn", { session_id: sessionId, text }) as WireTurnResult;
-        return { ...toOutcome(raw), notice: timedOut && raw.stopped ? timedOutNotice : undefined };
+        const raw = decode("turn", shapes.turn, await conn.sendRequest("turn", { session_id: sessionId, text }));
+        const notices = [timedOut && raw.stopped ? timedOutNotice : undefined, this.malformed.get(sessionId)];
+        return { ...toOutcome(raw), notice: notices.filter(Boolean).join(" ") || undefined };
       } finally {
+        this.malformed.delete(sessionId);
         if (this.inFlight.get(sessionId) === progress) {
           this.inFlight.delete(sessionId);
         }
@@ -344,7 +340,7 @@ export class SidecarTransport implements AgentTransport {
   async proposeSOP(investigationId: string, force?: boolean): Promise<SOPCandidate> {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);
-    return (await conn.sendRequest("proposeSOP", { session_id: sessionId, force: force || undefined })) as SOPCandidate;
+    return decode("proposeSOP", shapes.proposeSOP, await conn.sendRequest("proposeSOP", { session_id: sessionId, force: force || undefined }));
   }
 
   dispose(): void {
@@ -433,50 +429,30 @@ export class SidecarTransport implements AgentTransport {
     });
 
     // Turn progress → the in-flight turn's sink, routed by session id.
-    connection.onNotification("turn/text", (p: { session_id?: string; text?: string }) => {
-      this.inFlight.get(p?.session_id ?? "")?.onText(p?.text ?? "");
+    this.onTurnNote(connection, "turn/text", shapes.text, (sink, p) => sink.onText(p.text));
+    this.onTurnNote(connection, "turn/text_delta", shapes.text, (sink, p) => sink.onTextDelta(p.text));
+    this.onTurnNote(connection, "turn/step", shapes.step, (sink, p) => sink.onStep(p.round));
+    this.onTurnNote(connection, "turn/tool_call", shapes.toolCall, (sink, p) => sink.onToolCall(p.name, p.input));
+    this.onTurnNote(connection, "turn/tool_result", shapes.toolResult, (sink, p) => {
+      sink.onToolResult(p.name, p.content, p.is_error, p.coverage, p.event_count, p.refs);
     });
-    connection.onNotification("turn/text_delta", (p: { session_id?: string; text?: string }) => {
-      this.inFlight.get(p?.session_id ?? "")?.onTextDelta(p?.text ?? "");
-    });
-    connection.onNotification("turn/step", (p: { session_id?: string; round?: number }) => {
-      this.inFlight.get(p?.session_id ?? "")?.onStep(p?.round ?? 0);
-    });
-    connection.onNotification("turn/tool_call", (p: { session_id?: string; name?: string; input?: unknown }) => {
-      this.inFlight.get(p?.session_id ?? "")?.onToolCall(p?.name ?? "", p?.input);
-    });
-    connection.onNotification(
-      "turn/tool_result",
-      (p: {
-        session_id?: string;
-        name?: string;
-        content?: string;
-        is_error?: boolean;
-        coverage?: string;
-        event_count?: number;
-        refs?: string[];
-      }) => {
-        this.inFlight.get(p?.session_id ?? "")?.onToolResult(
-          p?.name ?? "", p?.content ?? "", p?.is_error ?? false, p?.coverage, p?.event_count, p?.refs,
-        );
-      },
-    );
-    connection.onNotification("turn/context_compacted", (p: { session_id?: string; text?: string }) => {
-      this.inFlight.get(p?.session_id ?? "")?.onContextCompacted?.(p?.text ?? "");
-    });
+    this.onTurnNote(connection, "turn/context_compacted", shapes.text, (sink, p) => sink.onContextCompacted?.(p.text));
     connection.listen();
 
     // The stdio handshake (§4) — fail closed with the sidecar's diagnostic.
-    const init = await connection.sendRequest("initialize", {
+    const init = decode("initialize", shapes.initialize, await connection.sendRequest("initialize", {
       protocol_version: PROTOCOL_VERSION,
       backend_url: this.deps.backendUrl(),
       model: this.deps.model(),
       anthropic_api_key: (await this.deps.apiKey()) ?? "",
       max_tool_result_kb: this.deps.maxToolResultKB(),
       context_window_tokens: this.deps.contextWindowTokens(),
-    }) as { protocol_version?: number; backend_api_version?: number; server_version?: string };
+    }));
+    if (init.protocol_version !== PROTOCOL_VERSION) {
+      throw new Error(`sidecar protocol v${init.protocol_version} unsupported (this workbench speaks v${PROTOCOL_VERSION}) — align versions`);
+    }
     this.log.info(
-      `sidecar ready: ${init.server_version ?? "?"} (protocol v${init.protocol_version}, backend api v${init.backend_api_version})`,
+      `sidecar ready: ${init.server_version} (protocol v${init.protocol_version}, backend api v${init.backend_api_version})`,
     );
 
     if (this.child !== child) {
@@ -502,16 +478,47 @@ export class SidecarTransport implements AgentTransport {
   }
 
   private async createSession(conn: MessageConnection, investigationId: string): Promise<string> {
-    const res = await conn.sendRequest("createSession", { investigation_id: investigationId }) as {
-      session_id?: string;
-      tools?: string[];
-    };
+    const res = decode("createSession", shapes.createSession, await conn.sendRequest("createSession", { investigation_id: investigationId }));
     if (!res.session_id) {
       throw new Error("sidecar returned no session id");
     }
-    this.log.info(`session ${res.session_id} over ${investigationId} (${res.tools?.length ?? 0} tools)`);
+    this.log.info(`session ${res.session_id} over ${investigationId} (${res.tools.length} tools)`);
     this.sessions.set(investigationId, res.session_id);
     return res.session_id;
+  }
+
+  /**
+   * Deliver one turn notification to its session's sink. A malformed one is
+   * dropped and told at the turn's end: the turn itself runs on, and what it
+   * commits is read from the backend, so it is the live view that lost a piece.
+   */
+  private onTurnNote<T extends { session_id: string }>(
+    connection: MessageConnection,
+    method: string,
+    shape: Decoder<T>,
+    deliver: (sink: TurnProgress, note: T) => void,
+  ): void {
+    connection.onNotification(method, (raw: unknown) => {
+      let note: T;
+      try {
+        note = decode(method, shape, raw);
+      } catch (err) {
+        const message = errText(err);
+        this.log.error(message);
+        const sessionId = (raw as { session_id?: unknown } | null)?.session_id;
+        const affected = typeof sessionId === "string" && this.inFlight.has(sessionId) ? [sessionId] : [...this.inFlight.keys()];
+        for (const id of affected) {
+          if (!this.malformed.has(id)) {
+            this.malformed.set(id, `Part of this turn could not be shown: ${message}.`);
+          }
+        }
+        return;
+      }
+      const sink = this.inFlight.get(note.session_id);
+      if (sink) {
+        deliver(sink, note);
+      }
+    });
   }
 
   /** Drop the dead process's state; the next turn respawns and re-creates sessions. */

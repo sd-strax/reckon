@@ -1,0 +1,14 @@
+{
+  "ref": "x",
+  "appearances": [
+    {
+      "investigation_id": "x",
+      "title": "x",
+      "status": "x",
+      "seed_summary": "x",
+      "first_seen": "2026-01-02T03:04:05Z",
+      "last_seen": "2026-01-02T03:04:05Z",
+      "mentions": 1
+    }
+  ]
+}

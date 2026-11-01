@@ -1,0 +1,28 @@
+{
+  "threads": [
+    {
+      "thread_id": "x",
+      "action_id": "x",
+      "action_type": "x",
+      "target": "x",
+      "subject": "x",
+      "status": "x",
+      "follow_up_hours": 1,
+      "follow_ups": 1,
+      "unacked_reply": true,
+      "sent_at": "2026-01-02T03:04:05Z",
+      "next_followup_at": "2026-01-02T03:04:05Z",
+      "trail": [
+        {
+          "direction": "x",
+          "author": "x",
+          "at": "2026-01-02T03:04:05Z",
+          "body": "x"
+        }
+      ],
+      "follow_up_due": true,
+      "escalation_triggered": true,
+      "escalation_policy": "x"
+    }
+  ]
+}

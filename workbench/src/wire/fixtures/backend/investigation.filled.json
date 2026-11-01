@@ -1,0 +1,39 @@
+{
+  "aggregate_id": "x",
+  "title": "x",
+  "status": "x",
+  "last_event_sequence": 1,
+  "verdict": {
+    "disposition": "x",
+    "rationale": "x",
+    "verdict_at": "2026-01-02T03:04:05Z",
+    "interpretation_id": "x"
+  },
+  "seed": {
+    "type": "x",
+    "alert_id": "x",
+    "source": "x",
+    "detection_finding_ref": "x",
+    "entity_ref": "x",
+    "entity_identifier": "x",
+    "hypothesis_statement": "x",
+    "case_id": "x",
+    "case_ref": "x"
+  },
+  "seed_summary": "x",
+  "updated_at": "2026-01-02T03:04:05Z",
+  "pending_actions": 1,
+  "nearest_expiry": "2026-01-02T03:04:05Z",
+  "has_verdict": true,
+  "open_actions": 1,
+  "open_notifications": 1,
+  "created_at": "2026-01-02T03:04:05Z",
+  "opened_by_name": "x",
+  "hypothesis_framing": "x",
+  "case_note_on_seed": "x",
+  "case_note": {
+    "case_id": "x",
+    "body": "x",
+    "system_name": "x"
+  }
+}

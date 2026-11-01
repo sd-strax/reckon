@@ -81,6 +81,11 @@ export class CaseDocuments {
 
   private async load(number: string, panel: vscode.WebviewPanel): Promise<void> {
     try {
+      const incompatible = this.client.incompatibilityReason(await this.client.status());
+      if (incompatible) {
+        void panel.webview.postMessage({ type: "error", message: incompatible } satisfies Outbound);
+        return;
+      }
       const c = await this.client.caseDetail(number);
       void panel.webview.postMessage({ type: "case", case: c } satisfies Outbound);
     } catch (err) {

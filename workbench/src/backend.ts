@@ -7,8 +7,11 @@
 
 import type { LibraryItem } from "./protocol";
 import { relevanceOfBand, relevanceOfScore } from "./relevance";
+import { SingleFlight } from "./singleFlight";
+import { decode, DecodeError, type Decoded, type Decoder } from "./wire/decode";
+import * as shapes from "./wire/backendShapes";
+import type { RawAction, RawCase, RawEvidence, RawInvestigation } from "./wire/backendShapes";
 import type {
-  ComponentStatus,
   BackendStatus,
   AuthConfig,
   Me,
@@ -27,7 +30,6 @@ import type {
   Hypothesis,
   ConfigField,
   Enablement,
-  CapabilityInput,
   Capability,
   CapabilityResult,
   ToolCallRecord,
@@ -64,19 +66,6 @@ export function existingInvestigation(err: unknown): string | undefined {
   return undefined;
 }
 
-interface RawCase {
-  number: string;
-  title?: string;
-  status?: string;
-  priority?: string;
-  assignment_group?: string;
-  summary?: string;
-  link?: string;
-  source?: string;
-  opened_at?: string;
-  investigation?: { id: string; title: string; status: string };
-}
-
 function mapCase(r: RawCase): CaseRow {
   return {
     number: r.number,
@@ -90,33 +79,6 @@ function mapCase(r: RawCase): CaseRow {
     openedAt: r.opened_at,
     investigation: r.investigation,
   };
-}
-
-/** Raw server.InvestigationView row, as served under {investigations: [...]}. */
-interface RawInvestigation {
-  aggregate_id: string;
-  title: string;
-  status: string;
-  last_event_sequence?: number;
-  updated_at?: string;
-  pending_actions?: number;
-  nearest_expiry?: string;
-  has_verdict?: boolean;
-  open_actions?: number;
-  open_notifications?: number;
-  created_at?: string;
-  opened_by_name?: string;
-  verdict?: { disposition?: string; rationale?: string; verdict_at?: string };
-  seed?: {
-    type?: string; alert_id?: string; source?: string;
-    detection_finding_ref?: string; entity_ref?: string;
-    entity_identifier?: string; hypothesis_statement?: string;
-    case_id?: string; case_ref?: string;
-  };
-  seed_summary?: string;
-  // The case write-back posture and, on create, the note offer (adr/0032).
-  case_note_on_seed?: string;
-  case_note?: { case_id?: string; body?: string; system_name?: string };
 }
 
 /** Map a raw seed body to the client Seed shape (shared by list/get/create). */
@@ -135,32 +97,14 @@ function mapSeed(s: RawInvestigation["seed"]): Seed | undefined {
   };
 }
 
-/** Raw server.HypothesisView, as served under {hypotheses: [...]}. */
-interface RawHypothesis {
-  id: string;
-  statement: string;
-  handle?: string;
-  status: string;
-  parent_ref?: string;
-  rooted_at_ref?: string;
-  labels?: string[];
-  predictions?: RawPrediction[];
-}
-
-/** Raw server.PredictionView. */
-interface RawPrediction {
-  id: string;
-  statement: string;
-  status: string;
-  ordinal?: number;
-  test_query?: { tool?: string; query_text?: string };
-  discriminates?: string[];
-  test_result_refs?: string[];
-  test_kind?: string;
-  attestation?: { note_ref: string; author: string; author_name?: string; content: string; source?: string; channel?: string; observed_at?: string; reference?: string; artifact?: ArtifactLocation };
-}
+/** How long a compatible /status is taken as read before it is asked again. */
+const COMPATIBLE_FOR_MS = 30_000;
 
 export class BackendClient {
+  // The last good handshake: which backend, and until when it is taken as read.
+  private compatible: { base: string; until: number } | null = null;
+  private readonly handshake = new SingleFlight<void>();
+
   /**
    * @param baseUrl read per-call so a settings change needs no reload.
    * @param token   supplies a bearer token for authenticated calls; omitted for
@@ -174,33 +118,69 @@ export class BackendClient {
     private readonly renew?: (rejected: string) => Promise<string>,
   ) {}
 
-  async status(): Promise<BackendStatus> {
+  /** The handshake: reads /status, and refreshes what ensureCompatible relies on. */
+  status(): Promise<BackendStatus> {
+    return this.statusOf(this.baseUrl());
+  }
+
+  private async statusOf(base: string): Promise<BackendStatus> {
+    const status = await this.readStatus(base);
+    if (status.compatible) {
+      this.compatible = { base, until: Date.now() + COMPATIBLE_FOR_MS };
+    } else if (this.compatible?.base === base) {
+      this.compatible = null;
+    }
+    return status;
+  }
+
+  private async readStatus(base: string): Promise<BackendStatus> {
+    const unreachable = { reachable: false, overall: "unreachable", components: {}, apiVersion: null, compatible: false };
+    // It answered, so whatever is wrong with the answer, it is not unreachable.
+    const answered = { ...unreachable, reachable: true, overall: "unknown" };
+    let res: Response;
+    let raw: unknown;
     try {
-      const res = await fetch(`${this.baseUrl()}/status`, {
-        signal: AbortSignal.timeout(3_000),
-      });
-      const body = (await res.json()) as {
-        overall?: string;
-        components?: Record<string, ComponentStatus>;
-        api_version?: number;
-      };
-      const apiVersion = typeof body.api_version === "number" ? body.api_version : null;
+      res = await fetch(`${base}/status`, { signal: AbortSignal.timeout(3_000) });
+      raw = await res.json();
+    } catch (err) {
+      return err instanceof SyntaxError ? { ...answered, unreadable: "unexpected response from /status: not JSON" } : unreachable;
+    }
+    if (typeof raw === "object" && raw !== null && !("api_version" in raw)) {
+      return answered; // from before the handshake
+    }
+    try {
+      const body = decode("/status", shapes.status, raw);
       return {
         reachable: true,
-        overall: body.overall ?? "unknown",
-        components: body.components ?? {},
-        apiVersion,
-        compatible: apiVersion !== null && SUPPORTED_API_VERSIONS.includes(apiVersion),
+        overall: body.overall,
+        components: body.components,
+        apiVersion: body.api_version,
+        compatible: SUPPORTED_API_VERSIONS.includes(body.api_version),
       };
-    } catch {
-      return {
-        reachable: false,
-        overall: "unreachable",
-        components: {},
-        apiVersion: null,
-        compatible: false,
-      };
+    } catch (err) {
+      if (err instanceof DecodeError) {
+        return { ...answered, unreadable: err.message };
+      }
+      throw err;
     }
+  }
+
+  /**
+   * The gate every authenticated call goes through (adr/0244): nothing is read
+   * from or written to a backend the workbench does not speak to, whichever
+   * surface asked. A good answer holds for COMPATIBLE_FOR_MS, for that backend
+   * only; a bad one does not hold at all, so a backend put right is used at once.
+   */
+  private async ensureCompatible(base: string): Promise<void> {
+    if (this.compatible?.base === base && Date.now() < this.compatible.until) {
+      return;
+    }
+    await this.handshake.run(base, async () => {
+      const reason = this.incompatibilityReason(await this.statusOf(base));
+      if (reason) {
+        throw new Error(reason);
+      }
+    });
   }
 
   /** GET /api/auth-config — public; the login prerequisites. Throws on 503/unreachable. */
@@ -211,7 +191,7 @@ export class BackendClient {
     if (!res.ok) {
       throw new Error(`auth-config ${res.status} (interactive login may be unconfigured)`);
     }
-    const body = (await res.json()) as { issuer?: string; client_id?: string; agent_client_id?: string };
+    const body = decode("/api/auth-config", shapes.authConfig, await res.json());
     if (!body.issuer || !body.client_id) {
       throw new Error("auth-config missing issuer/client_id");
     }
@@ -220,17 +200,12 @@ export class BackendClient {
 
   /** GET /api/me — the signed-in identity. Authenticated. */
   async me(): Promise<Me> {
-    const body = await this.authedGet<{
-      subject?: string;
-      preferred_username?: string;
-      tenant_id?: string;
-      roles?: string[];
-    }>("/api/me");
+    const body = await this.authedGet("/api/me", shapes.me);
     return {
-      subject: body.subject ?? "",
-      username: body.preferred_username ?? "",
-      tenantId: body.tenant_id ?? "",
-      roles: body.roles ?? [],
+      subject: body.subject,
+      username: body.preferred_username,
+      tenantId: body.tenant_id,
+      roles: body.roles,
     };
   }
 
@@ -240,17 +215,14 @@ export class BackendClient {
    * capability layer is off. The "From a case…" picker opens on it.
    */
   async caseQueue(): Promise<string | undefined> {
-    const body = await this.authedGet<{ case_queue?: string }>("/api/capabilities");
-    return typeof body.case_queue === "string" && body.case_queue ? body.case_queue : undefined;
+    const body = await this.authedGet("/api/capabilities", shapes.capabilities);
+    return body.case_queue || undefined;
   }
 
   /** GET /api/capabilities — count of resolvable verbs. Authenticated. */
   async capabilityCount(): Promise<number> {
-    const body = await this.authedGet<{ capabilities?: unknown[] } | unknown[]>("/api/capabilities");
-    if (Array.isArray(body)) {
-      return body.length;
-    }
-    return body.capabilities?.length ?? 0;
+    const body = await this.authedGet("/api/capabilities", shapes.capabilities);
+    return body.capabilities.length;
   }
 
   /**
@@ -259,17 +231,13 @@ export class BackendClient {
    * them into LLM tool definitions (03 §6.3). Authenticated.
    */
   async capabilities(): Promise<Capability[]> {
-    interface Raw {
-      descriptor?: { verb?: string; intent?: string; inputs?: CapabilityInput[]; output?: string };
-      status?: string;
-    }
-    const body = await this.authedGet<{ capabilities?: Raw[] }>("/api/capabilities");
-    return (body.capabilities ?? []).map((c) => ({
-      verb: c.descriptor?.verb ?? "",
-      intent: c.descriptor?.intent ?? "",
-      inputs: c.descriptor?.inputs ?? [],
-      output: c.descriptor?.output ?? "",
-      status: c.status ?? "unavailable",
+    const body = await this.authedGet("/api/capabilities", shapes.capabilities);
+    return body.capabilities.map((c) => ({
+      verb: c.descriptor.verb,
+      intent: c.descriptor.intent,
+      inputs: c.descriptor.inputs,
+      output: c.descriptor.output,
+      status: c.status,
     }));
   }
 
@@ -278,36 +246,28 @@ export class BackendClient {
    * gaps a disabled one could close (11 §5.1, §6.2). Analyst role.
    */
   async enablement(): Promise<Enablement> {
-    interface RawAdapter {
-      name?: string; class?: string; enabled?: boolean; scenario?: string;
-      config_schema?: { properties?: Record<string, { type?: string; description?: string; "x-secret"?: boolean }>; required?: string[] };
-      supportable?: boolean;
-    }
-    interface RawVerb {
-      verb?: string; adapters?: string[]; enabled?: boolean; closable_by?: string[];
-    }
-    const body = await this.authedGet<{ adapters?: RawAdapter[]; verbs?: RawVerb[] }>("/api/enablement");
+    const body = await this.authedGet("/api/enablement", shapes.enablement);
     return {
-      adapters: (body.adapters ?? []).map((a) => {
+      adapters: body.adapters.map((a) => {
         const fields: Record<string, ConfigField> = {};
         const props = a.config_schema?.properties ?? {};
         for (const [k, p] of Object.entries(props)) {
           fields[k] = { type: p.type, description: p.description, secret: p["x-secret"] === true };
         }
         return {
-          name: a.name ?? "",
-          class: a.class ?? "",
-          enabled: a.enabled ?? false,
+          name: a.name,
+          class: a.class,
+          enabled: a.enabled,
           scenario: a.scenario,
           configFields: fields,
           requiredFields: a.config_schema?.required ?? [],
-          supportable: a.supportable ?? false,
+          supportable: a.supportable,
         };
       }),
-      verbs: (body.verbs ?? []).map((v) => ({
-        verb: v.verb ?? "",
-        adapters: v.adapters ?? [],
-        enabled: v.enabled ?? false,
+      verbs: body.verbs.map((v) => ({
+        verb: v.verb,
+        adapters: v.adapters,
+        enabled: v.enabled,
         closableBy: v.closable_by ?? [],
       })),
     };
@@ -331,17 +291,7 @@ export class BackendClient {
     verb: string,
     body: { entity?: unknown; window?: { from: string; to: string }; extra?: Record<string, unknown> },
   ): Promise<CapabilityResult> {
-    interface Raw {
-      verb?: string;
-      coverage?: string;
-      ocsf_event_refs?: string[];
-      observed_data_refs?: string[];
-      entity_refs?: string[];
-      degradation_notes?: string[];
-      events?: unknown[];
-      normalized?: unknown[];
-    }
-    const r = await this.authedPost<Raw>(`/api/capability/${encodeURIComponent(verb)}`, body);
+    const r = await this.authedPost(`/api/capability/${encodeURIComponent(verb)}`, body, shapes.capabilityInvoke);
     return {
       verb: r.verb ?? verb,
       coverage: r.coverage ?? "UNKNOWN",
@@ -380,19 +330,19 @@ export class BackendClient {
         : undefined,
       tool_calls: rec.toolCalls?.map((t) => ({ call_id: t.callId, tool_name: t.toolName, args: t.args })),
     };
-    const r = await this.authedPost<{ interpretation_id?: string }>("/api/interpretations", body);
-    return { interpretationId: r.interpretation_id ?? "" };
+    const r = await this.authedPost("/api/interpretations", body, shapes.interpretation);
+    return { interpretationId: r.interpretation_id };
   }
 
   /** GET /api/investigations — the investigation list (server.InvestigationView). Authenticated. */
   async investigations(): Promise<InvestigationSummary[]> {
-    const body = await this.authedGet<{ investigations?: RawInvestigation[] }>("/api/investigations");
-    return (body.investigations ?? []).map((r) => ({
+    const body = await this.authedGet("/api/investigations", shapes.investigations);
+    return body.investigations.map((r) => ({
       id: r.aggregate_id,
       title: r.title || "(untitled)",
       state: r.status,
       seedSummary: r.seed_summary,
-      lastEventSequence: r.last_event_sequence ?? 0,
+      lastEventSequence: r.last_event_sequence,
       updatedAt: r.updated_at,
       pendingActions: r.pending_actions ?? 0,
       nearestExpiry: r.nearest_expiry,
@@ -405,21 +355,21 @@ export class BackendClient {
 
   /** GET /api/investigations/{id} — one investigation's detail. Authenticated. */
   async getInvestigation(id: string): Promise<InvestigationDetail> {
-    const r = await this.authedGet<RawInvestigation>(`/api/investigations/${encodeURIComponent(id)}`);
+    const r = await this.authedGet(`/api/investigations/${encodeURIComponent(id)}`, shapes.investigation);
     return {
       id: r.aggregate_id,
       title: r.title || "(untitled)",
       state: r.status,
-      lastEventSequence: r.last_event_sequence ?? 0,
+      lastEventSequence: r.last_event_sequence,
       verdict: r.verdict?.disposition ? {
         disposition: r.verdict.disposition,
         rationale: r.verdict.rationale,
-        verdictAt: r.verdict.verdict_at ?? "",
+        verdictAt: r.verdict.verdict_at,
       } : undefined,
       seed: mapSeed(r.seed),
       seedSummary: r.seed_summary,
       caseNoteOnSeed: r.case_note_on_seed,
-      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "", systemName: r.case_note.system_name } : undefined,
+      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body, systemName: r.case_note.system_name } : undefined,
       createdAt: r.created_at,
       openedByName: r.opened_by_name,
     };
@@ -430,10 +380,8 @@ export class BackendClient {
    * nested under the hypothesis they test (D.2). Authenticated.
    */
   async hypotheses(id: string): Promise<Hypothesis[]> {
-    const body = await this.authedGet<{ hypotheses?: RawHypothesis[] }>(
-      `/api/investigations/${encodeURIComponent(id)}/hypotheses`,
-    );
-    return (body.hypotheses ?? []).map((h) => ({
+    const body = await this.authedGet(`/api/investigations/${encodeURIComponent(id)}/hypotheses`, shapes.hypotheses);
+    return body.hypotheses.map((h) => ({
       id: h.id,
       statement: h.statement,
       handle: h.handle || undefined,
@@ -476,38 +424,19 @@ export class BackendClient {
    * This is the "how did it get here" surface.
    */
   async thread(id: string): Promise<ThreadEntry[]> {
-    interface Raw {
-      sequence_no?: number;
-      occurred_at?: string;
-      actor?: { principal?: string; principal_name?: string; kind?: string; model?: string };
-      interpretation_id?: string;
-      interpretation_type?: string;
-      summary?: string;
-      confidence?: string;
-      input_refs?: string[];
-      output_refs?: string[];
-      tool_calls?: number;
-      has_transcript?: boolean;
-      superseded?: boolean;
-      disposition?: string;
-      consulted_sops?: { sop_id?: string; title?: string; used?: boolean }[];
-      consulted_similar_investigations?: { investigation_ref?: string; title?: string; band?: string; used?: boolean }[];
-    }
-    const body = await this.authedGet<{ thread?: Raw[] }>(
-      `/api/investigations/${encodeURIComponent(id)}/thread`,
-    );
-    return (body.thread ?? []).map((e) => ({
-      sequenceNo: e.sequence_no ?? 0,
-      occurredAt: e.occurred_at ?? "",
+    const body = await this.authedGet(`/api/investigations/${encodeURIComponent(id)}/thread`, shapes.thread);
+    return body.thread.map((e) => ({
+      sequenceNo: e.sequence_no,
+      occurredAt: e.occurred_at,
       actor: {
-        principal: e.actor?.principal ?? "",
-        principalName: e.actor?.principal_name,
-        kind: e.actor?.kind ?? "HUMAN",
-        model: e.actor?.model,
+        principal: e.actor.principal,
+        principalName: e.actor.principal_name,
+        kind: e.actor.kind,
+        model: e.actor.model,
       },
-      interpretationId: e.interpretation_id ?? "",
-      interpretationType: e.interpretation_type ?? "",
-      summary: e.summary ?? "",
+      interpretationId: e.interpretation_id,
+      interpretationType: e.interpretation_type,
+      summary: e.summary,
       confidence: e.confidence,
       inputRefs: e.input_refs ?? [],
       outputRefs: e.output_refs ?? [],
@@ -516,10 +445,10 @@ export class BackendClient {
       superseded: e.superseded ?? false,
       disposition: e.disposition || undefined,
       consultedSops: (e.consulted_sops ?? []).map((c) => ({
-        sopId: c.sop_id ?? "", title: c.title, used: c.used ?? false,
+        sopId: c.sop_id, title: c.title, used: c.used,
       })),
       consultedSimilar: (e.consulted_similar_investigations ?? []).map((c) => ({
-        investigationRef: c.investigation_ref ?? "", title: c.title, band: c.band, used: c.used ?? false,
+        investigationRef: c.investigation_ref, title: c.title, band: c.band, used: c.used,
       })),
     }));
   }
@@ -530,10 +459,8 @@ export class BackendClient {
    * ActionStatus.Pending/PendingLabel so every surface speaks one vocabulary.
    */
   async actions(investigationId: string): Promise<ActionRow[]> {
-    const body = await this.authedGet<{ actions?: RawAction[] }>(
-      `/api/investigations/${encodeURIComponent(investigationId)}/actions`,
-    );
-    return (body.actions ?? []).map(mapAction);
+    const body = await this.authedGet(`/api/investigations/${encodeURIComponent(investigationId)}/actions`, shapes.actions);
+    return body.actions.map(mapAction);
   }
 
   /**
@@ -541,30 +468,21 @@ export class BackendClient {
    * binding §4): what was sent, who replied, what still awaits.
    */
   async comms(investigationId: string): Promise<CommsThread[]> {
-    interface Raw {
-      thread_id?: string; action_id?: string; action_type?: string; target?: string;
-      subject?: string; status?: string; follow_up_hours?: number; follow_ups?: number;
-      unacked_reply?: boolean; sent_at?: string; next_followup_at?: string;
-      trail?: { direction?: string; author?: string; at?: string; body?: string }[];
-      follow_up_due?: boolean; escalation_triggered?: boolean; escalation_policy?: string;
-    }
-    const body = await this.authedGet<{ threads?: Raw[] }>(
-      `/api/investigations/${encodeURIComponent(investigationId)}/comms`,
-    );
-    return (body.threads ?? []).map((t) => ({
-      threadId: t.thread_id ?? "",
-      actionId: t.action_id ?? "",
-      actionType: t.action_type ?? "",
-      target: t.target ?? "",
+    const body = await this.authedGet(`/api/investigations/${encodeURIComponent(investigationId)}/comms`, shapes.comms);
+    return body.threads.map((t) => ({
+      threadId: t.thread_id,
+      actionId: t.action_id,
+      actionType: t.action_type,
+      target: t.target,
       subject: t.subject,
-      status: t.status ?? "",
+      status: t.status,
       followUpHours: t.follow_up_hours ?? 0,
       followUps: t.follow_ups ?? 0,
       unackedReply: t.unacked_reply ?? false,
-      sentAt: t.sent_at ?? "",
+      sentAt: t.sent_at,
       nextFollowUpAt: t.next_followup_at,
       trail: (t.trail ?? []).map((e) => ({
-        direction: e.direction ?? "", author: e.author ?? "", at: e.at ?? "", body: e.body ?? "",
+        direction: e.direction, author: e.author, at: e.at, body: e.body,
       })),
       followUpDue: t.follow_up_due ?? false,
       escalationTriggered: t.escalation_triggered ?? false,
@@ -597,7 +515,7 @@ export class BackendClient {
     /** A reversal of a SUCCEEDED action (04 §7): the inverse type at the same tier. */
     reversalOfRef?: string;
   }): Promise<{ actionId: string; status: string }> {
-    const r = await this.authedPost<{ action_id?: string; status?: string }>("/api/actions", {
+    const r = await this.authedPost("/api/actions", {
       investigation_ref: body.investigationRef,
       action_type: body.actionType,
       targets: body.targets.map((t) => ({
@@ -608,41 +526,30 @@ export class BackendClient {
       evidence_refs: body.evidenceRefs,
       rationale: body.rationale,
       reversal_of_ref: body.reversalOfRef,
-    });
-    return { actionId: r.action_id ?? "", status: r.status ?? "" };
+    }, shapes.actionRequested);
+    return { actionId: r.action_id, status: r.status };
   }
 
   /** GET /api/action-types — the write-side catalog (08 §3): each type's declared inverse. */
   async actionTypes(): Promise<{ actionType: string; reversibleBy?: string; tier?: string; name?: string; category?: string; available: boolean; inputs: { name: string; required: boolean }[] }[]> {
     // Each entry nests the type's declaration under `descriptor`, beside its availability.
-    type Raw = { descriptor?: { action_type?: string; reversible_by?: string; default_tier?: string; name?: string; category?: string; inputs?: { name?: string; type?: string; required?: boolean }[] }; status?: string };
-    const body = await this.authedGet<{ action_types?: Raw[] }>("/api/action-types");
-    return (body.action_types ?? []).map(({ descriptor: d = {}, status }) => ({
-      actionType: d.action_type ?? "", reversibleBy: d.reversible_by || undefined, tier: d.default_tier,
+    const body = await this.authedGet("/api/action-types", shapes.actionTypes);
+    return body.action_types.map(({ descriptor: d, status }) => ({
+      actionType: d.action_type, reversibleBy: d.reversible_by || undefined, tier: d.default_tier,
       name: d.name || undefined, category: d.category || undefined, available: status === "available",
-      inputs: (d.inputs ?? []).filter((i) => i.type !== "entity" && i.name).map((i) => ({ name: i.name!, required: i.required ?? false })),
+      inputs: d.inputs.filter((i) => i.type !== "entity" && i.name).map((i) => ({ name: i.name, required: i.required })),
     }));
   }
 
   /** GET /api/investigations/{id}/pins — the pinned-evidence fold. */
   async pins(id: string): Promise<PinRow[]> {
-    interface Raw {
-      interpretation_id?: string;
-      finding?: string;
-      input_refs?: string[];
-      actor?: string;
-      pinned_at?: string;
-      superseded?: boolean;
-    }
-    const body = await this.authedGet<{ pins?: Raw[] }>(
-      `/api/investigations/${encodeURIComponent(id)}/pins`,
-    );
-    return (body.pins ?? []).map((p) => ({
-      interpretationId: p.interpretation_id ?? "",
-      finding: p.finding ?? "",
-      inputRefs: p.input_refs ?? [],
-      actor: p.actor ?? "HUMAN",
-      pinnedAt: p.pinned_at ?? "",
+    const body = await this.authedGet(`/api/investigations/${encodeURIComponent(id)}/pins`, shapes.pins);
+    return body.pins.map((p) => ({
+      interpretationId: p.interpretation_id,
+      finding: p.finding,
+      inputRefs: p.input_refs,
+      actor: p.actor,
+      pinnedAt: p.pinned_at,
       superseded: p.superseded ?? false,
     }));
   }
@@ -834,10 +741,8 @@ export class BackendClient {
    * behind a thread step (the content-addressed side store).
    */
   async transcript(interpretationId: string): Promise<{ turnId?: string; body: string }> {
-    const r = await this.authedGet<{ turn_id?: string; body?: string }>(
-      `/api/interpretations/${encodeURIComponent(interpretationId)}/transcript`,
-    );
-    return { turnId: r.turn_id, body: r.body ?? "" };
+    const r = await this.authedGet(`/api/interpretations/${encodeURIComponent(interpretationId)}/transcript`, shapes.transcript);
+    return { turnId: r.turn_id, body: r.body };
   }
 
   /**
@@ -847,53 +752,34 @@ export class BackendClient {
    * investigations" list.
    */
   async appearances(ref: string): Promise<Appearance[]> {
-    interface Raw {
-      investigation_id?: string; title?: string; status?: string;
-      seed_summary?: string; first_seen?: string; last_seen?: string; mentions?: number;
-    }
-    const body = await this.authedGet<{ appearances?: Raw[] }>(
-      `/api/entities/${encodeURIComponent(ref)}/appearances`,
-    );
-    return (body.appearances ?? []).map((a) => ({
-      investigationId: a.investigation_id ?? "",
-      title: a.title ?? "",
-      status: a.status ?? "",
+    const body = await this.authedGet(`/api/entities/${encodeURIComponent(ref)}/appearances`, shapes.appearances);
+    return body.appearances.map((a) => ({
+      investigationId: a.investigation_id,
+      title: a.title,
+      status: a.status,
       seedSummary: a.seed_summary,
       firstSeen: a.first_seen,
       lastSeen: a.last_seen,
-      mentions: a.mentions ?? 0,
+      mentions: a.mentions,
     }));
   }
 
   /** GET /api/evidence/{ref} — citation-open (02 §2.8). */
   async evidence(ref: string): Promise<EvidenceDoc> {
-    const r = await this.authedGet<RawEvidence>(`/api/evidence/${encodeURIComponent(ref)}`);
-    return mapEvidence(r, ref);
+    const r = await this.authedGet(`/api/evidence/${encodeURIComponent(ref)}`, shapes.evidence);
+    return mapEvidence(r);
   }
 
   /** GET /api/actions/{id} — the action's record (08 §8.6.1). */
   async actionRecord(actionId: string): Promise<ActionRecord> {
-    interface RawApprover { principal?: string; principal_name?: string; at?: string }
-    interface Raw {
-      action?: RawAction;
-      history?: { sequence_no?: number; event_type?: string; occurred_at?: string; actor?: { principal?: string; principal_name?: string; kind?: string; model?: string }; status?: string; detail?: string }[];
-      authorization?: {
-        required_mode?: string; mode?: string; stage?: string;
-        primary_approver?: RawApprover; secondary_approver?: RawApprover; secondary_approver_pool?: string[];
-        policy_ref?: string; policy_version?: string; challenge_answered?: boolean; matched_policy_ref?: string;
-        evaluations?: { policy_ref?: string; policy_version?: string; would_have_fired?: boolean; effect?: string; shadow?: boolean }[];
-      };
-      result?: { final_outcome?: string; attempts?: number; adapter?: string; error_detail?: string; raw_response_ref?: string; per_target?: { target?: string; outcome?: string }[] };
-      links?: { retry_of?: string; retried_by?: string[]; reversal_of_ref?: string; reversed_by_ref?: string; reversal_attempted_by_ref?: string; requesting_interpretation_id?: string };
-    }
-    const r = await this.authedGet<Raw>(`/api/actions/${encodeURIComponent(actionId)}`);
-    const approver = (a?: RawApprover) => a ? { principal: a.principal ?? "", principalName: a.principal_name, at: a.at ?? "" } : undefined;
-    const auth = r.authorization ?? {};
+    const r = await this.authedGet(`/api/actions/${encodeURIComponent(actionId)}`, shapes.actionRecord);
+    const approver = (a?: { principal: string; principal_name?: string; at: string }) => a ? { principal: a.principal, principalName: a.principal_name, at: a.at } : undefined;
+    const auth = r.authorization;
     return {
-      action: mapAction(r.action ?? {}),
-      history: (r.history ?? []).map((h) => ({
-        sequenceNo: h.sequence_no ?? 0, eventType: h.event_type ?? "", occurredAt: h.occurred_at ?? "",
-        actor: { principal: h.actor?.principal ?? "", principalName: h.actor?.principal_name, kind: h.actor?.kind ?? "HUMAN", model: h.actor?.model },
+      action: mapAction(r.action),
+      history: r.history.map((h) => ({
+        sequenceNo: h.sequence_no, eventType: h.event_type, occurredAt: h.occurred_at,
+        actor: { principal: h.actor.principal, principalName: h.actor.principal_name, kind: h.actor.kind, model: h.actor.model },
         status: h.status, detail: h.detail,
       })),
       authorization: {
@@ -901,57 +787,50 @@ export class BackendClient {
         primaryApprover: approver(auth.primary_approver), secondaryApprover: approver(auth.secondary_approver),
         secondaryApproverPool: auth.secondary_approver_pool, policyRef: auth.policy_ref, policyVersion: auth.policy_version,
         challengeAnswered: auth.challenge_answered, matchedPolicyRef: auth.matched_policy_ref,
-        evaluations: (auth.evaluations ?? []).map((e) => ({ policyRef: e.policy_ref ?? "", policyVersion: e.policy_version ?? "", wouldHaveFired: !!e.would_have_fired, effect: e.effect ?? "", shadow: !!e.shadow })),
+        evaluations: (auth.evaluations ?? []).map((e) => ({ policyRef: e.policy_ref, policyVersion: e.policy_version, wouldHaveFired: e.would_have_fired, effect: e.effect, shadow: e.shadow })),
       },
       result: r.result ? {
-        finalOutcome: r.result.final_outcome ?? "", attempts: r.result.attempts, adapter: r.result.adapter, errorDetail: r.result.error_detail,
-        rawResponseRef: r.result.raw_response_ref, perTarget: (r.result.per_target ?? []).map((p) => ({ target: p.target ?? "", outcome: p.outcome ?? "" })),
+        finalOutcome: r.result.final_outcome, attempts: r.result.attempts, adapter: r.result.adapter, errorDetail: r.result.error_detail,
+        rawResponseRef: r.result.raw_response_ref, perTarget: (r.result.per_target ?? []).map((p) => ({ target: p.target, outcome: p.outcome })),
       } : undefined,
       links: {
-        retryOf: r.links?.retry_of, retriedBy: r.links?.retried_by, reversalOfRef: r.links?.reversal_of_ref,
-        reversedByRef: r.links?.reversed_by_ref, reversalAttemptedByRef: r.links?.reversal_attempted_by_ref,
-        requestingInterpretationId: r.links?.requesting_interpretation_id,
+        retryOf: r.links.retry_of, retriedBy: r.links.retried_by, reversalOfRef: r.links.reversal_of_ref,
+        reversedByRef: r.links.reversed_by_ref, reversalAttemptedByRef: r.links.reversal_attempted_by_ref,
+        requestingInterpretationId: r.links.requesting_interpretation_id,
       },
     };
   }
 
   /** GET /api/knowledge/case_summaries/{ref} — one concluded case's summary; null when none exists. */
   async caseSummary(investigationRef: string): Promise<CaseSummaryView | null> {
-    interface Raw {
-      investigation_ref?: string; title?: string; body?: string; generator_model?: string; conclusion_at?: string;
-      seed_kind?: string; seed_value?: string; techniques?: string[]; primary_entities?: string[];
-      actions_taken?: { action_type?: string; target_count?: number; outcome?: string }[];
-      conclusion_outcome?: string; duration_hours?: number; verdict_disposition?: string; verdict_rationale?: string;
-      tags?: string[]; revision?: number; content_hash?: string;
-    }
-    let r: Raw;
+    let r: Decoded<typeof shapes.caseSummary>;
     try {
-      r = await this.authedGet<Raw>(`/api/knowledge/case_summaries/${encodeURIComponent(investigationRef)}`);
+      r = await this.authedGet(`/api/knowledge/case_summaries/${encodeURIComponent(investigationRef)}`, shapes.caseSummary);
     } catch (err) {
       if (err instanceof Error && /\b404\b/.test(err.message)) return null;
       throw err;
     }
     return {
-      investigationRef: r.investigation_ref ?? investigationRef, title: r.title ?? "", body: r.body ?? "",
+      investigationRef: r.investigation_ref, title: r.title, body: r.body,
       generatorModel: r.generator_model, conclusionAt: r.conclusion_at, seedKind: r.seed_kind, seedValue: r.seed_value,
-      techniques: r.techniques ?? [], primaryEntities: r.primary_entities ?? [],
-      actionsTaken: (r.actions_taken ?? []).map((a) => ({ actionType: a.action_type ?? "", targetCount: a.target_count ?? 0, outcome: a.outcome ?? "" })),
+      techniques: r.techniques, primaryEntities: r.primary_entities,
+      actionsTaken: r.actions_taken.map((a) => ({ actionType: a.action_type, targetCount: a.target_count, outcome: a.outcome })),
       conclusionOutcome: r.conclusion_outcome, durationHours: r.duration_hours, verdictDisposition: r.verdict_disposition,
-      verdictRationale: r.verdict_rationale, tags: r.tags ?? [], revision: r.revision ?? 0, contentHash: r.content_hash,
+      verdictRationale: r.verdict_rationale, tags: r.tags, revision: r.revision, contentHash: r.content_hash,
     };
   }
 
   /** GET /api/sops — the procedures in the library (adr/0129). */
   async libraryProcedures(): Promise<LibraryItem[]> {
-    const r = await this.authedGet<{ sops?: { id?: string; title?: string; tags?: string[] }[] }>("/api/sops");
-    return (r.sops ?? []).filter((x) => x.id).map((x) => ({ kind: "sop" as const, ref: x.id!, title: x.title || x.id!, detail: (x.tags ?? []).join(", ") || undefined }));
+    const r = await this.authedGet("/api/sops", shapes.sops);
+    return r.sops.filter((x) => x.id).map((x) => ({ kind: "sop" as const, ref: x.id, title: x.title || x.id, detail: x.tags.join(", ") || undefined }));
   }
 
   /** GET /api/knowledge/case_summaries — the past cases in the library (adr/0129). */
   async libraryCases(): Promise<LibraryItem[]> {
-    const r = await this.authedGet<{ case_summaries?: { investigation_ref?: string; title?: string; verdict_disposition?: string; conclusion_at?: string }[] }>("/api/knowledge/case_summaries");
-    return (r.case_summaries ?? []).filter((x) => x.investigation_ref).map((x) => ({
-      kind: "case" as const, ref: x.investigation_ref!, title: x.title || x.investigation_ref!,
+    const r = await this.authedGet("/api/knowledge/case_summaries", shapes.caseSummaries);
+    return r.case_summaries.filter((x) => x.investigation_ref).map((x) => ({
+      kind: "case" as const, ref: x.investigation_ref, title: x.title || x.investigation_ref,
       detail: [x.verdict_disposition?.toLowerCase(), x.conclusion_at ? "concluded " + x.conclusion_at.slice(0, 10) : ""].filter(Boolean).join(" · ") || undefined,
     }));
   }
@@ -959,27 +838,22 @@ export class BackendClient {
   /** Search both corpora (adr/0129): the substrate's recall, relevance in words. */
   async librarySearch(query: string): Promise<{ sops: LibraryItem[]; cases: LibraryItem[] }> {
     const [s, c] = await Promise.all([
-      this.authedPost<{ results?: { sop_id?: string; title?: string; score?: number }[] }>("/api/knowledge/recall_sops", { query, limit: 10 }),
-      this.authedPost<{ results?: { investigation_ref?: string; title?: string; band?: string }[] }>("/api/knowledge/recall_similar_investigations", { query, limit: 10 }),
+      this.authedPost("/api/knowledge/recall_sops", { query, limit: 10 }, shapes.recallSOPs),
+      this.authedPost("/api/knowledge/recall_similar_investigations", { query, limit: 10 }, shapes.recallSimilar),
     ]);
     return {
-      sops: (s.results ?? []).filter((x) => x.sop_id).map((x) => ({ kind: "sop" as const, ref: x.sop_id!, title: x.title || x.sop_id!, relevance: relevanceOfScore(x.score) })),
-      cases: (c.results ?? []).filter((x) => x.investigation_ref).map((x) => ({ kind: "case" as const, ref: x.investigation_ref!, title: x.title || x.investigation_ref!, relevance: relevanceOfBand(x.band) })),
+      sops: s.results.filter((x) => x.sop_id).map((x) => ({ kind: "sop" as const, ref: x.sop_id, title: x.title || x.sop_id, relevance: relevanceOfScore(x.score) })),
+      cases: c.results.filter((x) => x.investigation_ref).map((x) => ({ kind: "case" as const, ref: x.investigation_ref, title: x.title || x.investigation_ref, relevance: relevanceOfBand(x.band) })),
     };
   }
 
   /** GET /api/sops/{id} — one procedure, whole (08 §8.6 "Whole document"). */
   async sop(id: string): Promise<SOPDoc> {
-    interface Raw {
-      id?: string; title?: string; body?: string; tags?: string[]; status?: string; recommendation?: string;
-      author_id?: string; source?: { system?: string; url?: string; version?: string }; imported_by?: string;
-      imported_at?: string; created_at?: string; updated_at?: string;
-    }
-    const r = await this.authedGet<Raw>(`/api/sops/${encodeURIComponent(id)}`);
+    const r = await this.authedGet(`/api/sops/${encodeURIComponent(id)}`, shapes.sop);
     return {
-      id: r.id ?? id, title: r.title ?? "", body: r.body ?? "", tags: r.tags ?? [], status: r.status ?? "",
+      id: r.id, title: r.title, body: r.body, tags: r.tags, status: r.status,
       recommendation: r.recommendation, authorId: r.author_id,
-      source: r.source ? { system: r.source.system, url: r.source.url ?? "", version: r.source.version } : undefined,
+      source: r.source ? { system: r.source.system, url: r.source.url, version: r.source.version } : undefined,
       importedBy: r.imported_by, importedAt: r.imported_at, createdAt: r.created_at, updatedAt: r.updated_at,
     };
   }
@@ -990,11 +864,12 @@ export class BackendClient {
    * the typed challenge a T3 approval requires (04 §5.5).
    */
   async approveAction(actionId: string, challengeResponse?: string): Promise<ActionDecision> {
-    const r = await this.authedPost<{ action_id?: string; status?: string; stage?: string }>(
+    const r = await this.authedPost(
       `/api/actions/${encodeURIComponent(actionId)}/approve`,
       challengeResponse ? { challenge_response: challengeResponse } : {},
+      shapes.actionDecision,
     );
-    return { actionId: r.action_id ?? actionId, status: r.status ?? "", stage: r.stage };
+    return { actionId: r.action_id, status: r.status, stage: r.stage };
   }
 
   /**
@@ -1022,7 +897,7 @@ export class BackendClient {
     investigationId: string,
     body: { transition: string; reason?: string; reportRef?: string; summary?: string },
   ): Promise<{ status: string; exportWorkflowId?: string }> {
-    const r = await this.authedPost<{ status?: string; export_workflow_id?: string }>(
+    const r = await this.authedPost(
       `/api/investigations/${encodeURIComponent(investigationId)}/lifecycle`,
       {
         transition: body.transition,
@@ -1030,8 +905,9 @@ export class BackendClient {
         report_ref: body.reportRef,
         summary: body.summary,
       },
+      shapes.lifecycle,
     );
-    return { status: r.status ?? "", exportWorkflowId: r.export_workflow_id };
+    return { status: r.status, exportWorkflowId: r.export_workflow_id };
   }
 
   /**
@@ -1042,20 +918,18 @@ export class BackendClient {
     actionId: string,
     body: { outcome: "SUCCEEDED" | "FAILED"; note: string; reference?: string; artifact?: ArtifactLocation },
   ): Promise<ActionDecision> {
-    const r = await this.authedPost<{ action_id?: string; status?: string }>(
+    const r = await this.authedPost(
       `/api/actions/${encodeURIComponent(actionId)}/resolve`,
       { outcome: body.outcome, note: body.note, reference: body.reference, artifact: body.artifact },
+      shapes.actionDecision,
     );
-    return { actionId: r.action_id ?? actionId, status: r.status ?? "" };
+    return { actionId: r.action_id, status: r.status };
   }
 
   /** POST /api/actions/{id}/reject — ditto, human token only. */
   async rejectAction(actionId: string, reason: string): Promise<ActionDecision> {
-    const r = await this.authedPost<{ action_id?: string; status?: string; stage?: string }>(
-      `/api/actions/${encodeURIComponent(actionId)}/reject`,
-      { reason },
-    );
-    return { actionId: r.action_id ?? actionId, status: r.status ?? "", stage: r.stage };
+    const r = await this.authedPost(`/api/actions/${encodeURIComponent(actionId)}/reject`, { reason }, shapes.actionDecision);
+    return { actionId: r.action_id, status: r.status, stage: r.stage };
   }
 
   /** POST /api/investigations — seed a new investigation. Analyst role. */
@@ -1072,7 +946,7 @@ export class BackendClient {
         hypothesis_statement: seed.hypothesisStatement,
       };
     }
-    return this.mapCreated(await this.authedPost<RawInvestigation>("/api/investigations", body));
+    return this.mapCreated(await this.authedPost("/api/investigations", body, shapes.created));
   }
 
   /**
@@ -1080,11 +954,8 @@ export class BackendClient {
    * curation; the aggregate bars an AI delegate. Returns the applied title.
    */
   async renameInvestigation(id: string, title: string): Promise<string> {
-    const r = await this.authedPost<{ title?: string }>(
-      `/api/investigations/${encodeURIComponent(id)}/rename`,
-      { title },
-    );
-    return r.title ?? title;
+    const r = await this.authedPost(`/api/investigations/${encodeURIComponent(id)}/rename`, { title }, shapes.renamed);
+    return r.title;
   }
 
   /**
@@ -1097,7 +968,7 @@ export class BackendClient {
   async createInvestigationFromInput(value: string, kind: string, title?: string, allowUnknown?: boolean): Promise<InvestigationDetail> {
     const body: Record<string, unknown> = { seed_input: { value, kind, allow_unknown: allowUnknown || undefined } };
     if (title) body.title = title;
-    return this.mapCreated(await this.authedPost<RawInvestigation>("/api/investigations", body));
+    return this.mapCreated(await this.authedPost("/api/investigations", body, shapes.created));
   }
 
   /**
@@ -1107,11 +978,8 @@ export class BackendClient {
    * Parsing stays server-side — one robust parser, never a TS reimplementation.
    */
   async importSOPMarkdown(filename: string, content: string): Promise<{ title: string; outcome: string }> {
-    const r = await this.authedPost<{ title?: string; outcome?: string }>(
-      "/api/sops/import_markdown",
-      { filename, content },
-    );
-    return { title: r.title ?? filename, outcome: r.outcome ?? "ok" };
+    const r = await this.authedPost("/api/sops/import_markdown", { filename, content }, shapes.sopImported);
+    return { title: r.title, outcome: r.outcome };
   }
 
   /**
@@ -1138,13 +1006,13 @@ export class BackendClient {
     if (opts.filter) q.set("filter", opts.filter);
     if (opts.queue) q.set("queue", opts.queue);
     const qs = q.toString();
-    const body = await this.authedGet<{ queue?: string; cases?: RawCase[] }>("/api/cases" + (qs ? "?" + qs : ""));
-    return { queue: body.queue ?? "", cases: (body.cases ?? []).map(mapCase) };
+    const body = await this.authedGet("/api/cases" + (qs ? "?" + qs : ""), shapes.cases);
+    return { queue: body.queue ?? "", cases: body.cases.map(mapCase) };
   }
 
   /** GET /api/cases/{number} — one case, read-only and non-persisting. */
   async caseDetail(number: string): Promise<CaseRow> {
-    return mapCase(await this.authedGet<RawCase>("/api/cases/" + encodeURIComponent(number)));
+    return mapCase(await this.authedGet("/api/cases/" + encodeURIComponent(number), shapes.case));
   }
 
   private mapCreated(r: RawInvestigation): InvestigationDetail {
@@ -1152,11 +1020,11 @@ export class BackendClient {
       id: r.aggregate_id,
       title: r.title || "(untitled)",
       state: r.status,
-      lastEventSequence: r.last_event_sequence ?? 0,
+      lastEventSequence: r.last_event_sequence,
       seed: mapSeed(r.seed),
       seedSummary: r.seed_summary,
       caseNoteOnSeed: r.case_note_on_seed,
-      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "", systemName: r.case_note.system_name } : undefined,
+      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body, systemName: r.case_note.system_name } : undefined,
     };
   }
 
@@ -1167,11 +1035,12 @@ export class BackendClient {
    * authorization status, exactly like any action request.
    */
   async requestCaseNote(id: string, body?: string): Promise<{ actionId: string; status: string }> {
-    const r = await this.authedPost<{ action_id?: string; status?: string }>(
+    const r = await this.authedPost(
       `/api/investigations/${encodeURIComponent(id)}/case_note`,
       body ? { body } : {},
+      shapes.actionRequested,
     );
-    return { actionId: r.action_id ?? "", status: r.status ?? "" };
+    return { actionId: r.action_id, status: r.status };
   }
 
   /**
@@ -1180,8 +1049,8 @@ export class BackendClient {
    * ticket unedited" is this call, not a file on disk.
    */
   async exportMarkdown(investigationId: string): Promise<string> {
-    const res = await this.withBearer((bearer) => fetch(
-      `${this.baseUrl()}/api/investigations/${encodeURIComponent(investigationId)}/export.md`,
+    const res = await this.withBearer((base, bearer) => fetch(
+      `${base}/api/investigations/${encodeURIComponent(investigationId)}/export.md`,
       { headers: { Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(15_000) },
     ));
     if (!res.ok) {
@@ -1190,32 +1059,47 @@ export class BackendClient {
     return await res.text();
   }
 
-  private async authedGet<T>(path: string): Promise<T> {
-    return this.authed<T>("GET", path);
+  private async authedGet<T>(path: string, shape: Decoder<T>): Promise<T> {
+    return this.decoded(`GET ${path}`, shape, await this.authed("GET", path));
   }
 
-  private async authedPost<T>(path: string, body: unknown): Promise<T> {
-    return this.authed<T>("POST", path, body);
+  /** A POST whose answer is read through `shape`; without one, only its success counts. */
+  private async authedPost(path: string, body: unknown): Promise<void>;
+  private async authedPost<T>(path: string, body: unknown, shape: Decoder<T>): Promise<T>;
+  private async authedPost<T>(path: string, body: unknown, shape?: Decoder<T>): Promise<T | void> {
+    const res = await this.authed("POST", path, body);
+    return shape ? this.decoded(`POST ${path}`, shape, res) : undefined;
+  }
+
+  private async decoded<T>(from: string, shape: Decoder<T>, res: Response): Promise<T> {
+    const body: unknown = await res.json().catch(() => {
+      throw new DecodeError(`unexpected response from ${from}: not JSON`);
+    });
+    return decode(from, shape, body);
   }
 
   /**
    * Send with the current token, and once more with a fresh one on a 401. Safe
    * for a write: a 401 comes from the auth middleware, before any handler ran.
+   * The URL is read once: the backend checked is the backend called, whatever
+   * the setting does meanwhile.
    */
-  private async withBearer(send: (bearer: string) => Promise<Response>): Promise<Response> {
+  private async withBearer(send: (base: string, bearer: string) => Promise<Response>): Promise<Response> {
     if (!this.token) {
       throw new Error("no token source configured");
     }
+    const base = this.baseUrl();
+    await this.ensureCompatible(base);
     const bearer = await this.token();
-    const res = await send(bearer);
+    const res = await send(base, bearer);
     if (res.status !== 401 || !this.renew) {
       return res;
     }
-    return send(await this.renew(bearer));
+    return send(base, await this.renew(bearer));
   }
 
-  private async authed<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
-    const res = await this.withBearer((bearer) => fetch(`${this.baseUrl()}${path}`, {
+  private async authed(method: "GET" | "POST", path: string, body?: unknown): Promise<Response> {
+    const res = await this.withBearer((base, bearer) => fetch(`${base}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${bearer}`,
@@ -1238,13 +1122,16 @@ export class BackendClient {
       }
       throw new BackendRequestError(`${method} ${path} → ${res.status}${detail}`, res.status, parsed);
     }
-    return (await res.json()) as T;
+    return res;
   }
 
   /** A one-line diagnostic for an incompatible/unreachable backend, or null when compatible. */
   incompatibilityReason(status: BackendStatus): string | null {
     if (!status.reachable) {
       return "backend not reachable — run `reckon start`";
+    }
+    if (status.unreadable) {
+      return `${status.unreadable} — align versions`;
     }
     if (status.apiVersion === null) {
       return "backend predates the version handshake — upgrade the backend";
@@ -1256,17 +1143,11 @@ export class BackendClient {
   }
 }
 
-interface RawEvidence {
-  ref?: string; kind?: string; type?: string; payload?: unknown;
-  class_uid?: number; time?: string; recorded_at?: string; source_tool?: string;
-  related?: { sightings?: RawEvidence[]; identity?: RawEvidence | null; evidence?: RawEvidence[] };
-}
-
-function mapEvidence(r: RawEvidence, ref: string): EvidenceDoc {
+function mapEvidence(r: RawEvidence): EvidenceDoc {
   const doc: EvidenceDoc = {
-    ref: r.ref ?? ref,
-    kind: r.kind ?? "",
-    type: r.type ?? "",
+    ref: r.ref,
+    kind: r.kind,
+    type: r.type,
     payload: r.payload,
     classUid: r.class_uid,
     time: r.time,
@@ -1275,43 +1156,17 @@ function mapEvidence(r: RawEvidence, ref: string): EvidenceDoc {
   };
   if (r.related) {
     doc.related = {
-      sightings: (r.related.sightings ?? []).map((s) => mapEvidence(s, s.ref ?? "")),
-      identity: r.related.identity ? mapEvidence(r.related.identity, r.related.identity.ref ?? "") : null,
-      evidence: (r.related.evidence ?? []).map((e) => mapEvidence(e, e.ref ?? "")),
+      sightings: (r.related.sightings ?? []).map((s) => mapEvidence(s)),
+      identity: r.related.identity ? mapEvidence(r.related.identity) : null,
+      evidence: (r.related.evidence ?? []).map((e) => mapEvidence(e)),
     };
   }
   return doc;
 }
 
-/** Raw server.ActionView row, as served under {actions: [...]} and on the action record. */
-interface RawAction {
-  action_id?: string;
-  action_type?: string;
-  tier?: string;
-  status?: string;
-  required_mode?: string;
-  expires_at?: string;
-  targets?: { entity_ref?: string; resolved_identifier?: string }[];
-  is_reversal?: boolean;
-  reversibility?: string;
-  tier_escalated?: boolean;
-  evidence_refs?: string[];
-  edited_at?: string;
-  inputs?: { name?: string; required?: boolean }[];
-  name?: string;
-  category?: string;
-  retry_of?: string;
-  reversal_of_ref?: string;
-  requesting_interpretation_id?: string;
-  adapter?: string;
-  planned_adapter?: string;
-  error_detail?: string;
-  result_ref?: string;
-}
-
 /** Map one raw action row to the queue/ledger view: pending vocabulary, lazy expiry. */
 function mapAction(a: RawAction): ActionRow {
-  const status = a.status ?? "";
+  const status = a.status;
   const mode = a.required_mode ?? "";
   const pending = status === "REQUESTED" || status === "PENDING_SECONDARY"
     || status === "PENDING_MANUAL" || status === "PENDING_TWO_PARTY";
@@ -1320,12 +1175,11 @@ function mapAction(a: RawAction): ActionRow {
     : status === "REQUESTED" ? "PENDING_MANUAL"
     : status === "PENDING_SECONDARY" ? "PENDING_TWO_PARTY"
     : status;
-  const params = (a as { parameters?: Record<string, unknown> }).parameters;
   const expiry = a.expires_at ? Date.parse(a.expires_at) : NaN;
   return {
-    actionId: a.action_id ?? "",
-    actionType: a.action_type ?? "",
-    tier: a.tier ?? "",
+    actionId: a.action_id,
+    actionType: a.action_type,
+    tier: a.tier,
     status,
     requiredMode: mode,
     targets: (a.targets ?? []).map((t) => t.resolved_identifier || t.entity_ref || ""),
@@ -1344,7 +1198,7 @@ function mapAction(a: RawAction): ActionRow {
     name: a.name || undefined,
     category: a.category || undefined,
     editedAt: a.edited_at || undefined,
-    inputs: (a.inputs ?? []).map((x) => ({ name: x.name ?? "", required: x.required ?? false })).filter((x) => x.name),
+    inputs: (a.inputs ?? []).map((x) => ({ name: x.name, required: x.required ?? false })).filter((x) => x.name),
     retryOf: a.retry_of,
     reversalOfRef: a.reversal_of_ref,
     requestingInterpretationId: a.requesting_interpretation_id,
@@ -1352,6 +1206,6 @@ function mapAction(a: RawAction): ActionRow {
     plannedAdapter: a.planned_adapter,
     errorDetail: a.error_detail,
     resultRef: a.result_ref,
-    parameters: params,
+    parameters: a.parameters,
   };
 }
