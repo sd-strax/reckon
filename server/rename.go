@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 )
@@ -24,7 +26,7 @@ type RenameResponse struct {
 // title. Analyst role; the actor kind is derived from the JWT, so an AI delegate
 // is barred by the aggregate's allowlist (rename is human curation), not only
 // here. Shape-guard only — the aggregate owns legality (non-blank, not concluded).
-func (b *Backend) renameInvestigation(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) renameInvestigation(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
 		return
@@ -32,11 +34,6 @@ func (b *Backend) renameInvestigation(w http.ResponseWriter, r *http.Request) {
 	claims, ok := authz.FromContext(r.Context())
 	if !ok {
 		writeJSONError(w, http.StatusInternalServerError, "auth context missing")
-		return
-	}
-	id, ok := investigationSubresourceID(r.URL.Path, "rename")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 

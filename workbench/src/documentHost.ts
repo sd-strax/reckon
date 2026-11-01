@@ -25,6 +25,8 @@ export interface DocumentHost {
   mutate(id: string, panel: vscode.WebviewPanel, verb: string, fn: () => Promise<void>, opts?: { reload?: boolean }): Promise<void>;
   /** A check that holds until the person changes (adr/0241). */
   sameIdentity(): () => boolean;
+  /** The handshake (adr/0244): why the backend must not be spoken to, or null. */
+  incompatibleBackend(): Promise<string | null>;
   /** Whether this panel is still the open document for the investigation. */
   isOpen(id: string, panel: vscode.WebviewPanel): boolean;
   /** The trees re-read: Investigations always, Cases too when a case changed hands. */

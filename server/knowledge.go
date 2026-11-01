@@ -38,23 +38,16 @@ type SOPImportBody struct {
 // retrieval over the SOP corpus. Any authenticated reader — the agent loop
 // consults it during reasoning.
 func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	var req knowledge.RecallRequest
+	if !decodeBody(w, r, &req, maxBodyBytes) {
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
-		var req knowledge.RecallRequest
-		if !decodeBody(w, r, &req, maxBodyBytes) {
-			return
-		}
-		res, err := b.cfg.Knowledge.RecallSOPs(r.Context(), module.SingleTenantUUID, req)
-		if err != nil {
-			writeInternalError(w, "recall_sops", err)
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
-	})
+	res, err := b.cfg.Knowledge.RecallSOPs(r.Context(), module.SingleTenantUUID, req)
+	if err != nil {
+		writeInternalError(w, "recall_sops", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // recallSimilar handles POST /api/knowledge/recall_similar_investigations
@@ -62,23 +55,16 @@ func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
 // summary corpus — "have we handled something like this before?" Any
 // authenticated reader; the agent loop consults it during reasoning.
 func (b *Backend) recallSimilar(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	var req knowledge.SimilarRequest
+	if !decodeBody(w, r, &req, maxBodyBytes) {
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
-		var req knowledge.SimilarRequest
-		if !decodeBody(w, r, &req, maxBodyBytes) {
-			return
-		}
-		res, err := b.cfg.Knowledge.RecallSimilar(r.Context(), module.SingleTenantUUID, req)
-		if err != nil {
-			writeInternalError(w, "recall_similar_investigations", err)
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
-	})
+	res, err := b.cfg.Knowledge.RecallSimilar(r.Context(), module.SingleTenantUUID, req)
+	if err != nil {
+		writeInternalError(w, "recall_similar_investigations", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // priorInvestigations handles POST /api/knowledge/prior_investigations
@@ -86,45 +72,32 @@ func (b *Backend) recallSimilar(w http.ResponseWriter, r *http.Request) {
 // every concluded investigation whose summary records the entity. Any
 // authenticated reader.
 func (b *Backend) priorInvestigations(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	var req knowledge.PriorRequest
+	if !decodeBody(w, r, &req, maxBodyBytes) {
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
-		var req knowledge.PriorRequest
-		if !decodeBody(w, r, &req, maxBodyBytes) {
-			return
-		}
-		if strings.TrimSpace(req.Entity) == "" {
-			writeJSONError(w, http.StatusBadRequest, "prior_investigations: entity required")
-			return
-		}
-		res, err := b.cfg.Knowledge.PriorByEntity(r.Context(), module.SingleTenantUUID, req)
-		if err != nil {
-			writeInternalError(w, "prior_investigations", err)
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
-	})
+	if strings.TrimSpace(req.Entity) == "" {
+		writeJSONError(w, http.StatusBadRequest, "prior_investigations: entity required")
+		return
+	}
+	res, err := b.cfg.Knowledge.PriorByEntity(r.Context(), module.SingleTenantUUID, req)
+	if err != nil {
+		writeInternalError(w, "prior_investigations", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // listCaseSummaries handles GET /api/knowledge/case_summaries: the concluded
 // investigations' summaries, most recent first — the library's past cases
 // (adr/0129). Any authenticated reader.
 func (b *Backend) listCaseSummaries(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, "GET")
+	list, err := b.cfg.Knowledge.ListSummaries(r.Context(), module.SingleTenantUUID, 100)
+	if err != nil {
+		writeInternalError(w, "case_summaries", err)
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
-		list, err := b.cfg.Knowledge.ListSummaries(r.Context(), module.SingleTenantUUID, 100)
-		if err != nil {
-			writeInternalError(w, "case_summaries", err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"case_summaries": list})
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"case_summaries": list})
 }
 
 // getCaseSummary handles GET /api/knowledge/case_summaries/{investigation_ref}
@@ -133,27 +106,17 @@ func (b *Backend) listCaseSummaries(w http.ResponseWriter, r *http.Request) {
 // prior cases have no local aggregate, so the summary is the only record. Any
 // authenticated reader; 404 when none exists.
 func (b *Backend) getCaseSummary(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, "GET")
+	ref := r.PathValue("ref")
+	v, err := b.cfg.Knowledge.SummaryByInvestigation(r.Context(), module.SingleTenantUUID, ref)
+	if errors.Is(err, knowledge.ErrNoSummary) {
+		writeJSONError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
-		ref := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/knowledge/case_summaries/"), "/")
-		if ref == "" {
-			writeJSONError(w, http.StatusBadRequest, "path must be /knowledge/case_summaries/{investigation_ref}")
-			return
-		}
-		v, err := b.cfg.Knowledge.SummaryByInvestigation(r.Context(), module.SingleTenantUUID, ref)
-		if errors.Is(err, knowledge.ErrNoSummary) {
-			writeJSONError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		if err != nil {
-			writeInternalError(w, "case_summaries", err)
-			return
-		}
-		writeJSON(w, http.StatusOK, v)
-	})
+	if err != nil {
+		writeInternalError(w, "case_summaries", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 // SummaryNarrativeBody is the client-side enrichment payload (design/06 §3.2
@@ -171,27 +134,20 @@ type SummaryNarrativeBody struct {
 // client writes prose. 404 (ErrNoSummary) means the post-conclusion pipeline
 // hasn't written the baseline yet; clients retry briefly.
 func (b *Backend) summaryNarrative(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	var body SummaryNarrativeBody
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-		var body SummaryNarrativeBody
-		if !decodeBody(w, r, &body, maxBodyBytes) {
-			return
-		}
-		id, err := b.cfg.Knowledge.EnrichSummary(r.Context(), module.SingleTenantUUID, body.InvestigationRef, body.Narrative, body.GeneratorModel)
-		if errors.Is(err, knowledge.ErrNoSummary) {
-			writeJSONError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, "summary_narrative: "+err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"summary_id": id.String()})
-	})
+	id, err := b.cfg.Knowledge.EnrichSummary(r.Context(), module.SingleTenantUUID, body.InvestigationRef, body.Narrative, body.GeneratorModel)
+	if errors.Is(err, knowledge.ErrNoSummary) {
+		writeJSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "summary_narrative: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"summary_id": id.String()})
 }
 
 // importSOP handles POST /api/sops/import (analyst): upsert institutional
@@ -200,43 +156,36 @@ func (b *Backend) summaryNarrative(w http.ResponseWriter, r *http.Request) {
 // source pointer (the re-import lineage key), and the importer (the
 // authenticated principal — recorded here, never client-supplied).
 func (b *Backend) importSOP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	var body SOPImportBody
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-		var body SOPImportBody
-		if !decodeBody(w, r, &body, maxBodyBytes) {
-			return
-		}
-		claims, _ := authz.FromContext(r.Context())
-		importer := claims.PreferredUsername
-		if importer == "" {
-			importer = claims.Subject
-		}
-		id, created, err := b.cfg.Knowledge.Import(r.Context(), knowledge.SOP{
-			TenantID: module.SingleTenantUUID,
-			Title:    body.Title, Body: body.Body, Tags: body.Tags,
-			Recommendation: body.Recommendation,
-			AuthorID:       body.Author,
-			ImportedBy:     importer,
-			Source: &knowledge.SOPSource{
-				System: body.Source.System, URL: body.Source.URL, Version: body.Source.Version,
-			},
-		})
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, "import sop: "+err.Error())
-			return
-		}
-		status := http.StatusOK
-		outcome := "revised"
-		if created {
-			status = http.StatusCreated
-			outcome = "created"
-		}
-		writeJSON(w, status, map[string]string{"id": id.String(), "outcome": outcome})
+	claims, _ := authz.FromContext(r.Context())
+	importer := claims.PreferredUsername
+	if importer == "" {
+		importer = claims.Subject
+	}
+	id, created, err := b.cfg.Knowledge.Import(r.Context(), knowledge.SOP{
+		TenantID: module.SingleTenantUUID,
+		Title:    body.Title, Body: body.Body, Tags: body.Tags,
+		Recommendation: body.Recommendation,
+		AuthorID:       body.Author,
+		ImportedBy:     importer,
+		Source: &knowledge.SOPSource{
+			System: body.Source.System, URL: body.Source.URL, Version: body.Source.Version,
+		},
 	})
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "import sop: "+err.Error())
+		return
+	}
+	status := http.StatusOK
+	outcome := "revised"
+	if created {
+		status = http.StatusCreated
+		outcome = "created"
+	}
+	writeJSON(w, status, map[string]string{"id": id.String(), "outcome": outcome})
 }
 
 // SOPMarkdownBody is the workbench import payload (design/06 §2.4): a raw
@@ -255,87 +204,47 @@ type SOPMarkdownBody struct {
 // clients send the full path as the filename (a bare basename would collide
 // across directories). Only the basename feeds the fallback title.
 func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	var body SOPMarkdownBody
+	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-		var body SOPMarkdownBody
-		if !decodeBody(w, r, &body, maxBodyBytes) {
-			return
-		}
-		name := body.Filename
-		if name == "" {
-			name = "untitled.md"
-		}
-		doc, err := sopdoc.Parse([]byte(body.Content), sopdoc.TitleStem(name))
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, "parse sop document: "+err.Error())
-			return
-		}
-		if doc.SourceURL == "" {
-			doc.SourceSystem = "file"
-			doc.SourceURL = "file:" + name
-		}
-		claims, _ := authz.FromContext(r.Context())
-		importer := claims.PreferredUsername
-		if importer == "" {
-			importer = claims.Subject
-		}
-		id, created, err := b.cfg.Knowledge.Import(r.Context(), knowledge.SOP{
-			TenantID: module.SingleTenantUUID,
-			Title:    doc.Title, Body: doc.Body, Tags: doc.Tags,
-			Recommendation: doc.Recommendation,
-			AuthorID:       doc.Author,
-			ImportedBy:     importer,
-			Source: &knowledge.SOPSource{
-				System: doc.SourceSystem, URL: doc.SourceURL, Version: doc.SourceVersion,
-			},
-		})
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, "import sop: "+err.Error())
-			return
-		}
-		status, outcome := http.StatusOK, "revised"
-		if created {
-			status, outcome = http.StatusCreated, "created"
-		}
-		writeJSON(w, status, map[string]string{"id": id.String(), "outcome": outcome, "title": doc.Title})
+	name := body.Filename
+	if name == "" {
+		name = "untitled.md"
+	}
+	doc, err := sopdoc.Parse([]byte(body.Content), sopdoc.TitleStem(name))
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "parse sop document: "+err.Error())
+		return
+	}
+	if doc.SourceURL == "" {
+		doc.SourceSystem = "file"
+		doc.SourceURL = "file:" + name
+	}
+	claims, _ := authz.FromContext(r.Context())
+	importer := claims.PreferredUsername
+	if importer == "" {
+		importer = claims.Subject
+	}
+	id, created, err := b.cfg.Knowledge.Import(r.Context(), knowledge.SOP{
+		TenantID: module.SingleTenantUUID,
+		Title:    doc.Title, Body: doc.Body, Tags: doc.Tags,
+		Recommendation: doc.Recommendation,
+		AuthorID:       doc.Author,
+		ImportedBy:     importer,
+		Source: &knowledge.SOPSource{
+			System: doc.SourceSystem, URL: doc.SourceURL, Version: doc.SourceVersion,
+		},
 	})
-}
-
-// sopsCollection routes /api/sops: POST create (analyst), GET list (reader).
-func (b *Backend) sopsCollection(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodPost:
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.createSOP)
-	case http.MethodGet:
-		b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listSOPs)
-	default:
-		w.Header().Set("Allow", "GET, POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-	}
-}
-
-// sopsItem routes /api/sops/{id}: GET (reader), PUT update (analyst),
-// DELETE retire (analyst).
-func (b *Backend) sopsItem(w http.ResponseWriter, r *http.Request) {
-	id, ok := sopID(w, r)
-	if !ok {
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "import sop: "+err.Error())
 		return
 	}
-	switch r.Method {
-	case http.MethodGet:
-		b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) { b.getSOP(w, r, id) })
-	case http.MethodPut:
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) { b.updateSOP(w, r, id) })
-	case http.MethodDelete:
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) { b.retireSOP(w, r, id) })
-	default:
-		w.Header().Set("Allow", "GET, PUT, DELETE")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	status, outcome := http.StatusOK, "revised"
+	if created {
+		status, outcome = http.StatusCreated, "created"
 	}
+	writeJSON(w, status, map[string]string{"id": id.String(), "outcome": outcome, "title": doc.Title})
 }
 
 func (b *Backend) createSOP(w http.ResponseWriter, r *http.Request) {
@@ -408,17 +317,6 @@ func (b *Backend) retireSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// sopID extracts and parses the {id} path segment of /api/sops/{id}.
-func sopID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
-	raw := strings.TrimPrefix(r.URL.Path, "/sops/")
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid sop id")
-		return uuid.Nil, false
-	}
-	return id, true
 }
 
 // uuidStringOrEmpty returns s if it parses as a UUID, else "" (the author_id

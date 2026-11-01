@@ -1,8 +1,10 @@
 // The capability layer over HTTP (design/03, 11): the verb catalog with its
 // availability, the operator's enablement view and the human-confirmed apply,
-// and the read-tool dispatch target.
+// and the read-tool dispatch target. Answers are decoded through the wire
+// shapes (adr/0244).
 import type { BackendHttp } from "./http";
-import type { Capability, CapabilityInput, CapabilityResult, ConfigField, Enablement } from "../viewTypes";
+import * as shapes from "../wire/backendShapes";
+import type { Capability, CapabilityResult, ConfigField, Enablement } from "../viewTypes";
 
 export class CapabilitiesClient {
   constructor(private readonly http: BackendHttp) {}
@@ -13,27 +15,20 @@ export class CapabilitiesClient {
    * them into LLM tool definitions (03 §6.3). Authenticated.
    */
   async list(): Promise<Capability[]> {
-    interface Raw {
-      descriptor?: { verb?: string; intent?: string; inputs?: CapabilityInput[]; output?: string };
-      status?: string;
-    }
-    const body = await this.http.get<{ capabilities?: Raw[] }>("/api/capabilities");
-    return (body.capabilities ?? []).map((c) => ({
-      verb: c.descriptor?.verb ?? "",
-      intent: c.descriptor?.intent ?? "",
-      inputs: c.descriptor?.inputs ?? [],
-      output: c.descriptor?.output ?? "",
-      status: c.status ?? "unavailable",
+    const body = await this.http.get("/api/capabilities", shapes.capabilities);
+    return body.capabilities.map((c) => ({
+      verb: c.descriptor.verb,
+      intent: c.descriptor.intent,
+      inputs: c.descriptor.inputs,
+      output: c.descriptor.output,
+      status: c.status,
     }));
   }
 
   /** GET /api/capabilities — count of resolvable verbs. Authenticated. */
   async count(): Promise<number> {
-    const body = await this.http.get<{ capabilities?: unknown[] } | unknown[]>("/api/capabilities");
-    if (Array.isArray(body)) {
-      return body.length;
-    }
-    return body.capabilities?.length ?? 0;
+    const body = await this.http.get("/api/capabilities", shapes.capabilities);
+    return body.capabilities.length;
   }
 
   /**
@@ -41,36 +36,28 @@ export class CapabilitiesClient {
    * gaps a disabled one could close (11 §5.1, §6.2). Analyst role.
    */
   async enablement(): Promise<Enablement> {
-    interface RawAdapter {
-      name?: string; class?: string; enabled?: boolean; scenario?: string;
-      config_schema?: { properties?: Record<string, { type?: string; description?: string; "x-secret"?: boolean }>; required?: string[] };
-      supportable?: boolean;
-    }
-    interface RawVerb {
-      verb?: string; adapters?: string[]; enabled?: boolean; closable_by?: string[];
-    }
-    const body = await this.http.get<{ adapters?: RawAdapter[]; verbs?: RawVerb[] }>("/api/enablement");
+    const body = await this.http.get("/api/enablement", shapes.enablement);
     return {
-      adapters: (body.adapters ?? []).map((a) => {
+      adapters: body.adapters.map((a) => {
         const fields: Record<string, ConfigField> = {};
         const props = a.config_schema?.properties ?? {};
         for (const [k, p] of Object.entries(props)) {
           fields[k] = { type: p.type, description: p.description, secret: p["x-secret"] === true };
         }
         return {
-          name: a.name ?? "",
-          class: a.class ?? "",
-          enabled: a.enabled ?? false,
+          name: a.name,
+          class: a.class,
+          enabled: a.enabled,
           scenario: a.scenario,
           configFields: fields,
           requiredFields: a.config_schema?.required ?? [],
-          supportable: a.supportable ?? false,
+          supportable: a.supportable,
         };
       }),
-      verbs: (body.verbs ?? []).map((v) => ({
-        verb: v.verb ?? "",
-        adapters: v.adapters ?? [],
-        enabled: v.enabled ?? false,
+      verbs: body.verbs.map((v) => ({
+        verb: v.verb,
+        adapters: v.adapters,
+        enabled: v.enabled,
         closableBy: v.closable_by ?? [],
       })),
     };
@@ -94,17 +81,7 @@ export class CapabilitiesClient {
     verb: string,
     body: { entity?: unknown; window?: { from: string; to: string }; extra?: Record<string, unknown> },
   ): Promise<CapabilityResult> {
-    interface Raw {
-      verb?: string;
-      coverage?: string;
-      ocsf_event_refs?: string[];
-      observed_data_refs?: string[];
-      entity_refs?: string[];
-      degradation_notes?: string[];
-      events?: unknown[];
-      normalized?: unknown[];
-    }
-    const r = await this.http.post<Raw>(`/api/capability/${encodeURIComponent(verb)}`, body);
+    const r = await this.http.post(`/api/capability/${encodeURIComponent(verb)}`, body, shapes.capabilityInvoke);
     return {
       verb: r.verb ?? verb,
       coverage: r.coverage ?? "UNKNOWN",

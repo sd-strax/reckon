@@ -1,7 +1,9 @@
 // What every call to the backend shares: where it is, whose token goes on it,
-// the one retry on a refused token (adr/0240), and how a refusal is reported.
-// The domain clients (./investigations, ./actions, …) are built on this and
-// hold nothing of it themselves.
+// the one retry on a refused token (adr/0240), the compatibility gate every
+// authenticated call passes (adr/0244), how a refusal is reported, and how an
+// answer is read: through a wire shape, never cast. The domain clients
+// (./investigations, ./actions, …) are built on this and hold nothing of it.
+import { decode, DecodeError, type Decoder } from "../wire/decode";
 
 /** A refused request, with its status and the server's JSON body when it sent one. */
 export class BackendRequestError extends Error {
@@ -21,6 +23,8 @@ export function existingInvestigation(err: unknown): string | undefined {
 export class BackendHttp {
   /**
    * @param baseUrl read per-call so a settings change needs no reload.
+   * @param gate    run before every authenticated call with the base it goes
+   *                to; throws when that backend must not be spoken to.
    * @param token   supplies a bearer token for authenticated calls; omitted for
    *                the public /status and /auth-config probes.
    * @param renew   a fresh token to replace one the backend refused; omitted, a
@@ -28,41 +32,52 @@ export class BackendHttp {
    */
   constructor(
     private readonly baseUrl: () => string,
+    private readonly gate: (base: string) => Promise<void>,
     private readonly token?: () => Promise<string>,
     private readonly renew?: (rejected: string) => Promise<string>,
   ) {}
 
-  /** The absolute URL of a path on the backend. */
-  url(path: string): string {
-    return `${this.baseUrl()}${path}`;
+  async get<T>(path: string, shape: Decoder<T>): Promise<T> {
+    return this.decoded(`GET ${path}`, shape, await this.authed("GET", path));
   }
 
-  async get<T>(path: string): Promise<T> {
-    return this.authed<T>("GET", path);
+  /** A POST whose answer is read through `shape`; without one, only its success counts. */
+  async post(path: string, body: unknown): Promise<void>;
+  async post<T>(path: string, body: unknown, shape: Decoder<T>): Promise<T>;
+  async post<T>(path: string, body: unknown, shape?: Decoder<T>): Promise<T | void> {
+    const res = await this.authed("POST", path, body);
+    return shape ? this.decoded(`POST ${path}`, shape, res) : undefined;
   }
 
-  async post<T>(path: string, body: unknown): Promise<T> {
-    return this.authed<T>("POST", path, body);
+  private async decoded<T>(from: string, shape: Decoder<T>, res: Response): Promise<T> {
+    const body: unknown = await res.json().catch(() => {
+      throw new DecodeError(`unexpected response from ${from}: not JSON`);
+    });
+    return decode(from, shape, body);
   }
 
   /**
    * Send with the current token, and once more with a fresh one on a 401. Safe
    * for a write: a 401 comes from the auth middleware, before any handler ran.
+   * The URL is read once: the backend checked is the backend called, whatever
+   * the setting does meanwhile.
    */
-  async withBearer(send: (bearer: string) => Promise<Response>): Promise<Response> {
+  async withBearer(send: (base: string, bearer: string) => Promise<Response>): Promise<Response> {
     if (!this.token) {
       throw new Error("no token source configured");
     }
+    const base = this.baseUrl();
+    await this.gate(base);
     const bearer = await this.token();
-    const res = await send(bearer);
+    const res = await send(base, bearer);
     if (res.status !== 401 || !this.renew) {
       return res;
     }
-    return send(await this.renew(bearer));
+    return send(base, await this.renew(bearer));
   }
 
-  private async authed<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
-    const res = await this.withBearer((bearer) => fetch(this.url(path), {
+  private async authed(method: "GET" | "POST", path: string, body?: unknown): Promise<Response> {
+    const res = await this.withBearer((base, bearer) => fetch(`${base}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${bearer}`,
@@ -85,6 +100,6 @@ export class BackendHttp {
       }
       throw new BackendRequestError(`${method} ${path} → ${res.status}${detail}`, res.status, parsed);
     }
-    return (await res.json()) as T;
+    return res;
   }
 }

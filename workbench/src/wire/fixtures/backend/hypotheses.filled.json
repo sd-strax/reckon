@@ -1,0 +1,53 @@
+{
+  "hypotheses": [
+    {
+      "id": "x",
+      "statement": "x",
+      "handle": "x",
+      "status": "x",
+      "parent_ref": "x",
+      "rooted_at_ref": "x",
+      "labels": [
+        "x"
+      ],
+      "predictions": [
+        {
+          "id": "x",
+          "statement": "x",
+          "status": "x",
+          "ordinal": 1,
+          "test_query": {
+            "tool": "x",
+            "query_text": "x",
+            "parameters": {
+              "x": "x"
+            }
+          },
+          "discriminates": [
+            "x"
+          ],
+          "test_result_refs": [
+            "x"
+          ],
+          "test_kind": "x",
+          "attestation": {
+            "note_ref": "x",
+            "author": "x",
+            "author_name": "x",
+            "content": "x",
+            "source": "x",
+            "channel": "x",
+            "observed_at": "2026-01-02T03:04:05Z",
+            "reference": "x",
+            "artifact": {
+              "system": "x",
+              "location": "x",
+              "sha256": "x",
+              "access": "x"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

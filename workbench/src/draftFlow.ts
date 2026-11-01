@@ -160,6 +160,12 @@ export class DraftFlow {
    * behaves as before.
    */
   async postDraft(panel: vscode.WebviewPanel, mode?: "case"): Promise<void> {
+    const incompatible = await this.host.incompatibleBackend();
+    if (incompatible) {
+      void this.host.post(panel, { type: "draft" });
+      void this.host.post(panel, { type: "draft.error", message: incompatible });
+      return;
+    }
     let caseQueue: string | undefined;
     try {
       caseQueue = await this.host.client.cases.configuredQueue();

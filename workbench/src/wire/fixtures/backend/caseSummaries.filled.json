@@ -1,0 +1,35 @@
+{
+  "case_summaries": [
+    {
+      "investigation_ref": "x",
+      "title": "x",
+      "body": "x",
+      "generator_model": "x",
+      "conclusion_at": "x",
+      "seed_kind": "x",
+      "seed_value": "x",
+      "techniques": [
+        "x"
+      ],
+      "primary_entities": [
+        "x"
+      ],
+      "actions_taken": [
+        {
+          "action_type": "x",
+          "target_count": 1,
+          "outcome": "x"
+        }
+      ],
+      "conclusion_outcome": "x",
+      "duration_hours": 1,
+      "verdict_disposition": "x",
+      "verdict_rationale": "x",
+      "tags": [
+        "x"
+      ],
+      "revision": 1,
+      "content_hash": "x"
+    }
+  ]
+}

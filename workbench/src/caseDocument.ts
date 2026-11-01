@@ -80,6 +80,13 @@ export class CaseDocuments {
 
   private async load(number: string, panel: vscode.WebviewPanel): Promise<void> {
     try {
+      // The handshake, on every load (adr/0244): a backend upgraded under a
+      // running window is caught here, before anything is read from it.
+      const incompatible = this.client.incompatibilityReason(await this.client.status());
+      if (incompatible) {
+        this.post(panel, { type: "error", message: incompatible });
+        return;
+      }
       const c = await this.client.cases.get(number);
       this.post(panel, { type: "case", case: c });
     } catch (err) {

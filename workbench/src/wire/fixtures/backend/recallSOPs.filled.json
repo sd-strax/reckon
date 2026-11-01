@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "sop_id": "00000000-0000-0000-0000-000000000000",
+      "title": "x",
+      "excerpt": "x",
+      "score": 1,
+      "match_rationale": "x",
+      "tags": [
+        "x"
+      ],
+      "recommendation": "x",
+      "status": "x",
+      "backend": "x"
+    }
+  ],
+  "coverage": "x",
+  "retrieval_at": "2026-01-02T03:04:05Z"
+}

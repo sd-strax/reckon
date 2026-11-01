@@ -54,18 +54,14 @@ See `implementation/supervisor-design.md` for the full pattern document. **New c
 
 ## 3. Two-axis auth chain
 
-Used in `reckon/server/`. Pattern: compose `authz.RequireAuth` (Gate 1) before per-route `authz.RequireRole` or inline equivalents (still Gate 1, narrower).
+Used in `reckon/server/`. Pattern: every API route is an entry in the table in `server/routes.go`, naming its roles; `mountRoutes` composes `authz.RequireAuth` (Gate 1) with the role check (still Gate 1, narrower).
 
 ```go
 // Gate 2 (action authorization, CEL-based) is a separate Phase C concern;
 // don't muddy Gate 1 routes with action-policy decisions.
 
-api.Handle("/me", authz.RequireAuth(verifier)(http.HandlerFunc(b.handleMe)))
-api.Handle("/investigations", authz.RequireAuth(verifier)(
-    http.HandlerFunc(b.investigationsCollection),
-))
-// inside investigationsCollection:
-b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.createInvestigation)
+{"GET /investigations/{id}/thread", read, withUUID(b.listInvestigationThread)},
+{"POST /investigations", analyst, b.createInvestigation},
 ```
 
 **Why composed, not unified:** Gate 1 is about "who is this?", Gate 2 is about "given who they are, can they do this specific action?". Conflating them spreads action policy across HTTP handlers; keep action policy in one place (Phase C, the `action/` package).

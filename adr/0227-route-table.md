@@ -1,6 +1,6 @@
 # 0227 — One route table, named role sets, one event-pair helper
 
-Issue: #227 · PR: #287 · Status: accepted
+Issue: #227 · PR: #287, #290 · Status: accepted
 
 ## Context
 
@@ -34,14 +34,17 @@ fifteen commands built the same domain event and interpretation pair by hand.
 
 ## Consequences
 
-The move changes a few answers, none on a path a client uses:
+The move changes a few answers, none that a client depends on:
 
 - A 404 or 405 from the router is plain text, not JSON, and comes before
   authentication.
 - A trailing slash no longer matches.
 - HEAD works on GET routes.
-- `GET`, `PUT` and `DELETE` on `/sops/import` are a 400 (`import` is not an id),
-  not a 405.
+- `GET`, `PUT` and `DELETE` on `/sops/import` and `/sops/import_markdown` are a
+  400 (neither name is an id), not a 405.
+- A malformed id is a 400 with one message, after the role check and before a
+  503 for a layer that is not configured: the id is checked when the route is
+  entered, ahead of the handler.
 - A caller without the role gets a 403 from a route whose layer is not
   configured, where it got a 503.
 

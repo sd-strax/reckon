@@ -1,0 +1,45 @@
+{
+  "thread": [
+    {
+      "sequence_no": 1,
+      "occurred_at": "2026-01-02T03:04:05Z",
+      "actor": {
+        "principal": "x",
+        "principal_name": "x",
+        "kind": "x",
+        "model": "x"
+      },
+      "interpretation_id": "x",
+      "interpretation_type": "x",
+      "summary": "x",
+      "confidence": "x",
+      "input_refs": [
+        "x"
+      ],
+      "output_refs": [
+        "x"
+      ],
+      "tool_calls": 1,
+      "has_transcript": true,
+      "superseded": true,
+      "disposition": "x",
+      "consulted_sops": [
+        {
+          "sop_id": "x",
+          "title": "x",
+          "retrieval_score": 1,
+          "used": true
+        }
+      ],
+      "consulted_similar_investigations": [
+        {
+          "investigation_ref": "x",
+          "title": "x",
+          "retrieval_score": 1,
+          "band": "x",
+          "used": true
+        }
+      ]
+    }
+  ]
+}

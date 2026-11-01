@@ -1,0 +1,26 @@
+{
+  "action_types": [
+    {
+      "descriptor": {
+        "action_type": "x",
+        "intent": "x",
+        "inputs": [
+          {
+            "name": "x",
+            "type": "x",
+            "required": true,
+            "desc": "x"
+          }
+        ],
+        "default_tier": "x",
+        "reversibility": "x",
+        "reversible_by": "x",
+        "d3fend": "x",
+        "name": "x",
+        "category": "x"
+      },
+      "status": "x",
+      "bindings": 1
+    }
+  ]
+}

@@ -88,8 +88,10 @@ export class KnowledgeFlow {
     void this.host.post(panel, { type: "sop.status", state: "drafting" });
     const current = this.host.sameIdentity();
     let candidate: SOPCandidate;
+    let usable: boolean;
     try {
       candidate = await this.host.transport.proposeSOP(id, force);
+      usable = candidate.warranted && !!candidate.title.trim() && !!candidate.body.trim();
     } catch (err) {
       void this.host.post(panel, { type: "sop.status", state: "failed", message: errText(err) });
       return;
@@ -97,8 +99,8 @@ export class KnowledgeFlow {
       this.host.releaseSession(id);
     }
     if (!current()) return;
-    if (!candidate?.warranted || !candidate.title.trim() || !candidate.body.trim()) {
-      void this.host.post(panel, { type: "sop.status", state: "declined", message: candidate?.rationale?.trim() || "No new procedure: the model judged nothing here to generalize." });
+    if (!usable) {
+      void this.host.post(panel, { type: "sop.status", state: "declined", message: candidate.rationale.trim() || "No new procedure: the model judged nothing here to generalize." });
       return;
     }
     const doc = await vscode.workspace.openTextDocument({ content: candidateSOPMarkdown(candidate, id), language: "markdown" });

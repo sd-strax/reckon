@@ -14,23 +14,26 @@ const detail = (seq = 3): InvestigationDetail =>
  * A backend whose named reads the test sets; every other read answers an
  * empty list, which each optional layer of the document renders as absent.
  */
-function backend(over: Record<string, (...args: never[]) => Promise<unknown>> = {}) {
+function backend(over: Record<string, (...args: never[]) => unknown> = {}) {
   const calls: string[] = [];
-  const named: Record<string, (...args: never[]) => Promise<unknown>> = {
+  const named: Record<string, (...args: never[]) => unknown> = {
+    incompatibilityReason: () => null,
     "investigations.get": async () => detail(),
     "capabilities.enablement": async () => null,
     "cases.queue": async () => null,
     ...over,
   };
-  // Reads are named by domain and method, as the client exposes them.
+  const call = (name: string) => (...args: never[]) => {
+    calls.push(name);
+    return (named[name] ?? (async () => []))(...args);
+  };
+  // The connection-level calls are on the client itself; every read is named
+  // by domain and method, as the client exposes them.
+  const connection = new Set(["status", "incompatibilityReason", "me", "authConfig"]);
   const client = new Proxy({}, {
-    get: (_t, domain: string) => new Proxy({}, {
-      get: (_d, prop: string) => (...args: never[]) => {
-        const name = `${domain}.${prop}`;
-        calls.push(name);
-        return (named[name] ?? (async () => []))(...args);
-      },
-    }),
+    get: (_t, prop: string) => connection.has(prop)
+      ? call(prop)
+      : new Proxy({}, { get: (_d, method: string) => call(`${prop}.${method}`) }),
   }) as BackendClient;
   return { client, calls };
 }
@@ -608,5 +611,57 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
 
     expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
     expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshInvestigations");
+  });
+});
+
+describe("InvestigationDocuments: the wire boundary", () => {
+  it("shows why when the backend is incompatible, and makes no other call", async () => {
+    const reason = "backend API v9 unsupported (this workbench speaks v1) — align versions";
+    const { client, calls } = backend({ incompatibilityReason: () => reason });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0];
+
+    panel.webview.receive({ type: "ready" });
+
+    await vi.waitFor(() => expect(panel.webview.posted).toContainEqual({ type: "error", message: reason }));
+    expect(calls.filter((c) => c !== "status" && c !== "incompatibilityReason")).toEqual([]);
+  });
+
+  it("says so on a draft too, and reads nothing for it", async () => {
+    const reason = "backend API v9 unsupported";
+    const { client, calls } = backend({ incompatibilityReason: () => reason });
+    const { docs } = documents(client);
+    docs.showDraft();
+
+    createdPanels()[0].webview.receive({ type: "ready" });
+
+    await vi.waitFor(() => expect(posted()).toContainEqual({ type: "draft.error", message: reason }));
+    expect(calls).not.toContain("cases.configuredQueue");
+  });
+
+  it("loads when the backend is compatible", async () => {
+    const { client } = backend();
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "ready" });
+
+    await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
+  });
+
+  it("does not leave the panel on drafting when a candidate has no title", async () => {
+    vi.mocked(transport.proposeSOP).mockResolvedValueOnce({ warranted: true, body: "B" } as never);
+    const { docs } = documents(backend().client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "sop.draft" });
+
+    await vi.waitFor(() => expect(posted()).toContainEqual(expect.objectContaining({ type: "sop.status", state: "failed" })));
+  });
+
+  it("does not throw on a message of unknown type", () => {
+    const { docs } = documents(backend().client);
+    docs.show("inv-1");
+
+    expect(() => createdPanels()[0].webview.receive({ type: "no.such.message" })).not.toThrow();
   });
 });

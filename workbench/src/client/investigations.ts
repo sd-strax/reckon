@@ -1,45 +1,12 @@
 // The investigation aggregate over HTTP: the list and the record, the
 // reasoning thread and its writes (hypotheses, predictions, verdict, pins),
 // the lifecycle, creation and rename, and the exports. Every write here is the
-// analyst's own act on the human token.
+// analyst's own act on the human token. Answers are decoded through the wire
+// shapes (adr/0244).
 import type { BackendHttp } from "./http";
-import type {
-  ArtifactLocation,
-  Hypothesis,
-  InvestigationDetail,
-  InvestigationSummary,
-  PinRow,
-  Seed,
-  ThreadEntry,
-  ToolCallRecord,
-} from "../viewTypes";
-
-/** Raw server.InvestigationView row, as served under {investigations: [...]}. */
-interface RawInvestigation {
-  aggregate_id: string;
-  title: string;
-  status: string;
-  last_event_sequence?: number;
-  updated_at?: string;
-  pending_actions?: number;
-  nearest_expiry?: string;
-  has_verdict?: boolean;
-  open_actions?: number;
-  open_notifications?: number;
-  created_at?: string;
-  opened_by_name?: string;
-  verdict?: { disposition?: string; rationale?: string; verdict_at?: string };
-  seed?: {
-    type?: string; alert_id?: string; source?: string;
-    detection_finding_ref?: string; entity_ref?: string;
-    entity_identifier?: string; hypothesis_statement?: string;
-    case_id?: string; case_ref?: string;
-  };
-  seed_summary?: string;
-  // The case write-back posture and, on create, the note offer (adr/0032).
-  case_note_on_seed?: string;
-  case_note?: { case_id?: string; body?: string; system_name?: string };
-}
+import * as shapes from "../wire/backendShapes";
+import type { RawInvestigation } from "../wire/backendShapes";
+import type { ArtifactLocation, Hypothesis, InvestigationDetail, InvestigationSummary, PinRow, Seed, ThreadEntry, ToolCallRecord } from "../viewTypes";
 
 /** Map a raw seed body to the client Seed shape (shared by list/get/create). */
 function mapSeed(s: RawInvestigation["seed"]): Seed | undefined {
@@ -62,37 +29,12 @@ function mapCreated(r: RawInvestigation): InvestigationDetail {
     id: r.aggregate_id,
     title: r.title || "(untitled)",
     state: r.status,
-    lastEventSequence: r.last_event_sequence ?? 0,
+    lastEventSequence: r.last_event_sequence,
     seed: mapSeed(r.seed),
     seedSummary: r.seed_summary,
     caseNoteOnSeed: r.case_note_on_seed,
-    caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "", systemName: r.case_note.system_name } : undefined,
+    caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body, systemName: r.case_note.system_name } : undefined,
   };
-}
-
-/** Raw server.HypothesisView, as served under {hypotheses: [...]}. */
-interface RawHypothesis {
-  id: string;
-  statement: string;
-  handle?: string;
-  status: string;
-  parent_ref?: string;
-  rooted_at_ref?: string;
-  labels?: string[];
-  predictions?: RawPrediction[];
-}
-
-/** Raw server.PredictionView. */
-interface RawPrediction {
-  id: string;
-  statement: string;
-  status: string;
-  ordinal?: number;
-  test_query?: { tool?: string; query_text?: string };
-  discriminates?: string[];
-  test_result_refs?: string[];
-  test_kind?: string;
-  attestation?: { note_ref: string; author: string; author_name?: string; content: string; source?: string; channel?: string; observed_at?: string; reference?: string; artifact?: ArtifactLocation };
 }
 
 export class InvestigationsClient {
@@ -100,13 +42,13 @@ export class InvestigationsClient {
 
   /** GET /api/investigations — the investigation list (server.InvestigationView). Authenticated. */
   async list(): Promise<InvestigationSummary[]> {
-    const body = await this.http.get<{ investigations?: RawInvestigation[] }>("/api/investigations");
-    return (body.investigations ?? []).map((r) => ({
+    const body = await this.http.get("/api/investigations", shapes.investigations);
+    return body.investigations.map((r) => ({
       id: r.aggregate_id,
       title: r.title || "(untitled)",
       state: r.status,
       seedSummary: r.seed_summary,
-      lastEventSequence: r.last_event_sequence ?? 0,
+      lastEventSequence: r.last_event_sequence,
       updatedAt: r.updated_at,
       pendingActions: r.pending_actions ?? 0,
       nearestExpiry: r.nearest_expiry,
@@ -119,21 +61,21 @@ export class InvestigationsClient {
 
   /** GET /api/investigations/{id} — one investigation's detail. Authenticated. */
   async get(id: string): Promise<InvestigationDetail> {
-    const r = await this.http.get<RawInvestigation>(`/api/investigations/${encodeURIComponent(id)}`);
+    const r = await this.http.get(`/api/investigations/${encodeURIComponent(id)}`, shapes.investigation);
     return {
       id: r.aggregate_id,
       title: r.title || "(untitled)",
       state: r.status,
-      lastEventSequence: r.last_event_sequence ?? 0,
+      lastEventSequence: r.last_event_sequence,
       verdict: r.verdict?.disposition ? {
         disposition: r.verdict.disposition,
         rationale: r.verdict.rationale,
-        verdictAt: r.verdict.verdict_at ?? "",
+        verdictAt: r.verdict.verdict_at,
       } : undefined,
       seed: mapSeed(r.seed),
       seedSummary: r.seed_summary,
       caseNoteOnSeed: r.case_note_on_seed,
-      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body ?? "", systemName: r.case_note.system_name } : undefined,
+      caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body, systemName: r.case_note.system_name } : undefined,
       createdAt: r.created_at,
       openedByName: r.opened_by_name,
     };
@@ -153,7 +95,7 @@ export class InvestigationsClient {
         hypothesis_statement: seed.hypothesisStatement,
       };
     }
-    return mapCreated(await this.http.post<RawInvestigation>("/api/investigations", body));
+    return mapCreated(await this.http.post("/api/investigations", body, shapes.created));
   }
 
   /**
@@ -166,7 +108,7 @@ export class InvestigationsClient {
   async createFromInput(value: string, kind: string, title?: string, allowUnknown?: boolean): Promise<InvestigationDetail> {
     const body: Record<string, unknown> = { seed_input: { value, kind, allow_unknown: allowUnknown || undefined } };
     if (title) body.title = title;
-    return mapCreated(await this.http.post<RawInvestigation>("/api/investigations", body));
+    return mapCreated(await this.http.post("/api/investigations", body, shapes.created));
   }
 
   /**
@@ -174,11 +116,8 @@ export class InvestigationsClient {
    * curation; the aggregate bars an AI delegate. Returns the applied title.
    */
   async rename(id: string, title: string): Promise<string> {
-    const r = await this.http.post<{ title?: string }>(
-      `/api/investigations/${encodeURIComponent(id)}/rename`,
-      { title },
-    );
-    return r.title ?? title;
+    const r = await this.http.post(`/api/investigations/${encodeURIComponent(id)}/rename`, { title }, shapes.renamed);
+    return r.title;
   }
 
   /**
@@ -192,7 +131,7 @@ export class InvestigationsClient {
     investigationId: string,
     body: { transition: string; reason?: string; reportRef?: string; summary?: string },
   ): Promise<{ status: string; exportWorkflowId?: string }> {
-    const r = await this.http.post<{ status?: string; export_workflow_id?: string }>(
+    const r = await this.http.post(
       `/api/investigations/${encodeURIComponent(investigationId)}/lifecycle`,
       {
         transition: body.transition,
@@ -200,8 +139,9 @@ export class InvestigationsClient {
         report_ref: body.reportRef,
         summary: body.summary,
       },
+      shapes.lifecycle,
     );
-    return { status: r.status ?? "", exportWorkflowId: r.export_workflow_id };
+    return { status: r.status, exportWorkflowId: r.export_workflow_id };
   }
 
   /**
@@ -211,11 +151,12 @@ export class InvestigationsClient {
    * authorization status, exactly like any action request.
    */
   async requestCaseNote(id: string, body?: string): Promise<{ actionId: string; status: string }> {
-    const r = await this.http.post<{ action_id?: string; status?: string }>(
+    const r = await this.http.post(
       `/api/investigations/${encodeURIComponent(id)}/case_note`,
       body ? { body } : {},
+      shapes.actionRequested,
     );
-    return { actionId: r.action_id ?? "", status: r.status ?? "" };
+    return { actionId: r.action_id, status: r.status };
   }
 
   /**
@@ -223,10 +164,8 @@ export class InvestigationsClient {
    * nested under the hypothesis they test (D.2). Authenticated.
    */
   async hypotheses(id: string): Promise<Hypothesis[]> {
-    const body = await this.http.get<{ hypotheses?: RawHypothesis[] }>(
-      `/api/investigations/${encodeURIComponent(id)}/hypotheses`,
-    );
-    return (body.hypotheses ?? []).map((h) => ({
+    const body = await this.http.get(`/api/investigations/${encodeURIComponent(id)}/hypotheses`, shapes.hypotheses);
+    return body.hypotheses.map((h) => ({
       id: h.id,
       statement: h.statement,
       handle: h.handle || undefined,
@@ -269,38 +208,19 @@ export class InvestigationsClient {
    * This is the "how did it get here" surface.
    */
   async thread(id: string): Promise<ThreadEntry[]> {
-    interface Raw {
-      sequence_no?: number;
-      occurred_at?: string;
-      actor?: { principal?: string; principal_name?: string; kind?: string; model?: string };
-      interpretation_id?: string;
-      interpretation_type?: string;
-      summary?: string;
-      confidence?: string;
-      input_refs?: string[];
-      output_refs?: string[];
-      tool_calls?: number;
-      has_transcript?: boolean;
-      superseded?: boolean;
-      disposition?: string;
-      consulted_sops?: { sop_id?: string; title?: string; used?: boolean }[];
-      consulted_similar_investigations?: { investigation_ref?: string; title?: string; band?: string; used?: boolean }[];
-    }
-    const body = await this.http.get<{ thread?: Raw[] }>(
-      `/api/investigations/${encodeURIComponent(id)}/thread`,
-    );
-    return (body.thread ?? []).map((e) => ({
-      sequenceNo: e.sequence_no ?? 0,
-      occurredAt: e.occurred_at ?? "",
+    const body = await this.http.get(`/api/investigations/${encodeURIComponent(id)}/thread`, shapes.thread);
+    return body.thread.map((e) => ({
+      sequenceNo: e.sequence_no,
+      occurredAt: e.occurred_at,
       actor: {
-        principal: e.actor?.principal ?? "",
-        principalName: e.actor?.principal_name,
-        kind: e.actor?.kind ?? "HUMAN",
-        model: e.actor?.model,
+        principal: e.actor.principal,
+        principalName: e.actor.principal_name,
+        kind: e.actor.kind,
+        model: e.actor.model,
       },
-      interpretationId: e.interpretation_id ?? "",
-      interpretationType: e.interpretation_type ?? "",
-      summary: e.summary ?? "",
+      interpretationId: e.interpretation_id,
+      interpretationType: e.interpretation_type,
+      summary: e.summary,
       confidence: e.confidence,
       inputRefs: e.input_refs ?? [],
       outputRefs: e.output_refs ?? [],
@@ -309,33 +229,23 @@ export class InvestigationsClient {
       superseded: e.superseded ?? false,
       disposition: e.disposition || undefined,
       consultedSops: (e.consulted_sops ?? []).map((c) => ({
-        sopId: c.sop_id ?? "", title: c.title, used: c.used ?? false,
+        sopId: c.sop_id, title: c.title, used: c.used,
       })),
       consultedSimilar: (e.consulted_similar_investigations ?? []).map((c) => ({
-        investigationRef: c.investigation_ref ?? "", title: c.title, band: c.band, used: c.used ?? false,
+        investigationRef: c.investigation_ref, title: c.title, band: c.band, used: c.used,
       })),
     }));
   }
 
   /** GET /api/investigations/{id}/pins — the pinned-evidence fold. */
   async pins(id: string): Promise<PinRow[]> {
-    interface Raw {
-      interpretation_id?: string;
-      finding?: string;
-      input_refs?: string[];
-      actor?: string;
-      pinned_at?: string;
-      superseded?: boolean;
-    }
-    const body = await this.http.get<{ pins?: Raw[] }>(
-      `/api/investigations/${encodeURIComponent(id)}/pins`,
-    );
-    return (body.pins ?? []).map((p) => ({
-      interpretationId: p.interpretation_id ?? "",
-      finding: p.finding ?? "",
-      inputRefs: p.input_refs ?? [],
-      actor: p.actor ?? "HUMAN",
-      pinnedAt: p.pinned_at ?? "",
+    const body = await this.http.get(`/api/investigations/${encodeURIComponent(id)}/pins`, shapes.pins);
+    return body.pins.map((p) => ({
+      interpretationId: p.interpretation_id,
+      finding: p.finding,
+      inputRefs: p.input_refs,
+      actor: p.actor,
+      pinnedAt: p.pinned_at,
       superseded: p.superseded ?? false,
     }));
   }
@@ -540,8 +450,8 @@ export class InvestigationsClient {
         : undefined,
       tool_calls: rec.toolCalls?.map((t) => ({ call_id: t.callId, tool_name: t.toolName, args: t.args })),
     };
-    const r = await this.http.post<{ interpretation_id?: string }>("/api/interpretations", body);
-    return { interpretationId: r.interpretation_id ?? "" };
+    const r = await this.http.post("/api/interpretations", body, shapes.interpretation);
+    return { interpretationId: r.interpretation_id };
   }
 
   /** POST /api/interpretations/{id}/supersede — un-pin / retraction. */
@@ -557,10 +467,8 @@ export class InvestigationsClient {
    * behind a thread step (the content-addressed side store).
    */
   async transcript(interpretationId: string): Promise<{ turnId?: string; body: string }> {
-    const r = await this.http.get<{ turn_id?: string; body?: string }>(
-      `/api/interpretations/${encodeURIComponent(interpretationId)}/transcript`,
-    );
-    return { turnId: r.turn_id, body: r.body ?? "" };
+    const r = await this.http.get(`/api/interpretations/${encodeURIComponent(interpretationId)}/transcript`, shapes.transcript);
+    return { turnId: r.turn_id, body: r.body };
   }
 
   /**
@@ -569,8 +477,8 @@ export class InvestigationsClient {
    * ticket unedited" is this call, not a file on disk.
    */
   async exportMarkdown(investigationId: string): Promise<string> {
-    const res = await this.http.withBearer((bearer) => fetch(
-      this.http.url(`/api/investigations/${encodeURIComponent(investigationId)}/export.md`),
+    const res = await this.http.withBearer((base, bearer) => fetch(
+      `${base}/api/investigations/${encodeURIComponent(investigationId)}/export.md`,
       { headers: { Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(15_000) },
     ));
     if (!res.ok) {

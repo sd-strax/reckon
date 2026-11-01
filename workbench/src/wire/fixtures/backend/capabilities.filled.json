@@ -1,0 +1,22 @@
+{
+  "capabilities": [
+    {
+      "descriptor": {
+        "verb": "x",
+        "intent": "x",
+        "inputs": [
+          {
+            "name": "x",
+            "type": "x",
+            "required": true,
+            "desc": "x"
+          }
+        ],
+        "output": "x"
+      },
+      "status": "x",
+      "bindings": 1
+    }
+  ],
+  "case_queue": "x"
+}

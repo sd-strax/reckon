@@ -1,0 +1,128 @@
+{
+  "action": {
+    "action_id": "x",
+    "action_type": "x",
+    "tier": "x",
+    "status": "x",
+    "required_mode": "x",
+    "mode": "x",
+    "is_reversal": true,
+    "targets": [
+      {
+        "entity_ref": "x",
+        "resolved_identifier": "x",
+        "asset_criticality": "x"
+      }
+    ],
+    "evidence_refs": [
+      "x"
+    ],
+    "expires_at": "2026-01-02T03:04:05Z",
+    "parameters": {
+      "x": 1
+    },
+    "reversibility": "x",
+    "tier_escalated": true,
+    "edited_at": "2026-01-02T03:04:05Z",
+    "inputs": [
+      {
+        "name": "x",
+        "required": true
+      }
+    ],
+    "name": "x",
+    "category": "x",
+    "retry_of": "x",
+    "requesting_interpretation_id": "x",
+    "reversal_of_ref": "x",
+    "adapter": "x",
+    "planned_adapter": "x",
+    "error_detail": "x",
+    "result_ref": "x"
+  },
+  "history": [
+    {
+      "sequence_no": 1,
+      "event_type": "x",
+      "occurred_at": "2026-01-02T03:04:05Z",
+      "actor": {
+        "principal": "x",
+        "principal_name": "x",
+        "kind": "x",
+        "model": "x"
+      },
+      "status": "x",
+      "detail": "x"
+    }
+  ],
+  "authorization": {
+    "required_mode": "x",
+    "mode": "x",
+    "stage": "x",
+    "primary_approver": {
+      "principal": "x",
+      "principal_name": "x",
+      "at": "2026-01-02T03:04:05Z"
+    },
+    "secondary_approver": {
+      "principal": "x",
+      "principal_name": "x",
+      "at": "2026-01-02T03:04:05Z"
+    },
+    "secondary_approver_pool": [
+      "x"
+    ],
+    "policy_ref": "x",
+    "policy_version": "x",
+    "challenge_answered": true,
+    "matched_policy_ref": "x",
+    "evaluations": [
+      {
+        "policy_ref": "x",
+        "policy_version": "x",
+        "would_have_fired": true,
+        "effect": "x",
+        "shadow": true
+      }
+    ]
+  },
+  "result": {
+    "final_outcome": "x",
+    "attempts": 1,
+    "adapter": "x",
+    "error_detail": "x",
+    "raw_response_ref": "x",
+    "per_target": [
+      {
+        "target": "x",
+        "outcome": "x"
+      }
+    ]
+  },
+  "resolution": {
+    "outcome": "x",
+    "note": "x",
+    "reference": "x",
+    "artifact": {
+      "system": "x",
+      "location": "x",
+      "sha256": "x",
+      "access": "x"
+    },
+    "by": {
+      "principal": "x",
+      "principal_name": "x",
+      "at": "2026-01-02T03:04:05Z"
+    }
+  },
+  "links": {
+    "retry_of": "x",
+    "retried_by": [
+      "x"
+    ],
+    "reversal_of_ref": "x",
+    "reversed_by_ref": "x",
+    "reversal_attempted_by_ref": "x",
+    "requesting_interpretation_id": "x"
+  }
+}

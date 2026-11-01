@@ -251,7 +251,7 @@ export class InvestigationDocuments implements DocumentHost {
 
   /** Route one webview message using the panel's current (mutable) id. */
   private route(ref: { id: string }, panel: vscode.WebviewPanel, msg: InboundMessage): void {
-    routeInbound(this.handlers(ref, panel), msg);
+    routeInbound(this.handlers(ref, panel), msg, (type) => this.log.warn(`ignoring webview message of unknown type ${String(type)}`));
   }
 
   /** Every inbound message's handler for one panel (the router's table). */
@@ -490,6 +490,14 @@ export class InvestigationDocuments implements DocumentHost {
     }
   }
 
+  /**
+   * The handshake, on every panel load (adr/0244): a backend upgraded under a
+   * running window is caught here, before anything is called on it.
+   */
+  async incompatibleBackend(): Promise<string | null> {
+    return this.client.incompatibilityReason(await this.client.status());
+  }
+
   /** Whether this panel is still the open document for the investigation. */
   isOpen(id: string, panel: vscode.WebviewPanel): boolean {
     return this.open.get(id) === panel;
@@ -504,6 +512,12 @@ export class InvestigationDocuments implements DocumentHost {
   load(id: string, panel: vscode.WebviewPanel): Promise<void> {
     return this.cache.exclusive(id, async () => {
       void this.post(panel, { type: "loading" });
+      const incompatible = await this.incompatibleBackend();
+      if (incompatible) {
+        this.log.error(`load investigation ${id}: ${incompatible}`);
+        void this.post(panel, { type: "error", message: incompatible });
+        return;
+      }
       let snapshot: InvestigationSnapshot;
       try {
         snapshot = await this.cache.snapshot(id);
