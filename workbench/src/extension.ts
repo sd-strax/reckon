@@ -33,7 +33,7 @@ export function activate(context: vscode.ExtensionContext): void {
     log,
   );
   // Authenticated client: its token source is the session, refreshed on demand.
-  const client = new BackendClient(() => backendUrl(), () => session.token());
+  const client = new BackendClient(() => backendUrl(), () => session.token(), (rejected) => session.renew(rejected));
 
   // Last-seen event sequences — view state behind the tree's unseen-changes
   // cue (ui/02 §2.12). Never investigation state; lives in globalState.
