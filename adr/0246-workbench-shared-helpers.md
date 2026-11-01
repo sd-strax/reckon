@@ -1,6 +1,6 @@
 # 0246 — The workbench host has one copy of each helper and one path for a panel write
 
-Issue: #246 · PR: pending · Status: accepted
+Issue: #246 · PR: #288 · Status: accepted
 
 ## Context
 

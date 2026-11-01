@@ -1,6 +1,6 @@
 # 0247 — The webview bundle does not reach the host's HTTP client, and `extension.ts` is only the composition root
 
-Issue: #247 · PR: pending · Status: accepted
+Issue: #247 · PR: #288 · Status: accepted
 
 ## Context
 
