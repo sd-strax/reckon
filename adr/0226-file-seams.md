@@ -41,6 +41,11 @@ configured" check would pass and the call would crash. `runtime` is the only
 production constructor and always builds these stores, so a store that is off
 must be left unset, never passed as a nil pointer.
 
+`Handler` and `Reads` are two fields for one thing, and handlers take a non-nil
+`Handler` to mean both are there. `NewBackend` panics on one without the other,
+as `mountRoutes` does on a route with no roles, so the mistake stops the process
+at startup and not on a request or in a sweep goroutine.
+
 No API answer changes. The moved code is unchanged apart from imports.
 
 ## Alternatives considered

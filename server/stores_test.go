@@ -301,3 +301,28 @@ func TestGetCaseSummary_OnFakes(t *testing.T) {
 		}
 	}
 }
+
+// TestNewBackend_HandlerAndReadsTogether: handlers take a non-nil Handler to
+// mean the aggregate is there, reads included, so a backend with one and not
+// the other stops at construction rather than panicking on a request or in a
+// sweep (adr/0226).
+func TestNewBackend_HandlerAndReadsTogether(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cfg   BackendConfig
+		wants bool
+	}{
+		"neither":      {BackendConfig{}, false},
+		"both":         {BackendConfig{Handler: &fakeCommands{}, Reads: &fakeReads{}}, false},
+		"handler only": {BackendConfig{Handler: &fakeCommands{}}, true},
+		"reads only":   {BackendConfig{Reads: &fakeReads{}}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if got := recover() != nil; got != tc.wants {
+					t.Errorf("panicked = %v; want %v", got, tc.wants)
+				}
+			}()
+			NewBackend(tc.cfg, nil)
+		})
+	}
+}

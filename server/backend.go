@@ -80,7 +80,9 @@ type BackendConfig struct {
 	// the engine is being torn down).
 	Handler commandHandler
 
-	// Reads is the aggregate's read side, set with Handler.
+	// Reads is the aggregate's read side. Handlers take a non-nil Handler to
+	// mean the aggregate is there, so the two are set together; NewBackend
+	// refuses one without the other.
 	Reads readModel
 
 	// Evidence persists what capability invocations return and opens cited
@@ -256,8 +258,12 @@ func (b *Backend) identityResolver() *identity.Resolver {
 
 // NewBackend constructs the Backend (not yet started). The supervisor
 // reference lets /status roll up every registered component including
-// Backend itself.
+// Backend itself. Handler without Reads, or Reads without Handler, is a wiring
+// mistake, so it stops the process here rather than on a request or in a sweep.
 func NewBackend(cfg BackendConfig, sup *supervisor.Supervisor) *Backend {
+	if (cfg.Handler == nil) != (cfg.Reads == nil) {
+		panic("server: BackendConfig.Handler and Reads are set together")
+	}
 	if cfg.HTTPPort == 0 {
 		cfg.HTTPPort = 8080
 	}
