@@ -51,11 +51,7 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusServiceUnavailable, "evidence store not configured")
 		return
 	}
-	ref, ok := strings.CutPrefix(strings.TrimSuffix(r.URL.Path, "/"), "/evidence/")
-	if !ok || ref == "" {
-		writeJSONError(w, http.StatusBadRequest, "path must be /evidence/{ref}")
-		return
-	}
+	ref := r.PathValue("ref")
 
 	if strings.Contains(ref, "--") {
 		obj, err := b.cfg.Evidence.Object(r.Context(), ref)

@@ -68,14 +68,9 @@ type ThreadEntryView struct {
 
 // listInvestigationThread serves the thread. Any authenticated reader
 // (viewer/analyst/auditor — enforced by the caller).
-func (b *Backend) listInvestigationThread(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) listInvestigationThread(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
-		return
-	}
-	invID, ok := investigationSubresourceID(r.URL.Path, "thread")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 	out, err := b.loadThread(r.Context(), invID)

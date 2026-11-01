@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/aggregate"
-	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/capability"
 )
 
@@ -60,26 +59,6 @@ type CaseListResponse struct {
 	// search).
 	Queue string     `json:"queue,omitempty"`
 	Cases []CaseView `json:"cases"`
-}
-
-// casesRoute serves GET /api/cases and GET /api/cases/{number}.
-func (b *Backend) casesRoute(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, "GET")
-		return
-	}
-	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/cases"), "/")
-	if rest == "" {
-		b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listCases)
-		return
-	}
-	if strings.Contains(rest, "/") {
-		writeJSONError(w, http.StatusNotFound, "not found")
-		return
-	}
-	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
-		b.getCase(w, r, rest)
-	})
 }
 
 // listCases reads the queue: `queue` (default: the tenant policy) and `filter`

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,39 +63,14 @@ type EnablementResponse struct {
 	Verbs      []EnablementVerbView    `json:"verbs"`
 }
 
-// enablementRoute routes /api/enablement (GET) and
-// /api/enablement/adapters/{name} (POST).
-func (b *Backend) enablementRoute(w http.ResponseWriter, r *http.Request) {
-	if b.cfg.CapabilityConfigPath == "" {
-		writeJSONError(w, http.StatusServiceUnavailable, "capability layer not configured")
-		return
-	}
-	p := strings.TrimSuffix(r.URL.Path, "/")
-	if p == "/enablement" {
-		if r.Method != http.MethodGet {
-			methodNotAllowed(w, "GET")
-			return
-		}
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.getEnablement)
-		return
-	}
-	if name, ok := strings.CutPrefix(p, "/enablement/adapters/"); ok && name != "" && !strings.Contains(name, "/") {
-		if r.Method != http.MethodPost {
-			methodNotAllowed(w, "POST")
-			return
-		}
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-			b.applyEnablement(w, r, name)
-		})
-		return
-	}
-	writeJSONError(w, http.StatusNotFound, "path must be /enablement or /enablement/adapters/{name}")
-}
-
 // getEnablement serves the operator view, straight from the tenant config
 // FILE (the authority) — never from the in-memory resolver, which only knows
 // enabled adapters.
 func (b *Backend) getEnablement(w http.ResponseWriter, _ *http.Request) {
+	if b.cfg.CapabilityConfigPath == "" {
+		writeJSONError(w, http.StatusServiceUnavailable, "capability layer not configured")
+		return
+	}
 	tc, err := capability.LoadTenantConfig(b.cfg.CapabilityConfigPath)
 	if err != nil {
 		writeInternalError(w, "load tenant config", err)
@@ -154,6 +128,10 @@ type ApplyEnablementBody struct {
 // reloads both sides from the file (Reload, adr/0223), and records
 // the attributed audit line. Only a HUMAN principal may apply (11 §5.1).
 func (b *Backend) applyEnablement(w http.ResponseWriter, r *http.Request, adapter string) {
+	if b.cfg.CapabilityConfigPath == "" {
+		writeJSONError(w, http.StatusServiceUnavailable, "capability layer not configured")
+		return
+	}
 	claims, ok := authz.FromContext(r.Context())
 	if !ok {
 		writeJSONError(w, http.StatusUnauthorized, "no verified claims")

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 )
@@ -37,7 +39,7 @@ type LifecycleResponse struct {
 // conclude/reopen/archive by the aggregate's allowlist, not just here). When
 // the committed events carry InvestigationConcluded it fires the automatic
 // export (07 §2.3), best-effort.
-func (b *Backend) investigationLifecycle(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) investigationLifecycle(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
 		return
@@ -45,11 +47,6 @@ func (b *Backend) investigationLifecycle(w http.ResponseWriter, r *http.Request)
 	claims, ok := authz.FromContext(r.Context())
 	if !ok {
 		writeJSONError(w, http.StatusInternalServerError, "auth context missing")
-		return
-	}
-	id, ok := investigationSubresourceID(r.URL.Path, "lifecycle")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 

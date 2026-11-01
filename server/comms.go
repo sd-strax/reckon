@@ -46,14 +46,9 @@ type CommsThreadView struct {
 }
 
 // listInvestigationComms serves GET /api/investigations/{id}/comms.
-func (b *Backend) listInvestigationComms(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) listInvestigationComms(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
 	if b.cfg.Comms == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "comms layer not configured")
-		return
-	}
-	invID, ok := investigationSubresourceID(r.URL.Path, "comms")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 	threads, err := b.cfg.Comms.List(r.Context(), invID, time.Now())
@@ -99,39 +94,10 @@ type CommsInboundBody struct {
 	Body     string `json:"body"`
 }
 
-// commsRoute routes /api/comms/inbound and /api/comms/{id}/(ack|done|snooze).
-// Analyst role; the acting principal is always the JWT subject.
-func (b *Backend) commsRoute(w http.ResponseWriter, r *http.Request) {
-	if b.cfg.Comms == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "comms layer not configured")
-		return
-	}
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w, "POST")
-		return
-	}
-	p := strings.TrimSuffix(r.URL.Path, "/")
-	if p == "/comms/inbound" {
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.commsInbound)
-		return
-	}
-	rest, ok := strings.CutPrefix(p, "/comms/")
-	if !ok {
-		writeJSONError(w, http.StatusNotFound, "path must be /comms/inbound or /comms/{id}/{ack|done|snooze}")
-		return
-	}
-	idStr, verb, ok := strings.Cut(rest, "/")
-	threadID, perr := uuid.Parse(idStr)
-	if !ok || perr != nil {
-		writeJSONError(w, http.StatusBadRequest, "path must be /comms/{id}/{ack|done|snooze}")
-		return
-	}
-	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-		b.commsAct(w, r, threadID, verb)
-	})
-}
-
 func (b *Backend) commsInbound(w http.ResponseWriter, r *http.Request) {
+	if !b.commsConfigured(w) {
+		return
+	}
 	var body CommsInboundBody
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
@@ -152,31 +118,54 @@ func (b *Backend) commsInbound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "recorded"})
 }
 
-func (b *Backend) commsAct(w http.ResponseWriter, r *http.Request, threadID uuid.UUID, verb string) {
-	claims, _ := authz.FromContext(r.Context())
-	now := time.Now()
-	var err error
-	switch verb {
-	case "ack":
-		err = b.cfg.Comms.Ack(r.Context(), threadID, claims.Subject, now)
-	case "done":
-		err = b.cfg.Comms.Done(r.Context(), threadID, claims.Subject, now)
-	case "snooze":
-		var body struct {
-			Hours int `json:"hours"`
-		}
-		if !decodeBody(w, r, &body, maxBodyBytes) {
-			return
-		}
-		if body.Hours <= 0 {
-			body.Hours = 24
-		}
-		err = b.cfg.Comms.Snooze(r.Context(), threadID, claims.Subject, body.Hours, now)
-	default:
-		writeJSONError(w, http.StatusNotFound, "unknown comms act "+verb)
+// commsAck, commsDone and commsSnooze are the analyst's acts on a thread. The
+// acting principal is always the JWT subject.
+func (b *Backend) commsAck(w http.ResponseWriter, r *http.Request, threadID uuid.UUID) {
+	b.commsAct(w, r, "ack", func(subject string, now time.Time) error {
+		return b.cfg.Comms.Ack(r.Context(), threadID, subject, now)
+	})
+}
+
+func (b *Backend) commsDone(w http.ResponseWriter, r *http.Request, threadID uuid.UUID) {
+	b.commsAct(w, r, "done", func(subject string, now time.Time) error {
+		return b.cfg.Comms.Done(r.Context(), threadID, subject, now)
+	})
+}
+
+func (b *Backend) commsSnooze(w http.ResponseWriter, r *http.Request, threadID uuid.UUID) {
+	if !b.commsConfigured(w) {
 		return
 	}
-	if err != nil {
+	var body struct {
+		Hours int `json:"hours"`
+	}
+	if !decodeBody(w, r, &body, maxBodyBytes) {
+		return
+	}
+	if body.Hours <= 0 {
+		body.Hours = 24
+	}
+	b.commsAct(w, r, "snooze", func(subject string, now time.Time) error {
+		return b.cfg.Comms.Snooze(r.Context(), threadID, subject, body.Hours, now)
+	})
+}
+
+// commsConfigured answers 503 when there is no comms layer.
+func (b *Backend) commsConfigured(w http.ResponseWriter) bool {
+	if b.cfg.Comms == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "comms layer not configured")
+		return false
+	}
+	return true
+}
+
+// commsAct runs one act and answers with its verb.
+func (b *Backend) commsAct(w http.ResponseWriter, r *http.Request, verb string, act func(subject string, now time.Time) error) {
+	if !b.commsConfigured(w) {
+		return
+	}
+	claims, _ := authz.FromContext(r.Context())
+	if err := act(claims.Subject, time.Now()); err != nil {
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}

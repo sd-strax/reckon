@@ -167,14 +167,9 @@ func (b *Backend) listInvestigations(w http.ResponseWriter, r *http.Request) {
 }
 
 // getInvestigation loads a single investigation by aggregate_id.
-func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
-		return
-	}
-	id, ok := investigationIDFromPath(r.URL.Path)
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 	ic, err := b.cfg.Handler.Reads().LoadInvestigationCurrent(r.Context(), id)
@@ -335,24 +330,4 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 		},
 		NewSequenceNo: res.NewSequenceNo,
 	})
-}
-
-// investigationIDFromPath parses the UUID out of `/investigations/{id}`.
-// The /api prefix has already been stripped by the parent router.
-func investigationIDFromPath(p string) (uuid.UUID, bool) {
-	const prefix = "/investigations/"
-	if !strings.HasPrefix(p, prefix) {
-		return uuid.UUID{}, false
-	}
-	tail := strings.TrimPrefix(p, prefix)
-	tail = strings.TrimSuffix(tail, "/")
-	if strings.Contains(tail, "/") {
-		// nested paths not supported yet
-		return uuid.UUID{}, false
-	}
-	id, err := uuid.Parse(tail)
-	if err != nil {
-		return uuid.UUID{}, false
-	}
-	return id, true
 }

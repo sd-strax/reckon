@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,69 +40,6 @@ type ActionDecisionResponse struct {
 	Status     string `json:"status"`
 	Stage      string `json:"stage,omitempty"`
 	WorkflowID string `json:"workflow_id,omitempty"`
-}
-
-// actionsItem routes /api/actions/{id}/{approve|reject}. Both are POST, analyst
-// role — approving and rejecting are human acts (the aggregate's AI-write
-// protection denies them to an AI delegate; the endpoint refuses one early with
-// a clear 403).
-func (b *Backend) actionsItem(w http.ResponseWriter, r *http.Request) {
-	rest := strings.TrimPrefix(r.URL.Path, "/actions/")
-	parts := strings.Split(strings.TrimSuffix(rest, "/"), "/")
-	if len(parts) < 1 || len(parts) > 2 || parts[0] == "" {
-		writeJSONError(w, http.StatusNotFound, "not found")
-		return
-	}
-	actionID, err := uuid.Parse(parts[0])
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "action id is not a valid id")
-		return
-	}
-	// GET /api/actions/{id} — the action's record (history, authorization,
-	// results, lineage). Any authenticated reader.
-	if len(parts) == 1 {
-		if r.Method != http.MethodGet {
-			methodNotAllowed(w, "GET")
-			return
-		}
-		b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
-			b.getActionRecord(w, r, actionID)
-		})
-		return
-	}
-	if parts[1] == "" {
-		writeJSONError(w, http.StatusNotFound, "not found")
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	switch parts[1] {
-	case "approve":
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-			b.approveAction(w, r, actionID)
-		})
-	case "reject":
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-			b.rejectAction(w, r, actionID)
-		})
-	case "edit":
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-			b.editAction(w, r, actionID)
-		})
-	case "rerequest":
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-			b.rerequestAction(w, r, actionID)
-		})
-	case "resolve":
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-			b.resolveActionOutcome(w, r, actionID)
-		})
-	default:
-		writeJSONError(w, http.StatusNotFound, "not found")
-	}
 }
 
 // approveAction handles POST /api/actions/{id}/approve. It honors the frozen
