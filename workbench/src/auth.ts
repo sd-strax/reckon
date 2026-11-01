@@ -23,6 +23,7 @@ import * as crypto from "crypto";
 import * as http from "http";
 import { AddressInfo } from "net";
 import * as vscode from "vscode";
+import { errText } from "./util";
 
 /** Which realm client a token comes from — the actor-attribution axis. */
 export type TokenKind = "human" | "delegate";
@@ -411,8 +412,4 @@ function base64url(b: Buffer): string {
 
 function trimSlash(s: string): string {
   return s.replace(/\/+$/, "");
-}
-
-function errText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

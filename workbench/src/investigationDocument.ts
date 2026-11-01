@@ -24,7 +24,8 @@ import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMess
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 import { InvestigationCache } from "./investigationCache";
-import { candidateSOPMarkdown, errText, makeNonce, slugifyTitle } from "./documentText";
+import { candidateSOPMarkdown, slugifyTitle } from "./documentText";
+import { errText, makeNonce, panelTitle } from "./util";
 import { routeInbound, type InboundHandlers } from "./documentRouter";
 import { TurnDriver } from "./turnDriver";
 import { decideTurn, proposeTestsTurn, runTestsTurn, testPredictionTurn, type ScopedTurn } from "./scopedTurns";
@@ -101,7 +102,7 @@ export class InvestigationDocuments {
 
     const panel = vscode.window.createWebviewPanel(
       "reckon.investigation",
-      titleHint ? `⚖ ${titleHint}` : "Investigation",
+      titleHint ? panelTitle(titleHint) : "Investigation",
       vscode.ViewColumn.Active,
       this.panelOptions(),
     );
@@ -185,6 +186,60 @@ export class InvestigationDocuments {
     }
   }
 
+  /** The trees re-read: Investigations always, Cases too when a case changed hands. */
+  private refreshTrees(opts: { cases?: boolean } = {}): void {
+    void vscode.commands.executeCommand("reckon.refreshInvestigations");
+    if (opts.cases) {
+      void vscode.commands.executeCommand("reckon.refreshCases");
+    }
+  }
+
+  /**
+   * One write from the panel: run it, toast a failure as `<verb> failed`, and
+   * re-read the record either way, since a refused write still leaves the panel
+   * to show what the server holds. `reload` re-reads the whole snapshot, for a
+   * write that changes slices the refresh does not carry.
+   */
+  private async mutate(id: string, panel: vscode.WebviewPanel, verb: string, fn: () => Promise<void>, opts: { reload?: boolean } = {}): Promise<void> {
+    try {
+      await fn();
+    } catch (err) {
+      void vscode.window.showErrorMessage(`reckon: ${verb} failed — ${errText(err)}`);
+    }
+    await (opts.reload ? this.load(id, panel) : this.refresh(id, panel));
+  }
+
+  /**
+   * Create an investigation, or open the one a case already has: a create the
+   * server refuses because the case is already investigated (#158) opens that
+   * investigation instead. On success `opened` places the record (a new panel,
+   * or the draft re-keyed), then the write-back posture applies and both trees
+   * re-read. Nothing opens or writes after a change of person.
+   */
+  private async createOrOpen(
+    create: () => Promise<InvestigationDetail>,
+    opened: (created: InvestigationDetail) => void,
+    existing: (id: string) => void,
+    failed: (err: unknown) => void,
+  ): Promise<void> {
+    const current = this.sameIdentity();
+    try {
+      const created = await create();
+      if (!current()) return;
+      opened(created);
+      this.offerCaseNote(created);
+      this.refreshTrees({ cases: true });
+    } catch (err) {
+      if (!current()) return;
+      const found = existingInvestigation(err);
+      if (found) {
+        existing(found);
+        return;
+      }
+      failed(err);
+    }
+  }
+
   /** Apply a confirmed rename, then update the tab + webview title in place. */
   private async applyRename(id: string, panel: vscode.WebviewPanel, title: string): Promise<void> {
     const trimmed = title.trim();
@@ -194,14 +249,14 @@ export class InvestigationDocuments {
     try {
       const applied = await this.client.renameInvestigation(id, trimmed);
       if (this.isOpen(id, panel)) {
-        panel.title = `⚖ ${applied}`;
+        panel.title = panelTitle(applied);
         void this.post(panel, { type: "renamed", title: applied });
         // The rename appended an event: the refresh advances the watermark and
         // the SeenTracker (via onLoaded), so the analyst's own rename does not
         // show in the tree as an unseen "● new" change.
         await this.refresh(id, panel);
       }
-      void vscode.commands.executeCommand("reckon.refreshInvestigations");
+      this.refreshTrees();
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: rename failed — ${errText(err)}`);
     }
@@ -418,52 +473,43 @@ export class InvestigationDocuments {
     }
     this.seeding.add(ref.id);
     const draftKey = ref.id;
-    const current = this.sameIdentity();
     try {
-      const created = seed.alertId !== undefined
-        ? await this.client.createInvestigation("", {
-            type: "alert", alertId: seed.alertId, source: seed.source,
-          })
-        : await this.client.createInvestigationFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown);
-      if (!current()) return;
-      // A panel closed meanwhile stays closed: the create cannot be recalled,
-      // so the investigation surfaces through the trees and opens from there.
-      if (this.isOpen(draftKey, panel)) {
-        this.open.delete(draftKey);
-        ref.id = created.id;
-        this.open.set(created.id, panel);
-        panel.title = `⚖ ${created.title}`;
-        void this.post(panel, { type: "seeded" });
-        void this.load(created.id, panel);
-      }
-      // Case-rooted: apply the write-back posture (adr/0032) — the offer
-      // opens once the load above has rendered.
-      this.offerCaseNote(created);
-      // The trees should show the new investigation immediately — and, for a
-      // case seed, the Cases view should now point the case at it.
-      void vscode.commands.executeCommand("reckon.refreshInvestigations");
-      void vscode.commands.executeCommand("reckon.refreshCases");
-    } catch (err) {
-      if (!current()) return;
-      // A case already investigated opens that investigation (#158): the draft
-      // panel closes and the existing record opens in its place.
-      const existing = existingInvestigation(err);
-      if (existing) {
-        if (!this.isOpen(draftKey, panel)) {
-          void vscode.window.showInformationMessage(`reckon: ${seed.value ?? "this case"} already has an investigation`);
-          return;
-        }
-        void vscode.window.showInformationMessage(`reckon: ${seed.value ?? "this case"} already has an investigation — opening it`);
-        this.open.delete(draftKey);
-        panel.dispose();
-        this.show(existing);
-        return;
-      }
-      // An entity the host inventory has never seen (#159): say so, and let
-      // the analyst start anyway.
-      const unknownEntity = err instanceof BackendRequestError && err.status === 422 && err.body?.unknown_entity === true;
-      const message = unknownEntity && typeof err.body?.error === "string" ? err.body.error : errText(err);
-      void this.post(panel, { type: "draft.error", message, unknownEntity });
+      await this.createOrOpen(
+        () => seed.alertId !== undefined
+          ? this.client.createInvestigation("", { type: "alert", alertId: seed.alertId, source: seed.source })
+          : this.client.createInvestigationFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown),
+        (created) => {
+          // A panel closed meanwhile stays closed: the create cannot be recalled,
+          // so the investigation surfaces through the trees and opens from there.
+          // The case write-back offer (adr/0032) opens once the load has rendered.
+          if (this.isOpen(draftKey, panel)) {
+            this.open.delete(draftKey);
+            ref.id = created.id;
+            this.open.set(created.id, panel);
+            panel.title = panelTitle(created.title);
+            void this.post(panel, { type: "seeded" });
+            void this.load(created.id, panel);
+          }
+        },
+        (existing) => {
+          // The draft panel closes and the existing record opens in its place.
+          if (!this.isOpen(draftKey, panel)) {
+            void vscode.window.showInformationMessage(`reckon: ${seed.value ?? "this case"} already has an investigation`);
+            return;
+          }
+          void vscode.window.showInformationMessage(`reckon: ${seed.value ?? "this case"} already has an investigation — opening it`);
+          this.open.delete(draftKey);
+          panel.dispose();
+          this.show(existing);
+        },
+        (err) => {
+          // An entity the host inventory has never seen (#159): say so, and let
+          // the analyst start anyway.
+          const unknownEntity = err instanceof BackendRequestError && err.status === 422 && err.body?.unknown_entity === true;
+          const message = unknownEntity && typeof err.body?.error === "string" ? err.body.error : errText(err);
+          void this.post(panel, { type: "draft.error", message, unknownEntity });
+        },
+      );
     } finally {
       this.seeding.delete(draftKey);
     }
@@ -681,7 +727,7 @@ export class InvestigationDocuments {
       if (!this.isOpen(id, panel)) {
         return; // closed while reading
       }
-      panel.title = `⚖ ${snapshot.investigation.title}`;
+      panel.title = panelTitle(snapshot.investigation.title);
       void this.post(panel, { type: "state.snapshot", seq: snapshot.seq, snapshot });
       this.onLoaded?.(id, snapshot.seq);
       void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal }); }).catch(() => undefined);
@@ -729,8 +775,8 @@ export class InvestigationDocuments {
    * agent cannot or should not: the pin's evidence is the citation, and the
    * request is the analyst's — same approval policies, approval and dispatch.
    */
-  private async requestFromPin(id: string, panel: vscode.WebviewPanel, msg: { actionType: string; target: string; parameters: Record<string, unknown>; rationale: string; evidenceRefs: string[] }): Promise<void> {
-    try {
+  private requestFromPin(id: string, panel: vscode.WebviewPanel, msg: { actionType: string; target: string; parameters: Record<string, unknown>; rationale: string; evidenceRefs: string[] }): Promise<void> {
+    return this.mutate(id, panel, `requesting ${msg.actionType}`, async () => {
       const res = await this.client.requestAction({
         investigationRef: id, actionType: msg.actionType,
         targets: [{ resolvedIdentifier: msg.target }],
@@ -738,10 +784,7 @@ export class InvestigationDocuments {
         evidenceRefs: msg.evidenceRefs, rationale: msg.rationale,
       });
       void vscode.window.showInformationMessage(`reckon: ${msg.actionType} on ${msg.target} requested (${res.status}) — approve it in Response`);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: requesting ${msg.actionType} failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    });
   }
 
   /** The knowledge library (adr/0129): every procedure and past case, to browse. */
@@ -808,7 +851,7 @@ export class InvestigationDocuments {
       }
       const { seq, patch } = read;
       if (patch.investigation) {
-        panel.title = `⚖ ${patch.investigation.title}`;
+        panel.title = panelTitle(patch.investigation.title);
       }
       void this.post(panel, { type: "state.patch", seq, patch });
       this.onLoaded?.(id, seq);
@@ -838,23 +881,13 @@ export class InvestigationDocuments {
     }
   }
 
-  private async commsAct(id: string, panel: vscode.WebviewPanel, threadId: string, verb: "ack" | "done"): Promise<void> {
-    try {
-      await this.client.commsAct(threadId, verb);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: comms ${verb} failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+  private commsAct(id: string, panel: vscode.WebviewPanel, threadId: string, verb: "ack" | "done"): Promise<void> {
+    return this.mutate(id, panel, `comms ${verb}`, () => this.client.commsAct(threadId, verb));
   }
 
   /** Push a thread's follow-up clock. */
-  private async commsSnooze(id: string, panel: vscode.WebviewPanel, threadId: string, hours: number): Promise<void> {
-    try {
-      await this.client.commsSnooze(threadId, hours);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: snooze failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+  private commsSnooze(id: string, panel: vscode.WebviewPanel, threadId: string, hours: number): Promise<void> {
+    return this.mutate(id, panel, "snooze", () => this.client.commsSnooze(threadId, hours));
   }
 
   /**
@@ -879,7 +912,7 @@ export class InvestigationDocuments {
       parameters.message = msg.message;
     }
     const current = this.sameIdentity();
-    try {
+    await this.mutate(id, panel, "follow-up", async () => {
       // A follow-up rests on the grounds of the message it follows up on: the
       // engine refuses an outbound action that cites no evidence.
       const thread = (await this.client.comms(id)).find((t) => t.threadId === msg.threadId);
@@ -900,10 +933,7 @@ export class InvestigationDocuments {
       void vscode.window.showInformationMessage(
         `reckon: follow-up requested (${res.status}) — approve to send`,
       );
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: follow-up failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    });
   }
 
   /**
@@ -914,12 +944,7 @@ export class InvestigationDocuments {
     if (!refs.length || finding.trim() === "") {
       return;
     }
-    try {
-      await this.client.pinEvidence(id, finding.trim(), refs);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: pin failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    await this.mutate(id, panel, "pin", () => this.client.pinEvidence(id, finding.trim(), refs));
   }
 
   /** Fetch one evidence doc through the cache (null = unfetchable, this time). */
@@ -987,25 +1012,16 @@ export class InvestigationDocuments {
   }
 
   /** Start an investigation from a case row: the seed path, then open it. */
-  private async startFromCase(caseNumber: string): Promise<void> {
-    const current = this.sameIdentity();
-    try {
-      const created = await this.client.createInvestigationFromInput(caseNumber, "case");
-      if (!current()) return;
-      this.show(created.id, created.title);
-      this.offerCaseNote(created);
-      void vscode.commands.executeCommand("reckon.refreshInvestigations");
-      void vscode.commands.executeCommand("reckon.refreshCases");
-    } catch (err) {
-      if (!current()) return;
-      const existing = existingInvestigation(err);
-      if (existing) {
+  private startFromCase(caseNumber: string): Promise<void> {
+    return this.createOrOpen(
+      () => this.client.createInvestigationFromInput(caseNumber, "case"),
+      (created) => this.show(created.id, created.title),
+      (existing) => {
         void vscode.window.showInformationMessage(`reckon: ${caseNumber} already has an investigation — opening it`);
         this.show(existing);
-        return;
-      }
-      void vscode.window.showErrorMessage(`reckon: could not start from ${caseNumber} — ${errText(err)}`);
-    }
+      },
+      (err) => void vscode.window.showErrorMessage(`reckon: could not start from ${caseNumber} — ${errText(err)}`),
+    );
   }
 
   /**
@@ -1080,12 +1096,7 @@ export class InvestigationDocuments {
     if (reason.trim() === "") {
       return;
     }
-    try {
-      await this.client.supersedeInterpretation(interpretationId, id, reason.trim());
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: un-pin failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    await this.mutate(id, panel, "un-pin", () => this.client.supersedeInterpretation(interpretationId, id, reason.trim()));
   }
 
   /**
@@ -1093,16 +1104,11 @@ export class InvestigationDocuments {
    * line of inquiry (02 §2.9). The aggregate enforces that this is a human act;
    * a rejection surfaces verbatim.
    */
-  private async ackHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, restatement?: string, handle?: string): Promise<void> {
-    try {
-      await this.client.acknowledgeHypothesis(id, hypothesisRef, {
-        restatement: restatement?.trim() || undefined,
-        handle: handle?.trim() || undefined,
-      });
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: adopt failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+  private ackHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, restatement?: string, handle?: string): Promise<void> {
+    return this.mutate(id, panel, "adopt", () => this.client.acknowledgeHypothesis(id, hypothesisRef, {
+      restatement: restatement?.trim() || undefined,
+      handle: handle?.trim() || undefined,
+    }));
   }
 
   /** Rename / restate an OPEN hypothesis (01 §x-hypothesis; human, untested-only for the statement). */
@@ -1112,22 +1118,12 @@ export class InvestigationDocuments {
     if (!r && !h) {
       return;
     }
-    try {
-      await this.client.reviseHypothesis(id, hypothesisRef, { restatement: r, handle: h });
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: revise failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    await this.mutate(id, panel, "revise", () => this.client.reviseHypothesis(id, hypothesisRef, { restatement: r, handle: h }));
   }
 
   /** Abandon a live hypothesis the analyst is not pursuing (terminal; the thread keeps it). */
-  private async abandonHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, reason: string): Promise<void> {
-    try {
-      await this.client.abandonHypothesis(id, hypothesisRef, reason.trim() || "abandoned from the workbench — not pursued");
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: abandon failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+  private abandonHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, reason: string): Promise<void> {
+    return this.mutate(id, panel, "abandon", () => this.client.abandonHypothesis(id, hypothesisRef, reason.trim() || "abandoned from the workbench — not pursued"));
   }
 
   /** Record the analyst's own test under a hypothesis (01 §x-prediction: either actor authors predictions). */
@@ -1135,12 +1131,7 @@ export class InvestigationDocuments {
     if (statement.trim() === "") {
       return;
     }
-    try {
-      await this.client.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: prediction failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    await this.mutate(id, panel, "prediction", () => this.client.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind));
   }
 
   /**
@@ -1158,29 +1149,19 @@ export class InvestigationDocuments {
       return;
     }
     const how = msg.channel?.trim() ? ` by ${msg.channel.trim()}` : "";
-    try {
-      await this.client.recordPredictionResult(id, msg.predictionRef, msg.status, `result recorded by the analyst${how}`, {
-        content: msg.content.trim(),
-        source: msg.source?.trim() || undefined,
-        channel: msg.channel?.trim() || undefined,
-        reference: msg.reference?.trim() || undefined,
-        hashReference: msg.hashReference,
-        artifact: msg.artifact,
-      });
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: record result failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    await this.mutate(id, panel, "record result", () => this.client.recordPredictionResult(id, msg.predictionRef, msg.status, `result recorded by the analyst${how}`, {
+      content: msg.content.trim(),
+      source: msg.source?.trim() || undefined,
+      channel: msg.channel?.trim() || undefined,
+      reference: msg.reference?.trim() || undefined,
+      hashReference: msg.hashReference,
+      artifact: msg.artifact,
+    }));
   }
 
   /** Withdraw an untested prediction — a status, never a deletion. */
-  private async withdrawPrediction(id: string, panel: vscode.WebviewPanel, predictionRef: string, reason: string): Promise<void> {
-    try {
-      await this.client.withdrawPrediction(id, predictionRef, reason.trim() || "withdrawn from the workbench");
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: withdraw failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+  private withdrawPrediction(id: string, panel: vscode.WebviewPanel, predictionRef: string, reason: string): Promise<void> {
+    return this.mutate(id, panel, "withdraw", () => this.client.withdrawPrediction(id, predictionRef, reason.trim() || "withdrawn from the workbench"));
   }
 
   /**
@@ -1192,27 +1173,19 @@ export class InvestigationDocuments {
     if (statement.trim() === "") {
       return;
     }
-    try {
-      await this.client.recordHypothesis(id, statement.trim(), handle?.trim() || undefined);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: hypothesis failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    await this.mutate(id, panel, "hypothesis", () => this.client.recordHypothesis(id, statement.trim(), handle?.trim() || undefined));
   }
 
   /** Record the verdict of record — always the analyst's act here (human token). */
-  private async submitVerdict(
+  private submitVerdict(
     id: string,
     panel: vscode.WebviewPanel,
     msg: { disposition: string; rationale: string; refs: string[] },
   ): Promise<void> {
-    try {
+    return this.mutate(id, panel, "verdict", async () => {
       await this.client.recordVerdict(id, msg.disposition, msg.rationale, msg.refs);
       void vscode.window.showInformationMessage(`reckon: verdict recorded — ${msg.disposition}`);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: verdict failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    });
   }
 
   /**
@@ -1255,15 +1228,12 @@ export class InvestigationDocuments {
       }
     }
     if (!current()) return;
-    try {
+    await this.mutate(id, panel, "enablement", async () => {
       await this.client.applyEnablement(msg.adapter, msg.enabled, config);
       void vscode.window.showInformationMessage(
         `reckon: ${msg.adapter} ${msg.enabled ? "enabled" : "disabled"} — capability surface rebuilt`,
       );
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: enablement failed — ${errText(err)}`);
-    }
-    await this.load(id, panel);
+    }, { reload: true });
   }
 
   /**
@@ -1281,7 +1251,7 @@ export class InvestigationDocuments {
     msg: { transition: string; reason?: string; summary?: string },
   ): Promise<void> {
     const current = this.sameIdentity();
-    try {
+    await this.mutate(id, panel, msg.transition, async () => {
       const body: { transition: string; reason?: string; reportRef?: string; summary?: string } = {
         transition: msg.transition,
         reason: msg.reason?.trim() || undefined,
@@ -1295,7 +1265,7 @@ export class InvestigationDocuments {
       void vscode.window.showInformationMessage(`reckon: investigation → ${res.status}${exportNote}`);
       // Every transition moves the investigation between the tree's groups (a
       // discarded draft leaves them altogether).
-      void vscode.commands.executeCommand("reckon.refreshInvestigations");
+      this.refreshTrees();
       if (msg.transition === "conclude" && current()) {
         // The client-side tier of the two-tier knowledge summary (design/06
         // §3.2): the sidecar — the only place the BYOK model key lives —
@@ -1315,10 +1285,7 @@ export class InvestigationDocuments {
         // Drafting a procedure from the case is the analyst's step now
         // (adr/0156): Draft SOP from this case, in the Summary lens.
       }
-    } catch (err) {
-      void vscode.window.showErrorMessage(`reckon: ${msg.transition} failed — ${errText(err)}`);
-    }
-    await this.refresh(id, panel);
+    });
   }
 
   /** The open candidate drafts, per investigation: the editor document and its title. */
@@ -1415,6 +1382,7 @@ export class InvestigationDocuments {
     verb: string,
   ): Promise<void> {
     const current = this.sameIdentity();
+    let acted = false;
     try {
       let a = this.cache.action(id, actionId);
       if (!a) {
@@ -1427,11 +1395,16 @@ export class InvestigationDocuments {
         if (current()) void vscode.window.showErrorMessage(`reckon: ${verb} failed — the action is not in this investigation's record`);
         return;
       }
+      acted = true;
       await act(a);
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: ${verb} failed — ${errText(err)}`);
     } finally {
-      await this.refresh(id, panel);
+      // The record just read to find the action is current; only a decision
+      // attempted over it changes what the panel should show.
+      if (acted) {
+        await this.refresh(id, panel);
+      }
       void this.post(panel, { type: "action.settled", actionId });
     }
   }

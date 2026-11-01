@@ -10,6 +10,7 @@
 
 import * as vscode from "vscode";
 import { BackendClient } from "./backend";
+import { makeNonce } from "./util";
 
 const SOP_EXTENSIONS = ["md", "markdown", "txt"];
 
@@ -417,13 +418,4 @@ function isSOPFile(uri: vscode.Uri): boolean {
   }
   const ext = uri.path.split(".").pop()?.toLowerCase() ?? "";
   return SOP_EXTENSIONS.includes(ext);
-}
-
-function makeNonce(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let out = "";
-  for (let i = 0; i < 32; i++) {
-    out += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return out;
 }
