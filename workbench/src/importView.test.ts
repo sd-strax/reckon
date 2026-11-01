@@ -13,7 +13,7 @@ beforeEach(() => {
 });
 
 async function viewWithTwoFiles(importSOPMarkdown: () => Promise<unknown>) {
-  const view = new ImportSOPsView(vscode.Uri.file("/ext"), { importSOPMarkdown } as unknown as BackendClient, fakeLog());
+  const view = new ImportSOPsView(vscode.Uri.file("/ext"), { knowledge: { importMarkdown: importSOPMarkdown } } as unknown as BackendClient, fakeLog());
   vi.mocked(vscode.window.showOpenDialog).mockResolvedValueOnce([vscode.Uri.file("/a.md"), vscode.Uri.file("/b.md")]);
   view.open();
   createdPanels()[0].webview.receive({ type: "addFiles" });

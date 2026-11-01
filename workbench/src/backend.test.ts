@@ -17,7 +17,7 @@ describe("BackendClient: action rows", () => {
       { action_id: "a3", action_type: "ticket.comment", status: "SUCCEEDED", reversibility: "irreversible" },
       { action_id: "a4", action_type: "host.isolate", status: "REQUESTED" },
     ] });
-    const rows = await client.actions("inv-1");
+    const rows = await client.actions.list("inv-1");
     expect(rows.map((r) => r.reversibility)).toEqual(["REVERSIBLE", "BEST_EFFORT", "IRREVERSIBLE", undefined]);
   });
 });
@@ -28,7 +28,7 @@ describe("BackendClient: the action catalog", () => {
       { descriptor: { action_type: "host.isolate", default_tier: "T2", reversibility: "reversible", reversible_by: "host.unisolate" }, status: "available", bindings: 1 },
       { descriptor: { action_type: "ticket.comment", default_tier: "T1", reversibility: "irreversible" }, status: "available", bindings: 1 },
     ] });
-    expect(await client.actionTypes()).toEqual([
+    expect(await client.actions.types()).toEqual([
       { actionType: "host.isolate", reversibleBy: "host.unisolate", tier: "T2", name: undefined, category: undefined, available: true, inputs: [] },
       { actionType: "ticket.comment", reversibleBy: undefined, tier: "T1", name: undefined, category: undefined, available: true, inputs: [] },
     ]);
@@ -51,7 +51,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 401 }), ok());
     const renew = vi.fn(async (_rejected: string) => "fresh");
 
-    await new BackendClient(() => "http://reckon.test", async () => "stale", renew).investigations();
+    await new BackendClient(() => "http://reckon.test", async () => "stale", renew).investigations.list();
 
     expect(renew.mock.calls).toEqual([["stale"]]);
     expect(bearers).toEqual(["Bearer stale", "Bearer fresh"]);
@@ -61,7 +61,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 401 }), new Response("", { status: 401 }));
     const client = new BackendClient(() => "http://reckon.test", async () => "stale", async () => "fresh");
 
-    await expect(client.investigations()).rejects.toMatchObject({ status: 401 });
+    await expect(client.investigations.list()).rejects.toMatchObject({ status: 401 });
 
     expect(bearers).toHaveLength(2);
   });
@@ -70,7 +70,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 401 }), ok());
     const client = new BackendClient(() => "http://reckon.test", async () => "stale", async () => { throw new Error("the session changed"); });
 
-    await expect(client.approveAction("a-1")).rejects.toThrow("the session changed");
+    await expect(client.actions.approve("a-1")).rejects.toThrow("the session changed");
 
     expect(bearers).toHaveLength(1);
   });
@@ -79,7 +79,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 401 }), new Response("# report"));
     const client = new BackendClient(() => "http://reckon.test", async () => "stale", async () => "fresh");
 
-    expect(await client.exportMarkdown("inv-1")).toBe("# report");
+    expect(await client.investigations.exportMarkdown("inv-1")).toBe("# report");
 
     expect(bearers).toEqual(["Bearer stale", "Bearer fresh"]);
   });
@@ -88,7 +88,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 403 }));
     const renew = vi.fn(async () => "fresh");
 
-    await expect(new BackendClient(() => "http://reckon.test", async () => "t", renew).investigations()).rejects.toMatchObject({ status: 403 });
+    await expect(new BackendClient(() => "http://reckon.test", async () => "t", renew).investigations.list()).rejects.toMatchObject({ status: 403 });
 
     expect(renew).not.toHaveBeenCalled();
     expect(bearers).toHaveLength(1);

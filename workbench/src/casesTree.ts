@@ -66,7 +66,7 @@ export class CasesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     let queue: string;
     let rows: CaseRow[];
     try {
-      const res = await this.client.cases();
+      const res = await this.client.cases.queue();
       queue = res.queue;
       rows = res.cases;
     } catch (err) {

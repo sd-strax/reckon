@@ -238,7 +238,7 @@ export class InvestigationDocuments {
       return;
     }
     try {
-      const applied = await this.client.renameInvestigation(id, trimmed);
+      const applied = await this.client.investigations.rename(id, trimmed);
       if (this.isOpen(id, panel)) {
         panel.title = panelTitle(applied);
         void this.post(panel, { type: "renamed", title: applied });
@@ -467,8 +467,8 @@ export class InvestigationDocuments {
     try {
       await this.createOrOpen(
         () => seed.alertId !== undefined
-          ? this.client.createInvestigation("", { type: "alert", alertId: seed.alertId, source: seed.source })
-          : this.client.createInvestigationFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown),
+          ? this.client.investigations.create("", { type: "alert", alertId: seed.alertId, source: seed.source })
+          : this.client.investigations.createFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown),
         (created) => {
           // A panel closed meanwhile stays closed: the create cannot be recalled,
           // so the investigation surfaces through the trees and opens from there.
@@ -515,7 +515,7 @@ export class InvestigationDocuments {
    */
   private async searchCases(panel: vscode.WebviewPanel, filter: string, queue?: string): Promise<void> {
     try {
-      const cases = await this.client.queryExternalCases(filter.trim() || undefined, undefined, queue || undefined);
+      const cases = await this.client.cases.search(filter.trim() || undefined, queue || undefined);
       void this.post(panel, { type: "draft.cases", cases });
     } catch (err) {
       void this.post(panel, { type: "draft.caseError", message: errText(err) });
@@ -534,7 +534,7 @@ export class InvestigationDocuments {
     if (!created.caseNote || created.caseNoteOnSeed !== "auto") {
       return;
     }
-    void this.client.requestCaseNote(created.id).then(
+    void this.client.investigations.requestCaseNote(created.id).then(
       (r) => void vscode.window.showInformationMessage(`reckon: note on ${created.caseNote?.caseId} requested (${r.status.toLowerCase().replace(/_/g, " ")})`),
       (err: unknown) => void vscode.window.showWarningMessage(`reckon: could not request the case note: ${errText(err)}`),
     );
@@ -543,7 +543,7 @@ export class InvestigationDocuments {
   /** The analyst confirmed the note: request it as an action, then reload. */
   private async postCaseNote(id: string, panel: vscode.WebviewPanel, body: string): Promise<void> {
     try {
-      const r = await this.client.requestCaseNote(id, body.trim() || undefined);
+      const r = await this.client.investigations.requestCaseNote(id, body.trim() || undefined);
       void vscode.window.showInformationMessage(`reckon: case note requested (${r.status.toLowerCase().replace(/_/g, " ")})`);
       void this.refresh(id, panel);
     } catch (err) {
@@ -561,7 +561,7 @@ export class InvestigationDocuments {
   private async postDraft(panel: vscode.WebviewPanel, mode?: "case"): Promise<void> {
     let caseQueue: string | undefined;
     try {
-      caseQueue = await this.client.caseQueue();
+      caseQueue = await this.client.cases.configuredQueue();
     } catch {
       caseQueue = undefined;
     }
@@ -739,7 +739,7 @@ export class InvestigationDocuments {
       await Promise.all([this.postQueue(panel), this.resendActionRecords(id, panel, snapshot.seq)]);
       // The enablement view (gap hints + form schemas). Absence is honest.
       const latestEnablement = this.cache.beginRequest(id, "enablement");
-      void this.client.enablement()
+      void this.client.capabilities.enablement()
         .then((data) => data, () => null)
         .then((data) => { if (latestEnablement()) void this.patch(id, panel, { enablement: data }); });
       void this.postLibrary(panel);
@@ -753,7 +753,7 @@ export class InvestigationDocuments {
   /** The action types the analyst can request directly (#146), available ones only. */
   private async postActionTypes(panel: vscode.WebviewPanel): Promise<void> {
     try {
-      const types = (await this.client.actionTypes()).filter((t) => t.available)
+      const types = (await this.client.actions.types()).filter((t) => t.available)
         .map((t) => ({ actionType: t.actionType, name: t.name, category: t.category, inputs: t.inputs }));
       void this.post(panel, { type: "actionTypes", types });
     } catch (err) {
@@ -768,7 +768,7 @@ export class InvestigationDocuments {
    */
   private requestFromPin(id: string, panel: vscode.WebviewPanel, msg: { actionType: string; target: string; parameters: Record<string, unknown>; rationale: string; evidenceRefs: string[] }): Promise<void> {
     return this.mutate(id, panel, `requesting ${msg.actionType}`, async () => {
-      const res = await this.client.requestAction({
+      const res = await this.client.actions.request({
         investigationRef: id, actionType: msg.actionType,
         targets: [{ resolvedIdentifier: msg.target }],
         parameters: Object.keys(msg.parameters).length ? msg.parameters : undefined,
@@ -782,8 +782,8 @@ export class InvestigationDocuments {
   private async postLibrary(panel: vscode.WebviewPanel): Promise<void> {
     try {
       const [sops, cases] = await Promise.all([
-        this.client.libraryProcedures().catch(() => []),
-        this.client.libraryCases().catch(() => []),
+        this.client.knowledge.procedures().catch(() => []),
+        this.client.knowledge.cases().catch(() => []),
       ]);
       void this.post(panel, { type: "library", sops, cases });
     } catch (err) {
@@ -794,7 +794,7 @@ export class InvestigationDocuments {
   /** Whether a concluded case's knowledge summary carries a narrative (adr/0156). */
   private async postSummaryStatus(id: string, panel: vscode.WebviewPanel): Promise<void> {
     try {
-      const sum = await this.client.caseSummary(id);
+      const sum = await this.client.knowledge.caseSummary(id);
       if (sum) void this.post(panel, sum.generatorModel
         ? { type: "summary.status", state: "written", detail: sum.generatorModel }
         : { type: "summary.status", state: "baseline" });
@@ -806,7 +806,7 @@ export class InvestigationDocuments {
   /** One library search over both corpora; the hits come back as their own list. */
   private async searchLibrary(panel: vscode.WebviewPanel, text: string): Promise<void> {
     try {
-      const found = await this.client.librarySearch(text);
+      const found = await this.client.knowledge.search(text);
       void this.post(panel, { type: "library.results", query: text, ...found });
     } catch (err) {
       void vscode.window.showWarningMessage(`reckon: library search failed — ${errText(err)}`);
@@ -863,7 +863,7 @@ export class InvestigationDocuments {
   private async resendActionRecords(id: string, panel: vscode.WebviewPanel, seq: number): Promise<void> {
     for (const actionId of this.cache.staleRecords(id, seq)) {
       try {
-        const record = await this.client.actionRecord(actionId);
+        const record = await this.client.actions.record(actionId);
         this.cache.servedRecord(id, actionId, seq);
         void this.post(panel, { type: "inspector.action", actionId, record });
       } catch (err) {
@@ -873,12 +873,12 @@ export class InvestigationDocuments {
   }
 
   private commsAct(id: string, panel: vscode.WebviewPanel, threadId: string, verb: "ack" | "done"): Promise<void> {
-    return this.mutate(id, panel, `comms ${verb}`, () => this.client.commsAct(threadId, verb));
+    return this.mutate(id, panel, `comms ${verb}`, () => this.client.actions.commsAct(threadId, verb));
   }
 
   /** Push a thread's follow-up clock. */
   private commsSnooze(id: string, panel: vscode.WebviewPanel, threadId: string, hours: number): Promise<void> {
-    return this.mutate(id, panel, "snooze", () => this.client.commsSnooze(threadId, hours));
+    return this.mutate(id, panel, "snooze", () => this.client.actions.commsSnooze(threadId, hours));
   }
 
   /**
@@ -906,14 +906,14 @@ export class InvestigationDocuments {
     await this.mutate(id, panel, "follow-up", async () => {
       // A follow-up rests on the grounds of the message it follows up on: the
       // engine refuses an outbound action that cites no evidence.
-      const thread = (await this.client.comms(id)).find((t) => t.threadId === msg.threadId);
-      const origin = thread?.actionId ? (await this.client.actionRecord(thread.actionId)).action : undefined;
+      const thread = (await this.client.actions.comms(id)).find((t) => t.threadId === msg.threadId);
+      const origin = thread?.actionId ? (await this.client.actions.record(thread.actionId)).action : undefined;
       if (!origin?.evidenceRefs.length) {
         void vscode.window.showErrorMessage("reckon: follow-up not requested — the original message's evidence could not be read");
         return;
       }
       if (!current()) return;
-      const res = await this.client.requestAction({
+      const res = await this.client.actions.request({
         investigationRef: id,
         actionType: msg.actionType,
         targets: [{ resolvedIdentifier: msg.target }],
@@ -935,7 +935,7 @@ export class InvestigationDocuments {
     if (!refs.length || finding.trim() === "") {
       return;
     }
-    await this.mutate(id, panel, "pin", () => this.client.pinEvidence(id, finding.trim(), refs));
+    await this.mutate(id, panel, "pin", () => this.client.investigations.pinEvidence(id, finding.trim(), refs));
   }
 
   /** Fetch one evidence doc through the cache (null = unfetchable, this time). */
@@ -947,7 +947,7 @@ export class InvestigationDocuments {
     const generation = this.generation;
     return this.docReads.run(ref, async () => {
       try {
-        const doc = await this.client.evidence(ref);
+        const doc = await this.client.evidence.get(ref);
         if (generation === this.generation) {
           this.docCache.set(ref, doc);
         }
@@ -992,8 +992,8 @@ export class InvestigationDocuments {
   private async postQueue(panel: vscode.WebviewPanel): Promise<void> {
     try {
       const [investigations, queue] = await Promise.all([
-        this.client.investigations(),
-        this.client.cases().catch(() => null),
+        this.client.investigations.list(),
+        this.client.cases.queue().catch(() => null),
       ]);
       const cases = (queue?.cases ?? []).filter((c) => !c.investigation);
       void this.post(panel, { type: "queue", investigations, cases, caseSource: queue?.queue });
@@ -1005,7 +1005,7 @@ export class InvestigationDocuments {
   /** Start an investigation from a case row: the seed path, then open it. */
   private startFromCase(caseNumber: string): Promise<void> {
     return this.createOrOpen(
-      () => this.client.createInvestigationFromInput(caseNumber, "case"),
+      () => this.client.investigations.createFromInput(caseNumber, "case"),
       (created) => this.show(created.id, created.title),
       (existing) => {
         void vscode.window.showInformationMessage(`reckon: ${caseNumber} already has an investigation — opening it`);
@@ -1045,7 +1045,7 @@ export class InvestigationDocuments {
           }
           let apps: Appearance[] = [];
           try {
-            apps = (await this.client.appearances(target.ref)).filter((a) => a.investigationId !== id);
+            apps = (await this.client.evidence.appearances(target.ref)).filter((a) => a.investigationId !== id);
           } catch (err) {
             this.log.debug(`appearances ${target.ref}: ${errText(err)}`);
           }
@@ -1053,7 +1053,7 @@ export class InvestigationDocuments {
           return;
         }
         case "sop":
-          void this.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop: await this.client.sop(target.sopId) });
+          void this.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop: await this.client.knowledge.sop(target.sopId) });
           return;
         case "turn": {
           const body = await this.cache.transcript(target.interpretationId);
@@ -1061,13 +1061,13 @@ export class InvestigationDocuments {
           return;
         }
         case "action": {
-          const record = await this.client.actionRecord(target.actionId);
+          const record = await this.client.actions.record(target.actionId);
           this.cache.servedRecord(id, target.actionId, this.cache.watermark(id));
           void this.post(panel, { type: "inspector.action", actionId: target.actionId, record });
           return;
         }
         case "case":
-          void this.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary: await this.client.caseSummary(target.investigationRef) });
+          void this.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary: await this.client.knowledge.caseSummary(target.investigationRef) });
           return;
         default:
           return; // thread, person: rendered from the snapshot alone
@@ -1087,7 +1087,7 @@ export class InvestigationDocuments {
     if (reason.trim() === "") {
       return;
     }
-    await this.mutate(id, panel, "un-pin", () => this.client.supersedeInterpretation(interpretationId, id, reason.trim()));
+    await this.mutate(id, panel, "un-pin", () => this.client.investigations.supersedeInterpretation(interpretationId, id, reason.trim()));
   }
 
   /**
@@ -1096,7 +1096,7 @@ export class InvestigationDocuments {
    * a rejection surfaces verbatim.
    */
   private ackHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, restatement?: string, handle?: string): Promise<void> {
-    return this.mutate(id, panel, "adopt", () => this.client.acknowledgeHypothesis(id, hypothesisRef, {
+    return this.mutate(id, panel, "adopt", () => this.client.investigations.acknowledgeHypothesis(id, hypothesisRef, {
       restatement: restatement?.trim() || undefined,
       handle: handle?.trim() || undefined,
     }));
@@ -1109,12 +1109,12 @@ export class InvestigationDocuments {
     if (!r && !h) {
       return;
     }
-    await this.mutate(id, panel, "revise", () => this.client.reviseHypothesis(id, hypothesisRef, { restatement: r, handle: h }));
+    await this.mutate(id, panel, "revise", () => this.client.investigations.reviseHypothesis(id, hypothesisRef, { restatement: r, handle: h }));
   }
 
   /** Abandon a live hypothesis the analyst is not pursuing (terminal; the thread keeps it). */
   private abandonHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, reason: string): Promise<void> {
-    return this.mutate(id, panel, "abandon", () => this.client.abandonHypothesis(id, hypothesisRef, reason.trim() || "abandoned from the workbench — not pursued"));
+    return this.mutate(id, panel, "abandon", () => this.client.investigations.abandonHypothesis(id, hypothesisRef, reason.trim() || "abandoned from the workbench — not pursued"));
   }
 
   /** Record the analyst's own test under a hypothesis (01 §x-prediction: either actor authors predictions). */
@@ -1122,7 +1122,7 @@ export class InvestigationDocuments {
     if (statement.trim() === "") {
       return;
     }
-    await this.mutate(id, panel, "prediction", () => this.client.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind));
+    await this.mutate(id, panel, "prediction", () => this.client.investigations.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind));
   }
 
   /**
@@ -1140,7 +1140,7 @@ export class InvestigationDocuments {
       return;
     }
     const how = msg.channel?.trim() ? ` by ${msg.channel.trim()}` : "";
-    await this.mutate(id, panel, "record result", () => this.client.recordPredictionResult(id, msg.predictionRef, msg.status, `result recorded by the analyst${how}`, {
+    await this.mutate(id, panel, "record result", () => this.client.investigations.recordPredictionResult(id, msg.predictionRef, msg.status, `result recorded by the analyst${how}`, {
       content: msg.content.trim(),
       source: msg.source?.trim() || undefined,
       channel: msg.channel?.trim() || undefined,
@@ -1152,7 +1152,7 @@ export class InvestigationDocuments {
 
   /** Withdraw an untested prediction — a status, never a deletion. */
   private withdrawPrediction(id: string, panel: vscode.WebviewPanel, predictionRef: string, reason: string): Promise<void> {
-    return this.mutate(id, panel, "withdraw", () => this.client.withdrawPrediction(id, predictionRef, reason.trim() || "withdrawn from the workbench"));
+    return this.mutate(id, panel, "withdraw", () => this.client.investigations.withdrawPrediction(id, predictionRef, reason.trim() || "withdrawn from the workbench"));
   }
 
   /**
@@ -1164,7 +1164,7 @@ export class InvestigationDocuments {
     if (statement.trim() === "") {
       return;
     }
-    await this.mutate(id, panel, "hypothesis", () => this.client.recordHypothesis(id, statement.trim(), handle?.trim() || undefined));
+    await this.mutate(id, panel, "hypothesis", () => this.client.investigations.recordHypothesis(id, statement.trim(), handle?.trim() || undefined));
   }
 
   /** Record the verdict of record — always the analyst's act here (human token). */
@@ -1174,7 +1174,7 @@ export class InvestigationDocuments {
     msg: { disposition: string; rationale: string; refs: string[] },
   ): Promise<void> {
     return this.mutate(id, panel, "verdict", async () => {
-      await this.client.recordVerdict(id, msg.disposition, msg.rationale, msg.refs);
+      await this.client.investigations.recordVerdict(id, msg.disposition, msg.rationale, msg.refs);
       void vscode.window.showInformationMessage(`reckon: verdict recorded — ${msg.disposition}`);
     });
   }
@@ -1220,7 +1220,7 @@ export class InvestigationDocuments {
     }
     if (!current()) return;
     await this.mutate(id, panel, "enablement", async () => {
-      await this.client.applyEnablement(msg.adapter, msg.enabled, config);
+      await this.client.capabilities.applyEnablement(msg.adapter, msg.enabled, config);
       void vscode.window.showInformationMessage(
         `reckon: ${msg.adapter} ${msg.enabled ? "enabled" : "disabled"} — capability surface rebuilt`,
       );
@@ -1251,7 +1251,7 @@ export class InvestigationDocuments {
         body.reportRef = `report--${randomUUID()}`;
         body.summary = msg.summary?.trim() || undefined;
       }
-      const res = await this.client.lifecycle(id, body);
+      const res = await this.client.investigations.lifecycle(id, body);
       const exportNote = res.exportWorkflowId ? " · export started" : "";
       void vscode.window.showInformationMessage(`reckon: investigation → ${res.status}${exportNote}`);
       // Every transition moves the investigation between the tree's groups (a
@@ -1322,7 +1322,7 @@ export class InvestigationDocuments {
     const draft = this.sopDrafts.get(id);
     if (!draft) return;
     try {
-      const res = await this.client.importSOPMarkdown(slugifyTitle(draft.title) + ".md", draft.doc.getText());
+      const res = await this.client.knowledge.importMarkdown(slugifyTitle(draft.title) + ".md", draft.doc.getText());
       this.sopDrafts.delete(id);
       void this.post(panel, { type: "sop.status", state: "added", title: res.title, message: res.outcome === "revised" ? "updated in the library" : "added to the library" });
     } catch (err) {
@@ -1350,7 +1350,7 @@ export class InvestigationDocuments {
       if (a.tier === "T3" && (!msg.challenge || msg.challenge.trim() === "")) {
         return;
       }
-      const decision = await this.client.approveAction(a.actionId, msg.challenge);
+      const decision = await this.client.actions.approve(a.actionId, msg.challenge);
       void vscode.window.showInformationMessage(
         `reckon: ${a.actionType} → ${decision.status}${decision.stage ? ` (${decision.stage})` : ""}`,
       );
@@ -1435,7 +1435,7 @@ export class InvestigationDocuments {
   /** Reject one action — human token only; reason from the webview prompt card. */
   private async reject(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; reason: string }): Promise<void> {
     await this.decide(id, panel, msg.actionId, async (a) => {
-      const decision = await this.client.rejectAction(a.actionId, msg.reason.trim() === "" ? "rejected from the workbench" : msg.reason.trim());
+      const decision = await this.client.actions.reject(a.actionId, msg.reason.trim() === "" ? "rejected from the workbench" : msg.reason.trim());
       void vscode.window.showInformationMessage(`reckon: ${a.actionType} → ${decision.status}`);
     }, "reject");
   }
@@ -1447,7 +1447,7 @@ export class InvestigationDocuments {
     msg: { actionId: string; outcome: "SUCCEEDED" | "FAILED"; note: string; reference?: string; artifact?: ArtifactLocation },
   ): Promise<void> {
     await this.decide(id, panel, msg.actionId, async (a) => {
-      const decision = await this.client.resolveAction(a.actionId, msg);
+      const decision = await this.client.actions.resolve(a.actionId, msg);
       void vscode.window.showInformationMessage(`reckon: ${a.actionType} resolved → ${decision.status}`);
     }, "resolve");
   }
@@ -1460,14 +1460,14 @@ export class InvestigationDocuments {
   /** Edit a pending request before approving it (adr/0127): the same action, new parameters, on the record. */
   private async edit(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; parameters: Record<string, unknown>; reason?: string }): Promise<void> {
     await this.decide(id, panel, msg.actionId, async (a) => {
-      await this.client.editAction(a.actionId, msg.parameters, msg.reason);
+      await this.client.actions.edit(a.actionId, msg.parameters, msg.reason);
       void vscode.window.showInformationMessage(`reckon: ${a.actionType} edited — review it and approve`);
     }, "edit");
   }
 
   private async rerequest(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; rationale: string }): Promise<void> {
     await this.decide(id, panel, msg.actionId, async (a) => {
-      await this.client.rerequestAction(a.actionId, msg.rationale);
+      await this.client.actions.rerequest(a.actionId, msg.rationale);
       void vscode.window.showInformationMessage(`reckon: ${a.actionType} re-requested — approve the new request`);
     }, "re-request");
   }
@@ -1482,7 +1482,7 @@ export class InvestigationDocuments {
   private async reverse(id: string, panel: vscode.WebviewPanel, msg: { actionId: string; rationale: string }): Promise<void> {
     await this.decide(id, panel, msg.actionId, async () => {
       const current = this.sameIdentity();
-      const [record, types] = await Promise.all([this.client.actionRecord(msg.actionId), this.client.actionTypes()]);
+      const [record, types] = await Promise.all([this.client.actions.record(msg.actionId), this.client.actions.types()]);
       const original = record.action;
       const inverse = types.find((t) => t.actionType === original.actionType)?.reversibleBy;
       if (!inverse) {
@@ -1490,7 +1490,7 @@ export class InvestigationDocuments {
         return;
       }
       if (!current()) return;
-      const res = await this.client.requestAction({
+      const res = await this.client.actions.request({
         investigationRef: id,
         actionType: inverse,
         targets: original.targets.map((t) => ({ resolvedIdentifier: t })),
@@ -1512,7 +1512,7 @@ export class InvestigationDocuments {
     const current = this.sameIdentity();
     let md: string;
     try {
-      md = await this.client.exportMarkdown(id);
+      md = await this.client.investigations.exportMarkdown(id);
     } catch (err) {
       void vscode.window.showErrorMessage(`reckon: export failed — ${errText(err)}`);
       return;

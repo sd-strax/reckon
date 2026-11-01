@@ -205,7 +205,7 @@ export class ImportSOPsView {
         // frontmatter source, the server keys the re-import lineage on it, and
         // a bare basename would make two different "runbook.md" files silently
         // revise each other. Matches the CLI, which keys on the cleaned path.
-        const res = await this.client.importSOPMarkdown(row.uri.fsPath, content);
+        const res = await this.client.knowledge.importMarkdown(row.uri.fsPath, content);
         row.result = { outcome: res.outcome === "created" ? "created" : "revised", title: res.title };
         row.checked = false;
         ok++;

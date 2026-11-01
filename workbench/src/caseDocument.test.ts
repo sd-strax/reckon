@@ -17,7 +17,7 @@ describe("CaseDocuments: a change of identity", () => {
 
   function started(createInvestigationFromInput: () => Promise<InvestigationDetail>) {
     const onCreated = vi.fn();
-    const client = { createInvestigationFromInput, caseDetail: async () => ({ number: "C-1" }) } as unknown as BackendClient;
+    const client = { investigations: { createFromInput: createInvestigationFromInput }, cases: { get: async () => ({ number: "C-1" }) } } as unknown as BackendClient;
     const docs = new CaseDocuments(vscode.Uri.file("/ext"), client, fakeLog(), onCreated);
     docs.open("C-1");
     createdPanels()[0].webview.receive({ type: "start" });

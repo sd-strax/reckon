@@ -80,7 +80,7 @@ export class CaseDocuments {
 
   private async load(number: string, panel: vscode.WebviewPanel): Promise<void> {
     try {
-      const c = await this.client.caseDetail(number);
+      const c = await this.client.cases.get(number);
       this.post(panel, { type: "case", case: c });
     } catch (err) {
       this.post(panel, { type: "error", message: errText(err) });
@@ -101,7 +101,7 @@ export class CaseDocuments {
     const generation = this.generation;
     this.post(panel, { type: "starting" });
     try {
-      const created = await this.client.createInvestigationFromInput(number, "case");
+      const created = await this.client.investigations.createFromInput(number, "case");
       if (generation !== this.generation) return;
       this.log.info(`case ${number}: investigation ${created.id} started`);
       this.onInvestigationCreated(created);
