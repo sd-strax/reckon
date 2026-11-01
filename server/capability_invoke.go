@@ -83,7 +83,7 @@ func (b *Backend) capabilityInvokeRoute(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusServiceUnavailable, "capability layer not configured")
 		return
 	}
-	b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.capabilityInvoke)
+	b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.capabilityInvoke)
 }
 
 // capabilityInvoke executes one verb call: resolve the verb against the

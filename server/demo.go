@@ -51,7 +51,7 @@ func (b *Backend) seedDemoKnowledge(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 		if b.cfg.Knowledge == nil {
 			writeJSONError(w, http.StatusServiceUnavailable, "knowledge corpus not configured")
 			return

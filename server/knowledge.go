@@ -43,7 +43,7 @@ func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
 		var req knowledge.RecallRequest
 		if !decodeBody(w, r, &req, maxBodyBytes) {
 			return
@@ -67,7 +67,7 @@ func (b *Backend) recallSimilar(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
 		var req knowledge.SimilarRequest
 		if !decodeBody(w, r, &req, maxBodyBytes) {
 			return
@@ -91,7 +91,7 @@ func (b *Backend) priorInvestigations(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
 		var req knowledge.PriorRequest
 		if !decodeBody(w, r, &req, maxBodyBytes) {
 			return
@@ -117,7 +117,7 @@ func (b *Backend) listCaseSummaries(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w, "GET")
 		return
 	}
-	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
 		list, err := b.cfg.Knowledge.ListSummaries(r.Context(), module.SingleTenantUUID, 100)
 		if err != nil {
 			writeInternalError(w, "case_summaries", err)
@@ -137,7 +137,7 @@ func (b *Backend) getCaseSummary(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w, "GET")
 		return
 	}
-	b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
 		ref := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/knowledge/case_summaries/"), "/")
 		if ref == "" {
 			writeJSONError(w, http.StatusBadRequest, "path must be /knowledge/case_summaries/{investigation_ref}")
@@ -176,7 +176,7 @@ func (b *Backend) summaryNarrative(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 		var body SummaryNarrativeBody
 		if !decodeBody(w, r, &body, maxBodyBytes) {
 			return
@@ -205,7 +205,7 @@ func (b *Backend) importSOP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 		var body SOPImportBody
 		if !decodeBody(w, r, &body, maxBodyBytes) {
 			return
@@ -260,7 +260,7 @@ func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 		var body SOPMarkdownBody
 		if !decodeBody(w, r, &body, maxBodyBytes) {
 			return
@@ -309,9 +309,9 @@ func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 func (b *Backend) sopsCollection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.createSOP)
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.createSOP)
 	case http.MethodGet:
-		b.requireRolesOrDeny(w, r, anyReader, b.listSOPs)
+		b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listSOPs)
 	default:
 		w.Header().Set("Allow", "GET, POST")
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -327,11 +327,11 @@ func (b *Backend) sopsItem(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		b.requireRolesOrDeny(w, r, anyReader, func(w http.ResponseWriter, r *http.Request) { b.getSOP(w, r, id) })
+		b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) { b.getSOP(w, r, id) })
 	case http.MethodPut:
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) { b.updateSOP(w, r, id) })
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) { b.updateSOP(w, r, id) })
 	case http.MethodDelete:
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) { b.retireSOP(w, r, id) })
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) { b.retireSOP(w, r, id) })
 	default:
 		w.Header().Set("Allow", "GET, PUT, DELETE")
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -409,9 +409,6 @@ func (b *Backend) retireSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// anyReader is the role set that may read (viewer, analyst, auditor).
-var anyReader = []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}
 
 // sopID extracts and parses the {id} path segment of /api/sops/{id}.
 func sopID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {

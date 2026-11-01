@@ -174,7 +174,7 @@ type RecordInterpretationResponse struct {
 func (b *Backend) interpretationsCollection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.recordInterpretation)
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.recordInterpretation)
 	default:
 		methodNotAllowed(w, "POST")
 	}
