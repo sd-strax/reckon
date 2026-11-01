@@ -255,7 +255,7 @@ type Backend struct {
 	HTTPPort int `yaml:"http_port"`
 }
 
-// Telemetry configures structured logging, tracing, and metrics (Phase A.8).
+// Telemetry configures structured logging, tracing, and metrics.
 type Telemetry struct {
 	// LogLevel is the minimum slog level: "debug", "info", "warn", "error".
 	// Default "info".
@@ -271,7 +271,7 @@ type Telemetry struct {
 	MetricsEnabled bool `yaml:"metrics_enabled"`
 }
 
-// Capability configures the read-side capability layer (Phase B). Optional: an
+// Capability configures the read-side capability layer. Optional: an
 // empty ConfigPath leaves the layer unwired and the backend serves no capability
 // routes.
 type Capability struct {

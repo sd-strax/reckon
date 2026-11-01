@@ -20,7 +20,7 @@ import (
 // extension — `x-secret` marks the fields whose values must be secret
 // REFERENCES (keychain:// / env:// / vault://), never literals. v0 ships only
 // the fixture class; out-of-process adapters bring their own schema via
-// `describe` in Phase E.
+// `describe`.
 func AdapterConfigSchema(class AdapterClass) map[string]any {
 	if class != ClassFixture {
 		return nil

@@ -219,7 +219,7 @@ func runInit(args []string) error {
 	fmt.Printf("  config:    %s\n", res.ConfigPath)
 	fmt.Printf("  data dir:  %s\n", res.DataDir)
 	fmt.Printf("  namespace: %s  (this install's immutable identity namespace)\n", res.TenantNamespace)
-	fmt.Printf("  capabilities: none wired — a real install binds its own adapters (Phase E/F), or run `%s demo seed` to try the bundled demo world on fixtures\n", branding.CLI)
+	fmt.Printf("  capabilities: none wired — a real install binds its own adapters, or run `%s demo seed` to try the bundled demo world on fixtures\n", branding.CLI)
 	printKCAdmin()
 	printPostgres()
 	fmt.Println()

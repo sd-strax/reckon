@@ -42,7 +42,7 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 		log.Printf("action %s: auto-approve failed: %v", cmd.ActionID, err)
 		return "PENDING_MANUAL", ""
 	}
-	// Trigger the durable dispatch workflow (C.4). If the trigger fails, the
+	// Trigger the durable dispatch workflow. If the trigger fails, the
 	// action is APPROVED and durable in the event log, and the stranded-action
 	// sweep starts it (adr/0216). With no dispatch client wired it stays
 	// APPROVED: nothing can run it.

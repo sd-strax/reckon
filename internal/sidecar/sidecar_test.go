@@ -262,7 +262,7 @@ func (l *scriptLLM) Complete(ctx context.Context, _ agent.CompleteRequest) (agen
 	}, nil
 }
 
-// streamScriptLLM upgrades scriptLLM to a streaming provider (E.4): each text
+// streamScriptLLM upgrades scriptLLM to a streaming provider: each text
 // block arrives as two fragments before the response returns.
 type streamScriptLLM struct{ scriptLLM }
 
@@ -434,7 +434,7 @@ func TestServe_FullFlow(t *testing.T) {
 	}
 }
 
-// TestServe_StreamsTextDeltas (E.4): a streaming provider's text reaches the
+// TestServe_StreamsTextDeltas: a streaming provider's text reaches the
 // client as turn/text_delta fragments, and turn/text stays silent — the
 // mutual-exclusion contract (the client appends both notification types, so
 // both firing for the same text would render it twice).

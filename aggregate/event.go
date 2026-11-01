@@ -109,7 +109,7 @@ type Envelope struct {
 // command so the action command handler can enforce the AI write-protection
 // (04 §5.6): an AI_DELEGATED command may request an action but can never
 // construct an Authorization record or advance action status. An empty Kind is
-// treated as HUMAN (the safe default) so pre-C.1 commands are unaffected.
+// treated as HUMAN (the safe default) so a command that does not set it is unaffected.
 const (
 	ActorHuman       = "HUMAN"
 	ActorAIDelegated = "AI_DELEGATED"

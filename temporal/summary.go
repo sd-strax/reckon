@@ -8,7 +8,7 @@ import (
 )
 
 // SummarizeForKnowledgeIndex extracts a concluded investigation's summary and
-// writes it to the DERIVED case-summaries corpus (design/06 §3.2, K3). The
+// writes it to the DERIVED case-summaries corpus (design/06 §3.2). The
 // whole load→extract→embed→write is one activity — the summary bytes never
 // enter workflow state, and the extraction is a pure function of the immutable
 // concluded investigation, so a retry re-produces (and idempotently revises)

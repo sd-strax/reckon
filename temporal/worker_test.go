@@ -36,7 +36,7 @@ func startTestDevServer(t *testing.T) string {
 	return srv.FrontendHostPort()
 }
 
-// TestWorkerPingRoundTrip is the A.7 done-bar proof: a command-path caller
+// TestWorkerPingRoundTrip proves the wireup: a command-path caller
 // (Client.Ping) dispatches a workflow, the in-process worker picks it up off
 // the task queue, and the result comes back — the full command → Temporal →
 // worker → result round trip against a real dev server.

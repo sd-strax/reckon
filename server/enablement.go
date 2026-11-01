@@ -37,8 +37,8 @@ type EnablementAdapterView struct {
 	// ConfigSchema is the 11 §4.3 JSON-schema-shaped form source for this
 	// class (nil when the class has no editable config in v0).
 	ConfigSchema map[string]any `json:"config_schema,omitempty"`
-	// Supportable is false for classes v0 cannot spawn (native_api/mcp/custom
-	// land in Phase E) — the form offers no enable affordance, honestly.
+	// Supportable is false for classes v0 cannot spawn (native_api/mcp/custom)
+	// — the form offers no enable affordance, honestly.
 	Supportable bool `json:"supportable"`
 }
 

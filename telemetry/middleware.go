@@ -27,7 +27,7 @@ func (p *Provider) httpTracer() trace.Tracer {
 // request's trace) and, when metrics are enabled, request-count and latency
 // instrumentation. It is the outermost layer of the backend router, so a
 // command that flows HTTP → aggregate handler → projector produces one trace
-// spanning all three (the A.8 done-bar).
+// spanning all three.
 //
 // A nil Provider (or one built with metrics disabled) still traces; it simply
 // records no metrics.

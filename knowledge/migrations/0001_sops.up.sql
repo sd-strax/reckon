@@ -8,7 +8,7 @@
 -- transitions to 'published' immediately); 'gated' = draft → in_review
 -- → published → retired with separate author/signer roles.
 --
--- embedding is a TEXT placeholder for Phase G (D14: pgvector deferred).
+-- embedding is a TEXT placeholder (pgvector deferred).
 -- When pgvector arrives, the column type becomes VECTOR(N) for the
 -- chosen embedding dimension and existing TEXT rows are re-embedded.
 --

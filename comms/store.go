@@ -1,5 +1,5 @@
-// Package comms tracks external-work conversation state (Phase F, design/ui
-// binding §4): the thread that FOLLOWS an outbound message.
+// Package comms tracks external-work conversation state (design/ui binding
+// §4): the thread that FOLLOWS an outbound message.
 //
 // The message itself is never sent from here — every outbound message is a
 // notify.* x-action (T2: any dispatch that leaves reckon is T2+, 04 §1)
@@ -158,7 +158,7 @@ type OutboundMessage struct {
 }
 
 // Inbound records a reply (the v0 ingestion seam — a real vendor webhook
-// lands with its adapter in Phase E/F): trail entry, status → replied, and
+// lands with its adapter): trail entry, status → replied, and
 // the unacked flag that drives the notification card.
 func (s *Store) Inbound(ctx context.Context, threadID uuid.UUID, author, body string, at time.Time) error {
 	return s.appendAndSet(ctx, threadID,
@@ -269,7 +269,7 @@ func (s *Store) List(ctx context.Context, aggregateID uuid.UUID, now time.Time) 
 
 // OpenCount returns how many threads still await a reply — the conclude
 // dialog's honest input ("closure is blocked while comms are open" is
-// decision support at v0, engine gate when Phase F completes).
+// decision support at v0, not an engine gate).
 func (s *Store) OpenCount(ctx context.Context, aggregateID uuid.UUID) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `

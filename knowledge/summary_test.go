@@ -54,7 +54,7 @@ func TestWriteSummary(t *testing.T) {
 		t.Fatalf("summary not recallable: %+v", res)
 	}
 	// The facets are hard-filterable (the reserved source tag also rides here at
-	// the substrate level; the facade strips it on the K4 recall path).
+	// the substrate level; the facade strips it on the recall path).
 	hit := res.Results[0]
 	if !hasTag(hit.Tags, "T1021.001") || !hasTag(hit.Tags, "seed:entity") || !hasTag(hit.Tags, "disposition:MALICIOUS") {
 		t.Errorf("expected facets missing from tags: %v", hit.Tags)
@@ -156,7 +156,7 @@ func TestEnrichSummary(t *testing.T) {
 	}
 }
 
-// TestRecallSimilar covers the K4 similarity recall over case-summaries: the
+// TestRecallSimilar covers the similarity recall over case-summaries: the
 // source investigation ref is recovered from the reserved tag, reserved tags
 // are stripped, and bands ride through (via the vector backend).
 func TestRecallSimilar(t *testing.T) {

@@ -45,7 +45,7 @@ func ArchiveInvestigation(ctx workflow.Context, in ArchiveInvestigationInput) (A
 }
 
 // PostConclusionResult reports what the pipeline produced. v0 has the export
-// bundle (step 1) and the knowledge summary (step 2, K3); v1 adds IOC/candidate-
+// bundle (step 1) and the knowledge summary (step 2); v1 adds IOC/candidate-
 // SOP/linkage outputs (07 §10). SummaryErr is non-nil when step 2 was skipped
 // or failed — a summary is best-effort and never fails the conclusion.
 type PostConclusionResult struct {
@@ -58,7 +58,7 @@ type PostConclusionResult struct {
 
 // PostConclusionPipeline is the post-conclusion orchestrator (07 §1.2, §9.1),
 // triggered at InvestigationConcluded. v0 steps: (1) export bundle generation
-// and (2) knowledge-index summarization (K3). Later steps (IOC extraction,
+// and (2) knowledge-index summarization. Later steps (IOC extraction,
 // candidate SOPs, linkage) slot in alongside. Per 07 §9.1 a failed step does
 // not block the others: step 1 (the signed artifact) is load-bearing and its
 // failure fails the pipeline, but step 2 is best-effort — a summary that can't

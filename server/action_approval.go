@@ -43,7 +43,7 @@ type ActionDecisionResponse struct {
 }
 
 // approveAction handles POST /api/actions/{id}/approve. It honors the frozen
-// Gate 2 requirement (the Phase D two-party seam): for a TWO_PARTY action the
+// Gate 2 requirement: for a TWO_PARTY action the
 // first approval is recorded as PRIMARY (→ PENDING_SECONDARY, no dispatch) and a
 // second, distinct approver as SECONDARY (→ APPROVED, dispatch); a MANUAL action
 // is a single SOLO approval. The aggregate is the enforcement point — it rejects

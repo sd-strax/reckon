@@ -1,5 +1,5 @@
 -- 0003_sops_fts: v0 keyword retrieval (design/06 §4, §10) + the recommendation
--- token. No embeddings yet (Phase G, D14); recall_sops ranks with Postgres
+-- token. No embeddings yet; recall_sops ranks with Postgres
 -- full-text search over title+body until then.
 
 -- The structured recommendation token (design/06 §2.1): metadata only — the

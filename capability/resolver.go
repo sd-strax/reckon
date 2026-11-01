@@ -184,7 +184,7 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 	tctx := r.templateContext(verb, input)
 	// §3.4 specifies parallel fan-out invocation; v0 runs bindings
 	// sequentially — a latency-only simplification against fixtures.
-	// Parallelize when real adapters land (Phase E).
+	// Parallelize once real adapters need it.
 	fanout := anyFanOut(bindings)
 
 	var applicable, succeeded, failed int

@@ -246,7 +246,7 @@ func jsonl(msgs []json.RawMessage) []byte {
 
 // stixBundle wraps the interpretation-layer nodes in a STIX 2.1 bundle envelope
 // (07 §2.1 stix-bundle.json). v0 emits the stored nodes as-is; edges flattened
-// to Relationship objects land with full STIX CRUD in Phase E.
+// to Relationship objects land with full STIX CRUD.
 func stixBundle(objects []json.RawMessage) []byte {
 	if objects == nil {
 		objects = []json.RawMessage{}

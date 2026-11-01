@@ -111,7 +111,7 @@ func TestSetupWritesFileAndMetrics(t *testing.T) {
 
 // TestHTTPMiddlewareRecordsSpanAndMetrics proves the middleware opens a server
 // span (with the normalized route and an error status for a 5xx) and increments
-// the request counter — the HTTP-layer half of the A.8 done-bar.
+// the request counter.
 func TestHTTPMiddlewareRecordsSpanAndMetrics(t *testing.T) {
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))

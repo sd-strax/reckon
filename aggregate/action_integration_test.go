@@ -17,7 +17,7 @@ func mustActivate(t *testing.T, h *Handler) uuid.UUID {
 	return aggID
 }
 
-// TestAction_RequestApproveProjection is the C.1 done-bar: request → approve
+// TestAction_RequestApproveProjection: request → approve
 // through the real handler, with the action_current projection reflecting the
 // APPROVED status, mode, and approver.
 func TestAction_RequestApproveProjection(t *testing.T) {

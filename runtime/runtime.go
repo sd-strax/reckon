@@ -66,13 +66,13 @@ func Run(build ModuleBuilder) error {
 	}
 	// The activated registry currently feeds only activate's logging; it
 	// threads into serve as the injection point for tenancy/governance wiring
-	// into the Backend once those modules are consumed (a later phase).
+	// into the Backend once those modules are consumed.
 	return serve(cfg)
 }
 
 // Preflight runs the activation seam — load config, build the registry, log the
 // activation shape — without starting any services, then returns. It backs the
-// `check` command and the A.1 architectural-seam test: a fast, dependency-free
+// `check` command and the architectural-seam test: a fast, dependency-free
 // proof that the paid.* flags flip modules on and off.
 func Preflight(build ModuleBuilder) error {
 	_, _, err := activate(build)
@@ -134,7 +134,7 @@ func requireSecret(store *secrets.Store, envVar, name, label string) (string, er
 
 func serve(cfg config.Config) error {
 	// Bring observability up first so everything below logs through the
-	// configured structured logger and can emit spans (A.8).
+	// configured structured logger and can emit spans.
 	logDir := ""
 	if cfg.Telemetry.LogToFile {
 		logDir = telemetry.DefaultLogDir(cfg.Data.Dir)
@@ -269,7 +269,7 @@ func serve(cfg config.Config) error {
 		return fmt.Errorf("build knowledge service: %w", err)
 	}
 
-	// The out-of-process adapter host (Phase E, 11 §2) scans <data>/adapters and
+	// The out-of-process adapter host (11 §2) scans <data>/adapters and
 	// owns one plugin process per enabled instance, shared across the read
 	// resolver, both action resolvers, and the worker — so a vendor serving both
 	// reads and writes runs as one process, not two (11 §8). Spawn is lazy:
@@ -285,12 +285,12 @@ func serve(cfg config.Config) error {
 	// The Temporal worker runs in-process (05 §3.3): it registers the OSS
 	// workflow inventory on the `reckon` task queue and — when write bindings
 	// are configured — the ActionLifecycle activities (handler + action
-	// resolver), so the dispatch workflow (C.4) can run.
+	// resolver), so the dispatch workflow can run.
 	worker := temporal.NewWorker(temporal.WorkerConfig{
 		HostPort:  supervisor.TemporalHostPort(cfg.Temporal.FrontendPort),
 		Namespace: cfg.Temporal.Namespace,
 	})
-	// The comms-thread store (Phase F, binding §4) rides the main DB: the
+	// The comms-thread store (binding §4) rides the main DB: the
 	// result path opens threads for SUCCEEDED notify.* dispatches, and the
 	// backend serves/acts on them.
 	commsStore := comms.NewStore(aggDB)
@@ -307,7 +307,7 @@ func serve(cfg config.Config) error {
 		return err
 	}
 	worker.WithArchiveActivities(archiveActivities)
-	// K3: the post-conclusion summarizer writes into the knowledge substrate's
+	// The post-conclusion summarizer writes into the knowledge substrate's
 	// DERIVED case-summaries corpus (the same store SOPs use).
 	worker.WithSummaryActivities(temporal.NewSummaryActivities(handler, knowledgeStore))
 
@@ -318,14 +318,14 @@ func serve(cfg config.Config) error {
 	sup.Register(worker, supervisor.RestartOnExit)
 
 	// Build the read-side capability layer when a tenant capability config is
-	// set (Phase B). Optional in v0: absent config leaves the /api/capabilities
+	// set. Optional in v0: absent config leaves the /api/capabilities
 	// route disabled; a present-but-broken config fails boot loudly.
 	capResolver, capCatalog, err := buildCapability(cfg, adapterHost)
 	if err != nil {
 		return err
 	}
 
-	// The write-side authorization path (Phase C): Gate 2 + the action catalog
+	// The write-side authorization path: Gate 2 + the action catalog
 	// enable the request_action route.
 	gate2, actionCatalog, err := buildGate2(cfg)
 	if err != nil {

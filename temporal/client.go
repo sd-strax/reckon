@@ -13,8 +13,8 @@ import (
 
 // Client is a thin dispatch wrapper over the Temporal SDK client, scoped to
 // reckon's task queue and namespace. It is the command-path entry point for
-// starting workflows; Phase C extends it with real Start* methods
-// (StartActionLifecycle, …). At A.7 it carries only Ping — the wireup prover.
+// starting workflows (StartActionLifecycle, …), and carries Ping, the wireup
+// prover.
 type Client struct {
 	c         client.Client
 	taskQueue string

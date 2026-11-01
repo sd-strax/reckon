@@ -1,4 +1,4 @@
--- 0009_action_current: projection of the x-action lifecycle (C.1). One row per
+-- 0009_action_current: projection of the x-action lifecycle. One row per
 -- x-action, keyed by action_id, materialized from the seven action.* events by
 -- the ActionCurrentProjector inside the same transaction as the event-append.
 --

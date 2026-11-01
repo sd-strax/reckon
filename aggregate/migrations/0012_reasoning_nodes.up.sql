@@ -1,5 +1,5 @@
 -- 0012_reasoning_nodes: investigation-scoped read models for the reasoning
--- nodes (x-hypothesis / x-prediction, 01-domain-model.md), Phase D.2.
+-- nodes (x-hypothesis / x-prediction, 01-domain-model.md).
 --
 -- The canonical STIX-shaped nodes live in stix_objects (written by the
 -- ReasoningNodeProjector — the object store's first writer). These two tables

@@ -7,7 +7,7 @@
 #
 # ServiceNow serves both surfaces: the ticketing family closes the
 # investigation→action loop (04 §2.2 Handoff) via the action sections below, and
-# the Phase F read verbs (query_external_cases / get_external_case_details,
+# the read verbs (query_external_cases / get_external_case_details,
 # 03 §2.9) read the case system of record back as class-2005 Incident Findings
 # via the read (capability) sections.
 #

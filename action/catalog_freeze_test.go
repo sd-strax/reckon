@@ -39,7 +39,7 @@ func TestDefaultActionCatalog_Frozen(t *testing.T) {
 		"ticket.comment":    {"T2", "irreversible", "", ""},
 		"ticket.transition": {"T2", "irreversible", "", ""},
 		"ticket.close":      {"T2", "irreversible", "", ""},
-		// The comms family (Phase F, binding §4): T2 — there is no T1 external
+		// The comms family (binding §4): T2 — there is no T1 external
 		// action (04 §1 names chat explicitly; the pre-send preview is the
 		// light approval surface, not a lower tier) — and irreversible: a sent
 		// message is permanent. No D3FEND (coordination, not a technique).

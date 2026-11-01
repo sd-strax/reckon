@@ -80,8 +80,7 @@ func postCapability(t *testing.T, b *Backend, token, verb string, body Capabilit
 
 // TestCapabilityInvoke_ResolvesFixture: invoking a bound verb replays the
 // fixture and returns the full envelope — coverage, refs, telemetry payloads,
-// and normalized interpretation-layer objects (which the caller must receive,
-// since telemetry persistence is deferred at E.1).
+// and normalized interpretation-layer objects (which the caller must receive).
 func TestCapabilityInvoke_ResolvesFixture(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")

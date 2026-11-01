@@ -100,7 +100,7 @@ type BackendConfig struct {
 	MetricsHandler http.Handler
 
 	// CapabilityResolver and CapabilityCatalog, when both non-nil, enable the
-	// /api/capabilities route (the read-side capability layer, Phase B). Nil
+	// /api/capabilities route (the read-side capability layer). Nil
 	// leaves the route returning 503 so the backend still serves without a
 	// capability config. Read through Backend.capabilitySurface — the
 	// enablement endpoint hot-swaps them after a config change.
@@ -130,7 +130,7 @@ type BackendConfig struct {
 	Rebuild func() (ReloadedSurface, error)
 
 	// Gate2 and ActionCatalog, when both non-nil, enable the POST /api/actions
-	// (request_action) route (the write-side authorization path, Phase C). Nil
+	// (request_action) route (the write-side authorization path). Nil
 	// leaves it a 503. The Temporal dispatch client is opened at Start
 	// regardless — it also serves the export pipeline.
 	Gate2         *action.Gate2
@@ -145,16 +145,15 @@ type BackendConfig struct {
 	ActionDispatch *action.AtomicResolver
 
 	// Knowledge, when non-nil, enables the SOP corpus routes (/api/sops,
-	// /api/knowledge/recall_sops — Phase C.5). Nil leaves them unregistered.
+	// /api/knowledge/recall_sops). Nil leaves them unregistered.
 	Knowledge knowledgeStore
 
-	// Comms, when non-nil, enables the comms-thread routes (Phase F, binding
-	// §4): GET /api/investigations/{id}/comms + /api/comms acts. Threads are
+	// Comms, when non-nil, enables the comms-thread routes (binding §4): GET /api/investigations/{id}/comms + /api/comms acts. Threads are
 	// opened by the action-result path, never by these routes.
 	Comms commsStore
 
 	// TenantNamespace is this install's identity namespace UUID (03 §7.1),
-	// stamped onto export bundles + their archive path (D.5).
+	// stamped onto export bundles + their archive path.
 	TenantNamespace string
 
 	// ExportIncludeSideStores is the tenant policy for whether export bundles
@@ -406,9 +405,8 @@ func (b *Backend) Health(_ context.Context) HealthStatus {
 	return HealthStatus{Ready: true, Message: fmt.Sprintf("http :%d", b.cfg.HTTPPort)}
 }
 
-// HealthStatus mirrors supervisor.HealthStatus so server can expose its own
-// Health method that satisfies supervisor.Component without a forward
-// dependency.
+// HealthStatus is supervisor.HealthStatus under this package's name, the return
+// type of the Health method that satisfies supervisor.Component.
 type HealthStatus = supervisor.HealthStatus
 
 // Server timeouts (adr/0219). ReadTimeout covers the whole request, so the

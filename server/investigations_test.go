@@ -216,7 +216,7 @@ func TestHealthzIsPublic(t *testing.T) {
 	}
 }
 
-// --- A.6 done-bar: 401 without token, 200 with valid token, 403 without role.
+// --- 401 without token, 200 with valid token, 403 without role.
 
 func TestAPIRoute_401WithoutToken(t *testing.T) {
 	if testing.Short() {

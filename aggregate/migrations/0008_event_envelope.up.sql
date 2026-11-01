@@ -19,7 +19,7 @@
 --
 -- - causation_id: the event that caused this one, for event-chain provenance.
 --   NULL for command-initiated events (all events today); populated when
---   system-emitted event chains land (Temporal workflows, Phase C+).
+--   system-emitted event chains land (Temporal workflows).
 
 ALTER TABLE events ADD COLUMN event_id UUID;
 UPDATE events SET event_id = gen_random_uuid() WHERE event_id IS NULL;
