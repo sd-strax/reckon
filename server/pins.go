@@ -77,7 +77,7 @@ func (b *Backend) interpretationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/supersede") {
 		switch r.Method {
 		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.supersedeInterpretation)
+			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.supersedeInterpretation)
 		default:
 			methodNotAllowed(w, "POST")
 		}
@@ -86,7 +86,7 @@ func (b *Backend) interpretationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/transcript") {
 		switch r.Method {
 		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.getInterpretationTranscript)
+			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.getInterpretationTranscript)
 		default:
 			methodNotAllowed(w, "GET")
 		}

@@ -194,19 +194,9 @@ func statusTransition(env Envelope, state aggregateState, from, to, reason strin
 		return nil, fmt.Errorf("cannot move %s→%s: investigation %s is %s", from, to, env.AggregateID, state.Status)
 	}
 	interpID := newID()
-	payload, err := json.Marshal(InvestigationStatusChanged{
+	return actEvents(env, state.Seq, EventTypeStatusChanged, InvestigationStatusChanged{
 		From: from, To: to, Reason: reason, LifecycleInterpretationRef: interpID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeStatusChanged, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationLifecycle,
-		fmt.Sprintf("lifecycle %s→%s", from, to), nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	}, interpID, InterpretationLifecycle, fmt.Sprintf("lifecycle %s→%s", from, to), nil)
 }
 
 // concludeEvents builds the (InvestigationConcluded, InterpretationRecorded)
@@ -223,18 +213,9 @@ func concludeEvents(env Envelope, state aggregateState, c ConcludeInvestigation,
 		return nil, fmt.Errorf("cannot conclude investigation %s: no verdict of record — record a verdict (with pinned evidence) first", env.AggregateID)
 	}
 	interpID := newID()
-	payload, err := json.Marshal(InvestigationConcluded{
+	return actEvents(env, state.Seq, EventTypeConcluded, InvestigationConcluded{
 		ReportRef: c.ReportRef, Summary: c.Summary, LifecycleInterpretationRef: interpID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeConcluded, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationConclusion, c.Summary, nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	}, interpID, InterpretationConclusion, c.Summary, nil)
 }
 
 // reopenEvents builds the (InvestigationReopened, InterpretationRecorded) pair.
@@ -243,16 +224,8 @@ func reopenEvents(env Envelope, state aggregateState, c ReopenInvestigation, new
 		return nil, fmt.Errorf("cannot reopen investigation %s: it is %s, not %s", env.AggregateID, state.Status, StatusConcluded)
 	}
 	interpID := newID()
-	payload, err := json.Marshal(InvestigationReopened{Reason: c.Reason, LifecycleInterpretationRef: interpID})
-	if err != nil {
-		return nil, err
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeReopened, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationLifecycle, "reopened", nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	return actEvents(env, state.Seq, EventTypeReopened, InvestigationReopened{Reason: c.Reason, LifecycleInterpretationRef: interpID},
+		interpID, InterpretationLifecycle, "reopened", nil)
 }
 
 // archiveEvents builds the (InvestigationArchived, InterpretationRecorded) pair.
@@ -263,16 +236,23 @@ func archiveEvents(env Envelope, state aggregateState, c ArchiveInvestigation, n
 		return nil, fmt.Errorf("cannot archive investigation %s: it is %s, not %s", env.AggregateID, state.Status, StatusConcluded)
 	}
 	interpID := newID()
-	payload, err := json.Marshal(InvestigationArchived{Reason: c.Reason, LifecycleInterpretationRef: interpID})
+	return actEvents(env, state.Seq, EventTypeArchived, InvestigationArchived{Reason: c.Reason, LifecycleInterpretationRef: interpID},
+		interpID, InterpretationLifecycle, "archived", nil)
+}
+
+// actEvents builds the pair a transition records: its domain event after seq,
+// then the interpretation that explains it (01, 02 §3). The caller mints
+// interpID so payload can reference it, and appends anything that follows.
+func actEvents(env Envelope, seq int64, eventType string, payload any, interpID uuid.UUID, itype, summary string, inputRefs []string) ([]Event, error) {
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeArchived, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationLifecycle, "archived", nil)
+	interp, err := interpretationEvent(env, seq+2, interpID, itype, summary, inputRefs)
 	if err != nil {
 		return nil, err
 	}
-	return []Event{domain, interp}, nil
+	return []Event{lifecycleDomainEvent(env, seq+1, eventType, raw), interp}, nil
 }
 
 // lifecycleDomainEvent stamps the common envelope fields onto a lifecycle

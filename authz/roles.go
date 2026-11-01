@@ -42,3 +42,10 @@ var AllRoles = []string{
 	RoleTenantAdmin,
 	RoleAuditor,
 }
+
+// ReadRoles may read an investigation and its record. AnalystRoles may act on
+// one. Each route names one of these, so a change to who may read is one edit.
+var (
+	ReadRoles    = []string{RoleViewer, RoleAnalyst, RoleAuditor}
+	AnalystRoles = []string{RoleAnalyst}
+)

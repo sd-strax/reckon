@@ -112,7 +112,7 @@ func (b *Backend) commsRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	p := strings.TrimSuffix(r.URL.Path, "/")
 	if p == "/comms/inbound" {
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.commsInbound)
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.commsInbound)
 		return
 	}
 	rest, ok := strings.CutPrefix(p, "/comms/")
@@ -126,7 +126,7 @@ func (b *Backend) commsRoute(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "path must be /comms/{id}/{ack|done|snooze}")
 		return
 	}
-	b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 		b.commsAct(w, r, threadID, verb)
 	})
 }

@@ -165,10 +165,13 @@ export class BackendClient {
    * @param baseUrl read per-call so a settings change needs no reload.
    * @param token   supplies a bearer token for authenticated calls; omitted for
    *                the public /status and /auth-config probes.
+   * @param renew   a fresh token to replace one the backend refused; omitted, a
+   *                401 stands.
    */
   constructor(
     private readonly baseUrl: () => string,
     private readonly token?: () => Promise<string>,
+    private readonly renew?: (rejected: string) => Promise<string>,
   ) {}
 
   async status(): Promise<BackendStatus> {
@@ -1177,14 +1180,10 @@ export class BackendClient {
    * ticket unedited" is this call, not a file on disk.
    */
   async exportMarkdown(investigationId: string): Promise<string> {
-    if (!this.token) {
-      throw new Error("no token source configured");
-    }
-    const bearer = await this.token();
-    const res = await fetch(
+    const res = await this.withBearer((bearer) => fetch(
       `${this.baseUrl()}/api/investigations/${encodeURIComponent(investigationId)}/export.md`,
       { headers: { Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(15_000) },
-    );
+    ));
     if (!res.ok) {
       throw new Error(`export.md → ${res.status}`);
     }
@@ -1199,12 +1198,24 @@ export class BackendClient {
     return this.authed<T>("POST", path, body);
   }
 
-  private async authed<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  /**
+   * Send with the current token, and once more with a fresh one on a 401. Safe
+   * for a write: a 401 comes from the auth middleware, before any handler ran.
+   */
+  private async withBearer(send: (bearer: string) => Promise<Response>): Promise<Response> {
     if (!this.token) {
       throw new Error("no token source configured");
     }
     const bearer = await this.token();
-    const res = await fetch(`${this.baseUrl()}${path}`, {
+    const res = await send(bearer);
+    if (res.status !== 401 || !this.renew) {
+      return res;
+    }
+    return send(await this.renew(bearer));
+  }
+
+  private async authed<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+    const res = await this.withBearer((bearer) => fetch(`${this.baseUrl()}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${bearer}`,
@@ -1212,7 +1223,7 @@ export class BackendClient {
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(10_000),
-    });
+    }));
     if (!res.ok) {
       // Surface the server's explanation when it sent one — a Gate 2 denial
       // or a guarded transition is information, not noise (approve/reject

@@ -704,3 +704,70 @@ func TestExpireAction_PrincipalIsRequester(t *testing.T) {
 		}
 	}
 }
+
+// TestActEvents_Sequence: a transition's events take consecutive numbers in
+// order, the interpretation right after its domain event, whatever else the
+// command records around the pair.
+func TestActEvents_Sequence(t *testing.T) {
+	env := newTestEnvelope("alice")
+	id := uuid.New()
+	wantTypes := func(t *testing.T, events []Event, types ...string) {
+		t.Helper()
+		if len(events) != len(types) {
+			t.Fatalf("%d events; want %d", len(events), len(types))
+		}
+		for i, e := range events {
+			if e.Type != types[i] {
+				t.Errorf("event %d is %s; want %s", i, e.Type, types[i])
+			}
+			if want := int64(5 + i); e.SequenceNo != want {
+				t.Errorf("event %d (%s) is number %d; want %d", i, e.Type, e.SequenceNo, want)
+			}
+			if e.CorrelationID != env.CorrelationID {
+				t.Errorf("event %d (%s) has correlation %s", i, e.Type, e.CorrelationID)
+			}
+		}
+	}
+
+	// An approval that activates the draft follows the activation's own pair.
+	state := aggregateState{
+		Seq: 4, Exists: true, TenantID: env.TenantID, Status: StatusDraft,
+		Actions: map[uuid.UUID]actionState{id: {Status: ActionStatusRequested, Tier: TierT2}},
+	}
+	approved, err := applyCommand(env, ApproveAction{ActionID: id, Authorization: Authorization{
+		Mode: AuthModeManual, Stage: AuthStageSolo, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
+	}}, state, testIDs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTypes(t, approved,
+		EventTypeStatusChanged, EventTypeInterpretationRecorded,
+		EventTypeActionApproved, EventTypeInterpretationRecorded)
+
+	// The pair names the interpretation its domain event references.
+	var p ActionApproved
+	if err := json.Unmarshal(approved[2].Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	var rec InterpretationRecorded
+	if err := json.Unmarshal(approved[3].Payload, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if p.ApprovalInterpretationID != rec.InterpretationID || rec.InterpretationType != InterpretationActionApproval {
+		t.Errorf("domain event references %s; interpretation is %s (%s)", p.ApprovalInterpretationID, rec.InterpretationID, rec.InterpretationType)
+	}
+
+	// An edit that re-ran Gate 2 records the evaluation after the pair.
+	state = aggregateState{
+		Seq: 4, Exists: true, TenantID: env.TenantID, Status: StatusActive,
+		Actions: map[uuid.UUID]actionState{id: {Status: ActionStatusRequested, Tier: TierT2}},
+	}
+	edited, err := applyCommand(env, EditAction{
+		ActionID: id, Parameters: json.RawMessage(`{}`), PriorParameters: json.RawMessage(`{}`),
+		PolicyEvaluations: []PolicyEvaluationRecord{{PolicyRef: "p"}},
+	}, state, testIDs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTypes(t, edited, EventTypeActionEdited, EventTypeInterpretationRecorded, EventTypeActionPolicyEvaluated)
+}

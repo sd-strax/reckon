@@ -62,8 +62,6 @@ type CaseListResponse struct {
 	Cases []CaseView `json:"cases"`
 }
 
-var caseReadRoles = []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}
-
 // casesRoute serves GET /api/cases and GET /api/cases/{number}.
 func (b *Backend) casesRoute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -72,14 +70,14 @@ func (b *Backend) casesRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/cases"), "/")
 	if rest == "" {
-		b.requireRolesOrDeny(w, r, caseReadRoles, b.listCases)
+		b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listCases)
 		return
 	}
 	if strings.Contains(rest, "/") {
 		writeJSONError(w, http.StatusNotFound, "not found")
 		return
 	}
-	b.requireRolesOrDeny(w, r, caseReadRoles, func(w http.ResponseWriter, r *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
 		b.getCase(w, r, rest)
 	})
 }

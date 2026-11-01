@@ -1,7 +1,6 @@
 package aggregate
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -125,24 +124,15 @@ func applyOutcomeUnknown(env Envelope, state aggregateState, c RecordOutcomeUnkn
 		return nil, fmt.Errorf("RecordOutcomeUnknown rejected: action %s is %s, not EXECUTING", c.ActionID, act.Status)
 	}
 	interpID := newID()
-	payload, err := json.Marshal(ActionOutcomeUnknown{
-		ActionID:               c.ActionID,
-		Detail:                 c.Detail,
-		ResultInterpretationID: interpID,
-	})
-	if err != nil {
-		return nil, err
-	}
 	summary := act.label() + ": outcome unknown"
 	if c.Detail != "" {
 		summary += " — " + c.Detail
 	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionOutcomeUnknown, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionResult, summary, nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	return actEvents(env, state.Seq, EventTypeActionOutcomeUnknown, ActionOutcomeUnknown{
+		ActionID:               c.ActionID,
+		Detail:                 c.Detail,
+		ResultInterpretationID: interpID,
+	}, interpID, InterpretationActionResult, summary, nil)
 }
 
 // applyResolveOutcome builds the (ActionOutcomeResolved, action-resolution
@@ -161,22 +151,13 @@ func applyResolveOutcome(env Envelope, state aggregateState, c ResolveActionOutc
 	}
 	interpID := newID()
 	note := strings.TrimSpace(c.Note)
-	payload, err := json.Marshal(ActionOutcomeResolved{
+	summary := fmt.Sprintf("%s: resolved %s after checking the tool — %s", act.label(), c.Outcome, note)
+	return actEvents(env, state.Seq, EventTypeActionOutcomeResolved, ActionOutcomeResolved{
 		ActionID:                   c.ActionID,
 		Outcome:                    c.Outcome,
 		Note:                       note,
 		Reference:                  strings.TrimSpace(c.Reference),
 		Artifact:                   trimArtifact(c.Artifact),
 		ResolutionInterpretationID: interpID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	summary := fmt.Sprintf("%s: resolved %s after checking the tool — %s", act.label(), c.Outcome, note)
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionOutcomeResolved, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionResolution, summary, nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	}, interpID, InterpretationActionResolution, summary, nil)
 }

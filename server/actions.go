@@ -227,7 +227,7 @@ func (b *Backend) listActionTypes(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusServiceUnavailable, "action layer not configured")
 		return
 	}
-	b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, func(w http.ResponseWriter, _ *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, _ *http.Request) {
 		summaries := resolver.ListActionTypes(b.cfg.ActionCatalog)
 		writeJSON(w, http.StatusOK, map[string]any{"action_types": summaries})
 	})
@@ -255,7 +255,7 @@ func actorFromClaims(c authz.Claims) aggregate.Actor {
 func (b *Backend) actionsCollection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.requestAction)
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.requestAction)
 	default:
 		w.Header().Set("Allow", "POST")
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")

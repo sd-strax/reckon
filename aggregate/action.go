@@ -701,7 +701,7 @@ func applyRequestAction(env Envelope, state aggregateState, c RequestAction, new
 	}
 
 	interpID := newID()
-	payload, err := json.Marshal(ActionRequested{
+	events, err := actEvents(env, state.Seq, EventTypeActionRequested, ActionRequested{
 		ActionID:                   c.ActionID,
 		ActionType:                 c.ActionType,
 		Tier:                       c.Tier,
@@ -716,17 +716,10 @@ func applyRequestAction(env Envelope, state aggregateState, c RequestAction, new
 		RequiredMode:               c.RequiredMode,
 		SecondaryApproverPool:      c.SecondaryApproverPool,
 		RequestingInterpretationID: interpID,
-	})
+	}, interpID, InterpretationActionRequest, c.Rationale, c.EvidenceRefs)
 	if err != nil {
 		return nil, err
 	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionRequested, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionRequest,
-		c.Rationale, c.EvidenceRefs)
-	if err != nil {
-		return nil, err
-	}
-	events := []Event{domain, interp}
 
 	// If Gate 2 ran, record its evaluation in the same transaction (02 §3).
 	if len(c.PolicyEvaluations) > 0 {
@@ -878,21 +871,15 @@ func applyApproveAction(env Envelope, state aggregateState, c ApproveAction, new
 	}
 
 	interpID := newID()
-	payload, err := json.Marshal(ActionApproved{
+	pair, err := actEvents(env, seq, EventTypeActionApproved, ActionApproved{
 		ActionID:                 c.ActionID,
 		Authorization:            c.Authorization,
 		ApprovalInterpretationID: interpID,
-	})
+	}, interpID, InterpretationActionApproval, fmt.Sprintf("%s: approved (%s/%s)", act.label(), c.Authorization.Mode, stage), nil)
 	if err != nil {
 		return nil, err
 	}
-	domain := lifecycleDomainEvent(env, seq+1, EventTypeActionApproved, payload)
-	interp, err := interpretationEvent(env, seq+2, interpID, InterpretationActionApproval,
-		fmt.Sprintf("%s: approved (%s/%s)", act.label(), c.Authorization.Mode, stage), nil)
-	if err != nil {
-		return nil, err
-	}
-	return append(events, domain, interp), nil
+	return append(events, pair...), nil
 }
 
 // checkApprover enforces the actor/approver invariant for the recorded stage.
@@ -926,20 +913,11 @@ func applyRejectAction(env Envelope, state aggregateState, c RejectAction, newID
 	}
 
 	interpID := newID()
-	payload, err := json.Marshal(ActionRejected{
+	return actEvents(env, state.Seq, EventTypeActionRejected, ActionRejected{
 		ActionID:                  c.ActionID,
 		Reason:                    c.Reason,
 		RejectionInterpretationID: interpID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionRejected, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionRejection, c.Reason, nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	}, interpID, InterpretationActionRejection, c.Reason, nil)
 }
 
 // applyDispatchAction builds the (ActionDispatched, action-dispatch
@@ -956,23 +934,13 @@ func applyDispatchAction(env Envelope, state aggregateState, c DispatchAction, n
 	}
 
 	interpID := newID()
-	payload, err := json.Marshal(ActionDispatched{
+	return actEvents(env, state.Seq, EventTypeActionDispatched, ActionDispatched{
 		ActionID:                 c.ActionID,
 		Adapter:                  c.Adapter,
 		AdapterRequestID:         c.AdapterRequestID,
 		DispatchedAt:             env.OccurredAt,
 		DispatchInterpretationID: interpID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionDispatched, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionDispatch,
-		dispatchSummary(act.label(), c.Adapter), nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	}, interpID, InterpretationActionDispatch, dispatchSummary(act.label(), c.Adapter), nil)
 }
 
 // applyResultAction builds the (ActionResulted, action-result Interpretation)
@@ -987,7 +955,11 @@ func applyResultAction(env Envelope, state aggregateState, c ResultAction, newID
 	}
 
 	interpID := newID()
-	payload, err := json.Marshal(ActionResulted{
+	rationale := fmt.Sprintf("%s: %s", act.label(), c.FinalOutcome)
+	if c.ErrorDetail != "" {
+		rationale += " — " + c.ErrorDetail
+	}
+	return actEvents(env, state.Seq, EventTypeActionResulted, ActionResulted{
 		ActionID:               c.ActionID,
 		FinalOutcome:           c.FinalOutcome,
 		PerTargetResults:       c.PerTargetResults,
@@ -996,21 +968,7 @@ func applyResultAction(env Envelope, state aggregateState, c ResultAction, newID
 		ErrorDetail:            c.ErrorDetail,
 		Adapter:                c.Adapter,
 		ResultInterpretationID: interpID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionResulted, payload)
-	rationale := fmt.Sprintf("%s: %s", act.label(), c.FinalOutcome)
-	if c.ErrorDetail != "" {
-		rationale += " — " + c.ErrorDetail
-	}
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionResult,
-		rationale, nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	}, interpID, InterpretationActionResult, rationale, nil)
 }
 
 // applyReverseAction builds the (ActionReversed, action-reversal Interpretation)
@@ -1026,21 +984,11 @@ func applyReverseAction(env Envelope, state aggregateState, c ReverseAction, new
 	}
 
 	interpID := newID()
-	payload, err := json.Marshal(ActionReversed{
+	return actEvents(env, state.Seq, EventTypeActionReversed, ActionReversed{
 		OriginalActionID:         c.OriginalActionID,
 		ReversingActionID:        c.ReversingActionID,
 		ReversalInterpretationID: interpID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionReversed, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionReversal,
-		fmt.Sprintf("%s: reversed", orig.label()), nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	}, interpID, InterpretationActionReversal, fmt.Sprintf("%s: reversed", orig.label()), nil)
 }
 
 // applyReversalAttempt builds the (ActionReversalAttempted, action-reversal
@@ -1068,21 +1016,11 @@ func applyReversalAttempt(env Envelope, state aggregateState, c RecordReversalAt
 	}
 
 	interpID := newID()
-	payload, err := json.Marshal(ActionReversalAttempted{
+	return actEvents(env, state.Seq, EventTypeActionReversalAttempted, ActionReversalAttempted{
 		OriginalActionID:         c.OriginalActionID,
 		ReversingActionID:        c.ReversingActionID,
 		ReversalInterpretationID: interpID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionReversalAttempted, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionReversal,
-		fmt.Sprintf("%s: reversal attempted — effect unverified, original stays SUCCEEDED", orig.label()), nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	}, interpID, InterpretationActionReversal, fmt.Sprintf("%s: reversal attempted — effect unverified, original stays SUCCEEDED", orig.label()), nil)
 }
 
 // applyExpireAction builds the (ActionExpired, action-expiry Interpretation)
@@ -1102,15 +1040,6 @@ func applyExpireAction(env Envelope, state aggregateState, c ExpireAction, newID
 	}
 
 	interpID := newID()
-	payload, err := json.Marshal(ActionExpired{ActionID: c.ActionID, ExpiryInterpretationID: interpID})
-	if err != nil {
-		return nil, err
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionExpired, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionExpiry,
-		fmt.Sprintf("%s: expired (no approval before the window closed)", act.label()), nil)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{domain, interp}, nil
+	return actEvents(env, state.Seq, EventTypeActionExpired, ActionExpired{ActionID: c.ActionID, ExpiryInterpretationID: interpID},
+		interpID, InterpretationActionExpiry, fmt.Sprintf("%s: expired (no approval before the window closed)", act.label()), nil)
 }

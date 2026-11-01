@@ -23,6 +23,7 @@ import * as crypto from "crypto";
 import * as http from "http";
 import { AddressInfo } from "net";
 import * as vscode from "vscode";
+import { SingleFlight } from "./singleFlight";
 import { errText } from "./util";
 
 /** Which realm client a token comes from — the actor-attribution axis. */
@@ -36,6 +37,10 @@ const REFRESH_TOKEN_KEYS: Record<TokenKind, string> = {
 
 /** Renew this many ms before the access token's expiry (matches agent/auth.go). */
 const REFRESH_SKEW_MS = 30_000;
+
+/** A failed background refresh retries after this, doubling up to the cap. */
+const REFRESH_RETRY_MS = 5_000;
+const REFRESH_RETRY_MAX_MS = 5 * 60_000;
 
 interface AuthConfig {
   issuer: string;
@@ -68,13 +73,22 @@ export interface Identity {
  * returns a currently-valid access token for that kind (refreshing silently
  * when near expiry; `force` mints fresh regardless — the 401 backstop),
  * mirroring agent.TokenSource on the Go side. `onDidChange` fires whenever
- * signed-in state flips so the UI can re-render.
+ * signed-in state flips so the UI can re-render. Signed in means a token can
+ * still be had: the IdP refusing the refresh token ends the session, and a
+ * network or server failure does not (adr/0240).
  */
 export class Session {
   private readonly tokens = new Map<TokenKind, TokenSet>();
   private endpoints: OidcEndpoints | null = null;
   private config: AuthConfig | null = null;
   private readonly refreshTimers = new Map<TokenKind, ReturnType<typeof setTimeout>>();
+  // Failed background refreshes in a row, per side: the retry's backoff.
+  private readonly refreshFailures = new Map<TokenKind, number>();
+  private readonly refreshes = new SingleFlight<void>();
+  // Bumped per side when its session ends or is replaced: a grant begun before
+  // that is discarded when it lands. Per side, because the two sign in one
+  // after the other and the second must not discard the first's refresh.
+  private readonly generations = new Map<TokenKind, number>();
 
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChange = this.changed.event;
@@ -111,6 +125,7 @@ export class Session {
    */
   async restore(): Promise<void> {
     for (const kind of ["human", "delegate"] as TokenKind[]) {
+      const generation = this.generation(kind);
       const refreshToken = await this.secrets.get(REFRESH_TOKEN_KEYS[kind]);
       if (!refreshToken) {
         continue;
@@ -125,12 +140,15 @@ export class Session {
           grant_type: "refresh_token",
           client_id: clientId,
           refresh_token: refreshToken,
-        }));
+        }), generation);
         this.log.info(`${kind} session restored from stored refresh token`);
       } catch (err) {
         this.log.info(`${kind} session restore failed (${errText(err)}); signed out on that side`);
-        await this.secrets.delete(REFRESH_TOKEN_KEYS[kind]);
-        this.tokens.delete(kind);
+        // Only a refusal ends it: with the backend down at start-up, the stored
+        // token still restores the next time the window opens.
+        if (err instanceof TokenRejected && generation === this.generation(kind)) {
+          await this.endSide(kind);
+        }
       }
     }
     if (this.signedIn) {
@@ -150,6 +168,9 @@ export class Session {
     await this.ensureDiscovery();
     await this.pkceFlow("human", this.config!.clientId);
     this.log.info("signed in (human client)");
+    // The delegate tokens were the last session's, and may be someone else's:
+    // if the agent flow below fails they must not stand in for the new person.
+    await this.endSide("delegate");
     // Now, not after the agent flow: the human tokens are already the new person's.
     this.noteIdentity();
 
@@ -168,14 +189,7 @@ export class Session {
   }
 
   async signOut(): Promise<void> {
-    for (const timer of this.refreshTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.refreshTimers.clear();
-    this.tokens.clear();
-    for (const key of Object.values(REFRESH_TOKEN_KEYS)) {
-      await this.secrets.delete(key);
-    }
+    await Promise.all((["human", "delegate"] as TokenKind[]).map((kind) => this.endSide(kind)));
     this.log.info("signed out");
     this.noteIdentity();
     this.changed.fire();
@@ -191,22 +205,30 @@ export class Session {
   async token(kind: TokenKind = "human", force = false): Promise<string> {
     const set = this.tokens.get(kind);
     if (!set) {
-      throw new Error(kind === "delegate"
-        ? "no agent session — sign in again to establish it"
-        : "not signed in");
+      throw notSignedIn(kind);
     }
     if (force || Date.now() >= set.expiresAt - REFRESH_SKEW_MS) {
-      const clientId = this.clientIdFor(kind);
-      if (!clientId) {
-        throw new Error(`no ${kind} client configured`);
+      const generation = this.generation(kind);
+      await this.refresh(kind);
+      // Whoever holds the session now, it is not the one this call was for.
+      if (generation !== this.generation(kind)) {
+        throw new Error("the session changed during the token refresh");
       }
-      await this.grant(kind, new URLSearchParams({
-        grant_type: "refresh_token",
-        client_id: clientId,
-        refresh_token: set.refreshToken,
-      }));
     }
     return this.tokens.get(kind)!.accessToken;
+  }
+
+  /**
+   * The 401 backstop for the backend client: a fresh token to replace
+   * `rejected`, which throws unless the session still belongs to the person
+   * that token was for. A request is never retried as someone else.
+   */
+  async renew(rejected: string): Promise<string> {
+    const subject = tokenSubject(rejected);
+    if (subject === undefined || subject !== this.knownSubject) {
+      throw new Error("the session changed; not retrying the request");
+    }
+    return this.token("human", true);
   }
 
   dispose(): void {
@@ -218,6 +240,63 @@ export class Session {
   }
 
   // --- internals ------------------------------------------------------------
+
+  private generation(kind: TokenKind): number {
+    return this.generations.get(kind) ?? 0;
+  }
+
+  /** Discard any grant in flight for the side. */
+  private invalidate(kind: TokenKind): void {
+    this.generations.set(kind, this.generation(kind) + 1);
+  }
+
+  /** Forget one side: its tokens, its timer, its stored refresh token. */
+  private async endSide(kind: TokenKind): Promise<void> {
+    this.invalidate(kind);
+    clearTimeout(this.refreshTimers.get(kind));
+    this.refreshTimers.delete(kind);
+    this.refreshFailures.delete(kind);
+    this.tokens.delete(kind);
+    await this.secrets.delete(REFRESH_TOKEN_KEYS[kind]);
+  }
+
+  /**
+   * Renew one side, joining a refresh already in flight: under rotation a
+   * second POST of the same refresh token fails, and strict reuse detection
+   * revokes the session. A refusal ends the session; the human side signing out
+   * goes through signOut, so everything held for the person goes with it.
+   */
+  private refresh(kind: TokenKind): Promise<void> {
+    const generation = this.generation(kind);
+    return this.refreshes.run(`${kind}:${generation}`, async () => {
+      const set = this.tokens.get(kind);
+      if (!set) {
+        throw notSignedIn(kind);
+      }
+      const clientId = this.clientIdFor(kind);
+      if (!clientId) {
+        throw new Error(`no ${kind} client configured`);
+      }
+      try {
+        await this.grant(kind, new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: clientId,
+          refresh_token: set.refreshToken,
+        }), generation);
+      } catch (err) {
+        if (err instanceof TokenRejected && generation === this.generation(kind)) {
+          this.log.warn(`${kind} session refused by the identity provider (${errText(err)}); signing out that side`);
+          if (kind === "human") {
+            await this.signOut();
+            void vscode.window.showWarningMessage("reckon: your session has ended — sign in again");
+          } else {
+            await this.endSide(kind);
+          }
+        }
+        throw err;
+      }
+    });
+  }
 
   /** Fire onDidChangeIdentity if the human tokens now belong to someone else. */
   private noteIdentity(): void {
@@ -262,6 +341,7 @@ export class Session {
     const state = base64url(crypto.randomBytes(16));
 
     const { code, redirectUri } = await this.captureAuthCode(clientId, challenge, state);
+    // No generation: this grant replaces whatever the side holds.
     await this.grant(kind, new URLSearchParams({
       grant_type: "authorization_code",
       client_id: clientId,
@@ -342,8 +422,12 @@ export class Session {
     });
   }
 
-  /** POST the token endpoint, store the result under kind, arm its refresh timer. */
-  private async grant(kind: TokenKind, form: URLSearchParams): Promise<void> {
+  /**
+   * POST the token endpoint, store the result under kind, arm its refresh
+   * timer. A grant begun under `generation` is discarded if the side has moved
+   * on since; without one the grant replaces the side and discards any other.
+   */
+  private async grant(kind: TokenKind, form: URLSearchParams, generation?: number): Promise<void> {
     await this.ensureDiscovery();
     const res = await fetch(this.endpoints!.token, {
       method: "POST",
@@ -351,49 +435,66 @@ export class Session {
       body: form.toString(),
       signal: AbortSignal.timeout(10_000),
     });
-    const body = (await res.json()) as {
+    // A gateway's error page is not JSON: the status must survive it.
+    const body = (await res.json().catch(() => ({}))) as {
       access_token?: string;
       refresh_token?: string;
       expires_in?: number;
       error?: string;
       error_description?: string;
     };
-    if (!res.ok || !body.access_token) {
-      throw new Error(`token request ${res.status}: ${body.error_description ?? body.error ?? "no access_token"}`);
+    if (!res.ok) {
+      const detail = body.error_description ?? body.error;
+      const message = `token request ${res.status}${detail ? `: ${detail}` : ""}`;
+      throw res.status === 400 || res.status === 401 ? new TokenRejected(message) : new Error(message);
+    }
+    if (!body.access_token) {
+      throw new Error(`token request ${res.status}: no access_token`);
+    }
+    if (generation === undefined) {
+      this.invalidate(kind);
+    } else if (generation !== this.generation(kind)) {
+      return;
     }
     const ttlMs = (body.expires_in && body.expires_in > 0 ? body.expires_in : 60) * 1000;
-    this.tokens.set(kind, {
-      accessToken: body.access_token,
-      refreshToken: body.refresh_token ?? "",
-      expiresAt: Date.now() + ttlMs,
-    });
-    if (body.refresh_token) {
-      await this.secrets.store(REFRESH_TOKEN_KEYS[kind], body.refresh_token);
+    // A response may omit the refresh token: the one just used stays good.
+    const refreshToken = body.refresh_token ?? form.get("refresh_token") ?? "";
+    this.tokens.set(kind, { accessToken: body.access_token, refreshToken, expiresAt: Date.now() + ttlMs });
+    this.refreshFailures.delete(kind);
+    // Before the await: a sign-out from here on finds the timer and clears it.
+    this.armRefresh(kind, Math.max(ttlMs - REFRESH_SKEW_MS, 5_000));
+    if (refreshToken) {
+      await this.secrets.store(REFRESH_TOKEN_KEYS[kind], refreshToken);
+    } else {
+      await this.secrets.delete(REFRESH_TOKEN_KEYS[kind]);
     }
-    this.armRefresh(kind, ttlMs);
   }
 
-  private armRefresh(kind: TokenKind, ttlMs: number): void {
-    const existing = this.refreshTimers.get(kind);
-    if (existing) {
-      clearTimeout(existing);
-    }
-    const delay = Math.max(ttlMs - REFRESH_SKEW_MS, 5_000);
+  private armRefresh(kind: TokenKind, delay: number): void {
+    clearTimeout(this.refreshTimers.get(kind));
     this.refreshTimers.set(kind, setTimeout(() => {
-      const set = this.tokens.get(kind);
-      const clientId = this.clientIdFor(kind);
-      if (!set || !clientId) {
-        return;
-      }
-      this.grant(kind, new URLSearchParams({
-        grant_type: "refresh_token",
-        client_id: clientId,
-        refresh_token: set.refreshToken,
-      })).catch((err) => {
-        this.log.info(`background ${kind} token refresh failed (${errText(err)}); will retry on demand`);
+      this.refresh(kind).catch((err) => {
+        // A refusal ended the session; anything else keeps it, so keep trying.
+        if (!this.tokens.has(kind)) {
+          return;
+        }
+        const failures = (this.refreshFailures.get(kind) ?? 0) + 1;
+        this.refreshFailures.set(kind, failures);
+        const retry = Math.min(REFRESH_RETRY_MS * 2 ** (failures - 1), REFRESH_RETRY_MAX_MS);
+        this.log.info(`background ${kind} token refresh failed (${errText(err)}); retrying in ${retry / 1000}s`);
+        this.armRefresh(kind, retry);
       });
     }, delay));
   }
+}
+
+/** The identity provider refused the grant: the session is over, not unreachable. */
+class TokenRejected extends Error {}
+
+function notSignedIn(kind: TokenKind): Error {
+  return new Error(kind === "delegate"
+    ? "no agent session — sign in again to establish it"
+    : "not signed in");
 }
 
 /** The `sub` claim of a JWT; undefined if the token has none to read. For keying, not trust: the backend verifies the token. */

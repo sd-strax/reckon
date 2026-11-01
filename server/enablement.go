@@ -77,7 +77,7 @@ func (b *Backend) enablementRoute(w http.ResponseWriter, r *http.Request) {
 			methodNotAllowed(w, "GET")
 			return
 		}
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.getEnablement)
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.getEnablement)
 		return
 	}
 	if name, ok := strings.CutPrefix(p, "/enablement/adapters/"); ok && name != "" && !strings.Contains(name, "/") {
@@ -85,7 +85,7 @@ func (b *Backend) enablementRoute(w http.ResponseWriter, r *http.Request) {
 			methodNotAllowed(w, "POST")
 			return
 		}
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 			b.applyEnablement(w, r, name)
 		})
 		return
