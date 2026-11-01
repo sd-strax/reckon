@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   const token = await login(backend);
   const client = new BackendClient(() => backend, async () => token);
   const positional = process.argv.slice(2).filter((a, i, all) => !a.startsWith("--") && !(i > 0 && all[i - 1].startsWith("--")));
-  const ids = positional.length ? positional : (await client.investigations()).map((i) => i.id);
+  const ids = positional.length ? positional : (await client.investigations.list()).map((i) => i.id);
   // Compiled to harness/dist/record/harness/record.js; the snapshots live beside the source.
   const outDir = join(__dirname, "..", "..", "..", "snapshots");
   mkdirSync(outDir, { recursive: true });
@@ -50,26 +50,26 @@ async function main(): Promise<void> {
   const getDoc = async (ref: string): Promise<EvidenceDoc | null> => {
     if (docCache.has(ref)) return docCache.get(ref)!;
     let doc: EvidenceDoc | null;
-    try { doc = await client.evidence(ref); } catch { doc = null; }
+    try { doc = await client.evidence.get(ref); } catch { doc = null; }
     docCache.set(ref, doc);
     return doc;
   };
 
   for (const id of ids) {
     const [investigation, hypotheses, capabilities, thread, actions, pins, comms, enablement] = await Promise.all([
-      client.getInvestigation(id),
-      client.hypotheses(id),
-      client.capabilities().catch(() => null),
-      client.thread(id).catch(() => null),
-      client.actions(id).catch(() => null),
-      client.pins(id).catch(() => []),
-      client.comms(id).catch(() => null),
-      client.enablement().catch(() => null),
+      client.investigations.get(id),
+      client.investigations.hypotheses(id),
+      client.capabilities.list().catch(() => null),
+      client.investigations.thread(id).catch(() => null),
+      client.actions.list(id).catch(() => null),
+      client.investigations.pins(id).catch(() => []),
+      client.actions.comms(id).catch(() => null),
+      client.capabilities.enablement().catch(() => null),
     ]);
     const turns: ChronicleTurn[] = [];
     for (const e of (thread ?? []).filter((x: ThreadEntry) => x.hasTranscript).slice(-40)) {
       try {
-        turns.push({ sequenceNo: e.sequenceNo, occurredAt: e.occurredAt, body: (await client.transcript(e.interpretationId)).body });
+        turns.push({ sequenceNo: e.sequenceNo, occurredAt: e.occurredAt, body: (await client.investigations.transcript(e.interpretationId)).body });
       } catch { /* a stub in the chronicle */ }
     }
     const derived = await buildDerivedViews(thread ?? [], getDoc, { hypotheses, pins, actions: actions ?? [], seed: investigation.seed });
@@ -95,7 +95,7 @@ async function main(): Promise<void> {
       const label = doc ? deriveEvidenceLabel(doc) : "";
       if (label) labels[r] = label;
       if (ENTITY_POPOVER_TYPES.has(r.includes("--") ? r.slice(0, r.indexOf("--")) : "")) {
-        try { appearances[r] = (await client.appearances(r)).filter((a) => a.investigationId !== id); } catch { /* none */ }
+        try { appearances[r] = (await client.evidence.appearances(r)).filter((a) => a.investigationId !== id); } catch { /* none */ }
       }
     }
     // The inspector's records (impl §4.1): transcripts for every turn with
@@ -103,17 +103,17 @@ async function main(): Promise<void> {
     // thread consulted.
     const transcripts: Record<string, string> = {};
     for (const e of (thread ?? []).filter((x: ThreadEntry) => x.hasTranscript)) {
-      try { transcripts[e.interpretationId] = (await client.transcript(e.interpretationId)).body; } catch { /* a stub */ }
+      try { transcripts[e.interpretationId] = (await client.investigations.transcript(e.interpretationId)).body; } catch { /* a stub */ }
     }
     const actionRecords: Record<string, ActionRecord> = {};
     for (const a of actions ?? []) {
-      try { actionRecords[a.actionId] = await client.actionRecord(a.actionId); } catch { /* not recorded */ }
+      try { actionRecords[a.actionId] = await client.actions.record(a.actionId); } catch { /* not recorded */ }
     }
     const sops: Record<string, SOPDoc> = {};
     const caseSummaries: Record<string, CaseSummaryView | null> = {};
     for (const e of thread ?? []) {
-      for (const s of e.consultedSops || []) if (!(s.sopId in sops)) { try { sops[s.sopId] = await client.sop(s.sopId); } catch { /* gone */ } }
-      for (const s of e.consultedSimilar || []) if (!(s.investigationRef in caseSummaries)) { try { caseSummaries[s.investigationRef] = await client.caseSummary(s.investigationRef); } catch { /* none */ } }
+      for (const s of e.consultedSops || []) if (!(s.sopId in sops)) { try { sops[s.sopId] = await client.knowledge.sop(s.sopId); } catch { /* gone */ } }
+      for (const s of e.consultedSimilar || []) if (!(s.investigationRef in caseSummaries)) { try { caseSummaries[s.investigationRef] = await client.knowledge.caseSummary(s.investigationRef); } catch { /* none */ } }
     }
     const name = arg("--name", investigation.state.toLowerCase() + "-" + id.slice(0, 8));
     const file = join(outDir, name + ".json");

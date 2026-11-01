@@ -18,16 +18,22 @@ function backend(over: Record<string, (...args: never[]) => unknown> = {}) {
   const calls: string[] = [];
   const named: Record<string, (...args: never[]) => unknown> = {
     incompatibilityReason: () => null,
-    getInvestigation: async () => detail(),
-    enablement: async () => null,
-    cases: async () => null,
+    "investigations.get": async () => detail(),
+    "capabilities.enablement": async () => null,
+    "cases.queue": async () => null,
     ...over,
   };
+  const call = (name: string) => (...args: never[]) => {
+    calls.push(name);
+    return (named[name] ?? (async () => []))(...args);
+  };
+  // The connection-level calls are on the client itself; every read is named
+  // by domain and method, as the client exposes them.
+  const connection = new Set(["status", "incompatibilityReason", "me", "authConfig"]);
   const client = new Proxy({}, {
-    get: (_t, prop: string) => (...args: never[]) => {
-      calls.push(prop);
-      return (named[prop] ?? (async () => []))(...args);
-    },
+    get: (_t, prop: string) => connection.has(prop)
+      ? call(prop)
+      : new Proxy({}, { get: (_d, method: string) => call(`${prop}.${method}`) }),
   }) as BackendClient;
   return { client, calls };
 }
@@ -88,7 +94,7 @@ describe("InvestigationDocuments: opening", () => {
 describe("InvestigationDocuments: closing", () => {
   it("posts nothing more once the panel closes mid-read", async () => {
     let answer!: (d: InvestigationDetail) => void;
-    const { client } = backend({ getInvestigation: () => new Promise((r) => { answer = r; }) });
+    const { client } = backend({ "investigations.get": () => new Promise((r) => { answer = r; }) });
     const { docs, onLoaded } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0];
@@ -106,14 +112,14 @@ describe("InvestigationDocuments: closing", () => {
   it("polls while a dispatch is in flight, and stops when the panel closes", async () => {
     vi.useFakeTimers();
     const approved = [{ actionId: "a-1", status: "APPROVED" }] as ActionRow[];
-    const { client, calls } = backend({ actions: async () => approved });
+    const { client, calls } = backend({ "actions.list": async () => approved });
     const { docs } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0];
     panel.webview.receive({ type: "ready" });
     await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
 
-    const reads = () => calls.filter((c) => c === "getInvestigation").length;
+    const reads = () => calls.filter((c) => c === "investigations.get").length;
     const before = reads();
     await vi.advanceTimersByTimeAsync(4000);
     expect(reads()).toBe(before + 1);
@@ -172,7 +178,7 @@ describe("InvestigationDocuments: closing", () => {
       if (down) throw new Error("503");
       return evidenceDoc;
     });
-    const { client } = backend({ evidence });
+    const { client } = backend({ "evidence.get": evidence });
     const { docs } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0];
@@ -187,7 +193,7 @@ describe("InvestigationDocuments: closing", () => {
 
   it("closes every panel when the identity changes, and reads again for the next person", async () => {
     const evidence = vi.fn(async () => evidenceDoc);
-    const { client } = backend({ evidence });
+    const { client } = backend({ "evidence.get": evidence });
     const { docs } = documents(client);
     docs.show("inv-1");
     docs.showDraft();
@@ -207,7 +213,7 @@ describe("InvestigationDocuments: closing", () => {
   it("does not cache an evidence read that lands after the identity changed", async () => {
     let land!: (d: typeof evidenceDoc) => void;
     const evidence = vi.fn((): Promise<typeof evidenceDoc> => new Promise((r) => { land = r; }));
-    const { client } = backend({ evidence });
+    const { client } = backend({ "evidence.get": evidence });
     const { docs } = documents(client);
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
@@ -289,7 +295,7 @@ describe("InvestigationDocuments: closing", () => {
   });
 
   it("closes a report's preview and deletes its scratch file when the identity changes, and leaves other tabs", async () => {
-    const { docs } = documents(backend({ exportMarkdown: async () => "# report" }).client);
+    const { docs } = documents(backend({ "investigations.exportMarkdown": async () => "# report" }).client);
     docs.show("inv-12345678");
     createdPanels()[0].webview.receive({ type: "export.open" });
     await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
@@ -318,7 +324,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
 
   it("does not open an export that lands after the change", async () => {
     const md = gate<string>();
-    const { docs } = documents(backend({ exportMarkdown: () => md.opened }).client);
+    const { docs } = documents(backend({ "investigations.exportMarkdown": () => md.opened }).client);
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "export.open" });
 
@@ -333,7 +339,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
   it("closes a preview that opened across the change", async () => {
     const shown = gate<void>();
     vi.mocked(vscode.commands.executeCommand).mockImplementationOnce(() => shown.opened);
-    const { docs } = documents(backend({ exportMarkdown: async () => "# r" }).client);
+    const { docs } = documents(backend({ "investigations.exportMarkdown": async () => "# r" }).client);
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "export.open" });
     await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
@@ -350,7 +356,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
   it("does not save a report from a prompt that outlived the change", async () => {
     const answer = gate<string | undefined>();
     vi.mocked(vscode.window.showInformationMessage).mockImplementationOnce(() => answer.opened as never);
-    const { docs } = documents(backend({ exportMarkdown: async () => "# r" }).client);
+    const { docs } = documents(backend({ "investigations.exportMarkdown": async () => "# r" }).client);
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "export.open" });
     await vi.waitFor(() => expect(vscode.window.showInformationMessage).toHaveBeenCalledOnce());
@@ -364,7 +370,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
 
   it("does not take over a closed draft when its seed lands, nor write its case note", async () => {
     const created = gate<InvestigationDetail>();
-    const { client, calls } = backend({ createInvestigationFromInput: () => created.opened });
+    const { client, calls } = backend({ "investigations.createFromInput": () => created.opened });
     const { docs } = documents(client);
     docs.showDraft();
     createdPanels()[0].webview.receive({ type: "seed.submit", value: "host-a", kind: "" });
@@ -374,23 +380,23 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     await settle();
 
     expect(createdPanels()).toHaveLength(1);
-    expect(calls).not.toContain("requestCaseNote");
+    expect(calls).not.toContain("investigations.requestCaseNote");
   });
 
   it("does not open an investigation started from a case row before the change", async () => {
     const created = gate<InvestigationDetail>();
-    const { client, calls } = backend({ createInvestigationFromInput: () => created.opened });
+    const { client, calls } = backend({ "investigations.createFromInput": () => created.opened });
     const { docs } = documents(client);
     docs.showDraft();
     createdPanels()[0].webview.receive({ type: "queue.start", caseNumber: "C-1" });
-    await vi.waitFor(() => expect(calls).toContain("createInvestigationFromInput"));
+    await vi.waitFor(() => expect(calls).toContain("investigations.createFromInput"));
 
     docs.identityChanged();
     created.open(fromCase);
     await settle();
 
     expect(createdPanels()).toHaveLength(1);
-    expect(calls).not.toContain("requestCaseNote");
+    expect(calls).not.toContain("investigations.requestCaseNote");
   });
 
   it("does not open a SOP draft that lands after the change", async () => {
@@ -428,7 +434,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
   it("does not approve on the next person's token when the change lands during the read before it", async () => {
     const actions = gate<ActionRow[]>();
     const approveAction = vi.fn(async () => ({ status: "APPROVED" }));
-    const { client } = backend({ actions: () => actions.opened, approveAction });
+    const { client } = backend({ "actions.list": () => actions.opened, "actions.approve": approveAction });
     const { docs } = documents(client);
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "action.approve", actionId: "a-1" });
@@ -446,10 +452,10 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const record = gate<{ action: { actionType: string; targets: string[]; evidenceRefs: string[]; actionId: string } }>();
     const requestAction = vi.fn(async () => ({ status: "PROPOSED" }));
     const { client } = backend({
-      actions: async () => [{ actionId: "a-1", tier: "T1", status: "SUCCEEDED" } as ActionRow],
-      actionRecord: () => record.opened,
-      actionTypes: async () => [{ actionType: "x", reversibleBy: "y" }],
-      requestAction,
+      "actions.list": async () => [{ actionId: "a-1", tier: "T1", status: "SUCCEEDED" } as ActionRow],
+      "actions.record": () => record.opened,
+      "actions.types": async () => [{ actionType: "x", reversibleBy: "y" }],
+      "actions.request": requestAction,
     });
     const { docs } = documents(client);
     docs.show("inv-1");
@@ -468,14 +474,14 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const comms = gate<{ threadId: string; actionId: string }[]>();
     const requestAction = vi.fn(async () => ({ status: "PROPOSED" }));
     const { client, calls } = backend({
-      comms: () => comms.opened,
-      actionRecord: async () => ({ action: { evidenceRefs: ["e"] } }),
-      requestAction,
+      "actions.comms": () => comms.opened,
+      "actions.record": async () => ({ action: { evidenceRefs: ["e"] } }),
+      "actions.request": requestAction,
     });
     const { docs } = documents(client);
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "comms.followup", threadId: "t-1", actionType: "notify.chat", target: "x", subject: "", message: "m", followUpHours: 1 });
-    await vi.waitFor(() => expect(calls).toContain("comms"));
+    await vi.waitFor(() => expect(calls).toContain("actions.comms"));
 
     docs.identityChanged();
     comms.open([{ threadId: "t-1", actionId: "a-1" }]);
@@ -488,7 +494,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const answer = gate<string | undefined>();
     vi.mocked(vscode.window.showWarningMessage).mockImplementationOnce(() => answer.opened as never);
     const applyEnablement = vi.fn(async () => undefined);
-    const { docs } = documents(backend({ applyEnablement }).client);
+    const { docs } = documents(backend({ "capabilities.applyEnablement": applyEnablement }).client);
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, secretFields: [] });
 
@@ -501,11 +507,11 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
 
   it("does not start the conclude summary for the next person", async () => {
     const concluded = gate<{ status: string }>();
-    const { client, calls } = backend({ lifecycle: () => concluded.opened });
+    const { client, calls } = backend({ "investigations.lifecycle": () => concluded.opened });
     const { docs } = documents(client);
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "lifecycle", transition: "conclude", summary: "done" });
-    await vi.waitFor(() => expect(calls).toContain("lifecycle"));
+    await vi.waitFor(() => expect(calls).toContain("investigations.lifecycle"));
 
     docs.identityChanged();
     concluded.open({ status: "CONCLUDED" });
@@ -527,7 +533,7 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
 
   function seeding() {
     const create = gate<InvestigationDetail>();
-    const { client, calls } = backend({ createInvestigationFromInput: () => create.opened, requestCaseNote: async () => ({ status: "PROPOSED" }) });
+    const { client, calls } = backend({ "investigations.createFromInput": () => create.opened, "investigations.requestCaseNote": async () => ({ status: "PROPOSED" }) });
     const { docs } = documents(client);
     docs.showDraft();
     createdPanels()[0].webview.receive({ type: "seed.submit", value: "host-a", kind: "" });
@@ -555,7 +561,7 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
     create.open({ ...created, caseNote: { caseId: "C-1" }, caseNoteOnSeed: "auto" } as unknown as InvestigationDetail);
     await settle();
 
-    expect(calls).toContain("requestCaseNote");
+    expect(calls).toContain("investigations.requestCaseNote");
   });
 
   it("re-keys a draft still open when its seed lands", async () => {
@@ -592,7 +598,7 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
 
   it("does not report a rename that succeeded as failed when its panel closed, and refreshes the tree", async () => {
     const rename = gate<string>();
-    const { client } = backend({ renameInvestigation: () => rename.opened });
+    const { client } = backend({ "investigations.rename": () => rename.opened });
     const { docs } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0];
@@ -631,7 +637,7 @@ describe("InvestigationDocuments: the wire boundary", () => {
     createdPanels()[0].webview.receive({ type: "ready" });
 
     await vi.waitFor(() => expect(posted()).toContainEqual({ type: "draft.error", message: reason }));
-    expect(calls).not.toContain("caseQueue");
+    expect(calls).not.toContain("cases.configuredQueue");
   });
 
   it("loads when the backend is compatible", async () => {

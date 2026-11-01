@@ -46,24 +46,32 @@ where the sheets leave something open it says what is decided here and why.
 workbench/
   src/                         extension host (tsc → out/, commonjs; unchanged entry)
     extension.ts               registers commands, trees, the document host, the stream client
-    investigationDocument.ts   InvestigationDocuments: panels, per-investigation cache, routing
+    investigationDocument.ts   InvestigationDocuments: panels, routing, load/refresh, identity
+    documentHost.ts            what the document's domains may reach of the controller (adr/0243)
+    draftFlow.ts, actionDecisions.ts, reasoningWrites.ts, evidenceReads.ts, knowledgeFlow.ts, reportExport.ts
+                               the document's acts by domain, each owning its state (adr/0243)
     investigationCache.ts      the cache + sequence discipline (§3)
     knowledgeDocument.ts       the Knowledge document host: one panel, knowledge reads/writes, Ask (§2.6)
-    protocol.ts                the typed message unions, shared with the webview (§4)
-    backend.ts                 HTTP client — still no `vscode` import (the browser surface reuses it)
-    agentTransport.ts, auth.ts, casesTree.ts, caseDocument.ts — unchanged
+    protocol.ts                the typed message unions, shared with the webview (§4); one pair per surface
+    panelHtml.ts               the one page and the one set of options every reckon panel loads (adr/0248)
+    backend.ts                 the client's composition: connection-level calls + one client per domain
+    client/                    http.ts (the shared transport) and investigations, actions, evidence,
+                               knowledge, cases, capabilities (adr/0243) — still no `vscode` import
+    agentTransport.ts, auth.ts, casesTree.ts, caseDocument.ts, importView.ts — hosts of their panels
   webview/
     src/
-      main.tsx                 bootstrap: picks the transport, mounts <InvestigationApp/> or <KnowledgeApp/>
-                               by the panel's data-surface attribute (one bundle, two roots)
-      transport.ts             WebviewTransport (§6) + VsCodeTransport
+      main.tsx                 bootstrap: picks the transport, mounts the app the panel's data-surface
+                               attribute names (one bundle, several roots — adr/0248): investigation,
+                               case, import today; knowledge when §2.6 lands
+      surfaces/                CaseApp.tsx, ImportApp.tsx — the side panels as surfaces of the bundle
+      transport.ts             WebviewTransport (§6) + VsCodeTransport, generic over the surface's unions
       store.ts                 reducer: RenderMessage → InvestigationState | KnowledgeState; seq discipline
       derive/                  pure functions over the state (§7): stage, lens, turns, citations,
                                matrix, attackPath, stillToDo, preflight, knowledgeNudge
       components/              §2 (components/knowledge/ holds the Knowledge document's sections)
       styles/tokens.css        design tokens (01) as CSS custom properties; chrome-adjacent from --vscode-*
       styles/base.css          resets, scrollbars, type scale
-    tsconfig.json              jsx: react-jsx, lib: dom; includes ../src/protocol.ts, ../src/backend.ts (types)
+    tsconfig.json              jsx: react-jsx, lib: dom; includes ../src/protocol.ts (the page never reaches the client, adr/0247)
   harness/
     index.html, main.tsx       the browser dev harness (§5.4): HarnessTransport over recorded snapshots
     snapshots/*.json           recorded states of the reference scenario at each stage

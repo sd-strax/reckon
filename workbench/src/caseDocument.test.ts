@@ -17,8 +17,11 @@ describe("CaseDocuments: a change of identity", () => {
 
   function started(createInvestigationFromInput: () => Promise<InvestigationDetail>) {
     const onCreated = vi.fn();
-    const client = { createInvestigationFromInput, status: async () => ({}), incompatibilityReason: () => null, caseDetail: async () => ({ number: "C-1" }) } as unknown as BackendClient;
-    const docs = new CaseDocuments(client, fakeLog(), onCreated);
+    const client = {
+      status: async () => ({}), incompatibilityReason: () => null,
+      investigations: { createFromInput: createInvestigationFromInput }, cases: { get: async () => ({ number: "C-1" }) },
+    } as unknown as BackendClient;
+    const docs = new CaseDocuments(vscode.Uri.file("/ext"), client, fakeLog(), onCreated);
     docs.open("C-1");
     createdPanels()[0].webview.receive({ type: "start" });
     return { docs, onCreated };
@@ -55,13 +58,13 @@ describe("CaseDocuments: a change of identity", () => {
 
 describe("CaseDocuments: an incompatible backend", () => {
   it("shows why, and does not read the case", async () => {
-    const caseDetail = vi.fn();
-    const client = { status: async () => ({}), incompatibilityReason: () => "backend API v9 unsupported", caseDetail } as unknown as BackendClient;
-    new CaseDocuments(client, fakeLog(), vi.fn()).open("C-1");
+    const get = vi.fn();
+    const client = { status: async () => ({}), incompatibilityReason: () => "backend API v9 unsupported", cases: { get } } as unknown as BackendClient;
+    new CaseDocuments(vscode.Uri.file("/ext"), client, fakeLog(), vi.fn()).open("C-1");
 
     createdPanels()[0].webview.receive({ type: "ready" });
 
     await vi.waitFor(() => expect(createdPanels()[0].webview.posted).toContainEqual({ type: "error", message: "backend API v9 unsupported" }));
-    expect(caseDetail).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
   });
 });

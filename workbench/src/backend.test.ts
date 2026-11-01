@@ -25,7 +25,7 @@ describe("BackendClient: action rows", () => {
       { action_id: "a3", action_type: "ticket.comment", tier: "T1", status: "SUCCEEDED", reversibility: "irreversible" },
       { action_id: "a4", action_type: "host.isolate", tier: "T2", status: "REQUESTED" },
     ] });
-    const rows = await client.actions("inv-1");
+    const rows = await client.actions.list("inv-1");
     expect(rows.map((r) => r.reversibility)).toEqual(["REVERSIBLE", "BEST_EFFORT", "IRREVERSIBLE", undefined]);
   });
 });
@@ -36,7 +36,7 @@ describe("BackendClient: the action catalog", () => {
       { descriptor: { action_type: "host.isolate", default_tier: "T2", name: "", category: "", inputs: [], reversibility: "reversible", reversible_by: "host.unisolate" }, status: "available", bindings: 1 },
       { descriptor: { action_type: "ticket.comment", default_tier: "T1", name: "", category: "", inputs: null, reversibility: "irreversible" }, status: "available", bindings: 1 },
     ] });
-    expect(await client.actionTypes()).toEqual([
+    expect(await client.actions.types()).toEqual([
       { actionType: "host.isolate", reversibleBy: "host.unisolate", tier: "T2", name: undefined, category: undefined, available: true, inputs: [] },
       { actionType: "ticket.comment", reversibleBy: undefined, tier: "T1", name: undefined, category: undefined, available: true, inputs: [] },
     ]);
@@ -59,7 +59,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 401 }), ok());
     const renew = vi.fn(async (_rejected: string) => "fresh");
 
-    await new BackendClient(() => "http://reckon.test", async () => "stale", renew).investigations();
+    await new BackendClient(() => "http://reckon.test", async () => "stale", renew).investigations.list();
 
     expect(renew.mock.calls).toEqual([["stale"]]);
     expect(bearers).toEqual(["Bearer stale", "Bearer fresh"]);
@@ -69,7 +69,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 401 }), new Response("", { status: 401 }));
     const client = new BackendClient(() => "http://reckon.test", async () => "stale", async () => "fresh");
 
-    await expect(client.investigations()).rejects.toMatchObject({ status: 401 });
+    await expect(client.investigations.list()).rejects.toMatchObject({ status: 401 });
 
     expect(bearers).toHaveLength(2);
   });
@@ -78,7 +78,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 401 }), ok());
     const client = new BackendClient(() => "http://reckon.test", async () => "stale", async () => { throw new Error("the session changed"); });
 
-    await expect(client.approveAction("a-1")).rejects.toThrow("the session changed");
+    await expect(client.actions.approve("a-1")).rejects.toThrow("the session changed");
 
     expect(bearers).toHaveLength(1);
   });
@@ -87,7 +87,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 401 }), new Response("# report"));
     const client = new BackendClient(() => "http://reckon.test", async () => "stale", async () => "fresh");
 
-    expect(await client.exportMarkdown("inv-1")).toBe("# report");
+    expect(await client.investigations.exportMarkdown("inv-1")).toBe("# report");
 
     expect(bearers).toEqual(["Bearer stale", "Bearer fresh"]);
   });
@@ -96,7 +96,7 @@ describe("BackendClient: a 401", () => {
     const bearers = answering(new Response("", { status: 403 }));
     const renew = vi.fn(async () => "fresh");
 
-    await expect(new BackendClient(() => "http://reckon.test", async () => "t", renew).investigations()).rejects.toMatchObject({ status: 403 });
+    await expect(new BackendClient(() => "http://reckon.test", async () => "t", renew).investigations.list()).rejects.toMatchObject({ status: 403 });
 
     expect(renew).not.toHaveBeenCalled();
     expect(bearers).toHaveLength(1);
@@ -106,16 +106,16 @@ describe("BackendClient: a 401", () => {
 describe("BackendClient: reading a response", () => {
   it("names the field a response is missing", async () => {
     const client = clientAnswering({ investigations: [{ aggregate_id: "i", status: "ACTIVE", last_event_sequence: 1 }] });
-    await expect(client.investigations()).rejects.toThrow("unexpected response from GET /api/investigations: investigations[0].title missing");
+    await expect(client.investigations.list()).rejects.toThrow("unexpected response from GET /api/investigations: investigations[0].title missing");
   });
 
   it("refuses a renamed list rather than showing it empty", async () => {
     const client = clientAnswering({ investigation_rows: [] });
-    await expect(client.investigations()).rejects.toThrow("investigations missing");
+    await expect(client.investigations.list()).rejects.toThrow("investigations missing");
   });
 
   it("shows a list the backend sent as null as empty", async () => {
-    expect(await clientAnswering({ investigations: null }).investigations()).toEqual([]);
+    expect(await clientAnswering({ investigations: null }).investigations.list()).toEqual([]);
   });
 
   it("names a field of the wrong type", async () => {
@@ -136,7 +136,7 @@ describe("BackendClient: reading a response", () => {
 
   it("does not read the answer to a write that ignores it", async () => {
     stubFetch(() => new Response("", { status: 200 }));
-    await expect(new BackendClient(() => "http://reckon.test", async () => "token").commsAct("t-1", "ack")).resolves.toBeUndefined();
+    await expect(new BackendClient(() => "http://reckon.test", async () => "token").actions.commsAct("t-1", "ack")).resolves.toBeUndefined();
   });
 
 });
@@ -192,7 +192,7 @@ describe("BackendClient: an incompatible backend", () => {
   it("is not written to, whichever surface asks", async () => {
     const { client, calls } = counting(() => old);
 
-    await expect(client.importSOPMarkdown("a.md", "# a")).rejects.toThrow("backend API v9 unsupported");
+    await expect(client.knowledge.importMarkdown("a.md", "# a")).rejects.toThrow("backend API v9 unsupported");
 
     expect(calls).toEqual(["/status"]);
   });
@@ -200,7 +200,7 @@ describe("BackendClient: an incompatible backend", () => {
   it("is not read from either", async () => {
     const { client, calls } = counting(() => old);
 
-    await expect(client.cases()).rejects.toThrow("backend API v9 unsupported");
+    await expect(client.cases.queue()).rejects.toThrow("backend API v9 unsupported");
 
     expect(calls).toEqual(["/status"]);
   });
@@ -208,7 +208,7 @@ describe("BackendClient: an incompatible backend", () => {
   it("gates the markdown export too", async () => {
     const { client, calls } = counting(() => old);
 
-    await expect(client.exportMarkdown("inv-1")).rejects.toThrow("backend API v9 unsupported");
+    await expect(client.investigations.exportMarkdown("inv-1")).rejects.toThrow("backend API v9 unsupported");
 
     expect(calls).toEqual(["/status"]);
   });
@@ -216,8 +216,8 @@ describe("BackendClient: an incompatible backend", () => {
   it("asks once for parallel calls, and holds a good answer for a while", async () => {
     const { client, calls } = counting(() => compatible);
 
-    await Promise.all([client.cases(), client.cases(), client.cases()]);
-    await client.cases();
+    await Promise.all([client.cases.queue(), client.cases.queue(), client.cases.queue()]);
+    await client.cases.queue();
 
     expect(calls.filter((c) => c === "/status")).toHaveLength(1);
   });
@@ -227,19 +227,19 @@ describe("BackendClient: an incompatible backend", () => {
     const { client } = counting(() => status);
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(1_000);
-    await client.cases();
+    await client.cases.queue();
 
     status = old;
     now.mockReturnValue(1_000 + 31_000);
 
-    await expect(client.cases()).rejects.toThrow("backend API v9 unsupported");
+    await expect(client.cases.queue()).rejects.toThrow("backend API v9 unsupported");
   });
 
   it("keeps refusing: a bad answer never lets the next call through", async () => {
     const { client, calls } = counting(() => old);
 
-    await expect(client.cases()).rejects.toThrow("unsupported");
-    await expect(client.cases()).rejects.toThrow("unsupported");
+    await expect(client.cases.queue()).rejects.toThrow("unsupported");
+    await expect(client.cases.queue()).rejects.toThrow("unsupported");
 
     expect(calls).toEqual(["/status", "/status"]);
   });
@@ -248,7 +248,7 @@ describe("BackendClient: an incompatible backend", () => {
     const { client, calls } = counting(() => old);
     await client.status();
 
-    await expect(client.cases()).rejects.toThrow("unsupported");
+    await expect(client.cases.queue()).rejects.toThrow("unsupported");
 
     expect(calls).not.toContain("/api/cases");
   });
@@ -256,11 +256,11 @@ describe("BackendClient: an incompatible backend", () => {
   it("does not hold a bad answer: a backend put right is used at once", async () => {
     let status: unknown = old;
     const { client } = counting(() => status);
-    await expect(client.cases()).rejects.toThrow("unsupported");
+    await expect(client.cases.queue()).rejects.toThrow("unsupported");
 
     status = compatible;
 
-    await expect(client.cases()).resolves.toEqual({ queue: "", cases: [] });
+    await expect(client.cases.queue()).resolves.toEqual({ queue: "", cases: [] });
   });
 
   describe("when the backend URL changes", () => {
@@ -279,20 +279,20 @@ describe("BackendClient: an incompatible backend", () => {
 
     it("checks the new backend, and writes nothing to an incompatible one", async () => {
       const { client, calls, setting } = twoBackends(old);
-      await client.importSOPMarkdown("a.md", "# a");
+      await client.knowledge.importMarkdown("a.md", "# a");
 
       setting.url = "http://b.test";
 
-      await expect(client.importSOPMarkdown("b.md", "# b")).rejects.toThrow("backend API v9 unsupported");
+      await expect(client.knowledge.importMarkdown("b.md", "# b")).rejects.toThrow("backend API v9 unsupported");
       expect(calls).not.toContain("b.test/api/sops/import_markdown");
     });
 
     it("trusts the new backend only after checking it", async () => {
       const { client, calls, setting } = twoBackends(compatible);
-      await client.importSOPMarkdown("a.md", "# a");
+      await client.knowledge.importMarkdown("a.md", "# a");
 
       setting.url = "http://b.test";
-      await client.importSOPMarkdown("b.md", "# b");
+      await client.knowledge.importMarkdown("b.md", "# b");
 
       expect(calls.slice(-2)).toEqual(["b.test/status", "b.test/api/sops/import_markdown"]);
     });
@@ -311,7 +311,7 @@ describe("BackendClient: an incompatible backend", () => {
       });
       const setting = { url: "http://a.test" };
       const client = new BackendClient(() => setting.url, async () => "token");
-      const write = client.importSOPMarkdown("a.md", "# a");
+      const write = client.knowledge.importMarkdown("a.md", "# a");
       await vi.waitFor(() => expect(checked).toBeDefined());
 
       setting.url = "http://b.test";
@@ -334,20 +334,20 @@ describe("BackendClient: an incompatible backend", () => {
       });
       const renew = async () => { setting.url = "http://b.test"; return "fresh"; };
 
-      await new BackendClient(() => setting.url, async () => "token", renew).importSOPMarkdown("a.md", "# a");
+      await new BackendClient(() => setting.url, async () => "token", renew).knowledge.importMarkdown("a.md", "# a");
 
       expect(calls.filter((c) => c.endsWith("/import_markdown"))).toEqual(["a.test/api/sops/import_markdown", "a.test/api/sops/import_markdown"]);
     });
 
     it("keeps backend A's good answer through a bad answer from B", async () => {
       const { client, calls, setting } = twoBackends(old);
-      await client.cases();
+      await client.cases.queue();
       setting.url = "http://b.test";
-      await expect(client.cases()).rejects.toThrow("unsupported");
+      await expect(client.cases.queue()).rejects.toThrow("unsupported");
 
       setting.url = "http://a.test";
       calls.length = 0;
-      await client.cases();
+      await client.cases.queue();
 
       expect(calls).toEqual(["a.test/api/cases"]);
     });

@@ -20,7 +20,7 @@ function client(over: { status?: BackendStatus; reason?: string; investigations?
   return {
     status: async () => over.status ?? ok,
     incompatibilityReason: () => over.reason,
-    investigations: over.investigations ?? (async () => []),
+    investigations: { list: over.investigations ?? (async () => []) },
   } as unknown as BackendClient;
 }
 

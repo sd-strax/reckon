@@ -75,7 +75,7 @@ export class InvestigationsProvider implements vscode.TreeDataProvider<vscode.Tr
     }
 
     try {
-      this.rows = await this.client.investigations();
+      this.rows = await this.client.investigations.list();
     } catch (err) {
       // A 401 here means the token went stale under us — surface it, don't hang.
       return [this.actionItem("Could not load investigations", errText(err), "warning", "reckon.refreshInvestigations")];

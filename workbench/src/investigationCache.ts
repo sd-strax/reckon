@@ -3,14 +3,15 @@
 // serializes every read of one investigation so a slower, older read can never
 // be posted after a newer one. It knows nothing of VS Code or the webview; the
 // investigation document posts what it returns.
-import type { ActionRow, BackendClient, ThreadEntry } from "./backend";
+import type { ActionRow, ActionsClient, CapabilitiesClient, InvestigationsClient, ThreadEntry } from "./backend";
 import type { ChronicleTurn, InvestigationSnapshot } from "./protocol";
 
 /** The backend reads the cache needs — the seam its tests fake. */
-export type CacheClient = Pick<
-  BackendClient,
-  "getInvestigation" | "hypotheses" | "capabilities" | "thread" | "actions" | "pins" | "comms" | "transcript"
->;
+export interface CacheClient {
+  investigations: Pick<InvestigationsClient, "get" | "hypotheses" | "thread" | "pins" | "transcript">;
+  actions: Pick<ActionsClient, "list" | "comms">;
+  capabilities: Pick<CapabilitiesClient, "list">;
+}
 
 /** The event-sourced slices one write can change, re-read together after it. */
 export type Projection = Pick<
@@ -149,7 +150,7 @@ export class InvestigationCache {
     const [r, capabilities] = await Promise.all([
       this.read(id, "snapshot", true),
       // A 503 means the capability layer is off; null renders as "unavailable".
-      this.client.capabilities().catch(() => null),
+      this.client.capabilities.list().catch(() => null),
     ]);
     return {
       seq: this.advance(id, r, generation),
@@ -195,7 +196,7 @@ export class InvestigationCache {
     let body = this.transcripts.get(interpretationId);
     if (body === undefined) {
       const generation = this.generation;
-      body = (await this.client.transcript(interpretationId)).body;
+      body = (await this.client.investigations.transcript(interpretationId)).body;
       if (generation === this.generation) this.transcripts.set(interpretationId, body);
     }
     return body;
@@ -210,12 +211,12 @@ export class InvestigationCache {
         return undefined;
       });
     const [investigation, hypotheses, thread, actions, pins, comms] = await Promise.all([
-      this.client.getInvestigation(id),
-      strict ? this.client.hypotheses(id) : optional("hypotheses", this.client.hypotheses(id)),
-      optional("thread", this.client.thread(id)),
-      optional("actions", this.client.actions(id)),
-      optional("pins", this.client.pins(id)),
-      optional("comms", this.client.comms(id)),
+      this.client.investigations.get(id),
+      strict ? this.client.investigations.hypotheses(id) : optional("hypotheses", this.client.investigations.hypotheses(id)),
+      optional("thread", this.client.investigations.thread(id)),
+      optional("actions", this.client.actions.list(id)),
+      optional("pins", this.client.investigations.pins(id)),
+      optional("comms", this.client.actions.comms(id)),
     ]);
     const projection: Read = { investigation };
     if (hypotheses !== undefined) projection.hypotheses = hypotheses;

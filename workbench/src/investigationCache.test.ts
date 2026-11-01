@@ -13,9 +13,11 @@ function detail(lastEventSequence: number, state = "ACTIVE"): InvestigationDetai
 }
 
 /** A backend whose answers the test sets, counting transcript reads. */
-function fakeClient(over: Partial<Record<keyof CacheClient, () => Promise<unknown>>> = {}) {
+type Read = "getInvestigation" | "hypotheses" | "capabilities" | "thread" | "actions" | "pins" | "comms" | "transcript";
+
+function fakeClient(over: Partial<Record<Read, (...args: never[]) => Promise<unknown>>> = {}) {
   const calls = { transcript: 0 };
-  const client = {
+  const f = {
     getInvestigation: async () => detail(3),
     hypotheses: async () => [] as Hypothesis[],
     capabilities: async () => [],
@@ -25,6 +27,11 @@ function fakeClient(over: Partial<Record<keyof CacheClient, () => Promise<unknow
     comms: async () => [],
     transcript: async (id: string) => { calls.transcript++; return { body: "body of " + id }; },
     ...over,
+  };
+  const client = {
+    investigations: { get: f.getInvestigation, hypotheses: f.hypotheses, thread: f.thread, pins: f.pins, transcript: f.transcript },
+    actions: { list: f.actions, comms: f.comms },
+    capabilities: { list: f.capabilities },
   } as unknown as CacheClient;
   return { client, calls };
 }
@@ -220,7 +227,7 @@ describe("InvestigationCache: identity and forget (adr/0241)", () => {
     expect(cache.action("inv-1", "a-1")).toBeUndefined();
     answer = () => undefined;
     let reread = false;
-    client.transcript = async () => { reread = true; return { body: "b" } as never; };
+    client.investigations.transcript = async () => { reread = true; return { body: "b" } as never; };
     await cache.transcript("i-1");
     expect(reread).toBe(true);
   });

@@ -13,7 +13,7 @@ beforeEach(() => {
 });
 
 async function viewWithTwoFiles(importSOPMarkdown: () => Promise<unknown>) {
-  const view = new ImportSOPsView({ importSOPMarkdown } as unknown as BackendClient, fakeLog());
+  const view = new ImportSOPsView(vscode.Uri.file("/ext"), { knowledge: { importMarkdown: importSOPMarkdown } } as unknown as BackendClient, fakeLog());
   vi.mocked(vscode.window.showOpenDialog).mockResolvedValueOnce([vscode.Uri.file("/a.md"), vscode.Uri.file("/b.md")]);
   view.open();
   createdPanels()[0].webview.receive({ type: "addFiles" });
@@ -48,7 +48,7 @@ describe("ImportSOPsView: a change of identity", () => {
   it("does not add files picked before the change to the next person's panel", async () => {
     let pick!: (u: vscode.Uri[]) => void;
     vi.mocked(vscode.window.showOpenDialog).mockImplementationOnce(() => new Promise((r) => { pick = r; }));
-    const view = new ImportSOPsView({} as BackendClient, fakeLog());
+    const view = new ImportSOPsView(vscode.Uri.file("/ext"), {} as BackendClient, fakeLog());
     view.open();
     createdPanels()[0].webview.receive({ type: "addFiles" });
 
