@@ -1,6 +1,6 @@
 // Thin client for the reckon backend's public HTTP surface.
 //
-// Mirrors server.StatusResponse (server/backend.go), including the API contract
+// Mirrors server.StatusResponse (server/status.go), including the API contract
 // version that drives the design/13 §2 handshake: the extension pins a set of
 // backend API versions it supports and fails closed with a diagnostic on
 // mismatch, rather than dispatching against an incompatible surface.
