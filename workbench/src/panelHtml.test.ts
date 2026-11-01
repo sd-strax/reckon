@@ -22,6 +22,12 @@ describe("one page and one policy for every reckon panel (adr/0248)", () => {
     }
   });
 
+  it("escapes the title, which may be a case number from the system of record", () => {
+    const html = panelHtml(webview(), ext, "case", `Case </title><script>alert(1)</script>`);
+    expect(html).toContain("<title>Case &lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;</title>");
+    expect(html).not.toContain("<script>alert");
+  });
+
   it("confines local resources to the bundle and the media directory", () => {
     const opts = panelOptions(ext);
     expect(opts.enableScripts).toBe(true);

@@ -4,7 +4,7 @@
 // and fonts from the extension's own files, nothing inline and no network.
 import * as vscode from "vscode";
 import type { Surface } from "./protocol";
-import { makeNonce } from "./util";
+import { escapeHtml, makeNonce } from "./util";
 
 /** The webview options shared by every reckon panel. */
 export function panelOptions(extensionUri: vscode.Uri): vscode.WebviewPanelOptions & vscode.WebviewOptions {
@@ -18,7 +18,10 @@ export function panelOptions(extensionUri: vscode.Uri): vscode.WebviewPanelOptio
   };
 }
 
-/** The page for one surface: the bundle's stylesheet and script under the one CSP. */
+/**
+ * The page for one surface: the bundle's stylesheet and script under the one
+ * CSP. The title may come from outside (a case number), so it is escaped.
+ */
 export function panelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, surface: Surface, title: string): string {
   const nonce = makeNonce();
   const base = vscode.Uri.joinPath(extensionUri, "out", "webview");
@@ -37,7 +40,7 @@ export function panelHtml(webview: vscode.Webview, extensionUri: vscode.Uri, sur
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="${style.toString()}" />
-  <title>${title}</title>
+  <title>${escapeHtml(title)}</title>
 </head>
 <body class="loading">
   <div id="root" data-surface="${surface}"></div>

@@ -32,6 +32,21 @@ describe("the Import SOPs surface (design/06 §2.4)", () => {
     expect(t.intents.map((i) => i.type)).toEqual(["ready", "toggle", "refresh", "addFiles", "import"]);
   });
 
+  it("keeps each label on its own row when two file names differ only in punctuation", () => {
+    const t = open();
+    render(<ImportApp transport={t} />);
+    act(() => t.emit({ type: "state", busy: false, rows: [
+      row({ id: "file:///a-b.md", name: "a-b.md" }),
+      row({ id: "file:///ab.md", name: "ab.md" }),
+    ] }));
+
+    fireEvent.click(screen.getByLabelText(/^ab\.md/));
+
+    expect(t.intents).toContainEqual({ type: "toggle", id: "file:///ab.md", checked: true });
+    expect(t.intents).not.toContainEqual(expect.objectContaining({ id: "file:///a-b.md" }));
+    expect((screen.getByLabelText(/^a-b\.md/) as HTMLInputElement).checked).toBe(false);
+  });
+
   it("disables everything while importing and reports the outcome per row and in the footer", () => {
     const t = open();
     render(<ImportApp transport={t} />);

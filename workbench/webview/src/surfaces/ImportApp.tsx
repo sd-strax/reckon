@@ -3,7 +3,7 @@
 // surface the analyst can read, revise, and see the outcome of. The host owns
 // the rows (the open editors, the files added from disk) and the import; this
 // surface renders its state and posts the analyst's choices.
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { ImportInboundMessage, ImportRenderMessage, ImportRow } from "../../../src/protocol";
 import type { WebviewTransport } from "../transport";
 
@@ -73,7 +73,9 @@ export function ImportApp({ transport }: { transport: ImportTransport }) {
 }
 
 function Row({ row: r, busy, onToggle }: { row: ImportRow; busy: boolean; onToggle: (row: ImportRow, checked: boolean) => void }) {
-  const id = "cb-" + r.id.replace(/[^a-z0-9]/gi, "");
+  // The checkbox's id is React's, unique per row: one derived from the URI
+  // could collide (a-b.md and ab.md) and a label would toggle the wrong file.
+  const id = useId();
   const outcome = r.result?.outcome;
   return (
     <div className={"row" + (outcome ? (outcome === "failed" ? " failed" : " done") : "")}>
