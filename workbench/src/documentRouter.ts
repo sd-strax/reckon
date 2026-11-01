@@ -8,6 +8,11 @@ export type InboundHandlers = {
   [K in InboundMessage["type"]]: (msg: Extract<InboundMessage, { type: K }>) => void;
 };
 
-export function routeInbound(handlers: InboundHandlers, msg: InboundMessage): void {
+/** Webview payloads are not validated beyond `type`: same build as the host (adr/0244). */
+export function routeInbound(handlers: InboundHandlers, msg: InboundMessage, onUnknown: (type: unknown) => void): void {
+  if (!Object.hasOwn(handlers, msg?.type)) {
+    onUnknown(msg?.type);
+    return;
+  }
   (handlers[msg.type] as (m: InboundMessage) => void)(msg);
 }

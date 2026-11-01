@@ -1,0 +1,22 @@
+{
+  "results": [
+    {
+      "investigation_ref": "x",
+      "title": "x",
+      "excerpt": "x",
+      "score": 1,
+      "band": "x",
+      "match_rationale": "x",
+      "tags": [
+        "x"
+      ],
+      "content_hash": "x",
+      "backend": "x"
+    }
+  ],
+  "coverage": "x",
+  "retrieval_at": "2026-01-02T03:04:05Z",
+  "unmatched_tags": [
+    "x"
+  ]
+}

@@ -75,7 +75,7 @@ function installSidecar(over: Partial<Sidecar> = {}): Sidecar {
     cancel: [],
     init: async () => ({ protocol_version: 1, backend_api_version: 1, server_version: "test" }),
     close: async () => ({}),
-    turn: async () => ({ text: "", tool_rounds: 0 }),
+    turn: async () => turnResult(),
     ...over,
   };
   let n = 0;
@@ -100,6 +100,14 @@ function installSidecar(over: Partial<Sidecar> = {}): Sidecar {
   };
   return sc;
 }
+
+/** A turn's result as the Go struct always sends it. */
+const turnResult = (over: Record<string, unknown> = {}) => ({
+  text: "", tool_rounds: 0, usage: { input: 0, output: 0, cache_read: 0, cache_write: 0 }, ...over,
+});
+
+/** A transport the shared cleanup disposes. */
+const sidecar = () => (transport = new SidecarTransport(deps(), fakeLog()));
 
 const silent: TurnProgress = {
   onText: () => undefined, onTextDelta: () => undefined, onStep: () => undefined,
@@ -177,7 +185,7 @@ describe("SidecarTransport: turns", () => {
         child.peer.sendNotification("turn/text_delta", { session_id: "someone-else", text: "leak" });
         return {
           text: "done", interpretation_id: "i-1", tool_rounds: 1,
-          usage: { input: 10, output: 2, cache_read: 4 },
+          usage: { input: 10, output: 2, cache_read: 4, cache_write: 0 },
           pending_actions: [{ action_id: "a-1", action_type: "host.isolate", tier: "T2", status: "PENDING_MANUAL", targets: ["h"] }],
         };
       },
@@ -224,7 +232,7 @@ describe("SidecarTransport: turns", () => {
           await child.peer.sendRequest("getToken", { kind: "human", force: true }),
           await child.peer.sendRequest("getToken", {}),
         ];
-        return {};
+        return turnResult();
       },
     });
     transport = new SidecarTransport(deps({ getToken: async (kind, force) => { asked.push([kind, force]); return `tok-${kind}`; } }), fakeLog());
@@ -286,7 +294,7 @@ describe("SidecarTransport: lifecycle", () => {
     await new Promise((r) => setImmediate(r));
     expect(sc.createSession).toEqual(["inv-1"]);
 
-    finish({});
+    finish(turnResult());
     await next;
     expect(sc.createSession).toEqual(["inv-1", "inv-1"]);
   });
@@ -357,14 +365,14 @@ describe("SidecarTransport: stopping a turn", () => {
 
     await child.peer.sendNotification("turn/text", { session_id: session, text: "still here" });
     await vi.waitFor(() => expect(text).toEqual(["still here"]));
-    finish({ text: "", tool_rounds: 0 });
+    finish(turnResult());
     await first;
     expect(transport.turnRunning("inv-1")).toBe(false);
   });
 
   it("does not start a turn stopped before it reached the sidecar", async () => {
     let turns = 0;
-    installSidecar({ turn: async () => { turns++; return {}; } });
+    installSidecar({ turn: async () => { turns++; return turnResult(); } });
     transport = new SidecarTransport(deps(), fakeLog());
     const turn = transport.turn("inv-1", "a", silent);
     await transport.cancel("inv-1");
@@ -381,28 +389,30 @@ describe("SidecarTransport: stopping a turn", () => {
     await transport.cancel("inv-1");
     expect(sc.cancel).toHaveLength(1);
     expect(sc.cancel[0].reason).toBeUndefined();
-    end({ stopped: true, tool_rounds: 1 });
+    end(turnResult({ stopped: true, tool_rounds: 1 }));
     expect((await turn).error).toBeUndefined();
   });
 
   it("stops a turn past its time limit and says so", async () => {
     const { sc, end } = parkedTurn();
-    transport = new SidecarTransport(deps({ turnTimeoutMinutes: () => 0.0001 }), fakeLog());
+    // Long enough to outlast startup under load: the limit must land on a running turn.
+    transport = new SidecarTransport(deps({ turnTimeoutMinutes: () => 0.005 }), fakeLog());
     const turn = transport.turn("inv-1", "a", silent);
-    await vi.waitFor(() => expect(sc.cancel).toHaveLength(1));
+    await vi.waitFor(() => expect(sc.cancel).toHaveLength(1), { timeout: 2000 });
     expect(sc.cancel[0].reason).toBe("timeout");
-    end({ stopped: true, tool_rounds: 0 });
+    end(turnResult({ stopped: true }));
     const outcome = await turn;
     expect(outcome.error).toBeUndefined();
-    expect(outcome.notice).toBe("turn timed out after 0.0001 minutes");
+    expect(outcome.notice).toBe("turn timed out after 0.005 minutes");
   });
 
   it("a hung handshake cannot outlast the limit, and the next turn starts clean", async () => {
     let hang = true;
     const sc = installSidecar({
-      init: () => hang ? new Promise(() => undefined) : Promise.resolve({ protocol_version: 1, backend_api_version: 1 }),
+      init: () => hang ? new Promise(() => undefined) : Promise.resolve({ protocol_version: 1, backend_api_version: 1, server_version: "test" }),
     });
-    transport = new SidecarTransport(deps({ turnTimeoutMinutes: () => 0.0001 }), fakeLog());
+    let limit = 0.0001;
+    transport = new SidecarTransport(deps({ turnTimeoutMinutes: () => limit }), fakeLog());
 
     const outcome = await transport.turn("inv-1", "a", silent);
     expect(outcome.notice).toBe("turn timed out after 0.0001 minutes");
@@ -410,6 +420,7 @@ describe("SidecarTransport: stopping a turn", () => {
     expect(transport.turnRunning("inv-1")).toBe(false);
 
     hang = false;
+    limit = 1; // the next turn must get through startup, however busy the machine
     await transport.turn("inv-1", "b", silent);
     expect(children()).toHaveLength(2);
     expect(sc.createSession).toEqual(["inv-1"]);
@@ -443,5 +454,83 @@ describe("SidecarTransport: stopping a turn", () => {
 
     expect((await turn).error).toBeUndefined();
     expect(children()[0].killed).toBe(false);
+  });
+});
+
+describe("SidecarTransport: the wire boundary", () => {
+  it.each([
+    ["a mismatch", { protocol_version: 2, backend_api_version: 1, server_version: "t" }, "sidecar protocol v2 unsupported"],
+    ["no version", { backend_api_version: 1, server_version: "t" }, "unexpected response from initialize: protocol_version missing"],
+  ])("kills the child and says why on %s", async (_name, reply, message) => {
+    installSidecar({ init: async () => reply });
+    const transport = sidecar();
+
+    await expect(transport.turn("inv-1", "hi", silent)).rejects.toThrow(message);
+
+    expect(children()[0].killed).toBe(true);
+  });
+
+  it("surfaces a malformed result as the turn's failure", async () => {
+    installSidecar({ turn: async () => ({ text: "done" }) });
+    const transport = sidecar();
+
+    await expect(transport.turn("inv-1", "hi", silent)).rejects.toThrow("unexpected response from turn: tool_rounds missing");
+  });
+
+  it("surfaces a malformed notification at the turn's end, and the turn runs on", async () => {
+    const text: string[] = [];
+    installSidecar({
+      turn: async (child, p) => {
+        child.peer.sendNotification("turn/step", { session_id: p.session_id, round: "one" });
+        child.peer.sendNotification("turn/text", { session_id: p.session_id, text: "next" });
+        await new Promise((r) => setTimeout(r, 10));
+        return turnResult({ text: "next" });
+      },
+    });
+    const transport = sidecar();
+
+    const out = await transport.turn("inv-1", "hi", { ...silent, onText: (t: string) => text.push(t) });
+
+    expect(out.notice).toContain("turn/step: round is not a number");
+    expect(out.error).toBeUndefined();
+    expect(text).toEqual(["next"]);
+  });
+
+  it("tells every turn in flight about a malformed notification it cannot route", async () => {
+    installSidecar({
+      turn: async (child) => {
+        child.peer.sendNotification("turn/text", { text: "lost" });
+        await new Promise((r) => setTimeout(r, 10));
+        return turnResult();
+      },
+    });
+    const transport = sidecar();
+
+    expect((await transport.turn("inv-1", "hi", silent)).notice).toContain("session_id missing");
+  });
+
+  it("does not carry a notice over to the next turn", async () => {
+    let bad = true;
+    installSidecar({
+      turn: async (child, p) => {
+        if (bad) child.peer.sendNotification("turn/step", { session_id: p.session_id });
+        bad = false;
+        await new Promise((r) => setTimeout(r, 10));
+        return turnResult();
+      },
+    });
+    const transport = sidecar();
+    await transport.turn("inv-1", "a", silent);
+
+    expect((await transport.turn("inv-1", "b", silent)).notice).toBeUndefined();
+  });
+
+  it("names a candidate SOP with no title", async () => {
+    installSidecar();
+    const transport = sidecar();
+    await transport.turn("inv-1", "a", silent);
+    children()[0].peer.onRequest("proposeSOP", () => ({ warranted: true, body: "B", tags: [], recommendation: "", rationale: "" }));
+
+    await expect(transport.proposeSOP("inv-1")).rejects.toThrow("unexpected response from proposeSOP: title missing");
   });
 });

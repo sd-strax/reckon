@@ -1,0 +1,169 @@
+{
+  "verb": "x",
+  "coverage": "x",
+  "ocsf_event_refs": [
+    "x"
+  ],
+  "observed_data_refs": [
+    "x"
+  ],
+  "entity_refs": [
+    "x"
+  ],
+  "degradation_notes": [
+    "x"
+  ],
+  "events": [
+    {
+      "id": "x",
+      "class_uid": 1,
+      "class_name": "x",
+      "time": "2026-01-02T03:04:05Z",
+      "recorded_at": "2026-01-02T03:04:05Z",
+      "source_tool": "x",
+      "payload": {
+        "x": "x"
+      }
+    }
+  ],
+  "normalized": [
+    {
+      "observed_data": [
+        {
+          "id": "x",
+          "first_observed": "2026-01-02T03:04:05Z",
+          "last_observed": "2026-01-02T03:04:05Z",
+          "number_observed": 1,
+          "object_refs": [
+            "x"
+          ],
+          "extensions": {
+            "x": "x"
+          },
+          "provenance": {
+            "derivation_mode": "x",
+            "tool": "x",
+            "normalizer": "x",
+            "normalizer_version": 1,
+            "observed_at": "2026-01-02T03:04:05Z"
+          }
+        }
+      ],
+      "scos": [
+        {
+          "id": "x",
+          "type": "x",
+          "properties": {
+            "x": "x"
+          },
+          "provenance": {
+            "derivation_mode": "x",
+            "tool": "x",
+            "normalizer": "x",
+            "normalizer_version": 1,
+            "observed_at": "2026-01-02T03:04:05Z"
+          }
+        }
+      ],
+      "relationships": [
+        {
+          "id": "x",
+          "relationship_type": "x",
+          "source_ref": "x",
+          "target_ref": "x",
+          "provenance": {
+            "derivation_mode": "x",
+            "tool": "x",
+            "normalizer": "x",
+            "normalizer_version": 1,
+            "observed_at": "2026-01-02T03:04:05Z"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "type": "x",
+          "source_ref": "x",
+          "ocsf_event_id": "x"
+        }
+      ],
+      "indicators": [
+        {
+          "id": "x",
+          "name": "x",
+          "pattern": "x",
+          "pattern_type": "x",
+          "indicator_types": [
+            "x"
+          ],
+          "valid_from": "2026-01-02T03:04:05Z",
+          "confidence": 1,
+          "created_by_ref": "x",
+          "provenance": {
+            "derivation_mode": "x",
+            "tool": "x",
+            "normalizer": "x",
+            "normalizer_version": 1,
+            "observed_at": "2026-01-02T03:04:05Z"
+          }
+        }
+      ],
+      "sightings": [
+        {
+          "id": "x",
+          "sighting_of_ref": "x",
+          "observed_data_refs": [
+            "x"
+          ],
+          "where_sighted_refs": [
+            "x"
+          ],
+          "confidence": 1,
+          "description": "x",
+          "created_by_ref": "x",
+          "provenance": {
+            "derivation_mode": "x",
+            "tool": "x",
+            "normalizer": "x",
+            "normalizer_version": 1,
+            "observed_at": "2026-01-02T03:04:05Z"
+          }
+        }
+      ],
+      "identities": [
+        {
+          "id": "x",
+          "name": "x"
+        }
+      ]
+    }
+  ],
+  "null_observation": {
+    "id": "x",
+    "type": "x",
+    "verb": "x",
+    "subject": {
+      "x": "x"
+    },
+    "parameters": {
+      "x": "x"
+    },
+    "window_from": "2026-01-02T03:04:05Z",
+    "window_to": "2026-01-02T03:04:05Z",
+    "sources": [
+      "x"
+    ],
+    "coverage": "x",
+    "object_refs": [
+      "x"
+    ],
+    "observed_at": "2026-01-02T03:04:05Z",
+    "provenance": {
+      "derivation_mode": "x",
+      "tool": "x",
+      "normalizer": "x",
+      "normalizer_version": 1,
+      "observed_at": "2026-01-02T03:04:05Z"
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "actions": [
+    {
+      "action_id": "x",
+      "action_type": "x",
+      "tier": "x",
+      "status": "x",
+      "required_mode": "x",
+      "mode": "x",
+      "is_reversal": true,
+      "targets": [
+        {
+          "entity_ref": "x",
+          "resolved_identifier": "x",
+          "asset_criticality": "x"
+        }
+      ],
+      "evidence_refs": [
+        "x"
+      ],
+      "expires_at": "2026-01-02T03:04:05Z",
+      "parameters": {
+        "x": 1
+      },
+      "reversibility": "x",
+      "tier_escalated": true,
+      "edited_at": "2026-01-02T03:04:05Z",
+      "inputs": [
+        {
+          "name": "x",
+          "required": true
+        }
+      ],
+      "name": "x",
+      "category": "x",
+      "retry_of": "x",
+      "requesting_interpretation_id": "x",
+      "reversal_of_ref": "x",
+      "adapter": "x",
+      "planned_adapter": "x",
+      "error_detail": "x",
+      "result_ref": "x"
+    }
+  ]
+}

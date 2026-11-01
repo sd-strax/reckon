@@ -285,7 +285,7 @@ export class InvestigationDocuments {
 
   /** Route one webview message using the panel's current (mutable) id. */
   private route(ref: { id: string }, panel: vscode.WebviewPanel, msg: InboundMessage): void {
-    routeInbound(this.handlers(ref, panel), msg);
+    routeInbound(this.handlers(ref, panel), msg, (type) => this.log.warn(`ignoring webview message of unknown type ${String(type)}`));
   }
 
   /** Every inbound message's handler for one panel (the router's table). */
@@ -568,6 +568,12 @@ export class InvestigationDocuments {
    * behaves as before.
    */
   private async postDraft(panel: vscode.WebviewPanel, mode?: "case"): Promise<void> {
+    const incompatible = await this.incompatibleBackend();
+    if (incompatible) {
+      void this.post(panel, { type: "draft" });
+      void this.post(panel, { type: "draft.error", message: incompatible });
+      return;
+    }
     let caseQueue: string | undefined;
     try {
       caseQueue = await this.client.caseQueue();
@@ -701,6 +707,14 @@ export class InvestigationDocuments {
     }
   }
 
+  /**
+   * The handshake, on every panel load (adr/0244): a backend upgraded under a
+   * running window is caught here, before anything is called on it.
+   */
+  private async incompatibleBackend(): Promise<string | null> {
+    return this.client.incompatibilityReason(await this.client.status());
+  }
+
   /** Whether this panel is still the open document for the investigation. */
   private isOpen(id: string, panel: vscode.WebviewPanel): boolean {
     return this.open.get(id) === panel;
@@ -715,6 +729,12 @@ export class InvestigationDocuments {
   private load(id: string, panel: vscode.WebviewPanel): Promise<void> {
     return this.cache.exclusive(id, async () => {
       void this.post(panel, { type: "loading" });
+      const incompatible = await this.incompatibleBackend();
+      if (incompatible) {
+        this.log.error(`load investigation ${id}: ${incompatible}`);
+        void this.post(panel, { type: "error", message: incompatible });
+        return;
+      }
       let snapshot: InvestigationSnapshot;
       try {
         snapshot = await this.cache.snapshot(id);
@@ -1301,8 +1321,10 @@ export class InvestigationDocuments {
     void this.post(panel, { type: "sop.status", state: "drafting" });
     const current = this.sameIdentity();
     let candidate: SOPCandidate;
+    let usable: boolean;
     try {
       candidate = await this.transport.proposeSOP(id, force);
+      usable = candidate.warranted && !!candidate.title.trim() && !!candidate.body.trim();
     } catch (err) {
       void this.post(panel, { type: "sop.status", state: "failed", message: errText(err) });
       return;
@@ -1310,8 +1332,8 @@ export class InvestigationDocuments {
       this.releaseSession(id);
     }
     if (!current()) return;
-    if (!candidate?.warranted || !candidate.title.trim() || !candidate.body.trim()) {
-      void this.post(panel, { type: "sop.status", state: "declined", message: candidate?.rationale?.trim() || "No new procedure: the model judged nothing here to generalize." });
+    if (!usable) {
+      void this.post(panel, { type: "sop.status", state: "declined", message: candidate.rationale.trim() || "No new procedure: the model judged nothing here to generalize." });
       return;
     }
     const doc = await vscode.workspace.openTextDocument({ content: candidateSOPMarkdown(candidate, id), language: "markdown" });

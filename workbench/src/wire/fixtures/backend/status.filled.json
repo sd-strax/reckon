@@ -1,0 +1,10 @@
+{
+  "overall": "x",
+  "components": {
+    "x": {
+      "ready": true,
+      "message": "x"
+    }
+  },
+  "api_version": 1
+}

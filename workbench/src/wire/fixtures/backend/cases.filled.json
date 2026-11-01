@@ -1,0 +1,21 @@
+{
+  "queue": "x",
+  "cases": [
+    {
+      "number": "x",
+      "title": "x",
+      "status": "x",
+      "priority": "x",
+      "assignment_group": "x",
+      "summary": "x",
+      "link": "x",
+      "source": "x",
+      "opened_at": "2026-01-02T03:04:05Z",
+      "investigation": {
+        "id": "x",
+        "title": "x",
+        "status": "x"
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "text": "x",
+  "interpretation_id": "x",
+  "tool_rounds": 1,
+  "usage": {
+    "input": 1,
+    "output": 1,
+    "cache_read": 1,
+    "cache_write": 1
+  },
+  "pending_actions": [
+    {
+      "action_id": "x",
+      "action_type": "x",
+      "tier": "x",
+      "status": "x",
+      "targets": [
+        "x"
+      ],
+      "expired": true
+    }
+  ],
+  "stopped": true,
+  "error": "x"
+}

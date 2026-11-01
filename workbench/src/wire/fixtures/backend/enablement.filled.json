@@ -1,0 +1,36 @@
+{
+  "config_path": "x",
+  "adapters": [
+    {
+      "name": "x",
+      "class": "x",
+      "enabled": true,
+      "scenario": "x",
+      "config_schema": {
+        "properties": {
+          "x": {
+            "description": "x",
+            "type": "string",
+            "x-secret": true
+          }
+        },
+        "required": [
+          "x"
+        ]
+      },
+      "supportable": true
+    }
+  ],
+  "verbs": [
+    {
+      "verb": "x",
+      "adapters": [
+        "x"
+      ],
+      "enabled": true,
+      "closable_by": [
+        "x"
+      ]
+    }
+  ]
+}

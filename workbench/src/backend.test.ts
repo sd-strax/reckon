@@ -12,10 +12,10 @@ function clientAnswering(body: unknown): BackendClient {
 describe("BackendClient: action rows", () => {
   it("carries the reversibility the engine sends in its documented upper-case form", async () => {
     const client = clientAnswering({ actions: [
-      { action_id: "a1", action_type: "account.disable", status: "SUCCEEDED", reversibility: "reversible" },
-      { action_id: "a2", action_type: "ioc.block", status: "SUCCEEDED", reversibility: "best_effort" },
-      { action_id: "a3", action_type: "ticket.comment", status: "SUCCEEDED", reversibility: "irreversible" },
-      { action_id: "a4", action_type: "host.isolate", status: "REQUESTED" },
+      { action_id: "a1", action_type: "account.disable", tier: "T2", status: "SUCCEEDED", reversibility: "reversible" },
+      { action_id: "a2", action_type: "ioc.block", tier: "T2", status: "SUCCEEDED", reversibility: "best_effort" },
+      { action_id: "a3", action_type: "ticket.comment", tier: "T1", status: "SUCCEEDED", reversibility: "irreversible" },
+      { action_id: "a4", action_type: "host.isolate", tier: "T2", status: "REQUESTED" },
     ] });
     const rows = await client.actions("inv-1");
     expect(rows.map((r) => r.reversibility)).toEqual(["REVERSIBLE", "BEST_EFFORT", "IRREVERSIBLE", undefined]);
@@ -25,8 +25,8 @@ describe("BackendClient: action rows", () => {
 describe("BackendClient: the action catalog", () => {
   it("reads each type's inverse from its descriptor", async () => {
     const client = clientAnswering({ action_types: [
-      { descriptor: { action_type: "host.isolate", default_tier: "T2", reversibility: "reversible", reversible_by: "host.unisolate" }, status: "available", bindings: 1 },
-      { descriptor: { action_type: "ticket.comment", default_tier: "T1", reversibility: "irreversible" }, status: "available", bindings: 1 },
+      { descriptor: { action_type: "host.isolate", default_tier: "T2", name: "", category: "", inputs: [], reversibility: "reversible", reversible_by: "host.unisolate" }, status: "available", bindings: 1 },
+      { descriptor: { action_type: "ticket.comment", default_tier: "T1", name: "", category: "", inputs: null, reversibility: "irreversible" }, status: "available", bindings: 1 },
     ] });
     expect(await client.actionTypes()).toEqual([
       { actionType: "host.isolate", reversibleBy: "host.unisolate", tier: "T2", name: undefined, category: undefined, available: true, inputs: [] },
@@ -92,5 +92,49 @@ describe("BackendClient: a 401", () => {
 
     expect(renew).not.toHaveBeenCalled();
     expect(bearers).toHaveLength(1);
+  });
+});
+
+describe("BackendClient: reading a response", () => {
+  it("names the field a response is missing", async () => {
+    const client = clientAnswering({ investigations: [{ aggregate_id: "i", status: "ACTIVE", last_event_sequence: 1 }] });
+    await expect(client.investigations()).rejects.toThrow("unexpected response from GET /api/investigations: investigations[0].title missing");
+  });
+
+  it("refuses a renamed list rather than showing it empty", async () => {
+    const client = clientAnswering({ investigation_rows: [] });
+    await expect(client.investigations()).rejects.toThrow("investigations missing");
+  });
+
+  it("shows a list the backend sent as null as empty", async () => {
+    expect(await clientAnswering({ investigations: null }).investigations()).toEqual([]);
+  });
+
+  it("names a field of the wrong type", async () => {
+    const client = clientAnswering({ subject: "s", preferred_username: 7, tenant_id: "t", roles: [] });
+    await expect(client.me()).rejects.toThrow("preferred_username is not a string");
+  });
+
+  it("ignores a field it does not know", async () => {
+    const client = clientAnswering({ subject: "s", preferred_username: "p", tenant_id: "t", roles: [], added_later: true });
+    expect((await client.me()).username).toBe("p");
+  });
+
+  it("names a success that is not JSON", async () => {
+    vi.stubGlobal("fetch", async () => new Response("<html>", { status: 200 }));
+    const client = new BackendClient(() => "http://reckon.test", async () => "token");
+    await expect(client.me()).rejects.toThrow("unexpected response from GET /api/me: not JSON");
+  });
+
+  it("does not read the answer to a write that ignores it", async () => {
+    vi.stubGlobal("fetch", async () => new Response("", { status: 200 }));
+    await expect(new BackendClient(() => "http://reckon.test", async () => "token").commsAct("t-1", "ack")).resolves.toBeUndefined();
+  });
+
+  it("reports a /status it cannot read as incompatible, not unreachable", async () => {
+    const client = clientAnswering({ overall: "ok" });
+    const status = await client.status();
+    expect(status).toMatchObject({ reachable: true, apiVersion: null, compatible: false });
+    expect(client.incompatibilityReason(status)).toContain("predates the version handshake");
   });
 });

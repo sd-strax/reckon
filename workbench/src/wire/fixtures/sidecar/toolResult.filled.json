@@ -1,0 +1,11 @@
+{
+  "session_id": "x",
+  "name": "x",
+  "content": "x",
+  "is_error": true,
+  "coverage": "x",
+  "event_count": 1,
+  "refs": [
+    "x"
+  ]
+}
