@@ -1,20 +1,7 @@
 // Text the investigation document builds, with no editor or network: the
-// panel nonce, error wording, and the candidate-SOP markdown the import path
-// parses. Kept free of vscode so it is unit-testable.
+// candidate-SOP markdown the import path parses. Kept free of vscode so it is
+// unit-testable.
 import type { SOPCandidate } from "./agentTransport";
-
-export function makeNonce(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let out = "";
-  for (let i = 0; i < 32; i++) {
-    out += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return out;
-}
-
-export function errText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /**
  * Render a candidate SOP as markdown + YAML frontmatter — the exact shape the

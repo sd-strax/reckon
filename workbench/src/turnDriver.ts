@@ -4,7 +4,7 @@
 import type * as vscode from "vscode";
 import type { AgentTransport } from "./agentTransport";
 import type { RenderMessage } from "./protocol";
-import { errText } from "./documentText";
+import { errText } from "./util";
 
 export class TurnDriver {
   constructor(

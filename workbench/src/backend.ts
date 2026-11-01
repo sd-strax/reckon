@@ -6,6 +6,7 @@
 // mismatch, rather than dispatching against an incompatible surface.
 
 import type { LibraryItem } from "./protocol";
+import { relevanceOfBand, relevanceOfScore } from "./relevance";
 import type {
   ComponentStatus,
   BackendStatus,
@@ -1353,15 +1354,4 @@ function mapAction(a: RawAction): ActionRow {
     resultRef: a.result_ref,
     parameters: params,
   };
-}
-
-/** A search hit's relevance in words (#130), from the similarity band. */
-export function relevanceOfBand(band: string | undefined): string {
-  return band === "NEAR_DUPLICATE" ? "close match" : band === "RELATED" ? "related" : "loosely related";
-}
-
-/** A procedure hit's relevance in words (#130), from its score. */
-export function relevanceOfScore(score: number | undefined): string {
-  const v = score ?? 0;
-  return v >= 0.6 ? "close match" : v >= 0.4 ? "related" : "loosely related";
 }

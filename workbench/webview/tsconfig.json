@@ -13,5 +13,5 @@
     "resolveJsonModule": true,
     "types": ["vitest/globals"]
   },
-  "include": ["src", "../harness", "../src/protocol.ts", "../src/backend.ts"]
+  "include": ["src", "../harness", "../src/protocol.ts"]
 }

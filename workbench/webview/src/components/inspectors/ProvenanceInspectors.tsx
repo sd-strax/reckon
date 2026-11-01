@@ -9,7 +9,7 @@ import { Badge, Markdown, RefChip, fmtDateTime, fmtTime } from "../shared";
 import { ToolRow } from "../ToolRow";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
 import { received } from "../../derive/knowledgeUse";
-import { relevanceOfBand } from "../../../../src/backend";
+import { relevanceOfBand } from "../../../../src/relevance";
 
 export function TurnInspector({ interpretationId }: { interpretationId: string }) {
   const { state, openInspector } = useApp();

@@ -10,6 +10,7 @@
 import * as vscode from "vscode";
 import { BackendClient, CaseRow } from "./backend";
 import { Session } from "./auth";
+import { errText } from "./util";
 
 /**
  * How the queue is ordered. "priority": the SoR's priority, then oldest first
@@ -183,8 +184,4 @@ function infoItem(label: string, description: string, icon: string): vscode.Tree
   item.tooltip = description || label;
   item.iconPath = new vscode.ThemeIcon(icon);
   return item;
-}
-
-function errText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

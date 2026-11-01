@@ -10,14 +10,17 @@
 // filesystem.
 
 import * as vscode from "vscode";
-import { BackendClient, InvestigationSummary } from "./backend";
+import { BackendClient } from "./backend";
 import { Session } from "./auth";
 import { SidecarTransport } from "./agentTransport";
 import { InvestigationDocuments } from "./investigationDocument";
 import { ImportSOPsView } from "./importView";
 import { CasesProvider } from "./casesTree";
+import { InvestigationsProvider } from "./investigationsTree";
 import { SeenTracker } from "./seenTracker";
 import { CaseDocuments } from "./caseDocument";
+import { applyPosture, offerPosture } from "./posture";
+import { errText } from "./util";
 
 /** Where the BYOK Anthropic key lives — never in settings, never on disk in the clear. */
 const ANTHROPIC_KEY_SECRET = "reckon.anthropicApiKey";
@@ -204,7 +207,7 @@ export function activate(context: vscode.ExtensionContext): void {
           "reckon: agent context reset — the next turn starts from the engine record.",
         );
       } catch (err) {
-        void vscode.window.showErrorMessage(`reckon: context reset failed — ${err instanceof Error ? err.message : String(err)}`);
+        void vscode.window.showErrorMessage(`reckon: context reset failed — ${errText(err)}`);
       }
     }),
 
@@ -277,19 +280,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // First-run offer (design/13 §6): once, and "Not now" is remembered. An
   // analyst embedding reckon in their developer profile is a supported choice.
-  if (!context.globalState.get<boolean>("reckon.postureOffered")) {
-    void context.globalState.update("reckon.postureOffered", true);
-    void vscode.window
-      .showInformationMessage(
-        "reckon: apply the investigation-first workbench posture? (no startup editor, quieter chrome — every bit reversible via “reckon: Revert Workbench Posture”)",
-        "Apply", "Not now",
-      )
-      .then((choice) => {
-        if (choice === "Apply") {
-          void applyPosture(true);
-        }
-      });
-  }
+  offerPosture(context.globalState);
 
   // Fire-and-forget: restore a prior session, then seed the signed-in context key.
   void session.restore().finally(() => {
@@ -304,240 +295,4 @@ export function deactivate(): void {
 
 function backendUrl(): string {
   return vscode.workspace.getConfiguration("reckon").get<string>("backendUrl", "http://localhost:8080");
-}
-
-/**
- * The posture's settings (design/13 §6), applied globally: no startup editor,
- * no command center, no tips, menu bar behind Alt (Win/Linux; macOS keeps its
- * native bar per-OS convention). Revert clears our overrides back to defaults
- * rather than guessing what the user had. Keybindings for the core loop ship
- * via contributes.keybindings and need no toggling.
- */
-const POSTURE: Record<string, unknown> = {
-  "workbench.startupEditor": "none",
-  "window.commandCenter": false,
-  "workbench.tips.enabled": false,
-  "window.menuBarVisibility": "toggle",
-};
-
-async function applyPosture(on: boolean): Promise<void> {
-  const cfg = vscode.workspace.getConfiguration();
-  for (const [key, value] of Object.entries(POSTURE)) {
-    try {
-      await cfg.update(key, on ? value : undefined, vscode.ConfigurationTarget.Global);
-    } catch {
-      // A missing/renamed upstream setting must not break the rest.
-    }
-  }
-  void vscode.window.showInformationMessage(
-    on ? "reckon: workbench posture applied (revert any time: “reckon: Revert Workbench Posture”)"
-      : "reckon: workbench posture reverted — your defaults are back",
-  );
-}
-
-function errText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-
-/** Display order + collapsed defaults for the status groups (ui/06). */
-const TREE_GROUPS: { status: string; label: string; collapsed: boolean }[] = [
-  { status: "ACTIVE", label: "Active", collapsed: false },
-  { status: "PAUSED", label: "Paused", collapsed: false },
-  { status: "DRAFT", label: "Draft", collapsed: false },
-  { status: "CONCLUDED", label: "Concluded", collapsed: true },
-  { status: "ARCHIVED", label: "Archived", collapsed: true },
-];
-
-/** Status dot colors (ui/06): themed chart colors, not hardcoded hex. */
-const STATUS_COLOR: Record<string, string> = {
-  ACTIVE: "charts.blue",
-  PAUSED: "charts.yellow",
-  DRAFT: "descriptionForeground",
-  CONCLUDED: "charts.purple",
-  ARCHIVED: "disabledForeground",
-};
-
-/**
- * The Investigations view — a triage queue, not a file listing (ui/06). Three
- * top-level states, each a distinct honest surface: backend incompatible or
- * unreachable (fail closed with a diagnostic), signed out (a sign-in
- * affordance), or signed in — status groups whose rows are ordered
- * needs-me-first: soonest-expiring approval, then pending approvals, then
- * unseen changes, then recency.
- */
-class InvestigationsProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
-  private readonly emitter = new vscode.EventEmitter<void>();
-  readonly onDidChangeTreeData = this.emitter.event;
-  private rows: InvestigationSummary[] = [];
-
-  constructor(
-    private readonly client: BackendClient,
-    private readonly session: Session,
-    private readonly seen: SeenTracker,
-  ) {}
-
-  refresh(): void {
-    this.emitter.fire();
-  }
-
-  getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
-    return element;
-  }
-
-  async getChildren(element?: vscode.TreeItem): Promise<vscode.TreeItem[]> {
-    if (element) {
-      const group = (element as GroupItem).groupStatus;
-      return group ? this.groupRows(group) : [];
-    }
-
-    const status = await this.client.status();
-    const reason = this.client.incompatibilityReason(status);
-    if (reason) {
-      return [this.actionItem(
-        status.reachable ? "Backend incompatible" : "Backend not connected",
-        reason,
-        status.reachable ? "warning" : "debug-disconnect",
-        "reckon.checkBackend",
-      )];
-    }
-
-    if (!this.session.signedIn) {
-      return [this.actionItem("Sign in to reckon", "opens Keycloak in your browser", "sign-in", "reckon.signIn")];
-    }
-
-    try {
-      this.rows = await this.client.investigations();
-    } catch (err) {
-      // A 401 here means the token went stale under us — surface it, don't hang.
-      return [this.actionItem("Could not load investigations", errText(err), "warning", "reckon.refreshInvestigations")];
-    }
-    if (this.rows.length === 0) {
-      const empty = new vscode.TreeItem("No investigations yet");
-      empty.description = "seed one to begin";
-      empty.iconPath = new vscode.ThemeIcon("search");
-      return [empty];
-    }
-
-    const items: vscode.TreeItem[] = [];
-    for (const g of TREE_GROUPS) {
-      const inGroup = this.rows.filter((r) => r.state.toUpperCase() === g.status);
-      if (!inGroup.length) {
-        continue;
-      }
-      // Group-level rollups so a collapsed group still signals what's inside.
-      const pending = inGroup.reduce((n, r) => n + r.pendingActions, 0);
-      const item = new GroupItem(
-        `${g.label} (${inGroup.length})`,
-        g.status,
-        g.collapsed ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded,
-      );
-      if (pending > 0) {
-        item.description = `${pending} awaiting approval`;
-      }
-      items.push(item);
-    }
-    // Anything in a state outside the known groups still shows (honesty over taxonomy).
-    const known = new Set(TREE_GROUPS.map((g) => g.status));
-    for (const r of this.rows.filter((x) => !known.has(x.state.toUpperCase()))) {
-      items.push(this.rowItem(r));
-    }
-    return items;
-  }
-
-  /** The rows of one status group, needs-me-first (ui/06). */
-  private groupRows(status: string): vscode.TreeItem[] {
-    const rows = this.rows.filter((r) => r.state.toUpperCase() === status);
-    rows.sort((a, b) => {
-      // 1. Soonest approval expiry first (an open countdown outranks all).
-      const ax = a.nearestExpiry ? Date.parse(a.nearestExpiry) : Infinity;
-      const bx = b.nearestExpiry ? Date.parse(b.nearestExpiry) : Infinity;
-      if (ax !== bx) return ax - bx;
-      // 2. More pending approvals first.
-      if (a.pendingActions !== b.pendingActions) return b.pendingActions - a.pendingActions;
-      // 3. Unseen changes before caught-up.
-      const au = this.unseen(a) ? 0 : 1;
-      const bu = this.unseen(b) ? 0 : 1;
-      if (au !== bu) return au - bu;
-      // 4. Recency.
-      return (b.updatedAt ? Date.parse(b.updatedAt) : 0) - (a.updatedAt ? Date.parse(a.updatedAt) : 0);
-    });
-    return rows.map((r) => this.rowItem(r));
-  }
-
-  /** Unseen = the thread grew past what this analyst last had open here. */
-  private unseen(r: InvestigationSummary): boolean {
-    const last = this.seen.get(r.id);
-    return last > 0 && r.lastEventSequence > last;
-  }
-
-  private rowItem(r: InvestigationSummary): vscode.TreeItem {
-    const item = new InvestigationRowItem(r.title);
-    item.invId = r.id;
-    item.invTitle = r.title;
-    item.contextValue = "reckon.investigation";
-    const cues: string[] = [];
-    if (r.nearestExpiry) {
-      const left = Date.parse(r.nearestExpiry) - Date.now();
-      cues.push(left <= 0 ? "⏳ expired" : `⏳ ${fmtShort(left)}`);
-    }
-    if (r.pendingActions > 0) {
-      cues.push(`${r.pendingActions} pending`);
-    }
-    if (this.unseen(r)) {
-      cues.push("● new");
-    }
-    if (r.seedSummary) {
-      cues.push(r.seedSummary);
-    }
-    item.description = cues.join(" · ");
-    item.tooltip = `${r.title}\n${r.id}\n${r.state}${r.seedSummary ? "\n" + r.seedSummary : ""}`;
-    const color = STATUS_COLOR[r.state.toUpperCase()] ?? "descriptionForeground";
-    // An open approval window trumps the status dot — that row needs a human.
-    item.iconPath = r.pendingActions > 0
-      ? new vscode.ThemeIcon("bell-dot", new vscode.ThemeColor("charts.orange"))
-      : new vscode.ThemeIcon("circle-filled", new vscode.ThemeColor(color));
-    item.command = {
-      command: "reckon.openInvestigation",
-      title: "Open Investigation",
-      arguments: [r.id, r.title],
-    };
-    return item;
-  }
-
-  private actionItem(label: string, description: string, icon: string, command: string): vscode.TreeItem {
-    const item = new vscode.TreeItem(label);
-    item.description = description;
-    item.tooltip = description;
-    item.iconPath = new vscode.ThemeIcon(icon);
-    item.command = { command, title: label };
-    return item;
-  }
-}
-
-/** One investigation row; carries its id/title so the context menu (rename)
- *  can act on it without re-deriving from the label. */
-class InvestigationRowItem extends vscode.TreeItem {
-  invId = "";
-  invTitle = "";
-}
-
-/** A status group node; groupStatus keys getChildren back into the rows. */
-class GroupItem extends vscode.TreeItem {
-  constructor(
-    label: string,
-    readonly groupStatus: string,
-    state: vscode.TreeItemCollapsibleState,
-  ) {
-    super(label, state);
-    this.contextValue = "reckon.group";
-  }
-}
-
-/** Compact remaining-time label for the tree's ⏳ cue. */
-function fmtShort(ms: number): string {
-  const m = Math.floor(ms / 60_000);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  return h < 48 ? `${h}h` : `${Math.floor(h / 24)}d`;
 }

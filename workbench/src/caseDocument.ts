@@ -9,6 +9,7 @@
 
 import * as vscode from "vscode";
 import { BackendClient, CaseRow, InvestigationDetail, existingInvestigation } from "./backend";
+import { errText, makeNonce } from "./util";
 
 type Outbound =
   | { type: "case"; case: CaseRow }
@@ -211,17 +212,4 @@ export class CaseDocuments {
 </body>
 </html>`;
   }
-}
-
-function makeNonce(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let out = "";
-  for (let i = 0; i < 32; i++) {
-    out += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return out;
-}
-
-function errText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
