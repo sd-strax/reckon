@@ -1,6 +1,6 @@
 # 0227 — One route table, named role sets, one event-pair helper
 
-Issue: #227 · PR: # · Status: accepted
+Issue: #227 · PR: #287 · Status: accepted
 
 ## Context
 
