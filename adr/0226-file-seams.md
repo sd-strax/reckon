@@ -1,6 +1,6 @@
 # 0226 — The large files split along their seams, and handlers test against interfaces
 
-Issue: #226 · Status: accepted
+Issue: #226 · PR: #291 · Status: accepted
 
 ## Context
 
