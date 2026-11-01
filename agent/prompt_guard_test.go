@@ -60,8 +60,8 @@ func TestPrompt_NoScenarioVocabulary(t *testing.T) {
 		"prompt/" + framingLeadingNull: systemPrompt(Investigation{HypothesisFraming: framingLeadingNull}, nil),
 		"prompt/" + framingLeadingOnly: systemPrompt(Investigation{HypothesisFraming: framingLeadingOnly}, nil),
 	}
-	for _, td := range intrinsicTools(nil) {
-		texts["tool/"+td.Name] = toolText(td)
+	for _, tl := range intrinsicTools(nil) {
+		texts["tool/"+tl.def.Name] = toolText(tl.def)
 	}
 	// A verb tool's entity/window descriptions are rendered by the loop, not
 	// the backend: cover them through a synthetic descriptor.

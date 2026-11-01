@@ -117,7 +117,7 @@ func TestBoundResult_PagesWholeResult(t *testing.T) {
 			break
 		}
 		var err error
-		page, err = s.readResult(json.RawMessage(fmt.Sprintf(`{"result_id":%q,"offset":%d}`, note.ResultID, *note.NextOffset)))
+		page, err = s.readResult(readResultInput{ResultID: note.ResultID, Offset: *note.NextOffset})
 		if err != nil {
 			t.Fatalf("read_result: %v", err)
 		}
@@ -200,7 +200,7 @@ func TestBoundResult_OversizedItemIsSkipped(t *testing.T) {
 	if first.Lists["items"].Returned != 1 || first.NextOffset == nil || *first.NextOffset != 1 {
 		t.Fatalf("first page = %+v", first)
 	}
-	page, err := s.readResult(json.RawMessage(fmt.Sprintf(`{"result_id":%q,"offset":1}`, first.ResultID)))
+	page, err := s.readResult(readResultInput{ResultID: first.ResultID, Offset: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,10 +213,10 @@ func TestBoundResult_OversizedItemIsSkipped(t *testing.T) {
 func TestReadResult_Errors(t *testing.T) {
 	s := &Session{maxResultBytes: 16 << 10}
 	_, note := pageNoteOf(t, s.boundResult(bigEnvelope(t, 50)))
-	if _, err := s.readResult(json.RawMessage(`{"result_id":"res-99","offset":0}`)); err == nil || !strings.Contains(err.Error(), "no longer held") {
+	if _, err := s.readResult(readResultInput{ResultID: "res-99"}); err == nil || !strings.Contains(err.Error(), "no longer held") {
 		t.Errorf("unknown id: %v", err)
 	}
-	if _, err := s.readResult(json.RawMessage(fmt.Sprintf(`{"result_id":%q,"offset":50}`, note.ResultID))); err == nil || !strings.Contains(err.Error(), "out of range") {
+	if _, err := s.readResult(readResultInput{ResultID: note.ResultID, Offset: 50}); err == nil || !strings.Contains(err.Error(), "out of range") {
 		t.Errorf("offset past the end: %v", err)
 	}
 }
