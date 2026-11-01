@@ -66,7 +66,7 @@ func (b *Backend) actionsItem(w http.ResponseWriter, r *http.Request) {
 			methodNotAllowed(w, "GET")
 			return
 		}
-		b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, func(w http.ResponseWriter, r *http.Request) {
+		b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, r *http.Request) {
 			b.getActionRecord(w, r, actionID)
 		})
 		return
@@ -82,23 +82,23 @@ func (b *Backend) actionsItem(w http.ResponseWriter, r *http.Request) {
 	}
 	switch parts[1] {
 	case "approve":
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 			b.approveAction(w, r, actionID)
 		})
 	case "reject":
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 			b.rejectAction(w, r, actionID)
 		})
 	case "edit":
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 			b.editAction(w, r, actionID)
 		})
 	case "rerequest":
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 			b.rerequestAction(w, r, actionID)
 		})
 	case "resolve":
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, func(w http.ResponseWriter, r *http.Request) {
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
 			b.resolveActionOutcome(w, r, actionID)
 		})
 	default:

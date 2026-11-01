@@ -516,7 +516,7 @@ func (b *Backend) buildRouter(verifier *authz.Verifier) http.Handler {
 				methodNotAllowed(w, "GET")
 				return
 			}
-			b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.listRefAppearances)
+			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listRefAppearances)
 		},
 	)))
 
@@ -528,7 +528,7 @@ func (b *Backend) buildRouter(verifier *authz.Verifier) http.Handler {
 				methodNotAllowed(w, "GET")
 				return
 			}
-			b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.getEvidence)
+			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.getEvidence)
 		},
 	)))
 
@@ -668,9 +668,9 @@ func (b *Backend) handleMe(w http.ResponseWriter, r *http.Request) {
 func (b *Backend) investigationsCollection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.listInvestigations)
+		b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigations)
 	case http.MethodPost:
-		b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.createInvestigation)
+		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.createInvestigation)
 	default:
 		methodNotAllowed(w, "GET, POST")
 	}
@@ -688,7 +688,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/hypotheses") {
 		switch r.Method {
 		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.listInvestigationHypotheses)
+			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationHypotheses)
 		default:
 			methodNotAllowed(w, "GET")
 		}
@@ -697,7 +697,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/actions") {
 		switch r.Method {
 		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.listInvestigationActions)
+			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationActions)
 		default:
 			methodNotAllowed(w, "GET")
 		}
@@ -706,7 +706,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/thread") {
 		switch r.Method {
 		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.listInvestigationThread)
+			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationThread)
 		default:
 			methodNotAllowed(w, "GET")
 		}
@@ -715,7 +715,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/pins") {
 		switch r.Method {
 		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.listInvestigationPins)
+			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationPins)
 		default:
 			methodNotAllowed(w, "GET")
 		}
@@ -724,7 +724,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/comms") {
 		switch r.Method {
 		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.listInvestigationComms)
+			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationComms)
 		default:
 			methodNotAllowed(w, "GET")
 		}
@@ -733,7 +733,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/export") {
 		switch r.Method {
 		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.exportInvestigation)
+			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.exportInvestigation)
 		default:
 			methodNotAllowed(w, "POST")
 		}
@@ -744,7 +744,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/export.md") {
 		switch r.Method {
 		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.getInvestigationMarkdown)
+			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.getInvestigationMarkdown)
 		default:
 			methodNotAllowed(w, "GET")
 		}
@@ -753,7 +753,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/lifecycle") {
 		switch r.Method {
 		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.investigationLifecycle)
+			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.investigationLifecycle)
 		default:
 			methodNotAllowed(w, "POST")
 		}
@@ -762,7 +762,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/rename") {
 		switch r.Method {
 		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.renameInvestigation)
+			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.renameInvestigation)
 		default:
 			methodNotAllowed(w, "POST")
 		}
@@ -773,7 +773,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(trimmed, "/case_note") {
 		switch r.Method {
 		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, []string{authz.RoleAnalyst}, b.requestCaseNote)
+			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.requestCaseNote)
 		default:
 			methodNotAllowed(w, "POST")
 		}
@@ -781,7 +781,7 @@ func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, b.getInvestigation)
+		b.requireRolesOrDeny(w, r, authz.ReadRoles, b.getInvestigation)
 	default:
 		methodNotAllowed(w, "GET")
 	}
@@ -837,7 +837,7 @@ func (b *Backend) listCapabilities(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusServiceUnavailable, "capability layer not configured")
 		return
 	}
-	b.requireRolesOrDeny(w, r, []string{authz.RoleViewer, authz.RoleAnalyst, authz.RoleAuditor}, func(w http.ResponseWriter, _ *http.Request) {
+	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, _ *http.Request) {
 		summaries := resolver.ListCapabilities(catalog)
 		body := map[string]any{"capabilities": summaries}
 		// The tenant's case queue (14 §4.2) rides the catalog response: it is

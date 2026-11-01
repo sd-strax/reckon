@@ -75,7 +75,11 @@ func applyEditAction(env Envelope, state aggregateState, c EditAction, newID idS
 		return nil, fmt.Errorf("EditAction rejected: %s is %s; only a request nobody has approved can be edited", act.label(), act.Status)
 	}
 	interpID := newID()
-	payload, err := json.Marshal(ActionEdited{
+	summary := act.label() + ": edited before approval"
+	if c.Reason != "" {
+		summary += ": " + c.Reason
+	}
+	events, err := actEvents(env, state.Seq, EventTypeActionEdited, ActionEdited{
 		ActionID:              c.ActionID,
 		Parameters:            c.Parameters,
 		PriorParameters:       c.PriorParameters,
@@ -83,20 +87,10 @@ func applyEditAction(env Envelope, state aggregateState, c EditAction, newID idS
 		RequiredMode:          c.RequiredMode,
 		SecondaryApproverPool: c.SecondaryApproverPool,
 		EditInterpretationID:  interpID,
-	})
+	}, interpID, InterpretationActionEdit, summary, nil)
 	if err != nil {
 		return nil, err
 	}
-	summary := act.label() + ": edited before approval"
-	if c.Reason != "" {
-		summary += ": " + c.Reason
-	}
-	domain := lifecycleDomainEvent(env, state.Seq+1, EventTypeActionEdited, payload)
-	interp, err := interpretationEvent(env, state.Seq+2, interpID, InterpretationActionEdit, summary, nil)
-	if err != nil {
-		return nil, err
-	}
-	events := []Event{domain, interp}
 	if len(c.PolicyEvaluations) > 0 {
 		pe, err := json.Marshal(ActionPolicyEvaluated{ActionID: c.ActionID, Evaluations: c.PolicyEvaluations, MatchedPolicyRef: c.MatchedPolicyRef})
 		if err != nil {
