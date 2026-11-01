@@ -258,7 +258,7 @@ func TestRouter_Unrouted(t *testing.T) {
 }
 
 // TestRouter_UnconfiguredLayer: a layer that is not configured answers 503 to a
-// caller with the role and 403 to one without (adr/0227).
+// caller with the role, whatever the body, and 403 to one without (adr/0227).
 func TestRouter_UnconfiguredLayer(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")
@@ -277,7 +277,7 @@ func TestRouter_UnconfiguredLayer(t *testing.T) {
 		{"POST", "/api/capability/x"},
 	} {
 		for token, want := range map[string]int{mintToken(t, nil): http.StatusServiceUnavailable, viewer: http.StatusForbidden} {
-			req, _ := http.NewRequest(tc.method, srv.URL+tc.path, strings.NewReader("{}"))
+			req, _ := http.NewRequest(tc.method, srv.URL+tc.path, strings.NewReader("not json"))
 			req.Header.Set("Authorization", "Bearer "+token)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {

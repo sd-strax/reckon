@@ -42,7 +42,9 @@ The move changes a few answers, none that a client depends on:
 - HEAD works on GET routes.
 - `GET`, `PUT` and `DELETE` on `/sops/import` and `/sops/import_markdown` are a
   400 (neither name is an id), not a 405.
-- A malformed id is a 400 with one message, after the role check.
+- A malformed id is a 400 with one message, after the role check and before a
+  503 for a layer that is not configured: the id is checked when the route is
+  entered, ahead of the handler.
 - A caller without the role gets a 403 from a route whose layer is not
   configured, where it got a 503.
 

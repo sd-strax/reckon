@@ -95,8 +95,7 @@ type CommsInboundBody struct {
 }
 
 func (b *Backend) commsInbound(w http.ResponseWriter, r *http.Request) {
-	if b.cfg.Comms == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "comms layer not configured")
+	if !b.commsConfigured(w) {
 		return
 	}
 	var body CommsInboundBody
@@ -134,6 +133,9 @@ func (b *Backend) commsDone(w http.ResponseWriter, r *http.Request, threadID uui
 }
 
 func (b *Backend) commsSnooze(w http.ResponseWriter, r *http.Request, threadID uuid.UUID) {
+	if !b.commsConfigured(w) {
+		return
+	}
 	var body struct {
 		Hours int `json:"hours"`
 	}
@@ -148,10 +150,18 @@ func (b *Backend) commsSnooze(w http.ResponseWriter, r *http.Request, threadID u
 	})
 }
 
-// commsAct runs one act and answers with its verb.
-func (b *Backend) commsAct(w http.ResponseWriter, r *http.Request, verb string, act func(subject string, now time.Time) error) {
+// commsConfigured answers 503 when there is no comms layer.
+func (b *Backend) commsConfigured(w http.ResponseWriter) bool {
 	if b.cfg.Comms == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "comms layer not configured")
+		return false
+	}
+	return true
+}
+
+// commsAct runs one act and answers with its verb.
+func (b *Backend) commsAct(w http.ResponseWriter, r *http.Request, verb string, act func(subject string, now time.Time) error) {
+	if !b.commsConfigured(w) {
 		return
 	}
 	claims, _ := authz.FromContext(r.Context())
