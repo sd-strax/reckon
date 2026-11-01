@@ -18,9 +18,10 @@ import (
 // descriptor for an adapter class (11 §4.3): plain JSON Schema whose
 // `description` strings become the form's prompt text, plus the one reckon
 // extension — `x-secret` marks the fields whose values must be secret
-// REFERENCES (keychain:// / env:// / vault://), never literals. v0 ships only
-// the fixture class; out-of-process adapters bring their own schema via
-// `describe`.
+// REFERENCES (keychain:// / env:// / vault://), never literals. Only the
+// fixture class has one. A plugin's `describe` handshake carries its own
+// ConfigSchema, which the enablement view does not read yet, so every other
+// class returns nil.
 func AdapterConfigSchema(class AdapterClass) map[string]any {
 	if class != ClassFixture {
 		return nil

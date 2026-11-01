@@ -11,7 +11,7 @@ import (
 
 // EventTypeInterpretationRecorded tags an event that records one reasoning act
 // — an x-interpretation node (01-domain-model.md §Interpretation). Lifecycle
-// transitions, linkages, and (later) action requests each pair their domain
+// transitions, linkages, and action requests each pair their domain
 // event with one of these in the same transaction, tied by correlation_id, so
 // the reasoning thread can be reassembled from the event log.
 const EventTypeInterpretationRecorded = "interpretation.recorded"
@@ -145,8 +145,8 @@ const maxConsultedPerInterpretation = 20
 
 // InterpretationRecorded is the payload of an EventTypeInterpretationRecorded
 // event: one recorded reasoning act. It is the event-log projection of the
-// x-interpretation primitive; the full STIX node belongs to the object store.
-// Recording it here keeps the reasoning thread
+// x-interpretation primitive, which has no stix_objects row: this payload is
+// the interpretation. Recording it here keeps the reasoning thread
 // reconstructable from events alone.
 type InterpretationRecorded struct {
 	InterpretationID   uuid.UUID `json:"interpretation_id"`

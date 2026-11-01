@@ -32,10 +32,9 @@ CREATE INDEX IF NOT EXISTS stix_objects_modified_idx ON stix_objects (modified);
 -- is named stix_edges to match the canonical name in 02-persistence.md §2.2 and
 -- 05-component-architecture.md — it holds more than standard STIX relationship
 -- types (member-of, x-supports, x-refutes, aliases, ...). tenant_id is the
--- always-present partition key; the rest of the column-level schema is a
--- placeholder — the authoritative edge shape (subject/predicate/object) lands
--- with STIX CRUD (the tenant-leading indexes already match
--- 02-persistence.md §2.2).
+-- always-present partition key; the rest of the column-level schema here is a
+-- placeholder for the authoritative edge shape (subject/predicate/object) (the
+-- tenant-leading indexes already match 02-persistence.md §2.2).
 CREATE TABLE IF NOT EXISTS stix_edges (
     id            UUID PRIMARY KEY,
     tenant_id     UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',

@@ -267,9 +267,8 @@ func (s *Store) List(ctx context.Context, aggregateID uuid.UUID, now time.Time) 
 	return out, rows.Err()
 }
 
-// OpenCount returns how many threads still await a reply — the conclude
-// dialog's honest input ("closure is blocked while comms are open" is
-// decision support at v0, not an engine gate).
+// OpenCount returns how many threads still await a reply. Nothing calls it yet,
+// and conclude is not blocked on open threads.
 func (s *Store) OpenCount(ctx context.Context, aggregateID uuid.UUID) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `

@@ -1,5 +1,5 @@
 -- 0009_action_current: projection of the x-action lifecycle. One row per
--- x-action, keyed by action_id, materialized from the seven action.* events by
+-- x-action, keyed by action_id, materialized from the action.* events by
 -- the ActionCurrentProjector inside the same transaction as the event-append.
 --
 -- x-actions are aggregate-internal (created by action.requested events, not in

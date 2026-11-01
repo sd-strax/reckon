@@ -56,8 +56,7 @@ type Event struct {
 	RecordedAt time.Time `json:"recorded_at,omitzero"`
 
 	// CausationID references the event that caused this one, for event-chain
-	// provenance. Invalid (NULL) for command-initiated events — all events
-	// today; system-emitted chains (Temporal workflows) populate it later.
+	// provenance. Invalid (NULL) on every event today: nothing assigns it yet.
 	CausationID uuid.NullUUID `json:"causation_id,omitempty"`
 
 	// CorrelationID groups every event produced by one command. A command that

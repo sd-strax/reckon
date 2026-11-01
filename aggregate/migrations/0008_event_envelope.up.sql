@@ -18,8 +18,7 @@
 --   insert is the point of the column.
 --
 -- - causation_id: the event that caused this one, for event-chain provenance.
---   NULL for command-initiated events (all events today); populated when
---   system-emitted event chains land (Temporal workflows).
+--   NULL on every event today: nothing assigns it yet.
 
 ALTER TABLE events ADD COLUMN event_id UUID;
 UPDATE events SET event_id = gen_random_uuid() WHERE event_id IS NULL;

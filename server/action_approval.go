@@ -134,9 +134,9 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 // only shapes the command the aggregate then validates.
 func (b *Backend) buildApproval(ac aggregate.ActionCurrent, approver, challenge string, now time.Time) (auth aggregate.Authorization, willApprove bool, approverID, errMsg string) {
 	// expires_at is the approval deadline the requester declared, frozen at
-	// request time. No expiry timer runs in v0 (the ExpireAction emitter is a
-	// v1 refinement), so the endpoint is the enforcement point: a lapsed
-	// request must not be approvable a week later as if the TTL meant nothing.
+	// request time. ActionExpiryTimer records action.expired at the deadline,
+	// but its start is best-effort, so the endpoint is the enforcement point: a
+	// lapsed request must not be approvable a week later as if the TTL meant nothing.
 	if !ac.ExpiresAt.IsZero() && now.After(ac.ExpiresAt) {
 		return aggregate.Authorization{}, false, "", "action expired at " + ac.ExpiresAt.UTC().Format(time.RFC3339) + " and can no longer be approved"
 	}

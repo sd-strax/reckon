@@ -57,8 +57,9 @@ func unimplemented(ctx workflow.Context, name string) error {
 	return sdktemporal.NewApplicationError(name+" is not implemented", unimplementedErrType)
 }
 
-// The OSS domain workflow inventory (05 §3.3). ActionLifecycle (dispatch) and
-// ReversalSaga have their real bodies in action_lifecycle.go / reversal_saga.go.
+// The OSS domain workflow inventory (05 §3.3). ActionLifecycle (dispatch),
+// ActionExpiryTimer and ReversalSaga have their real bodies in
+// action_lifecycle.go / expiry_timer.go / reversal_saga.go.
 
 // RenormalizePass re-runs normalizers over stored telemetry when a normalizer
 // version changes (05 §3.3). It is a skeleton: it registers, and fails fast with
