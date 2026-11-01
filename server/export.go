@@ -52,14 +52,9 @@ type ExportResponse struct {
 // The workflow id is derived from the grouping id, so a re-export while one is
 // already running is rejected by Temporal rather than launching a second build;
 // after completion, a re-export simply rebuilds the same (immutable) artifact.
-func (b *Backend) exportInvestigation(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) exportInvestigation(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
-		return
-	}
-	id, ok := investigationSubresourceID(r.URL.Path, "export")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 

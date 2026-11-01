@@ -3,8 +3,9 @@ package server
 import (
 	"errors"
 	"net/http"
-	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/module"
@@ -32,18 +33,7 @@ func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
 		return
 	}
-	p := strings.TrimSuffix(r.URL.Path, "/")
-	ref, ok := strings.CutPrefix(p, "/entities/")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "path must be /entities/{ref}/appearances")
-		return
-	}
-	ref, ok = strings.CutSuffix(ref, "/appearances")
-	if !ok || ref == "" {
-		writeJSONError(w, http.StatusBadRequest, "path must be /entities/{ref}/appearances")
-		return
-	}
-
+	ref := r.PathValue("ref")
 	apps, err := b.cfg.Handler.Reads().ListRefAppearances(r.Context(), ref)
 	if err != nil {
 		writeInternalError(w, "list appearances", err)
@@ -75,14 +65,9 @@ func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 // the full committed turn record behind a thread step (02 §6 Layer B — the
 // content-addressed side store; the event carries the hash, this serves the
 // bytes). Any reader: the transcript is the audit record.
-func (b *Backend) getInterpretationTranscript(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) getInterpretationTranscript(w http.ResponseWriter, r *http.Request, interpID uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
-		return
-	}
-	interpID, ok := interpretationSubresourceID(r.URL.Path, "transcript")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid interpretation id in path")
 		return
 	}
 	reads := b.cfg.Handler.Reads()

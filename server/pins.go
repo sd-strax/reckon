@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,14 +28,9 @@ type PinView struct {
 
 // listInvestigationPins serves GET /api/investigations/{id}/pins. Any
 // authenticated reader (enforced by the caller).
-func (b *Backend) listInvestigationPins(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) listInvestigationPins(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
-		return
-	}
-	invID, ok := investigationSubresourceID(r.URL.Path, "pins")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 	pins, err := b.cfg.Handler.Reads().ListEvidencePins(r.Context(), invID)
@@ -68,34 +62,7 @@ type SupersedeBody struct {
 	Reason           string `json:"reason"`
 }
 
-// interpretationsItem routes the /api/interpretations/{id}/* sub-resources:
-// POST .../supersede (un-pin/retraction — analyst role, both actor kinds:
-// correction is annotate-tier) and GET .../transcript (the committed turn
-// record — any reader; the transcript is the audit record).
-func (b *Backend) interpretationsItem(w http.ResponseWriter, r *http.Request) {
-	trimmed := strings.TrimSuffix(r.URL.Path, "/")
-	if strings.HasSuffix(trimmed, "/supersede") {
-		switch r.Method {
-		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.supersedeInterpretation)
-		default:
-			methodNotAllowed(w, "POST")
-		}
-		return
-	}
-	if strings.HasSuffix(trimmed, "/transcript") {
-		switch r.Method {
-		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.getInterpretationTranscript)
-		default:
-			methodNotAllowed(w, "GET")
-		}
-		return
-	}
-	writeJSONError(w, http.StatusNotFound, "unknown interpretations sub-resource")
-}
-
-func (b *Backend) supersedeInterpretation(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) supersedeInterpretation(w http.ResponseWriter, r *http.Request, interpID uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate not configured")
 		return
@@ -103,11 +70,6 @@ func (b *Backend) supersedeInterpretation(w http.ResponseWriter, r *http.Request
 	claims, ok := authz.FromContext(r.Context())
 	if !ok {
 		writeJSONError(w, http.StatusInternalServerError, "auth context missing")
-		return
-	}
-	interpID, ok := interpretationSubresourceID(r.URL.Path, "supersede")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid interpretation id in path")
 		return
 	}
 	var body SupersedeBody
@@ -133,20 +95,4 @@ func (b *Backend) supersedeInterpretation(w http.ResponseWriter, r *http.Request
 		"superseded_id": interpID.String(),
 		"sequence_no":   res.NewSequenceNo,
 	})
-}
-
-// interpretationSubresourceID parses `/interpretations/{id}/<sub>` — the one
-// parser for every interpretation sub-resource, so path handling cannot drift.
-func interpretationSubresourceID(p, sub string) (uuid.UUID, bool) {
-	const prefix = "/interpretations/"
-	tail, ok := strings.CutPrefix(p, prefix)
-	if !ok {
-		return uuid.UUID{}, false
-	}
-	tail = strings.TrimSuffix(strings.TrimSuffix(tail, "/"), "/"+sub)
-	id, err := uuid.Parse(tail)
-	if err != nil {
-		return uuid.UUID{}, false
-	}
-	return id, true
 }

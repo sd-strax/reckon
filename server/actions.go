@@ -110,14 +110,9 @@ type ActionView struct {
 // x-action of the investigation, oldest first. This is how a surface recovers
 // the pending-approval queue after the turn that proposed an action is gone —
 // the request-time response is a one-shot; this list is the durable view.
-func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
-		return
-	}
-	invID, ok := investigationSubresourceID(r.URL.Path, "actions")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 
@@ -217,20 +212,14 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 // This is how the agent learns the real, frozen action vocabulary (host.isolate,
 // ioc.block, …) with intents and tiers, instead of guessing action_type strings.
 // Any authenticated reader.
-func (b *Backend) listActionTypes(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, "GET")
-		return
-	}
+func (b *Backend) listActionTypes(w http.ResponseWriter, _ *http.Request) {
 	resolver := b.actionResolver()
 	if b.cfg.ActionCatalog == nil || resolver == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "action layer not configured")
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, _ *http.Request) {
-		summaries := resolver.ListActionTypes(b.cfg.ActionCatalog)
-		writeJSON(w, http.StatusOK, map[string]any{"action_types": summaries})
-	})
+	summaries := resolver.ListActionTypes(b.cfg.ActionCatalog)
+	writeJSON(w, http.StatusOK, map[string]any{"action_types": summaries})
 }
 
 // actorFromClaims derives the command actor from the JWT claims — Kind from the
@@ -250,29 +239,12 @@ func actorFromClaims(c authz.Claims) aggregate.Actor {
 	return aggregate.Actor{PrincipalID: c.Subject, PrincipalName: c.PreferredUsername, Kind: aggregate.ActorHuman}
 }
 
-// actionsCollection routes /api/actions. POST (request_action) requires the
-// analyst role — the AI proposes on an analyst's behalf, never as a principal.
-func (b *Backend) actionsCollection(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodPost:
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.requestAction)
-	default:
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-	}
-}
-
 // requestAction handles POST /api/actions: the agent-facing request_action tool
 // (08 §2). It builds the x-action, runs Gate 2 (04 §4), records the request +
 // policy evaluation in one transaction, and — on auto-approval — approves and
 // triggers the ActionLifecycle workflow. Requires the analyst role (the AI
 // proposes on an analyst's behalf; the AI is never a principal).
 func (b *Backend) requestAction(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	if b.cfg.Handler == nil || b.cfg.Gate2 == nil || b.cfg.ActionCatalog == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "action layer not configured")
 		return

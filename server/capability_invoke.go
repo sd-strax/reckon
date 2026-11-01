@@ -3,10 +3,8 @@ package server
 import (
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/capability"
 )
 
@@ -70,22 +68,6 @@ type CapabilityInvokeResponse struct {
 	NullObservation *capability.NullObservation `json:"null_observation,omitempty"`
 }
 
-// capabilityInvokeRoute handles POST /api/capability/{verb} (03 §3.4, 05 §6.1):
-// the agent loop's read-tool dispatch target. Analyst role — invocation causes
-// outbound tool I/O, unlike the read-only catalog at /api/capabilities. Reads
-// are T0: an AI-delegated token invokes freely (the write path has the gates).
-func (b *Backend) capabilityInvokeRoute(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w, "POST")
-		return
-	}
-	if resolver, catalog := b.capabilitySurface(); resolver == nil || catalog == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "capability layer not configured")
-		return
-	}
-	b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.capabilityInvoke)
-}
-
 // capabilityInvoke executes one verb call: resolve the verb against the
 // catalog, decode the CallInput, run the resolver, and return the envelope.
 // Coverage — including UNAVAILABLE_* — is a 200: the call executed and the
@@ -93,11 +75,11 @@ func (b *Backend) capabilityInvokeRoute(w http.ResponseWriter, r *http.Request) 
 // the call not executing: unknown verb (404), bad input (400), adapter FATAL
 // (502 — upstream tool failure), template render (500 — config bug).
 func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
-	verb, ok := capabilityVerbFromPath(r.URL.Path)
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "path must be /capability/{verb}")
+	if resolver, catalog := b.capabilitySurface(); resolver == nil || catalog == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "capability layer not configured")
 		return
 	}
+	verb := r.PathValue("verb")
 	resolver, catalog := b.capabilitySurface()
 	if _, known := catalog.Descriptor(verb); !known {
 		writeJSONError(w, http.StatusNotFound, "unknown verb "+verb)
@@ -180,14 +162,4 @@ func buildInvokeResponse(verb string, res capability.CapabilityResult) Capabilit
 		})
 	}
 	return out
-}
-
-// capabilityVerbFromPath parses the verb out of `/capability/{verb}` (the /api
-// prefix is already stripped).
-func capabilityVerbFromPath(p string) (string, bool) {
-	parts := strings.Split(strings.Trim(p, "/"), "/")
-	if len(parts) != 2 || parts[0] != "capability" || parts[1] == "" {
-		return "", false
-	}
-	return parts[1], true
 }

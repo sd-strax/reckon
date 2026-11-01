@@ -146,9 +146,18 @@ func TestRouteAuthorization(t *testing.T) {
 		return resp, readBody(resp)
 	}
 
+	// Every route in the table is one of the cases.
+	table := http.NewServeMux()
+	for _, rt := range b.routes() {
+		table.Handle(rt.pattern, http.NotFoundHandler())
+	}
+	covered := map[string]bool{}
+
 	declared := map[string][]string{}
 	for _, c := range routeCases() {
 		declared[c.path] = append(declared[c.path], c.method)
+		_, pattern := table.Handler(httptest.NewRequest(c.method, c.path, nil))
+		covered[pattern] = true
 		t.Run(c.method+" "+c.path, func(t *testing.T) {
 			if resp, _ := do(t, c.method, c.path, ""); resp.StatusCode != http.StatusUnauthorized {
 				t.Errorf("no token: status %d; want 401", resp.StatusCode)
@@ -173,6 +182,12 @@ func TestRouteAuthorization(t *testing.T) {
 		})
 	}
 
+	for _, rt := range b.routes() {
+		if !covered[rt.pattern] {
+			t.Errorf("route %q is not in routeCases", rt.pattern)
+		}
+	}
+
 	for path, methods := range declared {
 		for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE"} {
 			if slices.Contains(methods, method) {
@@ -180,6 +195,13 @@ func TestRouteAuthorization(t *testing.T) {
 			}
 			t.Run(method+" "+path, func(t *testing.T) {
 				resp, body := do(t, method, path, tokens[authz.RoleAnalyst])
+				// A method /sops/{id} takes reads "import" as an id (adr/0227).
+				if strings.HasPrefix(path, "/sops/import") && slices.Contains([]string{"GET", "PUT", "DELETE"}, method) {
+					if resp.StatusCode != http.StatusBadRequest {
+						t.Errorf("status %d; want 400: %s", resp.StatusCode, body)
+					}
+					return
+				}
 				if resp.StatusCode != http.StatusMethodNotAllowed {
 					t.Fatalf("status %d; want 405: %s", resp.StatusCode, body)
 				}
@@ -192,6 +214,92 @@ func TestRouteAuthorization(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestRouter_Unrouted: the mux answers what no route takes, before auth, and a
+// trailing slash is a different path. HEAD works wherever GET does (adr/0227).
+func TestRouter_Unrouted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	b := newTestBackend(t)
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	id := uuid.NewString()
+
+	for _, tc := range []struct {
+		method, path, token string
+		want                int
+	}{
+		{"GET", "/api/nothing", "", http.StatusNotFound},
+		{"GET", "/api/investigations/" + id + "/nothing", "", http.StatusNotFound},
+		{"POST", "/api/comms/" + id + "/nothing", "", http.StatusNotFound},
+		{"GET", "/api/investigations/", "", http.StatusNotFound},
+		{"GET", "/api/investigations/" + id + "/thread/", mintToken(t, nil), http.StatusNotFound},
+		{"DELETE", "/api/investigations", "", http.StatusMethodNotAllowed},
+		{"HEAD", "/api/investigations", "", http.StatusUnauthorized},
+		{"HEAD", "/api/investigations", mintToken(t, nil), http.StatusOK},
+		{"GET", "/api/investigations/not-a-uuid", mintToken(t, nil), http.StatusBadRequest},
+	} {
+		req, _ := http.NewRequest(tc.method, srv.URL+tc.path, nil)
+		if tc.token != "" {
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != tc.want {
+			t.Errorf("%s %s: status %d; want %d", tc.method, tc.path, resp.StatusCode, tc.want)
+		}
+	}
+}
+
+// TestRouter_UnconfiguredLayer: a layer that is not configured answers 503 to a
+// caller with the role and 403 to one without (adr/0227).
+func TestRouter_UnconfiguredLayer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	b := newTestBackend(t)
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	viewer := mintToken(t, map[string]any{"realm_access": map[string]any{"roles": []string{"viewer"}}})
+
+	for _, tc := range []struct{ method, path string }{
+		{"POST", "/api/comms/inbound"},
+		{"POST", "/api/comms/" + uuid.NewString() + "/ack"},
+		{"POST", "/api/comms/" + uuid.NewString() + "/snooze"},
+		{"GET", "/api/enablement"},
+		{"POST", "/api/enablement/adapters/x"},
+		{"POST", "/api/capability/x"},
+	} {
+		for token, want := range map[string]int{mintToken(t, nil): http.StatusServiceUnavailable, viewer: http.StatusForbidden} {
+			req, _ := http.NewRequest(tc.method, srv.URL+tc.path, strings.NewReader("{}"))
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != want {
+				t.Errorf("%s %s: status %d; want %d", tc.method, tc.path, resp.StatusCode, want)
+			}
+		}
+	}
+}
+
+// TestMountRoutes_RefusesARouteWithNoRoles: a route cannot be added open.
+func TestMountRoutes_RefusesARouteWithNoRoles(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("a route with no roles should panic")
+		}
+	}()
+	noop := func(next http.Handler) http.Handler { return next }
+	mountRoutes(http.NewServeMux(), noop, []route{{pattern: "GET /x", handler: func(http.ResponseWriter, *http.Request) {}}})
 }
 
 // TestRouteAuthorization_Me: /api/me takes any signed-in person and no one else.

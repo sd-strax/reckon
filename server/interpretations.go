@@ -167,19 +167,6 @@ type RecordInterpretationResponse struct {
 	NodeID           string `json:"node_id,omitempty"`
 }
 
-// interpretationsCollection routes /api/interpretations. POST records a
-// reasoning act; requires the analyst role — the AI authors interpretations on
-// an analyst's behalf, never as a principal (the delegate is stamped from the
-// JWT, the principal is the analyst).
-func (b *Backend) interpretationsCollection(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodPost:
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.recordInterpretation)
-	default:
-		methodNotAllowed(w, "POST")
-	}
-}
-
 // recordInterpretation handles POST /api/interpretations: the agent loop's write
 // into the reasoning thread (the legal-author seam, 03 §1). It mints the
 // interpretation id, derives Actor.Kind from the JWT delegate_kind claim (never
@@ -428,14 +415,9 @@ func attestationView(a *aggregate.AttestationRecorded) *AttestationView {
 // listInvestigationHypotheses serves GET /api/investigations/{id}/hypotheses:
 // the investigation's reasoning nodes, predictions nested under the hypothesis
 // they test.
-func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
-		return
-	}
-	invID, ok := investigationSubresourceID(r.URL.Path, "hypotheses")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 

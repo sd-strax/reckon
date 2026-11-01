@@ -10,7 +10,6 @@ import (
 	"time"
 
 	reckon "github.com/sd-strax/reckon"
-	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/knowledge"
 	"github.com/sd-strax/reckon/module"
 )
@@ -46,38 +45,31 @@ type demoInstallState struct {
 // never contaminate a working instance. A non-virgin install gets a 409 with
 // the counts that blocked it — the operator runs `reckon demo reset` first.
 func (b *Backend) seedDemoKnowledge(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if b.cfg.Knowledge == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "knowledge corpus not configured")
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.AnalystRoles, func(w http.ResponseWriter, r *http.Request) {
-		if b.cfg.Knowledge == nil {
-			writeJSONError(w, http.StatusServiceUnavailable, "knowledge corpus not configured")
-			return
-		}
-		state, err := b.demoInstallState(r.Context())
-		if err != nil {
-			writeInternalError(w, "check install state", err)
-			return
-		}
-		if state.Investigations > 0 || state.SOPs > 0 {
-			// Not virgin — refuse and say exactly why. The CLI turns this into the
-			// "run `reckon demo reset` first" message.
-			writeJSON(w, http.StatusConflict, map[string]any{
-				"error": "install is not virgin — demo seed only runs on a fresh install",
-				"state": state,
-			})
-			return
-		}
+	state, err := b.demoInstallState(r.Context())
+	if err != nil {
+		writeInternalError(w, "check install state", err)
+		return
+	}
+	if state.Investigations > 0 || state.SOPs > 0 {
+		// Not virgin — refuse and say exactly why. The CLI turns this into the
+		// "run `reckon demo reset` first" message.
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "install is not virgin — demo seed only runs on a fresh install",
+			"state": state,
+		})
+		return
+	}
 
-		res, err := b.loadDemoKnowledge(r.Context())
-		if err != nil {
-			writeInternalError(w, "seed knowledge", err)
-			return
-		}
-		writeJSON(w, http.StatusCreated, res)
-	})
+	res, err := b.loadDemoKnowledge(r.Context())
+	if err != nil {
+		writeInternalError(w, "seed knowledge", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, res)
 }
 
 // demoInstallState counts the two signals of a non-virgin install: any

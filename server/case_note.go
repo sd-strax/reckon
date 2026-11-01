@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/config"
@@ -135,18 +137,13 @@ func buildCaseNoteRequest(ic *aggregate.InvestigationCurrent, body string) (Requ
 // note request for this investigation's seed case and hand it to the shared
 // action path (Gate 2, record, dispatch-or-wait). 409 when the posture is off
 // or the investigation is not case-rooted.
-func (b *Backend) requestCaseNote(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) requestCaseNote(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	if b.cfg.Handler == nil || b.cfg.Gate2 == nil || b.cfg.ActionCatalog == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "action layer not configured")
 		return
 	}
 	if b.cfg.CaseNoteOnSeed == config.CaseNoteOff {
 		writeJSONError(w, http.StatusConflict, "case notes are disabled by tenant posture (cases.note_on_seed: off)")
-		return
-	}
-	id, ok := investigationSubresourceID(r.URL.Path, "case_note")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "path must be /investigations/{id}/case_note")
 		return
 	}
 	claims, ok := authz.FromContext(r.Context())

@@ -30,14 +30,9 @@ const exportMarkdownVersion = "reckon-export-md/1"
 // getInvestigationMarkdown serves GET /api/investigations/{id}/export.md as
 // text/markdown. Any reader — it is a projection of state the same reader can
 // already fetch piecemeal.
-func (b *Backend) getInvestigationMarkdown(w http.ResponseWriter, r *http.Request) {
+func (b *Backend) getInvestigationMarkdown(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
-		return
-	}
-	id, ok := investigationSubresourceID(r.URL.Path, "export.md")
-	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "invalid investigation id in path")
 		return
 	}
 	md, err := b.renderInvestigationMarkdown(r.Context(), id)

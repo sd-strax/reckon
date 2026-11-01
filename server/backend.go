@@ -441,120 +441,7 @@ func (b *Backend) buildRouter(verifier *authz.Verifier) http.Handler {
 	// GET /api/me — who am I; any authenticated principal.
 	api.Handle("/me", authz.RequireAuth(verifier)(http.HandlerFunc(b.handleMe)))
 
-	// /investigations — viewer for read, analyst for write.
-	api.Handle("/investigations", authz.RequireAuth(verifier)(
-		http.HandlerFunc(b.investigationsCollection),
-	))
-	api.Handle("/investigations/", authz.RequireAuth(verifier)(
-		http.HandlerFunc(b.investigationsItem),
-	))
-
-	// GET /api/capabilities — list_capabilities (§2.8): the verbs resolvable in
-	// this tenant and their availability. Any authenticated reader.
-	api.Handle("/capabilities", authz.RequireAuth(verifier)(
-		http.HandlerFunc(b.listCapabilities),
-	))
-
-	// GET /api/cases, GET /api/cases/{number} — the case queue and one case,
-	// read-only and non-persisting (adr/0030-cases-pane.md, 14 §4.2). Any
-	// authenticated reader.
-	api.Handle("/cases", authz.RequireAuth(verifier)(http.HandlerFunc(b.casesRoute)))
-	api.Handle("/cases/", authz.RequireAuth(verifier)(http.HandlerFunc(b.casesRoute)))
-
-	// POST /api/capability/{verb} — verb invocation (03 §3.4, Phase E.1): the
-	// agent loop's read-tool dispatch target. Analyst role.
-	api.Handle("/capability/", authz.RequireAuth(verifier)(
-		http.HandlerFunc(b.capabilityInvokeRoute),
-	))
-
-	// /api/enablement — the operator's installed/enabled surface + the
-	// human-confirmed apply path (11 §5.1). The tenant config FILE stays the
-	// authority; these routes are sugar that reads/edits it. Analyst role;
-	// the POST additionally refuses AI-delegated tokens inside the handler.
-	api.Handle("/enablement", authz.RequireAuth(verifier)(http.HandlerFunc(b.enablementRoute)))
-	api.Handle("/enablement/", authz.RequireAuth(verifier)(http.HandlerFunc(b.enablementRoute)))
-
-	// GET /api/action-types — list_action_types (08 §3): the write-side catalog
-	// (action_type, intent, tier, reversibility, D3FEND) with per-type
-	// dispatchability, so the agent requests real action types instead of
-	// guessing. Any authenticated reader.
-	api.Handle("/action-types", authz.RequireAuth(verifier)(
-		http.HandlerFunc(b.listActionTypes),
-	))
-
-	// POST /api/actions — request_action (08 §2): propose a state-changing
-	// action; runs Gate 2 and (on auto-approval) triggers dispatch. Analyst role.
-	api.Handle("/actions", authz.RequireAuth(verifier)(
-		http.HandlerFunc(b.actionsCollection),
-	))
-
-	// POST /api/actions/{id}/approve|reject — the manual approval surface
-	// (04 §5, Phase D): honors REQUIRE_TWO_PARTY, triggers dispatch on final
-	// approval. Analyst role.
-	api.Handle("/actions/", authz.RequireAuth(verifier)(
-		http.HandlerFunc(b.actionsItem),
-	))
-
-	// POST /api/interpretations — the agent loop's write into the reasoning
-	// thread (05 §3.4): record one reasoning act + its transcript/tool-call side
-	// store. Analyst role (the AI authors as a delegate, never a principal).
-	api.Handle("/interpretations", authz.RequireAuth(verifier)(
-		http.HandlerFunc(b.interpretationsCollection),
-	))
-
-	// POST /api/interpretations/{id}/supersede — retraction/un-pin
-	// (01 §Interpretation lifecycle and correction). Analyst role.
-	api.Handle("/interpretations/", authz.RequireAuth(verifier)(
-		http.HandlerFunc(b.interpretationsItem),
-	))
-
-	// GET /api/entities/{ref}/appearances — cross-investigation memory
-	// (binding §6.1): every investigation citing the ref. Any reader.
-	api.Handle("/entities/", authz.RequireAuth(verifier)(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				methodNotAllowed(w, "GET")
-				return
-			}
-			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listRefAppearances)
-		},
-	)))
-
-	// GET /api/evidence/{ref} — citation-open (design/ui 02 §2.8): any cited
-	// STIX object or raw OCSF telemetry record, read-only. Any reader.
-	api.Handle("/evidence/", authz.RequireAuth(verifier)(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				methodNotAllowed(w, "GET")
-				return
-			}
-			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.getEvidence)
-		},
-	)))
-
-	// Comms acts (Phase F, binding §4): inbound-reply ingestion + the
-	// analyst's acknowledge/done/snooze on a thread.
-	api.Handle("/comms/", authz.RequireAuth(verifier)(http.HandlerFunc(b.commsRoute)))
-
-	// Knowledge service (Phase C.5): SOP corpus CRUD + keyword retrieval, plus
-	// the K4 similar-investigation similarity recall over the case-summaries
-	// corpus.
-	if b.cfg.Knowledge != nil {
-		api.Handle("/knowledge/recall_sops", authz.RequireAuth(verifier)(http.HandlerFunc(b.recallSOPs)))
-		api.Handle("/knowledge/recall_similar_investigations", authz.RequireAuth(verifier)(http.HandlerFunc(b.recallSimilar)))
-		api.Handle("/knowledge/prior_investigations", authz.RequireAuth(verifier)(http.HandlerFunc(b.priorInvestigations)))
-		api.Handle("/knowledge/summary_narrative", authz.RequireAuth(verifier)(http.HandlerFunc(b.summaryNarrative)))
-		api.Handle("/knowledge/case_summaries", authz.RequireAuth(verifier)(http.HandlerFunc(b.listCaseSummaries)))
-		api.Handle("/knowledge/case_summaries/", authz.RequireAuth(verifier)(http.HandlerFunc(b.getCaseSummary)))
-		api.Handle("/sops", authz.RequireAuth(verifier)(http.HandlerFunc(b.sopsCollection)))
-		// Exact patterns beat the /sops/ prefix, so "import" never parses as an id.
-		api.Handle("/sops/import", authz.RequireAuth(verifier)(http.HandlerFunc(b.importSOP)))
-		api.Handle("/sops/import_markdown", authz.RequireAuth(verifier)(http.HandlerFunc(b.importMarkdownSOP)))
-		api.Handle("/sops/", authz.RequireAuth(verifier)(http.HandlerFunc(b.sopsItem)))
-		// `reckon demo seed` loads the embedded demo knowledge pack; virginity is
-		// enforced in the handler so it can never contaminate a working install.
-		api.Handle("/admin/demo/seed", authz.RequireAuth(verifier)(http.HandlerFunc(b.seedDemoKnowledge)))
-	}
+	mountRoutes(api, authz.RequireAuth(verifier), b.routes())
 
 	mux.Handle("/api/", http.StripPrefix("/api", api))
 
@@ -663,191 +550,24 @@ func (b *Backend) handleMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// /investigations handles both GET (list) and POST (create) on the
-// collection. Method-level role requirements differ.
-func (b *Backend) investigationsCollection(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigations)
-	case http.MethodPost:
-		b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.createInvestigation)
-	default:
-		methodNotAllowed(w, "GET, POST")
-	}
-}
-
-// /investigations/{id} handles GET (load one); the /hypotheses sub-resource
-// lists the investigation's reasoning nodes (D.2); the /actions sub-resource
-// lists its x-actions (the pending-approval queue + audit list); the /thread
-// sub-resource lists the chronological reasoning thread (13 §4); the /export
-// sub-resource triggers the post-conclusion export bundle (D.5); the /lifecycle
-// sub-resource drives the state machine (activate/pause/resume/conclude/reopen/
-// archive, D.6); the /rename sub-resource changes the title.
-func (b *Backend) investigationsItem(w http.ResponseWriter, r *http.Request) {
-	trimmed := strings.TrimSuffix(r.URL.Path, "/")
-	if strings.HasSuffix(trimmed, "/hypotheses") {
-		switch r.Method {
-		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationHypotheses)
-		default:
-			methodNotAllowed(w, "GET")
-		}
-		return
-	}
-	if strings.HasSuffix(trimmed, "/actions") {
-		switch r.Method {
-		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationActions)
-		default:
-			methodNotAllowed(w, "GET")
-		}
-		return
-	}
-	if strings.HasSuffix(trimmed, "/thread") {
-		switch r.Method {
-		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationThread)
-		default:
-			methodNotAllowed(w, "GET")
-		}
-		return
-	}
-	if strings.HasSuffix(trimmed, "/pins") {
-		switch r.Method {
-		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationPins)
-		default:
-			methodNotAllowed(w, "GET")
-		}
-		return
-	}
-	if strings.HasSuffix(trimmed, "/comms") {
-		switch r.Method {
-		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.listInvestigationComms)
-		default:
-			methodNotAllowed(w, "GET")
-		}
-		return
-	}
-	if strings.HasSuffix(trimmed, "/export") {
-		switch r.Method {
-		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.exportInvestigation)
-		default:
-			methodNotAllowed(w, "POST")
-		}
-		return
-	}
-	// The live markdown projection (binding §6 item 10): any-time, any reader —
-	// distinct from POST /export, which builds the signed post-conclusion bundle.
-	if strings.HasSuffix(trimmed, "/export.md") {
-		switch r.Method {
-		case http.MethodGet:
-			b.requireRolesOrDeny(w, r, authz.ReadRoles, b.getInvestigationMarkdown)
-		default:
-			methodNotAllowed(w, "GET")
-		}
-		return
-	}
-	if strings.HasSuffix(trimmed, "/lifecycle") {
-		switch r.Method {
-		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.investigationLifecycle)
-		default:
-			methodNotAllowed(w, "POST")
-		}
-		return
-	}
-	if strings.HasSuffix(trimmed, "/rename") {
-		switch r.Method {
-		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.renameInvestigation)
-		default:
-			methodNotAllowed(w, "POST")
-		}
-		return
-	}
-	// POST /api/investigations/{id}/case_note — request the "opened in reckon"
-	// note on the seed case as a ticket.comment action (adr/0032). Analyst.
-	if strings.HasSuffix(trimmed, "/case_note") {
-		switch r.Method {
-		case http.MethodPost:
-			b.requireRolesOrDeny(w, r, authz.AnalystRoles, b.requestCaseNote)
-		default:
-			methodNotAllowed(w, "POST")
-		}
-		return
-	}
-	switch r.Method {
-	case http.MethodGet:
-		b.requireRolesOrDeny(w, r, authz.ReadRoles, b.getInvestigation)
-	default:
-		methodNotAllowed(w, "GET")
-	}
-}
-
-// investigationSubresourceID parses the id out of `/investigations/{id}/<sub>`
-// (the /api prefix is already stripped). The single parser for every
-// investigation sub-resource route, so path handling cannot drift per-suffix.
-func investigationSubresourceID(p, sub string) (uuid.UUID, bool) {
-	parts := strings.Split(strings.Trim(p, "/"), "/")
-	if len(parts) != 3 || parts[0] != "investigations" || parts[2] != sub {
-		return uuid.UUID{}, false
-	}
-	id, err := uuid.Parse(parts[1])
-	if err != nil {
-		return uuid.UUID{}, false
-	}
-	return id, true
-}
-
-// requireRolesOrDeny is an inline equivalent to authz.RequireRole, used by
-// handlers that vary their role requirement per-method. Behavior matches:
-// 403 with required_roles surfaced, 500 if claims context missing.
-func (b *Backend) requireRolesOrDeny(w http.ResponseWriter, r *http.Request, roles []string, next http.HandlerFunc) {
-	claims, ok := authz.FromContext(r.Context())
-	if !ok {
-		writeJSONError(w, http.StatusInternalServerError, "auth wiring error")
-		return
-	}
-	if !claims.HasAnyRole(roles...) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"error":          "required role(s) missing",
-			"required_roles": roles,
-			"required_any":   true,
-		})
-		return
-	}
-	next(w, r)
-}
-
 // listCapabilities serves GET /api/capabilities. Returns 503 when the capability
 // layer is not configured (no tenant capability YAML); otherwise the verb
 // summaries with their availability. Read requires viewer/analyst/auditor.
-func (b *Backend) listCapabilities(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, "GET")
-		return
-	}
+func (b *Backend) listCapabilities(w http.ResponseWriter, _ *http.Request) {
 	resolver, catalog := b.capabilitySurface()
 	if resolver == nil || catalog == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "capability layer not configured")
 		return
 	}
-	b.requireRolesOrDeny(w, r, authz.ReadRoles, func(w http.ResponseWriter, _ *http.Request) {
-		summaries := resolver.ListCapabilities(catalog)
-		body := map[string]any{"capabilities": summaries}
-		// The tenant's case queue (14 §4.2) rides the catalog response: it is
-		// the SoR surface's one piece of standing config the picker needs.
-		if q := resolver.PolicyString(capability.PolicyCaseQueue); q != "" {
-			body["case_queue"] = q
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(body)
-	})
+	summaries := resolver.ListCapabilities(catalog)
+	body := map[string]any{"capabilities": summaries}
+	// The tenant's case queue (14 §4.2) rides the catalog response: it is
+	// the SoR surface's one piece of standing config the picker needs.
+	if q := resolver.PolicyString(capability.PolicyCaseQueue); q != "" {
+		body["case_queue"] = q
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // capabilitySurface returns the live resolver + catalog: the hot-swapped pair
@@ -1041,13 +761,6 @@ func newErrorRef() string {
 	var b [6]byte
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
-}
-
-// methodNotAllowed writes the 405 + Allow-header pair every route uses for an
-// unsupported method.
-func methodNotAllowed(w http.ResponseWriter, allow string) {
-	w.Header().Set("Allow", allow)
-	writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 // writeCommandError maps an aggregate.Handler.Handle failure onto the HTTP
