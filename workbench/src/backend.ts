@@ -101,7 +101,8 @@ function mapSeed(s: RawInvestigation["seed"]): Seed | undefined {
 const COMPATIBLE_FOR_MS = 30_000;
 
 export class BackendClient {
-  private compatibleUntil = 0;
+  // The last good handshake: which backend, and until when it is taken as read.
+  private compatible: { base: string; until: number } | null = null;
   private readonly handshake = new SingleFlight<void>();
 
   /**
@@ -118,20 +119,28 @@ export class BackendClient {
   ) {}
 
   /** The handshake: reads /status, and refreshes what ensureCompatible relies on. */
-  async status(): Promise<BackendStatus> {
-    const status = await this.readStatus();
-    this.compatibleUntil = status.compatible ? Date.now() + COMPATIBLE_FOR_MS : 0;
+  status(): Promise<BackendStatus> {
+    return this.statusOf(this.baseUrl());
+  }
+
+  private async statusOf(base: string): Promise<BackendStatus> {
+    const status = await this.readStatus(base);
+    if (status.compatible) {
+      this.compatible = { base, until: Date.now() + COMPATIBLE_FOR_MS };
+    } else if (this.compatible?.base === base) {
+      this.compatible = null;
+    }
     return status;
   }
 
-  private async readStatus(): Promise<BackendStatus> {
+  private async readStatus(base: string): Promise<BackendStatus> {
     const unreachable = { reachable: false, overall: "unreachable", components: {}, apiVersion: null, compatible: false };
     // It answered, so whatever is wrong with the answer, it is not unreachable.
     const answered = { ...unreachable, reachable: true, overall: "unknown" };
     let res: Response;
     let raw: unknown;
     try {
-      res = await fetch(`${this.baseUrl()}/status`, { signal: AbortSignal.timeout(3_000) });
+      res = await fetch(`${base}/status`, { signal: AbortSignal.timeout(3_000) });
       raw = await res.json();
     } catch (err) {
       return err instanceof SyntaxError ? { ...answered, unreadable: "unexpected response from /status: not JSON" } : unreachable;
@@ -159,15 +168,15 @@ export class BackendClient {
   /**
    * The gate every authenticated call goes through (adr/0244): nothing is read
    * from or written to a backend the workbench does not speak to, whichever
-   * surface asked. A good answer holds for COMPATIBLE_FOR_MS; a bad one does not
-   * hold at all, so a backend put right is used at once.
+   * surface asked. A good answer holds for COMPATIBLE_FOR_MS, for that backend
+   * only; a bad one does not hold at all, so a backend put right is used at once.
    */
-  private async ensureCompatible(): Promise<void> {
-    if (Date.now() < this.compatibleUntil) {
+  private async ensureCompatible(base: string): Promise<void> {
+    if (this.compatible?.base === base && Date.now() < this.compatible.until) {
       return;
     }
-    await this.handshake.run("status", async () => {
-      const reason = this.incompatibilityReason(await this.status());
+    await this.handshake.run(base, async () => {
+      const reason = this.incompatibilityReason(await this.statusOf(base));
       if (reason) {
         throw new Error(reason);
       }
@@ -1040,8 +1049,8 @@ export class BackendClient {
    * ticket unedited" is this call, not a file on disk.
    */
   async exportMarkdown(investigationId: string): Promise<string> {
-    const res = await this.withBearer((bearer) => fetch(
-      `${this.baseUrl()}/api/investigations/${encodeURIComponent(investigationId)}/export.md`,
+    const res = await this.withBearer((base, bearer) => fetch(
+      `${base}/api/investigations/${encodeURIComponent(investigationId)}/export.md`,
       { headers: { Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(15_000) },
     ));
     if (!res.ok) {
@@ -1072,22 +1081,25 @@ export class BackendClient {
   /**
    * Send with the current token, and once more with a fresh one on a 401. Safe
    * for a write: a 401 comes from the auth middleware, before any handler ran.
+   * The URL is read once: the backend checked is the backend called, whatever
+   * the setting does meanwhile.
    */
-  private async withBearer(send: (bearer: string) => Promise<Response>): Promise<Response> {
+  private async withBearer(send: (base: string, bearer: string) => Promise<Response>): Promise<Response> {
     if (!this.token) {
       throw new Error("no token source configured");
     }
-    await this.ensureCompatible();
+    const base = this.baseUrl();
+    await this.ensureCompatible(base);
     const bearer = await this.token();
-    const res = await send(bearer);
+    const res = await send(base, bearer);
     if (res.status !== 401 || !this.renew) {
       return res;
     }
-    return send(await this.renew(bearer));
+    return send(base, await this.renew(bearer));
   }
 
   private async authed(method: "GET" | "POST", path: string, body?: unknown): Promise<Response> {
-    const res = await this.withBearer((bearer) => fetch(`${this.baseUrl()}${path}`, {
+    const res = await this.withBearer((base, bearer) => fetch(`${base}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${bearer}`,

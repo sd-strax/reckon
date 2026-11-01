@@ -263,6 +263,96 @@ describe("BackendClient: an incompatible backend", () => {
     await expect(client.cases()).resolves.toEqual({ queue: "", cases: [] });
   });
 
+  describe("when the backend URL changes", () => {
+    /** Two backends behind one fetch, by host; `url` is what the setting says. */
+    function twoBackends(b: unknown) {
+      const calls: string[] = [];
+      vi.stubGlobal("fetch", async (raw: string) => {
+        const url = new URL(raw);
+        calls.push(url.host + url.pathname);
+        if (url.pathname !== "/status") return Response.json({ title: "t", outcome: "created", queue: "", cases: [] });
+        return Response.json(url.host === "a.test" ? compatible : b);
+      });
+      const setting = { url: "http://a.test" };
+      return { calls, setting, client: new BackendClient(() => setting.url, async () => "token") };
+    }
+
+    it("checks the new backend, and writes nothing to an incompatible one", async () => {
+      const { client, calls, setting } = twoBackends(old);
+      await client.importSOPMarkdown("a.md", "# a");
+
+      setting.url = "http://b.test";
+
+      await expect(client.importSOPMarkdown("b.md", "# b")).rejects.toThrow("backend API v9 unsupported");
+      expect(calls).not.toContain("b.test/api/sops/import_markdown");
+    });
+
+    it("trusts the new backend only after checking it", async () => {
+      const { client, calls, setting } = twoBackends(compatible);
+      await client.importSOPMarkdown("a.md", "# a");
+
+      setting.url = "http://b.test";
+      await client.importSOPMarkdown("b.md", "# b");
+
+      expect(calls.slice(-2)).toEqual(["b.test/status", "b.test/api/sops/import_markdown"]);
+    });
+
+    it("sends the call to the backend it checked, if the setting moves during the check", async () => {
+      let checked!: () => void;
+      const calls: string[] = [];
+      vi.stubGlobal("fetch", async (raw: string) => {
+        const url = new URL(raw);
+        calls.push(url.host + url.pathname);
+        if (url.pathname === "/status") {
+          await new Promise<void>((r) => { checked = r; });
+          return Response.json(compatible);
+        }
+        return Response.json({ title: "t", outcome: "created" });
+      });
+      const setting = { url: "http://a.test" };
+      const client = new BackendClient(() => setting.url, async () => "token");
+      const write = client.importSOPMarkdown("a.md", "# a");
+      await vi.waitFor(() => expect(checked).toBeDefined());
+
+      setting.url = "http://b.test";
+      checked();
+      await write;
+
+      expect(calls).toEqual(["a.test/status", "a.test/api/sops/import_markdown"]);
+    });
+
+    it("retries a 401 at the backend it checked", async () => {
+      const calls: string[] = [];
+      const setting = { url: "http://a.test" };
+      vi.stubGlobal("fetch", async (raw: string) => {
+        const url = new URL(raw);
+        calls.push(url.host + url.pathname);
+        if (url.pathname === "/status") return Response.json(compatible);
+        return calls.filter((c) => c.endsWith("/import_markdown")).length === 1
+          ? new Response("", { status: 401 })
+          : Response.json({ title: "t", outcome: "created" });
+      });
+      const renew = async () => { setting.url = "http://b.test"; return "fresh"; };
+
+      await new BackendClient(() => setting.url, async () => "token", renew).importSOPMarkdown("a.md", "# a");
+
+      expect(calls.filter((c) => c.endsWith("/import_markdown"))).toEqual(["a.test/api/sops/import_markdown", "a.test/api/sops/import_markdown"]);
+    });
+
+    it("keeps backend A's good answer through a bad answer from B", async () => {
+      const { client, calls, setting } = twoBackends(old);
+      await client.cases();
+      setting.url = "http://b.test";
+      await expect(client.cases()).rejects.toThrow("unsupported");
+
+      setting.url = "http://a.test";
+      calls.length = 0;
+      await client.cases();
+
+      expect(calls).toEqual(["a.test/api/cases"]);
+    });
+  });
+
   it("does not gate the public auth config", async () => {
     const { calls } = counting(() => old);
     vi.stubGlobal("fetch", async (url: string) => { calls.push(new URL(url).pathname); return Response.json({ issuer: "i", client_id: "c" }); });
