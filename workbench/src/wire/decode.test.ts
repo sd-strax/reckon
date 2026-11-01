@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bool, decode, DecodeError, lazy, list, namedButAbsent, num, object, optional, record, str, type Decoder } from "./decode";
+import { anything, bool, decode, DecodeError, lazy, list, namedButAbsent, num, object, optional, record, str, type Decoder } from "./decode";
 
 const shape = object({ title: str, n: optional(num), tags: list(str), nested: optional(object({ ok: bool })) });
 
@@ -31,6 +31,13 @@ describe("decode", () => {
     expect(decode("x", record(num), { a: 1 })).toEqual({ a: 1 });
     expect(decode("x", record(num), null)).toEqual({});
     expect(() => decode("x", object({ m: record(num) }), { m: { a: "1" } })).toThrow("m.a is not a number");
+  });
+
+  it("passes opaque data through, null included, and refuses it missing", () => {
+    expect(decode("x", object({ input: anything }), { input: { a: 1 } })).toEqual({ input: { a: 1 } });
+    expect(decode("x", object({ input: anything }), { input: null })).toEqual({ input: null });
+    expect(() => decode("x", object({ input: anything }), {})).toThrow("input missing");
+    expect(decode("x", object({ input: optional(anything) }), {})).toEqual({});
   });
 
   it("reads a recursive shape", () => {

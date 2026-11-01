@@ -32,8 +32,11 @@ export const bool: Decoder<boolean> = (value, at) => {
   return value;
 };
 
-/** Opaque data, passed through unread. */
-export const anything: Decoder<unknown> = (value) => value;
+/** Opaque data, passed through unread. It must be there; null is a value. */
+export const anything: Decoder<unknown> = (value, at) => {
+  if (value === undefined) throw wrong(value, at, "");
+  return value;
+};
 
 /** A field Go may omit (`omitempty`, or a nil pointer). */
 export function optional<T>(decoder: Decoder<T>): Decoder<T | undefined> {

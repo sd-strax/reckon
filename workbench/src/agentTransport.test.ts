@@ -509,6 +509,19 @@ describe("SidecarTransport: the wire boundary", () => {
     expect((await transport.turn("inv-1", "hi", silent)).notice).toContain("session_id missing");
   });
 
+  it("surfaces a tool call with no input, opaque as the input is", async () => {
+    installSidecar({
+      turn: async (child, p) => {
+        child.peer.sendNotification("turn/tool_call", { session_id: p.session_id, name: "query" });
+        await new Promise((r) => setTimeout(r, 10));
+        return turnResult();
+      },
+    });
+    const transport = sidecar();
+
+    expect((await transport.turn("inv-1", "hi", silent)).notice).toContain("turn/tool_call: input missing");
+  });
+
   it("does not carry a notice over to the next turn", async () => {
     let bad = true;
     installSidecar({

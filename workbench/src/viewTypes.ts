@@ -18,6 +18,8 @@ export interface BackendStatus {
   apiVersion: number | null;
   /** True only when reachable AND apiVersion is in SUPPORTED_API_VERSIONS. */
   compatible: boolean;
+  /** Why an answer could not be read: the backend responded, not in the shape of /status. */
+  unreadable?: string;
 }
 
 /** Login config from GET /api/auth-config (mirrors server.AuthConfigResponse). */

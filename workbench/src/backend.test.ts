@@ -3,9 +3,17 @@ import { BackendClient } from "./backend";
 
 afterEach(() => vi.unstubAllGlobals());
 
+const compatible = { overall: "ok", components: {}, api_version: 1 };
+
+/** `fetch` with /status answering as a compatible backend, unless the test says otherwise. */
+function stubFetch(answer: (url: string, init: { headers: Record<string, string> }) => Response | undefined, status: () => unknown = () => compatible) {
+  vi.stubGlobal("fetch", async (url: string, init: { headers: Record<string, string> }) =>
+    url.endsWith("/status") ? Response.json(status()) : answer(url, init));
+}
+
 /** A client whose every authenticated GET answers with `body`. */
 function clientAnswering(body: unknown): BackendClient {
-  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }));
+  stubFetch(() => Response.json(body));
   return new BackendClient(() => "http://reckon.test", async () => "token");
 }
 
@@ -40,7 +48,7 @@ describe("BackendClient: a 401", () => {
 
   function answering(...responses: Response[]) {
     const bearers: string[] = [];
-    vi.stubGlobal("fetch", async (_url: string, init: { headers: Record<string, string> }) => {
+    stubFetch((_url, init) => {
       bearers.push(init.headers.Authorization);
       return responses.shift();
     });
@@ -121,20 +129,146 @@ describe("BackendClient: reading a response", () => {
   });
 
   it("names a success that is not JSON", async () => {
-    vi.stubGlobal("fetch", async () => new Response("<html>", { status: 200 }));
+    stubFetch(() => new Response("<html>", { status: 200 }));
     const client = new BackendClient(() => "http://reckon.test", async () => "token");
     await expect(client.me()).rejects.toThrow("unexpected response from GET /api/me: not JSON");
   });
 
   it("does not read the answer to a write that ignores it", async () => {
-    vi.stubGlobal("fetch", async () => new Response("", { status: 200 }));
+    stubFetch(() => new Response("", { status: 200 }));
     await expect(new BackendClient(() => "http://reckon.test", async () => "token").commsAct("t-1", "ack")).resolves.toBeUndefined();
   });
 
-  it("reports a /status it cannot read as incompatible, not unreachable", async () => {
-    const client = clientAnswering({ overall: "ok" });
+});
+
+describe("BackendClient: /status", () => {
+  const answering = (body: Response) => {
+    vi.stubGlobal("fetch", async () => body);
+    return new BackendClient(() => "http://reckon.test");
+  };
+
+  it("takes a body with no api_version as from before the handshake", async () => {
+    const client = answering(Response.json({ overall: "ok" }));
     const status = await client.status();
     expect(status).toMatchObject({ reachable: true, apiVersion: null, compatible: false });
     expect(client.incompatibilityReason(status)).toContain("predates the version handshake");
+  });
+
+  it("says a page that is not JSON is unreadable, not unreachable", async () => {
+    const client = answering(new Response("<html>bad gateway</html>", { status: 502 }));
+    const status = await client.status();
+    expect(status.reachable).toBe(true);
+    expect(client.incompatibilityReason(status)).toBe("unexpected response from /status: not JSON — align versions");
+  });
+
+  it("names the field that is wrong, and does not blame the handshake", async () => {
+    const client = answering(Response.json({ overall: "ok", components: {}, api_version: "1" }));
+    const status = await client.status();
+    expect(status.reachable).toBe(true);
+    expect(client.incompatibilityReason(status)).toBe("unexpected response from /status: api_version is not a number — align versions");
+  });
+
+  it("is unreachable only when nothing answered", async () => {
+    vi.stubGlobal("fetch", async () => { throw new TypeError("fetch failed"); });
+    const client = new BackendClient(() => "http://reckon.test");
+    const status = await client.status();
+    expect(status.reachable).toBe(false);
+    expect(client.incompatibilityReason(status)).toContain("not reachable");
+  });
+});
+
+describe("BackendClient: an incompatible backend", () => {
+  function counting(status: () => unknown) {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      calls.push(new URL(url).pathname);
+      return Response.json(url.endsWith("/status") ? status() : { queue: "", cases: [], title: "t", outcome: "created" });
+    });
+    return { calls, client: new BackendClient(() => "http://reckon.test", async () => "token") };
+  }
+  const old = { overall: "ok", components: {}, api_version: 9 };
+  afterEach(() => vi.restoreAllMocks());
+
+  it("is not written to, whichever surface asks", async () => {
+    const { client, calls } = counting(() => old);
+
+    await expect(client.importSOPMarkdown("a.md", "# a")).rejects.toThrow("backend API v9 unsupported");
+
+    expect(calls).toEqual(["/status"]);
+  });
+
+  it("is not read from either", async () => {
+    const { client, calls } = counting(() => old);
+
+    await expect(client.cases()).rejects.toThrow("backend API v9 unsupported");
+
+    expect(calls).toEqual(["/status"]);
+  });
+
+  it("gates the markdown export too", async () => {
+    const { client, calls } = counting(() => old);
+
+    await expect(client.exportMarkdown("inv-1")).rejects.toThrow("backend API v9 unsupported");
+
+    expect(calls).toEqual(["/status"]);
+  });
+
+  it("asks once for parallel calls, and holds a good answer for a while", async () => {
+    const { client, calls } = counting(() => compatible);
+
+    await Promise.all([client.cases(), client.cases(), client.cases()]);
+    await client.cases();
+
+    expect(calls.filter((c) => c === "/status")).toHaveLength(1);
+  });
+
+  it("asks again once a good answer has aged, and catches an upgrade", async () => {
+    let status: unknown = compatible;
+    const { client } = counting(() => status);
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(1_000);
+    await client.cases();
+
+    status = old;
+    now.mockReturnValue(1_000 + 31_000);
+
+    await expect(client.cases()).rejects.toThrow("backend API v9 unsupported");
+  });
+
+  it("keeps refusing: a bad answer never lets the next call through", async () => {
+    const { client, calls } = counting(() => old);
+
+    await expect(client.cases()).rejects.toThrow("unsupported");
+    await expect(client.cases()).rejects.toThrow("unsupported");
+
+    expect(calls).toEqual(["/status", "/status"]);
+  });
+
+  it("does not take a panel's bad handshake as a good one", async () => {
+    const { client, calls } = counting(() => old);
+    await client.status();
+
+    await expect(client.cases()).rejects.toThrow("unsupported");
+
+    expect(calls).not.toContain("/api/cases");
+  });
+
+  it("does not hold a bad answer: a backend put right is used at once", async () => {
+    let status: unknown = old;
+    const { client } = counting(() => status);
+    await expect(client.cases()).rejects.toThrow("unsupported");
+
+    status = compatible;
+
+    await expect(client.cases()).resolves.toEqual({ queue: "", cases: [] });
+  });
+
+  it("does not gate the public auth config", async () => {
+    const { calls } = counting(() => old);
+    vi.stubGlobal("fetch", async (url: string) => { calls.push(new URL(url).pathname); return Response.json({ issuer: "i", client_id: "c" }); });
+
+    await new BackendClient(() => "http://reckon.test").authConfig();
+
+    expect(calls).toEqual(["/api/auth-config"]);
   });
 });

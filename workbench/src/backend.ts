@@ -7,6 +7,7 @@
 
 import type { LibraryItem } from "./protocol";
 import { relevanceOfBand, relevanceOfScore } from "./relevance";
+import { SingleFlight } from "./singleFlight";
 import { decode, DecodeError, type Decoded, type Decoder } from "./wire/decode";
 import * as shapes from "./wire/backendShapes";
 import type { RawAction, RawCase, RawEvidence, RawInvestigation } from "./wire/backendShapes";
@@ -96,7 +97,13 @@ function mapSeed(s: RawInvestigation["seed"]): Seed | undefined {
   };
 }
 
+/** How long a compatible /status is taken as read before it is asked again. */
+const COMPATIBLE_FOR_MS = 30_000;
+
 export class BackendClient {
+  private compatibleUntil = 0;
+  private readonly handshake = new SingleFlight<void>();
+
   /**
    * @param baseUrl read per-call so a settings change needs no reload.
    * @param token   supplies a bearer token for authenticated calls; omitted for
@@ -110,12 +117,30 @@ export class BackendClient {
     private readonly renew?: (rejected: string) => Promise<string>,
   ) {}
 
+  /** The handshake: reads /status, and refreshes what ensureCompatible relies on. */
   async status(): Promise<BackendStatus> {
+    const status = await this.readStatus();
+    this.compatibleUntil = status.compatible ? Date.now() + COMPATIBLE_FOR_MS : 0;
+    return status;
+  }
+
+  private async readStatus(): Promise<BackendStatus> {
+    const unreachable = { reachable: false, overall: "unreachable", components: {}, apiVersion: null, compatible: false };
+    // It answered, so whatever is wrong with the answer, it is not unreachable.
+    const answered = { ...unreachable, reachable: true, overall: "unknown" };
+    let res: Response;
+    let raw: unknown;
     try {
-      const res = await fetch(`${this.baseUrl()}/status`, {
-        signal: AbortSignal.timeout(3_000),
-      });
-      const body = decode("/status", shapes.status, await res.json());
+      res = await fetch(`${this.baseUrl()}/status`, { signal: AbortSignal.timeout(3_000) });
+      raw = await res.json();
+    } catch (err) {
+      return err instanceof SyntaxError ? { ...answered, unreadable: "unexpected response from /status: not JSON" } : unreachable;
+    }
+    if (typeof raw === "object" && raw !== null && !("api_version" in raw)) {
+      return answered; // from before the handshake
+    }
+    try {
+      const body = decode("/status", shapes.status, raw);
       return {
         reachable: true,
         overall: body.overall,
@@ -124,18 +149,29 @@ export class BackendClient {
         compatible: SUPPORTED_API_VERSIONS.includes(body.api_version),
       };
     } catch (err) {
-      // It answered, in a shape from before the handshake: not unreachable.
       if (err instanceof DecodeError) {
-        return { reachable: true, overall: "unknown", components: {}, apiVersion: null, compatible: false };
+        return { ...answered, unreadable: err.message };
       }
-      return {
-        reachable: false,
-        overall: "unreachable",
-        components: {},
-        apiVersion: null,
-        compatible: false,
-      };
+      throw err;
     }
+  }
+
+  /**
+   * The gate every authenticated call goes through (adr/0244): nothing is read
+   * from or written to a backend the workbench does not speak to, whichever
+   * surface asked. A good answer holds for COMPATIBLE_FOR_MS; a bad one does not
+   * hold at all, so a backend put right is used at once.
+   */
+  private async ensureCompatible(): Promise<void> {
+    if (Date.now() < this.compatibleUntil) {
+      return;
+    }
+    await this.handshake.run("status", async () => {
+      const reason = this.incompatibilityReason(await this.status());
+      if (reason) {
+        throw new Error(reason);
+      }
+    });
   }
 
   /** GET /api/auth-config — public; the login prerequisites. Throws on 503/unreachable. */
@@ -1041,6 +1077,7 @@ export class BackendClient {
     if (!this.token) {
       throw new Error("no token source configured");
     }
+    await this.ensureCompatible();
     const bearer = await this.token();
     const res = await send(bearer);
     if (res.status !== 401 || !this.renew) {
@@ -1080,6 +1117,9 @@ export class BackendClient {
   incompatibilityReason(status: BackendStatus): string | null {
     if (!status.reachable) {
       return "backend not reachable — run `reckon start`";
+    }
+    if (status.unreadable) {
+      return `${status.unreadable} — align versions`;
     }
     if (status.apiVersion === null) {
       return "backend predates the version handshake — upgrade the backend";
