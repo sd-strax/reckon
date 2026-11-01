@@ -1,6 +1,6 @@
 # 0244 — What crosses the wire is decoded, and a version mismatch fails closed on the host
 
-Issue: #244 · PR: pending · Status: accepted
+Issue: #244 · PR: #289 · Status: accepted
 
 ## Context
 
