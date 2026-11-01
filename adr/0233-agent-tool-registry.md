@@ -1,6 +1,6 @@
 # 0233 — Each tool has one definition, and a call reaches only the tools the model was offered
 
-Issue: #233 · PR: #NNN · Status: accepted
+Issue: #233 · PR: #296 · Status: accepted
 
 ## Context
 
