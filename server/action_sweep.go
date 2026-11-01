@@ -5,6 +5,8 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/module"
 	"github.com/sd-strax/reckon/temporal"
@@ -95,5 +97,49 @@ func specFromCurrent(ac aggregate.ActionCurrent) dispatchSpec {
 		Targets:       ac.Targets,
 		Parameters:    ac.Parameters,
 		ReversalOfRef: ac.ReversalOfRef,
+	}
+}
+
+// startExpiryTimer starts the durable expiry timer for one pending action.
+// Best-effort and idempotent (the workflow id derives from the action id).
+func (b *Backend) startExpiryTimer(ctx context.Context, actionID, aggregateID, tenantID uuid.UUID, expiresAt time.Time) {
+	if expiresAt.IsZero() {
+		return
+	}
+	client := b.getDispatchClient()
+	if client == nil {
+		return
+	}
+	if err := client.StartActionExpiryTimer(ctx, temporal.ActionExpiryTimerInput{
+		ActionID:    actionID.String(),
+		AggregateID: aggregateID.String(),
+		TenantID:    tenantID.String(),
+		ExpiresAt:   expiresAt,
+	}); err != nil {
+		log.Printf("action %s: could not start expiry timer (the deadline still binds at approve; the startup sweep will retry): %v", actionID, err)
+	}
+}
+
+// sweepExpiryTimers ensures every pending action has its durable expiry timer —
+// the startup reconciliation covering actions requested before the timer
+// existed, or whose start was missed. Idempotent (per-action workflow ids);
+// already-elapsed deadlines fire immediately, converging stored statuses that
+// lazy expiry left behind.
+func (b *Backend) sweepExpiryTimers(ctx context.Context) {
+	pending, err := b.cfg.Handler.Reads().ListPendingActionCurrents(ctx)
+	if err != nil {
+		log.Printf("expiry sweep: list pending actions: %v", err)
+		return
+	}
+	started := 0
+	for _, a := range pending {
+		if a.ExpiresAt.IsZero() {
+			continue
+		}
+		b.startExpiryTimer(ctx, a.ActionID, a.AggregateID, module.SingleTenantUUID, a.ExpiresAt)
+		started++
+	}
+	if started > 0 {
+		log.Printf("expiry sweep: ensured timers for %d pending action(s)", started)
 	}
 }

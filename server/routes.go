@@ -158,3 +158,38 @@ func withUUID(next func(http.ResponseWriter, *http.Request, uuid.UUID)) http.Han
 		next(w, r, id)
 	}
 }
+
+func (b *Backend) buildRouter(verifier *authz.Verifier) http.Handler {
+	mux := http.NewServeMux()
+
+	// Public — used by the supervisor + reckon status command.
+	mux.HandleFunc("/healthz", b.handleHealthz)
+	mux.HandleFunc("/status", b.handleStatus)
+
+	// Public — Prometheus scrape endpoint. Unauthenticated in the bundled/local
+	// shape (scraped over loopback); a paid/SaaS deployment fronts it with
+	// network policy or an auth proxy.
+	if b.cfg.MetricsHandler != nil {
+		mux.Handle("/metrics", b.cfg.MetricsHandler)
+	}
+
+	// API — auth required except where noted.
+	api := http.NewServeMux()
+
+	// GET /api/auth-config — PUBLIC (must be reachable before login): the OIDC
+	// issuer + public login client the workbench needs to run its PKCE flow
+	// (design/13 §7). Not auth-wrapped. Clean 503 when login isn't configured.
+	api.HandleFunc("/auth-config", b.handleAuthConfig)
+
+	// GET /api/me — who am I; any authenticated principal.
+	api.Handle("/me", authz.RequireAuth(verifier)(http.HandlerFunc(b.handleMe)))
+
+	mountRoutes(api, authz.RequireAuth(verifier), b.routes())
+
+	mux.Handle("/api/", http.StripPrefix("/api", api))
+
+	if b.cfg.Middleware != nil {
+		return b.cfg.Middleware(mux)
+	}
+	return mux
+}
