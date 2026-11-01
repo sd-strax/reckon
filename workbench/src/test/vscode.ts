@@ -149,14 +149,26 @@ export class FakeWebviewPanel implements vscode.WebviewPanel {
   private readonly viewState = new EventEmitter<vscode.WebviewPanelOnDidChangeViewStateEvent>();
   readonly onDidChangeViewState = this.viewState.event;
 
-  constructor(readonly viewType: string, public title: string, column: number, options: vscode.WebviewPanelOptions & vscode.WebviewOptions) {
+  constructor(readonly viewType: string, private currentTitle: string, column: number, options: vscode.WebviewPanelOptions & vscode.WebviewOptions) {
     this.viewColumn = column as vscode.ViewColumn;
     this.options = options;
     this.webview = new FakeWebview(this);
     this.webview.options = options;
   }
+  get title(): string {
+    return this.currentTitle;
+  }
+  set title(value: string) {
+    this.assertLive();
+    this.currentTitle = value;
+  }
   reveal(): void {
+    this.assertLive();
     this.revealed++;
+  }
+  // The real panel throws on either once it is gone; the host must not reach it.
+  private assertLive(): void {
+    if (this.disposed) throw new Error("Webview is disposed");
   }
   /** Close the panel as the user would: fires onDidDispose once. */
   dispose(): void {
