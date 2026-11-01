@@ -1,6 +1,6 @@
 # 0228 — Comments say what the code does, in words a reader can look up
 
-Issue: #228 · PR: #TBD · Status: accepted
+Issue: #228 · PR: #295 · Status: accepted
 
 ## Context
 
