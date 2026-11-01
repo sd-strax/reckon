@@ -1,6 +1,6 @@
 # 0240 — One refresh in flight, and signed in means a token can be had
 
-Issue: #240 · PR: pending · Status: accepted
+Issue: #240 · PR: #286 · Status: accepted
 
 ## Context
 
