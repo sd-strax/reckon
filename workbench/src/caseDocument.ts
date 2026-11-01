@@ -6,21 +6,15 @@
 // Nothing on this surface writes to the case system: a write is an x-action
 // inside an investigation, and before the investigation exists there is
 // nothing to record it against.
+//
+// The page is the bundle's `case` surface (webview/src/surfaces/CaseApp.tsx);
+// this host reads the case, starts the investigation and routes the clicks.
 
 import * as vscode from "vscode";
-import { BackendClient, CaseRow, InvestigationDetail, existingInvestigation } from "./backend";
-import { errText, makeNonce } from "./util";
-
-type Outbound =
-  | { type: "case"; case: CaseRow }
-  | { type: "error"; message: string }
-  | { type: "starting" };
-
-type Inbound =
-  | { type: "ready" }
-  | { type: "start" }
-  | { type: "open"; id: string; title?: string }
-  | { type: "refresh" };
+import { BackendClient, InvestigationDetail, existingInvestigation } from "./backend";
+import { panelHtml, panelOptions } from "./panelHtml";
+import type { CaseInboundMessage, CaseRenderMessage } from "./protocol";
+import { errText } from "./util";
 
 export class CaseDocuments {
   private readonly panels = new Map<string, vscode.WebviewPanel>();
@@ -29,6 +23,7 @@ export class CaseDocuments {
   private generation = 0;
 
   constructor(
+    private readonly extensionUri: vscode.Uri,
     private readonly client: BackendClient,
     private readonly log: vscode.LogOutputChannel,
     // Called with the created investigation: the extension opens it, applies
@@ -56,15 +51,15 @@ export class CaseDocuments {
       "reckon.case",
       `Case ${number}`,
       vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true },
+      panelOptions(this.extensionUri),
     );
     this.panels.set(number, panel);
-    panel.webview.html = this.html(panel.webview);
-    panel.webview.onDidReceiveMessage((msg: Inbound) => this.route(number, panel, msg));
+    panel.webview.html = panelHtml(panel.webview, this.extensionUri, "case", `Case ${number}`);
+    panel.webview.onDidReceiveMessage((msg: CaseInboundMessage) => this.route(number, panel, msg));
     panel.onDidDispose(() => this.panels.delete(number));
   }
 
-  private route(number: string, panel: vscode.WebviewPanel, msg: Inbound): void {
+  private route(number: string, panel: vscode.WebviewPanel, msg: CaseInboundMessage): void {
     switch (msg.type) {
       case "ready":
       case "refresh":
@@ -79,12 +74,16 @@ export class CaseDocuments {
     }
   }
 
+  private post(panel: vscode.WebviewPanel, msg: CaseRenderMessage): void {
+    void panel.webview.postMessage(msg);
+  }
+
   private async load(number: string, panel: vscode.WebviewPanel): Promise<void> {
     try {
       const c = await this.client.caseDetail(number);
-      void panel.webview.postMessage({ type: "case", case: c } satisfies Outbound);
+      this.post(panel, { type: "case", case: c });
     } catch (err) {
-      void panel.webview.postMessage({ type: "error", message: errText(err) } satisfies Outbound);
+      this.post(panel, { type: "error", message: errText(err) });
     }
   }
 
@@ -100,7 +99,7 @@ export class CaseDocuments {
     }
     this.starting.add(number);
     const generation = this.generation;
-    void panel.webview.postMessage({ type: "starting" } satisfies Outbound);
+    this.post(panel, { type: "starting" });
     try {
       const created = await this.client.createInvestigationFromInput(number, "case");
       if (generation !== this.generation) return;
@@ -115,101 +114,9 @@ export class CaseDocuments {
         void vscode.commands.executeCommand("reckon.openInvestigation", existing);
         return;
       }
-      void panel.webview.postMessage({ type: "error", message: errText(err) } satisfies Outbound);
+      this.post(panel, { type: "error", message: errText(err) });
     } finally {
       this.starting.delete(number);
     }
-  }
-
-  private html(webview: vscode.Webview): string {
-    const nonce = makeNonce();
-    const csp = [
-      `default-src 'none'`,
-      `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `script-src 'nonce-${nonce}'`,
-    ].join("; ");
-    return /* html */ `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="${csp}" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <style>
-    :root { --fg: var(--vscode-foreground); --muted: var(--vscode-descriptionForeground);
-            --border: var(--vscode-panel-border, rgba(128,128,128,.35)); --accent: #6366f1; }
-    body { margin: 0; padding: 24px 28px; color: var(--fg); background: var(--vscode-editor-background);
-           font: 13px/1.5 var(--vscode-font-family); max-width: 880px; }
-    .num { font-family: var(--vscode-editor-font-family); color: var(--muted); font-size: 12px; }
-    h1 { font-size: 18px; font-weight: 600; margin: 4px 0 10px; }
-    .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); margin-bottom: 18px; }
-    .meta b { color: var(--fg); font-weight: 500; }
-    .flag { border-left: 3px solid var(--accent); padding: 8px 12px; margin: 0 0 18px;
-            background: color-mix(in srgb, var(--fg) 6%, transparent); }
-    .flag a { color: var(--vscode-textLink-foreground); cursor: pointer; }
-    pre { white-space: pre-wrap; font: inherit; margin: 0 0 22px; padding: 14px 16px;
-          border: 1px solid var(--border); border-radius: 6px; }
-    .actions { display: flex; align-items: center; gap: 14px; }
-    button { font: inherit; padding: 6px 14px; border-radius: 4px; cursor: pointer; border: 1px solid transparent;
-             background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-    button:disabled { opacity: .6; cursor: default; }
-    button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-    .linklike { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); text-decoration: underline; }
-    .err { color: var(--vscode-errorForeground); margin-top: 12px; }
-    .hint { color: var(--muted); font-style: italic; }
-  </style>
-</head>
-<body>
-  <div id="root"><p class="hint">Reading the case…</p></div>
-  <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
-    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-    let current = null, starting = false;
-    function render() {
-      const root = document.getElementById("root");
-      if (!current) return;
-      const c = current;
-      const meta = [
-        c.priority ? "<span><b>" + esc(c.priority) + "</b></span>" : "",
-        c.status ? "<span>" + esc(c.status) + "</span>" : "",
-        c.assignmentGroup ? "<span>" + esc(c.assignmentGroup) + "</span>" : "",
-        c.openedAt ? "<span>opened " + esc(new Date(c.openedAt).toLocaleString()) + "</span>" : "",
-        c.source ? "<span>source " + esc(c.source) + "</span>" : "",
-      ].filter(Boolean).join("");
-      const inv = c.investigation;
-      const flag = inv
-        ? '<div class="flag">Under investigation: <a id="openInv">' + esc(inv.title) + "</a> <span class=\\"hint\\">(" + esc(inv.status) + ")</span></div>"
-        : "";
-      const action = inv
-        ? '<button id="open">Open investigation</button><span class="hint">A second investigation on this case can still be started from New Investigation → From a case…</span>'
-        : '<button id="start"' + (starting ? " disabled" : "") + ">" + (starting ? "Starting…" : "Start investigation") + '</button><span class="hint">Roots a new investigation on this case; the case body is treated as a claim to verify.</span>';
-      root.innerHTML =
-        '<div class="num">' + esc(c.number) + "</div>" +
-        "<h1>" + esc(c.title || c.number) + "</h1>" +
-        '<div class="meta">' + meta + "</div>" + flag +
-        "<pre>" + esc(c.summary || "(no description)") + "</pre>" +
-        '<div class="actions">' + action + "</div>" +
-        '<div class="err" id="err"></div>';
-      const start = document.getElementById("start");
-      if (start) start.addEventListener("click", () => { if (starting) return; vscode.postMessage({ type: "start" }); });
-      const open = document.getElementById("open");
-      if (open && inv) open.addEventListener("click", () => vscode.postMessage({ type: "open", id: inv.id, title: inv.title }));
-      const openInv = document.getElementById("openInv");
-      if (openInv && inv) openInv.addEventListener("click", () => vscode.postMessage({ type: "open", id: inv.id, title: inv.title }));
-    }
-    window.addEventListener("message", (e) => {
-      const m = e.data;
-      if (m.type === "case") { current = m.case; starting = false; render(); }
-      else if (m.type === "starting") { starting = true; render(); }
-      else if (m.type === "error") {
-        starting = false;
-        if (current) { render(); document.getElementById("err").textContent = m.message; }
-        else document.getElementById("root").innerHTML = '<p class="err">' + esc(m.message) + '</p><p><button class="secondary" id="retry">Retry</button></p>',
-          document.getElementById("retry").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
-      }
-    });
-    vscode.postMessage({ type: "ready" });
-  </script>
-</body>
-</html>`;
   }
 }

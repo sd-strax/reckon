@@ -1,0 +1,42 @@
+/* The side panels (the case document, Import SOPs), over the tokens. They are
+   documents, not the regions grid: the root scrolls, the content has a measure. */
+#root[data-surface="case"], #root[data-surface="import"] { display: block; height: auto; }
+body:has(#root[data-surface="case"]), body:has(#root[data-surface="import"]) { overflow: auto; }
+
+.panel { padding: var(--sp-6) var(--sp-7, 28px); max-width: 880px; }
+.panel .hint { color: var(--text-2); font-style: italic; }
+.panel .err { color: var(--error-fg); margin-top: var(--sp-3); }
+.panel .kicker { display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-2); margin-bottom: 7px; }
+.panel h1 { font-size: 19px; font-weight: 600; margin: 2px 0 10px; }
+
+/* ---- the case document ---- */
+.case .num { font-family: var(--mono); color: var(--text-2); font-size: var(--fs-sm); }
+.case .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--text-2); margin-bottom: 18px; }
+.case .meta b { color: var(--text); font-weight: 500; }
+.case .flag { border-left: 3px solid var(--he-primary); padding: 8px 12px; margin: 0 0 18px; background: var(--fill); }
+.case .flag a { color: var(--link); cursor: pointer; }
+.case pre { white-space: pre-wrap; font: inherit; margin: 0 0 22px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r); }
+.case .actions { display: flex; align-items: center; gap: 14px; }
+
+/* ---- Import SOPs ---- */
+.import { padding: 14px 18px 40px; max-width: none; }
+.import .sub { color: var(--text-2); font-size: var(--fs-sm); margin-bottom: 16px; max-width: 64ch; }
+.import section { margin: 0 0 18px; }
+.import .row { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: start; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 11px; margin-bottom: 6px; }
+.import .row.done { border-left: 2px solid var(--ok); }
+.import .row.failed { border-left: 2px solid var(--bad); }
+.import .row input { margin: 4px 0 0; accent-color: var(--he-primary); }
+.import .row label { cursor: pointer; }
+.import .name { font-weight: 600; word-break: break-all; }
+.import .dir { color: var(--text-2); font-family: var(--mono); font-size: var(--fs-xs); word-break: break-all; }
+.import .tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.import .badge { margin-left: 0; font-family: var(--mono); font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 10.5px; padding: 1px 6px; border-radius: var(--r-xs); background: var(--fill); }
+.import .badge.unsaved { color: var(--warn); border-color: var(--warn-border); }
+.import .badge.created, .import .badge.revised { color: var(--ok); border-color: var(--ok-border); }
+.import .badge.failed { color: var(--bad); border-color: var(--bad-border); }
+.import .result { grid-column: 2 / -1; font-size: var(--fs-sm); color: var(--text-2); }
+.import .result.failed { color: var(--bad); }
+.import .empty { color: var(--text-2); font-style: italic; }
+.import .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.import .foot { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.import .note { color: var(--text-2); font-size: var(--fs-sm); }

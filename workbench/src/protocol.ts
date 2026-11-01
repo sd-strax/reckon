@@ -273,3 +273,52 @@ export type InboundMessage =
   // Start a new investigation: the seed surface, as the command opens it (#162).
   | { type: "investigation.new" }
   | { type: "rename"; title: string };
+
+// ---- the other surfaces -------------------------------------------------------
+//
+// Every reckon panel is a root of the one bundle (adr/0248); the host names
+// the surface on the root element and the page mounts that surface's app.
+// Each surface has its own pair of unions, as narrow as the panel.
+
+/** The surfaces the bundle can mount. */
+export type Surface = "investigation" | "case" | "import";
+
+/** The case document (adr/0030): one system-of-record case, read-only. */
+export type CaseRenderMessage =
+  | { type: "case"; case: CaseRow }
+  | { type: "error"; message: string }
+  // A start is in flight: the button waits for the outcome.
+  | { type: "starting" };
+
+export type CaseInboundMessage =
+  | { type: "ready" }
+  | { type: "refresh" }
+  // Root a new investigation on the case.
+  | { type: "start" }
+  // Open the investigation already rooted on it.
+  | { type: "open"; id: string; title?: string };
+
+/** One candidate document of the Import SOPs panel (design/06 §2.4), as posted. */
+export interface ImportRow {
+  /** The document's URI, the row's identity. */
+  id: string;
+  name: string;
+  dir: string;
+  /** Added through the file dialog and read from disk; otherwise an open editor's live buffer. */
+  fromDisk: boolean;
+  dirty: boolean;
+  checked: boolean;
+  result?: { outcome: "created" | "revised" | "failed"; title: string; message?: string };
+}
+
+export type ImportRenderMessage =
+  | { type: "state"; rows: ImportRow[]; busy: boolean; done?: { ok: number; failed: number } };
+
+export type ImportInboundMessage =
+  | { type: "ready" }
+  // Rescan the open editors.
+  | { type: "refresh" }
+  | { type: "toggle"; id: string; checked: boolean }
+  // The native file dialog, host-side.
+  | { type: "addFiles" }
+  | { type: "import" };

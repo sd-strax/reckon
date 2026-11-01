@@ -25,7 +25,8 @@ import { buildDerivedViews, type CitingRecords } from "./derivedViews";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 import { InvestigationCache } from "./investigationCache";
 import { candidateSOPMarkdown, slugifyTitle } from "./documentText";
-import { errText, makeNonce, panelTitle } from "./util";
+import { errText, panelTitle } from "./util";
+import { panelHtml, panelOptions } from "./panelHtml";
 import { routeInbound, type InboundHandlers } from "./documentRouter";
 import { TurnDriver } from "./turnDriver";
 import { decideTurn, proposeTestsTurn, runTestsTurn, testPredictionTurn, type ScopedTurn } from "./scopedTurns";
@@ -104,11 +105,11 @@ export class InvestigationDocuments {
       "reckon.investigation",
       titleHint ? panelTitle(titleHint) : "Investigation",
       vscode.ViewColumn.Active,
-      this.panelOptions(),
+      panelOptions(this.extensionUri),
     );
     this.open.set(id, panel);
     const ref = { id };
-    panel.webview.html = this.html(panel.webview);
+    panel.webview.html = panelHtml(panel.webview, this.extensionUri, "investigation", "Investigation");
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
     panel.onDidDispose(() => this.forget(ref.id));
   }
@@ -129,11 +130,11 @@ export class InvestigationDocuments {
       "reckon.investigation",
       "New investigation",
       vscode.ViewColumn.Active,
-      this.panelOptions(),
+      panelOptions(this.extensionUri),
     );
     this.open.set(key, panel);
     const ref = { id: key };
-    panel.webview.html = this.html(panel.webview);
+    panel.webview.html = panelHtml(panel.webview, this.extensionUri, "investigation", "Investigation");
     // The webview asks for its initial state via "ready"; a draft key answers
     // with the unseeded render instead of a load().
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
@@ -141,16 +142,6 @@ export class InvestigationDocuments {
   }
 
   /** The page may load only the bundle and the vendored fonts (impl §5.1). */
-  private panelOptions(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
-    return {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.extensionUri, "out", "webview"),
-        vscode.Uri.joinPath(this.extensionUri, "media"),
-      ],
-    };
-  }
 
   private static isDraft(key: string): boolean {
     return key.startsWith("__draft__");
@@ -1574,38 +1565,5 @@ export class InvestigationDocuments {
     } catch {
       return Promise.resolve(false); // the panel was disposed while a read was in flight
     }
-  }
-
-  /**
-   * The panel shell (impl §5.1): one bundled script + stylesheet loaded through
-   * asWebviewUri, the vendored fonts beside them. All content is rendered from
-   * posted messages; the CSP forbids any other load and any network from the
-   * page. No inline styles, so style-src carries no 'unsafe-inline'.
-   */
-  private html(webview: vscode.Webview): string {
-    const nonce = makeNonce();
-    const base = vscode.Uri.joinPath(this.extensionUri, "out", "webview");
-    const script = webview.asWebviewUri(vscode.Uri.joinPath(base, "investigation.js"));
-    const style = webview.asWebviewUri(vscode.Uri.joinPath(base, "investigation.css"));
-    const csp = [
-      `default-src 'none'`,
-      `style-src ${webview.cspSource}`,
-      `font-src ${webview.cspSource}`,
-      `script-src 'nonce-${nonce}'`,
-    ].join("; ");
-    return /* html */ `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="${csp}" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="${style.toString()}" />
-  <title>Investigation</title>
-</head>
-<body class="loading">
-  <div id="root"></div>
-  <script nonce="${nonce}" src="${script.toString()}"></script>
-</body>
-</html>`;
   }
 }
