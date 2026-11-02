@@ -161,8 +161,8 @@ func TestEnablement_AIDelegateCannotApply(t *testing.T) {
 	}
 }
 
-// TestEnablement_UnsupportedClassRefused: enabling a class v0 cannot spawn is
-// a 422 with the honest diagnostic, not a config write that breaks boot.
+// TestEnablement_UnsupportedClassRefused: enabling a class this endpoint does
+// not enable (anything but fixture) is a 422 with the honest diagnostic, not a config write that breaks boot.
 func TestEnablement_UnsupportedClassRefused(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")

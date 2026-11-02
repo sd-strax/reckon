@@ -305,9 +305,9 @@ func TestRerequestAction(t *testing.T) {
 }
 
 // TestRerequestAction_LazyExpiry: an action whose window has elapsed but whose
-// STORED status is still REQUESTED (v0 has no expiry timer — the UI shows it
-// expired via a derived flag) is re-requestable. The re-request materializes
-// the lazy expiry (original → EXPIRED) before creating the fresh one.
+// STORED status is still REQUESTED (the expiry timer has not fired — the UI
+// shows it expired via a derived flag) is re-requestable. The original stays
+// REQUESTED: the timer, not the endpoint, records the expiry.
 func TestRerequestAction_LazyExpiry(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")

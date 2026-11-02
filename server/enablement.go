@@ -35,10 +35,12 @@ type EnablementAdapterView struct {
 	Enabled  bool   `json:"enabled"`
 	Scenario string `json:"scenario,omitempty"`
 	// ConfigSchema is the 11 §4.3 JSON-schema-shaped form source for this
-	// class (nil when the class has no editable config in v0).
+	// class. Only the fixture class has one here: a plugin's describe handshake
+	// carries its own schema, which this view does not read yet.
 	ConfigSchema map[string]any `json:"config_schema,omitempty"`
-	// Supportable is false for classes v0 cannot spawn (native_api/mcp/custom)
-	// — the form offers no enable affordance, honestly.
+	// Supportable is true only for the fixture class. Plugin classes
+	// (MCP/NATIVE_API/CUSTOM/SOAR_PLAYBOOK) run under the adapter host, but this
+	// form does not enable them, so it offers no enable affordance.
 	Supportable bool `json:"supportable"`
 }
 
