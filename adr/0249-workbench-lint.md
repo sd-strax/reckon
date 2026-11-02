@@ -1,6 +1,6 @@
 # 0249 — The workbench has a linter, and the compiler checks indexed reads
 
-Issue: #249 · PR: #TBD · Status: accepted
+Issue: #249 · PR: #298 · Status: accepted
 
 ## Context
 
