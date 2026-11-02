@@ -103,7 +103,18 @@ type fakeEvidence struct {
 	err    error
 }
 
-func (f *fakeEvidence) Persist(context.Context, capability.CapabilityResult) error { return f.err }
+func (f *fakeEvidence) Persist(context.Context, evidence.Call, capability.CapabilityResult) error {
+	return f.err
+}
+func (f *fakeEvidence) InvestigationEvents(context.Context, uuid.UUID, evidence.EventFilter) (evidence.Events, error) {
+	return evidence.Events{}, f.err
+}
+func (f *fakeEvidence) Calls(context.Context, uuid.UUID) ([]evidence.CallRecord, error) {
+	return nil, f.err
+}
+func (f *fakeEvidence) Call(context.Context, uuid.UUID, uuid.UUID) (evidence.CallRecord, error) {
+	return evidence.CallRecord{}, f.err
+}
 func (f *fakeEvidence) Object(context.Context, string) (evidence.Object, error) {
 	return f.object, f.err
 }

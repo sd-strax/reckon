@@ -12,6 +12,7 @@ import { EntityInspector } from "./EntityInspector";
 import { AttestationInspector, HypothesisInspector, PredictionInspector } from "./ReasoningInspectors";
 import { ActionInspector, ThreadInspector } from "./ActionInspectors";
 import { ActInspector, CaseInspector, PersonInspector, PinInspector, ProcedureInspector, TurnInspector } from "./ProvenanceInspectors";
+import { CallInspector } from "./CallInspector";
 import type { ThreadEntry } from "../../../../src/viewTypes";
 
 /** The thread entry a turn target names, if the snapshot holds it. */
@@ -43,6 +44,7 @@ function Body({ target }: { target: InspectorTarget }) {
     case "act": return <ActInspector interpretationId={(target as { interpretationId: string }).interpretationId} />;
     case "person": return <PersonInspector principalId={(target as { principalId: string }).principalId} />;
     case "procedure": return <ProcedureInspector sopId={(target as { sopId: string }).sopId} />;
+    case "call": return <CallInspector callId={(target as { callId: string }).callId} />;
   }
 }
 
@@ -54,7 +56,7 @@ function PaneView({ pane, which }: { pane: Pane; which: "active" | "pinned" }) {
   const name = targetName(target, state.snap, state.labels);
   const key = targetKey(target);
   const errKey = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
-    : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "";
+    : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "callId" in target ? target.callId : "";
   const error = state.inspectorErrors[errKey];
   const crumbs = pane.stack.slice(0, -1);
   return (

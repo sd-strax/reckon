@@ -51,6 +51,10 @@ type ToolCallContent struct {
 	ToolName   string          `json:"tool_name"`
 	Args       json.RawMessage `json:"args,omitempty"`
 	ResultHash string          `json:"result_hash,omitempty"`
+	// CapabilityCallID is the engine-minted id of the capability call this
+	// dispatch made (adr/0092), when it was a capability verb; CallID stays the
+	// model's tool_use id. Validated as a UUID when present.
+	CapabilityCallID string `json:"capability_call_id,omitempty"`
 }
 
 // TranscriptRef is the reference the interpretation event carries into the
@@ -115,11 +119,11 @@ func (s *SideStore) WriteReasoningTx(ctx context.Context, tx *sql.Tx, env Envelo
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO ai_tool_calls (
 				id, tenant_id, investigation_id, event_id, tool_name, tool_args,
-				result_hash, transcript_hash, occurred_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				result_hash, transcript_hash, occurred_at, capability_call_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		`, uuid.Must(uuid.NewV7()), env.TenantID, env.AggregateID, interpEventID,
 			tc.ToolName, []byte(args), nullString(tc.ResultHash), nullString(transcriptHash),
-			env.OccurredAt); err != nil {
+			env.OccurredAt, nullString(tc.CapabilityCallID)); err != nil {
 			return fmt.Errorf("insert ai_tool_calls: %w", err)
 		}
 	}

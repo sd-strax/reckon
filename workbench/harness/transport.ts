@@ -1,7 +1,7 @@
 // The harness transport (impl §5.4): answers the webview from a recorded
 // snapshot set and echoes every intent, so a click's effect is visible and
 // component tests can assert on what the page asked the host for.
-import type { ActionRecord, Appearance, CaseRow, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummaryView, EventRow, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/viewTypes";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, LibraryItem, RenderMessage } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
@@ -19,6 +19,9 @@ export interface HarnessSnapshot {
   actionRecords?: Record<string, ActionRecord>;
   sops?: Record<string, SOPDoc>;
   caseSummaries?: Record<string, CaseSummaryView | null>;
+  /** Capability calls by id, and the retrieved events around one event (adr/0092). */
+  calls?: Record<string, CapabilityCall>;
+  around?: Record<string, EventRow[]>;
   /** The knowledge library (adr/0129) as the host posts it. */
   library?: { sops: LibraryItem[]; cases: LibraryItem[] };
   /** The work queue (08 §8.3) as the host posts it. */
@@ -99,7 +102,7 @@ export class HarnessTransport implements WebviewTransport {
     switch (target.kind) {
       case "ref": {
         const doc = d?.docs?.[target.ref];
-        if (doc) this.emit({ type: "inspector.evidence", ref: target.ref, doc, appearances: d?.appearances?.[target.ref] ?? [] });
+        if (doc) this.emit({ type: "inspector.evidence", ref: target.ref, doc, appearances: d?.appearances?.[target.ref] ?? [], around: d?.around?.[target.ref] ?? [] });
         else this.emit({ type: "inspector.error", target: target.ref, message: "not recorded in this harness stage" });
         break;
       }
@@ -124,6 +127,12 @@ export class HarnessTransport implements WebviewTransport {
       case "case":
         this.emit({ type: "inspector.case", investigationRef: target.investigationRef, summary: d?.caseSummaries?.[target.investigationRef] ?? null });
         break;
+      case "call": {
+        const call = d?.calls?.[target.callId];
+        if (call) this.emit({ type: "inspector.call", callId: target.callId, call });
+        else this.emit({ type: "inspector.error", target: target.callId, message: "capability call not recorded in this harness stage" });
+        break;
+      }
       // thread, person: rendered from the snapshot alone
     }
   }

@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/evidence"
 )
 
 // CapabilityInvokeBody is a verb call's input (03 §2): the entity the binding
@@ -19,6 +22,10 @@ type CapabilityInvokeBody struct {
 	// Seed.SourceScope; empty in single-organization tenants reaches every
 	// unscoped instance as before.
 	SourceScope string `json:"source_scope,omitempty"`
+	// InvestigationRef names the investigation the call is made for, so the
+	// events it returns are members of it (adr/0092). Empty for a call made
+	// outside any investigation: it is recorded, but listed under none.
+	InvestigationRef string `json:"investigation_ref,omitempty"`
 }
 
 // WindowInput is the JSON shape of a verb call's time bound.
@@ -55,6 +62,11 @@ type NormalizedView struct {
 // reference lists the agent loop attaches to an x-interpretation, the coverage
 // classification, degradation notes, and the concrete objects produced.
 type CapabilityInvokeResponse struct {
+	// CallID is the engine-minted id of this invocation (adr/0092): the record
+	// a surface opens to see which binding answered, with what, and what it
+	// produced. Resolvable at GET /api/investigations/{id}/calls/{call_id}
+	// when the call named an investigation.
+	CallID           string           `json:"call_id"`
 	Verb             string           `json:"verb"`
 	Coverage         string           `json:"coverage"`
 	OcsfEventRefs    []string         `json:"ocsf_event_refs,omitempty"`
@@ -90,6 +102,15 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
+	call := evidence.Call{ID: uuid.Must(uuid.NewV7()), Verb: verb, StartedAt: time.Now().UTC()}
+	if body.InvestigationRef != "" {
+		inv, err := uuid.Parse(body.InvestigationRef)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "investigation_ref is not a valid id")
+			return
+		}
+		call.InvestigationID = &inv
+	}
 
 	input := capability.CallInput{Entity: body.Entity, Extra: body.Extra, SourceScope: body.SourceScope}
 	if body.Window != nil {
@@ -97,6 +118,7 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := resolver.Resolve(r.Context(), verb, input)
+	call.Duration = time.Since(call.StartedAt)
 	if err != nil {
 		var ae *capability.AdapterError
 		if errors.As(err, &ae) {
@@ -114,19 +136,20 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 	// must be openable later (design/ui 02 §2.8). Persist failure fails the
 	// invocation rather than minting dangling citations.
 	if b.cfg.Evidence != nil {
-		if err := b.cfg.Evidence.Persist(r.Context(), res); err != nil {
+		if err := b.cfg.Evidence.Persist(r.Context(), call, res); err != nil {
 			writeInternalError(w, verb+": persist results", err)
 			return
 		}
 	}
 
-	writeJSON(w, http.StatusOK, buildInvokeResponse(verb, res))
+	writeJSON(w, http.StatusOK, buildInvokeResponse(call.ID, verb, res))
 }
 
 // buildInvokeResponse converts the resolver's CapabilityResult to the wire
 // envelope.
-func buildInvokeResponse(verb string, res capability.CapabilityResult) CapabilityInvokeResponse {
+func buildInvokeResponse(callID uuid.UUID, verb string, res capability.CapabilityResult) CapabilityInvokeResponse {
 	out := CapabilityInvokeResponse{
+		CallID:           callID.String(),
 		Verb:             verb,
 		Coverage:         string(res.Coverage),
 		OcsfEventRefs:    res.OcsfEventRefs,

@@ -161,7 +161,7 @@ export class InvestigationCache {
       comms: r.comms ?? null,
       thread: r.thread ?? null,
       turns: r.turns ?? [],
-      capabilities, enablement: null, derived: null,
+      capabilities, enablement: null, derived: null, events: null,
     };
   }
 

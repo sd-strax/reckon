@@ -1,10 +1,12 @@
 // Evidence (an OCSF event or observed-data), Absence (x-null-observation,
 // adr/0061), Detection finding (indicator + sighting + vendor identity,
 // 03 §4.12) and Alias (an alias edge) — the record-shaped inspectors
-// (08 §8.6, §8.6.1). The per-class sentence and curated field table are gap
-// §6.12; until it lands the generic field renderer shows every field.
+// (08 §8.6, §8.6.1). An event shows the retrieved events around it on the
+// same entity and the call that retrieved it (adr/0092). The per-class
+// sentence and curated field table are gap §6.12; until it lands the generic
+// field renderer shows every field.
 import { useApp } from "../../app";
-import type { EvidenceDoc } from "../../../../src/viewTypes";
+import type { EventRow, EvidenceDoc } from "../../../../src/viewTypes";
 import { refType, refTypeLabel } from "../../refs";
 import { RefChip, fmtDateTime } from "../shared";
 import { Fields, Json, KV, Loading, Section, Tabs } from "./primitives";
@@ -52,11 +54,38 @@ function useDoc(refId: string): EvidenceDoc | null | undefined {
   return state.docs[refId];
 }
 
+/** The retrieved events just before and after this one on the same entity
+ * (08 §8.6.1 "Around it", adr/0092): the record's, never inferred. */
+function AroundIt({ refId, rows }: { refId: string; rows: EventRow[] | undefined }) {
+  const { openInspector } = useApp();
+  if (rows === undefined) return <Section title="Around it"><div className="empty">reading the record…</div></Section>;
+  const others = rows.filter((r) => r.id !== refId);
+  return (
+    <Section title="Around it">
+      {!others.length ? <div className="empty">No other retrieved event on the same entity in this investigation's record.</div>
+        : others.map((r) => (
+          <div key={r.id} className="irow around">
+            <span className="mono">{fmtDateTime(r.time)}</span> <RefChip refId={r.id} /> <span className="imeta">{r.className}</span>
+            <a className="imeta tvia" title="Open the capability call that retrieved this event" onClick={() => openInspector({ kind: "call", callId: r.callId })}> via {r.verb}</a>
+          </div>
+        ))}
+    </Section>
+  );
+}
+
+/** The call that retrieved this event, from the record the Story lens holds. */
+function retrievedBy(refId: string, events: EventRow[] | null | undefined, around: EventRow[] | undefined): EventRow | undefined {
+  return (events ?? []).find((e) => e.id === refId) ?? (around ?? []).find((e) => e.id === refId);
+}
+
 export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: string } }) {
   const doc = useDoc(target.ref);
+  const { state, openInspector } = useApp();
   if (doc === undefined) return <Loading what={refTypeLabel(target.ref)} />;
   if (doc === null) return null; // the frame shows the error
   const p = payloadOf(doc);
+  const around = state.around[target.ref];
+  const row = doc.kind === "ocsf" ? retrievedBy(target.ref, state.snap?.events, around) : undefined;
   const isOD = doc.type === "observed-data";
   const objectRefs = Array.isArray(p.object_refs) ? (p.object_refs as unknown[]).filter((x): x is string => typeof x === "string") : [];
   const sub = doc.kind === "ocsf"
@@ -70,9 +99,19 @@ export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: stri
           <>
             {isOD && objectRefs.length ? <Section title="Objects it contains">{objectRefs.map((r) => <RefChip key={r} refId={r} />)}</Section> : null}
             <Section title={doc.kind === "ocsf" ? "Event fields" : "Properties"}><Fields obj={propsOf(doc)} /></Section>
+            {doc.kind === "ocsf" ? <AroundIt refId={target.ref} rows={around} /> : null}
           </>
         ) },
-        { id: "provenance", label: "Provenance", body: () => <ProvenanceTab doc={doc} /> },
+        { id: "provenance", label: "Provenance", body: () => (
+          <>
+            <ProvenanceTab doc={doc} />
+            {row ? (
+              <Section title="Retrieved by">
+                <div className="irow"><a onClick={() => openInspector({ kind: "call", callId: row.callId })}><span className="mono">{row.verb}</span></a> <span className="imeta">{row.coverage} · open the call</span></div>
+              </Section>
+            ) : null}
+          </>
+        ) },
         { id: "raw", label: "Raw", body: () => <Json value={rawOf(doc)} /> },
       ]} />
     </>

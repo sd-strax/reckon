@@ -4,13 +4,17 @@
 // answers (impl §2.4, §4.1). Failures are not cached; a change of person
 // clears everything (adr/0241).
 import type * as vscode from "vscode";
-import type { Appearance, EvidenceDoc, ThreadEntry } from "./backend";
+import type { Appearance, EventRow, EvidenceDoc, ThreadEntry } from "./backend";
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
 import type { DocumentHost } from "./documentHost";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 import type { InspectorTarget } from "./protocol";
 import { SingleFlight } from "./singleFlight";
 import { errText } from "./util";
+
+/** How many retrieved events the Story lens is given, and how many sit each side of an anchor. */
+const eventsShown = 500;
+const aroundEachSide = 5;
 
 export class EvidenceReads {
   constructor(private readonly host: DocumentHost) {}
@@ -83,6 +87,35 @@ export class EvidenceReads {
   }
 
   /**
+   * The events retrieved for the investigation (adr/0092), posted as a slice
+   * patch stamped with the sequence they were read for. A backend without the
+   * read, or a failed one, leaves the slice as it was: the Story lens then
+   * shows the cited events alone.
+   */
+  async postEvents(id: string, panel: vscode.WebviewPanel, seq: number): Promise<void> {
+    const current = this.host.sameIdentity();
+    try {
+      const page = await this.host.client.evidence.events(id, { limit: eventsShown });
+      if (current()) {
+        void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events } });
+      }
+    } catch (err) {
+      this.host.log.debug(`events ${id}: ${errText(err)}`);
+    }
+  }
+
+  /** The retrieved events on the same entity around one event, for the
+   * Evidence inspector's "Around it" (adr/0092); none when the record has none. */
+  private async around(id: string, eventId: string): Promise<EventRow[]> {
+    try {
+      return (await this.host.client.evidence.events(id, { around: eventId, limit: aroundEachSide })).events;
+    } catch (err) {
+      this.host.log.debug(`around ${eventId}: ${errText(err)}`);
+      return [];
+    }
+  }
+
+  /**
    * Answer an inspector pane (impl §2.4): the webview opened it from the
    * snapshot and asks for what the record holds beyond it — the evidence
    * document with its cross-investigation memory (current investigation
@@ -105,9 +138,13 @@ export class EvidenceReads {
           } catch (err) {
             this.host.log.debug(`appearances ${target.ref}: ${errText(err)}`);
           }
-          void this.host.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps });
+          const around = doc.kind === "ocsf" ? await this.around(id, target.ref) : [];
+          void this.host.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps, around });
           return;
         }
+        case "call":
+          void this.host.post(panel, { type: "inspector.call", callId: target.callId, call: await this.host.client.evidence.call(id, target.callId) });
+          return;
         case "sop":
           void this.host.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop: await this.host.client.knowledge.sop(target.sopId) });
           return;
@@ -130,7 +167,7 @@ export class EvidenceReads {
       }
     } catch (err) {
       const key = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
-        : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "";
+        : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "callId" in target ? target.callId : "";
       void this.host.post(panel, { type: "inspector.error", target: key, message: errText(err) });
     }
   }

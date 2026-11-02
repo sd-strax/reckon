@@ -23,6 +23,8 @@ export interface TranscriptToolResult {
   /** The result body to show behind the disclosure, "" when the envelope was
    * fully distilled into detail + refs. Clipped to 4000 chars. */
   body: string;
+  /** The capability call behind an envelope (adr/0092), when it named one. */
+  callId?: string;
 }
 export interface TranscriptLoop { kind: "loop"; text: string }
 export type TranscriptItem = TranscriptUser | TranscriptAssistant | TranscriptTool | TranscriptLoop;
@@ -46,6 +48,7 @@ export function distillResult(isError: boolean, content: string): TranscriptTool
   let detail = isError ? "error" : "done";
   const refs: string[] = [];
   let body = "";
+  let callId: string | undefined;
   let env: unknown = undefined;
   let parsed = false;
   try {
@@ -55,9 +58,10 @@ export function distillResult(isError: boolean, content: string): TranscriptTool
     body = content;
   }
   if (parsed) {
-    const e = env as { coverage?: unknown; events?: unknown } & Record<string, unknown>;
+    const e = env as { coverage?: unknown; events?: unknown; call_id?: unknown } & Record<string, unknown>;
     if (e && typeof e === "object" && e.coverage) {
       detail = String(e.coverage) + " · " + (Array.isArray(e.events) ? e.events.length : 0) + " event(s)";
+      if (typeof e.call_id === "string" && e.call_id) callId = e.call_id;
       for (const k of ["observed_data_refs", "entity_refs", "ocsf_event_refs"]) {
         const arr = e[k];
         if (Array.isArray(arr)) {
@@ -71,7 +75,7 @@ export function distillResult(isError: boolean, content: string): TranscriptTool
     }
   }
   if (body.length > 4000) body = body.slice(0, 4000) + "…";
-  return { isError, detail, refs, body };
+  return callId ? { isError, detail, refs, body, callId } : { isError, detail, refs, body };
 }
 
 export function parseTranscript(bodyText: string): ParsedTranscript {

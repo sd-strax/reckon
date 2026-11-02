@@ -268,7 +268,7 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
 13. **Entity-scoped event query** — the cited and retrieved events for one entity within
     one investigation, ordered by event time, for the inspector's "around it" strip and
     the Story timeline. A read over persisted `ocsf_events` (§6.3), not a new capability
-    call.
+    call. *Built: `adr/0092`, `GET /api/investigations/{id}/events`.*
 14. **Entity baselines** — where a capability answer establishes normal behaviour (the
     reference scenario's nightly logon baseline), a summary the inspector and timeline can
     render. Shown only when the record holds one; never inferred by the UI.
@@ -292,6 +292,7 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
 20. **Addressable capability calls** — a stable id per capability call within a committed
     turn record, resolvable by an endpoint, so the bundle, the Story timeline and the
     residual panel can open the call that produced their evidence (`ui/08 §8.6.1`).
+    *Built: `adr/0092`, `call_id` in the envelope, `GET /api/investigations/{id}/calls/{call_id}`.*
 
 Motivated by the knowledge surfaces (`ui/09`, `adr/0084`), not yet built:
 

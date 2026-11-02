@@ -177,7 +177,7 @@ describe("SidecarTransport: turns", () => {
         child.peer.sendNotification("turn/step", { session_id: p.session_id, round: 1 });
         child.peer.sendNotification("turn/tool_call", { session_id: p.session_id, name: "query", input: { q: 1 } });
         child.peer.sendNotification("turn/tool_result", {
-          session_id: p.session_id, name: "query", content: "{}", is_error: false, coverage: "COMPLETE", event_count: 3, refs: ["r-1"],
+          session_id: p.session_id, name: "query", content: "{}", is_error: false, coverage: "COMPLETE", event_count: 3, refs: ["r-1"], call_id: "c-1",
         });
         child.peer.sendNotification("turn/context_compacted", { session_id: p.session_id, text: "Context condensed" });
         child.peer.sendNotification("turn/text_delta", { session_id: p.session_id, text: "done" });
@@ -196,14 +196,14 @@ describe("SidecarTransport: turns", () => {
       onTextDelta: (t) => seen.push(`delta ${t}`),
       onStep: (r) => seen.push(`step ${r}`),
       onToolCall: (n, i) => seen.push(`call ${n} ${JSON.stringify(i)}`),
-      onToolResult: (n, _c, e, cov, ev, refs) => seen.push(`result ${n} ${e} ${cov} ${ev} ${refs?.join(",")}`),
+      onToolResult: (n, _c, e, cov, ev, refs, callId) => seen.push(`result ${n} ${e} ${cov} ${ev} ${refs?.join(",")} ${callId}`),
       onContextCompacted: (note) => seen.push(`compacted ${note}`),
     };
     transport = new SidecarTransport(deps(), fakeLog());
     const out = await transport.turn("inv-1", "go", sink);
 
     expect(seen).toEqual([
-      "step 1", 'call query {"q":1}', "result query false COMPLETE 3 r-1", "compacted Context condensed", "delta done",
+      "step 1", 'call query {"q":1}', "result query false COMPLETE 3 r-1 c-1", "compacted Context condensed", "delta done",
     ]);
     expect(out).toEqual({
       text: "done", interpretationId: "i-1", toolRounds: 1,

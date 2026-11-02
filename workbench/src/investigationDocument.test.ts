@@ -21,6 +21,7 @@ function backend(over: Record<string, (...args: never[]) => unknown> = {}) {
     "investigations.get": async () => detail(),
     "capabilities.enablement": async () => null,
     "cases.queue": async () => null,
+    "evidence.events": async () => ({ events: [], total: 0 }),
     ...over,
   };
   const call = (name: string) => (...args: never[]) => {
@@ -171,6 +172,58 @@ describe("InvestigationDocuments: closing", () => {
   });
 
   const evidenceDoc = { ref: "ref-1", kind: "observed-data", type: "observed-data", payload: {} };
+  const eventRow = { id: "e-1", classUid: 3002, className: "Authentication", time: "2026-01-02T03:04:05Z", recordedAt: "2026-01-02T03:04:05Z", sourceTool: "fixture:s", callId: "c-1", verb: "enumerate_logons", coverage: "COMPLETE", observedDataRefs: [], entityRefs: [] };
+
+  it("posts the retrieved events after the snapshot, stamped with its sequence (adr/0092)", async () => {
+    const events = vi.fn(async () => ({ events: [eventRow], total: 1 }));
+    const { client } = backend({ "evidence.events": events });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "events" in m.patch)).toBe(true));
+    const patch = posted().find((m) => m.type === "state.patch" && "events" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>;
+    expect(patch.seq).toBe(3);
+    expect(patch.patch.events).toEqual([eventRow]);
+    expect(events).toHaveBeenCalledWith("inv-1", { limit: 500 });
+  });
+
+  it("leaves the events slice alone when the backend has no such read", async () => {
+    const { client } = backend({ "evidence.events": async () => { throw new BackendRequestError("no route", 404); } });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(posted().some((m) => m.type === "state.patch" && "events" in m.patch)).toBe(false);
+  });
+
+  it("answers an event's inspector with the retrieved events around it, and a call pane with the call", async () => {
+    const ocsf = { ref: "e-1", kind: "ocsf", type: "Authentication", payload: {}, classUid: 3002 };
+    const events = vi.fn(async () => ({ events: [eventRow], total: 1 }));
+    const call = { callId: "c-1", verb: "enumerate_logons", priority: 100, coverage: "COMPLETE", bindingsAnswered: 1, bindingsTotal: 1, degradationNotes: [], startedAt: "2026-01-02T03:04:05Z", durationMs: 7 };
+    const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": events, "evidence.call": async () => call });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0];
+    panel.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-1" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.evidence"));
+    const answer = posted().find((m) => m.type === "inspector.evidence") as Extract<RenderMessage, { type: "inspector.evidence" }>;
+    expect(answer.around).toEqual([eventRow]);
+    expect(events).toHaveBeenCalledWith("inv-1", { around: "e-1", limit: 5 });
+
+    panel.webview.receive({ type: "inspector.open", target: { kind: "call", callId: "c-1" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.call"));
+    expect(posted().find((m) => m.type === "inspector.call")).toEqual({ type: "inspector.call", callId: "c-1", call });
+  });
+
+  it("reports a call the record does not hold on its own pane", async () => {
+    const { client } = backend({ "evidence.call": async () => { throw new BackendRequestError("no capability call", 404); } });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "inspector.open", target: { kind: "call", callId: "c-9" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.error"));
+    expect(posted().find((m) => m.type === "inspector.error")).toMatchObject({ type: "inspector.error", target: "c-9" });
+  });
 
   it("does not keep a failed evidence read, and tells the panel", async () => {
     let down = true;

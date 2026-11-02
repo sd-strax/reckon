@@ -4,7 +4,8 @@
 import type { BackendHttp } from "./http";
 import * as shapes from "../wire/backendShapes";
 import type { RawEvidence } from "../wire/backendShapes";
-import type { Appearance, EvidenceDoc } from "../viewTypes";
+import type { Decoded } from "../wire/decode";
+import type { Appearance, CapabilityCall, EventRow, EvidenceDoc } from "../viewTypes";
 
 function mapEvidence(r: RawEvidence): EvidenceDoc {
   const doc: EvidenceDoc = {
@@ -27,8 +28,68 @@ function mapEvidence(r: RawEvidence): EvidenceDoc {
   return doc;
 }
 
+type RawEventRow = Decoded<typeof shapes.investigationEvents>["events"][number];
+type RawCall = Decoded<typeof shapes.investigationCalls>["calls"][number] & Partial<Decoded<typeof shapes.capabilityCall>>;
+
+function mapEventRow(r: RawEventRow): EventRow {
+  return {
+    id: r.id, classUid: r.class_uid, className: r.class_name, time: r.time, recordedAt: r.recorded_at, sourceTool: r.source_tool,
+    callId: r.call_id, verb: r.verb, coverage: r.coverage, observedDataRefs: r.observed_data_refs, entityRefs: r.entity_refs,
+  };
+}
+
+function mapCall(r: RawCall): CapabilityCall {
+  const call: CapabilityCall = {
+    callId: r.call_id, investigationId: r.investigation_id, verb: r.verb, adapter: r.adapter, operation: r.operation, priority: r.priority,
+    paramsSent: r.params_sent, coverage: r.coverage, bindingsAnswered: r.bindings_answered, bindingsTotal: r.bindings_total,
+    nullObservationRef: r.null_observation_ref, degradationNotes: r.degradation_notes, startedAt: r.started_at, durationMs: r.duration_ms,
+  };
+  if (r.produced) {
+    call.produced = { eventIds: r.produced.event_ids, observedDataRefs: r.produced.observed_data_refs, entityRefs: r.produced.entity_refs };
+  }
+  if (r.bindings) {
+    call.bindings = r.bindings;
+  }
+  return call;
+}
+
+/** How an events read is narrowed (adr/0092). `around` is an event id. */
+export interface EventQuery {
+  entity?: string;
+  category?: "auth" | "process" | "network" | "detection";
+  around?: string;
+  limit?: number;
+}
+
 export class EvidenceClient {
   constructor(private readonly http: BackendHttp) {}
+
+  /**
+   * GET /api/investigations/{id}/events — the events retrieved for the
+   * investigation, in event time, by entity, category or around one event
+   * (adr/0092). A read over the record, never a capability call.
+   */
+  async events(investigationId: string, q: EventQuery = {}): Promise<{ events: EventRow[]; total: number }> {
+    const params = new URLSearchParams();
+    if (q.entity) params.set("entity", q.entity);
+    if (q.category) params.set("category", q.category);
+    if (q.around) params.set("around", q.around);
+    if (q.limit) params.set("limit", String(q.limit));
+    const qs = params.toString();
+    const body = await this.http.get(`/api/investigations/${encodeURIComponent(investigationId)}/events${qs ? "?" + qs : ""}`, shapes.investigationEvents);
+    return { events: body.events.map(mapEventRow), total: body.total };
+  }
+
+  /** GET /api/investigations/{id}/calls — the investigation's capability calls, oldest first. */
+  async calls(investigationId: string): Promise<CapabilityCall[]> {
+    const body = await this.http.get(`/api/investigations/${encodeURIComponent(investigationId)}/calls`, shapes.investigationCalls);
+    return body.calls.map((c) => mapCall(c));
+  }
+
+  /** GET /api/investigations/{id}/calls/{call_id} — one call with what it produced and the verb's bindings. */
+  async call(investigationId: string, callId: string): Promise<CapabilityCall> {
+    return mapCall(await this.http.get(`/api/investigations/${encodeURIComponent(investigationId)}/calls/${encodeURIComponent(callId)}`, shapes.capabilityCall));
+  }
 
   /** GET /api/evidence/{ref} — citation-open (02 §2.8). */
   async get(ref: string): Promise<EvidenceDoc> {

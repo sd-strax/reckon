@@ -11,14 +11,16 @@
 
 import type {
   ActionRecord,
-  ArtifactLocation,
   ActionRow,
   Appearance,
+  ArtifactLocation,
   Capability,
+  CapabilityCall,
   CaseRow,
   CaseSummaryView,
   CommsThread,
   Enablement,
+  EventRow,
   EvidenceDoc,
   Hypothesis,
   InvestigationDetail,
@@ -43,7 +45,9 @@ export type InspectorTarget =
   | { kind: "action"; actionId: string }
   | { kind: "thread"; threadId: string }
   | { kind: "case"; investigationRef: string }
-  | { kind: "person"; principalId: string };
+  | { kind: "person"; principalId: string }
+  // A capability call (adr/0092): the record behind a tool row or a timeline row.
+  | { kind: "call"; callId: string };
 
 /**
  * One entry of the knowledge library (adr/0129): a procedure or a past case,
@@ -123,6 +127,9 @@ export interface InvestigationSnapshot {
   capabilities: Capability[] | null;
   enablement: Enablement | null;
   derived: DerivedViews | null;
+  /** The events retrieved for the investigation (adr/0092), in event time;
+   * null until read, or when the backend has no record of membership. */
+  events?: EventRow[] | null;
 }
 
 /**
@@ -169,7 +176,9 @@ export type RenderMessage =
   | { type: "evidence.unresolved"; ref: string }
   // The inspector's one-object answers (impl §4.1): the webview opened a pane
   // from the snapshot and asked for what the record holds beyond it.
-  | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; appearances: Appearance[] }
+  // `around` is the window of retrieved events on the same entity (adr/0092); empty when the record has none.
+  | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; appearances: Appearance[]; around?: EventRow[] }
+  | { type: "inspector.call"; callId: string; call: CapabilityCall }
   | { type: "inspector.procedure"; sopId: string; sop: SOPDoc }
   | { type: "inspector.turn"; interpretationId: string; body: string }
   | { type: "inspector.action"; actionId: string; record: ActionRecord }
@@ -198,7 +207,7 @@ export type RenderMessage =
   // The history was condensed to fit the model's context window (adr/0230).
   | { type: "turn.notice"; text: string }
   | { type: "turn.tool"; name: string; input: unknown }
-  | { type: "turn.toolResult"; name: string; isError: boolean; coverage?: string; events?: number; refs?: string[] }
+  | { type: "turn.toolResult"; name: string; isError: boolean; coverage?: string; events?: number; refs?: string[]; callId?: string }
   | { type: "turn.committed"; interpretationId: string }
   | { type: "turn.error"; message: string }
   | { type: "turn.end"; usage?: { input: number; output: number; cacheRead: number }; rounds?: number };

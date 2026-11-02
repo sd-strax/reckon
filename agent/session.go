@@ -604,6 +604,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 			cancelTool()
 			if !isErr {
 				s.rememberIDs(content)
+				toolLog[len(toolLog)-1].CapabilityCallID = capabilityCallID(content)
 			}
 			if tu.ToolName == ToolRecallSOPs && !isErr {
 				s.trackConsulted(content)

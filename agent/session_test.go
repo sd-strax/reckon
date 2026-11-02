@@ -121,7 +121,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 	})
 	mux.HandleFunc("/api/capability/", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
-		_, _ = w.Write([]byte(`{"verb":"enumerate_logons","coverage":"COMPLETE","observed_data_refs":["observed-data--od1"],"entity_refs":["user-account--u1"]}`))
+		_, _ = w.Write([]byte(`{"call_id":"0192f3a0-0000-7000-8000-0000000000c1","verb":"enumerate_logons","coverage":"COMPLETE","observed_data_refs":["observed-data--od1"],"entity_refs":["user-account--u1"]}`))
 	})
 	mux.HandleFunc("/api/action-types", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
@@ -393,6 +393,11 @@ func TestSession_Turn(t *testing.T) {
 	if host["hostname"] != "H1" || call.Extra["outcome"] != "SUCCESS" {
 		t.Errorf("invoke body mangled: %s", invokes[0].Body)
 	}
+	// The call is made for the investigation, so its events are members of it
+	// (adr/0092).
+	if call.InvestigationRef != "inv-1" {
+		t.Errorf("invoke investigation_ref = %q; want the session's investigation", call.InvestigationRef)
+	}
 
 	// Three interpretations: hypothesis, (action rides /api/actions), turn summary.
 	interps := f.callsTo("/api/interpretations")
@@ -416,6 +421,17 @@ func TestSession_Turn(t *testing.T) {
 	}
 	if len(summary.ToolCalls) != 3 {
 		t.Errorf("tool-call log = %d entries; want 3", len(summary.ToolCalls))
+	}
+	// The capability dispatch's record carries the engine's call id from the
+	// envelope; the other tools carry none (adr/0092).
+	for _, tc := range summary.ToolCalls {
+		want := ""
+		if tc.ToolName == "enumerate_logons" {
+			want = "0192f3a0-0000-7000-8000-0000000000c1"
+		}
+		if tc.CapabilityCallID != want {
+			t.Errorf("tool call %s capability_call_id = %q; want %q", tc.ToolName, tc.CapabilityCallID, want)
+		}
 	}
 	if summary.Rationale == "" || len([]rune(summary.Rationale)) > maxRationaleRunes {
 		t.Errorf("rationale bound violated: %d runes", len([]rune(summary.Rationale)))

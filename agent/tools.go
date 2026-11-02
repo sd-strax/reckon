@@ -653,7 +653,7 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 				extra[k] = val
 			}
 		}
-		call := InvokeInput{Entity: in.Entity}
+		call := InvokeInput{Entity: in.Entity, InvestigationRef: s.investigationID}
 		if len(extra) > 0 {
 			call.Extra = extra
 		}
@@ -669,4 +669,16 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 		}
 		return s.backend.InvokeCapability(ctx, name, call)
 	}
+}
+
+// capabilityCallID reads the engine-minted call id out of a capability
+// envelope (adr/0092); "" for any other tool result.
+func capabilityCallID(content string) string {
+	var env struct {
+		CallID string `json:"call_id"`
+	}
+	if err := json.Unmarshal([]byte(content), &env); err != nil {
+		return ""
+	}
+	return env.CallID
 }

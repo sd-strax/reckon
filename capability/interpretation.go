@@ -3,6 +3,8 @@ package capability
 import (
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sd-strax/reckon/identity"
 )
 
@@ -176,6 +178,10 @@ type NullObservation struct {
 // Sightings, and Identities are populated only by the detection_finding
 // normalizer (§4.12).
 type NormalizationResult struct {
+	// EventID is the telemetry record this result was normalized from: the
+	// derived-from edge, set by the resolver at ingest so a store can persist
+	// which observed-data came from which event (adr/0092).
+	EventID       uuid.UUID
 	ObservedData  []ObservedData
 	SCOs          []SCO
 	Relationships []Relationship

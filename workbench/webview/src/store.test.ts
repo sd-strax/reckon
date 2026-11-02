@@ -67,7 +67,7 @@ describe("reducer: the live conversation", () => {
       { type: "turn.text", delta: "lo" },
       { type: "turn.tool", name: "a", input: { x: 1 } },
       { type: "turn.tool", name: "b", input: {} },
-      { type: "turn.toolResult", name: "a", isError: false, coverage: "COMPLETE", events: 2, refs: ["r1"] },
+      { type: "turn.toolResult", name: "a", isError: false, coverage: "COMPLETE", events: 2, refs: ["r1"], callId: "c-1" },
       { type: "turn.text", delta: "after" },
     ]);
     expect(s.streaming).toBe(true);
@@ -77,6 +77,7 @@ describe("reducer: the live conversation", () => {
     const first = turn.segments[1];
     if (first.kind !== "tool") throw new Error();
     expect(first.row.result?.detail).toBe("COMPLETE · 2 event(s)");
+    expect(first.row.result?.callId).toBe("c-1");
     const second = turn.segments[2];
     if (second.kind !== "tool") throw new Error();
     expect(second.row.result).toBeUndefined();

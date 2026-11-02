@@ -156,6 +156,9 @@ type ToolCallInput struct {
 	ToolName   string          `json:"tool_name"`
 	Args       json.RawMessage `json:"args,omitempty"`
 	ResultHash string          `json:"result_hash,omitempty"`
+	// CapabilityCallID is the engine's id for the capability call the dispatch
+	// made (adr/0092); call_id stays the model's tool_use id.
+	CapabilityCallID string `json:"capability_call_id,omitempty"`
 }
 
 // RecordInterpretationResponse reports the appended interpretation. NodeID is
@@ -310,10 +313,11 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, tc := range body.ToolCalls {
 		cmd.ToolCalls = append(cmd.ToolCalls, aggregate.ToolCallContent{
-			CallID:     tc.CallID,
-			ToolName:   tc.ToolName,
-			Args:       tc.Args,
-			ResultHash: tc.ResultHash,
+			CallID:           tc.CallID,
+			ToolName:         tc.ToolName,
+			Args:             tc.Args,
+			ResultHash:       tc.ResultHash,
+			CapabilityCallID: tc.CapabilityCallID,
 		})
 	}
 

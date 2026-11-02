@@ -1,0 +1,39 @@
+{
+  "call_id": "x",
+  "investigation_id": "x",
+  "verb": "x",
+  "adapter": "x",
+  "operation": "x",
+  "priority": 1,
+  "params_sent": {
+    "x": 1
+  },
+  "coverage": "x",
+  "bindings_answered": 1,
+  "bindings_total": 1,
+  "null_observation_ref": "x",
+  "degradation_notes": [
+    "x"
+  ],
+  "started_at": "2026-01-02T03:04:05Z",
+  "duration_ms": 1,
+  "produced": {
+    "event_ids": [
+      "x"
+    ],
+    "observed_data_refs": [
+      "x"
+    ],
+    "entity_refs": [
+      "x"
+    ]
+  },
+  "bindings": [
+    {
+      "adapter": "x",
+      "operation": "x",
+      "priority": 1,
+      "enabled": true
+    }
+  ]
+}

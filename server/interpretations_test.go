@@ -55,7 +55,7 @@ func TestRecordInterpretation_Records(t *testing.T) {
 		Confidence:         "MEDIUM",
 		Transcript:         &TranscriptInput{TurnID: "t1", Body: transcript},
 		ToolCalls: []ToolCallInput{
-			{CallID: "c1", ToolName: "list_processes", Args: json.RawMessage(`{"host":"WIN-A"}`)},
+			{CallID: "c1", ToolName: "list_processes", Args: json.RawMessage(`{"host":"WIN-A"}`), CapabilityCallID: "0192f3a0-0000-7000-8000-000000000001"},
 		},
 	})
 	if resp.StatusCode != http.StatusCreated {
@@ -63,6 +63,15 @@ func TestRecordInterpretation_Records(t *testing.T) {
 	}
 	if out.InterpretationID == "" || out.SequenceNo == 0 {
 		t.Fatalf("empty response: %+v", out)
+	}
+	// The engine's call id rides the side-store row (adr/0092), apart from the
+	// model's own call_id.
+	var capCall string
+	if err := testDB.QueryRow(`SELECT capability_call_id::text FROM ai_tool_calls WHERE investigation_id = $1`, invID).Scan(&capCall); err != nil {
+		t.Fatalf("query capability_call_id: %v", err)
+	}
+	if capCall != "0192f3a0-0000-7000-8000-000000000001" {
+		t.Errorf("capability_call_id = %q", capCall)
 	}
 
 	// The transcript bytes are in the side store, and the tool call is logged

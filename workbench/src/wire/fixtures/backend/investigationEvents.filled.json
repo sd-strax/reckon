@@ -1,0 +1,22 @@
+{
+  "events": [
+    {
+      "id": "x",
+      "class_uid": 1,
+      "class_name": "x",
+      "time": "2026-01-02T03:04:05Z",
+      "recorded_at": "2026-01-02T03:04:05Z",
+      "source_tool": "x",
+      "call_id": "x",
+      "verb": "x",
+      "coverage": "x",
+      "observed_data_refs": [
+        "x"
+      ],
+      "entity_refs": [
+        "x"
+      ]
+    }
+  ],
+  "total": 1
+}

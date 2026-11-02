@@ -68,6 +68,12 @@ func TestRecordInterpretation_Validate(t *testing.T) {
 	if err := noToolName.Validate(env); err == nil {
 		t.Error("tool call without tool_name accepted")
 	}
+	// The engine's capability call id, when present, is an id (adr/0092).
+	badCapCall := base
+	badCapCall.ToolCalls = []ToolCallContent{{CallID: "c1", ToolName: "enumerate_logons", CapabilityCallID: "not-an-id"}}
+	if err := badCapCall.Validate(env); err == nil {
+		t.Error("tool call with a malformed capability_call_id accepted")
+	}
 
 	// Ref lists are bounded — the event log is not the bulk store.
 	manyRefs := base

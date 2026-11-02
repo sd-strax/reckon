@@ -8,7 +8,7 @@ import { refType, refTypeLabel } from "../refs";
 export type Renderer =
   | "evidence" | "entity" | "absence" | "detection" | "attestation"
   | "prediction" | "hypothesis" | "action" | "thread" | "case"
-  | "turn" | "pin" | "act" | "person" | "alias" | "procedure";
+  | "turn" | "pin" | "act" | "person" | "alias" | "procedure" | "call";
 
 /** An agent turn has a transcript to show; a pin or a human act does not (#144). */
 export function turnRenderer(entry: ThreadEntry | undefined): "turn" | "pin" | "act" {
@@ -33,6 +33,7 @@ export function targetKey(t: InspectorTarget): string {
     case "thread": return "thread:" + t.threadId;
     case "case": return "case:" + t.investigationRef;
     case "person": return "person:" + t.principalId;
+    case "call": return "call:" + t.callId;
   }
 }
 
@@ -46,6 +47,7 @@ export function rendererFor(t: InspectorTarget, doc?: EvidenceDoc | null, entry?
     case "thread": return "thread";
     case "case": return "case";
     case "person": return "person";
+    case "call": return "call";
     case "ref": {
       const type = refType(t.ref);
       if (type === "x-null-observation") return "absence";
@@ -82,6 +84,7 @@ export function rendererLabel(r: Renderer): string {
     case "person": return "Person";
     case "alias": return "Alias";
     case "procedure": return "Procedure";
+    case "call": return "Capability call";
   }
 }
 
@@ -124,6 +127,7 @@ export function targetName(t: InspectorTarget, snap: InvestigationSnapshot | nul
       const consulted = snap?.thread?.flatMap((e) => e.consultedSimilar || []).find((s) => s.investigationRef === t.investigationRef);
       return consulted?.title || "Past case";
     }
+    case "call": return labels["call:" + t.callId] || "Capability call";
     case "person": {
       const e = snap?.thread?.find((x) => x.actor.principal === t.principalId && x.actor.principalName);
       return e?.actor.principalName || t.principalId;

@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a snapshot or patch older than
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, CaseRow, CaseSummary, CaseSummaryView, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRow, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/viewTypes";
 import type { ActionTypeView, InvestigationSnapshot, LibraryItem, RenderMessage, SopDraftState } from "../../src/protocol";
 
 export interface LiveToolResult {
@@ -12,6 +12,8 @@ export interface LiveToolResult {
   detail: string;
   coverage?: string;
   refs: string[];
+  /** The capability call behind the result (adr/0092), when the envelope named one. */
+  callId?: string;
 }
 
 export interface LiveToolRow {
@@ -73,6 +75,9 @@ export interface State {
   transcripts: Record<string, string>;
   actionRecords: Record<string, ActionRecord>;
   caseSummaries: Record<string, CaseSummaryView | null>;
+  /** Capability calls by id (adr/0092), and the retrieved events around an opened event. */
+  calls: Record<string, CapabilityCall>;
+  around: Record<string, EventRow[]>;
   inspectorErrors: Record<string, string>;
   /** The action types the analyst may request directly (#146). */
   actionTypes: ActionTypeView[];
@@ -108,6 +113,8 @@ export const initialState: State = {
   transcripts: {},
   actionRecords: {},
   caseSummaries: {},
+  calls: {},
+  around: {},
   inspectorErrors: {},
   library: { sops: [], cases: [], loaded: false, results: null },
   actionTypes: [],
@@ -240,9 +247,13 @@ function onMessage(state: State, msg: RenderMessage): State {
         ...state,
         docs: { ...state.docs, [msg.ref]: msg.doc },
         appearances: { ...state.appearances, [msg.ref]: msg.appearances },
+        around: { ...state.around, [msg.ref]: msg.around ?? [] },
         inspectorErrors: dropKey(state.inspectorErrors, msg.ref),
       };
     }
+    case "inspector.call":
+      // The pane is named by the verb (derive/inspect.ts targetName).
+      return { ...state, calls: { ...state.calls, [msg.callId]: msg.call }, labels: { ...state.labels, ["call:" + msg.callId]: msg.call.verb }, inspectorErrors: dropKey(state.inspectorErrors, msg.callId) };
     case "inspector.procedure":
       return { ...state, sops: { ...state.sops, [msg.sopId]: msg.sop }, inspectorErrors: dropKey(state.inspectorErrors, msg.sopId) };
     case "inspector.turn":
@@ -287,7 +298,7 @@ function onMessage(state: State, msg: RenderMessage): State {
       }
       return withTurn(state, (turn) => {
         const seg = turn.segments[idx] as { kind: "tool"; row: LiveToolRow };
-        turn.segments[idx] = { kind: "tool", row: { ...seg.row, result: { isError: msg.isError, detail, coverage: msg.coverage, refs: msg.refs || [] } } };
+        turn.segments[idx] = { kind: "tool", row: { ...seg.row, result: { isError: msg.isError, detail, coverage: msg.coverage, refs: msg.refs || [], callId: msg.callId } } };
       });
     }
     case "turn.committed":

@@ -85,6 +85,12 @@ type CapabilityResult struct {
 	EntityRefs       []identity.STIXID
 	DegradationNotes []string
 
+	// Bindings records every binding the walk reached, in priority order, with
+	// the parameters as rendered and whether it answered: the call record a
+	// surface opens to see which source produced its evidence (adr/0092). A
+	// binding skipped before rendering (scope, adapter off) has no Params.
+	Bindings []BindingOutcome
+
 	Events     []OcsfEvent
 	Normalized []NormalizationResult
 	// NullObservation is set when coverage is COMPLETE and no event came back
@@ -95,6 +101,44 @@ type CapabilityResult struct {
 
 func (r *CapabilityResult) note(format string, args ...any) {
 	r.DegradationNotes = append(r.DegradationNotes, fmt.Sprintf(format, args...))
+}
+
+// BindingOutcome is what one binding did in one call.
+type BindingOutcome struct {
+	Adapter   string
+	Operation string
+	Priority  int
+	// Params are the parameters sent to the adapter, exactly as templated;
+	// nil when the binding was skipped before rendering.
+	Params map[string]any
+	// Answered is true when the adapter returned a response. Skipped names why
+	// an unanswered binding was not asked or failed (the degradation note).
+	Answered bool
+	Skipped  string
+}
+
+// Answered returns the bindings that answered, in priority order.
+func (r *CapabilityResult) Answered() []BindingOutcome {
+	var out []BindingOutcome
+	for _, b := range r.Bindings {
+		if b.Answered {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// Applicable counts the bindings that were asked: rendered against the input
+// and not skipped for scope or configuration. It is the denominator a surface
+// shows next to how many answered.
+func (r *CapabilityResult) Applicable() int {
+	n := 0
+	for _, b := range r.Bindings {
+		if b.Params != nil {
+			n++
+		}
+	}
+	return n
 }
 
 // Resolver turns a verb call into telemetry + interpretation objects by
@@ -197,14 +241,20 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 	// scope-filtered degrades exactly like any other coverage gap (§6.1).
 	norm := r.normalizer.Scoped(input.SourceScope)
 
+	// skip records a binding that did not answer, with the note as its reason.
+	skip := func(b Binding, params map[string]any, format string, args ...any) {
+		why := fmt.Sprintf(format, args...)
+		res.note("binding %s/%s: %s", verb, b.Adapter, why)
+		res.Bindings = append(res.Bindings, BindingOutcome{Adapter: b.Adapter, Operation: b.Operation, Priority: b.Priority, Params: params, Skipped: why})
+	}
 	for _, b := range bindings {
 		if !ScopeApplicable(b.Scope, input.SourceScope) {
-			res.note("binding %s/%s: scope %q not applicable to investigation scope %q", verb, b.Adapter, b.Scope, input.SourceScope)
+			skip(b, nil, "scope %q not applicable to investigation scope %q", b.Scope, input.SourceScope)
 			continue
 		}
 		adapter, ok := r.adapters[b.Adapter]
 		if !ok {
-			res.note("binding %s/%s: adapter not configured or disabled", verb, b.Adapter)
+			skip(b, nil, "adapter not configured or disabled")
 			continue
 		}
 		if unhealthy[b.Adapter] {
@@ -217,18 +267,18 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 			return CapabilityResult{}, fmt.Errorf("verb %s, adapter %s: template render: %w", verb, b.Adapter, err)
 		}
 		if !appl {
-			res.note("binding %s/%s: required input missing, not applicable", verb, b.Adapter)
+			skip(b, nil, "required input missing, not applicable")
 			continue
 		}
 		applicable++
+		params[ParamVerb] = verb // let the fixture adapter (and logging) see the verb
 
 		if h := adapter.Health(); !h.Healthy {
 			unhealthy[b.Adapter] = true
-			res.note("binding %s/%s: adapter unhealthy: %s", verb, b.Adapter, h.Message)
+			skip(b, params, "adapter unhealthy: %s", h.Message)
 			continue
 		}
 
-		params[ParamVerb] = verb // let the fixture adapter (and logging) see the verb
 		resp, err := adapter.Invoke(ctx, b.Operation, params)
 		if err != nil {
 			var ae *AdapterError
@@ -242,17 +292,18 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 					// applicable stays counted and the classifier yields
 					// UNAVAILABLE_TRANSIENT, never UNAVAILABLE_TENANT (§6.1).
 					unhealthy[b.Adapter] = true
-					res.note("binding %s/%s: adapter became unhealthy: %v", verb, b.Adapter, ae.Err)
+					skip(b, params, "adapter became unhealthy: %v", ae.Err)
 					continue
 				}
 			}
 			failed++
-			res.note("binding %s/%s: call failed: %v", verb, b.Adapter, err)
+			skip(b, params, "call failed: %v", err)
 			continue
 		}
 
 		succeeded++
 		sources = append(sources, resp.SourceTool)
+		res.Bindings = append(res.Bindings, BindingOutcome{Adapter: b.Adapter, Operation: b.Operation, Priority: b.Priority, Params: params, Answered: true})
 		r.ingest(&res, norm, resp)
 		if !fanout {
 			break // non-fan-out: highest-priority success wins
@@ -353,6 +404,7 @@ func (r *Resolver) ingest(res *CapabilityResult, norm *Registry, resp AdapterRes
 			res.note("normalize class %d: %v", evt.ClassUID, err)
 			continue
 		}
+		nr.EventID = evt.ID
 		res.Normalized = append(res.Normalized, nr)
 		for _, od := range nr.ObservedData {
 			res.ObservedDataRefs = append(res.ObservedDataRefs, od.ID)
@@ -392,6 +444,12 @@ func (r *Resolver) templateContext(verb string, input CallInput) map[string]any 
 		ctx[k] = v
 	}
 	return ctx
+}
+
+// Bindings returns the bindings configured for verb, highest priority first:
+// what a call record shows as the other ways the verb could have been answered.
+func (r *Resolver) Bindings(verb string) []Binding {
+	return sortedByPriority(r.bindings[verb])
 }
 
 // sortedByPriority returns a copy of bindings sorted by descending priority

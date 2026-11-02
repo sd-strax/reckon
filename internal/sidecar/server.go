@@ -300,6 +300,7 @@ func (s *service) handleCreateSession(ctx context.Context, raw json.RawMessage) 
 					note.Coverage = cov
 					note.EventCount = &n
 					note.Refs = refs
+					note.CallID = envelopeCallID(content)
 				}
 				s.conn.Notify("turn/tool_result", note)
 			},
@@ -408,6 +409,21 @@ type turnToolResultNote struct {
 	// events) — what the client's pin-from-result and citation-open surfaces
 	// act on (design/ui 02 §2.8), extracted pre-clip like the ticker fields.
 	Refs []string `json:"refs,omitempty"`
+	// CallID is the engine-minted id of the capability call (adr/0092), so a
+	// live tool row can open the call that produced its evidence.
+	CallID string `json:"call_id,omitempty"`
+}
+
+// envelopeCallID reads the engine's call id from a capability envelope; ""
+// when the backend predates it.
+func envelopeCallID(content string) string {
+	var env struct {
+		CallID string `json:"call_id"`
+	}
+	if err := json.Unmarshal([]byte(content), &env); err != nil {
+		return ""
+	}
+	return env.CallID
 }
 
 // summarizeEnvelope distills a capability-envelope result into the ticker
