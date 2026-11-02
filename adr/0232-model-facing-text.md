@@ -1,6 +1,6 @@
 # 0232 — Every sentence the model reads is under a version and a ledger
 
-Issue: #232 · PR: (this PR) · Status: accepted · Amends the scope of [0057](0057-prompt-ledger.md)
+Issue: #232 · PR: #299 · Status: accepted · Amends the scope of [0057](0057-prompt-ledger.md)
 
 ## Context
 
