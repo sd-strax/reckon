@@ -1543,9 +1543,9 @@ func TestTranscriptEscaping_RoundTrips(t *testing.T) {
 // the required + minItems:1 shape is load-bearing and must not silently revert.
 func TestRequestActionRequiresEvidence(t *testing.T) {
 	var schema map[string]any
-	for _, td := range intrinsicTools(nil) {
-		if td.Name == ToolRequestAction {
-			schema = td.InputSchema
+	for _, tl := range intrinsicTools(nil) {
+		if tl.def.Name == ToolRequestAction {
+			schema = tl.def.InputSchema
 		}
 	}
 	if schema == nil {

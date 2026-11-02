@@ -226,14 +226,7 @@ func (s *Session) boundResult(raw []byte) []byte {
 }
 
 // readResult serves one page of a held result.
-func (s *Session) readResult(input json.RawMessage) ([]byte, error) {
-	var in struct {
-		ResultID string `json:"result_id"`
-		Offset   int    `json:"offset"`
-	}
-	if err := json.Unmarshal(input, &in); err != nil {
-		return nil, fmt.Errorf("bad read_result input: %w", err)
-	}
+func (s *Session) readResult(in readResultInput) ([]byte, error) {
 	raw, ok := s.results.get(in.ResultID)
 	if !ok {
 		return nil, fmt.Errorf("result %q is no longer held (a session keeps its last %d large results); run the query again", in.ResultID, maxHeldResults)
