@@ -35,7 +35,9 @@ export function DraftView() {
       // A configured queue is the analyst's starting point: open on it.
       if (d.caseQueue && !searched.current) { searched.current = true; search(); }
     } else input.current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Focus and the queue search follow the path alone: re-running when the
+    // queue or search changes would steal focus while the analyst types.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately keyed on path
   }, [path]);
 
   const v = value.trim();

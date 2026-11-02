@@ -7,6 +7,8 @@
     "outDir": "dist/record",
     "rootDir": "..",
     "strict": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "types": ["node"]
   },

@@ -8,6 +8,8 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
     "sourceMap": true,
     "skipLibCheck": true,
     "esModuleInterop": true

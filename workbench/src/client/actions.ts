@@ -139,16 +139,16 @@ export class ActionsClient {
     return { actionId: r.action_id, status: r.status, stage: r.stage };
   }
 
-  /**
-   * POST /api/actions/{id}/rerequest — re-request an expired action (human
-   * token). The backend rebuilds it from the original's frozen fields with a
-   * fresh window and retry_of lineage; the analyst then approves the new one.
-   */
   /** POST /api/actions/{id}/edit — change a pending request's parameters before approval (adr/0127). */
   async edit(actionId: string, parameters: Record<string, unknown>, reason?: string): Promise<void> {
     await this.http.post(`/api/actions/${encodeURIComponent(actionId)}/edit`, { parameters, reason });
   }
 
+  /**
+   * POST /api/actions/{id}/rerequest — re-request an expired action (human
+   * token). The backend rebuilds it from the original's frozen fields with a
+   * fresh window and retry_of lineage; the analyst then approves the new one.
+   */
   async rerequest(actionId: string, rationale: string): Promise<void> {
     await this.http.post(`/api/actions/${encodeURIComponent(actionId)}/rerequest`, { rationale });
   }
@@ -201,8 +201,8 @@ export class ActionsClient {
   }
 
   /**
-   * GET /api/investigations/{id}/comms — the external-work threads (Phase F,
-   * binding §4): what was sent, who replied, what still awaits.
+   * GET /api/investigations/{id}/comms — the external-work threads (binding
+   * §4): what was sent, who replied, what still awaits.
    */
   async comms(investigationId: string): Promise<CommsThread[]> {
     const body = await this.http.get(`/api/investigations/${encodeURIComponent(investigationId)}/comms`, shapes.comms);

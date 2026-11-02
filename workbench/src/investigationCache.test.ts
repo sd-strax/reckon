@@ -225,7 +225,6 @@ describe("InvestigationCache: identity and forget (adr/0241)", () => {
 
     expect(cache.watermark("inv-1")).toBe(0);
     expect(cache.action("inv-1", "a-1")).toBeUndefined();
-    answer = () => undefined;
     let reread = false;
     client.investigations.transcript = async () => { reread = true; return { body: "b" } as never; };
     await cache.transcript("i-1");

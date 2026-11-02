@@ -16,10 +16,10 @@ describe("requesting an action from a pin (#146)", () => {
     ] }));
     fireEvent.click(screen.getByRole("tab", { name: /^Reasoning/ }));
     const pin = d.snapshot.pins.find((p) => !p.superseded)!;
-    fireEvent.click(screen.getAllByText("Request action on this…")[0]);
+    fireEvent.click(screen.getAllByText("Request action on this…")[0]!);
     let dlg = screen.getByRole("dialog");
     const typeSel = dlg.querySelector("#promptExtra_type") as HTMLSelectElement;
-    expect(typeSel.options[0].value).toBe("account.disable"); // containment first, case-record writes last
+    expect(typeSel.options[0]!.value).toBe("account.disable"); // containment first, case-record writes last
     fireEvent.change(dlg.querySelector("#promptExtra_other")!, { target: { value: "CONTOSO\\\\jdoe" } });
     fireEvent.change(document.querySelector("#promptInput")!, { target: { value: "contain the account" } });
     fireEvent.click(within(dlg).getByText("Next"));
@@ -27,7 +27,7 @@ describe("requesting an action from a pin (#146)", () => {
       type: "action.request", actionType: "account.disable", target: "CONTOSO\\\\jdoe", parameters: {}, rationale: "contain the account", evidenceRefs: pin.inputRefs,
     });
 
-    fireEvent.click(screen.getAllByText("Request action on this…")[0]);
+    fireEvent.click(screen.getAllByText("Request action on this…")[0]!);
     dlg = screen.getByRole("dialog");
     fireEvent.change(dlg.querySelector("#promptExtra_type")!, { target: { value: "ticket.comment" } });
     fireEvent.change(dlg.querySelector("#promptExtra_other")!, { target: { value: "INC0010042" } });

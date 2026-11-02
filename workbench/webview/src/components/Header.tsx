@@ -29,7 +29,14 @@ export function Header() {
   // closed records for EVERY entry point (pencil, dblclick, tree).
   const [editing, setEditing] = useState<string | null>(null);
   const edit = useRef<HTMLInputElement>(null);
-  useEffect(() => { if (state.renameRequest && !closed) setEditing(state.renameRequest.title || state.title); }, [state.renameRequest, closed, state.title]);
+  // Each request opens the editor once, by its nonce: the title changing on
+  // commit must not reopen it.
+  const [renameSeen, setRenameSeen] = useState(0);
+  const req = state.renameRequest;
+  if (req && !closed && req.nonce !== renameSeen) {
+    setRenameSeen(req.nonce);
+    setEditing(req.title || state.title);
+  }
   useEffect(() => { if (editing !== null) { edit.current?.focus(); edit.current?.select(); } }, [editing]);
   const start = () => { if (!closed && editing === null) setEditing(state.title); };
   const end = (commit: boolean) => {

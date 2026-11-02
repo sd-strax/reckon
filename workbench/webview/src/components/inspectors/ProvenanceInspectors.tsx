@@ -213,7 +213,8 @@ export function PersonInspector({ principalId }: { principalId: string }) {
   const acts = (state.snap?.thread || []).filter((e) => e.actor.principal === principalId);
   const name = acts.find((e) => e.actor.principalName)?.actor.principalName || principalId;
   const approvals = acts.filter((e) => e.interpretationType === "action-approval").length;
-  const opened = state.snap?.investigation.seed && acts.length && acts[0].sequenceNo <= 2;
+  const first = acts[0];
+  const opened = state.snap?.investigation.seed && first && first.sequenceNo <= 2;
   return (
     <>
       <div className="isub">From the identity provider at the time of each act; reckon stores no roles of its own.</div>

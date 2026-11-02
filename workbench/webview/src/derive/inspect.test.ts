@@ -37,8 +37,8 @@ describe("rendererFor", () => {
 describe("targetName", () => {
   it("names snapshot objects without a fetch, falls back to labels and type words", () => {
     const h = snap.hypotheses[0];
-    expect(targetName({ kind: "ref", ref: h.id }, snap, {})).toBe(h.handle + " · " + h.statement);
-    expect(targetName({ kind: "ref", ref: h.predictions[0].id }, snap, {})).toBe("P1 · " + h.predictions[0].statement);
+    expect(targetName({ kind: "ref", ref: h!.id }, snap, {})).toBe(h!.handle + " · " + h!.statement);
+    expect(targetName({ kind: "ref", ref: h!.predictions[0]!.id }, snap, {})).toBe("P1 · " + h!.predictions[0]!.statement);
     expect(targetName({ kind: "ref", ref: "x-host--z" }, snap, { "x-host--z": "host-z" })).toBe("host-z");
     expect(targetName({ kind: "ref", ref: "x-host--z" }, snap, {})).toBe("host");
     expect(targetName({ kind: "action", actionId: "act-1" }, snap, {})).toBe("host.isolate → host-a");
@@ -50,14 +50,14 @@ describe("targetName", () => {
 
 describe("inThisCase", () => {
   it("finds predictions, actions, pins, acts and the seed that cite a ref", () => {
-    const od1 = snap.pins[0].inputRefs[0];
-    const c = inThisCase(od1, snap);
+    const od1 = snap.pins[0]!.inputRefs[0];
+    const c = inThisCase(od1!, snap);
     expect(c.pins.length).toBe(1);
     expect(c.actions.map((a) => a.a.actionId + ":" + a.role)).toEqual(["act-1:evidence", "act-2:evidence"]);
     expect(c.acts.some((a) => a.role === "read")).toBe(true);
     expect(c.seed).toBe(false);
-    const note = snap.hypotheses[0].predictions[1].testResultRefs[0];
-    expect(inThisCase(note, snap).predictions.map((x) => x.p.ordinal)).toEqual([2]);
+    const note = snap.hypotheses[0]!.predictions[1]!.testResultRefs[0];
+    expect(inThisCase(note!, snap).predictions.map((x) => x.p.ordinal)).toEqual([2]);
     expect(inThisCase(snap.investigation.seed!.entityRef!, snap).seed).toBe(true);
     expect(isEmpty(inThisCase("nothing--here", snap))).toBe(true);
   });

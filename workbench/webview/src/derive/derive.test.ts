@@ -19,8 +19,8 @@ const A = (over: Partial<ActionRow>): ActionRow => ({
 describe("hyps", () => {
   it("names by handle or position, orders live first", () => {
     const hs = [H("a", "REFUTED"), H("b", "OPEN", [], "H2 legit"), H("c", "PROPOSED")];
-    expect(hypName(hs[0], hs)).toBe("H1");
-    expect(hypName(hs[1], hs)).toBe("H2 legit");
+    expect(hypName(hs[0]!, hs)).toBe("H1");
+    expect(hypName(hs[1]!, hs)).toBe("H2 legit");
     expect(orderHypotheses(hs).map((h) => h.id)).toEqual(["b", "c", "a"]);
   });
   it("briefs rivals with their untested discriminators and finds blockers", () => {

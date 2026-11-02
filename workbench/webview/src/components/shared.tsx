@@ -85,7 +85,7 @@ export function fullRef(ref: string, snap: InvestigationSnapshot | null): string
 
 /** Live approval-window countdown (03 §3.3): the analyst's only warning for lazy expiry. */
 export function Countdown({ expiresAt, className }: { expiresAt: string; className?: string }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);

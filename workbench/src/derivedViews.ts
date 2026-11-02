@@ -46,7 +46,7 @@ export async function buildDerivedViews(
   for (let i = 0; i < bounded.length; i += 8) {
     const slice = bounded.slice(i, i + 8);
     const fetched = await Promise.all(slice.map((r) => getDoc(r)));
-    fetched.forEach((doc, j) => docs.set(slice[j], doc));
+    slice.forEach((r, j) => docs.set(r, fetched[j] ?? null));
     for (const doc of fetched) {
       if (!doc) continue;
       let time = doc.kind === "ocsf" ? doc.time : undefined;

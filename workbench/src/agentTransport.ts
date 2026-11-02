@@ -36,7 +36,7 @@ export interface TurnProgress {
   /** Round-complete text — fires only when the provider cannot stream. */
   onText(text: string): void;
   /**
-   * A text fragment as the model generates it (E.4). Mutually exclusive with
+   * A text fragment as the model generates it. Mutually exclusive with
    * onText per completion (enforced sidecar-side): a streamed completion's
    * text arrives ONLY as deltas. Renderers append both the same way.
    */

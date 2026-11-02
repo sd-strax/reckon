@@ -15,16 +15,22 @@ export function Composer() {
   const closed = engine === "ARCHIVED" || engine === "CONCLUDED" || engine === "DISCARDED";
   const disabled = closed || busy || !state.snap;
 
+  // Each staging lands once, by its nonce: the composer re-enabling after a turn
+  // must not bring back text the analyst already sent.
+  const [landed, setLanded] = useState(0);
+  if (staged && !disabled && staged.nonce !== landed) {
+    setLanded(staged.nonce);
+    setText(staged.text);
+  }
   useEffect(() => {
-    if (staged && !disabled) {
-      setText(staged.text);
-      const el = input.current;
-      if (el) { el.focus(); requestAnimationFrame(() => el.setSelectionRange(staged.text.length, staged.text.length)); }
-    }
-  }, [staged, disabled]);
+    const el = input.current;
+    if (!landed || !el) return;
+    el.focus();
+    requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length));
+  }, [landed]);
 
   useEffect(() => { if (!disabled) input.current?.focus(); }, [disabled]);
-  useEffect(() => { if (!busy) setStopping(false); }, [busy]);
+  if (!busy && stopping) setStopping(false);
 
   const submit = () => {
     const t = text.trim();

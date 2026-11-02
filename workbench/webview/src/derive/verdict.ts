@@ -32,7 +32,7 @@ export function uncheckable(caps: Capability[] | null, turns: ChronicleTurn[]): 
   }
   return [...tried].map((verb) => {
     const intent = (caps || []).find((c) => c.verb === verb)?.intent || "";
-    const first = intent.split(/(?<=\.)\s/)[0].replace(/\.$/, "");
+    const first = (intent.split(/(?<=\.)\s/)[0] ?? "").replace(/\.$/, "");
     return { verb, what: first || verb };
   });
 }

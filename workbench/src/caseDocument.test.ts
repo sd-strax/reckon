@@ -23,7 +23,7 @@ describe("CaseDocuments: a change of identity", () => {
     } as unknown as BackendClient;
     const docs = new CaseDocuments(vscode.Uri.file("/ext"), client, fakeLog(), onCreated);
     docs.open("C-1");
-    createdPanels()[0].webview.receive({ type: "start" });
+    createdPanels()[0]!.webview.receive({ type: "start" });
     return { docs, onCreated };
   }
 
@@ -62,9 +62,9 @@ describe("CaseDocuments: an incompatible backend", () => {
     const client = { status: async () => ({}), incompatibilityReason: () => "backend API v9 unsupported", cases: { get } } as unknown as BackendClient;
     new CaseDocuments(vscode.Uri.file("/ext"), client, fakeLog(), vi.fn()).open("C-1");
 
-    createdPanels()[0].webview.receive({ type: "ready" });
+    createdPanels()[0]!.webview.receive({ type: "ready" });
 
-    await vi.waitFor(() => expect(createdPanels()[0].webview.posted).toContainEqual({ type: "error", message: "backend API v9 unsupported" }));
+    await vi.waitFor(() => expect(createdPanels()[0]!.webview.posted).toContainEqual({ type: "error", message: "backend API v9 unsupported" }));
     expect(get).not.toHaveBeenCalled();
   });
 });

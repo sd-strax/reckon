@@ -1,4 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { describe, expect, it } from "vitest";
 import { AppProvider, useApp } from "../app";
 import { App } from "./App";
@@ -11,7 +12,7 @@ const human = { principal: "u", principalName: "Ana", kind: "HUMAN" };
 const entry = (over: Partial<ThreadEntry>) => ({ sequenceNo: 9100, occurredAt: "2026-10-28T19:07:54Z", actor: human, interpretationId: "x", interpretationType: "verdict", summary: "s", superseded: false, inputRefs: [], outputRefs: [], toolCalls: 0, hasTranscript: false, consultedSops: [], consultedSimilar: [], ...over }) as ThreadEntry;
 
 let open: ReturnType<typeof useApp>["openInspector"] = () => undefined;
-function Grab() { open = useApp().openInspector; return null; }
+function Grab() { const o = useApp().openInspector; useEffect(() => { open = o; }); return null; }
 
 describe("acts that are not agent turns (#144)", () => {
   it("chooses the pane from the entry: a turn only when there is a transcript", () => {

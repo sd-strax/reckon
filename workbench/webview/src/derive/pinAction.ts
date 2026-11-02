@@ -12,7 +12,7 @@ export function pinTargets(pin: PinRow, graph: GraphView | undefined, labels: Re
   for (const e of graph?.edges || []) {
     if (!e.join || !refs.has(e.from)) continue;
     const label = labels[e.to];
-    if (label && !out.some((o) => o.value === label)) out.push({ value: label, label: label + " · " + e.to.split("--")[0].replace(/^x-/, "") });
+    if (label && !out.some((o) => o.value === label)) out.push({ value: label, label: label + " · " + (e.to.split("--")[0] ?? "").replace(/^x-/, "") });
   }
   return out;
 }

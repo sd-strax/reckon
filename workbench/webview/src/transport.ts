@@ -19,7 +19,6 @@ interface VsCodeApi {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var acquireVsCodeApi: (() => VsCodeApi) | undefined;
 }
 
