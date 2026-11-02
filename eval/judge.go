@@ -54,15 +54,62 @@ type JudgeVerdict struct {
 
 // JudgeRubricVersion attributes the judge's text to each run (10 §1.4): a
 // short hash over the judge's instruction, the framing of its question, and
-// every rubric (adr/0232), so it moves with any of them. TestJudgeRubric_Frozen
-// pins it.
-var JudgeRubricVersion = judgeRubricVersion()
+// every rubric in judgeRubrics (adr/0232), so it moves with any of them.
+// TestJudgeRubric_Frozen pins it, and TestJudgeText_ComponentsFrozen names
+// the part that moved.
+var JudgeRubricVersion = textVersion(judgeComponents())
 
-func judgeRubricVersion() string {
+// ReaderVersion attributes the reader's text (adr/0069) to a run whose script
+// answers a manual test: its reading is the result the agent is shown on the
+// next turn, so a change to the reader's words can move graded behaviour, and
+// neither the prompt version nor the judge's covers them.
+var ReaderVersion = textVersion(readerComponents())
+
+// judgeRubric is the rubric an assertion is judged against.
+type judgeRubric struct {
+	Assertion, Text string
+}
+
+// judgeRubrics is every rubric the judge is asked about. It is the one list:
+// consultJudge reads an assertion's rubric from it, and JudgeRubricVersion
+// hashes it, so no rubric can be judged and left out of the version.
+var judgeRubrics = []judgeRubric{{"E3", rubricE3}, {"R3", rubricR3}, {"A4", rubricA4}}
+
+// rubricFor is the rubric the assertion is judged against. A judged grader
+// with no entry in judgeRubrics is a programming error.
+func rubricFor(assertion string) string {
+	for _, r := range judgeRubrics {
+		if r.Assertion == assertion {
+			return r.Text
+		}
+	}
+	panic(fmt.Sprintf("eval: %s is judged but has no rubric in judgeRubrics", assertion))
+}
+
+// namedText is one hashed input of a text version.
+type namedText struct {
+	Name, Text string
+}
+
+func judgeComponents() []namedText {
+	comps := []namedText{{"system", judgeSystem}, {"asks", judgeAsks}, {"shows", judgeShows}, {"grades", judgeGrades}}
+	for _, r := range judgeRubrics {
+		comps = append(comps, namedText{"rubric/" + r.Assertion, r.Text})
+	}
+	return comps
+}
+
+func readerComponents() []namedText {
+	return []namedText{{"system", readerSystem}, {"asks", readerAsks}}
+}
+
+// textVersion is the first 12 hex characters of a hash over each
+// component's own hash, in order.
+func textVersion(comps []namedText) string {
 	h := sha256.New()
-	for _, text := range []string{judgeSystem, judgeAsks, judgeShows, judgeGrades, rubricE3, rubricR3, rubricA4} {
-		sum := sha256.Sum256([]byte(text))
-		h.Write(sum[:])
+	for _, c := range comps {
+		sum := sha256.Sum256([]byte(c.Text))
+		h.Write(sum[:]) // a hash.Hash never fails a write
 	}
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
@@ -89,6 +136,10 @@ type ReadQuestion struct {
 const readerSystem = `You are an investigation analyst recording the result of a test that only a person could run. You are given a hypothesis, the prediction the hypothesis makes (what would be observed if the hypothesis is true), and what the person said when asked. Decide whether the person's answer CONFIRMS the prediction (the predicted observation happened), DISCONFIRMS it (the predicted observation did not happen), or is INCONCLUSIVE (the answer does not settle it). Judge the prediction's own wording, not the hypothesis's likelihood. Answer with a JSON object only:
 {"status": "CONFIRMED" | "DISCONFIRMED" | "INCONCLUSIVE", "reason": "one sentence"}`
 
+// readerAsks frames the reader's question: the hypothesis, the prediction,
+// and the person's answer.
+const readerAsks = "Hypothesis: %s\n\nPrediction (what would be observed if the hypothesis is true):\n%s\n\nWhat the person said:\n<<<\n%s\n>>>\n"
+
 // Read implements Reader on the same provider seam as Judge.
 func (j *LLMJudge) Read(ctx context.Context, q ReadQuestion) (string, string, error) {
 	timeout := j.Timeout
@@ -97,7 +148,7 @@ func (j *LLMJudge) Read(ctx context.Context, q ReadQuestion) (string, string, er
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	user := fmt.Sprintf("Hypothesis: %s\n\nPrediction (what would be observed if the hypothesis is true):\n%s\n\nWhat the person said:\n<<<\n%s\n>>>\n", q.Hypothesis, q.Statement, q.Content)
+	user := fmt.Sprintf(readerAsks, q.Hypothesis, q.Statement, q.Content)
 	resp, err := j.LLM.Complete(ctx, agent.CompleteRequest{
 		System:    readerSystem,
 		Messages:  []agent.Message{{Role: agent.RoleUser, Content: []agent.ContentBlock{agent.TextBlock(user)}}},
@@ -281,6 +332,7 @@ func truncate(s string, n int) string {
 // when the judge errors, the anchors decide as they did at v0 and the detail
 // says so.
 func consultJudge(judge Judge, q JudgeQuestion, anchor string) Verdict {
+	q.Rubric = rubricFor(q.Assertion)
 	byAnchor := Verdict{Result: Fail, Detail: q.anchorMissDetail()}
 	if anchor != "" {
 		byAnchor = Verdict{Result: Pass, Detail: fmt.Sprintf("%s (%q)", q.anchorHitDetail(), anchor), Anchor: anchor}

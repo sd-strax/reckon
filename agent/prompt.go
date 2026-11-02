@@ -400,7 +400,7 @@ func systemPrompt(inv Investigation, caps []Capability) string {
 		}
 	}
 	if len(degraded) > 0 {
-		fmt.Fprintf(&b, textDegraded.Text, strings.Join(degraded, ", "))
+		fmt.Fprintf(&b, textDegraded.Text, strings.Join(degraded, textListSeparator.Text))
 	}
 
 	return b.String()

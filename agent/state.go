@@ -58,7 +58,7 @@ type predictionRow struct {
 // tools take. Without an ordinal, the id alone.
 func predictionLabel(p predictionRow) string {
 	if p.Ordinal > 0 {
-		return fmt.Sprintf("P%d (%s)", p.Ordinal, p.ID)
+		return fmt.Sprintf(textPredictionName.Text, p.Ordinal, p.ID)
 	}
 	return p.ID
 }
@@ -103,11 +103,11 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 	}
 	var open []outstanding
 	for _, h := range rows {
-		fmt.Fprintf(&b, "%s (%s) %s", nameOf[h.ID], h.ID, h.Status)
+		fmt.Fprintf(&b, textHypothesisLine.Text, nameOf[h.ID], h.ID, h.Status)
 		if len(h.Labels) > 0 {
-			fmt.Fprintf(&b, " [%s]", strings.Join(h.Labels, ", "))
+			fmt.Fprintf(&b, textHypothesisLabels.Text, strings.Join(h.Labels, textListSeparator.Text))
 		}
-		fmt.Fprintf(&b, " — %s\n", strings.TrimSpace(h.Statement))
+		fmt.Fprintf(&b, textHypothesisStatement.Text, strings.TrimSpace(h.Statement))
 		if len(h.Predictions) == 0 {
 			b.WriteString(textNoPredictions.Text)
 			continue
@@ -134,7 +134,7 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 			}
 			fmt.Fprintf(&b, textUntested.Text, predictionLabel(p))
 			if len(rivals) > 0 {
-				fmt.Fprintf(&b, textDiscriminatesVs.Text, strings.Join(rivals, ", "))
+				fmt.Fprintf(&b, textDiscriminatesVs.Text, strings.Join(rivals, textListSeparator.Text))
 			}
 			if p.TestKind == "manual" {
 				// A person tests it (adr/0054): the model cannot run it and the
@@ -142,7 +142,7 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 				// model reads the test, not only in the standing rules.
 				b.WriteString(textManualTest.Text)
 			}
-			fmt.Fprintf(&b, ": %s\n", clipRunes(strings.TrimSpace(p.Statement), predictionStatementMax))
+			fmt.Fprintf(&b, textPredictionStatement.Text, clipRunes(strings.TrimSpace(p.Statement), predictionStatementMax))
 		}
 	}
 	if len(open) > 0 {
@@ -151,12 +151,12 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 		for _, o := range open {
 			parts = append(parts, fmt.Sprintf(textHolds.Text, o.owner, o.pred, o.rival))
 		}
-		b.WriteString(strings.Join(parts, "; "))
+		b.WriteString(strings.Join(parts, textHoldsSeparator.Text))
 		b.WriteString(textUntilTested.Text)
 	} else {
 		b.WriteString(textNoneOutstanding.Text)
 	}
-	b.WriteString("]")
+	b.WriteString(textBlockEnd.Text)
 	return b.String()
 }
 
@@ -166,7 +166,7 @@ func hypothesisLabel(h hypothesisRow, i int) string {
 	if strings.TrimSpace(h.Handle) != "" {
 		return strings.TrimSpace(h.Handle)
 	}
-	return fmt.Sprintf("H%d", i+1)
+	return fmt.Sprintf(textPositionalName.Text, i+1)
 }
 
 // isLiveHypothesis reports whether a hypothesis is still undecided — the only
@@ -178,11 +178,12 @@ func isLiveHypothesis(status string) bool {
 // tallyString renders a prediction status tally in a fixed order so the block
 // is stable for the same state.
 func tallyString(tally map[string]int) string {
-	order := []string{"UNTESTED", "CONFIRMED", "DISCONFIRMED", "INCONCLUSIVE", "WITHDRAWN"}
+	order := strings.Fields(textTallyOrder.Text)
 	parts := make([]string, 0, len(order))
-	for _, st := range order {
+	for _, word := range order {
+		st := strings.ToUpper(word)
 		if n := tally[st]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", n, strings.ToLower(st)))
+			parts = append(parts, fmt.Sprintf(textTallyCount.Text, n, word))
 			delete(tally, st)
 		}
 	}
@@ -192,7 +193,7 @@ func tallyString(tally map[string]int) string {
 	}
 	sort.Strings(rest)
 	for _, st := range rest {
-		parts = append(parts, fmt.Sprintf("%d %s", tally[st], strings.ToLower(st)))
+		parts = append(parts, fmt.Sprintf(textTallyCount.Text, tally[st], strings.ToLower(st)))
 	}
-	return strings.Join(parts, ", ")
+	return strings.Join(parts, textListSeparator.Text)
 }

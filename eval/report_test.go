@@ -98,3 +98,26 @@ func TestRegressions_RelocatedTurnKey(t *testing.T) {
 		}
 	}
 }
+
+// TestVersionSkew: the run names each text version it does not share with
+// the baseline, and says nothing of a version either side lacks.
+func TestVersionSkew(t *testing.T) {
+	r := &Report{Attribution: Attribution{
+		PromptVersion: "f5df72f6b87f19000cece63d", SideInstructionVersion: "a1bd6f383f4e", JudgeRubric: "caa20d15db77", ReaderVersion: "e11a1ab74e69",
+	}}
+	base := &BaselineSummary{Attribution: Attribution{PromptVersion: "a870ddbf8038fe4ee2049f35", JudgeRubric: "v1"}}
+	want := []string{"prompt f5df72f6b87f against baseline a870ddbf8038", "judge rubric caa20d15db77 against baseline v1"}
+	if got := r.VersionSkew(base); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("VersionSkew =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	base.Attribution = r.Attribution
+	if got := r.VersionSkew(base); got != nil {
+		t.Errorf("VersionSkew against the same versions = %v", got)
+	}
+	if got := r.VersionSkew(nil); got != nil {
+		t.Errorf("VersionSkew with no baseline = %v", got)
+	}
+	if s := r.Summary(); !strings.Contains(s, "prompt f5df72f6b87f  side a1bd6f383f4e  catalogue") || !strings.Contains(s, "reader e11a1ab74e69") {
+		t.Errorf("summary does not carry the versions:\n%s", s)
+	}
+}

@@ -2,6 +2,8 @@ package eval
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -36,9 +38,72 @@ func TestJudgeRubric_Frozen(t *testing.T) {
 	const want = "caa20d15db77"
 	if JudgeRubricVersion != want {
 		t.Errorf("judge rubric version = %s; want %s\n"+
-			"  the judge's text changed. If that is deliberate, update this golden; runs graded before it keep the version they were stamped with.",
+			"  the judge's text changed; TestJudgeText_ComponentsFrozen names which. If that is deliberate, update both goldens; runs graded before it keep the version they were stamped with.",
 			JudgeRubricVersion, want)
 	}
+}
+
+// TestReader_Frozen pins the reader's version (adr/0232).
+func TestReader_Frozen(t *testing.T) {
+	const want = "e11a1ab74e69"
+	if ReaderVersion != want {
+		t.Errorf("reader version = %s; want %s\n"+
+			"  the reader's text changed; TestJudgeText_ComponentsFrozen names which. If that is deliberate, update both goldens.",
+			ReaderVersion, want)
+	}
+}
+
+// TestJudgeText_ComponentsFrozen names what moved when the judge's or the
+// reader's version did: each hashed text against its golden digest, and any
+// added or gone.
+func TestJudgeText_ComponentsFrozen(t *testing.T) {
+	golden := map[string]string{
+		"judge/system":    "a3e946d90d8c6ebe396f09875578367f18f36578ac7aa7d4cd7384129af348c3",
+		"judge/asks":      "9b11f388dfb9f68cdfbf8d1ca0190a38456eefce7c153cfa56ee9c5a25656372",
+		"judge/shows":     "55ef227173d679c8dbad56e9b6df97db13784e0100c4b7088c761a208cd4e6d1",
+		"judge/grades":    "a931c58a8fe08817879439ed06004f4b5faaa839559f6709a03a1d7f0af86442",
+		"judge/rubric/E3": "360f6c7e3494711665c0835440ef6b7feb1647a353b4e9d6076d8477675f1c66",
+		"judge/rubric/R3": "b77934500ccca4c0055266b8ad87726953de163f2059d608224b8ede693285fd",
+		"judge/rubric/A4": "0a94a765d744551c4e85dd7f286dcf981112b60c47f168018f87100fea1474e9",
+		"reader/system":   "867889c0507692235d1f99f2b9c75248df9e0702c4d7f6b0c41a55a10ec313d3",
+		"reader/asks":     "f616772923841c37e180bc0c8a4d3012ec4762f947f11abaf46b708e2edb0039",
+	}
+	got := map[string]string{}
+	for prefix, comps := range map[string][]namedText{"judge/": judgeComponents(), "reader/": readerComponents()} {
+		for _, c := range comps {
+			sum := sha256.Sum256([]byte(c.Text))
+			got[prefix+c.Name] = hex.EncodeToString(sum[:])
+		}
+	}
+	for name, want := range golden {
+		switch g, ok := got[name]; {
+		case !ok:
+			t.Errorf("%s is in the golden but no longer hashed", name)
+		case g != want:
+			t.Errorf("%s changed: digest %s; want %s", name, g, want)
+		}
+	}
+	for name, g := range got {
+		if _, ok := golden[name]; !ok {
+			t.Errorf("%s is hashed but has no golden: add %q: %q", name, name, g)
+		}
+	}
+}
+
+// TestConsultJudge_RubricFromTheList: a judged assertion's rubric comes from
+// judgeRubrics, and one with no entry there cannot be judged.
+func TestConsultJudge_RubricFromTheList(t *testing.T) {
+	j := &fakeJudge{}
+	consultJudge(j, JudgeQuestion{Assertion: "A4", Response: "r"}, "")
+	if len(j.asked) != 1 || j.asked[0].Rubric != rubricA4 {
+		t.Fatalf("asked %+v; want A4's rubric", j.asked)
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("an assertion with no rubric was judged")
+		}
+	}()
+	consultJudge(j, JudgeQuestion{Assertion: "Z9", Response: "r"}, "")
 }
 
 // TestLLMJudge_ParsesAndAttributes: the judge sends the rubric, state, and

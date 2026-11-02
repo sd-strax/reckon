@@ -37,7 +37,8 @@ type versionComponent struct {
 }
 
 // versionOf hashes each component's name and digest, in order. A golden over
-// the per-component digests names what moved when a version does.
+// the per-component digests names what moved when a version does; the order
+// is hashed too, so a reordering moves the version and no component.
 func versionOf(comps []versionComponent) string {
 	h := sha256.New()
 	for _, c := range comps {
@@ -93,7 +94,9 @@ func toolBytes(d ToolDef) []byte {
 // exampleCatalog exercises the request_action text a catalog brings: a type of
 // each availability, entity and scalar inputs, and a parameter two types share.
 // It stands in for an install's catalog so the hash covers the code's words
-// around the catalog, never the catalog's own.
+// around the catalog, never the catalog's own. Its literal strings are part of
+// the version all the same: editing one moves tools/request_action+catalog,
+// though no model is ever shown them.
 func exampleCatalog() []ActionType {
 	var isolate, ticket, block ActionType
 	isolate.Status = "available"
@@ -117,7 +120,8 @@ func exampleCatalog() []ActionType {
 }
 
 // exampleVerb is a capability descriptor with every input kind the loop
-// renders (entity, time window, scalar), for the same reason.
+// renders (entity, time window, scalar), for the same reason. Its literal
+// strings are part of the version too, through tools/<verb>.
 func exampleVerb() Capability {
 	var c Capability
 	c.Status = "available"

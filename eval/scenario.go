@@ -33,6 +33,17 @@ type Scenario struct {
 	Hash string `yaml:"-"`
 }
 
+// answersManualTests reports whether the script answers a manual test, so the
+// reader's text shapes the run.
+func (s *Scenario) answersManualTests() bool {
+	for _, t := range s.Turns {
+		if t.AttestManual != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // TurnSpec is one scripted analyst turn plus its turn-scoped expectations
 // (10 §2): assertion ids that grade THIS turn's response, with per-turn grader
 // configuration.

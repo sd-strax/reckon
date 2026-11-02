@@ -33,6 +33,9 @@ type Attribution struct {
 	// this run: empty means every verdict was deterministic.
 	JudgeModel  string `json:"judge_model,omitempty"`
 	JudgeRubric string `json:"judge_rubric,omitempty"`
+	// ReaderVersion attributes the reader (adr/0069) when the script answers
+	// a manual test: its reading is what the agent is shown next (adr/0232).
+	ReaderVersion string `json:"reader_version,omitempty"`
 }
 
 // AssertionResult is one assertion's aggregated outcome across N trials
@@ -225,8 +228,11 @@ func (r *Report) Summary() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "eval run — scenario %s, model %s, %d trials\n",
 		r.Attribution.ScenarioID, r.Attribution.Model, r.Attribution.Trials)
-	fmt.Fprintf(&b, "prompt %s  catalogue %s",
-		short(r.Attribution.PromptVersion), r.Attribution.CatalogueVersion)
+	fmt.Fprintf(&b, "prompt %s  side %s  catalogue %s",
+		short(r.Attribution.PromptVersion), short(r.Attribution.SideInstructionVersion), r.Attribution.CatalogueVersion)
+	if r.Attribution.ReaderVersion != "" {
+		fmt.Fprintf(&b, "  reader %s", r.Attribution.ReaderVersion)
+	}
 	if r.Attribution.JudgeModel != "" {
 		fmt.Fprintf(&b, "  judge %s (%s)", r.Attribution.JudgeModel, r.Attribution.JudgeRubric)
 	}
@@ -378,6 +384,28 @@ func (r *Report) Regressions(base *BaselineSummary) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// VersionSkew names each text version on which the run and the baseline
+// differ, when both carry one. Regressions compares scores alone (10 §4.4); a
+// baseline graded under other text still decides it, and this says so to the
+// reader of the matrix.
+func (r *Report) VersionSkew(base *BaselineSummary) []string {
+	if base == nil {
+		return nil
+	}
+	var out []string
+	for _, v := range []struct{ name, run, base string }{
+		{"prompt", r.Attribution.PromptVersion, base.Attribution.PromptVersion},
+		{"side instructions", r.Attribution.SideInstructionVersion, base.Attribution.SideInstructionVersion},
+		{"judge rubric", r.Attribution.JudgeRubric, base.Attribution.JudgeRubric},
+		{"reader", r.Attribution.ReaderVersion, base.Attribution.ReaderVersion},
+	} {
+		if v.run != "" && v.base != "" && v.run != v.base {
+			out = append(out, fmt.Sprintf("%s %s against baseline %s", v.name, short(v.run), short(v.base)))
+		}
+	}
 	return out
 }
 

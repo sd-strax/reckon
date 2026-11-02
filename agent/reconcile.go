@@ -42,7 +42,7 @@ func (s *Session) reconcileActionClaims(ctx context.Context, finalText string, s
 	for _, id := range cited {
 		switch {
 		case status[id] != "":
-			parts = append(parts, id[:8]+"="+status[id])
+			parts = append(parts, fmt.Sprintf(textEngineRecordEntry.Text, id[:8], status[id]))
 		case seen[id]:
 			// A legit engine id the session already produced — an observed-data
 			// ref from a read verb, an entity id, the investigation id quoted
@@ -50,13 +50,13 @@ func (s *Session) reconcileActionClaims(ctx context.Context, finalText string, s
 			// rather than cry wolf (the read verbs surfaced this false alarm).
 			continue
 		default:
-			parts = append(parts, id[:8]+"="+textNotOnRecord.Text)
+			parts = append(parts, fmt.Sprintf(textEngineRecordEntry.Text, id[:8], textNotOnRecord.Text))
 		}
 	}
 	if len(parts) == 0 {
 		return "" // every cited id was a known engine id — nothing to correct
 	}
-	return fmt.Sprintf(textEngineRecord.Text, strings.Join(parts, ", "))
+	return fmt.Sprintf(textEngineRecord.Text, strings.Join(parts, textListSeparator.Text))
 }
 
 // rememberIDs records the full-UUID tokens in a tool result as engine-produced
@@ -118,7 +118,7 @@ func (s *Session) turnFooter(ctx context.Context, finalText string, actionsReque
 	if at := noActionAttestation(finalText, actionsRequestedThisTurn); at != "" {
 		parts = append(parts, at)
 	}
-	return strings.Join(parts, "\n")
+	return strings.Join(parts, textFooterSeparator.Text)
 }
 
 // engineStateAnchor renders the compact authoritative action record for the
@@ -139,9 +139,9 @@ func (s *Session) engineStateAnchor(ctx context.Context) string {
 		if len(id) > 8 {
 			id = id[:8]
 		}
-		rows = append(rows, id+" "+a.ActionType+"="+a.Status)
+		rows = append(rows, fmt.Sprintf(textEngineStateRow.Text, id, a.ActionType, a.Status))
 	}
-	return fmt.Sprintf(textEngineState.Text, strings.Join(rows, ", "), pending)
+	return fmt.Sprintf(textEngineState.Text, strings.Join(rows, textListSeparator.Text), pending)
 }
 
 func dedupeLower(ss []string) []string {

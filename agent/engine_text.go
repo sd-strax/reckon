@@ -33,33 +33,61 @@ var (
 
 	textReasoningState = modelText{ID: "reasoning-state", Origin: "f01ffc3",
 		Text: "[reasoning state — the investigation's hypothesis set as the engine holds it now (trust THIS over any earlier narration):\n"}
+	textHypothesisLine = modelText{ID: "reasoning-state-hypothesis", Origin: "f01ffc3",
+		Text: "%s (%s) %s"}
+	textHypothesisLabels = modelText{ID: "reasoning-state-labels", Origin: "f01ffc3",
+		Text: " [%s]"}
+	textHypothesisStatement = modelText{ID: "reasoning-state-statement", Origin: "f01ffc3",
+		Text: " — %s\n"}
+	textPositionalName = modelText{ID: "reasoning-state-positional-name", Origin: "f01ffc3",
+		Text: "H%d"}
+	textPredictionName = modelText{ID: "reasoning-state-prediction-name", Origin: "cdc0ef8",
+		Text: "P%d (%s)"}
 	textNoPredictions = modelText{ID: "reasoning-state-no-predictions", Origin: "f01ffc3",
 		Text: "  predictions: none\n"}
 	textPredictionTally = modelText{ID: "reasoning-state-predictions", Origin: "f01ffc3",
 		Text: "  predictions: %s\n"}
+	textTallyCount = modelText{ID: "reasoning-state-tally-count", Origin: "f01ffc3",
+		Text: "%d %s"}
+	// textTallyOrder is the prediction statuses as the tally names them, in
+	// the order it lists them; a status the engine adds later follows, by name.
+	textTallyOrder = modelText{ID: "reasoning-state-tally-order", Origin: "f01ffc3",
+		Text: "untested confirmed disconfirmed inconclusive withdrawn"}
 	textUntested = modelText{ID: "reasoning-state-untested", Origin: "0efca01", Revised: []string{"f01ffc3"},
 		Text: "  - untested %s"}
 	textDiscriminatesVs = modelText{ID: "reasoning-state-discriminates", Origin: "0efca01", Revised: []string{"f01ffc3"},
 		Text: " (discriminates vs %s)"}
 	textManualTest = modelText{ID: "reasoning-state-manual", Origin: "cebed87",
 		Text: " [manual — a person tests it; the analyst records the result, you cannot]"}
+	textPredictionStatement = modelText{ID: "reasoning-state-prediction-statement", Origin: "f01ffc3",
+		Text: ": %s\n"}
 	textOutstanding = modelText{ID: "reasoning-state-outstanding", Origin: "f01ffc3",
 		Text: "Untested discriminators outstanding: "}
 	textHolds = modelText{ID: "reasoning-state-holds", Origin: "f01ffc3",
 		Text: "%s holds %s against %s"}
+	textHoldsSeparator = modelText{ID: "reasoning-state-holds-separator", Origin: "f01ffc3",
+		Text: "; "}
 	textUntilTested = modelText{ID: "reasoning-state-until-tested", Origin: "f01ffc3",
 		Text: ". Until each is tested or the analyst withdraws it, its owner cannot be recorded refuted and the hypothesis it discriminates against cannot be recorded supported."}
 	textNoneOutstanding = modelText{ID: "reasoning-state-none-outstanding", Origin: "f01ffc3",
 		Text: "No untested discriminator is outstanding."}
+	textBlockEnd = modelText{ID: "reasoning-state-end", Origin: "f01ffc3",
+		Text: "]"}
 
 	textEngineState = modelText{ID: "engine-state", Origin: "108673d",
 		Text: "[engine state — the authoritative action record for this investigation (trust THIS over any earlier narration): %s; %d awaiting approval]"}
+	textEngineStateRow = modelText{ID: "engine-state-row", Origin: "108673d",
+		Text: "%s %s=%s"}
 	textEngineRecord = modelText{ID: "engine-record", Origin: "4c574ed",
 		Text: "[engine record — authoritative, verified against the action log: %s]"}
+	textEngineRecordEntry = modelText{ID: "engine-record-entry", Origin: "4c574ed",
+		Text: "%s=%s"}
 	textNotOnRecord = modelText{ID: "engine-record-not-on-record", Origin: "4c574ed",
 		Text: "NOT ON RECORD"}
 	textNoActionRequested = modelText{ID: "engine-record-no-action", Origin: "108673d",
 		Text: "[engine record: NO action was requested this turn — any claim above of a new ticket/action is unconfirmed]"}
+	textFooterSeparator = modelText{ID: "footer-separator", Origin: "108673d",
+		Text: "\n"}
 
 	textContextCondensed = modelText{ID: "context-condensed", Origin: "cf59268",
 		Text: "[context] The conversation was condensed to fit the context window. Earlier turns keep only " +
@@ -79,8 +107,20 @@ var (
 			"conclude nothing from what this page leaves out."}
 	textResultOversized = modelText{ID: "result-oversized", Origin: "1a7fecf",
 		Text: "This result is %d bytes, over the %d-byte limit for one tool result, and cannot be shown in pages. Narrow the query."}
+	// textResultBoundedShape is the JSON a paged or oversized result is framed
+	// in, every field set: the keys the model reads, derived from boundedNote
+	// so a renamed field moves the version.
+	textResultBoundedShape = modelText{ID: "result-bounded-shape", Origin: "1a7fecf",
+		Text: boundedShape()}
 	textToolCutOff = modelText{ID: "tool-cut-off", Origin: "1a7fecf",
 		Text: "this call's input was cut off at the output limit and was not run; issue it again with a shorter input"}
+
+	// textListSeparator joins the items of every list the engine text names:
+	// labels, rivals, tallies, action entries, degraded verbs.
+	textListSeparator = modelText{ID: "list-separator", Origin: "80420c3",
+		Text: ", "}
+	textClipped = modelText{ID: "clipped", Origin: "80420c3",
+		Text: "…"}
 
 	textSeedLine = modelText{ID: "prompt-seed", Origin: "45b9ec5",
 		Text: "- seed: %s\n"}
@@ -94,12 +134,18 @@ var (
 // this order, and TestModelTextLedger_Complete reads it.
 var engineTexts = []modelText{
 	textClock,
-	textReasoningState, textNoPredictions, textPredictionTally, textUntested, textDiscriminatesVs,
-	textManualTest, textOutstanding, textHolds, textUntilTested, textNoneOutstanding,
-	textEngineState, textEngineRecord, textNotOnRecord, textNoActionRequested,
+	textReasoningState, textHypothesisLine, textHypothesisLabels, textHypothesisStatement,
+	textPositionalName, textPredictionName,
+	textNoPredictions, textPredictionTally, textTallyCount, textTallyOrder, textUntested, textDiscriminatesVs,
+	textManualTest, textPredictionStatement, textOutstanding, textHolds, textHoldsSeparator, textUntilTested,
+	textNoneOutstanding, textBlockEnd,
+	textEngineState, textEngineStateRow, textEngineRecord, textEngineRecordEntry, textNotOnRecord,
+	textNoActionRequested, textFooterSeparator,
 	textContextCondensed, textResultRemoved, textRerun, textRerunOrRead, textResultPaged, textResultOversized,
+	textResultBoundedShape,
 	textToolCutOff,
 	textSeedLine, textCaseSeed, textDegraded,
+	textListSeparator, textClipped,
 }
 
 // Side instructions: the whole prompt of the two side completions, the

@@ -851,7 +851,6 @@ func gradeE3Judged(tr *TrialRecord, turn int, spec TurnSpec, judge Judge) Verdic
 	}
 	return consultJudge(judge, JudgeQuestion{
 		Assertion: "E3",
-		Rubric:    rubricE3,
 		Context:   "The hypotheses the assistant proposed are PROPOSED (not yet acknowledged by the analyst).",
 		Response:  tr.Turns[turn].Text,
 	}, anchorHit(tr.Turns[turn].Text, spec.Anchors))
@@ -1054,7 +1053,6 @@ func gradeA4Judged(tr *TrialRecord, turn int, spec TurnSpec, judge Judge) Verdic
 	}
 	return consultJudge(judge, JudgeQuestion{
 		Assertion: "A4",
-		Rubric:    rubricA4,
 		Context:   hypothesisSetText(tr.Hypotheses),
 		Response:  tr.Turns[turn].Text,
 	}, anchorHit(tr.Turns[turn].Text, spec.Anchors))
@@ -1231,7 +1229,6 @@ func gradeR3Judged(tr *TrialRecord, turn int, spec TurnSpec, judge Judge) Verdic
 	}
 	return consultJudge(judge, JudgeQuestion{
 		Assertion: "R3",
-		Rubric:    rubricR3,
 		Context:   outstandingDiscriminatorsText(tr.Hypotheses),
 		Response:  tr.Turns[turn].Text,
 	}, anchorHit(tr.Turns[turn].Text, spec.Anchors))

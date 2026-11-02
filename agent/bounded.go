@@ -184,6 +184,22 @@ func (lr listedResult) page(note boundedNote, offset, limit int) ([]byte, bool) 
 	return lr.render(note, offset, k, k), true
 }
 
+// boundedShape is the framing of a bounded result with every field set and
+// the values zeroed: the JSON keys alone, for the version (engine_text.go).
+func boundedShape() string {
+	n := 0
+	b, err := json.Marshal(map[string]any{boundedKey: boundedNote{
+		ResultID: "-", NextOffset: &n, Skipped: &n,
+		Lists: map[string]listCount{"-": {}},
+		Digest: &resultDigest{First: "-", Last: "-",
+			ByClass: facet{Top: []valueCount{{Value: "-"}}}, ByHost: facet{Top: []valueCount{{Value: "-"}}}, ByUser: facet{Top: []valueCount{{Value: "-"}}}},
+	}})
+	if err != nil {
+		panic(fmt.Sprintf("agent: the bounded note does not marshal: %v", err))
+	}
+	return string(b)
+}
+
 // oversized answers a result that cannot be paged (not a JSON object or array
 // with a list, or its other fields alone exceed the limit).
 func oversized(total, limit int) []byte {

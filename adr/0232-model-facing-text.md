@@ -62,7 +62,15 @@ was outside it:
   `prompt.go` render from these entries. The hash covers the templates, never a
   rendered block, so the investigation's identifiers stay out of the version.
   Labels inside the reasoning-state block ("predictions:", "untested",
-  "discriminates vs") are words the model reads and are entries too.
+  "discriminates vs") are words the model reads and are entries too, and so is
+  the structure around the values: each line's format, the `H<n>` and `P<n>`
+  names, the tally's status words and their order, the list and footer
+  separators, the clip marker, and the JSON keys a paged result is framed in
+  (derived from the struct, so a renamed field moves the version).
+- **`TestEngineText_RenderersUseTheLedger`** renders each renderer through its
+  branches and cuts out the values it substituted. What remains must be a
+  sequence of the templates' literal parts. A literal added inline is reported
+  with the text no entry holds.
 - **Tools carry ledger fields.** Each intrinsic `toolSpec` has `Origin` and
   `Revised`, in the prompt ledger's pointer form. A tool has no `Why`: its
   description states its purpose. The rules hiding in descriptions are now
@@ -80,8 +88,17 @@ was outside it:
   catalog-shaped and verb-shaped tool text, the engine text and the side
   instructions, as well as the prompt and the tool descriptions.
 - **`JudgeRubricVersion` is a hash.** It is the first 12 hex characters of a
-  hash over the judge's instruction, the three frames of its question, and the
-  E3, R3 and A4 rubrics. `TestJudgeRubric_Frozen` pins it.
+  hash over the judge's instruction, the three frames of its question, and each
+  rubric in `judgeRubrics`. That list is the only place a rubric is found: the
+  judged graders name their assertion and `consultJudge` reads its rubric from
+  the list, so a rubric cannot be judged and left out of the version.
+  `TestJudgeRubric_Frozen` pins the version and `TestJudgeText_ComponentsFrozen`
+  each part.
+- **The reader has `ReaderVersion`.** The reader (adr/0069) decides the
+  polarity of the scripted analyst's answer to a manual test, and the agent is
+  shown that result on the next turn, so its instruction and question shape
+  graded behaviour. Neither the prompt version nor the judge's covers them. A
+  run whose script answers a manual test records `reader_version`.
 - **The session orders its own tools.** `buildTools` sorts the available verbs
   by name and appends the intrinsics in declared order, whatever order the
   backend served. A test feeds every order of the same capabilities and requires
@@ -95,9 +112,6 @@ was outside it:
   values. They are not standing instructions.
 - **Verb descriptions and the action catalog.** These are the tenant's words.
   They vary per install and are attributed by the catalog hash.
-- **The eval reader's instruction** (`readerSystem`, adr/0069). It is the
-  scripted analyst's model, which decides the polarity of a manual answer. It is
-  neither the agent's text nor the judge's, so neither version covers it.
 
 ## Alternatives rejected
 
@@ -122,14 +136,22 @@ was outside it:
   it. The tool definitions match `intrinsic_tools.golden.json`, and the base
   prompt's digest is a870ddbf as before.
 - `PromptVersion` moves once, because the hash reads more inputs: a870ddbf to
-  f5df72f6 under `leading_null`, and 5de9f5af to 2ab54c82 under `leading_only`.
-  The regression rule compares results, not versions.
+  60c97621 under `leading_null`, and 5de9f5af to bc5bd82c under `leading_only`.
+  The regression rule compares results, not versions. The run prints a line for
+  each text version it does not share with the baseline (`VersionSkew`), and the
+  summary carries the side-instruction and reader versions.
 - The four committed baselines keep `prompt_version` a870ddbf. That is true of
   them: they were accepted before the tool and engine-text changes above, under
   a version that did not cover them. The next prompt change (#236) reruns them
-  under the full version.
+  under the full version. Until then the support claim stays with these
+  baselines: design/10 §4.4 states the interval, and each run prints the
+  versions it does not share with them.
 - The baselines keep `judge_rubric: "v1"`. The judge text is unchanged since
   they were graded, and its hash is caa20d15db77. New runs report the hash.
+- The example fixtures' own strings are inputs to the version: editing one
+  moves it although no model is shown them. The component order is hashed too.
+  `TestPrompt_Frozen` says which happened: only the two components the fixtures
+  render moved, or the version moved and no component did.
 - The `Revised` entries were reconstructed from history. For each tool or
   sentence they list the commits whose diff changed one of its phrases.
 - Every change to model-facing text is now a deliberate edit to the words, the

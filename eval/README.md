@@ -184,7 +184,9 @@ of what the turn loop puts in front of the model (the base prompt, the
 intrinsic tool definitions and the engine text, adr/0232; a function of the
 code and the `hypothesis_framing` dial, recorded beside it), identical across
 trials, runs, and models on the same code. `side_instruction_version` is the
-same for the summary and SOP-draft instructions, which no assertion grades. The
+same for the summary and SOP-draft instructions, which no assertion grades, and
+a run whose script answers a manual test records `reader_version`, the hash of
+the reader's instruction and question. The
 prompt *as assembled* for each trial (investigation context included) is kept
 in the trial record (`system_prompt`), not hashed: a version that changed with
 the investigation id would be a per-run nonce, not a version.
@@ -197,7 +199,11 @@ the first run for a scenario+model has nothing to regress against. Turn-scoped
 entries are keyed `<id>@turn<n>`; if a scenario edit moves an assertion to
 another turn, it is still compared against its old entry (same id, asserted at
 one turn on each side) and the finding names both keys — an inserted turn never
-silently drops an assertion's bar.
+silently drops an assertion's bar. The comparison is of scores alone; after the
+summary the run prints a `version:` line for each of `prompt_version`,
+`side_instruction_version`, `judge_rubric` and `reader_version` that the run
+and the baseline both carry and do not share, so a baseline graded under other
+text is visible where it decides.
 
 To accept a run as the new baseline:
 
@@ -345,7 +351,8 @@ same price whether the change is one sentence or five.
   turn, `attest_manual` — the authored answer (content, source, channel) the
   scripted analyst records for any manual test the agent left open, through the
   Record result path; a reader model decides per prediction which way the answer
-  points and the reading lands in the trial record (`adr/0069`). The loader
+  points and the reading lands in the trial record (`adr/0069`); the run is
+  attributed with the reader's `reader_version`. The loader
   (`scenario.go`) validates every referenced id exists **and** is placed at its
   declared scope (turn-scoped vs trial-wide), so a typo or misplacement fails
   loudly at load, not silently at grading; `TestLoadScenario_Bundled` requires

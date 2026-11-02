@@ -251,6 +251,9 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 		Usage:       runUsage,
 	}
 	stampJudge(report, judge)
+	if s.answersManualTests() {
+		report.Attribution.ReaderVersion = ReaderVersion
+	}
 	if raw, err := json.MarshalIndent(report, "", "  "); err == nil {
 		_ = os.WriteFile(filepath.Join(artifactDir, "report.json"), raw, 0o600)
 	}
@@ -258,8 +261,9 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 	return report, nil
 }
 
-// promptStamp is the run's prompt attribution, read off the session: the base
-// prompt version and the framing dial it was taken under.
+// promptStamp is the run's prompt attribution, read off the session:
+// agent.PromptVersion (the base prompt, the intrinsic tools and the engine
+// text, adr/0232) and the framing dial it was taken under.
 type promptStamp struct {
 	Version string
 	Framing string

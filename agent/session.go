@@ -1096,5 +1096,5 @@ func clipRunes(s string, n int) string {
 	if len(runes) <= n {
 		return s
 	}
-	return string(runes[:n-1]) + "…"
+	return string(runes[:n-1]) + textClipped.Text
 }
