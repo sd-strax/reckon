@@ -73,7 +73,7 @@ eval-regrade: ## Re-grade the latest run's committed trials with the current gra
 	RECKON_EVAL_REGRADE=1 RECKON_EVAL_SCENARIO=$(SCENARIO) go test -count=1 -run '^TestRegradeRun$$' -v ./eval/
 
 workbench-ci: ## Install + compile the VS Code extension (workbench/). Requires Node; never part of `ci` — engine work stays Go-only.
-	cd workbench && npm ci && npm run compile && npm test
+	cd workbench && npm ci && npm run compile && npm run lint && npm test
 
 wire-fixtures: ## Rewrite the golden wire samples the workbench's decoders are tested against (adr/0244)
 	RECKON_UPDATE_WIRE=1 go test -short ./server ./internal/sidecar -run '^TestWireFixtures$$' -count=1

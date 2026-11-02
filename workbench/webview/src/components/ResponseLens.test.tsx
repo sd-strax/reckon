@@ -12,7 +12,7 @@ describe("the Response lens (#125)", () => {
     const transport = new HarnessTransport(synthetic as unknown as HarnessSnapshot);
     render(<AppProvider transport={transport}><App /></AppProvider>);
     fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
-    const sections = Array.from(lens().querySelectorAll("section > h3")).map((h) => h.childNodes[0].textContent);
+    const sections = Array.from(lens().querySelectorAll("section > h3")).map((h) => h.childNodes[0]!.textContent);
     expect(sections[0]).toBe("Waiting on you");
     expect(within(lens()).getByRole("heading", { level: 3, name: "Response" })).toBeTruthy();
     expect(within(lens()).queryByText("Containment plan")).toBeNull();

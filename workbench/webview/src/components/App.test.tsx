@@ -48,11 +48,11 @@ describe("the investigation document", () => {
     const rows = Array.from(nav.querySelectorAll(".qrow:not(.case):not(.concluded)"));
     expect(rows.length).toBe(2); // the concluded one is not in the open queue…
     expect(nav.querySelectorAll(".concludedfold .qrow").length).toBe(1); // …but stays findable under Concluded (#158)
-    expect(rows[0].classList.contains("current")).toBe(true);
-    expect(rows[0].querySelector(".qstep")?.textContent).toBe("Investigate");
-    expect(rows[1].querySelector(".qstep")?.textContent).toBe("Close");
+    expect(rows[0]!.classList.contains("current")).toBe(true);
+    expect(rows[0]!.querySelector(".qstep")?.textContent).toBe("Investigate");
+    expect(rows[1]!.querySelector(".qstep")?.textContent).toBe("Close");
     expect(within(nav).getByText("from CASE-1002")).toBeTruthy();
-    fireEvent.click(rows[1]);
+    fireEvent.click(rows[1]!);
     expect(transport.intents.find((i) => i.type === "investigation.open")).toMatchObject({ id: "grouping--2c3b8d6f-6b0f-4c8f-a02b-7e4f3b2c1d02" });
     expect(within(nav).getByText("CASE-1003")).toBeTruthy();
     fireEvent.click(within(nav).getByText("Start investigation"));
@@ -68,12 +68,12 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText(/every test that tells hypotheses apart is done|a test that tells two hypotheses apart is still untested/)).toBeTruthy();
     const rows = lens().querySelectorAll(".prow");
     expect(rows.length).toBe(4);
-    expect(rows[0].querySelector(".ptitle")?.textContent?.startsWith("user-a's 30-day logon history")).toBe(true); // the statement, clipped to one line until gap §6.12
-    expect(rows[0].querySelector(".psplits")?.textContent).toBe("splits H2");
-    expect(rows[1].querySelector(".pcount")?.textContent).toBe("attested");
-    expect(rows[0].querySelector(".pbody")).toBeNull();
-    fireEvent.click(rows[0].querySelector(".pline")!);
-    expect(rows[0].querySelector(".pbody .pstatement")).toBeTruthy();
+    expect(rows[0]!.querySelector(".ptitle")?.textContent?.startsWith("user-a's 30-day logon history")).toBe(true); // the statement, clipped to one line until gap §6.12
+    expect(rows[0]!.querySelector(".psplits")?.textContent).toBe("splits H2");
+    expect(rows[1]!.querySelector(".pcount")?.textContent).toBe("attested");
+    expect(rows[0]!.querySelector(".pbody")).toBeNull();
+    fireEvent.click(rows[0]!.querySelector(".pline")!);
+    expect(rows[0]!.querySelector(".pbody .pstatement")).toBeTruthy();
     expect(within(lens()).getByText("⚡ Run tests")).toBeTruthy();
     expect(within(lens()).getByText("✓ Adopt")).toBeTruthy();
     fireEvent.click(within(lens()).getByRole("tab", { name: "Matrix" }));
@@ -188,7 +188,7 @@ describe("the investigation document", () => {
 
   it("records a prediction with its discriminators and the manual flag, and routes adopt / rename / abandon through the card", () => {
     const { transport } = mount();
-    fireEvent.click(within(lens()).getAllByText("+ prediction")[0]);
+    fireEvent.click(within(lens()).getAllByText("+ prediction")[0]!);
     let dlg = screen.getByRole("dialog");
     fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "a new test" } });
     fireEvent.click(within(dlg).getByLabelText(/A person tests this/));
@@ -197,7 +197,7 @@ describe("the investigation document", () => {
     fireEvent.click(lens().querySelector(".hypcard .hyphandle")!);
     expect(screen.getByRole("dialog", { name: "Rename H1 not-owner" })).toBeTruthy();
     fireEvent.click(screen.getByText("Cancel"));
-    fireEvent.click(within(lens()).getAllByText("Abandon")[0]);
+    fireEvent.click(within(lens()).getAllByText("Abandon")[0]!);
     dlg = screen.getByRole("dialog", { name: "Abandon H1 not-owner" });
     fireEvent.click(within(dlg).getByText("Abandon"));
     expect(transport.intents.find((i) => i.type === "hyp.abandon")).toMatchObject({ reason: "" });
@@ -232,6 +232,16 @@ describe("the investigation document", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Renamed");
   });
 
+  it("closes the editor after a rename the tree asked for", () => {
+    const { transport } = mount();
+    act(() => transport.emit({ type: "rename.begin", title: data.snapshot.investigation.title }));
+    const edit = document.querySelector(".titleedit") as HTMLInputElement;
+    fireEvent.change(edit, { target: { value: "From the tree" } });
+    fireEvent.keyDown(edit, { key: "Enter" });
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("From the tree");
+    expect(document.querySelector(".titleedit")).toBeNull();
+  });
+
   it("renders the draft surface and guards the double submit", () => {
     const { transport } = mount(null);
     const input = document.querySelector("#draftInput") as HTMLTextAreaElement;
@@ -263,8 +273,8 @@ describe("action lineage on the cards (adr/0152)", () => {
     const d = structuredClone(data);
     d.snapshot.actions = [
       ...(d.snapshot.actions || []),
-      { ...d.snapshot.actions![3], actionId: "act-6", status: "REJECTED", pending: false, expired: false, retryOf: "act-4" },
-      { ...d.snapshot.actions![0], actionId: "act-7", actionType: "host.unisolate", status: "REQUESTED", pending: true, isReversal: true, reversalOfRef: "act-1" },
+      { ...d.snapshot.actions![3]!, actionId: "act-6", status: "REJECTED", pending: false, expired: false, retryOf: "act-4" },
+      { ...d.snapshot.actions![0]!, actionId: "act-7", actionType: "host.unisolate", status: "REQUESTED", pending: true, isReversal: true, reversalOfRef: "act-1" },
     ];
     mount(d);
     tab("Response");

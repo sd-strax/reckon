@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { AppProvider } from "../app";
 import { App } from "./App";
@@ -10,11 +10,24 @@ describe("asking the agent to use a library item (adr/0129)", () => {
     const transport = new HarnessTransport(synthetic as unknown as HarnessSnapshot);
     render(<AppProvider transport={transport}><App /></AppProvider>);
     const lib = document.querySelector("#knowledgeSection") as HTMLElement;
-    fireEvent.click(within(lib).getAllByText("Ask reckon to use this")[0]);
+    fireEvent.click(within(lib).getAllByText("Ask reckon to use this")[0]!);
     expect((document.querySelector("#input") as HTMLTextAreaElement).value).toMatch(/^Use the procedure “Procedure one” \(SOP sop-1\)/);
     expect(transport.intents.some((i) => i.type === "send")).toBe(false);
     fireEvent.click(within(lib).getByText("Import procedures…"));
     expect(transport.intents).toContainEqual({ type: "library.import" });
     void screen;
+  });
+
+  it("stages the text once: it does not return after the analyst sends and the turn ends", () => {
+    const transport = new HarnessTransport(synthetic as unknown as HarnessSnapshot);
+    render(<AppProvider transport={transport}><App /></AppProvider>);
+    const lib = document.querySelector("#knowledgeSection") as HTMLElement;
+    const input = () => document.querySelector("#input") as HTMLTextAreaElement;
+    fireEvent.click(within(lib).getAllByText("Ask reckon to use this")[0]!);
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(input().value).toBe("");
+    act(() => transport.emit({ type: "turn.end" }));
+    expect(input().disabled).toBe(false);
+    expect(input().value).toBe("");
   });
 });

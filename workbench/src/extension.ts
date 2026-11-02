@@ -1,8 +1,8 @@
 // The reckon workbench extension entry point.
 //
-// v0 slice (design/13 §7): backend version handshake, interactive PKCE login,
-// BYOK Anthropic key into SecretStorage, and the real investigation list. The
-// investigation document (conversation surface) is the next step.
+// It wires the backend version handshake, interactive PKCE login, the BYOK
+// Anthropic key in SecretStorage, the investigation list and cases, and the
+// investigation document with its agent conversation (design/13 §7).
 //
 // Workbench discipline (design/13 §3): every surface lives in reckon-owned real
 // estate, every action is a command first, and nothing here assumes a workspace

@@ -6,7 +6,7 @@ The analyst-facing VS Code extension — the primary product surface. The design
 
 ## Current state
 
-The sidecar transport sequence (`implementation/agent-sidecar.md §7`, steps 1–4 + E.4
+The sidecar transport sequence (`implementation/agent-sidecar.md §7`, steps 1–4 and
 streaming) is complete; of the broader `design/13 §7` slice, steps 5–8 remain (see "Pending
 seams"). Built so far:
 
@@ -44,9 +44,10 @@ seams"). Built so far:
 ## Development
 
 ```bash
-npm ci              # or: make workbench-ci from the repo root (install + compile + test)
+npm ci              # or: make workbench-ci from the repo root (install + compile + lint + test)
 npm run compile     # tsc → out/ (host), tsc --noEmit (webview types), esbuild → out/webview/ (the React bundle)
 npm run watch       # host; `npm run watch:webview` rebuilds the bundle on change
+npm run lint        # ESLint with the TypeScript and React hooks rules; any finding fails (adr/0249)
 npm run test        # vitest: webview derivations, the store's sequence discipline, component tests over harness snapshots
 npm run harness     # the browser dev harness at http://localhost:8765 (stage picker, theme toggle, intent log)
 npm run harness:record -- [investigation-id]   # record harness snapshots from a running, dev-auth'd stack
@@ -108,7 +109,7 @@ bundle); without one, every surface degrades to "not connected" with a pointer �
   regardless). A T3 approval demands the typed challenge (`04 §5.5`) via input box; rejections
   record a reason. Server explanations (Gate 2 denials, guarded transitions) surface verbatim.
 
-- **Streaming** (`E.4`): model text arrives token-by-token via `turn/text_delta` notifications
+- **Streaming**: model text arrives token-by-token via `turn/text_delta` notifications
   (`agent.StreamingLLM` → SSE → sidecar → the webview's appendable text case). `turn/text`
   (round-complete) fires only when the provider cannot stream — the two are mutually exclusive
   per completion, enforced sidecar-side, so the renderer appends both and never dedupes.
@@ -151,7 +152,7 @@ muted.
 
 ## Pending seams
 
-The `implementation/agent-sidecar.md` §7 transport sequence (steps 1–4, including E.4
+The `implementation/agent-sidecar.md` §7 transport sequence (steps 1–4, including
 streaming) is complete. Of the broader `design/13 §7` slice, steps 5–8 remain: enablement
 widgets (`11 §5.1`), raw evidence in reach (read-only OCSF JSON via reckon URIs from cited
 refs), the minimal two-layer graph, and the profile trim (`13 §6`).

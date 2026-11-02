@@ -161,7 +161,7 @@ export class InvestigationsClient {
 
   /**
    * GET /api/investigations/{id}/hypotheses — the reasoning nodes, predictions
-   * nested under the hypothesis they test (D.2). Authenticated.
+   * nested under the hypothesis they test. Authenticated.
    */
   async hypotheses(id: string): Promise<Hypothesis[]> {
     const body = await this.http.get(`/api/investigations/${encodeURIComponent(id)}/hypotheses`, shapes.hypotheses);

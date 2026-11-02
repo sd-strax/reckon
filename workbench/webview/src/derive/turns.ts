@@ -60,7 +60,8 @@ export function recordLine(e: ThreadEntry, hs: Hypothesis[], actions: ActionRow[
   switch (e.interpretationType) {
     case "hypothesis": {
       const found = outs.map((r) => hs.find((x) => x.id === r)).filter((h): h is Hypothesis => !!h);
-      const text = found.length === 1 ? "proposed hypothesis " + hypWords(found[0], hs)
+      const [only] = found;
+      const text = only && found.length === 1 ? "proposed hypothesis " + hypWords(only, hs)
         : found.length ? "proposed hypotheses " + found.map((h) => hypWords(h, hs)).join(", ") : "proposed a hypothesis";
       return { text, title: found.map((h) => hypName(h, hs)).join(", ") || undefined, target: outs[0] ? { kind: "ref", ref: outs[0] } : { kind: "lens", lens: "reasoning" }, entry: e, tone: "" };
     }
@@ -68,7 +69,8 @@ export function recordLine(e: ThreadEntry, hs: Hypothesis[], actions: ActionRow[
       const found = outs.map((r) => predOf(hs, r)).filter((x): x is NonNullable<typeof x> => !!x);
       const owner = found[0]?.h;
       const under = owner ? " under hypothesis " + hypWords(owner, hs) : "";
-      const text = found.length === 1 ? `recorded prediction ${predWords(found[0])}${under}`
+      const [only] = found;
+      const text = only && found.length === 1 ? `recorded prediction ${predWords(only)}${under}`
         : found.length ? `recorded ${found.length} predictions${under}` : e.summary || "recorded a prediction";
       return { text, title: found.map((p) => p.ordinal ? "P" + p.ordinal : "").filter(Boolean).join(", ") || undefined, target: outs[0] ? { kind: "ref", ref: outs[0] } : { kind: "lens", lens: "reasoning" }, entry: e, tone: "" };
     }
@@ -80,7 +82,8 @@ export function recordLine(e: ThreadEntry, hs: Hypothesis[], actions: ActionRow[
       if (pred && pred.h && !outs.includes(pred.h.id)) {
         const pw = pred.status === "CONFIRMED" ? "confirmed" : pred.status === "DISCONFIRMED" ? "disconfirmed" : pred.status.toLowerCase();
         const attested = (e.inputRefs || []).some((r) => r.startsWith("note--"));
-        return { text: `prediction ${predWords(pred)} ${pw}${attested ? " by attestation" : ""}`, title: `${hypName(pred.h, hs)} · P${pred.ordinal ?? "?"}`, target: { kind: "ref", ref: [...outs, ...ins].find((r) => r.startsWith("x-prediction--")) || outs[0] }, entry: e, tone: pred.status === "CONFIRMED" ? "ok" : pred.status === "DISCONFIRMED" ? "bad" : "" };
+        const predRef = [...outs, ...ins].find((r) => r.startsWith("x-prediction--")) || outs[0];
+        return { text: `prediction ${predWords(pred)} ${pw}${attested ? " by attestation" : ""}`, title: `${hypName(pred.h, hs)} · P${pred.ordinal ?? "?"}`, target: predRef ? { kind: "ref", ref: predRef } : { kind: "lens", lens: "reasoning" }, entry: e, tone: pred.status === "CONFIRMED" ? "ok" : pred.status === "DISCONFIRMED" ? "bad" : "" };
       }
       return { text: h ? `hypothesis ${hypWords(h, hs)} ${word}` : e.summary || word, title: h ? hypName(h, hs) : undefined, target: h ? { kind: "ref", ref: h.id } : { kind: "lens", lens: "reasoning" }, entry: e, tone: word === "supported" ? "ok" : word === "refuted" ? "bad" : "" };
     }
@@ -126,9 +129,10 @@ export function groupTurns(thread: ThreadEntry[], turns: ChronicleTurn[], hs: Hy
   // Collapse a turn's action-requests into one line: "Proposed N actions".
   for (const t of out) {
     const reqs = t.records.filter((r) => r.entry.interpretationType === "action-request");
-    if (reqs.length > 1) {
+    const [firstReq] = reqs;
+    if (reqs.length > 1 && firstReq) {
       t.records = t.records.filter((r) => r.entry.interpretationType !== "action-request");
-      t.records.push({ text: `Proposed ${reqs.length} actions`, target: { kind: "lens", lens: "response" }, entry: reqs[0].entry, tone: "" });
+      t.records.push({ text: `Proposed ${reqs.length} actions`, target: { kind: "lens", lens: "response" }, entry: firstReq.entry, tone: "" });
     }
   }
   return out;

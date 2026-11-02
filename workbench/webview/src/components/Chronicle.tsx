@@ -125,10 +125,14 @@ export function RestoredTurn({ turn }: { turn: ChronicleTurn }) {
   return body;
 }
 
+// Stable empties, so the memos below do not recompute on every render.
+const NO_THREAD: ThreadEntry[] = [];
+const NO_TURNS: ChronicleTurn[] = [];
+
 export function Chronicle() {
   const { state } = useApp();
-  const thread = state.snap?.thread || [];
-  const turns = state.snap?.turns || [];
+  const thread = state.snap?.thread ?? NO_THREAD;
+  const turns = state.snap?.turns ?? NO_TURNS;
   const bodies = useMemo(() => new Map(turns.map((t) => [t.sequenceNo, t])), [turns]);
   const entries = useMemo(() => thread.slice().sort((a, b) => a.sequenceNo - b.sequenceNo), [thread]);
   const links = useMemo(() => verdictLinks(thread), [thread]);

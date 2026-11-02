@@ -2,7 +2,7 @@
 // dialogs every component may open (the prompt card, the pin dialog, the
 // enablement form, the entity popover). Dialogs are view state; the host is
 // told only when the analyst confirms.
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { InboundMessage, InspectorTarget, Lens } from "../../src/protocol";
 import { defaultLens } from "./derive/lens";
 import { targetKey, turnRenderer } from "./derive/inspect";
@@ -87,7 +87,7 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
   const [state, dispatch] = useReducer(reducer, initialState);
   // The latest thread, for callbacks that must not re-create on every snapshot.
   const threadRef = useRef(state.snap?.thread);
-  threadRef.current = state.snap?.thread;
+  useLayoutEffect(() => { threadRef.current = state.snap?.thread; });
   const [prompt, setPrompt] = useState<PromptSpec | null>(null);
   const [enableAdapter, setEnableAdapter] = useState<string | null>(null);
   const [verdictOpen, setVerdictOpen] = useState(false);
@@ -98,18 +98,15 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
   // Refs whose read failed: asked for again after the next refresh, not on
   // every render, so a ref that will never resolve is not fetched in a loop.
   const unresolved = useRef(new Set<string>());
-  const [chosenLens, setChosenLens] = useState<Lens | null>(null);
+  const [chosen, setChosen] = useState<{ id: string | undefined; lens: Lens } | null>(null);
   const [companionMode, setCompanionModeState] = useState<"conversation" | "thread">(() => transport.getState<PersistedView>()?.companion || "conversation");
   const investigationId = state.snap?.investigation.id;
   // The analyst's last lens choice per investigation (view state) wins; else the stage's default.
-  useEffect(() => {
-    if (!investigationId) return;
-    const saved = transport.getState<PersistedView>()?.lens?.[investigationId];
-    setChosenLens(saved || null);
-  }, [investigationId, transport]);
+  const saved = investigationId ? transport.getState<PersistedView>()?.lens?.[investigationId] : undefined;
+  const chosenLens = chosen && chosen.id === investigationId ? chosen.lens : saved || null;
   const lens: Lens = chosenLens || (state.snap ? defaultLens(state.snap.investigation.state, !!state.snap.investigation.verdict) : "reasoning");
   const setLens = useCallback((l: Lens) => {
-    setChosenLens(l);
+    setChosen({ id: investigationId, lens: l });
     if (investigationId) {
       const prev = transport.getState<PersistedView>() || {};
       transport.setState({ ...prev, lens: { ...(prev.lens || {}), [investigationId]: l } });

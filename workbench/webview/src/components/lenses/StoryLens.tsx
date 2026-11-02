@@ -9,14 +9,18 @@ import { useApp } from "../../app";
 import { hypName } from "../../derive/hyps";
 import { EventStrip, EvidenceGraph } from "../DerivedViews";
 import { Empty, RefChip, fmtDateTime } from "../shared";
+import type { Hypothesis } from "../../../../src/viewTypes";
 
 const CATEGORY: Record<string, string> = { Authentication: "auth", "Process Activity": "process", "Network Activity": "network", "DNS Activity": "network", "Detection Finding": "detection", "Security Finding": "detection", "observed-data": "observed" };
+
+// A stable empty, so the memo below does not recompute on every render.
+const NO_HYPOTHESES: Hypothesis[] = [];
 
 export function StoryLens() {
   const { state, openInspector } = useApp();
   const snap = state.snap;
   const [filter, setFilter] = useState<"all" | "auth" | "process" | "network" | "detection">("all");
-  const hs = snap?.hypotheses || [];
+  const hs = snap?.hypotheses ?? NO_HYPOTHESES;
   const rows = useMemo(() => {
     const strip = snap?.derived?.strip || [];
     // Citing predictions: whose test results include the ref.
@@ -31,7 +35,8 @@ export function StoryLens() {
   const open = hs.flatMap((h) => h.status === "ABANDONED" ? [] : h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
   const created = snap.investigation.createdAt ? Date.parse(snap.investigation.createdAt) : NaN;
   const shown = rows.filter((r) => filter === "all" || r.category === filter);
-  let dividerDone = false;
+  // The "investigation starts" divider sits above the first event at or after creation.
+  const dividerAt = Number.isFinite(created) ? shown.findIndex((r) => Date.parse(r.time) >= created) : -1;
   return (
     <div className="lens story">
       <section className="lsection">
@@ -45,15 +50,13 @@ export function StoryLens() {
       <section className="lsection">
         <h3>Timeline <span className="imeta">event time</span></h3>
         <div className="filters" role="tablist">
-          {(["all", "auth", "process", "network", "detection"] as const).map((f) => <button key={f} role="tab" aria-selected={filter === f} className={"itab" + (filter === f ? " on" : "")} onClick={() => setFilter(f)}>{f === "all" ? "All" : f[0].toUpperCase() + f.slice(1)}</button>)}
+          {(["all", "auth", "process", "network", "detection"] as const).map((f) => <button key={f} role="tab" aria-selected={filter === f} className={"itab" + (filter === f ? " on" : "")} onClick={() => setFilter(f)}>{f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}</button>)}
         </div>
         {snap.derived ? <EventStrip items={snap.derived.strip} /> : null}
         {!shown.length ? <Empty>No cited events carry an event time yet.</Empty> : (
           <ol className="timeline">
             {shown.map((r, i) => {
-              const t = Date.parse(r.time);
-              const divider = !dividerDone && Number.isFinite(created) && t >= created;
-              if (divider) dividerDone = true;
+              const divider = i === dividerAt;
               return (
                 <li key={r.ref + i} className={"trow " + r.emphasis}>
                   {divider ? <div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div> : null}
@@ -64,7 +67,7 @@ export function StoryLens() {
                 </li>
               );
             })}
-            {!dividerDone && Number.isFinite(created) ? <li className="trow"><div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div></li> : null}
+            {dividerAt < 0 && Number.isFinite(created) ? <li className="trow"><div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div></li> : null}
           </ol>
         )}
       </section>

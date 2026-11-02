@@ -9,13 +9,13 @@ describe("backing an attestation with where it happened (#139)", () => {
   it("Record result carries the reference and the fingerprint choice", () => {
     const d = structuredClone(synthetic as unknown as HarnessSnapshot);
     const h = d.snapshot.hypotheses[0];
-    h.status = "OPEN";
-    h.predictions[0] = { ...h.predictions[0], status: "UNTESTED", testKind: "manual", testResultRefs: [], attestation: undefined };
+    h!.status = "OPEN";
+    h!.predictions[0] = { ...h!.predictions[0]!, status: "UNTESTED", testKind: "manual", testResultRefs: [], attestation: undefined };
     const transport = new HarnessTransport(d);
     render(<AppProvider transport={transport}><App /></AppProvider>);
     fireEvent.click(screen.getByRole("tab", { name: /^Reasoning/ }));
     fireEvent.click(document.querySelector(".prow .pline")!);
-    fireEvent.click(screen.getAllByText("Record result")[0]);
+    fireEvent.click(screen.getAllByText("Record result")[0]!);
     const dlg = screen.getByRole("dialog");
     fireEvent.change(document.querySelector("#promptInput")!, { target: { value: "Owner confirmed by phone." } });
     fireEvent.change(dlg.querySelector("#promptExtra_reference")!, { target: { value: "INC0010042" } });
@@ -27,13 +27,13 @@ describe("backing an attestation with where it happened (#139)", () => {
   it("Record result carries where the artifact is kept, never the file (adr/0139)", () => {
     const d = structuredClone(synthetic as unknown as HarnessSnapshot);
     const h = d.snapshot.hypotheses[0];
-    h.status = "OPEN";
-    h.predictions[0] = { ...h.predictions[0], status: "UNTESTED", testKind: "manual", testResultRefs: [], attestation: undefined };
+    h!.status = "OPEN";
+    h!.predictions[0] = { ...h!.predictions[0]!, status: "UNTESTED", testKind: "manual", testResultRefs: [], attestation: undefined };
     const transport = new HarnessTransport(d);
     render(<AppProvider transport={transport}><App /></AppProvider>);
     fireEvent.click(screen.getByRole("tab", { name: /^Reasoning/ }));
     fireEvent.click(document.querySelector(".prow .pline")!);
-    fireEvent.click(screen.getAllByText("Record result")[0]);
+    fireEvent.click(screen.getAllByText("Record result")[0]!);
     const dlg = screen.getByRole("dialog");
     fireEvent.change(document.querySelector("#promptInput")!, { target: { value: "Owner confirmed by phone." } });
     fireEvent.change(dlg.querySelector("#promptExtra_artifactLocation")!, { target: { value: " s3://ir-evidence/2026/call-note.pdf " } });
@@ -48,13 +48,13 @@ describe("backing an attestation with where it happened (#139)", () => {
   it("a result with no artifact location sends no artifact", () => {
     const d = structuredClone(synthetic as unknown as HarnessSnapshot);
     const h = d.snapshot.hypotheses[0];
-    h.status = "OPEN";
-    h.predictions[0] = { ...h.predictions[0], status: "UNTESTED", testKind: "manual", testResultRefs: [], attestation: undefined };
+    h!.status = "OPEN";
+    h!.predictions[0] = { ...h!.predictions[0]!, status: "UNTESTED", testKind: "manual", testResultRefs: [], attestation: undefined };
     const transport = new HarnessTransport(d);
     render(<AppProvider transport={transport}><App /></AppProvider>);
     fireEvent.click(screen.getByRole("tab", { name: /^Reasoning/ }));
     fireEvent.click(document.querySelector(".prow .pline")!);
-    fireEvent.click(screen.getAllByText("Record result")[0]);
+    fireEvent.click(screen.getAllByText("Record result")[0]!);
     const dlg = screen.getByRole("dialog");
     fireEvent.change(document.querySelector("#promptInput")!, { target: { value: "Owner confirmed by phone." } });
     fireEvent.change(dlg.querySelector("#promptExtra_artifactSystem")!, { target: { value: "S3" } });

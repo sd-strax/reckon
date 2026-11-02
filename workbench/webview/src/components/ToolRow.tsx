@@ -34,7 +34,8 @@ export function ToolRow({ name, argsHint, argsPretty, result }: { name: string; 
   let gapAdapter: string | null = null;
   if (result && !result.isError && typeof result.coverage === "string" && result.coverage.indexOf("UNAVAILABLE") === 0 && enablement) {
     const v = (enablement.verbs || []).find((x) => x.verb === name);
-    if (v && !v.enabled && (v.closableBy || []).length) gapAdapter = v.closableBy[0];
+    const adapter = v?.closableBy?.[0];
+    if (v && !v.enabled && adapter) gapAdapter = adapter;
   }
   return (
     <details className="tool">

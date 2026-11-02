@@ -36,8 +36,9 @@ function CapabilityHealth() {
       let setup: React.ReactNode = null;
       if (c.status === "unavailable" && enablement) {
         const ev = (enablement.verbs || []).find((x) => x.verb === c.verb);
-        if (ev && !ev.enabled && (ev.closableBy || []).length) {
-          setup = <button className="setup" title={ev.closableBy[0] + " is installed but not enabled — enable it to serve " + c.verb} onClick={() => openEnableForm(ev.closableBy[0])}>set up</button>;
+        const adapter = ev?.closableBy?.[0];
+        if (ev && !ev.enabled && adapter) {
+          setup = <button className="setup" title={adapter + " is installed but not enabled — enable it to serve " + c.verb} onClick={() => openEnableForm(adapter)}>set up</button>;
         }
       }
       return <div key={c.verb} className={"caprow " + c.status}><span className={"dot " + c.status} title={c.status} /><span className="verb">{c.verb}</span>{setup}</div>;

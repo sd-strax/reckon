@@ -49,7 +49,7 @@ describe("BackendClient: a 401", () => {
   function answering(...responses: Response[]) {
     const bearers: string[] = [];
     stubFetch((_url, init) => {
-      bearers.push(init.headers.Authorization);
+      bearers.push(init.headers.Authorization!);
       return responses.shift();
     });
     return bearers;

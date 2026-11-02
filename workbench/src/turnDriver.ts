@@ -29,7 +29,7 @@ export class TurnDriver {
     try {
       const outcome = await this.transport.turn(id, text, {
         // Both text paths land on the same appendable turn.text case: deltas
-        // stream token-by-token (E.4); round-complete text arrives only from a
+        // stream token-by-token; round-complete text arrives only from a
         // non-streaming provider (mutually exclusive per completion, enforced
         // sidecar-side — never both for the same text).
         onText: (chunk) => void this.post(panel, { type: "turn.text", delta: chunk }),

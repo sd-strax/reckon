@@ -147,7 +147,7 @@ describe("SidecarTransport: start", () => {
     await transport.turn("inv-1", "hi", silent);
 
     expect(children()).toHaveLength(1);
-    expect([children()[0].command, ...children()[0].args]).toEqual(["reckon", "investigate", "--stdio"]);
+    expect([children()[0]!.command, ...children()[0]!.args]).toEqual(["reckon", "investigate", "--stdio"]);
     expect(sc.initialize).toEqual([{
       protocol_version: 1, backend_url: "http://127.0.0.1:7700", model: "claude-test", anthropic_api_key: "sk-byok",
       max_tool_result_kb: 256,
@@ -160,7 +160,7 @@ describe("SidecarTransport: start", () => {
     setConfiguration("reckon.sidecarPath", "  /opt/reckon/bin/reckon ");
     transport = new SidecarTransport(deps(), fakeLog());
     await transport.turn("inv-1", "hi", silent);
-    expect(children()[0].command).toBe("/opt/reckon/bin/reckon");
+    expect(children()[0]!.command).toBe("/opt/reckon/bin/reckon");
   });
 
   it("fails with an install hint when the binary cannot start", async () => {
@@ -247,7 +247,7 @@ describe("SidecarTransport: lifecycle", () => {
     const sc = installSidecar();
     transport = new SidecarTransport(deps(), fakeLog());
     await transport.turn("inv-1", "a", silent);
-    children()[0].exit(2);
+    children()[0]!.exit(2);
     await transport.turn("inv-1", "b", silent);
 
     expect(children()).toHaveLength(2);
@@ -260,7 +260,7 @@ describe("SidecarTransport: lifecycle", () => {
     transport = new SidecarTransport(deps(), fakeLog());
     await transport.turn("inv-1", "a", silent);
     transport.dispose();
-    expect(children()[0].killed).toBe(true);
+    expect(children()[0]!.killed).toBe(true);
     await expect(transport.turn("inv-1", "b", silent)).rejects.toThrow("transport disposed");
   });
 
@@ -313,7 +313,7 @@ describe("SidecarTransport: lifecycle", () => {
     transport = new SidecarTransport(deps(), fakeLog());
     await transport.turn("inv-1", "a", silent);
     transport.endSessions();
-    expect(children()[0].killed).toBe(true);
+    expect(children()[0]!.killed).toBe(true);
 
     await transport.turn("inv-1", "b", silent);
     expect(children()).toHaveLength(2);
@@ -336,7 +336,7 @@ describe("SidecarTransport: lifecycle", () => {
     await vi.waitFor(() => expect(sc.initialize).toHaveLength(1));
     transport.dispose();
     await expect(turn).rejects.toThrow();
-    expect(children()[0].killed).toBe(true);
+    expect(children()[0]!.killed).toBe(true);
   });
 });
 
@@ -388,7 +388,7 @@ describe("SidecarTransport: stopping a turn", () => {
     await new Promise((r) => setImmediate(r));
     await transport.cancel("inv-1");
     expect(sc.cancel).toHaveLength(1);
-    expect(sc.cancel[0].reason).toBeUndefined();
+    expect(sc.cancel[0]!.reason).toBeUndefined();
     end(turnResult({ stopped: true, tool_rounds: 1 }));
     expect((await turn).error).toBeUndefined();
   });
@@ -399,7 +399,7 @@ describe("SidecarTransport: stopping a turn", () => {
     transport = new SidecarTransport(deps({ turnTimeoutMinutes: () => 0.005 }), fakeLog());
     const turn = transport.turn("inv-1", "a", silent);
     await vi.waitFor(() => expect(sc.cancel).toHaveLength(1), { timeout: 2000 });
-    expect(sc.cancel[0].reason).toBe("timeout");
+    expect(sc.cancel[0]!.reason).toBe("timeout");
     end(turnResult({ stopped: true }));
     const outcome = await turn;
     expect(outcome.error).toBeUndefined();
@@ -416,7 +416,7 @@ describe("SidecarTransport: stopping a turn", () => {
 
     const outcome = await transport.turn("inv-1", "a", silent);
     expect(outcome.notice).toBe("turn timed out after 0.0001 minutes");
-    expect(children()[0].killed).toBe(true);
+    expect(children()[0]!.killed).toBe(true);
     expect(transport.turnRunning("inv-1")).toBe(false);
 
     hang = false;
@@ -435,7 +435,7 @@ describe("SidecarTransport: stopping a turn", () => {
     await transport.cancel("inv-1");
 
     expect((await turn).error).toBeUndefined();
-    expect(children()[0].killed).toBe(true);
+    expect(children()[0]!.killed).toBe(true);
   });
 
   it("Stop gets out of a hung session creation, and leaves the process running", async () => {
@@ -443,7 +443,7 @@ describe("SidecarTransport: stopping a turn", () => {
     transport = new SidecarTransport(deps(), fakeLog());
     await transport.turn("inv-1", "a", silent);
     spawned.onSpawn = () => undefined;
-    children()[0].peer.onRequest("createSession", (p: { investigation_id: string }) => {
+    children()[0]!.peer.onRequest("createSession", (p: { investigation_id: string }) => {
       sc.createSession.push(p.investigation_id);
       return new Promise(() => undefined);
     });
@@ -453,7 +453,7 @@ describe("SidecarTransport: stopping a turn", () => {
     await transport.cancel("inv-2");
 
     expect((await turn).error).toBeUndefined();
-    expect(children()[0].killed).toBe(false);
+    expect(children()[0]!.killed).toBe(false);
   });
 });
 
@@ -467,7 +467,7 @@ describe("SidecarTransport: the wire boundary", () => {
 
     await expect(transport.turn("inv-1", "hi", silent)).rejects.toThrow(message);
 
-    expect(children()[0].killed).toBe(true);
+    expect(children()[0]!.killed).toBe(true);
   });
 
   it("surfaces a malformed result as the turn's failure", async () => {
@@ -542,7 +542,7 @@ describe("SidecarTransport: the wire boundary", () => {
     installSidecar();
     const transport = sidecar();
     await transport.turn("inv-1", "a", silent);
-    children()[0].peer.onRequest("proposeSOP", () => ({ warranted: true, body: "B", tags: [], recommendation: "", rationale: "" }));
+    children()[0]!.peer.onRequest("proposeSOP", () => ({ warranted: true, body: "B", tags: [], recommendation: "", rationale: "" }));
 
     await expect(transport.proposeSOP("inv-1")).rejects.toThrow("unexpected response from proposeSOP: title missing");
   });

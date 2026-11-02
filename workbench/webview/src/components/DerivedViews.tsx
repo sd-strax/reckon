@@ -8,9 +8,10 @@ import type { DerivedViews as Derived } from "../../../src/protocol";
 
 export function EventStrip({ items }: { items: Derived["strip"] }) {
   const { openInspector } = useApp();
-  if (!items || items.length < 2) return null;
-  const t0 = Date.parse(items[0].time);
-  const t1 = Date.parse(items[items.length - 1].time);
+  const first = items?.[0], last = items?.[items.length - 1];
+  if (!items || items.length < 2 || !first || !last) return null;
+  const t0 = Date.parse(first.time);
+  const t1 = Date.parse(last.time);
   const span = Math.max(1, t1 - t0);
   return (
     <details id="stripWrap">
@@ -31,7 +32,7 @@ export function EventStrip({ items }: { items: Derived["strip"] }) {
   );
 }
 
-const ROW = 24, TOP = 22, NW = [252, 240], CX = [30, 360];
+const ROW = 24, TOP = 22, NW = [252, 240] as const, CX = [30, 360] as const;
 
 export function EvidenceGraph({ graph }: { graph: Derived["graph"] }) {
   const { state, openInspector } = useApp();
@@ -43,7 +44,7 @@ export function EvidenceGraph({ graph }: { graph: Derived["graph"] }) {
     const short = state.labels[n.id] || (n.type + (n.id.includes("--") ? " " + n.id.slice(n.id.indexOf("--") + 2, n.id.indexOf("--") + 8) : ""));
     return short.length > 32 ? short.slice(0, 31) + "…" : short;
   };
-  const nodes = (list: GraphRef[], col: number, base: string) => list.map((n, i) => {
+  const nodes = (list: GraphRef[], col: 0 | 1, base: string) => list.map((n, i) => {
     const y = TOP + i * ROW;
     pos[n.id] = { x: CX[col], y: y + 8, w: NW[col] };
     let cls = "gnode " + (base === "stix" && isReason(n) ? "reason" : base);

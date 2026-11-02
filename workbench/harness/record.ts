@@ -16,7 +16,7 @@ import { ENTITY_POPOVER_TYPES } from "../webview/src/refs";
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(name);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+  return (i >= 0 && process.argv[i + 1]) || fallback;
 }
 
 async function login(backend: string): Promise<string> {
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   const backend = arg("--backend", process.env.RECKON_BACKEND || "http://localhost:8080");
   const token = await login(backend);
   const client = new BackendClient(() => backend, async () => token);
-  const positional = process.argv.slice(2).filter((a, i, all) => !a.startsWith("--") && !(i > 0 && all[i - 1].startsWith("--")));
+  const positional = process.argv.slice(2).filter((a, i, all) => !a.startsWith("--") && !(i > 0 && all[i - 1]?.startsWith("--")));
   const ids = positional.length ? positional : (await client.investigations.list()).map((i) => i.id);
   // Compiled to harness/dist/record/harness/record.js; the snapshots live beside the source.
   const outDir = join(__dirname, "..", "..", "..", "snapshots");

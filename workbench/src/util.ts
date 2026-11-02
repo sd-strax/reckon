@@ -19,7 +19,7 @@ export function makeNonce(): string {
 
 /** Escape text for interpolation into HTML the host builds. */
 export function escapeHtml(s: unknown): string {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+  return String(s ?? "").replace(/[&<>"']/g, (c) => HTML_ESCAPES[c] ?? c);
 }
 
 const HTML_ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };

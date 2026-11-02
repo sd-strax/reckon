@@ -76,11 +76,12 @@ function artifactOf(ex: Record<string, unknown>): ArtifactLocation | undefined {
   return location ? { location, system: str("artifactSystem"), access: str("artifactAccess"), sha256: str("artifactSha256") } : undefined;
 }
 
+const UNTESTED_GLYPH = { g: "?", word: "untested", tone: "" };
 const GLYPH: Record<string, { g: string; word: string; tone: string }> = {
   CONFIRMED: { g: "✓", word: "confirmed", tone: "ok" },
   DISCONFIRMED: { g: "✕", word: "disconfirmed", tone: "bad" },
   INCONCLUSIVE: { g: "~", word: "inconclusive", tone: "warn" },
-  UNTESTED: { g: "?", word: "untested", tone: "" },
+  UNTESTED: UNTESTED_GLYPH,
   WITHDRAWN: { g: "–", word: "withdrawn", tone: "muted" },
 };
 
@@ -90,7 +91,7 @@ function PredictionRow({ p, h, hs, pins }: { p: Prediction; h: Hypothesis; hs: H
   const live = isLive(h);
   const manual = p.testKind === "manual";
   const trefs = p.testResultRefs || [];
-  const glyph = GLYPH[p.status] || GLYPH.UNTESTED;
+  const glyph = GLYPH[p.status] ?? UNTESTED_GLYPH;
   const splits = (p.discriminates || []).map((d) => nameOf(d, hs));
   const alreadyPinned = pins.some((x) => !x.superseded && ((x.inputRefs || []).includes(p.id) || (trefs.length > 0 && trefs.every((r) => (x.inputRefs || []).includes(r)))));
   const outstanding = live && p.status === "UNTESTED" && splits.length > 0;
