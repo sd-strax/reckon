@@ -180,8 +180,11 @@ land in `eval/artifacts/<scenario>-<timestamp>/` — local only, gitignored.
 ## Baselines and regression
 
 Every run is attributed: `prompt_version` is `agent.PromptVersion` — the hash
-of the **base** prompt (prompt code + the `hypothesis_framing` dial, recorded
-beside it), identical across trials, runs, and models on the same code. The
+of what the turn loop puts in front of the model (the base prompt, the
+intrinsic tool definitions and the engine text, adr/0232; a function of the
+code and the `hypothesis_framing` dial, recorded beside it), identical across
+trials, runs, and models on the same code. `side_instruction_version` is the
+same for the summary and SOP-draft instructions, which no assertion grades. The
 prompt *as assembled* for each trial (investigation context included) is kept
 in the trial record (`system_prompt`), not hashed: a version that changed with
 the investigation id would be a per-run nonce, not a version.
@@ -256,9 +259,10 @@ if any, is recorded beside the verdict (`anchor`) as a cross-check, and the
 summary counts how often the two agreed. The judge is a no-tools completion on
 the agent's own provider seam — BYOK, client-side — and answers a strict JSON
 object whose quoted sentence lands in the verdict (`judged: true`, `quote`), so
-you can check it from the report. The run records `judge_model` + `judge_rubric`
-and the judge's tokens apart from the agent's. Without a judge the anchors
-decide as they did at v0.
+you can check it from the report. The run records `judge_model` +
+`judge_rubric` (a hash over the judge's instruction, question framing and
+rubrics) and the judge's tokens apart from the agent's. Without a judge the
+anchors decide as they did at v0.
 
 - `RECKON_EVAL_JUDGE_MODEL=<id>` picks the judge (default `claude-sonnet-4-6`).
 - `RECKON_EVAL_JUDGE=off` grades by anchors alone (the pre-v0.11 behavior).

@@ -24,11 +24,6 @@ const (
 	boundedKey = "result_bounded"
 )
 
-const pageNote = "This result is larger than the limit for one tool result, so it is shown a page at a time: " +
-	"each list holds items offset..offset+returned of total. Read the next page with read_result " +
-	"(result_id, offset = next_offset), or narrow the query. Items not shown are not absent: " +
-	"conclude nothing from what this page leaves out."
-
 // resultStore holds the full bytes of large tool results for the session, so
 // read_result can page through the same snapshot the first page came from.
 type resultStore struct {
@@ -195,8 +190,7 @@ func oversized(total, limit int) []byte {
 	b, _ := json.Marshal(map[string]any{boundedKey: boundedNote{
 		LimitBytes: limit,
 		TotalBytes: total,
-		Note: fmt.Sprintf("This result is %d bytes, over the %d-byte limit for one tool result, "+
-			"and cannot be shown in pages. Narrow the query.", total, limit),
+		Note:       fmt.Sprintf(textResultOversized.Text, total, limit),
 	}})
 	return b
 }
@@ -215,7 +209,7 @@ func (s *Session) boundResult(raw []byte) []byte {
 	id := s.results.nextID()
 	note := boundedNote{
 		ResultID: id, LimitBytes: s.maxResultBytes, TotalBytes: len(raw),
-		Digest: digestEvents(lr.lists["events"]), Note: pageNote,
+		Digest: digestEvents(lr.lists["events"]), Note: textResultPaged.Text,
 	}
 	page, ok := lr.page(note, 0, s.maxResultBytes)
 	if !ok {
@@ -235,7 +229,7 @@ func (s *Session) readResult(in readResultInput) ([]byte, error) {
 	if in.Offset < 0 || in.Offset >= lr.longest() {
 		return nil, fmt.Errorf("offset %d is out of range: the longest list in %s has %d items", in.Offset, in.ResultID, lr.longest())
 	}
-	note := boundedNote{ResultID: in.ResultID, LimitBytes: s.maxResultBytes, TotalBytes: len(raw), Note: pageNote}
+	note := boundedNote{ResultID: in.ResultID, LimitBytes: s.maxResultBytes, TotalBytes: len(raw), Note: textResultPaged.Text}
 	page, ok := lr.page(note, in.Offset, s.maxResultBytes)
 	if !ok {
 		return oversized(len(raw), s.maxResultBytes), nil

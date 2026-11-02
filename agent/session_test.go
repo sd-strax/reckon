@@ -1093,8 +1093,8 @@ func TestSession_CutOffToolInputNeverEntersHistory(t *testing.T) {
 		t.Errorf("a cut-off call was dispatched %d times", n)
 	}
 	last := s.messages[len(s.messages)-1]
-	if len(last.Content) != 1 || !last.Content[0].IsError || last.Content[0].Content != cutOffReason {
-		t.Errorf("cut-off call answered with %+v; want one is_error result carrying cutOffReason", last.Content)
+	if len(last.Content) != 1 || !last.Content[0].IsError || last.Content[0].Content != textToolCutOff.Text {
+		t.Errorf("cut-off call answered with %+v; want one is_error result carrying the cut-off text", last.Content)
 	}
 	want := fmt.Sprintf("[tool_use recall_sops id=tx] input cut off after %d bytes; not run", len(cut))
 	if !strings.Contains(res.Transcript, want) {
@@ -1133,7 +1133,7 @@ func TestSession_CutOffCallBesideValidCalls(t *testing.T) {
 	}
 	for _, m := range s.messages {
 		for _, b := range m.Content {
-			if b.Type == BlockToolResult && b.ToolUseID == "bad" && (!b.IsError || b.Content != cutOffReason) {
+			if b.Type == BlockToolResult && b.ToolUseID == "bad" && (!b.IsError || b.Content != textToolCutOff.Text) {
 				t.Errorf("malformed call answered with %+v", b)
 			}
 		}

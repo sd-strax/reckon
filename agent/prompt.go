@@ -1,26 +1,9 @@
 package agent
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 )
-
-// PromptVersion identifies the prompt the agent runs under: the SHA-256 of
-// the base prompt — systemPrompt rendered with no investigation and no
-// capability list — for the given hypothesis-framing dial. It is a pure
-// function of the prompt CODE and the one tenant dial that changes the
-// prompt's words (01 §x-hypothesis); it does not move with the investigation
-// id, title, seed, or the environment's degraded verbs, which vary per case
-// and per install and are not the prompt. The eval harness stamps it on every
-// run (10 §1.4), and "model X is supported" is a claim about a baseline at a
-// prompt version (10 §4.4) — so it must be stable across runs on the same code
-// and differ whenever the model is read different instructions.
-func PromptVersion(framing string) string {
-	sum := sha256.Sum256([]byte(systemPrompt(Investigation{HypothesisFraming: framing}, nil)))
-	return hex.EncodeToString(sum[:])
-}
 
 // Hypothesis-framing shapes (01 §x-hypothesis "Competing hypotheses"), mirrored
 // from config.Reasoning so the agent package stays free of the config import.
@@ -399,14 +382,13 @@ func systemPrompt(inv Investigation, caps []Capability) string {
 	fmt.Fprintf(&b, "## Current investigation\n\n- id: %s\n- title: %s\n- status: %s\n- hypothesis framing: %s\n",
 		inv.AggregateID, inv.Title, inv.Status, framingOrDefault(inv.HypothesisFraming))
 	if inv.SeedSummary != "" {
-		fmt.Fprintf(&b, "- seed: %s\n", inv.SeedSummary)
+		fmt.Fprintf(&b, textSeedLine.Text, inv.SeedSummary)
 	}
 	// A case-seeded investigation was opened FROM a system-of-record case
 	// (14-case-seed.md §4.3): direct the opening move at reading the case, and
 	// frame its body as an external claim to verify — not established fact.
 	if inv.Seed != nil && inv.Seed.Type == "case" {
-		fmt.Fprintf(&b, "\nThis investigation was opened from a %s case (%s). Read the full case with get_external_case_details before pivoting, and treat its contents as an external claim to verify against telemetry — not established fact.\n",
-			inv.Seed.Source, inv.Seed.CaseID)
+		fmt.Fprintf(&b, textCaseSeed.Text, inv.Seed.Source, inv.Seed.CaseID)
 	}
 
 	b.WriteString("\nThe turn's time, the investigation's current hypothesis set, and the authoritative action record arrive as [clock] / [reasoning state] / [engine state] blocks on the analyst's messages. Each is the engine's own record as of that turn: read the latest one, and trust it over earlier narration. SOPs and past cases are never placed in your context: you fetch them with recall_sops, recall_similar_investigations and prior_investigations.\n")
@@ -418,8 +400,7 @@ func systemPrompt(inv Investigation, caps []Capability) string {
 		}
 	}
 	if len(degraded) > 0 {
-		fmt.Fprintf(&b, "\n## Degraded capabilities\n\nThese verbs are configured but currently unresolvable (do not attempt them; note the gap if it matters): %s\n",
-			strings.Join(degraded, ", "))
+		fmt.Fprintf(&b, textDegraded.Text, strings.Join(degraded, ", "))
 	}
 
 	return b.String()

@@ -50,14 +50,13 @@ func (s *Session) reconcileActionClaims(ctx context.Context, finalText string, s
 			// rather than cry wolf (the read verbs surfaced this false alarm).
 			continue
 		default:
-			parts = append(parts, id[:8]+"=NOT ON RECORD")
+			parts = append(parts, id[:8]+"="+textNotOnRecord.Text)
 		}
 	}
 	if len(parts) == 0 {
 		return "" // every cited id was a known engine id — nothing to correct
 	}
-	return "[engine record — authoritative, verified against the action log: " +
-		strings.Join(parts, ", ") + "]"
+	return fmt.Sprintf(textEngineRecord.Text, strings.Join(parts, ", "))
 }
 
 // rememberIDs records the full-UUID tokens in a tool result as engine-produced
@@ -104,7 +103,7 @@ func noActionAttestation(finalText string, actionsRequestedThisTurn int) string 
 	if !creationClaimRe.MatchString(quotedSpan.ReplaceAllString(finalText, "")) {
 		return ""
 	}
-	return "[engine record: NO action was requested this turn — any claim above of a new ticket/action is unconfirmed]"
+	return textNoActionRequested.Text
 }
 
 // turnFooter combines the deterministic ground-truth corrections for one turn:
@@ -142,8 +141,7 @@ func (s *Session) engineStateAnchor(ctx context.Context) string {
 		}
 		rows = append(rows, id+" "+a.ActionType+"="+a.Status)
 	}
-	return fmt.Sprintf("[engine state — the authoritative action record for this investigation (trust THIS over any earlier narration): %s; %d awaiting approval]",
-		strings.Join(rows, ", "), pending)
+	return fmt.Sprintf(textEngineState.Text, strings.Join(rows, ", "), pending)
 }
 
 func dedupeLower(ss []string) []string {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -46,6 +47,10 @@ func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[str
 		}
 		tools = append(tools, verbTool(c))
 	}
+	// The list is the head of every request and the prompt cache matches it
+	// byte for byte, so its order is the session's, not the backend's: verbs by
+	// name, then the intrinsics in declared order.
+	slices.SortStableFunc(tools, func(a, b tool) int { return strings.Compare(a.def.Name, b.def.Name) })
 	tools = append(tools, intrinsicTools(actionTypes)...)
 
 	defs := make([]ToolDef, 0, len(tools))
@@ -133,7 +138,12 @@ func contentOf(content []byte, err error) (toolResult, error) {
 // tool is one tool's single definition: what the model is shown and what runs.
 type tool struct {
 	def ToolDef
-	run func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error)
+	// origin and revised are an intrinsic tool's ledger entry (adr/0232): what
+	// introduced its definition and what reworded it since, as pointers in
+	// promptRule's form. A verb tool has none: its words are the tenant's.
+	origin  string
+	revised []string
+	run     func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error)
 	// selfBounded marks a tool whose content already fits the result limit, so
 	// dispatch does not bound it again.
 	selfBounded bool
@@ -142,6 +152,8 @@ type tool struct {
 // toolSpec declares an intrinsic tool. Its In is the schema and the decoder.
 type toolSpec[In any] struct {
 	Name        string
+	Origin      string
+	Revised     []string
 	Description string
 	Overrides   map[string]any // see inputSchema
 	SelfBounded bool
@@ -159,6 +171,8 @@ func defineTool[In any](spec toolSpec[In]) tool {
 			return spec.Run(s, ctx, in)
 		},
 		selfBounded: spec.SelfBounded,
+		origin:      spec.Origin,
+		revised:     spec.Revised,
 	}
 }
 
@@ -242,44 +256,56 @@ func intrinsicTools(actionTypes []ActionType) []tool {
 	return []tool{
 		defineTool(toolSpec[recallSOPsInput]{
 			Name:        ToolRecallSOPs,
+			Origin:      "80420c3",
 			Description: "Recall the tenant's standard operating procedures relevant to a question. EMPTY coverage is evidence of absence, not an error.",
 			SelfBounded: true,
 			Run:         (*Session).recallSOPs,
 		}),
 		defineTool(toolSpec[recallSimilarInput]{
 			Name:        ToolRecallSimilar,
+			Origin:      "b0f9ce1",
 			Description: "Recall concluded investigations similar to this one — 'have we handled something like this before?'. Query with the current investigation's situation (seed, entities, techniques). Results carry a similarity band (NEAR_DUPLICATE/RELATED/DISTINCT); EMPTY coverage means no prior similar case, evidence of absence.",
 			SelfBounded: true,
 			Run:         (*Session).recallSimilar,
 		}),
 		defineTool(toolSpec[priorInvestigationsInput]{
 			Name:        ToolPriorInvestigations,
+			Origin:      "d1f9e88",
 			Description: "Exact lookup: the concluded investigations that involved an entity (a host name, account, address or domain) as their seed or as an action target, most recent first. It answers 'have we investigated this before?' and works from the seed alone, before any telemetry; recall_similar_investigations answers 'have we seen this pattern before?' once there is behaviour to compare. EMPTY coverage means no concluded investigation recorded the entity.",
 			SelfBounded: true,
 			Run:         (*Session).priorInvestigations,
 		}),
 		defineTool(toolSpec[proposeHypothesisInput]{
 			Name:        ToolProposeHypothesis,
+			Origin:      "80420c3",
+			Revised:     []string{"0efca01"},
 			Description: "Propose one falsifiable hypothesis — ONE claim, not a compound story. Hypotheses compete: call this once per rival (the leader, then the concrete alternative). It is recorded PROPOSED until the analyst acknowledges it. Returns the hypothesis id for later predictions and evaluation.",
 			Run:         (*Session).proposeHypothesis,
 		}),
 		defineTool(toolSpec[recordPredictionInput]{
 			Name:        ToolRecordPrediction,
+			Origin:      "80420c3",
+			Revised:     []string{"0efca01", "cebed87", "633ebd0"},
 			Description: "Record a testable prediction under a hypothesis: what you expect to observe if it is true, and what query would test it. A prediction that DISCRIMINATES — one a rival hypothesis predicts the opposite outcome for — is worth more than one that merely confirms; name those rivals in discriminates. When a test is manual (no tool available to you can answer it and a person can), set test_kind to manual and say in test_query whom to ask and what; the analyst records its result, never you.",
 			Run:         (*Session).recordPrediction,
 		}),
 		defineTool(toolSpec[evaluateHypothesisInput]{
 			Name:        ToolEvaluateHypothesis,
+			Origin:      "80420c3",
 			Description: "Record an evidential outcome for a hypothesis: support, refutation, or inconclusive. Decisive outcomes must cite the observed evidence refs.",
 			Run:         (*Session).evaluateHypothesis,
 		}),
 		defineTool(toolSpec[recordPredictionOutcomeInput]{
 			Name:        ToolRecordPredictionOutcome,
+			Origin:      "80420c3",
+			Revised:     []string{"cebed87"},
 			Description: "Record a prediction's test outcome. CONFIRMED and DISCONFIRMED must cite test_result_refs. A manual prediction (a person tests it) is not yours to record: the engine refuses it; ask the analyst for the result.",
 			Run:         (*Session).recordPredictionOutcome,
 		}),
 		defineTool(toolSpec[requestActionInput]{
 			Name:        ToolRequestAction,
+			Origin:      "80420c3",
+			Revised:     []string{"b50bd4f", "adac4a6", "0ade6d2", "6b020a1"},
 			Description: requestActionDescription(actionTypes),
 			Overrides: map[string]any{
 				"action_type": actionTypeSchema(actionTypes),
@@ -289,11 +315,14 @@ func intrinsicTools(actionTypes []ActionType) []tool {
 		}),
 		defineTool(toolSpec[struct{}]{
 			Name:        ToolListActions,
+			Origin:      "c881117",
+			Revised:     []string{"64e3783", "3523b3e"},
 			Description: "List this investigation's requested actions with their CURRENT engine status (REQUESTED = awaiting the analyst's approval in this surface; APPROVED/EXECUTING/SUCCEEDED/FAILED/REJECTED/EXPIRED/REVERSED/OUTCOME_UNKNOWN). Use this for ground truth about whether an action was approved or executed — never assume. OUTCOME_UNKNOWN means the action was dispatched but nobody knows whether the tool acted: say so, and leave it to the analyst, who checks the tool and resolves it; never request it again while it is unknown. Each row carries a computed `expired` flag (and the result carries `now`): expired=true means the approval window elapsed and the engine will refuse an approve even though status may still read REQUESTED — such an action is dead; a new request is the only way forward.",
 			Run:         (*Session).listActions,
 		}),
 		defineTool(toolSpec[readResultInput]{
-			Name: ToolReadResult,
+			Name:   ToolReadResult,
+			Origin: "1a7fecf",
 			Description: "Read another page of a tool result too large to return whole. Such a result carries " +
 				"result_bounded with a result_id, the returned/total count of each list, next_offset, and on the " +
 				"first page an exact digest of the whole result. Pass the result_id and next_offset; every page " +

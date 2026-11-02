@@ -9,21 +9,26 @@ import (
 )
 
 // Attribution is the run's identity block (10 §1.4): without it a report is a
-// vibe. PromptVersion is the content hash of the assembled base prompt;
-// ActionCatalogHash covers the served action-type vocabulary.
+// vibe. PromptVersion is the content hash of what the turn loop puts in front
+// of the model; ActionCatalogHash covers the served action-type vocabulary.
 type Attribution struct {
 	// PromptVersion is agent.PromptVersion for the run's framing dial: a
-	// function of the prompt code and that dial, stable across runs,
+	// function of the code and that dial (the base prompt, the intrinsic tool
+	// definitions, the engine text; adr/0232), stable across runs,
 	// investigations, and models on the same code (#20).
 	PromptVersion string `json:"prompt_version"`
 	// HypothesisFraming is the dial PromptVersion was taken under.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
-	Model             string `json:"model"`
-	ActionCatalogHash string `json:"action_catalog_hash"`
-	ScenarioID        string `json:"scenario_id"`
-	DriverHash        string `json:"driver_hash"`
-	CatalogueVersion  string `json:"catalogue_version"`
-	Trials            int    `json:"trials"`
+	// SideInstructionVersion is agent.SideInstructionVersion: the
+	// instructions of the summary and SOP-draft completions, which no
+	// assertion grades and PromptVersion therefore leaves out (adr/0232).
+	SideInstructionVersion string `json:"side_instruction_version,omitempty"`
+	Model                  string `json:"model"`
+	ActionCatalogHash      string `json:"action_catalog_hash"`
+	ScenarioID             string `json:"scenario_id"`
+	DriverHash             string `json:"driver_hash"`
+	CatalogueVersion       string `json:"catalogue_version"`
+	Trials                 int    `json:"trials"`
 	// JudgeModel / JudgeRubric attribute the judge (adr/0059) when one graded
 	// this run: empty means every verdict was deterministic.
 	JudgeModel  string `json:"judge_model,omitempty"`

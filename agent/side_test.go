@@ -70,7 +70,7 @@ func TestSideCompletion_FitsContext(t *testing.T) {
 	for i := range 8 {
 		s.addTurn(fmt.Sprintf("q%d", i), 20_000)
 	}
-	resp, err := s.sideCompletion(context.Background(), summarizeInstruction)
+	resp, err := s.sideCompletion(context.Background(), sideSummarize.Text)
 	if err != nil {
 		t.Fatalf("side completion after an overflow: %v", err)
 	}

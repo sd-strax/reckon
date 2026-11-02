@@ -29,8 +29,7 @@ import (
 // and the model never has to remember one or infer it from narrative. The
 // prompt's timeframe rule (prompt.go, "Output discipline") names this block.
 func clockBlock(now time.Time) string {
-	return fmt.Sprintf("[clock — this turn began at %s; the engine's clock, not an observation]",
-		now.UTC().Format(time.RFC3339))
+	return fmt.Sprintf(textClock.Text, now.UTC().Format(time.RFC3339))
 }
 
 // hypothesisRow mirrors the fields of the server's HypothesisView the block
@@ -98,7 +97,7 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("[reasoning state — the investigation's hypothesis set as the engine holds it now (trust THIS over any earlier narration):\n")
+	b.WriteString(textReasoningState.Text)
 	type outstanding struct {
 		owner, rival, pred string
 	}
@@ -110,14 +109,14 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 		}
 		fmt.Fprintf(&b, " — %s\n", strings.TrimSpace(h.Statement))
 		if len(h.Predictions) == 0 {
-			b.WriteString("  predictions: none\n")
+			b.WriteString(textNoPredictions.Text)
 			continue
 		}
 		tally := map[string]int{}
 		for _, p := range h.Predictions {
 			tally[p.Status]++
 		}
-		b.WriteString("  predictions: " + tallyString(tally) + "\n")
+		fmt.Fprintf(&b, textPredictionTally.Text, tallyString(tally))
 		for _, p := range h.Predictions {
 			if p.Status != "UNTESTED" {
 				continue
@@ -133,29 +132,29 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 					open = append(open, outstanding{owner: nameOf[h.ID], rival: name, pred: predictionLabel(p)})
 				}
 			}
-			fmt.Fprintf(&b, "  - untested %s", predictionLabel(p))
+			fmt.Fprintf(&b, textUntested.Text, predictionLabel(p))
 			if len(rivals) > 0 {
-				fmt.Fprintf(&b, " (discriminates vs %s)", strings.Join(rivals, ", "))
+				fmt.Fprintf(&b, textDiscriminatesVs.Text, strings.Join(rivals, ", "))
 			}
 			if p.TestKind == "manual" {
 				// A person tests it (adr/0054): the model cannot run it and the
 				// engine refuses its result from the delegate — say so where the
 				// model reads the test, not only in the standing rules.
-				b.WriteString(" [manual — a person tests it; the analyst records the result, you cannot]")
+				b.WriteString(textManualTest.Text)
 			}
 			fmt.Fprintf(&b, ": %s\n", clipRunes(strings.TrimSpace(p.Statement), predictionStatementMax))
 		}
 	}
 	if len(open) > 0 {
-		b.WriteString("Untested discriminators outstanding: ")
+		b.WriteString(textOutstanding.Text)
 		parts := make([]string, 0, len(open))
 		for _, o := range open {
-			parts = append(parts, fmt.Sprintf("%s holds %s against %s", o.owner, o.pred, o.rival))
+			parts = append(parts, fmt.Sprintf(textHolds.Text, o.owner, o.pred, o.rival))
 		}
 		b.WriteString(strings.Join(parts, "; "))
-		b.WriteString(". Until each is tested or the analyst withdraws it, its owner cannot be recorded refuted and the hypothesis it discriminates against cannot be recorded supported.")
+		b.WriteString(textUntilTested.Text)
 	} else {
-		b.WriteString("No untested discriminator is outstanding.")
+		b.WriteString(textNoneOutstanding.Text)
 	}
 	b.WriteString("]")
 	return b.String()

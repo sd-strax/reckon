@@ -10,24 +10,148 @@ import (
 // number or a 7-character commit — resolvable by anyone with the repo.
 var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 
-// TestPrompt_Frozen pins the base prompt's version for each framing dial
-// (adr/0057). The prompt is the soft layer of the agent's behavior and every
-// change to its words moves the version the eval baselines are accepted under
-// (design/10 §4.4), so a change must be deliberate: update the golden here, the
-// ledger entry of the rule that moved, and rerun the per-model baselines. A
-// refactor that keeps the bytes (the ledger rendering, for one) leaves this
-// test green — that is the point of pinning the hash rather than the text.
+// TestPrompt_Frozen pins the prompt version for each framing dial (adr/0057,
+// adr/0232). The version covers every word the turn loop puts in front of the
+// model, and every change to those words moves the version the eval baselines
+// are accepted under (design/10 §4.4), so a change must be deliberate: update
+// the golden here and in TestPrompt_ComponentsFrozen, the ledger entry of what
+// moved, and rerun the per-model baselines. A refactor that keeps the bytes
+// leaves this test green; that is the point of pinning the hash rather than
+// the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "a870ddbf8038fe4ee2049f35d02b498db86e2cdc7a73101286051b462237195e",
-		framingLeadingOnly: "5de9f5af462a6b9ce5068b5f539c35aae540045af849e577919721e6df2de9ba",
+		framingLeadingNull: "f5df72f6b87f19000cece63d7fc1c0e42fc7014d1ae6774d16518e2279a77b09",
+		framingLeadingOnly: "2ab54c82955c4614b6f0efbd5edf4f6379e282737d55742b727b7e75b7351cce",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
 			t.Errorf("prompt version under %s = %s; want %s\n"+
-				"  the base prompt changed. If that is deliberate: update this golden, the promptLedger entry of the rule that moved (Revised/Why/PendingValidation), and rerun the per-model eval baselines (make eval; make eval-accept) — design/10 §4.4.",
+				"  what the model is read changed; TestPrompt_ComponentsFrozen names the part. If that is deliberate: update both goldens, the ledger entry of what moved (Revised, and PendingValidation for a prompt rule), and rerun the per-model eval baselines (make eval; make eval-accept) — design/10 §4.4.",
 				dial, got, want)
 		}
+	}
+}
+
+// TestSideInstructions_Frozen pins the side completions' version. A change
+// re-attributes the summary and SOP draft; no baseline rerun (adr/0232).
+func TestSideInstructions_Frozen(t *testing.T) {
+	const want = "a1bd6f383f4e3f3e22ef9b55a6d1125fef11e3e9c6c34140c80f79f0dcf2da56"
+	if got := SideInstructionVersion(); got != want {
+		t.Errorf("side instruction version = %s; want %s\n"+
+			"  a side instruction changed; TestPrompt_ComponentsFrozen names which. If that is deliberate: update both goldens and the entry's Revised.",
+			got, want)
+	}
+}
+
+// componentGolden is the digest of every hashed component, by name, so a
+// moved version says what moved: the prompt, a tool, an engine text, or a side
+// instruction.
+var componentGolden = map[string]string{
+	"prompt":                                       "a870ddbf8038fe4ee2049f35d02b498db86e2cdc7a73101286051b462237195e",
+	"prompt/leading_only":                          "5de9f5af462a6b9ce5068b5f539c35aae540045af849e577919721e6df2de9ba",
+	"tools/recall_sops":                            "753f05fb3087905b6558584343533d692902606ad1bb2b7fe2e04d0f41bc2ad2",
+	"tools/recall_similar_investigations":          "013a01bbff06558a7d972be60d2e93248f23e54e71e1f5ce87196e800d45d711",
+	"tools/prior_investigations":                   "433c5d17cb369e9f19d36a54571b007c5230278d076c129006b037d61341f49e",
+	"tools/propose_hypothesis":                     "7e8b3212c19b856139929b44c97ebea7eef78588a613b189a26ff9eb0828baf9",
+	"tools/record_prediction":                      "3a3b4716d096394849aed789099f207be5ebf9a4ca936e8a565eb199c11b319f",
+	"tools/evaluate_hypothesis":                    "9ea21732ba5c7000c7940a635f7871c066a9fb687da5b2b751f00f5f74e1da97",
+	"tools/record_prediction_outcome":              "146ac06325ffa4fb1805a7cdf3844ca15968be16c3947518cce7e4e1d7e8ed52",
+	"tools/request_action":                         "117932bb6e2e9b1eeb5b1974a37f1a5b0a2d3278adca0efc57d6f38c7e70c02e",
+	"tools/list_actions":                           "149708b898187a9bf3a486e36bd969630944a5fa234e72a4c40cf1f90a77cbea",
+	"tools/read_result":                            "e8a77530cd8f75be5ce8c3d39c8fbc1a777defb2a5e04b4ee86e2b37e4fb4f3b",
+	"tools/request_action+catalog":                 "6306b2cfe0054491a3b2760418af0bcfde7761285b813ef888e291cbfb3a58d2",
+	"tools/<verb>":                                 "cddfd2dd48b53db6e0285ae8f58f88fd5eda6024e8cdabf7a7257760f4ad8cd8",
+	"engine-text/clock":                            "9d82e0ccdff304d70aafa9f32ea959243dd87ef82b25b1919c0ea2ddde472f06",
+	"engine-text/reasoning-state":                  "e1aec4e82563e9898ba2876b6a9fa94d9bf4cc3842a259177a7b5c50cb1fed23",
+	"engine-text/reasoning-state-no-predictions":   "2505f8e58d444fcc63df47349329663515c583be6bad3378581af92a263ee62b",
+	"engine-text/reasoning-state-predictions":      "efba82ad046b26af5ad3eff480ab6ecbdeb6985d835c2f400cf7d03a9261731d",
+	"engine-text/reasoning-state-untested":         "fa87d821293d818561bdd8d34436c2328d51125b2190ee43336338d4be0346a7",
+	"engine-text/reasoning-state-discriminates":    "c09643f962cc36be8c73c96cc48d13a34e7de3bad72e67e41ea2bf55d16484db",
+	"engine-text/reasoning-state-manual":           "5cb5e6f71f386bcd004aa00159b5f6f7ebe92d42c292603e8645320757651d33",
+	"engine-text/reasoning-state-outstanding":      "7b5544d51b8930406a1f4660a51a76d97ace5b321810deee2ef4cc39c67209cd",
+	"engine-text/reasoning-state-holds":            "d645afd9771eff5457530cd22a4a132df01e5ab4916babd32c93974f56243e4b",
+	"engine-text/reasoning-state-until-tested":     "e20f72a19b42f8cd760341cdfd1373c46e3a85abe04426a7e670ae3067e1d7c5",
+	"engine-text/reasoning-state-none-outstanding": "74bdd932e3857bdb9cc61294fca59cde47f7256118b40e62a2973ff5c9dda764",
+	"engine-text/engine-state":                     "326ac218467fa6502216367f229114106afac3f0ba7cbe6a11ad1dbd5baacccc",
+	"engine-text/engine-record":                    "bed3db1eb1d51a388f65181f4e2e8369f3981dfc7b5024ca48667166e4e187b6",
+	"engine-text/engine-record-not-on-record":      "8b260cce172581e12983ba7974fbe61ee7a63496358cd60b4226bdbd66813326",
+	"engine-text/engine-record-no-action":          "e67c320fc03407c9424756949aaa6e866949eb4de3b4cde2d93f2f5515781739",
+	"engine-text/context-condensed":                "5783443024fd84eaa7cb79cc0c0e1b851034e5d0a1ead879fd20077986fde566",
+	"engine-text/result-removed":                   "3a582f8069cb3c8fe217ad0f9cdf4b6c32e9e4dd067eab8eeb6413d59602cc67",
+	"engine-text/result-removed-rerun":             "7f7d25f939a14f96e66971af180518f78006e49b7d0288d0ee67fe2efd13ac51",
+	"engine-text/result-removed-read":              "12b3acd734cbf6c9a95532992263bf2d45c4d8454005cce03ca67a2b8793bde3",
+	"engine-text/result-paged":                     "69cce5b6388c9bc1c50ea07c86675615f3bb70de60ca6717f4cd66f47542c7a6",
+	"engine-text/result-oversized":                 "29ba18cf3dbbca2eb992acdf990bce4ec6a77fad686011ea63d5926dc4061a03",
+	"engine-text/tool-cut-off":                     "5ccc2e8a89e99f51f9db79118a6c80edaeed67999778651bd7d2ecf204d6d044",
+	"engine-text/prompt-seed":                      "3178d6e9524d98f221c086147a8136871db3c9de812e647af9583db25a66e14d",
+	"engine-text/prompt-case-seed":                 "f893878b496f92aecc358852953249550dffb9e9247ee93d1a0cba0a4f159abe",
+	"engine-text/prompt-degraded":                  "4dcc300552c6f82cff49a819b33069beacef67fa399d0ce3052292e14383d00b",
+	"side/summarize":                               "876f69bf2774f065305f8afbadbaacbf00592ac42769161d64d3b5aadd8735e6",
+	"side/propose-sop":                             "78af65d40b45f73007c9cb90ff306f68f2a6e9f6843facb0849ad159f1a73fab",
+	"side/propose-sop-anyway":                      "53d278cafac910a914934aaa0fe71703e446f79f62c9ed88d8c0e63259d44969",
+}
+
+// TestPrompt_ComponentsFrozen names what moved when a version did: each
+// hashed component against its golden digest, and any component added or
+// gone.
+func TestPrompt_ComponentsFrozen(t *testing.T) {
+	got := map[string]string{}
+	for _, c := range promptComponents(framingLeadingNull) {
+		got[c.Name] = digest(c.Bytes)
+	}
+	got["prompt/leading_only"] = digest(promptComponents(framingLeadingOnly)[0].Bytes)
+	for _, c := range sideComponents() {
+		got[c.Name] = digest(c.Bytes)
+	}
+	for name, want := range componentGolden {
+		switch g, ok := got[name]; {
+		case !ok:
+			t.Errorf("%s is in the golden but no longer hashed", name)
+		case g != want:
+			t.Errorf("%s changed: digest %s; want %s", name, g, want)
+		}
+	}
+	for name, g := range got {
+		if _, ok := componentGolden[name]; !ok {
+			t.Errorf("%s is hashed but has no golden: add %q: %q", name, name, g)
+		}
+	}
+}
+
+// TestModelTextLedger_Complete refuses model-facing text without provenance:
+// every engine text, side instruction and intrinsic tool carries what
+// introduced it, in the prompt ledger's pointer form, and engine and side
+// texts a unique id.
+func TestModelTextLedger_Complete(t *testing.T) {
+	checkPointers := func(what, origin string, revised []string) {
+		if !pointerRe.MatchString(origin) {
+			t.Errorf("%s: Origin %q is not one pointer — want an issue (\"#54\") or a 7-char commit", what, origin)
+		}
+		for _, rev := range revised {
+			if !pointerRe.MatchString(rev) {
+				t.Errorf("%s: Revised entry %q is not a pointer", what, rev)
+			}
+		}
+	}
+	for ledger, entries := range map[string][]modelText{"engine-text": engineTexts, "side": sideInstructions} {
+		seen := map[string]bool{}
+		for _, e := range entries {
+			what := ledger + "/" + e.ID
+			switch {
+			case e.ID == "":
+				t.Errorf("%s entry %q has no ID", ledger, e.Text)
+			case seen[e.ID]:
+				t.Errorf("%s: ID used twice", what)
+			}
+			seen[e.ID] = true
+			checkPointers(what, e.Origin, e.Revised)
+			if e.Text == "" {
+				t.Errorf("%s: Text is empty", what)
+			}
+		}
+	}
+	for _, tl := range intrinsicTools(nil) {
+		checkPointers("tools/"+tl.def.Name, tl.origin, tl.revised)
 	}
 }
 

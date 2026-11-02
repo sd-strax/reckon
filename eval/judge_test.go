@@ -29,6 +29,18 @@ func (s *scriptedJudgeLLM) Complete(_ context.Context, req agent.CompleteRequest
 	}, nil
 }
 
+// TestJudgeRubric_Frozen pins the judge's version (adr/0232): a change to the
+// judge's instruction, the framing of its question, or any rubric moves it, so
+// two runs graded by different text never report the same rubric version.
+func TestJudgeRubric_Frozen(t *testing.T) {
+	const want = "caa20d15db77"
+	if JudgeRubricVersion != want {
+		t.Errorf("judge rubric version = %s; want %s\n"+
+			"  the judge's text changed. If that is deliberate, update this golden; runs graded before it keep the version they were stamped with.",
+			JudgeRubricVersion, want)
+	}
+}
+
 // TestLLMJudge_ParsesAndAttributes: the judge sends the rubric, state, and
 // reply; reads the JSON object out of prose or fences; and accounts its spend.
 func TestLLMJudge_ParsesAndAttributes(t *testing.T) {

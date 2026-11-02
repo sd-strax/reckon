@@ -212,8 +212,8 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 			trialErrors = append(trialErrors, fmt.Sprintf("trial %d: %v", n, o.err))
 		}
 		if prompt.Version == "" && o.stamp.Version != "" {
-			// Prompt-version identifier (10 §1.4): the BASE prompt's version
-			// (agent.PromptVersion — prompt code + framing dial), the same for
+			// Prompt-version identifier (10 §1.4): agent.PromptVersion (the
+			// model-facing code + framing dial, adr/0232), the same for
 			// every trial, run, and model on the same code. The as-run prompt,
 			// investigation context included, is kept per trial in the
 			// artifact (TrialRecord.SystemPrompt), not hashed (#20).
@@ -236,14 +236,15 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 	judge := judgeFromEnv(apiKey, logf)
 	report := &Report{
 		Attribution: Attribution{
-			PromptVersion:     prompt.Version,
-			HypothesisFraming: prompt.Framing,
-			Model:             model,
-			ActionCatalogHash: catalogHash,
-			ScenarioID:        s.ID,
-			DriverHash:        s.Hash,
-			CatalogueVersion:  CatalogueVersion,
-			Trials:            s.Trials,
+			PromptVersion:          prompt.Version,
+			HypothesisFraming:      prompt.Framing,
+			SideInstructionVersion: agent.SideInstructionVersion(),
+			Model:                  model,
+			ActionCatalogHash:      catalogHash,
+			ScenarioID:             s.ID,
+			DriverHash:             s.Hash,
+			CatalogueVersion:       CatalogueVersion,
+			Trials:                 s.Trials,
 		},
 		Results:     GradeWith(s, trials, judge),
 		TrialErrors: trialErrors,
