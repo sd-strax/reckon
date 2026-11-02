@@ -186,7 +186,39 @@ describe("InvestigationDocuments: closing", () => {
     expect(patch.patch.events).toEqual([eventRow]);
     expect(patch.patch.eventsTotal).toBe(1);
     expect(patch.patch.eventsError).toBeNull();
+    expect(patch.patch.eventsCursor).toBeNull();
     expect(events).toHaveBeenCalledWith("inv-1", { limit: 500, order: "newest" });
+  });
+
+  it("appends the next older page when the timeline asks for it, and ignores a cursor it did not post", async () => {
+    const older = { ...eventRow, id: "e-0", time: "2026-01-01T00:00:00Z" };
+    const events = vi.fn(async (_id: string, q: { cursor?: string }) => q.cursor ? { events: [older], total: 2 } : { events: [eventRow], total: 2, nextCursor: "2026-01-02T03:04:05Z,e-1" });
+    const { client } = backend({ "evidence.events": events });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0];
+    panel.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "eventsCursor" in m.patch)).toBe(true));
+    panel.webview.receive({ type: "events.older", cursor: "stale" });
+    panel.webview.receive({ type: "events.older", cursor: "2026-01-02T03:04:05Z,e-1" });
+    await vi.waitFor(() => expect(posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch).length).toBe(2));
+    expect(events).toHaveBeenCalledTimes(2);
+    expect(events).toHaveBeenLastCalledWith("inv-1", { limit: 500, order: "newest", cursor: "2026-01-02T03:04:05Z,e-1" });
+    const last = posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch).pop() as Extract<RenderMessage, { type: "state.patch" }>;
+    expect(last.patch.events).toEqual([eventRow, older]);
+    expect(last.patch.eventsCursor).toBeNull();
+  });
+
+  it("answers an event that is not a member of the investigation with an empty window, since its evidence is already loaded", async () => {
+    const ocsf = { ref: "e-old", kind: "ocsf", type: "Authentication", payload: {}, classUid: 3002 };
+    const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": async () => { throw new BackendRequestError("not a member", 404); } });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-old" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.evidence"));
+    const answer = posted().find((m) => m.type === "inspector.evidence") as Extract<RenderMessage, { type: "inspector.evidence" }>;
+    expect(answer.around).toEqual([]);
+    expect(types()).not.toContain("inspector.error");
   });
 
   it("tells the panel when the retrieved record could not be read, leaving the events slice as it was", async () => {

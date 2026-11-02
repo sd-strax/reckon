@@ -5,6 +5,7 @@
 // clears everything (adr/0241).
 import type * as vscode from "vscode";
 import type { Appearance, EventRow, EvidenceDoc, ThreadEntry } from "./backend";
+import { BackendRequestError } from "./client/http";
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
 import type { DocumentHost } from "./documentHost";
 import { deriveEvidenceLabel } from "./evidenceLabel";
@@ -29,6 +30,10 @@ export class EvidenceReads {
   private readonly docCache = new Map<string, EvidenceDoc>();
 
   private readonly docReads = new SingleFlight<EvidenceDoc | null>();
+
+  // The retrieved events posted so far per investigation, newest first, with
+  // the cursor of the next older page: "Show older" appends to it.
+  private readonly pages = new Map<string, { events: EventRow[]; total: number; cursor?: string }>();
 
   /** Fetch one evidence doc through the cache (null = unfetchable, this time). */
   private async getDoc(ref: string): Promise<EvidenceDoc | null> {
@@ -98,7 +103,33 @@ export class EvidenceReads {
     try {
       const page = await this.host.client.evidence.events(id, { limit: eventsShown, order: "newest" });
       if (current()) {
-        void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events, eventsTotal: page.total, eventsError: null } });
+        this.pages.set(id, { events: page.events, total: page.total, cursor: page.nextCursor });
+        void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events, eventsTotal: page.total, eventsError: null, eventsCursor: page.nextCursor ?? null } });
+      }
+    } catch (err) {
+      if (current()) {
+        void this.host.post(panel, { type: "state.patch", seq, patch: { eventsError: errText(err) } });
+      }
+    }
+  }
+
+  /**
+   * The next older page of retrieved events, appended to what the timeline
+   * already holds (adr/0092). A cursor that is not the one last posted is a
+   * repeat or a stale click and is ignored.
+   */
+  async postOlderEvents(id: string, panel: vscode.WebviewPanel, seq: number, cursor: string): Promise<void> {
+    const held = this.pages.get(id);
+    if (!held || held.cursor !== cursor) {
+      return;
+    }
+    const current = this.host.sameIdentity();
+    try {
+      const page = await this.host.client.evidence.events(id, { limit: eventsShown, order: "newest", cursor });
+      if (current() && this.pages.get(id) === held) {
+        const next = { events: [...held.events, ...page.events], total: page.total, cursor: page.nextCursor };
+        this.pages.set(id, next);
+        void this.host.post(panel, { type: "state.patch", seq, patch: { events: next.events, eventsTotal: next.total, eventsError: null, eventsCursor: next.cursor ?? null } });
       }
     } catch (err) {
       if (current()) {
@@ -109,10 +140,19 @@ export class EvidenceReads {
 
   /** The retrieved events on the same entity around one event, for the
    * Evidence inspector's "Around it" (adr/0092): empty when the record has
-   * none. A failed read throws, and the pane shows the error; an empty
-   * window means the read succeeded and held nothing. */
+   * none, and empty too when the event is not a member of the investigation
+   * (a cited event persisted before membership: a 404 here). Any other
+   * failure throws, and the pane shows the error; an empty window means the
+   * record was read and held nothing. */
   private async around(id: string, eventId: string): Promise<EventRow[]> {
-    return (await this.host.client.evidence.events(id, { around: eventId, limit: aroundEachSide })).events;
+    try {
+      return (await this.host.client.evidence.events(id, { around: eventId, limit: aroundEachSide })).events;
+    } catch (err) {
+      if (err instanceof BackendRequestError && err.status === 404) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   /**
@@ -174,6 +214,7 @@ export class EvidenceReads {
 
   /** The person changed: nothing read as the previous one stays. */
   clear(): void {
+    this.pages.clear();
     this.docCache.clear();
     this.docReads.clear();
     this.labelCache.clear();

@@ -134,6 +134,8 @@ export interface InvestigationSnapshot {
   eventsTotal?: number;
   /** Why the retrieved record could not be read, when it could not; null once a read succeeds. */
   eventsError?: string | null;
+  /** The cursor of the next older page of retrieved events; null when `events` holds the whole record. */
+  eventsCursor?: string | null;
 }
 
 /**
@@ -277,6 +279,8 @@ export type InboundMessage =
   // The analyst stopped the running turn.
   | { type: "turn.stop" }
   | { type: "evidence.resolve"; ref: string }
+  // The Story timeline asks for the next older page of retrieved events (adr/0092).
+  | { type: "events.older"; cursor: string }
   // The webview opened an inspector pane (view state) and needs the record
   // behind it; the host answers with the matching inspector.* message.
   | { type: "inspector.open"; target: InspectorTarget }

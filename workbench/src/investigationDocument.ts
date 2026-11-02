@@ -364,6 +364,9 @@ export class InvestigationDocuments implements DocumentHost {
       "evidence.resolve": (msg) => {
         void this.evidence.resolveLabel(panel, msg.ref);
       },
+      "events.older": (msg) => {
+        void this.evidence.postOlderEvents(id, panel, this.cache.watermark(id), msg.cursor);
+      },
       "inspector.open": (msg) => {
         // An action record is re-sent by reads (resendActionRecords); answering
         // it in the same order keeps an older answer from overwriting a newer one.

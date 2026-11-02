@@ -663,5 +663,6 @@ body.gripDragging { cursor: col-resize; user-select: none; }
    the Around-it strip and tool rows. */
 .tvia { cursor: pointer; margin-left: 4px; }
 .tvia:hover { text-decoration: underline; }
+.linklike.older { display: block; margin: 6px 0; }
 .tool .opencall { font-size: var(--fs-xs); margin-left: 4px; }
 .irow.around { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }

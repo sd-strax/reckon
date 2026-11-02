@@ -55,7 +55,7 @@ export function retrievedCount(shown: number, total: number | undefined): string
 }
 
 export function StoryLens() {
-  const { state, openInspector } = useApp();
+  const { state, openInspector, send } = useApp();
   const snap = state.snap;
   const [filter, setFilter] = useState<"all" | "auth" | "process" | "network" | "detection">("all");
   const hs = snap?.hypotheses || [];
@@ -113,6 +113,7 @@ export function StoryLens() {
             {!dividerDone && Number.isFinite(created) ? <li className="trow"><div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div></li> : null}
           </ol>
         )}
+        {snap.eventsCursor ? <button className="linklike older" onClick={() => send({ type: "events.older", cursor: snap.eventsCursor! })}>Show older retrieved events</button> : null}
       </section>
       <section className="lsection">
         <h3>Not yet known</h3>

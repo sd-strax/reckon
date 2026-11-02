@@ -97,6 +97,17 @@ describe("the Story timeline over the retrieved record", () => {
     expect(lens().querySelectorAll(".trow").length).toBeGreaterThan(2); // the cited events still show
   });
 
+  it("asks the host for the next older page while the record holds more", () => {
+    const transport = mount({ ...data, snapshot: { ...data.snapshot, events, eventsTotal: 12, eventsCursor: "2026-10-20T08:50:00Z,e001" } });
+    tab("Story");
+    fireEvent.click(within(lens()).getByText("Show older retrieved events"));
+    expect(transport.intents).toContainEqual({ type: "events.older", cursor: "2026-10-20T08:50:00Z,e001" });
+    cleanup();
+    mount({ ...data, snapshot: { ...data.snapshot, events, eventsTotal: 3, eventsCursor: null } });
+    tab("Story");
+    expect(within(lens()).queryByText("Show older retrieved events")).toBeNull();
+  });
+
   it("shows every retrieved event, filters by the class's category, and opens the call that retrieved a row", () => {
     const transport = mount();
     tab("Story");

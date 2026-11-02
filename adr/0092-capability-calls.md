@@ -68,9 +68,11 @@ id, and the events that already exist.
   reason skipped) and sets the event id on each normalization result, so the
   store writes the edge the normalizer always implied.
 - **The workbench** lists the newest page of retrieved events on the Story
-  timeline with the record's total, each naming the call that retrieved it,
-  with the cited refs that carry an event time joined in; an opened event
-  shows the retrieved events around it and the call under Provenance; a
+  timeline with the record's total and follows the cursor on "Show older",
+  each row naming the call that retrieved it, with the cited refs that carry
+  an event time joined in; an opened event shows the retrieved events around
+  it and the call under Provenance, and an event that is not a member (cited,
+  persisted before membership) shows an empty window rather than an error; a
   Capability call inspector (Call · Result · Raw) opens from a timeline row, a
   tool row and the strip, its bindings badged from the stored outcomes. On a
   record without membership the cited events alone remain; a failed read says
