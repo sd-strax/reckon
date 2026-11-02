@@ -1,6 +1,6 @@
 # 0092 — A capability call is an addressable record, and an event belongs to an investigation through the call that retrieved it
 
-Issue: #92, #93 · PR: pending · Status: accepted
+Issue: #92, #93 · PR: #297 · Status: accepted
 
 ## Context
 
