@@ -89,7 +89,7 @@ export function StoryLens() {
           {(["all", "auth", "process", "network", "detection"] as const).map((f) => <button key={f} role="tab" aria-selected={filter === f} className={"itab" + (filter === f ? " on" : "")} onClick={() => setFilter(f)}>{f === "all" ? "All" : f[0].toUpperCase() + f.slice(1)}</button>)}
         </div>
         {snap.derived ? <EventStrip items={snap.derived.strip} /> : null}
-        {snap.eventsError ? <div className="error">The retrieved record could not be read: {snap.eventsError}. Only the cited events are shown.</div> : null}
+        {snap.eventsError ? <div className="error">{snap.events ? "The next page of the retrieved record could not be read" : "The retrieved record could not be read"}: {snap.eventsError}.{snap.events ? "" : " Only the cited events are shown."}</div> : null}
         {snap.events?.length ? <div className="imeta">{retrievedCount(snap.events.length, snap.eventsTotal)}</div> : null}
         {!shown.length ? <Empty>{snap.events?.length ? "No retrieved or cited event in this category." : "No cited events carry an event time yet."}</Empty> : (
           <ol className="timeline">

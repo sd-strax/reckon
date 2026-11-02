@@ -93,8 +93,14 @@ describe("the Story timeline over the retrieved record", () => {
     cleanup();
     mount({ ...base, snapshot: { ...base.snapshot, eventsError: "503 from the backend" } });
     tab("Story");
-    expect(within(lens()).getByText(/The retrieved record could not be read: 503 from the backend/)).toBeTruthy();
+    expect(within(lens()).getByText(/The retrieved record could not be read: 503 from the backend\. Only the cited events are shown\./)).toBeTruthy();
     expect(lens().querySelectorAll(".trow").length).toBeGreaterThan(2); // the cited events still show
+    cleanup();
+    // A failed "Show older" leaves the pages already read on screen, so the line is about the next page.
+    mount({ ...data, snapshot: { ...data.snapshot, events, eventsTotal: 12, eventsCursor: "c", eventsError: "store down" } });
+    tab("Story");
+    expect(within(lens()).getByText(/^The next page of the retrieved record could not be read: store down\.$/)).toBeTruthy();
+    expect(lens().querySelectorAll(".trow .tvia").length).toBe(3);
   });
 
   it("asks the host for the next older page while the record holds more", () => {
