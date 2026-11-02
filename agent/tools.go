@@ -30,8 +30,13 @@ const (
 // only sees what can currently resolve), plus the intrinsic tools. actionTypes
 // is the write-side catalog (may be nil when the action layer is off); it shapes
 // the request_action tool so the model picks a real action_type.
-func buildTools(caps []Capability, actionTypes []ActionType) []ToolDef {
-	var defs []ToolDef
+//
+// What the model is shown and what dispatch can run come from this one step: the
+// definitions are the list, and the map is the list by name. Two tools of one
+// name would leave the model's list ambiguous, so a verb that takes an intrinsic
+// tool's name fails here.
+func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[string]tool, error) {
+	var tools []tool
 	for _, c := range caps {
 		if c.Status != "available" {
 			continue
@@ -39,9 +44,31 @@ func buildTools(caps []Capability, actionTypes []ActionType) []ToolDef {
 		if c.Descriptor.Verb == "list_capabilities" {
 			continue // the loop already trims the tool set; re-listing is not a model concern in v0
 		}
-		defs = append(defs, verbToolDef(c))
+		tools = append(tools, verbTool(c))
 	}
-	return append(defs, intrinsicTools(actionTypes)...)
+	tools = append(tools, intrinsicTools(actionTypes)...)
+
+	defs := make([]ToolDef, 0, len(tools))
+	byName := make(map[string]tool, len(tools))
+	for _, t := range tools {
+		if _, taken := byName[t.def.Name]; taken {
+			return nil, nil, fmt.Errorf("agent: two tools are named %q", t.def.Name)
+		}
+		byName[t.def.Name] = t
+		defs = append(defs, t.def)
+	}
+	return defs, byName, nil
+}
+
+// verbTool is the tool for one available capability verb.
+func verbTool(c Capability) tool {
+	verb := c.Descriptor.Verb
+	return tool{
+		def: verbToolDef(c),
+		run: func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error) {
+			return contentOf(s.invokeVerb(ctx, verb, input))
+		},
+	}
 }
 
 // verbToolDef renders a capability descriptor as an LLM tool. Every verb tool
@@ -89,132 +116,193 @@ func verbToolDef(c Capability) ToolDef {
 	}
 }
 
+// toolResult is what one tool call gives back: the content the model reads and
+// the knowledge that content put in front of it. The session records the
+// knowledge on the turn's provenance; a tool mutates nothing there (adr/0233).
+type toolResult struct {
+	Content   []byte
+	Consulted []ConsultedSOP
+	Similar   []ConsultedSimilarInvestigation
+}
+
+// contentOf wraps a call that returns only content.
+func contentOf(content []byte, err error) (toolResult, error) {
+	return toolResult{Content: content}, err
+}
+
+// tool is one tool's single definition: what the model is shown and what runs.
+type tool struct {
+	def ToolDef
+	run func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error)
+	// selfBounded marks a tool whose content already fits the result limit, so
+	// dispatch does not bound it again.
+	selfBounded bool
+}
+
+// toolSpec declares an intrinsic tool. Its In is the schema and the decoder.
+type toolSpec[In any] struct {
+	Name        string
+	Description string
+	Overrides   map[string]any // see inputSchema
+	SelfBounded bool
+	Run         func(s *Session, ctx context.Context, in In) (toolResult, error)
+}
+
+func defineTool[In any](spec toolSpec[In]) tool {
+	return tool{
+		def: ToolDef{Name: spec.Name, Description: spec.Description, InputSchema: inputSchema[In](spec.Overrides)},
+		run: func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error) {
+			var in In
+			if err := json.Unmarshal(input, &in); err != nil {
+				return toolResult{}, fmt.Errorf("bad %s input: %w", spec.Name, err)
+			}
+			return spec.Run(s, ctx, in)
+		},
+		selfBounded: spec.SelfBounded,
+	}
+}
+
+type recallSOPsInput struct {
+	Query string   `json:"query" required:"true" desc:"what guidance you are looking for"`
+	Tags  []string `json:"tags" desc:"hard filter on SOP tags, optional"`
+}
+
+type recallSimilarInput struct {
+	Query string   `json:"query" required:"true" desc:"the current situation to match against past cases (seed, entities, techniques, what you're seeing)"`
+	Tags  []string `json:"tags" desc:"hard filter on summary tags, optional: a technique id, seed:<kind> (seed:host, seed:case, seed:alert), disposition:<verdict>, entity:<identifier>"`
+}
+
+type priorInvestigationsInput struct {
+	Entity string `json:"entity" required:"true" desc:"the identifier as the data names it: host name, DOMAIN\\account, IP address or domain"`
+}
+
+type proposeHypothesisInput struct {
+	Statement   string   `json:"statement" required:"true" desc:"the claim, one or two sentences, falsifiable, a single mechanism"`
+	Handle      string   `json:"handle" required:"true" desc:"short mnemonic the analyst will refer to it by: a number in proposal order plus two or three words naming the mechanism, e.g. \"H1 <mechanism>\", \"H2 <rival mechanism>\""`
+	Rationale   string   `json:"rationale" required:"true" desc:"why you believe this, citing evidence refs"`
+	Labels      []string `json:"labels" desc:"MITRE ATT&CK technique ids where evident"`
+	RootedAtRef string   `json:"rooted_at_ref" desc:"STIX id of the anchor entity, optional"`
+	ParentRef   string   `json:"parent_ref" desc:"x-hypothesis id this refines, optional"`
+	Confidence  string   `json:"confidence" desc:"HIGH | MEDIUM | LOW"`
+}
+
+type recordPredictionInput struct {
+	HypothesisRef string   `json:"hypothesis_ref" required:"true" desc:"the x-hypothesis id that predicts this WILL be observed (the owner)"`
+	Statement     string   `json:"statement" required:"true" desc:"what should be observable if the hypothesis holds"`
+	Rationale     string   `json:"rationale" required:"true" desc:"why this test discriminates (or, if it only confirms, say so)"`
+	Discriminates []string `json:"discriminates" desc:"x-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner"`
+	TestKind      string   `json:"test_kind" desc:"tool (default) | manual — manual only when no tool can test the prediction and a person's answer can"`
+	TestTool      string   `json:"test_tool" desc:"the tool that would test it, optional (for a manual test: the role of the person to ask)"`
+	TestQuery     string   `json:"test_query" desc:"the query text, optional (for a manual test: the question to put to them)"`
+}
+
+type evaluateHypothesisInput struct {
+	HypothesisRef  string   `json:"hypothesis_ref" required:"true" desc:"the x-hypothesis id"`
+	Disposition    string   `json:"disposition" required:"true" desc:"support | refutation | inconclusive"`
+	Rationale      string   `json:"rationale" required:"true" desc:"the evidential reasoning"`
+	TestResultRefs []string `json:"test_result_refs" desc:"STIX/OCSF refs of the observed evidence; required for support and refutation"`
+	Abandoned      bool     `json:"abandoned" desc:"on inconclusive: mark ABANDONED instead"`
+	Confidence     string   `json:"confidence" desc:"HIGH | MEDIUM | LOW"`
+}
+
+type recordPredictionOutcomeInput struct {
+	PredictionRef  string   `json:"prediction_ref" required:"true" desc:"the x-prediction id"`
+	Status         string   `json:"status" required:"true" desc:"CONFIRMED | DISCONFIRMED | INCONCLUSIVE"`
+	Rationale      string   `json:"rationale" required:"true" desc:"what was observed"`
+	TestResultRefs []string `json:"test_result_refs" desc:"refs of the observed evidence"`
+}
+
+// targetInput is what the model may say about a target. ActionTarget has more
+// (asset_criticality reaches Gate 2 policy), and none of it is the model's to
+// declare, so the decoder never reads it.
+type targetInput struct {
+	EntityRef          string `json:"entity_ref" required:"true" desc:"STIX id of the target entity"`
+	ResolvedIdentifier string `json:"resolved_identifier" required:"true" desc:"the concrete identifier the tool acts on (hostname, account id)"`
+}
+
+// requestActionInput: action_type and parameters take their schemas from the
+// catalog (see the overrides in intrinsicTools).
+type requestActionInput struct {
+	ActionType   string          `json:"action_type" required:"true"`
+	Targets      []targetInput   `json:"targets" required:"true" desc:"the distinct targets; blast radius drives the trust tier"`
+	Rationale    string          `json:"rationale" required:"true" desc:"why this action, now"`
+	EvidenceRefs []string        `json:"evidence_refs" required:"true" nonempty:"true" desc:"REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / x-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it."`
+	Parameters   json.RawMessage `json:"parameters"`
+	RetryOf      string          `json:"retry_of" desc:"when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage)"`
+}
+
+type readResultInput struct {
+	ResultID string `json:"result_id" required:"true" desc:"the result_id from result_bounded"`
+	Offset   int    `json:"offset" required:"true" desc:"the item offset to start from: next_offset from the previous page"`
+}
+
 // intrinsicTools declares the reasoning + knowledge + action tools. actionTypes
 // (may be nil) shapes the request_action tool from the frozen write catalog.
-func intrinsicTools(actionTypes []ActionType) []ToolDef {
-	str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
-	strList := func(desc string) map[string]any {
-		return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": desc}
-	}
-	obj := func(props map[string]any, required ...string) map[string]any {
-		s := map[string]any{"type": "object", "properties": props}
-		if len(required) > 0 {
-			s["required"] = required
-		}
-		return s
-	}
-	return []ToolDef{
-		{
+func intrinsicTools(actionTypes []ActionType) []tool {
+	return []tool{
+		defineTool(toolSpec[recallSOPsInput]{
 			Name:        ToolRecallSOPs,
 			Description: "Recall the tenant's standard operating procedures relevant to a question. EMPTY coverage is evidence of absence, not an error.",
-			InputSchema: obj(map[string]any{
-				"query": str("what guidance you are looking for"),
-				"tags":  strList("hard filter on SOP tags, optional"),
-			}, "query"),
-		},
-		{
+			SelfBounded: true,
+			Run:         (*Session).recallSOPs,
+		}),
+		defineTool(toolSpec[recallSimilarInput]{
 			Name:        ToolRecallSimilar,
 			Description: "Recall concluded investigations similar to this one — 'have we handled something like this before?'. Query with the current investigation's situation (seed, entities, techniques). Results carry a similarity band (NEAR_DUPLICATE/RELATED/DISTINCT); EMPTY coverage means no prior similar case, evidence of absence.",
-			InputSchema: obj(map[string]any{
-				"query": str("the current situation to match against past cases (seed, entities, techniques, what you're seeing)"),
-				"tags":  strList("hard filter on summary tags, optional: a technique id, seed:<kind> (seed:host, seed:case, seed:alert), disposition:<verdict>, entity:<identifier>"),
-			}, "query"),
-		},
-		{
+			SelfBounded: true,
+			Run:         (*Session).recallSimilar,
+		}),
+		defineTool(toolSpec[priorInvestigationsInput]{
 			Name:        ToolPriorInvestigations,
 			Description: "Exact lookup: the concluded investigations that involved an entity (a host name, account, address or domain) as their seed or as an action target, most recent first. It answers 'have we investigated this before?' and works from the seed alone, before any telemetry; recall_similar_investigations answers 'have we seen this pattern before?' once there is behaviour to compare. EMPTY coverage means no concluded investigation recorded the entity.",
-			InputSchema: obj(map[string]any{
-				"entity": str("the identifier as the data names it: host name, DOMAIN\\account, IP address or domain"),
-			}, "entity"),
-		},
-		{
+			SelfBounded: true,
+			Run:         (*Session).priorInvestigations,
+		}),
+		defineTool(toolSpec[proposeHypothesisInput]{
 			Name:        ToolProposeHypothesis,
 			Description: "Propose one falsifiable hypothesis — ONE claim, not a compound story. Hypotheses compete: call this once per rival (the leader, then the concrete alternative). It is recorded PROPOSED until the analyst acknowledges it. Returns the hypothesis id for later predictions and evaluation.",
-			InputSchema: obj(map[string]any{
-				"statement":     str("the claim, one or two sentences, falsifiable, a single mechanism"),
-				"handle":        str("short mnemonic the analyst will refer to it by: a number in proposal order plus two or three words naming the mechanism, e.g. \"H1 <mechanism>\", \"H2 <rival mechanism>\""),
-				"rationale":     str("why you believe this, citing evidence refs"),
-				"labels":        strList("MITRE ATT&CK technique ids where evident"),
-				"rooted_at_ref": str("STIX id of the anchor entity, optional"),
-				"parent_ref":    str("x-hypothesis id this refines, optional"),
-				"confidence":    str("HIGH | MEDIUM | LOW"),
-			}, "statement", "handle", "rationale"),
-		},
-		{
+			Run:         (*Session).proposeHypothesis,
+		}),
+		defineTool(toolSpec[recordPredictionInput]{
 			Name:        ToolRecordPrediction,
 			Description: "Record a testable prediction under a hypothesis: what you expect to observe if it is true, and what query would test it. A prediction that DISCRIMINATES — one a rival hypothesis predicts the opposite outcome for — is worth more than one that merely confirms; name those rivals in discriminates. When a test is manual (no tool available to you can answer it and a person can), set test_kind to manual and say in test_query whom to ask and what; the analyst records its result, never you.",
-			InputSchema: obj(map[string]any{
-				"hypothesis_ref": str("the x-hypothesis id that predicts this WILL be observed (the owner)"),
-				"statement":      str("what should be observable if the hypothesis holds"),
-				"rationale":      str("why this test discriminates (or, if it only confirms, say so)"),
-				"discriminates":  strList("x-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner"),
-				"test_kind":      str("tool (default) | manual — manual only when no tool can test the prediction and a person's answer can"),
-				"test_tool":      str("the tool that would test it, optional (for a manual test: the role of the person to ask)"),
-				"test_query":     str("the query text, optional (for a manual test: the question to put to them)"),
-			}, "hypothesis_ref", "statement", "rationale"),
-		},
-		{
+			Run:         (*Session).recordPrediction,
+		}),
+		defineTool(toolSpec[evaluateHypothesisInput]{
 			Name:        ToolEvaluateHypothesis,
 			Description: "Record an evidential outcome for a hypothesis: support, refutation, or inconclusive. Decisive outcomes must cite the observed evidence refs.",
-			InputSchema: obj(map[string]any{
-				"hypothesis_ref":   str("the x-hypothesis id"),
-				"disposition":      str("support | refutation | inconclusive"),
-				"rationale":        str("the evidential reasoning"),
-				"test_result_refs": strList("STIX/OCSF refs of the observed evidence; required for support and refutation"),
-				"abandoned":        map[string]any{"type": "boolean", "description": "on inconclusive: mark ABANDONED instead"},
-				"confidence":       str("HIGH | MEDIUM | LOW"),
-			}, "hypothesis_ref", "disposition", "rationale"),
-		},
-		{
+			Run:         (*Session).evaluateHypothesis,
+		}),
+		defineTool(toolSpec[recordPredictionOutcomeInput]{
 			Name:        ToolRecordPredictionOutcome,
 			Description: "Record a prediction's test outcome. CONFIRMED and DISCONFIRMED must cite test_result_refs. A manual prediction (a person tests it) is not yours to record: the engine refuses it; ask the analyst for the result.",
-			InputSchema: obj(map[string]any{
-				"prediction_ref":   str("the x-prediction id"),
-				"status":           str("CONFIRMED | DISCONFIRMED | INCONCLUSIVE"),
-				"rationale":        str("what was observed"),
-				"test_result_refs": strList("refs of the observed evidence"),
-			}, "prediction_ref", "status", "rationale"),
-		},
-		{
+			Run:         (*Session).recordPredictionOutcome,
+		}),
+		defineTool(toolSpec[requestActionInput]{
 			Name:        ToolRequestAction,
 			Description: requestActionDescription(actionTypes),
-			InputSchema: obj(map[string]any{
+			Overrides: map[string]any{
 				"action_type": actionTypeSchema(actionTypes),
-				"targets": map[string]any{
-					"type": "array",
-					"items": obj(map[string]any{
-						"entity_ref":          str("STIX id of the target entity"),
-						"resolved_identifier": str("the concrete identifier the tool acts on (hostname, account id)"),
-					}, "entity_ref", "resolved_identifier"),
-					"description": "the distinct targets; blast radius drives the trust tier",
-				},
-				"parameters": parametersSchema(actionTypes),
-				"evidence_refs": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string"},
-					"minItems":    1,
-					"description": "REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / x-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it.",
-				},
-				"rationale": str("why this action, now"),
-				"retry_of":  str("when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage)"),
-			}, "action_type", "targets", "rationale", "evidence_refs"),
-		},
-		{
+				"parameters":  parametersSchema(actionTypes),
+			},
+			Run: (*Session).requestAction,
+		}),
+		defineTool(toolSpec[struct{}]{
 			Name:        ToolListActions,
 			Description: "List this investigation's requested actions with their CURRENT engine status (REQUESTED = awaiting the analyst's approval in this surface; APPROVED/EXECUTING/SUCCEEDED/FAILED/REJECTED/EXPIRED/REVERSED/OUTCOME_UNKNOWN). Use this for ground truth about whether an action was approved or executed — never assume. OUTCOME_UNKNOWN means the action was dispatched but nobody knows whether the tool acted: say so, and leave it to the analyst, who checks the tool and resolves it; never request it again while it is unknown. Each row carries a computed `expired` flag (and the result carries `now`): expired=true means the approval window elapsed and the engine will refuse an approve even though status may still read REQUESTED — such an action is dead; a new request is the only way forward.",
-			InputSchema: obj(map[string]any{}),
-		},
-		{
+			Run:         (*Session).listActions,
+		}),
+		defineTool(toolSpec[readResultInput]{
 			Name: ToolReadResult,
 			Description: "Read another page of a tool result too large to return whole. Such a result carries " +
 				"result_bounded with a result_id, the returned/total count of each list, next_offset, and on the " +
 				"first page an exact digest of the whole result. Pass the result_id and next_offset; every page " +
 				"comes from the same snapshot. Read only what the question needs, or narrow the original query instead.",
-			InputSchema: obj(map[string]any{
-				"result_id": str("the result_id from result_bounded"),
-				"offset":    map[string]any{"type": "integer", "description": "the item offset to start from: next_offset from the previous page"},
-			}, "result_id", "offset"),
-		},
+			SelfBounded: true, // already a page
+			Run: func(s *Session, _ context.Context, in readResultInput) (toolResult, error) {
+				return contentOf(s.readResult(in))
+			},
+		}),
 	}
 }
 
@@ -402,271 +490,229 @@ func appendUnique(s []string, v string) []string {
 }
 
 // dispatchTool executes one model-issued tool call against the backend and
-// returns the result content to feed back. A backend rejection (4xx/5xx)
-// becomes an isError result — the engine's explanation goes to the model, which
-// can adjust; only transport-level failures abort the turn.
-func (s *Session) dispatchTool(ctx context.Context, name string, input json.RawMessage) (string, bool) {
-	out, err := s.dispatch(ctx, name, input)
+// returns the result to feed back. A name outside the session's tool set is
+// refused here, without reaching the backend, and goes to the model as an error
+// it can correct. A backend rejection (4xx/5xx) likewise becomes an isError
+// result — the engine's explanation goes to the model, which can adjust; only
+// transport-level failures abort the turn.
+func (s *Session) dispatchTool(ctx context.Context, name string, input json.RawMessage) (toolResult, bool) {
+	t, ok := s.toolsByName[name]
+	if !ok {
+		return toolResult{Content: fmt.Appendf(nil, "unknown tool %q: not one of the tools defined for this session", name)}, true
+	}
+	res, err := t.run(ctx, s, input)
 	if err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
-			return apiErr.Body, true
+			return toolResult{Content: []byte(apiErr.Body)}, true
 		}
-		return "tool dispatch failed: " + err.Error(), true
+		return toolResult{Content: []byte("tool dispatch failed: " + err.Error())}, true
 	}
-	if name == ToolReadResult {
-		return string(out), false // already a page
+	if !t.selfBounded {
+		res.Content = s.boundResult(res.Content)
 	}
-	return string(s.boundResult(out)), false
+	return res, false
 }
 
-func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessage) ([]byte, error) {
-	switch name {
-	case ToolRecallSOPs:
-		var in struct {
-			Query string   `json:"query"`
-			Tags  []string `json:"tags"`
-		}
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("bad recall_sops input: %w", err)
-		}
-		body := map[string]any{"query": in.Query}
-		if len(in.Tags) > 0 {
-			body["tags"] = in.Tags
-		}
-		return s.backend.RecallSOPs(ctx, body)
-
-	case ToolRecallSimilar:
-		var in struct {
-			Query string   `json:"query"`
-			Tags  []string `json:"tags"`
-		}
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("bad recall_similar_investigations input: %w", err)
-		}
-		body := map[string]any{"query": in.Query}
-		if len(in.Tags) > 0 {
-			body["tags"] = in.Tags
-		}
-		return s.backend.RecallSimilar(ctx, body)
-
-	case ToolPriorInvestigations:
-		var in struct {
-			Entity string `json:"entity"`
-		}
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("bad prior_investigations input: %w", err)
-		}
-		return s.backend.PriorInvestigations(ctx, map[string]any{"entity": in.Entity})
-
-	case ToolProposeHypothesis:
-		var in struct {
-			Statement   string   `json:"statement"`
-			Handle      string   `json:"handle"`
-			Rationale   string   `json:"rationale"`
-			Labels      []string `json:"labels"`
-			RootedAtRef string   `json:"rooted_at_ref"`
-			ParentRef   string   `json:"parent_ref"`
-			Confidence  string   `json:"confidence"`
-		}
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("bad propose_hypothesis input: %w", err)
-		}
-		resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
-			InvestigationRef:   s.investigationID,
-			InterpretationType: "hypothesis",
-			Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
-			Confidence:         in.Confidence,
-			Hypothesis: &Hypothesis{
-				Statement:   in.Statement,
-				Handle:      clipRunes(in.Handle, 40),
-				ParentRef:   in.ParentRef,
-				RootedAtRef: in.RootedAtRef,
-				Labels:      in.Labels,
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(map[string]any{"hypothesis_ref": resp.NodeID, "status": "PROPOSED"})
-
-	case ToolRecordPrediction:
-		var in struct {
-			HypothesisRef string   `json:"hypothesis_ref"`
-			Statement     string   `json:"statement"`
-			Rationale     string   `json:"rationale"`
-			Discriminates []string `json:"discriminates"`
-			TestKind      string   `json:"test_kind"`
-			TestTool      string   `json:"test_tool"`
-			TestQuery     string   `json:"test_query"`
-		}
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("bad record_prediction input: %w", err)
-		}
-		pred := &Prediction{HypothesisRef: in.HypothesisRef, Statement: in.Statement, Discriminates: in.Discriminates, TestKind: in.TestKind}
-		if in.TestTool != "" || in.TestQuery != "" {
-			pred.TestQuery = &QuerySpec{Tool: in.TestTool, QueryText: in.TestQuery}
-		}
-		resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
-			InvestigationRef:   s.investigationID,
-			InterpretationType: "prediction",
-			Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
-			Prediction:         pred,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(map[string]any{"prediction_ref": resp.NodeID, "status": "UNTESTED"})
-
-	case ToolEvaluateHypothesis:
-		var in struct {
-			HypothesisRef  string   `json:"hypothesis_ref"`
-			Disposition    string   `json:"disposition"`
-			Rationale      string   `json:"rationale"`
-			TestResultRefs []string `json:"test_result_refs"`
-			Abandoned      bool     `json:"abandoned"`
-			Confidence     string   `json:"confidence"`
-		}
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("bad evaluate_hypothesis input: %w", err)
-		}
-		// The disposition becomes the interpretation type, so only the three
-		// outcomes pass: anything else would let the model record another
-		// type, the context-reset marker among them (adr/0235).
-		switch in.Disposition {
-		case "support", "refutation", "inconclusive":
-		default:
-			return nil, fmt.Errorf("evaluate_hypothesis: disposition must be support, refutation or inconclusive, not %q", in.Disposition)
-		}
-		resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
-			InvestigationRef:   s.investigationID,
-			InterpretationType: in.Disposition,
-			Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
-			Confidence:         in.Confidence,
-			HypothesisRef:      in.HypothesisRef,
-			Abandoned:          in.Abandoned,
-			TestResultRefs:     in.TestResultRefs,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(map[string]any{"interpretation_id": resp.InterpretationID})
-
-	case ToolRecordPredictionOutcome:
-		var in struct {
-			PredictionRef  string   `json:"prediction_ref"`
-			Status         string   `json:"status"`
-			Rationale      string   `json:"rationale"`
-			TestResultRefs []string `json:"test_result_refs"`
-		}
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("bad record_prediction_outcome input: %w", err)
-		}
-		resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
-			InvestigationRef:   s.investigationID,
-			InterpretationType: "prediction",
-			Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
-			PredictionRef:      in.PredictionRef,
-			PredictionStatus:   in.Status,
-			TestResultRefs:     in.TestResultRefs,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(map[string]any{"interpretation_id": resp.InterpretationID})
-
-	case ToolRequestAction:
-		var in struct {
-			ActionType   string          `json:"action_type"`
-			Targets      []ActionTarget  `json:"targets"`
-			Parameters   json.RawMessage `json:"parameters"`
-			EvidenceRefs []string        `json:"evidence_refs"`
-			Rationale    string          `json:"rationale"`
-			RetryOf      string          `json:"retry_of"`
-		}
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("bad request_action input: %w", err)
-		}
-		resp, err := s.backend.RequestAction(ctx, ActionRequest{
-			ActionType:       in.ActionType,
-			Targets:          in.Targets,
-			Parameters:       UnwrapStringifiedObject(in.Parameters),
-			EvidenceRefs:     in.EvidenceRefs,
-			Rationale:        in.Rationale,
-			InvestigationRef: s.investigationID,
-			RetryOf:          in.RetryOf,
-		})
-		if err != nil {
-			return nil, err
-		}
-		s.pendingActions = append(s.pendingActions, resp)
-		return json.Marshal(resp)
-
-	case ToolReadResult:
-		return s.readResult(input)
-
-	case ToolListActions:
-		acts, err := s.backend.ListActions(ctx, s.investigationID)
-		if err != nil {
-			return nil, err
-		}
-		// The model has no clock: it cannot compare expires_at to "now", so a
-		// lazily-expired action (status still REQUESTED, 04) would read as
-		// live. The engine answers the question instead — a computed expired
-		// flag per action, plus now for grounding.
-		now := s.now().UTC()
-		type actionView struct {
-			ActionStatus
-			Expired bool `json:"expired"`
-		}
-		views := make([]actionView, 0, len(acts))
-		for _, a := range acts {
-			views = append(views, actionView{ActionStatus: a, Expired: a.Expired(now)})
-		}
-		return json.Marshal(map[string]any{
-			"now":     now.Format(time.RFC3339),
-			"actions": views,
-		})
-
-	default:
-		// A capability verb.
-		var in struct {
-			Entity map[string]any `json:"entity"`
-			Window *struct {
-				From string `json:"from"`
-				To   string `json:"to"`
-			} `json:"window"`
-		}
-		// Decode twice: once for the typed roots, once for the extras.
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("bad %s input: %w", name, err)
-		}
-		var all map[string]json.RawMessage
-		_ = json.Unmarshal(input, &all)
-		extra := map[string]any{}
-		for k, v := range all {
-			if k == "entity" || k == "window" {
-				continue
-			}
-			var val any
-			if err := json.Unmarshal(v, &val); err == nil {
-				extra[k] = val
-			}
-		}
-		call := InvokeInput{Entity: in.Entity}
-		if len(extra) > 0 {
-			call.Extra = extra
-		}
-		if in.Window != nil {
-			w := &Window{}
-			if t, err := time.Parse(time.RFC3339, in.Window.From); err == nil {
-				w.From = t
-			}
-			if t, err := time.Parse(time.RFC3339, in.Window.To); err == nil {
-				w.To = t
-			}
-			call.Window = w
-		}
-		return s.backend.InvokeCapability(ctx, name, call)
+// recallBody is the request both recall tools send.
+func recallBody(query string, tags []string) map[string]any {
+	body := map[string]any{"query": query}
+	if len(tags) > 0 {
+		body["tags"] = tags
 	}
+	return body
+}
+
+// The recall tools bound their own content because what a turn consulted is
+// what the model was shown: a hit left off the page was not put in front of it.
+
+func (s *Session) recallSOPs(ctx context.Context, in recallSOPsInput) (toolResult, error) {
+	raw, err := s.backend.RecallSOPs(ctx, recallBody(in.Query, in.Tags))
+	if err != nil {
+		return toolResult{}, err
+	}
+	shown := s.boundResult(raw)
+	return toolResult{Content: shown, Consulted: consultedSOPs(shown)}, nil
+}
+
+func (s *Session) recallSimilar(ctx context.Context, in recallSimilarInput) (toolResult, error) {
+	raw, err := s.backend.RecallSimilar(ctx, recallBody(in.Query, in.Tags))
+	if err != nil {
+		return toolResult{}, err
+	}
+	shown := s.boundResult(raw)
+	return toolResult{Content: shown, Similar: consultedCases(shown)}, nil
+}
+
+func (s *Session) priorInvestigations(ctx context.Context, in priorInvestigationsInput) (toolResult, error) {
+	raw, err := s.backend.PriorInvestigations(ctx, map[string]any{"entity": in.Entity})
+	if err != nil {
+		return toolResult{}, err
+	}
+	shown := s.boundResult(raw)
+	return toolResult{Content: shown, Similar: consultedCases(shown)}, nil
+}
+
+func (s *Session) proposeHypothesis(ctx context.Context, in proposeHypothesisInput) (toolResult, error) {
+	resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+		InvestigationRef:   s.investigationID,
+		InterpretationType: "hypothesis",
+		Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
+		Confidence:         in.Confidence,
+		Hypothesis: &Hypothesis{
+			Statement:   in.Statement,
+			Handle:      clipRunes(in.Handle, 40),
+			ParentRef:   in.ParentRef,
+			RootedAtRef: in.RootedAtRef,
+			Labels:      in.Labels,
+		},
+	})
+	if err != nil {
+		return toolResult{}, err
+	}
+	return contentOf(json.Marshal(map[string]any{"hypothesis_ref": resp.NodeID, "status": "PROPOSED"}))
+}
+
+func (s *Session) recordPrediction(ctx context.Context, in recordPredictionInput) (toolResult, error) {
+	pred := &Prediction{HypothesisRef: in.HypothesisRef, Statement: in.Statement, Discriminates: in.Discriminates, TestKind: in.TestKind}
+	if in.TestTool != "" || in.TestQuery != "" {
+		pred.TestQuery = &QuerySpec{Tool: in.TestTool, QueryText: in.TestQuery}
+	}
+	resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+		InvestigationRef:   s.investigationID,
+		InterpretationType: "prediction",
+		Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
+		Prediction:         pred,
+	})
+	if err != nil {
+		return toolResult{}, err
+	}
+	return contentOf(json.Marshal(map[string]any{"prediction_ref": resp.NodeID, "status": "UNTESTED"}))
+}
+
+func (s *Session) evaluateHypothesis(ctx context.Context, in evaluateHypothesisInput) (toolResult, error) {
+	// The disposition becomes the interpretation type, so only the three
+	// outcomes pass: anything else would let the model record another
+	// type, the context-reset marker among them (adr/0235).
+	switch in.Disposition {
+	case "support", "refutation", "inconclusive":
+	default:
+		return toolResult{}, fmt.Errorf("evaluate_hypothesis: disposition must be support, refutation or inconclusive, not %q", in.Disposition)
+	}
+	resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+		InvestigationRef:   s.investigationID,
+		InterpretationType: in.Disposition,
+		Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
+		Confidence:         in.Confidence,
+		HypothesisRef:      in.HypothesisRef,
+		Abandoned:          in.Abandoned,
+		TestResultRefs:     in.TestResultRefs,
+	})
+	if err != nil {
+		return toolResult{}, err
+	}
+	return contentOf(json.Marshal(map[string]any{"interpretation_id": resp.InterpretationID}))
+}
+
+func (s *Session) recordPredictionOutcome(ctx context.Context, in recordPredictionOutcomeInput) (toolResult, error) {
+	resp, err := s.backend.RecordInterpretation(ctx, InterpretationRequest{
+		InvestigationRef:   s.investigationID,
+		InterpretationType: "prediction",
+		Rationale:          clipRunes(in.Rationale, maxRationaleRunes),
+		PredictionRef:      in.PredictionRef,
+		PredictionStatus:   in.Status,
+		TestResultRefs:     in.TestResultRefs,
+	})
+	if err != nil {
+		return toolResult{}, err
+	}
+	return contentOf(json.Marshal(map[string]any{"interpretation_id": resp.InterpretationID}))
+}
+
+func (s *Session) requestAction(ctx context.Context, in requestActionInput) (toolResult, error) {
+	targets := make([]ActionTarget, 0, len(in.Targets))
+	for _, t := range in.Targets {
+		targets = append(targets, ActionTarget{EntityRef: t.EntityRef, ResolvedIdentifier: t.ResolvedIdentifier})
+	}
+	resp, err := s.backend.RequestAction(ctx, ActionRequest{
+		ActionType:       in.ActionType,
+		Targets:          targets,
+		Parameters:       UnwrapStringifiedObject(in.Parameters),
+		EvidenceRefs:     in.EvidenceRefs,
+		Rationale:        in.Rationale,
+		InvestigationRef: s.investigationID,
+		RetryOf:          in.RetryOf,
+	})
+	if err != nil {
+		return toolResult{}, err
+	}
+	s.pendingActions = append(s.pendingActions, resp)
+	return contentOf(json.Marshal(resp))
+}
+
+func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, error) {
+	acts, err := s.backend.ListActions(ctx, s.investigationID)
+	if err != nil {
+		return toolResult{}, err
+	}
+	// The model has no clock: it cannot compare expires_at to "now", so a
+	// lazily-expired action (status still REQUESTED, 04) would read as
+	// live. The engine answers the question instead — a computed expired
+	// flag per action, plus now for grounding.
+	now := s.now().UTC()
+	type actionView struct {
+		ActionStatus
+		Expired bool `json:"expired"`
+	}
+	views := make([]actionView, 0, len(acts))
+	for _, a := range acts {
+		views = append(views, actionView{ActionStatus: a, Expired: a.Expired(now)})
+	}
+	return contentOf(json.Marshal(map[string]any{
+		"now":     now.Format(time.RFC3339),
+		"actions": views,
+	}))
+}
+
+// invokeVerb runs a capability verb: every verb shares the CallInput shape
+// (verbToolDef), so one decoder serves them all.
+func (s *Session) invokeVerb(ctx context.Context, name string, input json.RawMessage) ([]byte, error) {
+	var in struct {
+		Entity map[string]any `json:"entity"`
+		Window *struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+		} `json:"window"`
+	}
+	// Decode twice: once for the typed roots, once for the extras.
+	if err := json.Unmarshal(input, &in); err != nil {
+		return nil, fmt.Errorf("bad %s input: %w", name, err)
+	}
+	var all map[string]json.RawMessage
+	_ = json.Unmarshal(input, &all)
+	extra := map[string]any{}
+	for k, v := range all {
+		if k == "entity" || k == "window" {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(v, &val); err == nil {
+			extra[k] = val
+		}
+	}
+	call := InvokeInput{Entity: in.Entity}
+	if len(extra) > 0 {
+		call.Extra = extra
+	}
+	if in.Window != nil {
+		w := &Window{}
+		if t, err := time.Parse(time.RFC3339, in.Window.From); err == nil {
+			w.From = t
+		}
+		if t, err := time.Parse(time.RFC3339, in.Window.To); err == nil {
+			w.To = t
+		}
+		call.Window = w
+	}
+	return s.backend.InvokeCapability(ctx, name, call)
 }
