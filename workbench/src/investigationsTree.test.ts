@@ -46,8 +46,8 @@ describe("InvestigationsProvider (ui/06)", () => {
   it("fails closed on an unreachable or incompatible backend, before any read", async () => {
     const down = tree(client({ status: { ...ok, reachable: false }, reason: "backend not reachable" }));
     const [item] = await down.provider.getChildren();
-    expect(item.label).toBe("Backend not connected");
-    expect(item.command?.command).toBe("reckon.checkBackend");
+    expect(item!.label).toBe("Backend not connected");
+    expect(item!.command?.command).toBe("reckon.checkBackend");
 
     const old = tree(client({ reason: "API v9 is not supported" }));
     expect(labels(await old.provider.getChildren())).toEqual(["Backend incompatible"]);
@@ -56,14 +56,14 @@ describe("InvestigationsProvider (ui/06)", () => {
   it("offers sign-in when signed out, and says so when the list cannot be read", async () => {
     const out = tree(client(), false);
     const [item] = await out.provider.getChildren();
-    expect(item.label).toBe("Sign in to reckon");
-    expect(item.command?.command).toBe("reckon.signIn");
+    expect(item!.label).toBe("Sign in to reckon");
+    expect(item!.command?.command).toBe("reckon.signIn");
 
     const failing = tree(client({ investigations: async () => { throw new Error("401 token expired"); } }));
     const [err] = await failing.provider.getChildren();
-    expect(err.label).toBe("Could not load investigations");
-    expect(err.description).toBe("401 token expired");
-    expect(err.command?.command).toBe("reckon.refreshInvestigations");
+    expect(err!.label).toBe("Could not load investigations");
+    expect(err!.description).toBe("401 token expired");
+    expect(err!.command?.command).toBe("reckon.refreshInvestigations");
   });
 
   it("groups rows by status in display order, rolls up pending approvals, and keeps unknown states visible", async () => {
@@ -77,9 +77,9 @@ describe("InvestigationsProvider (ui/06)", () => {
     const items = await provider.getChildren();
     expect(labels(items)).toEqual(["Active (2)", "Concluded (1)", "d"]);
     expect(items[0]).toBeInstanceOf(GroupItem);
-    expect(items[0].description).toBe("3 awaiting approval");
-    expect(items[0].collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
-    expect(items[1].collapsibleState).toBe(vscode.TreeItemCollapsibleState.Collapsed);
+    expect(items[0]!.description).toBe("3 awaiting approval");
+    expect(items[0]!.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
+    expect(items[1]!.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Collapsed);
     expect(items[2]).toBeInstanceOf(InvestigationRowItem);
   });
 
@@ -100,10 +100,10 @@ describe("InvestigationsProvider (ui/06)", () => {
     const [group] = await provider.getChildren();
     const ordered = await provider.getChildren(group);
     expect(ordered.map((i) => (i as InvestigationRowItem).invId)).toEqual(["soon", "later", "pending", "unseen", "recent"]);
-    expect(ordered[0].description).toMatch(/^⏳ \dm · 1 pending$/);
-    expect(ordered[3].description).toBe("● new");
-    expect((ordered[0].iconPath as vscode.ThemeIcon).id).toBe("bell-dot");
-    expect((ordered[4].iconPath as vscode.ThemeIcon).id).toBe("circle-filled");
-    expect(ordered[4].command).toEqual({ command: "reckon.openInvestigation", title: "Open Investigation", arguments: ["recent", "recent"] });
+    expect(ordered[0]!.description).toMatch(/^⏳ \dm · 1 pending$/);
+    expect(ordered[3]!.description).toBe("● new");
+    expect((ordered[0]!.iconPath as vscode.ThemeIcon).id).toBe("bell-dot");
+    expect((ordered[4]!.iconPath as vscode.ThemeIcon).id).toBe("circle-filled");
+    expect(ordered[4]!.command).toEqual({ command: "reckon.openInvestigation", title: "Open Investigation", arguments: ["recent", "recent"] });
   });
 });

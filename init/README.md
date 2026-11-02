@@ -1,7 +1,7 @@
 # init/ — platform service hooks
 
-Drafts for running reckon as a system service. Polished templates for the OSS
-launch (Phase H); useful today for anyone who wants the supervisor to come
+Drafts for running reckon as a system service. Polished templates are still to
+come; useful today for anyone who wants the supervisor to come
 back on reboot.
 
 Both templates assume the `reckon` binary is installed at `/usr/local/bin/reckon`
@@ -70,10 +70,9 @@ directory (`~/.reckon/` by default) is reachable as that user.
 Deferred. The supervisor itself works on Windows (the components have
 cross-platform support in `supervisor.Keycloak` for the OS-specific JRE
 path); a Windows Service wrapper (NSSM, sc.exe, or a Go-based wrapper)
-lands in Phase H if there's demand.
+can land if there's demand.
 
 ## Status
 
 These templates are drafts. Validated locally on macOS only; Linux
-validation comes during Phase H release engineering when we have CI
-running against per-OS VMs.
+validation comes with CI running against per-OS VMs.

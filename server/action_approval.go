@@ -43,7 +43,7 @@ type ActionDecisionResponse struct {
 }
 
 // approveAction handles POST /api/actions/{id}/approve. It honors the frozen
-// Gate 2 requirement (the Phase D two-party seam): for a TWO_PARTY action the
+// Gate 2 requirement: for a TWO_PARTY action the
 // first approval is recorded as PRIMARY (→ PENDING_SECONDARY, no dispatch) and a
 // second, distinct approver as SECONDARY (→ APPROVED, dispatch); a MANUAL action
 // is a single SOLO approval. The aggregate is the enforcement point — it rejects
@@ -134,9 +134,9 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 // only shapes the command the aggregate then validates.
 func (b *Backend) buildApproval(ac aggregate.ActionCurrent, approver, challenge string, now time.Time) (auth aggregate.Authorization, willApprove bool, approverID, errMsg string) {
 	// expires_at is the approval deadline the requester declared, frozen at
-	// request time. No expiry timer runs in v0 (the ExpireAction emitter is a
-	// v1 refinement), so the endpoint is the enforcement point: a lapsed
-	// request must not be approvable a week later as if the TTL meant nothing.
+	// request time. ActionExpiryTimer records action.expired at the deadline,
+	// but its start is best-effort, so the endpoint is the enforcement point: a
+	// lapsed request must not be approvable a week later as if the TTL meant nothing.
 	if !ac.ExpiresAt.IsZero() && now.After(ac.ExpiresAt) {
 		return aggregate.Authorization{}, false, "", "action expired at " + ac.ExpiresAt.UTC().Format(time.RFC3339) + " and can no longer be approved"
 	}

@@ -209,7 +209,7 @@ func TestRecordInterpretation_BodyTooLarge(t *testing.T) {
 	}
 }
 
-// TestReasoningNodes_EndpointFlow: the D.2 loop over HTTP — the AI proposes a
+// TestReasoningNodes_EndpointFlow: the reasoning-node loop over HTTP — the AI proposes a
 // hypothesis (PROPOSED), the human acknowledges it (OPEN), a prediction is made
 // and confirmed with evidence, the hypothesis is supported — then the list
 // endpoint renders the nested view.

@@ -88,8 +88,8 @@ describe("matrix", () => {
     expect(m.rows.map((r) => r.cells)).toEqual([["✓", "✕"], ["✓", "✕"], ["?", "?"], ["?", "?"]]);
     expect(m.inconsistent).toEqual([0, 2]);
     expect(m.rows.filter((r) => r.open).length).toBe(2);
-    const withdrawn: Hypothesis = { ...snap.hypotheses[1], predictions: [{ ...snap.hypotheses[1].predictions[0], status: "WITHDRAWN" }] };
-    expect(buildMatrix([snap.hypotheses[0], withdrawn]).rows.length).toBe(3);
+    const withdrawn: Hypothesis = { ...snap.hypotheses[1]!, predictions: [{ ...snap.hypotheses[1]!.predictions[0]!, status: "WITHDRAWN" }] };
+    expect(buildMatrix([snap.hypotheses[0]!, withdrawn]).rows.length).toBe(3);
   });
 });
 
@@ -97,8 +97,8 @@ describe("preflight", () => {
   it("names each unmet gate and where to satisfy it", () => {
     const items = concludePreflight({ verdict: null, pins: [], actions: [A({ pending: true })], comms: [{ status: "awaiting_reply" } as CommsThread], openOwnerItems: 1 });
     expect(items.map((x) => x.ok)).toEqual([false, false, false, false, false]);
-    expect(items[0].lens).toBe("reasoning");
-    expect(items[2].text).toBe("1 action(s) not yet terminal");
+    expect(items[0]!.lens).toBe("reasoning");
+    expect(items[2]!.text).toBe("1 action(s) not yet terminal");
     expect(concludeAllowed(items)).toBe(false);
     const clean = concludePreflight({ verdict, pins: [{ interpretationId: "p", finding: "", inputRefs: [], actor: "HUMAN", pinnedAt: "", superseded: false }], actions: [A({ status: "SUCCEEDED" })], comms: noComms, openOwnerItems: 0 });
     expect(preflightClean(clean)).toBe(true);
@@ -110,23 +110,23 @@ describe("turns", () => {
   it("groups the thread into turns with their records as link lines", () => {
     const turns = groupTurns(snap.thread!, snap.turns, snap.hypotheses);
     expect(turns.length).toBe(3);
-    expect(turns[0].aside).toBe(false);
-    expect(turns[1].aside).toBe(true);
-    expect(turns[0].records.map((r) => r.text)).toEqual([]); // the aside holds its own records
-    expect(turns[2].resetBefore?.summary).toContain("context reset");
-    expect(turns[2].transcript).toBeNull(); // the stub: no body loaded
+    expect(turns[0]!.aside).toBe(false);
+    expect(turns[1]!.aside).toBe(true);
+    expect(turns[0]!.records.map((r) => r.text)).toEqual([]); // the aside holds its own records
+    expect(turns[2]!.resetBefore?.summary).toContain("context reset");
+    expect(turns[2]!.transcript).toBeNull(); // the stub: no body loaded
   });
   it("renders record lines from the hypothesis set", () => {
     const hs = snap.hypotheses;
     const h1 = hs[0];
     const e = (over: Partial<ThreadEntry>): ThreadEntry => ({ sequenceNo: 1, occurredAt: "", actor: { principal: "a", kind: "AI_DELEGATED" }, interpretationId: "i", interpretationType: "support", summary: "", inputRefs: [], outputRefs: [], toolCalls: 0, hasTranscript: false, superseded: false, consultedSops: [], consultedSimilar: [], ...over });
-    expect(recordLine(e({ interpretationType: "support", outputRefs: [h1.id] }), hs)).toMatchObject({ text: "hypothesis H1 not-owner supported", title: "H1 not-owner", tone: "ok" });
-    expect(recordLine(e({ interpretationType: "refutation", outputRefs: [hs[1].id] }), hs).text).toMatch(/^hypothesis “.+” refuted$/); // no handle: its claim, never a bare "H2"
-    const p2 = h1.predictions[1];
-    expect(recordLine(e({ interpretationType: "support", inputRefs: [p2.id, p2.testResultRefs[0]] }), hs)).toMatchObject({ text: `prediction “${shortTitle(p2)}” confirmed by attestation`, title: "H1 not-owner · P2", tone: "ok" });
-    expect(recordLine(e({ interpretationType: "prediction", outputRefs: [h1.predictions[0].id] }), hs).text).toBe(`recorded prediction “${shortTitle(h1.predictions[0])}” under hypothesis H1 not-owner`);
-    expect(recordLine(e({ interpretationType: "prediction", outputRefs: [h1.predictions[0].id, h1.predictions[2].id] }), hs).text).toBe("recorded 2 predictions under hypothesis H1 not-owner");
-    expect(recordLine(e({ interpretationType: "hypothesis", outputRefs: [h1.id] }), hs).text).toBe("proposed hypothesis H1 not-owner");
+    expect(recordLine(e({ interpretationType: "support", outputRefs: [h1!.id] }), hs)).toMatchObject({ text: "hypothesis H1 not-owner supported", title: "H1 not-owner", tone: "ok" });
+    expect(recordLine(e({ interpretationType: "refutation", outputRefs: [hs[1]!.id] }), hs).text).toMatch(/^hypothesis “.+” refuted$/); // no handle: its claim, never a bare "H2"
+    const p2 = h1!.predictions[1];
+    expect(recordLine(e({ interpretationType: "support", inputRefs: [p2!.id, p2!.testResultRefs[0]!] }), hs)).toMatchObject({ text: `prediction “${shortTitle(p2!)}” confirmed by attestation`, title: "H1 not-owner · P2", tone: "ok" });
+    expect(recordLine(e({ interpretationType: "prediction", outputRefs: [h1!.predictions[0]!.id] }), hs).text).toBe(`recorded prediction “${shortTitle(h1!.predictions[0]!)}” under hypothesis H1 not-owner`);
+    expect(recordLine(e({ interpretationType: "prediction", outputRefs: [h1!.predictions[0]!.id, h1!.predictions[2]!.id] }), hs).text).toBe("recorded 2 predictions under hypothesis H1 not-owner");
+    expect(recordLine(e({ interpretationType: "hypothesis", outputRefs: [h1!.id] }), hs).text).toBe("proposed hypothesis H1 not-owner");
   });
 });
 

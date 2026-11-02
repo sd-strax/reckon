@@ -1,6 +1,6 @@
--- 0003_sops_fts: v0 keyword retrieval (design/06 §4, §10) + the recommendation
--- token. No embeddings yet (Phase G, D14); recall_sops ranks with Postgres
--- full-text search over title+body until then.
+-- 0003_sops_fts: full-text search over the sops table (design/06 §4, §10) + the
+-- recommendation token. The table is now legacy: recall_sops runs on the
+-- substrate, semantic with an embedder and keyword without.
 
 -- The structured recommendation token (design/06 §2.1): metadata only — the
 -- body stays unparsed prose — that feeds ctx.sop_guidance.recommendation in

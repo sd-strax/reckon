@@ -372,7 +372,7 @@ type pendingAction struct {
 
 // turnTextNote rides both text notifications: turn/text carries a
 // round-complete block (non-streaming provider), turn/text_delta a generated
-// fragment (streaming, E.4). Renderers append either.
+// fragment (streaming). Renderers append either.
 type turnTextNote struct {
 	SessionID string `json:"session_id"`
 	Text      string `json:"text"`

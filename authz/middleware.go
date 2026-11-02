@@ -105,8 +105,8 @@ func writeAuthError(w http.ResponseWriter, status int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": msg})
 }
 
-// writeAuthErrorWithRoles surfaces the missing-role list — the A.5 done-bar
-// explicitly asks for the missing role to be visible in 403 responses.
+// writeAuthErrorWithRoles surfaces the missing-role list, so the missing
+// role is visible in 403 responses.
 func writeAuthErrorWithRoles(w http.ResponseWriter, status int, msg string, requiredRoles []string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

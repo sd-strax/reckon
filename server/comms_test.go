@@ -17,8 +17,8 @@ import (
 	"github.com/sd-strax/reckon/temporal"
 )
 
-// TestComms_NotifyResultOpensThread: the Phase F seam end to end at the
-// engine level — a notify.slack action that reaches SUCCEEDED opens a comms
+// TestComms_NotifyResultOpensThread: the seam end to end at the engine
+// level — a notify.slack action that reaches SUCCEEDED opens a comms
 // thread (via the result activity's hook), a follow-up notify carrying
 // thread_ref extends it, and an inbound reply + ack + done walk the thread's
 // state machine through the HTTP surface.

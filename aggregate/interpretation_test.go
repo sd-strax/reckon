@@ -15,7 +15,7 @@ import (
 func TestRecordInterpretation_Validate(t *testing.T) {
 	env := newTestEnvelope("analyst-1")
 	// A free-standing reasoning type (pivot) — this test covers the shared
-	// D.1 guards (type allowlist, rationale, confidence, tool-call/ref bounds);
+	// guards (type allowlist, rationale, confidence, tool-call/ref bounds);
 	// the node-bearing types have their own guards in hypothesis_test.go.
 	base := RecordInterpretation{
 		InterpretationID:   uuid.New(),

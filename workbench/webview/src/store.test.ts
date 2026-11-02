@@ -24,7 +24,7 @@ describe("reducer: sequence discipline", () => {
     expect(s.snap?.pins).toEqual([]); // stale patch dropped
     s = run([{ type: "state.patch", seq: 6, patch: { pins: [{ interpretationId: "p", finding: "fresh", inputRefs: [], actor: "HUMAN", pinnedAt: "", superseded: false }] } }], s);
     expect(s.seq).toBe(6);
-    expect(s.snap?.pins[0].finding).toBe("fresh");
+    expect(s.snap?.pins[0]!.finding).toBe("fresh");
   });
   it("drops a snapshot older than the state it holds, for the same investigation only", () => {
     let s = run([
@@ -72,15 +72,15 @@ describe("reducer: the live conversation", () => {
     ]);
     expect(s.streaming).toBe(true);
     const turn = s.live[1];
-    if (turn.kind !== "assistant") throw new Error("expected a turn");
-    expect(turn.segments.map((x) => x.kind)).toEqual(["text", "tool", "tool", "text"]);
-    const first = turn.segments[1];
-    if (first.kind !== "tool") throw new Error();
-    expect(first.row.result?.detail).toBe("COMPLETE · 2 event(s)");
-    expect(first.row.result?.callId).toBe("c-1");
-    const second = turn.segments[2];
-    if (second.kind !== "tool") throw new Error();
-    expect(second.row.result).toBeUndefined();
+    if (turn!.kind !== "assistant") throw new Error("expected a turn");
+    expect(turn!.segments.map((x) => x.kind)).toEqual(["text", "tool", "tool", "text"]);
+    const first = turn!.segments[1];
+    if (first!.kind !== "tool") throw new Error();
+    expect(first!.row.result?.detail).toBe("COMPLETE · 2 event(s)");
+    expect(first!.row.result?.callId).toBe("c-1");
+    const second = turn!.segments[2];
+    if (second!.kind !== "tool") throw new Error();
+    expect(second!.row.result).toBeUndefined();
     // A thread re-post while streaming must not clear the live view.
     s = run([{ type: "state.patch", seq: 2, patch: { thread: [] } }], s);
     expect(s.live.length).toBe(2);
@@ -99,8 +99,8 @@ describe("reducer: the live conversation", () => {
       { type: "turn.notice", text: "Context condensed to fit the model's window: 2 earlier turns reduced to their text." },
     ]);
     const turn = s.live[1];
-    if (turn.kind !== "assistant") throw new Error();
-    expect(turn.segments).toEqual([
+    if (turn!.kind !== "assistant") throw new Error();
+    expect(turn!.segments).toEqual([
       { kind: "notice", text: "Context condensed to fit the model's window: 2 earlier turns reduced to their text." },
     ]);
   });
@@ -112,16 +112,16 @@ describe("reducer: the live conversation", () => {
     ]);
     expect(s.streaming).toBe(false);
     const turn = s.live[1];
-    if (turn.kind !== "assistant") throw new Error();
-    expect(turn.segments[turn.segments.length - 1]).toEqual({ kind: "usage", text: "1 tool round · 10 in / 5 out" });
+    if (turn!.kind !== "assistant") throw new Error();
+    expect(turn!.segments[turn!.segments.length - 1]).toEqual({ kind: "usage", text: "1 tool round · 10 in / 5 out" });
     s = run([{ type: "state.patch", seq: 2, patch: { thread: [] } }], s);
     expect(s.live).toEqual([]);
   });
   it("renders an aside collapsed and marks it done", () => {
     const s = run([{ type: "state.snapshot", seq: 1, snapshot: snap(1) }, { type: "aside.start", label: "⚡ decide · H1" }, { type: "turn.end" }]);
     const t = s.live[0];
-    if (t.kind !== "assistant") throw new Error();
-    expect(t.aside).toEqual({ label: "⚡ decide · H1", done: true });
+    if (t!.kind !== "assistant") throw new Error();
+    expect(t!.aside).toEqual({ label: "⚡ decide · H1", done: true });
   });
 });
 

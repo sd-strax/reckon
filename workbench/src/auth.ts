@@ -500,7 +500,7 @@ function notSignedIn(kind: TokenKind): Error {
 /** The `sub` claim of a JWT; undefined if the token has none to read. For keying, not trust: the backend verifies the token. */
 function tokenSubject(token: string): string | undefined {
   try {
-    const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()) as { sub?: unknown };
+    const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString()) as { sub?: unknown };
     return typeof payload.sub === "string" ? payload.sub : undefined;
   } catch {
     return undefined;

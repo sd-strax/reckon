@@ -12,9 +12,9 @@ const (
 	EventTypeActionApproved   = "action.approved"
 	EventTypeActionRejected   = "action.rejected"
 	EventTypeActionExpired    = "action.expired"
-	EventTypeActionDispatched = "action.dispatched" // system-emitted (C.4)
-	EventTypeActionResulted   = "action.resulted"   // system-emitted (C.4)
-	EventTypeActionReversed   = "action.reversed"   // system-emitted (C.4)
+	EventTypeActionDispatched = "action.dispatched" // system-emitted
+	EventTypeActionResulted   = "action.resulted"   // system-emitted
+	EventTypeActionReversed   = "action.reversed"   // system-emitted
 
 	// EventTypeActionReversalAttempted records a reversing dispatch that fully
 	// succeeded but whose effect could not be verified (04 §7.1 Position C —

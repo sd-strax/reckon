@@ -56,8 +56,7 @@ type Event struct {
 	RecordedAt time.Time `json:"recorded_at,omitzero"`
 
 	// CausationID references the event that caused this one, for event-chain
-	// provenance. Invalid (NULL) for command-initiated events — all events
-	// today; system-emitted chains (Temporal workflows) populate it later.
+	// provenance. Invalid (NULL) on every event today: nothing assigns it yet.
 	CausationID uuid.NullUUID `json:"causation_id,omitempty"`
 
 	// CorrelationID groups every event produced by one command. A command that
@@ -109,7 +108,7 @@ type Envelope struct {
 // command so the action command handler can enforce the AI write-protection
 // (04 §5.6): an AI_DELEGATED command may request an action but can never
 // construct an Authorization record or advance action status. An empty Kind is
-// treated as HUMAN (the safe default) so pre-C.1 commands are unaffected.
+// treated as HUMAN (the safe default) so a command that does not set it is unaffected.
 const (
 	ActorHuman       = "HUMAN"
 	ActorAIDelegated = "AI_DELEGATED"

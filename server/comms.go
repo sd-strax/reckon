@@ -10,7 +10,7 @@ import (
 	"github.com/sd-strax/reckon/authz"
 )
 
-// The comms/external-work read+act surface (Phase F, binding §4). Threads are
+// The comms/external-work read+act surface (binding §4). Threads are
 // OPENED by the action layer (a SUCCEEDED notify.* dispatch), never here;
 // these routes serve the conversation state and record the analyst's acts on
 // it: acknowledge, mark done, snooze, and the inbound-reply ingestion seam.
@@ -86,7 +86,7 @@ func (b *Backend) listInvestigationComms(w http.ResponseWriter, r *http.Request,
 }
 
 // CommsInboundBody is POST /api/comms/inbound — the v0 ingestion seam for a
-// reply. A real vendor webhook lands with its adapter (Phase E/F); until
+// reply. A real vendor webhook lands with its adapter; until
 // then, replies arrive via API (CLI, tests, demo tooling).
 type CommsInboundBody struct {
 	ThreadID string `json:"thread_id"`

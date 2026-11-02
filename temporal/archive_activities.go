@@ -205,7 +205,7 @@ func (a *ArchiveActivities) loadSideStores(ctx context.Context, aggID uuid.UUID,
 	}
 	for _, c := range calls {
 		// Blob hash = content hash of the stored (byte-exact) args, so it matches
-		// the event's tool_call_ref (D.2 stores normalized args byte-exact).
+		// the event's tool_call_ref (stored as normalized args, byte-exact).
 		inv.ToolCalls = append(inv.ToolCalls, archive.Blob{Hash: aggregate.HashContent(c.Args), Bytes: c.Args})
 		if c.TranscriptHash != "" {
 			transcriptHashes[c.TranscriptHash] = struct{}{}

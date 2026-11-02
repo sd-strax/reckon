@@ -32,7 +32,7 @@ const (
 type transformFn func(any) (any, error)
 
 // builtinTransforms is the sealed function set (§3.3.2). Adapter-registered
-// transforms (splunk_quote, kql_quote, …) are a Phase E extension.
+// transforms (splunk_quote, kql_quote, …) are not supported yet.
 var builtinTransforms = map[string]transformFn{
 	"upper":    func(v any) (any, error) { return strings.ToUpper(toStr(v)), nil },
 	"lower":    func(v any) (any, error) { return strings.ToLower(toStr(v)), nil },

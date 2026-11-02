@@ -1,12 +1,12 @@
 # Install manifest for the ServiceNow ticketing adapter (design/11 §3;
-# implementation/adapter-candidates.md — Phase F ticketing).
+# implementation/adapter-candidates.md).
 #
 # NATIVE_API class: a static Go binary with no runtime block (no venv, no vendor
 # package, no child process) — the reckon plugin protocol on stdio and a
 # hand-rolled Basic-auth + HTTPS client to the ServiceNow Table API
 # (/api/now/table/incident). It serves the ticketing family — the
 # operational-handoff vehicle (04 §2.2 Handoff; 07 §7.1): ticket.create /
-# ticket.comment / ticket.transition / ticket.close — plus the Phase F read
+# ticket.comment / ticket.transition / ticket.close — plus the read
 # verbs (03 §2.9): query_external_cases / get_external_case_details, which read
 # the case system of record back as class-2005 Incident Findings.
 #

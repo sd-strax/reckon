@@ -51,7 +51,7 @@ func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
 }
 
 // recallSimilar handles POST /api/knowledge/recall_similar_investigations
-// (design/06 §4, K4): similarity retrieval over the concluded-investigation
+// (design/06 §4): similarity retrieval over the concluded-investigation
 // summary corpus — "have we handled something like this before?" Any
 // authenticated reader; the agent loop consults it during reasoning.
 func (b *Backend) recallSimilar(w http.ResponseWriter, r *http.Request) {

@@ -77,7 +77,7 @@ function PinnedEvidence() {
       helper: "The request is yours, cites this pin's evidence, and goes through approval like any action.",
       extrasTop: [
         { kind: "select", id: "type", label: "Action", options: types, value: types[0]?.value },
-        targets.length ? { kind: "select", id: "target", label: "On", options: [...targets, { value: "", label: "another target…" }], value: targets[0].value } : { kind: "text", id: "other", label: "On (host, account, address or indicator)", value: "" },
+        targets[0] ? { kind: "select", id: "target", label: "On", options: [...targets, { value: "", label: "another target…" }], value: targets[0].value } : { kind: "text", id: "other", label: "On (host, account, address or indicator)", value: "" },
         ...(targets.length ? [{ kind: "text" as const, id: "other", label: "…or another target", value: "" }] : []),
       ],
       confirm: "Next",

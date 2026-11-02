@@ -140,7 +140,7 @@ func Init(opts InitOptions) (InitResult, error) {
 
 	// A plain init yields a FIXTURE-FREE install: no scenario is materialized and
 	// Capability.ConfigPath stays empty, so /api/capabilities serves its clean 503
-	// until the operator wires real adapters (Phase E/F). The bundled demo world
+	// until the operator wires real adapters. The bundled demo world
 	// is opt-in via `reckon demo seed` — an install shouldn't pretend a mock
 	// tenant is real, least of all this public OSS engine on a fresh clone
 	// (config.Demo). demo.enabled stays false (the default), so the fixture guard

@@ -505,7 +505,7 @@ func TestApproveAction_TwoPartyIntegrity(t *testing.T) {
 	}
 }
 
-// TestFoldDispatchLifecycle: the system-emitted events (C.4's emitters) fold the
+// TestFoldDispatchLifecycle: the system-emitted events fold the
 // rest of the machine — EXECUTING on dispatch, SUCCEEDED/FAILED per outcome
 // (PARTIAL→SUCCEEDED, TIMEOUT→FAILED), and REVERSED on the original.
 func TestFoldDispatchLifecycle(t *testing.T) {

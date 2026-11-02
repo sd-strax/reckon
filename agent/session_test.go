@@ -563,7 +563,7 @@ func TestSession_Rehydrates(t *testing.T) {
 	}
 }
 
-// TestSession_StreamingContract (E.4): with OnTextDelta set and a StreamingLLM,
+// TestSession_StreamingContract: with OnTextDelta set and a StreamingLLM,
 // text reaches the surface only as deltas — OnText stays silent (no double
 // render) — while the record (transcript, TurnResult.Text) still carries the
 // full block text from the response, never assembled from deltas.
@@ -1007,8 +1007,8 @@ func TestSession_ProposeSOP(t *testing.T) {
 
 // TestSession_ConsultedSimilarRecorded: a recall_similar_investigations call is
 // captured as consulted_similar_investigations provenance on the committed
-// interpretation, with Used decided conservatively from the final text (K4,
-// 06 §6).
+// interpretation, with Used decided conservatively from the final text
+// (06 §6).
 func TestSession_ConsultedSimilarRecorded(t *testing.T) {
 	f := newFakeBackend(t)
 	llm := &scriptedLLM{script: []CompleteResponse{
@@ -1559,9 +1559,9 @@ func TestTranscriptEscaping_RoundTrips(t *testing.T) {
 // the required + minItems:1 shape is load-bearing and must not silently revert.
 func TestRequestActionRequiresEvidence(t *testing.T) {
 	var schema map[string]any
-	for _, td := range intrinsicTools(nil) {
-		if td.Name == ToolRequestAction {
-			schema = td.InputSchema
+	for _, tl := range intrinsicTools(nil) {
+		if tl.def.Name == ToolRequestAction {
+			schema = tl.def.InputSchema
 		}
 	}
 	if schema == nil {
@@ -1609,9 +1609,10 @@ func TestEvaluateHypothesis_OnlyOutcomes(t *testing.T) {
 	}
 }
 
-// TestCapabilityCallID: the record takes the engine's id from a capability
-// envelope only, and only an id (adr/0092); a call_id on any other payload, or
-// one that is not an id, is left off so the commit never fails on it.
+// TestCapabilityCallID: the record takes only an id from the envelope
+// (adr/0092); a call_id that is not one is left off so the commit never fails
+// on it. Only the verb tool reads it at all (verbTool), which the session test
+// above checks per tool.
 func TestCapabilityCallID(t *testing.T) {
 	if got := capabilityCallID(`{"call_id":"0192f3a0-0000-7000-8000-0000000000c1","verb":"x"}`); got != "0192f3a0-0000-7000-8000-0000000000c1" {
 		t.Errorf("envelope id = %q", got)
@@ -1620,13 +1621,5 @@ func TestCapabilityCallID(t *testing.T) {
 		if got := capabilityCallID(content); got != "" {
 			t.Errorf("capabilityCallID(%s) = %q; want none", content, got)
 		}
-	}
-	for _, name := range []string{ToolRecallSOPs, ToolRequestAction, ToolReadResult, ToolListActions} {
-		if isCapabilityVerb(name) {
-			t.Errorf("%s taken for a capability verb", name)
-		}
-	}
-	if !isCapabilityVerb("enumerate_logons") {
-		t.Error("enumerate_logons not taken for a capability verb")
 	}
 }

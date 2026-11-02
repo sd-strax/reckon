@@ -96,20 +96,21 @@ export function parseTranscript(bodyText: string): ParsedTranscript {
     } else if ((m = line.match(/^\[assistant\] ([^]*)$/))) {
       items.push({ kind: "assistant", text: unescapeT(m[1]) });
     } else if ((m = line.match(/^\[tool_use ([^ \]]+) id=([^\]]+)\] ([^]*)$/))) {
+      const [, name = "", id = "", argsRaw = ""] = m;
       let argsPretty: string;
       try {
-        argsPretty = JSON.stringify(JSON.parse(unescapeT(m[3])), null, 2);
+        argsPretty = JSON.stringify(JSON.parse(unescapeT(argsRaw)), null, 2);
       } catch {
-        argsPretty = unescapeT(m[3]);
+        argsPretty = unescapeT(argsRaw);
       }
-      const row: TranscriptTool = { kind: "tool", name: m[1], argsRaw: m[3], argsPretty };
-      rows.set(m[2], row);
+      const row: TranscriptTool = { kind: "tool", name, argsRaw, argsPretty };
+      rows.set(id, row);
       items.push(row);
     } else if ((m = line.match(/^\[tool_result ([^ \]]+) id=([^ \]]+) error=(true|false)\] ([^]*)$/))) {
-      const row = rows.get(m[2]);
+      const row = rows.get(m[2] ?? "");
       if (row) row.result = distillResult(m[3] === "true", unescapeT(m[4]));
     } else if ((m = line.match(/^\[loop\] ([^]*)$/))) {
-      items.push({ kind: "loop", text: m[1] });
+      items.push({ kind: "loop", text: m[1] ?? "" });
     }
   }
   return { items, aside, asideLabel };

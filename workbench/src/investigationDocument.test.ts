@@ -52,7 +52,7 @@ function documents(client: BackendClient) {
   return { docs, onLoaded };
 }
 
-const posted = (i = 0) => createdPanels()[i].webview.posted as RenderMessage[];
+const posted = (i = 0) => createdPanels()[i]!.webview.posted as RenderMessage[];
 const types = (i = 0) => posted(i).map((m) => m.type);
 
 beforeEach(() => {
@@ -67,13 +67,13 @@ describe("InvestigationDocuments: opening", () => {
     docs.show("inv-1", "RDP from host-a");
 
     const panel = createdPanels()[0];
-    expect(panel.title).toBe("⚖ RDP from host-a");
-    expect(panel.webview.options.enableScripts).toBe(true);
-    expect(panel.webview.html).toContain("default-src 'none'");
-    expect(panel.webview.html).not.toContain("unsafe-inline");
-    expect(panel.webview.posted).toEqual([]); // nothing until the page asks
+    expect(panel!.title).toBe("⚖ RDP from host-a");
+    expect(panel!.webview.options.enableScripts).toBe(true);
+    expect(panel!.webview.html).toContain("default-src 'none'");
+    expect(panel!.webview.html).not.toContain("unsafe-inline");
+    expect(panel!.webview.posted).toEqual([]); // nothing until the page asks
 
-    panel.webview.receive({ type: "ready" });
+    panel!.webview.receive({ type: "ready" });
     await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
 
     expect(types()[0]).toBe("loading");
@@ -88,7 +88,7 @@ describe("InvestigationDocuments: opening", () => {
     docs.show("inv-1");
     docs.show("inv-1");
     expect(createdPanels()).toHaveLength(1);
-    expect(createdPanels()[0].revealed).toBe(1);
+    expect(createdPanels()[0]!.revealed).toBe(1);
   });
 });
 
@@ -99,10 +99,10 @@ describe("InvestigationDocuments: closing", () => {
     const { docs, onLoaded } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0];
-    panel.webview.receive({ type: "ready" });
+    panel!.webview.receive({ type: "ready" });
     await vi.waitFor(() => expect(answer).toBeDefined());
 
-    panel.dispose();
+    panel!.dispose();
     answer(detail());
     await new Promise((r) => setTimeout(r, 0));
 
@@ -117,7 +117,7 @@ describe("InvestigationDocuments: closing", () => {
     const { docs } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0];
-    panel.webview.receive({ type: "ready" });
+    panel!.webview.receive({ type: "ready" });
     await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
 
     const reads = () => calls.filter((c) => c === "investigations.get").length;
@@ -125,7 +125,7 @@ describe("InvestigationDocuments: closing", () => {
     await vi.advanceTimersByTimeAsync(4000);
     expect(reads()).toBe(before + 1);
 
-    panel.dispose();
+    panel!.dispose();
     await vi.advanceTimersByTimeAsync(20_000);
     expect(reads()).toBe(before + 1);
   });
@@ -134,7 +134,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend();
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].dispose();
+    createdPanels()[0]!.dispose();
     expect(transport.closeSession).toHaveBeenCalledWith("inv-1");
   });
 
@@ -153,10 +153,10 @@ describe("InvestigationDocuments: closing", () => {
     const { docs } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0];
-    panel.webview.receive({ type: "lifecycle", transition: "conclude", summary: "done" });
+    panel!.webview.receive({ type: "lifecycle", transition: "conclude", summary: "done" });
     await vi.waitFor(() => expect(transport.summarizeConcluded).toHaveBeenCalledWith("inv-1"));
 
-    panel.dispose();
+    panel!.dispose();
     expect(transport.closeSession).not.toHaveBeenCalled();
 
     finish();
@@ -167,7 +167,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend();
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "turn.stop" });
+    createdPanels()[0]!.webview.receive({ type: "turn.stop" });
     expect(transport.cancel).toHaveBeenCalledWith("inv-1");
   });
 
@@ -179,7 +179,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend({ "evidence.events": events });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "ready" });
+    createdPanels()[0]!.webview.receive({ type: "ready" });
     await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "events" in m.patch)).toBe(true));
     const patch = posted().find((m) => m.type === "state.patch" && "events" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>;
     expect(patch.seq).toBe(3);
@@ -196,7 +196,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend({ "evidence.events": events });
     const { docs } = documents(client);
     docs.show("inv-1");
-    const panel = createdPanels()[0];
+    const panel = createdPanels()[0]!;
     panel.webview.receive({ type: "ready" });
     await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "eventsCursor" in m.patch)).toBe(true));
     panel.webview.receive({ type: "events.older", cursor: "stale" });
@@ -214,7 +214,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": async () => { throw new BackendRequestError("not a member", 404); } });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-old" } });
+    createdPanels()[0]!.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-old" } });
     await vi.waitFor(() => expect(types()).toContain("inspector.evidence"));
     const answer = posted().find((m) => m.type === "inspector.evidence") as Extract<RenderMessage, { type: "inspector.evidence" }>;
     expect(answer.around).toEqual([]);
@@ -225,7 +225,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend({ "evidence.events": async () => { throw new BackendRequestError("no route", 404); } });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "ready" });
+    createdPanels()[0]!.webview.receive({ type: "ready" });
     await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "eventsError" in m.patch)).toBe(true));
     const patch = posted().find((m) => m.type === "state.patch" && "eventsError" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>;
     expect(patch.patch.eventsError).toMatch(/no route/);
@@ -237,7 +237,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": async () => { throw new BackendRequestError("store down", 503); } });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-1" } });
+    createdPanels()[0]!.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-1" } });
     await vi.waitFor(() => expect(types()).toContain("inspector.error"));
     expect(posted().find((m) => m.type === "inspector.error")).toMatchObject({ type: "inspector.error", target: "e-1", message: expect.stringMatching(/store down/) });
     expect(types()).not.toContain("inspector.evidence");
@@ -250,7 +250,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": events, "evidence.call": async () => call });
     const { docs } = documents(client);
     docs.show("inv-1");
-    const panel = createdPanels()[0];
+    const panel = createdPanels()[0]!;
     panel.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-1" } });
     await vi.waitFor(() => expect(types()).toContain("inspector.evidence"));
     const answer = posted().find((m) => m.type === "inspector.evidence") as Extract<RenderMessage, { type: "inspector.evidence" }>;
@@ -266,7 +266,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend({ "evidence.call": async () => { throw new BackendRequestError("no capability call", 404); } });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "inspector.open", target: { kind: "call", callId: "c-9" } });
+    createdPanels()[0]!.webview.receive({ type: "inspector.open", target: { kind: "call", callId: "c-9" } });
     await vi.waitFor(() => expect(types()).toContain("inspector.error"));
     expect(posted().find((m) => m.type === "inspector.error")).toMatchObject({ type: "inspector.error", target: "c-9" });
   });
@@ -282,11 +282,11 @@ describe("InvestigationDocuments: closing", () => {
     docs.show("inv-1");
     const panel = createdPanels()[0];
 
-    panel.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    panel!.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
     await vi.waitFor(() => expect(types()).toContain("evidence.unresolved"));
 
     down = false;
-    panel.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    panel!.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
     await vi.waitFor(() => expect(evidence).toHaveBeenCalledTimes(2));
   });
 
@@ -297,15 +297,15 @@ describe("InvestigationDocuments: closing", () => {
     docs.show("inv-1");
     docs.showDraft();
     const [first, draft] = createdPanels();
-    first.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    first!.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
     await vi.waitFor(() => expect(evidence).toHaveBeenCalledOnce());
 
     docs.identityChanged();
 
-    expect(first.disposed).toBe(true);
-    expect(draft.disposed).toBe(true);
+    expect(first!.disposed).toBe(true);
+    expect(draft!.disposed).toBe(true);
     docs.show("inv-1");
-    createdPanels()[2].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    createdPanels()[2]!.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
     await vi.waitFor(() => expect(evidence).toHaveBeenCalledTimes(2));
   });
 
@@ -315,7 +315,7 @@ describe("InvestigationDocuments: closing", () => {
     const { client } = backend({ "evidence.get": evidence });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    createdPanels()[0]!.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
     await vi.waitFor(() => expect(evidence).toHaveBeenCalledOnce());
 
     docs.identityChanged();
@@ -323,22 +323,22 @@ describe("InvestigationDocuments: closing", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     docs.show("inv-1");
-    createdPanels()[1].webview.receive({ type: "evidence.resolve", ref: "ref-1" });
+    createdPanels()[1]!.webview.receive({ type: "evidence.resolve", ref: "ref-1" });
     await vi.waitFor(() => expect(evidence).toHaveBeenCalledTimes(2));
   });
 
   it("does not pop a rename from a panel closed before it was ready", async () => {
     const { docs } = documents(backend().client);
     docs.beginRename("inv-1", "T");
-    createdPanels()[0].dispose();
+    createdPanels()[0]!.dispose();
 
     docs.show("inv-1");
     const panel = createdPanels()[1];
-    panel.webview.receive({ type: "ready" });
-    await vi.waitFor(() => expect(panel.webview.posted.map((m) => (m as RenderMessage).type)).toContain("state.snapshot"));
+    panel!.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(panel!.webview.posted.map((m) => (m as RenderMessage).type)).toContain("state.snapshot"));
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(panel.webview.posted.map((m) => (m as RenderMessage).type)).not.toContain("rename.begin");
+    expect(panel!.webview.posted.map((m) => (m as RenderMessage).type)).not.toContain("rename.begin");
   });
 
   describe("closing a SOP draft when the identity changes", () => {
@@ -353,7 +353,7 @@ describe("InvestigationDocuments: closing", () => {
       vi.mocked(vscode.workspace.openTextDocument).mockResolvedValueOnce({ uri, isClosed: false } as vscode.TextDocument);
       const { docs } = documents(backend().client);
       docs.show("inv-1");
-      createdPanels()[0].webview.receive({ type: "sop.draft" });
+      createdPanels()[0]!.webview.receive({ type: "sop.draft" });
       await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledOnce());
       await new Promise((r) => setTimeout(r, 0));
       vi.mocked(vscode.window.showTextDocument).mockClear();
@@ -396,7 +396,7 @@ describe("InvestigationDocuments: closing", () => {
   it("closes a report's preview and deletes its scratch file when the identity changes, and leaves other tabs", async () => {
     const { docs } = documents(backend({ "investigations.exportMarkdown": async () => "# report" }).client);
     docs.show("inv-12345678");
-    createdPanels()[0].webview.receive({ type: "export.open" });
+    createdPanels()[0]!.webview.receive({ type: "export.open" });
     await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
     const scratch = vi.mocked(vscode.commands.executeCommand).mock.calls.find(([c]) => c === "markdown.showPreviewToSide")![1] as vscode.Uri;
     const preview = { label: `Preview ${scratch.path.split("/").pop()}`, input: new vscode.TabInputWebview("mainThreadWebview-markdown.preview") };
@@ -425,7 +425,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const md = gate<string>();
     const { docs } = documents(backend({ "investigations.exportMarkdown": () => md.opened }).client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "export.open" });
+    createdPanels()[0]!.webview.receive({ type: "export.open" });
 
     docs.identityChanged();
     md.open("# Alice's report");
@@ -440,7 +440,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     vi.mocked(vscode.commands.executeCommand).mockImplementationOnce(() => shown.opened);
     const { docs } = documents(backend({ "investigations.exportMarkdown": async () => "# r" }).client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "export.open" });
+    createdPanels()[0]!.webview.receive({ type: "export.open" });
     await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
 
     docs.identityChanged();
@@ -457,7 +457,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     vi.mocked(vscode.window.showInformationMessage).mockImplementationOnce(() => answer.opened as never);
     const { docs } = documents(backend({ "investigations.exportMarkdown": async () => "# r" }).client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "export.open" });
+    createdPanels()[0]!.webview.receive({ type: "export.open" });
     await vi.waitFor(() => expect(vscode.window.showInformationMessage).toHaveBeenCalledOnce());
 
     docs.identityChanged();
@@ -472,7 +472,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const { client, calls } = backend({ "investigations.createFromInput": () => created.opened });
     const { docs } = documents(client);
     docs.showDraft();
-    createdPanels()[0].webview.receive({ type: "seed.submit", value: "host-a", kind: "" });
+    createdPanels()[0]!.webview.receive({ type: "seed.submit", value: "host-a", kind: "" });
 
     docs.identityChanged();
     created.open(fromCase);
@@ -487,7 +487,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const { client, calls } = backend({ "investigations.createFromInput": () => created.opened });
     const { docs } = documents(client);
     docs.showDraft();
-    createdPanels()[0].webview.receive({ type: "queue.start", caseNumber: "C-1" });
+    createdPanels()[0]!.webview.receive({ type: "queue.start", caseNumber: "C-1" });
     await vi.waitFor(() => expect(calls).toContain("investigations.createFromInput"));
 
     docs.identityChanged();
@@ -503,7 +503,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     vi.mocked(transport.proposeSOP).mockImplementationOnce(() => candidate.opened as never);
     const { docs } = documents(backend().client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "sop.draft" });
+    createdPanels()[0]!.webview.receive({ type: "sop.draft" });
     await vi.waitFor(() => expect(transport.proposeSOP).toHaveBeenCalledOnce());
 
     docs.identityChanged();
@@ -520,7 +520,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     vi.mocked(vscode.window.showTextDocument).mockImplementationOnce(() => shown.opened as never);
     const { docs } = documents(backend().client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "sop.draft" });
+    createdPanels()[0]!.webview.receive({ type: "sop.draft" });
     await vi.waitFor(() => expect(vscode.window.showTextDocument).toHaveBeenCalledOnce());
 
     docs.identityChanged();
@@ -536,7 +536,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const { client } = backend({ "actions.list": () => actions.opened, "actions.approve": approveAction });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "action.approve", actionId: "a-1" });
+    createdPanels()[0]!.webview.receive({ type: "action.approve", actionId: "a-1" });
     await settle();
 
     docs.identityChanged();
@@ -558,7 +558,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "action.reverse", actionId: "a-1", rationale: "r" });
+    createdPanels()[0]!.webview.receive({ type: "action.reverse", actionId: "a-1", rationale: "r" });
     await settle();
     await settle();
 
@@ -579,7 +579,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "comms.followup", threadId: "t-1", actionType: "notify.chat", target: "x", subject: "", message: "m", followUpHours: 1 });
+    createdPanels()[0]!.webview.receive({ type: "comms.followup", threadId: "t-1", actionType: "notify.chat", target: "x", subject: "", message: "m", followUpHours: 1 });
     await vi.waitFor(() => expect(calls).toContain("actions.comms"));
 
     docs.identityChanged();
@@ -595,7 +595,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const applyEnablement = vi.fn(async () => undefined);
     const { docs } = documents(backend({ "capabilities.applyEnablement": applyEnablement }).client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, secretFields: [] });
+    createdPanels()[0]!.webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, secretFields: [] });
 
     docs.identityChanged();
     answer.open("Enable");
@@ -609,7 +609,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const { client, calls } = backend({ "investigations.lifecycle": () => concluded.opened });
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "lifecycle", transition: "conclude", summary: "done" });
+    createdPanels()[0]!.webview.receive({ type: "lifecycle", transition: "conclude", summary: "done" });
     await vi.waitFor(() => expect(calls).toContain("investigations.lifecycle"));
 
     docs.identityChanged();
@@ -635,14 +635,14 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
     const { client, calls } = backend({ "investigations.createFromInput": () => create.opened, "investigations.requestCaseNote": async () => ({ status: "PROPOSED" }) });
     const { docs } = documents(client);
     docs.showDraft();
-    createdPanels()[0].webview.receive({ type: "seed.submit", value: "host-a", kind: "" });
+    createdPanels()[0]!.webview.receive({ type: "seed.submit", value: "host-a", kind: "" });
     return { create, calls, docs };
   }
 
   it("does not register a draft closed while its seed was in flight, and the investigation still opens", async () => {
     const { create, docs } = seeding();
 
-    createdPanels()[0].dispose();
+    createdPanels()[0]!.dispose();
     create.open(created);
     await settle();
 
@@ -656,7 +656,7 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
   it("still applies the case note posture when the draft closed: the create stands", async () => {
     const { create, calls } = seeding();
 
-    createdPanels()[0].dispose();
+    createdPanels()[0]!.dispose();
     create.open({ ...created, caseNote: { caseId: "C-1" }, caseNoteOnSeed: "auto" } as unknown as InvestigationDetail);
     await settle();
 
@@ -669,7 +669,7 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
     create.open(created);
     await settle();
 
-    expect(createdPanels()[0].title).toBe("⚖ RDP from host-a");
+    expect(createdPanels()[0]!.title).toBe("⚖ RDP from host-a");
     docs.show("inv-2");
     expect(createdPanels()).toHaveLength(1);
   });
@@ -677,7 +677,7 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
   it("opens nothing for an already investigated case when the draft closed", async () => {
     const { create } = seeding();
 
-    createdPanels()[0].dispose();
+    createdPanels()[0]!.dispose();
     create.fail(new BackendRequestError("exists", 409, { investigation_id: "inv-9" }));
     await settle();
 
@@ -692,7 +692,7 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
     await settle();
 
     expect(createdPanels()).toHaveLength(2);
-    expect(createdPanels()[0].disposed).toBe(true);
+    expect(createdPanels()[0]!.disposed).toBe(true);
   });
 
   it("does not report a rename that succeeded as failed when its panel closed, and refreshes the tree", async () => {
@@ -701,10 +701,10 @@ describe("InvestigationDocuments: a panel closed during an await", () => {
     const { docs } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0];
-    panel.webview.receive({ type: "rename", title: "New" });
+    panel!.webview.receive({ type: "rename", title: "New" });
     await settle();
 
-    panel.dispose();
+    panel!.dispose();
     rename.open("New");
     await settle();
 
@@ -721,9 +721,9 @@ describe("InvestigationDocuments: the wire boundary", () => {
     docs.show("inv-1");
     const panel = createdPanels()[0];
 
-    panel.webview.receive({ type: "ready" });
+    panel!.webview.receive({ type: "ready" });
 
-    await vi.waitFor(() => expect(panel.webview.posted).toContainEqual({ type: "error", message: reason }));
+    await vi.waitFor(() => expect(panel!.webview.posted).toContainEqual({ type: "error", message: reason }));
     expect(calls.filter((c) => c !== "status" && c !== "incompatibilityReason")).toEqual([]);
   });
 
@@ -733,7 +733,7 @@ describe("InvestigationDocuments: the wire boundary", () => {
     const { docs } = documents(client);
     docs.showDraft();
 
-    createdPanels()[0].webview.receive({ type: "ready" });
+    createdPanels()[0]!.webview.receive({ type: "ready" });
 
     await vi.waitFor(() => expect(posted()).toContainEqual({ type: "draft.error", message: reason }));
     expect(calls).not.toContain("cases.configuredQueue");
@@ -743,7 +743,7 @@ describe("InvestigationDocuments: the wire boundary", () => {
     const { client } = backend();
     const { docs } = documents(client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "ready" });
+    createdPanels()[0]!.webview.receive({ type: "ready" });
 
     await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
   });
@@ -752,7 +752,7 @@ describe("InvestigationDocuments: the wire boundary", () => {
     vi.mocked(transport.proposeSOP).mockResolvedValueOnce({ warranted: true, body: "B" } as never);
     const { docs } = documents(backend().client);
     docs.show("inv-1");
-    createdPanels()[0].webview.receive({ type: "sop.draft" });
+    createdPanels()[0]!.webview.receive({ type: "sop.draft" });
 
     await vi.waitFor(() => expect(posted()).toContainEqual(expect.objectContaining({ type: "sop.status", state: "failed" })));
   });
@@ -761,6 +761,6 @@ describe("InvestigationDocuments: the wire boundary", () => {
     const { docs } = documents(backend().client);
     docs.show("inv-1");
 
-    expect(() => createdPanels()[0].webview.receive({ type: "no.such.message" })).not.toThrow();
+    expect(() => createdPanels()[0]!.webview.receive({ type: "no.such.message" })).not.toThrow();
   });
 });

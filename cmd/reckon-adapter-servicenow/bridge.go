@@ -27,8 +27,8 @@ const stateClosed = "Closed"
 const defaultCloseCode = "Closed/Resolved by Caller"
 
 // bridge holds the instance config and the native ServiceNow client. It serves
-// both surfaces: the write-side ticketing family (dispatch) and, since Phase F,
-// the read-side external-case verbs (invoke — query_external_cases /
+// both surfaces: the write-side ticketing family (dispatch) and the
+// read-side external-case verbs (invoke — query_external_cases /
 // get_external_case_details, 03 §2.9), which read the incident table's cases
 // back as class-2005 OCSF Incident Findings.
 type bridge struct {

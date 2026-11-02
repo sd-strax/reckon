@@ -276,11 +276,13 @@
     "watch": "tsc -watch -p ./",
     "watch:webview": "node esbuild.mjs --watch",
     "test": "vitest run",
+    "lint": "eslint --max-warnings 0 .",
     "harness": "node esbuild.mjs --serve",
     "harness:record": "tsc -p harness/tsconfig.record.json && node harness/dist/record/harness/record.js",
     "package": "npx @vscode/vsce package"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
@@ -289,8 +291,11 @@
     "@types/react-dom": "^18.3.1",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.24.2",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "jsdom": "^25.0.1",
     "typescript": "^5.5.0",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^2.1.8"
   },
   "dependencies": {

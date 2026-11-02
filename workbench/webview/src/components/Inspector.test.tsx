@@ -114,7 +114,7 @@ describe("the inspector", () => {
     expect(within(p).getByText("UNTESTED")).toBeTruthy();
     expect(within(p).getByText(/H2 \(expects the opposite\)/)).toBeTruthy();
     expect(within(p).getByText(/tool · list_scheduled_tasks/)).toBeTruthy();
-    fireEvent.click(within(p).getAllByText("H1 not-owner")[0]); // the owner link in the sub-line
+    fireEvent.click(within(p).getAllByText("H1 not-owner")[0]!); // the owner link in the sub-line
     p = pane();
     expect(within(p).getByText("Hypothesis")).toBeTruthy();
     expect(within(p).getByText("Predictions · 2 of 3 tested")).toBeTruthy();
@@ -142,7 +142,7 @@ describe("the inspector", () => {
   it("renders a notification thread and a turn, a procedure and a past case from the library", () => {
     const transport = mount();
     fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
-    fireEvent.click(within(lens()).getAllByTitle("Open the thread")[0]);
+    fireEvent.click(within(lens()).getAllByTitle("Open the thread")[0]!);
     let p = pane();
     expect(within(p).getByText("Notification thread")).toBeTruthy();
     expect(within(p).getByText(/No maintenance was scheduled/)).toBeTruthy();

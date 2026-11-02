@@ -51,6 +51,7 @@ function Body({ target }: { target: InspectorTarget }) {
 function PaneView({ pane, which }: { pane: Pane; which: "active" | "pinned" }) {
   const { state, inspectorBack, closeInspector, pinInspector } = useApp();
   const target = pane.stack[pane.stack.length - 1];
+  if (!target) return null;
   const doc = target.kind === "ref" ? state.docs[target.ref] : undefined;
   const renderer = rendererFor(target, doc, entryOf(target, state.snap?.thread));
   const name = targetName(target, state.snap, state.labels);

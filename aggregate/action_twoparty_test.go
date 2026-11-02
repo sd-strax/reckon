@@ -10,7 +10,7 @@ import (
 // TestApproveAction_TwoPartyRequiredRejectsSolo: an action whose frozen Gate 2
 // requirement is TWO_PARTY can never be approved with a solo authorization — the
 // aggregate boundary rejects it, so no approval surface can collapse two-person
-// integrity into one (the Phase D two-party seam).
+// integrity into one.
 func TestApproveAction_TwoPartyRequiredRejectsSolo(t *testing.T) {
 	env := newTestEnvelope("alice")
 	id := uuid.New()

@@ -210,8 +210,9 @@ type ActionStatus struct {
 	IsReversal   bool           `json:"is_reversal,omitempty"`
 	Targets      []ActionTarget `json:"targets,omitempty"`
 	// ExpiresAt is the approval deadline frozen at request time (04). The
-	// status may still read REQUESTED past it — v0 has no expiry timer; the
-	// engine refuses lazily at the approve attempt — so every surface (and
+	// status may still read REQUESTED past it until the expiry timer fires
+	// (its start is best-effort); the engine refuses at the approve attempt
+	// regardless — so every surface (and
 	// the model, via the list_actions tool result) must judge approvability
 	// from this field, not the status. Dropping it here once made the agent
 	// and the workbench disagree about the same action.

@@ -153,7 +153,7 @@ func (h *Handler) Handle(ctx context.Context, env Envelope, cmd Command) (res Re
 			return Result{}, err
 		}
 		// One span per event covers the projection update — the third layer of
-		// the A.8 trace (HTTP → aggregate.Handle → aggregate.project).
+		// the trace (HTTP → aggregate.Handle → aggregate.project).
 		_, pspan := tracer.Start(ctx, "aggregate.project",
 			trace.WithAttributes(attribute.String("event.type", events[i].Type)))
 		for _, p := range h.projectors {
@@ -226,7 +226,7 @@ func (h *Handler) Replay(ctx context.Context) error {
 	// Deliberately NOT occurred_at — that is caller-supplied wall-clock time and
 	// nothing enforces per-aggregate monotonicity (clock step-back, second
 	// writer), so time-first ordering could apply one aggregate's events out of
-	// sequence and silently corrupt projections. Both projections are keyed
+	// sequence and silently corrupt projections. Every projection is keyed
 	// per-aggregate, so cross-aggregate interleaving order is immaterial;
 	// sequence_no is the only ordering the aggregate guarantees. Same query the
 	// Store exposes via LoadAll, but run inside the replay tx for snapshot

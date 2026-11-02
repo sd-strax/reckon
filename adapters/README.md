@@ -6,10 +6,6 @@ See `design/03-capability-layer.md §5.4` for the adapter contract and class tax
 
 ## Status
 
-Empty at Week 1. First inhabitants:
-
-- `fixture/` — Phase B; serves canned OCSF for the v0 design-partner demo
-- `mcp-shim/` — Phase B; adapter scaffold for wrapping external MCP servers
-- Vendor-specific adapters (EDR, SIEM, IdP, TI, CM) — Phase E
+Empty. First-party adapter binaries live under `cmd/reckon-adapter-*`, and the fixture adapter runs in process (`capability/`).
 
 Scaffold new adapters with the `/generate-adapter-scaffold` slash command.

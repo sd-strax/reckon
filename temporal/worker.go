@@ -32,10 +32,9 @@ type WorkerConfig struct {
 // satisfies supervisor.Component so the supervisor manages its lifecycle
 // alongside the bundled subprocesses.
 //
-// At Phase A.7 it registers the OSS workflow inventory with empty bodies (they
-// fail fast with a non-retryable "unimplemented" error until Phase C fills
-// them) plus the trivial Ping workflow that proves the command → Temporal →
-// worker → result round trip. See workflows.go for the inventory.
+// It registers the OSS workflow inventory plus the trivial Ping workflow that
+// proves the command → Temporal → worker → result round trip. See workflows.go
+// for the inventory.
 type Worker struct {
 	cfg WorkerConfig
 
@@ -52,7 +51,7 @@ type Worker struct {
 // WithActivities injects the action-lifecycle activities (handler + resolver) so
 // the worker can run ActionLifecycle. A worker without them registers the
 // workflows but not the activities — ActionLifecycle would fail at runtime, but
-// the bare worker (A.7) never triggers it.
+// a bare worker never triggers it.
 func (w *Worker) WithActivities(a *Activities) *Worker {
 	w.activities = a
 	return w

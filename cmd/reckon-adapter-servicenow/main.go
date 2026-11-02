@@ -1,5 +1,5 @@
 // Command reckon-adapter-servicenow is a NATIVE_API-class reckon adapter
-// (design/11; implementation/adapter-candidates.md — Phase F ticketing) — the
+// (design/11; implementation/adapter-candidates.md) — the
 // bridge to a ServiceNow instance's system of record. It serves the ticketing
 // family on the write side (04 §2.2 Handoff; 07 §7.1): ticket.create /
 // ticket.comment / ticket.transition / ticket.close, and the external-case

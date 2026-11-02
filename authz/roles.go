@@ -2,8 +2,7 @@
 // two-axis authorization evaluation skeleton.
 //
 // Gate 1 (RBAC) — covered by middleware in this package.
-// Gate 2 (action authorization, CEL-based) — stubbed here; the real engine
-// lands in Phase C (see reckon/action/).
+// Gate 2 (action authorization, CEL-based) — the engine lives in package action.
 //
 // See reckon/design/05-component-architecture.md §5 for the architectural
 // commitments this package implements.

@@ -27,8 +27,7 @@ type TenancyModule interface {
 }
 
 // LiftWorkflow is a placeholder for the OSS-to-paid consolidation lift
-// workflow handle. The real type lands in Phase I; today it exists so the
-// interface signature is stable.
+// workflow handle; it exists so the interface signature is stable.
 type LiftWorkflow interface {
 	Name() string
 }

@@ -29,7 +29,7 @@ import (
 const CorpusProcedures = "procedures"
 
 // CorpusCaseSummaries is the DERIVED corpus of concluded-investigation
-// summaries (design/06 §3) — populated by SummarizeForKnowledgeIndex (K3),
+// summaries (design/06 §3) — populated by SummarizeForKnowledgeIndex,
 // declared here so both corpora are registered at construction.
 const CorpusCaseSummaries = "case-summaries"
 

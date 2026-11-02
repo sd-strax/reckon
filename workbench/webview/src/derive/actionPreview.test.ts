@@ -13,7 +13,7 @@ describe("what an action will do (#124)", () => {
   it("labels every parameter in words and hides plumbing", () => {
     const pv = actionPreview(row({ actionType: "notify.slack", name: "Post to a Slack channel", targets: ["#itops"], parameters: { message: "reimage WIN-FILE01", follow_up_hours: 48, thread_ref: "t1" } }));
     expect(pv.fields.map((f) => f.label)).toEqual(["Message", "Follow up after"]);
-    expect(pv.fields[1].value).toBe("48 hours if there is no reply");
+    expect(pv.fields[1]!.value).toBe("48 hours if there is no reply");
     expect(pv.followUp).toBe(true);
     expect(actionPreview(row({ actionType: "host.isolate", name: "Isolate host", targets: ["WIN-FILE01"] })).sentence).toBe("Isolate host — WIN-FILE01");
   });

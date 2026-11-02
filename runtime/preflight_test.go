@@ -43,7 +43,7 @@ func disabledBuilder(_ Config) module.Registry {
 	}
 }
 
-// TestPreflightActivatesWithoutBooting is the OSS half of the A.1
+// TestPreflightActivatesWithoutBooting is the OSS half of the
 // architectural-seam check: Preflight loads config and runs the builder —
 // with no Postgres/Temporal/Keycloak anywhere in sight — and reports the
 // activation shape.

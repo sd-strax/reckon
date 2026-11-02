@@ -335,7 +335,7 @@ export interface EnablementAdapter {
   /** Schema-derived form source; the extension renders it, never the model. */
   configFields: Record<string, ConfigField>;
   requiredFields: string[];
-  /** False for classes v0 cannot spawn — no enable affordance, honestly. */
+  /** True only for the fixture class: the form does not enable plugin classes, so it offers no affordance. */
   supportable: boolean;
 }
 

@@ -34,7 +34,7 @@ const call: CapabilityCall = {
   produced: { eventIds: events.map((e) => e.id), observedDataRefs: ["observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"], entityRefs: ["x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"] },
   bindings: [{ adapter: "edr", operation: "logons", priority: 200, enabled: false }, { adapter: "fixture", operation: "replay", priority: 100, enabled: true }],
 };
-const data: HarnessSnapshot = { ...base, snapshot: { ...base.snapshot, events }, calls: { [callId]: call }, around: { [cited]: [events[0], events[1]] } };
+const data: HarnessSnapshot = { ...base, snapshot: { ...base.snapshot, events }, calls: { [callId]: call }, around: { [cited]: [events[0]!, events[1]!] } };
 
 function mount(d: HarnessSnapshot = data) {
   const transport = new HarnessTransport(d);
@@ -51,9 +51,9 @@ describe("timelineItems", () => {
       { ref: cited, time: "2026-10-20T09:00:00Z", label: "Authentication" },
       { ref: "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04", time: "2026-10-20T09:00:00Z", label: "observed-data" },
     ]);
-    expect(items.map((i) => i.ref)).toEqual([events[0].id, cited, "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04", events[2].id]);
-    expect(items[1].callId).toBe(callId);
-    expect(items[2].callId).toBeUndefined();
+    expect(items.map((i) => i.ref)).toEqual([events[0]!.id, cited, "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04", events[2]!.id]);
+    expect(items[1]!.callId).toBe(callId);
+    expect(items[2]!.callId).toBeUndefined();
     expect(items.map((i) => i.category)).toEqual(["auth", "auth", "observed", "process"]);
   });
   it("falls back to the cited events alone when the record holds no membership", () => {
@@ -150,7 +150,7 @@ describe("the Story timeline over the retrieved record", () => {
     expect(within(p).getByText("Around it")).toBeTruthy();
     const around = p.querySelectorAll(".irow.around");
     expect(around.length).toBe(1);
-    expect(around[0].querySelector(".refchip")!.getAttribute("data-ref")).toBe(events[0].id);
+    expect(around[0]!.querySelector(".refchip")!.getAttribute("data-ref")).toBe(events[0]!.id);
     fireEvent.click(within(p).getByRole("tab", { name: "Provenance" }));
     expect(within(p).getByText("Retrieved by")).toBeTruthy();
     fireEvent.click(within(within(p).getByText("Retrieved by").parentElement as HTMLElement).getByText("enumerate_logons"));
@@ -158,7 +158,7 @@ describe("the Story timeline over the retrieved record", () => {
   });
 
   it("says the record holds nothing around an event when the window is empty", () => {
-    mount({ ...data, around: { [cited]: [events[1]] } });
+    mount({ ...data, around: { [cited]: [events[1]!] } });
     tab("Story");
     const chip = Array.from(lens().querySelectorAll(".refchip")).find((c) => c.getAttribute("data-ref") === cited) as HTMLElement;
     fireEvent.click(chip);

@@ -1,4 +1,4 @@
-// Comms threads (Phase F, ui/04): conversation state that FOLLOWED an approved
+// Comms threads (ui/04): conversation state that FOLLOWED an approved
 // notify.* action — nothing here sends anything; Follow up requests a new
 // action. Rendered under Notification in the Response lens.
 import { useApp } from "../app";

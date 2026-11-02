@@ -35,8 +35,8 @@ type WindowInput struct {
 }
 
 // OcsfEventView is the wire shape of one telemetry record returned by an
-// invocation. Telemetry persistence is deferred (Phase E.1 returns the envelope
-// only), so the payload rides the response — the caller is the only consumer.
+// invocation. The payload rides the response as well as the evidence store, so
+// the caller has it without a second read.
 type OcsfEventView struct {
 	ID         string         `json:"id"`
 	ClassUID   int            `json:"class_uid"`

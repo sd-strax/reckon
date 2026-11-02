@@ -1,5 +1,5 @@
 -- 0011_action_current_auth_requirement: surface the frozen Gate 2 authorization
--- requirement on the action projection so the approval surface (Phase D) can
+-- requirement on the action projection so the approval surface can
 -- render and enforce it without re-evaluating policy.
 --
 -- required_mode is the authorization mode Gate 2 resolved at request time

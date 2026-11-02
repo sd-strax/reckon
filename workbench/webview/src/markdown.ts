@@ -38,7 +38,8 @@ function mdTable(block: string[]): string {
   const rows = block.map(mdRow);
   let header: string[] | null = null;
   let body = rows;
-  if (rows.length >= 2 && rows[1].length > 0 && rows[1].every((c) => /^:?-{2,}:?$/.test(c))) {
+  const sep = rows[1];
+  if (rows[0] && sep && sep.length > 0 && sep.every((c) => /^:?-{2,}:?$/.test(c))) {
     header = rows[0];
     body = rows.slice(2);
   }
@@ -67,20 +68,21 @@ export function md(src: unknown): string {
       list = null;
     }
   };
+  const at = (k: number) => lines[k] ?? "";
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = at(i);
     // The engine's ground-truth footer (agent honesty, #136): a compact badge,
     // not a paragraph of bracketed text.
     const note = /^\s*\[engine record — (.*)\]\s*$/.exec(line);
     if (note) {
       flushPara(); flushList();
-      out.push('<div class="enginenote"><span class="badge info">engine-verified</span> ' + inlineMd(note[1]) + "</div>");
+      out.push('<div class="enginenote"><span class="badge info">engine-verified</span> ' + inlineMd(note[1] ?? "") + "</div>");
       continue;
     }
     if (/^\s*```/.test(line)) {
       flushPara(); flushList();
       const buf: string[] = [];
-      for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) buf.push(lines[i]);
+      for (i++; i < lines.length && !/^\s*```/.test(at(i)); i++) buf.push(at(i));
       // An unclosed fence (mid-stream) still renders as a block — the
       // re-render on the next delta keeps it live.
       out.push('<pre class="codeblock"><code>' + esc(buf.join("\n")) + "</code></pre>");
@@ -89,7 +91,7 @@ export function md(src: unknown): string {
     if (/^\s*\|/.test(line)) {
       flushPara(); flushList();
       const block = [line];
-      for (i++; i < lines.length && /^\s*\|/.test(lines[i]); i++) block.push(lines[i]);
+      for (i++; i < lines.length && /^\s*\|/.test(at(i)); i++) block.push(at(i));
       i--;
       out.push(mdTable(block));
       continue;
@@ -101,10 +103,10 @@ export function md(src: unknown): string {
       flushPara();
       const tag = ul ? "ul" : "ol";
       if (!list || list.tag !== tag) { flushList(); list = { tag, items: [] }; }
-      list.items.push((ul || ol)![1]);
+      list.items.push((ul || ol)?.[1] ?? "");
     } else if (h) {
       flushPara(); flushList();
-      out.push('<div class="mdh">' + inlineMd(h[1]) + "</div>");
+      out.push('<div class="mdh">' + inlineMd(h[1] ?? "") + "</div>");
     } else if (line.trim() === "") {
       flushPara();
       // A blank line inside a list is inter-item spacing (a "loose" list):
@@ -112,8 +114,8 @@ export function md(src: unknown): string {
       // same kind, so an <ol> numbers continuously instead of restarting.
       if (list) {
         let j = i + 1;
-        while (j < lines.length && lines[j].trim() === "") j++;
-        const next = j < lines.length ? lines[j] : "";
+        while (j < lines.length && at(j).trim() === "") j++;
+        const next = at(j);
         const sameKind = list.tag === "ul" ? /^\s*[-*•]\s+/.test(next) : /^\s*\d+[.)]\s+/.test(next);
         if (!sameKind) flushList();
       }

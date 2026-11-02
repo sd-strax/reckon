@@ -273,7 +273,7 @@ func DefaultActionCatalog() *ActionCatalog {
 			Reversibility: ReversibilityIrreversible,
 		},
 
-		// The comms family (Phase F, binding §4): an outbound message is an
+		// The comms family (binding §4): an outbound message is an
 		// x-action like any external dispatch — T2, because there is no T1
 		// external action (04 §1: chat is named explicitly; low friction comes
 		// from the approval surface, never a lower tier). IRREVERSIBLE: a sent

@@ -11,7 +11,7 @@ import (
 
 // EventTypeInterpretationRecorded tags an event that records one reasoning act
 // — an x-interpretation node (01-domain-model.md §Interpretation). Lifecycle
-// transitions, linkages, and (later) action requests each pair their domain
+// transitions, linkages, and action requests each pair their domain
 // event with one of these in the same transaction, tied by correlation_id, so
 // the reasoning thread can be reassembled from the event log.
 const EventTypeInterpretationRecorded = "interpretation.recorded"
@@ -19,7 +19,7 @@ const EventTypeInterpretationRecorded = "interpretation.recorded"
 // Interpretation type tags (01-domain-model.md §Interpretation types). The
 // lifecycle/conclusion tags are produced by the lifecycle slice; the action-*
 // tags live in action.go; the reasoning tags below are authored by the agent
-// loop via RecordInterpretation (Phase D).
+// loop via RecordInterpretation.
 const (
 	InterpretationLifecycle  = "lifecycle"
 	InterpretationConclusion = "conclusion"
@@ -145,8 +145,8 @@ const maxConsultedPerInterpretation = 20
 
 // InterpretationRecorded is the payload of an EventTypeInterpretationRecorded
 // event: one recorded reasoning act. It is the event-log projection of the
-// x-interpretation primitive; the full STIX node is materialized into the
-// object store in Phase B. Recording it here keeps the reasoning thread
+// x-interpretation primitive, which has no stix_objects row: this payload is
+// the interpretation. Recording it here keeps the reasoning thread
 // reconstructable from events alone.
 type InterpretationRecorded struct {
 	InterpretationID   uuid.UUID `json:"interpretation_id"`
@@ -156,14 +156,14 @@ type InterpretationRecorded struct {
 	Summary            string    `json:"summary,omitempty"`
 
 	// The fields below are populated by agent-authored reasoning acts
-	// (RecordInterpretation, Phase D). They stay omitempty so the lifecycle/
+	// (RecordInterpretation). They stay omitempty so the lifecycle/
 	// action pairings that predate them serialize unchanged.
 	OutputRefs    []string       `json:"output_refs,omitempty"`
 	Confidence    string         `json:"confidence,omitempty"`
 	TranscriptRef *TranscriptRef `json:"transcript_ref,omitempty"`
 	ToolCallRefs  []ToolCallRef  `json:"tool_call_refs,omitempty"`
 
-	// Reasoning-node content (Phase D.2): hypotheses and predictions are
+	// Reasoning-node content: hypotheses and predictions are
 	// OUTPUTS of interpretations (01-domain-model.md), so their creation and
 	// status transitions ride on the interpretation event that produced them.
 	// foldState folds these for transition legality; the ReasoningNodeProjector
@@ -250,7 +250,7 @@ type RecordInterpretation struct {
 	Transcript *TranscriptContent `json:"transcript,omitempty"`
 	ToolCalls  []ToolCallContent  `json:"tool_calls,omitempty"`
 
-	// Reasoning-node payloads (Phase D.2). Hypotheses/predictions are outputs
+	// Reasoning-node payloads. Hypotheses/predictions are outputs
 	// of interpretations, so they ride on this command rather than having
 	// commands of their own:
 	//   type=hypothesis    → Hypothesis (create) XOR HypothesisRef (acknowledge a
@@ -430,7 +430,7 @@ func applyRecordInterpretation(env Envelope, state aggregateState, c RecordInter
 
 	// Node-bearing types (hypothesis/support/refutation/inconclusive/prediction):
 	// validate against folded node state and enrich the event with the node
-	// content the projector materializes (D.2).
+	// content the projector materializes.
 	if err := applyReasoningNodes(env, state, c, &rec); err != nil {
 		return nil, err
 	}

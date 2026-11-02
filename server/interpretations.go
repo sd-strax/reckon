@@ -34,7 +34,7 @@ type RecordInterpretationBody struct {
 	Transcript         *TranscriptInput `json:"transcript,omitempty"`
 	ToolCalls          []ToolCallInput  `json:"tool_calls,omitempty"`
 
-	// Reasoning-node payloads (D.2) — hypotheses/predictions are outputs of
+	// Reasoning-node payloads — hypotheses/predictions are outputs of
 	// interpretations. The node ids are minted SERVER-side (returned in
 	// node_id); transitions reference nodes by their STIX id.
 	Hypothesis       *HypothesisBody `json:"hypothesis,omitempty"`     // type=hypothesis: create
@@ -199,7 +199,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Actor.Kind comes from the JWT delegate_kind claim — NEVER the request body
-	// (04 §5.6 seam obligation): otherwise an AI-authored interpretation could
+	// (04 §5.6): otherwise an AI-authored interpretation could
 	// masquerade as human-authored, or vice versa.
 	actor := actorFromClaims(claims)
 

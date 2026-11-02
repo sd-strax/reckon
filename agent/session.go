@@ -34,7 +34,7 @@ type Hooks struct {
 	OnToolCall   func(name string, input json.RawMessage) // a tool is about to dispatch
 	OnToolResult func(name string, content string, isError bool)
 
-	// OnTextDelta receives text fragments as the model generates them (E.4).
+	// OnTextDelta receives text fragments as the model generates them.
 	// When set and the LLM implements StreamingLLM, completions stream and a
 	// streamed completion's text arrives ONLY here — OnText is not called for
 	// it (the deltas were the delivery; a surface that got both would render
@@ -87,9 +87,12 @@ type Session struct {
 	hooks           Hooks
 	now             func() time.Time
 
-	system   string
-	tools    []ToolDef
-	messages []Message
+	system string
+	// tools is the list the model is shown; toolsByName is the same tools, which
+	// are the only ones a call can reach (buildTools).
+	tools       []ToolDef
+	toolsByName map[string]tool
+	messages    []Message
 	// results holds large tool results the model reads in pages (adr/0209).
 	results resultStore
 	// turns marks each analyst turn in messages; tokensPerByte calibrates the
@@ -247,7 +250,11 @@ func (s *Session) refreshContext(ctx context.Context) error {
 		actionTypes = nil
 	}
 
-	s.tools = buildTools(caps, actionTypes)
+	tools, byName, err := buildTools(caps, actionTypes)
+	if err != nil {
+		return err
+	}
+	s.tools, s.toolsByName = tools, byName
 	s.investigation, s.caps, s.hyps = inv, caps, hyps
 	s.system = systemPrompt(inv, caps)
 	return nil
@@ -600,20 +607,14 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 			// cutting a write off can leave it recorded while the model's history
 			// says it failed (adr/0239).
 			toolCtx, cancelTool := context.WithTimeout(context.WithoutCancel(ctx), toolTimeout)
-			content, isErr := s.dispatchTool(toolCtx, tu.ToolName, tu.Input)
+			res, isErr := s.dispatchTool(toolCtx, tu.ToolName, tu.Input)
 			cancelTool()
+			content := string(res.Content)
 			if !isErr {
 				s.rememberIDs(content)
-				if isCapabilityVerb(tu.ToolName) {
-					toolLog[len(toolLog)-1].CapabilityCallID = capabilityCallID(content)
-				}
+				toolLog[len(toolLog)-1].CapabilityCallID = res.CallID
 			}
-			if tu.ToolName == ToolRecallSOPs && !isErr {
-				s.trackConsulted(content)
-			}
-			if (tu.ToolName == ToolRecallSimilar || tu.ToolName == ToolPriorInvestigations) && !isErr {
-				s.trackConsultedSimilar(content)
-			}
+			s.recordConsulted(res.Consulted, res.Similar)
 			fmt.Fprintf(&transcript, "[tool_result %s id=%s error=%v] %s\n",
 				sanitizeTranscript(tu.ToolName), sanitizeTranscript(tu.ToolUseID), isErr, sanitizeTranscript(content))
 			if s.hooks.OnToolResult != nil {
@@ -906,9 +907,23 @@ func (s *Session) complete(ctx context.Context, side []ContentBlock) (resp Compl
 	return resp, false, err
 }
 
-// trackConsulted accumulates one recall_sops result's retrievals into the
-// turn's knowledge provenance (dedup by sop_id, best score kept).
-func (s *Session) trackConsulted(content string) {
+// recordConsulted accumulates what one tool call put in front of the model into
+// the turn's knowledge provenance (dedup by id, best score kept).
+func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarInvestigation) {
+	for _, c := range sops {
+		if prev, ok := s.consulted[c.SOPID]; !ok || c.RetrievalScore > prev.RetrievalScore {
+			s.consulted[c.SOPID] = c
+		}
+	}
+	for _, c := range cases {
+		if prev, ok := s.consultedSimilar[c.InvestigationRef]; !ok || c.RetrievalScore > prev.RetrievalScore {
+			s.consultedSimilar[c.InvestigationRef] = c
+		}
+	}
+}
+
+// consultedSOPs reads the procedures out of a recall_sops result.
+func consultedSOPs(content []byte) []ConsultedSOP {
 	var res struct {
 		Results []struct {
 			SOPID string  `json:"sop_id"`
@@ -916,17 +931,16 @@ func (s *Session) trackConsulted(content string) {
 			Score float64 `json:"score"`
 		} `json:"results"`
 	}
-	if json.Unmarshal([]byte(content), &res) != nil {
-		return
+	if json.Unmarshal(content, &res) != nil {
+		return nil
 	}
+	var out []ConsultedSOP
 	for _, r := range res.Results {
-		if r.SOPID == "" {
-			continue
-		}
-		if prev, ok := s.consulted[r.SOPID]; !ok || r.Score > prev.RetrievalScore {
-			s.consulted[r.SOPID] = ConsultedSOP{SOPID: r.SOPID, Title: r.Title, RetrievalScore: r.Score}
+		if r.SOPID != "" {
+			out = append(out, ConsultedSOP{SOPID: r.SOPID, Title: r.Title, RetrievalScore: r.Score})
 		}
 	}
+	return out
 }
 
 // consultedList finalizes the turn's knowledge provenance. Used is decided
@@ -950,10 +964,9 @@ func (s *Session) consultedList(finalText string) []ConsultedSOP {
 	return out
 }
 
-// trackConsultedSimilar accumulates one recall_similar_investigations result's
-// retrievals into the turn's case-knowledge provenance (dedup by
-// investigation_ref, best score kept).
-func (s *Session) trackConsultedSimilar(content string) {
+// consultedCases reads the past cases out of a recall_similar_investigations or
+// prior_investigations result.
+func consultedCases(content []byte) []ConsultedSimilarInvestigation {
 	type hit struct {
 		InvestigationRef string  `json:"investigation_ref"`
 		Title            string  `json:"title"`
@@ -966,19 +979,18 @@ func (s *Session) trackConsultedSimilar(content string) {
 		// consulted the same way, with no similarity score.
 		Investigations []hit `json:"investigations"`
 	}
-	if json.Unmarshal([]byte(content), &res) != nil {
-		return
+	if json.Unmarshal(content, &res) != nil {
+		return nil
 	}
+	var out []ConsultedSimilarInvestigation
 	for _, r := range append(res.Results, res.Investigations...) {
-		if r.InvestigationRef == "" {
-			continue
-		}
-		if prev, ok := s.consultedSimilar[r.InvestigationRef]; !ok || r.Score > prev.RetrievalScore {
-			s.consultedSimilar[r.InvestigationRef] = ConsultedSimilarInvestigation{
+		if r.InvestigationRef != "" {
+			out = append(out, ConsultedSimilarInvestigation{
 				InvestigationRef: r.InvestigationRef, Title: r.Title, RetrievalScore: r.Score, Band: r.Band,
-			}
+			})
 		}
 	}
+	return out
 }
 
 // consultedSimilarList finalizes the turn's case-knowledge provenance, with the

@@ -139,7 +139,7 @@ func applyApproveAction(env Envelope, state aggregateState, c ApproveAction, new
 		return nil, err
 	}
 
-	// Two-party requirement (04 §5.6, the Phase D approval seam): an action whose
+	// Two-party requirement (04 §5.6): an action whose
 	// frozen Gate 2 requirement is TWO_PARTY can NEVER be approved with a solo
 	// (MANUAL/AUTO_POLICY) authorization — that would collapse the two-person
 	// integrity the policy demanded into one. Enforced here at the aggregate

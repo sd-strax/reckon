@@ -9,11 +9,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
-// TestHandleEmitsNestedSpans proves the aggregate half of the A.8 trace: Handle
+// TestHandleEmitsNestedSpans proves the aggregate half of the trace: Handle
 // opens an "aggregate.Handle" span and each event's projection runs under a
 // child "aggregate.project" span, correctly nested in one trace. Combined with
 // the telemetry HTTP-middleware span, a command flowing HTTP → handler →
-// projection produces the single cross-layer trace the A.8 done-bar calls for.
+// projection produces a single cross-layer trace.
 func TestHandleEmitsNestedSpans(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")

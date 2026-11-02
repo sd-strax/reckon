@@ -28,7 +28,7 @@ function setup(t: AgentTransport) {
   const panel = vscode.window.createWebviewPanel("reckon.investigation", "T", vscode.ViewColumn.Active, {});
   const refresh = vi.fn(async () => undefined);
   const driver = new TurnDriver(t, (p, msg) => p.webview.postMessage(msg), refresh);
-  const posted = () => createdPanels()[0].webview.posted as RenderMessage[];
+  const posted = () => createdPanels()[0]!.webview.posted as RenderMessage[];
   return { panel, refresh, driver, posted };
 }
 

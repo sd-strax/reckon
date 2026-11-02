@@ -1,4 +1,4 @@
--- 0018_comms_threads: the comms/external-work thread state (Phase F, design/ui
+-- 0018_comms_threads: the comms/external-work thread state (design/ui
 -- binding §4). OWNED BY THE comms PACKAGE — it lives in this migration set
 -- because aggregate/migrations is the reckon_main schema set. Comms threads
 -- are CRUD + thin history (the architectural commitment: only the

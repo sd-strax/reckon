@@ -158,7 +158,7 @@ func validateParameters(d ActionDescriptor, raw json.RawMessage) error {
 // action over the threshold distinct targets is promoted to T3. It never
 // demotes, and T3 stays T3. The escalator promotes the tier, not the
 // authorization mode (an auto-approval policy may still fire on the escalated
-// T3 — 04 §1); the mode decision is the policy engine's (C.3).
+// T3 — 04 §1); the mode decision is the policy engine's.
 func EscalateTier(tier string, targetCount, threshold int) string {
 	if tier == aggregate.TierT2 && targetCount > threshold {
 		return aggregate.TierT3

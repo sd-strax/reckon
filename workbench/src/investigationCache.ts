@@ -239,7 +239,7 @@ export class InvestigationCache {
    * keeps the highest sequence read.
    */
   private advance(id: string, r: Read, generation: number): number {
-    const last = r.thread && r.thread.length ? r.thread[r.thread.length - 1].sequenceNo : 0;
+    const last = r.thread?.at(-1)?.sequenceNo ?? 0;
     const seq = Math.max(r.investigation.lastEventSequence, last);
     if (generation === this.generation && seq > this.watermark(id)) this.watermarks.set(id, seq);
     return seq;
