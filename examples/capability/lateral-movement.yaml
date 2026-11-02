@@ -20,7 +20,7 @@ adapters:
     class: fixture
     enabled: false
     scenario: lateral-movement-via-rdp
-  # Real adapters land in Phase E; disabled here so v0 runs on fixtures only.
+  # Real adapters are disabled here so v0 runs on fixtures only.
   crowdstrike_falcon:
     class: native_api
     enabled: false

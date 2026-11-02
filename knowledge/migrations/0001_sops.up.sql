@@ -8,9 +8,8 @@
 -- transitions to 'published' immediately); 'gated' = draft → in_review
 -- → published → retired with separate author/signer roles.
 --
--- embedding is a TEXT placeholder for Phase G (D14: pgvector deferred).
--- When pgvector arrives, the column type becomes VECTOR(N) for the
--- chosen embedding dimension and existing TEXT rows are re-embedded.
+-- embedding is an unused TEXT placeholder: live vectors are in
+-- substrate_embeddings.vec (REAL[]).
 --
 -- tenant_id partitions the knowledge corpus per the always-present tenant
 -- primitive (05-component-architecture.md §3); all persistence is per-tenant

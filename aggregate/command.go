@@ -202,9 +202,9 @@ type aggregateState struct {
 	TenantID      uuid.UUID                  // tenant stamped at creation; immutable thereafter
 	Status        string                     // current lifecycle status
 	ConclusionRef string                     // set while concluded, cleared on reopen
-	Actions       map[uuid.UUID]actionState  // per-x-action folded state (C.1)
-	Hypotheses    map[string]hypothesisState // per-x-hypothesis folded state, keyed by STIX id (D.2)
-	Predictions   map[string]predictionState // per-x-prediction folded state, keyed by STIX id (D.2)
+	Actions       map[uuid.UUID]actionState  // per-x-action folded state
+	Hypotheses    map[string]hypothesisState // per-x-hypothesis folded state, keyed by STIX id
+	Predictions   map[string]predictionState // per-x-prediction folded state, keyed by STIX id
 
 	// Interpretation bookkeeping for supersession + the pin/verdict folds
 	// (01 §Pinned evidence / §Verdict): every recorded interpretation's type
@@ -345,8 +345,8 @@ func applyCommand(env Envelope, cmd Command, state aggregateState, newID idSourc
 	}
 
 	// AI write-protection (04 §5.6): AI_DELEGATED commands are validated against
-	// an ALLOWLIST — spec wording, deliberately, so any future command (C.4's
-	// dispatch/result/reversal, and everything after) is AI-denied by default
+	// an ALLOWLIST — spec wording, deliberately, so any new command is AI-denied by
+	// default
 	// until explicitly admitted. Enforced here at the aggregate boundary — the
 	// single write path — so it cannot be bypassed by an alternate code path.
 	// NOTE for the HTTP layer: Actor.Kind must be derived from the JWT's

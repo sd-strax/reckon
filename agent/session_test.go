@@ -547,7 +547,7 @@ func TestSession_Rehydrates(t *testing.T) {
 	}
 }
 
-// TestSession_StreamingContract (E.4): with OnTextDelta set and a StreamingLLM,
+// TestSession_StreamingContract: with OnTextDelta set and a StreamingLLM,
 // text reaches the surface only as deltas — OnText stays silent (no double
 // render) — while the record (transcript, TurnResult.Text) still carries the
 // full block text from the response, never assembled from deltas.
@@ -991,8 +991,8 @@ func TestSession_ProposeSOP(t *testing.T) {
 
 // TestSession_ConsultedSimilarRecorded: a recall_similar_investigations call is
 // captured as consulted_similar_investigations provenance on the committed
-// interpretation, with Used decided conservatively from the final text (K4,
-// 06 §6).
+// interpretation, with Used decided conservatively from the final text
+// (06 §6).
 func TestSession_ConsultedSimilarRecorded(t *testing.T) {
 	f := newFakeBackend(t)
 	llm := &scriptedLLM{script: []CompleteResponse{

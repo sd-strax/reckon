@@ -8,7 +8,7 @@
 -- verdict captures the conclusion shape (malicious / benign / inconclusive /
 -- benign-fix-required) so the retrieval surface can filter by outcome.
 --
--- embedding is a TEXT placeholder for Phase G (D14); same path as sops.
+-- embedding is an unused TEXT placeholder, as in sops.
 --
 -- tenant_id partitions the summary corpus per the always-present tenant
 -- primitive (05-component-architecture.md §3); recall_similar_investigations

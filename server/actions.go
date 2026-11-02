@@ -363,12 +363,9 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 			resp.Status, resp.WorkflowID = b.autoApproveAndDispatch(r.Context(), env, cmd, decision, now)
 		}
 	case action.ModeTwoParty:
-		// SEAM OBLIGATION (Phase D approve endpoint): Gate 2's REQUIRE_TWO_PARTY
-		// demand lives in the policy_evaluated event and this response — the
-		// future approval surface MUST honor it (mode TWO_PARTY, secondary from
-		// decision.SecondaryApproverPool), not accept a MANUAL solo approval.
-		// Re-derive from the action's policy_evaluated event or re-evaluate
-		// Gate 2 at approval time.
+		// Gate 2's REQUIRE_TWO_PARTY demand is frozen on the action: the approve
+		// endpoint honors it (action_approval.go) and the aggregate rejects a solo
+		// approval, so this path only reports the pending status.
 		resp.Status = "PENDING_TWO_PARTY"
 	}
 

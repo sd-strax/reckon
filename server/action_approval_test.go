@@ -218,9 +218,9 @@ func TestApproveAction_SecondaryCarriesPrimaryTime(t *testing.T) {
 	}
 }
 
-// TestApproveAction_ExpiredRejected: no expiry timer runs in v0, so the
-// endpoint is the enforcement point — a lapsed request cannot be approved as if
-// its TTL meant nothing.
+// TestApproveAction_ExpiredRejected: the endpoint refuses a lapsed request even
+// when no expiry timer recorded action.expired (its start is best-effort), so a
+// request cannot be approved as if its TTL meant nothing.
 func TestApproveAction_ExpiredRejected(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")

@@ -34,7 +34,7 @@ type Hooks struct {
 	OnToolCall   func(name string, input json.RawMessage) // a tool is about to dispatch
 	OnToolResult func(name string, content string, isError bool)
 
-	// OnTextDelta receives text fragments as the model generates them (E.4).
+	// OnTextDelta receives text fragments as the model generates them.
 	// When set and the LLM implements StreamingLLM, completions stream and a
 	// streamed completion's text arrives ONLY here — OnText is not called for
 	// it (the deltas were the delivery; a surface that got both would render

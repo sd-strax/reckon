@@ -7,8 +7,7 @@ import (
 )
 
 // Workflow type names — the stable identifiers registered on the task queue.
-// These names are the contract Phase C must preserve when it fills the bodies:
-// renaming a Go function must not change the registered name, so registration
+// These names are the contract: renaming a Go function must not change the registered name, so registration
 // pins each one explicitly (workflow.RegisterOptions.Name).
 const (
 	WorkflowActionLifecycle            = "ActionLifecycle"
@@ -19,14 +18,14 @@ const (
 	WorkflowPostConclusionPipeline     = "PostConclusionPipeline"
 	WorkflowSummarizeForKnowledgeIndex = "SummarizeForKnowledgeIndex"
 
-	// WorkflowPing is the A.7 wireup prover — not a domain workflow. It exists
-	// so the worker registration round trip is testable with zero Phase C
-	// business logic. See Client.Ping.
+	// WorkflowPing is the wireup prover — not a domain workflow. It exists so
+	// the worker registration round trip is testable with no business logic.
+	// See Client.Ping.
 	WorkflowPing = "Ping"
 
 	// unimplementedErrType is the ApplicationError type the skeleton domain
 	// workflows return. Non-retryable: a premature call fails fast and visibly
-	// rather than spinning on retries until Phase C fills the body.
+	// rather than spinning on retries.
 	unimplementedErrType = "Unimplemented"
 )
 
@@ -50,22 +49,22 @@ func Ping(ctx workflow.Context, msg string) (string, error) {
 	return "pong:" + msg, nil
 }
 
-// unimplemented is the shared body of every skeleton domain workflow: it logs
-// and returns a non-retryable ApplicationError. Phase C replaces each call site
-// with a real body (and real input/output types) per the workflow's owning
-// spec — the signatures here are deliberate placeholders.
+// unimplemented is the body of a skeleton domain workflow: it logs and returns
+// a non-retryable ApplicationError. A real body replaces the call site, with the
+// input/output types the workflow's owning spec defines.
 func unimplemented(ctx workflow.Context, name string) error {
-	workflow.GetLogger(ctx).Warn("skeleton workflow invoked before its Phase C implementation", "workflow", name)
-	return sdktemporal.NewApplicationError(name+" is not implemented until Phase C", unimplementedErrType)
+	workflow.GetLogger(ctx).Warn("skeleton workflow invoked", "workflow", name)
+	return sdktemporal.NewApplicationError(name+" is not implemented", unimplementedErrType)
 }
 
-// The OSS domain workflow inventory (05 §3.3). ActionLifecycle (dispatch) and
-// ReversalSaga have their real bodies in action_lifecycle.go / reversal_saga.go
-// (C.4); the rest are skeletons whose bodies land in later phases.
+// The OSS domain workflow inventory (05 §3.3). ActionLifecycle (dispatch),
+// ActionExpiryTimer and ReversalSaga have their real bodies in
+// action_lifecycle.go / expiry_timer.go / reversal_saga.go.
 
 // RenormalizePass re-runs normalizers over stored telemetry when a normalizer
-// version changes. (Phase C+.)
+// version changes (05 §3.3). It is a skeleton: it registers, and fails fast with
+// Unimplemented.
 func RenormalizePass(ctx workflow.Context) error { return unimplemented(ctx, WorkflowRenormalizePass) }
 
 // ArchiveInvestigation and PostConclusionPipeline have their real bodies in
-// archive.go (Phase D.5); SummarizeForKnowledgeIndex in summary.go (K3).
+// archive.go; SummarizeForKnowledgeIndex in summary.go.

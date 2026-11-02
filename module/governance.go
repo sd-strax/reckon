@@ -21,7 +21,6 @@ type ArtifactType string
 
 // RoleTemplate is a placeholder for an IdP role-mapping template the
 // governance module ships (Okta/Entra/Google Workspace/Auth0/SAML/OIDC).
-// The real type lands in Phase I.
 type RoleTemplate struct {
 	Name        string
 	Description string

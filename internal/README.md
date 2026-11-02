@@ -6,6 +6,4 @@ Go's `internal/` import-path convention restricts imports to the parent of `inte
 
 ## Status
 
-Empty at Week 1. First inhabitants will land alongside the packages that need them — e.g., `internal/pgutil/` for Postgres helpers (Phase A.3), `internal/testutil/` for shared engine-test helpers, `internal/buildinfo/` for git SHA stamping.
-
-`reckon-enterprise` may need to use some of these helpers in its own tests. The contract: anything `reckon-enterprise` legitimately depends on graduates out of `internal/` into a public package (or a designated `pkg/`); the rest stays restricted.
+Packages land here alongside the code that needs them. Anything code outside this module legitimately depends on graduates out of `internal/` into a public package; the rest stays restricted.

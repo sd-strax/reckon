@@ -152,7 +152,7 @@ func joinScenarios() string {
 func mergeTenantConfigs(scenario string, capYAML, actionYAML []byte) []byte {
 	header := "# Seeded by `reckon demo seed` for the bundled " + scenario + " demo scenario.\n" +
 		"# Merged read (capability) + write (action) tenant config — runtime reads one\n" +
-		"# config_path for both. Edit or replace to point at real adapters (Phase E/F).\n\n"
+		"# config_path for both. Edit or replace to point at real adapters.\n\n"
 	out := make([]byte, 0, len(header)+len(capYAML)+len(actionYAML)+1)
 	out = append(out, header...)
 	out = append(out, capYAML...)

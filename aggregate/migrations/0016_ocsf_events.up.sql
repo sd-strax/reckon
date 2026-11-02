@@ -2,7 +2,7 @@
 -- eager promotion at ingest).
 --
 -- Until now, capability invocations returned telemetry in the response only
--- ("Phase E.1 returns the envelope only") — every ocsf_event_ref the agent
+-- — every ocsf_event_ref the agent
 -- cited pointed at a record that existed nowhere. This table is the ground
 -- truth layer: raw OCSF payloads, immutable, retained exactly as the tool
 -- returned them. The interpretation layer (stix_objects) references them;

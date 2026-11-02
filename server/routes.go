@@ -33,7 +33,7 @@ func (b *Backend) routes() []route {
 		{"GET /investigations/{id}/pins", read, withUUID(b.listInvestigationPins)},
 		{"GET /investigations/{id}/comms", read, withUUID(b.listInvestigationComms)},
 		// The live markdown projection (binding §6 item 10), distinct from POST
-		// .../export, which builds the signed post-conclusion bundle (D.5).
+		// .../export, which builds the signed post-conclusion bundle.
 		{"GET /investigations/{id}/export.md", read, withUUID(b.getInvestigationMarkdown)},
 		{"POST /investigations/{id}/export", analyst, withUUID(b.exportInvestigation)},
 		{"POST /investigations/{id}/lifecycle", analyst, withUUID(b.investigationLifecycle)},

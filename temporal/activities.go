@@ -50,7 +50,7 @@ type Activities struct {
 }
 
 // NewActivities constructs the activity set. resolver is an AtomicResolver so
-// the dispatch path can be hot-swapped on reload (11 §5.1). comms (Phase F) may
+// the dispatch path can be hot-swapped on reload (11 §5.1). comms may
 // be nil — with it, a SUCCEEDED notify.* result opens (or, via thread_ref,
 // extends) its comms thread; without it, results record exactly as before. It
 // is a constructor parameter rather than a builder method because the worker
@@ -332,7 +332,7 @@ func (a *Activities) EmitResulted(ctx context.Context, in EmitResultedInput) err
 	if err != nil {
 		return emitErr(err)
 	}
-	// Phase F: a SUCCEEDED notify.* dispatch opens/extends its comms thread.
+	// A SUCCEEDED notify.* dispatch opens/extends its comms thread.
 	// Best-effort by design: the result event is committed, so a miss logs and
 	// the analyst still has the action record. Only the attempt that recorded
 	// the result does it: a retry finding its result already on the stream

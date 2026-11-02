@@ -1,4 +1,4 @@
-// Package agent is the interactive investigation loop (05 §3.4, Phase E): it
+// Package agent is the interactive investigation loop (05 §3.4): it
 // assembles LLM tool definitions from the backend's capability catalog plus the
 // intrinsic reasoning/action tools, drives the model↔tool conversation for one
 // analyst turn at a time, and commits each turn to the reasoning thread with its
@@ -116,13 +116,12 @@ func (u *Usage) Add(o Usage) {
 	u.CacheRead += o.CacheRead
 }
 
-// LLM is the provider seam. The Anthropic implementation lands with the CLI
-// surface (E.3); tests drive the loop with a scripted fake.
+// LLM is the provider seam. Anthropic is the implementation; tests drive the loop with a scripted fake.
 type LLM interface {
 	Complete(ctx context.Context, req CompleteRequest) (CompleteResponse, error)
 }
 
-// StreamingLLM is the optional streaming upgrade of LLM (E.4). Providers that
+// StreamingLLM is the optional streaming upgrade of LLM. Providers that
 // can deliver text as it is generated implement it; the session type-asserts
 // and prefers CompleteStream when the surface registered a delta hook.
 //

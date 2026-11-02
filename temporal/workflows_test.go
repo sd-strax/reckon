@@ -31,12 +31,11 @@ func TestPingWorkflow(t *testing.T) {
 	}
 }
 
-// TestSkeletonWorkflowsUnimplemented asserts every domain workflow fails fast
-// with a non-retryable Unimplemented ApplicationError until Phase C fills it —
-// a premature call must not look like success.
+// TestSkeletonWorkflowsUnimplemented asserts a skeleton domain workflow fails
+// fast with a non-retryable Unimplemented ApplicationError — a premature call
+// must not look like success.
 func TestSkeletonWorkflowsUnimplemented(t *testing.T) {
-	// SummarizeForKnowledgeIndex has a real body now (K3); RenormalizePass is
-	// the last remaining skeleton.
+	// RenormalizePass is the last remaining skeleton.
 	skeletons := map[string]func(workflow.Context) error{
 		WorkflowRenormalizePass: RenormalizePass,
 	}

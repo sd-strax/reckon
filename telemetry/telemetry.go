@@ -1,4 +1,4 @@
-// Package telemetry is the Phase A.8 observability layer: structured logging
+// Package telemetry is the observability layer: structured logging
 // (slog), distributed tracing (OpenTelemetry), and metrics (Prometheus). It is
 // deliberately export-light at v0 — the OTel tracer provider is configured with
 // NO exporter, so spans are created and propagated in-process but not shipped

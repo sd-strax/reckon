@@ -1,5 +1,5 @@
 # Install manifest for the ServiceNow ticketing adapter (design/11 §3;
-# implementation/adapter-candidates.md — Phase F ticketing).
+# implementation/adapter-candidates.md).
 #
 # NATIVE_API class: a static Go binary with no runtime block (no venv, no vendor
 # package, no child process) — the reckon plugin protocol on stdio and a

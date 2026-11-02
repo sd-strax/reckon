@@ -164,7 +164,7 @@ func (a *Anthropic) Complete(ctx context.Context, req CompleteRequest) (Complete
 
 // CompleteStream runs one streaming Messages call (SSE), delivering text
 // fragments to onDelta as they arrive and returning the same complete
-// response Complete would have (StreamingLLM contract, E.4). A nil onDelta
+// response Complete would have (StreamingLLM contract). A nil onDelta
 // degrades to the non-streaming call.
 func (a *Anthropic) CompleteStream(ctx context.Context, req CompleteRequest, onDelta func(text string)) (CompleteResponse, error) {
 	return a.complete(ctx, req, onDelta)

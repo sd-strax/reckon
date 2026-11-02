@@ -133,7 +133,7 @@ func testIDs() idSource {
 	}
 }
 
-// TestHandleCreateInvestigation is the A.4 done-bar: a handcrafted
+// TestHandleCreateInvestigation: a handcrafted
 // CreateInvestigation command persists an event, the projection updates,
 // the projection is queryable.
 func TestHandleCreateInvestigation(t *testing.T) {
@@ -177,7 +177,7 @@ func TestHandleCreateInvestigation(t *testing.T) {
 	}
 }
 
-// TestStaleSequenceRejected verifies the A.4 done-bar: a second command on
+// TestStaleSequenceRejected: a second command on
 // the same aggregate at a stale sequence_no is rejected.
 //
 // CreateInvestigation specifically rejects "already exists" up front via
@@ -246,7 +246,7 @@ func TestStoreConcurrentInsert(t *testing.T) {
 	}
 }
 
-// TestReplayFromCold verifies the A.4 done-bar: replay from cold produces
+// TestReplayFromCold: replay from cold produces
 // identical projection state.
 func TestReplayFromCold(t *testing.T) {
 	if testing.Short() {

@@ -9,6 +9,5 @@
 // terminate the supervisor (FatalOnExit).
 //
 // See design/05-component-architecture.md §3.1 for the runtime topology
-// this implements, and implementation/phase-a-backbone.md §A.2 for the
-// done-bar.
+// this implements.
 package supervisor

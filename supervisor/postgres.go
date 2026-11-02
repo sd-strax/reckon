@@ -79,10 +79,10 @@ type ExtraMigrationSet struct {
 
 // Postgres is a Component wrapping fergusstrange/embedded-postgres.
 //
-// pgvector availability is a deferred concern: the vanilla embedded
-// distribution does not ship pgvector. Phase G (embeddings) bundles a
-// pgvector-enabled Pg or installs the .so files at first run. Until then
-// the embedding-bearing tables use TEXT placeholders.
+// The vanilla embedded distribution does not ship pgvector, and nothing needs
+// it: vectors live in substrate_embeddings.vec (REAL[]) and similarity is
+// computed in process. The TEXT embedding columns on the legacy sops and
+// investigation_summaries tables are unused.
 type Postgres struct {
 	cfg PostgresConfig
 

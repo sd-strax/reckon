@@ -2,7 +2,7 @@
 # lateral-movement-via-rdp fixture scenario. Can be its own file or merged into
 # the capability config (unknown keys are ignored). The fixture write adapter is
 # the "fake Tines" that exercises request → authorize → dispatch → result → reverse
-# without a real tool (08 §9); real vendor write adapters land in Phase F.
+# without a real tool (08 §9); real vendor write adapters are separate.
 
 action_adapters:
   fixture_write:
@@ -104,7 +104,7 @@ action_bindings:
       params:
         ticket: "${target.resolved_identifier}"
 
-  # Comms family (Phase F, binding §4) — the "fake Slack/SMTP". An outbound
+  # Comms family (binding §4) — the "fake Slack/SMTP". An outbound
   # message is a T2 x-action; the pre-send preview is its approval surface.
   # On SUCCEEDED the result path opens/extends the comms thread (comms/).
   notify.slack:

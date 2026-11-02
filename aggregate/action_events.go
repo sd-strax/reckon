@@ -101,7 +101,7 @@ type ActionExpired struct {
 }
 
 // ActionDispatched records the dispatcher picking up an APPROVED action
-// (02 §3). System-emitted by the ActionLifecycle workflow (C.4); its presence
+// (02 §3). System-emitted by the ActionLifecycle workflow; its presence
 // in the stream is the dispatch-ledger guard (08 §6b) — a replayed workflow
 // sees it and short-circuits re-issue.
 type ActionDispatched struct {

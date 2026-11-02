@@ -13,7 +13,7 @@ adapters:
     class: fixture
     enabled: true
     scenario: impossible-travel-signin
-  # Real adapters land in Phase E; disabled here so v0 runs on fixtures only.
+  # Real adapters are disabled here so v0 runs on fixtures only.
   okta:
     class: native_api
     enabled: false

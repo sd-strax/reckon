@@ -19,15 +19,15 @@ import (
 //     x-prediction JSON payload, 01-domain-model.md). This is the first writer
 //     of the interpretation-layer object store: reasoning nodes are "STIX
 //     nodes inside the Grouping," and here they land as exactly that. (The
-//     Grouping object itself, membership/x-supports/x-refutes edges, and the
-//     capability layer's SCO writes land with full STIX CRUD in Phase E.)
+//     Grouping object itself and membership/x-supports/x-refutes edges are
+//     not written; capability-layer SCOs arrive through evidence.Store.)
 //   - hypothesis_current / prediction_current — investigation-scoped read
 //     models (the panels' query surface), same pattern as action_current.
 //
 // Because the nodes are projections of interpretation events, Reset+Replay
 // rebuilds them from the event log alone. Reset deletes ONLY the reasoning
-// types from stix_objects — the store will later hold capability-layer
-// entities that are NOT event-sourced, and replay must never destroy those.
+// types from stix_objects — the store also holds capability-layer entities
+// that are NOT event-sourced, and replay must never destroy those.
 type ReasoningNodeProjector struct{}
 
 // Name returns "reasoning_nodes".
@@ -467,8 +467,8 @@ func transitionNode(ctx context.Context, tx *sql.Tx, evt Event, stixType, ref, t
 }
 
 // Reset clears the projection for replay. stix_objects is scoped to the
-// reasoning types — the object store will hold non-event-sourced entities
-// (capability-layer SCOs, Phase E) that a replay must never destroy.
+// reasoning types — the object store also holds non-event-sourced entities
+// (capability-layer SCOs, from evidence.Store) that a replay must never destroy.
 func (ReasoningNodeProjector) Reset(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM stix_objects WHERE type IN ($1, $2)`,
 		stixTypeHypothesis, stixTypePrediction); err != nil {
