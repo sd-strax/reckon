@@ -802,7 +802,11 @@ the baselines are expected to stand.
 ### 8.2 §6.13 — Entity-scoped event query
 
 *Landed as `adr/0092`. Rows carry no `view` and no `relationships` until §8.1 lands; the
-`binding` column is `adapter` + `operation`; `around` takes `limit` events each side.*
+`binding` column is `adapter` + `operation` (the first that answered), with every binding's
+outcome in a `bindings` JSONB column; the list is one row per event, paged by `order=oldest|newest`
+and a `(time, id)` `cursor` returned as `next_cursor`; `around` takes `limit` events each side,
+404s on an event that is not a member of the investigation, and is empty when the anchor names
+no entity.*
 
 **Decision.** Membership of a retrieved event in an investigation is recorded at ingest, not
 inferred later, and the unit of membership is the **capability call** (§8.9): one row per

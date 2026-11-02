@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -96,6 +98,35 @@ func TestInvestigationEvents_MembershipAndCalls(t *testing.T) {
 	if code := getJSON(t, srv, token, base+"/events?limit=0", nil); code != http.StatusBadRequest {
 		t.Errorf("limit=0 = %d; want 400", code)
 	}
+	// Newest first, one at a time: the cursor reaches the oldest and then stops.
+	var newest InvestigationEventsResponse
+	if code := getJSON(t, srv, token, base+"/events?order=newest&limit=1", &newest); code != http.StatusOK || len(newest.Events) != 1 || newest.Total != len(out.Events) || (newest.NextCursor == "") != (newest.Total == 1) {
+		t.Fatalf("newest = %d, %d of %d, cursor %q; want one row and a cursor exactly when more remain", code, len(newest.Events), newest.Total, newest.NextCursor)
+	}
+	if newest.Events[0].ID != events.Events[len(events.Events)-1].ID {
+		t.Errorf("newest first = %s; want the last of the oldest-first list", newest.Events[0].ID)
+	}
+	seen := map[string]bool{newest.Events[0].ID: true}
+	for cursor := newest.NextCursor; cursor != ""; {
+		var p InvestigationEventsResponse
+		if code := getJSON(t, srv, token, base+"/events?order=newest&limit=1&cursor="+url.QueryEscape(cursor), &p); code != http.StatusOK || len(p.Events) != 1 {
+			t.Fatalf("page after %s = %d, %d events", cursor, code, len(p.Events))
+		}
+		if seen[p.Events[0].ID] {
+			t.Fatalf("event %s paged twice", p.Events[0].ID)
+		}
+		seen[p.Events[0].ID] = true
+		cursor = p.NextCursor
+	}
+	if len(seen) != events.Total {
+		t.Errorf("paged %d events; want all %d", len(seen), events.Total)
+	}
+	if code := getJSON(t, srv, token, base+"/events?order=sideways", nil); code != http.StatusBadRequest {
+		t.Errorf("order=sideways = %d; want 400", code)
+	}
+	if code := getJSON(t, srv, token, base+"/events?cursor=yesterday", nil); code != http.StatusBadRequest {
+		t.Errorf("cursor=yesterday = %d; want 400", code)
+	}
 
 	var calls InvestigationCallsResponse
 	if code := getJSON(t, srv, token, base+"/calls", &calls); code != http.StatusOK || len(calls.Calls) != 1 || calls.Calls[0].CallID != out.CallID {
@@ -107,6 +138,12 @@ func TestInvestigationEvents_MembershipAndCalls(t *testing.T) {
 	}
 	if call.Adapter != "fixture" || call.Operation != "replay" || call.Priority != 100 || call.BindingsAnswered != 1 || call.BindingsTotal != 1 {
 		t.Errorf("call = %+v; want the fixture binding that answered", call)
+	}
+	if len(call.Outcomes) != 1 || !call.Outcomes[0].Answered || call.Outcomes[0].Adapter != "fixture" || strings.Contains(string(call.Outcomes[0].Params), `"verb"`) {
+		t.Errorf("outcomes = %+v; want the one binding, answered, without the injected verb", call.Outcomes)
+	}
+	if strings.Contains(string(call.ParamsSent), `"verb"`) {
+		t.Errorf("params_sent = %s carries the injected verb", call.ParamsSent)
 	}
 	if call.Produced == nil || len(call.Produced.EventIDs) != len(out.Events) || len(call.Produced.EntityRefs) == 0 {
 		t.Errorf("produced = %+v", call.Produced)

@@ -2,11 +2,12 @@
 // capability call brought in, each opening the call that retrieved it; an
 // opened event shows the retrieved events around it; the Call inspector shows
 // which binding answered, with what, and what it produced.
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { AppProvider } from "../app";
 import { App } from "./App";
-import { timelineItems } from "./lenses/StoryLens";
+import { retrievedCount, timelineItems } from "./lenses/StoryLens";
+import { bindingRows } from "./inspectors/CallInspector";
 import { HarnessTransport, type HarnessSnapshot } from "../../../harness/transport";
 import synthetic from "../../../harness/snapshots/synthetic.json";
 import type { CapabilityCall, EventRow } from "../../../src/viewTypes";
@@ -26,6 +27,10 @@ const events: EventRow[] = [
 const call: CapabilityCall = {
   callId, verb: "enumerate_logons", adapter: "fixture", operation: "replay", priority: 100, paramsSent: { host: "host-a" }, coverage: "COMPLETE",
   bindingsAnswered: 1, bindingsTotal: 2, degradationNotes: ["binding enumerate_logons/edr: adapter not configured or disabled"], startedAt: "2026-10-20T09:05:00Z", durationMs: 42,
+  outcomes: [
+    { adapter: "edr", operation: "logons", priority: 200, params: { host: "host-a" }, answered: false, skipped: "adapter not configured or disabled" },
+    { adapter: "fixture", operation: "replay", priority: 100, params: { host: "host-a" }, answered: true },
+  ],
   produced: { eventIds: events.map((e) => e.id), observedDataRefs: ["observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"], entityRefs: ["x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"] },
   bindings: [{ adapter: "edr", operation: "logons", priority: 200, enabled: false }, { adapter: "fixture", operation: "replay", priority: 100, enabled: true }],
 };
@@ -57,7 +62,41 @@ describe("timelineItems", () => {
   });
 });
 
+describe("bindingRows", () => {
+  it("drives each badge from the stored outcome and lists the configured bindings the resolver never reached", () => {
+    const rows = bindingRows(call.outcomes, [
+      { adapter: "siem", operation: "search", priority: 300, enabled: false },
+      { adapter: "fixture", operation: "replay", priority: 100, enabled: true },
+    ]);
+    expect(rows.map((r) => [r.adapter, r.outcome?.answered ?? null, r.enabled ?? null])).toEqual([
+      ["siem", null, false],
+      ["edr", false, null],
+      ["fixture", true, true],
+    ]);
+  });
+});
+
+describe("retrievedCount", () => {
+  it("says how many of the record's events are shown when the record holds more than the page", () => {
+    expect(retrievedCount(3, undefined)).toBe("3 retrieved events in the record");
+    expect(retrievedCount(3, 3)).toBe("3 retrieved events in the record");
+    expect(retrievedCount(1, 1)).toBe("1 retrieved event in the record");
+    expect(retrievedCount(500, 1200)).toBe("1200 retrieved events in the record · showing the newest 500");
+  });
+});
+
 describe("the Story timeline over the retrieved record", () => {
+  it("names the unpaged total and says the record could not be read when it could not", () => {
+    mount({ ...data, snapshot: { ...data.snapshot, events, eventsTotal: 12 } });
+    tab("Story");
+    expect(within(lens()).getByText("12 retrieved events in the record · showing the newest 3")).toBeTruthy();
+    cleanup();
+    mount({ ...base, snapshot: { ...base.snapshot, eventsError: "503 from the backend" } });
+    tab("Story");
+    expect(within(lens()).getByText(/The retrieved record could not be read: 503 from the backend/)).toBeTruthy();
+    expect(lens().querySelectorAll(".trow").length).toBeGreaterThan(2); // the cited events still show
+  });
+
   it("shows every retrieved event, filters by the class's category, and opens the call that retrieved a row", () => {
     const transport = mount();
     tab("Story");
@@ -76,8 +115,9 @@ describe("the Story timeline over the retrieved record", () => {
     expect(within(p).getByRole("heading", { level: 2 }).textContent).toBe("enumerate_logons");
     expect(within(p).getAllByText("fixture / replay").length).toBe(2); // Answered by, and the row in the bindings list
     expect(within(p).getByText(/1 of 2 bindings answered · 42 ms/)).toBeTruthy();
-    expect(within(p).getByText("installed, not enabled")).toBeTruthy();
+    expect(within(p).getByText("skipped · adapter not configured or disabled")).toBeTruthy();
     expect(within(p).getByText("answered")).toBeTruthy();
+    expect(within(p).queryByText("installed, not enabled")).toBeNull(); // the stored outcome says why, the config flag does not override it
     expect(p.querySelector(".ijson pre")!.textContent).toContain('"host": "host-a"');
     fireEvent.click(within(p).getByRole("tab", { name: "Result" }));
     expect(within(p).getByText("Events · 3")).toBeTruthy();

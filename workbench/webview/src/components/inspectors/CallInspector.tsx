@@ -1,10 +1,12 @@
 // Capability call (08 §8.6.1, adr/0092): the object the Story timeline, a
 // tool row and the bundle point at. Tabs: Call · Result · Raw. The record says
 // which binding answered, with what parameters, how it went, and what it
-// produced; the other bindings for the verb show the ways it could have been
-// answered, including an adapter that is installed but not enabled.
+// produced; every binding the resolver walked is shown with what it did
+// (answered, or skipped and why), and the configured bindings it did not reach
+// show the other ways it could have been answered, including an adapter that
+// is installed but not enabled.
 import { useApp } from "../../app";
-import type { CapabilityCall } from "../../../../src/viewTypes";
+import type { BindingOutcome, CapabilityCall, VerbBinding } from "../../../../src/viewTypes";
 import { Badge, RefChip, fmtDateTime } from "../shared";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
 
@@ -12,6 +14,36 @@ function coverageTone(coverage: string): string {
   if (coverage === "COMPLETE") return "ok";
   if (coverage === "PARTIAL") return "warn";
   return "bad";
+}
+
+/** One row of "Bindings for this verb": a configured binding joined with what it did on this call, if the resolver reached it. */
+interface BindingRow {
+  adapter: string;
+  operation: string;
+  priority: number;
+  outcome?: BindingOutcome;
+  /** From the tenant config; unknown when the binding is only in the stored outcomes. */
+  enabled?: boolean;
+}
+
+/** The stored outcomes drive the badges; the configured list adds the bindings the resolver never reached. */
+export function bindingRows(outcomes: BindingOutcome[], configured: VerbBinding[] | undefined): BindingRow[] {
+  const key = (b: { adapter: string; operation: string }) => b.adapter + "/" + b.operation;
+  const rows: BindingRow[] = outcomes.map((o) => ({ adapter: o.adapter, operation: o.operation, priority: o.priority, outcome: o }));
+  for (const b of configured ?? []) {
+    const row = rows.find((r) => key(r) === key(b));
+    if (row) row.enabled = b.enabled;
+    else rows.push({ adapter: b.adapter, operation: b.operation, priority: b.priority, enabled: b.enabled });
+  }
+  return rows.sort((a, b) => b.priority - a.priority);
+}
+
+function BindingBadge({ row }: { row: BindingRow }) {
+  if (row.outcome?.answered) return <Badge tone="ok">answered</Badge>;
+  if (row.outcome?.skipped) return <Badge tone="warn">skipped · {row.outcome.skipped}</Badge>;
+  if (row.outcome) return <Badge tone="muted">walked</Badge>;
+  if (row.enabled === false) return <Badge tone="warn">installed, not enabled</Badge>;
+  return <Badge tone="muted">not reached</Badge>;
 }
 
 export function CallInspector({ callId }: { callId: string }) {
@@ -49,17 +81,16 @@ export function CallInspector({ callId }: { callId: string }) {
               </Section>
             ) : null}
             <Section title="Bindings for this verb">
-              {!call.bindings ? <div className="empty">not read</div>
-                : !call.bindings.length ? <div className="empty">No binding is configured for this verb in the tenant.</div>
-                : call.bindings.map((b) => {
-                  const isAnswered = b.adapter === call.adapter && b.operation === call.operation;
-                  return (
-                    <div key={b.adapter + "/" + b.operation} className="irow">
-                      <span className="mono">{b.adapter} / {b.operation}</span> <span className="imeta">p{b.priority}</span>{" "}
-                      {isAnswered ? <Badge tone="ok">answered</Badge> : b.enabled ? <Badge tone="muted">enabled</Badge> : <Badge tone="warn">installed, not enabled</Badge>}
-                    </div>
-                  );
-                })}
+              {(() => {
+                const rows = bindingRows(call.outcomes, call.bindings);
+                if (!rows.length) return <div className="empty">{call.bindings ? "No binding is configured for this verb in the tenant." : "No binding was walked."}</div>;
+                return rows.map((b) => (
+                  <div key={b.adapter + "/" + b.operation} className="irow">
+                    <span className="mono">{b.adapter} / {b.operation}</span> <span className="imeta">p{b.priority}</span>{" "}
+                    <BindingBadge row={b} />
+                  </div>
+                ));
+              })()}
             </Section>
           </>
         ) },

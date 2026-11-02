@@ -43,6 +43,7 @@ function mapCall(r: RawCall): CapabilityCall {
     callId: r.call_id, investigationId: r.investigation_id, verb: r.verb, adapter: r.adapter, operation: r.operation, priority: r.priority,
     paramsSent: r.params_sent, coverage: r.coverage, bindingsAnswered: r.bindings_answered, bindingsTotal: r.bindings_total,
     nullObservationRef: r.null_observation_ref, degradationNotes: r.degradation_notes, startedAt: r.started_at, durationMs: r.duration_ms,
+    outcomes: r.outcomes.map((o) => ({ adapter: o.adapter, operation: o.operation, priority: o.priority, params: o.params, answered: o.answered, skipped: o.skipped })),
   };
   if (r.produced) {
     call.produced = { eventIds: r.produced.event_ids, observedDataRefs: r.produced.observed_data_refs, entityRefs: r.produced.entity_refs };
@@ -53,12 +54,21 @@ function mapCall(r: RawCall): CapabilityCall {
   return call;
 }
 
-/** How an events read is narrowed (adr/0092). `around` is an event id. */
+/** How an events read is narrowed (adr/0092). `around` is an event id; `cursor` is the `nextCursor` of the previous page. */
 export interface EventQuery {
   entity?: string;
   category?: "auth" | "process" | "network" | "detection";
   around?: string;
   limit?: number;
+  order?: "oldest" | "newest";
+  cursor?: string;
+}
+
+/** A page of retrieved events with the unpaged total and, when more remain, the cursor of the next page. */
+export interface EventPage {
+  events: EventRow[];
+  total: number;
+  nextCursor?: string;
 }
 
 export class EvidenceClient {
@@ -69,15 +79,19 @@ export class EvidenceClient {
    * investigation, in event time, by entity, category or around one event
    * (adr/0092). A read over the record, never a capability call.
    */
-  async events(investigationId: string, q: EventQuery = {}): Promise<{ events: EventRow[]; total: number }> {
+  async events(investigationId: string, q: EventQuery = {}): Promise<EventPage> {
     const params = new URLSearchParams();
     if (q.entity) params.set("entity", q.entity);
     if (q.category) params.set("category", q.category);
     if (q.around) params.set("around", q.around);
     if (q.limit) params.set("limit", String(q.limit));
+    if (q.order) params.set("order", q.order);
+    if (q.cursor) params.set("cursor", q.cursor);
     const qs = params.toString();
     const body = await this.http.get(`/api/investigations/${encodeURIComponent(investigationId)}/events${qs ? "?" + qs : ""}`, shapes.investigationEvents);
-    return { events: body.events.map(mapEventRow), total: body.total };
+    const page: EventPage = { events: body.events.map(mapEventRow), total: body.total };
+    if (body.next_cursor) page.nextCursor = body.next_cursor;
+    return page;
   }
 
   /** GET /api/investigations/{id}/calls — the investigation's capability calls, oldest first. */

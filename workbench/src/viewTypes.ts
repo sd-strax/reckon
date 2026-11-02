@@ -405,6 +405,17 @@ export interface EventRow {
   entityRefs: string[];
 }
 
+/** What one binding did on a call (mirrors server.BindingOutcomeView): the
+ * parameters as rendered, and whether it answered or why it was skipped. */
+export interface BindingOutcome {
+  adapter: string;
+  operation: string;
+  priority: number;
+  params?: unknown;
+  answered: boolean;
+  skipped?: string;
+}
+
 /** One configured binding of a verb (mirrors server.VerbBindingView). */
 export interface VerbBinding {
   adapter: string;
@@ -433,6 +444,8 @@ export interface CapabilityCall {
   degradationNotes: string[];
   startedAt: string;
   durationMs: number;
+  /** Every binding the resolver walked, in priority order; adapter/operation/priority/paramsSent summarize the first that answered. */
+  outcomes: BindingOutcome[];
   produced?: { eventIds: string[]; observedDataRefs: string[]; entityRefs: string[] };
   bindings?: VerbBinding[];
 }

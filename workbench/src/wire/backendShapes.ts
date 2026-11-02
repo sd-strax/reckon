@@ -321,7 +321,7 @@ const eventRow = object({
   entity_refs: list(str),
 });
 
-export const investigationEvents = object({ events: list(eventRow), total: num });
+export const investigationEvents = object({ events: list(eventRow), total: num, next_cursor: optional(str) });
 
 const capabilityCallRow = {
   call_id: str,
@@ -338,6 +338,7 @@ const capabilityCallRow = {
   degradation_notes: list(str),
   started_at: str,
   duration_ms: num,
+  outcomes: list(object({ adapter: str, operation: str, priority: num, params: optional(anything), answered: bool, skipped: optional(str) })),
 };
 
 export const investigationCalls = object({ calls: list(object(capabilityCallRow)) });

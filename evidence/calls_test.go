@@ -41,7 +41,7 @@ func TestPersist_RecordsTheCall(t *testing.T) {
 		Coverage: capability.CoverageComplete,
 		Bindings: []capability.BindingOutcome{
 			{Adapter: "edr", Operation: "logons", Priority: 100, Params: map[string]any{"host": "H1"}, Skipped: "adapter unhealthy"},
-			{Adapter: "siem", Operation: "search", Priority: 50, Params: map[string]any{"q": "logon H1"}, Answered: true},
+			{Adapter: "siem", Operation: "search", Priority: 50, Params: map[string]any{"q": "logon H1", capability.ParamVerb: "enumerate_logons"}, Answered: true},
 		},
 		DegradationNotes: []string{"binding enumerate_logons/edr: adapter unhealthy"},
 		Events:           []capability.OcsfEvent{evt},
@@ -56,7 +56,15 @@ func TestPersist_RecordsTheCall(t *testing.T) {
 		t.Errorf("binding that answered = %s %s/%s p%d", got.Verb, got.Adapter, got.Operation, got.Priority)
 	}
 	if string(got.ParamsSent) != `{"q": "logon H1"}` && string(got.ParamsSent) != `{"q":"logon H1"}` {
-		t.Errorf("params_sent = %s", got.ParamsSent)
+		t.Errorf("params_sent = %s; want the parameters without the injected verb", got.ParamsSent)
+	}
+	// Every outcome is kept, in the order walked, each without the injected verb.
+	if len(got.Bindings) != 2 || got.Bindings[0].Adapter != "edr" || got.Bindings[0].Skipped != "adapter unhealthy" || got.Bindings[0].Answered ||
+		got.Bindings[1].Adapter != "siem" || !got.Bindings[1].Answered || got.Bindings[1].Priority != 50 {
+		t.Errorf("binding outcomes = %+v", got.Bindings)
+	}
+	if string(got.Bindings[0].Params) != `{"host": "H1"}` && string(got.Bindings[0].Params) != `{"host":"H1"}` {
+		t.Errorf("skipped binding params = %s", got.Bindings[0].Params)
 	}
 	if got.Coverage != "COMPLETE" || got.BindingsAnswered != 1 || got.BindingsTotal != 2 || got.DurationMS != 1500 {
 		t.Errorf("coverage=%s answered=%d total=%d duration=%d", got.Coverage, got.BindingsAnswered, got.BindingsTotal, got.DurationMS)
@@ -170,8 +178,31 @@ func TestInvestigationEvents(t *testing.T) {
 		t.Errorf("unknown category matched %d", none.Total)
 	}
 	page, err := s.InvestigationEvents(ctx, inv, EventFilter{Limit: 2})
-	if err != nil || len(page.Rows) != 2 || page.Total != 7 {
-		t.Errorf("page = %d rows, total %d, %v; want 2 of 7", len(page.Rows), page.Total, err)
+	if err != nil || len(page.Rows) != 2 || page.Total != 7 || page.NextCursor == nil || page.NextCursor.ID != page.Rows[1].ID {
+		t.Errorf("page = %d rows, total %d, next %v, %v; want 2 of 7 with a cursor on the second", len(page.Rows), page.Total, page.NextCursor, err)
+	}
+	// The next page continues past the cursor; the last page has none.
+	rest, err := s.InvestigationEvents(ctx, inv, EventFilter{Limit: 5, Cursor: page.NextCursor})
+	if err != nil || len(rest.Rows) != 5 || rest.Total != 7 || rest.NextCursor != nil || rest.Rows[0].Time.Minute() != 3 {
+		t.Errorf("rest = %v, total %d, next %v, %v; want minutes 3..7 and no cursor", times(rest.Rows), rest.Total, rest.NextCursor, err)
+	}
+	// Newest first: the page starts at the latest event and the cursor walks back.
+	newest, err := s.InvestigationEvents(ctx, inv, EventFilter{Limit: 3, Newest: true})
+	if err != nil || len(newest.Rows) != 3 || newest.Rows[0].Time.Minute() != 7 || newest.Rows[2].Time.Minute() != 5 || newest.NextCursor == nil {
+		t.Errorf("newest = %v, next %v, %v; want 7, 6, 5 with a cursor", times(newest.Rows), newest.NextCursor, err)
+	}
+	older, err := s.InvestigationEvents(ctx, inv, EventFilter{Limit: 10, Newest: true, Cursor: newest.NextCursor})
+	if err != nil || len(older.Rows) != 4 || older.Rows[0].Time.Minute() != 4 || older.NextCursor != nil {
+		t.Errorf("older = %v, next %v, %v; want 4, 3, 2, 1", times(older.Rows), older.NextCursor, err)
+	}
+
+	// The same event retrieved again by a later call is one row, under the
+	// call that first brought it in.
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "enumerate_logons", StartedAt: base.Add(time.Minute)},
+		capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: events[:2], Normalized: norm[:2]})
+	again, err := s.InvestigationEvents(ctx, inv, EventFilter{})
+	if err != nil || again.Total != 7 || len(again.Rows) != 7 || again.Rows[0].CallID != call.ID || len(again.Rows[0].ObservedDataRefs) != 1 {
+		t.Errorf("after a second retrieval = %d rows, total %d, first under %s with refs %v, %v; want 7 once, under the first call", len(again.Rows), again.Total, again.Rows[0].CallID, again.Rows[0].ObservedDataRefs, err)
 	}
 
 	// Around the anchor on host1: one each side, the anchor in the middle, the
@@ -189,6 +220,17 @@ func TestInvestigationEvents(t *testing.T) {
 	}
 	if _, err := s.InvestigationEvents(ctx, inv, EventFilter{Around: uuid.New()}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("around an unknown event: %v; want ErrNotFound", err)
+	}
+	// An event of another investigation is not an anchor here, however real.
+	if _, err := s.InvestigationEvents(ctx, inv, EventFilter{Around: foreign.ID}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("around another investigation's event: %v; want ErrNotFound", err)
+	}
+	// An anchor naming no entity has nothing "on the same entity" around it.
+	lone, lnr := retrieved(3002, "Authentication", base.Add(8*time.Minute))
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "enumerate_logons", StartedAt: base},
+		capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: []capability.OcsfEvent{lone}, Normalized: []capability.NormalizationResult{lnr}})
+	if empty, err := s.InvestigationEvents(ctx, inv, EventFilter{Around: lone.ID}); err != nil || len(empty.Rows) != 0 || empty.Total != 0 {
+		t.Errorf("around an event with no entity = %v, %v; want an empty window", times(empty.Rows), err)
 	}
 }
 

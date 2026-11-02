@@ -47,6 +47,13 @@ export function timelineItems(events: EventRow[] | null | undefined, strip: { re
   return [...out.values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
 }
 
+/** "N retrieved events in the record", and how many of them are shown when the record holds more than the page. */
+export function retrievedCount(shown: number, total: number | undefined): string {
+  const n = total ?? shown;
+  const head = `${n} retrieved event${n === 1 ? "" : "s"} in the record`;
+  return n > shown ? `${head} · showing the newest ${shown}` : head;
+}
+
 export function StoryLens() {
   const { state, openInspector } = useApp();
   const snap = state.snap;
@@ -82,7 +89,8 @@ export function StoryLens() {
           {(["all", "auth", "process", "network", "detection"] as const).map((f) => <button key={f} role="tab" aria-selected={filter === f} className={"itab" + (filter === f ? " on" : "")} onClick={() => setFilter(f)}>{f === "all" ? "All" : f[0].toUpperCase() + f.slice(1)}</button>)}
         </div>
         {snap.derived ? <EventStrip items={snap.derived.strip} /> : null}
-        {snap.events?.length ? <div className="imeta">{snap.events.length} retrieved event{snap.events.length === 1 ? "" : "s"} in the record</div> : null}
+        {snap.eventsError ? <div className="error">The retrieved record could not be read: {snap.eventsError}. Only the cited events are shown.</div> : null}
+        {snap.events?.length ? <div className="imeta">{retrievedCount(snap.events.length, snap.eventsTotal)}</div> : null}
         {!shown.length ? <Empty>{snap.events?.length ? "No retrieved or cited event in this category." : "No cited events carry an event time yet."}</Empty> : (
           <ol className="timeline">
             {shown.map((r, i) => {

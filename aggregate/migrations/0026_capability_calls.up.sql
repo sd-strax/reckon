@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS capability_calls (
     operation            TEXT NOT NULL DEFAULT '',
     priority             INT NOT NULL DEFAULT 0,
     params_sent          JSONB,
+    -- Every binding the resolver walked, in priority order: adapter, operation,
+    -- priority, the parameters as rendered, whether it answered or why it was
+    -- skipped. adapter/operation/priority/params_sent above summarize the first
+    -- that answered; a fan-out call is read from here.
+    bindings             JSONB NOT NULL DEFAULT '[]',
     coverage             TEXT NOT NULL,
     bindings_answered    INT NOT NULL DEFAULT 0,
     bindings_total       INT NOT NULL DEFAULT 0,

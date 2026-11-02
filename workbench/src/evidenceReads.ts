@@ -87,32 +87,32 @@ export class EvidenceReads {
   }
 
   /**
-   * The events retrieved for the investigation (adr/0092), posted as a slice
-   * patch stamped with the sequence they were read for. A backend without the
-   * read, or a failed one, leaves the slice as it was: the Story lens then
-   * shows the cited events alone.
+   * The events retrieved for the investigation (adr/0092): the newest page and
+   * the unpaged total, posted as a slice patch stamped with the sequence they
+   * were read for. A failed read is posted too, as `eventsError`, so the Story
+   * lens says the record could not be read rather than showing the cited
+   * events alone, which is what a record without membership looks like.
    */
   async postEvents(id: string, panel: vscode.WebviewPanel, seq: number): Promise<void> {
     const current = this.host.sameIdentity();
     try {
-      const page = await this.host.client.evidence.events(id, { limit: eventsShown });
+      const page = await this.host.client.evidence.events(id, { limit: eventsShown, order: "newest" });
       if (current()) {
-        void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events } });
+        void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events, eventsTotal: page.total, eventsError: null } });
       }
     } catch (err) {
-      this.host.log.debug(`events ${id}: ${errText(err)}`);
+      if (current()) {
+        void this.host.post(panel, { type: "state.patch", seq, patch: { eventsError: errText(err) } });
+      }
     }
   }
 
   /** The retrieved events on the same entity around one event, for the
-   * Evidence inspector's "Around it" (adr/0092); none when the record has none. */
+   * Evidence inspector's "Around it" (adr/0092): empty when the record has
+   * none. A failed read throws, and the pane shows the error; an empty
+   * window means the read succeeded and held nothing. */
   private async around(id: string, eventId: string): Promise<EventRow[]> {
-    try {
-      return (await this.host.client.evidence.events(id, { around: eventId, limit: aroundEachSide })).events;
-    } catch (err) {
-      this.host.log.debug(`around ${eventId}: ${errText(err)}`);
-      return [];
-    }
+    return (await this.host.client.evidence.events(id, { around: eventId, limit: aroundEachSide })).events;
   }
 
   /**

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,10 +35,12 @@ type EventRowView struct {
 	EntityRefs       []string  `json:"entity_refs"`
 }
 
-// InvestigationEventsResponse is a page of events with the unpaged count.
+// InvestigationEventsResponse is a page of events with the unpaged count and,
+// when more remain in the direction of travel, the cursor of the next page.
 type InvestigationEventsResponse struct {
-	Events []EventRowView `json:"events"`
-	Total  int            `json:"total"`
+	Events     []EventRowView `json:"events"`
+	Total      int            `json:"total"`
+	NextCursor string         `json:"next_cursor,omitempty"`
 }
 
 // CapabilityCallView is one call as a surface opens it: which binding
@@ -57,6 +60,10 @@ type CapabilityCallView struct {
 	DegradationNotes []string        `json:"degradation_notes"`
 	StartedAt        time.Time       `json:"started_at"`
 	DurationMS       int             `json:"duration_ms"`
+	// Outcomes is every binding the resolver walked, in priority order, with
+	// what each did; adapter, operation, priority and params_sent summarize the
+	// first that answered.
+	Outcomes []BindingOutcomeView `json:"outcomes"`
 	// Produced is present on the single-call read only.
 	Produced *CallProducedView `json:"produced,omitempty"`
 	// Bindings lists every binding configured for the verb, so the inspector
@@ -70,6 +77,16 @@ type CallProducedView struct {
 	EventIDs         []string `json:"event_ids"`
 	ObservedDataRefs []string `json:"observed_data_refs"`
 	EntityRefs       []string `json:"entity_refs"`
+}
+
+// BindingOutcomeView is what one binding did on a call.
+type BindingOutcomeView struct {
+	Adapter   string          `json:"adapter"`
+	Operation string          `json:"operation"`
+	Priority  int             `json:"priority"`
+	Params    json.RawMessage `json:"params,omitempty"`
+	Answered  bool            `json:"answered"`
+	Skipped   string          `json:"skipped,omitempty"`
 }
 
 // VerbBindingView is one configured binding of a verb.
@@ -86,9 +103,11 @@ type InvestigationCallsResponse struct {
 }
 
 // listInvestigationEvents serves GET /api/investigations/{id}/events?entity=&
-// category=&around=&limit=: the events retrieved for the investigation, in
-// event time. `around` centres the page on one event (its id), `limit` events
-// each side, and is a 404 when the event is not persisted.
+// category=&around=&limit=&order=&cursor=: the events retrieved for the
+// investigation, in event time, oldest first or newest first (`order=newest`),
+// `limit` to a page and `cursor` (the `next_cursor` of the previous page)
+// continuing it. `around` centres the page on one event (its id), `limit`
+// events each side, and is a 404 when the event is not in the investigation.
 func (b *Backend) listInvestigationEvents(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
 	if b.cfg.Evidence == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "evidence store not configured")
@@ -112,6 +131,22 @@ func (b *Backend) listInvestigationEvents(w http.ResponseWriter, r *http.Request
 		}
 		f.Around = id
 	}
+	switch q.Get("order") {
+	case "", "oldest":
+	case "newest":
+		f.Newest = true
+	default:
+		writeJSONError(w, http.StatusBadRequest, "order must be oldest or newest")
+		return
+	}
+	if v := q.Get("cursor"); v != "" {
+		c, ok := parseEventCursor(v)
+		if !ok {
+			writeJSONError(w, http.StatusBadRequest, "cursor is not one this read returned")
+			return
+		}
+		f.Cursor = &c
+	}
 	page, err := b.cfg.Evidence.InvestigationEvents(r.Context(), invID, f)
 	if errors.Is(err, evidence.ErrNotFound) {
 		writeJSONError(w, http.StatusNotFound, "no persisted telemetry record "+f.Around.String())
@@ -125,7 +160,32 @@ func (b *Backend) listInvestigationEvents(w http.ResponseWriter, r *http.Request
 	for _, row := range page.Rows {
 		out.Events = append(out.Events, eventRowView(row))
 	}
+	if page.NextCursor != nil {
+		out.NextCursor = eventCursor(*page.NextCursor)
+	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// eventCursor renders a position as the wire carries it: the event time in
+// RFC 3339 with nanoseconds, a comma, the event id.
+func eventCursor(c evidence.EventCursor) string {
+	return c.Time.UTC().Format(time.RFC3339Nano) + "," + c.ID.String()
+}
+
+func parseEventCursor(v string) (evidence.EventCursor, bool) {
+	at, id, ok := strings.Cut(v, ",")
+	if !ok {
+		return evidence.EventCursor{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		return evidence.EventCursor{}, false
+	}
+	u, err := uuid.Parse(id)
+	if err != nil {
+		return evidence.EventCursor{}, false
+	}
+	return evidence.EventCursor{Time: t, ID: u}, true
 }
 
 func eventRowView(row evidence.EventRow) EventRowView {
@@ -208,6 +268,10 @@ func callView(c evidence.CallRecord) CapabilityCallView {
 		DegradationNotes: nonNilStrings(c.DegradationNotes),
 		StartedAt:        c.StartedAt,
 		DurationMS:       c.DurationMS,
+		Outcomes:         make([]BindingOutcomeView, 0, len(c.Bindings)),
+	}
+	for _, o := range c.Bindings {
+		v.Outcomes = append(v.Outcomes, BindingOutcomeView{Adapter: o.Adapter, Operation: o.Operation, Priority: o.Priority, Params: o.Params, Answered: o.Answered, Skipped: o.Skipped})
 	}
 	if c.InvestigationID != nil {
 		v.InvestigationID = c.InvestigationID.String()

@@ -1608,3 +1608,25 @@ func TestEvaluateHypothesis_OnlyOutcomes(t *testing.T) {
 		t.Error("inconclusive was refused")
 	}
 }
+
+// TestCapabilityCallID: the record takes the engine's id from a capability
+// envelope only, and only an id (adr/0092); a call_id on any other payload, or
+// one that is not an id, is left off so the commit never fails on it.
+func TestCapabilityCallID(t *testing.T) {
+	if got := capabilityCallID(`{"call_id":"0192f3a0-0000-7000-8000-0000000000c1","verb":"x"}`); got != "0192f3a0-0000-7000-8000-0000000000c1" {
+		t.Errorf("envelope id = %q", got)
+	}
+	for _, content := range []string{`{"call_id":"toolu_01"}`, `{"call_id":""}`, `{"verb":"x"}`, `not json`, `[1,2]`} {
+		if got := capabilityCallID(content); got != "" {
+			t.Errorf("capabilityCallID(%s) = %q; want none", content, got)
+		}
+	}
+	for _, name := range []string{ToolRecallSOPs, ToolRequestAction, ToolReadResult, ToolListActions} {
+		if isCapabilityVerb(name) {
+			t.Errorf("%s taken for a capability verb", name)
+		}
+	}
+	if !isCapabilityVerb("enumerate_logons") {
+		t.Error("enumerate_logons not taken for a capability verb")
+	}
+}

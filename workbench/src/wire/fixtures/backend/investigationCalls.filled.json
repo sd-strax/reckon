@@ -19,6 +19,18 @@
       ],
       "started_at": "2026-01-02T03:04:05Z",
       "duration_ms": 1,
+      "outcomes": [
+        {
+          "adapter": "x",
+          "operation": "x",
+          "priority": 1,
+          "params": {
+            "x": 1
+          },
+          "answered": true,
+          "skipped": "x"
+        }
+      ],
       "produced": {
         "event_ids": [
           "x"

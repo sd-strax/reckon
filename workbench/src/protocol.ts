@@ -130,6 +130,10 @@ export interface InvestigationSnapshot {
   /** The events retrieved for the investigation (adr/0092), in event time;
    * null until read, or when the backend has no record of membership. */
   events?: EventRow[] | null;
+  /** The unpaged count of retrieved events; `events` holds the newest page of them. */
+  eventsTotal?: number;
+  /** Why the retrieved record could not be read, when it could not; null once a read succeeds. */
+  eventsError?: string | null;
 }
 
 /**

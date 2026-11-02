@@ -184,23 +184,37 @@ describe("InvestigationDocuments: closing", () => {
     const patch = posted().find((m) => m.type === "state.patch" && "events" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>;
     expect(patch.seq).toBe(3);
     expect(patch.patch.events).toEqual([eventRow]);
-    expect(events).toHaveBeenCalledWith("inv-1", { limit: 500 });
+    expect(patch.patch.eventsTotal).toBe(1);
+    expect(patch.patch.eventsError).toBeNull();
+    expect(events).toHaveBeenCalledWith("inv-1", { limit: 500, order: "newest" });
   });
 
-  it("leaves the events slice alone when the backend has no such read", async () => {
+  it("tells the panel when the retrieved record could not be read, leaving the events slice as it was", async () => {
     const { client } = backend({ "evidence.events": async () => { throw new BackendRequestError("no route", 404); } });
     const { docs } = documents(client);
     docs.show("inv-1");
     createdPanels()[0].webview.receive({ type: "ready" });
-    await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(posted().some((m) => m.type === "state.patch" && "events" in m.patch)).toBe(false);
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "eventsError" in m.patch)).toBe(true));
+    const patch = posted().find((m) => m.type === "state.patch" && "eventsError" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>;
+    expect(patch.patch.eventsError).toMatch(/no route/);
+    expect("events" in patch.patch).toBe(false);
+  });
+
+  it("reports a failed around read on the event's own pane, since an empty window means the record holds nothing", async () => {
+    const ocsf = { ref: "e-1", kind: "ocsf", type: "Authentication", payload: {}, classUid: 3002 };
+    const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": async () => { throw new BackendRequestError("store down", 503); } });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0].webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-1" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.error"));
+    expect(posted().find((m) => m.type === "inspector.error")).toMatchObject({ type: "inspector.error", target: "e-1", message: expect.stringMatching(/store down/) });
+    expect(types()).not.toContain("inspector.evidence");
   });
 
   it("answers an event's inspector with the retrieved events around it, and a call pane with the call", async () => {
     const ocsf = { ref: "e-1", kind: "ocsf", type: "Authentication", payload: {}, classUid: 3002 };
     const events = vi.fn(async () => ({ events: [eventRow], total: 1 }));
-    const call = { callId: "c-1", verb: "enumerate_logons", priority: 100, coverage: "COMPLETE", bindingsAnswered: 1, bindingsTotal: 1, degradationNotes: [], startedAt: "2026-01-02T03:04:05Z", durationMs: 7 };
+    const call = { callId: "c-1", verb: "enumerate_logons", priority: 100, coverage: "COMPLETE", bindingsAnswered: 1, bindingsTotal: 1, degradationNotes: [], startedAt: "2026-01-02T03:04:05Z", durationMs: 7, outcomes: [] };
     const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": events, "evidence.call": async () => call });
     const { docs } = documents(client);
     docs.show("inv-1");

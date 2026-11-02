@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Intrinsic tool names — the reasoning/action surface that exists regardless of
@@ -671,13 +673,28 @@ func (s *Session) dispatch(ctx context.Context, name string, input json.RawMessa
 	}
 }
 
+// isCapabilityVerb reports whether a tool name is a capability verb: every
+// tool the session does not define itself is dispatched as one.
+func isCapabilityVerb(name string) bool {
+	switch name {
+	case ToolRecallSOPs, ToolRecallSimilar, ToolPriorInvestigations, ToolProposeHypothesis, ToolRecordPrediction,
+		ToolEvaluateHypothesis, ToolRecordPredictionOutcome, ToolRequestAction, ToolListActions, ToolReadResult:
+		return false
+	}
+	return true
+}
+
 // capabilityCallID reads the engine-minted call id out of a capability
-// envelope (adr/0092); "" for any other tool result.
+// envelope (adr/0092). Only an id is returned: the aggregate accepts nothing
+// else on the record, and a stray call_id would fail the whole commit.
 func capabilityCallID(content string) string {
 	var env struct {
 		CallID string `json:"call_id"`
 	}
 	if err := json.Unmarshal([]byte(content), &env); err != nil {
+		return ""
+	}
+	if _, err := uuid.Parse(env.CallID); err != nil {
 		return ""
 	}
 	return env.CallID
