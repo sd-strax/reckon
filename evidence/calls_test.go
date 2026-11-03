@@ -133,6 +133,11 @@ func TestInvestigationEvents(t *testing.T) {
 		return evt.ID
 	}
 	add(3002, "Authentication", 1, host1, svc)
+	// The first event's objects are persisted too, so its row can carry them.
+	norm[0].SCOs = []capability.SCO{
+		{ID: host1, Type: identity.TypeHost, Properties: map[string]any{"hostname": "H1"}},
+		{ID: svc, Type: identity.TypeUserAccount, Properties: map[string]any{"account_login": "svc"}},
+	}
 	add(3002, "Authentication", 2, host1)
 	anchor := add(3002, "Authentication", 3, host1, svc)
 	add(3002, "Authentication", 4, host1)
@@ -159,11 +164,25 @@ func TestInvestigationEvents(t *testing.T) {
 		}
 	}
 	first := all.Rows[0]
-	if first.CallID != call.ID || first.Verb != "enumerate_logons" || first.Coverage != "COMPLETE" || len(first.Payload) != 0 {
-		t.Errorf("row = %+v; want the call on it and no payload", first)
+	if first.CallID != call.ID || first.Verb != "enumerate_logons" || first.Coverage != "COMPLETE" || len(first.Payload) == 0 {
+		t.Errorf("row = %+v; want the call on it and the payload (adr/0090)", first)
 	}
 	if len(first.ObservedDataRefs) != 1 || len(first.EntityRefs) != 2 {
 		t.Errorf("derived refs = %v %v", first.ObservedDataRefs, first.EntityRefs)
+	}
+	// The row carries the objects its refs name, in ref order, as the record
+	// holds them; an event whose objects were never persisted carries none.
+	if len(first.Entities) != 2 || first.Entities[0].Ref != first.EntityRefs[0] || first.Entities[1].Ref != first.EntityRefs[1] || len(first.Entities[0].Payload) == 0 {
+		t.Errorf("entities = %+v for refs %v", first.Entities, first.EntityRefs)
+	}
+	// The second event's observed-data names host1 alone, and the record holds
+	// that object (ids are deterministic, so one persisted host serves every
+	// event that names it); svc it never named.
+	if len(all.Rows[1].Entities) != 1 || all.Rows[1].Entities[0].Ref != string(host1) {
+		t.Errorf("second row entities = %+v; want the host alone", all.Rows[1].Entities)
+	}
+	if ents, err := s.EventEntities(ctx, first.ID); err != nil || len(ents) != 2 {
+		t.Errorf("EventEntities = %d, %v; want 2", len(ents), err)
 	}
 
 	bySvc, err := s.InvestigationEvents(ctx, inv, EventFilter{Entity: string(svc)})

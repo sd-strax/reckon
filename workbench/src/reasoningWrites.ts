@@ -59,11 +59,12 @@ export class ReasoningWrites {
   }
 
   /** Record the analyst's own test under a hypothesis (01 §x-prediction: either actor authors predictions). */
-  async newPrediction(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, discriminates: string[], testKind?: string): Promise<void> {
+  async newPrediction(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, discriminates: string[], testKind?: string, title?: string): Promise<void> {
     if (statement.trim() === "") {
       return;
     }
-    await this.host.mutate(id, panel, "prediction", () => this.host.client.investigations.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind));
+    // The title is the analyst's when given; the engine derives one otherwise (adr/0090).
+    await this.host.mutate(id, panel, "prediction", () => this.host.client.investigations.recordPrediction(id, hypothesisRef, statement.trim(), discriminates ?? [], testKind, title?.trim() || undefined));
   }
 
   /**

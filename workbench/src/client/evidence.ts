@@ -3,9 +3,22 @@
 // Answers are decoded through the wire shapes (adr/0244).
 import type { BackendHttp } from "./http";
 import * as shapes from "../wire/backendShapes";
-import type { RawEvidence } from "../wire/backendShapes";
+import type { RawEvidence, RawEventView } from "../wire/backendShapes";
 import type { Decoded } from "../wire/decode";
-import type { Appearance, CapabilityCall, EventRow, EvidenceDoc } from "../viewTypes";
+import type { Appearance, CapabilityCall, EventRow, EventView, EvidenceDoc } from "../viewTypes";
+
+/** The rendering as decoded, narrowed to the view's vocabulary (adr/0090). */
+function mapView(v: RawEventView): EventView {
+  const view: EventView = {
+    fields: v.fields.map((f) => ({
+      label: f.label, value: f.value, ref: f.ref, mono: f.mono,
+      tone: f.tone === "ok" || f.tone === "warn" || f.tone === "bad" ? f.tone : undefined,
+    })),
+    category: v.category,
+  };
+  if (v.sentence) view.sentence = v.sentence.map((t) => ({ t: t.t === "entity" && t.ref ? "entity" : "text", ref: t.ref, text: t.text }));
+  return view;
+}
 
 function mapEvidence(r: RawEvidence): EvidenceDoc {
   const doc: EvidenceDoc = {
@@ -18,6 +31,7 @@ function mapEvidence(r: RawEvidence): EvidenceDoc {
     recordedAt: r.recorded_at,
     sourceTool: r.source_tool,
   };
+  if (r.view) doc.view = mapView(r.view);
   if (r.related) {
     doc.related = {
       sightings: (r.related.sightings ?? []).map((s) => mapEvidence(s)),
@@ -35,6 +49,7 @@ function mapEventRow(r: RawEventRow): EventRow {
   return {
     id: r.id, classUid: r.class_uid, className: r.class_name, time: r.time, recordedAt: r.recorded_at, sourceTool: r.source_tool,
     callId: r.call_id, verb: r.verb, coverage: r.coverage, observedDataRefs: r.observed_data_refs, entityRefs: r.entity_refs,
+    view: mapView(r.view),
   };
 }
 

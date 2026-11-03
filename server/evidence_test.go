@@ -56,6 +56,20 @@ func TestEvidence_PersistAndOpen(t *testing.T) {
 	if code != http.StatusOK || ev.Kind != "ocsf" || ev.ClassUID != 3002 || len(ev.Payload) == 0 {
 		t.Errorf("open ocsf ref = %d %+v; want a raw telemetry record", code, ev)
 	}
+	// The opened event carries its rendering (adr/0090), with the entities
+	// bound to the record's refs.
+	if ev.View == nil || ev.View.Category != "auth" || len(ev.View.Sentence) == 0 {
+		t.Fatalf("open ocsf ref: view = %+v; want the authentication sentence", ev.View)
+	}
+	entityBound := false
+	for _, tok := range ev.View.Sentence {
+		if tok.T == "entity" && tok.Ref != "" {
+			entityBound = true
+		}
+	}
+	if !entityBound {
+		t.Errorf("no entity in the opened event's sentence: %+v", ev.View.Sentence)
+	}
 	code, ev = open(out.ObservedDataRefs[0])
 	if code != http.StatusOK || ev.Kind != "stix" || ev.Type != "observed-data" {
 		t.Errorf("open observed-data ref = %d %+v", code, ev)

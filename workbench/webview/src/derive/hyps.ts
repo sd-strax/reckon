@@ -26,12 +26,12 @@ export function nameOf(id: string, all: Hypothesis[]): string {
   return r ? hypName(r, all) : id;
 }
 
-/** The short title: the statement up to its first clause boundary, clipped. */
-export function shortTitle(p: Pick<Prediction, "statement">): string {
-  const s = p.statement.trim();
-  const cut = s.search(/[,;:—–]| — | - /);
-  const head = cut > 24 ? s.slice(0, cut) : s;
-  return head.length > 72 ? head.slice(0, 71) + "…" : head;
+/** The short title the record holds (adr/0090): authored by whoever recorded
+ * the prediction, or derived once by the engine at record time. Never made
+ * here: a surface shows the stored title, and the statement when a record
+ * predates titles. */
+export function titleOf(p: Pick<Prediction, "statement" | "title">): string {
+  return p.title || p.statement;
 }
 
 /** A hypothesis in words for a reading surface (#138): its handle when it has
@@ -45,8 +45,8 @@ export function hypWords(h: Hypothesis, all: Hypothesis[]): string {
 }
 
 /** A prediction in words for a reading surface (#138): what it claims. */
-export function predWords(p: Pick<Prediction, "statement">): string {
-  return "“" + shortTitle(p) + "”";
+export function predWords(p: Pick<Prediction, "statement" | "title">): string {
+  return "“" + titleOf(p) + "”";
 }
 
 /** A prediction's short name (adr/0047): its ordinal from the server view. */

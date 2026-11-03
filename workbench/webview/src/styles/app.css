@@ -554,6 +554,10 @@ body.loading #rail { opacity: 0.6; }
 .ttime { color: var(--text-2); font-size: var(--fs-xs); }
 .tcat { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-3); }
 .tcat.auth { color: var(--ent-account); } .tcat.process { color: var(--ent-process); } .tcat.network { color: var(--ent-ip); } .tcat.detection { color: var(--ent-alert); }
+/* an event's sentence (adr/0090): prose with its entities as inline chips */
+.sentence { line-height: 1.55; }
+.sentence .refchip.inline { margin: 0 1px; padding: 0 5px; vertical-align: baseline; }
+.isentence { margin: 2px 0 8px; font-size: var(--fs-sm); line-height: 1.55; }
 .tciting { display: inline-flex; gap: 4px; }
 .pcite { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700; color: var(--he-primary-soft); cursor: pointer; }
 .pcite.ok { color: var(--ok); } .pcite.bad { color: var(--bad); }

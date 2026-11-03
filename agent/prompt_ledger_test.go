@@ -22,8 +22,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "60c97621c2a99ed46e6ccca6466eb74ebde02b1263322ca00575b420ef6767bd",
-		framingLeadingOnly: "bc5bd82cd00e1ca6fa933cbefc20b7e4e92899558a2518c5476612cc4053b1f3",
+		framingLeadingNull: "01082a32093975c9682e9647a946e14966b1971378eab5cd7345bbfccdd75ff2",
+		framingLeadingOnly: "548d0af496ed626a5df347e1a4fd9535ea82fb86dc0e30098d14305f22e7c009",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -76,7 +76,7 @@ var componentGolden = map[string]string{
 	"tools/recall_similar_investigations":              "013a01bbff06558a7d972be60d2e93248f23e54e71e1f5ce87196e800d45d711",
 	"tools/prior_investigations":                       "433c5d17cb369e9f19d36a54571b007c5230278d076c129006b037d61341f49e",
 	"tools/propose_hypothesis":                         "7e8b3212c19b856139929b44c97ebea7eef78588a613b189a26ff9eb0828baf9",
-	"tools/record_prediction":                          "3a3b4716d096394849aed789099f207be5ebf9a4ca936e8a565eb199c11b319f",
+	"tools/record_prediction":                          "de9fe394674042ace225eb4ef59c1fed2b9b92f2de865b06d69430d7a95ad73c",
 	"tools/evaluate_hypothesis":                        "9ea21732ba5c7000c7940a635f7871c066a9fb687da5b2b751f00f5f74e1da97",
 	"tools/record_prediction_outcome":                  "146ac06325ffa4fb1805a7cdf3844ca15968be16c3947518cce7e4e1d7e8ed52",
 	"tools/request_action":                             "117932bb6e2e9b1eeb5b1974a37f1a5b0a2d3278adca0efc57d6f38c7e70c02e",

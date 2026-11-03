@@ -176,6 +176,8 @@ export class InvestigationsClient {
       predictions: (h.predictions ?? []).map((p) => ({
         id: p.id,
         statement: p.statement,
+        title: p.title,
+        titleDerived: p.title_derived || undefined,
         status: p.status,
         ordinal: p.ordinal || undefined,
         testQuery: p.test_query
@@ -349,6 +351,7 @@ export class InvestigationsClient {
     statement: string,
     discriminates: string[],
     testKind?: string,
+    title?: string,
   ): Promise<void> {
     await this.http.post("/api/interpretations", {
       investigation_ref: investigationId,
@@ -356,6 +359,7 @@ export class InvestigationsClient {
       prediction: {
         hypothesis_ref: hypothesisRef,
         statement,
+        ...(title ? { title } : {}),
         ...(discriminates.length ? { discriminates } : {}),
         ...(testKind === "manual" ? { test_kind: "manual" } : {}),
       },

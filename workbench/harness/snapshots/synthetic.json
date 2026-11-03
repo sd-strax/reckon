@@ -38,6 +38,8 @@
             "id": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
             "ordinal": 1,
             "statement": "user-a's 30-day logon history shows no prior interactive logons to host-a.",
+            "title": "user-a's 30-day logon history shows no prior interactive logons…",
+            "titleDerived": true,
             "status": "CONFIRMED",
             "discriminates": [
               "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
@@ -54,6 +56,8 @@
             "id": "x-prediction--bbbb2222-0000-4000-8000-000000000002",
             "ordinal": 2,
             "statement": "The account owner did not start the session.",
+            "title": "The account owner did not start the session",
+            "titleDerived": true,
             "status": "CONFIRMED",
             "discriminates": [
               "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
@@ -75,6 +79,8 @@
             "id": "x-prediction--bbbb2222-0000-4000-8000-000000000003",
             "ordinal": 3,
             "statement": "No scheduled job on host-a accounts for the session.",
+            "title": "No scheduled job on host-a accounts for the session",
+            "titleDerived": true,
             "status": "UNTESTED",
             "discriminates": [
               "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
@@ -97,6 +103,8 @@
             "id": "x-prediction--bbbb2222-0000-4000-8000-000000000004",
             "ordinal": 4,
             "statement": "A change ticket covers maintenance on host-a in the window.",
+            "title": "A change ticket covers maintenance on host-a in the window",
+            "titleDerived": true,
             "status": "UNTESTED",
             "discriminates": [
               "x-hypothesis--aaaa1111-0000-4000-8000-000000000001"
@@ -737,6 +745,51 @@
         },
         "logon_type": "interactive",
         "status": "Success"
+      },
+      "view": {
+        "sentence": [
+          {
+            "t": "text",
+            "text": "user-a interactive logon to "
+          },
+          {
+            "t": "entity",
+            "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+            "text": "host-a"
+          },
+          {
+            "t": "text",
+            "text": " from 10.0.0.9"
+          }
+        ],
+        "fields": [
+          {
+            "label": "User",
+            "value": "user-a",
+            "mono": true
+          },
+          {
+            "label": "Logon type",
+            "value": "interactive"
+          },
+          {
+            "label": "Source",
+            "value": "10.0.0.9",
+            "mono": true
+          },
+          {
+            "label": "Destination",
+            "value": "host-a",
+            "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+            "mono": true
+          },
+          {
+            "label": "Result",
+            "value": "Success",
+            "tone": "ok"
+          }
+        ],
+        "category": "auth"
       }
     },
     "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06": {

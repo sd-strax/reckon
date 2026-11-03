@@ -156,6 +156,31 @@ export interface Appearance {
 }
 
 /** One opened citation (mirrors server.EvidenceView). */
+/** One piece of an event's sentence (adr/0090): text, or an entity the chip opens. */
+export interface SentenceToken {
+  t: "entity" | "text";
+  ref?: string;
+  text: string;
+}
+
+/** One curated field of an event (adr/0090). */
+export interface EventField {
+  label: string;
+  value: string;
+  ref?: string;
+  mono?: boolean;
+  tone?: "ok" | "warn" | "bad";
+}
+
+/** An event rendered for reading (mirrors ocsfview.View, adr/0090): the
+ * sentence with its entities, the curated fields, the category word. The
+ * sentence is absent for a class without a template. */
+export interface EventView {
+  sentence?: SentenceToken[];
+  fields: EventField[];
+  category: string;
+}
+
 export interface EvidenceDoc {
   ref: string;
   kind: string; // "stix" | "ocsf"
@@ -165,6 +190,8 @@ export interface EvidenceDoc {
   time?: string;
   recordedAt?: string;
   sourceTool?: string;
+  /** On an OCSF event: its rendering (adr/0090). */
+  view?: EventView;
   /** On an `indicator--` ref: its sightings, vendor identity and recursed evidence (08 §8.6.1). */
   related?: { sightings: EvidenceDoc[]; identity: EvidenceDoc | null; evidence: EvidenceDoc[] };
 }
@@ -259,6 +286,10 @@ export interface TestQuery {
 export interface Prediction {
   id: string;
   statement: string;
+  /** The short name the record holds (adr/0090): authored, or derived once at record time. */
+  title: string;
+  /** The engine derived the title from the statement because none was authored. */
+  titleDerived?: boolean;
   status: string;
   /** P<n>: the server view's ordinal in record order across the investigation (adr/0047); the name the agent uses too. */
   ordinal?: number;
@@ -403,6 +434,8 @@ export interface EventRow {
   coverage: string;
   observedDataRefs: string[];
   entityRefs: string[];
+  /** The event's rendering (adr/0090). */
+  view: EventView;
 }
 
 /** What one binding did on a call (mirrors server.BindingOutcomeView): the

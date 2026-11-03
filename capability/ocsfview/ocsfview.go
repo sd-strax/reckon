@@ -1,0 +1,1193 @@
+// Package ocsfview renders an OCSF event for a reading surface: one sentence
+// with the entities as typed slots, a curated field list, and the category word
+// (implementation/workbench-react.md §8.1, adr/0090). The Story timeline, the
+// Evidence inspector and the export all read the same view, so an event reads
+// the same everywhere and the display knowledge for a class lives in one
+// place.
+//
+// Pure functions, no I/O. The entity refs come from the record, never from a
+// read-time identity computation: the caller passes the objects the event was
+// normalized into, and each sentence slot binds to the object of its type whose
+// properties carry the value the payload shows. An event ingested under a
+// source scope keeps the ids its scope minted.
+package ocsfview
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/sd-strax/reckon/identity"
+)
+
+// Event is what the renderer reads: the class and the raw OCSF payload.
+type Event struct {
+	ClassUID  int
+	ClassName string
+	Payload   map[string]any
+}
+
+// Entity is one interpretation-layer object the event was normalized into, as
+// the record holds it: its ref, its STIX type and its properties.
+type Entity struct {
+	Ref   string
+	Type  string
+	Props map[string]any
+}
+
+// EntityFromObject reads a persisted STIX object into an Entity. The object's
+// properties sit under "properties" (capability.SCO); an object without that
+// key is read as flat.
+func EntityFromObject(ref, typ string, payload []byte) Entity {
+	e := Entity{Ref: ref, Type: typ}
+	var raw map[string]any
+	if json.Unmarshal(payload, &raw) != nil {
+		return e
+	}
+	if props, ok := raw["properties"].(map[string]any); ok {
+		e.Props = props
+	} else {
+		e.Props = raw
+	}
+	return e
+}
+
+// Token is one piece of the sentence: text, or an entity the client renders as
+// a chip. An entity the record did not mint renders as text (no ref).
+type Token struct {
+	T    string `json:"t"` // "entity" | "text"
+	Ref  string `json:"ref,omitempty"`
+	Text string `json:"text"`
+}
+
+// Field is one curated field: a label, the value as shown, the entity ref when
+// the value names one, whether it is monospaced, and a tone for an outcome
+// (ok | warn | bad).
+type Field struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Ref   string `json:"ref,omitempty"`
+	Mono  bool   `json:"mono,omitempty"`
+	Tone  string `json:"tone,omitempty"`
+}
+
+// View is the rendering of one event. Sentence is absent for a class without a
+// template; Fields is never nil. The decoded command line of §8.1 is a later
+// addition and has no slot here yet.
+type View struct {
+	Sentence []Token `json:"sentence,omitempty"`
+	Fields   []Field `json:"fields"`
+	Category string  `json:"category"`
+}
+
+// Category words, from category_uid (the thousands digit of class_uid) with the
+// case class named apart: the Story filters and the inspector read them.
+const (
+	CategoryProcess   = "process"
+	CategoryDetection = "detection"
+	CategoryAuth      = "auth"
+	CategoryNetwork   = "network"
+	CategoryAsset     = "asset"
+	CategoryCase      = "case"
+	CategoryOther     = "other"
+)
+
+// Category names an event's category.
+func Category(classUID int, payload map[string]any) string {
+	if classUID == classCase {
+		return CategoryCase
+	}
+	cat := toInt(payload["category_uid"])
+	if cat == 0 {
+		cat = classUID / 1000
+	}
+	switch cat {
+	case 1:
+		return CategoryProcess
+	case 2:
+		return CategoryDetection
+	case 3:
+		return CategoryAuth
+	case 4:
+		return CategoryNetwork
+	case 5:
+		return CategoryAsset
+	default:
+		return CategoryOther
+	}
+}
+
+// The classes with a template: every class a normalizer handles (03 §4.1–§4.12)
+// and device inventory.
+const (
+	classFileActivity    = 1001
+	classRegistryKey     = 1003
+	classScheduledJob    = 1006
+	classProcess         = 1007
+	classModule          = 1009
+	classDetection       = 2004
+	classCase            = 2005
+	classAuthentication  = 3002
+	classAccountChange   = 3005
+	classNetwork         = 4001
+	classDNS             = 4003
+	classEmail           = 4009
+	classEmailURL        = 4011
+	classDeviceInventory = 5001
+)
+
+// Classes lists the class_uids with a sentence template, sorted.
+func Classes() []int {
+	return []int{
+		classFileActivity, classRegistryKey, classScheduledJob, classProcess, classModule,
+		classDetection, classCase, classAuthentication, classAccountChange,
+		classNetwork, classDNS, classEmail, classEmailURL, classDeviceInventory,
+	}
+}
+
+// Render renders one event with the entities the record derived from it.
+func Render(e Event, entities []Entity) View {
+	r := &renderer{p: e.Payload, ents: entities}
+	if r.p == nil {
+		r.p = map[string]any{}
+	}
+	switch e.ClassUID {
+	case classAuthentication:
+		r.authentication()
+	case classProcess:
+		r.process()
+	case classNetwork:
+		r.network()
+	case classDNS:
+		r.dns()
+	case classFileActivity:
+		r.fileActivity()
+	case classRegistryKey:
+		r.registryKey()
+	case classScheduledJob:
+		r.scheduledJob()
+	case classModule:
+		r.module()
+	case classAccountChange:
+		r.accountChange()
+	case classEmail:
+		r.email()
+	case classEmailURL:
+		r.emailURL()
+	case classDetection:
+		r.detection()
+	case classCase:
+		r.caseFinding()
+	case classDeviceInventory:
+		r.deviceInventory()
+	default:
+		r.scalars()
+	}
+	if r.fields == nil {
+		r.fields = []Field{}
+	}
+	return View{Sentence: r.sentence, Fields: r.fields, Category: Category(e.ClassUID, e.Payload)}
+}
+
+// renderer accumulates one view. The sentence helpers add nothing for an
+// empty value, so a template reads as a sequence of optional clauses.
+type renderer struct {
+	p        map[string]any
+	ents     []Entity
+	sentence []Token
+	fields   []Field
+}
+
+// slot is a sentence slot: what the payload shows, and the record's ref when
+// the record minted the entity.
+type slot struct {
+	text string
+	ref  string
+}
+
+func (s slot) empty() bool { return s.text == "" }
+
+func (r *renderer) text(s string) {
+	if s == "" {
+		return
+	}
+	if n := len(r.sentence); n > 0 && r.sentence[n-1].T == "text" {
+		r.sentence[n-1].Text += s
+		return
+	}
+	r.sentence = append(r.sentence, Token{T: "text", Text: s})
+}
+
+func (r *renderer) entity(s slot) {
+	if s.empty() {
+		return
+	}
+	if s.ref == "" {
+		r.text(s.text)
+		return
+	}
+	r.sentence = append(r.sentence, Token{T: "entity", Ref: s.ref, Text: s.text})
+}
+
+// clause adds lead + the slot when the slot has a value.
+func (r *renderer) clause(lead string, s slot) {
+	if s.empty() {
+		return
+	}
+	r.text(lead)
+	r.entity(s)
+}
+
+func (r *renderer) field(label, value string) *Field {
+	if value == "" {
+		return &Field{}
+	}
+	r.fields = append(r.fields, Field{Label: label, Value: value})
+	return &r.fields[len(r.fields)-1]
+}
+
+func (r *renderer) mono(label, value string) *Field {
+	f := r.field(label, value)
+	f.Mono = true
+	return f
+}
+
+func (r *renderer) entityField(label string, s slot) *Field {
+	f := r.mono(label, s.text)
+	f.Ref = s.ref
+	return f
+}
+
+// --- payload access ------------------------------------------------------------------
+
+func (r *renderer) str(path string) string { return pathStr(r.p, path) }
+func (r *renderer) int(path string) int    { return toInt(pathAny(r.p, path)) }
+
+// --- entity binding -------------------------------------------------------------------
+
+// bind returns the ref of the entity of typ whose properties satisfy match, or
+// "" when the record holds none. A slot never binds by type alone: two users
+// on an account change, two addresses on a connection.
+func (r *renderer) bind(typ string, match func(props map[string]any) bool) string {
+	for _, e := range r.ents {
+		if e.Type == typ && match(e.Props) {
+			return e.Ref
+		}
+	}
+	return ""
+}
+
+func propEquals(props map[string]any, key, want string) bool {
+	return want != "" && strings.EqualFold(toString(props[key]), want)
+}
+
+// host binds an OCSF endpoint/device object at prefix to its x-host.
+func (r *renderer) host(prefix string) slot {
+	name := r.str(prefix + ".hostname")
+	if name == "" {
+		return slot{}
+	}
+	return slot{text: name, ref: r.bind(identity.TypeHost, func(p map[string]any) bool { return propEquals(p, "hostname", name) })}
+}
+
+// user binds an OCSF user object at prefix to its user-account. The record's
+// login is shaped (03 §7.4: "domain\user", the address, or the bare name), so
+// the match accepts the shaped forms of the payload's name.
+func (r *renderer) user(prefix string) slot {
+	name := r.str(prefix + ".name")
+	if name == "" {
+		return slot{}
+	}
+	domain := r.str(prefix + ".domain")
+	ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool {
+		login := toString(p["account_login"])
+		return strings.EqualFold(login, name) ||
+			(domain != "" && strings.EqualFold(login, domain+`\`+name)) ||
+			strings.HasSuffix(strings.ToLower(login), `\`+strings.ToLower(name))
+	})
+	return slot{text: name, ref: ref}
+}
+
+func (r *renderer) qualifiedUser(prefix string) string {
+	name := r.str(prefix + ".name")
+	if d := r.str(prefix + ".domain"); d != "" && name != "" {
+		return d + `\` + name
+	}
+	return name
+}
+
+func (r *renderer) ip(path string) slot {
+	v := r.str(path)
+	if v == "" {
+		return slot{}
+	}
+	match := func(p map[string]any) bool { return propEquals(p, "value", v) }
+	ref := r.bind(identity.TypeIPv4Addr, match)
+	if ref == "" {
+		ref = r.bind(identity.TypeIPv6Addr, match)
+	}
+	return slot{text: v, ref: ref}
+}
+
+func (r *renderer) domain(v string) slot {
+	if v == "" {
+		return slot{}
+	}
+	return slot{text: v, ref: r.bind(identity.TypeDomainName, func(p map[string]any) bool { return propEquals(p, "value", v) })}
+}
+
+func (r *renderer) url(v string) slot {
+	if v == "" {
+		return slot{}
+	}
+	return slot{text: v, ref: r.bind(identity.TypeURL, func(p map[string]any) bool { return propEquals(p, "value", v) })}
+}
+
+func (r *renderer) emailAddr(v string) slot {
+	if v == "" {
+		return slot{}
+	}
+	return slot{text: v, ref: r.bind(identity.TypeEmailAddr, func(p map[string]any) bool { return propEquals(p, "value", v) })}
+}
+
+// file binds an OCSF file object at prefix to its file by name, hash or path.
+func (r *renderer) file(prefix string) slot {
+	name := r.str(prefix + ".name")
+	path := r.str(prefix + ".path")
+	text := name
+	if text == "" {
+		text = baseName(path)
+	}
+	if text == "" {
+		return slot{}
+	}
+	hashes := hashesOf(pathAny(r.p, prefix+".hashes"))
+	ref := r.bind(identity.TypeFile, func(p map[string]any) bool {
+		if name != "" && propEquals(p, "name", name) {
+			return true
+		}
+		for alg, want := range hashes {
+			if got, ok := p["hashes"].(map[string]any); ok && strings.EqualFold(toString(got[alg]), want) {
+				return true
+			}
+		}
+		return false
+	})
+	return slot{text: text, ref: ref}
+}
+
+// proc binds an OCSF process object at prefix to its process by pid.
+func (r *renderer) proc(prefix string) slot {
+	name := r.str(prefix + ".name")
+	pid := r.int(prefix + ".pid")
+	if name == "" && pid == 0 {
+		return slot{}
+	}
+	text := name
+	if text == "" {
+		text = "pid " + strconv.Itoa(pid)
+	}
+	ref := r.bind(identity.TypeProcess, func(p map[string]any) bool {
+		return pid != 0 && toInt(p["pid"]) == pid && (name == "" || propEquals(p, "name", name))
+	})
+	return slot{text: text, ref: ref}
+}
+
+// --- templates ------------------------------------------------------------------------
+
+// activity returns the OCSF activity as a verb phrase from the class's table,
+// or fallback when the payload names none the table knows.
+func (r *renderer) activity(table map[string]string, fallback string) string {
+	name := r.str("activity_name")
+	if v, ok := table[strings.ToLower(name)]; ok {
+		return v
+	}
+	if name != "" && name != "Other" && name != "Unknown" {
+		return strings.ToLower(name)
+	}
+	return fallback
+}
+
+func (r *renderer) activityField() {
+	r.field("Activity", r.str("activity_name"))
+}
+
+func (r *renderer) hashField(prefix string) {
+	hashes := hashesOf(pathAny(r.p, prefix+".hashes"))
+	for _, alg := range []string{"SHA-256", "SHA-1", "MD5"} {
+		if v := hashes[alg]; v != "" {
+			r.mono(alg, v)
+			return
+		}
+	}
+}
+
+var logonWords = map[string]string{
+	"interactive":       "interactive",
+	"network":           "network",
+	"batch":             "batch",
+	"service":           "service",
+	"unlock":            "unlock",
+	"networkcleartext":  "network cleartext",
+	"newcredentials":    "new-credentials",
+	"remoteinteractive": "RDP",
+	"cachedinteractive": "cached interactive",
+	"system":            "system",
+}
+
+func (r *renderer) authentication() {
+	user := r.user("actor.user")
+	host := r.host("dst_endpoint")
+	src := r.ip("src_endpoint.ip")
+	logon := r.str("logon_type")
+	word := logonWords[strings.ToLower(logon)]
+	if word == "" {
+		word = strings.ToLower(logon)
+	}
+	status := r.str("status")
+	failed := statusTone(status) == "bad"
+
+	if user.empty() {
+		r.text("Logon")
+	} else {
+		r.entity(user)
+		if word != "" {
+			r.text(" " + word)
+		}
+		r.text(" logon")
+	}
+	if user.empty() && word != "" {
+		r.text(" (" + word + ")")
+	}
+	r.clause(" to ", host)
+	r.clause(" from ", src)
+	if failed {
+		r.text(" failed")
+	}
+
+	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
+	r.field("Logon type", logon)
+	r.entityField("Source", src)
+	r.entityField("Destination", host)
+	r.field("Result", status).Tone = statusTone(status)
+	r.field("Detail", r.str("status_detail"))
+	r.field("Protocol", r.str("auth_protocol"))
+}
+
+var processVerbs = map[string]string{
+	"launch": "launched", "terminate": "terminated", "open": "opened", "inject": "injected into", "set user id": "set the user id of",
+}
+
+func (r *renderer) process() {
+	user := r.user("actor.user")
+	host := r.host("device")
+	proc := r.proc("process")
+	parent := r.proc("process.parent_process")
+	verb := r.activity(processVerbs, "ran")
+
+	switch {
+	case user.empty() && proc.empty():
+		r.text("Process activity")
+	case user.empty():
+		r.entity(proc)
+		r.text(" " + pastToPassive(verb))
+	default:
+		r.entity(user)
+		r.text(" " + verb + " ")
+		r.entity(proc)
+	}
+	r.clause(" on ", host)
+	r.clause(", child of ", parent)
+
+	r.entityField("Process", proc)
+	if pid := r.int("process.pid"); pid != 0 {
+		r.mono("PID", strconv.Itoa(pid))
+	}
+	r.mono("Command line", r.str("process.cmd_line"))
+	if !parent.empty() {
+		text := parent.text
+		if ppid := r.int("process.parent_process.pid"); ppid != 0 && r.str("process.parent_process.name") != "" {
+			text += " (pid " + strconv.Itoa(ppid) + ")"
+		}
+		r.entityField("Parent", slot{text: text, ref: parent.ref})
+	}
+	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
+	r.entityField("Host", host)
+	r.entityField("Image", slot{text: r.str("process.file.path"), ref: r.file("process.file").ref})
+	r.hashField("process.file")
+}
+
+func (r *renderer) network() {
+	host := r.host("device")
+	src := r.ip("src_endpoint.ip")
+	dst := r.ip("dst_endpoint.ip")
+	domain := r.domain(r.str("dst_endpoint.domain"))
+	proto := r.str("connection_info.protocol_name")
+	proc := r.proc("process")
+	dport := r.int("dst_endpoint.port")
+
+	switch {
+	case !host.empty():
+		r.entity(host)
+		r.text(" connected")
+	case !src.empty():
+		r.entity(src)
+		r.text(" connected")
+	default:
+		r.text("Connection")
+	}
+	r.clause(" to ", dst)
+	if dst.empty() {
+		r.clause(" to ", domain)
+	}
+	if dport != 0 && (!dst.empty() || !domain.empty()) {
+		r.text(" port " + strconv.Itoa(dport))
+	}
+	if !dst.empty() && !domain.empty() {
+		r.text(" (")
+		r.entity(domain)
+		r.text(")")
+	}
+	if proto != "" {
+		r.text(" over " + strings.ToLower(proto))
+	}
+	if !host.empty() {
+		r.clause(" from ", src)
+	}
+
+	r.entityField("Source", slot{text: endpoint(src.text, r.int("src_endpoint.port")), ref: src.ref})
+	r.entityField("Destination", slot{text: endpoint(dst.text, dport), ref: dst.ref})
+	r.entityField("Domain", domain)
+	r.field("Protocol", proto)
+	r.field("Direction", r.str("connection_info.direction"))
+	r.entityField("Host", host)
+	r.entityField("Process", proc)
+	if b := r.int("traffic.bytes"); b != 0 {
+		r.mono("Bytes", strconv.Itoa(b))
+	}
+	r.activityField()
+}
+
+func (r *renderer) dns() {
+	host := r.host("device")
+	src := r.ip("src_endpoint.ip")
+	query := r.domain(r.str("query.hostname"))
+	answers := r.dnsAnswers()
+
+	switch {
+	case !host.empty():
+		r.entity(host)
+		r.text(" queried ")
+	case !src.empty():
+		r.entity(src)
+		r.text(" queried ")
+	default:
+		r.text("DNS query for ")
+	}
+	r.entity(query)
+	if len(answers) > 0 {
+		r.text(" → ")
+		for i, a := range answers {
+			if i == 3 {
+				r.text(fmt.Sprintf(" +%d more", len(answers)-3))
+				break
+			}
+			if i > 0 {
+				r.text(", ")
+			}
+			r.entity(a)
+		}
+	}
+
+	r.entityField("Query", query)
+	r.field("Type", r.str("query.type"))
+	if len(answers) > 0 {
+		texts := make([]string, 0, len(answers))
+		for _, a := range answers {
+			texts = append(texts, a.text)
+		}
+		r.mono("Answers", strings.Join(texts, ", "))
+	}
+	r.field("Response", r.str("rcode"))
+	r.entityField("Requestor", src)
+	r.entityField("Host", host)
+}
+
+// dnsAnswers reads answers[].rdata as address or domain slots.
+func (r *renderer) dnsAnswers() []slot {
+	var out []slot
+	for _, a := range pathList(r.p, "answers") {
+		m, _ := a.(map[string]any)
+		rdata := toString(m["rdata"])
+		if rdata == "" {
+			continue
+		}
+		s := slot{text: rdata}
+		s.ref = r.bind(identity.TypeIPv4Addr, func(p map[string]any) bool { return propEquals(p, "value", rdata) })
+		if s.ref == "" {
+			s.ref = r.bind(identity.TypeIPv6Addr, func(p map[string]any) bool { return propEquals(p, "value", rdata) })
+		}
+		if s.ref == "" {
+			s.ref = r.domain(rdata).ref
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+var fileVerbs = map[string]string{
+	"create": "created", "read": "read", "update": "modified", "delete": "deleted", "rename": "renamed",
+	"set attributes": "set attributes on", "get attributes": "read attributes of", "set security": "set security on",
+	"get security": "read security of", "encrypt": "encrypted", "decrypt": "decrypted", "mount": "mounted",
+	"unmount": "unmounted", "open": "opened",
+}
+
+func (r *renderer) fileActivity() {
+	user := r.user("actor.user")
+	host := r.host("device")
+	file := r.file("file")
+	proc := r.proc("actor.process")
+	verb := r.activity(fileVerbs, "accessed")
+
+	switch {
+	case !user.empty():
+		r.entity(user)
+		r.text(" " + verb + " ")
+		r.entity(file)
+	case !proc.empty():
+		r.entity(proc)
+		r.text(" " + verb + " ")
+		r.entity(file)
+	case file.empty():
+		r.text("File activity")
+	default:
+		r.entity(file)
+		r.text(" " + pastToPassive(verb))
+	}
+	r.clause(" on ", host)
+	if !user.empty() {
+		r.clause(" via ", proc)
+	}
+
+	r.entityField("File", slot{text: firstNonEmpty(r.str("file.path"), file.text), ref: file.ref})
+	r.activityField()
+	r.entityField("Process", proc)
+	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
+	r.entityField("Host", host)
+	r.hashField("file")
+	if size := r.int("file.size"); size != 0 {
+		r.mono("Size", strconv.Itoa(size)+" bytes")
+	}
+}
+
+var registryVerbs = map[string]string{
+	"create": "created", "read": "read", "modify": "modified", "delete": "deleted", "rename": "renamed",
+	"set security": "set security on", "restore": "restored", "import": "imported", "export": "exported",
+}
+
+func (r *renderer) registryKey() {
+	host := r.host("device")
+	proc := r.proc("actor.process")
+	user := r.user("actor.user")
+	hive, keyPath := r.str("reg_key.hive"), r.str("reg_key.path")
+	keyText := strings.Trim(hive+`\`+keyPath, `\`)
+	key := slot{text: keyText, ref: r.bind(identity.TypeRegistryKey, func(p map[string]any) bool {
+		return propEquals(p, "key_path", keyPath) && strings.EqualFold(toString(p["hive"]), hive)
+	})}
+	verb := r.activity(registryVerbs, "changed")
+
+	switch {
+	case !proc.empty():
+		r.entity(proc)
+		r.text(" " + verb + " ")
+		r.entity(key)
+	case !user.empty():
+		r.entity(user)
+		r.text(" " + verb + " ")
+		r.entity(key)
+	default:
+		r.entity(key)
+		r.text(" " + pastToPassive(verb))
+	}
+	r.clause(" on ", host)
+
+	r.entityField("Key", key)
+	r.mono("Value", r.str("reg_value.name"))
+	r.mono("Data", r.str("reg_value.data"))
+	r.activityField()
+	r.entityField("Process", proc)
+	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
+	r.entityField("Host", host)
+}
+
+var jobVerbs = map[string]string{
+	"create": "created", "update": "updated", "delete": "deleted", "enable": "enabled", "disable": "disabled", "start": "started",
+}
+
+func (r *renderer) scheduledJob() {
+	host := r.host("device")
+	actor := r.user("actor.user")
+	runAs := r.user("job.user")
+	name, path := r.str("job.name"), r.str("job.path")
+	job := slot{text: firstNonEmpty(name, path), ref: r.bind(identity.TypeScheduledTask, func(p map[string]any) bool {
+		return (name != "" && propEquals(p, "name", name)) || (path != "" && propEquals(p, "path", path))
+	})}
+	verb := r.activity(jobVerbs, "changed")
+
+	if actor.empty() {
+		r.text("Scheduled job ")
+		r.entity(job)
+		r.text(" " + pastToPassive(verb))
+	} else {
+		r.entity(actor)
+		r.text(" " + verb + " scheduled job ")
+		r.entity(job)
+	}
+	r.clause(" on ", host)
+	r.clause(" running as ", runAs)
+
+	r.entityField("Job", job)
+	r.mono("Path", path)
+	r.mono("Command line", r.str("job.command_line"))
+	r.entityField("Runs as", slot{text: r.qualifiedUser("job.user"), ref: runAs.ref})
+	r.activityField()
+	r.entityField("Actor", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
+	r.entityField("Host", host)
+}
+
+func (r *renderer) module() {
+	host := r.host("device")
+	proc := r.proc("actor.process")
+	mod := r.file("module.file")
+
+	if proc.empty() {
+		r.text("Module ")
+		r.entity(mod)
+		r.text(" loaded")
+	} else {
+		r.entity(proc)
+		r.text(" loaded ")
+		r.entity(mod)
+	}
+	r.clause(" on ", host)
+
+	r.entityField("Module", slot{text: firstNonEmpty(r.str("module.file.path"), mod.text), ref: mod.ref})
+	r.entityField("Process", proc)
+	r.field("Load type", r.str("module.load_type"))
+	r.entityField("Host", host)
+	r.hashField("module.file")
+}
+
+var accountVerbs = map[string]string{
+	"create": "created", "enable": "enabled", "password change": "changed the password of", "password reset": "reset the password of",
+	"disable": "disabled", "delete": "deleted", "attach policy": "attached a policy to", "detach policy": "detached a policy from",
+	"lock": "locked", "unlock": "unlocked", "mfa factor enable": "enabled an MFA factor for", "mfa factor disable": "disabled an MFA factor for",
+}
+
+func (r *renderer) accountChange() {
+	target := r.user("user")
+	actor := r.user("actor.user")
+	host := r.host("device")
+	groupName := r.str("group.name")
+	group := slot{text: groupName, ref: r.bind(identity.TypeGroup, func(p map[string]any) bool { return propEquals(p, "name", groupName) })}
+	verb := r.activity(accountVerbs, "changed")
+
+	if actor.empty() {
+		r.text("Account ")
+		r.entity(target)
+		r.text(" " + pastToPassive(verb))
+	} else {
+		r.entity(actor)
+		r.text(" " + verb + " ")
+		r.entity(target)
+	}
+	r.clause(" in ", group)
+	r.clause(" on ", host)
+
+	r.entityField("Account", slot{text: r.qualifiedUser("user"), ref: target.ref})
+	r.entityField("By", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
+	r.activityField()
+	r.entityField("Group", group)
+	r.field("Privileges", r.str("privileges"))
+	r.entityField("Host", host)
+}
+
+func (r *renderer) email() {
+	from := r.emailAddr(r.str("email.from"))
+	to := r.emailAddrs("email.to")
+	subject := r.str("email.subject")
+
+	if from.empty() {
+		r.text("Email")
+	} else {
+		r.entity(from)
+		r.text(" sent")
+	}
+	if subject != "" {
+		r.text(" “" + subject + "”")
+	}
+	if len(to) > 0 {
+		r.text(" to ")
+		for i, a := range to {
+			if i == 2 {
+				r.text(fmt.Sprintf(" +%d more", len(to)-2))
+				break
+			}
+			if i > 0 {
+				r.text(", ")
+			}
+			r.entity(a)
+		}
+	}
+
+	r.entityField("From", from)
+	r.mono("To", joinSlots(to))
+	r.mono("Cc", joinSlots(r.emailAddrs("email.cc")))
+	r.field("Subject", subject)
+	r.mono("Message id", r.str("email.message_uid"))
+	r.activityField()
+	r.field("Disposition", r.str("disposition"))
+	if n := len(pathList(r.p, "email.files")); n > 0 {
+		r.field("Attachments", strconv.Itoa(n))
+	}
+	if n := len(pathList(r.p, "email.urls")); n > 0 {
+		r.field("Links", strconv.Itoa(n))
+	}
+}
+
+func (r *renderer) emailAddrs(path string) []slot {
+	var out []slot
+	for _, v := range pathList(r.p, path) {
+		if s := r.emailAddr(toString(v)); !s.empty() {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+var emailURLVerbs = map[string]string{"send": "sent", "receive": "received", "scan": "scanned"}
+
+func (r *renderer) emailURL() {
+	user := r.user("actor.user")
+	host := r.host("device")
+	link := r.url(r.str("url.url_string"))
+	verb := r.activity(emailURLVerbs, "opened")
+
+	if user.empty() {
+		r.text("Link ")
+		r.entity(link)
+		r.text(" " + pastToPassive(verb))
+	} else {
+		r.entity(user)
+		r.text(" " + verb + " ")
+		r.entity(link)
+	}
+	r.clause(" on ", host)
+
+	r.entityField("URL", link)
+	r.activityField()
+	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
+	r.entityField("Host", host)
+	r.mono("Message id", r.str("email.message_uid"))
+}
+
+func (r *renderer) detection() {
+	title := firstNonEmpty(r.str("finding.title"), r.str("finding_info.title"))
+	uid := firstNonEmpty(r.str("finding.uid"), r.str("finding_info.uid"))
+	vendor := firstNonEmpty(r.str("metadata.product.vendor_name"), r.str("metadata.product.name"))
+	severity := r.str("severity")
+	if severity == "" {
+		severity = r.str("finding.severity")
+	}
+	host := r.host("evidence.device")
+	if host.empty() {
+		host = r.host("device")
+	}
+	user := r.user("evidence.actor.user")
+
+	if vendor == "" {
+		r.text("Detected")
+	} else {
+		r.text(vendor + " detected")
+	}
+	if title != "" {
+		r.text(" “" + title + "”")
+	}
+	if severity != "" {
+		r.text(" (" + strings.ToLower(severity) + ")")
+	}
+	r.clause(" on ", host)
+
+	r.field("Finding", title)
+	r.field("Severity", severity).Tone = severityTone(severity)
+	r.field("Confidence", firstNonEmpty(r.str("confidence"), r.str("finding.confidence")))
+	r.mono("Techniques", strings.Join(stringList(pathList(r.p, "finding.types")), ", "))
+	r.field("Vendor", vendor)
+	r.mono("Finding id", uid)
+	r.field("Status", r.str("status"))
+	r.entityField("Host", host)
+	r.entityField("User", slot{text: r.qualifiedUser("evidence.actor.user"), ref: user.ref})
+}
+
+func (r *renderer) caseFinding() {
+	uid := r.str("finding_info.uid")
+	title := r.str("finding_info.title")
+	status, priority, group := r.str("status"), r.str("priority"), r.str("assignment_group")
+
+	r.text("Case")
+	if uid != "" {
+		r.text(" " + uid)
+	}
+	if title != "" {
+		r.text(" “" + title + "”")
+	}
+	if status != "" {
+		r.text(", " + status)
+	}
+	if priority != "" {
+		r.text(", priority " + priority)
+	}
+	if group != "" {
+		r.text(", assigned to " + group)
+	}
+
+	r.mono("Case", uid)
+	r.field("Title", title)
+	r.field("Status", status)
+	r.field("Priority", priority)
+	r.field("Assigned to", group)
+	r.field("System", firstNonEmpty(r.str("unmapped.sor"), r.str("metadata.product.vendor_name")))
+	r.mono("Link", r.str("unmapped.link"))
+}
+
+func (r *renderer) deviceInventory() {
+	host := r.host("device")
+	os := r.str("device.os.name")
+	owner := r.str("device.owner.name")
+	crit := r.str("device.criticality")
+
+	if host.empty() {
+		r.text("Device")
+	} else {
+		r.entity(host)
+	}
+	if os != "" {
+		r.text(" runs " + os)
+	}
+	if owner != "" {
+		r.text(", owned by " + owner)
+	}
+	if crit != "" {
+		r.text(", criticality " + strings.ToLower(crit))
+	}
+
+	r.entityField("Host", host)
+	r.field("OS", os)
+	r.entityField("IP", r.ip("device.ip"))
+	r.field("Owner", owner)
+	r.field("Criticality", crit).Tone = severityTone(crit)
+	r.field("Last seen", r.str("device.last_seen_time"))
+	var agents []string
+	for _, a := range pathList(r.p, "device.agent_list") {
+		m, _ := a.(map[string]any)
+		if n := toString(m["name"]); n != "" {
+			agents = append(agents, n)
+		}
+	}
+	r.field("Agents", strings.Join(agents, ", "))
+}
+
+// scalars is the view of a class without a template: the payload's top-level
+// scalars as fields, the class and clock keys left out, no sentence.
+func (r *renderer) scalars() {
+	skip := map[string]bool{"class_uid": true, "class_name": true, "category_uid": true, "category_name": true, "type_uid": true, "type_name": true, "time": true}
+	keys := make([]string, 0, len(r.p))
+	for k, v := range r.p {
+		if skip[k] {
+			continue
+		}
+		switch v.(type) {
+		case string, float64, bool, json.Number, int, int64:
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		r.field(k, toString(r.p[k]))
+	}
+}
+
+// --- small helpers --------------------------------------------------------------------
+
+func statusTone(status string) string {
+	switch strings.ToLower(status) {
+	case "success", "succeeded", "allowed", "delivered":
+		return "ok"
+	case "failure", "failed", "denied", "blocked":
+		return "bad"
+	}
+	return ""
+}
+
+func severityTone(s string) string {
+	switch strings.ToLower(s) {
+	case "critical", "high", "fatal":
+		return "bad"
+	case "medium":
+		return "warn"
+	}
+	return ""
+}
+
+// pastToPassive turns an active verb phrase into its passive for a sentence
+// without an actor: "created" → "was created", "set security on" → "had its
+// security set".
+func pastToPassive(verb string) string {
+	first, _, _ := strings.Cut(verb, " ")
+	switch verb {
+	case "read":
+		return "was read"
+	case "set attributes on", "set security on":
+		return "had its " + strings.Fields(verb)[1] + " set"
+	case "read attributes of", "read security of":
+		return "had its " + strings.Fields(verb)[1] + " read"
+	case "injected into":
+		return "was injected into"
+	}
+	if strings.HasSuffix(first, "ed") || first == "read" {
+		return "was " + first
+	}
+	return "was " + verb
+}
+
+func endpoint(ip string, port int) string {
+	if ip == "" {
+		return ""
+	}
+	if port == 0 {
+		return ip
+	}
+	return ip + ":" + strconv.Itoa(port)
+}
+
+func joinSlots(ss []slot) string {
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		out = append(out, s.text)
+	}
+	return strings.Join(out, ", ")
+}
+
+func baseName(path string) string {
+	if path == "" {
+		return ""
+	}
+	i := strings.LastIndexAny(path, `\/`)
+	return path[i+1:]
+}
+
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func stringList(vs []any) []string {
+	out := make([]string, 0, len(vs))
+	for _, v := range vs {
+		if s := toString(v); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func hashesOf(v any) map[string]string {
+	out := map[string]string{}
+	switch hv := v.(type) {
+	case map[string]any:
+		for k, val := range hv {
+			if s := toString(val); s != "" {
+				out[k] = s
+			}
+		}
+	case []any:
+		// OCSF 1.x fingerprint list: [{algorithm, value}].
+		for _, item := range hv {
+			m, _ := item.(map[string]any)
+			if alg, val := toString(m["algorithm"]), toString(m["value"]); alg != "" && val != "" {
+				out[alg] = val
+			}
+		}
+	}
+	return out
+}
+
+// pathAny walks a dotted path through nested maps.
+func pathAny(m map[string]any, path string) any {
+	var cur any = m
+	for _, seg := range strings.Split(path, ".") {
+		mm, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+		cur, ok = mm[seg]
+		if !ok {
+			return nil
+		}
+	}
+	return cur
+}
+
+func pathStr(m map[string]any, path string) string { return toString(pathAny(m, path)) }
+
+func pathList(m map[string]any, path string) []any {
+	l, _ := pathAny(m, path).([]any)
+	return l
+}
+
+func toString(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case float64:
+		if x == float64(int64(x)) {
+			return strconv.FormatInt(int64(x), 10)
+		}
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(x)
+	case json.Number:
+		return x.String()
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	}
+	return ""
+}
+
+func toInt(v any) int {
+	switch x := v.(type) {
+	case float64:
+		return int(x)
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case json.Number:
+		n, _ := x.Int64()
+		return int(n)
+	case string:
+		n, _ := strconv.Atoi(x)
+		return n
+	}
+	return 0
+}

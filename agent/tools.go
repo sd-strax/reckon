@@ -212,6 +212,7 @@ type proposeHypothesisInput struct {
 type recordPredictionInput struct {
 	HypothesisRef string   `json:"hypothesis_ref" required:"true" desc:"the x-hypothesis id that predicts this WILL be observed (the owner)"`
 	Statement     string   `json:"statement" required:"true" desc:"what should be observable if the hypothesis holds"`
+	Title         string   `json:"title" desc:"a short name for the prediction: a noun phrase of at most 64 characters, no trailing period, optional — the record derives one from the statement when absent"`
 	Rationale     string   `json:"rationale" required:"true" desc:"why this test discriminates (or, if it only confirms, say so)"`
 	Discriminates []string `json:"discriminates" desc:"x-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner"`
 	TestKind      string   `json:"test_kind" desc:"tool (default) | manual — manual only when no tool can test the prediction and a person's answer can"`
@@ -294,7 +295,7 @@ func intrinsicTools(actionTypes []ActionType) []tool {
 		defineTool(toolSpec[recordPredictionInput]{
 			Name:        ToolRecordPrediction,
 			Origin:      "80420c3",
-			Revised:     []string{"0efca01", "cebed87", "633ebd0"},
+			Revised:     []string{"0efca01", "cebed87", "633ebd0", "#90"},
 			Description: "Record a testable prediction under a hypothesis: what you expect to observe if it is true, and what query would test it. A prediction that DISCRIMINATES — one a rival hypothesis predicts the opposite outcome for — is worth more than one that merely confirms; name those rivals in discriminates. When a test is manual (no tool available to you can answer it and a person can), set test_kind to manual and say in test_query whom to ask and what; the analyst records its result, never you.",
 			Run:         (*Session).recordPrediction,
 		}),
@@ -612,7 +613,7 @@ func (s *Session) proposeHypothesis(ctx context.Context, in proposeHypothesisInp
 }
 
 func (s *Session) recordPrediction(ctx context.Context, in recordPredictionInput) (toolResult, error) {
-	pred := &Prediction{HypothesisRef: in.HypothesisRef, Statement: in.Statement, Discriminates: in.Discriminates, TestKind: in.TestKind}
+	pred := &Prediction{HypothesisRef: in.HypothesisRef, Statement: in.Statement, Title: in.Title, Discriminates: in.Discriminates, TestKind: in.TestKind}
 	if in.TestTool != "" || in.TestQuery != "" {
 		pred.TestQuery = &QuerySpec{Tool: in.TestTool, QueryText: in.TestQuery}
 	}

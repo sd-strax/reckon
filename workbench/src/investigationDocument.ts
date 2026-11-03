@@ -326,7 +326,7 @@ export class InvestigationDocuments implements DocumentHost {
         void this.reasoning.newHypothesis(id, panel, msg.statement, msg.handle);
       },
       "pred.new": (msg) => {
-        void this.reasoning.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates, msg.testKind);
+        void this.reasoning.newPrediction(id, panel, msg.hypothesisRef, msg.statement, msg.discriminates, msg.testKind, msg.title);
       },
       "pred.result": (msg) => {
         void this.reasoning.recordPredictionResult(id, panel, msg);

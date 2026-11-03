@@ -142,6 +142,10 @@
           "test_tool": {
             "description": "the tool that would test it, optional (for a manual test: the role of the person to ask)",
             "type": "string"
+          },
+          "title": {
+            "description": "a short name for the prediction: a noun phrase of at most 64 characters, no trailing period, optional — the record derives one from the statement when absent",
+            "type": "string"
           }
         },
         "required": [
@@ -476,6 +480,10 @@
           },
           "test_tool": {
             "description": "the tool that would test it, optional (for a manual test: the role of the person to ask)",
+            "type": "string"
+          },
+          "title": {
+            "description": "a short name for the prediction: a noun phrase of at most 64 characters, no trailing period, optional — the record derives one from the statement when absent",
             "type": "string"
           }
         },

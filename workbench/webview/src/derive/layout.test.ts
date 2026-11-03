@@ -8,7 +8,7 @@ import { concludePreflight, concludeAllowed, preflightClean } from "./preflight"
 import { nearestExpiry, primaryAction, rowStep, stageOf } from "./stage";
 import { handoffNote, keyEntities, proceduresFollowed, stillToDo } from "./summary";
 import { groupTurns, recordLine } from "./turns";
-import { shortTitle } from "./hyps";
+import { titleOf } from "./hyps";
 
 const snap = (synthetic as unknown as { snapshot: InvestigationSnapshot }).snapshot;
 const A = (over: Partial<ActionRow>): ActionRow => ({
@@ -123,8 +123,8 @@ describe("turns", () => {
     expect(recordLine(e({ interpretationType: "support", outputRefs: [h1!.id] }), hs)).toMatchObject({ text: "hypothesis H1 not-owner supported", title: "H1 not-owner", tone: "ok" });
     expect(recordLine(e({ interpretationType: "refutation", outputRefs: [hs[1]!.id] }), hs).text).toMatch(/^hypothesis “.+” refuted$/); // no handle: its claim, never a bare "H2"
     const p2 = h1!.predictions[1];
-    expect(recordLine(e({ interpretationType: "support", inputRefs: [p2!.id, p2!.testResultRefs[0]!] }), hs)).toMatchObject({ text: `prediction “${shortTitle(p2!)}” confirmed by attestation`, title: "H1 not-owner · P2", tone: "ok" });
-    expect(recordLine(e({ interpretationType: "prediction", outputRefs: [h1!.predictions[0]!.id] }), hs).text).toBe(`recorded prediction “${shortTitle(h1!.predictions[0]!)}” under hypothesis H1 not-owner`);
+    expect(recordLine(e({ interpretationType: "support", inputRefs: [p2!.id, p2!.testResultRefs[0]!] }), hs)).toMatchObject({ text: `prediction “${titleOf(p2!)}” confirmed by attestation`, title: "H1 not-owner · P2", tone: "ok" });
+    expect(recordLine(e({ interpretationType: "prediction", outputRefs: [h1!.predictions[0]!.id] }), hs).text).toBe(`recorded prediction “${titleOf(h1!.predictions[0]!)}” under hypothesis H1 not-owner`);
     expect(recordLine(e({ interpretationType: "prediction", outputRefs: [h1!.predictions[0]!.id, h1!.predictions[2]!.id] }), hs).text).toBe("recorded 2 predictions under hypothesis H1 not-owner");
     expect(recordLine(e({ interpretationType: "hypothesis", outputRefs: [h1!.id] }), hs).text).toBe("proposed hypothesis H1 not-owner");
   });

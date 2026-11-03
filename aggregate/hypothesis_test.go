@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -780,4 +781,67 @@ func TestCompetingHypotheses_Projection(t *testing.T) {
 		t.Fatalf("replay: %v", err)
 	}
 	verify("replayed")
+}
+
+// TestPredictionTitle (adr/0090): an authored title is recorded as given; an
+// absent one is derived from the statement once, at record time, and marked;
+// a title that is not one short line is refused.
+func TestPredictionTitle(t *testing.T) {
+	human := newTestEnvelope("analyst-1")
+	h1 := HypothesisSTIXID(uuid.New())
+	st := reasoningState(map[string]hypothesisState{h1: {Status: HypothesisOpen}}, nil)
+	pred := func(statement, title string) RecordInterpretation {
+		return RecordInterpretation{
+			InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction, Rationale: "r",
+			Prediction: &PredictionNode{ID: uuid.New(), HypothesisRef: h1, Statement: statement, Title: title},
+		}
+	}
+
+	ev, err := applyCommand(human, pred("the account's 30-day logon history shows only network logons from the backup host", "  Baseline logons only  "), st, testIDs())
+	if err != nil {
+		t.Fatalf("authored title: %v", err)
+	}
+	if rec := recFromEvents(t, ev); rec.Prediction.Title != "Baseline logons only" || rec.Prediction.TitleDerived {
+		t.Errorf("authored title recorded as %q (derived %v)", rec.Prediction.Title, rec.Prediction.TitleDerived)
+	}
+
+	ev, err = applyCommand(human, pred("No scheduled job on WIN-FILE01 accounts for the session, so the logon was interactive", ""), st, testIDs())
+	if err != nil {
+		t.Fatalf("derived title: %v", err)
+	}
+	if rec := recFromEvents(t, ev); rec.Prediction.Title != "No scheduled job on WIN-FILE01 accounts for the session" || !rec.Prediction.TitleDerived {
+		t.Errorf("derived title = %q (derived %v)", rec.Prediction.Title, rec.Prediction.TitleDerived)
+	}
+
+	if err := pred("x", strings.Repeat("t", TitleMaxRunes+1)).Validate(human); err == nil {
+		t.Error("over-long title accepted")
+	}
+	if err := pred("x", "two\nlines").Validate(human); err == nil {
+		t.Error("multi-line title accepted")
+	}
+	if err := pred("x", strings.Repeat("t", TitleMaxRunes)).Validate(human); err != nil {
+		t.Errorf("title at the bound refused: %v", err)
+	}
+}
+
+// TestDeriveTitle pins the derivation: the head before the first clause
+// boundary when it is long enough to read, the whole statement otherwise,
+// clipped to the bound with an ellipsis, trailing period dropped.
+func TestDeriveTitle(t *testing.T) {
+	long := strings.Repeat("word ", 20)
+	for in, want := range map[string]string{
+		"anomalous TXT query volume from WIN-A.":                                            "anomalous TXT query volume from WIN-A",
+		"The account owner did not start the session, so it was someone else":               "The account owner did not start the session",
+		"Yes, the baseline holds for every nightly logon on backup-01":                      "Yes, the baseline holds for every nightly logon on backup-01",
+		"A change ticket covers maintenance on host-a in the window — check the CAB record": "A change ticket covers maintenance on host-a in the window",
+		"  spaced   out   words  ":                                                          "spaced out words",
+		long:                                                                                strings.TrimRight(long[:TitleMaxRunes-1], " ") + "…",
+	} {
+		if got := DeriveTitle(in); got != want {
+			t.Errorf("DeriveTitle(%q) = %q; want %q", in, got, want)
+		}
+		if n := utf8.RuneCountInString(DeriveTitle(in)); n > TitleMaxRunes {
+			t.Errorf("DeriveTitle(%q) is %d runes", in, n)
+		}
+	}
 }

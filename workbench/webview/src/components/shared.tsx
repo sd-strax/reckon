@@ -5,8 +5,9 @@ import { useApp } from "../app";
 import { md } from "../markdown";
 import { chipClass, chipText } from "../refs";
 import { fmtRemaining } from "../derive/actions";
-import { hypWords, shortTitle } from "../derive/hyps";
+import { hypWords, titleOf } from "../derive/hyps";
 import type { InvestigationSnapshot } from "../../../src/protocol";
+import type { SentenceToken } from "../../../src/viewTypes";
 
 /** A clickable citation (02 §2.8, 08 §8.6): every ref opens the inspector.
  * Reads as evidence — a type label immediately, enriched with the value once
@@ -30,6 +31,25 @@ export function RefChip({ refId: r, pinned, className }: { refId: string; pinned
   );
 }
 
+/** An entity named inside a sentence (adr/0090): the chip shows the
+ * sentence's own words for it and opens the inspector on the ref. */
+export function EntityChip({ refId: r, text }: { refId: string; text: string }) {
+  const { openInspector } = useApp();
+  return (
+    <span className={chipClass(r) + " inline"} data-ref={r} title={"Open in the inspector: " + r}
+      onClick={(e) => { e.stopPropagation(); openInspector({ kind: "ref", ref: r }); }}>{text}</span>
+  );
+}
+
+/** An event's sentence (adr/0090): the server's tokens, entities as chips. */
+export function Sentence({ tokens, className }: { tokens: SentenceToken[]; className?: string }) {
+  return (
+    <span className={"sentence" + (className ? " " + className : "")}>
+      {tokens.map((t, i) => t.t === "entity" && t.ref ? <EntityChip key={i} refId={t.ref} text={t.text} /> : <span key={i}>{t.text}</span>)}
+    </span>
+  );
+}
+
 /** What the snapshot already knows a ref to be, before any fetch. */
 function snapshotLabel(r: string, snap: InvestigationSnapshot | null): string | undefined {
   if (!snap) return undefined;
@@ -41,7 +61,7 @@ function snapshotLabel(r: string, snap: InvestigationSnapshot | null): string | 
   if (r.startsWith("x-prediction--")) {
     for (const h of hs) {
       const p = h.predictions.find((x) => x.id === r);
-      if (p) return (p.ordinal ? "P" + p.ordinal + " " : "") + shortTitle(p);
+      if (p) return (p.ordinal ? "P" + p.ordinal + " " : "") + titleOf(p);
     }
     return undefined;
   }

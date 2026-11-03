@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/capability/ocsfview"
 )
 
 // Live markdown export (design/ui binding §6 item 10): the portable,
@@ -161,7 +162,13 @@ func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID)
 				fmt.Fprintf(&md, "- **[%s]** %s\n", h.Status, h.Statement)
 			}
 			for _, p := range byHyp[h.ID] {
-				fmt.Fprintf(&md, "  - prediction **[%s]** %s", p.Status, p.Statement)
+				// The recorded title names the row (adr/0090); the statement
+				// follows unless the title already is the statement.
+				if p.Title != "" && p.Title != p.Statement {
+					fmt.Fprintf(&md, "  - prediction **[%s]** %s — %s", p.Status, p.Title, p.Statement)
+				} else {
+					fmt.Fprintf(&md, "  - prediction **[%s]** %s", p.Status, p.Statement)
+				}
 				if len(p.Discriminates) > 0 {
 					names := make([]string, 0, len(p.Discriminates))
 					for _, d := range p.Discriminates {
@@ -386,7 +393,24 @@ func (rl *refLabeler) resolve(ref string) string {
 	if err != nil {
 		return ref
 	}
-	return fmt.Sprintf("%s @ %s", e.ClassName, e.Time.UTC().Format("15:04:05Z"))
+	// The event's sentence (adr/0090) when its class has one, the class name
+	// otherwise; the time stays, the export is read without a timeline.
+	label := e.ClassName
+	if entities, err := rl.evidence.EventEntities(rl.ctx, id); err == nil {
+		if v := eventView(e, entities); len(v.Sentence) > 0 {
+			label = sentenceText(v)
+		}
+	}
+	return fmt.Sprintf("%s @ %s", label, e.Time.UTC().Format("15:04:05Z"))
+}
+
+// sentenceText is a view's sentence as plain text, for surfaces without chips.
+func sentenceText(v ocsfview.View) string {
+	var b strings.Builder
+	for _, t := range v.Sentence {
+		b.WriteString(t.Text)
+	}
+	return b.String()
 }
 
 // labeledList renders refs as their human labels in backticks, comma-joined.

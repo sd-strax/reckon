@@ -87,6 +87,9 @@ type EventRow struct {
 	Coverage         string
 	ObservedDataRefs []string
 	EntityRefs       []string
+	// Entities are the objects EntityRefs name, as the record holds them, so a
+	// reading surface can render the event with its entities (adr/0090).
+	Entities []Object
 }
 
 // EventFilter narrows an investigation's events. Entity keeps events whose
@@ -353,14 +356,14 @@ func (q *eventQuery) clone() *eventQuery {
 // persisted again by a later call is listed once.
 func (q *eventQuery) from() string {
 	return `(
-		SELECT DISTINCT ON (e.id) e.id, e.class_uid, e.class_name, e.time, e.recorded_at, e.source_tool, c.id AS call_id, c.verb, c.coverage
+		SELECT DISTINCT ON (e.id) e.id, e.class_uid, e.class_name, e.time, e.recorded_at, e.source_tool, e.payload, c.id AS call_id, c.verb, c.coverage
 		FROM ocsf_events e JOIN call_events ce ON ce.ocsf_event_id = e.id JOIN capability_calls c ON c.id = ce.call_id
 		WHERE ` + strings.Join(q.preds, " AND ") + `
 		ORDER BY e.id, c.started_at, c.id
 	) e`
 }
 
-const selectEvents = `SELECT e.id, e.class_uid, e.class_name, e.time, e.recorded_at, e.source_tool, e.call_id, e.verb, e.coverage FROM `
+const selectEvents = `SELECT e.id, e.class_uid, e.class_name, e.time, e.recorded_at, e.source_tool, e.payload, e.call_id, e.verb, e.coverage FROM `
 
 // eventRows runs a selectEvents query and attaches each row's derived refs.
 func (s *Store) eventRows(ctx context.Context, query string, args ...any) ([]EventRow, error) {
@@ -372,7 +375,7 @@ func (s *Store) eventRows(ctx context.Context, query string, args ...any) ([]Eve
 	out := []EventRow{}
 	for rows.Next() {
 		var r EventRow
-		if err := rows.Scan(&r.ID, &r.ClassUID, &r.ClassName, &r.Time, &r.RecordedAt, &r.SourceTool, &r.CallID, &r.Verb, &r.Coverage); err != nil {
+		if err := rows.Scan(&r.ID, &r.ClassUID, &r.ClassName, &r.Time, &r.RecordedAt, &r.SourceTool, &r.Payload, &r.CallID, &r.Verb, &r.Coverage); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		r.ObservedDataRefs, r.EntityRefs = []string{}, []string{}
@@ -388,8 +391,16 @@ func (s *Store) eventRows(ctx context.Context, query string, args ...any) ([]Eve
 }
 
 // attachDerived fills each row's observed-data and entity refs from the
-// derived-from join, in one query over the page.
+// derived-from join, and the entity objects those refs name, in two queries
+// over the page.
 func (s *Store) attachDerived(ctx context.Context, rows []EventRow) error {
+	if err := s.attachDerivedRefs(ctx, rows); err != nil {
+		return err
+	}
+	return s.attachEntities(ctx, rows)
+}
+
+func (s *Store) attachDerivedRefs(ctx context.Context, rows []EventRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -429,6 +440,63 @@ func (s *Store) attachDerived(ctx context.Context, rows []EventRow) error {
 		}
 	}
 	return res.Err()
+}
+
+// attachEntities reads the objects the rows' entity refs name, once per
+// distinct ref, and hands each row its own in ref order. A ref the object
+// store does not hold is left out, never invented.
+func (s *Store) attachEntities(ctx context.Context, rows []EventRow) error {
+	ids := make([]uuid.UUID, 0, 16)
+	seen := map[uuid.UUID]bool{}
+	for _, r := range rows {
+		for _, ref := range r.EntityRefs {
+			if id, ok := refUUID(ref); ok && !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	res, err := s.db.QueryContext(ctx, `SELECT id, type, payload FROM stix_objects WHERE id = ANY($1)`, uuidArray(ids))
+	if err != nil {
+		return fmt.Errorf("query entities: %w", err)
+	}
+	defer res.Close()
+	objects := make(map[uuid.UUID]Object, len(ids))
+	for res.Next() {
+		var id uuid.UUID
+		var o Object
+		if err := res.Scan(&id, &o.Type, &o.Payload); err != nil {
+			return fmt.Errorf("scan entity: %w", err)
+		}
+		o.Ref = o.Type + "--" + id.String()
+		objects[id] = o
+	}
+	if err := res.Err(); err != nil {
+		return err
+	}
+	for i := range rows {
+		for _, ref := range rows[i].EntityRefs {
+			if id, ok := refUUID(ref); ok {
+				if o, ok := objects[id]; ok {
+					rows[i].Entities = append(rows[i].Entities, o)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// EventEntities returns the objects one event's observed-data name, as the
+// record holds them.
+func (s *Store) EventEntities(ctx context.Context, eventID uuid.UUID) ([]Object, error) {
+	rows := []EventRow{{Event: Event{ID: eventID}}}
+	if err := s.attachDerived(ctx, rows); err != nil {
+		return nil, err
+	}
+	return rows[0].Entities, nil
 }
 
 // eventEntityRefs returns the entity refs one event's observed-data name.

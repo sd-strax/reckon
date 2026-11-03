@@ -3,14 +3,16 @@
 // timeline rows are the events retrieved for the investigation (adr/0092),
 // each naming the call that retrieved it, with the cited refs that carry an
 // event time joined in; on a record without membership (events persisted
-// before it) the cited events alone remain. The attack path, the generated
-// sentences and the baseline rows are gaps §6.12 and §6.14.
+// before it) the cited events alone remain. A retrieved row reads as the
+// server's sentence with its entities as chips (adr/0090); a cited ref the
+// record holds no row for reads as its class. The attack path and the
+// baseline rows are gaps §6.12 and §6.14.
 import { useMemo, useState } from "react";
 import { useApp } from "../../app";
 import { hypName } from "../../derive/hyps";
-import type { EventRow } from "../../../../src/viewTypes";
+import type { EventRow, SentenceToken } from "../../../../src/viewTypes";
 import { EventStrip, EvidenceGraph } from "../DerivedViews";
-import { Empty, RefChip, fmtDateTime } from "../shared";
+import { Empty, RefChip, Sentence, fmtDateTime } from "../shared";
 import type { Hypothesis } from "../../../../src/viewTypes";
 
 const CATEGORY: Record<string, string> = { Authentication: "auth", "Process Activity": "process", "Network Activity": "network", "DNS Activity": "network", "Detection Finding": "detection", "Security Finding": "detection", "observed-data": "observed" };
@@ -34,13 +36,17 @@ interface TimelineItem {
   /** The call that retrieved the event (adr/0092); absent on a cited ref the record holds no membership for. */
   callId?: string;
   verb?: string;
+  /** The server's sentence (adr/0090); absent when the class has no template or the row is a cited ref alone. */
+  sentence?: SentenceToken[];
 }
 
 /** The retrieved events joined with the cited refs that carry an event time, in event time, each ref once. */
 export function timelineItems(events: EventRow[] | null | undefined, strip: { ref: string; time: string; label: string }[]): TimelineItem[] {
   const out = new Map<string, TimelineItem>();
   for (const e of events ?? []) {
-    out.set(e.id, { ref: e.id, time: e.time, label: e.className, category: categoryOfClass(e.classUid), callId: e.callId, verb: e.verb });
+    const it: TimelineItem = { ref: e.id, time: e.time, label: e.className, category: e.view.category, callId: e.callId, verb: e.verb };
+    if (e.view.sentence?.length) it.sentence = e.view.sentence;
+    out.set(e.id, it);
   }
   for (const it of strip) {
     if (!out.has(it.ref)) out.set(it.ref, { ref: it.ref, time: it.time, label: it.label, category: CATEGORY[it.label] || "other" });
@@ -106,7 +112,7 @@ export function StoryLens() {
                   <span className="ttime mono">{new Date(r.time).toLocaleTimeString()}</span>
                   <span className={"tcat " + r.category}>{r.category.toUpperCase()}</span>
                   <span className="tsentence">
-                    <RefChip refId={r.ref} /> <span className="imeta">{r.label}</span>
+                    <RefChip refId={r.ref} /> {r.sentence ? <Sentence tokens={r.sentence} /> : <span className="imeta">{r.label}</span>}
                     {r.callId ? <> <a className="imeta tvia" title="Open the capability call that retrieved this event" onClick={() => openInspector({ kind: "call", callId: r.callId! })}>via {r.verb}</a></> : null}
                   </span>
                   <span className="tciting">{r.citing.map(({ h, p }) => <a key={p.id} className={"pcite " + (p.status === "CONFIRMED" ? "ok" : p.status === "DISCONFIRMED" ? "bad" : "")} title={`${p.status} under ${hypName(h, hs)}`} onClick={() => openInspector({ kind: "ref", ref: p.id })}>P{p.ordinal ?? "?"}</a>)}</span>

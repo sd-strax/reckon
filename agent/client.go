@@ -99,20 +99,20 @@ type ConsultedSimilarInvestigation struct {
 // InterpretationRequest is the body of POST /api/interpretations (the loop's
 // write into the reasoning thread).
 type InterpretationRequest struct {
-	InvestigationRef   string         `json:"investigation_ref"`
-	InterpretationType string         `json:"interpretation_type"`
-	InputRefs          []string       `json:"input_refs,omitempty"`
-	OutputRefs         []string       `json:"output_refs,omitempty"`
-	Rationale          string         `json:"rationale"`
-	Confidence         string         `json:"confidence,omitempty"`
-	Transcript         *Transcript    `json:"transcript,omitempty"`
-	ToolCalls          []ToolCall     `json:"tool_calls,omitempty"`
-	Hypothesis         *Hypothesis    `json:"hypothesis,omitempty"`
-	HypothesisRef      string         `json:"hypothesis_ref,omitempty"`
-	Abandoned          bool           `json:"abandoned,omitempty"`
-	Prediction         *Prediction    `json:"prediction,omitempty"`
-	PredictionRef      string         `json:"prediction_ref,omitempty"`
-	PredictionStatus   string         `json:"prediction_status,omitempty"`
+	InvestigationRef   string                          `json:"investigation_ref"`
+	InterpretationType string                          `json:"interpretation_type"`
+	InputRefs          []string                        `json:"input_refs,omitempty"`
+	OutputRefs         []string                        `json:"output_refs,omitempty"`
+	Rationale          string                          `json:"rationale"`
+	Confidence         string                          `json:"confidence,omitempty"`
+	Transcript         *Transcript                     `json:"transcript,omitempty"`
+	ToolCalls          []ToolCall                      `json:"tool_calls,omitempty"`
+	Hypothesis         *Hypothesis                     `json:"hypothesis,omitempty"`
+	HypothesisRef      string                          `json:"hypothesis_ref,omitempty"`
+	Abandoned          bool                            `json:"abandoned,omitempty"`
+	Prediction         *Prediction                     `json:"prediction,omitempty"`
+	PredictionRef      string                          `json:"prediction_ref,omitempty"`
+	PredictionStatus   string                          `json:"prediction_status,omitempty"`
 	ConsultedSOPs      []ConsultedSOP                  `json:"consulted_sops,omitempty"`
 	ConsultedSimilar   []ConsultedSimilarInvestigation `json:"consulted_similar_investigations,omitempty"`
 	TestResultRefs     []string                        `json:"test_result_refs,omitempty"`
@@ -149,6 +149,7 @@ type Hypothesis struct {
 type Prediction struct {
 	HypothesisRef string     `json:"hypothesis_ref"`
 	Statement     string     `json:"statement"`
+	Title         string     `json:"title,omitempty"` // the short name; the engine derives one when absent (adr/0090)
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string   `json:"discriminates,omitempty"`
 	TestKind      string     `json:"test_kind,omitempty"` // tool (default) | manual — a person tests it (adr/0054)

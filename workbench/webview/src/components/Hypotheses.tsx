@@ -7,7 +7,7 @@
 // against, the Pinned marker and the row's affordances.
 import { useState } from "react";
 import { useApp } from "../app";
-import { blockersOf, badgeTone, counted, hypName, isLive, nameOf, predName, rivalsOf, shortTitle, tested } from "../derive/hyps";
+import { blockersOf, badgeTone, counted, hypName, isLive, nameOf, predName, rivalsOf, tested, titleOf } from "../derive/hyps";
 import { Badge, RefChip } from "./shared";
 import { pinSpec, type PromptExtra, type PromptSpec } from "./PromptCard";
 import type { ArtifactLocation, CommsThread, Hypothesis, PinRow, Prediction } from "../../../src/viewTypes";
@@ -100,7 +100,7 @@ function PredictionRow({ p, h, hs, pins }: { p: Prediction; h: Hypothesis; hs: H
       <div className="pline" onClick={() => setOpen((o) => !o)} role="button" aria-expanded={open}>
         <span className={"pglyph " + glyph.tone} aria-hidden="true">{glyph.g}</span><span className="sr">{glyph.word}</span>
         <span className="pord" title="Open this prediction" onClick={(e) => { e.stopPropagation(); openInspector({ kind: "ref", ref: p.id }); }}>{predName(p)}</span>
-        <span className="ptitle" title={p.statement}>{shortTitle(p)}</span>
+        <span className="ptitle" title={p.statement}>{titleOf(p)}</span>
         {splits.length ? <span className="psplits" title="Discriminating test: these rivals predict the opposite outcome">splits {splits.join(", ")}</span> : null}
         <span className="pcount">{manual && p.attestation ? "attested" : trefs.length ? `${trefs.length} evidence` : manual ? "a person tests this" : p.status === "UNTESTED" ? "untested" : ""}</span>
         <span className="pchev" aria-hidden="true">{open ? "⌄" : "›"}</span>
@@ -198,8 +198,11 @@ export function HypothesisCard({ h, hs, pins }: { h: Hypothesis; hs: Hypothesis[
                 helper: "Recorded as yours, UNTESTED. ⚡ Test on its row runs it as an agent turn. A test a person answers is yours to record.", confirm: "Record prediction",
                 choicesLabel: rivals.length ? "This test comes out the OPPOSITE way under (discriminates):" : "",
                 choices: rivals.map((r) => ({ id: r.id, label: hypName(r, hs) + " — " + (r.statement.length > 70 ? r.statement.slice(0, 69) + "…" : r.statement), title: r.statement, checked: rivals.length === 1 })),
-                extras: [{ kind: "check", id: "manual", label: "A person tests this — the account owner, the change owner, a phone call. No tool query; I record the result.", title: "A manual test (adr/0054)." }],
-                onConfirm: (statement, picked, ex) => send({ type: "pred.new", hypothesisRef: h.id, statement, discriminates: picked || [], testKind: ex.manual ? "manual" : undefined }),
+                extras: [
+                  { kind: "text", id: "title", label: "Short title (optional)", placeholder: "e.g. Baseline logons only from the backup host", title: "The name the tracker shows at rest, 64 characters at most. Left empty, the record derives one from the statement (adr/0090)." },
+                  { kind: "check", id: "manual", label: "A person tests this — the account owner, the change owner, a phone call. No tool query; I record the result.", title: "A manual test (adr/0054)." },
+                ],
+                onConfirm: (statement, picked, ex) => send({ type: "pred.new", hypothesisRef: h.id, statement, discriminates: picked || [], testKind: ex.manual ? "manual" : undefined, title: typeof ex.title === "string" && ex.title.trim() ? ex.title.trim() : undefined }),
               });
             }}>+ prediction</button>
             {h.status === "OPEN" && !anyTested ? <button className="ghost" title="Sharpen the claim (legal while nothing under it has been tested)." onClick={() => openPrompt({

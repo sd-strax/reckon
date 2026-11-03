@@ -101,6 +101,7 @@ type HypothesisBody struct {
 type PredictionBody struct {
 	HypothesisRef string               `json:"hypothesis_ref"`
 	Statement     string               `json:"statement"`
+	Title         string               `json:"title,omitempty"` // the short name; derived when absent (adr/0090)
 	TestQuery     *aggregate.QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string             `json:"discriminates,omitempty"`
 	TestKind      string               `json:"test_kind,omitempty"` // tool (default) | manual — a person tests it (adr/0054)
@@ -273,6 +274,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 			ID:            id,
 			HypothesisRef: body.Prediction.HypothesisRef,
 			Statement:     body.Prediction.Statement,
+			Title:         body.Prediction.Title,
 			TestQuery:     body.Prediction.TestQuery,
 			Discriminates: body.Prediction.Discriminates,
 			TestKind:      body.Prediction.TestKind,
@@ -363,7 +365,11 @@ type HypothesisView struct {
 type PredictionView struct {
 	ID        string `json:"id"`
 	Statement string `json:"statement"`
-	Status    string `json:"status"`
+	// Title is the short name the record holds (adr/0090); TitleDerived says
+	// the aggregate derived it from the statement. Surfaces show it as is.
+	Title        string `json:"title"`
+	TitleDerived bool   `json:"title_derived,omitempty"`
+	Status       string `json:"status"`
 	// Ordinal is the prediction's short name, P1, P2, … in the order
 	// predictions were recorded across the investigation (adr/0047): what
 	// the tracker, the composer, the agent's reasoning-state block and an
@@ -441,6 +447,8 @@ func (b *Backend) listInvestigationHypotheses(w http.ResponseWriter, r *http.Req
 		byHypothesis[p.HypothesisRef] = append(byHypothesis[p.HypothesisRef], PredictionView{
 			ID:             p.ID,
 			Statement:      p.Statement,
+			Title:          p.Title,
+			TitleDerived:   p.TitleDerived,
 			Status:         p.Status,
 			Ordinal:        i + 1, // ListPredictions is in record order
 			TestQuery:      p.TestQuery,

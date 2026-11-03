@@ -172,7 +172,7 @@ describe("InvestigationDocuments: closing", () => {
   });
 
   const evidenceDoc = { ref: "ref-1", kind: "observed-data", type: "observed-data", payload: {} };
-  const eventRow = { id: "e-1", classUid: 3002, className: "Authentication", time: "2026-01-02T03:04:05Z", recordedAt: "2026-01-02T03:04:05Z", sourceTool: "fixture:s", callId: "c-1", verb: "enumerate_logons", coverage: "COMPLETE", observedDataRefs: [], entityRefs: [] };
+  const eventRow = { id: "e-1", classUid: 3002, className: "Authentication", time: "2026-01-02T03:04:05Z", recordedAt: "2026-01-02T03:04:05Z", sourceTool: "fixture:s", callId: "c-1", verb: "enumerate_logons", coverage: "COMPLETE", observedDataRefs: [], entityRefs: [], view: { fields: [], category: "auth" } };
 
   it("posts the retrieved events after the snapshot, stamped with its sequence (adr/0092)", async () => {
     const events = vi.fn(async () => ({ events: [eventRow], total: 1 }));

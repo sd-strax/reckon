@@ -529,6 +529,12 @@ x-prediction
   hypothesis_ref      x-hypothesis id (the owner: the hypothesis that
                       predicts this will be OBSERVED)
   statement           string (what would be observed if hypothesis is true)
+  title               string, one line of at most 64 characters: the short
+                      name a tracker row shows at rest. Authored by whoever
+                      records the prediction, or derived once from the
+                      statement at record time (title_derived = true); never
+                      made at render time. Frozen with the statement.
+  title_derived       optional boolean — the aggregate derived the title
   test_query          optional QuerySpec { tool, query_text, parameters }
   discriminates       optional list of x-hypothesis ids — rivals whose
                       expectation for this prediction is the OPPOSITE of

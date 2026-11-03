@@ -50,6 +50,7 @@ type evidenceStore interface {
 	Persist(ctx context.Context, call evidence.Call, res capability.CapabilityResult) error
 	Object(ctx context.Context, ref string) (evidence.Object, error)
 	Event(ctx context.Context, id uuid.UUID) (evidence.Event, error)
+	EventEntities(ctx context.Context, eventID uuid.UUID) ([]evidence.Object, error)
 	IndicatorNeighbourhood(ctx context.Context, indicator evidence.Object) (evidence.Neighbourhood, error)
 	InvestigationEvents(ctx context.Context, investigationID uuid.UUID, f evidence.EventFilter) (evidence.Events, error)
 	Calls(ctx context.Context, investigationID uuid.UUID) ([]evidence.CallRecord, error)

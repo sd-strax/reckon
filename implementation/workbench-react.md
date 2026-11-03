@@ -239,7 +239,7 @@ syntax-tinted, copy), `Disclosure`.
 ### 2.2 Density rules applied (`08 §8.7`)
 
 A prediction row at rest: status glyph with its word for screen readers, `P<n>`, the short title
-(gap §6.12; until it exists, the statement truncated to one line), `splits H<n>`, evidence count
+(the recorded `title`, `adr/0090`), `splits H<n>`, evidence count
 or `attested`. Expanded: the statement in full, the attestation quote with its author by name,
 evidence chips, "decides against", Pinned marker, and the row's affordances (⚡ Test P<n> /
 Record result / Withdraw / Pin). Principal ids, UUIDs and hashes are on hover or in Provenance.
@@ -798,6 +798,10 @@ boundary, clipped to 64 characters) and marks `title_derived: true`, so the reco
 a title and the UI never generates one at render time. Titles are frozen with the statement.
 This is a tool-schema addition, not a base-prompt change; `make eval` runs once as a check and
 the baselines are expected to stand.
+
+*Built: `adr/0090`. The entity refs in a sentence come from the objects the record derived from
+the event, bound by value, not from a read-time identity run (a row carries no source scope).
+`decoded` is not built yet (#300).*
 
 ### 8.2 §6.13 — Entity-scoped event query
 
