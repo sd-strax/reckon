@@ -115,28 +115,27 @@ const (
 
 // ConsultedSOP records one SOP surfaced by knowledge-service retrieval during
 // a reasoning act (01 INTERPRETATION schema; 06 §6): retrieval provenance.
-// Used distinguishes cited from merely retrieved — set conservatively (the
-// caller marks Used only on positive evidence the act built on it; an
-// overclaimed "followed the SOP" is fabricated provenance).
+// Cited distinguishes an SOP the act named by ref from one merely retrieved
+// (adr/0236). It records that the actor cited it, not that it applied it.
 type ConsultedSOP struct {
 	SOPID          string  `json:"sop_id"`
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	Used           bool    `json:"used"`
+	Cited          bool    `json:"cited"`
 }
 
 // ConsultedSimilarInvestigation records one concluded-investigation summary
 // surfaced by similarity retrieval during a reasoning act (06 §3, §6): the
 // case-knowledge counterpart of ConsultedSOP. InvestigationRef is the source
 // investigation's grouping ref (from the summary's provenance), Band the
-// substrate similarity band. Used is conservative like ConsultedSOP.Used —
-// only positive evidence the act built on it.
+// substrate similarity band. Cited is as ConsultedSOP.Cited: the act named
+// the case by ref.
 type ConsultedSimilarInvestigation struct {
 	InvestigationRef string  `json:"investigation_ref"`
 	Title            string  `json:"title,omitempty"`
 	RetrievalScore   float64 `json:"retrieval_score,omitempty"`
 	Band             string  `json:"band,omitempty"`
-	Used             bool    `json:"used"`
+	Cited            bool    `json:"cited"`
 }
 
 // maxConsultedPerInterpretation bounds the consulted lists (refs are ids +

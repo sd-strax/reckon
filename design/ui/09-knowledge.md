@@ -79,7 +79,7 @@ author. Retired procedures are hidden by default and shown marked when included.
   source system and URL, version, recommendation, `applies_to`).
 - **Versions**: each revision with its time and who made it; any two can be compared.
   Source: substrate revisions (`06 §2.2`, lineage id).
-- **Where it was used**: investigations that consulted it, applied or only consulted. Gap
+- **Where it was cited**: investigations that recalled it, each marked "cited" or "recalled, not cited". Gap
   `00 §6.22`.
 - Actions: **Edit** (markdown editor with preview on a reckon panel, never the quick input,
   `13 §3`; saving makes a new revision through `/api/sops/{id}`), **Retire** (with a

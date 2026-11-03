@@ -128,7 +128,7 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
 │   │   ├─ <Narrative>                 what happened + authorship line; Draft / Edit (gap §6.18)
 │   │   ├─ <KeyEntities>               grouping objects, role, derivable status words (§9)
 │   │   ├─ <StillToDo>                 REQUESTED actions w/ countdown · owner items · notification · open predictions
-│   │   ├─ <ProceduresFollowed>        consulted_sops with used=true
+│   │   ├─ <ProceduresCited>           consulted_sops with cited=true
 │   │   └─ <SummaryActions>            Copy handoff note · Export report (export.md)
 │   ├─ <StoryLens>                     08 §8.4 Story (needs §6.12–§6.14)
 │   │   ├─ <AttackPath>                derive/attackPath.ts; "Open full graph" → <EvidenceGraph> disclosure (parity §K)
@@ -909,7 +909,7 @@ v0, like comms; the engine-side gate lands with Phase F).
 the projections at any state (the existing `buildSummary` generalized out of `temporal/` into
 `summary/` and served on `GET /api/investigations/{id}/summary`: verdict with author name,
 containment counts and nearest expiry, notification status, open questions, key entities with
-role and derivable status words, procedures followed, as_of_sequence); the **narrative** is drafted
+role and derivable status words, procedures cited, as_of_sequence); the **narrative** is drafted
 on the client plane (`transport.draftNarrative` → sidecar `draftNarrative` → one no-tools BYOK
 completion over the record, the backend holds no model key) and stored with its authorship as
 CRUD + thin history: `investigation_narratives (id, investigation_id, revision, body,

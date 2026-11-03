@@ -661,6 +661,9 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	// fabricated id or narrated-but-never-made call is corrected IN PLACE:
 	// visible to the analyst, committed to the transcript, and folded into the
 	// assistant message so the correction is in the model's own history.
+	// What the model itself wrote is kept apart: a citation is decided on it,
+	// never on the engine's footer (adr/0236).
+	modelText := finalText.String()
 	if gt := s.turnFooter(closing, finalText.String(), len(s.pendingActions), s.seenIDs); gt != "" {
 		fmt.Fprintf(&transcript, "[assistant] %s\n", sanitizeTranscript(gt))
 		finalText.WriteString("\n\n")
@@ -703,8 +706,8 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		Rationale:          rationale,
 		Transcript:         &Transcript{TurnID: turnID, Body: transcript.String()},
 		ToolCalls:          toolLog,
-		ConsultedSOPs:      s.consultedList(finalText.String()),
-		ConsultedSimilar:   s.consultedSimilarList(finalText.String()),
+		ConsultedSOPs:      s.consultedList(modelText),
+		ConsultedSimilar:   s.consultedSimilarList(modelText),
 	})
 	res.InterpretationID = id
 	return res, errors.Join(turnErr, err)
@@ -927,21 +930,21 @@ func consultedSOPs(content []byte) []ConsultedSOP {
 	return out
 }
 
-// consultedList finalizes the turn's knowledge provenance. Used is decided
-// CONSERVATIVELY: only when the model's own final text references the SOP (by
-// title or id) — retrieval alone is "consulted, not applied", and overclaiming
-// "followed the SOP" would be fabricated provenance (01 schema; the transcript
-// is deliberately not searched: it contains the retrieval results themselves,
-// which would mark everything used).
-func (s *Session) consultedList(finalText string) []ConsultedSOP {
+// consultedList finalizes the turn's knowledge provenance. Cited is set when
+// the model's own text for the turn names the SOP by the id recall returned
+// (adr/0236). That is all the engine can attest: it cannot tell whether the
+// agent applied a procedure, only that it retrieved one and named it to the
+// analyst. Titles are not matched (a short title is in any reply on the topic,
+// a paraphrase names none), and modelText excludes the engine footer and the
+// transcript (which holds the recall results themselves).
+func (s *Session) consultedList(modelText string) []ConsultedSOP {
 	if len(s.consulted) == 0 {
 		return nil
 	}
-	lower := strings.ToLower(finalText)
+	lower := strings.ToLower(modelText)
 	out := make([]ConsultedSOP, 0, len(s.consulted))
 	for _, c := range s.consulted {
-		c.Used = (c.Title != "" && strings.Contains(lower, strings.ToLower(c.Title))) ||
-			strings.Contains(lower, strings.ToLower(c.SOPID))
+		c.Cited = strings.Contains(lower, strings.ToLower(c.SOPID))
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RetrievalScore > out[j].RetrievalScore })
@@ -977,18 +980,17 @@ func consultedCases(content []byte) []ConsultedSimilarInvestigation {
 	return out
 }
 
-// consultedSimilarList finalizes the turn's case-knowledge provenance, with the
-// same conservative Used rule as consultedList: only when the model's own final
-// text references the prior investigation (by title or ref).
-func (s *Session) consultedSimilarList(finalText string) []ConsultedSimilarInvestigation {
+// consultedSimilarList finalizes the turn's case-knowledge provenance, with
+// consultedList's rule: Cited when the model's own text names the prior case
+// by its investigation_ref.
+func (s *Session) consultedSimilarList(modelText string) []ConsultedSimilarInvestigation {
 	if len(s.consultedSimilar) == 0 {
 		return nil
 	}
-	lower := strings.ToLower(finalText)
+	lower := strings.ToLower(modelText)
 	out := make([]ConsultedSimilarInvestigation, 0, len(s.consultedSimilar))
 	for _, c := range s.consultedSimilar {
-		c.Used = (c.Title != "" && strings.Contains(lower, strings.ToLower(c.Title))) ||
-			strings.Contains(lower, strings.ToLower(c.InvestigationRef))
+		c.Cited = strings.Contains(lower, strings.ToLower(c.InvestigationRef))
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RetrievalScore > out[j].RetrievalScore })

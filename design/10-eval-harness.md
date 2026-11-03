@@ -230,8 +230,9 @@ is a testable claim exactly when X has a passing baseline for the current prompt
 catalogue — no baseline, no support claim. A prompt change must hold against **every** supported
 model's baseline, not just the one it was iterated on; run cost is linear in the supported set
 (v0: one model, the product default). One interval is the exception: adr/0232 widened what the
-prompt version covers without a rerun, so until the next prompt change reruns them the committed
-baselines carry the version they were accepted under (`a870ddbf`, the base prompt alone). Support
+prompt version covers, and adr/0236 added a prompt rule (`cite-knowledge`, pending validation), both
+without a rerun. Until the baselines are rerun under the full version, the committed baselines carry
+the version they were accepted under (`a870ddbf`, the base prompt alone). Support
 stays with those baselines in that interval: a run on the current code is held to their scores,
 and prints each version it does not share with them.
 

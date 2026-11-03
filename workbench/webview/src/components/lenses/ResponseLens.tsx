@@ -3,7 +3,7 @@
 // threads. A notification is asked for in the conversation like any action
 // (#126); there is no second composer here.
 import { useApp } from "../../app";
-import { proceduresFollowed } from "../../derive/summary";
+import { proceduresCited } from "../../derive/summary";
 import { ActionCard, GROUP_LABELS, groupOf } from "../ActionCard";
 import { Comms } from "../Rail";
 import { Empty } from "../shared";
@@ -18,7 +18,7 @@ export function ResponseLens() {
   const open = actions.filter((a) => a.pending && !a.expired);
   const waiting = open.filter((a) => !aside.has(a.actionId));
   const setAside = open.filter((a) => aside.has(a.actionId));
-  const followed = proceduresFollowed(snap.thread || []);
+  const cited = proceduresCited(snap.thread || []);
   const engine = String(snap.investigation.state).toUpperCase();
   const draft = engine === "DRAFT";
   // Decisions come first (#125); the groups hold everything already decided.
@@ -28,7 +28,7 @@ export function ResponseLens() {
     <div className="lens response">
       <div className="planhead">
         <h3>Response</h3>
-        <span className="imeta">{actions.length} action{actions.length === 1 ? "" : "s"}{open.length ? ` · ${open.length} waiting on a decision` : ""}{followed.length ? ` · from procedures ${followed.map((f) => f.title).join(", ")}` : ""}</span>
+        <span className="imeta">{actions.length} action{actions.length === 1 ? "" : "s"}{open.length ? ` · ${open.length} waiting on a decision` : ""}{cited.length ? ` · procedures cited: ${cited.map((f) => f.title).join(", ")}` : ""}</span>
       </div>
       {!actions.length ? <Empty>No actions requested yet. Ask reckon in the conversation; each request arrives here for you to approve.</Empty> : null}
       {waiting.length ? (

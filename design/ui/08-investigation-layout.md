@@ -90,7 +90,7 @@ per investigation overrides the default (view state, not investigation state, li
 | "What happened" narrative, with its authorship line ("drafted by reckon · edited by …") | Gap `00 §6.18` |
 | Key entities with role and status | Grouping objects (`00 §2.1`) + citation roles; status words from the verdict and actions |
 | Still to do | `REQUESTED` actions with countdowns, owner action items (gap `00 §6.17`), outstanding notification, open predictions |
-| Procedures followed | `consulted_*` with `used = true` (`00 §6.9`) |
+| Procedures cited | `consulted_*` with `cited = true` (`00 §6.9`) |
 | Copy handoff note, Export report | `GET /api/investigations/{id}/export.md` (`00 §6.10`) |
 
 ### Story — event time
@@ -203,7 +203,7 @@ on the document's structure. Tabs: What the AI read · Whole document · Version
 | Element | Source |
 |---|---|
 | Title, format, source name or URL, importer and import time | SOP entry meta (`06 §2.4`) |
-| In this case: which turn retrieved it, applied or only consulted, the actions it led to | `consulted_sops` on the interpretation (`00 §6.9`) |
+| In this case: which turn retrieved it, cited or only recalled, the actions it led to | `consulted_sops` on the interpretation (`00 §6.9`) |
 | The excerpt, verbatim, with "excerpt k of n retrieved", its location in the source, relevance band | The retrieved-snippet side store (`06 §6.2`) + gap `00 §6.15` (location) |
 | "Exactly as retrieved · hash matches current version" or "updated since this case consulted it" with a diff | Content hash at retrieval (`06 §6.2`) vs the current revision (`06 §2.2`) |
 | Open original at this location | Gap `00 §6.15` (retained original) |
@@ -309,7 +309,7 @@ Tabs: History · Authorization · Targets.
 | Title, concluded date, disposition, duration, band | `POST /api/knowledge/recall_similar_investigations` match + its summary |
 | Narrative, techniques, primary entities, actions taken with outcomes | The structured summary (`06 §3.1`) |
 | Why it matched | `match_rationale` |
-| In this case: consulted or applied | `consulted_similar_investigations` (`00 §6.9`) |
+| In this case: cited or only recalled | `consulted_similar_investigations` (`00 §6.9`) |
 | Open that investigation; include in context | `investigation_ref`; the knowledge gate (`06 §5.1`) |
 
 **Turn** (an interpretation and the turn that wrote it). Tabs: Answer · Tool calls ·

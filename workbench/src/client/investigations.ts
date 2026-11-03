@@ -229,10 +229,10 @@ export class InvestigationsClient {
       superseded: e.superseded ?? false,
       disposition: e.disposition || undefined,
       consultedSops: (e.consulted_sops ?? []).map((c) => ({
-        sopId: c.sop_id, title: c.title, used: c.used,
+        sopId: c.sop_id, title: c.title, cited: c.cited,
       })),
       consultedSimilar: (e.consulted_similar_investigations ?? []).map((c) => ({
-        investigationRef: c.investigation_ref, title: c.title, band: c.band, used: c.used,
+        investigationRef: c.investigation_ref, title: c.title, band: c.band, cited: c.cited,
       })),
     }));
   }

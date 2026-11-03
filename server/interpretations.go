@@ -69,7 +69,7 @@ type ConsultedSOPBody struct {
 	SOPID          string  `json:"sop_id"`
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	Used           bool    `json:"used"`
+	Cited          bool    `json:"cited"`
 }
 
 // ConsultedSimilarBody mirrors aggregate.ConsultedSimilarInvestigation.
@@ -78,7 +78,7 @@ type ConsultedSimilarBody struct {
 	Title            string  `json:"title,omitempty"`
 	RetrievalScore   float64 `json:"retrieval_score,omitempty"`
 	Band             string  `json:"band,omitempty"`
-	Used             bool    `json:"used"`
+	Cited            bool    `json:"cited"`
 }
 
 // VerdictBody is the client shape of a verdict act.
@@ -223,12 +223,12 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, cs := range body.ConsultedSOPs {
 		cmd.ConsultedSOPs = append(cmd.ConsultedSOPs, aggregate.ConsultedSOP{
-			SOPID: cs.SOPID, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Used: cs.Used,
+			SOPID: cs.SOPID, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Cited: cs.Cited,
 		})
 	}
 	for _, cs := range body.ConsultedSimilar {
 		cmd.ConsultedSimilar = append(cmd.ConsultedSimilar, aggregate.ConsultedSimilarInvestigation{
-			InvestigationRef: cs.InvestigationRef, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Band: cs.Band, Used: cs.Used,
+			InvestigationRef: cs.InvestigationRef, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Band: cs.Band, Cited: cs.Cited,
 		})
 	}
 	// The AI-verdict dial (01 §Verdict): an AI-delegated verdict is refused

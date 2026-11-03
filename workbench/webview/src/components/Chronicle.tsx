@@ -82,7 +82,7 @@ function TurnStub({ e }: { e: ThreadEntry }) {
 }
 
 /** Knowledge-retrieval provenance (ui/02 §2.11): which SOPs / prior cases the
- * turn pulled, followed (solid) vs merely consulted (dashed). */
+ * turn pulled, cited (solid) vs only recalled (dashed). */
 export function KnowledgeChips({ e }: { e: ThreadEntry }) {
   const { openInspector } = useApp();
   const sops = e.consultedSops || [];
@@ -91,10 +91,10 @@ export function KnowledgeChips({ e }: { e: ThreadEntry }) {
   return (
     <div className="usage">
       {sops.map((s, i) => (
-        <span key={"s" + i} className={"sopchip" + (s.used ? "" : " consulted")} title="Open the procedure" onClick={() => openInspector({ kind: "sop", sopId: s.sopId })}>{(s.used ? "followed: " : "consulted: ") + (s.title || s.sopId)}</span>
+        <span key={"s" + i} className={"sopchip" + (s.cited ? "" : " consulted")} title="Open the procedure" onClick={() => openInspector({ kind: "sop", sopId: s.sopId })}>{(s.cited ? "cited: " : "recalled: ") + (s.title || s.sopId)}</span>
       ))}
       {similar.map((s, i) => (
-        <span key={"c" + i} className={"sopchip" + (s.used ? "" : " consulted")} title="Open the similar case" onClick={() => openInspector({ kind: "case", investigationRef: s.investigationRef })}>{(s.used ? "drew on case: " : "similar case: ") + (s.title || s.investigationRef)}</span>
+        <span key={"c" + i} className={"sopchip" + (s.cited ? "" : " consulted")} title="Open the similar case" onClick={() => openInspector({ kind: "case", investigationRef: s.investigationRef })}>{(s.cited ? "cited case: " : "recalled case: ") + (s.title || s.investigationRef)}</span>
       ))}
     </div>
   );

@@ -107,7 +107,7 @@ func TestSeedsAppearancesProvenance_EndToEnd(t *testing.T) {
 		"input_refs":          []string{entityRef},
 		"rationale":           "same host as the finance case",
 		"consulted_sops": []map[string]any{
-			{"sop_id": "sop-1", "title": "Lateral Movement Triage", "retrieval_score": 0.91, "used": true},
+			{"sop_id": "sop-1", "title": "Lateral Movement Triage", "retrieval_score": 0.91, "cited": true},
 		},
 		"transcript": map[string]any{"turn_id": "t1", "body": "assistant: pivoting on the shared host"},
 	})
@@ -132,7 +132,7 @@ func TestSeedsAppearancesProvenance_EndToEnd(t *testing.T) {
 		entry, _ := e.(map[string]any)
 		if sops, ok := entry["consulted_sops"].([]any); ok && len(sops) == 1 {
 			sop, _ := sops[0].(map[string]any)
-			if sop["sop_id"] == "sop-1" && sop["used"] == true {
+			if sop["sop_id"] == "sop-1" && sop["cited"] == true {
 				sawSOP = true
 			}
 		}

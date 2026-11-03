@@ -1007,13 +1007,13 @@ func TestSession_ProposeSOP(t *testing.T) {
 
 // TestSession_ConsultedSimilarRecorded: a recall_similar_investigations call is
 // captured as consulted_similar_investigations provenance on the committed
-// interpretation, with Used decided conservatively from the final text
-// (06 §6).
+// interpretation, cited because the model's text names the case by ref
+// (06 §6, adr/0236).
 func TestSession_ConsultedSimilarRecorded(t *testing.T) {
 	f := newFakeBackend(t)
 	llm := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t1", ToolRecallSimilar, `{"query":"rdp lateral movement from a file server"}`)}},
-		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("This closely resembles the prior RDP lateral movement case; isolating the host.")}},
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("This closely resembles grouping--prior1; the same pivot from a file server.")}},
 	}}
 	s, err := NewSession(context.Background(), Config{
 		Backend: f.client(), LLM: llm, InvestigationID: "inv-1", MaxToolRounds: 2,
@@ -1040,8 +1040,97 @@ func TestSession_ConsultedSimilarRecorded(t *testing.T) {
 	if cs.InvestigationRef != "grouping--prior1" || cs.Band != "NEAR_DUPLICATE" {
 		t.Errorf("consulted_similar entry wrong: %+v", cs)
 	}
-	if !cs.Used {
-		t.Error("Used should be true — the final text names the prior case's title")
+	if !cs.Cited {
+		t.Error("Cited should be true: the model's text names the prior case by ref")
+	}
+}
+
+// TestConsulted_CitedByRef: a recalled SOP or prior case is cited when the
+// model's text for the turn names it by the ref recall returned, in any case.
+// Its title is not a citation: "Phishing" is in any reply on a phish, and a
+// title does not say which recalled item the model meant (adr/0236).
+func TestConsulted_CitedByRef(t *testing.T) {
+	s := &Session{
+		consulted: map[string]ConsultedSOP{
+			"sop-phish-3": {SOPID: "sop-phish-3", Title: "Phishing", RetrievalScore: 0.9},
+			"sop-rdp-7":   {SOPID: "sop-rdp-7", Title: "RDP lateral movement", RetrievalScore: 0.8},
+		},
+		consultedSimilar: map[string]ConsultedSimilarInvestigation{
+			"grouping--prior1": {InvestigationRef: "grouping--prior1", Title: "Phishing wave", RetrievalScore: 0.9},
+			"grouping--prior2": {InvestigationRef: "grouping--prior2", Title: "RDP pivot", RetrievalScore: 0.7},
+		},
+	}
+	const text = "Phishing with an RDP pivot. Following SOP-RDP-7, as in Grouping--Prior2."
+	sops := s.consultedList(text)
+	if len(sops) != 2 || sops[0].SOPID != "sop-phish-3" || sops[0].Cited || !sops[1].Cited {
+		t.Errorf("consulted SOPs = %+v; want sop-rdp-7 cited by ref and sop-phish-3 not cited by its title", sops)
+	}
+	cases := s.consultedSimilarList(text)
+	if len(cases) != 2 || cases[0].InvestigationRef != "grouping--prior1" || cases[0].Cited || !cases[1].Cited {
+		t.Errorf("consulted cases = %+v; want grouping--prior2 cited by ref and grouping--prior1 not cited by its title", cases)
+	}
+
+	none := &Session{}
+	if got := none.consultedList(text); got != nil {
+		t.Errorf("nothing recalled: consulted SOPs = %+v; want nil", got)
+	}
+	if got := none.consultedSimilarList(text); got != nil {
+		t.Errorf("nothing recalled: consulted cases = %+v; want nil", got)
+	}
+}
+
+// TestSession_FooterIsNotACitation: the engine footer is appended to the
+// turn's text, but a ref that only the footer holds is not a citation. The
+// recalled items here are keyed by text the footer writes and the model did
+// not.
+func TestSession_FooterIsNotACitation(t *testing.T) {
+	const engineWords = "engine record"
+	if !strings.Contains(textNoActionRequested.Text, engineWords) {
+		t.Fatalf("fixture: the attestation no longer holds %q", engineWords)
+	}
+	f := newFakeBackend(t)
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		switch r.URL.Path {
+		case "/api/knowledge/recall_sops":
+			_, _ = w.Write([]byte(`{"results":[{"sop_id":"` + engineWords + `","title":"T","score":0.9}],"coverage":"COMPLETE"}`))
+		case "/api/knowledge/recall_similar_investigations":
+			_, _ = w.Write([]byte(`{"results":[{"investigation_ref":"` + engineWords + `","title":"T","score":0.9}],"coverage":"COMPLETE"}`))
+		default:
+			return false
+		}
+		return true
+	}
+	llm := &scriptedLLM{script: []CompleteResponse{
+		{StopReason: StopToolUse, Content: []ContentBlock{
+			toolUse("t1", ToolRecallSOPs, `{"query":"q"}`),
+			toolUse("t2", ToolRecallSimilar, `{"query":"q"}`),
+		}},
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("I created a ticket for the host.")}},
+	}}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1", MaxToolRounds: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Turn(context.Background(), "handle it")
+	if err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	if !strings.Contains(res.Text, engineWords) {
+		t.Fatalf("fixture: the turn's text carries no footer: %q", res.Text)
+	}
+	calls := f.callsTo("/api/interpretations")
+	if len(calls) == 0 {
+		t.Fatal("no interpretation committed")
+	}
+	var body InterpretationRequest
+	if err := json.Unmarshal(calls[len(calls)-1].Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.ConsultedSOPs) != 1 || body.ConsultedSOPs[0].Cited {
+		t.Errorf("consulted SOPs = %+v; want one, not cited", body.ConsultedSOPs)
+	}
+	if len(body.ConsultedSimilar) != 1 || body.ConsultedSimilar[0].Cited {
+		t.Errorf("consulted cases = %+v; want one, not cited", body.ConsultedSimilar)
 	}
 }
 

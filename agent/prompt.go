@@ -322,6 +322,13 @@ var promptLedger = []promptSection{
 				Text:      "A report of findings — a reply that says what you saw and where the case stands — has the same shape every time. Open with a one-sentence headline that states the answer. Then four short sections, each title on its own line: Findings (each with its refs), Not covered (the coverage gaps, and what you did not ask), Hypotheses (where each live hypothesis stands, or that none is framed yet), and Next steps (numbered options, one line each, the recommended one first). Put nothing between the headline and Findings. Plain titles, as markdown headings or bare lines; no other formatting. Use this shape when asked to look and report — search, enumerate, what do you see, where do we stand. A question with a one-line answer keeps the short form of the rule above.",
 			},
 			{
+				ID:                "cite-knowledge",
+				Origin:            "#236",
+				Why:               "The record credits a recalled procedure or past case only where the agent named it; a title or a paraphrase names no particular one (design/06 §6).",
+				PendingValidation: "#236",
+				Text:              "When a procedure or past case you recalled shaped your answer, name it by the ref recall returned — the sop_id from recall_sops, the investigation_ref from recall_similar_investigations or prior_investigations — as you cite evidence refs. Do not name one that did not shape the answer.",
+			},
+			{
 				ID:        "team-voice",
 				Origin:    "304a942",
 				Why:       "The agent speaks as part of the analyst's team, not as the engine describing a tenant.",

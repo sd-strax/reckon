@@ -1,11 +1,11 @@
 // Summary — where it stands (08 §8.4): four tiles, the narrative (gap §6.18:
 // absent until drafted, never templated), key entities with derivable
-// status words, still to do, procedures followed, the handoff note and the
+// status words, still to do, procedures cited, the handoff note and the
 // export. Every element names its source or says it is a gap.
 import { useApp } from "../../app";
 import { terminal } from "../../derive/stage";
 import { hypName } from "../../derive/hyps";
-import { handoffNote, keyEntities, proceduresFollowed, stillToDo } from "../../derive/summary";
+import { handoffNote, keyEntities, proceduresCited, stillToDo } from "../../derive/summary";
 import { Badge, Countdown, Empty, RefChip, fmtTime } from "../shared";
 import { verdictLinks } from "../../derive/verdict";
 import { scrollToAct } from "../Chronicle";
@@ -57,7 +57,7 @@ export function SummaryLens() {
   const open = hs.flatMap((h) => h.status === "ABANDONED" ? [] : h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
   const ents = keyEntities(snap.investigation.seed, snap.thread || [], snap.pins, actions, state.labels, snap.derived?.entities);
   const todo = stillToDo(actions, comms, hs, state.labels);
-  const followed = proceduresFollowed(snap.thread || []);
+  const cited = proceduresCited(snap.thread || []);
   // The verdict of record replaced an earlier one (#155): say so where the verdict is read.
   const current = (snap.thread || []).filter((e) => e.interpretationType === "verdict" && !e.superseded).pop();
   const replacedVerdict = current ? verdictLinks(snap.thread || []).get(current.interpretationId)?.replaces : undefined;
@@ -129,12 +129,12 @@ export function SummaryLens() {
       </section>
 
       <section className="lsection">
-        <h3>Procedures followed</h3>
-        {followed.length ? followed.map((f) => <div key={f.sopId}><a onClick={() => openInspector({ kind: "sop", sopId: f.sopId })}>{f.title}</a></div>) : <Empty>none applied yet</Empty>}
+        <h3>Procedures cited</h3>
+        {cited.length ? cited.map((f) => <div key={f.sopId}><a onClick={() => openInspector({ kind: "sop", sopId: f.sopId })}>{f.title}</a></div>) : <Empty>none cited yet</Empty>}
       </section>
 
       <div className="decide">
-        <button onClick={() => send({ type: "copy", text: handoffNote(snap.investigation.title, verdict, actions, todo, hs, followed) })}>Copy handoff note</button>
+        <button onClick={() => send({ type: "copy", text: handoffNote(snap.investigation.title, verdict, actions, todo, hs, cited) })}>Copy handoff note</button>
         <button title="The live markdown snapshot — paste into a ticket unedited" onClick={() => send({ type: "export.open" })}>Export report</button>
         {concluded ? <button title="Ask reckon to generalize a reusable procedure from this case; you review it before it joins the library" disabled={state.sopDraft?.state === "drafting"} onClick={() => send({ type: "sop.draft" })}>Draft SOP from this case</button> : null}
       </div>

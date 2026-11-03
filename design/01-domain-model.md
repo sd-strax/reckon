@@ -367,12 +367,12 @@ x-interpretation
   rationale                         string, bounded ~500 chars (see note below)
   confidence                        optional HIGH | MEDIUM | LOW
   consulted_sops                    optional list<{sop_id, version,
-                                    retrieval_score, used: bool}> — SOPs
+                                    retrieval_score, cited: bool}> — SOPs
                                     surfaced by knowledge-service retrieval;
-                                    `used` distinguishes cited from merely
-                                    retrieved. See 06-knowledge-service.md §6.
+                                    `cited` distinguishes cited by ref from
+                                    merely retrieved. See 06-knowledge-service.md §6.
   consulted_similar_investigations  optional list<{summary_id, version,
-                                    retrieval_score, used: bool}> —
+                                    retrieval_score, cited: bool}> —
                                     concluded-investigation summaries
                                     surfaced by similarity retrieval. See
                                     06-knowledge-service.md §6.
