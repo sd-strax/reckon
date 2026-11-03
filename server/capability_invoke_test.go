@@ -154,6 +154,22 @@ func TestCapabilityInvoke_UnknownVerb(t *testing.T) {
 
 // TestCapabilityInvoke_Unconfigured: without a capability layer the route is a
 // clean 503, matching GET /api/capabilities.
+// TestCapabilityInvoke_NoEvidenceStore: the envelope's call_id names a
+// persisted call, so without the store the call is refused before the resolver
+// runs rather than answered with an id that resolves nowhere (adr/0092).
+func TestCapabilityInvoke_NoEvidenceStore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	b := newTestBackend(t)
+	b.cfg.CapabilityResolver, b.cfg.CapabilityCatalog = buildInvokeCapability(t)
+	b.cfg.Evidence = nil
+	resp, out := postCapability(t, b, mintToken(t, nil), "enumerate_logons", CapabilityInvokeBody{})
+	if resp.StatusCode != http.StatusServiceUnavailable || out.CallID != "" {
+		t.Errorf("status = %d, call_id %q; want 503 and no call id", resp.StatusCode, out.CallID)
+	}
+}
+
 func TestCapabilityInvoke_Unconfigured(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")

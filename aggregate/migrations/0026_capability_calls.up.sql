@@ -39,8 +39,10 @@ CREATE TABLE IF NOT EXISTS capability_calls (
     duration_ms          INT NOT NULL DEFAULT 0
 );
 
+-- The reads list by investigation in start order; tenant_id is on the row
+-- for the record, not in any predicate.
 CREATE INDEX IF NOT EXISTS capability_calls_investigation_idx
-    ON capability_calls (tenant_id, investigation_id, started_at);
+    ON capability_calls (investigation_id, started_at, id);
 
 CREATE TABLE IF NOT EXISTS call_events (
     call_id       UUID NOT NULL REFERENCES capability_calls (id),
@@ -60,5 +62,9 @@ CREATE INDEX IF NOT EXISTS observed_data_events_event_idx ON observed_data_event
 
 -- The engine-minted call behind a turn's tool dispatch. call_id on the
 -- interpretation event stays the model's tool_use id; this column is the
--- capability layer's, so the two never collide.
+-- capability layer's, so the two never collide. The foreign key keeps it a
+-- call that exists; that it is this investigation's call for the same verb is
+-- checked where the row is written (aggregate.SideStore).
 ALTER TABLE ai_tool_calls ADD COLUMN IF NOT EXISTS capability_call_id UUID;
+ALTER TABLE ai_tool_calls ADD CONSTRAINT ai_tool_calls_capability_call_fk
+    FOREIGN KEY (capability_call_id) REFERENCES capability_calls (id);

@@ -3,6 +3,7 @@ package aggregate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -209,6 +210,64 @@ func TestRecordInterpretation_RecordsEventAndSideStore(t *testing.T) {
 	}
 	if toolName != "list_processes" || eventID != res.AppliedEvents[0].EventID {
 		t.Errorf("tool call = (%s, %s); want (list_processes, %s)", toolName, eventID, res.AppliedEvents[0].EventID)
+	}
+}
+
+// TestRecordInterpretation_CapabilityCallMembership: a tool-call record may
+// name only a capability call that exists, is this investigation's, and is a
+// call of the tool's verb (adr/0092); anything else is a domain rejection and
+// the turn is not recorded.
+func TestRecordInterpretation_CapabilityCallMembership(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetTables(t)
+	tenantID := uuid.New()
+	h := NewHandler(NewStore(testDB), InvestigationCurrentProjector{}, ActionCurrentProjector{}).
+		WithSideStore(NewSideStore(testDB))
+	invID := activeInvestigation(t, h, tenantID)
+	otherInv := activeInvestigation(t, h, tenantID)
+	insertCall := func(inv *uuid.UUID, verb string) uuid.UUID {
+		id := uuid.Must(uuid.NewV7())
+		if _, err := testDB.Exec(`INSERT INTO capability_calls (id, tenant_id, investigation_id, verb, coverage, started_at) VALUES ($1, $2, $3, $4, 'COMPLETE', now())`, id, tenantID, inv, verb); err != nil {
+			t.Fatalf("insert capability call: %v", err)
+		}
+		return id
+	}
+	mine := insertCall(&invID, "enumerate_logons")
+	theirs := insertCall(&otherInv, "enumerate_logons")
+	adhoc := insertCall(nil, "enumerate_logons")
+	t.Cleanup(func() {
+		_, _ = testDB.Exec(`DELETE FROM ai_tool_calls WHERE capability_call_id IN ($1, $2, $3)`, mine, theirs, adhoc)
+		_, _ = testDB.Exec(`DELETE FROM capability_calls WHERE id IN ($1, $2, $3)`, mine, theirs, adhoc)
+	})
+	record := func(callID uuid.UUID, tool string) error {
+		cmd := RecordInterpretation{
+			InterpretationID: uuid.New(), InterpretationType: InterpretationPivot, Rationale: "r", Confidence: ConfidenceMedium,
+			ToolCalls: []ToolCallContent{{CallID: "c1", ToolName: tool, Args: json.RawMessage(`{}`), CapabilityCallID: callID.String()}},
+		}
+		env := Envelope{AggregateID: invID, TenantID: tenantID, CorrelationID: uuid.New(),
+			Actor: Actor{PrincipalID: "analyst-1", Kind: ActorAIDelegated, Delegate: &AIDelegate{Vendor: "claude"}}, OccurredAt: newTestEnvelope("").OccurredAt}
+		_, err := h.Handle(context.Background(), env, cmd)
+		return err
+	}
+	if err := record(mine, "enumerate_logons"); err != nil {
+		t.Fatalf("this investigation's call of the same verb: %v", err)
+	}
+	var rejected *RejectedError
+	for name, err := range map[string]error{
+		"a call that does not exist":         record(uuid.Must(uuid.NewV7()), "enumerate_logons"),
+		"another investigation's call":       record(theirs, "enumerate_logons"),
+		"a call made outside investigations": record(adhoc, "enumerate_logons"),
+		"a call of another verb":             record(mine, "get_process_ancestry"),
+	} {
+		if !errors.As(err, &rejected) {
+			t.Errorf("%s: %v; want a RejectedError", name, err)
+		}
+	}
+	var n int
+	if err := testDB.QueryRow(`SELECT count(*) FROM ai_tool_calls WHERE investigation_id = $1`, invID).Scan(&n); err != nil || n != 1 {
+		t.Errorf("tool calls recorded = %d, %v; want the one accepted", n, err)
 	}
 }
 

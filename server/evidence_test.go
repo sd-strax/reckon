@@ -19,7 +19,7 @@ func TestEvidence_PersistAndOpen(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	resetInvestigations(t)
-	if _, err := testDB.Exec(`TRUNCATE call_events, observed_data_events, capability_calls, ocsf_events, stix_edges`); err != nil {
+	if _, err := testDB.Exec(`TRUNCATE ai_tool_calls, call_events, observed_data_events, capability_calls, ocsf_events, stix_edges`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	b := newTestBackend(t)

@@ -98,6 +98,14 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The envelope's call_id names a persisted call (adr/0092); without the
+	// store there is no row for it to name, so the call is refused before the
+	// resolver runs rather than answered with an id that resolves nowhere.
+	if b.cfg.Evidence == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "evidence store not configured")
+		return
+	}
+
 	var body CapabilityInvokeBody
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
@@ -135,11 +143,9 @@ func (b *Backend) capabilityInvoke(w http.ResponseWriter, r *http.Request) {
 	// are persisted before the refs leave the building — a ref the caller cites
 	// must be openable later (design/ui 02 §2.8). Persist failure fails the
 	// invocation rather than minting dangling citations.
-	if b.cfg.Evidence != nil {
-		if err := b.cfg.Evidence.Persist(r.Context(), call, res); err != nil {
-			writeInternalError(w, verb+": persist results", err)
-			return
-		}
+	if err := b.cfg.Evidence.Persist(r.Context(), call, res); err != nil {
+		writeInternalError(w, verb+": persist results", err)
+		return
 	}
 
 	writeJSON(w, http.StatusOK, buildInvokeResponse(call.ID, verb, res))

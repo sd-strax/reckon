@@ -74,7 +74,7 @@ func newStore(t *testing.T) *Store {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")
 	}
-	if _, err := testDB.Exec(`TRUNCATE call_events, observed_data_events, capability_calls, ocsf_events, stix_edges, stix_objects`); err != nil {
+	if _, err := testDB.Exec(`TRUNCATE ai_tool_calls, call_events, observed_data_events, capability_calls, ocsf_events, stix_edges, stix_objects`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	return NewStore(testDB)

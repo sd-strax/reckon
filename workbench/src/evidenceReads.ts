@@ -32,8 +32,18 @@ export class EvidenceReads {
   private readonly docReads = new SingleFlight<EvidenceDoc | null>();
 
   // The retrieved events posted so far per investigation, newest first, with
-  // the cursor of the next older page: "Show older" appends to it.
+  // the cursor of the next older page: "Show older" appends to it. Every read
+  // of the slice takes a generation, and a result that is no longer current
+  // (a newer read started while it was in flight) is dropped, so the pages
+  // here never fall behind what the webview holds.
   private readonly pages = new Map<string, { events: EventRow[]; total: number; cursor?: string }>();
+  private readonly generation = new Map<string, number>();
+
+  private nextGeneration(id: string): () => boolean {
+    const g = (this.generation.get(id) ?? 0) + 1;
+    this.generation.set(id, g);
+    return () => this.generation.get(id) === g;
+  }
 
   /** Fetch one evidence doc through the cache (null = unfetchable, this time). */
   private async getDoc(ref: string): Promise<EvidenceDoc | null> {
@@ -100,9 +110,10 @@ export class EvidenceReads {
    */
   async postEvents(id: string, panel: vscode.WebviewPanel, seq: number): Promise<void> {
     const current = this.host.sameIdentity();
+    const latest = this.nextGeneration(id);
     try {
       const page = await this.host.client.evidence.events(id, { limit: eventsShown, order: "newest" });
-      if (current()) {
+      if (current() && latest()) {
         this.pages.set(id, { events: page.events, total: page.total, cursor: page.nextCursor });
         void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events, eventsTotal: page.total, eventsError: null, eventsCursor: page.nextCursor ?? null } });
       }
@@ -124,9 +135,10 @@ export class EvidenceReads {
       return;
     }
     const current = this.host.sameIdentity();
+    const latest = this.nextGeneration(id);
     try {
       const page = await this.host.client.evidence.events(id, { limit: eventsShown, order: "newest", cursor });
-      if (current() && this.pages.get(id) === held) {
+      if (current() && latest()) {
         const next = { events: [...held.events, ...page.events], total: page.total, cursor: page.nextCursor };
         this.pages.set(id, next);
         void this.host.post(panel, { type: "state.patch", seq, patch: { events: next.events, eventsTotal: next.total, eventsError: null, eventsCursor: next.cursor ?? null } });
@@ -215,6 +227,7 @@ export class EvidenceReads {
   /** The person changed: nothing read as the previous one stays. */
   clear(): void {
     this.pages.clear();
+    this.generation.clear();
     this.docCache.clear();
     this.docReads.clear();
     this.labelCache.clear();

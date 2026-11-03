@@ -40,15 +40,18 @@ id, and the events that already exist.
   the workbench its document's. A call made for no investigation (the case
   seed's read, the workbench's own checks) is recorded with a null investigation:
   it keeps its id, so an id in an envelope is never a dangling one, and it is
-  listed under none.
+  listed under none. Without an evidence store there is no row for the id to
+  name, so the invoke and the case seed's read are refused (503) before the
+  resolver runs.
 - **The engine mints the id** before the resolver runs, returns it in the
   envelope as `call_id`, and the sidecar carries it on the live tool-result
   note. The turn's tool-call record gains `capability_call_id`, on the wire
   and on `ai_tool_calls`; `call_id` there stays the model's `tool_use` id,
   so the two never collide. The agent stamps it only from a capability verb's
-  envelope and only when it parses as an id, and the aggregate accepts it only
-  as an id, so a stray `call_id` on another tool's payload never fails the
-  commit.
+  envelope and only when it parses as an id. The aggregate accepts it only
+  when it names a call that exists (a foreign key), is this investigation's,
+  and is a call of the tool's verb, checked in the transaction that writes the
+  record; anything else is a domain rejection and the turn is not recorded.
 - **The reads live on `evidence.Store`**, behind the server's `evidenceStore`
   interface: `GET /investigations/{id}/events` in event time, one row per
   event under the earliest call that retrieved it, oldest or newest first
@@ -106,6 +109,10 @@ id, and the events that already exist.
   null investigation. The invoke handler gains a 400 for a malformed
   `investigation_ref`.
 - The tables grow with every call; nothing prunes them yet, as nothing prunes
-  `ocsf_events`.
+  `ocsf_events`. The calls index is `(investigation_id, started_at, id)`, the
+  shape every read filters and orders by; `tenant_id` is on the row, not in a
+  predicate.
+- A capability invoke needs the evidence store; a deployment without one gets
+  a 503 where it previously got an envelope that persisted nothing.
 - Server tests that truncate `ocsf_events` truncate `call_events`,
   `observed_data_events` and `capability_calls` first.

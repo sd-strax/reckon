@@ -209,6 +209,34 @@ describe("InvestigationDocuments: closing", () => {
     expect(last.patch.eventsCursor).toBeNull();
   });
 
+  it("drops an older page that lands after a newer read of the record, so the next click is not ignored", async () => {
+    let releaseOlder: (() => void) | undefined;
+    const slow = new Promise<void>((r) => { releaseOlder = r; });
+    const events = vi.fn(async (_id: string, q: { cursor?: string }) => {
+      if (q.cursor === "c-old") { await slow; return { events: [{ ...eventRow, id: "e-old" }], total: 3, nextCursor: "c-older" }; }
+      if (q.cursor === "c-new") return { events: [{ ...eventRow, id: "e-prev" }], total: 3 };
+      return { events: [eventRow], total: 3, nextCursor: events.mock.calls.length > 1 ? "c-new" : "c-old" };
+    });
+    const { client } = backend({ "evidence.events": events });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    const cursorPatches = () => posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>[];
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(1));
+    expect(cursorPatches()[0]!.patch.eventsCursor).toBe("c-old");
+    panel.webview.receive({ type: "events.older", cursor: "c-old" }); // slow
+    panel.webview.receive({ type: "refresh" }); // a newer read of the record: cursor c-new
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(2));
+    expect(cursorPatches()[1]!.patch.eventsCursor).toBe("c-new");
+    releaseOlder!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cursorPatches().length).toBe(2); // the slow older page was dropped
+    panel.webview.receive({ type: "events.older", cursor: "c-new" });
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(3));
+    expect(cursorPatches()[2]!.patch.events!.map((e) => e.id)).toEqual(["e-1", "e-prev"]);
+  });
+
   it("answers an event that is not a member of the investigation with an empty window, since its evidence is already loaded", async () => {
     const ocsf = { ref: "e-old", kind: "ocsf", type: "Authentication", payload: {}, classUid: 3002 };
     const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": async () => { throw new BackendRequestError("not a member", 404); } });
