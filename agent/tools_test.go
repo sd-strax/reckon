@@ -14,30 +14,6 @@ import (
 
 const toolsGolden = "testdata/intrinsic_tools.golden.json"
 
-// goldenCatalog exercises what the catalog changes in request_action: a type of
-// each availability, entity and scalar inputs, and a parameter two types share.
-func goldenCatalog() []ActionType {
-	var isolate, ticket, block ActionType
-	isolate.Status = "available"
-	isolate.Descriptor.ActionType = "host.isolate"
-	isolate.Descriptor.Intent = "Isolate a host."
-	isolate.Descriptor.DefaultTier = "T2"
-	isolate.Descriptor.Reversibility = "REVERSIBLE"
-	isolate.Descriptor.Inputs = []ActionInput{{Name: "target", Type: "entity", Required: true}, {Name: "reason", Type: "string", Required: true, Desc: "why"}}
-	ticket.Status = "degraded"
-	ticket.Descriptor.ActionType = "ticket.create"
-	ticket.Descriptor.Intent = "Open a ticket."
-	ticket.Descriptor.DefaultTier = "T1"
-	ticket.Descriptor.Reversibility = "IRREVERSIBLE"
-	ticket.Descriptor.Inputs = []ActionInput{{Name: "summary", Type: "string", Required: true, Desc: "headline"}, {Name: "reason", Type: "string"}, {Name: "priority", Type: "integer"}}
-	block.Status = "unavailable"
-	block.Descriptor.ActionType = "ioc.block"
-	block.Descriptor.Intent = "Block an indicator."
-	block.Descriptor.DefaultTier = "T2"
-	block.Descriptor.Reversibility = "BEST_EFFORT"
-	return []ActionType{isolate, ticket, block}
-}
-
 func defsOf(tools []tool) []ToolDef {
 	defs := make([]ToolDef, 0, len(tools))
 	for _, t := range tools {
@@ -52,7 +28,7 @@ func defsOf(tools []tool) []ToolDef {
 func TestIntrinsicTools_Golden(t *testing.T) {
 	got, err := json.MarshalIndent(map[string][]ToolDef{
 		"no_catalog": defsOf(intrinsicTools(nil)),
-		"catalog":    defsOf(intrinsicTools(goldenCatalog())),
+		"catalog":    defsOf(intrinsicTools(exampleCatalog())),
 	}, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +111,48 @@ func TestBuildTools_RefusesASharedName(t *testing.T) {
 	_, _, err := buildTools([]Capability{verb}, nil)
 	if err == nil || !strings.Contains(err.Error(), ToolListActions) {
 		t.Fatalf("err = %v; want a refusal naming the tool", err)
+	}
+}
+
+// TestBuildTools_OrderIsTheSessions: the backend's capability order does not
+// reach the list the prompt cache matches on (adr/0232). Every order of the
+// same capabilities gives the same bytes: verbs by name, then the intrinsics.
+func TestBuildTools_OrderIsTheSessions(t *testing.T) {
+	var caps []Capability
+	for _, v := range []string{"verb_c", "verb_a", "verb_b"} {
+		var c Capability
+		c.Status = "available"
+		c.Descriptor.Verb = v
+		caps = append(caps, c)
+	}
+	render := func(caps []Capability) string {
+		defs, _, err := buildTools(caps, exampleCatalog())
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := json.Marshal(defs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	want := render(caps)
+	for _, order := range [][]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}} {
+		shuffled := []Capability{caps[order[0]], caps[order[1]], caps[order[2]]}
+		if got := render(shuffled); got != want {
+			t.Errorf("order %v gives a different tool list", order)
+		}
+	}
+	defs, _, _ := buildTools(caps, nil)
+	var names []string
+	for _, d := range defs[:3] {
+		names = append(names, d.Name)
+	}
+	if !slices.Equal(names, []string{"verb_a", "verb_b", "verb_c"}) {
+		t.Errorf("verbs in %v; want them by name", names)
+	}
+	if defs[3].Name != ToolRecallSOPs || defs[len(defs)-1].Name != ToolReadResult {
+		t.Errorf("intrinsics are not after the verbs in declared order: %s … %s", defs[3].Name, defs[len(defs)-1].Name)
 	}
 }
 

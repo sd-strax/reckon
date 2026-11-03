@@ -180,8 +180,17 @@ land in `eval/artifacts/<scenario>-<timestamp>/` — local only, gitignored.
 ## Baselines and regression
 
 Every run is attributed: `prompt_version` is `agent.PromptVersion` — the hash
-of the **base** prompt (prompt code + the `hypothesis_framing` dial, recorded
-beside it), identical across trials, runs, and models on the same code. The
+of what the turn loop puts in front of the model (the base prompt, the
+intrinsic tool definitions and the engine text, adr/0232; a function of the
+code and the `hypothesis_framing` dial, recorded beside it), identical across
+trials, runs, and models on the same code. `side_instruction_version` is the
+same for the summary and SOP-draft instructions, which no assertion grades.
+`tool_set_hash` is the tool list the model was offered, as each request sends
+it (the install's capability verbs and the action catalog as `request_action`
+renders them), plus the verbs the prompt names degraded. A run in which the
+reader read an answer to a manual test records `reader_model`,
+`reader_version` (the hash of the reader's instruction and question), and the
+reader's spend. The
 prompt *as assembled* for each trial (investigation context included) is kept
 in the trial record (`system_prompt`), not hashed: a version that changed with
 the investigation id would be a per-run nonce, not a version.
@@ -194,7 +203,13 @@ the first run for a scenario+model has nothing to regress against. Turn-scoped
 entries are keyed `<id>@turn<n>`; if a scenario edit moves an assertion to
 another turn, it is still compared against its old entry (same id, asserted at
 one turn on each side) and the finding names both keys — an inserted turn never
-silently drops an assertion's bar.
+silently drops an assertion's bar. The comparison is of scores alone; after the
+summary the run prints a `version:` line for each of `prompt_version`,
+`side_instruction_version`, `judge_rubric`, `reader_version`, `reader_model`
+and `tool_set_hash` that the run carries and the baseline does not share. A
+condition the baseline never recorded (baselines accepted before it was
+attributed) prints as `against baseline unrecorded`, not as agreement; a
+baseline with no `judge_rubric` was graded by anchors alone and prints nothing.
 
 To accept a run as the new baseline:
 
@@ -207,8 +222,8 @@ git add eval/baselines && git commit   # the summary travels with the prompt cha
 wrote (the latest under `artifacts/`, or `RECKON_EVAL_REPORT=<path>` for a
 specific one — an **absolute** path, since the test runs from `eval/`; reach
 for it when a newer run has started and its directory is the latest but empty), reduces it to the committable summary (scores, not transcripts),
-and writes the per-model baseline. It **refuses** two kinds of run (a baseline
-is an *accepted* run); `RECKON_EVAL_FORCE=1` overrides either:
+and writes the per-model baseline. It **refuses** three kinds of run (a baseline
+is an *accepted* run); `RECKON_EVAL_FORCE=1` overrides each:
 
 - **MUST failures** — the regression rule is meaningless against a bar that
   itself fails a correctness assertion.
@@ -216,6 +231,9 @@ is an *accepted* run); `RECKON_EVAL_FORCE=1` overrides either:
   the verdicts are graded over fewer than N trials and the bar is thin. Re-run a
   clean N=3. `TestEvalRun` also fails on a truncated run rather than reporting a
   misleading PASS.
+- **Mixed tool sets** — the trials were offered different tools
+  (`tool_set_hash: "mixed"`; `trial_tool_sets` holds each trial's), so the bar
+  is no one condition. Re-run on a stable stack.
 
 SHOULD failures on a *complete* run bake fine (the baseline records the rate for
 future comparison).
@@ -256,9 +274,10 @@ if any, is recorded beside the verdict (`anchor`) as a cross-check, and the
 summary counts how often the two agreed. The judge is a no-tools completion on
 the agent's own provider seam — BYOK, client-side — and answers a strict JSON
 object whose quoted sentence lands in the verdict (`judged: true`, `quote`), so
-you can check it from the report. The run records `judge_model` + `judge_rubric`
-and the judge's tokens apart from the agent's. Without a judge the anchors
-decide as they did at v0.
+you can check it from the report. The run records `judge_model` +
+`judge_rubric` (a hash over the judge's instruction, question framing and
+rubrics) and the judge's tokens apart from the agent's. Without a judge the
+anchors decide as they did at v0.
 
 - `RECKON_EVAL_JUDGE_MODEL=<id>` picks the judge (default `claude-sonnet-4-6`).
 - `RECKON_EVAL_JUDGE=off` grades by anchors alone (the pre-v0.11 behavior).
@@ -341,7 +360,8 @@ same price whether the change is one sentence or five.
   turn, `attest_manual` — the authored answer (content, source, channel) the
   scripted analyst records for any manual test the agent left open, through the
   Record result path; a reader model decides per prediction which way the answer
-  points and the reading lands in the trial record (`adr/0069`). The loader
+  points and the reading lands in the trial record (`adr/0069`); the run is
+  attributed with the reader's `reader_model` and `reader_version`. The loader
   (`scenario.go`) validates every referenced id exists **and** is placed at its
   declared scope (turn-scoped vs trial-wide), so a typo or misplacement fails
   loudly at load, not silently at grading; `TestLoadScenario_Bundled` requires

@@ -41,11 +41,12 @@ const minIdentifierLen = 4
 var promptGuardExemptions = map[string]string{}
 
 // TestPrompt_NoScenarioVocabulary is the mechanical half of adr/0057: the base
-// prompt and the tool descriptions the model reads must not contain an
-// identifier from any fixture scenario. A prompt that quotes the test set is
-// tuned to it, and the eval cannot tell a rule that generalizes from one that
-// names the fixture. The denylist is built from the fixtures themselves, so a
-// new scenario extends the guard with no edit here.
+// prompt, the tool descriptions, the engine text and the side instructions the
+// model reads (adr/0232) must not contain an identifier from any fixture
+// scenario. A prompt that quotes the test set is tuned to it, and the eval
+// cannot tell a rule that generalizes from one that names the fixture. The
+// denylist is built from the fixtures themselves, so a new scenario extends the
+// guard with no edit here.
 func TestPrompt_NoScenarioVocabulary(t *testing.T) {
 	idents, err := fixtureIdentifiers(fixtureRoot)
 	if err != nil {
@@ -63,25 +64,21 @@ func TestPrompt_NoScenarioVocabulary(t *testing.T) {
 	for _, tl := range intrinsicTools(nil) {
 		texts["tool/"+tl.def.Name] = toolText(tl.def)
 	}
-	// A verb tool's entity/window descriptions are rendered by the loop, not
-	// the backend: cover them through a synthetic descriptor.
-	var cap Capability
-	cap.Descriptor.Verb = "verb"
-	cap.Descriptor.Inputs = append(cap.Descriptor.Inputs,
-		struct {
-			Name     string `json:"name"`
-			Type     string `json:"type"`
-			Required bool   `json:"required"`
-			Desc     string `json:"desc,omitempty"`
-		}{Name: "target", Type: "entity", Required: true},
-		struct {
-			Name     string `json:"name"`
-			Type     string `json:"type"`
-			Required bool   `json:"required"`
-			Desc     string `json:"desc,omitempty"`
-		}{Name: "window", Type: "time_window"},
-	)
-	texts["tool/<verb>"] = toolText(verbToolDef(cap))
+	// The text that renders only with a catalog or a verb is covered through
+	// the examples PromptVersion hashes (adr/0232).
+	for _, tl := range intrinsicTools(exampleCatalog()) {
+		if tl.def.Name == ToolRequestAction {
+			texts["tool/"+tl.def.Name+"+catalog"] = toolText(tl.def)
+		}
+	}
+	texts["tool/<verb>"] = toolText(verbToolDef(exampleVerb()))
+	// The engine text and the side instructions are read by the model too.
+	for _, e := range engineTexts {
+		texts["engine-text/"+e.ID] = e.Text
+	}
+	for _, e := range sideInstructions {
+		texts["side/"+e.ID] = e.Text
+	}
 
 	found := map[string][]string{} // identifier → where
 	for where, text := range texts {

@@ -72,12 +72,6 @@ func (c compaction) analystNote() string {
 		". The investigation record is unchanged."
 }
 
-// modelNote tells the model what it can no longer see.
-const modelNote = "[context] The conversation was condensed to fit the context window. Earlier turns keep only " +
-	"the analyst's words and your replies; their tool calls and results are no longer in view, some results " +
-	"earlier in this turn may be replaced by a placeholder, and the oldest turns may be gone. Re-run a query " +
-	"if you need its detail. Nothing was removed from the investigation record."
-
 func plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun
@@ -235,11 +229,11 @@ func elidedPlaceholder(content string) string {
 			ResultID string `json:"result_id"`
 		} `json:"result_bounded"`
 	}
-	way := "re-run the call if you need it"
+	way := textRerun.Text
 	if json.Unmarshal([]byte(content), &held) == nil && held.Bounded != nil && held.Bounded.ResultID != "" {
-		way = fmt.Sprintf("re-run the call, or read_result %s while it is held", held.Bounded.ResultID)
+		way = fmt.Sprintf(textRerunOrRead.Text, held.Bounded.ResultID)
 	}
-	return fmt.Sprintf("[result removed to fit the context window: %d bytes; %s]", len(content), way)
+	return fmt.Sprintf(textResultRemoved.Text, len(content), way)
 }
 
 // completeFitted runs one model call on a history that fits the context
@@ -283,12 +277,12 @@ func (s *Session) noteCompaction(transcript *strings.Builder, c compaction, side
 		return
 	}
 	if *side != nil {
-		*side = append(*side, TextBlock(modelNote))
+		*side = append(*side, TextBlock(textContextCondensed.Text))
 		fmt.Fprintf(transcript, "[engine] %s\n", sanitizeTranscript(c.analystNote()))
 		return
 	}
 	if n := len(s.messages); n > 0 && s.messages[n-1].Role == RoleUser {
-		s.messages[n-1].Content = append(s.messages[n-1].Content, TextBlock(modelNote))
+		s.messages[n-1].Content = append(s.messages[n-1].Content, TextBlock(textContextCondensed.Text))
 	}
 	note := c.analystNote()
 	fmt.Fprintf(transcript, "[engine] %s\n", sanitizeTranscript(note))

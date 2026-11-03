@@ -1,6 +1,6 @@
 # 0057 — The base prompt is rendered from a ledger, pinned by hash, and may not quote the fixtures
 
-Issue: #57 · PR: #62 · Status: accepted
+Issue: #57 · PR: #62 · Status: accepted · Scope amended by [0232](0232-model-facing-text.md): the version covers the tool definitions and the engine text too
 
 ## Context
 

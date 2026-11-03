@@ -285,7 +285,7 @@ func TestSession_ModelIsToldWhatItNoLongerSees(t *testing.T) {
 	}
 	req := llm.requests[0]
 	last := req.Messages[len(req.Messages)-1].Content
-	if got := last[len(last)-1].Text; got != modelNote {
+	if got := last[len(last)-1].Text; got != textContextCondensed.Text {
 		t.Errorf("last block of the request = %.60q; want the context note", got)
 	}
 }

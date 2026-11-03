@@ -435,11 +435,27 @@ func (s *Session) Tools() []ToolDef { return s.tools }
 // product stamps a version itself.
 func (s *Session) System() string { return s.system }
 
-// PromptVersion is the base-prompt version this session runs under (see
+// PromptVersion is the prompt version this session runs under (see
 // PromptVersion): the same on every investigation and install that shares
-// the prompt code and the framing dial.
+// the code and the framing dial.
 func (s *Session) PromptVersion() string {
 	return PromptVersion(s.investigation.HypothesisFraming)
+}
+
+// ToolSetHash identifies the tools this session offers the model, exactly as
+// each request sends them, and the verbs its prompt names degraded. It covers
+// what PromptVersion leaves out because it varies per install (adr/0232): the
+// capability verbs, their descriptions, schemas and availability, and the
+// action catalog as request_action renders it.
+func (s *Session) ToolSetHash() string {
+	b, err := json.Marshal(struct {
+		Tools    []ToolDef `json:"tools"`
+		Degraded []string  `json:"degraded"`
+	}{s.tools, degradedVerbs(s.caps)})
+	if err != nil {
+		panic(fmt.Sprintf("agent: the tool set does not marshal: %v", err))
+	}
+	return digest(b)
 }
 
 // HypothesisFraming is the framing dial the session's prompt was rendered
@@ -565,7 +581,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 				if n, cut := cutOff[blk.ToolUseID]; cut {
 					fmt.Fprintf(&transcript, "[tool_use %s id=%s] input cut off after %d bytes; not run\n",
 						sanitizeTranscript(blk.ToolName), sanitizeTranscript(blk.ToolUseID), n)
-					cutResults = append(cutResults, abandonedResults(&transcript, []ContentBlock{blk}, cutOffReason)...)
+					cutResults = append(cutResults, abandonedResults(&transcript, []ContentBlock{blk}, textToolCutOff.Text)...)
 					continue
 				}
 				toolUses = append(toolUses, blk)
@@ -702,17 +718,6 @@ func stopReason(ctx context.Context) string {
 	return "cancelled by the analyst"
 }
 
-// summarizeInstruction asks the model for the knowledge-base narrative at
-// conclusion (design/06 §3.2, client-side tier). Grounding rules ride in the
-// instruction: the narrative feeds similarity recall in FUTURE investigations,
-// so it must be a faithful digest of the record, not a story.
-const summarizeInstruction = "The investigation has just been concluded. Write a knowledge-base summary " +
-	"narrative of it in 150–250 words of plain prose (no headers, no lists): what was investigated " +
-	"(the seed), what the evidence showed, the verdict and why, the key entities and MITRE techniques, " +
-	"what actions were taken and their outcomes, and anything a future analyst handling a similar case " +
-	"should know. State only what is in the record — no speculation, no embellishment. " +
-	"Respond with the narrative text alone."
-
 // SummarizeConcluded writes the concluded investigation's knowledge-summary
 // narrative — the client-side tier of the two-tier summary (design/06 §3.2):
 // the server wrote the structured baseline deterministically at conclusion;
@@ -723,7 +728,7 @@ const summarizeInstruction = "The investigation has just been concluded. Write a
 // conversation — it is a side product, not a turn. A fresh session (sidecar
 // respawn) rehydrates from the committed thread first. Returns the narrative.
 func (s *Session) SummarizeConcluded(ctx context.Context) (string, error) {
-	resp, err := s.sideCompletion(ctx, summarizeInstruction)
+	resp, err := s.sideCompletion(ctx, sideSummarize.Text)
 	if err != nil {
 		return "", fmt.Errorf("agent: summarize concluded: %w", err)
 	}
@@ -781,27 +786,6 @@ type SOPCandidate struct {
 	Rationale      string   `json:"rationale"`
 }
 
-// proposeSOPInstruction asks for one structured candidate SOP. It leans on the
-// SOPs + similar past cases the session recalled (they are in its
-// conversation) so the model generalizes rather than duplicates.
-const proposeSOPInstruction = "The investigation has just been concluded. Consider whether it yields a " +
-	"REUSABLE procedure worth capturing as a standing SOP — a generalization a future analyst could " +
-	"follow on a similar case, not a retelling of this one. Draw on the SOPs and similar past " +
-	"investigations already in your context: if an existing SOP already covers this, do NOT propose a " +
-	"duplicate. Only propose when there is a genuine, generalizable procedure. " +
-	"Respond with a SINGLE JSON object and nothing else: " +
-	`{"warranted": bool, "title": string, "body": string (a markdown runbook: scope, triage, response, ` +
-	`do-not), "tags": [string] (lowercase, include any MITRE technique ids), "recommendation": string ` +
-	`(one short imperative, e.g. "isolate"), "rationale": string (why this generalizes, or if not ` +
-	`warranted, why not)}. If warranted is false, leave title/body/tags/recommendation empty and explain ` +
-	"in rationale."
-
-// proposeSOPAnyway is added when the analyst asked for a draft after the model
-// declined (adr/0156): the analyst has judged it worth a procedure.
-const proposeSOPAnyway = " The analyst has read your earlier answer and asked for a draft anyway: set " +
-	"warranted to true and write the best generalizable procedure you can, and say in rationale which " +
-	"existing SOP it overlaps, if any."
-
 // ProposeSOP runs one BYOK model completion over the session's own conversation
 // and returns a candidate SOP generalized from the concluded investigation — the
 // client tier of candidate-SOP generation (design/06: the compounding loop). It
@@ -811,9 +795,9 @@ const proposeSOPAnyway = " The analyst has read your earlier answer and asked fo
 // thread first. Unlike the summary, nothing is written here — the candidate goes
 // back to the workbench for the analyst to accept (create the SOP) or discard.
 func (s *Session) ProposeSOP(ctx context.Context, force bool) (SOPCandidate, error) {
-	instruction := proposeSOPInstruction
+	instruction := sideProposeSOP.Text
 	if force {
-		instruction += proposeSOPAnyway
+		instruction += sideProposeSOPAnyway.Text
 	}
 	resp, err := s.sideCompletion(ctx, instruction)
 	if err != nil {
@@ -1035,10 +1019,6 @@ func (s *Session) refreshPending(ctx context.Context) []ActionStatus {
 	return out
 }
 
-// cutOffReason answers a tool call whose input did not arrive whole.
-const cutOffReason = "this call's input was cut off at the output limit and was not run; " +
-	"issue it again with a shorter input"
-
 // sealToolInputs returns content with every tool_use input that is not a JSON
 // object replaced by {}, and the byte length each such input arrived with,
 // keyed by tool_use id. A stream stopped on max_tokens mid-tool_use delivers
@@ -1133,5 +1113,5 @@ func clipRunes(s string, n int) string {
 	if len(runes) <= n {
 		return s
 	}
-	return string(runes[:n-1]) + "…"
+	return string(runes[:n-1]) + textClipped.Text
 }

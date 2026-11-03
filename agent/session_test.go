@@ -1109,8 +1109,8 @@ func TestSession_CutOffToolInputNeverEntersHistory(t *testing.T) {
 		t.Errorf("a cut-off call was dispatched %d times", n)
 	}
 	last := s.messages[len(s.messages)-1]
-	if len(last.Content) != 1 || !last.Content[0].IsError || last.Content[0].Content != cutOffReason {
-		t.Errorf("cut-off call answered with %+v; want one is_error result carrying cutOffReason", last.Content)
+	if len(last.Content) != 1 || !last.Content[0].IsError || last.Content[0].Content != textToolCutOff.Text {
+		t.Errorf("cut-off call answered with %+v; want one is_error result carrying the cut-off text", last.Content)
 	}
 	want := fmt.Sprintf("[tool_use recall_sops id=tx] input cut off after %d bytes; not run", len(cut))
 	if !strings.Contains(res.Transcript, want) {
@@ -1149,7 +1149,7 @@ func TestSession_CutOffCallBesideValidCalls(t *testing.T) {
 	}
 	for _, m := range s.messages {
 		for _, b := range m.Content {
-			if b.Type == BlockToolResult && b.ToolUseID == "bad" && (!b.IsError || b.Content != cutOffReason) {
+			if b.Type == BlockToolResult && b.ToolUseID == "bad" && (!b.IsError || b.Content != textToolCutOff.Text) {
 				t.Errorf("malformed call answered with %+v", b)
 			}
 		}
@@ -1621,5 +1621,34 @@ func TestCapabilityCallID(t *testing.T) {
 		if got := capabilityCallID(content); got != "" {
 			t.Errorf("capabilityCallID(%s) = %q; want none", content, got)
 		}
+	}
+}
+
+// TestToolSetHash: the hash moves with what the model is offered — a verb's
+// description or availability — and not with the order the backend served.
+func TestToolSetHash(t *testing.T) {
+	verb := func(name, intent, status string) Capability {
+		var c Capability
+		c.Status = status
+		c.Descriptor.Verb = name
+		c.Descriptor.Intent = intent
+		return c
+	}
+	hash := func(caps ...Capability) string {
+		tools, _, err := buildTools(caps, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return (&Session{tools: tools, caps: caps}).ToolSetHash()
+	}
+	base := hash(verb("a", "A.", "available"), verb("b", "B.", "available"))
+	if hash(verb("b", "B.", "available"), verb("a", "A.", "available")) != base {
+		t.Error("the backend's order moved the hash")
+	}
+	if hash(verb("a", "A, reworded.", "available"), verb("b", "B.", "available")) == base {
+		t.Error("a reworded verb did not move the hash")
+	}
+	if hash(verb("a", "A.", "available"), verb("b", "B.", "degraded")) == base {
+		t.Error("a degraded verb did not move the hash")
 	}
 }

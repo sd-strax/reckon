@@ -117,6 +117,40 @@ func TestAcceptBaseline_RefusesTruncatedRun(t *testing.T) {
 	}
 }
 
+// TestAcceptBaseline_RefusesMixedToolSets: trials offered different tool sets
+// are no one condition, so the run is not a baseline unless forced; the
+// refusal names each trial's set.
+func TestAcceptBaseline_RefusesMixedToolSets(t *testing.T) {
+	dir := t.TempDir()
+	rep := cleanReport()
+	rep.Attribution.ToolSetHash = toolSetMixed
+	rep.Attribution.TrialToolSets = []string{"aaaa", "bbbb", "aaaa"}
+	reportPath := writeReport(t, filepath.Join(dir, "run1"), rep)
+	baselineDir := filepath.Join(dir, "baselines")
+
+	_, err := AcceptBaseline(reportPath, baselineDir, false)
+	if err == nil || !strings.Contains(err.Error(), "different tool sets (aaaa, bbbb, aaaa)") {
+		t.Fatalf("err = %v; want refusal naming the trials' tool sets", err)
+	}
+	if _, statErr := os.Stat(BaselinePath(baselineDir, "s", "m")); statErr == nil {
+		t.Error("baseline written despite mixed tool sets")
+	}
+	if _, err := AcceptBaseline(reportPath, baselineDir, true); err != nil {
+		t.Fatalf("forced accept: %v", err)
+	}
+}
+
+// TestMixedOnly: per-trial tool sets are kept only when they differ.
+func TestMixedOnly(t *testing.T) {
+	per := []string{"a", "b"}
+	if got := mixedOnly(toolSetMixed, per); len(got) != 2 {
+		t.Errorf("mixed run kept %v", got)
+	}
+	if got := mixedOnly("a", []string{"a", "a"}); got != nil {
+		t.Errorf("one-set run kept %v", got)
+	}
+}
+
 // TestLatestReport: the newest timestamped run directory wins.
 func TestLatestReport(t *testing.T) {
 	dir := t.TempDir()

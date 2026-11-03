@@ -29,8 +29,7 @@ import (
 // and the model never has to remember one or infer it from narrative. The
 // prompt's timeframe rule (prompt.go, "Output discipline") names this block.
 func clockBlock(now time.Time) string {
-	return fmt.Sprintf("[clock — this turn began at %s; the engine's clock, not an observation]",
-		now.UTC().Format(time.RFC3339))
+	return fmt.Sprintf(textClock.Text, now.UTC().Format(time.RFC3339))
 }
 
 // hypothesisRow mirrors the fields of the server's HypothesisView the block
@@ -59,7 +58,7 @@ type predictionRow struct {
 // tools take. Without an ordinal, the id alone.
 func predictionLabel(p predictionRow) string {
 	if p.Ordinal > 0 {
-		return fmt.Sprintf("P%d (%s)", p.Ordinal, p.ID)
+		return fmt.Sprintf(textPredictionName.Text, p.Ordinal, p.ID)
 	}
 	return p.ID
 }
@@ -98,26 +97,26 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("[reasoning state — the investigation's hypothesis set as the engine holds it now (trust THIS over any earlier narration):\n")
+	b.WriteString(textReasoningState.Text)
 	type outstanding struct {
 		owner, rival, pred string
 	}
 	var open []outstanding
 	for _, h := range rows {
-		fmt.Fprintf(&b, "%s (%s) %s", nameOf[h.ID], h.ID, h.Status)
+		fmt.Fprintf(&b, textHypothesisLine.Text, nameOf[h.ID], h.ID, h.Status)
 		if len(h.Labels) > 0 {
-			fmt.Fprintf(&b, " [%s]", strings.Join(h.Labels, ", "))
+			fmt.Fprintf(&b, textHypothesisLabels.Text, strings.Join(h.Labels, textListSeparator.Text))
 		}
-		fmt.Fprintf(&b, " — %s\n", strings.TrimSpace(h.Statement))
+		fmt.Fprintf(&b, textHypothesisStatement.Text, strings.TrimSpace(h.Statement))
 		if len(h.Predictions) == 0 {
-			b.WriteString("  predictions: none\n")
+			b.WriteString(textNoPredictions.Text)
 			continue
 		}
 		tally := map[string]int{}
 		for _, p := range h.Predictions {
 			tally[p.Status]++
 		}
-		b.WriteString("  predictions: " + tallyString(tally) + "\n")
+		fmt.Fprintf(&b, textPredictionTally.Text, tallyString(tally))
 		for _, p := range h.Predictions {
 			if p.Status != "UNTESTED" {
 				continue
@@ -133,31 +132,31 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 					open = append(open, outstanding{owner: nameOf[h.ID], rival: name, pred: predictionLabel(p)})
 				}
 			}
-			fmt.Fprintf(&b, "  - untested %s", predictionLabel(p))
+			fmt.Fprintf(&b, textUntested.Text, predictionLabel(p))
 			if len(rivals) > 0 {
-				fmt.Fprintf(&b, " (discriminates vs %s)", strings.Join(rivals, ", "))
+				fmt.Fprintf(&b, textDiscriminatesVs.Text, strings.Join(rivals, textListSeparator.Text))
 			}
 			if p.TestKind == "manual" {
 				// A person tests it (adr/0054): the model cannot run it and the
 				// engine refuses its result from the delegate — say so where the
 				// model reads the test, not only in the standing rules.
-				b.WriteString(" [manual — a person tests it; the analyst records the result, you cannot]")
+				b.WriteString(textManualTest.Text)
 			}
-			fmt.Fprintf(&b, ": %s\n", clipRunes(strings.TrimSpace(p.Statement), predictionStatementMax))
+			fmt.Fprintf(&b, textPredictionStatement.Text, clipRunes(strings.TrimSpace(p.Statement), predictionStatementMax))
 		}
 	}
 	if len(open) > 0 {
-		b.WriteString("Untested discriminators outstanding: ")
+		b.WriteString(textOutstanding.Text)
 		parts := make([]string, 0, len(open))
 		for _, o := range open {
-			parts = append(parts, fmt.Sprintf("%s holds %s against %s", o.owner, o.pred, o.rival))
+			parts = append(parts, fmt.Sprintf(textHolds.Text, o.owner, o.pred, o.rival))
 		}
-		b.WriteString(strings.Join(parts, "; "))
-		b.WriteString(". Until each is tested or the analyst withdraws it, its owner cannot be recorded refuted and the hypothesis it discriminates against cannot be recorded supported.")
+		b.WriteString(strings.Join(parts, textHoldsSeparator.Text))
+		b.WriteString(textUntilTested.Text)
 	} else {
-		b.WriteString("No untested discriminator is outstanding.")
+		b.WriteString(textNoneOutstanding.Text)
 	}
-	b.WriteString("]")
+	b.WriteString(textBlockEnd.Text)
 	return b.String()
 }
 
@@ -167,7 +166,7 @@ func hypothesisLabel(h hypothesisRow, i int) string {
 	if strings.TrimSpace(h.Handle) != "" {
 		return strings.TrimSpace(h.Handle)
 	}
-	return fmt.Sprintf("H%d", i+1)
+	return fmt.Sprintf(textPositionalName.Text, i+1)
 }
 
 // isLiveHypothesis reports whether a hypothesis is still undecided — the only
@@ -179,11 +178,12 @@ func isLiveHypothesis(status string) bool {
 // tallyString renders a prediction status tally in a fixed order so the block
 // is stable for the same state.
 func tallyString(tally map[string]int) string {
-	order := []string{"UNTESTED", "CONFIRMED", "DISCONFIRMED", "INCONCLUSIVE", "WITHDRAWN"}
+	order := strings.Fields(textTallyOrder.Text)
 	parts := make([]string, 0, len(order))
-	for _, st := range order {
+	for _, word := range order {
+		st := strings.ToUpper(word)
 		if n := tally[st]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", n, strings.ToLower(st)))
+			parts = append(parts, fmt.Sprintf(textTallyCount.Text, n, word))
 			delete(tally, st)
 		}
 	}
@@ -193,7 +193,7 @@ func tallyString(tally map[string]int) string {
 	}
 	sort.Strings(rest)
 	for _, st := range rest {
-		parts = append(parts, fmt.Sprintf("%d %s", tally[st], strings.ToLower(st)))
+		parts = append(parts, fmt.Sprintf(textTallyCount.Text, tally[st], strings.ToLower(st)))
 	}
-	return strings.Join(parts, ", ")
+	return strings.Join(parts, textListSeparator.Text)
 }

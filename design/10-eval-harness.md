@@ -58,10 +58,13 @@ becomes an assertion here, so it can never silently regress.
    honesty) are v1: useful, but a judge is itself a model behavior to validate, so it never gates
    before the deterministic floor exists.
 4. **Every run is attributed.** A report without attribution is a vibe. Each run records: prompt
-   version (`agent.PromptVersion` — the content hash of the **base** prompt, a function of the prompt
-   code and the `hypothesis_framing` dial recorded beside it, and of nothing that varies per
+   version (`agent.PromptVersion` — the content hash of what the turn loop puts in front of the
+   model: the base prompt, the intrinsic tool definitions and the engine text (adr/0232), a function
+   of the code and the `hypothesis_framing` dial recorded beside it, and of nothing that varies per
    investigation or install; the `09 §4.2` identifier, stamped by the agent package so the harness
-   and any future product surface agree), model id, action-catalog content hash, scenario id +
+   and any future product surface agree), the side-instruction version, the tool set the model was
+   offered (capability verbs and action catalog as sent), the reader's model and version when it read
+   an answer to a manual test, model id, action-catalog content hash, scenario id +
    driver script hash, assertion-catalogue version, trial count. The prompt *as assembled* per trial
    is kept in the trial record for inspection, never hashed as the version — a hash that moved with
    the investigation id would mint a new "version" every run and say nothing.
@@ -226,7 +229,11 @@ config and its provider is an interface seam (`agent/llm.go`; `09 §0`), so "rec
 is a testable claim exactly when X has a passing baseline for the current prompt version and
 catalogue — no baseline, no support claim. A prompt change must hold against **every** supported
 model's baseline, not just the one it was iterated on; run cost is linear in the supported set
-(v0: one model, the product default).
+(v0: one model, the product default). One interval is the exception: adr/0232 widened what the
+prompt version covers without a rerun, so until the next prompt change reruns them the committed
+baselines carry the version they were accepted under (`a870ddbf`, the base prompt alone). Support
+stays with those baselines in that interval: a run on the current code is held to their scores,
+and prints each version it does not share with them.
 
 ## 5. Harness architecture
 

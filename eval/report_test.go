@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -96,5 +97,69 @@ func TestRegressions_RelocatedTurnKey(t *testing.T) {
 		if strings.HasPrefix(reg, "E2") {
 			t.Errorf("E2 should not pair against a baseline that asserts it at two turns: %s", reg)
 		}
+	}
+}
+
+// TestVersionSkew: the run names each condition it does not share with the
+// baseline. One the baseline never recorded is said to be unrecorded, not
+// taken as agreement; one the run lacks says nothing; a baseline without a
+// judge rubric was graded by anchors, which is no finding either.
+func TestVersionSkew(t *testing.T) {
+	r := &Report{Attribution: Attribution{
+		PromptVersion: "f5df72f6b87f19000cece63d", SideInstructionVersion: "a1bd6f383f4e", JudgeRubric: "caa20d15db77",
+		ReaderVersion: "e11a1ab74e69", ReaderModel: "reader-b", ToolSetHash: "0123456789abcdef",
+	}}
+	check := func(what string, base *BaselineSummary, want ...string) {
+		t.Helper()
+		if got := r.VersionSkew(base); strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("%s: VersionSkew =\n%s\nwant\n%s", what, strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	}
+	// A baseline accepted before adr/0232: prompt and judge only.
+	check("pre-existing baseline", &BaselineSummary{Attribution: Attribution{PromptVersion: "a870ddbf8038fe4ee2049f35", JudgeRubric: "v1"}},
+		"prompt f5df72f6b87f against baseline a870ddbf8038",
+		"side instructions a1bd6f383f4e against baseline unrecorded",
+		"judge rubric caa20d15db77 against baseline v1",
+		"reader e11a1ab74e69 against baseline unrecorded",
+		"reader model reader-b against baseline unrecorded",
+		"tool set 0123456789ab against baseline unrecorded")
+	differs := r.Attribution
+	differs.ReaderModel, differs.ToolSetHash, differs.JudgeRubric = "reader-a", "fedcba9876543210", ""
+	check("baseline under other conditions", &BaselineSummary{Attribution: differs},
+		"reader model reader-b against baseline reader-a",
+		"tool set 0123456789ab against baseline fedcba987654")
+	check("same conditions", &BaselineSummary{Attribution: r.Attribution})
+	check("no baseline", nil)
+	noReader := &Report{Attribution: Attribution{PromptVersion: r.Attribution.PromptVersion}}
+	if got := noReader.VersionSkew(&BaselineSummary{Attribution: Attribution{PromptVersion: r.Attribution.PromptVersion}}); got != nil {
+		t.Errorf("a run without a reader or tool set reports %v", got)
+	}
+	if s := r.Summary(); !strings.Contains(s, "prompt f5df72f6b87f  side a1bd6f383f4e  catalogue") ||
+		!strings.Contains(s, "tools 0123456789ab") || !strings.Contains(s, "reader reader-b (e11a1ab74e69)") {
+		t.Errorf("summary does not carry the versions:\n%s", s)
+	}
+}
+
+// TestStampReader: a reader that read an answer attributes the run with its
+// model, version and spend; one that read nothing leaves no trace.
+func TestStampReader(t *testing.T) {
+	quiet := &Report{}
+	stampReader(quiet, &LLMJudge{LLM: &scriptedJudgeLLM{}, ModelID: "reader-model"})
+	if quiet.Attribution.ReaderModel != "" || quiet.Attribution.ReaderVersion != "" || quiet.ReaderCalls != 0 {
+		t.Errorf("a reader that read nothing was stamped: %+v", quiet.Attribution)
+	}
+	stampReader(quiet, nil)
+
+	j := &LLMJudge{LLM: &scriptedJudgeLLM{reply: `{"status":"CONFIRMED","reason":"r"}`}, ModelID: "reader-model"}
+	if _, _, err := j.Read(context.Background(), ReadQuestion{Hypothesis: "h", Statement: "s", Content: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	r := &Report{}
+	stampReader(r, j)
+	if r.Attribution.ReaderModel != "reader-model" || r.Attribution.ReaderVersion != ReaderVersion || r.ReaderCalls != 1 {
+		t.Errorf("stamped %+v, %d calls", r.Attribution, r.ReaderCalls)
+	}
+	if !strings.Contains(r.Summary(), "reader: 1 answer(s) read by reader-model") {
+		t.Errorf("summary does not report the reader:\n%s", r.Summary())
 	}
 }

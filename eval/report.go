@@ -9,25 +9,43 @@ import (
 )
 
 // Attribution is the run's identity block (10 §1.4): without it a report is a
-// vibe. PromptVersion is the content hash of the assembled base prompt;
-// ActionCatalogHash covers the served action-type vocabulary.
+// vibe. PromptVersion is the content hash of what the turn loop puts in front
+// of the model; ActionCatalogHash covers the served action-type vocabulary.
 type Attribution struct {
 	// PromptVersion is agent.PromptVersion for the run's framing dial: a
-	// function of the prompt code and that dial, stable across runs,
+	// function of the code and that dial (the base prompt, the intrinsic tool
+	// definitions, the engine text; adr/0232), stable across runs,
 	// investigations, and models on the same code (#20).
 	PromptVersion string `json:"prompt_version"`
 	// HypothesisFraming is the dial PromptVersion was taken under.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
-	Model             string `json:"model"`
-	ActionCatalogHash string `json:"action_catalog_hash"`
-	ScenarioID        string `json:"scenario_id"`
-	DriverHash        string `json:"driver_hash"`
-	CatalogueVersion  string `json:"catalogue_version"`
-	Trials            int    `json:"trials"`
+	// SideInstructionVersion is agent.SideInstructionVersion: the
+	// instructions of the summary and SOP-draft completions, which no
+	// assertion grades and PromptVersion therefore leaves out (adr/0232).
+	SideInstructionVersion string `json:"side_instruction_version,omitempty"`
+	Model                  string `json:"model"`
+	ActionCatalogHash      string `json:"action_catalog_hash"`
+	ScenarioID             string `json:"scenario_id"`
+	DriverHash             string `json:"driver_hash"`
+	CatalogueVersion       string `json:"catalogue_version"`
+	Trials                 int    `json:"trials"`
 	// JudgeModel / JudgeRubric attribute the judge (adr/0059) when one graded
 	// this run: empty means every verdict was deterministic.
 	JudgeModel  string `json:"judge_model,omitempty"`
 	JudgeRubric string `json:"judge_rubric,omitempty"`
+	// ToolSetHash is agent.Session.ToolSetHash: the tool list the model was
+	// offered, capability verbs and action catalog included, and the verbs
+	// named degraded. "mixed" when the trials were offered different sets;
+	// TrialToolSets then holds each trial's, in trial order ("" for a trial
+	// that never opened a session), and the run cannot be accepted as a
+	// baseline unless forced.
+	ToolSetHash   string   `json:"tool_set_hash,omitempty"`
+	TrialToolSets []string `json:"trial_tool_sets,omitempty"`
+	// ReaderModel / ReaderVersion attribute the reader (adr/0069) when it
+	// read an answer to a manual test: its reading is the result the agent is
+	// shown next (adr/0232). Empty when it read nothing.
+	ReaderModel   string `json:"reader_model,omitempty"`
+	ReaderVersion string `json:"reader_version,omitempty"`
 }
 
 // AssertionResult is one assertion's aggregated outcome across N trials
@@ -70,6 +88,10 @@ type Report struct {
 	// agent's cost; JudgeCalls is how many verdicts it decided.
 	JudgeUsage Usage `json:"judge_usage,omitempty"`
 	JudgeCalls int   `json:"judge_calls,omitempty"`
+	// ReaderUsage is what the reader spent; ReaderCalls is how many answers
+	// it read.
+	ReaderUsage Usage `json:"reader_usage,omitempty"`
+	ReaderCalls int   `json:"reader_calls,omitempty"`
 }
 
 // modelPricing is per-million-token USD rates for one model (Anthropic public
@@ -220,8 +242,14 @@ func (r *Report) Summary() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "eval run — scenario %s, model %s, %d trials\n",
 		r.Attribution.ScenarioID, r.Attribution.Model, r.Attribution.Trials)
-	fmt.Fprintf(&b, "prompt %s  catalogue %s",
-		short(r.Attribution.PromptVersion), r.Attribution.CatalogueVersion)
+	fmt.Fprintf(&b, "prompt %s  side %s  catalogue %s",
+		short(r.Attribution.PromptVersion), short(r.Attribution.SideInstructionVersion), r.Attribution.CatalogueVersion)
+	if r.Attribution.ToolSetHash != "" {
+		fmt.Fprintf(&b, "  tools %s", short(r.Attribution.ToolSetHash))
+	}
+	if r.Attribution.ReaderModel != "" {
+		fmt.Fprintf(&b, "  reader %s (%s)", r.Attribution.ReaderModel, r.Attribution.ReaderVersion)
+	}
 	if r.Attribution.JudgeModel != "" {
 		fmt.Fprintf(&b, "  judge %s (%s)", r.Attribution.JudgeModel, r.Attribution.JudgeRubric)
 	}
@@ -270,6 +298,11 @@ func (r *Report) Summary() string {
 			fmt.Fprintf(&b, " — %s", strings.Join(disagreed, "; "))
 		}
 		b.WriteString("\n")
+	}
+	if r.ReaderCalls > 0 {
+		u := r.ReaderUsage
+		fmt.Fprintf(&b, "reader: %d answer(s) read by %s, %s in + %s out\n",
+			r.ReaderCalls, r.Attribution.ReaderModel, humanTokens(u.Input+u.CacheWrite+u.CacheRead), humanTokens(u.Output))
 	}
 	if n := r.MustFailures(); n > 0 {
 		fmt.Fprintf(&b, "\n%d MUST assertion(s) failed — defects.\n", n)
@@ -373,6 +406,41 @@ func (r *Report) Regressions(base *BaselineSummary) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// VersionSkew names each text version, the reader model and the tool set on
+// which the run and the baseline differ. Regressions compares scores alone
+// (10 §4.4); a baseline graded under other conditions still decides it, and
+// this says so to the reader of the matrix. A condition the run carries and
+// the baseline does not is reported as unrecorded, not taken as agreement:
+// baselines accepted before it was attributed carry none. The judge rubric is
+// the exception, since a baseline without one was graded by anchors alone.
+func (r *Report) VersionSkew(base *BaselineSummary) []string {
+	if base == nil {
+		return nil
+	}
+	var out []string
+	for _, v := range []struct {
+		name, run, base string
+		absentIsAnchors bool
+	}{
+		{"prompt", r.Attribution.PromptVersion, base.Attribution.PromptVersion, false},
+		{"side instructions", r.Attribution.SideInstructionVersion, base.Attribution.SideInstructionVersion, false},
+		{"judge rubric", r.Attribution.JudgeRubric, base.Attribution.JudgeRubric, true},
+		{"reader", r.Attribution.ReaderVersion, base.Attribution.ReaderVersion, false},
+		{"reader model", r.Attribution.ReaderModel, base.Attribution.ReaderModel, false},
+		{"tool set", r.Attribution.ToolSetHash, base.Attribution.ToolSetHash, false},
+	} {
+		switch {
+		case v.run == "" || v.run == v.base:
+		case v.base == "" && v.absentIsAnchors:
+		case v.base == "":
+			out = append(out, fmt.Sprintf("%s %s against baseline unrecorded", v.name, short(v.run)))
+		default:
+			out = append(out, fmt.Sprintf("%s %s against baseline %s", v.name, short(v.run), short(v.base)))
+		}
+	}
 	return out
 }
 

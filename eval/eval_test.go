@@ -51,6 +51,9 @@ func TestEvalRun(t *testing.T) {
 	if base == nil {
 		t.Logf("no committed baseline at %s — first run for this scenario+model", baselinePath)
 	}
+	for _, skew := range report.VersionSkew(base) {
+		fmt.Printf("version: %s\n", skew)
+	}
 	for _, reg := range report.Regressions(base) {
 		t.Errorf("regression vs baseline: %s", reg)
 	}
@@ -128,6 +131,9 @@ func TestRegradeRun(t *testing.T) {
 	}
 	if base == nil {
 		t.Logf("no committed baseline at %s — first run for this scenario+model", baselinePath)
+	}
+	for _, skew := range report.VersionSkew(base) {
+		fmt.Printf("version: %s\n", skew)
 	}
 	for _, reg := range report.Regressions(base) {
 		t.Errorf("regression vs baseline: %s", reg)
