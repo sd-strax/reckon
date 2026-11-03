@@ -100,24 +100,39 @@ func TestRegressions_RelocatedTurnKey(t *testing.T) {
 	}
 }
 
-// TestVersionSkew: the run names each text version it does not share with
-// the baseline, and says nothing of a version either side lacks.
+// TestVersionSkew: the run names each condition it does not share with the
+// baseline. One the baseline never recorded is said to be unrecorded, not
+// taken as agreement; one the run lacks says nothing; a baseline without a
+// judge rubric was graded by anchors, which is no finding either.
 func TestVersionSkew(t *testing.T) {
 	r := &Report{Attribution: Attribution{
 		PromptVersion: "f5df72f6b87f19000cece63d", SideInstructionVersion: "a1bd6f383f4e", JudgeRubric: "caa20d15db77",
 		ReaderVersion: "e11a1ab74e69", ReaderModel: "reader-b", ToolSetHash: "0123456789abcdef",
 	}}
-	base := &BaselineSummary{Attribution: Attribution{PromptVersion: "a870ddbf8038fe4ee2049f35", JudgeRubric: "v1", ReaderModel: "reader-a"}}
-	want := []string{"prompt f5df72f6b87f against baseline a870ddbf8038", "judge rubric caa20d15db77 against baseline v1", "reader model reader-b against baseline reader-a"}
-	if got := r.VersionSkew(base); strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("VersionSkew =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	check := func(what string, base *BaselineSummary, want ...string) {
+		t.Helper()
+		if got := r.VersionSkew(base); strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("%s: VersionSkew =\n%s\nwant\n%s", what, strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
 	}
-	base.Attribution = r.Attribution
-	if got := r.VersionSkew(base); got != nil {
-		t.Errorf("VersionSkew against the same versions = %v", got)
-	}
-	if got := r.VersionSkew(nil); got != nil {
-		t.Errorf("VersionSkew with no baseline = %v", got)
+	// A baseline accepted before adr/0232: prompt and judge only.
+	check("pre-existing baseline", &BaselineSummary{Attribution: Attribution{PromptVersion: "a870ddbf8038fe4ee2049f35", JudgeRubric: "v1"}},
+		"prompt f5df72f6b87f against baseline a870ddbf8038",
+		"side instructions a1bd6f383f4e against baseline unrecorded",
+		"judge rubric caa20d15db77 against baseline v1",
+		"reader e11a1ab74e69 against baseline unrecorded",
+		"reader model reader-b against baseline unrecorded",
+		"tool set 0123456789ab against baseline unrecorded")
+	differs := r.Attribution
+	differs.ReaderModel, differs.ToolSetHash, differs.JudgeRubric = "reader-a", "fedcba9876543210", ""
+	check("baseline under other conditions", &BaselineSummary{Attribution: differs},
+		"reader model reader-b against baseline reader-a",
+		"tool set 0123456789ab against baseline fedcba987654")
+	check("same conditions", &BaselineSummary{Attribution: r.Attribution})
+	check("no baseline", nil)
+	noReader := &Report{Attribution: Attribution{PromptVersion: r.Attribution.PromptVersion}}
+	if got := noReader.VersionSkew(&BaselineSummary{Attribution: Attribution{PromptVersion: r.Attribution.PromptVersion}}); got != nil {
+		t.Errorf("a run without a reader or tool set reports %v", got)
 	}
 	if s := r.Summary(); !strings.Contains(s, "prompt f5df72f6b87f  side a1bd6f383f4e  catalogue") ||
 		!strings.Contains(s, "tools 0123456789ab") || !strings.Contains(s, "reader reader-b (e11a1ab74e69)") {

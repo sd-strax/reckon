@@ -30,8 +30,8 @@ func LatestReport(artifactDir string) (string, error) {
 // diff travels with the prompt change (10 §4.4). It is token-free: it reads a
 // report the run already wrote, never the model.
 //
-// It refuses two kinds of run unless force is set — a baseline is an ACCEPTED
-// run, and both would make it a meaningless bar:
+// It refuses three kinds of run unless force is set — a baseline is an
+// ACCEPTED run, and each would make it a meaningless bar:
 //
 //   - MUST failures: the regression rule is vacuous against a bar that itself
 //     fails a correctness/honesty assertion.
@@ -40,6 +40,8 @@ func LatestReport(artifactDir string) (string, error) {
 //     "exercised once" is not the all-N guarantee 10 §4.2 promises) and SHOULD
 //     rates carry a different denominator. A truncated run is an infrastructure
 //     failure, not an acceptable baseline.
+//   - Mixed tool sets: the trials were offered different tools (the
+//     capability set changed during the run), so the bar is no one condition.
 //
 // SHOULD failures on a COMPLETE run are fine to bake (the baseline records the
 // rate for future comparison). Returns the baseline path written.
@@ -63,6 +65,11 @@ func AcceptBaseline(reportPath, baselineDir string, force bool) (string, error) 
 	if n := rep.MustFailures(); n > 0 && !force {
 		return "", fmt.Errorf("eval: report has %d MUST failure(s); refusing to accept as a baseline "+
 			"(fix the defect, or set RECKON_EVAL_FORCE=1 to override)", n)
+	}
+	if rep.Attribution.ToolSetHash == toolSetMixed && !force {
+		return "", fmt.Errorf("eval: the report's trials were offered different tool sets (%s); refusing to accept "+
+			"a run with no one condition as a baseline (re-run on a stable stack, or set RECKON_EVAL_FORCE=1 to override)",
+			strings.Join(rep.Attribution.TrialToolSets, ", "))
 	}
 	blob, err := json.MarshalIndent(rep.ToBaseline(), "", "  ")
 	if err != nil {

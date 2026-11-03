@@ -35,8 +35,12 @@ type Attribution struct {
 	JudgeRubric string `json:"judge_rubric,omitempty"`
 	// ToolSetHash is agent.Session.ToolSetHash: the tool list the model was
 	// offered, capability verbs and action catalog included, and the verbs
-	// named degraded. "mixed" when the trials were offered different sets.
-	ToolSetHash string `json:"tool_set_hash,omitempty"`
+	// named degraded. "mixed" when the trials were offered different sets;
+	// TrialToolSets then holds each trial's, in trial order ("" for a trial
+	// that never opened a session), and the run cannot be accepted as a
+	// baseline unless forced.
+	ToolSetHash   string   `json:"tool_set_hash,omitempty"`
+	TrialToolSets []string `json:"trial_tool_sets,omitempty"`
 	// ReaderModel / ReaderVersion attribute the reader (adr/0069) when it
 	// read an answer to a manual test: its reading is the result the agent is
 	// shown next (adr/0232). Empty when it read nothing.
@@ -406,23 +410,34 @@ func (r *Report) Regressions(base *BaselineSummary) []string {
 }
 
 // VersionSkew names each text version, the reader model and the tool set on
-// which the run and the baseline differ, when both carry one. Regressions compares scores alone (10 §4.4); a
-// baseline graded under other text still decides it, and this says so to the
-// reader of the matrix.
+// which the run and the baseline differ. Regressions compares scores alone
+// (10 §4.4); a baseline graded under other conditions still decides it, and
+// this says so to the reader of the matrix. A condition the run carries and
+// the baseline does not is reported as unrecorded, not taken as agreement:
+// baselines accepted before it was attributed carry none. The judge rubric is
+// the exception, since a baseline without one was graded by anchors alone.
 func (r *Report) VersionSkew(base *BaselineSummary) []string {
 	if base == nil {
 		return nil
 	}
 	var out []string
-	for _, v := range []struct{ name, run, base string }{
-		{"prompt", r.Attribution.PromptVersion, base.Attribution.PromptVersion},
-		{"side instructions", r.Attribution.SideInstructionVersion, base.Attribution.SideInstructionVersion},
-		{"judge rubric", r.Attribution.JudgeRubric, base.Attribution.JudgeRubric},
-		{"reader", r.Attribution.ReaderVersion, base.Attribution.ReaderVersion},
-		{"reader model", r.Attribution.ReaderModel, base.Attribution.ReaderModel},
-		{"tool set", r.Attribution.ToolSetHash, base.Attribution.ToolSetHash},
+	for _, v := range []struct {
+		name, run, base string
+		absentIsAnchors bool
+	}{
+		{"prompt", r.Attribution.PromptVersion, base.Attribution.PromptVersion, false},
+		{"side instructions", r.Attribution.SideInstructionVersion, base.Attribution.SideInstructionVersion, false},
+		{"judge rubric", r.Attribution.JudgeRubric, base.Attribution.JudgeRubric, true},
+		{"reader", r.Attribution.ReaderVersion, base.Attribution.ReaderVersion, false},
+		{"reader model", r.Attribution.ReaderModel, base.Attribution.ReaderModel, false},
+		{"tool set", r.Attribution.ToolSetHash, base.Attribution.ToolSetHash, false},
 	} {
-		if v.run != "" && v.base != "" && v.run != v.base {
+		switch {
+		case v.run == "" || v.run == v.base:
+		case v.base == "" && v.absentIsAnchors:
+		case v.base == "":
+			out = append(out, fmt.Sprintf("%s %s against baseline unrecorded", v.name, short(v.run)))
+		default:
 			out = append(out, fmt.Sprintf("%s %s against baseline %s", v.name, short(v.run), short(v.base)))
 		}
 	}

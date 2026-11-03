@@ -206,8 +206,10 @@ one turn on each side) and the finding names both keys — an inserted turn neve
 silently drops an assertion's bar. The comparison is of scores alone; after the
 summary the run prints a `version:` line for each of `prompt_version`,
 `side_instruction_version`, `judge_rubric`, `reader_version`, `reader_model`
-and `tool_set_hash` that the run and the baseline both carry and do not share,
-so a baseline graded under other conditions is visible where it decides.
+and `tool_set_hash` that the run carries and the baseline does not share. A
+condition the baseline never recorded (baselines accepted before it was
+attributed) prints as `against baseline unrecorded`, not as agreement; a
+baseline with no `judge_rubric` was graded by anchors alone and prints nothing.
 
 To accept a run as the new baseline:
 
@@ -220,8 +222,8 @@ git add eval/baselines && git commit   # the summary travels with the prompt cha
 wrote (the latest under `artifacts/`, or `RECKON_EVAL_REPORT=<path>` for a
 specific one — an **absolute** path, since the test runs from `eval/`; reach
 for it when a newer run has started and its directory is the latest but empty), reduces it to the committable summary (scores, not transcripts),
-and writes the per-model baseline. It **refuses** two kinds of run (a baseline
-is an *accepted* run); `RECKON_EVAL_FORCE=1` overrides either:
+and writes the per-model baseline. It **refuses** three kinds of run (a baseline
+is an *accepted* run); `RECKON_EVAL_FORCE=1` overrides each:
 
 - **MUST failures** — the regression rule is meaningless against a bar that
   itself fails a correctness assertion.
@@ -229,6 +231,9 @@ is an *accepted* run); `RECKON_EVAL_FORCE=1` overrides either:
   the verdicts are graded over fewer than N trials and the bar is thin. Re-run a
   clean N=3. `TestEvalRun` also fails on a truncated run rather than reporting a
   misleading PASS.
+- **Mixed tool sets** — the trials were offered different tools
+  (`tool_set_hash: "mixed"`; `trial_tool_sets` holds each trial's), so the bar
+  is no one condition. Re-run on a stable stack.
 
 SHOULD failures on a *complete* run bake fine (the baseline records the rate for
 future comparison).

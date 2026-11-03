@@ -105,7 +105,9 @@ was outside it:
   schemas and availability are outside it, and `action_catalog_hash` covers
   only the action types. `Session.ToolSetHash` hashes the tool list as each
   request sends it and the verbs the prompt names degraded, and the run stamps
-  it as `tool_set_hash` (`mixed` if the trials were offered different sets).
+  it as `tool_set_hash`. If the trials were offered different sets it stamps
+  `mixed`, keeps each trial's as `trial_tool_sets`, and `eval-accept` refuses
+  the run unless forced.
 - **The session orders its own tools.** `buildTools` sorts the available verbs
   by name and appends the intrinsics in declared order, whatever order the
   backend served. A test feeds every order of the same capabilities and requires
@@ -147,7 +149,9 @@ was outside it:
   60c97621 under `leading_null`, and 5de9f5af to bc5bd82c under `leading_only`.
   The regression rule compares results, not versions. The run prints a line for
   text version, reader model or tool set it does not share with the baseline
-  (`VersionSkew`), and the summary carries them.
+  (`VersionSkew`), and the summary carries them. The committed baselines record
+  none of the conditions this PR adds, so a run against them prints those as
+  `against baseline unrecorded` rather than staying silent.
 - The four committed baselines keep `prompt_version` a870ddbf. That is true of
   them: they were accepted before the tool and engine-text changes above, under
   a version that did not cover them. The next prompt change (#236) reruns them

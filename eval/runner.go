@@ -208,12 +208,15 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 		trialErrors []string
 		prompt      promptStamp
 		toolSet     string
+		// trialToolSets is each trial's tool set, kept when they differ.
+		trialToolSets []string
 	)
 	for i, o := range outcomes {
 		n := i + 1
 		if o.err != nil {
 			trialErrors = append(trialErrors, fmt.Sprintf("trial %d: %v", n, o.err))
 		}
+		trialToolSets = append(trialToolSets, o.stamp.ToolSet)
 		switch {
 		case o.stamp.ToolSet == "":
 		case toolSet == "":
@@ -251,6 +254,7 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 			HypothesisFraming:      prompt.Framing,
 			SideInstructionVersion: agent.SideInstructionVersion(),
 			ToolSetHash:            toolSet,
+			TrialToolSets:          mixedOnly(toolSet, trialToolSets),
 			Model:                  model,
 			ActionCatalogHash:      catalogHash,
 			ScenarioID:             s.ID,
@@ -283,6 +287,15 @@ type promptStamp struct {
 
 // toolSetMixed attributes a run whose trials were offered different tool sets.
 const toolSetMixed = "mixed"
+
+// mixedOnly keeps the per-trial tool sets when they differ: the artifact then
+// says what was mixed. A run under one set needs only the one hash.
+func mixedOnly(toolSet string, perTrial []string) []string {
+	if toolSet != toolSetMixed {
+		return nil
+	}
+	return perTrial
+}
 
 // runTrial creates + activates a fresh investigation, then drives the shipped
 // Session through the script. Returns the trial record (possibly partial, with
