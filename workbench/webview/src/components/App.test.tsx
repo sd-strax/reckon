@@ -127,7 +127,7 @@ describe("the investigation document", () => {
     expect(within(lens()).queryByText(/Owner action items/)).toBeNull(); // no placeholder section (#166)
   });
 
-  it("Summary: four tiles, key entities with derivable words, still to do, procedures followed, the handoff note", () => {
+  it("Summary: four tiles, key entities with derivable words, still to do, procedures cited, the handoff note", () => {
     const { transport } = mount();
     tab("Summary");
     expect(within(lens()).getByText("none yet")).toBeTruthy(); // verdict tile
@@ -166,7 +166,7 @@ describe("the investigation document", () => {
     expect(within(comp).queryByText(/Results for/)).toBeNull();
     // The first turn's records and activity.
     expect(within(comp).getByText(/Activity · 2 tool calls/)).toBeTruthy(); // including the recall_sops call
-    expect(within(comp).getByText("followed: Procedure one")).toBeTruthy();
+    expect(within(comp).getByText("cited: Procedure one")).toBeTruthy();
     expect(within(comp).getByText(/committed · /)).toBeTruthy(); // the aside, collapsed
     expect(comp.querySelector(".actline")).toBeNull(); // no act lines in Conversation mode
     fireEvent.click(within(comp).getByRole("tab", { name: "Thread" }));

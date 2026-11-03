@@ -6,7 +6,7 @@ import { defaultLens } from "./lens";
 import { buildMatrix } from "./matrix";
 import { concludePreflight, concludeAllowed, preflightClean } from "./preflight";
 import { nearestExpiry, primaryAction, rowStep, stageOf } from "./stage";
-import { handoffNote, keyEntities, proceduresFollowed, stillToDo } from "./summary";
+import { handoffNote, keyEntities, proceduresCited, stillToDo } from "./summary";
 import { groupTurns, recordLine } from "./turns";
 import { shortTitle } from "./hyps";
 
@@ -131,14 +131,14 @@ describe("turns", () => {
 });
 
 describe("summary", () => {
-  it("lists key entities with derivable status words, still-to-do, procedures followed, and the handoff note", () => {
+  it("lists key entities with derivable status words, still-to-do, procedures cited, and the handoff note", () => {
     const labels = (synthetic as unknown as { labels: Record<string, string> }).labels;
     const ents = keyEntities(snap.investigation.seed, snap.thread!, snap.pins, snap.actions!, labels);
     expect(ents[0]).toMatchObject({ role: "seed subject", status: "isolated" });
     const todo = stillToDo(snap.actions!, snap.comms!, snap.hypotheses, labels);
     expect(todo.map((t) => t.kind)).toEqual(["approve", "approve", "comms", "prediction", "prediction"]);
-    expect(proceduresFollowed(snap.thread!)).toEqual([{ sopId: "sop-1", title: "Procedure one" }]);
-    const note = handoffNote("T", snap.investigation.verdict, snap.actions!, todo, snap.hypotheses, proceduresFollowed(snap.thread!));
+    expect(proceduresCited(snap.thread!)).toEqual([{ sopId: "sop-1", title: "Procedure one" }]);
+    const note = handoffNote("T", snap.investigation.verdict, snap.actions!, todo, snap.hypotheses, proceduresCited(snap.thread!));
     expect(note).toContain("Verdict: none yet");
     expect(note).toContain("- host.isolate → host-a: SUCCEEDED (ISO-1)");
     expect(note).toContain("Still to do:");

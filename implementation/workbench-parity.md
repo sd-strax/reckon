@@ -69,7 +69,7 @@ behaviors kept, C4–C7 the section's additions from `09`.
 | D8 | Chronicle act lines (request / approval / rejection / dispatch / result / reversal / expiry / pin / verdict / lifecycle / conclusion) with icon, summary, up to two chips, time; superseded struck + tagged | *relocated*: `<ThreadView>` (companion Thread mode) | [h] |
 | D9 | Context-reset boundary line | `<ThreadView>` (and a marker in Conversation) | [h] |
 | D10 | Turn stub for a transcript not loaded → opens the transcript | *superseded*: the stub opens the Turn inspector (Transcript tab) | [h] |
-| D11 | SOP chips (followed / consulted) and similar-case chips (drew on / similar) under a turn | `<KnowledgeChips>` | [h] |
+| D11 | SOP chips (cited / recalled) and similar-case chips (cited case / recalled case) under a turn | `<KnowledgeChips>` | [h] |
 | D12 | Empty-conversation hint | `<Conversation>` | [ ] |
 
 ## E. Hypothesis tracker (`02 §2.9`, `adr/0047`, `0051`, `0054`, `0075`)

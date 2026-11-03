@@ -50,8 +50,8 @@ export function TurnInspector({ interpretationId }: { interpretationId: string }
         ) },
         { id: "consulted", label: "Consulted", body: () => (
           <>
-            {(e.consultedSops || []).map((s) => <div key={s.sopId} className="irow">{s.used ? "applied" : "consulted, not applied"}: <a onClick={() => openInspector({ kind: "sop", sopId: s.sopId })}>{s.title || s.sopId}</a></div>)}
-            {(e.consultedSimilar || []).map((s) => <div key={s.investigationRef} className="irow">{s.used ? "drew on case" : "similar case, not applied"}: <a onClick={() => openInspector({ kind: "case", investigationRef: s.investigationRef })}>{s.title || s.investigationRef}</a>{s.band ? <> <Badge>{s.band}</Badge></> : null}</div>)}
+            {(e.consultedSops || []).map((s) => <div key={s.sopId} className="irow">{s.cited ? "cited" : "recalled, not cited"}: <a onClick={() => openInspector({ kind: "sop", sopId: s.sopId })}>{s.title || s.sopId}</a></div>)}
+            {(e.consultedSimilar || []).map((s) => <div key={s.investigationRef} className="irow">{s.cited ? "cited case" : "recalled case, not cited"}: <a onClick={() => openInspector({ kind: "case", investigationRef: s.investigationRef })}>{s.title || s.investigationRef}</a>{s.band ? <> <Badge>{s.band}</Badge></> : null}</div>)}
             {!(e.consultedSops || []).length && !(e.consultedSimilar || []).length ? <div className="empty">no knowledge consulted in this turn</div> : null}
           </>
         ) },
@@ -126,7 +126,7 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
         {summary ? <> Concluded {summary.conclusionAt ? fmtDateTime(summary.conclusionAt) : "—"}{summary.verdictDisposition ? " · " + summary.verdictDisposition.toLowerCase() : ""}{summary.durationHours ? ` · ${summary.durationHours} hours` : ""}</> : null}
       </div>
       <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
-        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.used ? "the agent drew on it" : "the agent recalled it, not used"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
+        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.cited ? "the agent cited it" : "the agent recalled it, not cited"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
         {!consulted.length ? <span className="empty">the agent has not recalled it in this investigation</span> : null}
       </div>
       <Tabs tabs={[
@@ -176,7 +176,7 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
     <>
       <div className="isub">{sop ? <>{sop.source?.system ? sop.source.system + " · " : ""}{sop.source?.url ? <span className="mono">{sop.source.url}</span> : "markdown"}{sop.importedBy ? ` · imported by ${sop.importedBy}` : ""}{sop.importedAt ? ` · ${fmtDateTime(sop.importedAt)}` : ""}</> : null}</div>
       <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
-        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.used ? "the agent applied it" : "the agent recalled it, not applied"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
+        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.cited ? "the agent cited it" : "the agent recalled it, not cited"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
         {ledTo.map((a) => <span key={a.actionId} className="icite">led to <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a></span>)}
         {!consulted.length ? <span className="empty">the agent has not recalled it in this investigation</span> : null}
       </div>

@@ -28,7 +28,7 @@
           "sop_id": "x",
           "title": "x",
           "retrieval_score": 1,
-          "used": true
+          "cited": true
         }
       ],
       "consulted_similar_investigations": [
@@ -37,7 +37,7 @@
           "title": "x",
           "retrieval_score": 1,
           "band": "x",
-          "used": true
+          "cited": true
         }
       ]
     }

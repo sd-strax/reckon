@@ -1,5 +1,5 @@
 // The Summary lens's facts (08 §8.4, impl §9): key entities with role and the
-// derivable status words, still-to-do, procedures followed, the handoff note.
+// derivable status words, still-to-do, procedures cited, the handoff note.
 // Status words come only from the verdict and the actions — never invented.
 import type { ActionRow, Hypothesis, PinRow, ThreadEntry, Seed, CommsThread, Verdict } from "../../../src/viewTypes";
 import { isEntityRef } from "../refs";
@@ -77,14 +77,14 @@ export function stillToDo(actions: ActionRow[], comms: CommsThread[], hs: Hypoth
   return out;
 }
 
-export function proceduresFollowed(thread: ThreadEntry[]): { sopId: string; title: string }[] {
+export function proceduresCited(thread: ThreadEntry[]): { sopId: string; title: string }[] {
   const seen = new Map<string, string>();
-  for (const e of thread) for (const s of e.consultedSops || []) if (s.used && !seen.has(s.sopId)) seen.set(s.sopId, s.title || s.sopId);
+  for (const e of thread) for (const s of e.consultedSops || []) if (s.cited && !seen.has(s.sopId)) seen.set(s.sopId, s.title || s.sopId);
   return [...seen].map(([sopId, title]) => ({ sopId, title }));
 }
 
 /** The handoff note (08 §8.4 Summary): the facts, as text, for the clipboard. */
-export function handoffNote(title: string, verdict: Verdict | null | undefined, actions: ActionRow[], todo: TodoItem[], hs: Hypothesis[], followed: { title: string }[]): string {
+export function handoffNote(title: string, verdict: Verdict | null | undefined, actions: ActionRow[], todo: TodoItem[], hs: Hypothesis[], cited: { title: string }[]): string {
   const lines: string[] = [title, ""];
   lines.push(verdict ? `Verdict: ${verdict.disposition}${verdict.rationale ? " — " + verdict.rationale : ""}` : "Verdict: none yet");
   const live = hs.filter((h) => h.status !== "ABANDONED");
@@ -93,7 +93,7 @@ export function handoffNote(title: string, verdict: Verdict | null | undefined, 
     lines.push("Actions:");
     for (const a of actions) lines.push(`- ${a.actionType} → ${a.targets.join(", ")}: ${a.pending ? a.pendingLabel : a.status}${a.resultRef ? " (" + a.resultRef + ")" : ""}`);
   }
-  if (followed.length) lines.push("Procedures followed: " + followed.map((f) => f.title).join(", "));
+  if (cited.length) lines.push("Procedures cited: " + cited.map((f) => f.title).join(", "));
   if (todo.length) {
     lines.push("Still to do:");
     for (const t of todo) lines.push(`- ${t.text}`);
