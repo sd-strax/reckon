@@ -1,6 +1,6 @@
 # 0236 — A recalled SOP or past case is `cited` when the agent names it by ref
 
-Issue: #236 · PR: #TBD · Status: accepted
+Issue: #236 · PR: #301 · Status: accepted
 
 ## Context
 
