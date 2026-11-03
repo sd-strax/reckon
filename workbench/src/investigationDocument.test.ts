@@ -237,6 +237,28 @@ describe("InvestigationDocuments: closing", () => {
     expect(cursorPatches()[2]!.patch.events!.map((e) => e.id)).toEqual(["e-1", "e-prev"]);
   });
 
+  it("does not report the failure of an older read retired by a newer read of the record", async () => {
+    let failOlder: ((err: Error) => void) | undefined;
+    const slow = new Promise<never>((_, reject) => { failOlder = reject; });
+    const events = vi.fn(async (_id: string, q: { cursor?: string }) => {
+      if (q.cursor === "c-old") return slow;
+      return { events: [eventRow], total: 2, nextCursor: "c-old" };
+    });
+    const { client } = backend({ "evidence.events": events });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    const cursorPatches = () => posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch);
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(1));
+    panel.webview.receive({ type: "events.older", cursor: "c-old" }); // hangs
+    panel.webview.receive({ type: "refresh" }); // retires it
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(2));
+    failOlder!(new Error("store down"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(posted().some((m) => m.type === "state.patch" && "eventsError" in m.patch && m.patch.eventsError)).toBe(false);
+  });
+
   it("answers an event that is not a member of the investigation with an empty window, since its evidence is already loaded", async () => {
     const ocsf = { ref: "e-old", kind: "ocsf", type: "Authentication", payload: {}, classUid: 3002 };
     const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": async () => { throw new BackendRequestError("not a member", 404); } });

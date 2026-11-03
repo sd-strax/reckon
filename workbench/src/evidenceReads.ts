@@ -118,7 +118,8 @@ export class EvidenceReads {
         void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events, eventsTotal: page.total, eventsError: null, eventsCursor: page.nextCursor ?? null } });
       }
     } catch (err) {
-      if (current()) {
+      // A retired read's failure is not the record's state either.
+      if (current() && latest()) {
         void this.host.post(panel, { type: "state.patch", seq, patch: { eventsError: errText(err) } });
       }
     }
@@ -144,7 +145,7 @@ export class EvidenceReads {
         void this.host.post(panel, { type: "state.patch", seq, patch: { events: next.events, eventsTotal: next.total, eventsError: null, eventsCursor: next.cursor ?? null } });
       }
     } catch (err) {
-      if (current()) {
+      if (current() && latest()) {
         void this.host.post(panel, { type: "state.patch", seq, patch: { eventsError: errText(err) } });
       }
     }
