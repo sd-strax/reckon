@@ -1,6 +1,6 @@
 # 0090 — An event reads as one sentence everywhere, and a prediction carries its title
 
-Issue: #90 · PR: pending · Status: accepted
+Issue: #90 · PR: #302 · Status: accepted
 
 ## Context
 
