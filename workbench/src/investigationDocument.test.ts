@@ -21,6 +21,7 @@ function backend(over: Record<string, (...args: never[]) => unknown> = {}) {
     "investigations.get": async () => detail(),
     "capabilities.enablement": async () => null,
     "cases.queue": async () => null,
+    "evidence.events": async () => ({ events: [], total: 0 }),
     ...over,
   };
   const call = (name: string) => (...args: never[]) => {
@@ -171,6 +172,154 @@ describe("InvestigationDocuments: closing", () => {
   });
 
   const evidenceDoc = { ref: "ref-1", kind: "observed-data", type: "observed-data", payload: {} };
+  const eventRow = { id: "e-1", classUid: 3002, className: "Authentication", time: "2026-01-02T03:04:05Z", recordedAt: "2026-01-02T03:04:05Z", sourceTool: "fixture:s", callId: "c-1", verb: "enumerate_logons", coverage: "COMPLETE", observedDataRefs: [], entityRefs: [] };
+
+  it("posts the retrieved events after the snapshot, stamped with its sequence (adr/0092)", async () => {
+    const events = vi.fn(async () => ({ events: [eventRow], total: 1 }));
+    const { client } = backend({ "evidence.events": events });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0]!.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "events" in m.patch)).toBe(true));
+    const patch = posted().find((m) => m.type === "state.patch" && "events" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>;
+    expect(patch.seq).toBe(3);
+    expect(patch.patch.events).toEqual([eventRow]);
+    expect(patch.patch.eventsTotal).toBe(1);
+    expect(patch.patch.eventsError).toBeNull();
+    expect(patch.patch.eventsCursor).toBeNull();
+    expect(events).toHaveBeenCalledWith("inv-1", { limit: 500, order: "newest" });
+  });
+
+  it("appends the next older page when the timeline asks for it, and ignores a cursor it did not post", async () => {
+    const older = { ...eventRow, id: "e-0", time: "2026-01-01T00:00:00Z" };
+    const events = vi.fn(async (_id: string, q: { cursor?: string }) => q.cursor ? { events: [older], total: 2 } : { events: [eventRow], total: 2, nextCursor: "2026-01-02T03:04:05Z,e-1" });
+    const { client } = backend({ "evidence.events": events });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "eventsCursor" in m.patch)).toBe(true));
+    panel.webview.receive({ type: "events.older", cursor: "stale" });
+    panel.webview.receive({ type: "events.older", cursor: "2026-01-02T03:04:05Z,e-1" });
+    await vi.waitFor(() => expect(posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch).length).toBe(2));
+    expect(events).toHaveBeenCalledTimes(2);
+    expect(events).toHaveBeenLastCalledWith("inv-1", { limit: 500, order: "newest", cursor: "2026-01-02T03:04:05Z,e-1" });
+    const last = posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch).pop() as Extract<RenderMessage, { type: "state.patch" }>;
+    expect(last.patch.events).toEqual([eventRow, older]);
+    expect(last.patch.eventsCursor).toBeNull();
+  });
+
+  it("drops an older page that lands after a newer read of the record, so the next click is not ignored", async () => {
+    let releaseOlder: (() => void) | undefined;
+    const slow = new Promise<void>((r) => { releaseOlder = r; });
+    const events = vi.fn(async (_id: string, q: { cursor?: string }) => {
+      if (q.cursor === "c-old") { await slow; return { events: [{ ...eventRow, id: "e-old" }], total: 3, nextCursor: "c-older" }; }
+      if (q.cursor === "c-new") return { events: [{ ...eventRow, id: "e-prev" }], total: 3 };
+      return { events: [eventRow], total: 3, nextCursor: events.mock.calls.length > 1 ? "c-new" : "c-old" };
+    });
+    const { client } = backend({ "evidence.events": events });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    const cursorPatches = () => posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>[];
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(1));
+    expect(cursorPatches()[0]!.patch.eventsCursor).toBe("c-old");
+    panel.webview.receive({ type: "events.older", cursor: "c-old" }); // slow
+    panel.webview.receive({ type: "refresh" }); // a newer read of the record: cursor c-new
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(2));
+    expect(cursorPatches()[1]!.patch.eventsCursor).toBe("c-new");
+    releaseOlder!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cursorPatches().length).toBe(2); // the slow older page was dropped
+    panel.webview.receive({ type: "events.older", cursor: "c-new" });
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(3));
+    expect(cursorPatches()[2]!.patch.events!.map((e) => e.id)).toEqual(["e-1", "e-prev"]);
+  });
+
+  it("does not report the failure of an older read retired by a newer read of the record", async () => {
+    let failOlder: ((err: Error) => void) | undefined;
+    const slow = new Promise<never>((_, reject) => { failOlder = reject; });
+    const events = vi.fn(async (_id: string, q: { cursor?: string }) => {
+      if (q.cursor === "c-old") return slow;
+      return { events: [eventRow], total: 2, nextCursor: "c-old" };
+    });
+    const { client } = backend({ "evidence.events": events });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    const cursorPatches = () => posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch);
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(1));
+    panel.webview.receive({ type: "events.older", cursor: "c-old" }); // hangs
+    panel.webview.receive({ type: "refresh" }); // retires it
+    await vi.waitFor(() => expect(cursorPatches().length).toBe(2));
+    failOlder!(new Error("store down"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(posted().some((m) => m.type === "state.patch" && "eventsError" in m.patch && m.patch.eventsError)).toBe(false);
+  });
+
+  it("answers an event that is not a member of the investigation with an empty window, since its evidence is already loaded", async () => {
+    const ocsf = { ref: "e-old", kind: "ocsf", type: "Authentication", payload: {}, classUid: 3002 };
+    const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": async () => { throw new BackendRequestError("not a member", 404); } });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0]!.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-old" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.evidence"));
+    const answer = posted().find((m) => m.type === "inspector.evidence") as Extract<RenderMessage, { type: "inspector.evidence" }>;
+    expect(answer.around).toEqual([]);
+    expect(types()).not.toContain("inspector.error");
+  });
+
+  it("tells the panel when the retrieved record could not be read, leaving the events slice as it was", async () => {
+    const { client } = backend({ "evidence.events": async () => { throw new BackendRequestError("no route", 404); } });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0]!.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "eventsError" in m.patch)).toBe(true));
+    const patch = posted().find((m) => m.type === "state.patch" && "eventsError" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>;
+    expect(patch.patch.eventsError).toMatch(/no route/);
+    expect("events" in patch.patch).toBe(false);
+  });
+
+  it("reports a failed around read on the event's own pane, since an empty window means the record holds nothing", async () => {
+    const ocsf = { ref: "e-1", kind: "ocsf", type: "Authentication", payload: {}, classUid: 3002 };
+    const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": async () => { throw new BackendRequestError("store down", 503); } });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0]!.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-1" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.error"));
+    expect(posted().find((m) => m.type === "inspector.error")).toMatchObject({ type: "inspector.error", target: "e-1", message: expect.stringMatching(/store down/) });
+    expect(types()).not.toContain("inspector.evidence");
+  });
+
+  it("answers an event's inspector with the retrieved events around it, and a call pane with the call", async () => {
+    const ocsf = { ref: "e-1", kind: "ocsf", type: "Authentication", payload: {}, classUid: 3002 };
+    const events = vi.fn(async () => ({ events: [eventRow], total: 1 }));
+    const call = { callId: "c-1", verb: "enumerate_logons", priority: 100, coverage: "COMPLETE", bindingsAnswered: 1, bindingsTotal: 1, degradationNotes: [], startedAt: "2026-01-02T03:04:05Z", durationMs: 7, outcomes: [] };
+    const { client } = backend({ "evidence.get": async () => ocsf, "evidence.events": events, "evidence.call": async () => call });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "e-1" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.evidence"));
+    const answer = posted().find((m) => m.type === "inspector.evidence") as Extract<RenderMessage, { type: "inspector.evidence" }>;
+    expect(answer.around).toEqual([eventRow]);
+    expect(events).toHaveBeenCalledWith("inv-1", { around: "e-1", limit: 5 });
+
+    panel.webview.receive({ type: "inspector.open", target: { kind: "call", callId: "c-1" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.call"));
+    expect(posted().find((m) => m.type === "inspector.call")).toEqual({ type: "inspector.call", callId: "c-1", call });
+  });
+
+  it("reports a call the record does not hold on its own pane", async () => {
+    const { client } = backend({ "evidence.call": async () => { throw new BackendRequestError("no capability call", 404); } });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0]!.webview.receive({ type: "inspector.open", target: { kind: "call", callId: "c-9" } });
+    await vi.waitFor(() => expect(types()).toContain("inspector.error"));
+    expect(posted().find((m) => m.type === "inspector.error")).toMatchObject({ type: "inspector.error", target: "c-9" });
+  });
 
   it("does not keep a failed evidence read, and tells the panel", async () => {
     let down = true;

@@ -39,8 +39,8 @@ export class TurnDriver {
         // coverage/events come distilled from the sidecar (from the full,
         // unclipped payload) — absent for non-envelope results, and the
         // webview renders that honestly instead of a bogus "? · 0".
-        onToolResult: (name, _content, isError, coverage, events, refs) =>
-          void this.post(panel, { type: "turn.toolResult", name, isError, coverage, events, refs }),
+        onToolResult: (name, _content, isError, coverage, events, refs, callId) =>
+          void this.post(panel, { type: "turn.toolResult", name, isError, coverage, events, refs, callId }),
         onContextCompacted: (note) => void this.post(panel, { type: "turn.notice", text: note }),
       });
       if (outcome.interpretationId) {

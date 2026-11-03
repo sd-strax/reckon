@@ -39,7 +39,7 @@ describe("TurnDriver", () => {
     const { panel, refresh, driver, posted } = setup(transport((p) => {
       p.onStep(1);
       p.onToolCall("query", { q: 1 });
-      p.onToolResult("query", "{}", false, "COMPLETE", 4, ["r-1"]);
+      p.onToolResult("query", "{}", false, "COMPLETE", 4, ["r-1"], "c-1");
       p.onTextDelta("hel");
       p.onText("lo");
     }, async () => outcome({ interpretationId: "i-9" })));
@@ -49,7 +49,7 @@ describe("TurnDriver", () => {
     expect(posted().map((m) => m.type)).toEqual([
       "turn.user", "turn.start", "turn.step", "turn.tool", "turn.toolResult", "turn.text", "turn.text", "turn.committed", "turn.end",
     ]);
-    expect(posted()[4]).toEqual({ type: "turn.toolResult", name: "query", isError: false, coverage: "COMPLETE", events: 4, refs: ["r-1"] });
+    expect(posted()[4]).toEqual({ type: "turn.toolResult", name: "query", isError: false, coverage: "COMPLETE", events: 4, refs: ["r-1"], callId: "c-1" });
     // Billed input folds the cache reads and writes in; cacheRead rides separately.
     expect(posted().at(-1)).toEqual({ type: "turn.end", rounds: 2, usage: { input: 14, output: 5, cacheRead: 3 } });
     expect(refresh).toHaveBeenCalledWith("inv-1", panel);

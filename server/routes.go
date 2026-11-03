@@ -32,6 +32,11 @@ func (b *Backend) routes() []route {
 		{"GET /investigations/{id}/thread", read, withUUID(b.listInvestigationThread)},
 		{"GET /investigations/{id}/pins", read, withUUID(b.listInvestigationPins)},
 		{"GET /investigations/{id}/comms", read, withUUID(b.listInvestigationComms)},
+		// The events retrieved for the investigation and the calls that retrieved
+		// them (adr/0092): reads over the persisted record, never a capability call.
+		{"GET /investigations/{id}/events", read, withUUID(b.listInvestigationEvents)},
+		{"GET /investigations/{id}/calls", read, withUUID(b.listInvestigationCalls)},
+		{"GET /investigations/{id}/calls/{call_id}", read, withUUID(b.getInvestigationCall)},
 		// The live markdown projection (binding §6 item 10), distinct from POST
 		// .../export, which builds the signed post-conclusion bundle.
 		{"GET /investigations/{id}/export.md", read, withUUID(b.getInvestigationMarkdown)},

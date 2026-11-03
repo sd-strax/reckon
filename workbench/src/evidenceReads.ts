@@ -4,13 +4,18 @@
 // answers (impl §2.4, §4.1). Failures are not cached; a change of person
 // clears everything (adr/0241).
 import type * as vscode from "vscode";
-import type { Appearance, EvidenceDoc, ThreadEntry } from "./backend";
+import type { Appearance, EventRow, EvidenceDoc, ThreadEntry } from "./backend";
+import { BackendRequestError } from "./client/http";
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
 import type { DocumentHost } from "./documentHost";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 import type { InspectorTarget } from "./protocol";
 import { SingleFlight } from "./singleFlight";
 import { errText } from "./util";
+
+/** How many retrieved events the Story lens is given, and how many sit each side of an anchor. */
+const eventsShown = 500;
+const aroundEachSide = 5;
 
 export class EvidenceReads {
   constructor(private readonly host: DocumentHost) {}
@@ -25,6 +30,20 @@ export class EvidenceReads {
   private readonly docCache = new Map<string, EvidenceDoc>();
 
   private readonly docReads = new SingleFlight<EvidenceDoc | null>();
+
+  // The retrieved events posted so far per investigation, newest first, with
+  // the cursor of the next older page: "Show older" appends to it. Every read
+  // of the slice takes a generation, and a result that is no longer current
+  // (a newer read started while it was in flight) is dropped, so the pages
+  // here never fall behind what the webview holds.
+  private readonly pages = new Map<string, { events: EventRow[]; total: number; cursor?: string }>();
+  private readonly generation = new Map<string, number>();
+
+  private nextGeneration(id: string): () => boolean {
+    const g = (this.generation.get(id) ?? 0) + 1;
+    this.generation.set(id, g);
+    return () => this.generation.get(id) === g;
+  }
 
   /** Fetch one evidence doc through the cache (null = unfetchable, this time). */
   private async getDoc(ref: string): Promise<EvidenceDoc | null> {
@@ -83,6 +102,73 @@ export class EvidenceReads {
   }
 
   /**
+   * The events retrieved for the investigation (adr/0092): the newest page and
+   * the unpaged total, posted as a slice patch stamped with the sequence they
+   * were read for. A failed read is posted too, as `eventsError`, so the Story
+   * lens says the record could not be read rather than showing the cited
+   * events alone, which is what a record without membership looks like.
+   */
+  async postEvents(id: string, panel: vscode.WebviewPanel, seq: number): Promise<void> {
+    const current = this.host.sameIdentity();
+    const latest = this.nextGeneration(id);
+    try {
+      const page = await this.host.client.evidence.events(id, { limit: eventsShown, order: "newest" });
+      if (current() && latest()) {
+        this.pages.set(id, { events: page.events, total: page.total, cursor: page.nextCursor });
+        void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events, eventsTotal: page.total, eventsError: null, eventsCursor: page.nextCursor ?? null } });
+      }
+    } catch (err) {
+      // A retired read's failure is not the record's state either.
+      if (current() && latest()) {
+        void this.host.post(panel, { type: "state.patch", seq, patch: { eventsError: errText(err) } });
+      }
+    }
+  }
+
+  /**
+   * The next older page of retrieved events, appended to what the timeline
+   * already holds (adr/0092). A cursor that is not the one last posted is a
+   * repeat or a stale click and is ignored.
+   */
+  async postOlderEvents(id: string, panel: vscode.WebviewPanel, seq: number, cursor: string): Promise<void> {
+    const held = this.pages.get(id);
+    if (!held || held.cursor !== cursor) {
+      return;
+    }
+    const current = this.host.sameIdentity();
+    const latest = this.nextGeneration(id);
+    try {
+      const page = await this.host.client.evidence.events(id, { limit: eventsShown, order: "newest", cursor });
+      if (current() && latest()) {
+        const next = { events: [...held.events, ...page.events], total: page.total, cursor: page.nextCursor };
+        this.pages.set(id, next);
+        void this.host.post(panel, { type: "state.patch", seq, patch: { events: next.events, eventsTotal: next.total, eventsError: null, eventsCursor: next.cursor ?? null } });
+      }
+    } catch (err) {
+      if (current() && latest()) {
+        void this.host.post(panel, { type: "state.patch", seq, patch: { eventsError: errText(err) } });
+      }
+    }
+  }
+
+  /** The retrieved events on the same entity around one event, for the
+   * Evidence inspector's "Around it" (adr/0092): empty when the record has
+   * none, and empty too when the event is not a member of the investigation
+   * (a cited event persisted before membership: a 404 here). Any other
+   * failure throws, and the pane shows the error; an empty window means the
+   * record was read and held nothing. */
+  private async around(id: string, eventId: string): Promise<EventRow[]> {
+    try {
+      return (await this.host.client.evidence.events(id, { around: eventId, limit: aroundEachSide })).events;
+    } catch (err) {
+      if (err instanceof BackendRequestError && err.status === 404) {
+        return [];
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Answer an inspector pane (impl §2.4): the webview opened it from the
    * snapshot and asks for what the record holds beyond it — the evidence
    * document with its cross-investigation memory (current investigation
@@ -105,9 +191,13 @@ export class EvidenceReads {
           } catch (err) {
             this.host.log.debug(`appearances ${target.ref}: ${errText(err)}`);
           }
-          void this.host.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps });
+          const around = doc.kind === "ocsf" ? await this.around(id, target.ref) : [];
+          void this.host.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps, around });
           return;
         }
+        case "call":
+          void this.host.post(panel, { type: "inspector.call", callId: target.callId, call: await this.host.client.evidence.call(id, target.callId) });
+          return;
         case "sop":
           void this.host.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop: await this.host.client.knowledge.sop(target.sopId) });
           return;
@@ -130,13 +220,15 @@ export class EvidenceReads {
       }
     } catch (err) {
       const key = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
-        : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "";
+        : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "callId" in target ? target.callId : "";
       void this.host.post(panel, { type: "inspector.error", target: key, message: errText(err) });
     }
   }
 
   /** The person changed: nothing read as the previous one stays. */
   clear(): void {
+    this.pages.clear();
+    this.generation.clear();
     this.docCache.clear();
     this.docReads.clear();
     this.labelCache.clear();

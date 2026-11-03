@@ -364,6 +364,9 @@ export class InvestigationDocuments implements DocumentHost {
       "evidence.resolve": (msg) => {
         void this.evidence.resolveLabel(panel, msg.ref);
       },
+      "events.older": (msg) => {
+        void this.evidence.postOlderEvents(id, panel, this.cache.watermark(id), msg.cursor);
+      },
       "inspector.open": (msg) => {
         // An action record is re-sent by reads (resendActionRecords); answering
         // it in the same order keeps an older answer from overwriting a newer one.
@@ -544,6 +547,8 @@ export class InvestigationDocuments implements DocumentHost {
       void this.evidence.postDerivedViews(panel, snapshot.thread ?? [], snapshot.seq, {
         hypotheses: snapshot.hypotheses, pins: snapshot.pins, actions: snapshot.actions ?? [], seed: snapshot.investigation.seed,
       });
+      // The retrieved record (adr/0092), sequenced like the derived views.
+      void this.evidence.postEvents(id, panel, snapshot.seq);
       // The queue and the inspector's action records carry no sequence: they
       // finish inside this operation, so a later read cannot be overtaken. A
       // reload keeps the inspector open with its records, so a record with
@@ -602,6 +607,7 @@ export class InvestigationDocuments implements DocumentHost {
         void this.evidence.postDerivedViews(panel, patch.thread, seq, { // sequenced: a stale one is dropped
           hypotheses: patch.hypotheses, pins: patch.pins, actions: patch.actions ?? undefined, seed: patch.investigation?.seed,
         });
+        void this.evidence.postEvents(id, panel, seq);
       }
       // Unsequenced follow-ups finish inside this operation (see load).
       await Promise.all([this.postQueue(panel), this.actions.resendActionRecords(id, panel, seq)]);

@@ -74,7 +74,7 @@ func newStore(t *testing.T) *Store {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")
 	}
-	if _, err := testDB.Exec(`TRUNCATE ocsf_events, stix_edges, stix_objects`); err != nil {
+	if _, err := testDB.Exec(`TRUNCATE ai_tool_calls, call_events, observed_data_events, capability_calls, ocsf_events, stix_edges, stix_objects`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	return NewStore(testDB)
@@ -90,6 +90,11 @@ func telemetry(id uuid.UUID) capability.OcsfEvent {
 		ID: id, ClassUID: 3002, ClassName: "Authentication", Time: at, RecordedAt: at,
 		SourceTool: "fixture:test", Payload: map[string]any{"class_uid": 3002},
 	}
+}
+
+// aCall is a call made outside any investigation.
+func aCall() Call {
+	return Call{ID: uuid.Must(uuid.NewV7()), Verb: "enumerate_logons", StartedAt: time.Now()}
 }
 
 func rowCount(t *testing.T, table string) int {
@@ -108,7 +113,7 @@ func TestPersist_OpensWhatItWrote(t *testing.T) {
 	eventID := uuid.New()
 	od := stixID("observed-data")
 	src, tgt := stixID("user-account"), stixID("x-host")
-	err := s.Persist(ctx, capability.CapabilityResult{
+	err := s.Persist(ctx, aCall(), capability.CapabilityResult{
 		Events: []capability.OcsfEvent{telemetry(eventID)},
 		Normalized: []capability.NormalizationResult{{
 			ObservedData:  []capability.ObservedData{{ID: od, FirstObserved: time.Now()}},
@@ -135,7 +140,7 @@ func TestPersist_OpensWhatItWrote(t *testing.T) {
 // no ref from the failed invocation can be cited.
 func TestPersist_IsAtomic(t *testing.T) {
 	s := newStore(t)
-	err := s.Persist(context.Background(), capability.CapabilityResult{
+	err := s.Persist(context.Background(), aCall(), capability.CapabilityResult{
 		Events: []capability.OcsfEvent{telemetry(uuid.New())},
 		Normalized: []capability.NormalizationResult{{
 			ObservedData: []capability.ObservedData{{ID: "no-separator"}},
@@ -158,7 +163,7 @@ func TestPersist_ReSeeingIsANoOp(t *testing.T) {
 	eventID := uuid.New()
 	write := func(n int) {
 		t.Helper()
-		err := s.Persist(ctx, capability.CapabilityResult{
+		err := s.Persist(ctx, aCall(), capability.CapabilityResult{
 			Events:     []capability.OcsfEvent{telemetry(eventID)},
 			Normalized: []capability.NormalizationResult{{ObservedData: []capability.ObservedData{{ID: id, NumberObserved: n}}}},
 		})
@@ -205,7 +210,7 @@ func TestIndicatorNeighbourhood(t *testing.T) {
 	ctx := context.Background()
 	indID, vendor, od := stixID("indicator"), stixID("identity"), stixID("observed-data")
 	missing := stixID("observed-data")
-	err := s.Persist(ctx, capability.CapabilityResult{
+	err := s.Persist(ctx, aCall(), capability.CapabilityResult{
 		Normalized: []capability.NormalizationResult{{
 			ObservedData: []capability.ObservedData{{ID: od}},
 			Indicators:   []capability.Indicator{{ID: indID, CreatedByRef: vendor, ValidFrom: time.Now()}},

@@ -64,6 +64,9 @@ type InvokeInput struct {
 	Entity map[string]any `json:"entity,omitempty"`
 	Window *Window        `json:"window,omitempty"`
 	Extra  map[string]any `json:"extra,omitempty"`
+	// InvestigationRef makes the events the call returns members of the
+	// investigation (adr/0092).
+	InvestigationRef string `json:"investigation_ref,omitempty"`
 }
 
 // Window is a verb call's time bound.
@@ -126,6 +129,9 @@ type ToolCall struct {
 	CallID   string          `json:"call_id"`
 	ToolName string          `json:"tool_name"`
 	Args     json.RawMessage `json:"args,omitempty"`
+	// CapabilityCallID is the engine's id for the capability call this dispatch
+	// made, read from the envelope (adr/0092); empty for every other tool.
+	CapabilityCallID string `json:"capability_call_id,omitempty"`
 }
 
 // Hypothesis is the creation payload of a new x-hypothesis.

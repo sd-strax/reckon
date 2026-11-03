@@ -62,6 +62,7 @@ export const enablement = object({
 });
 
 export const capabilityInvoke = object({
+  call_id: optional(str),
   verb: str,
   coverage: str,
   ocsf_event_refs: optional(list(str)),
@@ -303,6 +304,49 @@ export const evidence: Decoder<RawEvidence> = object({
     identity: optional(lazy(() => evidence)),
     evidence: list(lazy(() => evidence)),
   })),
+});
+
+// The investigation's retrieved record (adr/0092): events by call, and the calls.
+const eventRow = object({
+  id: str,
+  class_uid: num,
+  class_name: str,
+  time: str,
+  recorded_at: str,
+  source_tool: str,
+  call_id: str,
+  verb: str,
+  coverage: str,
+  observed_data_refs: list(str),
+  entity_refs: list(str),
+});
+
+export const investigationEvents = object({ events: list(eventRow), total: num, next_cursor: optional(str) });
+
+const capabilityCallRow = {
+  call_id: str,
+  investigation_id: optional(str),
+  verb: str,
+  adapter: optional(str),
+  operation: optional(str),
+  priority: num,
+  params_sent: optional(anything),
+  coverage: str,
+  bindings_answered: num,
+  bindings_total: num,
+  null_observation_ref: optional(str),
+  degradation_notes: list(str),
+  started_at: str,
+  duration_ms: num,
+  outcomes: list(object({ adapter: str, operation: str, priority: num, params: optional(anything), answered: bool, skipped: optional(str) })),
+};
+
+export const investigationCalls = object({ calls: list(object(capabilityCallRow)) });
+
+export const capabilityCall = object({
+  ...capabilityCallRow,
+  produced: optional(object({ event_ids: list(str), observed_data_refs: list(str), entity_refs: list(str) })),
+  bindings: optional(list(object({ adapter: str, operation: str, priority: num, enabled: bool }))),
 });
 
 const approver = object({ principal: str, principal_name: optional(str), at: str });

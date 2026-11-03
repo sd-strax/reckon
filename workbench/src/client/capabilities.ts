@@ -79,10 +79,11 @@ export class CapabilitiesClient {
    */
   async invoke(
     verb: string,
-    body: { entity?: unknown; window?: { from: string; to: string }; extra?: Record<string, unknown> },
+    body: { entity?: unknown; window?: { from: string; to: string }; extra?: Record<string, unknown>; investigation_ref?: string },
   ): Promise<CapabilityResult> {
     const r = await this.http.post(`/api/capability/${encodeURIComponent(verb)}`, body, shapes.capabilityInvoke);
     return {
+      callId: r.call_id,
       verb: r.verb ?? verb,
       coverage: r.coverage ?? "UNKNOWN",
       ocsfEventRefs: r.ocsf_event_refs ?? [],

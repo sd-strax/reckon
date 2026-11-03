@@ -51,7 +51,7 @@ export interface TurnProgress {
    * are the envelope's citation ids — what pin-from-result and citation-open
    * act on.
    */
-  onToolResult(name: string, content: string, isError: boolean, coverage?: string, eventCount?: number, refs?: string[]): void;
+  onToolResult(name: string, content: string, isError: boolean, coverage?: string, eventCount?: number, refs?: string[], callId?: string): void;
   /** The history was condensed to fit the model's context window (adr/0230): what the model no longer sees. */
   onContextCompacted?(note: string): void;
 }
@@ -434,7 +434,7 @@ export class SidecarTransport implements AgentTransport {
     this.onTurnNote(connection, "turn/step", shapes.step, (sink, p) => sink.onStep(p.round));
     this.onTurnNote(connection, "turn/tool_call", shapes.toolCall, (sink, p) => sink.onToolCall(p.name, p.input));
     this.onTurnNote(connection, "turn/tool_result", shapes.toolResult, (sink, p) => {
-      sink.onToolResult(p.name, p.content, p.is_error, p.coverage, p.event_count, p.refs);
+      sink.onToolResult(p.name, p.content, p.is_error, p.coverage, p.event_count, p.refs, p.call_id);
     });
     this.onTurnNote(connection, "turn/context_compacted", shapes.text, (sink, p) => sink.onContextCompacted?.(p.text));
     connection.listen();

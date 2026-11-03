@@ -42,6 +42,15 @@ func TestRecordInterpretation_Records(t *testing.T) {
 	b := newTestBackend(t)
 
 	token := mintToken(t, map[string]any{"delegate_kind": "claude"})
+	// The capability call the tool-call record names must be this
+	// investigation's call of the same verb (adr/0092).
+	capCallID := "0192f3a0-0000-7000-8000-000000000001"
+	if _, err := testDB.Exec(`INSERT INTO capability_calls (id, investigation_id, verb, coverage, started_at) VALUES ($1, $2, 'list_processes', 'COMPLETE', now())`, capCallID, invID); err != nil {
+		t.Fatalf("insert capability call: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testDB.Exec(`DELETE FROM ai_tool_calls WHERE capability_call_id = $1; DELETE FROM capability_calls WHERE id = $1`, capCallID)
+	})
 	transcript := "assistant: pivoting to the peer host from the beaconing pattern"
 	// A free-standing reasoning act (pivot) — this test exercises the side-store
 	// mechanics + AI authorship, not the hypothesis-node path (see
@@ -55,14 +64,31 @@ func TestRecordInterpretation_Records(t *testing.T) {
 		Confidence:         "MEDIUM",
 		Transcript:         &TranscriptInput{TurnID: "t1", Body: transcript},
 		ToolCalls: []ToolCallInput{
-			{CallID: "c1", ToolName: "list_processes", Args: json.RawMessage(`{"host":"WIN-A"}`)},
+			{CallID: "c1", ToolName: "list_processes", Args: json.RawMessage(`{"host":"WIN-A"}`), CapabilityCallID: capCallID},
 		},
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d; want 201", resp.StatusCode)
 	}
+	// A record naming the call under another verb is refused, and nothing of
+	// the turn is recorded.
+	if resp, _ := postInterpretation(t, b, token, RecordInterpretationBody{
+		InvestigationRef: invID.String(), InterpretationType: "pivot", Rationale: "r", Confidence: "MEDIUM",
+		ToolCalls: []ToolCallInput{{CallID: "c2", ToolName: "enumerate_logons", Args: json.RawMessage(`{}`), CapabilityCallID: capCallID}},
+	}); resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("wrong verb = %d; want 422", resp.StatusCode)
+	}
 	if out.InterpretationID == "" || out.SequenceNo == 0 {
 		t.Fatalf("empty response: %+v", out)
+	}
+	// The engine's call id rides the side-store row (adr/0092), apart from the
+	// model's own call_id.
+	var capCall string
+	if err := testDB.QueryRow(`SELECT capability_call_id::text FROM ai_tool_calls WHERE investigation_id = $1`, invID).Scan(&capCall); err != nil {
+		t.Fatalf("query capability_call_id: %v", err)
+	}
+	if capCall != capCallID {
+		t.Errorf("capability_call_id = %q", capCall)
 	}
 
 	// The transcript bytes are in the side store, and the tool call is logged

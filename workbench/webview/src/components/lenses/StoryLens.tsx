@@ -1,35 +1,76 @@
 // Story — event time (08 §8.4): everything here is in event time;
 // investigation time appears once, as the divider where it started. The
-// attack path and the generated timeline rows need gaps §6.12–§6.14; until
-// they land the lens shows what the record backs: the cited events in event
-// time with their citing predictions, the ATT&CK labels, the evidence graph
-// and the open questions.
+// timeline rows are the events retrieved for the investigation (adr/0092),
+// each naming the call that retrieved it, with the cited refs that carry an
+// event time joined in; on a record without membership (events persisted
+// before it) the cited events alone remain. The attack path, the generated
+// sentences and the baseline rows are gaps §6.12 and §6.14.
 import { useMemo, useState } from "react";
 import { useApp } from "../../app";
 import { hypName } from "../../derive/hyps";
+import type { EventRow } from "../../../../src/viewTypes";
 import { EventStrip, EvidenceGraph } from "../DerivedViews";
 import { Empty, RefChip, fmtDateTime } from "../shared";
 import type { Hypothesis } from "../../../../src/viewTypes";
 
 const CATEGORY: Record<string, string> = { Authentication: "auth", "Process Activity": "process", "Network Activity": "network", "DNS Activity": "network", "Detection Finding": "detection", "Security Finding": "detection", "observed-data": "observed" };
 
+/** An OCSF category from the class: the thousands digit of class_uid (3002 Authentication is IAM, 3). */
+export function categoryOfClass(classUid: number): string {
+  switch (Math.floor(classUid / 1000)) {
+    case 1: return "process";
+    case 2: return "detection";
+    case 3: return "auth";
+    case 4: return "network";
+    default: return "other";
+  }
+}
+
+interface TimelineItem {
+  ref: string;
+  time: string;
+  label: string;
+  category: string;
+  /** The call that retrieved the event (adr/0092); absent on a cited ref the record holds no membership for. */
+  callId?: string;
+  verb?: string;
+}
+
+/** The retrieved events joined with the cited refs that carry an event time, in event time, each ref once. */
+export function timelineItems(events: EventRow[] | null | undefined, strip: { ref: string; time: string; label: string }[]): TimelineItem[] {
+  const out = new Map<string, TimelineItem>();
+  for (const e of events ?? []) {
+    out.set(e.id, { ref: e.id, time: e.time, label: e.className, category: categoryOfClass(e.classUid), callId: e.callId, verb: e.verb });
+  }
+  for (const it of strip) {
+    if (!out.has(it.ref)) out.set(it.ref, { ref: it.ref, time: it.time, label: it.label, category: CATEGORY[it.label] || "other" });
+  }
+  return [...out.values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+}
+
+/** "N retrieved events in the record", and how many of them are shown when the record holds more than the page. */
+export function retrievedCount(shown: number, total: number | undefined): string {
+  const n = total ?? shown;
+  const head = `${n} retrieved event${n === 1 ? "" : "s"} in the record`;
+  return n > shown ? `${head} · showing the newest ${shown}` : head;
+}
+
 // A stable empty, so the memo below does not recompute on every render.
 const NO_HYPOTHESES: Hypothesis[] = [];
 
 export function StoryLens() {
-  const { state, openInspector } = useApp();
+  const { state, openInspector, send } = useApp();
   const snap = state.snap;
   const [filter, setFilter] = useState<"all" | "auth" | "process" | "network" | "detection">("all");
   const hs = snap?.hypotheses ?? NO_HYPOTHESES;
   const rows = useMemo(() => {
-    const strip = snap?.derived?.strip || [];
     // Citing predictions: whose test results include the ref.
-    return strip.map((it) => {
+    return timelineItems(snap?.events, snap?.derived?.strip || []).map((it) => {
       const citing = hs.flatMap((h) => h.predictions.filter((p) => (p.testResultRefs || []).includes(it.ref)).map((p) => ({ h, p })));
       const emphasis = citing.some(({ h, p }) => p.status === "CONFIRMED" && h.status === "SUPPORTED") ? "emphasized" : citing.some(({ p }) => p.status === "DISCONFIRMED") ? "against" : "plain";
-      return { ...it, category: CATEGORY[it.label] || "other", citing, emphasis };
+      return { ...it, citing, emphasis };
     });
-  }, [snap?.derived?.strip, hs]);
+  }, [snap?.events, snap?.derived?.strip, hs]);
   if (!snap) return null;
   const techniques = Array.from(new Set(hs.flatMap((h) => h.labels || []).filter((l) => /^T\d{4}/.test(l))));
   const open = hs.flatMap((h) => h.status === "ABANDONED" ? [] : h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
@@ -53,7 +94,9 @@ export function StoryLens() {
           {(["all", "auth", "process", "network", "detection"] as const).map((f) => <button key={f} role="tab" aria-selected={filter === f} className={"itab" + (filter === f ? " on" : "")} onClick={() => setFilter(f)}>{f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}</button>)}
         </div>
         {snap.derived ? <EventStrip items={snap.derived.strip} /> : null}
-        {!shown.length ? <Empty>No cited events carry an event time yet.</Empty> : (
+        {snap.eventsError ? <div className="error">{snap.events ? "The next page of the retrieved record could not be read" : "The retrieved record could not be read"}: {snap.eventsError}.{snap.events ? "" : " Only the cited events are shown."}</div> : null}
+        {snap.events?.length ? <div className="imeta">{retrievedCount(snap.events.length, snap.eventsTotal)}</div> : null}
+        {!shown.length ? <Empty>{snap.events?.length ? "No retrieved or cited event in this category." : "No cited events carry an event time yet."}</Empty> : (
           <ol className="timeline">
             {shown.map((r, i) => {
               const divider = i === dividerAt;
@@ -62,7 +105,10 @@ export function StoryLens() {
                   {divider ? <div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div> : null}
                   <span className="ttime mono">{new Date(r.time).toLocaleTimeString()}</span>
                   <span className={"tcat " + r.category}>{r.category.toUpperCase()}</span>
-                  <span className="tsentence"><RefChip refId={r.ref} /> <span className="imeta">{r.label}</span></span>
+                  <span className="tsentence">
+                    <RefChip refId={r.ref} /> <span className="imeta">{r.label}</span>
+                    {r.callId ? <> <a className="imeta tvia" title="Open the capability call that retrieved this event" onClick={() => openInspector({ kind: "call", callId: r.callId! })}>via {r.verb}</a></> : null}
+                  </span>
                   <span className="tciting">{r.citing.map(({ h, p }) => <a key={p.id} className={"pcite " + (p.status === "CONFIRMED" ? "ok" : p.status === "DISCONFIRMED" ? "bad" : "")} title={`${p.status} under ${hypName(h, hs)}`} onClick={() => openInspector({ kind: "ref", ref: p.id })}>P{p.ordinal ?? "?"}</a>)}</span>
                 </li>
               );
@@ -70,6 +116,7 @@ export function StoryLens() {
             {dividerAt < 0 && Number.isFinite(created) ? <li className="trow"><div className="tdivider">investigation starts · {fmtDateTime(snap.investigation.createdAt)}</div></li> : null}
           </ol>
         )}
+        {snap.eventsCursor ? <button className="linklike older" onClick={() => send({ type: "events.older", cursor: snap.eventsCursor! })}>Show older retrieved events</button> : null}
       </section>
       <section className="lsection">
         <h3>Not yet known</h3>

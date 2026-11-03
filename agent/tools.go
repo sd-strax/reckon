@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Intrinsic tool names — the reasoning/action surface that exists regardless of
@@ -71,7 +73,11 @@ func verbTool(c Capability) tool {
 	return tool{
 		def: verbToolDef(c),
 		run: func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error) {
-			return contentOf(s.invokeVerb(ctx, verb, input))
+			res, err := contentOf(s.invokeVerb(ctx, verb, input))
+			if err == nil {
+				res.CallID = capabilityCallID(string(res.Content))
+			}
+			return res, err
 		},
 	}
 }
@@ -128,6 +134,9 @@ type toolResult struct {
 	Content   []byte
 	Consulted []ConsultedSOP
 	Similar   []ConsultedSimilarInvestigation
+	// CallID is the engine-minted capability call behind a verb's envelope
+	// (adr/0092); only a verb tool sets it, and only when it is an id.
+	CallID string
 }
 
 // contentOf wraps a call that returns only content.
@@ -729,7 +738,7 @@ func (s *Session) invokeVerb(ctx context.Context, name string, input json.RawMes
 			extra[k] = val
 		}
 	}
-	call := InvokeInput{Entity: in.Entity}
+	call := InvokeInput{Entity: in.Entity, InvestigationRef: s.investigationID}
 	if len(extra) > 0 {
 		call.Extra = extra
 	}
@@ -744,4 +753,21 @@ func (s *Session) invokeVerb(ctx context.Context, name string, input json.RawMes
 		call.Window = w
 	}
 	return s.backend.InvokeCapability(ctx, name, call)
+}
+
+// capabilityCallID reads the engine-minted call id out of a capability
+// envelope (adr/0092). Only an id is returned: the aggregate accepts nothing
+// else on the record, and a stray call_id would fail the whole commit. Only
+// the verb tools call it, so another tool's payload never reaches the record.
+func capabilityCallID(content string) string {
+	var env struct {
+		CallID string `json:"call_id"`
+	}
+	if err := json.Unmarshal([]byte(content), &env); err != nil {
+		return ""
+	}
+	if _, err := uuid.Parse(env.CallID); err != nil {
+		return ""
+	}
+	return env.CallID
 }
