@@ -268,15 +268,21 @@ func (r *renderer) int(path string) int    { return toInt(pathAny(r.p, path)) }
 // --- entity binding -------------------------------------------------------------------
 
 // bind returns the ref of the entity of typ whose properties satisfy match, or
-// "" when the record holds none. A slot never binds by type alone: two users
-// on an account change, two addresses on a connection.
+// "" when the record holds none or more than one. A slot never binds by type
+// alone (two users on an account change, two addresses on a connection), and an
+// ambiguous match renders as text rather than open the wrong object.
 func (r *renderer) bind(typ string, match func(props map[string]any) bool) string {
+	ref := ""
 	for _, e := range r.ents {
-		if e.Type == typ && match(e.Props) {
-			return e.Ref
+		if e.Type != typ || !match(e.Props) {
+			continue
 		}
+		if ref != "" {
+			return ""
+		}
+		ref = e.Ref
 	}
-	return ""
+	return ref
 }
 
 func propEquals(props map[string]any, key, want string) bool {
@@ -293,8 +299,11 @@ func (r *renderer) host(prefix string) slot {
 }
 
 // user binds an OCSF user object at prefix to its user-account. The record's
-// login is shaped (03 §7.4: "domain\user", the address, or the bare name), so
-// the match accepts the shaped forms of the payload's name.
+// login is shaped (03 §7.4: "domain\user" when the payload names a domain, else
+// the address or the bare name). With a domain only the qualified login
+// matches, so two same-named accounts of different domains bind apart; without
+// one the bare name matches, or a qualified login ending in it when the record
+// holds exactly one such account.
 func (r *renderer) user(prefix string) slot {
 	name := r.str(prefix + ".name")
 	if name == "" {
@@ -303,8 +312,10 @@ func (r *renderer) user(prefix string) slot {
 	domain := r.str(prefix + ".domain")
 	ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool {
 		login := toString(p["account_login"])
+		if domain != "" {
+			return strings.EqualFold(login, domain+`\`+name)
+		}
 		return strings.EqualFold(login, name) ||
-			(domain != "" && strings.EqualFold(login, domain+`\`+name)) ||
 			strings.HasSuffix(strings.ToLower(login), `\`+strings.ToLower(name))
 	})
 	return slot{text: name, ref: ref}
@@ -368,6 +379,9 @@ func (r *renderer) file(prefix string) slot {
 		if name != "" && propEquals(p, "name", name) {
 			return true
 		}
+		if path != "" && propEquals(p, "path", path) {
+			return true
+		}
 		for alg, want := range hashes {
 			if got, ok := p["hashes"].(map[string]any); ok && strings.EqualFold(toString(got[alg]), want) {
 				return true
@@ -378,7 +392,9 @@ func (r *renderer) file(prefix string) slot {
 	return slot{text: text, ref: ref}
 }
 
-// proc binds an OCSF process object at prefix to its process by pid.
+// proc binds an OCSF process object at prefix to its process by pid. A stored
+// name must agree with the payload's; a process the record holds by pid alone
+// (the network normalizer stores no name) still binds.
 func (r *renderer) proc(prefix string) slot {
 	name := r.str(prefix + ".name")
 	pid := r.int(prefix + ".pid")
@@ -390,7 +406,11 @@ func (r *renderer) proc(prefix string) slot {
 		text = "pid " + strconv.Itoa(pid)
 	}
 	ref := r.bind(identity.TypeProcess, func(p map[string]any) bool {
-		return pid != 0 && toInt(p["pid"]) == pid && (name == "" || propEquals(p, "name", name))
+		if pid == 0 || toInt(p["pid"]) != pid {
+			return false
+		}
+		stored := toString(p["name"])
+		return name == "" || stored == "" || strings.EqualFold(stored, name)
 	})
 	return slot{text: text, ref: ref}
 }
@@ -519,6 +539,25 @@ func (r *renderer) process() {
 	r.hashField("process.file")
 }
 
+// networkActivities are the OCSF network_activity activity ids, for a payload
+// that carries the id without the name.
+var networkActivities = map[int]string{
+	1: "open", 2: "close", 3: "reset", 4: "fail", 5: "refuse", 6: "traffic", 7: "listen",
+}
+
+// networkVerbs reads the activity as what happened to the connection; an
+// unsuccessful attempt stays unsuccessful. The subject form is used after a
+// host or address, the bare form opens a subjectless sentence.
+var networkVerbs = map[string][2]string{
+	"open":    {" connected", "Connection"},
+	"traffic": {" sent traffic", "Traffic"},
+	"close":   {" closed a connection", "Connection closed"},
+	"reset":   {" reset a connection", "Connection reset"},
+	"fail":    {" failed to connect", "Failed connection"},
+	"refuse":  {" was refused a connection", "Refused connection"},
+	"listen":  {" listened for connections", "Listening"},
+}
+
 func (r *renderer) network() {
 	host := r.host("device")
 	src := r.ip("src_endpoint.ip")
@@ -527,16 +566,29 @@ func (r *renderer) network() {
 	proto := r.str("connection_info.protocol_name")
 	proc := r.proc("process")
 	dport := r.int("dst_endpoint.port")
+	status := r.str("status")
+
+	key := strings.ToLower(r.str("activity_name"))
+	if key == "" {
+		key = networkActivities[r.int("activity_id")]
+	}
+	verb, ok := networkVerbs[key]
+	if !ok {
+		verb = networkVerbs["open"]
+	}
+	if (key == "" || key == "open") && (statusTone(status) == "bad" || r.int("status_id") == 2) {
+		verb = networkVerbs["fail"]
+	}
 
 	switch {
 	case !host.empty():
 		r.entity(host)
-		r.text(" connected")
+		r.text(verb[0])
 	case !src.empty():
 		r.entity(src)
-		r.text(" connected")
+		r.text(verb[0])
 	default:
-		r.text("Connection")
+		r.text(verb[1])
 	}
 	r.clause(" to ", dst)
 	if dst.empty() {
@@ -562,6 +614,7 @@ func (r *renderer) network() {
 	r.entityField("Domain", domain)
 	r.field("Protocol", proto)
 	r.field("Direction", r.str("connection_info.direction"))
+	r.field("Result", status).Tone = statusTone(status)
 	r.entityField("Host", host)
 	r.entityField("Process", proc)
 	if b := r.int("traffic.bytes"); b != 0 {
@@ -790,8 +843,11 @@ func (r *renderer) accountChange() {
 	target := r.user("user")
 	actor := r.user("actor.user")
 	host := r.host("device")
-	groupName := r.str("group.name")
-	group := slot{text: groupName, ref: r.bind(identity.TypeGroup, func(p map[string]any) bool { return propEquals(p, "name", groupName) })}
+	// The account-change normalizer stores an x-group as group_name and directory.
+	groupName, groupDir := r.str("group.name"), r.str("group.domain")
+	group := slot{text: groupName, ref: r.bind(identity.TypeGroup, func(p map[string]any) bool {
+		return propEquals(p, "group_name", groupName) && (groupDir == "" || propEquals(p, "directory", groupDir))
+	})}
 	verb := r.activity(accountVerbs, "changed")
 
 	if actor.empty() {
@@ -849,7 +905,12 @@ func (r *renderer) email() {
 	r.mono("Message id", r.str("email.message_uid"))
 	r.activityField()
 	r.field("Disposition", r.str("disposition"))
-	if n := len(pathList(r.p, "email.files")); n > 0 {
+	// The email normalizer reads attachments from email.attachments.
+	attachments := pathList(r.p, "email.attachments")
+	if len(attachments) == 0 {
+		attachments = pathList(r.p, "email.files")
+	}
+	if n := len(attachments); n > 0 {
 		r.field("Attachments", strconv.Itoa(n))
 	}
 	if n := len(pathList(r.p, "email.urls")); n > 0 {

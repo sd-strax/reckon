@@ -113,6 +113,14 @@ func TestRender_Sentences(t *testing.T) {
 			"WIN-FILE01 connected to 185.220.101.5 port 443 (exfil.example.net) over tcp from 10.0.4.20", CategoryNetwork},
 		{"network without host", 4001, `{"src_endpoint":{"ip":"10.0.4.20"},"dst_endpoint":{"ip":"1.2.3.4","port":22}}`,
 			"10.0.4.20 connected to 1.2.3.4 port 22", CategoryNetwork},
+		{"network failed by activity id", 4001, `{"activity_id":4,"src_endpoint":{"ip":"10.0.4.20"},"dst_endpoint":{"ip":"1.2.3.4","port":22}}`,
+			"10.0.4.20 failed to connect to 1.2.3.4 port 22", CategoryNetwork},
+		{"network refused", 4001, `{"activity_name":"Refuse","device":{"hostname":"WS1"},"dst_endpoint":{"ip":"1.2.3.4","port":445}}`,
+			"WS1 was refused a connection to 1.2.3.4 port 445", CategoryNetwork},
+		{"network open with failed status", 4001, `{"activity_name":"Open","status":"Failure","src_endpoint":{"ip":"10.0.4.20"},"dst_endpoint":{"ip":"1.2.3.4"}}`,
+			"10.0.4.20 failed to connect to 1.2.3.4", CategoryNetwork},
+		{"network closed, no endpoints known", 4001, `{"activity_id":2,"connection_info":{"protocol_name":"tcp"}}`,
+			"Connection closed over tcp", CategoryNetwork},
 		{"dns", 4003, `{"query":{"hostname":"exfil.example.net","type":"A"},"answers":[{"rdata":"185.220.101.5","type":"A"}],
 			"src_endpoint":{"ip":"10.0.4.20"},"device":{"hostname":"WIN-FILE01"},"rcode":"NoError"}`,
 			"WIN-FILE01 queried exfil.example.net → 185.220.101.5", CategoryNetwork},
@@ -222,6 +230,88 @@ func TestRender_BindsByValue(t *testing.T) {
 	if v.Sentence[0].Ref != "user-account--r" {
 		t.Errorf("bare login did not bind: %+v", v.Sentence[0])
 	}
+}
+
+// TestRender_BindsByDomain: two same-named accounts of different domains bind
+// apart, whatever order the record holds them in; a payload naming no domain
+// binds a qualified login only when the record holds exactly one ending in it.
+func TestRender_BindsByDomain(t *testing.T) {
+	v := Render(Event{ClassUID: 3005, Payload: payload(`{"activity_name":"Disable","user":{"name":"admin","domain":"B"},"actor":{"user":{"name":"admin","domain":"A"}}}`)}, []Entity{
+		ent("user-account--target", map[string]any{"account_login": `B\admin`}),
+		ent("user-account--actor", map[string]any{"account_login": `A\admin`}),
+	})
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"user-account--actor", "user-account--target"}) {
+		t.Errorf("account change slots = %v", refs)
+	}
+	// No domain on the payload, two qualified candidates: neither is chosen.
+	v = Render(Event{ClassUID: 3002, Payload: payload(`{"actor":{"user":{"name":"admin"}},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
+		ent("user-account--1", map[string]any{"account_login": `A\admin`}),
+		ent("user-account--2", map[string]any{"account_login": `B\admin`}),
+	})
+	if refs := entityRefs(v); len(refs) != 0 {
+		t.Errorf("ambiguous login bound: %v", refs)
+	}
+	// One qualified candidate for a bare payload name still binds.
+	v = Render(Event{ClassUID: 3002, Payload: payload(`{"actor":{"user":{"name":"admin"}},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
+		ent("user-account--1", map[string]any{"account_login": `A\admin`}),
+	})
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"user-account--1"}) {
+		t.Errorf("single qualified login did not bind: %v", refs)
+	}
+}
+
+// TestRender_BindsStoredShapes: slots bind to the property shapes the
+// normalizers persist — a process held by pid alone, a file held by its path,
+// a group held as group_name and directory.
+func TestRender_BindsStoredShapes(t *testing.T) {
+	v := Render(Event{ClassUID: 4001, Payload: payload(`{"process":{"pid":77,"name":"curl.exe"},"src_endpoint":{"ip":"10.0.0.1"},"dst_endpoint":{"ip":"10.0.0.2"}}`)}, []Entity{
+		ent("process--p", map[string]any{"pid": float64(77)}),
+	})
+	if f, _ := fieldValue(v, "Process"); f.Ref != "process--p" {
+		t.Errorf("pid-only process did not bind: %+v", f)
+	}
+	v = Render(Event{ClassUID: 4001, Payload: payload(`{"process":{"pid":77,"name":"curl.exe"},"src_endpoint":{"ip":"10.0.0.1"}}`)}, []Entity{
+		ent("process--q", map[string]any{"pid": float64(77), "name": "other.exe"}),
+	})
+	if f, _ := fieldValue(v, "Process"); f.Ref != "" {
+		t.Errorf("process with a conflicting stored name bound: %+v", f)
+	}
+
+	v = Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"path":"C:\\Temp\\payload.dll"},"device":{"hostname":"WS1"}}`)}, []Entity{
+		ent("file--f", map[string]any{"name": "", "path": `C:\Temp\payload.dll`}),
+	})
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"file--f"}) {
+		t.Errorf("path-only file did not bind: %v", refs)
+	}
+
+	v = Render(Event{ClassUID: 3005, Payload: payload(`{"activity_name":"Create","user":{"name":"jdoe"},"group":{"name":"Domain Admins","domain":"CONTOSO"}}`)}, []Entity{
+		ent("x-group--other", map[string]any{"group_name": "Domain Admins", "directory": "FABRIKAM"}),
+		ent("x-group--g", map[string]any{"group_name": "Domain Admins", "directory": "CONTOSO"}),
+	})
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"x-group--g"}) {
+		t.Errorf("group slots = %v; want the CONTOSO group", refs)
+	}
+	if f, _ := fieldValue(v, "Group"); f.Ref != "x-group--g" {
+		t.Errorf("Group field = %+v", f)
+	}
+}
+
+// TestRender_EmailAttachments counts the attachments the normalizer reads.
+func TestRender_EmailAttachments(t *testing.T) {
+	v := Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":"a@x.example","subject":"s","attachments":[{"name":"invoice.zip"},{"name":"a.pdf"}]}}`)}, nil)
+	if f, ok := fieldValue(v, "Attachments"); !ok || f.Value != "2" {
+		t.Errorf("Attachments = %+v, %v", f, ok)
+	}
+}
+
+func entityRefs(v View) []string {
+	var refs []string
+	for _, tok := range v.Sentence {
+		if tok.T == "entity" {
+			refs = append(refs, tok.Ref)
+		}
+	}
+	return refs
 }
 
 // TestRender_UnknownClass: the top-level scalars as fields, no sentence, the

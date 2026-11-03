@@ -49,8 +49,12 @@ properties. `attachEntities` reads those objects for the page; a sentence slot
 binds to the object of its type whose properties carry the value the payload
 shows (a host by hostname, an account by its shaped login, an address by value,
 a process by pid), and never by type alone, so two accounts on an account
-change or two addresses on a connection bind correctly. A slot the record
-never minted renders as text.
+change or two addresses on a connection bind correctly. The match follows the
+shapes the normalizers persist: a login qualified by its domain when the
+payload names one, a file by its path when it has no name, a group by
+`group_name` and `directory`, a process by pid when the record stored no name.
+A slot the record never minted, or one more than one object matches, renders
+as text.
 
 **A prediction carries its title.** `PredictionNode.Title` is optional on the
 `prediction` interpretation, one line of at most 64 characters, authored by the
