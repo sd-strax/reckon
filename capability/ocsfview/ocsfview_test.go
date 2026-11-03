@@ -119,6 +119,8 @@ func TestRender_Sentences(t *testing.T) {
 			"WS1 was refused a connection to 1.2.3.4 port 445", CategoryNetwork},
 		{"network open with failed status", 4001, `{"activity_name":"Open","status":"Failure","src_endpoint":{"ip":"10.0.4.20"},"dst_endpoint":{"ip":"1.2.3.4"}}`,
 			"10.0.4.20 failed to connect to 1.2.3.4", CategoryNetwork},
+		{"network unknown activity with failed status", 4001, `{"activity_id":0,"activity_name":"Unknown","status_id":2,"src_endpoint":{"ip":"10.0.0.1"},"dst_endpoint":{"ip":"10.0.0.2"}}`,
+			"10.0.0.1 failed to connect to 10.0.0.2", CategoryNetwork},
 		{"network closed, no endpoints known", 4001, `{"activity_id":2,"connection_info":{"protocol_name":"tcp"}}`,
 			"Connection closed over tcp", CategoryNetwork},
 		{"dns", 4003, `{"query":{"hostname":"exfil.example.net","type":"A"},"answers":[{"rdata":"185.220.101.5","type":"A"}],

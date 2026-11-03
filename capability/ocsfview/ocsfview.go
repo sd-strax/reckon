@@ -572,11 +572,13 @@ func (r *renderer) network() {
 	if key == "" {
 		key = networkActivities[r.int("activity_id")]
 	}
+	// An activity the table does not know (absent, Unknown, Other) reads as a
+	// connection, or as a failed one when the status says so.
 	verb, ok := networkVerbs[key]
 	if !ok {
 		verb = networkVerbs["open"]
 	}
-	if (key == "" || key == "open") && (statusTone(status) == "bad" || r.int("status_id") == 2) {
+	if (!ok || key == "open") && (statusTone(status) == "bad" || r.int("status_id") == 2) {
 		verb = networkVerbs["fail"]
 	}
 
