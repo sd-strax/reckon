@@ -801,6 +801,13 @@ the baselines are expected to stand.
 
 ### 8.2 §6.13 — Entity-scoped event query
 
+*Landed as `adr/0092`. Rows carry no `view` and no `relationships` until §8.1 lands; the
+`binding` column is `adapter` + `operation` (the first that answered), with every binding's
+outcome in a `bindings` JSONB column; the list is one row per event, paged by `order=oldest|newest`
+and a `(time, id)` `cursor` returned as `next_cursor`; `around` takes `limit` events each side,
+404s on an event that is not a member of the investigation, and is empty when the anchor names
+no entity.*
+
 **Decision.** Membership of a retrieved event in an investigation is recorded at ingest, not
 inferred later, and the unit of membership is the **capability call** (§8.9): one row per
 invocation, and every event it returned joined to it. `CapabilityInvokeBody` gains
@@ -926,6 +933,9 @@ recorded before the field existed show no roles, and the inspector says so. Issu
 `/api/auth-config` issuer.
 
 ### 8.9 §6.20 — Addressable capability calls
+
+*Landed as `adr/0092`. The tool-call record carries the engine's id as `capability_call_id`;
+`call_id` there stays the model's `tool_use` id.*
 
 **Decision.** A capability call is a first-class, addressable record (`capability_calls`, §8.2),
 minted by the invoke endpoint and returned in the envelope as `call_id`. The agent's

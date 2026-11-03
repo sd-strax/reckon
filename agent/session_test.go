@@ -121,7 +121,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 	})
 	mux.HandleFunc("/api/capability/", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
-		_, _ = w.Write([]byte(`{"verb":"enumerate_logons","coverage":"COMPLETE","observed_data_refs":["observed-data--od1"],"entity_refs":["user-account--u1"]}`))
+		_, _ = w.Write([]byte(`{"call_id":"0192f3a0-0000-7000-8000-0000000000c1","verb":"enumerate_logons","coverage":"COMPLETE","observed_data_refs":["observed-data--od1"],"entity_refs":["user-account--u1"]}`))
 	})
 	mux.HandleFunc("/api/action-types", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
@@ -393,6 +393,11 @@ func TestSession_Turn(t *testing.T) {
 	if host["hostname"] != "H1" || call.Extra["outcome"] != "SUCCESS" {
 		t.Errorf("invoke body mangled: %s", invokes[0].Body)
 	}
+	// The call is made for the investigation, so its events are members of it
+	// (adr/0092).
+	if call.InvestigationRef != "inv-1" {
+		t.Errorf("invoke investigation_ref = %q; want the session's investigation", call.InvestigationRef)
+	}
 
 	// Three interpretations: hypothesis, (action rides /api/actions), turn summary.
 	interps := f.callsTo("/api/interpretations")
@@ -416,6 +421,17 @@ func TestSession_Turn(t *testing.T) {
 	}
 	if len(summary.ToolCalls) != 3 {
 		t.Errorf("tool-call log = %d entries; want 3", len(summary.ToolCalls))
+	}
+	// The capability dispatch's record carries the engine's call id from the
+	// envelope; the other tools carry none (adr/0092).
+	for _, tc := range summary.ToolCalls {
+		want := ""
+		if tc.ToolName == "enumerate_logons" {
+			want = "0192f3a0-0000-7000-8000-0000000000c1"
+		}
+		if tc.CapabilityCallID != want {
+			t.Errorf("tool call %s capability_call_id = %q; want %q", tc.ToolName, tc.CapabilityCallID, want)
+		}
 	}
 	if summary.Rationale == "" || len([]rune(summary.Rationale)) > maxRationaleRunes {
 		t.Errorf("rationale bound violated: %d runes", len([]rune(summary.Rationale)))
@@ -1590,5 +1606,20 @@ func TestEvaluateHypothesis_OnlyOutcomes(t *testing.T) {
 	if _, isErr := s.dispatchTool(context.Background(), ToolEvaluateHypothesis,
 		json.RawMessage(`{"hypothesis_ref":"x-hypothesis--h1","disposition":"inconclusive","rationale":"r"}`)); isErr {
 		t.Error("inconclusive was refused")
+	}
+}
+
+// TestCapabilityCallID: the record takes only an id from the envelope
+// (adr/0092); a call_id that is not one is left off so the commit never fails
+// on it. Only the verb tool reads it at all (verbTool), which the session test
+// above checks per tool.
+func TestCapabilityCallID(t *testing.T) {
+	if got := capabilityCallID(`{"call_id":"0192f3a0-0000-7000-8000-0000000000c1","verb":"x"}`); got != "0192f3a0-0000-7000-8000-0000000000c1" {
+		t.Errorf("envelope id = %q", got)
+	}
+	for _, content := range []string{`{"call_id":"toolu_01"}`, `{"call_id":""}`, `{"verb":"x"}`, `not json`, `[1,2]`} {
+		if got := capabilityCallID(content); got != "" {
+			t.Errorf("capabilityCallID(%s) = %q; want none", content, got)
+		}
 	}
 }

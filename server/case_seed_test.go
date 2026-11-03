@@ -10,6 +10,7 @@ import (
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/evidence"
 )
 
 // buildCaseCapability returns a fixture-backed resolver + catalog serving
@@ -55,10 +56,14 @@ func TestResolveCaseSeed(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/api/investigations", nil)
 
-	// Happy path: exactly one case → a valid CaseSeed. Handler nil, so persist is
-	// skipped (the fail-closed logic is what this exercises).
+	// Happy path: exactly one case → a valid CaseSeed, persisted with the call
+	// that read it (adr/0092). Handler nil: the fail-closed logic is what this
+	// exercises.
+	if _, err := testDB.Exec(`TRUNCATE ai_tool_calls, call_events, observed_data_events, capability_calls, ocsf_events, stix_edges`); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
 	res, cat := buildCaseCapability(t, true)
-	b := &Backend{cfg: BackendConfig{CapabilityResolver: res, CapabilityCatalog: cat}}
+	b := &Backend{cfg: BackendConfig{CapabilityResolver: res, CapabilityCatalog: cat, Evidence: evidence.NewStore(testDB)}}
 	got, status, err := b.resolveCaseSeed(req, "INC0010001", "")
 	if err != nil || status != 200 {
 		t.Fatalf("happy path: status=%d err=%v", status, err)
@@ -72,11 +77,22 @@ func TestResolveCaseSeed(t *testing.T) {
 	if got.Display != "Reimage request: WIN-FILE01" {
 		t.Errorf("display (→ investigation title) = %q; want the case title", got.Display)
 	}
+	var calls int
+	if err := testDB.QueryRow(`SELECT count(*) FROM capability_calls WHERE verb = 'get_external_case_details' AND investigation_id IS NULL`).Scan(&calls); err != nil || calls != 1 {
+		t.Errorf("recorded case reads = %d, %v; want one under no investigation", calls, err)
+	}
+
+	// Fail closed — no evidence store: the read is refused before it runs, so
+	// no case object and no call go unpersisted.
+	bNoStore := &Backend{cfg: BackendConfig{CapabilityResolver: res, CapabilityCatalog: cat}}
+	if _, status, err := bNoStore.resolveCaseSeed(req, "INC0010001", ""); err == nil || status != 503 {
+		t.Errorf("no store: status=%d err=%v; want 503 and an error", status, err)
+	}
 
 	// Fail closed — no case SoR configured (verb known via DefaultCatalog, no
 	// binding) → UNAVAILABLE_TENANT → 503, never a create.
 	resNo, catNo := buildCaseCapability(t, false)
-	bNo := &Backend{cfg: BackendConfig{CapabilityResolver: resNo, CapabilityCatalog: catNo}}
+	bNo := &Backend{cfg: BackendConfig{CapabilityResolver: resNo, CapabilityCatalog: catNo, Evidence: evidence.NewStore(testDB)}}
 	if _, status, err := bNo.resolveCaseSeed(req, "INC0010001", ""); err == nil || status != 503 {
 		t.Errorf("no-SoR: status=%d err=%v; want 503 and an error", status, err)
 	}

@@ -658,3 +658,11 @@ body.gripDragging { cursor: col-resize; user-select: none; }
   #regions { position: relative; }
   #drawerToggle { display: block; position: absolute; right: 8px; bottom: 8px; z-index: 10; font-size: 16px; background: var(--he-primary); color: #fff; border-radius: var(--r-pill); width: 38px; height: 38px; }
 }
+
+/* The capability call behind a row (adr/0092): a quiet link on timeline rows,
+   the Around-it strip and tool rows. */
+.tvia { cursor: pointer; margin-left: 4px; }
+.tvia:hover { text-decoration: underline; }
+.linklike.older { display: block; margin: 6px 0; }
+.tool .opencall { font-size: var(--fs-xs); margin-left: 4px; }
+.irow.around { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }

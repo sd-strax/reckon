@@ -65,10 +65,11 @@ type Neighbourhood struct {
 	Evidence  []Object
 }
 
-// Persist writes one invocation's telemetry and objects in a single
-// transaction. A failure must fail the invocation: returning refs that were
-// never persisted would mint citations that cannot open.
-func (s *Store) Persist(ctx context.Context, res capability.CapabilityResult) error {
+// Persist writes one invocation's telemetry and objects, and the call that
+// produced them with its joins (adr/0092), in a single transaction. A failure
+// must fail the invocation: returning refs that were never persisted would
+// mint citations that cannot open.
+func (s *Store) Persist(ctx context.Context, call Call, res capability.CapabilityResult) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
@@ -144,6 +145,9 @@ func (s *Store) Persist(ctx context.Context, res capability.CapabilityResult) er
 				return fmt.Errorf("insert stix edge: %w", err)
 			}
 		}
+	}
+	if err := persistCallTx(ctx, tx, tenant, call, res); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

@@ -7,5 +7,6 @@
   "event_count": 1,
   "refs": [
     "x"
-  ]
+  ],
+  "call_id": "x"
 }

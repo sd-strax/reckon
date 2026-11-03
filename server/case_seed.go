@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/evidence"
 )
 
 // resolveCaseSeed roots an investigation on a system-of-record case
@@ -28,8 +32,15 @@ func (b *Backend) resolveCaseSeed(r *http.Request, caseID, sourceScope string) (
 	if _, known := catalog.Descriptor("get_external_case_details"); !known {
 		return seedResolution{}, http.StatusServiceUnavailable, fmt.Errorf("get_external_case_details is not available in this tenant")
 	}
+	// The case object the seed cites must be persisted, and the read is
+	// recorded as a call (adr/0092); without the store neither can happen, so
+	// the read is refused before it runs.
+	if b.cfg.Evidence == nil {
+		return seedResolution{}, http.StatusServiceUnavailable, fmt.Errorf("evidence store not configured")
+	}
 
 	input := capability.CallInput{Extra: map[string]any{"case_id": caseID}, SourceScope: sourceScope}
+	started := time.Now().UTC()
 	res, err := resolver.Resolve(r.Context(), "get_external_case_details", input)
 	if err != nil {
 		// Adapter FATAL / template failure: the read did not execute.
@@ -53,10 +64,11 @@ func (b *Backend) resolveCaseSeed(r *http.Request, caseID, sourceScope string) (
 
 	// Persist BEFORE minting case_ref, so the ref is a durable, openable object
 	// rather than a dangling deterministic id (§3 step 2).
-	if b.cfg.Evidence != nil {
-		if err := b.cfg.Evidence.Persist(r.Context(), res); err != nil {
-			return seedResolution{}, http.StatusInternalServerError, fmt.Errorf("persist case %q: %w", caseID, err)
-		}
+	// The investigation does not exist yet, so the call is recorded under none
+	// (adr/0092); the case object it produced is what the seed cites.
+	call := evidence.Call{ID: uuid.Must(uuid.NewV7()), Verb: "get_external_case_details", StartedAt: started, Duration: time.Since(started)}
+	if err := b.cfg.Evidence.Persist(r.Context(), call, res); err != nil {
+		return seedResolution{}, http.StatusInternalServerError, fmt.Errorf("persist case %q: %w", caseID, err)
 	}
 
 	source := caseSource(res)

@@ -612,6 +612,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 			content := string(res.Content)
 			if !isErr {
 				s.rememberIDs(content)
+				toolLog[len(toolLog)-1].CapabilityCallID = res.CallID
 			}
 			s.recordConsulted(res.Consulted, res.Similar)
 			fmt.Fprintf(&transcript, "[tool_result %s id=%s error=%v] %s\n",

@@ -374,6 +374,8 @@ export interface Capability {
 
 /** The envelope a verb invocation returns (subset of server.CapabilityInvokeResponse). */
 export interface CapabilityResult {
+  /** The engine-minted id of the call (adr/0092); absent from an older backend. */
+  callId?: string;
   verb: string;
   coverage: string;
   ocsfEventRefs: string[];
@@ -382,6 +384,70 @@ export interface CapabilityResult {
   degradationNotes: string[];
   events: unknown[];
   normalized: unknown[];
+}
+
+/**
+ * One event retrieved for the investigation, without its payload (adr/0092;
+ * mirrors server.EventRowView): the record, the call that retrieved it, and
+ * the interpretation-layer refs derived from it.
+ */
+export interface EventRow {
+  id: string;
+  classUid: number;
+  className: string;
+  time: string;
+  recordedAt: string;
+  sourceTool: string;
+  callId: string;
+  verb: string;
+  coverage: string;
+  observedDataRefs: string[];
+  entityRefs: string[];
+}
+
+/** What one binding did on a call (mirrors server.BindingOutcomeView): the
+ * parameters as rendered, and whether it answered or why it was skipped. */
+export interface BindingOutcome {
+  adapter: string;
+  operation: string;
+  priority: number;
+  params?: unknown;
+  answered: boolean;
+  skipped?: string;
+}
+
+/** One configured binding of a verb (mirrors server.VerbBindingView). */
+export interface VerbBinding {
+  adapter: string;
+  operation: string;
+  priority: number;
+  enabled: boolean;
+}
+
+/**
+ * One capability call as the inspector opens it (adr/0092; mirrors
+ * server.CapabilityCallView): which binding answered, with what, how it went,
+ * and what it produced. `produced` and `bindings` come with the single read.
+ */
+export interface CapabilityCall {
+  callId: string;
+  investigationId?: string;
+  verb: string;
+  adapter?: string;
+  operation?: string;
+  priority: number;
+  paramsSent?: unknown;
+  coverage: string;
+  bindingsAnswered: number;
+  bindingsTotal: number;
+  nullObservationRef?: string;
+  degradationNotes: string[];
+  startedAt: string;
+  durationMs: number;
+  /** Every binding the resolver walked, in priority order; adapter/operation/priority/paramsSent summarize the first that answered. */
+  outcomes: BindingOutcome[];
+  produced?: { eventIds: string[]; observedDataRefs: string[]; entityRefs: string[] };
+  bindings?: VerbBinding[];
 }
 
 /** One tool call to record in an interpretation's side store. */

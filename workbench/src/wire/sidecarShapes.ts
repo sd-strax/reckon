@@ -51,4 +51,5 @@ export const toolResult = object({
   coverage: optional(str),
   event_count: optional(num),
   refs: optional(list(str)),
+  call_id: optional(str),
 });

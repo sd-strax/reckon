@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -51,6 +52,10 @@ type ToolCallContent struct {
 	ToolName   string          `json:"tool_name"`
 	Args       json.RawMessage `json:"args,omitempty"`
 	ResultHash string          `json:"result_hash,omitempty"`
+	// CapabilityCallID is the engine-minted id of the capability call this
+	// dispatch made (adr/0092), when it was a capability verb; CallID stays the
+	// model's tool_use id. Validated as a UUID when present.
+	CapabilityCallID string `json:"capability_call_id,omitempty"`
 }
 
 // TranscriptRef is the reference the interpretation event carries into the
@@ -111,17 +116,45 @@ func (s *SideStore) WriteReasoningTx(ctx context.Context, tx *sql.Tx, env Envelo
 
 	for i := range c.ToolCalls {
 		tc := c.ToolCalls[i]
+		if tc.CapabilityCallID != "" {
+			if err := checkCapabilityCallTx(ctx, tx, env.AggregateID, tc); err != nil {
+				return err
+			}
+		}
 		args := normalizeArgs(tc.Args)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO ai_tool_calls (
 				id, tenant_id, investigation_id, event_id, tool_name, tool_args,
-				result_hash, transcript_hash, occurred_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				result_hash, transcript_hash, occurred_at, capability_call_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		`, uuid.Must(uuid.NewV7()), env.TenantID, env.AggregateID, interpEventID,
 			tc.ToolName, []byte(args), nullString(tc.ResultHash), nullString(transcriptHash),
-			env.OccurredAt); err != nil {
+			env.OccurredAt, nullString(tc.CapabilityCallID)); err != nil {
 			return fmt.Errorf("insert ai_tool_calls: %w", err)
 		}
+	}
+	return nil
+}
+
+// checkCapabilityCallTx verifies the capability call a tool-call record names
+// (adr/0092): it must exist, be this investigation's, and be a call of the
+// tool's verb. An id that parses but names anything else is a domain
+// rejection, not an infrastructure failure, so the commit is refused as one.
+func checkCapabilityCallTx(ctx context.Context, tx *sql.Tx, investigationID uuid.UUID, tc ToolCallContent) error {
+	var inv sql.NullString
+	var verb string
+	err := tx.QueryRowContext(ctx, `SELECT investigation_id, verb FROM capability_calls WHERE id = $1`, tc.CapabilityCallID).Scan(&inv, &verb)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &RejectedError{Err: fmt.Errorf("RecordInterpretation: tool call %q names capability call %s, which does not exist", tc.CallID, tc.CapabilityCallID)}
+	}
+	if err != nil {
+		return fmt.Errorf("query capability call %s: %w", tc.CapabilityCallID, err)
+	}
+	if !inv.Valid || inv.String != investigationID.String() {
+		return &RejectedError{Err: fmt.Errorf("RecordInterpretation: tool call %q names capability call %s, which is not this investigation's", tc.CallID, tc.CapabilityCallID)}
+	}
+	if verb != tc.ToolName {
+		return &RejectedError{Err: fmt.Errorf("RecordInterpretation: tool call %q (%s) names capability call %s of verb %s", tc.CallID, tc.ToolName, tc.CapabilityCallID, verb)}
 	}
 	return nil
 }

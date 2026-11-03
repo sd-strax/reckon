@@ -354,6 +354,11 @@ func (c RecordInterpretation) Validate(env Envelope) error {
 		if c.ToolCalls[i].ToolName == "" {
 			return fmt.Errorf("RecordInterpretation: tool call %q has no tool_name", c.ToolCalls[i].CallID)
 		}
+		if id := c.ToolCalls[i].CapabilityCallID; id != "" {
+			if _, err := uuid.Parse(id); err != nil {
+				return fmt.Errorf("RecordInterpretation: tool call %q names capability call %q, not an id", c.ToolCalls[i].CallID, id)
+			}
+		}
 	}
 	if len(c.ConsultedSOPs) > maxConsultedPerInterpretation {
 		return fmt.Errorf("RecordInterpretation: consulted_sops exceed %d", maxConsultedPerInterpretation)

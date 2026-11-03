@@ -1,0 +1,12 @@
+{
+  "call_id": "",
+  "verb": "",
+  "priority": 0,
+  "coverage": "",
+  "bindings_answered": 0,
+  "bindings_total": 0,
+  "degradation_notes": null,
+  "started_at": "0001-01-01T00:00:00Z",
+  "duration_ms": 0,
+  "outcomes": null
+}

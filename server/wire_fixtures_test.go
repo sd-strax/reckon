@@ -67,6 +67,9 @@ func TestWireFixtures(t *testing.T) {
 		Appearances []AppearanceView `json:"appearances"`
 	}](t, dir, "appearances")
 	wirefixture.Check[EvidenceView](t, dir, "evidence")
+	wirefixture.Check[InvestigationEventsResponse](t, dir, "investigationEvents")
+	wirefixture.Check[InvestigationCallsResponse](t, dir, "investigationCalls")
+	wirefixture.Check[CapabilityCallView](t, dir, "capabilityCall")
 	wirefixture.Check[ActionRecordView](t, dir, "actionRecord")
 	wirefixture.Check[knowledge.CaseSummaryView](t, dir, "caseSummary")
 	wirefixture.Check[struct {
