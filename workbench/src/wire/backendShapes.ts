@@ -178,12 +178,12 @@ export const thread = object({
     has_transcript: optional(bool),
     superseded: optional(bool),
     disposition: optional(str),
-    consulted_sops: optional(list(object({ sop_id: str, title: optional(str), used: bool }))),
+    consulted_sops: optional(list(object({ sop_id: str, title: optional(str), cited: bool }))),
     consulted_similar_investigations: optional(list(object({
       investigation_ref: str,
       title: optional(str),
       band: optional(str),
-      used: bool,
+      cited: bool,
     }))),
   })),
 });

@@ -506,8 +506,8 @@ export interface ThreadEntry {
   superseded: boolean;
   /** A verdict act's disposition (BENIGN | SUSPICIOUS | MALICIOUS). */
   disposition?: string;
-  consultedSops: { sopId: string; title?: string; used: boolean }[];
-  consultedSimilar: { investigationRef: string; title?: string; band?: string; used: boolean }[];
+  consultedSops: { sopId: string; title?: string; cited: boolean }[];
+  consultedSimilar: { investigationRef: string; title?: string; band?: string; cited: boolean }[];
 }
 
 /** One row of the durable action queue (mirrors server.ActionView). */

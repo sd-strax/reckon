@@ -336,10 +336,11 @@ same checklist pattern (verdict recorded · actions terminal · comms resolved).
 ## 2.11 Consulted knowledge
 
 When a turn's interpretation carries `consulted_sops` (the schema distinguishes retrieved
-from `used`), the turn renders a knowledge chip: *"followed SOP: ransomware-triage §3"*
-(used) vs a muted *"consulted, not applied"*. Click opens the SOP. This is the
-"it follows our procedures and shows where" surface — provenance the engine already
-records, made visible.
+from `cited`), the turn renders a knowledge chip: *"cited: ransomware-triage"* (the agent
+named it by ref) vs a muted *"recalled: …"*. Click opens the SOP. This is the "it works
+from our procedures and shows where" surface — provenance the engine already records, made
+visible. The chip never says "followed" or "applied": the engine records a citation, not
+an application (`06 §6.1`).
 
 ## 2.12 Returning to an investigation
 

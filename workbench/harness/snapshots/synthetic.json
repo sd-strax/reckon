@@ -324,7 +324,7 @@
           {
             "sopId": "sop-1",
             "title": "Procedure one",
-            "used": true
+            "cited": true
           }
         ],
         "consultedSimilar": [
@@ -332,7 +332,7 @@
             "investigationRef": "grouping--prior-1",
             "title": "Prior case A",
             "band": "RELATED",
-            "used": false
+            "cited": false
           }
         ]
       },

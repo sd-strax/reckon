@@ -234,9 +234,9 @@ func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID)
 				meta = append(meta, "cites "+labeledList(rl, e.InputRefs))
 			}
 			for _, s := range e.ConsultedSOPs {
-				verb := "consulted"
-				if s.Used {
-					verb = "followed"
+				verb := "recalled"
+				if s.Cited {
+					verb = "cited"
 				}
 				title := s.Title
 				if title == "" {
@@ -245,9 +245,9 @@ func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID)
 				meta = append(meta, verb+" SOP: "+title)
 			}
 			for _, s := range e.ConsultedSimilar {
-				verb := "consulted"
-				if s.Used {
-					verb = "drew on"
+				verb := "recalled"
+				if s.Cited {
+					verb = "cited"
 				}
 				title := s.Title
 				if title == "" {

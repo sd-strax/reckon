@@ -375,8 +375,8 @@ Specifically, the prompt instructs the LLM to:
 Per the companion edits in 05 §14.1, the Interpretation event payload (02-persistence.md §6) gains optional fields:
 
 ```
-consulted_sops                       list<{sop_id, title, retrieval_score, used: bool}>
-consulted_similar_investigations     list<{investigation_ref, title, retrieval_score, band, used: bool}>
+consulted_sops                       list<{sop_id, title, retrieval_score, cited: bool}>
+consulted_similar_investigations     list<{investigation_ref, title, retrieval_score, band, cited: bool}>
 ```
 
 > **Amended (K4).** The similar-investigation entry keys on `investigation_ref`
@@ -387,7 +387,9 @@ consulted_similar_investigations     list<{investigation_ref, title, retrieval_s
 > (NEAR_DUPLICATE/RELATED/DISTINCT). Content-hash attestation (Layer B) rides on
 > the summary's substrate `content_hash`, which the recall hit does carry.
 
-The `used` flag distinguishes SOPs/summaries the LLM merely retrieved from those it cited in its rationale. Retrieved-but-not-used items are still recorded — they show what context the LLM had access to when deciding. `used` is decided conservatively — only when the turn's own final text references the SOP/case by title or ref — so an overclaimed "followed the SOP" is never fabricated provenance.
+The `cited` flag distinguishes SOPs/summaries the LLM merely retrieved from those it cited. Retrieved-but-not-cited items are still recorded — they show what context the LLM had access to when deciding. `cited` is set when the agent's own text for the turn names the SOP or case by the ref recall returned (`sop_id`, `investigation_ref`); a title is not a citation, and the engine's footer is not the agent's text.
+
+> **Amended (adr/0236).** The flag was `used`, decided by title or ref anywhere in the turn's text, footer included. A short title matched any reply on the topic and a paraphrase matched nothing. The engine can attest that the agent retrieved an item and named it to the analyst; it cannot attest that the agent applied it, so the record says `cited`, never "applied" or "followed".
 
 These fields are queryable. "Show me every Interpretation that cited SOP-RANSOMWARE-CONTAINMENT v3.2" is a single SQL query against the projection. "Show me cases where the LLM had access to SOP X but chose not to cite it" is similarly direct.
 

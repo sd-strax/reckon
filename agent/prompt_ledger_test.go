@@ -22,8 +22,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "01082a32093975c9682e9647a946e14966b1971378eab5cd7345bbfccdd75ff2",
-		framingLeadingOnly: "548d0af496ed626a5df347e1a4fd9535ea82fb86dc0e30098d14305f22e7c009",
+		framingLeadingNull: "362b6290dffbd28e405ab69534e051344a820587f9c0101c3febeae06316a035",
+		framingLeadingOnly: "e7568f3c5e80bbef1467f3b5cac5d136072c034034e00b1861a4ddd67c2ea831",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -70,8 +70,8 @@ func TestSideInstructions_Frozen(t *testing.T) {
 // moved version says what moved: the prompt, a tool, an engine text, or a side
 // instruction.
 var componentGolden = map[string]string{
-	"prompt":                                           "a870ddbf8038fe4ee2049f35d02b498db86e2cdc7a73101286051b462237195e",
-	"prompt/leading_only":                              "5de9f5af462a6b9ce5068b5f539c35aae540045af849e577919721e6df2de9ba",
+	"prompt":                                           "67a4243d54a8f398e93bdf71703d1296d7145d75f129c1ef9176c26690ed1312",
+	"prompt/leading_only":                              "fb374056631c196890c08e257edbe8d31babd253094f70aaa43a2e86ac3601e9",
 	"tools/recall_sops":                                "753f05fb3087905b6558584343533d692902606ad1bb2b7fe2e04d0f41bc2ad2",
 	"tools/recall_similar_investigations":              "013a01bbff06558a7d972be60d2e93248f23e54e71e1f5ce87196e800d45d711",
 	"tools/prior_investigations":                       "433c5d17cb369e9f19d36a54571b007c5230278d076c129006b037d61341f49e",

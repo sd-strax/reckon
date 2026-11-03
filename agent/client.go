@@ -76,13 +76,13 @@ type Window struct {
 }
 
 // ConsultedSOP is one SOP surfaced by recall_sops during the turn — the
-// knowledge-retrieval provenance the commit carries (01 schema). Used is set
-// conservatively: only when the turn's own text references the SOP.
+// knowledge-retrieval provenance the commit carries (01 schema). Cited is set
+// when the model's own text for the turn names it by ref (adr/0236).
 type ConsultedSOP struct {
 	SOPID          string  `json:"sop_id"`
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	Used           bool    `json:"used"`
+	Cited          bool    `json:"cited"`
 }
 
 // ConsultedSimilarInvestigation is one concluded-investigation summary surfaced
@@ -93,7 +93,7 @@ type ConsultedSimilarInvestigation struct {
 	Title            string  `json:"title,omitempty"`
 	RetrievalScore   float64 `json:"retrieval_score,omitempty"`
 	Band             string  `json:"band,omitempty"`
-	Used             bool    `json:"used"`
+	Cited            bool    `json:"cited"`
 }
 
 // InterpretationRequest is the body of POST /api/interpretations (the loop's
