@@ -393,15 +393,20 @@ func systemPrompt(inv Investigation, caps []Capability) string {
 
 	b.WriteString("\nThe turn's time, the investigation's current hypothesis set, and the authoritative action record arrive as [clock] / [reasoning state] / [engine state] blocks on the analyst's messages. Each is the engine's own record as of that turn: read the latest one, and trust it over earlier narration. SOPs and past cases are never placed in your context: you fetch them with recall_sops, recall_similar_investigations and prior_investigations.\n")
 
+	if degraded := degradedVerbs(caps); len(degraded) > 0 {
+		fmt.Fprintf(&b, textDegraded.Text, strings.Join(degraded, textListSeparator.Text))
+	}
+
+	return b.String()
+}
+
+// degradedVerbs is the verbs the prompt names configured but unresolvable.
+func degradedVerbs(caps []Capability) []string {
 	var degraded []string
 	for _, c := range caps {
 		if c.Status == "degraded" {
 			degraded = append(degraded, c.Descriptor.Verb)
 		}
 	}
-	if len(degraded) > 0 {
-		fmt.Fprintf(&b, textDegraded.Text, strings.Join(degraded, textListSeparator.Text))
-	}
-
-	return b.String()
+	return degraded
 }

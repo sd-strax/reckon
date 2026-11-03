@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -103,10 +104,11 @@ func TestRegressions_RelocatedTurnKey(t *testing.T) {
 // the baseline, and says nothing of a version either side lacks.
 func TestVersionSkew(t *testing.T) {
 	r := &Report{Attribution: Attribution{
-		PromptVersion: "f5df72f6b87f19000cece63d", SideInstructionVersion: "a1bd6f383f4e", JudgeRubric: "caa20d15db77", ReaderVersion: "e11a1ab74e69",
+		PromptVersion: "f5df72f6b87f19000cece63d", SideInstructionVersion: "a1bd6f383f4e", JudgeRubric: "caa20d15db77",
+		ReaderVersion: "e11a1ab74e69", ReaderModel: "reader-b", ToolSetHash: "0123456789abcdef",
 	}}
-	base := &BaselineSummary{Attribution: Attribution{PromptVersion: "a870ddbf8038fe4ee2049f35", JudgeRubric: "v1"}}
-	want := []string{"prompt f5df72f6b87f against baseline a870ddbf8038", "judge rubric caa20d15db77 against baseline v1"}
+	base := &BaselineSummary{Attribution: Attribution{PromptVersion: "a870ddbf8038fe4ee2049f35", JudgeRubric: "v1", ReaderModel: "reader-a"}}
+	want := []string{"prompt f5df72f6b87f against baseline a870ddbf8038", "judge rubric caa20d15db77 against baseline v1", "reader model reader-b against baseline reader-a"}
 	if got := r.VersionSkew(base); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("VersionSkew =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -117,7 +119,32 @@ func TestVersionSkew(t *testing.T) {
 	if got := r.VersionSkew(nil); got != nil {
 		t.Errorf("VersionSkew with no baseline = %v", got)
 	}
-	if s := r.Summary(); !strings.Contains(s, "prompt f5df72f6b87f  side a1bd6f383f4e  catalogue") || !strings.Contains(s, "reader e11a1ab74e69") {
+	if s := r.Summary(); !strings.Contains(s, "prompt f5df72f6b87f  side a1bd6f383f4e  catalogue") ||
+		!strings.Contains(s, "tools 0123456789ab") || !strings.Contains(s, "reader reader-b (e11a1ab74e69)") {
 		t.Errorf("summary does not carry the versions:\n%s", s)
+	}
+}
+
+// TestStampReader: a reader that read an answer attributes the run with its
+// model, version and spend; one that read nothing leaves no trace.
+func TestStampReader(t *testing.T) {
+	quiet := &Report{}
+	stampReader(quiet, &LLMJudge{LLM: &scriptedJudgeLLM{}, ModelID: "reader-model"})
+	if quiet.Attribution.ReaderModel != "" || quiet.Attribution.ReaderVersion != "" || quiet.ReaderCalls != 0 {
+		t.Errorf("a reader that read nothing was stamped: %+v", quiet.Attribution)
+	}
+	stampReader(quiet, nil)
+
+	j := &LLMJudge{LLM: &scriptedJudgeLLM{reply: `{"status":"CONFIRMED","reason":"r"}`}, ModelID: "reader-model"}
+	if _, _, err := j.Read(context.Background(), ReadQuestion{Hypothesis: "h", Statement: "s", Content: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	r := &Report{}
+	stampReader(r, j)
+	if r.Attribution.ReaderModel != "reader-model" || r.Attribution.ReaderVersion != ReaderVersion || r.ReaderCalls != 1 {
+		t.Errorf("stamped %+v, %d calls", r.Attribution, r.ReaderCalls)
+	}
+	if !strings.Contains(r.Summary(), "reader: 1 answer(s) read by reader-model") {
+		t.Errorf("summary does not report the reader:\n%s", r.Summary())
 	}
 }

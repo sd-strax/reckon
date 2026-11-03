@@ -33,8 +33,14 @@ type Attribution struct {
 	// this run: empty means every verdict was deterministic.
 	JudgeModel  string `json:"judge_model,omitempty"`
 	JudgeRubric string `json:"judge_rubric,omitempty"`
-	// ReaderVersion attributes the reader (adr/0069) when the script answers
-	// a manual test: its reading is what the agent is shown next (adr/0232).
+	// ToolSetHash is agent.Session.ToolSetHash: the tool list the model was
+	// offered, capability verbs and action catalog included, and the verbs
+	// named degraded. "mixed" when the trials were offered different sets.
+	ToolSetHash string `json:"tool_set_hash,omitempty"`
+	// ReaderModel / ReaderVersion attribute the reader (adr/0069) when it
+	// read an answer to a manual test: its reading is the result the agent is
+	// shown next (adr/0232). Empty when it read nothing.
+	ReaderModel   string `json:"reader_model,omitempty"`
 	ReaderVersion string `json:"reader_version,omitempty"`
 }
 
@@ -78,6 +84,10 @@ type Report struct {
 	// agent's cost; JudgeCalls is how many verdicts it decided.
 	JudgeUsage Usage `json:"judge_usage,omitempty"`
 	JudgeCalls int   `json:"judge_calls,omitempty"`
+	// ReaderUsage is what the reader spent; ReaderCalls is how many answers
+	// it read.
+	ReaderUsage Usage `json:"reader_usage,omitempty"`
+	ReaderCalls int   `json:"reader_calls,omitempty"`
 }
 
 // modelPricing is per-million-token USD rates for one model (Anthropic public
@@ -230,8 +240,11 @@ func (r *Report) Summary() string {
 		r.Attribution.ScenarioID, r.Attribution.Model, r.Attribution.Trials)
 	fmt.Fprintf(&b, "prompt %s  side %s  catalogue %s",
 		short(r.Attribution.PromptVersion), short(r.Attribution.SideInstructionVersion), r.Attribution.CatalogueVersion)
-	if r.Attribution.ReaderVersion != "" {
-		fmt.Fprintf(&b, "  reader %s", r.Attribution.ReaderVersion)
+	if r.Attribution.ToolSetHash != "" {
+		fmt.Fprintf(&b, "  tools %s", short(r.Attribution.ToolSetHash))
+	}
+	if r.Attribution.ReaderModel != "" {
+		fmt.Fprintf(&b, "  reader %s (%s)", r.Attribution.ReaderModel, r.Attribution.ReaderVersion)
 	}
 	if r.Attribution.JudgeModel != "" {
 		fmt.Fprintf(&b, "  judge %s (%s)", r.Attribution.JudgeModel, r.Attribution.JudgeRubric)
@@ -281,6 +294,11 @@ func (r *Report) Summary() string {
 			fmt.Fprintf(&b, " — %s", strings.Join(disagreed, "; "))
 		}
 		b.WriteString("\n")
+	}
+	if r.ReaderCalls > 0 {
+		u := r.ReaderUsage
+		fmt.Fprintf(&b, "reader: %d answer(s) read by %s, %s in + %s out\n",
+			r.ReaderCalls, r.Attribution.ReaderModel, humanTokens(u.Input+u.CacheWrite+u.CacheRead), humanTokens(u.Output))
 	}
 	if n := r.MustFailures(); n > 0 {
 		fmt.Fprintf(&b, "\n%d MUST assertion(s) failed — defects.\n", n)
@@ -387,8 +405,8 @@ func (r *Report) Regressions(base *BaselineSummary) []string {
 	return out
 }
 
-// VersionSkew names each text version on which the run and the baseline
-// differ, when both carry one. Regressions compares scores alone (10 §4.4); a
+// VersionSkew names each text version, the reader model and the tool set on
+// which the run and the baseline differ, when both carry one. Regressions compares scores alone (10 §4.4); a
 // baseline graded under other text still decides it, and this says so to the
 // reader of the matrix.
 func (r *Report) VersionSkew(base *BaselineSummary) []string {
@@ -401,6 +419,8 @@ func (r *Report) VersionSkew(base *BaselineSummary) []string {
 		{"side instructions", r.Attribution.SideInstructionVersion, base.Attribution.SideInstructionVersion},
 		{"judge rubric", r.Attribution.JudgeRubric, base.Attribution.JudgeRubric},
 		{"reader", r.Attribution.ReaderVersion, base.Attribution.ReaderVersion},
+		{"reader model", r.Attribution.ReaderModel, base.Attribution.ReaderModel},
+		{"tool set", r.Attribution.ToolSetHash, base.Attribution.ToolSetHash},
 	} {
 		if v.run != "" && v.base != "" && v.run != v.base {
 			out = append(out, fmt.Sprintf("%s %s against baseline %s", v.name, short(v.run), short(v.base)))

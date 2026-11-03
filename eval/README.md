@@ -184,9 +184,13 @@ of what the turn loop puts in front of the model (the base prompt, the
 intrinsic tool definitions and the engine text, adr/0232; a function of the
 code and the `hypothesis_framing` dial, recorded beside it), identical across
 trials, runs, and models on the same code. `side_instruction_version` is the
-same for the summary and SOP-draft instructions, which no assertion grades, and
-a run whose script answers a manual test records `reader_version`, the hash of
-the reader's instruction and question. The
+same for the summary and SOP-draft instructions, which no assertion grades.
+`tool_set_hash` is the tool list the model was offered, as each request sends
+it (the install's capability verbs and the action catalog as `request_action`
+renders them), plus the verbs the prompt names degraded. A run in which the
+reader read an answer to a manual test records `reader_model`,
+`reader_version` (the hash of the reader's instruction and question), and the
+reader's spend. The
 prompt *as assembled* for each trial (investigation context included) is kept
 in the trial record (`system_prompt`), not hashed: a version that changed with
 the investigation id would be a per-run nonce, not a version.
@@ -201,9 +205,9 @@ another turn, it is still compared against its old entry (same id, asserted at
 one turn on each side) and the finding names both keys — an inserted turn never
 silently drops an assertion's bar. The comparison is of scores alone; after the
 summary the run prints a `version:` line for each of `prompt_version`,
-`side_instruction_version`, `judge_rubric` and `reader_version` that the run
-and the baseline both carry and do not share, so a baseline graded under other
-text is visible where it decides.
+`side_instruction_version`, `judge_rubric`, `reader_version`, `reader_model`
+and `tool_set_hash` that the run and the baseline both carry and do not share,
+so a baseline graded under other conditions is visible where it decides.
 
 To accept a run as the new baseline:
 
@@ -352,7 +356,7 @@ same price whether the change is one sentence or five.
   scripted analyst records for any manual test the agent left open, through the
   Record result path; a reader model decides per prediction which way the answer
   points and the reading lands in the trial record (`adr/0069`); the run is
-  attributed with the reader's `reader_version`. The loader
+  attributed with the reader's `reader_model` and `reader_version`. The loader
   (`scenario.go`) validates every referenced id exists **and** is placed at its
   declared scope (turn-scoped vs trial-wide), so a typo or misplacement fails
   loudly at load, not silently at grading; `TestLoadScenario_Bundled` requires

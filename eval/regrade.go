@@ -105,6 +105,8 @@ func Regrade(runDir, scenarioPath string) (*Report, error) {
 		Results:     GradeWith(s, trials, judge),
 		TrialErrors: orig.TrialErrors,
 		Usage:       orig.Usage,
+		ReaderUsage: orig.ReaderUsage,
+		ReaderCalls: orig.ReaderCalls,
 	}
 	report.Attribution.CatalogueVersion = CatalogueVersion
 	report.Attribution.JudgeModel, report.Attribution.JudgeRubric = "", ""

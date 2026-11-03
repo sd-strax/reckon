@@ -162,6 +162,8 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 		err   error
 	}
 	outcomes := make([]trialOutcome, s.Trials)
+	// One reader for the run, so its spend and calls are the run's.
+	reader := readerFromEnv(apiKey)
 	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 	for n := 1; n <= s.Trials; n++ {
@@ -182,7 +184,7 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			logf("eval: trial %d/%d started", n, s.Trials)
-			tr, stamp, err := runTrial(ctx, client, backendURL, humanCred, s, model, apiKey, n, logf)
+			tr, stamp, err := runTrial(ctx, client, backendURL, humanCred, s, model, apiKey, reader, n, logf)
 			if err != nil {
 				logf("eval: trial %d aborted: %v", n, err)
 			}
@@ -205,11 +207,20 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 		trials      []*TrialRecord
 		trialErrors []string
 		prompt      promptStamp
+		toolSet     string
 	)
 	for i, o := range outcomes {
 		n := i + 1
 		if o.err != nil {
 			trialErrors = append(trialErrors, fmt.Sprintf("trial %d: %v", n, o.err))
+		}
+		switch {
+		case o.stamp.ToolSet == "":
+		case toolSet == "":
+			toolSet = o.stamp.ToolSet
+		case toolSet != o.stamp.ToolSet && toolSet != toolSetMixed:
+			logf("eval: trial %d was offered a different tool set (%s, not %s): the capability set changed during the run", n, short(o.stamp.ToolSet), short(toolSet))
+			toolSet = toolSetMixed
 		}
 		if prompt.Version == "" && o.stamp.Version != "" {
 			// Prompt-version identifier (10 §1.4): agent.PromptVersion (the
@@ -239,6 +250,7 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 			PromptVersion:          prompt.Version,
 			HypothesisFraming:      prompt.Framing,
 			SideInstructionVersion: agent.SideInstructionVersion(),
+			ToolSetHash:            toolSet,
 			Model:                  model,
 			ActionCatalogHash:      catalogHash,
 			ScenarioID:             s.ID,
@@ -251,9 +263,7 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 		Usage:       runUsage,
 	}
 	stampJudge(report, judge)
-	if s.answersManualTests() {
-		report.Attribution.ReaderVersion = ReaderVersion
-	}
+	stampReader(report, reader)
 	if raw, err := json.MarshalIndent(report, "", "  "); err == nil {
 		_ = os.WriteFile(filepath.Join(artifactDir, "report.json"), raw, 0o600)
 	}
@@ -263,17 +273,22 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 
 // promptStamp is the run's prompt attribution, read off the session:
 // agent.PromptVersion (the base prompt, the intrinsic tools and the engine
-// text, adr/0232) and the framing dial it was taken under.
+// text, adr/0232), the framing dial it was taken under, and the tool set the
+// session offered.
 type promptStamp struct {
 	Version string
 	Framing string
+	ToolSet string
 }
+
+// toolSetMixed attributes a run whose trials were offered different tool sets.
+const toolSetMixed = "mixed"
 
 // runTrial creates + activates a fresh investigation, then drives the shipped
 // Session through the script. Returns the trial record (possibly partial, with
 // Aborted set) and the session's prompt attribution.
 func runTrial(ctx context.Context, client *agent.Client, backendURL string, human agent.TokenSource,
-	s *Scenario, model, apiKey string, trial int, logf func(string, ...any)) (*TrialRecord, promptStamp, error) {
+	s *Scenario, model, apiKey string, reader Reader, trial int, logf func(string, ...any)) (*TrialRecord, promptStamp, error) {
 	invID, err := createActiveInvestigation(ctx, backendURL, human,
 		fmt.Sprintf("eval: %s — trial %d", s.ID, trial))
 	if err != nil {
@@ -290,13 +305,12 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 	if err != nil {
 		return nil, promptStamp{}, fmt.Errorf("assemble session: %w", err)
 	}
-	stamp := promptStamp{Version: session.PromptVersion(), Framing: session.HypothesisFraming()}
+	stamp := promptStamp{Version: session.PromptVersion(), Framing: session.HypothesisFraming(), ToolSet: session.ToolSetHash()}
 
 	tr := &TrialRecord{Trial: trial, InvestigationID: invID, SystemPrompt: session.System()}
 	if inv, err := client.GetInvestigation(ctx, invID); err == nil {
 		tr.HypothesisFraming = inv.HypothesisFraming
 	}
-	reader := readerFromEnv(apiKey)
 	for i, spec := range s.Turns {
 		if spec.AttestManual != nil {
 			// The scripted analyst answers the manual tests (adr/0069): the
@@ -582,6 +596,23 @@ func stampJudge(report *Report, judge Judge) {
 	report.Attribution.JudgeRubric = JudgeRubricVersion
 	report.JudgeUsage = usage
 	report.JudgeCalls = calls
+}
+
+// stampReader records the reader's attribution and spend on the report when
+// it read an answer; a reader that read nothing shaped nothing.
+func stampReader(report *Report, reader Reader) {
+	lj, ok := reader.(*LLMJudge)
+	if !ok || lj == nil {
+		return
+	}
+	usage, calls := lj.Usage()
+	if calls == 0 {
+		return
+	}
+	report.Attribution.ReaderModel = lj.Model()
+	report.Attribution.ReaderVersion = ReaderVersion
+	report.ReaderUsage = usage
+	report.ReaderCalls = calls
 }
 
 func envOr(key, def string) string {

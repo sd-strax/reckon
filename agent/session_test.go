@@ -1592,3 +1592,32 @@ func TestEvaluateHypothesis_OnlyOutcomes(t *testing.T) {
 		t.Error("inconclusive was refused")
 	}
 }
+
+// TestToolSetHash: the hash moves with what the model is offered — a verb's
+// description or availability — and not with the order the backend served.
+func TestToolSetHash(t *testing.T) {
+	verb := func(name, intent, status string) Capability {
+		var c Capability
+		c.Status = status
+		c.Descriptor.Verb = name
+		c.Descriptor.Intent = intent
+		return c
+	}
+	hash := func(caps ...Capability) string {
+		tools, _, err := buildTools(caps, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return (&Session{tools: tools, caps: caps}).ToolSetHash()
+	}
+	base := hash(verb("a", "A.", "available"), verb("b", "B.", "available"))
+	if hash(verb("b", "B.", "available"), verb("a", "A.", "available")) != base {
+		t.Error("the backend's order moved the hash")
+	}
+	if hash(verb("a", "A, reworded.", "available"), verb("b", "B.", "available")) == base {
+		t.Error("a reworded verb did not move the hash")
+	}
+	if hash(verb("a", "A.", "available"), verb("b", "B.", "degraded")) == base {
+		t.Error("a degraded verb did not move the hash")
+	}
+}

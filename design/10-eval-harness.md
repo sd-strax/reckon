@@ -62,8 +62,9 @@ becomes an assertion here, so it can never silently regress.
    model: the base prompt, the intrinsic tool definitions and the engine text (adr/0232), a function
    of the code and the `hypothesis_framing` dial recorded beside it, and of nothing that varies per
    investigation or install; the `09 §4.2` identifier, stamped by the agent package so the harness
-   and any future product surface agree), the side-instruction version, the reader version when the
-   script answers a manual test, model id, action-catalog content hash, scenario id +
+   and any future product surface agree), the side-instruction version, the tool set the model was
+   offered (capability verbs and action catalog as sent), the reader's model and version when it read
+   an answer to a manual test, model id, action-catalog content hash, scenario id +
    driver script hash, assertion-catalogue version, trial count. The prompt *as assembled* per trial
    is kept in the trial record for inspection, never hashed as the version — a hash that moved with
    the investigation id would mint a new "version" every run and say nothing.

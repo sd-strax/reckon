@@ -442,6 +442,22 @@ func (s *Session) PromptVersion() string {
 	return PromptVersion(s.investigation.HypothesisFraming)
 }
 
+// ToolSetHash identifies the tools this session offers the model, exactly as
+// each request sends them, and the verbs its prompt names degraded. It covers
+// what PromptVersion leaves out because it varies per install (adr/0232): the
+// capability verbs, their descriptions, schemas and availability, and the
+// action catalog as request_action renders it.
+func (s *Session) ToolSetHash() string {
+	b, err := json.Marshal(struct {
+		Tools    []ToolDef `json:"tools"`
+		Degraded []string  `json:"degraded"`
+	}{s.tools, degradedVerbs(s.caps)})
+	if err != nil {
+		panic(fmt.Sprintf("agent: the tool set does not marshal: %v", err))
+	}
+	return digest(b)
+}
+
 // HypothesisFraming is the framing dial the session's prompt was rendered
 // under, defaulted (framingOrDefault) — attribution for the prompt version.
 func (s *Session) HypothesisFraming() string {
