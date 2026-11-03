@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/capability/ocsfview"
 	"github.com/sd-strax/reckon/evidence"
 )
 
@@ -28,6 +29,9 @@ type EvidenceView struct {
 	Time       *time.Time `json:"time,omitempty"`
 	RecordedAt *time.Time `json:"recorded_at,omitempty"`
 	SourceTool string     `json:"source_tool,omitempty"`
+	// View is the event's rendering (adr/0090): the sentence with its entities,
+	// the curated fields and the category word. OCSF only.
+	View *ocsfview.View `json:"view,omitempty"`
 
 	// Related is set on an `indicator--` ref (a detection finding, 03 §4.12):
 	// the sightings that cite it, the vendor identity that produced it, and the
@@ -93,9 +97,16 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, "query ocsf event", err)
 		return
 	}
+	entities, err := b.cfg.Evidence.EventEntities(r.Context(), id)
+	if err != nil {
+		writeInternalError(w, "query derived objects", err)
+		return
+	}
+	view := eventView(e, entities)
 	writeJSON(w, http.StatusOK, EvidenceView{
 		Ref: ref, Kind: "ocsf", Type: e.ClassName, Payload: e.Payload,
 		ClassUID: e.ClassUID, Time: &e.Time, RecordedAt: &e.RecordedAt, SourceTool: e.SourceTool,
+		View: &view,
 	})
 }
 

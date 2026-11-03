@@ -105,6 +105,11 @@ const maxLabels = 20
 // not a second statement.
 const handleMaxRunes = 40
 
+// TitleMaxRunes bounds a prediction title (adr/0090): one line a tracker row
+// shows at rest, a noun phrase, never a second statement. A derived title is
+// clipped to it.
+const TitleMaxRunes = 64
+
 // maxDiscriminates bounds a prediction's discriminates list: a competing set is
 // a handful of rivals (01 §x-hypothesis caps the agent at three), never a crowd.
 const maxDiscriminates = 8
@@ -141,10 +146,14 @@ type QuerySpec struct {
 // PredictionNode is the creation payload for a new x-prediction, carried on a
 // RecordInterpretation of type "prediction".
 type PredictionNode struct {
-	ID            uuid.UUID  `json:"id"`
-	HypothesisRef string     `json:"hypothesis_ref"`
-	Statement     string     `json:"statement"`
-	TestQuery     *QuerySpec `json:"test_query,omitempty"`
+	ID            uuid.UUID `json:"id"`
+	HypothesisRef string    `json:"hypothesis_ref"`
+	Statement     string    `json:"statement"`
+	// Title is the short name the tracker shows at rest (adr/0090), authored
+	// by whoever records the prediction. Empty: the aggregate derives one from
+	// the statement and marks the record title_derived.
+	Title     string     `json:"title,omitempty"`
+	TestQuery *QuerySpec `json:"test_query,omitempty"`
 	// Discriminates lists the rival x-hypothesis ids whose expectation for this
 	// prediction is the OPPOSITE of the owner's (01 §x-prediction): CONFIRMED
 	// supports the owner and counts against these; DISCONFIRMED the reverse.
@@ -237,9 +246,14 @@ type HypothesisTransitionRecorded struct {
 
 // PredictionRecorded is the node content recorded when a prediction is created.
 type PredictionRecorded struct {
-	ID            string     `json:"id"` // full STIX id
-	HypothesisRef string     `json:"hypothesis_ref"`
-	Statement     string     `json:"statement"`
+	ID            string `json:"id"` // full STIX id
+	HypothesisRef string `json:"hypothesis_ref"`
+	Statement     string `json:"statement"`
+	// Title is the recorded short name; TitleDerived says the aggregate made
+	// it from the statement because none was authored (adr/0090). Frozen with
+	// the statement.
+	Title         string     `json:"title"`
+	TitleDerived  bool       `json:"title_derived,omitempty"`
 	Status        string     `json:"status"` // always UNTESTED at creation
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string   `json:"discriminates,omitempty"`
@@ -440,6 +454,51 @@ func validateHypothesisNode(h HypothesisNode) error {
 	return validateHandle(h.Handle)
 }
 
+// validateTitle bounds a prediction title (adr/0090): one short line, or
+// absent. Blank-but-present is absent: the aggregate derives one.
+func validateTitle(title string) error {
+	if strings.TrimSpace(title) == "" {
+		return nil
+	}
+	if utf8.RuneCountInString(title) > TitleMaxRunes {
+		return fmt.Errorf("RecordInterpretation: prediction.title exceeds %d chars", TitleMaxRunes)
+	}
+	if strings.ContainsAny(title, "\n\r") {
+		return errors.New("RecordInterpretation: prediction.title must be a single line")
+	}
+	return nil
+}
+
+// DeriveTitle makes a prediction's short title from its statement when none
+// was authored (adr/0090): the statement up to its first clause boundary when
+// that leaves a readable head, clipped to TitleMaxRunes, no trailing period.
+// Deterministic, so the record and every surface agree; it runs once, at
+// record time, and the result is stored.
+func DeriveTitle(statement string) string {
+	s := strings.Join(strings.Fields(statement), " ")
+	if i := clauseBoundary(s); i > 24 {
+		s = s[:i]
+	}
+	s = strings.TrimRight(s, " .")
+	if utf8.RuneCountInString(s) > TitleMaxRunes {
+		r := []rune(s)
+		s = strings.TrimRight(string(r[:TitleMaxRunes-1]), " ") + "…"
+	}
+	return s
+}
+
+// clauseBoundary is the byte index of the first clause boundary in s, or -1:
+// a comma, semicolon or colon, a dash set off by spaces, or a sentence end.
+func clauseBoundary(s string) int {
+	best := -1
+	for _, sep := range []string{",", ";", ":", " — ", " – ", " - ", ". "} {
+		if i := strings.Index(s, sep); i >= 0 && (best < 0 || i < best) {
+			best = i
+		}
+	}
+	return best
+}
+
 // validateHandle bounds a hypothesis handle: a single short line.
 func validateHandle(handle string) error {
 	if handle == "" {
@@ -558,6 +617,9 @@ func validatePredictionNode(p PredictionNode) error {
 	}
 	if utf8.RuneCountInString(p.Statement) > statementMaxRunes {
 		return fmt.Errorf("RecordInterpretation: prediction.statement exceeds %d chars", statementMaxRunes)
+	}
+	if err := validateTitle(p.Title); err != nil {
+		return err
 	}
 	if len(p.Discriminates) > maxDiscriminates {
 		return fmt.Errorf("RecordInterpretation: prediction.discriminates exceeds %d", maxDiscriminates)
@@ -822,9 +884,13 @@ func applyPredictionCreate(state aggregateState, p PredictionNode, rec *Interpre
 		ID:            stixID,
 		HypothesisRef: p.HypothesisRef,
 		Statement:     p.Statement,
+		Title:         strings.TrimSpace(p.Title),
 		Status:        PredictionUntested,
 		TestQuery:     p.TestQuery,
 		Discriminates: p.Discriminates,
+	}
+	if rec.Prediction.Title == "" {
+		rec.Prediction.Title, rec.Prediction.TitleDerived = DeriveTitle(p.Statement), true
 	}
 	if p.TestKind == TestKindManual {
 		rec.Prediction.TestKind = TestKindManual

@@ -149,6 +149,7 @@ type Hypothesis struct {
 type Prediction struct {
 	HypothesisRef string     `json:"hypothesis_ref"`
 	Statement     string     `json:"statement"`
+	Title         string     `json:"title,omitempty"` // the short name; the engine derives one when absent (adr/0090)
 	TestQuery     *QuerySpec `json:"test_query,omitempty"`
 	Discriminates []string   `json:"discriminates,omitempty"`
 	TestKind      string     `json:"test_kind,omitempty"` // tool (default) | manual — a person tests it (adr/0054)

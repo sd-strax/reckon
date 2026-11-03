@@ -15,7 +15,26 @@
       ],
       "entity_refs": [
         "x"
-      ]
+      ],
+      "view": {
+        "sentence": [
+          {
+            "t": "x",
+            "ref": "x",
+            "text": "x"
+          }
+        ],
+        "fields": [
+          {
+            "label": "x",
+            "value": "x",
+            "ref": "x",
+            "mono": true,
+            "tone": "x"
+          }
+        ],
+        "category": "x"
+      }
     }
   ],
   "total": 1,

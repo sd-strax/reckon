@@ -32,10 +32,10 @@ export interface Turn {
 
 const RECORD_TYPES = new Set(["hypothesis", "prediction", "support", "refutation", "inconclusive", "action-request", "evidence-pin", "note"]);
 
-function predOf(hs: Hypothesis[], id: string): { h: Hypothesis; ordinal?: number; status: string; statement: string } | null {
+function predOf(hs: Hypothesis[], id: string): { h: Hypothesis; ordinal?: number; status: string; statement: string; title: string } | null {
   for (const h of hs) {
     const p = h.predictions.find((x) => x.id === id);
-    if (p) return { h, ordinal: p.ordinal, status: p.status, statement: p.statement };
+    if (p) return { h, ordinal: p.ordinal, status: p.status, statement: p.statement, title: p.title };
   }
   return null;
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/capability/ocsfview"
 	"github.com/sd-strax/reckon/evidence"
 )
 
@@ -19,8 +20,8 @@ import (
 // calls themselves. Reads over persisted tables, never a capability call.
 
 // EventRowView is one retrieved event without its payload (GET
-// /api/evidence/{id} serves that): the record, the call that retrieved it, and
-// the interpretation-layer refs derived from it.
+// /api/evidence/{id} serves that): the record, the call that retrieved it, the
+// interpretation-layer refs derived from it, and its rendering (adr/0090).
 type EventRowView struct {
 	ID               string    `json:"id"`
 	ClassUID         int       `json:"class_uid"`
@@ -33,6 +34,9 @@ type EventRowView struct {
 	Coverage         string    `json:"coverage"`
 	ObservedDataRefs []string  `json:"observed_data_refs"`
 	EntityRefs       []string  `json:"entity_refs"`
+	// View is the sentence, the curated fields and the category word, rendered
+	// at read time from the payload and the record's entities (adr/0090).
+	View ocsfview.View `json:"view"`
 }
 
 // InvestigationEventsResponse is a page of events with the unpaged count and,
@@ -201,7 +205,19 @@ func eventRowView(row evidence.EventRow) EventRowView {
 		Coverage:         row.Coverage,
 		ObservedDataRefs: nonNilStrings(row.ObservedDataRefs),
 		EntityRefs:       nonNilStrings(row.EntityRefs),
+		View:             eventView(row.Event, row.Entities),
 	}
+}
+
+// eventView renders one event with the entities the record derived from it.
+func eventView(e evidence.Event, entities []evidence.Object) ocsfview.View {
+	var payload map[string]any
+	_ = json.Unmarshal(e.Payload, &payload)
+	ents := make([]ocsfview.Entity, 0, len(entities))
+	for _, o := range entities {
+		ents = append(ents, ocsfview.EntityFromObject(o.Ref, o.Type, o.Payload))
+	}
+	return ocsfview.Render(ocsfview.Event{ClassUID: e.ClassUID, ClassName: e.ClassName, Payload: payload}, ents)
 }
 
 // listInvestigationCalls serves GET /api/investigations/{id}/calls.

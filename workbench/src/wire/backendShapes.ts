@@ -122,6 +122,8 @@ const artifact = object({
 const prediction = object({
   id: str,
   statement: str,
+  title: str,
+  title_derived: optional(bool),
   status: str,
   ordinal: optional(num),
   test_query: optional(object({ tool: str, query_text: str })),
@@ -278,6 +280,15 @@ export const appearances = object({
   })),
 });
 
+// An event's rendering (adr/0090): the sentence as tokens (an entity token
+// carries the ref the chip opens), the curated fields and the category word.
+const eventView = object({
+  sentence: optional(list(object({ t: str, ref: optional(str), text: str }))),
+  fields: list(object({ label: str, value: str, ref: optional(str), mono: optional(bool), tone: optional(str) })),
+  category: str,
+});
+export type RawEventView = Decoded<typeof eventView>;
+
 export interface RawEvidence {
   ref: string;
   kind: string;
@@ -287,6 +298,7 @@ export interface RawEvidence {
   time?: string;
   recorded_at?: string;
   source_tool?: string;
+  view?: RawEventView;
   related?: { sightings: RawEvidence[]; identity?: RawEvidence; evidence: RawEvidence[] };
 }
 
@@ -299,6 +311,7 @@ export const evidence: Decoder<RawEvidence> = object({
   time: optional(str),
   recorded_at: optional(str),
   source_tool: optional(str),
+  view: optional(eventView),
   related: optional(object({
     sightings: list(lazy(() => evidence)),
     identity: optional(lazy(() => evidence)),
@@ -319,6 +332,7 @@ const eventRow = object({
   coverage: str,
   observed_data_refs: list(str),
   entity_refs: list(str),
+  view: eventView,
 });
 
 export const investigationEvents = object({ events: list(eventRow), total: num, next_cursor: optional(str) });

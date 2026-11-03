@@ -190,10 +190,11 @@ describe("the investigation document", () => {
     const { transport } = mount();
     fireEvent.click(within(lens()).getAllByText("+ prediction")[0]!);
     let dlg = screen.getByRole("dialog");
-    fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "a new test" } });
+    fireEvent.change(within(dlg).getAllByRole("textbox")[0]!, { target: { value: "a new test" } });
+    fireEvent.change(within(dlg).getByLabelText("Short title (optional)"), { target: { value: " Only network logons " } });
     fireEvent.click(within(dlg).getByLabelText(/A person tests this/));
     fireEvent.click(within(dlg).getByText("Record prediction"));
-    expect(transport.intents.find((i) => i.type === "pred.new")).toMatchObject({ statement: "a new test", testKind: "manual" });
+    expect(transport.intents.find((i) => i.type === "pred.new")).toMatchObject({ statement: "a new test", testKind: "manual", title: "Only network logons" });
     fireEvent.click(lens().querySelector(".hypcard .hyphandle")!);
     expect(screen.getByRole("dialog", { name: "Rename H1 not-owner" })).toBeTruthy();
     fireEvent.click(screen.getByText("Cancel"));

@@ -2,13 +2,13 @@
 // adr/0061), Detection finding (indicator + sighting + vendor identity,
 // 03 §4.12) and Alias (an alias edge) — the record-shaped inspectors
 // (08 §8.6, §8.6.1). An event shows the retrieved events around it on the
-// same entity and the call that retrieved it (adr/0092). The per-class
-// sentence and curated field table are gap §6.12; until it lands the generic
-// field renderer shows every field.
+// same entity and the call that retrieved it (adr/0092), and reads as the
+// server's sentence with its curated fields (adr/0090) above every field of
+// the payload.
 import { useApp } from "../../app";
-import type { EventRow, EvidenceDoc } from "../../../../src/viewTypes";
+import type { EventField, EventRow, EvidenceDoc } from "../../../../src/viewTypes";
 import { refType, refTypeLabel } from "../../refs";
-import { RefChip, fmtDateTime } from "../shared";
+import { EntityChip, RefChip, Sentence, fmtDateTime } from "../shared";
 import { Fields, Json, KV, Loading, Section, Tabs } from "./primitives";
 
 function payloadOf(doc: EvidenceDoc): Record<string, unknown> {
@@ -65,10 +65,24 @@ function AroundIt({ refId, rows }: { refId: string; rows: EventRow[] | undefined
       {!others.length ? <div className="empty">No other retrieved event on the same entity in this investigation's record.</div>
         : others.map((r) => (
           <div key={r.id} className="irow around">
-            <span className="mono">{fmtDateTime(r.time)}</span> <RefChip refId={r.id} /> <span className="imeta">{r.className}</span>
+            <span className="mono">{fmtDateTime(r.time)}</span> <RefChip refId={r.id} /> {r.view.sentence?.length ? <Sentence tokens={r.view.sentence} /> : <span className="imeta">{r.className}</span>}
             <a className="imeta tvia" title="Open the capability call that retrieved this event" onClick={() => openInspector({ kind: "call", callId: r.callId })}> via {r.verb}</a>
           </div>
         ))}
+    </Section>
+  );
+}
+
+/** The curated fields of an event (adr/0090): an entity as its chip, an
+ * outcome as a toned badge, the rest as text. */
+function Summary({ fields }: { fields: EventField[] }) {
+  return (
+    <Section title="Summary">
+      <KV rows={fields.map((f) => ({
+        k: f.label,
+        v: f.ref ? <EntityChip refId={f.ref} text={f.value} /> : f.tone ? <span className={"badge " + f.tone}>{f.value}</span> : f.value,
+        mono: f.mono,
+      }))} />
     </Section>
   );
 }
@@ -94,10 +108,12 @@ export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: stri
   return (
     <>
       <div className="isub">{doc.kind === "ocsf" ? "Telemetry · OCSF event" : "Interpretation · STIX object"} · {sub}</div>
+      {doc.view?.sentence?.length ? <div className="isentence"><Sentence tokens={doc.view.sentence} /></div> : null}
       <Tabs tabs={[
         { id: "details", label: "Details", body: () => (
           <>
             {isOD && objectRefs.length ? <Section title="Objects it contains">{objectRefs.map((r) => <RefChip key={r} refId={r} />)}</Section> : null}
+            {doc.view?.fields.length ? <Summary fields={doc.view.fields} /> : null}
             <Section title={doc.kind === "ocsf" ? "Event fields" : "Properties"}><Fields obj={propsOf(doc)} /></Section>
             {doc.kind === "ocsf" ? <AroundIt refId={target.ref} rows={around} /> : null}
           </>

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -78,6 +79,20 @@ func TestInvestigationEvents_MembershipAndCalls(t *testing.T) {
 	}
 	if len(row.EntityRefs) == 0 || len(row.ObservedDataRefs) == 0 {
 		t.Errorf("row carries no derived refs: %+v", row)
+	}
+	// The row reads as its sentence (adr/0090), the entities bound to the
+	// refs the record derived from it.
+	if row.View.Category != "auth" || len(row.View.Sentence) == 0 || len(row.View.Fields) == 0 {
+		t.Errorf("row view = %+v; want the authentication sentence and fields", row.View)
+	}
+	bound := 0
+	for _, tok := range row.View.Sentence {
+		if tok.T == "entity" && slices.Contains(row.EntityRefs, tok.Ref) {
+			bound++
+		}
+	}
+	if bound == 0 {
+		t.Errorf("no sentence slot bound to a derived ref: %+v / %v", row.View.Sentence, row.EntityRefs)
 	}
 
 	var byEntity InvestigationEventsResponse

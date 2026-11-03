@@ -14,6 +14,8 @@
         {
           "id": "x",
           "statement": "x",
+          "title": "x",
+          "title_derived": true,
           "status": "x",
           "ordinal": 1,
           "test_query": {

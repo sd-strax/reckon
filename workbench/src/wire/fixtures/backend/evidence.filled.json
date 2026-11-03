@@ -9,6 +9,25 @@
   "time": "2026-01-02T03:04:05Z",
   "recorded_at": "2026-01-02T03:04:05Z",
   "source_tool": "x",
+  "view": {
+    "sentence": [
+      {
+        "t": "x",
+        "ref": "x",
+        "text": "x"
+      }
+    ],
+    "fields": [
+      {
+        "label": "x",
+        "value": "x",
+        "ref": "x",
+        "mono": true,
+        "tone": "x"
+      }
+    ],
+    "category": "x"
+  },
   "related": {
     "sightings": [
       {
@@ -22,6 +41,25 @@
         "time": "2026-01-02T03:04:05Z",
         "recorded_at": "2026-01-02T03:04:05Z",
         "source_tool": "x",
+        "view": {
+          "sentence": [
+            {
+              "t": "x",
+              "ref": "x",
+              "text": "x"
+            }
+          ],
+          "fields": [
+            {
+              "label": "x",
+              "value": "x",
+              "ref": "x",
+              "mono": true,
+              "tone": "x"
+            }
+          ],
+          "category": "x"
+        },
         "related": {
           "sightings": null,
           "evidence": null
@@ -39,6 +77,25 @@
       "time": "2026-01-02T03:04:05Z",
       "recorded_at": "2026-01-02T03:04:05Z",
       "source_tool": "x",
+      "view": {
+        "sentence": [
+          {
+            "t": "x",
+            "ref": "x",
+            "text": "x"
+          }
+        ],
+        "fields": [
+          {
+            "label": "x",
+            "value": "x",
+            "ref": "x",
+            "mono": true,
+            "tone": "x"
+          }
+        ],
+        "category": "x"
+      },
       "related": {
         "sightings": null,
         "evidence": null
@@ -56,6 +113,25 @@
         "time": "2026-01-02T03:04:05Z",
         "recorded_at": "2026-01-02T03:04:05Z",
         "source_tool": "x",
+        "view": {
+          "sentence": [
+            {
+              "t": "x",
+              "ref": "x",
+              "text": "x"
+            }
+          ],
+          "fields": [
+            {
+              "label": "x",
+              "value": "x",
+              "ref": "x",
+              "mono": true,
+              "tone": "x"
+            }
+          ],
+          "category": "x"
+        },
         "related": {
           "sightings": null,
           "evidence": null

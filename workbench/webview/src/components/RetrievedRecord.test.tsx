@@ -15,14 +15,22 @@ import type { CapabilityCall, EventRow } from "../../../src/viewTypes";
 const base = synthetic as unknown as HarnessSnapshot;
 const callId = "0192f3a0-0000-7000-8000-0000000000c1";
 const cited = "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"; // an event the synthetic stage cites and holds a doc for
+const host = "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01";
+// The server's rendering of the authentication rows (adr/0090): the host as a chip, the rest as text.
+const authView = {
+  sentence: [{ t: "text" as const, text: "user-a interactive logon to " }, { t: "entity" as const, ref: host, text: "host-a" }, { t: "text" as const, text: " from 10.0.0.9" }],
+  fields: [{ label: "User", value: "user-a", mono: true }, { label: "Destination", value: "host-a", ref: host, mono: true }, { label: "Result", value: "Success", tone: "ok" as const }],
+  category: "auth",
+};
 const row = (over: Partial<EventRow>): EventRow => ({
   id: "0192f3a0-0000-7000-8000-00000000e001", classUid: 3002, className: "Authentication", time: "2026-10-20T08:50:00Z", recordedAt: "2026-10-20T09:05:00Z",
-  sourceTool: "fixture:scenario", callId, verb: "enumerate_logons", coverage: "COMPLETE", observedDataRefs: [], entityRefs: ["x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"], ...over,
+  sourceTool: "fixture:scenario", callId, verb: "enumerate_logons", coverage: "COMPLETE", observedDataRefs: [], entityRefs: [host], view: authView, ...over,
 });
 const events: EventRow[] = [
   row({ id: "0192f3a0-0000-7000-8000-00000000e001", time: "2026-10-20T08:50:00Z" }),
   row({ id: cited, time: "2026-10-20T09:00:00Z" }),
-  row({ id: "0192f3a0-0000-7000-8000-00000000e003", time: "2026-10-20T09:10:00Z", classUid: 1007, className: "Process Activity" }),
+  // A class without a template: no sentence, the class name reads instead.
+  row({ id: "0192f3a0-0000-7000-8000-00000000e003", time: "2026-10-20T09:10:00Z", classUid: 1007, className: "Process Activity", view: { fields: [{ label: "pid", value: "7" }], category: "process" } }),
 ];
 const call: CapabilityCall = {
   callId, verb: "enumerate_logons", adapter: "fixture", operation: "replay", priority: 100, paramsSent: { host: "host-a" }, coverage: "COMPLETE",
@@ -155,6 +163,31 @@ describe("the Story timeline over the retrieved record", () => {
     expect(within(p).getByText("Retrieved by")).toBeTruthy();
     fireEvent.click(within(within(p).getByText("Retrieved by").parentElement as HTMLElement).getByText("enumerate_logons"));
     expect(within(pane()).getByText("Capability call")).toBeTruthy();
+  });
+
+  it("reads each retrieved row as the server's sentence with its entities as chips, the class name when there is none, and the curated fields in the opened event", () => {
+    const transport = mount({ ...data, docs: { ...base.docs, [cited]: { ...base.docs![cited]!, view: authView } } });
+    tab("Story");
+    const rows = Array.from(lens().querySelectorAll(".trow"));
+    const first = rows.find((r) => r.querySelector(`[data-ref="${events[0]!.id}"]`))!;
+    expect(first.querySelector(".sentence")!.textContent).toBe("user-a interactive logon to host-a from 10.0.0.9");
+    expect(first.querySelector(`.sentence .refchip[data-ref="${host}"]`)!.textContent).toBe("host-a");
+    const third = rows.find((r) => r.querySelector(`[data-ref="${events[2]!.id}"]`))!;
+    expect(third.querySelector(".sentence")).toBeNull();
+    expect(within(third as HTMLElement).getByText("Process Activity")).toBeTruthy();
+    // The opened event: the sentence under the header, the curated fields before the payload's.
+    fireEvent.click(Array.from(lens().querySelectorAll(".refchip")).find((c) => c.getAttribute("data-ref") === cited) as HTMLElement);
+    const p = pane();
+    expect(p.querySelector(".isentence .sentence")!.textContent).toBe("user-a interactive logon to host-a from 10.0.0.9");
+    expect(within(p).getByText("Summary")).toBeTruthy();
+    expect(within(p).getByText("Destination").nextElementSibling!.querySelector(".refchip")!.getAttribute("data-ref")).toBe(host);
+    expect(p.querySelector(".badge.ok")!.textContent).toBe("Success"); // the Result field, toned; the raw payload shows the value as text too
+    expect(within(p).getByText("Event fields")).toBeTruthy();
+    // An around row reads as its sentence too.
+    expect(p.querySelector(".irow.around .sentence")!.textContent).toBe("user-a interactive logon to host-a from 10.0.0.9");
+    // The entity chip inside the sentence opens the entity.
+    fireEvent.click(p.querySelector(`.isentence .refchip[data-ref="${host}"]`) as HTMLElement);
+    expect(transport.intents).toContainEqual({ type: "inspector.open", target: { kind: "ref", ref: host } });
   });
 
   it("says the record holds nothing around an event when the window is empty", () => {
