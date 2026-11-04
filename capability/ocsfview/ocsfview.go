@@ -80,6 +80,9 @@ type View struct {
 	Sentence []Token `json:"sentence,omitempty"`
 	Fields   []Field `json:"fields"`
 	Category string  `json:"category"`
+	// Slots are the class's slot values the template registered, for the
+	// group-by fold (group.go); not on the wire.
+	Slots []SlotValue `json:"-"`
 }
 
 // Category words, from category_uid (the thousands digit of class_uid) with the
@@ -188,7 +191,7 @@ func Render(e Event, entities []Entity) View {
 	if r.fields == nil {
 		r.fields = []Field{}
 	}
-	return View{Sentence: r.sentence, Fields: r.fields, Category: Category(e.ClassUID, e.Payload)}
+	return View{Sentence: r.sentence, Fields: r.fields, Category: Category(e.ClassUID, e.Payload), Slots: r.slots}
 }
 
 // renderer accumulates one view. The sentence helpers add nothing for an
@@ -198,6 +201,19 @@ type renderer struct {
 	ents     []Entity
 	sentence []Token
 	fields   []Field
+	slots    []SlotValue
+}
+
+// keySlot registers a slot's value for the fold: the ref when the record
+// minted the entity, the text always.
+func (r *renderer) keySlot(name string, s slot) {
+	r.slots = append(r.slots, SlotValue{Name: name, Text: s.text, Ref: s.ref})
+}
+
+// keyText registers a slot by its text alone: a scalar, or a per-occurrence
+// object (the process, the flow) whose ref would differ on every event.
+func (r *renderer) keyText(name, text string) {
+	r.slots = append(r.slots, SlotValue{Name: name, Text: text})
 }
 
 // slot is a sentence slot: what the payload shows, and the record's ref when
@@ -494,6 +510,12 @@ func (r *renderer) authentication() {
 	r.field("Result", status).Tone = statusTone(status)
 	r.field("Detail", r.str("status_detail"))
 	r.field("Protocol", r.str("auth_protocol"))
+
+	r.keySlot("user", user)
+	r.keyText("logon_type", logon)
+	r.keySlot("src", src)
+	r.keySlot("dst", host)
+	r.keyText("status", status)
 }
 
 var processVerbs = map[string]string{
@@ -535,8 +557,19 @@ func (r *renderer) process() {
 	}
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.entityField("Host", host)
-	r.entityField("Image", slot{text: r.str("process.file.path"), ref: r.file("process.file").ref})
+	image := r.file("process.file")
+	r.entityField("Image", slot{text: r.str("process.file.path"), ref: image.ref})
 	r.hashField("process.file")
+
+	// The image keys by the file object (hash-first) when the record minted
+	// one, else by the image name the process shows.
+	r.keySlot("user", user)
+	r.keySlot("host", host)
+	r.keyText("process", proc.text)
+	r.keyText("parent", parent.text)
+	r.keySlot("image", slot{text: firstNonEmpty(image.text, proc.text), ref: image.ref})
+	r.keyText("cmd_line", r.str("process.cmd_line"))
+	r.keyText("activity", r.str("activity_name"))
 }
 
 // networkActivities are the OCSF network_activity activity ids, for a payload
@@ -623,6 +656,19 @@ func (r *renderer) network() {
 		r.mono("Bytes", strconv.Itoa(b))
 	}
 	r.activityField()
+
+	r.keySlot("host", host)
+	r.keySlot("src", src)
+	r.keySlot("dst", dst)
+	if dport != 0 {
+		r.keyText("dst_port", strconv.Itoa(dport))
+	} else {
+		r.keyText("dst_port", "")
+	}
+	r.keySlot("domain", domain)
+	r.keyText("protocol", strings.ToLower(proto))
+	r.keyText("process", proc.text)
+	r.keyText("activity", key)
 }
 
 func (r *renderer) dns() {
@@ -668,6 +714,12 @@ func (r *renderer) dns() {
 	r.field("Response", r.str("rcode"))
 	r.entityField("Requestor", src)
 	r.entityField("Host", host)
+
+	r.keySlot("host", host)
+	r.keySlot("src", src)
+	r.keySlot("query", query)
+	r.keyText("type", r.str("query.type"))
+	r.keyText("rcode", r.str("rcode"))
 }
 
 // dnsAnswers reads answers[].rdata as address or domain slots.
@@ -735,6 +787,12 @@ func (r *renderer) fileActivity() {
 	if size := r.int("file.size"); size != 0 {
 		r.mono("Size", strconv.Itoa(size)+" bytes")
 	}
+
+	r.keySlot("user", user)
+	r.keySlot("host", host)
+	r.keySlot("file", file)
+	r.keyText("process", proc.text)
+	r.keyText("activity", r.str("activity_name"))
 }
 
 var registryVerbs = map[string]string{
@@ -775,6 +833,13 @@ func (r *renderer) registryKey() {
 	r.entityField("Process", proc)
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.entityField("Host", host)
+
+	r.keySlot("host", host)
+	r.keyText("process", proc.text)
+	r.keySlot("user", user)
+	r.keySlot("key", key)
+	r.keyText("value", r.str("reg_value.name"))
+	r.keyText("activity", r.str("activity_name"))
 }
 
 var jobVerbs = map[string]string{
@@ -810,6 +875,12 @@ func (r *renderer) scheduledJob() {
 	r.activityField()
 	r.entityField("Actor", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
 	r.entityField("Host", host)
+
+	r.keySlot("actor", actor)
+	r.keySlot("host", host)
+	r.keySlot("job", job)
+	r.keySlot("run_as", runAs)
+	r.keyText("activity", r.str("activity_name"))
 }
 
 func (r *renderer) module() {
@@ -833,6 +904,10 @@ func (r *renderer) module() {
 	r.field("Load type", r.str("module.load_type"))
 	r.entityField("Host", host)
 	r.hashField("module.file")
+
+	r.keySlot("host", host)
+	r.keyText("process", proc.text)
+	r.keySlot("module", mod)
 }
 
 var accountVerbs = map[string]string{
@@ -870,6 +945,12 @@ func (r *renderer) accountChange() {
 	r.entityField("Group", group)
 	r.field("Privileges", r.str("privileges"))
 	r.entityField("Host", host)
+
+	r.keySlot("actor", actor)
+	r.keySlot("target", target)
+	r.keySlot("group", group)
+	r.keySlot("host", host)
+	r.keyText("activity", r.str("activity_name"))
 }
 
 func (r *renderer) email() {
@@ -918,6 +999,9 @@ func (r *renderer) email() {
 	if n := len(pathList(r.p, "email.urls")); n > 0 {
 		r.field("Links", strconv.Itoa(n))
 	}
+
+	r.keySlot("from", from)
+	r.keyText("subject", subject)
 }
 
 func (r *renderer) emailAddrs(path string) []slot {
@@ -954,6 +1038,11 @@ func (r *renderer) emailURL() {
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.entityField("Host", host)
 	r.mono("Message id", r.str("email.message_uid"))
+
+	r.keySlot("user", user)
+	r.keySlot("host", host)
+	r.keySlot("url", link)
+	r.keyText("activity", r.str("activity_name"))
 }
 
 func (r *renderer) detection() {
@@ -992,6 +1081,12 @@ func (r *renderer) detection() {
 	r.field("Status", r.str("status"))
 	r.entityField("Host", host)
 	r.entityField("User", slot{text: r.qualifiedUser("evidence.actor.user"), ref: user.ref})
+
+	r.keyText("vendor", vendor)
+	r.keyText("title", title)
+	r.keyText("severity", severity)
+	r.keySlot("host", host)
+	r.keySlot("user", user)
 }
 
 func (r *renderer) caseFinding() {
@@ -1023,6 +1118,10 @@ func (r *renderer) caseFinding() {
 	r.field("Assigned to", group)
 	r.field("System", firstNonEmpty(r.str("unmapped.sor"), r.str("metadata.product.vendor_name")))
 	r.mono("Link", r.str("unmapped.link"))
+
+	r.keyText("status", status)
+	r.keyText("priority", priority)
+	r.keyText("assigned", group)
 }
 
 func (r *renderer) deviceInventory() {
@@ -1060,6 +1159,11 @@ func (r *renderer) deviceInventory() {
 		}
 	}
 	r.field("Agents", strings.Join(agents, ", "))
+
+	r.keySlot("host", host)
+	r.keyText("os", os)
+	r.keyText("owner", owner)
+	r.keyText("criticality", strings.ToLower(crit))
 }
 
 // scalars is the view of a class without a template: the payload's top-level

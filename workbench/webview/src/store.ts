@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a snapshot or patch older than
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRow, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/viewTypes";
 import type { ActionTypeView, InvestigationSnapshot, LibraryItem, RenderMessage, SopDraftState } from "../../src/protocol";
 
 export interface LiveToolResult {
@@ -78,6 +78,8 @@ export interface State {
   /** Capability calls by id (adr/0092), and the retrieved events around an opened event. */
   calls: Record<string, CapabilityCall>;
   around: Record<string, EventRow[]>;
+  /** An opened entity's retrieved events folded by the default key (adr/0095); absent when the read failed. */
+  repeats: Record<string, EventRepeats>;
   inspectorErrors: Record<string, string>;
   /** The action types the analyst may request directly (#146). */
   actionTypes: ActionTypeView[];
@@ -115,6 +117,7 @@ export const initialState: State = {
   caseSummaries: {},
   calls: {},
   around: {},
+  repeats: {},
   inspectorErrors: {},
   library: { sops: [], cases: [], loaded: false, results: null },
   actionTypes: [],
@@ -248,6 +251,7 @@ function onMessage(state: State, msg: RenderMessage): State {
         docs: { ...state.docs, [msg.ref]: msg.doc },
         appearances: { ...state.appearances, [msg.ref]: msg.appearances },
         around: { ...state.around, [msg.ref]: msg.around ?? [] },
+        repeats: msg.repeats ? { ...state.repeats, [msg.ref]: msg.repeats } : dropKey(state.repeats, msg.ref),
         inspectorErrors: dropKey(state.inspectorErrors, msg.ref),
       };
     }

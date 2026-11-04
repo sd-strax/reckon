@@ -20,6 +20,9 @@ import type {
   CaseSummaryView,
   CommsThread,
   Enablement,
+  EventClassKeys,
+  EventGroup,
+  EventRepeats,
   EventRow,
   EvidenceDoc,
   Hypothesis,
@@ -136,6 +139,12 @@ export interface InvestigationSnapshot {
   eventsError?: string | null;
   /** The cursor of the next older page of retrieved events; null when `events` holds the whole record. */
   eventsCursor?: string | null;
+  /** The events folded by class and key (adr/0095); null when the read is the flat page, undefined until read. */
+  eventGroups?: EventGroup[] | null;
+  /** What each class present can key on, and the key the fold used. */
+  eventKeys?: EventClassKeys[];
+  /** How many of `eventsTotal` the fold covered (the newest). */
+  eventsFoldedOver?: number;
 }
 
 /**
@@ -183,7 +192,7 @@ export type RenderMessage =
   // The inspector's one-object answers (impl §4.1): the webview opened a pane
   // from the snapshot and asked for what the record holds beyond it.
   // `around` is the window of retrieved events on the same entity (adr/0092); empty when the record has none.
-  | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; appearances: Appearance[]; around?: EventRow[] }
+  | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; appearances: Appearance[]; around?: EventRow[]; repeats?: EventRepeats }
   | { type: "inspector.call"; callId: string; call: CapabilityCall }
   | { type: "inspector.procedure"; sopId: string; sop: SOPDoc }
   | { type: "inspector.turn"; interpretationId: string; body: string }
@@ -281,6 +290,9 @@ export type InboundMessage =
   | { type: "evidence.resolve"; ref: string }
   // The Story timeline asks for the next older page of retrieved events (adr/0092).
   | { type: "events.older"; cursor: string }
+  // The Story timeline changes the fold (adr/0095): a key spec ("default" or
+  // "class:slot,slot;…"), or null for the flat newest page.
+  | { type: "events.fold"; keys: string | null }
   // The webview opened an inspector pane (view state) and needs the record
   // behind it; the host answers with the matching inspector.* message.
   | { type: "inspector.open"; target: InspectorTarget }

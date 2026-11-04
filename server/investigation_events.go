@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -41,10 +42,27 @@ type EventRowView struct {
 
 // InvestigationEventsResponse is a page of events with the unpaged count and,
 // when more remain in the direction of travel, the cursor of the next page.
+// With `group_by` (adr/0095) the read is the newest MaxEventLimit events
+// instead of a page: Groups folds them by class and key, Keys lists the slots
+// each class present can key on, and FoldedOver says how many of Total the
+// fold covered.
 type InvestigationEventsResponse struct {
-	Events     []EventRowView `json:"events"`
-	Total      int            `json:"total"`
-	NextCursor string         `json:"next_cursor,omitempty"`
+	Events     []EventRowView       `json:"events"`
+	Total      int                  `json:"total"`
+	NextCursor string               `json:"next_cursor,omitempty"`
+	Groups     []ocsfview.Group     `json:"groups,omitempty"`
+	Keys       []EventClassKeysView `json:"keys,omitempty"`
+	FoldedOver int                  `json:"folded_over,omitempty"`
+}
+
+// EventClassKeysView is what a class present in a grouped read can key on:
+// its slots, the default key, and the key this read used.
+type EventClassKeysView struct {
+	ClassUID  int                 `json:"class_uid"`
+	ClassName string              `json:"class_name"`
+	Slots     []ocsfview.SlotSpec `json:"slots"`
+	Default   []string            `json:"default"`
+	Key       []string            `json:"key"`
 }
 
 // CapabilityCallView is one call as a surface opens it: which binding
@@ -107,11 +125,15 @@ type InvestigationCallsResponse struct {
 }
 
 // listInvestigationEvents serves GET /api/investigations/{id}/events?entity=&
-// category=&around=&limit=&order=&cursor=: the events retrieved for the
-// investigation, in event time, oldest first or newest first (`order=newest`),
-// `limit` to a page and `cursor` (the `next_cursor` of the previous page)
-// continuing it. `around` centres the page on one event (its id), `limit`
-// events each side, and is a 404 when the event is not in the investigation.
+// category=&around=&limit=&order=&cursor=&group_by=: the events retrieved for
+// the investigation, in event time, oldest first or newest first
+// (`order=newest`), `limit` to a page and `cursor` (the `next_cursor` of the
+// previous page) continuing it. `around` centres the page on one event (its
+// id), `limit` events each side, and is a 404 when the event is not in the
+// investigation. `group_by` (`default`, or `class:slot,slot;…`) folds the
+// newest MaxEventLimit matching events by class and key (adr/0095); `entity`
+// is then the pivot, and its slot leaves the key. It excludes `around` and
+// `cursor`.
 func (b *Backend) listInvestigationEvents(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
 	if b.cfg.Evidence == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "evidence store not configured")
@@ -119,6 +141,21 @@ func (b *Backend) listInvestigationEvents(w http.ResponseWriter, r *http.Request
 	}
 	q := r.URL.Query()
 	f := evidence.EventFilter{Entity: q.Get("entity"), Category: q.Get("category")}
+	groupBy, grouped := q.Get("group_by"), q.Has("group_by")
+	var keys ocsfview.Keys
+	if grouped {
+		if q.Get("around") != "" || q.Get("cursor") != "" {
+			writeJSONError(w, http.StatusBadRequest, "group_by cannot be combined with around or cursor")
+			return
+		}
+		k, err := ocsfview.ParseKeys(groupBy)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "group_by: "+err.Error())
+			return
+		}
+		keys = k
+		f.Limit, f.Newest = evidence.MaxEventLimit, true
+	}
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
@@ -164,10 +201,50 @@ func (b *Backend) listInvestigationEvents(w http.ResponseWriter, r *http.Request
 	for _, row := range page.Rows {
 		out.Events = append(out.Events, eventRowView(row))
 	}
+	if grouped {
+		out.Groups, out.Keys = foldEvents(out.Events, keys, f.Entity)
+		out.FoldedOver = len(out.Events)
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	if page.NextCursor != nil {
 		out.NextCursor = eventCursor(*page.NextCursor)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// foldEvents groups the rendered rows by class and key (adr/0095) and lists,
+// per class present, what it can key on. The rows' views carry the slot
+// values the templates registered.
+func foldEvents(rows []EventRowView, keys ocsfview.Keys, pivot string) ([]ocsfview.Group, []EventClassKeysView) {
+	items := make([]ocsfview.GroupItem, 0, len(rows))
+	classes := map[int]string{}
+	for _, r := range rows {
+		items = append(items, ocsfview.GroupItem{ID: r.ID, ClassUID: r.ClassUID, Time: r.Time, Slots: r.View.Slots})
+		classes[r.ClassUID] = r.ClassName
+	}
+	groups := ocsfview.Fold(items, keys, pivot)
+	if groups == nil {
+		groups = []ocsfview.Group{}
+	}
+	uids := make([]int, 0, len(classes))
+	for uid := range classes {
+		uids = append(uids, uid)
+	}
+	sort.Ints(uids)
+	out := make([]EventClassKeysView, 0, len(uids))
+	for _, uid := range uids {
+		key := keys[uid]
+		if key == nil {
+			key = ocsfview.DefaultKey(uid)
+		}
+		slots := ocsfview.Slots(uid)
+		if slots == nil {
+			slots = []ocsfview.SlotSpec{}
+		}
+		out = append(out, EventClassKeysView{ClassUID: uid, ClassName: classes[uid], Slots: slots, Default: nonNilStrings(ocsfview.DefaultKey(uid)), Key: nonNilStrings(key)})
+	}
+	return groups, out
 }
 
 // eventCursor renders a position as the wire carries it: the event time in

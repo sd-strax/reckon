@@ -103,7 +103,7 @@ investigation time appears once, as a divider where the investigation started.
 | Attack path: entities as nodes, typed relations as the labels between them, the span in seconds | The two-layer graph (`01`), restricted to entities cited by a `SUPPORTED` hypothesis; ordered by first event time |
 | ATT&CK techniques | Detection finding types and hypothesis labels (`03 §4.12`) |
 | Timeline rows: time, source class, a generated sentence with entity chips, citing predictions | Cited OCSF events + an entity-scoped event query (gap `00 §6.13`); sentences per class (gap `00 §6.12`) |
-| Baseline row (collapsed repetition, e.g. a nightly logon) | Gap `00 §6.14` |
+| Folded row (a repeated group, e.g. a nightly logon, collapsed; opens to its members) | `group_by` on the events read (`adr/0095`); the analyst changes the key per class or turns the fold off |
 | Row emphasis: expected / unusual / cited-against | Cited by a `CONFIRMED` prediction of a `SUPPORTED` hypothesis → emphasized; attested-benign context → "expected" |
 | Divider: investigation start | Seed timestamp |
 | "Not yet known" note | `INCONCLUSIVE` / `UNTESTED` predictions |
@@ -191,7 +191,7 @@ two).
 |---|---|
 | Type, value, aliases (linked, never merged), id on hover | STIX object + alias edges (`00 §2.8`) |
 | Role and status in this case; event and action counts | Citations + `/actions` targets |
-| Normal behaviour: the baseline and how this case deviates | Gap `00 §6.14`; absent when no baseline exists — never inferred |
+| Repeated observations: the entity's retrieved events folded by the default key | The events read pivoted to the entity (`adr/0095`); absent when nothing repeats — never inferred |
 | Actions on this entity | `/actions` where the entity is a target |
 | Other investigations | `GET /api/entities/{ref}/appearances` |
 | Pivot | Stages a question in the composer (`02 §2.4`) |

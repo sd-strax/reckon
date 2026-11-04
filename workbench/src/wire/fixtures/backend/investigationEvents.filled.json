@@ -38,5 +38,44 @@
     }
   ],
   "total": 1,
-  "next_cursor": "x"
+  "next_cursor": "x",
+  "groups": [
+    {
+      "class_uid": 1,
+      "key": [
+        {
+          "slot": "x",
+          "label": "x",
+          "text": "x",
+          "ref": "x"
+        }
+      ],
+      "count": 1,
+      "first": "2026-01-02T03:04:05Z",
+      "last": "2026-01-02T03:04:05Z",
+      "days": 1,
+      "event_ids": [
+        "x"
+      ]
+    }
+  ],
+  "keys": [
+    {
+      "class_uid": 1,
+      "class_name": "x",
+      "slots": [
+        {
+          "name": "x",
+          "label": "x"
+        }
+      ],
+      "default": [
+        "x"
+      ],
+      "key": [
+        "x"
+      ]
+    }
+  ],
+  "folded_over": 1
 }

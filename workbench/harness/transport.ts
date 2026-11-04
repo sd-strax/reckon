@@ -1,7 +1,7 @@
 // The harness transport (impl §5.4): answers the webview from a recorded
 // snapshot set and echoes every intent, so a click's effect is visible and
 // component tests can assert on what the page asked the host for.
-import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummaryView, EventRow, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, SOPDoc } from "../src/viewTypes";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, LibraryItem, RenderMessage } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
@@ -22,6 +22,8 @@ export interface HarnessSnapshot {
   /** Capability calls by id, and the retrieved events around one event (adr/0092). */
   calls?: Record<string, CapabilityCall>;
   around?: Record<string, EventRow[]>;
+  /** An entity's retrieved events folded by the default key (adr/0095). */
+  repeats?: Record<string, EventRepeats>;
   /** The knowledge library (adr/0129) as the host posts it. */
   library?: { sops: LibraryItem[]; cases: LibraryItem[] };
   /** The work queue (08 §8.3) as the host posts it. */
@@ -89,6 +91,16 @@ export class HarnessTransport implements WebviewTransport {
         // the harness only leaves the draft (it has nothing to load).
         this.emit({ type: "seeded" });
         break;
+      case "events.fold": {
+        // The stage holds one folded record (adr/0095); the flat page is the
+        // same rows without the groups, and a key change re-posts the fold as
+        // recorded, since nothing here folds.
+        const s = this.data?.snapshot;
+        if (!s) break;
+        const flat = intent.keys === null;
+        this.emit({ type: "state.patch", seq: s.seq, patch: { events: s.events ?? [], eventsTotal: s.eventsTotal ?? 0, eventsError: null, eventsCursor: null, eventGroups: flat ? null : s.eventGroups ?? [], eventKeys: flat ? [] : s.eventKeys ?? [], eventsFoldedOver: flat ? 0 : s.eventsFoldedOver ?? 0 } });
+        break;
+      }
       // Every other intent is an act the real host forwards to the engine;
       // here it is only recorded.
     }
@@ -102,7 +114,7 @@ export class HarnessTransport implements WebviewTransport {
     switch (target.kind) {
       case "ref": {
         const doc = d?.docs?.[target.ref];
-        if (doc) this.emit({ type: "inspector.evidence", ref: target.ref, doc, appearances: d?.appearances?.[target.ref] ?? [], around: d?.around?.[target.ref] ?? [] });
+        if (doc) this.emit({ type: "inspector.evidence", ref: target.ref, doc, appearances: d?.appearances?.[target.ref] ?? [], around: d?.around?.[target.ref] ?? [], repeats: d?.repeats?.[target.ref] });
         else this.emit({ type: "inspector.error", target: target.ref, message: "not recorded in this harness stage" });
         break;
       }
