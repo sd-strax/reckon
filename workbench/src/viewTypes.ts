@@ -472,10 +472,16 @@ export interface EventClassKeys {
   key: string[];
 }
 
-/** One entity's retrieved events folded by the default key (adr/0095), for the Entity inspector. */
+/**
+ * One entity's retrieved events folded by the default key (adr/0095), for the
+ * Entity inspector: the rows the fold covered (the newest, bounded), the
+ * groups, the entity's unpaged total and how many of it the fold covered.
+ */
 export interface EventRepeats {
   events: EventRow[];
   groups: EventGroup[];
+  total: number;
+  foldedOver: number;
 }
 
 /** What one binding did on a call (mirrors server.BindingOutcomeView): the

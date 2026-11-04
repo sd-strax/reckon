@@ -180,3 +180,60 @@ func TestParseKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestFold_ChangedObservationsStayApart: the all-slots default keeps the
+// values that change between otherwise identical events — a DNS answer, a
+// registry value's data, a job's command line — so a one-off change never
+// disappears into a repeated row; and a domain-only destination keys by the
+// domain.
+func TestFold_ChangedObservationsStayApart(t *testing.T) {
+	at := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+	item := func(id string, class int, js string) GroupItem {
+		return GroupItem{ID: id, ClassUID: class, Time: at, Slots: Render(Event{ClassUID: class, Payload: payload(js)}, nil).Slots}
+	}
+	cases := []struct {
+		name  string
+		items []GroupItem
+		want  int
+	}{
+		{"dns answers", []GroupItem{
+			item("a", classDNS, `{"query":{"hostname":"x.example"},"answers":[{"rdata":"1.1.1.1"},{"rdata":"2.2.2.2"}]}`),
+			item("b", classDNS, `{"query":{"hostname":"x.example"},"answers":[{"rdata":"2.2.2.2"},{"rdata":"1.1.1.1"}]}`),
+			item("c", classDNS, `{"query":{"hostname":"x.example"},"answers":[{"rdata":"9.9.9.9"}]}`),
+		}, 2},
+		{"registry data", []GroupItem{
+			item("a", classRegistryKey, `{"reg_key":{"hive":"HKLM","path":"Run"},"reg_value":{"name":"U","data":"C:\\a.exe"}}`),
+			item("b", classRegistryKey, `{"reg_key":{"hive":"HKLM","path":"Run"},"reg_value":{"name":"U","data":"C:\\b.exe"}}`),
+		}, 2},
+		{"job command line", []GroupItem{
+			item("a", classScheduledJob, `{"job":{"name":"Updater","command_line":"u.exe -q"}}`),
+			item("b", classScheduledJob, `{"job":{"name":"Updater","command_line":"u.exe -q -x"}}`),
+		}, 2},
+		{"domain-only destinations", []GroupItem{
+			item("a", classNetwork, `{"dst_endpoint":{"domain":"a.example","port":443}}`),
+			item("b", classNetwork, `{"dst_endpoint":{"domain":"b.example","port":443}}`),
+			item("c", classNetwork, `{"dst_endpoint":{"domain":"A.example","port":443}}`),
+		}, 2},
+	}
+	for _, tc := range cases {
+		if got := len(Fold(tc.items, nil, "")); got != tc.want {
+			t.Errorf("%s: %d groups; want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestFold_ExplicitEmptyKey: a class named with no slots keys on nothing and
+// never folds, where an absent class folds on its default; a class without
+// slots in the catalogue is accepted that way.
+func TestFold_ExplicitEmptyKey(t *testing.T) {
+	keys, err := ParseKeys("3002:;6003:")
+	if err != nil || keys[classAuthentication] == nil || len(keys[classAuthentication]) != 0 || keys[6003] == nil {
+		t.Fatalf("ParseKeys = %v, %v; want present, empty entries", keys, err)
+	}
+	if groups := Fold(scenarioLogons(), keys, ""); len(groups) != 9 {
+		t.Errorf("groups with no key = %d; want every logon alone", len(groups))
+	}
+	if _, err := ParseKeys("6003:user"); err == nil {
+		t.Error("a slot on a class without slots accepted")
+	}
+}

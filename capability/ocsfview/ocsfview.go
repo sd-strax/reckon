@@ -657,9 +657,15 @@ func (r *renderer) network() {
 	}
 	r.activityField()
 
+	// A domain-only destination keys by the domain, so connections to
+	// different names stay apart when no address is given.
 	r.keySlot("host", host)
 	r.keySlot("src", src)
-	r.keySlot("dst", dst)
+	if dst.empty() {
+		r.keySlot("dst", domain)
+	} else {
+		r.keySlot("dst", dst)
+	}
 	if dport != 0 {
 		r.keyText("dst_port", strconv.Itoa(dport))
 	} else {
@@ -720,6 +726,20 @@ func (r *renderer) dns() {
 	r.keySlot("query", query)
 	r.keyText("type", r.str("query.type"))
 	r.keyText("rcode", r.str("rcode"))
+	r.keyText("answers", canonicalList(answers))
+}
+
+// canonicalList is a multi-valued slot as one key value: the texts folded for
+// case, sorted, joined; order and case do not make two observations differ.
+func canonicalList(slots []slot) string {
+	out := make([]string, 0, len(slots))
+	for _, s := range slots {
+		if s.text != "" {
+			out = append(out, strings.ToLower(s.text))
+		}
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
 }
 
 // dnsAnswers reads answers[].rdata as address or domain slots.
@@ -839,6 +859,7 @@ func (r *renderer) registryKey() {
 	r.keySlot("user", user)
 	r.keySlot("key", key)
 	r.keyText("value", r.str("reg_value.name"))
+	r.keyText("data", r.str("reg_value.data"))
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -880,6 +901,7 @@ func (r *renderer) scheduledJob() {
 	r.keySlot("host", host)
 	r.keySlot("job", job)
 	r.keySlot("run_as", runAs)
+	r.keyText("cmd_line", r.str("job.command_line"))
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -950,6 +972,7 @@ func (r *renderer) accountChange() {
 	r.keySlot("target", target)
 	r.keySlot("group", group)
 	r.keySlot("host", host)
+	r.keyText("privileges", r.str("privileges"))
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -1001,6 +1024,7 @@ func (r *renderer) email() {
 	}
 
 	r.keySlot("from", from)
+	r.keyText("to", canonicalList(to))
 	r.keyText("subject", subject)
 }
 

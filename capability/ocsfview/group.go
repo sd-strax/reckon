@@ -69,13 +69,13 @@ var classSlots = map[int][]SlotSpec{
 	classAuthentication:  {{"user", "Account"}, {"logon_type", "Logon type"}, {"src", "Source"}, {"dst", "Destination"}, {"status", "Result"}},
 	classProcess:         {{"user", "Account"}, {"host", "Host"}, {"process", "Process"}, {"parent", "Parent"}, {"image", "Image"}, {"cmd_line", "Command line"}, {"activity", "Activity"}},
 	classNetwork:         {{"host", "Host"}, {"src", "Source"}, {"dst", "Destination"}, {"dst_port", "Port"}, {"domain", "Domain"}, {"protocol", "Protocol"}, {"process", "Process"}, {"activity", "Activity"}},
-	classDNS:             {{"host", "Host"}, {"src", "Requestor"}, {"query", "Query"}, {"type", "Type"}, {"rcode", "Response"}},
+	classDNS:             {{"host", "Host"}, {"src", "Requestor"}, {"query", "Query"}, {"type", "Type"}, {"rcode", "Response"}, {"answers", "Answers"}},
 	classFileActivity:    {{"user", "Account"}, {"host", "Host"}, {"file", "File"}, {"process", "Process"}, {"activity", "Activity"}},
-	classRegistryKey:     {{"host", "Host"}, {"process", "Process"}, {"user", "Account"}, {"key", "Key"}, {"value", "Value"}, {"activity", "Activity"}},
-	classScheduledJob:    {{"actor", "Actor"}, {"host", "Host"}, {"job", "Job"}, {"run_as", "Runs as"}, {"activity", "Activity"}},
+	classRegistryKey:     {{"host", "Host"}, {"process", "Process"}, {"user", "Account"}, {"key", "Key"}, {"value", "Value"}, {"data", "Data"}, {"activity", "Activity"}},
+	classScheduledJob:    {{"actor", "Actor"}, {"host", "Host"}, {"job", "Job"}, {"run_as", "Runs as"}, {"cmd_line", "Command line"}, {"activity", "Activity"}},
 	classModule:          {{"host", "Host"}, {"process", "Process"}, {"module", "Module"}},
-	classAccountChange:   {{"actor", "By"}, {"target", "Account"}, {"group", "Group"}, {"host", "Host"}, {"activity", "Activity"}},
-	classEmail:           {{"from", "From"}, {"subject", "Subject"}},
+	classAccountChange:   {{"actor", "By"}, {"target", "Account"}, {"group", "Group"}, {"host", "Host"}, {"privileges", "Privileges"}, {"activity", "Activity"}},
+	classEmail:           {{"from", "From"}, {"to", "To"}, {"subject", "Subject"}},
 	classEmailURL:        {{"user", "Account"}, {"host", "Host"}, {"url", "URL"}, {"activity", "Activity"}},
 	classDetection:       {{"vendor", "Vendor"}, {"title", "Finding"}, {"severity", "Severity"}, {"host", "Host"}, {"user", "Account"}},
 	classCase:            {{"status", "Status"}, {"priority", "Priority"}, {"assigned", "Assigned to"}},
@@ -110,8 +110,11 @@ func DefaultKey(classUID int) []string {
 }
 
 // ParseKeys reads a key spec as the wire carries it: "default", or per class
-// "class:slot,slot" joined by ";" (3002:user,logon_type;4001:dst). A class or
-// slot the catalogue does not know is an error.
+// "class:slot,slot" joined by ";" (3002:user,logon_type;4001:dst). A class
+// named with no slots ("3002:") keys on nothing, so its events never fold; a
+// class without slots in the catalogue is accepted that way, since that is
+// what the read's own key list says of it. A slot the class does not have is
+// an error.
 func ParseKeys(spec string) (Keys, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" || spec == "default" {
@@ -128,10 +131,10 @@ func ParseKeys(spec string) (Keys, error) {
 			return nil, fmt.Errorf("key %q: want class:slot,slot", part)
 		}
 		uid, err := strconv.Atoi(strings.TrimSpace(class))
-		if err != nil || classSlots[uid] == nil {
-			return nil, fmt.Errorf("key %q: unknown class", part)
+		if err != nil {
+			return nil, fmt.Errorf("key %q: class is not a class_uid", part)
 		}
-		var key []string
+		key := []string{} // present and empty: no key, not the default
 		for _, n := range strings.Split(names, ",") {
 			n = strings.TrimSpace(n)
 			if n == "" {
@@ -165,11 +168,12 @@ func slotLabel(classUID int, name string) string {
 	return name
 }
 
-// Fold groups items by class and key. dropRef, when set, is the pivoted
-// entity: a key part bound to it is left out, since every event here already
-// shares it. An item whose key has no value, or whose class has no slots,
-// stands in a group of its own. Groups come newest first by their last event;
-// members newest first.
+// Fold groups items by class and key: the class's entry in keys when it has
+// one (an empty entry is a choice: no key), else its default. dropRef, when
+// set, is the pivoted entity: a key part bound to it is left out, since every
+// event here already shares it. An item whose key has no value, or whose class
+// has no slots, stands in a group of its own. Groups come newest first by
+// their last event; members newest first.
 func Fold(items []GroupItem, keys Keys, dropRef string) []Group {
 	type acc struct {
 		g     Group
@@ -179,8 +183,8 @@ func Fold(items []GroupItem, keys Keys, dropRef string) []Group {
 	byKey := map[string]*acc{}
 	var order []string
 	for _, it := range items {
-		names := keys[it.ClassUID]
-		if names == nil {
+		names, chosen := keys[it.ClassUID]
+		if !chosen {
 			names = DefaultKey(it.ClassUID)
 		}
 		parts := keyParts(it, names, dropRef)

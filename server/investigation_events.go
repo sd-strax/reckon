@@ -234,8 +234,8 @@ func foldEvents(rows []EventRowView, keys ocsfview.Keys, pivot string) ([]ocsfvi
 	sort.Ints(uids)
 	out := make([]EventClassKeysView, 0, len(uids))
 	for _, uid := range uids {
-		key := keys[uid]
-		if key == nil {
+		key, chosen := keys[uid] // an empty entry is a choice (no key), not the default
+		if !chosen {
 			key = ocsfview.DefaultKey(uid)
 		}
 		slots := ocsfview.Slots(uid)

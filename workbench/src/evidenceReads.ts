@@ -198,7 +198,7 @@ export class EvidenceReads {
   private async repeats(id: string, ref: string): Promise<EventRepeats | undefined> {
     try {
       const page = await this.host.client.evidence.events(id, { entity: ref, groupBy: "default" });
-      return { events: page.events, groups: page.groups ?? [] };
+      return { events: page.events, groups: page.groups ?? [], total: page.total, foldedOver: page.foldedOver ?? page.events.length };
     } catch (err) {
       this.host.log.debug(`repeats ${ref}: ${errText(err)}`);
       return undefined;

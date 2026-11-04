@@ -26,6 +26,14 @@ export function EntityInspector({ refId }: { refId: string }) {
   const rep = state.repeats[refId];
   const repeated = rep ? rep.groups.filter(collapses) : [];
   const unrepeated = rep ? rep.events.length - repeated.reduce((n, g) => n + g.count, 0) : 0;
+  // The fold covers the newest events up to a bound; a claim about repetition
+  // is scoped to what it covered when the entity's record is larger.
+  const truncated = !!rep && rep.total > rep.foldedOver;
+  const covered = rep ? `the newest ${rep.foldedOver}` : "";
+  const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? "" : "s"}`;
+  const repeatsLine = !rep ? "" : unrepeated === 0
+    ? (truncated ? `Every one of ${covered} retrieved events on this entity repeats.` : "Every retrieved event on this entity repeats.")
+    : (truncated ? `${plural(unrepeated, "event")} of ${covered} on this entity ${unrepeated === 1 ? "does" : "do"} not repeat.` : `${plural(unrepeated, "retrieved event")} on this entity ${unrepeated === 1 ? "does" : "do"} not repeat.`);
   const props = doc && doc.payload && typeof doc.payload === "object"
     ? (((doc.payload as Record<string, unknown>).properties as Record<string, unknown>) || (doc.payload as Record<string, unknown>))
     : null;
@@ -46,6 +54,7 @@ export function EntityInspector({ refId }: { refId: string }) {
       </Section>
       {repeated.length && rep ? (
         <Section title="Repeated observations">
+          {truncated ? <div className="imeta">{plural(rep.total, "retrieved event")} on this entity · folded over {covered}</div> : null}
           {repeated.map((g) => {
             const newest = rep.events.find((e) => e.id === g.eventIds[0]);
             return (
@@ -55,7 +64,7 @@ export function EntityInspector({ refId }: { refId: string }) {
               </div>
             );
           })}
-          <div className="imeta">{unrepeated === 0 ? "Every retrieved event on this entity repeats." : `${unrepeated} retrieved event${unrepeated === 1 ? "" : "s"} on this entity ${unrepeated === 1 ? "does" : "do"} not repeat.`}</div>
+          <div className="imeta">{repeatsLine}</div>
         </Section>
       ) : null}
       {actionsOn.length ? (

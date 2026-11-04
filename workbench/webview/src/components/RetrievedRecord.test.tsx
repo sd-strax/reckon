@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { AppProvider } from "../app";
 import { App } from "./App";
 import { retrievedCount, timelineItems } from "./lenses/StoryLens";
+import { keySpec } from "../derive/events";
 import { bindingRows } from "./inspectors/CallInspector";
 import { HarnessTransport, type HarnessSnapshot } from "../../../harness/transport";
 import synthetic from "../../../harness/snapshots/synthetic.json";
@@ -275,17 +276,33 @@ describe("the Story timeline folded", () => {
   });
 
   it("names what repeats on an opened entity, and nothing when nothing does", () => {
-    mount({ ...foldedData, repeats: { [host]: { events: [...nightly, events[0]!], groups: [nightlyGroup, { ...burstGroup, count: 1, eventIds: [events[0]!.id] }] } } });
+    const repeats = { events: [...nightly, events[0]!], groups: [nightlyGroup, { ...burstGroup, count: 1, eventIds: [events[0]!.id] }], total: 4, foldedOver: 4 };
+    mount({ ...foldedData, repeats: { [host]: repeats } });
     tab("Story");
     fireEvent.click(within(lens()).getAllByText("host-a")[0]!);
     expect(within(pane()).getByText("Repeated observations")).toBeTruthy();
     expect(within(pane()).getByText("3 events over 3 days")).toBeTruthy();
     expect(within(pane()).getByText("1 retrieved event on this entity does not repeat.")).toBeTruthy();
     cleanup();
+    // A record larger than the fold covers: the claim is scoped to what was covered.
+    mount({ ...foldedData, repeats: { [host]: { ...repeats, total: 1200, foldedOver: 4 } } });
+    tab("Story");
+    fireEvent.click(within(lens()).getAllByText("host-a")[0]!);
+    expect(within(pane()).getByText("1200 retrieved events on this entity · folded over the newest 4")).toBeTruthy();
+    expect(within(pane()).getByText("1 event of the newest 4 on this entity does not repeat.")).toBeTruthy();
+    cleanup();
     mount(foldedData);
     tab("Story");
     fireEvent.click(within(lens()).getAllByText("host-a")[0]!);
     expect(within(pane()).queryByText("Repeated observations")).toBeNull();
     expect(within(pane()).queryByText(/Normal behaviour/)).toBeNull();
+  });
+});
+
+describe("keySpec", () => {
+  it("round-trips the read's own key list, leaving out a class with nothing to key on, and keeps an empty key as a choice", () => {
+    const opaque = { classUid: 6003, className: "API Activity", slots: [], default: [], key: [] };
+    expect(keySpec([authKeys, opaque], 3002, ["user"])).toBe("3002:user");
+    expect(keySpec([authKeys, opaque], 3002, [])).toBe("3002:");
   });
 });
