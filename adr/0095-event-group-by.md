@@ -1,6 +1,6 @@
 # 0095 — The retrieved record folds by key: a pivot and a group-by, never a baseline
 
-Issue: #95 · PR: pending · Status: accepted
+Issue: #95 · PR: #304 · Status: accepted
 
 ## Context
 
