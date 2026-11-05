@@ -902,7 +902,11 @@ beside the `required_mode` it already had, both frozen on the projection; no `po
 is folded onto `action_current` and `action.policy_evaluated` stays audit-only. The card's
 Approval row states the requirement in the sheet's words and links to the record, whose
 `authorization` block carries the matched policy, its effect and every evaluation with its
-shadow outcome.*
+shadow outcome.* *The card states the human approval still needed and makes no claim about
+whether a policy matched: the row carries the frozen requirement, not the evaluation, and the
+two differ (the draft hold keeps a pre-authorized request pending; an edit never relaxes a
+frozen MANUAL). The first approver is served too and left out of who completes a two-party
+approval.*
 
 ### 8.6 §6.17 — Owner action items
 

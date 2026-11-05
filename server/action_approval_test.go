@@ -139,6 +139,11 @@ func TestApproveAction_TwoPartyFlow(t *testing.T) {
 	if out.Status != aggregate.ActionStatusPendingSecondary || out.Stage != aggregate.AuthStagePrimary {
 		t.Fatalf("primary approval out = %+v; want PENDING_SECONDARY/PRIMARY", out)
 	}
+	// The row names the first approver, so the card can leave them out of
+	// who completes it.
+	if row := listedAction(t, b, invID, actionID); row.Status != aggregate.ActionStatusPendingSecondary || row.PrimaryApproverRef == "" || row.PrimaryApproverRef == "bob" {
+		t.Errorf("listed row after primary = %+v; want PENDING_SECONDARY naming the primary approver", row)
+	}
 
 	// The same principal cannot complete the second stage — two humans required.
 	resp, _ := postActionDecision(t, b, mintToken(t, nil), actionID, "approve", nil)

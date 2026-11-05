@@ -195,6 +195,7 @@ const action = object({
   status: str,
   required_mode: optional(str),
   secondary_approver_pool: optional(list(str)),
+  primary_approver_ref: optional(str),
   expires_at: optional(str),
   targets: optional(list(object({ entity_ref: str, resolved_identifier: str }))),
   is_reversal: optional(bool),

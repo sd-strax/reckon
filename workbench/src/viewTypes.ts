@@ -566,6 +566,8 @@ export interface ActionRow {
   requiredMode: string;
   /** Who may complete a two-party approval, frozen at request time (adr/0099); absent for manual. */
   secondaryApproverPool?: string[];
+  /** Who gave the first approval, once one is in; left out of the second approval's candidates. */
+  primaryApproverRef?: string;
   targets: string[];
   /** True while the action still awaits a human decision. */
   pending: boolean;

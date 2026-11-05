@@ -38,6 +38,7 @@ function mapAction(a: RawAction): ActionRow {
     status,
     requiredMode: mode,
     secondaryApproverPool: a.secondary_approver_pool?.length ? a.secondary_approver_pool : undefined,
+    primaryApproverRef: a.primary_approver_ref || undefined,
     targets: (a.targets ?? []).map((t) => t.resolved_identifier || t.entity_ref || ""),
     pending,
     pendingLabel,

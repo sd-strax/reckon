@@ -7,24 +7,32 @@ const row = (over: Partial<ActionRow>): ActionRow => ({
   targets: ["h"], pending: true, pendingLabel: "PENDING_MANUAL", expired: false, isReversal: false,
   tierEscalated: false, evidenceRefs: [], ...over,
 });
+const twoParty = (over: Partial<ActionRow>): ActionRow => row({ requiredMode: "TWO_PARTY", pendingLabel: "PENDING_TWO_PARTY", ...over });
 
-// The Approval row states the frozen Gate 2 requirement (adr/0099): what the
-// list row carries, in the sheet's words; nothing is inferred.
+// The Approval row states the human approval still needed, from what the list
+// row carries (adr/0099); whether a policy matched is the record's to say.
 describe("the approval fact on a card", () => {
-  it("says no policy pre-authorizes a manual request", () => {
-    expect(approvalFact(row({}))).toBe("needs your approval · no policy pre-authorizes it");
+  it("states the requirement on a manual request without a claim about policies", () => {
+    expect(approvalFact(row({}))).toBe("needs your approval");
   });
   it("names who completes a two-party request, from the frozen pool", () => {
-    expect(approvalFact(row({ requiredMode: "TWO_PARTY", pendingLabel: "PENDING_TWO_PARTY", secondaryApproverPool: ["analyst-b", "analyst-c"] })))
+    expect(approvalFact(twoParty({ secondaryApproverPool: ["analyst-b", "analyst-c"] })))
       .toBe("two-party · a second approval from one of analyst-b, analyst-c");
   });
-  it("falls back to the on-call rotation when the policy named no pool", () => {
-    expect(approvalFact(row({ requiredMode: "TWO_PARTY", pendingLabel: "PENDING_TWO_PARTY" })))
-      .toBe("two-party · a second approval from the on-call rotation");
+  it("asks for a second analyst when the policy named no pool, never a rotation the engine does not hold", () => {
+    expect(approvalFact(twoParty({}))).toBe("two-party · a second analyst must also approve");
+    expect(approvalFact(twoParty({ status: "PENDING_SECONDARY", primaryApproverRef: "analyst-a" }))).toBe("awaiting a second analyst's approval");
   });
-  it("says a half-approved request awaits its second approver", () => {
-    expect(approvalFact(row({ status: "PENDING_SECONDARY", requiredMode: "TWO_PARTY", pendingLabel: "PENDING_TWO_PARTY", secondaryApproverPool: ["analyst-b"] })))
-      .toBe("awaiting a second approval from one of analyst-b");
+  it("leaves the first approver out of who can complete it", () => {
+    expect(approvalFact(twoParty({ status: "PENDING_SECONDARY", secondaryApproverPool: ["analyst-b", "analyst-c"], primaryApproverRef: "analyst-b" })))
+      .toBe("awaiting a second approval from one of analyst-c");
+  });
+  it("says when no one in the pool is left to complete it", () => {
+    expect(approvalFact(twoParty({ status: "PENDING_SECONDARY", secondaryApproverPool: ["analyst-b"], primaryApproverRef: "analyst-b" })))
+      .toBe("no one left in the pool can complete it · its only member gave the first approval");
+  });
+  it("says a pre-authorized request is held on a draft investigation", () => {
+    expect(approvalFact(row({ requiredMode: "AUTO_POLICY" }))).toBe("a policy pre-authorizes it · held for a human approval while the investigation is a draft");
   });
   it("keeps the settled words once decided", () => {
     expect(approvalFact(row({ status: "APPROVED", pending: false }))).toBe("approved");

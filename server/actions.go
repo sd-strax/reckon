@@ -55,12 +55,16 @@ type ActionView struct {
 	// manual action, and for a two-party one whose policy named no pool (the
 	// on-call rotation then). The card tells the first approver who finishes
 	// it (adr/0099).
-	SecondaryApproverPool []string               `json:"secondary_approver_pool,omitempty"`
-	Mode                  string                 `json:"mode,omitempty"`
-	IsReversal            bool                   `json:"is_reversal,omitempty"`
-	Targets               []aggregate.TargetSpec `json:"targets,omitempty"`
-	EvidenceRefs          []string               `json:"evidence_refs,omitempty"`
-	ExpiresAt             *time.Time             `json:"expires_at,omitempty"`
+	SecondaryApproverPool []string `json:"secondary_approver_pool,omitempty"`
+	// PrimaryApproverRef is who gave the first approval, once one is in; a
+	// two-party card awaiting its second approval leaves them out of the
+	// candidates, since the aggregate requires two distinct humans.
+	PrimaryApproverRef string                 `json:"primary_approver_ref,omitempty"`
+	Mode               string                 `json:"mode,omitempty"`
+	IsReversal         bool                   `json:"is_reversal,omitempty"`
+	Targets            []aggregate.TargetSpec `json:"targets,omitempty"`
+	EvidenceRefs       []string               `json:"evidence_refs,omitempty"`
+	ExpiresAt          *time.Time             `json:"expires_at,omitempty"`
 	// Parameters are the request's frozen parameters — the pre-send preview
 	// for notify.* actions renders the message body from here (binding §4:
 	// the preview IS the approval surface, so the approver must see exactly
@@ -147,6 +151,7 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 		Status:                a.Status,
 		RequiredMode:          a.RequiredMode,
 		SecondaryApproverPool: a.SecondaryApproverPool,
+		PrimaryApproverRef:    a.PrimaryApprover,
 		Mode:                  a.Mode,
 		IsReversal:            a.IsReversal,
 		Targets:               a.Targets,

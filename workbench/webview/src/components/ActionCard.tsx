@@ -209,7 +209,7 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
       <dl className="acfacts">
         <div><dt>Can be undone</dt><dd>{undoWords(a.reversibility)}</dd></div>
         <div><dt>Runs on</dt><dd className="mono">{a.adapter || a.plannedAdapter || "no tool connected"}{a.resultRef ? " → " + a.resultRef : ""}</dd></div>
-        <div><dt>Approval</dt><dd>{approvalFact(a)}{a.pending ? <> · <a title="The Gate 2 decision on this request: the policy that matched, its effect, and what a shadow policy would have done" onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>policy decision ›</a></> : null}</dd></div>
+        <div><dt>Approval</dt><dd>{approvalFact(a)}{a.pending ? <> · <button className="linklike" title="The Gate 2 decision on this request: the policy that matched, its effect, and what a shadow policy would have done" onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>policy decision ›</button></> : null}</dd></div>
         <div><dt>Time to decide</dt><dd>{a.pending && !a.expired && a.expiresAt ? <Countdown expiresAt={a.expiresAt} /> : a.expired ? "ran out" : "—"}</dd></div>
       </dl>
       {a.editedAt ? <div className="cardmeta">✎ edited before approval · {fmtTime(a.editedAt)} — <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>see what changed</a></div> : null}
@@ -256,21 +256,35 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
   );
 }
 
-// approvalFact states the frozen Gate 2 requirement on a pending action in
-// the sheet's words (adr/0099): no policy pre-authorizes a manual one; a
-// two-party one names who completes it, the pool the requiring policy froze,
-// or the on-call rotation when it named none (04 §4.1). The matched policy
-// and the shadow outcomes stay on the record, one click away.
+// approvalFact states the human approval a pending action still needs, from
+// what the list row carries (adr/0099): a manual request needs the reader's;
+// a two-party one names who completes it, the pool the requiring policy
+// froze, less whoever approved first (two distinct humans, 04 §3.3), or a
+// second analyst when the policy named no pool; a request a policy
+// pre-authorized but the server held (the first action of a draft
+// investigation) says so. Whether a policy matched is the record's to say:
+// the row carries the requirement, not the evaluation, and the two differ
+// (the draft hold; an edit never relaxes the requirement).
 export function approvalFact(a: ActionRow): string {
   if (!a.pending) {
     return a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED" || a.status === "OUTCOME_UNKNOWN" ? "approved" : a.status === "REJECTED" ? "rejected" : "—";
   }
-  const pool = a.secondaryApproverPool?.length ? "one of " + a.secondaryApproverPool.join(", ") : "the on-call rotation";
+  const pool = a.secondaryApproverPool ?? [];
   if (a.status === "PENDING_SECONDARY") {
-    return `awaiting a second approval from ${pool}`;
+    if (!pool.length) {
+      return "awaiting a second analyst's approval";
+    }
+    const rest = pool.filter((p) => p !== a.primaryApproverRef);
+    if (!rest.length) {
+      return "no one left in the pool can complete it · its only member gave the first approval";
+    }
+    return `awaiting a second approval from one of ${rest.join(", ")}`;
   }
   if (a.requiredMode === "TWO_PARTY") {
-    return `two-party · a second approval from ${pool}`;
+    return pool.length ? `two-party · a second approval from one of ${pool.join(", ")}` : "two-party · a second analyst must also approve";
   }
-  return "needs your approval · no policy pre-authorizes it";
+  if (a.requiredMode === "AUTO_POLICY") {
+    return "a policy pre-authorizes it · held for a human approval while the investigation is a draft";
+  }
+  return "needs your approval";
 }

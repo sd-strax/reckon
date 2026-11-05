@@ -36,19 +36,31 @@ author's audience during a rollout (`04 §4.4`), not the approver's.
 
 ## Decision
 
-**The list row serves the pool.** `ActionView` gains `secondary_approver_pool`,
-read from the projection where it is already frozen. No new column, no projector
-change: `action.policy_evaluated` stays audit-only and the record endpoint keeps
-replaying it. The list and the record agree by construction on what both serve
-(required mode, pool), since both read the projection; the matched policy and
-the evaluations are served once, by the record.
+**The list row serves the pool and the first approver.** `ActionView` gains
+`secondary_approver_pool` and `primary_approver_ref`, read from the projection
+where the request and the first approval wrote them. No new column, no
+projector change: `action.policy_evaluated` stays audit-only and the record
+endpoint keeps replaying it. The list and the record agree by construction on
+what both serve, since both read the projection; the matched policy and the
+evaluations are served once, by the record.
 
-**The card states the requirement in the sheet's words.** The Approval row of a
-pending card reads "needs your approval · no policy pre-authorizes it" for a
+**The card states the human approval still needed, and nothing the row cannot
+support.** The Approval row of a pending card reads "needs your approval" for a
 manual request; "two-party · a second approval from one of <pool>" for a
-two-party one, naming the on-call rotation when the policy froze no pool
-(`04 §4.1`'s default); "awaiting a second approval from one of <pool>" once the
-primary approval is in. Settled cards keep their words.
+two-party one, or "a second analyst must also approve" when the policy froze no
+pool (the engine holds no rotation to name: the approve path then accepts any
+distinct analyst); once the primary approval is in, "awaiting a second approval
+from one of <pool less the first approver>", since two-party needs two distinct
+humans (`04 §3.3`), and when that leaves nobody, it says so. A request a policy
+pre-authorized but the server held, the first action of a draft investigation,
+reads "a policy pre-authorizes it · held for a human approval while the
+investigation is a draft". Settled cards keep their words.
+
+The row carries the requirement, not the evaluation, and the two differ: the
+draft hold keeps a pre-authorized request pending, and an edit never relaxes a
+frozen MANUAL even when the edited request matches an auto-approve policy. So
+the card makes no claim about whether a policy matched; that is the record's to
+say, one click away.
 
 **The decision is one click away, not duplicated.** The Approval row links to
 the action record, whose Authorization section already shows the matched
