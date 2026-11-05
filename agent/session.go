@@ -895,12 +895,24 @@ func (s *Session) complete(ctx context.Context, side []ContentBlock) (resp Compl
 }
 
 // recordConsulted accumulates what one tool call put in front of the model into
-// the turn's knowledge provenance (dedup by id, best score kept).
+// the turn's knowledge provenance: one entry per id with the best score, the
+// title once known, and the union of the sections shown (a recall hit's, or
+// a read_sop's).
 func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarInvestigation) {
 	for _, c := range sops {
-		if prev, ok := s.consulted[c.SOPID]; !ok || c.RetrievalScore > prev.RetrievalScore {
+		prev, ok := s.consulted[c.SOPID]
+		if !ok {
 			s.consulted[c.SOPID] = c
+			continue
 		}
+		if c.RetrievalScore > prev.RetrievalScore {
+			prev.RetrievalScore = c.RetrievalScore
+		}
+		if prev.Title == "" {
+			prev.Title = c.Title
+		}
+		prev.Sections = mergeSections(prev.Sections, c.Sections)
+		s.consulted[c.SOPID] = prev
 	}
 	for _, c := range cases {
 		if prev, ok := s.consultedSimilar[c.InvestigationRef]; !ok || c.RetrievalScore > prev.RetrievalScore {
@@ -909,13 +921,17 @@ func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarI
 	}
 }
 
-// consultedSOPs reads the procedures out of a recall_sops result.
+// consultedSOPs reads the procedures out of a recall_sops result: each hit's
+// id, title, score and the section it carried.
 func consultedSOPs(content []byte) []ConsultedSOP {
 	var res struct {
 		Results []struct {
-			SOPID string  `json:"sop_id"`
-			Title string  `json:"title"`
-			Score float64 `json:"score"`
+			SOPID   string  `json:"sop_id"`
+			Title   string  `json:"title"`
+			Score   float64 `json:"score"`
+			Section struct {
+				Idx int `json:"idx"`
+			} `json:"section"`
 		} `json:"results"`
 	}
 	if json.Unmarshal(content, &res) != nil {
@@ -923,19 +939,65 @@ func consultedSOPs(content []byte) []ConsultedSOP {
 	}
 	var out []ConsultedSOP
 	for _, r := range res.Results {
-		if r.SOPID != "" {
-			out = append(out, ConsultedSOP{SOPID: r.SOPID, Title: r.Title, RetrievalScore: r.Score})
+		if r.SOPID == "" {
+			continue
+		}
+		c := ConsultedSOP{SOPID: r.SOPID, Title: r.Title, RetrievalScore: r.Score}
+		if r.Section.Idx > 0 {
+			c.Sections = []int{r.Section.Idx}
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// readSOPConsulted reads the procedure out of a read_sop result: the section
+// read, or none for an outline (headings are not the procedure).
+func readSOPConsulted(content []byte) []ConsultedSOP {
+	var res struct {
+		SOPID   string `json:"sop_id"`
+		Title   string `json:"title"`
+		Section struct {
+			Idx int `json:"idx"`
+		} `json:"section"`
+	}
+	if json.Unmarshal(content, &res) != nil || res.SOPID == "" {
+		return nil
+	}
+	c := ConsultedSOP{SOPID: res.SOPID, Title: res.Title}
+	if res.Section.Idx > 0 {
+		c.Sections = []int{res.Section.Idx}
+	}
+	return []ConsultedSOP{c}
+}
+
+// mergeSections unions two sorted-or-not index lists into one sorted list.
+func mergeSections(a, b []int) []int {
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[int]bool, len(a)+len(b))
+	out := make([]int, 0, len(a)+len(b))
+	for _, lists := range [][]int{a, b} {
+		for _, n := range lists {
+			if !seen[n] {
+				seen[n] = true
+				out = append(out, n)
+			}
 		}
 	}
+	sort.Ints(out)
 	return out
 }
 
 // consultedList finalizes the turn's knowledge provenance. Cited is set when
 // the model's own text for the turn names the SOP by the id recall returned
-// (adr/0236). That is all the engine can attest: it cannot tell whether the
-// agent applied a procedure, only that it retrieved one and named it to the
-// analyst. Titles are not matched (a short title is in any reply on the topic,
-// a paraphrase names none), and modelText excludes the engine footer and the
+// and at least one section of it was in front of the model this turn — a
+// recall hit's, or one read with read_sop (adr/0236, tightened by adr/0303).
+// That is all the engine can attest: it cannot tell whether the agent applied
+// a procedure, only that it read part of one and named it to the analyst.
+// Titles are not matched (a short title is in any reply on the topic, a
+// paraphrase names none), and modelText excludes the engine footer and the
 // transcript (which holds the recall results themselves).
 func (s *Session) consultedList(modelText string) []ConsultedSOP {
 	if len(s.consulted) == 0 {
@@ -944,7 +1006,7 @@ func (s *Session) consultedList(modelText string) []ConsultedSOP {
 	lower := strings.ToLower(modelText)
 	out := make([]ConsultedSOP, 0, len(s.consulted))
 	for _, c := range s.consulted {
-		c.Cited = strings.Contains(lower, strings.ToLower(c.SOPID))
+		c.Cited = len(c.Sections) > 0 && strings.Contains(lower, strings.ToLower(c.SOPID))
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RetrievalScore > out[j].RetrievalScore })

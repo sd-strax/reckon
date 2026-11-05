@@ -121,8 +121,15 @@ type ConsultedSOP struct {
 	SOPID          string  `json:"sop_id"`
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	Cited          bool    `json:"cited"`
+	// Sections are the 1-based indexes of the procedure's sections the act
+	// had in front of it: what was read, which the inspector shows as
+	// "excerpt k of n" (adr/0303).
+	Sections []int `json:"sections,omitempty"`
+	Cited    bool  `json:"cited"`
 }
+
+// maxConsultedSections bounds the sections one consulted entry records.
+const maxConsultedSections = 64
 
 // ConsultedSimilarInvestigation records one concluded-investigation summary
 // surfaced by similarity retrieval during a reasoning act (06 §3, §6): the
@@ -365,6 +372,14 @@ func (c RecordInterpretation) Validate(env Envelope) error {
 	for _, cs := range c.ConsultedSOPs {
 		if cs.SOPID == "" {
 			return errors.New("RecordInterpretation: consulted_sops entry has no sop_id")
+		}
+		if len(cs.Sections) > maxConsultedSections {
+			return fmt.Errorf("RecordInterpretation: consulted_sops %s records %d sections, over %d", cs.SOPID, len(cs.Sections), maxConsultedSections)
+		}
+		for _, n := range cs.Sections {
+			if n < 1 {
+				return fmt.Errorf("RecordInterpretation: consulted_sops %s names section %d; sections are 1-based", cs.SOPID, n)
+			}
 		}
 	}
 	if len(c.ConsultedSimilar) > maxConsultedPerInterpretation {

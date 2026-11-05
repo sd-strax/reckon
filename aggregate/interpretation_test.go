@@ -391,3 +391,32 @@ func TestRecordInterpretation_RejectedWhenConcluded(t *testing.T) {
 		t.Fatal("reasoning accepted on a concluded investigation")
 	}
 }
+
+// TestRecordInterpretation_ConsultedSections: a consulted procedure may record
+// which of its sections the act had in front of it (adr/0303); indexes are
+// 1-based and bounded.
+func TestRecordInterpretation_ConsultedSections(t *testing.T) {
+	env := newTestEnvelope("analyst-1")
+	base := RecordInterpretation{
+		InterpretationID:   uuid.New(),
+		InterpretationType: InterpretationPivot,
+		Rationale:          "the procedure's containment section applies",
+		ConsultedSOPs:      []ConsultedSOP{{SOPID: "sop-1", Sections: []int{3, 1}, Cited: true}},
+	}
+	if err := base.Validate(env); err != nil {
+		t.Fatalf("valid sections rejected: %v", err)
+	}
+	zero := base
+	zero.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Sections: []int{0}}}
+	if err := zero.Validate(env); err == nil {
+		t.Error("section 0 accepted; sections are 1-based")
+	}
+	many := base
+	many.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Sections: make([]int, maxConsultedSections+1)}}
+	for i := range many.ConsultedSOPs[0].Sections {
+		many.ConsultedSOPs[0].Sections[i] = i + 1
+	}
+	if err := many.Validate(env); err == nil {
+		t.Error("over-long section list accepted")
+	}
+}

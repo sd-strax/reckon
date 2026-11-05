@@ -28,6 +28,9 @@
           "sop_id": "x",
           "title": "x",
           "retrieval_score": 1,
+          "sections": [
+            1
+          ],
           "cited": true
         }
       ],

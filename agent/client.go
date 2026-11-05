@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -82,7 +84,11 @@ type ConsultedSOP struct {
 	SOPID          string  `json:"sop_id"`
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	Cited          bool    `json:"cited"`
+	// Sections are the 1-based indexes of the procedure's sections the model
+	// was shown this turn: carried by a recall hit or read with read_sop.
+	// Cited requires at least one (adr/0303).
+	Sections []int `json:"sections,omitempty"`
+	Cited    bool  `json:"cited"`
 }
 
 // ConsultedSimilarInvestigation is one concluded-investigation summary surfaced
@@ -425,6 +431,26 @@ func (c *Client) ListActionTypes(ctx context.Context) ([]ActionType, error) {
 func (c *Client) RecallSOPs(ctx context.Context, body map[string]any) (json.RawMessage, error) {
 	var out json.RawMessage
 	if err := c.do(ctx, http.MethodPost, "/api/knowledge/recall_sops", c.agentSrc, body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SOPSections reads a procedure's outline (agent token): every section's
+// place without its text.
+func (c *Client) SOPSections(ctx context.Context, sopID string) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := c.do(ctx, http.MethodGet, "/api/sops/"+url.PathEscape(sopID)+"/sections", c.agentSrc, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SOPSection reads one section of a procedure whole, with the outline
+// around it (agent token).
+func (c *Client) SOPSection(ctx context.Context, sopID string, n int) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := c.do(ctx, http.MethodGet, "/api/sops/"+url.PathEscape(sopID)+"/sections/"+strconv.Itoa(n), c.agentSrc, nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

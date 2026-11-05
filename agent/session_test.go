@@ -1052,8 +1052,8 @@ func TestSession_ConsultedSimilarRecorded(t *testing.T) {
 func TestConsulted_CitedByRef(t *testing.T) {
 	s := &Session{
 		consulted: map[string]ConsultedSOP{
-			"sop-phish-3": {SOPID: "sop-phish-3", Title: "Phishing", RetrievalScore: 0.9},
-			"sop-rdp-7":   {SOPID: "sop-rdp-7", Title: "RDP lateral movement", RetrievalScore: 0.8},
+			"sop-phish-3": {SOPID: "sop-phish-3", Title: "Phishing", RetrievalScore: 0.9, Sections: []int{1}},
+			"sop-rdp-7":   {SOPID: "sop-rdp-7", Title: "RDP lateral movement", RetrievalScore: 0.8, Sections: []int{3}},
 		},
 		consultedSimilar: map[string]ConsultedSimilarInvestigation{
 			"grouping--prior1": {InvestigationRef: "grouping--prior1", Title: "Phishing wave", RetrievalScore: 0.9},
@@ -1079,6 +1079,94 @@ func TestConsulted_CitedByRef(t *testing.T) {
 	}
 }
 
+// TestConsulted_CitedRequiresARead: naming a procedure by ref is a citation
+// only when a section of it was in front of the model this turn — a hit's
+// section or a read_sop (adr/0303). An outline alone is not a read.
+func TestConsulted_CitedRequiresARead(t *testing.T) {
+	s := &Session{consulted: map[string]ConsultedSOP{
+		"sop-cred-9": {SOPID: "sop-cred-9", Title: "Credential theft", RetrievalScore: 0.7},
+	}}
+	if got := s.consultedList("Per sop-cred-9, reset the account."); len(got) != 1 || got[0].Cited {
+		t.Errorf("named by ref with no section shown: %+v; want not cited", got)
+	}
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-cred-9", Sections: []int{2}}}, nil)
+	if got := s.consultedList("Per sop-cred-9, reset the account."); len(got) != 1 || !got[0].Cited {
+		t.Errorf("named by ref after a read: %+v; want cited", got)
+	}
+}
+
+// TestRecordConsulted_MergesSections: one entry per procedure across a turn,
+// with the best score, the title once known, and every section shown.
+func TestRecordConsulted_MergesSections(t *testing.T) {
+	s := &Session{consulted: map[string]ConsultedSOP{}}
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Title: "T", RetrievalScore: 0.5, Sections: []int{3}}}, nil)
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", RetrievalScore: 0.9, Sections: []int{1}}}, nil)
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Sections: []int{3}}}, nil) // a read of the same section again
+	got := s.consulted["sop-1"]
+	if got.Title != "T" || got.RetrievalScore != 0.9 || len(got.Sections) != 2 || got.Sections[0] != 1 || got.Sections[1] != 3 {
+		t.Errorf("merged = %+v; want title T, score 0.9, sections [1 3]", got)
+	}
+}
+
+// TestConsultedSOPs_ReadsTheSection: a recall hit's section idx is the
+// section shown; a read_sop result records the section read, an outline none.
+func TestConsultedSOPs_ReadsTheSection(t *testing.T) {
+	hits := consultedSOPs([]byte(`{"results":[{"sop_id":"sop-1","title":"T","score":0.8,"section":{"idx":3,"of":4}},{"sop_id":"sop-2","score":0.2}]}`))
+	if len(hits) != 2 || len(hits[0].Sections) != 1 || hits[0].Sections[0] != 3 || hits[1].Sections != nil {
+		t.Errorf("hits = %+v", hits)
+	}
+	read := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","section":{"idx":2,"of":4,"text":"## B"},"outline":["A","A > B"]}`))
+	if len(read) != 1 || read[0].SOPID != "sop-1" || len(read[0].Sections) != 1 || read[0].Sections[0] != 2 {
+		t.Errorf("read = %+v", read)
+	}
+	outline := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","sections":[{"idx":1},{"idx":2}]}`))
+	if len(outline) != 1 || outline[0].Sections != nil {
+		t.Errorf("outline = %+v; want the procedure consulted with no section", outline)
+	}
+}
+
+// TestSession_ReadSOP: the read_sop tool fetches one section by id and index,
+// the turn records the section read, and naming the procedure then cites it.
+func TestSession_ReadSOP(t *testing.T) {
+	f := newFakeBackend(t)
+	reads := 0
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		switch r.URL.Path {
+		case "/api/sops/sop-rdp-7/sections/3":
+			reads++
+			_, _ = w.Write([]byte(`{"sop_id":"sop-rdp-7","title":"RDP containment","revision":1,"status":"published","section":{"idx":3,"of":4,"heading_path":["RDP containment","Containment"],"location":"RDP containment > Containment","runes":40,"text":"## Containment\nIsolate the destination host."},"outline":["RDP containment","RDP containment > Triage","RDP containment > Containment","RDP containment > Do not"]}`))
+		default:
+			return false
+		}
+		return true
+	}
+	llm := &scriptedLLM{script: []CompleteResponse{
+		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t1", ToolReadSOP, `{"sop_id":"sop-rdp-7","section":3}`)}},
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Following sop-rdp-7, isolate the destination host.")}},
+	}}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1", MaxToolRounds: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Turn(context.Background(), "what does the procedure say?"); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	if reads != 1 {
+		t.Fatalf("section read %d times; want 1", reads)
+	}
+	calls := f.callsTo("/api/interpretations")
+	if len(calls) == 0 {
+		t.Fatal("no interpretation committed")
+	}
+	var body InterpretationRequest
+	if err := json.Unmarshal(calls[len(calls)-1].Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.ConsultedSOPs) != 1 || body.ConsultedSOPs[0].SOPID != "sop-rdp-7" || !body.ConsultedSOPs[0].Cited || len(body.ConsultedSOPs[0].Sections) != 1 || body.ConsultedSOPs[0].Sections[0] != 3 {
+		t.Errorf("consulted SOPs = %+v; want sop-rdp-7 cited with section 3", body.ConsultedSOPs)
+	}
+}
+
 // TestSession_FooterIsNotACitation: the engine footer is appended to the
 // turn's text, but a ref that only the footer holds is not a citation. The
 // recalled items here are keyed by text the footer writes and the model did
@@ -1092,7 +1180,7 @@ func TestSession_FooterIsNotACitation(t *testing.T) {
 	f.override = func(w http.ResponseWriter, r *http.Request) bool {
 		switch r.URL.Path {
 		case "/api/knowledge/recall_sops":
-			_, _ = w.Write([]byte(`{"results":[{"sop_id":"` + engineWords + `","title":"T","score":0.9}],"coverage":"COMPLETE"}`))
+			_, _ = w.Write([]byte(`{"results":[{"sop_id":"` + engineWords + `","title":"T","score":0.9,"section":{"idx":1,"of":1}}],"coverage":"COMPLETE"}`))
 		case "/api/knowledge/recall_similar_investigations":
 			_, _ = w.Write([]byte(`{"results":[{"investigation_ref":"` + engineWords + `","title":"T","score":0.9}],"coverage":"COMPLETE"}`))
 		default:
