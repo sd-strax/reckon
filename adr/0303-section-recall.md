@@ -32,11 +32,15 @@ the hit carries must stay a view over hashed content, never a second record.
 - **The section is the unit of retrieval.** At write time the substrate cuts
   a body on its ATX headings (`SplitSections`, `knowledge/substrate/sections.go`):
   text before the first heading is its own section, a body with no headings is
-  one section, headings inside code fences are text, and a section longer than
-  the store's section budget is cut on paragraph boundaries into parts. Sections
-  are rows (`substrate_sections`: index, heading path, rune offsets, text, the
-  `splitter_version` and budget that made them). The content hash still covers
-  the whole entry; a section locates text within it.
+  one section, headings inside code fences are text (a fence closes only on a
+  run of its own character at least as long as the opening, as CommonMark
+  says), and a section longer than the store's section budget is cut on
+  paragraph boundaries into parts. Sections are rows (`substrate_sections`:
+  index, heading path, rune offsets, text, the `splitter_version` and budget
+  that made them). The content hash still covers the whole entry; a section
+  locates text within it. A body with no content to cut is refused on write
+  (`ErrBlankBody`): one unrankable entry would fail every recall that reached
+  it.
 - **One vector per section beside the document's.** `substrate_embeddings` is
   keyed by `(entry_id, model, section)`; section 0 is the whole document as
   before and serves SIMILARITY mode, sections 1..n embed as title, heading
@@ -52,9 +56,11 @@ the hit carries must stay a view over hashed content, never a second record.
 - **A hit carries the section, its place and the outline.** `excerpt` is the
   matched section's text (SIMILARITY: the first section); `section` is
   `{idx, of, heading_path, part, parts, location}`; `outline` is one location
-  per section; `truncated` says the budget cut the excerpt. The fields are
-  additive on the `§8` one-way-door wire. The match rationale names the
-  section: `best section "A > B" (3 of 5)`.
+  per section; `truncated` says the budget cut the excerpt; `revision` is the
+  SOP revision the indexes belong to. The fields are additive on the `§8`
+  one-way-door wire. The match rationale names the section: `best section
+  "A > B" (3 of 5)`. The browse path (no query) reads the stored cut too, so
+  its numbering is the one a section read answers to.
 - **One budget, applied at both ends.** `knowledge.excerpt_budget_tokens`
   (default 4000, design/06 §4.2) becomes runes at four to a token
   (`config.RunesPerToken`). The runtime passes the same number to the
@@ -64,34 +70,57 @@ the hit carries must stay a view over hashed content, never a second record.
   one that keeps five hits under its result page
   (`maxResultBytes × 2 / (5 × 3)` runes), so a hit is never clipped after the
   fact.
-- **The rest is read by section.** `GET /api/sops/{id}/sections` answers the
-  outline (every section's place and length, no text) and
-  `GET /api/sops/{id}/sections/{n}` one section whole with the outline around
-  it, both on the read role, over the SOP's current revision. The agent's
-  `read_sop {sop_id, section?}` tool reaches them. The recall tool's text and
-  the prompt say a hit carries one section and the rest is read with
-  `read_sop`.
+- **The rest is read by section, against the revision recalled.**
+  `GET /api/sops/{id}/sections` answers the outline (every section's place and
+  length, no text) and `GET /api/sops/{id}/sections/{n}` one section whole
+  with the outline around it, both on the read role, over the SOP's current
+  revision. Section indexes belong to a revision, so a read passes
+  `?revision=` from the hit and is refused with 409 (`ErrRevisionChanged`)
+  when a re-import moved the current revision, rather than answered with a
+  different section under the same number; the agent then recalls. The
+  agent's `read_sop {sop_id, revision?, section?}` tool reaches them. A
+  section larger than the result page is reshaped into `text_parts` the page
+  machinery pages, so every section is readable whatever the budget. The
+  recall tool's text and the prompt say a hit carries one section and the
+  rest is read with `read_sop`.
 - **The record names what was shown, and `cited` requires it.**
   `ConsultedSOP.Sections` (agent, server body, aggregate; validated 1-based and
   bounded) is the union of the section indexes a turn had in front of the
-  model: each recall hit's, each `read_sop` section's; an outline read records
-  the procedure with no section. `cited` now means the model's own text named
-  the procedure by its ref *and* at least one section of it was shown. This
-  tightens [0236](0236-knowledge-citation.md), whose ref rule stands. The
+  model: each recall hit's, on every page the model read (a held result
+  remembers its tool, and `read_result` credits each page), each `read_sop`
+  section's; an outline read records the procedure with no section. The entry
+  carries the revision the sections belong to; a newer revision replaces it
+  and an older one's sections are not merged under it. The agent caps what it
+  records at the aggregate's bound (256 sections per procedure, beyond what
+  the default rounds and recall limit can show), so a commit never fails on
+  what the tools showed. `cited` now means the model's own text named the
+  procedure by its ref *and* at least one section of it was shown; the
+  aggregate refuses a cited entry with no section on every write path, since
+  the structural rule cannot depend on which client wrote. This tightens
+  [0236](0236-knowledge-citation.md), whose ref rule stands. The
   `cite-knowledge` prompt rule is revised to say so (Revised #303,
   PendingValidation #303).
 - **`Reindex` is an operational path, on the contract.** It joins the
   substrate's `Store` interface, works without an embedder (sections only),
   re-cuts sections stored under another splitter version or budget, and fills
-  missing document and section vectors under the active model. The backend
-  runs it in `Backend.Start` after the dependency probes, before the listener,
-  failing startup on error, so a changed embedding model or section rule is
-  reconciled before the first recall; a current corpus costs one scan.
-  `POST /api/knowledge/reindex` (analyst) and `reckon knowledge reindex`
-  run it on demand. A candidate without sections under the current rule is
-  `ErrNoSections`, a section without a vector `ErrNoEmbedding`, never a silent
-  gap. There is no grace path for rows made before the migration: there is no
-  deployed data, and the demo corpus is re-imported.
+  missing document and section vectors under the active model. A current cut
+  is kept and only the active model's vectors are filled, so a backfill under
+  a new model leaves the old model's section vectors in place and a reader
+  still on it keeps working (the coexistence rule in `00-substrate §10`); only
+  a stale or missing cut is rewritten. The backend runs it in `Backend.Start`
+  after the dependency probes, before the listener, failing startup on error,
+  so a changed embedding model or section rule is reconciled before the first
+  recall; a current corpus costs one scan. On demand the run is a job:
+  `POST /api/knowledge/reindex` (analyst) starts it and answers 202, `GET`
+  reports idle, running, done or failed with the count or the error, one run
+  at a time, and `reckon knowledge reindex` starts and polls; a run is one
+  embedder call per stale entry and must not sit under a request's deadline.
+  A candidate without sections is `ErrNoSections` on both backends (the
+  keyword ranker checks the eligible entries before ranking from the
+  sections table, so an un-cut entry is never answered EMPTY), a section
+  without a vector `ErrNoEmbedding`, never a silent gap. There is no grace
+  path for rows made before the migration: there is no deployed data, and the
+  demo corpus is re-imported.
 
 ## Alternatives rejected
 
@@ -132,9 +161,9 @@ the hit carries must stay a view over hashed content, never a second record.
   ranker.
 - This is a change to what the model reads. The `prompt` component's digest
   moves from 67a4243d to 7ba7d77c, `tools/recall_sops` from 753f05fb to
-  8c6809eb, and `tools/read_sop` is new at 6bc533ea. `PromptVersion` moves
-  from 362b6290 to ec67608e under `leading_null` and from e7568f3c to
-  15569ae8 under `leading_only`.
+  8c6809eb, and `tools/read_sop` is new at ba156d8e. `PromptVersion` moves
+  from 362b6290 to 22ddad5b under `leading_null` and from e7568f3c to
+  42e7c29e under `leading_only`.
 - **The baselines are not rerun in this PR.** As in
   [0236](0236-knowledge-citation.md), the rerun is deferred to the pass that
   closes the open epics; `cite-knowledge` stays `PendingValidation` until a

@@ -296,11 +296,13 @@ The ranker emits a `match_rationale` per result: a short prose explanation of wh
 > one. The request's `unit` says what a hit stands for: `procedure`
 > (default) — one hit per SOP carrying its best section, for "which procedure
 > applies" — or `section` — one hit per section, two of which may come from
-> one SOP, for "what do our procedures say about this". The rest of a SOP is
-> read by section: `GET /api/sops/{id}/sections` (the outline) and
+> one SOP, for "what do our procedures say about this". A hit names the
+> `revision` its indexes belong to. The rest of a SOP is read by section:
+> `GET /api/sops/{id}/sections` (the outline) and
 > `GET /api/sops/{id}/sections/{n}` (one section whole, with the outline),
-> which the agent reaches through `read_sop` (§5.2). The earlier text follows
-> as the record of the first design.
+> both taking `?revision=` from the hit and answering 409 when the SOP was
+> revised since, which the agent reaches through `read_sop` (§5.2). The
+> earlier text follows as the record of the first design.
 
 For SOPs: the full body up to a token budget (default 4000 tokens). For longer SOPs, return the most-relevant section identified by sub-document embedding.
 
@@ -371,11 +373,12 @@ read_sop(sop_id: string, section?: int) -> SOPOutline | SOPSectionRead
 recall_similar_investigations(query: string, scope?: {...}) -> list<SummaryResult>
 ```
 
-`read_sop` (adr/0303) reads a recalled procedure by section: with `section`,
-that section whole and the outline around it; without, the outline alone. A
-hit carries one section (§4.2); the agent reads the others before citing the
-procedure for what they say, and the record names the sections it had in
-front of it (§6).
+`read_sop` (adr/0303) reads a recalled procedure by section, pinned to the
+revision the hit returned: with `section`, that section whole and the outline
+around it; without, the outline alone. A hit carries one section (§4.2); the
+agent reads the others before citing the procedure for what they say, and
+the record names the sections (and the revision) it had in front of it (§6),
+on every page it read of a paged recall.
 
 The LLM invokes these when reasoning surfaces a question implicit retrieval missed. ("This is starting to look like a supply-chain compromise; pull SOPs tagged with `T1195`.") Tool results enter the conversation as tool-result messages.
 

@@ -393,8 +393,11 @@ type Store interface {
 `Reindex` is on the contract (amended 2026-11): hosts run it at startup and
 on demand, so a changed embedding model or section rule is reconciled before
 the first recall rather than failing it. It re-cuts sections stored under
-another rule and, with an embedder, fills missing vectors; a current corpus
-costs one scan.
+another rule and, with an embedder, fills missing vectors; a current cut is
+kept, so a backfill under a new model never drops another model's section
+vectors (§10 coexistence); a current corpus costs one scan. A run is one
+embedder call per stale entry: a host exposing it over HTTP runs it as a job,
+not under a request's deadline.
 
 `Transition` carries the target status and the acting principal(s); the store
 validates the state machine (per the corpus's governance mode), not the
