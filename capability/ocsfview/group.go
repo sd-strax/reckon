@@ -23,19 +23,24 @@ type SlotSpec struct {
 	Label string `json:"label"`
 }
 
-// SlotValue is a slot's value on one event.
+// SlotValue is a slot's value on one event: the text as shown, the ref when
+// the record minted the object, and the identity two events must share to
+// fold on this slot by text (the text folded for case, or exact for an
+// opaque value, or a list with its boundaries kept).
 type SlotValue struct {
-	Name string `json:"slot"`
-	Text string `json:"text"`
-	Ref  string `json:"ref,omitempty"`
+	Name     string `json:"slot"`
+	Text     string `json:"text"`
+	Ref      string `json:"ref,omitempty"`
+	Identity string `json:"-"`
 }
 
 // KeyPart is one slot of a group's key with the value every member shares.
 type KeyPart struct {
-	Slot  string `json:"slot"`
-	Label string `json:"label"`
-	Text  string `json:"text"`
-	Ref   string `json:"ref,omitempty"`
+	Slot     string `json:"slot"`
+	Label    string `json:"label"`
+	Text     string `json:"text"`
+	Ref      string `json:"ref,omitempty"`
+	identity string
 }
 
 // Group is one set of events sharing a key: how many, the span they cover,
@@ -228,7 +233,7 @@ func keyParts(it GroupItem, names []string, dropRef string) []KeyPart {
 		p := KeyPart{Slot: n, Label: slotLabel(it.ClassUID, n)}
 		for _, s := range it.Slots {
 			if s.Name == n {
-				p.Text, p.Ref = s.Text, s.Ref
+				p.Text, p.Ref, p.identity = s.Text, s.Ref, s.Identity
 				break
 			}
 		}
@@ -241,7 +246,8 @@ func keyParts(it GroupItem, names []string, dropRef string) []KeyPart {
 }
 
 // keyIdentity is the string two items share when they fold: the class and,
-// per part, the ref when bound else the text folded for case. A key with no
+// per part, the ref when bound else the slot's identity (its text folded for
+// case, exact for an opaque value, boundaries kept for a list). A key with no
 // value at all never folds: the item's own id makes it unique.
 func keyIdentity(it GroupItem, parts []KeyPart) string {
 	var b strings.Builder
@@ -253,8 +259,8 @@ func keyIdentity(it GroupItem, parts []KeyPart) string {
 		case p.Ref != "":
 			b.WriteString(p.Ref)
 			any = true
-		case p.Text != "":
-			b.WriteString(strings.ToLower(p.Text))
+		case p.identity != "":
+			b.WriteString(p.identity)
 			any = true
 		}
 	}

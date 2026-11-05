@@ -205,15 +205,49 @@ type renderer struct {
 }
 
 // keySlot registers a slot's value for the fold: the ref when the record
-// minted the entity, the text always.
+// minted the entity, the text always. The text folds for case: names, hosts,
+// accounts, paths and keys compare case-insensitively.
 func (r *renderer) keySlot(name string, s slot) {
-	r.slots = append(r.slots, SlotValue{Name: name, Text: s.text, Ref: s.ref})
+	r.slots = append(r.slots, SlotValue{Name: name, Text: s.text, Ref: s.ref, Identity: strings.ToLower(s.text)})
 }
 
-// keyText registers a slot by its text alone: a scalar, or a per-occurrence
-// object (the process, the flow) whose ref would differ on every event.
+// keyText registers a slot by its text alone, folded for case: a scalar, or a
+// per-occurrence object (the process, the flow) whose ref would differ on
+// every event.
 func (r *renderer) keyText(name, text string) {
-	r.slots = append(r.slots, SlotValue{Name: name, Text: text})
+	r.slots = append(r.slots, SlotValue{Name: name, Text: text, Identity: strings.ToLower(text)})
+}
+
+// keyExact registers a slot whose text compares exactly: an opaque value
+// (a command line, registry data, a subject, a URL) where case carries
+// meaning, so "-I" and "-i" are two observations.
+func (r *renderer) keyExact(name string, s slot) {
+	r.slots = append(r.slots, SlotValue{Name: name, Text: s.text, Ref: s.ref, Identity: s.text})
+}
+
+// keyList registers a multi-valued slot: the texts sorted, joined for reading,
+// and as identity encoded with their boundaries intact, so one value "a,b"
+// never equals two values "a" and "b". fold lowercases values that are
+// case-insensitive (addresses); order never makes two observations differ.
+func (r *renderer) keyList(name string, slots []slot, fold bool) {
+	vals := make([]string, 0, len(slots))
+	for _, s := range slots {
+		if s.text == "" {
+			continue
+		}
+		if fold {
+			vals = append(vals, strings.ToLower(s.text))
+		} else {
+			vals = append(vals, s.text)
+		}
+	}
+	sort.Strings(vals)
+	var id string
+	if len(vals) > 0 { // no values is no value, which never folds
+		enc, _ := json.Marshal(vals) // strings always marshal
+		id = string(enc)
+	}
+	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(vals, ", "), Identity: id})
 }
 
 // slot is a sentence slot: what the payload shows, and the record's ref when
@@ -568,7 +602,7 @@ func (r *renderer) process() {
 	r.keyText("process", proc.text)
 	r.keyText("parent", parent.text)
 	r.keySlot("image", slot{text: firstNonEmpty(image.text, proc.text), ref: image.ref})
-	r.keyText("cmd_line", r.str("process.cmd_line"))
+	r.keyExact("cmd_line", slot{text: r.str("process.cmd_line")})
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -726,20 +760,7 @@ func (r *renderer) dns() {
 	r.keySlot("query", query)
 	r.keyText("type", r.str("query.type"))
 	r.keyText("rcode", r.str("rcode"))
-	r.keyText("answers", canonicalList(answers))
-}
-
-// canonicalList is a multi-valued slot as one key value: the texts folded for
-// case, sorted, joined; order and case do not make two observations differ.
-func canonicalList(slots []slot) string {
-	out := make([]string, 0, len(slots))
-	for _, s := range slots {
-		if s.text != "" {
-			out = append(out, strings.ToLower(s.text))
-		}
-	}
-	sort.Strings(out)
-	return strings.Join(out, ",")
+	r.keyList("answers", answers, false) // TXT payloads compare exactly
 }
 
 // dnsAnswers reads answers[].rdata as address or domain slots.
@@ -859,7 +880,7 @@ func (r *renderer) registryKey() {
 	r.keySlot("user", user)
 	r.keySlot("key", key)
 	r.keyText("value", r.str("reg_value.name"))
-	r.keyText("data", r.str("reg_value.data"))
+	r.keyExact("data", slot{text: r.str("reg_value.data")})
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -901,7 +922,7 @@ func (r *renderer) scheduledJob() {
 	r.keySlot("host", host)
 	r.keySlot("job", job)
 	r.keySlot("run_as", runAs)
-	r.keyText("cmd_line", r.str("job.command_line"))
+	r.keyExact("cmd_line", slot{text: r.str("job.command_line")})
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -1024,8 +1045,8 @@ func (r *renderer) email() {
 	}
 
 	r.keySlot("from", from)
-	r.keyText("to", canonicalList(to))
-	r.keyText("subject", subject)
+	r.keyList("to", to, true)
+	r.keyExact("subject", slot{text: subject})
 }
 
 func (r *renderer) emailAddrs(path string) []slot {
@@ -1065,7 +1086,7 @@ func (r *renderer) emailURL() {
 
 	r.keySlot("user", user)
 	r.keySlot("host", host)
-	r.keySlot("url", link)
+	r.keyExact("url", link)
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -1107,7 +1128,7 @@ func (r *renderer) detection() {
 	r.entityField("User", slot{text: r.qualifiedUser("evidence.actor.user"), ref: user.ref})
 
 	r.keyText("vendor", vendor)
-	r.keyText("title", title)
+	r.keyExact("title", slot{text: title})
 	r.keyText("severity", severity)
 	r.keySlot("host", host)
 	r.keySlot("user", user)

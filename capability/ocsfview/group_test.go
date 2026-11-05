@@ -184,7 +184,9 @@ func TestParseKeys(t *testing.T) {
 // TestFold_ChangedObservationsStayApart: the all-slots default keeps the
 // values that change between otherwise identical events — a DNS answer, a
 // registry value's data, a job's command line — so a one-off change never
-// disappears into a repeated row; and a domain-only destination keys by the
+// disappears into a repeated row. Opaque values compare exactly (-I is not
+// -i) while names, hosts and keys fold for case; a list keeps its boundaries
+// ("a,b" is not "a" and "b"); and a domain-only destination keys by the
 // domain.
 func TestFold_ChangedObservationsStayApart(t *testing.T) {
 	at := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
@@ -194,29 +196,48 @@ func TestFold_ChangedObservationsStayApart(t *testing.T) {
 	cases := []struct {
 		name  string
 		items []GroupItem
+		keys  Keys // nil: the default key
 		want  int
 	}{
 		{"dns answers", []GroupItem{
 			item("a", classDNS, `{"query":{"hostname":"x.example"},"answers":[{"rdata":"1.1.1.1"},{"rdata":"2.2.2.2"}]}`),
 			item("b", classDNS, `{"query":{"hostname":"x.example"},"answers":[{"rdata":"2.2.2.2"},{"rdata":"1.1.1.1"}]}`),
 			item("c", classDNS, `{"query":{"hostname":"x.example"},"answers":[{"rdata":"9.9.9.9"}]}`),
-		}, 2},
+		}, nil, 2},
 		{"registry data", []GroupItem{
 			item("a", classRegistryKey, `{"reg_key":{"hive":"HKLM","path":"Run"},"reg_value":{"name":"U","data":"C:\\a.exe"}}`),
 			item("b", classRegistryKey, `{"reg_key":{"hive":"HKLM","path":"Run"},"reg_value":{"name":"U","data":"C:\\b.exe"}}`),
-		}, 2},
+		}, nil, 2},
 		{"job command line", []GroupItem{
 			item("a", classScheduledJob, `{"job":{"name":"Updater","command_line":"u.exe -q"}}`),
 			item("b", classScheduledJob, `{"job":{"name":"Updater","command_line":"u.exe -q -x"}}`),
-		}, 2},
+		}, nil, 2},
+		{"txt answer boundaries", []GroupItem{
+			item("a", classDNS, `{"query":{"hostname":"t.example"},"answers":[{"rdata":"a,b"}]}`),
+			item("b", classDNS, `{"query":{"hostname":"t.example"},"answers":[{"rdata":"a"},{"rdata":"b"}]}`),
+			item("c", classDNS, `{"query":{"hostname":"t.example"},"answers":[{"rdata":"b"},{"rdata":"a"}]}`),
+		}, nil, 2},
+		{"command line case", []GroupItem{
+			item("a", classScheduledJob, `{"job":{"name":"Probe","command_line":"curl.exe -I https://example.com"}}`),
+			item("b", classScheduledJob, `{"job":{"name":"Probe","command_line":"curl.exe -i https://example.com"}}`),
+			item("c", classScheduledJob, `{"job":{"name":"probe","command_line":"curl.exe -I https://example.com"}}`),
+		}, nil, 2},
+		{"process command line case, keyed on it", []GroupItem{
+			item("a", classProcess, `{"process":{"name":"curl.exe","cmd_line":"curl.exe -I https://example.com"},"actor":{"process":{"name":"cmd.exe"}}}`),
+			item("b", classProcess, `{"process":{"name":"curl.exe","cmd_line":"curl.exe -i https://example.com"},"actor":{"process":{"name":"cmd.exe"}}}`),
+		}, Keys{classProcess: {"image", "cmd_line"}}, 2},
+		{"registry data case", []GroupItem{
+			item("a", classRegistryKey, `{"reg_key":{"hive":"HKLM","path":"Run"},"reg_value":{"name":"U","data":"C:\\a.exe -Q"}}`),
+			item("b", classRegistryKey, `{"reg_key":{"hive":"hklm","path":"run"},"reg_value":{"name":"u","data":"C:\\a.exe -q"}}`),
+		}, nil, 2},
 		{"domain-only destinations", []GroupItem{
 			item("a", classNetwork, `{"dst_endpoint":{"domain":"a.example","port":443}}`),
 			item("b", classNetwork, `{"dst_endpoint":{"domain":"b.example","port":443}}`),
 			item("c", classNetwork, `{"dst_endpoint":{"domain":"A.example","port":443}}`),
-		}, 2},
+		}, nil, 2},
 	}
 	for _, tc := range cases {
-		if got := len(Fold(tc.items, nil, "")); got != tc.want {
+		if got := len(Fold(tc.items, tc.keys, "")); got != tc.want {
 			t.Errorf("%s: %d groups; want %d", tc.name, got, tc.want)
 		}
 	}

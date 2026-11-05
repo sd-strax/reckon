@@ -38,9 +38,13 @@ the pivot. There is no baseline endpoint and no stored summary.
 **The key is the event's slots.** Each class template in `capability/ocsfview`
 registers its slots as it renders: the objects the event derived and its
 distinguishing scalars (logon type, activity, command line, port). A slot keys
-by the object the record minted when there is one, else by its text folded
-for case, so a file keys by its identity, hash-first (`03 §7`): a renamed copy
-folds with its original, two binaries of one name stay apart. The process
+by the object the record minted when there is one, else by its text: folded
+for case where the value is case-insensitive (names, hosts, accounts, keys),
+exact where case carries meaning (a command line, registry data, a subject, a
+URL), and with its boundaries kept for a multi-valued slot (DNS answers,
+recipients), so one value `a,b` never equals two values `a` and `b`. A file
+keys by its identity, hash-first (`03 §7`): a renamed copy folds with its
+original, two binaries of one name stay apart. The process
 itself and the network flow are per-occurrence by construction and never a key
 by ref; their slots carry the name. `Fold` is pure: a class without slots, or
 a key with no value at all, never folds.
