@@ -121,15 +121,20 @@ type ConsultedSOP struct {
 	SOPID          string  `json:"sop_id"`
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
+	// Revision is the SOP revision the sections belong to, as recall
+	// returned it.
+	Revision int `json:"revision,omitempty"`
 	// Sections are the 1-based indexes of the procedure's sections the act
 	// had in front of it: what was read, which the inspector shows as
-	// "excerpt k of n" (adr/0303).
+	// "excerpt k of n" (adr/0303). Cited requires at least one.
 	Sections []int `json:"sections,omitempty"`
 	Cited    bool  `json:"cited"`
 }
 
-// maxConsultedSections bounds the sections one consulted entry records.
-const maxConsultedSections = 64
+// maxConsultedSections bounds the sections one consulted entry records; the
+// agent caps what it records to the same number, so a turn's commit never
+// exceeds it whatever the tools showed.
+const maxConsultedSections = 256
 
 // ConsultedSimilarInvestigation records one concluded-investigation summary
 // surfaced by similarity retrieval during a reasoning act (06 §3, §6): the
@@ -380,6 +385,15 @@ func (c RecordInterpretation) Validate(env Envelope) error {
 			if n < 1 {
 				return fmt.Errorf("RecordInterpretation: consulted_sops %s names section %d; sections are 1-based", cs.SOPID, n)
 			}
+		}
+		if cs.Cited && len(cs.Sections) == 0 {
+			// A citation without a read is what let a preamble stand for a
+			// procedure (adr/0303); the structural rule holds on every write,
+			// not only the sidecar's. Replay does not run here.
+			return fmt.Errorf("RecordInterpretation: consulted_sops %s is cited but records no section read", cs.SOPID)
+		}
+		if cs.Revision < 0 {
+			return fmt.Errorf("RecordInterpretation: consulted_sops %s names revision %d", cs.SOPID, cs.Revision)
 		}
 	}
 	if len(c.ConsultedSimilar) > maxConsultedPerInterpretation {

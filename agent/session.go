@@ -894,15 +894,30 @@ func (s *Session) complete(ctx context.Context, side []ContentBlock) (resp Compl
 	return resp, false, err
 }
 
+// maxRecordedSections caps the sections one consulted entry records, the
+// aggregate's bound for the field (maxConsultedSections there): the turn is
+// committed whatever the tools showed. Under the default rounds and recall
+// limit a turn cannot show this many sections of one procedure.
+const maxRecordedSections = 256
+
 // recordConsulted accumulates what one tool call put in front of the model into
 // the turn's knowledge provenance: one entry per id with the best score, the
 // title once known, and the union of the sections shown (a recall hit's, or
-// a read_sop's).
+// a read_sop's). Sections belong to a revision: a newer revision of the same
+// procedure replaces the entry, an older one's sections are not merged.
 func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarInvestigation) {
 	for _, c := range sops {
+		c.Sections = capSections(c.Sections)
 		prev, ok := s.consulted[c.SOPID]
 		if !ok {
 			s.consulted[c.SOPID] = c
+			continue
+		}
+		switch {
+		case c.Revision != 0 && prev.Revision != 0 && c.Revision > prev.Revision:
+			s.consulted[c.SOPID] = c
+			continue
+		case c.Revision != 0 && prev.Revision != 0 && c.Revision < prev.Revision:
 			continue
 		}
 		if c.RetrievalScore > prev.RetrievalScore {
@@ -911,7 +926,10 @@ func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarI
 		if prev.Title == "" {
 			prev.Title = c.Title
 		}
-		prev.Sections = mergeSections(prev.Sections, c.Sections)
+		if prev.Revision == 0 {
+			prev.Revision = c.Revision
+		}
+		prev.Sections = capSections(mergeSections(prev.Sections, c.Sections))
 		s.consulted[c.SOPID] = prev
 	}
 	for _, c := range cases {
@@ -921,15 +939,25 @@ func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarI
 	}
 }
 
+// capSections keeps a section list within maxRecordedSections (the lowest
+// indexes), so the commit never exceeds the aggregate's bound.
+func capSections(secs []int) []int {
+	if len(secs) <= maxRecordedSections {
+		return secs
+	}
+	return secs[:maxRecordedSections]
+}
+
 // consultedSOPs reads the procedures out of a recall_sops result: each hit's
-// id, title, score and the section it carried.
+// id, title, revision, score and the section it carried.
 func consultedSOPs(content []byte) []ConsultedSOP {
 	var res struct {
 		Results []struct {
-			SOPID   string  `json:"sop_id"`
-			Title   string  `json:"title"`
-			Score   float64 `json:"score"`
-			Section struct {
+			SOPID    string  `json:"sop_id"`
+			Title    string  `json:"title"`
+			Revision int     `json:"revision"`
+			Score    float64 `json:"score"`
+			Section  struct {
 				Idx int `json:"idx"`
 			} `json:"section"`
 		} `json:"results"`
@@ -942,7 +970,7 @@ func consultedSOPs(content []byte) []ConsultedSOP {
 		if r.SOPID == "" {
 			continue
 		}
-		c := ConsultedSOP{SOPID: r.SOPID, Title: r.Title, RetrievalScore: r.Score}
+		c := ConsultedSOP{SOPID: r.SOPID, Title: r.Title, Revision: r.Revision, RetrievalScore: r.Score}
 		if r.Section.Idx > 0 {
 			c.Sections = []int{r.Section.Idx}
 		}
@@ -955,16 +983,17 @@ func consultedSOPs(content []byte) []ConsultedSOP {
 // read, or none for an outline (headings are not the procedure).
 func readSOPConsulted(content []byte) []ConsultedSOP {
 	var res struct {
-		SOPID   string `json:"sop_id"`
-		Title   string `json:"title"`
-		Section struct {
+		SOPID    string `json:"sop_id"`
+		Title    string `json:"title"`
+		Revision int    `json:"revision"`
+		Section  struct {
 			Idx int `json:"idx"`
 		} `json:"section"`
 	}
 	if json.Unmarshal(content, &res) != nil || res.SOPID == "" {
 		return nil
 	}
-	c := ConsultedSOP{SOPID: res.SOPID, Title: res.Title}
+	c := ConsultedSOP{SOPID: res.SOPID, Title: res.Title, Revision: res.Revision}
 	if res.Section.Idx > 0 {
 		c.Sections = []int{res.Section.Idx}
 	}

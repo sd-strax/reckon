@@ -36,6 +36,10 @@
       "Description": "Read a recalled procedure by section: with section, that section whole and the outline around it; without, the outline alone (each section's place and length). Read a section before you cite the procedure for what it says, when the hit did not carry it.",
       "InputSchema": {
         "properties": {
+          "revision": {
+            "description": "the revision the hit returned, so the index is read against the same cut; a changed procedure is refused and must be recalled again",
+            "type": "integer"
+          },
           "section": {
             "description": "the section to read whole, by its idx from a hit's section or outline; omit for the outline alone",
             "type": "integer"
@@ -403,6 +407,10 @@
       "Description": "Read a recalled procedure by section: with section, that section whole and the outline around it; without, the outline alone (each section's place and length). Read a section before you cite the procedure for what it says, when the hit did not carry it.",
       "InputSchema": {
         "properties": {
+          "revision": {
+            "description": "the revision the hit returned, so the index is read against the same cut; a changed procedure is refused and must be recalled again",
+            "type": "integer"
+          },
           "section": {
             "description": "the section to read whole, by its idx from a hit's section or outline; omit for the outline alone",
             "type": "integer"

@@ -1133,15 +1133,18 @@ func TestSession_ReadSOP(t *testing.T) {
 	f.override = func(w http.ResponseWriter, r *http.Request) bool {
 		switch r.URL.Path {
 		case "/api/sops/sop-rdp-7/sections/3":
+			if r.URL.Query().Get("revision") != "2" {
+				t.Errorf("read_sop did not pin the revision: %s", r.URL.RequestURI())
+			}
 			reads++
-			_, _ = w.Write([]byte(`{"sop_id":"sop-rdp-7","title":"RDP containment","revision":1,"status":"published","section":{"idx":3,"of":4,"heading_path":["RDP containment","Containment"],"location":"RDP containment > Containment","runes":40,"text":"## Containment\nIsolate the destination host."},"outline":["RDP containment","RDP containment > Triage","RDP containment > Containment","RDP containment > Do not"]}`))
+			_, _ = w.Write([]byte(`{"sop_id":"sop-rdp-7","title":"RDP containment","revision":2,"status":"published","section":{"idx":3,"of":4,"heading_path":["RDP containment","Containment"],"location":"RDP containment > Containment","runes":40,"text":"## Containment\nIsolate the destination host."},"outline":["RDP containment","RDP containment > Triage","RDP containment > Containment","RDP containment > Do not"]}`))
 		default:
 			return false
 		}
 		return true
 	}
 	llm := &scriptedLLM{script: []CompleteResponse{
-		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t1", ToolReadSOP, `{"sop_id":"sop-rdp-7","section":3}`)}},
+		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t1", ToolReadSOP, `{"sop_id":"sop-rdp-7","revision":2,"section":3}`)}},
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Following sop-rdp-7, isolate the destination host.")}},
 	}}
 	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1", MaxToolRounds: 2})
@@ -1162,8 +1165,125 @@ func TestSession_ReadSOP(t *testing.T) {
 	if err := json.Unmarshal(calls[len(calls)-1].Body, &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.ConsultedSOPs) != 1 || body.ConsultedSOPs[0].SOPID != "sop-rdp-7" || !body.ConsultedSOPs[0].Cited || len(body.ConsultedSOPs[0].Sections) != 1 || body.ConsultedSOPs[0].Sections[0] != 3 {
-		t.Errorf("consulted SOPs = %+v; want sop-rdp-7 cited with section 3", body.ConsultedSOPs)
+	if len(body.ConsultedSOPs) != 1 || body.ConsultedSOPs[0].SOPID != "sop-rdp-7" || !body.ConsultedSOPs[0].Cited || len(body.ConsultedSOPs[0].Sections) != 1 || body.ConsultedSOPs[0].Sections[0] != 3 || body.ConsultedSOPs[0].Revision != 2 {
+		t.Errorf("consulted SOPs = %+v; want sop-rdp-7 revision 2 cited with section 3", body.ConsultedSOPs)
+	}
+}
+
+// TestRecordConsulted_RevisionsDoNotMerge: sections belong to a revision. A
+// newer revision of the same procedure replaces the entry; an older one's
+// sections are not merged under the newer.
+func TestRecordConsulted_RevisionsDoNotMerge(t *testing.T) {
+	s := &Session{consulted: map[string]ConsultedSOP{}}
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, RetrievalScore: 0.9, Sections: []int{3}}}, nil)
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 2, RetrievalScore: 0.5, Sections: []int{1}}}, nil)
+	if got := s.consulted["sop-1"]; got.Revision != 2 || len(got.Sections) != 1 || got.Sections[0] != 1 {
+		t.Errorf("after a newer revision: %+v; want revision 2 with section 1 only", got)
+	}
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Sections: []int{4}}}, nil)
+	if got := s.consulted["sop-1"]; got.Revision != 2 || len(got.Sections) != 1 {
+		t.Errorf("an older revision merged in: %+v", got)
+	}
+	// Unknown revisions (0) merge as before.
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Sections: []int{2}}}, nil)
+	if got := s.consulted["sop-1"]; len(got.Sections) != 2 {
+		t.Errorf("unpinned read did not merge: %+v", got)
+	}
+}
+
+// TestRecordConsulted_CapsSections: the record never exceeds the aggregate's
+// bound, whatever the tools showed.
+func TestRecordConsulted_CapsSections(t *testing.T) {
+	s := &Session{consulted: map[string]ConsultedSOP{}}
+	for i := 1; i <= maxRecordedSections+40; i++ {
+		s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Sections: []int{i}}}, nil)
+	}
+	if got := s.consulted["sop-1"]; len(got.Sections) != maxRecordedSections || got.Sections[len(got.Sections)-1] != maxRecordedSections {
+		t.Errorf("sections = %d (last %d); want the first %d", len(got.Sections), got.Sections[len(got.Sections)-1], maxRecordedSections)
+	}
+}
+
+// TestSession_LaterPagesAreConsulted: a recall too large for one page is
+// credited page by page — a procedure the model reads on a read_result page
+// is consulted, and cited when named.
+func TestSession_LaterPagesAreConsulted(t *testing.T) {
+	f := newFakeBackend(t)
+	// Each hit is about 670 bytes and the page note about 540, so a 1500-byte
+	// page holds exactly one hit: three pages for three procedures.
+	big := strings.Repeat("x", 600)
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/knowledge/recall_sops" {
+			return false
+		}
+		_, _ = w.Write([]byte(`{"results":[` +
+			`{"sop_id":"sop-first","title":"A","revision":1,"score":0.9,"section":{"idx":1},"excerpt":"` + big + `"},` +
+			`{"sop_id":"sop-second","title":"B","revision":1,"score":0.8,"section":{"idx":2},"excerpt":"` + big + `"},` +
+			`{"sop_id":"sop-third","title":"C","revision":1,"score":0.7,"section":{"idx":3},"excerpt":"` + big + `"}` +
+			`],"coverage":"COMPLETE"}`))
+		return true
+	}
+	llm := &scriptedLLM{script: []CompleteResponse{
+		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t1", ToolRecallSOPs, `{"query":"q"}`)}},
+		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t2", ToolReadResult, `{"result_id":"res-1","offset":1}`)}},
+		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t3", ToolReadResult, `{"result_id":"res-1","offset":2}`)}},
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Per sop-third, isolate.")}},
+	}}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1", MaxToolRounds: 4, MaxToolResultBytes: 1500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Turn(context.Background(), "which procedure?"); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	calls := f.callsTo("/api/interpretations")
+	if len(calls) == 0 {
+		t.Fatal("no interpretation committed")
+	}
+	var body InterpretationRequest
+	if err := json.Unmarshal(calls[len(calls)-1].Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ConsultedSOP{}
+	for _, c := range body.ConsultedSOPs {
+		byID[c.SOPID] = c
+	}
+	if len(byID) != 3 {
+		t.Fatalf("consulted = %+v; want all three pages' procedures", body.ConsultedSOPs)
+	}
+	if third := byID["sop-third"]; !third.Cited || len(third.Sections) != 1 || third.Sections[0] != 3 {
+		t.Errorf("the procedure read on the last page: %+v; want cited with section 3", third)
+	}
+}
+
+// TestSession_ReadSOP_OversizedSectionIsPaged: a section larger than the
+// result page is read in parts, not refused as oversized.
+func TestSession_ReadSOP_OversizedSectionIsPaged(t *testing.T) {
+	f := newFakeBackend(t)
+	text := strings.Repeat("isolate the host. ", 400) // ~7 KB against a 2 KB page
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/sops/sop-big/sections/2" {
+			return false
+		}
+		_, _ = w.Write([]byte(`{"sop_id":"sop-big","title":"Big","revision":1,"status":"published","section":{"idx":2,"of":3,"heading_path":["Big","Long"],"location":"Big > Long","runes":7200,"text":"` + text + `"},"outline":["Big","Big > Long","Big > End"]}`))
+		return true
+	}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: &scriptedLLM{}, InvestigationID: "inv-1", MaxToolResultBytes: 2048})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.readSOP(context.Background(), readSOPInput{SOPID: "sop-big", Section: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(res.Content)
+	if strings.Contains(page, "oversized") && !strings.Contains(page, "text_parts") {
+		t.Fatalf("section refused as oversized:\n%s", page)
+	}
+	if !strings.Contains(page, `"result_id"`) || !strings.Contains(page, `"text_parts"`) || !strings.Contains(page, `"idx":2`) {
+		t.Errorf("page should be paged text parts with the section's place:\n%s", page)
+	}
+	if len(res.Consulted) != 1 || len(res.Consulted[0].Sections) != 1 || res.Consulted[0].Sections[0] != 2 {
+		t.Errorf("consulted = %+v; want section 2", res.Consulted)
 	}
 }
 

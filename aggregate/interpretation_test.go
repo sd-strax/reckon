@@ -411,6 +411,16 @@ func TestRecordInterpretation_ConsultedSections(t *testing.T) {
 	if err := zero.Validate(env); err == nil {
 		t.Error("section 0 accepted; sections are 1-based")
 	}
+	citedUnread := base
+	citedUnread.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Cited: true}}
+	if err := citedUnread.Validate(env); err == nil {
+		t.Error("cited with no section read accepted")
+	}
+	recalledUnread := base
+	recalledUnread.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1"}}
+	if err := recalledUnread.Validate(env); err != nil {
+		t.Errorf("recalled, not cited, with no section read rejected: %v", err)
+	}
 	many := base
 	many.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Sections: make([]int, maxConsultedSections+1)}}
 	for i := range many.ConsultedSOPs[0].Sections {
