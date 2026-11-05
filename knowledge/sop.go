@@ -89,12 +89,42 @@ type SOP struct {
 
 // Store is the SOP corpus, backed by the memory substrate.
 type Store struct {
-	sub substrate.Store
+	sub           substrate.Store
+	excerptBudget int // runes; 0 = the substrate's section budget
 }
+
+// Option configures NewStore.
+type Option func(*Store)
+
+// WithExcerptBudget bounds a recall hit's excerpt in runes (design/06 §4.2)
+// when the request does not say. Zero leaves it to the substrate, whose
+// section budget is the ceiling either way.
+func WithExcerptBudget(runes int) Option { return func(s *Store) { s.excerptBudget = runes } }
 
 // NewStore constructs a Store over a substrate whose `procedures` corpus is
 // declared.
-func NewStore(sub substrate.Store) *Store { return &Store{sub: sub} }
+func NewStore(sub substrate.Store, opts ...Option) *Store {
+	s := &Store{sub: sub}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// ErrInvalidRequest marks a request the store cannot act on as written (an
+// unknown recall unit); the server answers 400.
+var ErrInvalidRequest = errors.New("knowledge: invalid request")
+
+// Reindex brings the tenant's knowledge up to date with the substrate's
+// configuration (section rule, embedding model): the host runs it at startup
+// and an operator on demand. Returns the number of entries touched.
+func (s *Store) Reindex(ctx context.Context, tenantID uuid.UUID) (int, error) {
+	n, err := s.sub.Reindex(ctx, tenantID.String())
+	if err != nil {
+		return n, fmt.Errorf("reindex knowledge: %w", err)
+	}
+	return n, nil
+}
 
 // ErrNotFound is returned when a SOP id doesn't exist (or is already retired
 // for mutating ops).

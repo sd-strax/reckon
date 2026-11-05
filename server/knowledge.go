@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -43,11 +44,29 @@ func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := b.cfg.Knowledge.RecallSOPs(r.Context(), module.SingleTenantUUID, req)
+	if errors.Is(err, knowledge.ErrInvalidRequest) {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err != nil {
 		writeInternalError(w, "recall_sops", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// reindexKnowledge handles POST /api/knowledge/reindex: brings the corpus up
+// to date with the substrate's section rule and embedding model (the same
+// reconciliation the backend runs at startup), for an operator who changed
+// configuration and wants the corpus current without a restart. Analyst role,
+// like the import routes. Answers the number of entries touched.
+func (b *Backend) reindexKnowledge(w http.ResponseWriter, r *http.Request) {
+	n, err := b.cfg.Knowledge.Reindex(r.Context(), module.SingleTenantUUID)
+	if err != nil {
+		writeInternalError(w, "reindex", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"entries": n})
 }
 
 // recallSimilar handles POST /api/knowledge/recall_similar_investigations
@@ -287,6 +306,41 @@ func (b *Backend) getSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sop)
+}
+
+// getSOPSections handles GET /api/sops/{id}/sections: the procedure's outline,
+// every section's place without its text (design/06 §4.2).
+func (b *Backend) getSOPSections(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	out, err := b.cfg.Knowledge.Sections(r.Context(), module.SingleTenantUUID, id)
+	if errors.Is(err, knowledge.ErrNotFound) {
+		writeJSONError(w, http.StatusNotFound, "sop not found")
+		return
+	}
+	if err != nil {
+		writeInternalError(w, "sop sections", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// getSOPSection handles GET /api/sops/{id}/sections/{n}: one section whole,
+// with the outline around it — the read behind the agent's read_sop tool.
+func (b *Backend) getSOPSection(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil || n < 1 {
+		writeJSONError(w, http.StatusBadRequest, "section index in path must be a positive integer")
+		return
+	}
+	out, err := b.cfg.Knowledge.Section(r.Context(), module.SingleTenantUUID, id, n)
+	if errors.Is(err, knowledge.ErrNotFound) {
+		writeJSONError(w, http.StatusNotFound, "sop or section not found")
+		return
+	}
+	if err != nil {
+		writeInternalError(w, "sop section", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (b *Backend) updateSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {

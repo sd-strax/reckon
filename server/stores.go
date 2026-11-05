@@ -81,4 +81,7 @@ type knowledgeStore interface {
 	EnrichSummary(ctx context.Context, tenantID uuid.UUID, investigationRef, narrative, generatorModel string) (uuid.UUID, error)
 	ListSummaries(ctx context.Context, tenantID uuid.UUID, limit int) ([]knowledge.CaseSummaryView, error)
 	SummaryByInvestigation(ctx context.Context, tenantID uuid.UUID, investigationRef string) (knowledge.CaseSummaryView, error)
+	Reindex(ctx context.Context, tenantID uuid.UUID) (int, error)
+	Sections(ctx context.Context, tenantID, id uuid.UUID) (knowledge.SOPOutline, error)
+	Section(ctx context.Context, tenantID, id uuid.UUID, idx int) (knowledge.SOPSectionRead, error)
 }

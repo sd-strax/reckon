@@ -4,6 +4,20 @@
       "sop_id": "00000000-0000-0000-0000-000000000000",
       "title": "x",
       "excerpt": "x",
+      "truncated": true,
+      "section": {
+        "idx": 1,
+        "of": 1,
+        "heading_path": [
+          "x"
+        ],
+        "part": 1,
+        "parts": 1,
+        "location": "x"
+      },
+      "outline": [
+        "x"
+      ],
       "score": 1,
       "match_rationale": "x",
       "tags": [

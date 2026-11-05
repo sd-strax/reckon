@@ -23,13 +23,15 @@ import (
 // runKnowledge dispatches the `knowledge` subcommands.
 func runKnowledge(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s knowledge import <files or dirs>", branding.CLI)
+		return fmt.Errorf("usage: %s knowledge import <files or dirs> | %s knowledge reindex", branding.CLI, branding.CLI)
 	}
 	switch args[0] {
 	case "import":
 		return runKnowledgeImport(args[1:])
+	case "reindex":
+		return runKnowledgeReindex(args[1:])
 	default:
-		return fmt.Errorf("unknown knowledge subcommand %q (want: import)", args[0])
+		return fmt.Errorf("unknown knowledge subcommand %q (want: import, reindex)", args[0])
 	}
 }
 
@@ -70,13 +72,11 @@ func runKnowledgeImport(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	backendURL := fmt.Sprintf("http://localhost:%d", cfg.Backend.HTTPPort)
-	issuer := fmt.Sprintf("http://localhost:%d/realms/%s", cfg.Keycloak.HTTPPort, cfg.Keycloak.Realm)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	cred, err := agent.NewCredential(ctx, issuer, branding.CLI, *user, *pass)
+	cred, err := knowledgeLogin(ctx, cfg, *user, *pass)
 	if err != nil {
-		return fmt.Errorf("login: %w\n  hint: the shipped realm has no login user and ROPC is off — run `%s dev-auth` first", err, branding.CLI)
+		return err
 	}
 
 	failed := 0
@@ -100,6 +100,79 @@ func runKnowledgeImport(args []string) error {
 		return fmt.Errorf("%d file(s) failed", failed)
 	}
 	return nil
+}
+
+// knowledgeLogin signs in through dev-auth against the local realm, as every
+// knowledge subcommand does.
+func knowledgeLogin(ctx context.Context, cfg config.Config, user, pass string) (*agent.Credential, error) {
+	issuer := fmt.Sprintf("http://localhost:%d/realms/%s", cfg.Keycloak.HTTPPort, cfg.Keycloak.Realm)
+	cred, err := agent.NewCredential(ctx, issuer, branding.CLI, user, pass)
+	if err != nil {
+		return nil, fmt.Errorf("login: %w\n  hint: the shipped realm has no login user and ROPC is off — run `%s dev-auth` first", err, branding.CLI)
+	}
+	return cred, nil
+}
+
+// runKnowledgeReindex asks the running backend to bring the knowledge corpus
+// up to date with its section rule and embedding model — the reconciliation
+// the backend also runs at startup — and reports how many entries it touched.
+func runKnowledgeReindex(args []string) error {
+	fl := flag.NewFlagSet("knowledge reindex", flag.ContinueOnError)
+	user := fl.String("user", envOrDefault("RECKON_USER", branding.CLI+"-admin"), "backend login user (or RECKON_USER)")
+	pass := fl.String("password", os.Getenv("RECKON_PASSWORD"), "backend login password (or RECKON_PASSWORD)")
+	if err := fl.Parse(args); err != nil {
+		return err
+	}
+	if fl.NArg() != 0 {
+		return fmt.Errorf("usage: %s knowledge reindex [-user u] [-password p]", branding.CLI)
+	}
+	if *pass == "" {
+		*pass = branding.CLI // the dev-auth default, same as the eval harness
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	backendURL := fmt.Sprintf("http://localhost:%d", cfg.Backend.HTTPPort)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	cred, err := knowledgeLogin(ctx, cfg, *user, *pass)
+	if err != nil {
+		return err
+	}
+	token, err := cred.Token(ctx)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backendURL+"/api/knowledge/reindex", http.NoBody)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck // read-side close
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var out struct {
+		Entries int `json:"entries"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "%s: reindexed %d entr%s\n", branding.CLI, out.Entries, plural(out.Entries, "y", "ies"))
+	return nil
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // collectImportFiles expands files and directories into the importable set.

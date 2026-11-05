@@ -186,6 +186,13 @@ func (f *fakeKnowledge) RecallSimilar(context.Context, uuid.UUID, knowledge.Simi
 func (f *fakeKnowledge) PriorByEntity(context.Context, uuid.UUID, knowledge.PriorRequest) (knowledge.PriorResult, error) {
 	return knowledge.PriorResult{}, f.err
 }
+func (f *fakeKnowledge) Reindex(context.Context, uuid.UUID) (int, error) { return 0, f.err }
+func (f *fakeKnowledge) Sections(context.Context, uuid.UUID, uuid.UUID) (knowledge.SOPOutline, error) {
+	return knowledge.SOPOutline{}, f.err
+}
+func (f *fakeKnowledge) Section(context.Context, uuid.UUID, uuid.UUID, int) (knowledge.SOPSectionRead, error) {
+	return knowledge.SOPSectionRead{}, f.err
+}
 func (f *fakeKnowledge) WriteSummary(context.Context, uuid.UUID, knowledge.Summary) (uuid.UUID, error) {
 	return uuid.Nil, f.err
 }

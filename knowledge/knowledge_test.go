@@ -362,6 +362,118 @@ func TestRecallSOPs(t *testing.T) {
 	}
 }
 
+// TestRecallSOPs_Sections proves the facade carries the matched section, the
+// outline and the unit through to the SOP shape (design/06 §4.2), and that a
+// browse hit carries the first section.
+func TestRecallSOPs_Sections(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t) // keyword backend
+	ctx := context.Background()
+	const body = "# Lateral Movement — Containment\n\nScope: a remote logon from an internal host.\n\n## Triage\nConfirm the session.\n\n## Containment\nIsolate the destination host; prefer network isolation.\n\n## Do not\nDo not reimage the destination before collection.\n"
+	id, err := s.Create(ctx, SOP{TenantID: testTenant, Title: "RDP containment", Body: body, Tags: []string{"rdp"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "isolate destination host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) != 1 || res.Results[0].SOPID != id {
+		t.Fatalf("results %+v", res.Results)
+	}
+	h := res.Results[0]
+	if h.Section.Idx != 3 || h.Section.Of != 4 || h.Section.Location != "Lateral Movement — Containment > Containment" {
+		t.Errorf("section %+v", h.Section)
+	}
+	if !strings.HasPrefix(h.Excerpt, "## Containment") || strings.Contains(h.Excerpt, "Scope:") || h.Truncated {
+		t.Errorf("excerpt %q truncated=%v", h.Excerpt, h.Truncated)
+	}
+	if len(h.Outline) != 4 || h.Outline[3] != "Lateral Movement — Containment > Do not" {
+		t.Errorf("outline %q", h.Outline)
+	}
+
+	// Section unit: two pieces of one procedure.
+	res, err = s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "destination", Unit: UnitSection})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) != 2 || res.Results[0].SOPID != id || res.Results[1].SOPID != id || res.Results[0].Section.Idx == res.Results[1].Section.Idx {
+		t.Errorf("section unit: %+v", res.Results)
+	}
+
+	// A requested budget cuts the excerpt and says so.
+	res, err = s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "isolate destination host", ExcerptBudget: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Results[0].Truncated || len([]rune(res.Results[0].Excerpt)) != 11 {
+		t.Errorf("budget: %q truncated=%v", res.Results[0].Excerpt, res.Results[0].Truncated)
+	}
+
+	// An unknown unit is the caller's error.
+	if _, err := s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "x", Unit: "paragraph"}); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("unknown unit: %v", err)
+	}
+
+	// Browse carries the first section and the outline.
+	res, err = s.RecallSOPs(ctx, testTenant, RecallRequest{Tags: []string{"rdp"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) != 1 || res.Results[0].Section.Idx != 1 || len(res.Results[0].Outline) != 4 || !strings.HasPrefix(res.Results[0].Excerpt, "# Lateral Movement") {
+		t.Errorf("browse: %+v", res.Results)
+	}
+}
+
+// TestSOPSections covers the outline and single-section reads behind
+// GET /api/sops/{id}/sections[/{n}].
+func TestSOPSections(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	const body = "# RDP containment\n\nScope line.\n\n## Triage\nConfirm the session.\n\n## Containment\nIsolate the destination host.\n\n## Do not\nDo not reimage first.\n"
+	id, err := s.Create(ctx, SOP{TenantID: testTenant, Title: "RDP containment", Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outline, err := s.Sections(ctx, testTenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outline.SOPID != id || outline.Revision != 1 || len(outline.Sections) != 4 {
+		t.Fatalf("outline %+v", outline)
+	}
+	if o := outline.Sections[2]; o.Idx != 3 || o.Of != 4 || o.Location != "RDP containment > Containment" || o.Text != "" || o.Runes == 0 {
+		t.Errorf("outline entry %+v", o)
+	}
+	read, err := s.Section(ctx, testTenant, id, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(read.Section.Text, "## Containment") || read.Section.Runes != len([]rune(read.Section.Text)) || len(read.Outline) != 4 {
+		t.Errorf("section read %+v", read)
+	}
+	if _, err := s.Section(ctx, testTenant, id, 9); !errors.Is(err, ErrNotFound) {
+		t.Errorf("out-of-range section: %v", err)
+	}
+	if _, err := s.Sections(ctx, testTenant, uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown sop: %v", err)
+	}
+	// An update re-cuts: the new revision's outline is read, not the old.
+	if err := s.Update(ctx, testTenant, id, "RDP containment", "# Only\n\nOne section now.", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	outline, err = s.Sections(ctx, testTenant, id)
+	if err != nil || outline.Revision != 2 || len(outline.Sections) != 1 {
+		t.Errorf("after update: %v %+v", err, outline)
+	}
+}
+
 // TestRecallSemantic proves the facade drives the vector backend and resolves
 // SOP ids from the lineage tag on a recall hit (which carries no meta).
 func TestRecallSemantic(t *testing.T) {
