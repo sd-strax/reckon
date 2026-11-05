@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -455,4 +457,100 @@ func TestDependencies_SentOnResolvedOutcome(t *testing.T) {
 	if d := stopped("re-image WIN-FILE01", aggregate.ActionStatusFailed); d.Status != dependency.StatusOpen {
 		t.Errorf("after resolving the send FAILED: %s; want OPEN", d.Status)
 	}
+}
+
+// TestDependencies_ConcurrentSettle: many attaches off one succeeded send,
+// each for a different OPEN dependency, run at once; then again against the
+// reconciler and a direct MarkSent. Every request answers with a refusal (409:
+// settled here; 422: another path settled it first) and never with an aborted
+// transaction, and every dependency ends SENT on the send it rode. The lock
+// order (row, action, investigation; bulk rows by id; one row settled from an
+// attach) is what keeps the transactions from waiting on each other: with the
+// attach settling every row of the send, the first phase deadlocks.
+func TestDependencies_ConcurrentSettle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	if _, err := testDB.Exec(`TRUNCATE dependencies`); err != nil {
+		t.Fatalf("truncate dependencies: %v", err)
+	}
+	invID := activeInvestigation(t)
+	store := dependency.NewStore(testDB)
+	b := newTestBackend(t)
+	b.cfg.Dependencies = store
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	token := mintToken(t, nil)
+	otherID := requestNotify(t, invID, "#desktop")
+
+	phase := func(name string, n int, racers bool) {
+		t.Helper()
+		sentID := requestNotify(t, invID, "#"+name)
+		ids := make([]uuid.UUID, 0, n)
+		for i := 0; i < n; i++ {
+			d, err := store.Create(context.Background(), dependency.Create{
+				AggregateID: invID, TenantID: module.SingleTenantUUID, Title: fmt.Sprintf("%s %d", name, i), Owner: "platform team",
+				NotifyActionID: sentID, By: dependency.Actor{ID: "test-subject"}, At: time.Now(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, d.ID)
+		}
+		humanHandle(t, invID, aggregate.ApproveAction{ActionID: sentID, Authorization: aggregate.Authorization{Mode: aggregate.AuthModeManual, Stage: aggregate.AuthStageSolo, PrimaryApproverRef: "test-subject", PrimaryApprovedAt: time.Now()}})
+		dispatched(t, invID, sentID)
+		// The result lands without the activity's follow-up: every row is
+		// OPEN on a SUCCEEDED send.
+		systemHandle(t, invID, aggregate.ResultAction{ActionID: sentID, FinalOutcome: aggregate.ActionStatusSucceeded, PerTargetResults: map[string]string{"0": "OK"}, Attempts: 1})
+
+		var wg sync.WaitGroup
+		codes := make([]int, n)
+		bodies := make([]string, n)
+		for i, id := range ids {
+			wg.Add(1)
+			go func(i int, id uuid.UUID) {
+				defer wg.Done()
+				raw, _ := json.Marshal(AttachDependencyBody{NotifyActionID: otherID.String()})
+				req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/dependencies/"+id.String()+"/attach", bytes.NewReader(raw))
+				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set("Content-Type", "application/json")
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					codes[i] = -1
+					return
+				}
+				defer resp.Body.Close()
+				var out bytes.Buffer
+				_, _ = out.ReadFrom(resp.Body)
+				codes[i], bodies[i] = resp.StatusCode, out.String()
+			}(i, id)
+		}
+		if racers {
+			for i := 0; i < 3; i++ {
+				wg.Add(2)
+				go func() { defer wg.Done(); b.reconcileDependencies(context.Background()) }()
+				go func() {
+					defer wg.Done()
+					if _, err := store.MarkSent(context.Background(), sentID, time.Now()); err != nil {
+						t.Errorf("%s: concurrent MarkSent: %v", name, err)
+					}
+				}()
+			}
+		}
+		wg.Wait()
+
+		for i, code := range codes {
+			if code != http.StatusConflict && code != http.StatusUnprocessableEntity {
+				t.Errorf("%s: attach %d = %d: %s; want 409 or 422, never an aborted transaction", name, i, code, bodies[i])
+			}
+		}
+		for _, id := range ids {
+			if d, _ := store.Get(context.Background(), id); d.Status != dependency.StatusSent || d.NotifyActionID != sentID {
+				t.Errorf("%s: %s = %s on %s; want SENT on the send it rode", name, d.Title, d.Status, d.NotifyActionID)
+			}
+		}
+	}
+	phase("alone", 48, false)
+	phase("raced", 48, true)
 }

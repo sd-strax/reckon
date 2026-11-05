@@ -18,6 +18,14 @@
 // the conclusion exports and signs. Every mutation runs in one transaction
 // with a share lock on the investigation's current row, so a conclusion that
 // committed first is seen and refused, and one that starts later waits.
+//
+// Lock order, shared with the aggregate so no two transactions wait on each
+// other: a dependency row first (the aggregate never touches one), then
+// action_current, then investigation_current. The aggregate's projectors
+// write action_current before investigation_current in every transaction that
+// touches both (an approval, a result, a request), and this package takes the
+// same two rows in the same order. A bulk update over dependency rows takes
+// them in dependency_id order, so two bulk updates on one send cannot cross.
 package dependency
 
 import (
@@ -218,8 +226,10 @@ func (s *Store) List(ctx context.Context, aggregateID uuid.UUID) ([]Dependency, 
 // transaction: a share lock on its action_current row serializes against the
 // approval and the result that move it, so an approved, executing or
 // outcome-unknown send keeps the dependency (ErrInFlight), and one that has
-// already succeeded marks it SENT in the same transaction and refuses the
-// move. A ride that stopped, or never started, is free to change.
+// already succeeded marks this dependency SENT in the same transaction and
+// refuses the move. A ride that stopped, or never started, is free to change.
+// Locks are taken in the package's order: this row, the action, then the
+// investigation.
 func (s *Store) Attach(ctx context.Context, id, actionID uuid.UUID, by Actor, at time.Time) error {
 	event, ref := EventAttached, actionID.String()
 	if actionID == uuid.Nil {
@@ -238,25 +248,30 @@ func (s *Store) Attach(ctx context.Context, id, actionID uuid.UUID, by Actor, at
 		if err != nil {
 			return err
 		}
+		// The action before the investigation, as the aggregate writes them.
+		rideStatus := ""
+		if cur.notifyActionID != uuid.Nil && cur.notifyActionID != actionID {
+			if rideStatus, err = lockAction(ctx, tx, cur.notifyActionID); err != nil {
+				return err
+			}
+		}
 		if err := lockOpen(ctx, tx, cur.aggregateID); err != nil {
 			return err
 		}
 		if cur.status != StatusOpen {
 			return statusRefusal(cur.status)
 		}
-		if cur.notifyActionID != uuid.Nil && cur.notifyActionID != actionID {
-			status, err := lockAction(ctx, tx, cur.notifyActionID)
-			if err != nil {
-				return err
-			}
-			switch status {
-			case aggregate.ActionStatusApproved, aggregate.ActionStatusExecuting, aggregate.ActionStatusOutcomeUnknown:
-				return fmt.Errorf("%w: the send is %s", ErrInFlight, status)
-			case aggregate.ActionStatusSucceeded:
-				_, err := markSentTx(ctx, tx, cur.notifyActionID, at)
-				settled = err == nil
-				return err
-			}
+		switch rideStatus {
+		case aggregate.ActionStatusApproved, aggregate.ActionStatusExecuting, aggregate.ActionStatusOutcomeUnknown:
+			return fmt.Errorf("%w: the send is %s", ErrInFlight, rideStatus)
+		case aggregate.ActionStatusSucceeded:
+			// Only the row this transaction holds: settling the send's other
+			// dependencies here would take their rows after this one, against
+			// another attach holding one of them. MarkSent and the reconciler
+			// move the rest.
+			err := markOneSentTx(ctx, tx, id, cur.notifyActionID, at)
+			settled = err == nil
+			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE dependencies SET notify_action_id = $2, updated_at = $3, history = history || $4::jsonb
@@ -306,22 +321,50 @@ func (s *Store) MarkSent(ctx context.Context, actionID uuid.UUID, at time.Time) 
 }
 
 // markSentTx is the SENT update inside a transaction whose caller holds the
-// investigation lock: every OPEN dependency riding on the action moves.
+// investigation lock and no dependency row: every OPEN dependency riding on
+// the action moves, their rows taken in dependency_id order so two of these
+// on one send cannot wait on each other.
 func markSentTx(ctx context.Context, tx *sql.Tx, actionID uuid.UUID, at time.Time) (int64, error) {
-	entry, err := json.Marshal([]HistoryEntry{{At: at.UTC(), By: "engine", Event: EventSent, Ref: actionID.String()}})
+	entry, err := sentEntry(actionID, at)
 	if err != nil {
 		return 0, err
 	}
 	res, err := tx.ExecContext(ctx, `
 		UPDATE dependencies
 		SET status = $2, updated_at = $3, history = history || $4::jsonb
-		WHERE notify_action_id = $1 AND status = $5
+		WHERE dependency_id IN (
+			SELECT dependency_id FROM dependencies
+			WHERE notify_action_id = $1 AND status = $5
+			ORDER BY dependency_id
+			FOR UPDATE
+		)
 	`, actionID, StatusSent, at.UTC(), entry, StatusOpen)
 	if err != nil {
 		return 0, fmt.Errorf("mark dependencies sent: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
+}
+
+// markOneSentTx moves one OPEN dependency, whose row the caller already holds,
+// to SENT under the action it rides on.
+func markOneSentTx(ctx context.Context, tx *sql.Tx, id, actionID uuid.UUID, at time.Time) error {
+	entry, err := sentEntry(actionID, at)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE dependencies
+		SET status = $2, updated_at = $3, history = history || $4::jsonb
+		WHERE dependency_id = $1 AND status = $5
+	`, id, StatusSent, at.UTC(), entry, StatusOpen); err != nil {
+		return fmt.Errorf("mark dependency sent: %w", err)
+	}
+	return nil
+}
+
+func sentEntry(actionID uuid.UUID, at time.Time) ([]byte, error) {
+	return json.Marshal([]HistoryEntry{{At: at.UTC(), By: "engine", Event: EventSent, Ref: actionID.String()}})
 }
 
 // OpenRides returns the distinct notify.* actions that OPEN dependencies ride

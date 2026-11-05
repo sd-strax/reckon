@@ -61,8 +61,12 @@ outcome is what decides whether the owner was asked. The store judges that in
 the attach transaction, under a share lock on the ride's `action_current` row,
 which the aggregate updates when it approves or records the result, so an
 approval cannot slip between the check and the write; a ride that has already
-succeeded marks the dependency SENT in that same transaction and refuses the
-move, so the link the reconciler would need is never taken away. A ride that
+succeeded marks that one dependency SENT in the same transaction and refuses
+the move, so the link the reconciler would need is never taken away. The locks
+are taken in the order the aggregate writes the same rows (the dependency row,
+which the aggregate never touches, then `action_current`, then
+`investigation_current`), and a bulk SENT update takes its rows in id order,
+so no two of these transactions can wait on each other. A ride that
 stopped (failed, expired, rejected) can move to a pending replacement. CONFIRMED or
 WAIVED by the analyst, with a note; a waive needs one, since a conclusion with
 work knowingly left open is legitimate only when the record says why. Resolved
