@@ -44,12 +44,25 @@ not a message either: the comms thread keeps the conversation's state, the
 dependency keeps the work's.
 
 **Four statuses, one engine transition, two human ones.** OPEN when recorded.
-SENT when the `notify.*` action it rides on SUCCEEDS: the result activity that
-opens the comms thread marks the attached dependencies, idempotently, from the
-engine's own fact about its own send. CONFIRMED or WAIVED by the analyst, with
-a note; a waive needs one, since a conclusion with work knowingly left open is
-legitimate only when the record says why. Resolved is final. A reply on the
-channel never moves a dependency.
+SENT when the `notify.*` action it rides on SUCCEEDS, from the engine's own
+fact about its own send, idempotently (only OPEN rows move), wherever that
+fact is established: the result activity on every attempt that carries the
+success, a retry after the commit included; the route a person resolves an
+`OUTCOME_UNKNOWN` send on, which never passes through the activity; and the
+attach and create routes, which read the action again after the write so an
+attachment that landed as the send completed is not left OPEN under a sent
+message. CONFIRMED or WAIVED by the analyst, with a note; a waive needs one,
+since a conclusion with work knowingly left open is legitimate only when the
+record says why. Resolved is final. A reply on the channel never moves a
+dependency.
+
+**Every write is a person's act on an open investigation.** An AI delegate's
+token is refused on record, attach, confirm and waive, as it is on an action's
+outcome: a confirmation is an attestation in the human's name (`adr/0054`),
+and the analyst route role alone does not tell a delegate from the analyst it
+acts for. A write names an investigation that exists, and one that is not
+CONCLUDED, ARCHIVED or DISCARDED: the concluded record is what was exported
+and signed, so its dependencies are as sealed as the rest of it.
 
 **Attachment is the action id.** A dependency rides on a requested, pending
 `notify.*` action of its own investigation. There is no draft object: a
@@ -58,8 +71,11 @@ the dependency points at that.
 
 **The count feeds what already consumed it.** The snapshot carries the
 dependencies as a slice beside the comms threads; the preflight line and the
-Notify step read OPEN + SENT where they took a zero. The preflight stays
-decision support, as the comms sheet frames it; there is no engine-side gate.
+Notify step read OPEN + SENT where they took a zero, and a benign verdict no
+longer skips Notify while one is owed. A slice that could not be read is not
+zero: the preflight says the count is unchecked and Notify stays in play,
+where an empty slice that did read is clean. The preflight stays decision
+support, as the comms sheet frames it; there is no engine-side gate.
 
 **Surfaces.** A "Dependencies on others" section in the Response lens, after
 the conversations: each dependency with its status, owner and reason, the
@@ -67,8 +83,14 @@ message it rides on and its reference, Confirm and Waive opening a prompt for
 the note, Record a dependency, and Attach to a pending notification. A
 notification card names the dependencies it asks for. The Summary's "Still to
 do" lists the open ones. An inspector shows what, owner, why, when asked,
-status, the resolution and the history. The export lists them under
-"Dependencies" with the notes and references.
+status, the resolution and the history. An OPEN dependency whose notification
+failed, expired or was rejected can move to a pending replacement. The export
+lists them under "Dependencies" with the notes and references, and the signed
+bundle (`07 §2`) carries them whole in `dependencies.json` and lists them in
+its report: the dependencies live beside the event stream, not in it, so the
+bundle is the only signed form they have. A bundle built without a dependency
+store has no `dependencies.json`; absent means not recorded, an empty file
+means none.
 
 **Endpoints.** `GET/POST /api/investigations/{id}/dependencies`; `POST
 /api/dependencies/{id}/attach|confirm|waive`. Not found 404, resolved 409,
@@ -100,9 +122,10 @@ invalid input 422.
   work; before, the zero made them agree with nothing.
 - A concluded record states what was asked of whom, what came back, and what
   was knowingly left open, with the analyst's notes and pointers out, in the
-  export and the signed bundle.
+  export and the signed bundle, and nothing changes it after the conclusion.
 - One more slice in the snapshot, one more store on the main database, one
-  more hook on the result path beside the comms thread; the aggregate and its
-  events are untouched.
+  more hook on the result path beside the comms thread and on the outcome
+  resolution route, one more file in the bundle; the aggregate and its events
+  are untouched.
 - The owner's name is free text and the reference is a string. Binding either
   to an identity or a connector is a later step, as it is for the comms target.

@@ -4,7 +4,12 @@ import type { Dependency } from "../../../src/viewTypes";
 
 export const dependencyLive = (d: Pick<Dependency, "status">): boolean => d.status === "OPEN" || d.status === "SENT";
 
-/** OPEN + SENT: what the conclude preflight and the Notify step count. */
-export function openDependencies(deps: Dependency[]): number {
-  return deps.filter(dependencyLive).length;
+/**
+ * OPEN + SENT: what the conclude preflight and the Notify step count. A slice
+ * that could not be read is null, not zero: the preflight and the stage then
+ * say the count is unchecked rather than clean. An empty list that did read
+ * is zero.
+ */
+export function openDependencies(deps: Dependency[] | null | undefined): number | null {
+  return deps ? deps.filter(dependencyLive).length : null;
 }

@@ -16,8 +16,9 @@ export interface StageInputs {
   verdict: Verdict | null | undefined;
   actions: ActionRow[];
   comms: CommsThread[];
-  /** OPEN/SENT dependencies (adr/0101): work owed outside reckon holds Notify. */
-  openDependencies: number;
+  /** OPEN/SENT dependencies (adr/0101): work owed outside reckon holds Notify;
+   * null when the slice could not be read, which holds it too. */
+  openDependencies: number | null;
   /** Every hypothesis is decided (supported, refuted or abandoned) — the verdict is due. */
   allDecided?: boolean;
 }
@@ -61,7 +62,7 @@ export function stageOf(i: StageInputs): Stage {
   const notNeeded: Record<Step, boolean> = {
     investigate: false, verdict: false, close: false,
     contain: hasVerdict && benign && contain.length === 0,
-    notify: hasVerdict && benign && notify.length === 0 && !awaiting,
+    notify: hasVerdict && benign && notify.length === 0 && !awaiting && i.openDependencies === 0,
   };
   const done: Record<Step, boolean> = {
     investigate: hasVerdict,

@@ -19,7 +19,7 @@ export function Header() {
   const verdict = snap?.investigation.verdict || null;
   const comms = snap?.comms || [];
   const hs = snap?.hypotheses || [];
-  const owed = openDependencies(snap?.dependencies || []);
+  const owed = openDependencies(snap?.dependencies);
   const inputs = { status: engine, verdict, actions, comms, openDependencies: owed, allDecided: hs.length > 0 && !hs.some((h) => h.status === "PROPOSED" || h.status === "OPEN") };
   const stage = stageOf(inputs);
   const preflight = concludePreflight({ verdict, pins: snap?.pins || [], actions, comms, openDependencies: owed });

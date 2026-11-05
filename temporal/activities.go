@@ -344,15 +344,20 @@ func (a *Activities) EmitResulted(ctx context.Context, in EmitResultedInput) err
 	// second thread).
 	if len(res.AppliedEvents) > 0 {
 		a.recordCommsThread(ctx, id, in)
-		a.markDependenciesSent(ctx, id, in)
 	}
+	// The dependencies, by contrast, move on every attempt: MarkSent is
+	// idempotent (only OPEN rows move), so a retry after the commit, or after
+	// a failed first MarkSent, still leaves the record agreeing with the
+	// committed result.
+	a.markDependenciesSent(ctx, id, in)
 	return nil
 }
 
 // markDependenciesSent moves the dependencies riding on a SUCCEEDED notify.*
 // action to SENT (adr/0101): the engine's own fact about its own send, the one
 // transition a dependency makes without a person. Best-effort and idempotent
-// (only OPEN rows move), like the comms thread beside it.
+// (only OPEN rows move), so it runs on every attempt that carries a SUCCEEDED
+// result, not only the one that appended it.
 func (a *Activities) markDependenciesSent(ctx context.Context, actionID uuid.UUID, in EmitResultedInput) {
 	if a.deps == nil || in.FinalOutcome != aggregate.ActionStatusSucceeded {
 		return

@@ -33,10 +33,11 @@ func (f *fakeCommands) Handle(_ context.Context, env aggregate.Envelope, cmd agg
 	return aggregate.Result{}, f.err
 }
 
-// fakeReads finds nothing, except the action it is given.
+// fakeReads finds nothing, except the action and the investigation it is given.
 type fakeReads struct {
-	action    aggregate.ActionCurrent
-	actionErr error
+	action        aggregate.ActionCurrent
+	actionErr     error
+	investigation aggregate.InvestigationCurrent
 }
 
 func (f *fakeReads) LoadActionCurrent(context.Context, uuid.UUID) (aggregate.ActionCurrent, error) {
@@ -88,8 +89,11 @@ func (*fakeReads) ListStrandedActionCurrents(context.Context) ([]aggregate.Actio
 func (*fakeReads) LoadInterpretation(context.Context, uuid.UUID) (aggregate.InterpretationRecorded, error) {
 	return aggregate.InterpretationRecorded{}, aggregate.ErrNoRecord
 }
-func (*fakeReads) LoadInvestigationCurrent(context.Context, aggregate.AggregateID) (aggregate.InvestigationCurrent, error) {
-	return aggregate.InvestigationCurrent{}, aggregate.ErrNoRecord
+func (f *fakeReads) LoadInvestigationCurrent(_ context.Context, id aggregate.AggregateID) (aggregate.InvestigationCurrent, error) {
+	if f.investigation.AggregateID != id {
+		return aggregate.InvestigationCurrent{}, aggregate.ErrNoRecord
+	}
+	return f.investigation, nil
 }
 func (*fakeReads) Thread(context.Context, aggregate.AggregateID) ([]aggregate.ThreadAct, error) {
 	return nil, nil
@@ -180,6 +184,9 @@ func (f *fakeDependencies) Create(_ context.Context, c dependency.Create) (depen
 func (f *fakeDependencies) Attach(_ context.Context, _, _ uuid.UUID, by dependency.Actor, _ time.Time) error {
 	f.principal = by.ID
 	return f.err
+}
+func (f *fakeDependencies) MarkSent(context.Context, uuid.UUID, time.Time) (int, error) {
+	return 0, f.err
 }
 func (f *fakeDependencies) Confirm(_ context.Context, _ uuid.UUID, by dependency.Actor, _, _ string, _ time.Time) error {
 	f.principal = by.ID
@@ -333,17 +340,40 @@ func TestCommsAck_OnFakes(t *testing.T) {
 	}
 }
 
-// TestDependencies_OnFakes: no store is a 503; a create is the token subject's
-// act; the store's refusals map to their statuses (resolved 409, invalid 422).
+// TestDependencies_OnFakes: no store is a 503 on every route (the resolve
+// routes included, whose method values would panic on a nil store); a create
+// is the token subject's act on an open investigation, and refused for an AI
+// delegate, an unknown investigation and a concluded one; the store's refusals
+// map to their statuses (resolved 409, invalid 422).
 func TestDependencies_OnFakes(t *testing.T) {
 	b := newFakeBackend(t)
 	inv := uuid.New()
+	b.cfg.Reads = &fakeReads{investigation: aggregate.InvestigationCurrent{AggregateID: inv, Status: aggregate.StatusActive}}
 	b.cfg.Dependencies = nil
-	if code, _ := send(t, b, "GET", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, nil), ""); code != http.StatusServiceUnavailable {
-		t.Errorf("no store: status %d; want 503", code)
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/investigations/" + inv.String() + "/dependencies"},
+		{"POST", "/api/investigations/" + inv.String() + "/dependencies"},
+		{"POST", "/api/dependencies/" + uuid.NewString() + "/attach"},
+		{"POST", "/api/dependencies/" + uuid.NewString() + "/confirm"},
+		{"POST", "/api/dependencies/" + uuid.NewString() + "/waive"},
+	} {
+		if code, _ := send(t, b, c.method, c.path, mintToken(t, nil), `{"note":"x"}`); code != http.StatusServiceUnavailable {
+			t.Errorf("no store: %s %s = %d; want 503", c.method, c.path, code)
+		}
 	}
 	store := &fakeDependencies{}
 	b.cfg.Dependencies = store
+	if code, _ := send(t, b, "POST", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, map[string]any{"delegate_kind": "claude"}), `{"title":"rotate","owner":"platform"}`); code != http.StatusForbidden {
+		t.Errorf("delegate create: status %d; want 403", code)
+	}
+	if code, _ := send(t, b, "POST", "/api/investigations/"+uuid.NewString()+"/dependencies", mintToken(t, nil), `{"title":"rotate","owner":"platform"}`); code != http.StatusNotFound {
+		t.Errorf("unknown investigation: status %d; want 404", code)
+	}
+	b.cfg.Reads = &fakeReads{investigation: aggregate.InvestigationCurrent{AggregateID: inv, Status: aggregate.StatusConcluded}}
+	if code, _ := send(t, b, "POST", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, nil), `{"title":"rotate","owner":"platform"}`); code != http.StatusConflict {
+		t.Errorf("concluded investigation: status %d; want 409", code)
+	}
+	b.cfg.Reads = &fakeReads{investigation: aggregate.InvestigationCurrent{AggregateID: inv, Status: aggregate.StatusActive}}
 	if code, body := send(t, b, "POST", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, nil), `{"title":"rotate","owner":"platform"}`); code != http.StatusCreated {
 		t.Fatalf("create: status %d: %s", code, body)
 	}

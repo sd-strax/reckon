@@ -37,11 +37,19 @@ func sampleInvestigation() Investigation {
 		Actions: []ActionSummary{
 			{ID: "act-1", ActionType: "host.isolate", Tier: "T2", Status: "SUCCEEDED"},
 		},
+		Dependencies: []DependencySummary{
+			{ID: "dep-1", Title: "re-image WIN-A", Owner: "desktop team", Detail: "the dropper persisted", Status: "WAIVED",
+				NotifyActionID: "act-2", ExternalRef: "OPS-4411", CreatedBy: "analyst-1", CreatedAt: time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC),
+				ResolvedBy: "analyst-1", ResolvedAt: ptrTime(time.Date(2026, 7, 11, 9, 30, 0, 0, time.UTC)), ResolutionNote: "the machine is being retired",
+				History: []DependencyEvent{{At: time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC), By: "analyst-1", Event: "created"}}},
+		},
 		IncludeSideStores: true,
 		Transcripts:       []Blob{{Hash: "abc123", Bytes: []byte("assistant: proposing H1")}},
 		ToolCalls:         []Blob{{Hash: "def456", Bytes: []byte(`{"tool":"list_processes"}`)}},
 	}
 }
+
+func ptrTime(t time.Time) *time.Time { return &t }
 
 // untar reads a tar.gz into a name→bytes map.
 func untar(t *testing.T, gzBytes []byte) map[string][]byte {
@@ -91,13 +99,26 @@ func TestBuildBundle_StructureAndSignature(t *testing.T) {
 
 	files := untar(t, res.Bytes)
 	for _, want := range []string{
-		"manifest.json", "investigation.report.md", "events.jsonl", "stix-bundle.json",
+		"manifest.json", "investigation.report.md", "events.jsonl", "stix-bundle.json", "dependencies.json",
 		"signatures/bundle.sig", "signatures/chain.json",
 		"side-stores/transcripts/abc123.txt", "side-stores/tool-calls/def456.json",
 	} {
 		if _, ok := files[want]; !ok {
 			t.Errorf("bundle missing %s", want)
 		}
+	}
+
+	// The dependencies (adr/0101) are in the report and whole in
+	// dependencies.json, both under the manifest's content hash.
+	report := string(files["investigation.report.md"])
+	for _, want := range []string{"## Dependencies", "**[WAIVED]** re-image WIN-A — desktop team `dep-1` · OPS-4411", "why: the dropper persisted", "waived by analyst-1 at 2026-07-11T09:30:00Z: the machine is being retired"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report lacks %q:\n%s", want, report)
+		}
+	}
+	var deps []DependencySummary
+	if err := json.Unmarshal(files["dependencies.json"], &deps); err != nil || len(deps) != 1 || deps[0].ID != "dep-1" || deps[0].NotifyActionID != "act-2" || len(deps[0].History) != 1 {
+		t.Errorf("dependencies.json = %s (%v); want the one dependency with its history", files["dependencies.json"], err)
 	}
 
 	// events.jsonl is one event per line, in order.
@@ -226,5 +247,32 @@ func TestBuildBundle_RedactsSideStores(t *testing.T) {
 		if _, ok := files[name]; ok {
 			t.Errorf("unsigned bundle carries %s", name)
 		}
+	}
+}
+
+// TestBuildBundle_NoDependencyStore: a loader without a dependency store leaves
+// the bundle without dependencies.json — absent means not recorded, so a
+// reader never mistakes an unwired store for "no dependencies".
+func TestBuildBundle_NoDependencyStore(t *testing.T) {
+	inv := sampleInvestigation()
+	inv.Dependencies = nil
+	res, err := BuildBundle(inv, nil, time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := untar(t, res.Bytes)
+	if _, ok := files["dependencies.json"]; ok {
+		t.Error("dependencies.json present with no dependency store")
+	}
+	if strings.Contains(string(files["investigation.report.md"]), "## Dependencies") {
+		t.Error("report lists dependencies with no dependency store")
+	}
+	inv.Dependencies = []DependencySummary{}
+	res, err = BuildBundle(inv, nil, time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(untar(t, res.Bytes)["dependencies.json"]); got != "[]" {
+		t.Errorf("dependencies.json with none recorded = %q; want an empty list", got)
 	}
 }

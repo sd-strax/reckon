@@ -68,12 +68,16 @@ type commsStore interface {
 }
 
 // dependencyStore holds the dependencies (adr/0101); *dependency.Store
-// satisfies it. SENT is the action-result path's transition, not a route's.
+// satisfies it. SENT is the engine's transition on a SUCCEEDED notify.* send:
+// the result activity's usually, a route's only to catch up a success the
+// activity could not see (a person resolving an unknown outcome, an attachment
+// racing the send).
 type dependencyStore interface {
 	List(ctx context.Context, aggregateID uuid.UUID) ([]dependency.Dependency, error)
 	Get(ctx context.Context, id uuid.UUID) (dependency.Dependency, error)
 	Create(ctx context.Context, c dependency.Create) (dependency.Dependency, error)
 	Attach(ctx context.Context, id, actionID uuid.UUID, by dependency.Actor, at time.Time) error
+	MarkSent(ctx context.Context, actionID uuid.UUID, at time.Time) (int, error)
 	Confirm(ctx context.Context, id uuid.UUID, by dependency.Actor, note, externalRef string, at time.Time) error
 	Waive(ctx context.Context, id uuid.UUID, by dependency.Actor, note, externalRef string, at time.Time) error
 }

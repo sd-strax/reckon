@@ -61,16 +61,19 @@ export function Dependencies() {
   const pendingNotify = actions.filter((a) => a.actionType.startsWith("notify.") && a.pending && !a.expired)
     .map((a) => ({ actionId: a.actionId, label: a.actionType.replace("notify.", "") + " → " + a.targets.join(", ") }));
   const closed = ["CONCLUDED", "ARCHIVED", "DISCARDED"].includes(String(snap?.investigation.state || "").toUpperCase());
-  const open = openDependencies(deps || []);
+  const open = openDependencies(deps) ?? 0;
   return (
     <section className="lsection" id="obj-dependencies">
       <h3>Dependencies on others{deps?.length ? <span className="count">{open}</span> : null}</h3>
       <div className="imeta">Work only someone outside reckon can do. Confirmed or waived by you, never by a reply.</div>
-      {deps === null ? <div className="empty">The dependency layer is off.</div> : null}
+      {deps === null ? <div className="empty">The dependencies could not be read. The preflight treats their count as unchecked until they do.</div> : null}
       {deps && !deps.length ? <div className="empty">none recorded</div> : null}
       {(deps || []).map((d) => {
         const riding = d.notifyActionId ? actions.find((a) => a.actionId === d.notifyActionId) : undefined;
         const live = d.status === "OPEN" || d.status === "SENT";
+        // A ride that will not send: the notification failed, expired or was
+        // rejected. The OPEN dependency can move to a replacement.
+        const rideDead = !!riding && !riding.pending;
         return (
           <div key={d.dependencyId} className={"card depcard" + (live ? "" : " settled")} id={"obj-" + d.dependencyId}>
             <div>
@@ -88,12 +91,12 @@ export function Dependencies() {
               <div className="decide">
                 <button className="primary" title="Record the owner's confirmation, as you received it" onClick={() => openPrompt(resolveDependencySpec(d, "confirm", (note, externalRef) => send({ type: "dependency.resolve", dependencyId: d.dependencyId, verb: "confirm", note, externalRef })))}>Confirm…</button>
                 <button title="Leave this to no one, with the reason on the record" onClick={() => openPrompt(resolveDependencySpec(d, "waive", (note, externalRef) => send({ type: "dependency.resolve", dependencyId: d.dependencyId, verb: "waive", note, externalRef })))}>Waive…</button>
-                {d.status === "OPEN" && !riding && pendingNotify.length ? (
-                  <button title="Ride on a notification that has not been sent yet; the send moves it to asked" onClick={() => openPrompt({
+                {d.status === "OPEN" && (!riding || rideDead) && pendingNotify.length ? (
+                  <button title={rideDead ? "That notification will not send; ride on a pending one instead" : "Ride on a notification that has not been sent yet; the send moves it to asked"} onClick={() => openPrompt({
                     title: "Ride on a notification — " + d.title, label: "Pick the pending notification", require: false, confirm: "Attach",
                     extrasTop: [{ kind: "select", id: "notifyActionId", label: "Notification", options: pendingNotify.map((n) => ({ value: n.actionId, label: n.label })) }],
                     onConfirm: (_v, _picked, ex) => { const id = String(ex.notifyActionId || pendingNotify[0]?.actionId || ""); if (id) send({ type: "dependency.attach", dependencyId: d.dependencyId, notifyActionId: id }); },
-                  })}>Attach to notification…</button>
+                  })}>{rideDead ? "Move to another notification…" : "Attach to notification…"}</button>
                 ) : null}
               </div>
             ) : null}

@@ -168,6 +168,9 @@ export function DependencyInspector({ dependencyId }: { dependencyId: string }) 
   if (!d) return <div className="empty">This dependency is not in the snapshot.</div>;
   const riding = d.notifyActionId ? state.snap?.actions?.find((a) => a.actionId === d.notifyActionId) : undefined;
   const live = d.status === "OPEN" || d.status === "SENT";
+  // A concluded record is sealed; the server refuses the write and the
+  // controls do not offer it, as the section does not.
+  const closed = ["CONCLUDED", "ARCHIVED", "DISCARDED"].includes(String(state.snap?.investigation.state || "").toUpperCase());
   const asked = d.history.find((e) => e.event === "sent")?.at;
   const who = (by: string, name?: string) => name || by;
   return (
@@ -190,7 +193,7 @@ export function DependencyInspector({ dependencyId }: { dependencyId: string }) 
           ))}
         </ol>
       </Section>
-      {live ? (
+      {live && !closed ? (
         <div className="decide">
           <button className="primary" onClick={() => openPrompt(resolveDependencySpec(d, "confirm", (note, externalRef) => send({ type: "dependency.resolve", dependencyId: d.dependencyId, verb: "confirm", note, externalRef })))}>Confirm…</button>
           <button onClick={() => openPrompt(resolveDependencySpec(d, "waive", (note, externalRef) => send({ type: "dependency.resolve", dependencyId: d.dependencyId, verb: "waive", note, externalRef })))}>Waive…</button>

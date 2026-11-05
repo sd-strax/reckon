@@ -281,6 +281,11 @@ func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, a
 		writeCommandError(w, "resolve action outcome", err)
 		return
 	}
+	// A notify.* send a person has established as SUCCEEDED never passed
+	// through the result activity: the dependencies riding on it move to SENT
+	// here (adr/0101). The owner's confirmation stays a separate human act.
+	ac.Status = body.Outcome
+	b.markDependenciesSent(r.Context(), ac)
 	resp := ActionDecisionResponse{ActionID: actionID.String(), Status: body.Outcome}
 	if ac.ReversalOfRef != uuid.Nil && body.Outcome == aggregate.ActionStatusSucceeded {
 		resp.WorkflowID = b.startActionWorkflow(r.Context(), specFromCurrent(ac))

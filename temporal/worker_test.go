@@ -120,5 +120,5 @@ func TestActivityStructsRegisterCleanly(t *testing.T) {
 	ts := &testsuite.WorkflowTestSuite{}
 	env := ts.NewTestActivityEnvironment()
 	env.RegisterActivity(NewActivities(nil, nil, nil, nil))
-	env.RegisterActivity(NewArchiveActivities(nil, nil, ""))
+	env.RegisterActivity(NewArchiveActivities(nil, nil, "", nil))
 }

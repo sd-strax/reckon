@@ -3,12 +3,14 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/dependency"
 )
@@ -16,9 +18,12 @@ import (
 // The dependencies read+act surface (binding §6 gap 17, adr/0101): the work
 // the conclusion depends on that only someone outside reckon can do. The
 // analyst creates a dependency, rides it on a notify.* action, and resolves it
-// by recording the owner's confirmation or waiving it. The one transition
-// these routes never make is OPEN → SENT: the action-result path makes it when
-// the notify.* dispatch SUCCEEDS.
+// by recording the owner's confirmation or waiving it. Every write is a
+// person's act on an open investigation: an AI delegate is refused, as it is
+// for an action's outcome, and a concluded record is sealed. The one
+// transition these routes never make on their own is OPEN → SENT: the
+// action-result path makes it when the notify.* dispatch SUCCEEDS, and the
+// routes only catch up a send that completed under them.
 
 // DependencyHistoryView is one event on a dependency as served.
 type DependencyHistoryView struct {
@@ -109,12 +114,19 @@ func (b *Backend) createDependency(w http.ResponseWriter, r *http.Request, invID
 	if !b.dependenciesConfigured(w) {
 		return
 	}
+	claims, ok := dependencyPrincipal(w, r)
+	if !ok {
+		return
+	}
 	var body CreateDependencyBody
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
 	if strings.TrimSpace(body.Title) == "" || strings.TrimSpace(body.Owner) == "" {
 		writeJSONError(w, http.StatusBadRequest, "title and owner are required")
+		return
+	}
+	if !b.openInvestigation(w, r, invID) {
 		return
 	}
 	actionID := uuid.Nil
@@ -125,7 +137,6 @@ func (b *Backend) createDependency(w http.ResponseWriter, r *http.Request, invID
 		}
 		actionID = id
 	}
-	claims, _ := authz.FromContext(r.Context())
 	d, err := b.cfg.Dependencies.Create(r.Context(), dependency.Create{
 		AggregateID: invID, TenantID: newEnvelope(invID, actorFromClaims(claims), commandNow()).TenantID,
 		Title: body.Title, Owner: body.Owner, Detail: body.Detail, ExternalRef: body.ExternalRef,
@@ -133,6 +144,10 @@ func (b *Backend) createDependency(w http.ResponseWriter, r *http.Request, invID
 	})
 	if err != nil {
 		writeDependencyError(w, err)
+		return
+	}
+	if actionID != uuid.Nil && b.settleSentUnder(r.Context(), actionID) {
+		b.serveDependency(w, r, d.ID, http.StatusCreated)
 		return
 	}
 	writeJSON(w, http.StatusCreated, dependencyView(d))
@@ -148,6 +163,10 @@ func (b *Backend) attachDependency(w http.ResponseWriter, r *http.Request, depID
 	if !b.dependenciesConfigured(w) {
 		return
 	}
+	claims, ok := dependencyPrincipal(w, r)
+	if !ok {
+		return
+	}
 	var body AttachDependencyBody
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
@@ -155,6 +174,9 @@ func (b *Backend) attachDependency(w http.ResponseWriter, r *http.Request, depID
 	d, err := b.cfg.Dependencies.Get(r.Context(), depID)
 	if err != nil {
 		writeDependencyError(w, err)
+		return
+	}
+	if !b.openInvestigation(w, r, d.AggregateID) {
 		return
 	}
 	actionID := uuid.Nil
@@ -165,12 +187,14 @@ func (b *Backend) attachDependency(w http.ResponseWriter, r *http.Request, depID
 		}
 		actionID = id
 	}
-	claims, _ := authz.FromContext(r.Context())
 	if err := b.cfg.Dependencies.Attach(r.Context(), depID, actionID, dependencyActor(claims), time.Now()); err != nil {
 		writeDependencyError(w, err)
 		return
 	}
-	b.serveDependency(w, r, depID)
+	if actionID != uuid.Nil {
+		b.settleSentUnder(r.Context(), actionID)
+	}
+	b.serveDependency(w, r, depID, http.StatusOK)
 }
 
 // ResolveDependencyBody is POST /api/dependencies/{id}/confirm|waive: the
@@ -181,38 +205,94 @@ type ResolveDependencyBody struct {
 }
 
 func (b *Backend) confirmDependency(w http.ResponseWriter, r *http.Request, depID uuid.UUID) {
+	// The store is checked before its method is taken: a method value on a nil
+	// interface panics, and the advertised answer is 503.
+	if !b.dependenciesConfigured(w) {
+		return
+	}
 	b.resolveDependency(w, r, depID, b.cfg.Dependencies.Confirm)
 }
 
 func (b *Backend) waiveDependency(w http.ResponseWriter, r *http.Request, depID uuid.UUID) {
+	if !b.dependenciesConfigured(w) {
+		return
+	}
 	b.resolveDependency(w, r, depID, b.cfg.Dependencies.Waive)
 }
 
 type dependencyResolve func(ctx context.Context, id uuid.UUID, by dependency.Actor, note, externalRef string, at time.Time) error
 
 func (b *Backend) resolveDependency(w http.ResponseWriter, r *http.Request, depID uuid.UUID, act dependencyResolve) {
-	if !b.dependenciesConfigured(w) {
+	claims, ok := dependencyPrincipal(w, r)
+	if !ok {
 		return
 	}
 	var body ResolveDependencyBody
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
-	claims, _ := authz.FromContext(r.Context())
-	if err := act(r.Context(), depID, dependencyActor(claims), body.Note, body.ExternalRef, time.Now()); err != nil {
-		writeDependencyError(w, err)
-		return
-	}
-	b.serveDependency(w, r, depID)
-}
-
-func (b *Backend) serveDependency(w http.ResponseWriter, r *http.Request, depID uuid.UUID) {
 	d, err := b.cfg.Dependencies.Get(r.Context(), depID)
 	if err != nil {
 		writeDependencyError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, dependencyView(d))
+	if !b.openInvestigation(w, r, d.AggregateID) {
+		return
+	}
+	if err := act(r.Context(), depID, dependencyActor(claims), body.Note, body.ExternalRef, time.Now()); err != nil {
+		writeDependencyError(w, err)
+		return
+	}
+	b.serveDependency(w, r, depID, http.StatusOK)
+}
+
+func (b *Backend) serveDependency(w http.ResponseWriter, r *http.Request, depID uuid.UUID, status int) {
+	d, err := b.cfg.Dependencies.Get(r.Context(), depID)
+	if err != nil {
+		writeDependencyError(w, err)
+		return
+	}
+	writeJSON(w, status, dependencyView(d))
+}
+
+// dependencyPrincipal reads the caller and refuses an AI delegate. Recording,
+// attaching, confirming and waiving are the analyst's acts, and a confirmation
+// is an attestation in the person's name (adr/0101, as adr/0054 for a manual
+// test); the analyst route role admits a delegate token carrying the human's
+// subject, so the handler has to look.
+func dependencyPrincipal(w http.ResponseWriter, r *http.Request) (authz.Claims, bool) {
+	claims, ok := authz.FromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusInternalServerError, "auth context missing")
+		return authz.Claims{}, false
+	}
+	if claims.DelegateKind != "" {
+		writeJSONError(w, http.StatusForbidden, "an AI delegate cannot record or resolve a dependency")
+		return authz.Claims{}, false
+	}
+	return claims, true
+}
+
+// openInvestigation checks that the investigation exists and is still open to
+// its record changing: not found 404; CONCLUDED, ARCHIVED or DISCARDED 409. A
+// concluded investigation's dependencies are part of what was exported and
+// signed, so they are as sealed as the rest of it.
+func (b *Backend) openInvestigation(w http.ResponseWriter, r *http.Request, invID uuid.UUID) bool {
+	ic, err := b.cfg.Reads.LoadInvestigationCurrent(r.Context(), invID)
+	if errors.Is(err, aggregate.ErrNoRecord) {
+		writeJSONError(w, http.StatusNotFound, "investigation not found")
+		return false
+	}
+	if err != nil {
+		writeInternalError(w, "load investigation", err)
+		return false
+	}
+	switch ic.Status {
+	case aggregate.StatusConcluded, aggregate.StatusArchived, aggregate.StatusDiscarded:
+		writeJSONError(w, http.StatusConflict, "investigation is "+ic.Status+"; its dependencies are part of the concluded record")
+		return false
+	}
+	return true
 }
 
 // notifyActionOf checks that the named action is a notify.* action of the
@@ -240,6 +320,38 @@ func (b *Backend) notifyActionOf(w http.ResponseWriter, r *http.Request, invID u
 		writeJSONError(w, http.StatusUnprocessableEntity, "the notify action is "+ac.Status+"; a dependency rides on one not yet sent")
 		return uuid.Nil, false
 	}
+}
+
+// settleSentUnder catches the send that completed between the pending check
+// and the write: the action is read again after the attachment, and if it
+// SUCCEEDED meanwhile the dependencies riding on it move to SENT here, since
+// the result activity ran before there was anything to move. Reports whether
+// anything moved. Best-effort: a failure logs and the record still holds the
+// attachment.
+func (b *Backend) settleSentUnder(ctx context.Context, actionID uuid.UUID) bool {
+	ac, err := b.cfg.Reads.LoadActionCurrent(ctx, actionID)
+	if err != nil || ac.Status != aggregate.ActionStatusSucceeded {
+		return false
+	}
+	return b.markDependenciesSent(ctx, ac) > 0
+}
+
+// markDependenciesSent moves the OPEN dependencies riding on a SUCCEEDED
+// notify.* action to SENT (adr/0101): the engine's own fact about its own
+// send. Idempotent; a failure logs, since the action record already holds the
+// result. The result activity is the usual caller's twin; this one serves the
+// routes that establish a success without it: a person resolving an
+// OUTCOME_UNKNOWN send, and an attachment racing the send's completion.
+func (b *Backend) markDependenciesSent(ctx context.Context, ac aggregate.ActionCurrent) int {
+	if b.cfg.Dependencies == nil || ac.Status != aggregate.ActionStatusSucceeded || !strings.HasPrefix(ac.ActionType, "notify.") {
+		return 0
+	}
+	n, err := b.cfg.Dependencies.MarkSent(ctx, ac.ActionID, time.Now().UTC())
+	if err != nil {
+		slog.Warn("dependencies not marked sent", "action_id", ac.ActionID, "error", err)
+		return 0
+	}
+	return n
 }
 
 func dependencyActor(c authz.Claims) dependency.Actor {

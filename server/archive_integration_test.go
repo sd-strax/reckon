@@ -20,6 +20,7 @@ import (
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/archive"
+	"github.com/sd-strax/reckon/dependency"
 	"github.com/sd-strax/reckon/module"
 	"github.com/sd-strax/reckon/temporal"
 )
@@ -86,6 +87,23 @@ func TestArchiveBundle_EndToEnd(t *testing.T) {
 	// A succeeded action (exercises the action summary + more events).
 	succeededAction(t, invID)
 
+	// A dependency on someone outside reckon, waived with its reason (adr/0101):
+	// it lives beside the event stream, so the bundle is its only signed form.
+	if _, err := testDB.Exec(`TRUNCATE dependencies`); err != nil {
+		t.Fatalf("truncate dependencies: %v", err)
+	}
+	depStore := dependency.NewStore(testDB)
+	dep, err := depStore.Create(ctx, dependency.Create{
+		AggregateID: invID, TenantID: module.SingleTenantUUID, Title: "re-image WIN-A", Owner: "desktop team",
+		Detail: "the dropper persisted", By: dependency.Actor{ID: "analyst-1"}, At: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("create dependency: %v", err)
+	}
+	if err := depStore.Waive(ctx, dep.ID, dependency.Actor{ID: "analyst-1"}, "the machine is being retired", "OPS-4411", time.Now()); err != nil {
+		t.Fatalf("waive dependency: %v", err)
+	}
+
 	// Conclude (via pin + verdict — the conclude gate, 01).
 	if _, err := testHandler.Handle(ctx, env(""), aggregate.RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationEvidencePin,
@@ -112,7 +130,7 @@ func TestArchiveBundle_EndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	namespace := uuid.NewString()
-	acts := temporal.NewArchiveActivities(testHandler, signer, t.TempDir())
+	acts := temporal.NewArchiveActivities(testHandler, signer, t.TempDir(), depStore)
 	out, err := acts.ArchiveBundle(ctx, temporal.ArchiveBundleInput{
 		GroupingID:        invID.String(),
 		TenantID:          module.SingleTenantUUID.String(),
@@ -133,10 +151,18 @@ func TestArchiveBundle_EndToEnd(t *testing.T) {
 	}
 	files := untarArchive(t, raw)
 
-	// The report names the hypothesis and the action.
+	// The report names the hypothesis, the action and the dependency with its
+	// waiver; dependencies.json carries the whole record.
 	report := string(files["investigation.report.md"])
 	if !strings.Contains(report, "C2 via DNS tunneling") || !strings.Contains(report, "host.isolate") {
 		t.Errorf("report missing expected content:\n%s", report)
+	}
+	if !strings.Contains(report, "## Dependencies") || !strings.Contains(report, "**[WAIVED]** re-image WIN-A — desktop team") || !strings.Contains(report, "waived by analyst-1") || !strings.Contains(report, "the machine is being retired") {
+		t.Errorf("report missing the waived dependency:\n%s", report)
+	}
+	var deps []archive.DependencySummary
+	if err := json.Unmarshal(files["dependencies.json"], &deps); err != nil || len(deps) != 1 || deps[0].ID != dep.ID.String() || deps[0].Status != dependency.StatusWaived || deps[0].ExternalRef != "OPS-4411" || len(deps[0].History) != 2 {
+		t.Errorf("dependencies.json = %s (%v); want the one waived dependency with its history", files["dependencies.json"], err)
 	}
 
 	// The STIX bundle carries the reasoning node.
@@ -185,7 +211,7 @@ func TestArchiveBundle_RejectsUnconcluded(t *testing.T) {
 	invID := activeInvestigation(t) // ACTIVE, not concluded
 
 	signer, _ := archive.GenerateEd25519Signer()
-	acts := temporal.NewArchiveActivities(testHandler, signer, t.TempDir())
+	acts := temporal.NewArchiveActivities(testHandler, signer, t.TempDir(), nil)
 	_, err := acts.ArchiveBundle(context.Background(), temporal.ArchiveBundleInput{
 		GroupingID:      invID.String(),
 		TenantID:        module.SingleTenantUUID.String(),
