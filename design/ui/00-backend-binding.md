@@ -280,7 +280,11 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
 15. **Procedure excerpt provenance** — at import, record a location per chunk (page,
     heading path, or anchor, whatever the format yields) and retain the original file or a
     snapshot of the URL, so a citation names "where in the source" and "open original"
-    shows what existed at retrieval time (`06 §2.4`, `§6.2`).
+    shows what existed at retrieval time (`06 §2.4`, `§6.2`). *Location built by
+    `adr/0303`: a procedure is cut on its headings at import, a recall hit carries the
+    matched section with its heading path and index, and `consulted_sops` records the
+    sections the turn had in front of it. The retained original and the retrieved-bytes
+    side store remain open.*
 16. **Response-policy status on requested actions** — whether the tenant's Gate 2 policies
     would auto-approve the action, and where the approval routes when they would not,
     readable on the requested action (`04 §4`). *Built: `adr/0099`, the list row serves
