@@ -124,7 +124,7 @@ type ConsultedSOP struct {
 	// Revision and Cut are the SOP revision and section cut the sections
 	// belong to, as recall returned them: section indexes are stable only
 	// within one revision and one cut, so the record names both. One act
-	// records a procedure once per revision shown.
+	// records a procedure once per revision and cut shown.
 	Revision int    `json:"revision,omitempty"`
 	Cut      string `json:"cut,omitempty"`
 	// Sections are the 1-based indexes of the procedure's sections the act
@@ -147,11 +147,12 @@ const maxConsultedSections = maxToolCallsPerInterpretation * MaxSectionsPerToolR
 // maxConsultedCutLen bounds the cut identifier ("<splitter>/<budget>").
 const maxConsultedCutLen = 32
 
-// consultedSOPKey is one procedure at one revision: the unit a consulted
-// entry stands for.
+// consultedSOPKey is one procedure at one revision under one cut: the unit a
+// consulted entry stands for, since its section indexes belong to both.
 type consultedSOPKey struct {
 	SOPID    string
 	Revision int
+	Cut      string
 }
 
 // ConsultedSimilarInvestigation records one concluded-investigation summary
@@ -397,9 +398,9 @@ func (c RecordInterpretation) Validate(env Envelope) error {
 		if cs.SOPID == "" {
 			return errors.New("RecordInterpretation: consulted_sops entry has no sop_id")
 		}
-		key := consultedSOPKey{cs.SOPID, cs.Revision}
+		key := consultedSOPKey{cs.SOPID, cs.Revision, cs.Cut}
 		if seenConsulted[key] {
-			return fmt.Errorf("RecordInterpretation: consulted_sops records %s at revision %d twice", cs.SOPID, cs.Revision)
+			return fmt.Errorf("RecordInterpretation: consulted_sops records %s at revision %d, cut %q twice", cs.SOPID, cs.Revision, cs.Cut)
 		}
 		seenConsulted[key] = true
 		if len(cs.Cut) > maxConsultedCutLen {

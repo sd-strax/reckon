@@ -436,10 +436,15 @@ func TestRecordInterpretation_ConsultedSections(t *testing.T) {
 	if err := twoRevisions.Validate(env); err != nil {
 		t.Errorf("one procedure at two revisions rejected: %v", err)
 	}
+	twoCuts := base
+	twoCuts.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", Sections: []int{3}}, {SOPID: "sop-1", Revision: 1, Cut: "1/8000", Sections: []int{5}}}
+	if err := twoCuts.Validate(env); err != nil {
+		t.Errorf("one revision under two cuts rejected: %v", err)
+	}
 	twice := base
-	twice.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Revision: 1, Sections: []int{3}}, {SOPID: "sop-1", Revision: 1}}
+	twice.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", Sections: []int{3}}, {SOPID: "sop-1", Revision: 1, Cut: "1/16000"}}
 	if err := twice.Validate(env); err == nil {
-		t.Error("the same procedure and revision twice accepted")
+		t.Error("the same procedure, revision and cut twice accepted")
 	}
 	longCut := base
 	longCut.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Cut: strings.Repeat("9", maxConsultedCutLen+1)}}

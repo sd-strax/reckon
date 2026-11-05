@@ -1259,11 +1259,11 @@ func TestRecordConsulted_RevisionsAreSeparateEntries(t *testing.T) {
 	if len(s.consulted) != 2 {
 		t.Fatalf("entries = %+v; want one per revision", s.consulted)
 	}
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Sections: []int{4}}}, nil)
-	if got := s.consulted[consultedKey{id: "sop-1", revision: 1}]; len(got.Sections) != 2 || got.Sections[0] != 3 || got.Sections[1] != 4 || got.Cut != "1/16000" {
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", Sections: []int{4}}}, nil)
+	if got := s.consulted[consultedKey{id: "sop-1", revision: 1, cut: "1/16000"}]; len(got.Sections) != 2 || got.Sections[0] != 3 || got.Sections[1] != 4 {
 		t.Errorf("revision 1 after a second read: %+v; want sections [3 4]", got)
 	}
-	if got := s.consulted[consultedKey{id: "sop-1", revision: 2}]; got.Sections != nil {
+	if got := s.consulted[consultedKey{id: "sop-1", revision: 2, cut: "1/16000"}]; got.Sections != nil {
 		t.Errorf("revision 2 took revision 1's sections: %+v", got)
 	}
 	list := s.consultedList("Per sop-1, isolate.")
@@ -1272,6 +1272,31 @@ func TestRecordConsulted_RevisionsAreSeparateEntries(t *testing.T) {
 	}
 	if s.sectionPins["sop-1"][1] != "1/16000" || s.sectionPins["sop-1"][2] != "1/16000" {
 		t.Errorf("pins = %v; want the cut of both revisions", s.sectionPins)
+	}
+}
+
+// TestRecordConsulted_CutsAreSeparateEntries: a re-cut under a new budget
+// renumbers a revision. A turn shown the same revision under two cuts (a
+// held recall page, then a recall after the reindex) records both, each
+// keeping the numbering its indexes came from.
+func TestRecordConsulted_CutsAreSeparateEntries(t *testing.T) {
+	s := &Session{consulted: map[consultedKey]ConsultedSOP{}}
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", RetrievalScore: 0.9, Sections: []int{3}}}, nil)
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/8000", RetrievalScore: 0.8, Sections: []int{5}}}, nil)
+	if len(s.consulted) != 2 {
+		t.Fatalf("entries = %+v; want one per cut", s.consulted)
+	}
+	old := s.consulted[consultedKey{id: "sop-1", revision: 1, cut: "1/16000"}]
+	cur := s.consulted[consultedKey{id: "sop-1", revision: 1, cut: "1/8000"}]
+	if len(old.Sections) != 1 || old.Sections[0] != 3 || len(cur.Sections) != 1 || cur.Sections[0] != 5 {
+		t.Errorf("old = %+v, new = %+v; want section 3 under 1/16000 and 5 under 1/8000", old, cur)
+	}
+	if s.sectionPins["sop-1"][1] != "1/8000" {
+		t.Errorf("pin = %v; want the cut most recently shown", s.sectionPins)
+	}
+	list := s.consultedList("Per sop-1.")
+	if len(list) != 2 || list[0].Cut != "1/16000" || list[1].Cut != "1/8000" || !list[0].Cited || !list[1].Cited {
+		t.Errorf("list = %+v; want both cuts, both cited", list)
 	}
 }
 

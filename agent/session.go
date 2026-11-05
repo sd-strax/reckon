@@ -903,17 +903,19 @@ func (s *Session) complete(ctx context.Context, side []ContentBlock) (resp Compl
 }
 
 // consultedKey is one entry of the turn's knowledge provenance: a procedure
-// at a revision. Sections belong to a revision, and a turn can show more
-// than one (a recall before a re-import, a read after), so each revision
-// shown is its own entry and nothing shown is lost.
+// at a revision under a cut. Section indexes belong to a revision and a cut,
+// and a turn can show more than one of either (a recall before a re-import
+// or a re-cut, a read after), so each is its own entry, its indexes keep the
+// numbering they came from, and nothing shown is lost.
 type consultedKey struct {
 	id       string
 	revision int
+	cut      string
 }
 
 // recordConsulted accumulates what one tool call put in front of the model into
-// the turn's knowledge provenance: one entry per procedure and revision with
-// the best score, the title once known, and the union of the sections shown
+// the turn's knowledge provenance: one entry per procedure, revision and cut
+// with the best score, the title once known, and the union of the sections shown
 // (a recall hit's, or a read_sop's). The record is never truncated: the
 // aggregate's bound exceeds what a turn's tool calls can show
 // (aggregate.MaxSectionsPerToolResult per call). The cut each revision was
@@ -921,7 +923,7 @@ type consultedKey struct {
 func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarInvestigation) {
 	for _, c := range sops {
 		s.pinSections(c.SOPID, c.Revision, c.Cut)
-		key := consultedKey{id: c.SOPID, revision: c.Revision}
+		key := consultedKey{id: c.SOPID, revision: c.Revision, cut: c.Cut}
 		prev, ok := s.consulted[key]
 		if !ok {
 			s.consulted[key] = c
@@ -932,9 +934,6 @@ func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarI
 		}
 		if prev.Title == "" {
 			prev.Title = c.Title
-		}
-		if prev.Cut == "" {
-			prev.Cut = c.Cut
 		}
 		prev.Sections = mergeSections(prev.Sections, c.Sections)
 		s.consulted[key] = prev
@@ -1087,7 +1086,10 @@ func (s *Session) consultedList(modelText string) []ConsultedSOP {
 		if out[i].SOPID != out[j].SOPID {
 			return out[i].SOPID < out[j].SOPID
 		}
-		return out[i].Revision < out[j].Revision
+		if out[i].Revision != out[j].Revision {
+			return out[i].Revision < out[j].Revision
+		}
+		return out[i].Cut < out[j].Cut
 	})
 	return out
 }
