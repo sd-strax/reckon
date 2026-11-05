@@ -193,6 +193,20 @@ observable facts; two identical bodies in different namespaces (or the same
 one) are deliberately distinct. Deduplication is a *recall* concern (similarity
 bands), never an identity concern.
 
+**Sections are a view the store derives from the body** (amended 2026-11,
+adr/0303 in the host). At write time the body is cut on its ATX headings into
+sections (`idx` 1-based, `heading_path`, rune offsets `start`/`end`, text; a
+section longer than the store's section budget is cut on paragraph boundaries
+into parts), stored as rows with the `splitter_version` and budget that
+produced them, and each section is embedded on its own beside the whole
+document (§10). The cut is deterministic in the body and the rule; the content
+hash (§3) still covers the whole entry, never a section, so sections carry no
+attestation of their own — they locate text within hashed content. A section
+names its cut (`Section.Cut`, `<splitter_version>/<budget>`): indexes are
+stable only within one revision and one cut, and a host that hands an index
+to a reader pins both. `Sections(ns, corpus, id)` reads them; `Reindex`
+rebuilds rows made under another rule.
+
 ---
 
 ## 3. Content hash — ONE-WAY DOOR
@@ -259,11 +273,18 @@ One verb, two modes, one corpus per call.
 RecallQuery
   corpus           string (required)
   mode             RANK (default) | SIMILARITY
+  unit             ENTRY (default) | SECTION   # RANK only; what one hit stands for
   query            string      # RANK: short free text. SIMILARITY: a whole document.
   tags             list<string>   # hard filter (overlap), applied before ranking
   limit            int (default 5)
   include_retired  bool (default false; audit/research only)
+  excerpt_budget   int (runes; default and ceiling: the store's section budget)
 ```
+
+**RANK ranks sections** (§2.3), one vector each. `unit` ENTRY aggregates to
+the entry by its best section and returns one hit per entry carrying that
+section; SECTION returns one hit per section, so an entry may appear more
+than once. SIMILARITY compares whole documents and ignores the unit.
 
 **Documents are first-class queries.** SIMILARITY mode exists precisely for
 "here is a 3-page draft; what do we already have like it?" Backends must accept
@@ -275,7 +296,12 @@ crudely; quality improves with the backend, the contract doesn't move.
 ```
 RecallResult
   results        list<{
-                   entry_id, revision, title, excerpt,
+                   entry_id, revision, title,
+                   cut              # the cut the section index belongs to (§2.3)
+                   excerpt          # the section's text within the budget (§5.6)
+                   truncated        # the budget cut it
+                   section          # {idx, of, heading_path, part, parts, location}
+                   outline          # one location per section of the entry
                    score            # opaque; orders THIS response only (commitment 6)
                    band             # SIMILARITY mode only; §5.4
                    match_rationale  # why it ranked here (commitment 4)
@@ -321,10 +347,12 @@ Failures (backend down, corpus unknown, malformed query) are errors, never
 
 ### 5.6 Excerpts
 
-An excerpt is drawn from the hashed content within a size budget (v0: rune
-budget; later: token budget, most-relevant-section selection). The attestation
-claim attaches to the *content*, not the excerpt: the excerpt is a view over
-bytes whose hash the result carries.
+An excerpt is one section of the hashed content (§2.3) within a rune budget:
+in RANK mode the section that matched, in SIMILARITY mode the first. The
+budget cannot exceed the store's section budget, so a section arrives whole
+by default; a smaller request budget cuts it and `truncated` says so. The
+attestation claim attaches to the *content*, not the excerpt: the excerpt is
+a view over bytes whose hash the result carries, and `section` locates it.
 
 ## 6. Attestation
 
@@ -358,8 +386,21 @@ type Store interface {
     List(ctx context.Context, ns, corpus string, f ListFilter) ([]Entry, error)
     Recall(ctx context.Context, ns string, q RecallQuery) (RecallResult, error)
     Snapshot(ctx context.Context, ns string, hash ContentHash) (Snapshot, error)
+    Sections(ctx context.Context, ns, corpus string, id uuid.UUID) ([]Section, error)
+
+    // Operational
+    Reindex(ctx context.Context, ns string) (int, error)
 }
 ```
+
+`Reindex` is on the contract (amended 2026-11): hosts run it at startup and
+on demand, so a changed embedding model or section rule is reconciled before
+the first recall rather than failing it. It re-cuts sections stored under
+another rule and, with an embedder, fills missing vectors; a current cut is
+kept, so a backfill under a new model never drops another model's section
+vectors (§10 coexistence); a current corpus costs one scan. A run is one
+embedder call per stale entry: a host exposing it over HTTP runs it as a job,
+not under a request's deadline.
 
 `Transition` carries the target status and the acting principal(s); the store
 validates the state machine (per the corpus's governance mode), not the
@@ -377,6 +418,8 @@ compatibility promise: breaking changes mean `/v2`, additive evolution stays in
 POST   /v1/namespaces/{ns}/corpora/{corpus}/entries              # Put
 GET    /v1/namespaces/{ns}/corpora/{corpus}/entries              # List (?status=&tag=&include_retired=)
 GET    /v1/namespaces/{ns}/corpora/{corpus}/entries/{id}         # Get
+GET    /v1/namespaces/{ns}/corpora/{corpus}/entries/{id}/sections    # Sections (additive, 2026-11)
+POST   /v1/namespaces/{ns}/reindex                                # Reindex (additive, 2026-11)
 POST   /v1/namespaces/{ns}/corpora/{corpus}/entries/{id}/revisions   # Revise
 POST   /v1/namespaces/{ns}/corpora/{corpus}/entries/{id}/transition  # Transition
 DELETE /v1/namespaces/{ns}/corpora/{corpus}/entries/{id}         # Purge
@@ -417,18 +460,22 @@ OpenAI-compatible endpoint below.)*
   OpenAI-compatible endpoint (`POST {base_url}/embeddings` — the de-facto wire
   standard spoken by hosted providers and by self-hosted stacks alike, so
   hosted-vs-local is a `base_url` config choice, not a code path). Vectors are
-  stored as float arrays keyed by `(entry_id, model)`; entries are embedded at
-  write time (a write the store cannot index fails loudly), and ranking is
-  exact cosine over the tag-filtered candidate set, in process. Corpora are
+  stored as float arrays keyed by `(entry_id, model, section)` — section 0
+  the whole document (title + body) for SIMILARITY mode, sections 1..n each
+  embedded as title, heading path and text for RANK mode (§2.3); entries are
+  embedded at write time (a write the store cannot index fails loudly), and
+  ranking is exact cosine over the tag-filtered candidate set, in process. Corpora are
   hundreds-to-thousands of entries by design — brute force at that scale is
   microseconds; an approximate index (pgvector/HNSW or an external engine)
   slots in behind the same `Recall` signature only if a corpus ever outgrows
   it, as a backend swap with a documented re-index. Switching models re-embeds
   the corpus (`Reindex`), with old and new model rows coexisting through the
-  migration window. A published candidate lacking a vector under the active
-  model is an **error**, never a silent gap (§5.5) — `Reindex` is the remedy.
-- **Degraded backend — `pg-fts`:** Postgres full-text (`ts_rank` over
-  title+body), tag hard-filter, recency tiebreak. Selected only when no
+  migration window. A published candidate lacking sections under the current
+  rule, or a vector under the active model, is an **error**, never a silent
+  gap (§5.5) — `Reindex` is the remedy, and hosts run it at startup (§7).
+- **Degraded backend — `pg-fts`:** Postgres full-text — in RANK mode
+  `ts_rank` over each section's text, heading path and the entry title, in
+  SIMILARITY mode over title+body — tag hard-filter, recency tiebreak. Selected only when no
   embedder is configured, and says so in its attribution. SIMILARITY mode
   functions but bands are coarse — `RELATED` at best, never `NEAR_DUPLICATE`.
 

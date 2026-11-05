@@ -284,9 +284,30 @@ The ranker emits a `match_rationale` per result: a short prose explanation of wh
 
 ### 4.2 Excerpts
 
+> **Amended (adr/0303).** The unit of retrieval is the section. At import a
+> SOP body is cut on its headings (the substrate's splitter, `00-substrate
+> §2.3`); each section is embedded on its own; RANK recall ranks sections. A
+> hit carries the section that matched (`excerpt`, whole up to the budget),
+> where it sits (`section`: index, count, heading path, location) and the
+> document's outline, never the body's opening. The budget is
+> `knowledge.excerpt_budget_tokens` (default 4000), applied as runes at four
+> to a token: a section longer than it is cut into parts at import, and a
+> request may ask for a smaller excerpt (`excerpt_budget`), never a larger
+> one. The request's `unit` says what a hit stands for: `procedure`
+> (default) — one hit per SOP carrying its best section, for "which procedure
+> applies" — or `section` — one hit per section, two of which may come from
+> one SOP, for "what do our procedures say about this". A hit names the
+> `revision` and the `cut` its indexes belong to (indexes are stable within
+> one revision and one cut; a changed section budget re-cuts a revision). The
+> rest of a SOP is read by section: `GET /api/sops/{id}/sections` (the
+> outline) and `GET /api/sops/{id}/sections/{n}` (one section whole, with the
+> outline), both taking `?revision=` and `?cut=` from the hit and answering
+> 409 when either has moved since, which the agent reaches through `read_sop`
+> (§5.2). The earlier text follows as the record of the first design.
+
 For SOPs: the full body up to a token budget (default 4000 tokens). For longer SOPs, return the most-relevant section identified by sub-document embedding.
 
-For summaries: the `summary_text` plus the `structured` fields. The agent loop can drill down via a follow-up call to fetch the full investigation projection if it wants more context.
+For summaries: the `summary_text` plus the `structured` fields, as one section under the same shape. The agent loop can drill down via a follow-up call to fetch the full investigation projection if it wants more context.
 
 ### 4.3 Coverage
 
@@ -348,9 +369,20 @@ Both implicit retrievals run before the LLM's first inference call on the turn.
 The LLM tool catalog includes:
 
 ```
-recall_sop(query: string, scope?: {...}) -> list<SOPResult>
+recall_sop(query: string, scope?: {...}, unit?: procedure | section) -> list<SOPResult>
+read_sop(sop_id: string, section?: int) -> SOPOutline | SOPSectionRead
 recall_similar_investigations(query: string, scope?: {...}) -> list<SummaryResult>
 ```
+
+`read_sop` (adr/0303) reads a recalled procedure by section, pinned to the
+revision and cut the procedure was shown under: with `section`, that section
+whole and the outline around it; without, the outline alone. The pin is the
+agent's own record of what the session was shown, so a section read of a
+procedure never recalled or outlined is refused. A hit carries one section
+(§4.2); the agent reads the others before citing the procedure for what they
+say, and the record names the sections (with the revision and cut) it had in
+front of it (§6), one entry per revision and cut shown, on every page it read
+of a paged recall or a parted section.
 
 The LLM invokes these when reasoning surfaces a question implicit retrieval missed. ("This is starting to look like a supply-chain compromise; pull SOPs tagged with `T1195`.") Tool results enter the conversation as tool-result messages.
 

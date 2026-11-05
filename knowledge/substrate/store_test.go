@@ -229,8 +229,8 @@ func TestWriteTimeEmbeddingAndReindex(t *testing.T) {
 	if err := testDB.QueryRow(`SELECT count(*) FROM substrate_embeddings WHERE entry_id = $1 AND model = 'fake-embed-1'`, e.ID).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Fatalf("Put did not embed: %d rows", n)
+	if n != 2 {
+		t.Fatalf("Put did not embed the document and its one section: %d rows", n)
 	}
 
 	// A model switch leaves rows unembedded under the new model; Reindex is

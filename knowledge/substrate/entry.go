@@ -134,6 +134,8 @@ var (
 	ErrSignerRequired = errors.New("substrate: gated publish requires at least one signer principal")
 	ErrSuperseded     = errors.New("substrate: entry already superseded by a later revision")
 	ErrNoEmbedding    = errors.New("substrate: published entry lacks an embedding for the active model")
+	ErrNoSections     = errors.New("substrate: published entry has no sections under the current rule")
+	ErrBlankBody      = errors.New("substrate: body has no content to index")
 )
 
 const maxNamespaceBytes = 128

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +28,10 @@ type Store interface {
 	List(ctx context.Context, ns, corpus string, f ListFilter) ([]Entry, error)
 	Recall(ctx context.Context, ns string, q RecallQuery) (RecallResult, error)
 	Snapshot(ctx context.Context, ns string, hash ContentHash) (Snapshot, error)
+	Sections(ctx context.Context, ns, corpus string, id uuid.UUID) ([]Section, error)
+
+	// Operational.
+	Reindex(ctx context.Context, ns string) (int, error)
 }
 
 // Snapshot is the §6 attestation answer for a content hash: the full content
@@ -45,11 +50,12 @@ type Snapshot struct {
 // backend (§10) — without one, recall degrades to the keyword backend and
 // says so in its ranker attribution.
 type Postgres struct {
-	db       *sql.DB
-	corpora  map[string]CorpusDef
-	embedder Embedder
-	bands    BandCutoffs
-	now      func() time.Time
+	db            *sql.DB
+	corpora       map[string]CorpusDef
+	embedder      Embedder
+	bands         BandCutoffs
+	sectionBudget int
+	now           func() time.Time
 }
 
 // Option configures NewPostgres.
@@ -63,6 +69,11 @@ func WithEmbedder(e Embedder) Option { return func(p *Postgres) { p.embedder = e
 // WithBands overrides the similarity-band cutoffs (§5.4) — calibration is
 // part of a backend version's definition and may be tuned per deployment.
 func WithBands(b BandCutoffs) Option { return func(p *Postgres) { p.bands = b } }
+
+// WithSectionBudget bounds a section at write time, in runes (§2.3); a
+// longer section is cut on paragraph boundaries into parts. Changing it
+// makes every stored cut stale; Reindex rebuilds them.
+func WithSectionBudget(runes int) Option { return func(p *Postgres) { p.sectionBudget = runes } }
 
 // WithClock injects time for tests.
 func WithClock(now func() time.Time) Option { return func(p *Postgres) { p.now = now } }
@@ -88,9 +99,12 @@ func NewPostgres(db *sql.DB, corpora []CorpusDef, opts ...Option) (*Postgres, er
 		}
 		byName[c.Name] = c
 	}
-	p := &Postgres{db: db, corpora: byName, bands: DefaultBands, now: time.Now}
+	p := &Postgres{db: db, corpora: byName, bands: DefaultBands, sectionBudget: DefaultSectionBudgetRunes, now: time.Now}
 	for _, o := range opts {
 		o(p)
+	}
+	if p.sectionBudget <= 0 {
+		return nil, fmt.Errorf("substrate: section budget must be positive, got %d", p.sectionBudget)
 	}
 	return p, nil
 }
@@ -115,6 +129,9 @@ func (p *Postgres) Put(ctx context.Context, ns, corpus string, e Entry) (Entry, 
 	}
 	if e.Title == "" || e.Body == "" {
 		return Entry{}, fmt.Errorf("substrate: entry needs title and body")
+	}
+	if strings.TrimSpace(e.Body) == "" {
+		return Entry{}, ErrBlankBody // a body with no section would make the whole corpus unrankable
 	}
 	if def.Archetype == Derived && (e.Provenance == nil || e.Provenance.Producer == "") {
 		return Entry{}, fmt.Errorf("substrate: derived corpus %q requires provenance.producer", corpus)
@@ -149,7 +166,7 @@ func (p *Postgres) Put(ctx context.Context, ns, corpus string, e Entry) (Entry, 
 		if err := insertEntry(ctx, tx, e); err != nil {
 			return err
 		}
-		return p.embedEntry(ctx, tx, e)
+		return p.indexEntry(ctx, tx, e)
 	})
 	if err != nil {
 		return Entry{}, err
@@ -169,6 +186,9 @@ func (p *Postgres) Revise(ctx context.Context, ns, corpus string, id uuid.UUID, 
 	}
 	if r.Title == "" || r.Body == "" {
 		return Entry{}, fmt.Errorf("substrate: revision needs title and body")
+	}
+	if strings.TrimSpace(r.Body) == "" {
+		return Entry{}, ErrBlankBody
 	}
 
 	var next Entry
@@ -218,7 +238,7 @@ func (p *Postgres) Revise(ctx context.Context, ns, corpus string, id uuid.UUID, 
 			`UPDATE substrate_entries SET superseded_at = $1, updated = $1 WHERE id = $2`, now, prior.ID); err != nil {
 			return fmt.Errorf("substrate: supersede prior revision: %w", err)
 		}
-		return p.embedEntry(ctx, tx, next)
+		return p.indexEntry(ctx, tx, next)
 	})
 	if err != nil {
 		return Entry{}, err
@@ -418,69 +438,138 @@ func (p *Postgres) Snapshot(ctx context.Context, ns string, hash ContentHash) (S
 	}
 }
 
-// Reindex embeds every entry in the namespace that lacks a vector for the
-// active model — the §10 migration path after a model switch, and the
-// recovery path after embedder outages. Not part of the Store contract;
-// operational surface on the concrete type. Returns the number embedded.
+// Reindex brings every entry in the namespace up to date with the store's
+// configuration: it re-cuts sections whose rows were made under another
+// splitter version or budget (or never made), and, with an embedder, embeds
+// whatever vectors are missing under the active model — the §10 path after a
+// model switch, the path after a section-rule change, and the recovery path
+// after embedder outages. Hosts run it at startup and on demand. Returns the
+// number of entries touched; a current corpus costs one scan and touches
+// none.
 func (p *Postgres) Reindex(ctx context.Context, ns string) (int, error) {
-	if p.embedder == nil {
-		return 0, fmt.Errorf("substrate: reindex requires an embedder")
-	}
 	if err := validNamespace(ns); err != nil {
 		return 0, err
 	}
+	// An entry is stale when its sections are not the current cut or, under
+	// an embedder, when its document vector or any section's vector is
+	// missing under the model. With no embedder the model is "", which no
+	// row carries, and the vector clauses are skipped.
+	model := ""
+	if p.embedder != nil {
+		model = p.embedder.Model()
+	}
 	rows, err := p.db.QueryContext(ctx,
-		`SELECT e.id, e.title, e.body FROM substrate_entries e
-		 WHERE e.namespace = $1 AND NOT EXISTS (
-		   SELECT 1 FROM substrate_embeddings v WHERE v.entry_id = e.id AND v.model = $2)`,
-		ns, p.embedder.Model())
+		`SELECT e.id FROM substrate_entries e
+		 WHERE e.namespace = $1 AND (
+		   NOT EXISTS (SELECT 1 FROM substrate_sections s
+		               WHERE s.entry_id = e.id AND s.splitter_version = $3 AND s.budget_runes = $4)
+		   OR ($2 <> '' AND NOT EXISTS (SELECT 1 FROM substrate_embeddings v
+		                                WHERE v.entry_id = e.id AND v.model = $2 AND v.section = 0))
+		   OR ($2 <> '' AND EXISTS (SELECT 1 FROM substrate_sections s
+		                            WHERE s.entry_id = e.id AND NOT EXISTS (
+		                              SELECT 1 FROM substrate_embeddings v
+		                              WHERE v.entry_id = e.id AND v.model = $2 AND v.section = s.idx)))
+		 )
+		 ORDER BY e.created, e.id`,
+		ns, model, SplitterVersion, p.sectionBudget)
 	if err != nil {
 		return 0, fmt.Errorf("substrate: reindex scan: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // read-side close
-	type pending struct {
-		id          uuid.UUID
-		title, body string
-	}
-	var todo []pending
+	var todo []uuid.UUID
 	for rows.Next() {
-		var t pending
-		if err := rows.Scan(&t.id, &t.title, &t.body); err != nil {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
 			return 0, fmt.Errorf("substrate: reindex scan: %w", err)
 		}
-		todo = append(todo, t)
+		todo = append(todo, id)
 	}
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
-	for i, t := range todo {
+	for i, id := range todo {
 		err := p.inTx(ctx, func(tx *sql.Tx) error {
-			return p.embedEntry(ctx, tx, Entry{ID: t.id, Title: t.title, Body: t.body})
+			e, err := scanEntry(tx.QueryRowContext(ctx,
+				`SELECT `+entryCols+` FROM substrate_entries WHERE id = $1 FOR UPDATE`, id))
+			if err != nil {
+				return fmt.Errorf("substrate: reindex load %s: %w", id, err)
+			}
+			// A current cut is kept, and only the active model's missing
+			// vectors are filled: re-cutting would drop every other model's
+			// section vectors, and models coexist through a migration window
+			// (§10). Only a stale or missing cut is rewritten.
+			var current int
+			if err := tx.QueryRowContext(ctx,
+				`SELECT count(*) FROM substrate_sections WHERE entry_id = $1 AND splitter_version = $2 AND budget_runes = $3`,
+				id, SplitterVersion, p.sectionBudget).Scan(&current); err != nil {
+				return fmt.Errorf("substrate: reindex check %s: %w", id, err)
+			}
+			if current > 0 {
+				secs, err := loadSections(ctx, tx, id)
+				if err != nil {
+					return err
+				}
+				return p.embedEntry(ctx, tx, e, secs)
+			}
+			return p.indexEntry(ctx, tx, e)
 		})
 		if err != nil {
-			return i, fmt.Errorf("substrate: reindex %s: %w", t.id, err)
+			return i, fmt.Errorf("substrate: reindex %s: %w", id, err)
 		}
 	}
 	return len(todo), nil
 }
 
-// embedEntry computes and upserts the entry's vector for the active model.
-// No embedder configured = keyword-only deployment, nothing to do.
-func (p *Postgres) embedEntry(ctx context.Context, tx *sql.Tx, e Entry) error {
+// indexEntry makes an entry recallable: its sections are (re)cut and, with
+// an embedder, the document and every section are embedded under the active
+// model. Runs inside the write's transaction, so an entry the store cannot
+// index is never stored.
+func (p *Postgres) indexEntry(ctx context.Context, tx *sql.Tx, e Entry) error {
+	secs, err := p.writeSections(ctx, tx, e)
+	if err != nil {
+		return err
+	}
+	if len(secs) == 0 {
+		// Never stored silently: an entry without a section is unrankable and
+		// would fail every RANK recall that reaches it (§5.5).
+		return fmt.Errorf("%w: entry %s", ErrBlankBody, e.ID)
+	}
+	return p.embedEntry(ctx, tx, e, secs)
+}
+
+// embedEntry computes and upserts the entry's vectors for the active model:
+// section 0 for the whole document, one per section after it, all in one
+// embedder call. No embedder configured = keyword-only deployment, nothing
+// to do.
+func (p *Postgres) embedEntry(ctx context.Context, tx *sql.Tx, e Entry, secs []Section) error {
 	if p.embedder == nil {
 		return nil
 	}
-	vecs, err := p.embedder.Embed(ctx, []string{embedText(e.Title, e.Body)})
+	texts := make([]string, 0, 1+len(secs))
+	texts = append(texts, embedText(e.Title, e.Body))
+	for _, s := range secs {
+		texts = append(texts, sectionEmbedText(e.Title, s))
+	}
+	vecs, err := p.embedder.Embed(ctx, texts)
 	if err != nil {
 		return fmt.Errorf("substrate: embed entry %s: %w", e.ID, err)
 	}
-	v := vecs[0]
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO substrate_embeddings (entry_id, model, dim, vec, created)
-		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (entry_id, model) DO UPDATE SET dim = EXCLUDED.dim, vec = EXCLUDED.vec, created = EXCLUDED.created`,
-		e.ID, p.embedder.Model(), len(v), pq.Array(v), p.now().UTC()); err != nil {
-		return fmt.Errorf("substrate: store embedding for %s: %w", e.ID, err)
+	if len(vecs) != len(texts) {
+		return fmt.Errorf("substrate: embed entry %s: %d vectors for %d texts", e.ID, len(vecs), len(texts))
+	}
+	now := p.now().UTC()
+	for i, v := range vecs {
+		section := 0
+		if i > 0 {
+			section = secs[i-1].Idx
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO substrate_embeddings (entry_id, model, section, dim, vec, created)
+			 VALUES ($1, $2, $3, $4, $5, $6)
+			 ON CONFLICT (entry_id, model, section) DO UPDATE SET dim = EXCLUDED.dim, vec = EXCLUDED.vec, created = EXCLUDED.created`,
+			e.ID, p.embedder.Model(), section, len(v), pq.Array(v), now); err != nil {
+			return fmt.Errorf("substrate: store embedding %d for %s: %w", section, e.ID, err)
+		}
 	}
 	return nil
 }

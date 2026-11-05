@@ -89,12 +89,54 @@ type SOP struct {
 
 // Store is the SOP corpus, backed by the memory substrate.
 type Store struct {
-	sub substrate.Store
+	sub           substrate.Store
+	excerptBudget int // runes; 0 = the substrate's section budget
 }
+
+// Option configures NewStore.
+type Option func(*Store)
+
+// WithExcerptBudget bounds a recall hit's excerpt in runes (design/06 §4.2)
+// when the request does not say. Zero leaves it to the substrate, whose
+// section budget is the ceiling either way.
+func WithExcerptBudget(runes int) Option { return func(s *Store) { s.excerptBudget = runes } }
 
 // NewStore constructs a Store over a substrate whose `procedures` corpus is
 // declared.
-func NewStore(sub substrate.Store) *Store { return &Store{sub: sub} }
+func NewStore(sub substrate.Store, opts ...Option) *Store {
+	s := &Store{sub: sub}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// ErrInvalidRequest marks a request the store cannot act on as written (an
+// unknown recall unit); the server answers 400.
+var ErrInvalidRequest = errors.New("knowledge: invalid request")
+
+// ErrRevisionChanged marks a section read pinned to a revision that is no
+// longer the SOP's current one: section indexes belong to a revision, so the
+// caller recalls again rather than reading a different section under the same
+// number. The server answers 409.
+var ErrRevisionChanged = errors.New("knowledge: sop revision changed since recall")
+
+// ErrCutChanged marks a section read pinned to a cut that is no longer the
+// one stored: a changed section budget or splitter re-cuts a revision and
+// renumbers its sections without a new revision, so the pin names both. The
+// server answers 409, as for ErrRevisionChanged.
+var ErrCutChanged = errors.New("knowledge: sop sections re-cut since recall")
+
+// Reindex brings the tenant's knowledge up to date with the substrate's
+// configuration (section rule, embedding model): the host runs it at startup
+// and an operator on demand. Returns the number of entries touched.
+func (s *Store) Reindex(ctx context.Context, tenantID uuid.UUID) (int, error) {
+	n, err := s.sub.Reindex(ctx, tenantID.String())
+	if err != nil {
+		return n, fmt.Errorf("reindex knowledge: %w", err)
+	}
+	return n, nil
+}
 
 // ErrNotFound is returned when a SOP id doesn't exist (or is already retired
 // for mutating ops).

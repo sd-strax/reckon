@@ -121,7 +121,38 @@ type ConsultedSOP struct {
 	SOPID          string  `json:"sop_id"`
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	Cited          bool    `json:"cited"`
+	// Revision and Cut are the SOP revision and section cut the sections
+	// belong to, as recall returned them: section indexes are stable only
+	// within one revision and one cut, so the record names both. One act
+	// records a procedure once per revision and cut shown.
+	Revision int    `json:"revision,omitempty"`
+	Cut      string `json:"cut,omitempty"`
+	// Sections are the 1-based indexes of the procedure's sections the act
+	// had in front of it: what was read, which the inspector shows as
+	// "excerpt k of n" (adr/0303). Cited requires at least one.
+	Sections []int `json:"sections,omitempty"`
+	Cited    bool  `json:"cited"`
+}
+
+// MaxSectionsPerToolResult is the most sections of one procedure one tool
+// result can show the actor: the recall limit the agent asks for. With
+// maxToolCallsPerInterpretation it bounds what one act can be shown of one
+// procedure, so maxConsultedSections is a bound no act can reach, and the
+// agent records every section shown without truncating.
+const MaxSectionsPerToolResult = 5
+
+// maxConsultedSections bounds the sections one consulted entry records.
+const maxConsultedSections = maxToolCallsPerInterpretation * MaxSectionsPerToolResult
+
+// maxConsultedCutLen bounds the cut identifier ("<splitter>/<budget>").
+const maxConsultedCutLen = 32
+
+// consultedSOPKey is one procedure at one revision under one cut: the unit a
+// consulted entry stands for, since its section indexes belong to both.
+type consultedSOPKey struct {
+	SOPID    string
+	Revision int
+	Cut      string
 }
 
 // ConsultedSimilarInvestigation records one concluded-investigation summary
@@ -362,9 +393,35 @@ func (c RecordInterpretation) Validate(env Envelope) error {
 	if len(c.ConsultedSOPs) > maxConsultedPerInterpretation {
 		return fmt.Errorf("RecordInterpretation: consulted_sops exceed %d", maxConsultedPerInterpretation)
 	}
+	seenConsulted := make(map[consultedSOPKey]bool, len(c.ConsultedSOPs))
 	for _, cs := range c.ConsultedSOPs {
 		if cs.SOPID == "" {
 			return errors.New("RecordInterpretation: consulted_sops entry has no sop_id")
+		}
+		key := consultedSOPKey{cs.SOPID, cs.Revision, cs.Cut}
+		if seenConsulted[key] {
+			return fmt.Errorf("RecordInterpretation: consulted_sops records %s at revision %d, cut %q twice", cs.SOPID, cs.Revision, cs.Cut)
+		}
+		seenConsulted[key] = true
+		if len(cs.Cut) > maxConsultedCutLen {
+			return fmt.Errorf("RecordInterpretation: consulted_sops %s names a cut over %d bytes", cs.SOPID, maxConsultedCutLen)
+		}
+		if len(cs.Sections) > maxConsultedSections {
+			return fmt.Errorf("RecordInterpretation: consulted_sops %s records %d sections, over %d", cs.SOPID, len(cs.Sections), maxConsultedSections)
+		}
+		for _, n := range cs.Sections {
+			if n < 1 {
+				return fmt.Errorf("RecordInterpretation: consulted_sops %s names section %d; sections are 1-based", cs.SOPID, n)
+			}
+		}
+		if cs.Cited && len(cs.Sections) == 0 {
+			// A citation without a read is what let a preamble stand for a
+			// procedure (adr/0303); the structural rule holds on every write,
+			// not only the sidecar's. Replay does not run here.
+			return fmt.Errorf("RecordInterpretation: consulted_sops %s is cited but records no section read", cs.SOPID)
+		}
+		if cs.Revision < 0 {
+			return fmt.Errorf("RecordInterpretation: consulted_sops %s names revision %d", cs.SOPID, cs.Revision)
 		}
 	}
 	if len(c.ConsultedSimilar) > maxConsultedPerInterpretation {

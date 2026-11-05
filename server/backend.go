@@ -23,6 +23,7 @@ import (
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/module"
 	"github.com/sd-strax/reckon/supervisor"
 	"github.com/sd-strax/reckon/temporal"
 )
@@ -226,6 +227,11 @@ type Backend struct {
 	// stopSweeps ends the action sweeps started at Start.
 	stopSweeps context.CancelFunc
 
+	// reindex is the on-demand knowledge reindex's state (POST/GET
+	// /api/knowledge/reindex), under reindexMu; one run at a time.
+	reindexMu sync.Mutex
+	reindex   ReindexJob
+
 	// capOverride, when set (under mu), supersedes cfg.CapabilityResolver/
 	// Catalog — the hot swap a reload installs.
 	capOverride *capabilitySurface
@@ -285,6 +291,21 @@ func (b *Backend) Start(ctx context.Context) error {
 	}
 	if err := b.probeKeycloak(ctx); err != nil {
 		return fmt.Errorf("keycloak unreachable: %w", err)
+	}
+
+	// Knowledge reconciliation: the corpus is brought up to date with this
+	// configuration's section rule and embedding model before any recall can
+	// run (00-substrate §10). A current corpus costs one scan. An embedder
+	// that cannot answer fails startup here, where an unreachable one would
+	// otherwise fail the first recall.
+	if b.cfg.Knowledge != nil {
+		n, err := b.cfg.Knowledge.Reindex(ctx, module.SingleTenantUUID)
+		if err != nil {
+			return fmt.Errorf("reconcile knowledge index: %w", err)
+		}
+		if n > 0 {
+			log.Printf("knowledge index reconciled: %d entries updated", n)
+		}
 	}
 
 	verifier, err := authz.NewVerifier(ctx, authz.VerifierConfig{
