@@ -418,13 +418,23 @@ func TestRecallSOPs_Sections(t *testing.T) {
 		t.Errorf("unknown unit: %v", err)
 	}
 
-	// Browse carries the first section and the outline.
+	// Browse carries the first section and the outline, from the stored cut,
+	// and every hit names the revision its indexes belong to.
 	res, err = s.RecallSOPs(ctx, testTenant, RecallRequest{Tags: []string{"rdp"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Results) != 1 || res.Results[0].Section.Idx != 1 || len(res.Results[0].Outline) != 4 || !strings.HasPrefix(res.Results[0].Excerpt, "# Lateral Movement") {
+	if len(res.Results) != 1 || res.Results[0].Section.Idx != 1 || len(res.Results[0].Outline) != 4 || !strings.HasPrefix(res.Results[0].Excerpt, "# Lateral Movement") || res.Results[0].Revision != 1 {
 		t.Errorf("browse: %+v", res.Results)
+	}
+	stored, err := s.Sections(ctx, testTenant, id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, loc := range res.Results[0].Outline {
+		if stored.Sections[i].Location != loc {
+			t.Errorf("browse outline %d = %q; stored cut says %q", i, loc, stored.Sections[i].Location)
+		}
 	}
 }
 
@@ -441,7 +451,7 @@ func TestSOPSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	outline, err := s.Sections(ctx, testTenant, id)
+	outline, err := s.Sections(ctx, testTenant, id, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,26 +461,34 @@ func TestSOPSections(t *testing.T) {
 	if o := outline.Sections[2]; o.Idx != 3 || o.Of != 4 || o.Location != "RDP containment > Containment" || o.Text != "" || o.Runes == 0 {
 		t.Errorf("outline entry %+v", o)
 	}
-	read, err := s.Section(ctx, testTenant, id, 3)
+	read, err := s.Section(ctx, testTenant, id, 3, 1) // pinned to the revision recall returned
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(read.Section.Text, "## Containment") || read.Section.Runes != len([]rune(read.Section.Text)) || len(read.Outline) != 4 {
 		t.Errorf("section read %+v", read)
 	}
-	if _, err := s.Section(ctx, testTenant, id, 9); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Section(ctx, testTenant, id, 9, 0); !errors.Is(err, ErrNotFound) {
 		t.Errorf("out-of-range section: %v", err)
 	}
-	if _, err := s.Sections(ctx, testTenant, uuid.New()); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Sections(ctx, testTenant, uuid.New(), 0); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown sop: %v", err)
 	}
-	// An update re-cuts: the new revision's outline is read, not the old.
+	// An update re-cuts: the new revision's outline is read, not the old, and
+	// a read pinned to the recalled revision is refused rather than answered
+	// with a different section under the same index.
 	if err := s.Update(ctx, testTenant, id, "RDP containment", "# Only\n\nOne section now.", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	outline, err = s.Sections(ctx, testTenant, id)
+	outline, err = s.Sections(ctx, testTenant, id, 0)
 	if err != nil || outline.Revision != 2 || len(outline.Sections) != 1 {
 		t.Errorf("after update: %v %+v", err, outline)
+	}
+	if _, err := s.Section(ctx, testTenant, id, 3, 1); !errors.Is(err, ErrRevisionChanged) {
+		t.Errorf("read pinned to revision 1 after revision 2: %v; want ErrRevisionChanged", err)
+	}
+	if _, err := s.Sections(ctx, testTenant, id, 1); !errors.Is(err, ErrRevisionChanged) {
+		t.Errorf("outline pinned to revision 1 after revision 2: %v; want ErrRevisionChanged", err)
 	}
 }
 

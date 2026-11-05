@@ -58,8 +58,12 @@ type SectionRef struct {
 // location per section of the document, so the reader knows what else it
 // holds and can read it by section.
 type SOPMatch struct {
-	SOPID          uuid.UUID  `json:"sop_id"`
-	Title          string     `json:"title"`
+	SOPID uuid.UUID `json:"sop_id"`
+	Title string    `json:"title"`
+	// Revision is the SOP revision the hit's section indexes belong to; a
+	// section read passes it back so a re-import between recall and read is
+	// detected (ErrRevisionChanged) rather than answered with another section.
+	Revision       int        `json:"revision"`
 	Excerpt        string     `json:"excerpt"`
 	Truncated      bool       `json:"truncated,omitempty"`
 	Section        SectionRef `json:"section"`
@@ -125,6 +129,7 @@ func (s *Store) RecallSOPs(ctx context.Context, tenantID uuid.UUID, req RecallRe
 		out.Results = append(out.Results, SOPMatch{
 			SOPID:          lineage,
 			Title:          h.Title,
+			Revision:       h.Revision,
 			Excerpt:        h.Excerpt,
 			Truncated:      h.Truncated,
 			Section:        sectionRefOf(h.Section),
@@ -144,14 +149,20 @@ func (s *Store) RecallSOPs(ctx context.Context, tenantID uuid.UUID, req RecallRe
 // newest first. Preserves the pre-substrate "no query, just tags" behavior the
 // substrate's recall (which requires a query) intentionally doesn't cover.
 // With no query there is no matched section: the hit carries the first
-// section and the outline, cut by the same rule the substrate stores.
+// section and the outline, read from the stored cut so its numbering is the
+// one read_sop answers to.
 func (s *Store) browseByTag(ctx context.Context, tenantID uuid.UUID, req RecallRequest, limit int) (RecallResult, error) {
 	entries, err := s.sub.List(ctx, tenantID.String(), CorpusProcedures, substrate.ListFilter{IncludeRetired: req.IncludeRetired})
 	if err != nil {
 		return RecallResult{}, fmt.Errorf("recall_sops (browse): %w", err)
 	}
 	res := RecallResult{Coverage: CoverageEmpty, RetrievalAt: time.Now().UTC()}
+	// List already returns newest-created first; a revised SOP's new row keeps
+	// that ordering meaningful.
 	for _, e := range entries {
+		if len(res.Results) == limit {
+			break
+		}
 		if len(req.Tags) > 0 && len(intersect(req.Tags, stripReserved(e.Tags))) == 0 {
 			continue
 		}
@@ -159,10 +170,18 @@ func (s *Store) browseByTag(ctx context.Context, tenantID uuid.UUID, req RecallR
 		if !ok {
 			continue
 		}
-		excerpt, truncated, section, outline := firstSection(e.Body, s.budgetFor(req.ExcerptBudget))
+		secs, err := s.sub.Sections(ctx, tenantID.String(), CorpusProcedures, e.ID)
+		if err != nil {
+			return RecallResult{}, fmt.Errorf("recall_sops (browse): %w", err)
+		}
+		if len(secs) == 0 {
+			return RecallResult{}, fmt.Errorf("recall_sops (browse): %w: entry %s", substrate.ErrNoSections, e.ID)
+		}
+		excerpt, truncated, section, outline := firstSection(secs, s.budgetFor(req.ExcerptBudget))
 		res.Results = append(res.Results, SOPMatch{
 			SOPID:          lineage,
 			Title:          e.Title,
+			Revision:       e.Revision,
 			Excerpt:        excerpt,
 			Truncated:      truncated,
 			Section:        section,
@@ -172,11 +191,6 @@ func (s *Store) browseByTag(ctx context.Context, tenantID uuid.UUID, req RecallR
 			Recommendation: e.Advice,
 			Status:         sopStatus(e.Status),
 		})
-	}
-	// List already returns newest-created first; a revised SOP's new row keeps
-	// that ordering meaningful.
-	if len(res.Results) > limit {
-		res.Results = res.Results[:limit]
 	}
 	if len(res.Results) > 0 {
 		res.Coverage = CoverageComplete
@@ -214,18 +228,13 @@ func sectionRefOf(r substrate.SectionRef) SectionRef {
 	return SectionRef{Idx: r.Idx, Of: r.Of, HeadingPath: path, Part: r.Part, Parts: r.Parts, Location: r.Location}
 }
 
-// firstSection renders a hit for a document no query matched (browse): the
-// first section within the budget, the section ref and the outline, under
-// the same cut the substrate stores. budget <= 0 means uncut; a body with no
-// sections (blank) yields an empty excerpt.
-func firstSection(body string, budget int) (excerpt string, truncated bool, ref SectionRef, outline []string) {
-	secs := substrate.SplitSections(body, 0)
+// firstSection renders a hit for a document no query matched (browse) from
+// its stored cut: the first section within the budget, the section ref and
+// the outline. secs is non-empty; budget <= 0 means uncut.
+func firstSection(secs []substrate.Section, budget int) (excerpt string, truncated bool, ref SectionRef, outline []string) {
 	outline = make([]string, 0, len(secs))
 	for _, s := range secs {
 		outline = append(outline, s.Location())
-	}
-	if len(secs) == 0 {
-		return "", false, SectionRef{HeadingPath: []string{}}, outline
 	}
 	first := secs[0]
 	excerpt = first.Text

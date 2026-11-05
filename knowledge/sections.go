@@ -45,9 +45,12 @@ type SOPSectionRead struct {
 	Outline  []string   `json:"outline"`
 }
 
-// Sections returns the current revision's outline for a SOP by its lineage id.
-func (s *Store) Sections(ctx context.Context, tenantID, id uuid.UUID) (SOPOutline, error) {
-	e, secs, err := s.currentSections(ctx, tenantID, id)
+// Sections returns the current revision's outline for a SOP by its lineage
+// id. revision, when positive, must be the current one (ErrRevisionChanged
+// otherwise): the caller holds indexes from a recall and must not read them
+// against a different cut.
+func (s *Store) Sections(ctx context.Context, tenantID, id uuid.UUID, revision int) (SOPOutline, error) {
+	e, secs, err := s.currentSections(ctx, tenantID, id, revision)
 	if err != nil {
 		return SOPOutline{}, err
 	}
@@ -60,9 +63,9 @@ func (s *Store) Sections(ctx context.Context, tenantID, id uuid.UUID) (SOPOutlin
 
 // Section returns one section of a SOP's current revision, by its 1-based
 // index, with the outline. An index the document does not have is
-// ErrNotFound.
-func (s *Store) Section(ctx context.Context, tenantID, id uuid.UUID, idx int) (SOPSectionRead, error) {
-	e, secs, err := s.currentSections(ctx, tenantID, id)
+// ErrNotFound; revision is as for Sections.
+func (s *Store) Section(ctx context.Context, tenantID, id uuid.UUID, idx, revision int) (SOPSectionRead, error) {
+	e, secs, err := s.currentSections(ctx, tenantID, id, revision)
 	if err != nil {
 		return SOPSectionRead{}, err
 	}
@@ -81,10 +84,13 @@ func (s *Store) Section(ctx context.Context, tenantID, id uuid.UUID, idx int) (S
 	return out, nil
 }
 
-func (s *Store) currentSections(ctx context.Context, tenantID, id uuid.UUID) (substrate.Entry, []substrate.Section, error) {
+func (s *Store) currentSections(ctx context.Context, tenantID, id uuid.UUID, revision int) (substrate.Entry, []substrate.Section, error) {
 	e, err := s.resolveCurrent(ctx, tenantID, id, true)
 	if err != nil {
 		return substrate.Entry{}, nil, err
+	}
+	if revision > 0 && e.Revision != revision {
+		return substrate.Entry{}, nil, fmt.Errorf("%w: revision %d requested, %d is current", ErrRevisionChanged, revision, e.Revision)
 	}
 	secs, err := s.sub.Sections(ctx, tenantID.String(), CorpusProcedures, e.ID)
 	if err != nil {

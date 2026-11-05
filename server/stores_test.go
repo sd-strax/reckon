@@ -187,10 +187,10 @@ func (f *fakeKnowledge) PriorByEntity(context.Context, uuid.UUID, knowledge.Prio
 	return knowledge.PriorResult{}, f.err
 }
 func (f *fakeKnowledge) Reindex(context.Context, uuid.UUID) (int, error) { return 0, f.err }
-func (f *fakeKnowledge) Sections(context.Context, uuid.UUID, uuid.UUID) (knowledge.SOPOutline, error) {
+func (f *fakeKnowledge) Sections(context.Context, uuid.UUID, uuid.UUID, int) (knowledge.SOPOutline, error) {
 	return knowledge.SOPOutline{}, f.err
 }
-func (f *fakeKnowledge) Section(context.Context, uuid.UUID, uuid.UUID, int) (knowledge.SOPSectionRead, error) {
+func (f *fakeKnowledge) Section(context.Context, uuid.UUID, uuid.UUID, int, int) (knowledge.SOPSectionRead, error) {
 	return knowledge.SOPSectionRead{}, f.err
 }
 func (f *fakeKnowledge) WriteSummary(context.Context, uuid.UUID, knowledge.Summary) (uuid.UUID, error) {
@@ -345,5 +345,44 @@ func TestNewBackend_HandlerAndReadsTogether(t *testing.T) {
 			}()
 			NewBackend(tc.cfg, nil)
 		})
+	}
+}
+
+// TestReindexKnowledge_OnFakes: the POST starts a run and answers 202, the GET
+// reports it until it is done or failed, and a second POST while running does
+// not start another.
+func TestReindexKnowledge_OnFakes(t *testing.T) {
+	b := newFakeBackend(t)
+	store := &fakeKnowledge{}
+	b.cfg.Knowledge = store
+	analyst := mintToken(t, nil) // the default claims carry the analyst role
+
+	if code, body := send(t, b, "GET", "/api/knowledge/reindex", analyst, ""); code != http.StatusOK || !strings.Contains(body, `"state":"idle"`) {
+		t.Fatalf("before any run: %d %s", code, body)
+	}
+	if code, body := send(t, b, "POST", "/api/knowledge/reindex", analyst, ""); code != http.StatusAccepted || !strings.Contains(body, `"state":"running"`) {
+		t.Fatalf("start: %d %s", code, body)
+	}
+	awaitState := func(want string) string {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			_, body := send(t, b, "GET", "/api/knowledge/reindex", analyst, "")
+			if strings.Contains(body, `"state":"`+want+`"`) {
+				return body
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("reindex never reached %s", want)
+		return ""
+	}
+	awaitState("done")
+
+	store.err = errStoreDown
+	if code, _ := send(t, b, "POST", "/api/knowledge/reindex", analyst, ""); code != http.StatusAccepted {
+		t.Fatalf("restart: %d", code)
+	}
+	if body := awaitState("failed"); !strings.Contains(body, errStoreDown.Error()) {
+		t.Errorf("failed run does not carry its error: %s", body)
 	}
 }

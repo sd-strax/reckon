@@ -115,6 +115,12 @@ func NewStore(sub substrate.Store, opts ...Option) *Store {
 // unknown recall unit); the server answers 400.
 var ErrInvalidRequest = errors.New("knowledge: invalid request")
 
+// ErrRevisionChanged marks a section read pinned to a revision that is no
+// longer the SOP's current one: section indexes belong to a revision, so the
+// caller recalls again rather than reading a different section under the same
+// number. The server answers 409.
+var ErrRevisionChanged = errors.New("knowledge: sop revision changed since recall")
+
 // Reindex brings the tenant's knowledge up to date with the substrate's
 // configuration (section rule, embedding model): the host runs it at startup
 // and an operator on demand. Returns the number of entries touched.

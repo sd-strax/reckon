@@ -48,6 +48,7 @@ func routeCases() []struct {
 		{"POST", "/comms/inbound", authz.AnalystRoles},
 		{"POST", "/knowledge/recall_sops", authz.ReadRoles},
 		{"POST", "/knowledge/reindex", authz.AnalystRoles},
+		{"GET", "/knowledge/reindex", authz.ReadRoles},
 		{"POST", "/knowledge/recall_similar_investigations", authz.ReadRoles},
 		{"POST", "/knowledge/prior_investigations", authz.ReadRoles},
 		{"POST", "/knowledge/summary_narrative", authz.AnalystRoles},

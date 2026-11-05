@@ -134,38 +134,72 @@ func runKnowledgeReindex(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	backendURL := fmt.Sprintf("http://localhost:%d", cfg.Backend.HTTPPort)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), reindexWait)
 	defer cancel()
 	cred, err := knowledgeLogin(ctx, cfg, *user, *pass)
 	if err != nil {
 		return err
 	}
-	token, err := cred.Token(ctx)
+	// The run outlives one request (one embedder call per stale entry): POST
+	// starts it and answers 202, GET reports it until done or failed.
+	job, err := reindexCall(ctx, cred, http.MethodPost, backendURL, http.StatusAccepted)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backendURL+"/api/knowledge/reindex", http.NoBody)
+	fmt.Fprintf(os.Stderr, "%s: reindex %s\n", branding.CLI, job.State)
+	for job.State == "running" {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("reindex still running after %s; `%s knowledge reindex` reports it when it finishes", reindexWait, branding.CLI)
+		case <-time.After(reindexPoll):
+		}
+		if job, err = reindexCall(ctx, cred, http.MethodGet, backendURL, http.StatusOK); err != nil {
+			return err
+		}
+	}
+	if job.State == "failed" {
+		return fmt.Errorf("reindex failed: %s", job.Error)
+	}
+	fmt.Fprintf(os.Stderr, "%s: reindexed %d entr%s\n", branding.CLI, job.Entries, plural(job.Entries, "y", "ies"))
+	return nil
+}
+
+const (
+	reindexWait = 30 * time.Minute
+	reindexPoll = 2 * time.Second
+)
+
+type reindexJob struct {
+	State   string `json:"state"`
+	Entries int    `json:"entries"`
+	Error   string `json:"error"`
+}
+
+// reindexCall is one POST (start) or GET (state) against /api/knowledge/reindex.
+func reindexCall(ctx context.Context, cred *agent.Credential, method, backendURL string, want int) (reindexJob, error) {
+	token, err := cred.Token(ctx)
 	if err != nil {
-		return err
+		return reindexJob{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, backendURL+"/api/knowledge/reindex", http.NoBody)
+	if err != nil {
+		return reindexJob{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return reindexJob{}, err
 	}
 	defer resp.Body.Close() //nolint:errcheck // read-side close
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	if resp.StatusCode != want {
+		return reindexJob{}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	var out struct {
-		Entries int `json:"entries"`
+	var job reindexJob
+	if err := json.Unmarshal(body, &job); err != nil {
+		return reindexJob{}, fmt.Errorf("decode response: %w", err)
 	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-	fmt.Fprintf(os.Stderr, "%s: reindexed %d entr%s\n", branding.CLI, out.Entries, plural(out.Entries, "y", "ies"))
-	return nil
+	return job, nil
 }
 
 func plural(n int, one, many string) string {

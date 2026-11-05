@@ -227,6 +227,11 @@ type Backend struct {
 	// stopSweeps ends the action sweeps started at Start.
 	stopSweeps context.CancelFunc
 
+	// reindex is the on-demand knowledge reindex's state (POST/GET
+	// /api/knowledge/reindex), under reindexMu; one run at a time.
+	reindexMu sync.Mutex
+	reindex   ReindexJob
+
 	// capOverride, when set (under mu), supersedes cfg.CapabilityResolver/
 	// Catalog — the hot swap a reload installs.
 	capOverride *capabilitySurface
