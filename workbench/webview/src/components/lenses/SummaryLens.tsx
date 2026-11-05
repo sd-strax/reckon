@@ -56,7 +56,7 @@ export function SummaryLens() {
   const awaiting = comms.filter((t) => t.status === "awaiting_reply" || t.status === "followed_up").length;
   const open = hs.flatMap((h) => h.status === "ABANDONED" ? [] : h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
   const ents = keyEntities(snap.investigation.seed, snap.thread || [], snap.pins, actions, state.labels, snap.derived?.entities);
-  const todo = stillToDo(actions, comms, hs, state.labels);
+  const todo = stillToDo(actions, comms, hs, state.labels, snap.dependencies || []);
   const cited = proceduresCited(snap.thread || []);
   // The verdict of record replaced an earlier one (#155): say so where the verdict is read.
   const current = (snap.thread || []).filter((e) => e.interpretationType === "verdict" && !e.superseded).pop();
@@ -120,7 +120,7 @@ export function SummaryLens() {
             {todo.map((t, i) => (
               <li key={i} className={t.kind}>
                 <span className="dot" aria-hidden="true">{t.kind === "approve" ? "●" : "○"}</span>
-                {t.ref ? <a onClick={() => openInspector({ kind: "ref", ref: t.ref! })}>{t.text}</a> : <a onClick={() => goTo({ kind: "lens", lens: t.kind === "prediction" ? "reasoning" : "response" })}>{t.text}</a>}
+                {t.ref ? <a onClick={() => openInspector({ kind: "ref", ref: t.ref! })}>{t.text}</a> : t.dependencyId ? <a onClick={() => openInspector({ kind: "dependency", dependencyId: t.dependencyId! })}>{t.text}</a> : <a onClick={() => goTo({ kind: "lens", lens: t.kind === "prediction" ? "reasoning" : "response" })}>{t.text}</a>}
                 {t.expiresAt ? <Countdown expiresAt={t.expiresAt} className="inline" /> : null}
               </li>
             ))}

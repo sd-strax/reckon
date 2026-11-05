@@ -650,6 +650,16 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     expect(requestAction).not.toHaveBeenCalled();
   });
 
+  it("sends a dependency's resolution to the backend with the analyst's note (adr/0101)", async () => {
+    const resolve = vi.fn(async () => undefined);
+    const { client, calls } = backend({ "actions.resolveDependency": resolve });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    createdPanels()[0]!.webview.receive({ type: "dependency.resolve", dependencyId: "dep-1", verb: "confirm", note: "the owner confirmed it", externalRef: "OPS-1" });
+    await vi.waitFor(() => expect(calls).toContain("actions.resolveDependency"));
+    expect(resolve).toHaveBeenCalledWith("dep-1", "confirm", "the owner confirmed it", "OPS-1");
+  });
+
   it("does not request a comms follow-up on the next person's token", async () => {
     const comms = gate<{ threadId: string; actionId: string }[]>();
     const requestAction = vi.fn(async () => ({ status: "PROPOSED" }));

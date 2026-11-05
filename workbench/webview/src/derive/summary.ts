@@ -1,7 +1,8 @@
 // The Summary lens's facts (08 §8.4, impl §9): key entities with role and the
 // derivable status words, still-to-do, procedures cited, the handoff note.
 // Status words come only from the verdict and the actions — never invented.
-import type { ActionRow, Hypothesis, PinRow, ThreadEntry, Seed, CommsThread, Verdict } from "../../../src/viewTypes";
+import type { ActionRow, Dependency, Hypothesis, PinRow, ThreadEntry, Seed, CommsThread, Verdict } from "../../../src/viewTypes";
+import { dependencyLive } from "./dependencies";
 import { isEntityRef } from "../refs";
 import { terminal, isNotify } from "./stage";
 import { hypName, outstanding } from "./hyps";
@@ -53,12 +54,14 @@ export function keyEntities(seed: Seed | undefined, thread: ThreadEntry[], pins:
 
 export interface TodoItem {
   text: string;
-  kind: "approve" | "notify" | "prediction" | "comms";
+  kind: "approve" | "notify" | "prediction" | "comms" | "dependency";
   expiresAt?: string;
   ref?: string;
+  /** The dependency the row is about (kind "dependency"). */
+  dependencyId?: string;
 }
 
-export function stillToDo(actions: ActionRow[], comms: CommsThread[], hs: Hypothesis[], labels: Record<string, string>): TodoItem[] {
+export function stillToDo(actions: ActionRow[], comms: CommsThread[], hs: Hypothesis[], labels: Record<string, string>, deps: Dependency[] = []): TodoItem[] {
   const out: TodoItem[] = [];
   for (const a of actions) {
     if (a.pending && !a.expired) out.push({ text: `Approve ${a.actionType} on ${a.targets.join(", ")}`, kind: "approve", expiresAt: a.expiresAt });
@@ -68,6 +71,9 @@ export function stillToDo(actions: ActionRow[], comms: CommsThread[], hs: Hypoth
     if (t.status === "awaiting_reply" || t.status === "followed_up") out.push({ text: `Awaiting a reply from ${t.target}`, kind: "comms" });
   }
   if (!actions.some(isNotify) && !notifyOpen.length && actions.length) out.push({ text: "Send the stakeholder notification", kind: "notify" });
+  for (const d of deps) {
+    if (dependencyLive(d)) out.push({ text: `${d.status === "SENT" ? "Confirm" : "Ask and confirm"}: ${d.title} (${d.owner})`, kind: "dependency", dependencyId: d.dependencyId });
+  }
   for (const h of hs) {
     for (const p of h.predictions) {
       if (outstanding(p, h)) out.push({ text: `${p.status === "UNTESTED" ? "Test" : "Resolve"} P${p.ordinal ?? "?"} under ${hypName(h, hs)}`, kind: "prediction", ref: p.id });

@@ -17,7 +17,8 @@ export interface ConcludeInputs {
   pins: PinRow[];
   actions: ActionRow[];
   comms: CommsThread[];
-  openOwnerItems: number;
+  /** OPEN + SENT dependencies; null when the slice could not be read. */
+  openDependencies: number | null;
 }
 
 export function concludePreflight(i: ConcludeInputs): PreflightItem[] {
@@ -29,8 +30,14 @@ export function concludePreflight(i: ConcludeInputs): PreflightItem[] {
     { ok: activePins > 0, text: activePins > 0 ? `${activePins} evidence item(s) pinned` : "no pinned evidence", lens: "reasoning" },
     { ok: open.length === 0, text: open.length === 0 ? "every action is terminal" : `${open.length} action(s) not yet terminal`, lens: "response" },
     { ok: awaiting === 0, text: awaiting === 0 ? "no comms thread awaits a reply" : `${awaiting} comms thread(s) still await replies — mark them done or accept leaving them open`, lens: "response" },
-    { ok: i.openOwnerItems === 0, text: i.openOwnerItems === 0 ? "no owner action item outstanding" : `${i.openOwnerItems} owner action item(s) not confirmed`, lens: "response" },
+    dependencyItem(i.openDependencies),
   ];
+}
+
+function dependencyItem(open: number | null): PreflightItem {
+  if (open === null) return { ok: false, text: "dependencies on others could not be read — the count is unchecked", lens: "response" };
+  if (open === 0) return { ok: true, text: "no dependency on others outstanding", lens: "response" };
+  return { ok: false, text: `${open} dependenc${open === 1 ? "y" : "ies"} on others not confirmed or waived`, lens: "response" };
 }
 
 /** The engine's hard gate: a verdict. Everything else is decision support at v0. */

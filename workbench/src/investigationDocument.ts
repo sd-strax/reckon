@@ -358,6 +358,15 @@ export class InvestigationDocuments implements DocumentHost {
       "comms.followup": (msg) => {
         void this.actions.commsFollowUp(id, panel, msg);
       },
+      "dependency.create": (msg) => {
+        void this.actions.createDependency(id, panel, msg);
+      },
+      "dependency.attach": (msg) => {
+        void this.actions.attachDependency(id, panel, msg.dependencyId, msg.notifyActionId);
+      },
+      "dependency.resolve": (msg) => {
+        void this.actions.resolveDependency(id, panel, msg);
+      },
       lifecycle: (msg) => {
         void this.lifecycleTransition(id, panel, msg);
       },

@@ -9,14 +9,14 @@ import type { ChronicleTurn, InvestigationSnapshot } from "./protocol";
 /** The backend reads the cache needs — the seam its tests fake. */
 export interface CacheClient {
   investigations: Pick<InvestigationsClient, "get" | "hypotheses" | "thread" | "pins" | "transcript">;
-  actions: Pick<ActionsClient, "list" | "comms">;
+  actions: Pick<ActionsClient, "list" | "comms" | "dependencies">;
   capabilities: Pick<CapabilitiesClient, "list">;
 }
 
 /** The event-sourced slices one write can change, re-read together after it. */
 export type Projection = Pick<
   InvestigationSnapshot,
-  "investigation" | "hypotheses" | "actions" | "pins" | "comms" | "thread" | "turns"
+  "investigation" | "hypotheses" | "actions" | "pins" | "comms" | "dependencies" | "thread" | "turns"
 >;
 
 /** A read: the investigation always; the rest when they read. */
@@ -159,6 +159,7 @@ export class InvestigationCache {
       actions: r.actions ?? null,
       pins: r.pins ?? [],
       comms: r.comms ?? null,
+      dependencies: r.dependencies ?? null,
       thread: r.thread ?? null,
       turns: r.turns ?? [],
       capabilities, enablement: null, derived: null, events: null,
@@ -210,13 +211,14 @@ export class InvestigationCache {
         this.log.debug(`${why} ${what} ${id}: ${err instanceof Error ? err.message : String(err)}`);
         return undefined;
       });
-    const [investigation, hypotheses, thread, actions, pins, comms] = await Promise.all([
+    const [investigation, hypotheses, thread, actions, pins, comms, dependencies] = await Promise.all([
       this.client.investigations.get(id),
       strict ? this.client.investigations.hypotheses(id) : optional("hypotheses", this.client.investigations.hypotheses(id)),
       optional("thread", this.client.investigations.thread(id)),
       optional("actions", this.client.actions.list(id)),
       optional("pins", this.client.investigations.pins(id)),
       optional("comms", this.client.actions.comms(id)),
+      optional("dependencies", this.client.actions.dependencies(id)),
     ]);
     const projection: Read = { investigation };
     if (hypotheses !== undefined) projection.hypotheses = hypotheses;
@@ -230,6 +232,7 @@ export class InvestigationCache {
     }
     if (pins !== undefined) projection.pins = pins;
     if (comms !== undefined) projection.comms = comms;
+    if (dependencies !== undefined) projection.dependencies = dependencies;
     return projection;
   }
 

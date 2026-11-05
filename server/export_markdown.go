@@ -328,6 +328,35 @@ func (b *Backend) renderInvestigationMarkdown(ctx context.Context, id uuid.UUID)
 		}
 	}
 
+	// --- dependencies --------------------------------------------------------
+	// The work the conclusion depends on that only someone outside reckon can
+	// do (adr/0101): asked, sent, confirmed or waived, with the analyst's note
+	// and the pointer out. Best-effort like the comms section.
+	if b.cfg.Dependencies != nil {
+		deps, derr := b.cfg.Dependencies.List(ctx, id)
+		if derr == nil && len(deps) > 0 {
+			md.WriteString("## Dependencies\n\n")
+			for _, d := range deps {
+				fmt.Fprintf(&md, "- **%s** — %s — *%s*", oneLine(d.Title), oneLine(d.Owner), strings.ToLower(d.Status))
+				if d.Detail != "" {
+					fmt.Fprintf(&md, " · %s", oneLine(d.Detail))
+				}
+				if d.ResolutionNote != "" {
+					who := d.ResolvedByName
+					if who == "" {
+						who = d.ResolvedBy
+					}
+					fmt.Fprintf(&md, " · %s by %s: %s", strings.ToLower(d.Status), who, oneLine(d.ResolutionNote))
+				}
+				if d.ExternalRef != "" {
+					fmt.Fprintf(&md, " · %s", d.ExternalRef)
+				}
+				md.WriteString("\n")
+			}
+			md.WriteString("\n")
+		}
+	}
+
 	// --- conclusion --------------------------------------------------------
 	if ic.ConclusionRef != "" {
 		md.WriteString("## Conclusion\n\n")

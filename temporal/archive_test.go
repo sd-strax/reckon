@@ -43,7 +43,7 @@ func TestArchiveInvestigation_RunsBundleActivity(t *testing.T) {
 // component under the archive root — anything that is not a well-formed UUID
 // (e.g. "../../tmp/evil") is rejected before any filesystem or DB touch.
 func TestArchiveBundle_RejectsTraversalNamespace(t *testing.T) {
-	acts := NewArchiveActivities(nil, nil, t.TempDir())
+	acts := NewArchiveActivities(nil, nil, t.TempDir(), nil)
 	_, err := acts.ArchiveBundle(context.Background(), ArchiveBundleInput{
 		GroupingID:      "11111111-1111-1111-1111-111111111111",
 		TenantID:        "22222222-2222-2222-2222-222222222222",

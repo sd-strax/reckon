@@ -281,6 +281,11 @@ body.loading #rail { opacity: 0.6; }
 
 /* ---- comms cards (ui/04) ---- */
 .commscard.replied { border-color: var(--ok-border); }
+/* Dependencies on others (adr/0101): a settled one fades like a closed thread. */
+.depcard.settled { opacity: 0.72; }
+.depcard .statement { font-weight: 600; text-decoration: none; color: var(--text); }
+.depcard .quote { font-size: var(--fs-xs); color: var(--text-2); font-style: italic; border-left: 2px solid var(--border); padding-left: 8px; margin: 5px 0; white-space: pre-wrap; word-break: break-word; }
+.acdeps .linklike { font-weight: 600; }
 .commscard .quote { font-size: var(--fs-xs); color: var(--text-2); font-style: italic; border-left: 2px solid var(--border); padding-left: 8px; margin: 5px 0; white-space: pre-wrap; word-break: break-word; }
 .commscard .quote.inbound { border-left-color: var(--ok); }
 .commscard .esc { font-size: var(--fs-xs); color: var(--bad); background: var(--bad-bg); border: 1px solid var(--bad-border); border-radius: var(--r-sm); padding: 4px 8px; margin-top: 5px; }

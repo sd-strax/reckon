@@ -183,7 +183,7 @@ func TestEmitExpired_UnknownActionIsBadInput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")
 	}
-	a := temporal.NewActivities(testHandler, nil, nil)
+	a := temporal.NewActivities(testHandler, nil, nil, nil)
 	err := a.EmitExpired(context.Background(), temporal.EmitExpiredInput{
 		ActionID: uuid.NewString(), AggregateID: uuid.NewString(), TenantID: module.SingleTenantUUID.String(),
 	})

@@ -50,6 +50,37 @@ type ActionSummary struct {
 	Status     string
 }
 
+// DependencySummary is one dependency on someone outside reckon (adr/0101) as
+// the bundle carries it: what was asked of whom, the send it rode on, where the
+// work lives outside, and how the analyst resolved it, with the history. The
+// dependencies live beside the event stream, not in it, so the bundle is the
+// only signed form they have; dependencies.json keeps the whole record and the
+// report lists them. JSON tags are the file's schema.
+type DependencySummary struct {
+	ID             string            `json:"dependency_id"`
+	Title          string            `json:"title"`
+	Owner          string            `json:"owner"`
+	Detail         string            `json:"detail,omitempty"`
+	Status         string            `json:"status"`
+	NotifyActionID string            `json:"notify_action_id,omitempty"`
+	ExternalRef    string            `json:"external_ref,omitempty"`
+	CreatedBy      string            `json:"created_by"`
+	CreatedAt      time.Time         `json:"created_at"`
+	ResolvedBy     string            `json:"resolved_by,omitempty"`
+	ResolvedAt     *time.Time        `json:"resolved_at,omitempty"`
+	ResolutionNote string            `json:"resolution_note,omitempty"`
+	History        []DependencyEvent `json:"history,omitempty"`
+}
+
+// DependencyEvent is one entry on a dependency's history.
+type DependencyEvent struct {
+	At    time.Time `json:"at"`
+	By    string    `json:"by"`
+	Event string    `json:"event"`
+	Note  string    `json:"note,omitempty"`
+	Ref   string    `json:"ref,omitempty"`
+}
+
 // Investigation is everything BuildBundle needs — assembled by the workflow
 // from the event store + projections, so the builder never touches the DB.
 type Investigation struct {
@@ -65,6 +96,10 @@ type Investigation struct {
 	StixObjects []json.RawMessage // interpretation-layer nodes (x-hypothesis/x-prediction/...)
 	Hypotheses  []HypothesisSummary
 	Actions     []ActionSummary
+	// Dependencies is nil when the loader had no dependency store, and the
+	// bundle then has no dependencies.json: absent means not recorded, an
+	// empty file means none.
+	Dependencies []DependencySummary
 
 	// Side stores are included only when the tenant opts in (07 §2.2 optional
 	// redaction) — compliance deployments keep prompt content in-prem.
@@ -136,6 +171,9 @@ func BuildBundle(inv Investigation, signer Signer, generatedAt time.Time) (Resul
 		"investigation.report.md": []byte(renderReport(inv)),
 		"events.jsonl":            jsonl(inv.Events),
 		"stix-bundle.json":        stixBundle(inv.StixObjects),
+	}
+	if inv.Dependencies != nil {
+		files["dependencies.json"] = mustJSON(inv.Dependencies)
 	}
 	if inv.IncludeSideStores {
 		for _, b := range inv.Transcripts {
@@ -292,6 +330,30 @@ func renderReport(inv Investigation) string {
 		b.WriteString("## Actions\n\n")
 		for _, a := range inv.Actions {
 			fmt.Fprintf(&b, "- **[%s]** %s (%s) `%s`\n", a.Status, a.ActionType, a.Tier, a.ID)
+		}
+		b.WriteString("\n")
+	}
+	if len(inv.Dependencies) > 0 {
+		b.WriteString("## Dependencies\n\n")
+		for _, d := range inv.Dependencies {
+			fmt.Fprintf(&b, "- **[%s]** %s — %s `%s`", d.Status, d.Title, d.Owner, d.ID)
+			if d.ExternalRef != "" {
+				fmt.Fprintf(&b, " · %s", d.ExternalRef)
+			}
+			b.WriteString("\n")
+			if d.Detail != "" {
+				fmt.Fprintf(&b, "  - why: %s\n", d.Detail)
+			}
+			if d.ResolvedBy != "" {
+				fmt.Fprintf(&b, "  - %s by %s", strings.ToLower(d.Status), d.ResolvedBy)
+				if d.ResolvedAt != nil {
+					fmt.Fprintf(&b, " at %s", d.ResolvedAt.UTC().Format(time.RFC3339))
+				}
+				if d.ResolutionNote != "" {
+					fmt.Fprintf(&b, ": %s", d.ResolutionNote)
+				}
+				b.WriteString("\n")
+			}
 		}
 		b.WriteString("\n")
 	}

@@ -926,6 +926,22 @@ description teaches when to use it (work only an owner outside reckon can do); n
 rule changes. The conclude preflight counts OPEN/SENT items as an input (decision support at
 v0, like comms; the engine-side gate lands with Phase F).
 
+*Built: `adr/0101`, under the name **dependency** (work the conclusion depends on that only
+someone outside reckon can do), the minimal rendering. The record is as above, with
+`external_ref` pointing to where the work lives outside and the names the token presented; a
+dependency rides on a pending `notify.*` action by id (there is no draft object: the requested
+action's frozen parameters are the draft), and a SUCCEEDED send marks the attached dependencies
+SENT wherever the engine learns of it: the result activity on every attempt (a failure fails the
+activity and retries), the route that resolves an unknown outcome, a settle after attach, and
+the stranded-action sweep as the net under them. CONFIRMED and WAIVED are the analyst's acts
+with a note; a reply never moves one, a delegate is refused, a concluded record is sealed in the
+store's own transaction. Surfaces: Response "Dependencies on others" (an OPEN one can move off a
+notification that stopped — failed, expired, rejected — and stays on one in flight), the
+notification card's "asks for", Summary still-to-do rows, the dependency inspector, the export's
+"Dependencies" list, `dependencies.json` in the signed bundle. A slice that could not be read
+reads as unchecked, not clean. Set aside: the `propose_owner_item` tool (model-facing, adr/0232)
+and the engine-side gate.*
+
 ### 8.7 §6.18 — Narrative summary at any time
 
 **Decision.** Two tiers, as `06 §3.2`: structured facts are a server-side pure function over

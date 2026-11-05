@@ -12,6 +12,7 @@ import (
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/archive"
+	"github.com/sd-strax/reckon/dependency"
 )
 
 // ArchiveActivities are the side-effecting steps of the ArchiveInvestigation
@@ -24,13 +25,16 @@ type ArchiveActivities struct {
 	handler    *aggregate.Handler
 	signer     archive.Signer
 	archiveDir string
+	deps       *dependency.Store
 }
 
 // NewArchiveActivities constructs the archive activity set. archiveDir is the
 // solo archive root (07 §2.4 default ~/.reckon/archive); bundles land under a
-// per-tenant-namespace subdirectory.
-func NewArchiveActivities(handler *aggregate.Handler, signer archive.Signer, archiveDir string) *ArchiveActivities {
-	return &ArchiveActivities{handler: handler, signer: signer, archiveDir: archiveDir}
+// per-tenant-namespace subdirectory. deps is the dependency store (adr/0101),
+// whose records live beside the event stream and reach the signed bundle only
+// through here; nil leaves them out of the bundle.
+func NewArchiveActivities(handler *aggregate.Handler, signer archive.Signer, archiveDir string, deps *dependency.Store) *ArchiveActivities {
+	return &ArchiveActivities{handler: handler, signer: signer, archiveDir: archiveDir, deps: deps}
 }
 
 // ArchiveBundleInput is the frozen identity of the investigation to bundle.
@@ -184,6 +188,16 @@ func (a *ArchiveActivities) loadInvestigation(ctx context.Context, in ArchiveBun
 			ID: ac.ActionID.String(), ActionType: ac.ActionType, Tier: ac.Tier, Status: ac.Status,
 		})
 	}
+	if a.deps != nil {
+		deps, err := a.deps.List(ctx, aggID)
+		if err != nil {
+			return archive.Investigation{}, fmt.Errorf("load dependencies: %w", err)
+		}
+		inv.Dependencies = make([]archive.DependencySummary, 0, len(deps))
+		for _, d := range deps {
+			inv.Dependencies = append(inv.Dependencies, dependencySummary(d))
+		}
+	}
 
 	if in.IncludeSideStores {
 		if err := a.loadSideStores(ctx, aggID, in.TenantID, transcriptHashes, &inv); err != nil {
@@ -226,4 +240,26 @@ func (a *ArchiveActivities) loadSideStores(ctx context.Context, aggID uuid.UUID,
 		inv.Transcripts = append(inv.Transcripts, archive.Blob{Hash: hash, Bytes: body})
 	}
 	return nil
+}
+
+// dependencySummary maps a dependency onto the bundle's record of it: the
+// names resolve to the principal ids the history carries, so the bundle reads
+// the same with or without a directory.
+func dependencySummary(d dependency.Dependency) archive.DependencySummary {
+	out := archive.DependencySummary{
+		ID: d.ID.String(), Title: d.Title, Owner: d.Owner, Detail: d.Detail, Status: d.Status,
+		ExternalRef: d.ExternalRef, CreatedBy: d.CreatedBy, CreatedAt: d.CreatedAt,
+		ResolvedBy: d.ResolvedBy, ResolutionNote: d.ResolutionNote,
+	}
+	if d.NotifyActionID != uuid.Nil {
+		out.NotifyActionID = d.NotifyActionID.String()
+	}
+	if d.ResolvedAt.Valid {
+		at := d.ResolvedAt.Time
+		out.ResolvedAt = &at
+	}
+	for _, e := range d.History {
+		out.History = append(out.History, archive.DependencyEvent{At: e.At, By: e.By, Event: e.Event, Note: e.Note, Ref: e.Ref})
+	}
+	return out
 }

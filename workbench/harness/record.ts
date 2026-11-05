@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   };
 
   for (const id of ids) {
-    const [investigation, hypotheses, capabilities, thread, actions, pins, comms, enablement] = await Promise.all([
+    const [investigation, hypotheses, capabilities, thread, actions, pins, comms, dependencies, enablement] = await Promise.all([
       client.investigations.get(id),
       client.investigations.hypotheses(id),
       client.capabilities.list().catch(() => null),
@@ -64,6 +64,7 @@ async function main(): Promise<void> {
       client.actions.list(id).catch(() => null),
       client.investigations.pins(id).catch(() => []),
       client.actions.comms(id).catch(() => null),
+      client.actions.dependencies(id).catch(() => null),
       client.capabilities.enablement().catch(() => null),
     ]);
     const turns: ChronicleTurn[] = [];
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
     const derived = await buildDerivedViews(thread ?? [], getDoc, { hypotheses, pins, actions: actions ?? [], seed: investigation.seed });
     const snapshot: InvestigationSnapshot = {
       seq: investigation.lastEventSequence,
-      investigation, hypotheses, actions, pins, comms, thread, turns, capabilities, enablement,
+      investigation, hypotheses, actions, pins, comms, dependencies, thread, turns, capabilities, enablement,
       derived,
     };
     // Every ref the snapshot cites gets its label and, for entities, its appearances.

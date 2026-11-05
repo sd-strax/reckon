@@ -5,8 +5,8 @@
 // through the wire shapes (adr/0244).
 import type { BackendHttp } from "./http";
 import * as shapes from "../wire/backendShapes";
-import type { RawAction } from "../wire/backendShapes";
-import type { ActionDecision, ActionRecord, ActionRow, ArtifactLocation, CommsThread } from "../viewTypes";
+import type { RawAction, RawDependency } from "../wire/backendShapes";
+import type { ActionDecision, ActionRecord, ActionRow, ArtifactLocation, CommsThread, Dependency } from "../viewTypes";
 
 /** An action type the analyst may request (08 §3), with its declared inverse. */
 export interface ActionTypeRow {
@@ -238,4 +238,48 @@ export class ActionsClient {
   async commsSnooze(threadId: string, hours: number): Promise<void> {
     await this.http.post(`/api/comms/${encodeURIComponent(threadId)}/snooze`, { hours });
   }
+
+  /** GET /api/investigations/{id}/dependencies — the work the conclusion depends on (adr/0101). */
+  async dependencies(investigationId: string): Promise<Dependency[]> {
+    const body = await this.http.get(`/api/investigations/${encodeURIComponent(investigationId)}/dependencies`, shapes.dependencies);
+    return body.dependencies.map(mapDependency);
+  }
+
+  /** POST /api/investigations/{id}/dependencies — record one, optionally riding on a pending notify action. */
+  async createDependency(investigationId: string, d: { title: string; owner: string; detail?: string; externalRef?: string; notifyActionId?: string }): Promise<Dependency> {
+    const body = await this.http.post(`/api/investigations/${encodeURIComponent(investigationId)}/dependencies`, {
+      title: d.title, owner: d.owner, detail: d.detail ?? "", external_ref: d.externalRef ?? "", notify_action_id: d.notifyActionId ?? "",
+    }, shapes.dependency);
+    return mapDependency(body);
+  }
+
+  /** POST /api/dependencies/{id}/attach — ride on a notify action (empty detaches). */
+  async attachDependency(dependencyId: string, notifyActionId: string): Promise<void> {
+    await this.http.post(`/api/dependencies/${encodeURIComponent(dependencyId)}/attach`, { notify_action_id: notifyActionId });
+  }
+
+  /** POST /api/dependencies/{id}/confirm|waive — the analyst's resolution, with a note. */
+  async resolveDependency(dependencyId: string, verb: "confirm" | "waive", note: string, externalRef?: string): Promise<void> {
+    await this.http.post(`/api/dependencies/${encodeURIComponent(dependencyId)}/${verb}`, { note, external_ref: externalRef ?? "" });
+  }
+}
+
+function mapDependency(d: RawDependency): Dependency {
+  return {
+    dependencyId: d.dependency_id,
+    title: d.title,
+    owner: d.owner,
+    detail: d.detail || undefined,
+    status: d.status,
+    notifyActionId: d.notify_action_id || undefined,
+    externalRef: d.external_ref || undefined,
+    createdBy: d.created_by,
+    createdByName: d.created_by_name || undefined,
+    createdAt: d.created_at,
+    resolvedBy: d.resolved_by || undefined,
+    resolvedByName: d.resolved_by_name || undefined,
+    resolvedAt: d.resolved_at,
+    resolutionNote: d.resolution_note || undefined,
+    history: (d.history ?? []).map((e) => ({ at: e.at, by: e.by, byName: e.by_name, event: e.event, note: e.note, ref: e.ref })),
+  };
 }

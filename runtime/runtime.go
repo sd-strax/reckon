@@ -23,6 +23,7 @@ import (
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/comms"
 	"github.com/sd-strax/reckon/config"
+	"github.com/sd-strax/reckon/dependency"
 	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/internal/adapterplugin"
 	"github.com/sd-strax/reckon/internal/branding"
@@ -294,7 +295,11 @@ func serve(cfg config.Config) error {
 	// result path opens threads for SUCCEEDED notify.* dispatches, and the
 	// backend serves/acts on them.
 	commsStore := comms.NewStore(aggDB)
-	activities, dispatchResolver, err := buildActionActivities(cfg, handler, commsStore, adapterHost)
+	// The dependency store (adr/0101) rides the main DB too: the result path
+	// marks the dependencies on a SUCCEEDED notify.* dispatch SENT, and the
+	// backend serves/acts on them.
+	dependencyStore := dependency.NewStore(aggDB)
+	activities, dispatchResolver, err := buildActionActivities(cfg, handler, commsStore, dependencyStore, adapterHost)
 	if err != nil {
 		return err
 	}
@@ -302,7 +307,7 @@ func serve(cfg config.Config) error {
 		worker.WithActivities(activities)
 		log.Printf("%s: action-lifecycle activities registered on the worker", branding.CLI)
 	}
-	archiveActivities, err := buildArchiveActivities(cfg, handler)
+	archiveActivities, err := buildArchiveActivities(cfg, handler, dependencyStore)
 	if err != nil {
 		return err
 	}
@@ -396,6 +401,7 @@ func serve(cfg config.Config) error {
 		ActionResolver: actionResolver,
 		Knowledge:      knowledgeStore,
 		Comms:          commsStore,
+		Dependencies:   dependencyStore,
 
 		TenantNamespace:         cfg.Capability.TenantNamespace,
 		ExportIncludeSideStores: cfg.Export.IncludeSideStores,
@@ -577,7 +583,7 @@ func buildBackendActionResolver(cfg config.Config, host *adapterplugin.Host) (*a
 // handler + write-side action resolver) from the tenant config, or nil when no
 // write bindings are configured. Reuses the capability config path — the
 // action_adapters/action_bindings keys can share the same file (08 §4).
-func buildActionActivities(cfg config.Config, handler *aggregate.Handler, commsStore *comms.Store, host *adapterplugin.Host) (*temporal.Activities, *action.AtomicResolver, error) {
+func buildActionActivities(cfg config.Config, handler *aggregate.Handler, commsStore *comms.Store, dependencyStore *dependency.Store, host *adapterplugin.Host) (*temporal.Activities, *action.AtomicResolver, error) {
 	if cfg.Capability.ConfigPath == "" {
 		return nil, nil, nil // action layer off entirely
 	}
@@ -592,7 +598,7 @@ func buildActionActivities(cfg config.Config, handler *aggregate.Handler, commsS
 		return nil, nil, err
 	}
 	holder := action.NewAtomicResolver(resolver)
-	return temporal.NewActivities(handler, holder, commsStore), holder, nil
+	return temporal.NewActivities(handler, holder, commsStore, dependencyStore), holder, nil
 }
 
 // buildActionResolverFromFile builds the write-side action resolver from the
@@ -617,16 +623,17 @@ func buildActionResolverFromFile(cfg config.Config, host *adapterplugin.Host) (*
 
 // buildArchiveActivities constructs the post-conclusion export activities: the
 // aggregate handler (event store + projections), the tenant signing key (07
-// §2.2, loaded/created under <data>/keys), and the archive root (07 §2.4 solo
-// default <data>/archive). Unlike the action activities, these need no tenant
-// config — every deployment can export.
-func buildArchiveActivities(cfg config.Config, handler *aggregate.Handler) (*temporal.ArchiveActivities, error) {
+// §2.2, loaded/created under <data>/keys), the archive root (07 §2.4 solo
+// default <data>/archive), and the dependency store, whose records reach the
+// signed bundle only through the loader (adr/0101). Unlike the action
+// activities, these need no tenant config — every deployment can export.
+func buildArchiveActivities(cfg config.Config, handler *aggregate.Handler, deps *dependency.Store) (*temporal.ArchiveActivities, error) {
 	signer, err := archive.LoadOrCreateSigner(filepath.Join(cfg.Data.Dir, "keys", "signing.ed25519"))
 	if err != nil {
 		return nil, fmt.Errorf("load signing key: %w", err)
 	}
 	archiveDir := filepath.Join(cfg.Data.Dir, "archive")
-	return temporal.NewArchiveActivities(handler, signer, archiveDir), nil
+	return temporal.NewArchiveActivities(handler, signer, archiveDir, deps), nil
 }
 
 // buildCapability constructs the capability resolver + catalog from the tenant

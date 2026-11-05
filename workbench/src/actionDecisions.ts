@@ -56,6 +56,20 @@ export class ActionDecisions {
     }
   }
 
+  /** The analyst records a dependency (adr/0101), optionally riding on a pending notify action. */
+  createDependency(id: string, panel: vscode.WebviewPanel, msg: { title: string; owner: string; detail?: string; externalRef?: string; notifyActionId?: string }): Promise<void> {
+    return this.host.mutate(id, panel, "recording a dependency", async () => { await this.host.client.actions.createDependency(id, msg); });
+  }
+
+  attachDependency(id: string, panel: vscode.WebviewPanel, dependencyId: string, notifyActionId: string): Promise<void> {
+    return this.host.mutate(id, panel, "attaching a dependency", () => this.host.client.actions.attachDependency(dependencyId, notifyActionId));
+  }
+
+  /** Confirm or waive: the analyst's act, with a note; never inferred from a reply. */
+  resolveDependency(id: string, panel: vscode.WebviewPanel, msg: { dependencyId: string; verb: "confirm" | "waive"; note: string; externalRef?: string }): Promise<void> {
+    return this.host.mutate(id, panel, `dependency ${msg.verb}`, () => this.host.client.actions.resolveDependency(msg.dependencyId, msg.verb, msg.note, msg.externalRef));
+  }
+
   commsAct(id: string, panel: vscode.WebviewPanel, threadId: string, verb: "ack" | "done"): Promise<void> {
     return this.host.mutate(id, panel, `comms ${verb}`, () => this.host.client.actions.commsAct(threadId, verb));
   }

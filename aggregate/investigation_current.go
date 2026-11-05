@@ -117,6 +117,11 @@ func (InvestigationCurrentProjector) Apply(ctx context.Context, tx *sql.Tx, evt 
 		// projections land separately); advance the cursor so
 		// last_event_sequence reflects the true latest event — important after a
 		// paired transition, whose interpretation is the last event written.
+		// This write is also load-bearing for the dependency store
+		// (dependency/): every action-status command pairs an interpretation,
+		// so every such transaction touches this row, and the store takes a
+		// share lock on it as its one serialization point against the
+		// aggregate (TestActionStatusEvents_WriteTheInvestigationRow).
 		_, err := tx.ExecContext(ctx, `
 			UPDATE investigation_current
 			SET last_event_sequence = $2, updated_at = $3

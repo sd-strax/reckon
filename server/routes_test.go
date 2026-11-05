@@ -65,10 +65,10 @@ func routeCases() []struct {
 		{"DELETE", "/sops/" + id, authz.AnalystRoles},
 		{"POST", "/admin/demo/seed", authz.AnalystRoles},
 	}
-	for _, sub := range []string{"hypotheses", "actions", "thread", "pins", "comms", "export.md"} {
+	for _, sub := range []string{"hypotheses", "actions", "thread", "pins", "comms", "dependencies", "export.md"} {
 		cases = append(cases, rc{"GET", "/investigations/" + id + "/" + sub, authz.ReadRoles})
 	}
-	for _, sub := range []string{"export", "lifecycle", "rename", "case_note"} {
+	for _, sub := range []string{"export", "lifecycle", "rename", "case_note", "dependencies"} {
 		cases = append(cases, rc{"POST", "/investigations/" + id + "/" + sub, authz.AnalystRoles})
 	}
 	for _, verb := range []string{"approve", "reject", "edit", "rerequest", "resolve"} {
@@ -76,6 +76,9 @@ func routeCases() []struct {
 	}
 	for _, verb := range []string{"ack", "done", "snooze"} {
 		cases = append(cases, rc{"POST", "/comms/" + id + "/" + verb, authz.AnalystRoles})
+	}
+	for _, verb := range []string{"attach", "confirm", "waive"} {
+		cases = append(cases, rc{"POST", "/dependencies/" + id + "/" + verb, authz.AnalystRoles})
 	}
 	return cases
 }

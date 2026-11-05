@@ -44,6 +44,7 @@ func (b *Backend) getActionStarter() actionStarter {
 func (b *Backend) runActionSweeps(ctx context.Context) {
 	b.sweepExpiryTimers(ctx)
 	b.sweepStrandedActions(ctx)
+	b.reconcileDependencies(ctx)
 	t := time.NewTicker(strandedSweepInterval)
 	defer t.Stop()
 	for {
@@ -52,7 +53,38 @@ func (b *Backend) runActionSweeps(ctx context.Context) {
 			return
 		case <-t.C:
 			b.sweepStrandedActions(ctx)
+			b.reconcileDependencies(ctx)
 		}
+	}
+}
+
+// reconcileDependencies moves to SENT every OPEN dependency riding on a
+// notify.* action that has SUCCEEDED (adr/0101). The result activity and the
+// routes mark on their own paths; this is the durable net under them, for a
+// MarkSent that failed after the fact it follows had committed. Idempotent, and
+// a closed investigation's rows are left where its conclusion found them.
+func (b *Backend) reconcileDependencies(ctx context.Context) {
+	if b.cfg.Dependencies == nil || b.cfg.Reads == nil {
+		return
+	}
+	rides, err := b.cfg.Dependencies.OpenRides(ctx)
+	if err != nil {
+		log.Printf("dependency reconcile: list open rides: %v", err)
+		return
+	}
+	moved := 0
+	for _, actionID := range rides {
+		if ctx.Err() != nil {
+			return
+		}
+		ac, err := b.cfg.Reads.LoadActionCurrent(ctx, actionID)
+		if err != nil {
+			continue
+		}
+		moved += b.markDependenciesSent(ctx, ac)
+	}
+	if moved > 0 {
+		log.Printf("dependency reconcile: marked %d dependenc(y|ies) sent under succeeded notifications", moved)
 	}
 }
 

@@ -6,6 +6,7 @@ import { useApp } from "../../app";
 import { proceduresCited } from "../../derive/summary";
 import { ActionCard, GROUP_LABELS, groupOf } from "../ActionCard";
 import { Comms } from "../Rail";
+import { Dependencies } from "../Dependencies";
 import { Empty } from "../shared";
 
 const ORDER = ["containment", "eradication", "recovery", "notification", "case_record"] as const;
@@ -55,6 +56,7 @@ export function ResponseLens() {
         <div className="imeta">To notify someone, ask reckon in the conversation — the message arrives here as a card you approve before it is sent.</div>
         <Comms />
       </section>
+      <Dependencies />
     </div>
   );
 }

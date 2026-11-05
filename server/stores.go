@@ -9,6 +9,7 @@ import (
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/comms"
+	"github.com/sd-strax/reckon/dependency"
 	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/knowledge"
 )
@@ -64,6 +65,22 @@ type commsStore interface {
 	Ack(ctx context.Context, threadID uuid.UUID, principal string, at time.Time) error
 	Done(ctx context.Context, threadID uuid.UUID, principal string, at time.Time) error
 	Snooze(ctx context.Context, threadID uuid.UUID, principal string, hours int, at time.Time) error
+}
+
+// dependencyStore holds the dependencies (adr/0101); *dependency.Store
+// satisfies it. SENT is the engine's transition on a SUCCEEDED notify.* send:
+// the result activity's usually, a route's only to catch up a success the
+// activity could not see (a person resolving an unknown outcome, an attachment
+// racing the send).
+type dependencyStore interface {
+	List(ctx context.Context, aggregateID uuid.UUID) ([]dependency.Dependency, error)
+	Get(ctx context.Context, id uuid.UUID) (dependency.Dependency, error)
+	Create(ctx context.Context, c dependency.Create) (dependency.Dependency, error)
+	Attach(ctx context.Context, id, actionID uuid.UUID, by dependency.Actor, at time.Time) error
+	MarkSent(ctx context.Context, actionID uuid.UUID, at time.Time) (int, error)
+	OpenRides(ctx context.Context) ([]uuid.UUID, error)
+	Confirm(ctx context.Context, id uuid.UUID, by dependency.Actor, note, externalRef string, at time.Time) error
+	Waive(ctx context.Context, id uuid.UUID, by dependency.Actor, note, externalRef string, at time.Time) error
 }
 
 // knowledgeStore holds SOPs and case summaries; *knowledge.Store satisfies it.

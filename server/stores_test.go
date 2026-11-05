@@ -15,6 +15,7 @@ import (
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/comms"
+	"github.com/sd-strax/reckon/dependency"
 	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/knowledge"
 )
@@ -33,10 +34,11 @@ func (f *fakeCommands) Handle(_ context.Context, env aggregate.Envelope, cmd agg
 	return aggregate.Result{}, f.err
 }
 
-// fakeReads finds nothing, except the action it is given.
+// fakeReads finds nothing, except the action and the investigation it is given.
 type fakeReads struct {
-	action    aggregate.ActionCurrent
-	actionErr error
+	action        aggregate.ActionCurrent
+	actionErr     error
+	investigation aggregate.InvestigationCurrent
 }
 
 func (f *fakeReads) LoadActionCurrent(context.Context, uuid.UUID) (aggregate.ActionCurrent, error) {
@@ -88,8 +90,11 @@ func (*fakeReads) ListStrandedActionCurrents(context.Context) ([]aggregate.Actio
 func (*fakeReads) LoadInterpretation(context.Context, uuid.UUID) (aggregate.InterpretationRecorded, error) {
 	return aggregate.InterpretationRecorded{}, aggregate.ErrNoRecord
 }
-func (*fakeReads) LoadInvestigationCurrent(context.Context, aggregate.AggregateID) (aggregate.InvestigationCurrent, error) {
-	return aggregate.InvestigationCurrent{}, aggregate.ErrNoRecord
+func (f *fakeReads) LoadInvestigationCurrent(_ context.Context, id aggregate.AggregateID) (aggregate.InvestigationCurrent, error) {
+	if f.investigation.AggregateID != id {
+		return aggregate.InvestigationCurrent{}, aggregate.ErrNoRecord
+	}
+	return f.investigation, nil
 }
 func (*fakeReads) Thread(context.Context, aggregate.AggregateID) ([]aggregate.ThreadAct, error) {
 	return nil, nil
@@ -156,6 +161,46 @@ func (f *fakeComms) Snooze(_ context.Context, id uuid.UUID, principal string, _ 
 	return f.act(id, principal)
 }
 
+// fakeDependencies holds one dependency and records the last act's principal.
+type fakeDependencies struct {
+	dep       dependency.Dependency
+	principal string
+	err       error
+}
+
+func (f *fakeDependencies) List(context.Context, uuid.UUID) ([]dependency.Dependency, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []dependency.Dependency{f.dep}, nil
+}
+func (f *fakeDependencies) Get(context.Context, uuid.UUID) (dependency.Dependency, error) {
+	return f.dep, f.err
+}
+func (f *fakeDependencies) Create(_ context.Context, c dependency.Create) (dependency.Dependency, error) {
+	f.principal = c.By.ID
+	f.dep = dependency.Dependency{ID: uuid.New(), AggregateID: c.AggregateID, Title: c.Title, Owner: c.Owner, Detail: c.Detail, Status: dependency.StatusOpen, CreatedBy: c.By.ID}
+	return f.dep, f.err
+}
+func (f *fakeDependencies) Attach(_ context.Context, _, _ uuid.UUID, by dependency.Actor, _ time.Time) error {
+	f.principal = by.ID
+	return f.err
+}
+func (f *fakeDependencies) MarkSent(context.Context, uuid.UUID, time.Time) (int, error) {
+	return 0, f.err
+}
+func (f *fakeDependencies) OpenRides(context.Context) ([]uuid.UUID, error) {
+	return nil, f.err
+}
+func (f *fakeDependencies) Confirm(_ context.Context, _ uuid.UUID, by dependency.Actor, _, _ string, _ time.Time) error {
+	f.principal = by.ID
+	return f.err
+}
+func (f *fakeDependencies) Waive(_ context.Context, _ uuid.UUID, by dependency.Actor, _, _ string, _ time.Time) error {
+	f.principal = by.ID
+	return f.err
+}
+
 // fakeKnowledge has one case summary, and fails everything else with err.
 type fakeKnowledge struct {
 	summary knowledge.CaseSummaryView
@@ -212,11 +257,12 @@ func newFakeBackend(t *testing.T) *Backend {
 	t.Helper()
 	return &Backend{
 		cfg: BackendConfig{
-			Handler:   &fakeCommands{err: aggregate.ErrNotFound},
-			Reads:     &fakeReads{},
-			Evidence:  &fakeEvidence{err: evidence.ErrNotFound},
-			Comms:     &fakeComms{},
-			Knowledge: &fakeKnowledge{err: knowledge.ErrNoSummary},
+			Handler:      &fakeCommands{err: aggregate.ErrNotFound},
+			Reads:        &fakeReads{},
+			Evidence:     &fakeEvidence{err: evidence.ErrNotFound},
+			Comms:        &fakeComms{},
+			Dependencies: &fakeDependencies{},
+			Knowledge:    &fakeKnowledge{err: knowledge.ErrNoSummary},
 		},
 		verifier: testVerifier(t),
 	}
@@ -302,6 +348,59 @@ func TestCommsAck_OnFakes(t *testing.T) {
 	store.err = errStoreDown
 	if code, _ := send(t, b, "POST", "/api/comms/"+id.String()+"/done", mintToken(t, nil), ""); code != http.StatusUnprocessableEntity {
 		t.Errorf("refused act: status %d; want 422", code)
+	}
+}
+
+// TestDependencies_OnFakes: no store is a 503 on every route (the resolve
+// routes included, whose method values would panic on a nil store); a create
+// is the token subject's act on an open investigation, and refused for an AI
+// delegate, an unknown investigation and a concluded one; the store's refusals
+// map to their statuses (resolved 409, invalid 422).
+func TestDependencies_OnFakes(t *testing.T) {
+	b := newFakeBackend(t)
+	inv := uuid.New()
+	b.cfg.Reads = &fakeReads{investigation: aggregate.InvestigationCurrent{AggregateID: inv, Status: aggregate.StatusActive}}
+	b.cfg.Dependencies = nil
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/investigations/" + inv.String() + "/dependencies"},
+		{"POST", "/api/investigations/" + inv.String() + "/dependencies"},
+		{"POST", "/api/dependencies/" + uuid.NewString() + "/attach"},
+		{"POST", "/api/dependencies/" + uuid.NewString() + "/confirm"},
+		{"POST", "/api/dependencies/" + uuid.NewString() + "/waive"},
+	} {
+		if code, _ := send(t, b, c.method, c.path, mintToken(t, nil), `{"note":"x"}`); code != http.StatusServiceUnavailable {
+			t.Errorf("no store: %s %s = %d; want 503", c.method, c.path, code)
+		}
+	}
+	store := &fakeDependencies{}
+	b.cfg.Dependencies = store
+	if code, _ := send(t, b, "POST", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, map[string]any{"delegate_kind": "claude"}), `{"title":"rotate","owner":"platform"}`); code != http.StatusForbidden {
+		t.Errorf("delegate create: status %d; want 403", code)
+	}
+	if code, _ := send(t, b, "POST", "/api/investigations/"+uuid.NewString()+"/dependencies", mintToken(t, nil), `{"title":"rotate","owner":"platform"}`); code != http.StatusNotFound {
+		t.Errorf("unknown investigation: status %d; want 404", code)
+	}
+	b.cfg.Reads = &fakeReads{investigation: aggregate.InvestigationCurrent{AggregateID: inv, Status: aggregate.StatusConcluded}}
+	if code, _ := send(t, b, "POST", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, nil), `{"title":"rotate","owner":"platform"}`); code != http.StatusConflict {
+		t.Errorf("concluded investigation: status %d; want 409", code)
+	}
+	b.cfg.Reads = &fakeReads{investigation: aggregate.InvestigationCurrent{AggregateID: inv, Status: aggregate.StatusActive}}
+	if code, body := send(t, b, "POST", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, nil), `{"title":"rotate","owner":"platform"}`); code != http.StatusCreated {
+		t.Fatalf("create: status %d: %s", code, body)
+	}
+	if store.principal != "test-subject" || store.dep.Title != "rotate" {
+		t.Errorf("create recorded %q / %q", store.principal, store.dep.Title)
+	}
+	if code, _ := send(t, b, "POST", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, nil), `{"title":"rotate"}`); code != http.StatusBadRequest {
+		t.Errorf("create without owner: status %d; want 400", code)
+	}
+	store.err = dependency.ErrResolved
+	if code, _ := send(t, b, "POST", "/api/dependencies/"+store.dep.ID.String()+"/confirm", mintToken(t, nil), `{"note":"done"}`); code != http.StatusConflict {
+		t.Errorf("resolved: status %d; want 409", code)
+	}
+	store.err = dependency.ErrInvalid
+	if code, _ := send(t, b, "POST", "/api/dependencies/"+store.dep.ID.String()+"/waive", mintToken(t, nil), `{}`); code != http.StatusUnprocessableEntity {
+		t.Errorf("invalid: status %d; want 422", code)
 	}
 }
 

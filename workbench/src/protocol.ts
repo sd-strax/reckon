@@ -19,6 +19,7 @@ import type {
   CaseRow,
   CaseSummaryView,
   CommsThread,
+  Dependency,
   Enablement,
   EventClassKeys,
   EventGroup,
@@ -50,7 +51,9 @@ export type InspectorTarget =
   | { kind: "case"; investigationRef: string }
   | { kind: "person"; principalId: string }
   // A capability call (adr/0092): the record behind a tool row or a timeline row.
-  | { kind: "call"; callId: string };
+  | { kind: "call"; callId: string }
+  // A dependency (adr/0101): rendered from the snapshot alone.
+  | { kind: "dependency"; dependencyId: string };
 
 /**
  * One entry of the knowledge library (adr/0129): a procedure or a past case,
@@ -123,6 +126,8 @@ export interface InvestigationSnapshot {
   pins: PinRow[];
   /** Comms / external-work threads; null when the layer is off. */
   comms: CommsThread[] | null;
+  /** The work the conclusion depends on that only someone outside reckon can do (adr/0101); null when the layer is off. */
+  dependencies: Dependency[] | null;
   /** The committed reasoning thread; null when its fetch failed. */
   thread: ThreadEntry[] | null;
   /** Transcript bodies for the most recent transcript-bearing entries. */
@@ -284,6 +289,10 @@ export type InboundMessage =
   | { type: "comms.act"; threadId: string; verb: "ack" | "done" }
   | { type: "comms.snooze"; threadId: string; hours: number }
   | { type: "comms.followup"; threadId: string; actionType: string; target: string; subject: string; message: string; followUpHours: number }
+  // Dependencies (adr/0101): the analyst records, rides on a message, and resolves them.
+  | { type: "dependency.create"; title: string; owner: string; detail?: string; externalRef?: string; notifyActionId?: string }
+  | { type: "dependency.attach"; dependencyId: string; notifyActionId: string }
+  | { type: "dependency.resolve"; dependencyId: string; verb: "confirm" | "waive"; note: string; externalRef?: string }
   | { type: "lifecycle"; transition: string; reason?: string; summary?: string }
   // The analyst stopped the running turn.
   | { type: "turn.stop" }

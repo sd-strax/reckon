@@ -8,7 +8,7 @@ import { refType, refTypeLabel } from "../refs";
 export type Renderer =
   | "evidence" | "entity" | "absence" | "detection" | "attestation"
   | "prediction" | "hypothesis" | "action" | "thread" | "case"
-  | "turn" | "pin" | "act" | "person" | "alias" | "procedure" | "call";
+  | "turn" | "pin" | "act" | "person" | "alias" | "procedure" | "call" | "dependency";
 
 /** An agent turn has a transcript to show; a pin or a human act does not (#144). */
 export function turnRenderer(entry: ThreadEntry | undefined): "turn" | "pin" | "act" {
@@ -34,6 +34,7 @@ export function targetKey(t: InspectorTarget): string {
     case "case": return "case:" + t.investigationRef;
     case "person": return "person:" + t.principalId;
     case "call": return "call:" + t.callId;
+    case "dependency": return "dependency:" + t.dependencyId;
   }
 }
 
@@ -48,6 +49,7 @@ export function rendererFor(t: InspectorTarget, doc?: EvidenceDoc | null, entry?
     case "case": return "case";
     case "person": return "person";
     case "call": return "call";
+    case "dependency": return "dependency";
     case "ref": {
       const type = refType(t.ref);
       if (type === "x-null-observation") return "absence";
@@ -85,6 +87,7 @@ export function rendererLabel(r: Renderer): string {
     case "alias": return "Alias";
     case "procedure": return "Procedure";
     case "call": return "Capability call";
+    case "dependency": return "Dependency";
   }
 }
 
@@ -128,6 +131,10 @@ export function targetName(t: InspectorTarget, snap: InvestigationSnapshot | nul
       return consulted?.title || "Past case";
     }
     case "call": return labels["call:" + t.callId] || "Capability call";
+    case "dependency": {
+      const d = snap?.dependencies?.find((x) => x.dependencyId === t.dependencyId);
+      return d ? d.title : "Dependency";
+    }
     case "person": {
       const e = snap?.thread?.find((x) => x.actor.principal === t.principalId && x.actor.principalName);
       return e?.actor.principalName || t.principalId;
