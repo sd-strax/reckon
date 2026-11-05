@@ -31,8 +31,8 @@ describe("the approval fact on a card", () => {
     expect(approvalFact(twoParty({ status: "PENDING_SECONDARY", secondaryApproverPool: ["analyst-b"], primaryApproverRef: "analyst-b" })))
       .toBe("no one left in the pool can complete it · its only member gave the first approval");
   });
-  it("says a pre-authorized request is held on a draft investigation", () => {
-    expect(approvalFact(row({ requiredMode: "AUTO_POLICY" }))).toBe("a policy pre-authorizes it · held for a human approval while the investigation is a draft");
+  it("asks for the reader's approval on a row frozen AUTO_POLICY that is still pending, claiming nothing about why", () => {
+    expect(approvalFact(row({ requiredMode: "AUTO_POLICY" }))).toBe("needs your approval");
   });
   it("keeps the settled words once decided", () => {
     expect(approvalFact(row({ status: "APPROVED", pending: false }))).toBe("approved");

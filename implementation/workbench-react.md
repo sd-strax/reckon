@@ -904,9 +904,10 @@ Approval row states the requirement in the sheet's words and links to the record
 `authorization` block carries the matched policy, its effect and every evaluation with its
 shadow outcome.* *The card states the human approval still needed and makes no claim about
 whether a policy matched: the row carries the frozen requirement, not the evaluation, and the
-two differ (the draft hold keeps a pre-authorized request pending; an edit never relaxes a
-frozen MANUAL). The first approver is served too and left out of who completes a two-party
-approval.*
+two differ (a pending row frozen `AUTO_POLICY` does not say why the approval did not happen:
+the draft hold, no accountable human, a failed approval write, an edit that stopped matching;
+an edit never relaxes a frozen MANUAL). The first approver is served too and left out of who
+completes a two-party approval.*
 
 ### 8.6 §6.17 — Owner action items
 
