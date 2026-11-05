@@ -463,10 +463,10 @@ func TestDependencies_SentOnResolvedOutcome(t *testing.T) {
 // each for a different OPEN dependency, run at once; then again against the
 // reconciler and a direct MarkSent. Every request answers with a refusal (409:
 // settled here; 422: another path settled it first) and never with an aborted
-// transaction, and every dependency ends SENT on the send it rode. The lock
-// order (row, action, investigation; bulk rows by id; one row settled from an
-// attach) is what keeps the transactions from waiting on each other: with the
-// attach settling every row of the send, the first phase deadlocks.
+// transaction, and every dependency ends SENT on the send it rode. The locking
+// (the investigation first, then one row from an attach, bulk rows by id) is
+// what keeps the transactions from waiting on each other: with the attach
+// settling every row of the send, the first phase deadlocks.
 func TestDependencies_ConcurrentSettle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")
@@ -553,4 +553,133 @@ func TestDependencies_ConcurrentSettle(t *testing.T) {
 	}
 	phase("alone", 48, false)
 	phase("raced", 48, true)
+}
+
+// TestDependencies_AttachRacesFirstApproval: the first full approval of a
+// DRAFT investigation's action activates the investigation before it approves
+// the action, so that one aggregate transaction writes investigation_current
+// before action_current, where an ACTIVE approval writes them the other way
+// round. An attach racing it must never deadlock against either: each attach
+// here either moves the dependency before the approval lands (200) or finds
+// the send approved and refuses (409), and every approval commits. The
+// contention is made certain rather than hoped for: a gate transaction holds
+// every investigation row while the approvals and attaches queue up behind it,
+// and releases them together. Against the store that locked the action row
+// before the investigation row, this deadlocks on every run.
+func TestDependencies_AttachRacesFirstApproval(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	if _, err := testDB.Exec(`TRUNCATE dependencies`); err != nil {
+		t.Fatalf("truncate dependencies: %v", err)
+	}
+	store := dependency.NewStore(testDB)
+	b := newTestBackend(t)
+	b.cfg.Dependencies = store
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	token := mintToken(t, nil)
+
+	const n = 32
+	type race struct {
+		inv, ride, other uuid.UUID
+		dep              uuid.UUID
+	}
+	races := make([]race, 0, n)
+	for i := 0; i < n; i++ {
+		inv := draftInvestigation(t)
+		r := race{inv: inv, ride: requestNotify(t, inv, "#platform"), other: requestNotify(t, inv, "#desktop")}
+		d, err := store.Create(context.Background(), dependency.Create{
+			AggregateID: inv, TenantID: module.SingleTenantUUID, Title: fmt.Sprintf("task %d", i), Owner: "platform team",
+			NotifyActionID: r.ride, By: dependency.Actor{ID: "test-subject"}, At: time.Now(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.dep = d.ID
+		races = append(races, r)
+	}
+
+	// The gate: every investigation row held exclusively, as the activation
+	// holds it, until both sides of every race are waiting on it.
+	gate, err := testDB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range races {
+		if _, err := gate.Exec(`SELECT 1 FROM investigation_current WHERE aggregate_id = $1 FOR UPDATE`, r.inv); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	approveErrs := make([]error, n)
+	codes := make([]int, n)
+	bodies := make([]string, n)
+	for i, r := range races {
+		wg.Add(2)
+		go func(i int, r race) {
+			defer wg.Done()
+			env := newEnvelope(r.inv, aggregate.Actor{PrincipalID: "test-subject", Kind: aggregate.ActorHuman}, commandNow())
+			_, approveErrs[i] = testHandler.Handle(context.Background(), env, aggregate.ApproveAction{
+				ActionID: r.ride, Authorization: aggregate.Authorization{Mode: aggregate.AuthModeManual, Stage: aggregate.AuthStageSolo, PrimaryApproverRef: "test-subject", PrimaryApprovedAt: time.Now()},
+			})
+		}(i, r)
+		go func(i int, r race) {
+			defer wg.Done()
+			raw, _ := json.Marshal(AttachDependencyBody{NotifyActionID: r.other.String()})
+			req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/dependencies/"+r.dep.String()+"/attach", bytes.NewReader(raw))
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				codes[i] = -1
+				return
+			}
+			defer resp.Body.Close()
+			var out bytes.Buffer
+			_, _ = out.ReadFrom(resp.Body)
+			codes[i], bodies[i] = resp.StatusCode, out.String()
+		}(i, r)
+	}
+	// Let both sides of every race reach the gate, then open it.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var waiting int
+		if err := testDB.QueryRow(`SELECT COUNT(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting >= 2*n || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := gate.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+
+	moved, refused := 0, 0
+	for i, r := range races {
+		if approveErrs[i] != nil {
+			t.Errorf("approval %d failed: %v", i, approveErrs[i])
+		}
+		switch codes[i] {
+		case http.StatusOK:
+			moved++
+		case http.StatusConflict:
+			refused++
+		default:
+			t.Errorf("attach %d = %d: %s; want 200 or 409, never an aborted transaction", i, codes[i], bodies[i])
+		}
+		d, err := store.Get(context.Background(), r.dep)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (codes[i] == http.StatusOK && d.NotifyActionID != r.other) || (codes[i] == http.StatusConflict && d.NotifyActionID != r.ride) {
+			t.Errorf("dependency %d rides on %s after a %d", i, d.NotifyActionID, codes[i])
+		}
+	}
+	t.Logf("attaches: %d moved before the approval, %d refused after it", moved, refused)
 }

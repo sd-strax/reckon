@@ -19,13 +19,22 @@
 // with a share lock on the investigation's current row, so a conclusion that
 // committed first is seen and refused, and one that starts later waits.
 //
-// Lock order, shared with the aggregate so no two transactions wait on each
-// other: a dependency row first (the aggregate never touches one), then
-// action_current, then investigation_current. The aggregate's projectors
-// write action_current before investigation_current in every transaction that
-// touches both (an approval, a result, a request), and this package takes the
-// same two rows in the same order. A bulk update over dependency rows takes
-// them in dependency_id order, so two bulk updates on one send cannot cross.
+// One serialization point against the aggregate: the investigation's row in
+// investigation_current. Every aggregate command that changes an action's
+// status pairs its event with an interpretation record, and the investigation
+// projector advances its cursor on that record, so every such transaction
+// writes the investigation row (in whichever order its events fall; the first
+// approval of a DRAFT investigation writes it before the action row, an ACTIVE
+// approval after). A transaction here takes a share lock on that row FIRST,
+// holding nothing else, and never locks action_current: an action status read
+// under the investigation lock is consistent, because an aggregate transaction
+// that would change it has either committed already or is blocked on the row
+// until this transaction commits. The store holds the investigation row and
+// dependency rows; the aggregate holds action rows and the investigation row;
+// the one resource they share is taken here with nothing held, so no cycle
+// is possible under any event order. Among this package's own transactions,
+// share locks on the investigation are compatible, a single row is taken after
+// it, and a bulk update takes its rows in dependency_id order.
 package dependency
 
 import (
@@ -223,13 +232,11 @@ func (s *Store) List(ctx context.Context, aggregateID uuid.UUID) ([]Dependency, 
 // while OPEN; a SENT dependency already rode a sent message, a resolved one is
 // final. The caller checks the new action belongs to the investigation and is
 // a pending notify.* action. The current ride is checked here, in the
-// transaction: a share lock on its action_current row serializes against the
-// approval and the result that move it, so an approved, executing or
+// transaction, under the investigation lock that serializes against the
+// approval and the result that move it: an approved, executing or
 // outcome-unknown send keeps the dependency (ErrInFlight), and one that has
 // already succeeded marks this dependency SENT in the same transaction and
 // refuses the move. A ride that stopped, or never started, is free to change.
-// Locks are taken in the package's order: this row, the action, then the
-// investigation.
 func (s *Store) Attach(ctx context.Context, id, actionID uuid.UUID, by Actor, at time.Time) error {
 	event, ref := EventAttached, actionID.String()
 	if actionID == uuid.Nil {
@@ -244,22 +251,36 @@ func (s *Store) Attach(ctx context.Context, id, actionID uuid.UUID, by Actor, at
 	// transaction rather than from inside it.
 	settled := false
 	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		if err := lockOpenFor(ctx, tx, id); err != nil {
+			return err
+		}
 		cur, err := lockDependency(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		// The action before the investigation, as the aggregate writes them.
-		rideStatus := ""
-		if cur.notifyActionID != uuid.Nil && cur.notifyActionID != actionID {
-			if rideStatus, err = lockAction(ctx, tx, cur.notifyActionID); err != nil {
-				return err
-			}
-		}
-		if err := lockOpen(ctx, tx, cur.aggregateID); err != nil {
-			return err
-		}
 		if cur.status != StatusOpen {
 			return statusRefusal(cur.status)
+		}
+		// The new ride, under the same lock: it has to be a send not yet out.
+		// The route checked that before the transaction; a rejection, expiry
+		// or result committing in between would otherwise land the dependency
+		// on a dead or an already-sent message.
+		if actionID != uuid.Nil && actionID != cur.notifyActionID {
+			status, err := actionStatus(ctx, tx, actionID)
+			if err != nil {
+				return err
+			}
+			switch status {
+			case aggregate.ActionStatusRequested, aggregate.ActionStatusPendingSecondary, aggregate.ActionStatusApproved, aggregate.ActionStatusExecuting:
+			default:
+				return fmt.Errorf("%w: the notify action is %s; a dependency rides on one not yet sent", ErrInvalid, status)
+			}
+		}
+		rideStatus := ""
+		if cur.notifyActionID != uuid.Nil && cur.notifyActionID != actionID {
+			if rideStatus, err = actionStatus(ctx, tx, cur.notifyActionID); err != nil {
+				return err
+			}
 		}
 		switch rideStatus {
 		case aggregate.ActionStatusApproved, aggregate.ActionStatusExecuting, aggregate.ActionStatusOutcomeUnknown:
@@ -433,11 +454,11 @@ func (s *Store) transition(ctx context.Context, id uuid.UUID, from []string, set
 	q := `UPDATE dependencies SET ` + set + `, updated_at = $2, history = history || $3::jsonb
 	      WHERE dependency_id = $1 AND status IN (` + strings.Join(placeholders, ", ") + `)`
 	return s.inTx(ctx, func(tx *sql.Tx) error {
-		cur, err := lockDependency(ctx, tx, id)
-		if err != nil {
+		if err := lockOpenFor(ctx, tx, id); err != nil {
 			return err
 		}
-		if err := lockOpen(ctx, tx, cur.aggregateID); err != nil {
+		cur, err := lockDependency(ctx, tx, id)
+		if err != nil {
 			return err
 		}
 		res, err := tx.ExecContext(ctx, q, bound...)
@@ -453,19 +474,39 @@ func (s *Store) transition(ctx context.Context, id uuid.UUID, from []string, set
 
 // lockedDependency is what a mutation reads about its row under the lock.
 type lockedDependency struct {
-	aggregateID    uuid.UUID
 	status         string
 	notifyActionID uuid.UUID
 }
 
+// lockOpenFor is lockOpen for the investigation a dependency belongs to, in
+// one statement: the dependency's row is read without a lock (its investigation
+// never changes) and the share lock lands on the investigation row alone. No
+// row means no such dependency, since a dependency's investigation exists.
+func lockOpenFor(ctx context.Context, tx *sql.Tx, id uuid.UUID) error {
+	var status string
+	err := tx.QueryRowContext(ctx, `
+		SELECT ic.status FROM investigation_current ic
+		WHERE ic.aggregate_id = (SELECT aggregate_id FROM dependencies WHERE dependency_id = $1)
+		FOR SHARE OF ic
+	`, id).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("lock investigation: %w", err)
+	}
+	return refuseClosed(status)
+}
+
 // lockDependency takes the row lock on a dependency for the rest of the
-// transaction and reads what its mutations decide on.
+// transaction and reads what its mutations decide on. The caller holds the
+// investigation lock.
 func lockDependency(ctx context.Context, tx *sql.Tx, id uuid.UUID) (lockedDependency, error) {
 	var cur lockedDependency
 	var notify uuid.NullUUID
 	err := tx.QueryRowContext(ctx, `
-		SELECT aggregate_id, status, notify_action_id FROM dependencies WHERE dependency_id = $1 FOR UPDATE
-	`, id).Scan(&cur.aggregateID, &cur.status, &notify)
+		SELECT status, notify_action_id FROM dependencies WHERE dependency_id = $1 FOR UPDATE
+	`, id).Scan(&cur.status, &notify)
 	if errors.Is(err, sql.ErrNoRows) {
 		return cur, ErrNotFound
 	}
@@ -478,18 +519,19 @@ func lockDependency(ctx context.Context, tx *sql.Tx, id uuid.UUID) (lockedDepend
 	return cur, nil
 }
 
-// lockAction takes a share lock on an action's current row and returns its
-// status. The aggregate updates action_current in the transaction that appends
-// the approval or the result, so the status read here cannot change under the
-// caller before it commits. An action with no row has no status to wait for.
-func lockAction(ctx context.Context, tx *sql.Tx, actionID uuid.UUID) (string, error) {
+// actionStatus reads an action's current status, without a lock. The caller
+// holds the investigation's share lock, and every aggregate transaction that
+// changes an action's status also writes the investigation row, so the value
+// read here is the one that holds until this transaction commits. An action
+// with no row has no status to wait for.
+func actionStatus(ctx context.Context, tx *sql.Tx, actionID uuid.UUID) (string, error) {
 	var status string
-	err := tx.QueryRowContext(ctx, `SELECT status FROM action_current WHERE action_id = $1 FOR SHARE`, actionID).Scan(&status)
+	err := tx.QueryRowContext(ctx, `SELECT status FROM action_current WHERE action_id = $1`, actionID).Scan(&status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("lock action: %w", err)
+		return "", fmt.Errorf("read action: %w", err)
 	}
 	return status, nil
 }
@@ -504,11 +546,11 @@ func statusRefusal(status string) error {
 }
 
 // lockOpen takes a share lock on the investigation's current row for the rest
-// of the transaction and refuses a closed investigation. The lock is what
-// serializes a dependency's mutation against the conclusion: the aggregate
-// updates investigation_current in the transaction that appends the
-// concluding event, so a conclusion that committed first is read here, and
-// one that starts later waits for this transaction to end.
+// of the transaction and refuses a closed investigation. It is taken before
+// any other lock. It serializes a dependency's mutation against every
+// aggregate transaction on the investigation: the conclusion (a conclusion
+// that committed first is read here, one that starts later waits), and every
+// action transition, since each writes the investigation row too.
 func lockOpen(ctx context.Context, tx *sql.Tx, aggregateID uuid.UUID) error {
 	var status string
 	err := tx.QueryRowContext(ctx, `SELECT status FROM investigation_current WHERE aggregate_id = $1 FOR SHARE`, aggregateID).Scan(&status)
@@ -518,6 +560,11 @@ func lockOpen(ctx context.Context, tx *sql.Tx, aggregateID uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("lock investigation: %w", err)
 	}
+	return refuseClosed(status)
+}
+
+// refuseClosed is ErrClosed for a concluded, archived or discarded status.
+func refuseClosed(status string) error {
 	switch status {
 	case aggregate.StatusConcluded, aggregate.StatusArchived, aggregate.StatusDiscarded:
 		return fmt.Errorf("%w: investigation is %s", ErrClosed, status)

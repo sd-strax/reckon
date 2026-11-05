@@ -58,19 +58,30 @@ that failed after its fact committed is caught within the sweep's interval.
 While the ride is in flight (APPROVED, EXECUTING, OUTCOME_UNKNOWN) the
 dependency stays on it: re-pointing or detaching is refused, since the send's
 outcome is what decides whether the owner was asked. The store judges that in
-the attach transaction, under a share lock on the ride's `action_current` row,
-which the aggregate updates when it approves or records the result, so an
-approval cannot slip between the check and the write; a ride that has already
-succeeded marks that one dependency SENT in the same transaction and refuses
-the move, so the link the reconciler would need is never taken away. The locks
-are taken in the order the aggregate writes the same rows (the dependency row,
-which the aggregate never touches, then `action_current`, then
-`investigation_current`), and a bulk SENT update takes its rows in id order,
-so no two of these transactions can wait on each other. A ride that
-stopped (failed, expired, rejected) can move to a pending replacement. CONFIRMED or
+the attach transaction, under the investigation lock, so an approval cannot
+slip between the check and the write; a ride that has already succeeded marks
+that one dependency SENT in the same transaction and refuses the move, so the
+link the reconciler would need is never taken away. A ride that stopped
+(failed, expired, rejected) can move to a pending replacement; the new ride is
+judged under the same lock, and has to be a send not yet out. CONFIRMED or
 WAIVED by the analyst, with a note; a waive needs one, since a conclusion with
 work knowingly left open is legitimate only when the record says why. Resolved
 is final. A reply on the channel never moves a dependency.
+
+**One serialization point against the aggregate.** Every aggregate command
+that changes an action's status pairs its event with an interpretation record,
+and the investigation projector advances its cursor on that record, so every
+such transaction writes the investigation's `investigation_current` row,
+whatever order its events fall in (the first approval of a DRAFT investigation
+writes it before the action row, an ACTIVE approval after). The store takes a
+share lock on that row first, holding nothing else, in every mutation, and
+never locks `action_current`: an action status read under the investigation
+lock is the one that holds until the store's transaction commits. The store
+holds the investigation row and dependency rows; the aggregate holds action
+rows and the investigation row; the one resource they share is taken by the
+store with nothing held, so no cycle is possible under any event order. Among
+the store's own transactions, the share locks are compatible, a single row
+follows them, and a bulk SENT update takes its rows in id order.
 
 **Every write is a person's act on an open investigation.** An AI delegate's
 token is refused on record, attach, confirm and waive, as it is on an action's
