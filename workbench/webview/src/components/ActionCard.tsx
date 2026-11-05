@@ -209,7 +209,7 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
       <dl className="acfacts">
         <div><dt>Can be undone</dt><dd>{undoWords(a.reversibility)}</dd></div>
         <div><dt>Runs on</dt><dd className="mono">{a.adapter || a.plannedAdapter || "no tool connected"}{a.resultRef ? " → " + a.resultRef : ""}</dd></div>
-        <div><dt>Approval</dt><dd>{a.pending ? (a.requiredMode === "TWO_PARTY" ? "two people must approve" : "needs your approval — no policy approves it on its own") : a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED" || a.status === "OUTCOME_UNKNOWN" ? "approved" : a.status === "REJECTED" ? "rejected" : "—"}</dd></div>
+        <div><dt>Approval</dt><dd>{approvalFact(a)}{a.pending ? <> · <a title="The Gate 2 decision on this request: the policy that matched, its effect, and what a shadow policy would have done" onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>policy decision ›</a></> : null}</dd></div>
         <div><dt>Time to decide</dt><dd>{a.pending && !a.expired && a.expiresAt ? <Countdown expiresAt={a.expiresAt} /> : a.expired ? "ran out" : "—"}</dd></div>
       </dl>
       {a.editedAt ? <div className="cardmeta">✎ edited before approval · {fmtTime(a.editedAt)} — <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>see what changed</a></div> : null}
@@ -254,4 +254,23 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
       ) : null}
     </div>
   );
+}
+
+// approvalFact states the frozen Gate 2 requirement on a pending action in
+// the sheet's words (adr/0099): no policy pre-authorizes a manual one; a
+// two-party one names who completes it, the pool the requiring policy froze,
+// or the on-call rotation when it named none (04 §4.1). The matched policy
+// and the shadow outcomes stay on the record, one click away.
+export function approvalFact(a: ActionRow): string {
+  if (!a.pending) {
+    return a.status === "APPROVED" || a.status === "EXECUTING" || a.status === "SUCCEEDED" || a.status === "OUTCOME_UNKNOWN" ? "approved" : a.status === "REJECTED" ? "rejected" : "—";
+  }
+  const pool = a.secondaryApproverPool?.length ? "one of " + a.secondaryApproverPool.join(", ") : "the on-call rotation";
+  if (a.status === "PENDING_SECONDARY") {
+    return `awaiting a second approval from ${pool}`;
+  }
+  if (a.requiredMode === "TWO_PARTY") {
+    return `two-party · a second approval from ${pool}`;
+  }
+  return "needs your approval · no policy pre-authorizes it";
 }

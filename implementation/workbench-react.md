@@ -897,6 +897,13 @@ the existing "Auto-approved by policy <ref>" badge. The mockup's "Pre-authorized
 button is not a state the engine has; the sheet's wording ("whether … pre-authorizes … or it
 needs an approval routed to its owner") is what renders.
 
+*Built: `adr/0099`, the minimal rendering. The list row serves `secondary_approver_pool`
+beside the `required_mode` it already had, both frozen on the projection; no `policy` object
+is folded onto `action_current` and `action.policy_evaluated` stays audit-only. The card's
+Approval row states the requirement in the sheet's words and links to the record, whose
+`authorization` block carries the matched policy, its effect and every evaluation with its
+shadow outcome.*
+
 ### 8.6 §6.17 — Owner action items
 
 **Decision.** An owner action item is **its own record**, CRUD + thin history, modeled on the

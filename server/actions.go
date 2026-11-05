@@ -45,16 +45,22 @@ type RequestActionResponse struct {
 // projection's raw lifecycle status (REQUESTED/PENDING_SECONDARY/APPROVED/…);
 // required_mode says what approval the request still needs (MANUAL/TWO_PARTY).
 type ActionView struct {
-	ActionID     string                 `json:"action_id"`
-	ActionType   string                 `json:"action_type"`
-	Tier         string                 `json:"tier"`
-	Status       string                 `json:"status"`
-	RequiredMode string                 `json:"required_mode,omitempty"`
-	Mode         string                 `json:"mode,omitempty"`
-	IsReversal   bool                   `json:"is_reversal,omitempty"`
-	Targets      []aggregate.TargetSpec `json:"targets,omitempty"`
-	EvidenceRefs []string               `json:"evidence_refs,omitempty"`
-	ExpiresAt    *time.Time             `json:"expires_at,omitempty"`
+	ActionID     string `json:"action_id"`
+	ActionType   string `json:"action_type"`
+	Tier         string `json:"tier"`
+	Status       string `json:"status"`
+	RequiredMode string `json:"required_mode,omitempty"`
+	// SecondaryApproverPool is who may complete a two-party approval, frozen
+	// at request time by the policy that required it (04 §4.1); empty for a
+	// manual action, and for a two-party one whose policy named no pool (the
+	// on-call rotation then). The card tells the first approver who finishes
+	// it (adr/0099).
+	SecondaryApproverPool []string               `json:"secondary_approver_pool,omitempty"`
+	Mode                  string                 `json:"mode,omitempty"`
+	IsReversal            bool                   `json:"is_reversal,omitempty"`
+	Targets               []aggregate.TargetSpec `json:"targets,omitempty"`
+	EvidenceRefs          []string               `json:"evidence_refs,omitempty"`
+	ExpiresAt             *time.Time             `json:"expires_at,omitempty"`
 	// Parameters are the request's frozen parameters — the pre-send preview
 	// for notify.* actions renders the message body from here (binding §4:
 	// the preview IS the approval surface, so the approver must see exactly
@@ -135,20 +141,21 @@ type EditableInput struct {
 // catalog's default, the pre-approval planned adapter).
 func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	v := ActionView{
-		ActionID:      a.ActionID.String(),
-		ActionType:    a.ActionType,
-		Tier:          a.Tier,
-		Status:        a.Status,
-		RequiredMode:  a.RequiredMode,
-		Mode:          a.Mode,
-		IsReversal:    a.IsReversal,
-		Targets:       a.Targets,
-		EvidenceRefs:  a.EvidenceRefs,
-		Reversibility: a.Reversibility,
-		Parameters:    a.Parameters,
-		Adapter:       a.Adapter,
-		ErrorDetail:   a.ErrorDetail,
-		ResultRef:     a.RawResponseRef,
+		ActionID:              a.ActionID.String(),
+		ActionType:            a.ActionType,
+		Tier:                  a.Tier,
+		Status:                a.Status,
+		RequiredMode:          a.RequiredMode,
+		SecondaryApproverPool: a.SecondaryApproverPool,
+		Mode:                  a.Mode,
+		IsReversal:            a.IsReversal,
+		Targets:               a.Targets,
+		EvidenceRefs:          a.EvidenceRefs,
+		Reversibility:         a.Reversibility,
+		Parameters:            a.Parameters,
+		Adapter:               a.Adapter,
+		ErrorDetail:           a.ErrorDetail,
+		ResultRef:             a.RawResponseRef,
 	}
 	if a.RetryOf != (uuid.UUID{}) {
 		v.RetryOf = a.RetryOf.String()

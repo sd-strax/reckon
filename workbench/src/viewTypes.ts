@@ -564,6 +564,8 @@ export interface ActionRow {
   /** Raw engine lifecycle status (REQUESTED, PENDING_SECONDARY, APPROVED, …). */
   status: string;
   requiredMode: string;
+  /** Who may complete a two-party approval, frozen at request time (adr/0099); absent for manual. */
+  secondaryApproverPool?: string[];
   targets: string[];
   /** True while the action still awaits a human decision. */
   pending: boolean;

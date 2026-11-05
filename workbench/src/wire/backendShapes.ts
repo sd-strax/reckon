@@ -194,6 +194,7 @@ const action = object({
   tier: str,
   status: str,
   required_mode: optional(str),
+  secondary_approver_pool: optional(list(str)),
   expires_at: optional(str),
   targets: optional(list(object({ entity_ref: str, resolved_identifier: str }))),
   is_reversal: optional(bool),

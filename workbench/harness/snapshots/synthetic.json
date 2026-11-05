@@ -167,7 +167,11 @@
         "actionType": "account.disable",
         "tier": "T3",
         "status": "REQUESTED",
-        "requiredMode": "MANUAL",
+        "requiredMode": "TWO_PARTY",
+        "secondaryApproverPool": [
+          "analyst-b",
+          "analyst-c"
+        ],
         "targets": [
           "user-a"
         ],
