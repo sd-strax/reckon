@@ -45,7 +45,18 @@ type Section struct {
 	// in runes.
 	Start, End int
 	Text       string
+	// SplitterVersion and BudgetRunes name the cut this section belongs to:
+	// the rule and the section budget that made it. Set on sections read from
+	// the store; together they are Cut, which a reader pins beside the
+	// revision, because a changed budget re-cuts the same revision.
+	SplitterVersion, BudgetRunes int
 }
+
+// Cut names the cut a stored section belongs to, "<splitter>/<budget>". Section
+// indexes are stable within one revision and one cut; a re-cut under another
+// budget or splitter renumbers them, so a reader that was handed an index
+// passes the cut back and is refused when it has moved.
+func (s Section) Cut() string { return fmt.Sprintf("%d/%d", s.SplitterVersion, s.BudgetRunes) }
 
 // Location renders where the section sits, for rationale text and the
 // record: the heading path joined with " > ", with the part when cut.
@@ -317,7 +328,7 @@ func (p *Postgres) Sections(ctx context.Context, ns, corpus string, id uuid.UUID
 }
 
 // sectionCols is the scan order shared by every section query.
-const sectionCols = `idx, heading_path, part, parts, start_rune, end_rune, text`
+const sectionCols = `idx, heading_path, part, parts, start_rune, end_rune, text, splitter_version, budget_runes`
 
 type rowQuerier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
@@ -333,7 +344,7 @@ func loadSections(ctx context.Context, q rowQuerier, id uuid.UUID) ([]Section, e
 	var out []Section
 	for rows.Next() {
 		var s Section
-		if err := rows.Scan(&s.Idx, pq.Array(&s.HeadingPath), &s.Part, &s.Parts, &s.Start, &s.End, &s.Text); err != nil {
+		if err := rows.Scan(&s.Idx, pq.Array(&s.HeadingPath), &s.Part, &s.Parts, &s.Start, &s.End, &s.Text, &s.SplitterVersion, &s.BudgetRunes); err != nil {
 			return nil, fmt.Errorf("substrate: scan section: %w", err)
 		}
 		out = append(out, s)
@@ -352,7 +363,9 @@ func (p *Postgres) writeSections(ctx context.Context, tx *sql.Tx, e Entry) ([]Se
 		return nil, fmt.Errorf("substrate: clear section vectors for %s: %w", e.ID, err)
 	}
 	secs := SplitSections(e.Body, p.sectionBudget)
-	for _, s := range secs {
+	for i := range secs {
+		s := &secs[i]
+		s.SplitterVersion, s.BudgetRunes = SplitterVersion, p.sectionBudget
 		path := s.HeadingPath
 		if path == nil {
 			path = []string{} // pq encodes a nil slice as NULL; the column is an empty array
@@ -361,7 +374,7 @@ func (p *Postgres) writeSections(ctx context.Context, tx *sql.Tx, e Entry) ([]Se
 			`INSERT INTO substrate_sections
 			   (entry_id, idx, heading_path, part, parts, start_rune, end_rune, text, splitter_version, budget_runes)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-			e.ID, s.Idx, pq.Array(path), s.Part, s.Parts, s.Start, s.End, s.Text, SplitterVersion, p.sectionBudget); err != nil {
+			e.ID, s.Idx, pq.Array(path), s.Part, s.Parts, s.Start, s.End, s.Text, s.SplitterVersion, s.BudgetRunes); err != nil {
 			return nil, fmt.Errorf("substrate: insert section %d of %s: %w", s.Idx, e.ID, err)
 		}
 	}

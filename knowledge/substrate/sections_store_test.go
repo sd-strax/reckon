@@ -110,6 +110,20 @@ func TestReindexRebuildsStaleSections(t *testing.T) {
 	if n := countRows(t, `SELECT count(*) FROM substrate_sections WHERE entry_id = $1`, e.ID); n != 4 {
 		t.Fatalf("sections before = %d", n)
 	}
+	before, err := st.Sections(ctx, testNS, "procedures", e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := before[0].Cut(); got != "1/16000" {
+		t.Fatalf("stored cut = %q, want 1/16000", got)
+	}
+	hits, err := st.Recall(ctx, testNS, RecallQuery{Corpus: "procedures", Query: "isolate destination host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits.Results) == 0 || hits.Results[0].Cut != "1/16000" {
+		t.Fatalf("hit should carry the cut it was ranked under: %+v", hits.Results)
+	}
 
 	// A smaller budget on the same model makes every stored cut stale.
 	small, err := NewPostgres(testDB, testCorpora(), WithEmbedder(&fakeEmbedder{}), WithSectionBudget(120))
@@ -134,6 +148,16 @@ func TestReindexRebuildsStaleSections(t *testing.T) {
 		if n := len([]rune(s.Text)); n > 120 {
 			t.Errorf("section %d is %d runes under a 120 budget", s.Idx, n)
 		}
+		// The revision did not move, the cut did: a reader holding an index
+		// from the old cut must be told, and the cut is what tells it.
+		if s.Cut() != "1/120" {
+			t.Errorf("section %d cut = %q, want 1/120", s.Idx, s.Cut())
+		}
+	}
+	if hits, err := small.Recall(ctx, testNS, RecallQuery{Corpus: "procedures", Query: "isolate destination host"}); err != nil {
+		t.Fatal(err)
+	} else if len(hits.Results) == 0 || hits.Results[0].Cut != "1/120" || hits.Results[0].Revision != e.Revision {
+		t.Fatalf("hit after re-cut should carry cut 1/120 under revision %d: %+v", e.Revision, hits.Results)
 	}
 	if n := countRows(t, `SELECT count(*) FROM substrate_sections WHERE entry_id = $1 AND budget_runes = 120`, e.ID); n != len(secs) {
 		t.Errorf("rows under the new budget = %d, want %d", n, len(secs))

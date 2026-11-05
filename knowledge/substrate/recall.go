@@ -91,8 +91,11 @@ type SectionRef struct {
 // Outline is one location line per section of the entry, so a reader knows
 // what else the document holds.
 type RecallHit struct {
-	EntryID        uuid.UUID
-	Revision       int
+	EntryID  uuid.UUID
+	Revision int
+	// Cut names the cut Section's index belongs to (Section.Cut): a reader
+	// pins a section by revision and cut, since a re-cut renumbers a revision.
+	Cut            string
 	Title          string
 	Excerpt        string
 	Truncated      bool // the excerpt was cut by the budget
@@ -540,7 +543,7 @@ func loadSectionsFor(ctx context.Context, q rowQuerier, ids []uuid.UUID) (map[uu
 			id uuid.UUID
 			s  Section
 		)
-		if err := rows.Scan(&id, &s.Idx, pq.Array(&s.HeadingPath), &s.Part, &s.Parts, &s.Start, &s.End, &s.Text); err != nil {
+		if err := rows.Scan(&id, &s.Idx, pq.Array(&s.HeadingPath), &s.Part, &s.Parts, &s.Start, &s.End, &s.Text, &s.SplitterVersion, &s.BudgetRunes); err != nil {
 			return nil, fmt.Errorf("substrate: scan section: %w", err)
 		}
 		out[id] = append(out[id], s)
@@ -571,6 +574,7 @@ func hitFrom(e Entry, sec Section, all []Section, score float64, budget int) Rec
 	return RecallHit{
 		EntryID:   e.ID,
 		Revision:  e.Revision,
+		Cut:       sec.Cut(),
 		Title:     e.Title,
 		Excerpt:   excerpt,
 		Truncated: truncated,
