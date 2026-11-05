@@ -283,7 +283,9 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     shows what existed at retrieval time (`06 §2.4`, `§6.2`).
 16. **Response-policy status on requested actions** — whether the tenant's Gate 2 policies
     would auto-approve the action, and where the approval routes when they would not,
-    readable on the requested action (`04 §4`).
+    readable on the requested action (`04 §4`). *Built: `adr/0099`, the list row serves
+    `secondary_approver_pool` and `primary_approver_ref` beside `required_mode`; the matched
+    policy and the shadow outcomes stay on `GET /api/actions/{id}`, which the card links to.*
 17. **Owner action items** — work that only an owner outside reckon can do, tracked to
     confirmation with the investigation and counted by the conclude preflight. Open: an
     `x-action` with an external-work descriptor (`00 §4`'s external work) or its own record.

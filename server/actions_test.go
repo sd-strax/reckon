@@ -636,7 +636,7 @@ func TestListInvestigationActions(t *testing.T) {
 		t.Fatalf("host.isolate %s missing from list %+v", first.ActionID, out.Actions)
 	}
 	if iso.ActionType != "host.isolate" || iso.Status != aggregate.ActionStatusRequested ||
-		iso.RequiredMode != aggregate.AuthModeManual ||
+		iso.RequiredMode != aggregate.AuthModeManual || len(iso.SecondaryApproverPool) != 0 ||
 		len(iso.Targets) != 1 || iso.Targets[0].ResolvedIdentifier != "WIN-FILE01" {
 		t.Errorf("host.isolate row mangled: %+v", iso)
 	}

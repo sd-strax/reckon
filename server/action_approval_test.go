@@ -128,10 +128,21 @@ func TestApproveAction_TwoPartyFlow(t *testing.T) {
 	}
 	actionID := req.ActionID
 
+	// The list the card reads carries the pool, so the first approver knows
+	// who completes it (adr/0099).
+	if row := listedAction(t, b, invID, actionID); row.RequiredMode != aggregate.AuthModeTwoParty || len(row.SecondaryApproverPool) != 1 || row.SecondaryApproverPool[0] != "bob" {
+		t.Errorf("listed row = %+v; want TWO_PARTY with pool [bob]", row)
+	}
+
 	// Primary approval (test-subject) → PENDING_SECONDARY, no workflow.
 	_, out := postActionDecision(t, b, mintToken(t, nil), actionID, "approve", nil)
 	if out.Status != aggregate.ActionStatusPendingSecondary || out.Stage != aggregate.AuthStagePrimary {
 		t.Fatalf("primary approval out = %+v; want PENDING_SECONDARY/PRIMARY", out)
+	}
+	// The row names the first approver, so the card can leave them out of
+	// who completes it.
+	if row := listedAction(t, b, invID, actionID); row.Status != aggregate.ActionStatusPendingSecondary || row.PrimaryApproverRef == "" || row.PrimaryApproverRef == "bob" {
+		t.Errorf("listed row after primary = %+v; want PENDING_SECONDARY naming the primary approver", row)
 	}
 
 	// The same principal cannot complete the second stage — two humans required.
@@ -397,4 +408,31 @@ func TestActionDecision_BadBodyRecordsNothing(t *testing.T) {
 	if ac.Status != aggregate.ActionStatusRequested {
 		t.Errorf("projected %s; want REQUESTED (nothing recorded)", ac.Status)
 	}
+}
+
+// listedAction reads one action's row off GET /api/investigations/{id}/actions.
+func listedAction(t *testing.T, b *Backend, invID uuid.UUID, actionID string) ActionView {
+	t.Helper()
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/investigations/"+invID.String()+"/actions", nil)
+	req.Header.Set("Authorization", "Bearer "+mintToken(t, nil))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Actions []ActionView `json:"actions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, a := range out.Actions {
+		if a.ActionID == actionID {
+			return a
+		}
+	}
+	t.Fatalf("action %s not listed", actionID)
+	return ActionView{}
 }

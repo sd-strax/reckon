@@ -6,6 +6,10 @@
       "tier": "x",
       "status": "x",
       "required_mode": "x",
+      "secondary_approver_pool": [
+        "x"
+      ],
+      "primary_approver_ref": "x",
       "mode": "x",
       "is_reversal": true,
       "targets": [
