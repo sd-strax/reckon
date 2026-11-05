@@ -174,8 +174,10 @@ describe("InvestigationDocuments: closing", () => {
   const evidenceDoc = { ref: "ref-1", kind: "observed-data", type: "observed-data", payload: {} };
   const eventRow = { id: "e-1", classUid: 3002, className: "Authentication", time: "2026-01-02T03:04:05Z", recordedAt: "2026-01-02T03:04:05Z", sourceTool: "fixture:s", callId: "c-1", verb: "enumerate_logons", coverage: "COMPLETE", observedDataRefs: [], entityRefs: [], view: { fields: [], category: "auth" } };
 
-  it("posts the retrieved events after the snapshot, stamped with its sequence (adr/0092)", async () => {
-    const events = vi.fn(async () => ({ events: [eventRow], total: 1 }));
+  it("posts the retrieved events after the snapshot, folded by the default key, stamped with its sequence (adr/0092, adr/0095)", async () => {
+    const group = { classUid: 3002, key: [{ slot: "user", label: "Account", text: "svc_backup" }], count: 1, first: eventRow.time, last: eventRow.time, days: 1, eventIds: [eventRow.id] };
+    const keys = { classUid: 3002, className: "Authentication", slots: [{ name: "user", label: "Account" }], default: ["user"], key: ["user"] };
+    const events = vi.fn(async () => ({ events: [eventRow], total: 1, groups: [group], keys: [keys], foldedOver: 1 }));
     const { client } = backend({ "evidence.events": events });
     const { docs } = documents(client);
     docs.show("inv-1");
@@ -187,7 +189,29 @@ describe("InvestigationDocuments: closing", () => {
     expect(patch.patch.eventsTotal).toBe(1);
     expect(patch.patch.eventsError).toBeNull();
     expect(patch.patch.eventsCursor).toBeNull();
-    expect(events).toHaveBeenCalledWith("inv-1", { limit: 500, order: "newest" });
+    expect(patch.patch.eventGroups).toEqual([group]);
+    expect(patch.patch.eventKeys).toEqual([keys]);
+    expect(patch.patch.eventsFoldedOver).toBe(1);
+    expect(events).toHaveBeenCalledWith("inv-1", { groupBy: "default" });
+  });
+
+  it("re-reads the record with the key the timeline chose, or flat when the fold is turned off (adr/0095)", async () => {
+    const events = vi.fn(async (_id: string, q: { groupBy?: string }) => q.groupBy === undefined ? { events: [eventRow], total: 1, nextCursor: "c1" } : { events: [eventRow], total: 1, groups: [], keys: [], foldedOver: 1 });
+    const { client } = backend({ "evidence.events": events });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "events" in m.patch)).toBe(true));
+    panel.webview.receive({ type: "events.fold", keys: "3002:user,logon_type" });
+    await vi.waitFor(() => expect(events).toHaveBeenCalledTimes(2));
+    expect(events).toHaveBeenLastCalledWith("inv-1", { groupBy: "3002:user,logon_type" });
+    panel.webview.receive({ type: "events.fold", keys: null });
+    await vi.waitFor(() => expect(posted().filter((m) => m.type === "state.patch" && "events" in m.patch).length).toBe(3));
+    expect(events).toHaveBeenLastCalledWith("inv-1", { limit: 500, order: "newest" });
+    const flat = posted().filter((m) => m.type === "state.patch" && "events" in m.patch).pop() as Extract<RenderMessage, { type: "state.patch" }>;
+    expect(flat.patch.eventGroups).toBeNull();
+    expect(flat.patch.eventsCursor).toBe("c1");
   });
 
   it("appends the next older page when the timeline asks for it, and ignores a cursor it did not post", async () => {
@@ -198,13 +222,16 @@ describe("InvestigationDocuments: closing", () => {
     docs.show("inv-1");
     const panel = createdPanels()[0]!;
     panel.webview.receive({ type: "ready" });
-    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "eventsCursor" in m.patch)).toBe(true));
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "events" in m.patch)).toBe(true)); // the folded first read
+    panel.webview.receive({ type: "events.fold", keys: null }); // the flat page, which is what pages
+    const flat = () => posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch && !Array.isArray(m.patch.eventGroups));
+    await vi.waitFor(() => expect(flat().length).toBe(1));
     panel.webview.receive({ type: "events.older", cursor: "stale" });
     panel.webview.receive({ type: "events.older", cursor: "2026-01-02T03:04:05Z,e-1" });
-    await vi.waitFor(() => expect(posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch).length).toBe(2));
-    expect(events).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(flat().length).toBe(2));
+    expect(events).toHaveBeenCalledTimes(3); // folded, flat, older
     expect(events).toHaveBeenLastCalledWith("inv-1", { limit: 500, order: "newest", cursor: "2026-01-02T03:04:05Z,e-1" });
-    const last = posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch).pop() as Extract<RenderMessage, { type: "state.patch" }>;
+    const last = flat().pop() as Extract<RenderMessage, { type: "state.patch" }>;
     expect(last.patch.events).toEqual([eventRow, older]);
     expect(last.patch.eventsCursor).toBeNull();
   });
@@ -215,14 +242,16 @@ describe("InvestigationDocuments: closing", () => {
     const events = vi.fn(async (_id: string, q: { cursor?: string }) => {
       if (q.cursor === "c-old") { await slow; return { events: [{ ...eventRow, id: "e-old" }], total: 3, nextCursor: "c-older" }; }
       if (q.cursor === "c-new") return { events: [{ ...eventRow, id: "e-prev" }], total: 3 };
-      return { events: [eventRow], total: 3, nextCursor: events.mock.calls.length > 1 ? "c-new" : "c-old" };
+      return { events: [eventRow], total: 3, nextCursor: events.mock.calls.length > 2 ? "c-new" : "c-old" };
     });
     const { client } = backend({ "evidence.events": events });
     const { docs } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0]!;
     panel.webview.receive({ type: "ready" });
-    const cursorPatches = () => posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch) as Extract<RenderMessage, { type: "state.patch" }>[];
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "events" in m.patch)).toBe(true)); // the folded first read
+    panel.webview.receive({ type: "events.fold", keys: null }); // the flat page; a refresh keeps the fold the timeline is in
+    const cursorPatches = () => posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch && !Array.isArray(m.patch.eventGroups)) as Extract<RenderMessage, { type: "state.patch" }>[];
     await vi.waitFor(() => expect(cursorPatches().length).toBe(1));
     expect(cursorPatches()[0]!.patch.eventsCursor).toBe("c-old");
     panel.webview.receive({ type: "events.older", cursor: "c-old" }); // slow
@@ -249,7 +278,9 @@ describe("InvestigationDocuments: closing", () => {
     docs.show("inv-1");
     const panel = createdPanels()[0]!;
     panel.webview.receive({ type: "ready" });
-    const cursorPatches = () => posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch);
+    await vi.waitFor(() => expect(posted().some((m) => m.type === "state.patch" && "events" in m.patch)).toBe(true)); // the folded first read
+    panel.webview.receive({ type: "events.fold", keys: null });
+    const cursorPatches = () => posted().filter((m) => m.type === "state.patch" && "eventsCursor" in m.patch && !Array.isArray(m.patch.eventGroups));
     await vi.waitFor(() => expect(cursorPatches().length).toBe(1));
     panel.webview.receive({ type: "events.older", cursor: "c-old" }); // hangs
     panel.webview.receive({ type: "refresh" }); // retires it

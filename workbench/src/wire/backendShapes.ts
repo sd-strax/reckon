@@ -335,7 +335,33 @@ const eventRow = object({
   view: eventView,
 });
 
-export const investigationEvents = object({ events: list(eventRow), total: num, next_cursor: optional(str) });
+// A grouped read (adr/0095): the newest events folded by class and key, what
+// each class present can key on, and how many of the total the fold covered.
+const eventGroup = object({
+  class_uid: num,
+  key: list(object({ slot: str, label: str, text: str, ref: optional(str) })),
+  count: num,
+  first: str,
+  last: str,
+  days: num,
+  event_ids: list(str),
+});
+const eventClassKeys = object({
+  class_uid: num,
+  class_name: str,
+  slots: list(object({ name: str, label: str })),
+  default: list(str),
+  key: list(str),
+});
+
+export const investigationEvents = object({
+  events: list(eventRow),
+  total: num,
+  next_cursor: optional(str),
+  groups: optional(list(eventGroup)),
+  keys: optional(list(eventClassKeys)),
+  folded_over: optional(num),
+});
 
 const capabilityCallRow = {
   call_id: str,

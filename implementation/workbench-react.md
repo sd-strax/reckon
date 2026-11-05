@@ -854,6 +854,13 @@ holds one and captions it with the window actually retrieved. The timeline colla
 events into one row. The word "normal" appears as the sheet's section title only; the body says
 "N events over M days".
 
+*Built: `adr/0095`, read as a pivot and a group-by. The fold is `group_by` on
+`GET /api/investigations/{id}/events` (`default`, or `class:slot,slot;…`), `entity` the pivot, over
+the newest `MaxEventLimit` events; the key is the slots each `ocsfview` template registers, the
+lists above the defaults (the account added to auth), changed per view by the analyst; the engine
+returns groups of every size and the webview collapses those of ≥ 3 events on ≥ 3 days. No baseline
+endpoint; the inspector section is titled "Repeated observations" and has no typical hour.*
+
 ### 8.4 §6.15 — Procedure excerpt provenance
 
 **Decision.** The `06 §6.2` side store is built: `knowledge_retrievals` in `reckon_main`

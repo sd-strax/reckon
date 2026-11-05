@@ -150,7 +150,9 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText(/investigation starts/)).toBeTruthy();
     expect(within(lens()).getByText(/under H1 not-owner: No scheduled job/)).toBeTruthy();
     fireEvent.click(within(lens()).getByRole("tab", { name: "Network" }));
-    expect(within(lens()).getByText("No cited events carry an event time yet.")).toBeTruthy();
+    expect(within(lens()).getByText("No retrieved or cited event in this category.")).toBeTruthy(); // the stage carries a retrieved record (adr/0095)
+    fireEvent.click(within(lens()).getByRole("tab", { name: "All" }));
+    expect(within(lens()).getByText(/^3 events over 3 days/)).toBeTruthy(); // the nightly group folded
   });
 
   it("Companion: the library to browse and search; turn records as links; the activity disclosure; Thread mode", () => {

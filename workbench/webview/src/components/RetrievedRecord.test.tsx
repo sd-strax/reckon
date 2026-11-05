@@ -7,12 +7,15 @@ import { describe, expect, it } from "vitest";
 import { AppProvider } from "../app";
 import { App } from "./App";
 import { retrievedCount, timelineItems } from "./lenses/StoryLens";
+import { keySpec } from "../derive/events";
 import { bindingRows } from "./inspectors/CallInspector";
 import { HarnessTransport, type HarnessSnapshot } from "../../../harness/transport";
 import synthetic from "../../../harness/snapshots/synthetic.json";
 import type { CapabilityCall, EventRow } from "../../../src/viewTypes";
 
-const base = synthetic as unknown as HarnessSnapshot;
+// The stage without its retrieved record: these tests build their own.
+const stage = synthetic as unknown as HarnessSnapshot;
+const base: HarnessSnapshot = { ...stage, snapshot: { ...stage.snapshot, events: undefined, eventsTotal: undefined, eventsCursor: undefined, eventGroups: undefined, eventKeys: undefined, eventsFoldedOver: undefined }, calls: undefined, repeats: undefined };
 const callId = "0192f3a0-0000-7000-8000-0000000000c1";
 const cited = "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"; // an event the synthetic stage cites and holds a doc for
 const host = "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01";
@@ -204,5 +207,102 @@ describe("the Story timeline over the retrieved record", () => {
     expect(screen.queryByText(/retrieved event/)).toBeNull();
     expect(lens().querySelectorAll(".trow").length).toBeGreaterThan(2);
     expect(lens().querySelectorAll(".tvia").length).toBe(0);
+  });
+});
+
+// The folded record (adr/0095): a group that repeats is one row that opens to
+// its members; the analyst changes the key per class or turns the fold off;
+// the Entity inspector names what repeats on the entity.
+const nightly = [
+  row({ id: "0192f3a0-0000-7000-8000-00000000a003", time: "2026-10-19T02:00:00Z" }),
+  row({ id: "0192f3a0-0000-7000-8000-00000000a002", time: "2026-10-18T02:00:00Z" }),
+  row({ id: "0192f3a0-0000-7000-8000-00000000a001", time: "2026-10-17T02:00:00Z" }),
+];
+const nightlyGroup = {
+  classUid: 3002, count: 3, days: 3, first: nightly[2]!.time, last: nightly[0]!.time, eventIds: nightly.map((e) => e.id),
+  key: [{ slot: "user", label: "Account", text: "user-a" }, { slot: "logon_type", label: "Logon type", text: "interactive" }, { slot: "src", label: "Source", text: "10.0.0.9" }, { slot: "dst", label: "Destination", text: "host-a", ref: host }],
+};
+const burst = events.slice(0, 2); // two events on one day: a group that does not repeat
+const burstGroup = { ...nightlyGroup, count: 2, days: 1, first: burst[0]!.time, last: burst[1]!.time, eventIds: burst.map((e) => e.id).reverse() };
+const authKeys = { classUid: 3002, className: "Authentication", slots: [{ name: "user", label: "Account" }, { name: "logon_type", label: "Logon type" }, { name: "src", label: "Source" }, { name: "dst", label: "Destination" }, { name: "status", label: "Result" }], default: ["user", "logon_type", "src", "dst"], key: ["user", "logon_type", "src", "dst"] };
+const foldedData: HarnessSnapshot = { ...data, snapshot: { ...data.snapshot, events: [...nightly, ...events], eventsTotal: 6, eventGroups: [burstGroup, nightlyGroup], eventKeys: [authKeys], eventsFoldedOver: 6 } };
+
+describe("timelineItems over groups", () => {
+  it("folds a group that repeats into one item at its first event and leaves a group that does not as rows", () => {
+    const items = timelineItems([...nightly, ...events], [], [burstGroup, nightlyGroup]);
+    expect(items.map((i) => i.group ? `group:${i.group.count}` : i.ref)).toEqual([`group:3`, events[0]!.id, events[1]!.id, events[2]!.id]);
+    expect(items[0]!.time).toBe(nightly[2]!.time);
+    expect(items[0]!.ref).toBe(nightly[0]!.id); // the newest member stands for the group
+  });
+
+  it("says how many of the record the fold covered", () => {
+    expect(retrievedCount(6, 6, 6)).toBe("6 retrieved events in the record");
+    expect(retrievedCount(1000, 1400, 1000)).toBe("1400 retrieved events in the record · folded over the newest 1000");
+  });
+});
+
+describe("the Story timeline folded", () => {
+  it("shows a repeating group as one row that opens to its members, and the fold control on", () => {
+    mount(foldedData);
+    tab("Story");
+    const l = lens();
+    expect(within(l).getByText("6 retrieved events in the record")).toBeTruthy();
+    expect((within(l).getByLabelText("Fold repeated events") as HTMLInputElement).checked).toBe(true);
+    expect(l.querySelectorAll(".trow.group").length).toBe(1); // the nightly group as one row
+    expect(l.querySelectorAll(".trow .tvia").length).toBe(3); // the three unfolded retrieved rows; the group row names no single call
+    const fold = within(l).getByText(/^3 events over 3 days/);
+    expect(l.querySelectorAll(".trow.member").length).toBe(0);
+    fireEvent.click(fold);
+    expect(l.querySelectorAll(".trow.member").length).toBe(3);
+    fireEvent.click(fold);
+    expect(l.querySelectorAll(".trow.member").length).toBe(0);
+  });
+
+  it("asks the host for a different key, or for the flat page when the fold is turned off", () => {
+    const transport = mount(foldedData);
+    tab("Story");
+    const l = lens();
+    fireEvent.click(within(l).getByText(/^Authentication: Account · Logon type · Source · Destination/));
+    fireEvent.click(within(l).getByLabelText("Logon type"));
+    expect(transport.intents).toContainEqual({ type: "events.fold", keys: "3002:user,src,dst" });
+    fireEvent.click(within(l).getByLabelText("Fold repeated events"));
+    expect(transport.intents).toContainEqual({ type: "events.fold", keys: null });
+    cleanup();
+    const flat = mount(); // a flat record: the control is off and turns the fold on with the default key
+    tab("Story");
+    expect((within(lens()).getByLabelText("Fold repeated events") as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(within(lens()).getByLabelText("Fold repeated events"));
+    expect(flat.intents).toContainEqual({ type: "events.fold", keys: "default" });
+  });
+
+  it("names what repeats on an opened entity, and nothing when nothing does", () => {
+    const repeats = { events: [...nightly, events[0]!], groups: [nightlyGroup, { ...burstGroup, count: 1, eventIds: [events[0]!.id] }], total: 4, foldedOver: 4 };
+    mount({ ...foldedData, repeats: { [host]: repeats } });
+    tab("Story");
+    fireEvent.click(within(lens()).getAllByText("host-a")[0]!);
+    expect(within(pane()).getByText("Repeated observations")).toBeTruthy();
+    expect(within(pane()).getByText("3 events over 3 days")).toBeTruthy();
+    expect(within(pane()).getByText("1 retrieved event on this entity does not repeat.")).toBeTruthy();
+    cleanup();
+    // A record larger than the fold covers: the claim is scoped to what was covered.
+    mount({ ...foldedData, repeats: { [host]: { ...repeats, total: 1200, foldedOver: 4 } } });
+    tab("Story");
+    fireEvent.click(within(lens()).getAllByText("host-a")[0]!);
+    expect(within(pane()).getByText("1200 retrieved events on this entity · folded over the newest 4")).toBeTruthy();
+    expect(within(pane()).getByText("1 event of the newest 4 on this entity does not repeat.")).toBeTruthy();
+    cleanup();
+    mount(foldedData);
+    tab("Story");
+    fireEvent.click(within(lens()).getAllByText("host-a")[0]!);
+    expect(within(pane()).queryByText("Repeated observations")).toBeNull();
+    expect(within(pane()).queryByText(/Normal behaviour/)).toBeNull();
+  });
+});
+
+describe("keySpec", () => {
+  it("round-trips the read's own key list, leaving out a class with nothing to key on, and keeps an empty key as a choice", () => {
+    const opaque = { classUid: 6003, className: "API Activity", slots: [], default: [], key: [] };
+    expect(keySpec([authKeys, opaque], 3002, ["user"])).toBe("3002:user");
+    expect(keySpec([authKeys, opaque], 3002, [])).toBe("3002:");
   });
 });

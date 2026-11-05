@@ -5,7 +5,7 @@ import type { BackendHttp } from "./http";
 import * as shapes from "../wire/backendShapes";
 import type { RawEvidence, RawEventView } from "../wire/backendShapes";
 import type { Decoded } from "../wire/decode";
-import type { Appearance, CapabilityCall, EventRow, EventView, EvidenceDoc } from "../viewTypes";
+import type { Appearance, CapabilityCall, EventClassKeys, EventGroup, EventRow, EventView, EvidenceDoc } from "../viewTypes";
 
 /** The rendering as decoded, narrowed to the view's vocabulary (adr/0090). */
 function mapView(v: RawEventView): EventView {
@@ -69,7 +69,12 @@ function mapCall(r: RawCall): CapabilityCall {
   return call;
 }
 
-/** How an events read is narrowed (adr/0092). `around` is an event id; `cursor` is the `nextCursor` of the previous page. */
+/**
+ * How an events read is narrowed (adr/0092). `around` is an event id; `cursor`
+ * is the `nextCursor` of the previous page. `groupBy` (adr/0095) folds the
+ * newest events by class and key instead of paging: "default", or
+ * "class:slot,slot;…"; `entity` is then the pivot.
+ */
 export interface EventQuery {
   entity?: string;
   category?: "auth" | "process" | "network" | "detection";
@@ -77,13 +82,21 @@ export interface EventQuery {
   limit?: number;
   order?: "oldest" | "newest";
   cursor?: string;
+  groupBy?: string;
 }
 
-/** A page of retrieved events with the unpaged total and, when more remain, the cursor of the next page. */
+/**
+ * A page of retrieved events with the unpaged total and, when more remain, the
+ * cursor of the next page; a grouped read carries the groups, the keys per
+ * class and how many of the total the fold covered instead of a cursor.
+ */
 export interface EventPage {
   events: EventRow[];
   total: number;
   nextCursor?: string;
+  groups?: EventGroup[];
+  keys?: EventClassKeys[];
+  foldedOver?: number;
 }
 
 export class EvidenceClient {
@@ -102,10 +115,16 @@ export class EvidenceClient {
     if (q.limit) params.set("limit", String(q.limit));
     if (q.order) params.set("order", q.order);
     if (q.cursor) params.set("cursor", q.cursor);
+    if (q.groupBy !== undefined) params.set("group_by", q.groupBy);
     const qs = params.toString();
     const body = await this.http.get(`/api/investigations/${encodeURIComponent(investigationId)}/events${qs ? "?" + qs : ""}`, shapes.investigationEvents);
     const page: EventPage = { events: body.events.map(mapEventRow), total: body.total };
     if (body.next_cursor) page.nextCursor = body.next_cursor;
+    if (q.groupBy !== undefined) {
+      page.groups = (body.groups ?? []).map((g) => ({ classUid: g.class_uid, key: g.key.map((p) => ({ slot: p.slot, label: p.label, text: p.text, ref: p.ref })), count: g.count, first: g.first, last: g.last, days: g.days, eventIds: g.event_ids }));
+      page.keys = (body.keys ?? []).map((k) => ({ classUid: k.class_uid, className: k.class_name, slots: k.slots, default: k.default, key: k.key }));
+      page.foldedOver = body.folded_over ?? body.events.length;
+    }
     return page;
   }
 

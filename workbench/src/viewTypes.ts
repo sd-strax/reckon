@@ -438,6 +438,52 @@ export interface EventRow {
   view: EventView;
 }
 
+/** One slot of a group's key with the value every member shares (adr/0095). */
+export interface EventKeyPart {
+  slot: string;
+  label: string;
+  text: string;
+  /** The object the record minted for the slot, when it did; a chip. */
+  ref?: string;
+}
+
+/**
+ * Retrieved events of one class sharing a key (mirrors ocsfview.Group): how
+ * many, the span, the distinct UTC days, and the members newest first. The
+ * fold counts; whether a group collapses in the timeline is display.
+ */
+export interface EventGroup {
+  classUid: number;
+  key: EventKeyPart[];
+  count: number;
+  first: string;
+  last: string;
+  days: number;
+  eventIds: string[];
+}
+
+/** What a class present in a grouped read can key on (mirrors server.EventClassKeysView). */
+export interface EventClassKeys {
+  classUid: number;
+  className: string;
+  slots: { name: string; label: string }[];
+  default: string[];
+  /** The key the read used. */
+  key: string[];
+}
+
+/**
+ * One entity's retrieved events folded by the default key (adr/0095), for the
+ * Entity inspector: the rows the fold covered (the newest, bounded), the
+ * groups, the entity's unpaged total and how many of it the fold covered.
+ */
+export interface EventRepeats {
+  events: EventRow[];
+  groups: EventGroup[];
+  total: number;
+  foldedOver: number;
+}
+
 /** What one binding did on a call (mirrors server.BindingOutcomeView): the
  * parameters as rendered, and whether it answered or why it was skipped. */
 export interface BindingOutcome {

@@ -273,7 +273,10 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     call. *Built: `adr/0092`, `GET /api/investigations/{id}/events`.*
 14. **Entity baselines** — where a capability answer establishes normal behaviour (the
     reference scenario's nightly logon baseline), a summary the inspector and timeline can
-    render. Shown only when the record holds one; never inferred by the UI.
+    render. Shown only when the record holds one; never inferred by the UI. *Built:
+    `adr/0095`, as a pivot and a group-by: `group_by` on `GET /api/investigations/{id}/events`,
+    the key per class the renderer's slots, collapsing display-side; the inspector section is
+    "Repeated observations".*
 15. **Procedure excerpt provenance** — at import, record a location per chunk (page,
     heading path, or anchor, whatever the format yields) and retain the original file or a
     snapshot of the URL, so a citation names "where in the source" and "open original"

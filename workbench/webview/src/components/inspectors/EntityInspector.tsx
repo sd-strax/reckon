@@ -1,12 +1,13 @@
 // Entity (account, host, IP, domain, process …): type, value, deterministic
-// id on hover; role and counts in this case; actions on it; other
-// investigations; Pivot (stages, never fires), Pin, Copy. The popover of
-// ui/02 §2.4 folded in (impl §2.1). The baseline is gap §6.14 and is absent
-// until it exists — never inferred.
+// id on hover; role and counts in this case; repeated observations (the
+// entity's retrieved events folded by the default key, adr/0095, shown only
+// when a group repeats); actions on it; other investigations; Pivot (stages,
+// never fires), Pin, Copy. The popover of ui/02 §2.4 folded in (impl §2.1).
 import { useApp } from "../../app";
 import { inThisCase } from "../../derive/citations";
+import { collapses, fmtDay, spanText } from "../../derive/events";
 import { refTypeLabel } from "../../refs";
-import { Badge } from "../shared";
+import { Badge, Sentence } from "../shared";
 import { pinSpec } from "../PromptCard";
 import { Fields, Json, Loading, Section } from "./primitives";
 
@@ -20,6 +21,19 @@ export function EntityInspector({ refId }: { refId: string }) {
   const seed = state.snap?.investigation.seed;
   const role = seed?.entityRef === refId ? "seed subject" : c.actions.some((x) => x.role === "target") ? "action target" : c.predictions.length || c.pins.length ? "cited" : "appears";
   const actionsOn = (state.snap?.actions || []).filter((a) => (a.targets || []).includes(label || "") || (a.targets || []).includes(refId));
+  // Repeated observations (adr/0095): the entity's retrieved events folded by
+  // the default key; shown only when a group repeats, never inferred.
+  const rep = state.repeats[refId];
+  const repeated = rep ? rep.groups.filter(collapses) : [];
+  const unrepeated = rep ? rep.events.length - repeated.reduce((n, g) => n + g.count, 0) : 0;
+  // The fold covers the newest events up to a bound; a claim about repetition
+  // is scoped to what it covered when the entity's record is larger.
+  const truncated = !!rep && rep.total > rep.foldedOver;
+  const covered = rep ? `the newest ${rep.foldedOver}` : "";
+  const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? "" : "s"}`;
+  const repeatsLine = !rep ? "" : unrepeated === 0
+    ? (truncated ? `Every one of ${covered} retrieved events on this entity repeats.` : "Every retrieved event on this entity repeats.")
+    : (truncated ? `${plural(unrepeated, "event")} of ${covered} on this entity ${unrepeated === 1 ? "does" : "do"} not repeat.` : `${plural(unrepeated, "retrieved event")} on this entity ${unrepeated === 1 ? "does" : "do"} not repeat.`);
   const props = doc && doc.payload && typeof doc.payload === "object"
     ? (((doc.payload as Record<string, unknown>).properties as Record<string, unknown>) || (doc.payload as Record<string, unknown>))
     : null;
@@ -38,9 +52,21 @@ export function EntityInspector({ refId }: { refId: string }) {
       <Section title="Role in this case">
         <div>{role} · {c.acts.length} act{c.acts.length === 1 ? "" : "s"} cite it · {actionsOn.length} action{actionsOn.length === 1 ? "" : "s"} on it</div>
       </Section>
-      <Section title="Normal behaviour">
-        <div className="empty">No baseline exists for this entity in the record (a baseline is never inferred).</div>
-      </Section>
+      {repeated.length && rep ? (
+        <Section title="Repeated observations">
+          {truncated ? <div className="imeta">{plural(rep.total, "retrieved event")} on this entity · folded over {covered}</div> : null}
+          {repeated.map((g) => {
+            const newest = rep.events.find((e) => e.id === g.eventIds[0]);
+            return (
+              <div key={g.eventIds[0]} className="irow repeat">
+                <div><b>{spanText(g)}</b> <span className="imeta">· {fmtDay(g.first)} – {fmtDay(g.last)}</span></div>
+                {newest ? (newest.view.sentence?.length ? <Sentence tokens={newest.view.sentence} className="isentence" /> : <span className="imeta">{newest.className}</span>) : null}
+              </div>
+            );
+          })}
+          <div className="imeta">{repeatsLine}</div>
+        </Section>
+      ) : null}
       {actionsOn.length ? (
         <Section title="Actions on this entity">
           {actionsOn.map((a) => (

@@ -99,6 +99,47 @@ func TestInvestigationEvents_MembershipAndCalls(t *testing.T) {
 	if code := getJSON(t, srv, token, base+"/events?entity="+row.EntityRefs[0], &byEntity); code != http.StatusOK || byEntity.Total == 0 {
 		t.Errorf("by entity = %d, total %d", code, byEntity.Total)
 	}
+
+	// Grouped (adr/0095): the whole record folded by the default key, the
+	// scenario's nightly logons one group over seven days; pivoted to an
+	// entity, its slot leaves the key.
+	var grouped InvestigationEventsResponse
+	if code := getJSON(t, srv, token, base+"/events?group_by=default", &grouped); code != http.StatusOK {
+		t.Fatalf("grouped = %d", code)
+	}
+	if grouped.FoldedOver != grouped.Total || grouped.NextCursor != "" || len(grouped.Groups) == 0 {
+		t.Errorf("grouped = folded %d of %d, cursor %q, %d groups", grouped.FoldedOver, grouped.Total, grouped.NextCursor, len(grouped.Groups))
+	}
+	if len(grouped.Keys) != 1 || grouped.Keys[0].ClassUID != 3002 || !slices.Equal(grouped.Keys[0].Key, []string{"user", "logon_type", "src", "dst"}) || len(grouped.Keys[0].Slots) == 0 {
+		t.Errorf("grouped keys = %+v", grouped.Keys)
+	}
+	if grouped.Total >= 7 {
+		nightly := false
+		for _, g := range grouped.Groups {
+			if g.Count == 7 && g.Days == 7 && len(g.EventIDs) == 7 && len(g.Key) == 4 {
+				nightly = true
+			}
+		}
+		if !nightly {
+			t.Errorf("no nightly group of 7 over 7 days: %+v", grouped.Groups)
+		}
+	}
+	var pivoted InvestigationEventsResponse
+	if code := getJSON(t, srv, token, base+"/events?group_by=default&entity="+row.EntityRefs[0], &pivoted); code != http.StatusOK || len(pivoted.Groups) == 0 {
+		t.Errorf("pivoted = %d, %d groups", code, len(pivoted.Groups))
+	}
+	for _, g := range pivoted.Groups {
+		for _, p := range g.Key {
+			if p.Ref == row.EntityRefs[0] {
+				t.Errorf("pivoted entity left in the key: %+v", g.Key)
+			}
+		}
+	}
+	for _, bad := range []string{"group_by=3002:nope", "group_by=default&cursor=x", "group_by=default&around=" + row.ID} {
+		if code := getJSON(t, srv, token, base+"/events?"+bad, nil); code != http.StatusBadRequest {
+			t.Errorf("%s = %d; want 400", bad, code)
+		}
+	}
 	var byCategory InvestigationEventsResponse
 	if code := getJSON(t, srv, token, base+"/events?category=network", &byCategory); code != http.StatusOK || byCategory.Total != 0 {
 		t.Errorf("by category network = %d, total %d; the fixture has only logons", code, byCategory.Total)

@@ -4,7 +4,7 @@
 // answers (impl §2.4, §4.1). Failures are not cached; a change of person
 // clears everything (adr/0241).
 import type * as vscode from "vscode";
-import type { Appearance, EventRow, EvidenceDoc, ThreadEntry } from "./backend";
+import type { Appearance, EventRepeats, EventRow, EvidenceDoc, ThreadEntry } from "./backend";
 import { BackendRequestError } from "./client/http";
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
 import type { DocumentHost } from "./documentHost";
@@ -38,6 +38,10 @@ export class EvidenceReads {
   // here never fall behind what the webview holds.
   private readonly pages = new Map<string, { events: EventRow[]; total: number; cursor?: string }>();
   private readonly generation = new Map<string, number>();
+
+  // The fold each investigation's timeline is in (adr/0095): a key spec, or
+  // null for the flat page. Starts at the default key.
+  private readonly fold = new Map<string, string | null>();
 
   private nextGeneration(id: string): () => boolean {
     const g = (this.generation.get(id) ?? 0) + 1;
@@ -102,20 +106,37 @@ export class EvidenceReads {
   }
 
   /**
-   * The events retrieved for the investigation (adr/0092): the newest page and
-   * the unpaged total, posted as a slice patch stamped with the sequence they
-   * were read for. A failed read is posted too, as `eventsError`, so the Story
-   * lens says the record could not be read rather than showing the cited
+   * The events retrieved for the investigation (adr/0092), posted as a slice
+   * patch stamped with the sequence they were read for. By default the read is
+   * folded (adr/0095): the newest events grouped by the key per class
+   * (`keys`, "default" or the analyst's choice), with what each class can key
+   * on. With `keys` null the read is the flat newest page with the cursor of
+   * the next older one. A failed read is posted too, as `eventsError`, so the
+   * Story lens says the record could not be read rather than showing the cited
    * events alone, which is what a record without membership looks like.
    */
-  async postEvents(id: string, panel: vscode.WebviewPanel, seq: number): Promise<void> {
+  async postEvents(id: string, panel: vscode.WebviewPanel, seq: number, keys?: string | null): Promise<void> {
+    // A re-read of the record keeps the fold the timeline is in.
+    if (keys === undefined) {
+      const held = this.fold.get(id); // null is a choice (flat), undefined is none yet
+      keys = held === undefined ? "default" : held;
+    }
+    this.fold.set(id, keys);
     const current = this.host.sameIdentity();
     const latest = this.nextGeneration(id);
     try {
-      const page = await this.host.client.evidence.events(id, { limit: eventsShown, order: "newest" });
+      if (keys === null) {
+        const page = await this.host.client.evidence.events(id, { limit: eventsShown, order: "newest" });
+        if (current() && latest()) {
+          this.pages.set(id, { events: page.events, total: page.total, cursor: page.nextCursor });
+          void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events, eventsTotal: page.total, eventsError: null, eventsCursor: page.nextCursor ?? null, eventGroups: null, eventKeys: [], eventsFoldedOver: 0 } });
+        }
+        return;
+      }
+      const page = await this.host.client.evidence.events(id, { groupBy: keys });
       if (current() && latest()) {
-        this.pages.set(id, { events: page.events, total: page.total, cursor: page.nextCursor });
-        void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events, eventsTotal: page.total, eventsError: null, eventsCursor: page.nextCursor ?? null } });
+        this.pages.set(id, { events: page.events, total: page.total });
+        void this.host.post(panel, { type: "state.patch", seq, patch: { events: page.events, eventsTotal: page.total, eventsError: null, eventsCursor: null, eventGroups: page.groups ?? [], eventKeys: page.keys ?? [], eventsFoldedOver: page.foldedOver ?? page.events.length } });
       }
     } catch (err) {
       // A retired read's failure is not the record's state either.
@@ -169,6 +190,22 @@ export class EvidenceReads {
   }
 
   /**
+   * One entity's retrieved events folded by the default key (adr/0095), for the
+   * Entity inspector's "Repeated observations". A failed read leaves the
+   * section out rather than failing the pane: the fold is a lens over the
+   * record, never load-bearing.
+   */
+  private async repeats(id: string, ref: string): Promise<EventRepeats | undefined> {
+    try {
+      const page = await this.host.client.evidence.events(id, { entity: ref, groupBy: "default" });
+      return { events: page.events, groups: page.groups ?? [], total: page.total, foldedOver: page.foldedOver ?? page.events.length };
+    } catch (err) {
+      this.host.log.debug(`repeats ${ref}: ${errText(err)}`);
+      return undefined;
+    }
+  }
+
+  /**
    * Answer an inspector pane (impl §2.4): the webview opened it from the
    * snapshot and asks for what the record holds beyond it — the evidence
    * document with its cross-investigation memory (current investigation
@@ -192,7 +229,8 @@ export class EvidenceReads {
             this.host.log.debug(`appearances ${target.ref}: ${errText(err)}`);
           }
           const around = doc.kind === "ocsf" ? await this.around(id, target.ref) : [];
-          void this.host.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps, around });
+          const repeats = doc.kind === "ocsf" ? undefined : await this.repeats(id, target.ref);
+          void this.host.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps, around, repeats });
           return;
         }
         case "call":
