@@ -391,3 +391,64 @@ func TestRecordInterpretation_RejectedWhenConcluded(t *testing.T) {
 		t.Fatal("reasoning accepted on a concluded investigation")
 	}
 }
+
+// TestRecordInterpretation_ConsultedSections: a consulted procedure may record
+// which of its sections the act had in front of it (adr/0303); indexes are
+// 1-based and bounded.
+func TestRecordInterpretation_ConsultedSections(t *testing.T) {
+	env := newTestEnvelope("analyst-1")
+	base := RecordInterpretation{
+		InterpretationID:   uuid.New(),
+		InterpretationType: InterpretationPivot,
+		Rationale:          "the procedure's containment section applies",
+		ConsultedSOPs:      []ConsultedSOP{{SOPID: "sop-1", Sections: []int{3, 1}, Cited: true}},
+	}
+	if err := base.Validate(env); err != nil {
+		t.Fatalf("valid sections rejected: %v", err)
+	}
+	zero := base
+	zero.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Sections: []int{0}}}
+	if err := zero.Validate(env); err == nil {
+		t.Error("section 0 accepted; sections are 1-based")
+	}
+	citedUnread := base
+	citedUnread.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Cited: true}}
+	if err := citedUnread.Validate(env); err == nil {
+		t.Error("cited with no section read accepted")
+	}
+	recalledUnread := base
+	recalledUnread.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1"}}
+	if err := recalledUnread.Validate(env); err != nil {
+		t.Errorf("recalled, not cited, with no section read rejected: %v", err)
+	}
+	many := base
+	many.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Sections: make([]int, maxConsultedSections+1)}}
+	for i := range many.ConsultedSOPs[0].Sections {
+		many.ConsultedSOPs[0].Sections[i] = i + 1
+	}
+	if err := many.Validate(env); err == nil {
+		t.Error("over-long section list accepted")
+	}
+	// One procedure at two revisions is two entries; the same revision twice
+	// is a malformed record.
+	twoRevisions := base
+	twoRevisions.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", Sections: []int{3}}, {SOPID: "sop-1", Revision: 2, Cut: "1/16000"}}
+	if err := twoRevisions.Validate(env); err != nil {
+		t.Errorf("one procedure at two revisions rejected: %v", err)
+	}
+	twoCuts := base
+	twoCuts.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", Sections: []int{3}}, {SOPID: "sop-1", Revision: 1, Cut: "1/8000", Sections: []int{5}}}
+	if err := twoCuts.Validate(env); err != nil {
+		t.Errorf("one revision under two cuts rejected: %v", err)
+	}
+	twice := base
+	twice.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", Sections: []int{3}}, {SOPID: "sop-1", Revision: 1, Cut: "1/16000"}}
+	if err := twice.Validate(env); err == nil {
+		t.Error("the same procedure, revision and cut twice accepted")
+	}
+	longCut := base
+	longCut.ConsultedSOPs = []ConsultedSOP{{SOPID: "sop-1", Cut: strings.Repeat("9", maxConsultedCutLen+1)}}
+	if err := longCut.Validate(env); err == nil {
+		t.Error("over-long cut accepted")
+	}
+}

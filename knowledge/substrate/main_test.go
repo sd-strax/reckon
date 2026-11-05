@@ -126,7 +126,7 @@ func applyMigrations(db *sql.DB) error {
 // truncateAll resets state between tests sharing the DB.
 func truncateAll(t *testing.T) {
 	t.Helper()
-	_, err := testDB.Exec(`TRUNCATE substrate_entries, substrate_embeddings, substrate_tombstones`)
+	_, err := testDB.Exec(`TRUNCATE substrate_entries, substrate_sections, substrate_embeddings, substrate_tombstones`)
 	if err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

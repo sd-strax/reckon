@@ -124,15 +124,18 @@ type SimilarRequest struct {
 // the source investigation's grouping ref (recovered from the reserved source
 // tag), so the agent can cite the prior case it learned from.
 type SimilarMatch struct {
-	InvestigationRef string   `json:"investigation_ref"`
-	Title            string   `json:"title"`
-	Excerpt          string   `json:"excerpt"`
-	Score            float64  `json:"score"`
-	Band             string   `json:"band"`
-	MatchRationale   string   `json:"match_rationale"`
-	Tags             []string `json:"tags,omitempty"`
-	ContentHash      string   `json:"content_hash,omitempty"`
-	Backend          string   `json:"backend,omitempty"`
+	InvestigationRef string     `json:"investigation_ref"`
+	Title            string     `json:"title"`
+	Excerpt          string     `json:"excerpt"`
+	Truncated        bool       `json:"truncated,omitempty"`
+	Section          SectionRef `json:"section"`
+	Outline          []string   `json:"outline"`
+	Score            float64    `json:"score"`
+	Band             string     `json:"band"`
+	MatchRationale   string     `json:"match_rationale"`
+	Tags             []string   `json:"tags,omitempty"`
+	ContentHash      string     `json:"content_hash,omitempty"`
+	Backend          string     `json:"backend,omitempty"`
 }
 
 // SimilarResult is the recall_similar_investigations response envelope.
@@ -167,6 +170,7 @@ func (s *Store) RecallSimilar(ctx context.Context, tenantID uuid.UUID, req Simil
 		Tags:           req.Tags,
 		Limit:          limit,
 		IncludeRetired: req.IncludeRetired,
+		ExcerptBudget:  s.excerptBudget,
 	})
 	if err != nil {
 		return SimilarResult{}, fmt.Errorf("recall_similar_investigations: %w", err)
@@ -194,6 +198,9 @@ func (s *Store) RecallSimilar(ctx context.Context, tenantID uuid.UUID, req Simil
 			InvestigationRef: sourceRefOf(h.Tags),
 			Title:            h.Title,
 			Excerpt:          h.Excerpt,
+			Truncated:        h.Truncated,
+			Section:          sectionRefOf(h.Section),
+			Outline:          h.Outline,
 			Score:            h.Score,
 			Band:             string(h.Band),
 			MatchRationale:   h.MatchRationale,

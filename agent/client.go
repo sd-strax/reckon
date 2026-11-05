@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -82,7 +84,16 @@ type ConsultedSOP struct {
 	SOPID          string  `json:"sop_id"`
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	Cited          bool    `json:"cited"`
+	// Revision and Cut are the SOP revision and section cut the sections
+	// belong to, as recall or read_sop returned them; a turn records one
+	// entry per procedure and revision shown.
+	Revision int    `json:"revision,omitempty"`
+	Cut      string `json:"cut,omitempty"`
+	// Sections are the 1-based indexes of the procedure's sections the model
+	// was shown this turn: carried by a recall hit or read with read_sop.
+	// Cited requires at least one (adr/0303).
+	Sections []int `json:"sections,omitempty"`
+	Cited    bool  `json:"cited"`
 }
 
 // ConsultedSimilarInvestigation is one concluded-investigation summary surfaced
@@ -428,6 +439,50 @@ func (c *Client) RecallSOPs(ctx context.Context, body map[string]any) (json.RawM
 		return nil, err
 	}
 	return out, nil
+}
+
+// SOPSections reads a procedure's outline (agent token): every section's
+// place without its text. A positive revision pins the read to the revision
+// recall returned; the server refuses (409) when it is no longer current.
+func (c *Client) SOPSections(ctx context.Context, sopID string, pin sectionPin) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := c.do(ctx, http.MethodGet, "/api/sops/"+url.PathEscape(sopID)+"/sections"+pin.query(), c.agentSrc, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SOPSection reads one section of a procedure whole, with the outline
+// around it (agent token); revision as for SOPSections.
+func (c *Client) SOPSection(ctx context.Context, sopID string, n int, pin sectionPin) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := c.do(ctx, http.MethodGet, "/api/sops/"+url.PathEscape(sopID)+"/sections/"+strconv.Itoa(n)+pin.query(), c.agentSrc, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// sectionPin is what a section index is read against: the revision and cut a
+// recall hit (or an earlier read) reported, so the backend refuses the read
+// (409) when either has moved rather than answering another section under
+// the same number. The zero value is unpinned: an outline read.
+type sectionPin struct {
+	Revision int
+	Cut      string
+}
+
+func (p sectionPin) query() string {
+	q := url.Values{}
+	if p.Revision > 0 {
+		q.Set("revision", strconv.Itoa(p.Revision))
+	}
+	if p.Cut != "" {
+		q.Set("cut", p.Cut)
+	}
+	if len(q) == 0 {
+		return ""
+	}
+	return "?" + q.Encode()
 }
 
 // RecallSimilar runs similar-investigation retrieval (agent token), returning

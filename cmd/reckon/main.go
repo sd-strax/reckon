@@ -128,6 +128,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  investigate <id>  interactive agent loop over an investigation (BYOK Anthropic key)")
 	fmt.Fprintln(os.Stderr, "  investigate --stdio  agent-loop sidecar for the workbench (JSON-RPC over stdio; spawned, not typed)")
 	fmt.Fprintln(os.Stderr, "  knowledge import <file-or-dir>...  seed the SOP corpus from markdown (+ YAML frontmatter attribution); re-import revises")
+	fmt.Fprintln(os.Stderr, "  knowledge reindex  bring the knowledge corpus up to date with the section rule and embedding model (also runs at backend startup)")
 	fmt.Fprintln(os.Stderr, "  demo seed   populate a fresh install with the bundled demo world (fixtures + knowledge pack); refuses on a non-virgin install (--scenario <id> picks the fixture scenario)")
 	fmt.Fprintln(os.Stderr, "  demo scenario <id>  swap the wired fixture scenario on a seeded demo install (stack must be stopped; data survives)")
 	fmt.Fprintln(os.Stderr, "  demo reset  wipe all data back to a clean real install (stack must be stopped; --force for a non-demo install)")

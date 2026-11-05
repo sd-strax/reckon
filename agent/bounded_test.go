@@ -226,7 +226,7 @@ func TestResultStore_EvictsOldest(t *testing.T) {
 	var ids []string
 	for range maxHeldResults + 1 {
 		id := r.nextID()
-		r.put(id, []byte("{}"))
+		r.put(id, "", []byte("{}"))
 		ids = append(ids, id)
 	}
 	if _, ok := r.get(ids[0]); ok {

@@ -297,8 +297,30 @@ type Capability struct {
 // so in its attribution — a degraded mode, not a broken one.
 type Knowledge struct {
 	Embeddings Embeddings `yaml:"embeddings"`
+	// ExcerptBudgetTokens bounds what one recall hit carries of a document
+	// (design/06 §4.2, default 4000): a section longer than this is cut into
+	// parts at import, and a hit's excerpt is one section. Counted in tokens
+	// as the spec does; the engine applies it as runes at RunesPerToken.
+	ExcerptBudgetTokens int `yaml:"excerpt_budget_tokens"`
 	// Knowledge reaches the agent only through its recall tools (adr/0129);
 	// there is no implicit retrieval and no injection posture.
+}
+
+// RunesPerToken is the rune stand-in for a token when the engine applies a
+// token budget without a tokenizer: four runes to a token is the usual ratio
+// for English prose.
+const RunesPerToken = 4
+
+// DefaultExcerptBudgetTokens is the design/06 §4.2 default.
+const DefaultExcerptBudgetTokens = 4000
+
+// ExcerptBudgetRunes is the excerpt budget as runes, defaulting when unset.
+func (k Knowledge) ExcerptBudgetRunes() int {
+	tokens := k.ExcerptBudgetTokens
+	if tokens <= 0 {
+		tokens = DefaultExcerptBudgetTokens
+	}
+	return tokens * RunesPerToken
 }
 
 // Embeddings selects the semantic-recall backend. reckon ships one client — an
@@ -384,6 +406,7 @@ func Default() Config {
 			IncludeSideStores: true,
 			AutoOnConclude:    true,
 		},
+		Knowledge: Knowledge{ExcerptBudgetTokens: DefaultExcerptBudgetTokens},
 		Paid: Paid{
 			Governance: PaidGovernance{Mode: "lightweight"},
 		},

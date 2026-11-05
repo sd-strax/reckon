@@ -2,7 +2,7 @@
   "catalog": [
     {
       "Name": "recall_sops",
-      "Description": "Recall the tenant's standard operating procedures relevant to a question. EMPTY coverage is evidence of absence, not an error.",
+      "Description": "Recall the tenant's standard operating procedures relevant to a question. A hit carries the section of the procedure that matched (its text, under excerpt), where it sits (section) and the procedure's outline; it is not the whole procedure — read_sop reads any other section. EMPTY coverage is evidence of absence, not an error.",
       "InputSchema": {
         "properties": {
           "query": {
@@ -15,10 +15,42 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "unit": {
+            "description": "procedure (default): which procedure applies — one hit per procedure, carrying the section that matched best. section: what do our procedures say about this — one hit per section, so two hits may come from one procedure.",
+            "enum": [
+              "procedure",
+              "section"
+            ],
+            "type": "string"
           }
         },
         "required": [
           "query"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "Name": "read_sop",
+      "Description": "Read a recalled procedure by section: with section, that section whole and the outline around it; without, the outline alone (each section's place and length). Read a section before you cite the procedure for what it says, when the hit did not carry it.",
+      "InputSchema": {
+        "properties": {
+          "revision": {
+            "description": "the revision the hit or outline returned; omitted, the newest revision you were shown this session. A section is read against that revision's numbering; a procedure changed since is refused and must be recalled again",
+            "type": "integer"
+          },
+          "section": {
+            "description": "the section to read whole, by its idx from a hit's section or outline; omit for the outline alone. A section read needs a recall or outline of the procedure first",
+            "type": "integer"
+          },
+          "sop_id": {
+            "description": "the sop_id a recall_sops hit returned",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sop_id"
         ],
         "type": "object"
       }
@@ -341,7 +373,7 @@
   "no_catalog": [
     {
       "Name": "recall_sops",
-      "Description": "Recall the tenant's standard operating procedures relevant to a question. EMPTY coverage is evidence of absence, not an error.",
+      "Description": "Recall the tenant's standard operating procedures relevant to a question. A hit carries the section of the procedure that matched (its text, under excerpt), where it sits (section) and the procedure's outline; it is not the whole procedure — read_sop reads any other section. EMPTY coverage is evidence of absence, not an error.",
       "InputSchema": {
         "properties": {
           "query": {
@@ -354,10 +386,42 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "unit": {
+            "description": "procedure (default): which procedure applies — one hit per procedure, carrying the section that matched best. section: what do our procedures say about this — one hit per section, so two hits may come from one procedure.",
+            "enum": [
+              "procedure",
+              "section"
+            ],
+            "type": "string"
           }
         },
         "required": [
           "query"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "Name": "read_sop",
+      "Description": "Read a recalled procedure by section: with section, that section whole and the outline around it; without, the outline alone (each section's place and length). Read a section before you cite the procedure for what it says, when the hit did not carry it.",
+      "InputSchema": {
+        "properties": {
+          "revision": {
+            "description": "the revision the hit or outline returned; omitted, the newest revision you were shown this session. A section is read against that revision's numbering; a procedure changed since is refused and must be recalled again",
+            "type": "integer"
+          },
+          "section": {
+            "description": "the section to read whole, by its idx from a hit's section or outline; omit for the outline alone. A section read needs a recall or outline of the procedure first",
+            "type": "integer"
+          },
+          "sop_id": {
+            "description": "the sop_id a recall_sops hit returned",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sop_id"
         ],
         "type": "object"
       }

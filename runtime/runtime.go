@@ -524,11 +524,15 @@ func buildKnowledge(cfg config.Config, db *sql.DB) (*knowledge.Store, error) {
 	} else {
 		log.Printf("%s: knowledge embeddings not configured — recall runs the keyword fallback", branding.CLI)
 	}
+	// One budget bounds both ends: a section is cut to it at import and a
+	// recall excerpt is bounded by it (design/06 §4.2).
+	budget := cfg.Knowledge.ExcerptBudgetRunes()
+	opts = append(opts, substrate.WithSectionBudget(budget))
 	store, err := substrate.NewPostgres(db, corpora, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("construct substrate: %w", err)
 	}
-	return knowledge.NewStore(store), nil
+	return knowledge.NewStore(store, knowledge.WithExcerptBudget(budget)), nil
 }
 
 // resolveEmbeddingKey resolves the embeddings API key. Empty is allowed (self-

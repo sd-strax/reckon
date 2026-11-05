@@ -26,6 +26,7 @@ const (
 	ToolRequestAction           = "request_action"
 	ToolListActions             = "list_actions"
 	ToolReadResult              = "read_result"
+	ToolReadSOP                 = "read_sop"
 )
 
 // buildTools assembles the session's tool definitions: one tool per AVAILABLE
@@ -188,6 +189,24 @@ func defineTool[In any](spec toolSpec[In]) tool {
 type recallSOPsInput struct {
 	Query string   `json:"query" required:"true" desc:"what guidance you are looking for"`
 	Tags  []string `json:"tags" desc:"hard filter on SOP tags, optional"`
+	Unit  string   `json:"unit" desc:"see the override"`
+}
+
+// recallUnitOverride is the unit's schema: a closed choice the description
+// cannot express as a plain string.
+var recallUnitOverride = map[string]any{
+	"unit": map[string]any{
+		"type": "string",
+		"enum": []string{"procedure", "section"},
+		"description": "procedure (default): which procedure applies — one hit per procedure, carrying the section that matched best. " +
+			"section: what do our procedures say about this — one hit per section, so two hits may come from one procedure.",
+	},
+}
+
+type readSOPInput struct {
+	SOPID    string `json:"sop_id" required:"true" desc:"the sop_id a recall_sops hit returned"`
+	Revision int    `json:"revision" desc:"the revision the hit or outline returned; omitted, the newest revision you were shown this session. A section is read against that revision's numbering; a procedure changed since is refused and must be recalled again"`
+	Section  int    `json:"section" desc:"the section to read whole, by its idx from a hit's section or outline; omit for the outline alone. A section read needs a recall or outline of the procedure first"`
 }
 
 type recallSimilarInput struct {
@@ -265,11 +284,24 @@ type readResultInput struct {
 func intrinsicTools(actionTypes []ActionType) []tool {
 	return []tool{
 		defineTool(toolSpec[recallSOPsInput]{
-			Name:        ToolRecallSOPs,
-			Origin:      "80420c3",
-			Description: "Recall the tenant's standard operating procedures relevant to a question. EMPTY coverage is evidence of absence, not an error.",
+			Name:    ToolRecallSOPs,
+			Origin:  "80420c3",
+			Revised: []string{"#303"},
+			Description: "Recall the tenant's standard operating procedures relevant to a question. " +
+				"A hit carries the section of the procedure that matched (its text, under excerpt), where it sits (section) and the procedure's outline; " +
+				"it is not the whole procedure — read_sop reads any other section. " +
+				"EMPTY coverage is evidence of absence, not an error.",
+			Overrides:   recallUnitOverride,
 			SelfBounded: true,
 			Run:         (*Session).recallSOPs,
+		}),
+		defineTool(toolSpec[readSOPInput]{
+			Name:   ToolReadSOP,
+			Origin: "#303",
+			Description: "Read a recalled procedure by section: with section, that section whole and the outline around it; without, the outline alone (each section's place and length). " +
+				"Read a section before you cite the procedure for what it says, when the hit did not carry it.",
+			SelfBounded: true,
+			Run:         (*Session).readSOP,
 		}),
 		defineTool(toolSpec[recallSimilarInput]{
 			Name:        ToolRecallSimilar,
@@ -339,7 +371,23 @@ func intrinsicTools(actionTypes []ActionType) []tool {
 				"comes from the same snapshot. Read only what the question needs, or narrow the original query instead.",
 			SelfBounded: true, // already a page
 			Run: func(s *Session, _ context.Context, in readResultInput) (toolResult, error) {
-				return contentOf(s.readResult(in))
+				page, err := s.readResult(in)
+				if err != nil {
+					return toolResult{}, err
+				}
+				// A later page of a recall is credited like the first: what the
+				// model was shown on it is consulted (adr/0303).
+				res := toolResult{Content: page}
+				switch s.results.sourceOf(in.ResultID) {
+				case ToolRecallSOPs, ToolReadSOP:
+					res.Consulted = consultedSOPs(page)
+					if in.ResultID != "" && len(res.Consulted) == 0 {
+						res.Consulted = readSOPConsulted(page)
+					}
+				case ToolRecallSimilar, ToolPriorInvestigations:
+					res.Similar = consultedCases(page)
+				}
+				return res, nil
 			},
 		}),
 	}
@@ -566,12 +614,105 @@ func recallBody(query string, tags []string) map[string]any {
 // what the model was shown: a hit left off the page was not put in front of it.
 
 func (s *Session) recallSOPs(ctx context.Context, in recallSOPsInput) (toolResult, error) {
-	raw, err := s.backend.RecallSOPs(ctx, recallBody(in.Query, in.Tags))
+	body := recallBody(in.Query, in.Tags)
+	if in.Unit != "" {
+		body["unit"] = in.Unit
+	}
+	// The excerpts are asked to fit the result page: the server's budget bounds
+	// a section, and this bound keeps recallLimit of them under the page, so a
+	// hit is never clipped after the fact (adr/0303). English prose runs
+	// about 1.5 bytes a rune in JSON, hence the ratio.
+	body["excerpt_budget"] = s.maxResultBytes * 2 / (recallLimit * 3)
+	raw, err := s.backend.RecallSOPs(ctx, body)
 	if err != nil {
 		return toolResult{}, err
 	}
-	shown := s.boundResult(raw)
+	shown := s.boundResultFrom(ToolRecallSOPs, raw)
 	return toolResult{Content: shown, Consulted: consultedSOPs(shown)}, nil
+}
+
+// recallLimit is the hits one recall_sops call returns (the server's default),
+// the divisor of the excerpt budget above.
+const recallLimit = 5
+
+func (s *Session) readSOP(ctx context.Context, in readSOPInput) (toolResult, error) {
+	if in.Section < 0 {
+		return toolResult{}, fmt.Errorf("read_sop: section must be a positive index, got %d", in.Section)
+	}
+	if in.Revision < 0 {
+		return toolResult{}, fmt.Errorf("read_sop: revision must be positive, got %d", in.Revision)
+	}
+	var (
+		raw json.RawMessage
+		err error
+	)
+	if in.Section == 0 {
+		// The outline establishes the pin: it answers the current revision
+		// and cut, and the model's revision, if given, is honoured.
+		raw, err = s.backend.SOPSections(ctx, in.SOPID, sectionPin{Revision: in.Revision})
+	} else {
+		// A section index is read only against the revision and cut it came
+		// from: the pin is the session's own record of what was shown, not
+		// a number the model may omit.
+		pin, perr := s.sectionPinFor(in.SOPID, in.Revision)
+		if perr != nil {
+			return toolResult{}, perr
+		}
+		raw, err = s.backend.SOPSection(ctx, in.SOPID, in.Section, pin)
+	}
+	if err != nil {
+		return toolResult{}, err
+	}
+	if len(raw) > s.maxResultBytes {
+		// One section can exceed the result page (a large configured budget,
+		// or a script whose runes are several bytes each). The page machinery
+		// pages lists, not one large string, so the text is reshaped into
+		// parts the model reads page by page; the section's place rides every
+		// page.
+		raw = sectionInParts(raw, s.maxResultBytes/8)
+	}
+	shown := s.boundResultFrom(ToolReadSOP, raw)
+	return toolResult{Content: shown, Consulted: readSOPConsulted(shown)}, nil
+}
+
+// sectionInParts rewrites a section read whose text is too large for one page:
+// section.text becomes text_parts, a list of at most partRunes runes each,
+// in order. Anything that is not such a read is returned unchanged.
+func sectionInParts(raw []byte, partRunes int) []byte {
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(raw, &doc) != nil || doc["section"] == nil {
+		return raw
+	}
+	var section map[string]json.RawMessage
+	if json.Unmarshal(doc["section"], &section) != nil || section["text"] == nil {
+		return raw
+	}
+	var text string
+	if json.Unmarshal(section["text"], &text) != nil {
+		return raw
+	}
+	delete(section, "text")
+	runes := []rune(text)
+	partRunes = max(partRunes, 1) // a page under eight bytes would otherwise never advance
+	parts := make([]string, 0, len(runes)/partRunes+1)
+	for at := 0; at < len(runes); at += partRunes {
+		parts = append(parts, string(runes[at:min(at+partRunes, len(runes))]))
+	}
+	sec, err := json.Marshal(section)
+	if err != nil {
+		return raw
+	}
+	doc["section"] = sec
+	tp, err := json.Marshal(parts)
+	if err != nil {
+		return raw
+	}
+	doc["text_parts"] = tp
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return raw
+	}
+	return out
 }
 
 func (s *Session) recallSimilar(ctx context.Context, in recallSimilarInput) (toolResult, error) {
@@ -579,7 +720,7 @@ func (s *Session) recallSimilar(ctx context.Context, in recallSimilarInput) (too
 	if err != nil {
 		return toolResult{}, err
 	}
-	shown := s.boundResult(raw)
+	shown := s.boundResultFrom(ToolRecallSimilar, raw)
 	return toolResult{Content: shown, Similar: consultedCases(shown)}, nil
 }
 
@@ -588,7 +729,7 @@ func (s *Session) priorInvestigations(ctx context.Context, in priorInvestigation
 	if err != nil {
 		return toolResult{}, err
 	}
-	shown := s.boundResult(raw)
+	shown := s.boundResultFrom(ToolPriorInvestigations, raw)
 	return toolResult{Content: shown, Similar: consultedCases(shown)}, nil
 }
 

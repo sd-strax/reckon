@@ -35,6 +35,9 @@ type resultStore struct {
 type heldResult struct {
 	id  string
 	raw []byte
+	// source is the tool the result came from, so a later page can be
+	// credited the same way the first was (the consulted lists).
+	source string
 }
 
 func (r *resultStore) nextID() string {
@@ -42,8 +45,8 @@ func (r *resultStore) nextID() string {
 	return fmt.Sprintf("res-%d", r.seq)
 }
 
-func (r *resultStore) put(id string, raw []byte) {
-	r.held = append(r.held, heldResult{id: id, raw: raw})
+func (r *resultStore) put(id, source string, raw []byte) {
+	r.held = append(r.held, heldResult{id: id, raw: raw, source: source})
 	r.bytes += len(raw)
 	for len(r.held) > maxHeldResults || (r.bytes > maxHeldBytes && len(r.held) > 1) {
 		r.bytes -= len(r.held[0].raw)
@@ -58,6 +61,16 @@ func (r *resultStore) get(id string) ([]byte, bool) {
 		}
 	}
 	return nil, false
+}
+
+// sourceOf is the tool a held result came from ("" when unknown or gone).
+func (r *resultStore) sourceOf(id string) string {
+	for _, h := range r.held {
+		if h.id == id {
+			return h.source
+		}
+	}
+	return ""
 }
 
 // clear drops every held result; ids are never reused.
@@ -214,7 +227,11 @@ func oversized(total, limit int) []byte {
 // boundResult returns raw unchanged when it fits in limit. Otherwise it holds
 // raw for read_result and returns its first page, carrying a digest of the
 // whole result.
-func (s *Session) boundResult(raw []byte) []byte {
+func (s *Session) boundResult(raw []byte) []byte { return s.boundResultFrom("", raw) }
+
+// boundResultFrom is boundResult for a result whose later pages must be
+// credited to its tool: source is kept with the held result.
+func (s *Session) boundResultFrom(source string, raw []byte) []byte {
 	if len(raw) <= s.maxResultBytes {
 		return raw
 	}
@@ -231,7 +248,7 @@ func (s *Session) boundResult(raw []byte) []byte {
 	if !ok {
 		return oversized(len(raw), s.maxResultBytes)
 	}
-	s.results.put(id, raw)
+	s.results.put(id, source, raw)
 	return page
 }
 

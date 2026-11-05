@@ -95,7 +95,7 @@ func reset(t *testing.T, opts ...substrate.Option) *Store {
 	if !testReady {
 		t.Skip("embedded postgres not available")
 	}
-	if _, err := testDB.Exec(`TRUNCATE substrate_entries, substrate_embeddings, substrate_tombstones`); err != nil {
+	if _, err := testDB.Exec(`TRUNCATE substrate_entries, substrate_sections, substrate_embeddings, substrate_tombstones`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	sub, err := substrate.NewPostgres(testDB, []substrate.CorpusDef{
@@ -362,6 +362,136 @@ func TestRecallSOPs(t *testing.T) {
 	}
 }
 
+// TestRecallSOPs_Sections proves the facade carries the matched section, the
+// outline and the unit through to the SOP shape (design/06 §4.2), and that a
+// browse hit carries the first section.
+func TestRecallSOPs_Sections(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t) // keyword backend
+	ctx := context.Background()
+	const body = "# Lateral Movement — Containment\n\nScope: a remote logon from an internal host.\n\n## Triage\nConfirm the session.\n\n## Containment\nIsolate the destination host; prefer network isolation.\n\n## Do not\nDo not reimage the destination before collection.\n"
+	id, err := s.Create(ctx, SOP{TenantID: testTenant, Title: "RDP containment", Body: body, Tags: []string{"rdp"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "isolate destination host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) != 1 || res.Results[0].SOPID != id {
+		t.Fatalf("results %+v", res.Results)
+	}
+	h := res.Results[0]
+	if h.Section.Idx != 3 || h.Section.Of != 4 || h.Section.Location != "Lateral Movement — Containment > Containment" {
+		t.Errorf("section %+v", h.Section)
+	}
+	if !strings.HasPrefix(h.Excerpt, "## Containment") || strings.Contains(h.Excerpt, "Scope:") || h.Truncated {
+		t.Errorf("excerpt %q truncated=%v", h.Excerpt, h.Truncated)
+	}
+	if len(h.Outline) != 4 || h.Outline[3] != "Lateral Movement — Containment > Do not" {
+		t.Errorf("outline %q", h.Outline)
+	}
+
+	// Section unit: two pieces of one procedure.
+	res, err = s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "destination", Unit: UnitSection})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) != 2 || res.Results[0].SOPID != id || res.Results[1].SOPID != id || res.Results[0].Section.Idx == res.Results[1].Section.Idx {
+		t.Errorf("section unit: %+v", res.Results)
+	}
+
+	// A requested budget cuts the excerpt and says so.
+	res, err = s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "isolate destination host", ExcerptBudget: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Results[0].Truncated || len([]rune(res.Results[0].Excerpt)) != 11 {
+		t.Errorf("budget: %q truncated=%v", res.Results[0].Excerpt, res.Results[0].Truncated)
+	}
+
+	// An unknown unit is the caller's error.
+	if _, err := s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "x", Unit: "paragraph"}); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("unknown unit: %v", err)
+	}
+
+	// Browse carries the first section and the outline, from the stored cut,
+	// and every hit names the revision its indexes belong to.
+	res, err = s.RecallSOPs(ctx, testTenant, RecallRequest{Tags: []string{"rdp"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) != 1 || res.Results[0].Section.Idx != 1 || len(res.Results[0].Outline) != 4 || !strings.HasPrefix(res.Results[0].Excerpt, "# Lateral Movement") || res.Results[0].Revision != 1 {
+		t.Errorf("browse: %+v", res.Results)
+	}
+	stored, err := s.Sections(ctx, testTenant, id, SectionPin{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, loc := range res.Results[0].Outline {
+		if stored.Sections[i].Location != loc {
+			t.Errorf("browse outline %d = %q; stored cut says %q", i, loc, stored.Sections[i].Location)
+		}
+	}
+}
+
+// TestSOPSections covers the outline and single-section reads behind
+// GET /api/sops/{id}/sections[/{n}].
+func TestSOPSections(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	const body = "# RDP containment\n\nScope line.\n\n## Triage\nConfirm the session.\n\n## Containment\nIsolate the destination host.\n\n## Do not\nDo not reimage first.\n"
+	id, err := s.Create(ctx, SOP{TenantID: testTenant, Title: "RDP containment", Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outline, err := s.Sections(ctx, testTenant, id, SectionPin{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outline.SOPID != id || outline.Revision != 1 || outline.Cut != "1/16000" || len(outline.Sections) != 4 {
+		t.Fatalf("outline %+v", outline)
+	}
+	if o := outline.Sections[2]; o.Idx != 3 || o.Of != 4 || o.Location != "RDP containment > Containment" || o.Text != "" || o.Runes == 0 {
+		t.Errorf("outline entry %+v", o)
+	}
+	read, err := s.Section(ctx, testTenant, id, 3, SectionPin{Revision: 1}) // pinned to the revision recall returned
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(read.Section.Text, "## Containment") || read.Section.Runes != len([]rune(read.Section.Text)) || len(read.Outline) != 4 || read.Cut != "1/16000" {
+		t.Errorf("section read %+v", read)
+	}
+	if _, err := s.Section(ctx, testTenant, id, 9, SectionPin{}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("out-of-range section: %v", err)
+	}
+	if _, err := s.Sections(ctx, testTenant, uuid.New(), SectionPin{}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown sop: %v", err)
+	}
+	// An update re-cuts: the new revision's outline is read, not the old, and
+	// a read pinned to the recalled revision is refused rather than answered
+	// with a different section under the same index.
+	if err := s.Update(ctx, testTenant, id, "RDP containment", "# Only\n\nOne section now.", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	outline, err = s.Sections(ctx, testTenant, id, SectionPin{})
+	if err != nil || outline.Revision != 2 || len(outline.Sections) != 1 {
+		t.Errorf("after update: %v %+v", err, outline)
+	}
+	if _, err := s.Section(ctx, testTenant, id, 3, SectionPin{Revision: 1}); !errors.Is(err, ErrRevisionChanged) {
+		t.Errorf("read pinned to revision 1 after revision 2: %v; want ErrRevisionChanged", err)
+	}
+	if _, err := s.Sections(ctx, testTenant, id, SectionPin{Revision: 1}); !errors.Is(err, ErrRevisionChanged) {
+		t.Errorf("outline pinned to revision 1 after revision 2: %v; want ErrRevisionChanged", err)
+	}
+}
+
 // TestRecallSemantic proves the facade drives the vector backend and resolves
 // SOP ids from the lineage tag on a recall hit (which carries no meta).
 func TestRecallSemantic(t *testing.T) {
@@ -415,4 +545,60 @@ func (e *stubEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 		}
 	}
 	return out, nil
+}
+
+// TestSOPSections_CutPinned: a smaller section budget re-cuts a procedure
+// under the same revision, so a read pinned to the revision alone would
+// answer a different piece under the same index. The pin names the cut too,
+// and a read under the old cut is refused.
+func TestSOPSections_CutPinned(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	const body = "# RDP containment\n\nScope line, long enough to be cut into parts under a small budget when the time comes.\n\n## Triage\nConfirm the session.\n\n## Containment\nIsolate the destination host.\n"
+	id, err := s.Create(ctx, SOP{TenantID: testTenant, Title: "RDP containment", Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := s.RecallSOPs(ctx, testTenant, RecallRequest{Query: "isolate the destination host"})
+	if err != nil || len(hits.Results) != 1 {
+		t.Fatalf("recall: %v %+v", err, hits)
+	}
+	hit := hits.Results[0]
+	if hit.Revision != 1 || hit.Cut != "1/16000" || hit.Section.Idx != 3 {
+		t.Fatalf("hit %+v", hit)
+	}
+	pin := SectionPin{Revision: hit.Revision, Cut: hit.Cut}
+	if read, err := s.Section(ctx, testTenant, id, hit.Section.Idx, pin); err != nil || !strings.HasPrefix(read.Section.Text, "## Containment") {
+		t.Fatalf("pinned read: %v %+v", err, read)
+	}
+
+	// The operator lowers the budget and the startup reconciliation re-cuts
+	// the stored sections: same revision, new numbering.
+	small, err := substrate.NewPostgres(testDB, []substrate.CorpusDef{
+		{Name: CorpusProcedures, Archetype: substrate.Curated, Governance: substrate.Lightweight},
+		{Name: CorpusCaseSummaries, Archetype: substrate.Derived},
+	}, substrate.WithSectionBudget(60))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2 := NewStore(small)
+	if n, err := s2.Reindex(ctx, testTenant); err != nil || n != 1 {
+		t.Fatalf("reindex: %d %v", n, err)
+	}
+	outline, err := s2.Sections(ctx, testTenant, id, SectionPin{Revision: 1})
+	if err != nil || outline.Revision != 1 || outline.Cut != "1/60" || len(outline.Sections) <= 3 {
+		t.Fatalf("outline after re-cut: %v %+v", err, outline)
+	}
+	if _, err := s2.Section(ctx, testTenant, id, hit.Section.Idx, pin); !errors.Is(err, ErrCutChanged) {
+		t.Errorf("read under the old cut: %v; want ErrCutChanged", err)
+	}
+	if _, err := s2.Sections(ctx, testTenant, id, pin); !errors.Is(err, ErrCutChanged) {
+		t.Errorf("outline under the old cut: %v; want ErrCutChanged", err)
+	}
+	if _, err := s2.Section(ctx, testTenant, id, 1, SectionPin{Revision: 1, Cut: "1/60"}); err != nil {
+		t.Errorf("read under the new cut: %v", err)
+	}
 }

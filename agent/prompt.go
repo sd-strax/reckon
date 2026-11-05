@@ -324,9 +324,10 @@ var promptLedger = []promptSection{
 			{
 				ID:                "cite-knowledge",
 				Origin:            "#236",
-				Why:               "The record credits a recalled procedure or past case only where the agent named it; a title or a paraphrase names no particular one (design/06 §6).",
-				PendingValidation: "#236",
-				Text:              "When a procedure or past case you recalled shaped your answer, name it by the ref recall returned — the sop_id from recall_sops, the investigation_ref from recall_similar_investigations or prior_investigations — as you cite evidence refs. Do not name one that did not shape the answer.",
+				Revised:           []string{"#303"},
+				Why:               "The record credits a recalled procedure or past case only where the agent named it and had read it; a title or a paraphrase names no particular one, and a hit's section is not the whole procedure (design/06 §6, §4.2).",
+				PendingValidation: "#303",
+				Text:              "When a procedure or past case you recalled shaped your answer, name it by the ref recall returned — the sop_id from recall_sops, the investigation_ref from recall_similar_investigations or prior_investigations — as you cite evidence refs. A recall_sops hit carries one section of a procedure; cite the procedure only for what you read of it, and read_sop the section first when the hit did not carry it. Do not name one that did not shape the answer.",
 			},
 			{
 				ID:        "team-voice",
@@ -398,7 +399,7 @@ func systemPrompt(inv Investigation, caps []Capability) string {
 		fmt.Fprintf(&b, textCaseSeed.Text, inv.Seed.Source, inv.Seed.CaseID)
 	}
 
-	b.WriteString("\nThe turn's time, the investigation's current hypothesis set, and the authoritative action record arrive as [clock] / [reasoning state] / [engine state] blocks on the analyst's messages. Each is the engine's own record as of that turn: read the latest one, and trust it over earlier narration. SOPs and past cases are never placed in your context: you fetch them with recall_sops, recall_similar_investigations and prior_investigations.\n")
+	b.WriteString("\nThe turn's time, the investigation's current hypothesis set, and the authoritative action record arrive as [clock] / [reasoning state] / [engine state] blocks on the analyst's messages. Each is the engine's own record as of that turn: read the latest one, and trust it over earlier narration. SOPs and past cases are never placed in your context: you fetch them with recall_sops, recall_similar_investigations and prior_investigations, and read a procedure's other sections with read_sop.\n")
 
 	if degraded := degradedVerbs(caps); len(degraded) > 0 {
 		fmt.Fprintf(&b, textDegraded.Text, strings.Join(degraded, textListSeparator.Text))

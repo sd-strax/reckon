@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -43,11 +46,116 @@ func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := b.cfg.Knowledge.RecallSOPs(r.Context(), module.SingleTenantUUID, req)
+	if errors.Is(err, knowledge.ErrInvalidRequest) {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err != nil {
 		writeInternalError(w, "recall_sops", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// ReindexJob is the state of the knowledge reindex (GET /api/knowledge/reindex):
+// the last run started on demand, or none. A run is one embedder call per
+// stale entry, so it outlives an HTTP request's deadline; the POST starts it
+// and answers 202, and the state is read here until it is done or failed.
+// Run identifies the run: a poller keeps the id the POST returned and
+// accepts only that run's done state, since a restart answers idle and a
+// later POST replaces the state with another run's.
+type ReindexJob struct {
+	Run        string     `json:"run,omitempty"`
+	State      string     `json:"state"` // idle | running | done | failed
+	Entries    int        `json:"entries,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+}
+
+// reindexTimeout bounds one on-demand run; the startup reconciliation has
+// the component's own deadline.
+const reindexTimeout = time.Hour
+
+// startReindexKnowledge handles POST /api/knowledge/reindex: starts bringing
+// the corpus up to date with the substrate's section rule and embedding model
+// (the reconciliation the backend also runs at startup), for an operator who
+// changed configuration and wants the corpus current without a restart.
+// Analyst role, like the import routes. A run already in progress is answered
+// with its state rather than started twice.
+func (b *Backend) startReindexKnowledge(w http.ResponseWriter, r *http.Request) {
+	b.reindexMu.Lock()
+	if b.reindex.State == "running" {
+		job := b.reindex
+		b.reindexMu.Unlock()
+		writeJSON(w, http.StatusAccepted, job)
+		return
+	}
+	now := time.Now().UTC()
+	run := uuid.NewString()
+	b.reindex = ReindexJob{Run: run, State: "running", StartedAt: &now}
+	job := b.reindex
+	b.reindexMu.Unlock()
+
+	// The run outlives the request: its own context, its own deadline.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), reindexTimeout)
+	go func() {
+		defer cancel()
+		n, err := b.cfg.Knowledge.Reindex(ctx, module.SingleTenantUUID)
+		done := time.Now().UTC()
+		b.reindexMu.Lock()
+		defer b.reindexMu.Unlock()
+		if b.reindex.Run != run {
+			return // one run at a time; the state is this run's or nobody's
+		}
+		b.reindex.FinishedAt = &done
+		b.reindex.Entries = n
+		if err != nil {
+			b.reindex.State, b.reindex.Error = "failed", err.Error()
+			return
+		}
+		b.reindex.State = "done"
+	}()
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+// getReindexKnowledge handles GET /api/knowledge/reindex: the state of the
+// last on-demand run, idle when none was started since the backend came up.
+func (b *Backend) getReindexKnowledge(w http.ResponseWriter, _ *http.Request) {
+	b.reindexMu.Lock()
+	job := b.reindex
+	b.reindexMu.Unlock()
+	if job.State == "" {
+		job.State = "idle"
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+// pinParams reads the optional ?revision= and ?cut= a section read pins
+// itself to: the revision and cut a recall hit reported, so the index is read
+// against the numbering it came from (409 when either has moved).
+func pinParams(w http.ResponseWriter, r *http.Request) (knowledge.SectionPin, bool) {
+	q := r.URL.Query()
+	pin := knowledge.SectionPin{Cut: q.Get("cut")}
+	if raw := q.Get("revision"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeJSONError(w, http.StatusBadRequest, "revision must be a positive integer")
+			return knowledge.SectionPin{}, false
+		}
+		pin.Revision = n
+	}
+	return pin, true
+}
+
+// pinMoved answers a pinned section read whose revision or cut is no longer
+// the stored one: 409, the caller recalls.
+func pinMoved(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, knowledge.ErrRevisionChanged) || errors.Is(err, knowledge.ErrCutChanged) {
+		writeJSONError(w, http.StatusConflict, err.Error())
+		return true
+	}
+	return false
 }
 
 // recallSimilar handles POST /api/knowledge/recall_similar_investigations
@@ -287,6 +395,55 @@ func (b *Backend) getSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sop)
+}
+
+// getSOPSections handles GET /api/sops/{id}/sections: the procedure's outline,
+// every section's place without its text (design/06 §4.2).
+func (b *Backend) getSOPSections(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	pin, ok := pinParams(w, r)
+	if !ok {
+		return
+	}
+	out, err := b.cfg.Knowledge.Sections(r.Context(), module.SingleTenantUUID, id, pin)
+	if pinMoved(w, err) {
+		return
+	}
+	if errors.Is(err, knowledge.ErrNotFound) {
+		writeJSONError(w, http.StatusNotFound, "sop not found")
+		return
+	}
+	if err != nil {
+		writeInternalError(w, "sop sections", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// getSOPSection handles GET /api/sops/{id}/sections/{n}: one section whole,
+// with the outline around it — the read behind the agent's read_sop tool.
+func (b *Backend) getSOPSection(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil || n < 1 {
+		writeJSONError(w, http.StatusBadRequest, "section index in path must be a positive integer")
+		return
+	}
+	pin, ok := pinParams(w, r)
+	if !ok {
+		return
+	}
+	out, err := b.cfg.Knowledge.Section(r.Context(), module.SingleTenantUUID, id, n, pin)
+	if pinMoved(w, err) {
+		return
+	}
+	if errors.Is(err, knowledge.ErrNotFound) {
+		writeJSONError(w, http.StatusNotFound, "sop or section not found")
+		return
+	}
+	if err != nil {
+		writeInternalError(w, "sop section", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (b *Backend) updateSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
