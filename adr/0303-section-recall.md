@@ -101,10 +101,12 @@ the hit carries must stay a view over hashed content, never a second record.
   section's; an outline read records the procedure with no section, and so
   does a page of a parted section read that carries no part (the outline
   past the last part is the section's place, not the section). One entry
-  stands for one procedure at one revision, carrying the `revision` and
+  stands for one procedure at one revision under one cut, the `revision` and
   `cut` its sections belong to: a turn shown two revisions (a recall, then a
-  read after a re-import) records both, and the aggregate refuses the same
-  procedure and revision twice. The record is never truncated: the aggregate
+  read after a re-import) or two cuts of one revision (a held page, then a
+  recall after a reindex) records each, its indexes under the numbering they
+  came from, and the aggregate refuses the same procedure, revision and cut
+  twice. The record is never truncated: the aggregate
   bounds an entry's sections at its tool-call limit times the most sections
   one result can show (`MaxSectionsPerToolResult`, the agent's recall limit,
   which a test holds the agent to), a number no act can reach. `cited` now

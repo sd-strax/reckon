@@ -381,8 +381,8 @@ agent's own record of what the session was shown, so a section read of a
 procedure never recalled or outlined is refused. A hit carries one section
 (§4.2); the agent reads the others before citing the procedure for what they
 say, and the record names the sections (with the revision and cut) it had in
-front of it (§6), one entry per revision shown, on every page it read of a
-paged recall or a parted section.
+front of it (§6), one entry per revision and cut shown, on every page it read
+of a paged recall or a parted section.
 
 The LLM invokes these when reasoning surfaces a question implicit retrieval missed. ("This is starting to look like a supply-chain compromise; pull SOPs tagged with `T1195`.") Tool results enter the conversation as tool-result messages.
 
