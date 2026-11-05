@@ -70,6 +70,7 @@ type ConsultedSOPBody struct {
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
 	Revision       int     `json:"revision,omitempty"`
+	Cut            string  `json:"cut,omitempty"`
 	Sections       []int   `json:"sections,omitempty"`
 	Cited          bool    `json:"cited"`
 }
@@ -226,7 +227,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, cs := range body.ConsultedSOPs {
 		cmd.ConsultedSOPs = append(cmd.ConsultedSOPs, aggregate.ConsultedSOP{
-			SOPID: cs.SOPID, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Revision: cs.Revision, Sections: cs.Sections, Cited: cs.Cited,
+			SOPID: cs.SOPID, Title: cs.Title, RetrievalScore: cs.RetrievalScore, Revision: cs.Revision, Cut: cs.Cut, Sections: cs.Sections, Cited: cs.Cited,
 		})
 	}
 	for _, cs := range body.ConsultedSimilar {

@@ -121,9 +121,12 @@ type ConsultedSOP struct {
 	SOPID          string  `json:"sop_id"`
 	Title          string  `json:"title,omitempty"`
 	RetrievalScore float64 `json:"retrieval_score,omitempty"`
-	// Revision is the SOP revision the sections belong to, as recall
-	// returned it.
-	Revision int `json:"revision,omitempty"`
+	// Revision and Cut are the SOP revision and section cut the sections
+	// belong to, as recall returned them: section indexes are stable only
+	// within one revision and one cut, so the record names both. One act
+	// records a procedure once per revision shown.
+	Revision int    `json:"revision,omitempty"`
+	Cut      string `json:"cut,omitempty"`
 	// Sections are the 1-based indexes of the procedure's sections the act
 	// had in front of it: what was read, which the inspector shows as
 	// "excerpt k of n" (adr/0303). Cited requires at least one.
@@ -131,10 +134,25 @@ type ConsultedSOP struct {
 	Cited    bool  `json:"cited"`
 }
 
-// maxConsultedSections bounds the sections one consulted entry records; the
-// agent caps what it records to the same number, so a turn's commit never
-// exceeds it whatever the tools showed.
-const maxConsultedSections = 256
+// MaxSectionsPerToolResult is the most sections of one procedure one tool
+// result can show the actor: the recall limit the agent asks for. With
+// maxToolCallsPerInterpretation it bounds what one act can be shown of one
+// procedure, so maxConsultedSections is a bound no act can reach, and the
+// agent records every section shown without truncating.
+const MaxSectionsPerToolResult = 5
+
+// maxConsultedSections bounds the sections one consulted entry records.
+const maxConsultedSections = maxToolCallsPerInterpretation * MaxSectionsPerToolResult
+
+// maxConsultedCutLen bounds the cut identifier ("<splitter>/<budget>").
+const maxConsultedCutLen = 32
+
+// consultedSOPKey is one procedure at one revision: the unit a consulted
+// entry stands for.
+type consultedSOPKey struct {
+	SOPID    string
+	Revision int
+}
 
 // ConsultedSimilarInvestigation records one concluded-investigation summary
 // surfaced by similarity retrieval during a reasoning act (06 §3, §6): the
@@ -374,9 +392,18 @@ func (c RecordInterpretation) Validate(env Envelope) error {
 	if len(c.ConsultedSOPs) > maxConsultedPerInterpretation {
 		return fmt.Errorf("RecordInterpretation: consulted_sops exceed %d", maxConsultedPerInterpretation)
 	}
+	seenConsulted := make(map[consultedSOPKey]bool, len(c.ConsultedSOPs))
 	for _, cs := range c.ConsultedSOPs {
 		if cs.SOPID == "" {
 			return errors.New("RecordInterpretation: consulted_sops entry has no sop_id")
+		}
+		key := consultedSOPKey{cs.SOPID, cs.Revision}
+		if seenConsulted[key] {
+			return fmt.Errorf("RecordInterpretation: consulted_sops records %s at revision %d twice", cs.SOPID, cs.Revision)
+		}
+		seenConsulted[key] = true
+		if len(cs.Cut) > maxConsultedCutLen {
+			return fmt.Errorf("RecordInterpretation: consulted_sops %s names a cut over %d bytes", cs.SOPID, maxConsultedCutLen)
 		}
 		if len(cs.Sections) > maxConsultedSections {
 			return fmt.Errorf("RecordInterpretation: consulted_sops %s records %d sections, over %d", cs.SOPID, len(cs.Sections), maxConsultedSections)

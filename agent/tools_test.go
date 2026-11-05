@@ -264,11 +264,11 @@ func TestRecall_ConsultedIsWhatTheModelWasShown(t *testing.T) {
 // TestRecordConsulted_KeepsBestScore: the same hit from two calls of a turn is
 // one entry at its best score, whichever came first.
 func TestRecordConsulted_KeepsBestScore(t *testing.T) {
-	s := &Session{consulted: map[string]ConsultedSOP{}, consultedSimilar: map[string]ConsultedSimilarInvestigation{}}
+	s := &Session{consulted: map[consultedKey]ConsultedSOP{}, consultedSimilar: map[string]ConsultedSimilarInvestigation{}}
 	s.recordConsulted([]ConsultedSOP{{SOPID: "a", RetrievalScore: 0.4}}, []ConsultedSimilarInvestigation{{InvestigationRef: "c", RetrievalScore: 0.9}})
 	s.recordConsulted([]ConsultedSOP{{SOPID: "a", RetrievalScore: 0.8}}, []ConsultedSimilarInvestigation{{InvestigationRef: "c", RetrievalScore: 0.95}})
 	s.recordConsulted([]ConsultedSOP{{SOPID: "a", RetrievalScore: 0.2}}, []ConsultedSimilarInvestigation{{InvestigationRef: "c", RetrievalScore: 0.2}})
-	if got := s.consulted["a"].RetrievalScore; got != 0.8 {
+	if got := s.consulted[consultedKey{id: "a"}].RetrievalScore; got != 0.8 {
 		t.Errorf("sop score = %v", got)
 	}
 	if got := s.consultedSimilar["c"].RetrievalScore; got != 0.95 {

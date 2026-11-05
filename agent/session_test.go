@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sd-strax/reckon/aggregate"
 )
 
 // scriptedLLM replays a fixed sequence of completions and records what it was
@@ -67,8 +69,8 @@ type fakeBackend struct {
 	srv           *httptest.Server
 	calls         []recordedCall
 	actions       []ActionStatus
-	hypotheses    json.RawMessage // GET …/hypotheses body when set; else an empty set
-	investigation *Investigation  // detail response when set; else a default ACTIVE stub
+	hypotheses    json.RawMessage                                   // GET …/hypotheses body when set; else an empty set
+	investigation *Investigation                                    // detail response when set; else a default ACTIVE stub
 	override      func(w http.ResponseWriter, r *http.Request) bool // handled?
 }
 
@@ -1051,9 +1053,9 @@ func TestSession_ConsultedSimilarRecorded(t *testing.T) {
 // title does not say which recalled item the model meant (adr/0236).
 func TestConsulted_CitedByRef(t *testing.T) {
 	s := &Session{
-		consulted: map[string]ConsultedSOP{
-			"sop-phish-3": {SOPID: "sop-phish-3", Title: "Phishing", RetrievalScore: 0.9, Sections: []int{1}},
-			"sop-rdp-7":   {SOPID: "sop-rdp-7", Title: "RDP lateral movement", RetrievalScore: 0.8, Sections: []int{3}},
+		consulted: map[consultedKey]ConsultedSOP{
+			{id: "sop-phish-3"}: {SOPID: "sop-phish-3", Title: "Phishing", RetrievalScore: 0.9, Sections: []int{1}},
+			{id: "sop-rdp-7"}:   {SOPID: "sop-rdp-7", Title: "RDP lateral movement", RetrievalScore: 0.8, Sections: []int{3}},
 		},
 		consultedSimilar: map[string]ConsultedSimilarInvestigation{
 			"grouping--prior1": {InvestigationRef: "grouping--prior1", Title: "Phishing wave", RetrievalScore: 0.9},
@@ -1083,8 +1085,8 @@ func TestConsulted_CitedByRef(t *testing.T) {
 // only when a section of it was in front of the model this turn — a hit's
 // section or a read_sop (adr/0303). An outline alone is not a read.
 func TestConsulted_CitedRequiresARead(t *testing.T) {
-	s := &Session{consulted: map[string]ConsultedSOP{
-		"sop-cred-9": {SOPID: "sop-cred-9", Title: "Credential theft", RetrievalScore: 0.7},
+	s := &Session{consulted: map[consultedKey]ConsultedSOP{
+		{id: "sop-cred-9"}: {SOPID: "sop-cred-9", Title: "Credential theft", RetrievalScore: 0.7},
 	}}
 	if got := s.consultedList("Per sop-cred-9, reset the account."); len(got) != 1 || got[0].Cited {
 		t.Errorf("named by ref with no section shown: %+v; want not cited", got)
@@ -1098,11 +1100,11 @@ func TestConsulted_CitedRequiresARead(t *testing.T) {
 // TestRecordConsulted_MergesSections: one entry per procedure across a turn,
 // with the best score, the title once known, and every section shown.
 func TestRecordConsulted_MergesSections(t *testing.T) {
-	s := &Session{consulted: map[string]ConsultedSOP{}}
+	s := &Session{consulted: map[consultedKey]ConsultedSOP{}}
 	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Title: "T", RetrievalScore: 0.5, Sections: []int{3}}}, nil)
 	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", RetrievalScore: 0.9, Sections: []int{1}}}, nil)
 	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Sections: []int{3}}}, nil) // a read of the same section again
-	got := s.consulted["sop-1"]
+	got := s.consulted[consultedKey{id: "sop-1"}]
 	if got.Title != "T" || got.RetrievalScore != 0.9 || len(got.Sections) != 2 || got.Sections[0] != 1 || got.Sections[1] != 3 {
 		t.Errorf("merged = %+v; want title T, score 0.9, sections [1 3]", got)
 	}
@@ -1111,43 +1113,63 @@ func TestRecordConsulted_MergesSections(t *testing.T) {
 // TestConsultedSOPs_ReadsTheSection: a recall hit's section idx is the
 // section shown; a read_sop result records the section read, an outline none.
 func TestConsultedSOPs_ReadsTheSection(t *testing.T) {
-	hits := consultedSOPs([]byte(`{"results":[{"sop_id":"sop-1","title":"T","score":0.8,"section":{"idx":3,"of":4}},{"sop_id":"sop-2","score":0.2}]}`))
-	if len(hits) != 2 || len(hits[0].Sections) != 1 || hits[0].Sections[0] != 3 || hits[1].Sections != nil {
+	hits := consultedSOPs([]byte(`{"results":[{"sop_id":"sop-1","title":"T","revision":2,"cut":"1/16000","score":0.8,"section":{"idx":3,"of":4}},{"sop_id":"sop-2","score":0.2}]}`))
+	if len(hits) != 2 || len(hits[0].Sections) != 1 || hits[0].Sections[0] != 3 || hits[0].Revision != 2 || hits[0].Cut != "1/16000" || hits[1].Sections != nil {
 		t.Errorf("hits = %+v", hits)
 	}
-	read := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","section":{"idx":2,"of":4,"text":"## B"},"outline":["A","A > B"]}`))
-	if len(read) != 1 || read[0].SOPID != "sop-1" || len(read[0].Sections) != 1 || read[0].Sections[0] != 2 {
+	read := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","revision":2,"cut":"1/16000","section":{"idx":2,"of":4,"text":"## B"},"outline":["A","A > B"]}`))
+	if len(read) != 1 || read[0].SOPID != "sop-1" || len(read[0].Sections) != 1 || read[0].Sections[0] != 2 || read[0].Cut != "1/16000" {
 		t.Errorf("read = %+v", read)
 	}
 	outline := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","sections":[{"idx":1},{"idx":2}]}`))
 	if len(outline) != 1 || outline[0].Sections != nil {
 		t.Errorf("outline = %+v; want the procedure consulted with no section", outline)
 	}
+	// A section too large for one page travels as text_parts. A page that
+	// carries a part is a read; a page of the same result that carries none
+	// (the outline alone, past the last part) showed the section's place and
+	// nothing of the section.
+	part := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","section":{"idx":2,"of":4},"text_parts":["## B part"],"outline":["A"]}`))
+	if len(part) != 1 || len(part[0].Sections) != 1 || part[0].Sections[0] != 2 {
+		t.Errorf("page with a text part = %+v; want section 2 read", part)
+	}
+	bare := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","section":{"idx":2,"of":4},"text_parts":[],"outline":["A > D"]}`))
+	if len(bare) != 1 || bare[0].Sections != nil {
+		t.Errorf("page with no text part = %+v; want the procedure consulted with no section", bare)
+	}
+	if noText := readSOPConsulted([]byte(`{"sop_id":"sop-1","title":"T","section":{"idx":2,"of":4}}`)); len(noText) != 1 || noText[0].Sections != nil {
+		t.Errorf("section with no text = %+v; want no section read", noText)
+	}
 }
 
 // TestSession_ReadSOP: the read_sop tool fetches one section by id and index,
-// the turn records the section read, and naming the procedure then cites it.
+// pinned to the revision and cut the recall hit was shown under even when the
+// model omits the revision; the turn records the section read, and naming
+// the procedure then cites it.
 func TestSession_ReadSOP(t *testing.T) {
 	f := newFakeBackend(t)
 	reads := 0
 	f.override = func(w http.ResponseWriter, r *http.Request) bool {
 		switch r.URL.Path {
+		case "/api/knowledge/recall_sops":
+			_, _ = w.Write([]byte(`{"results":[{"sop_id":"sop-rdp-7","title":"RDP containment","revision":2,"cut":"1/16000","score":0.9,"section":{"idx":1,"of":4,"location":"RDP containment"},"excerpt":"# RDP containment\n\nScope."}],"coverage":"COMPLETE"}`))
 		case "/api/sops/sop-rdp-7/sections/3":
-			if r.URL.Query().Get("revision") != "2" {
-				t.Errorf("read_sop did not pin the revision: %s", r.URL.RequestURI())
+			if q := r.URL.Query(); q.Get("revision") != "2" || q.Get("cut") != "1/16000" {
+				t.Errorf("read_sop did not pin the revision and cut the hit was shown under: %s", r.URL.RequestURI())
 			}
 			reads++
-			_, _ = w.Write([]byte(`{"sop_id":"sop-rdp-7","title":"RDP containment","revision":2,"status":"published","section":{"idx":3,"of":4,"heading_path":["RDP containment","Containment"],"location":"RDP containment > Containment","runes":40,"text":"## Containment\nIsolate the destination host."},"outline":["RDP containment","RDP containment > Triage","RDP containment > Containment","RDP containment > Do not"]}`))
+			_, _ = w.Write([]byte(`{"sop_id":"sop-rdp-7","title":"RDP containment","revision":2,"cut":"1/16000","status":"published","section":{"idx":3,"of":4,"heading_path":["RDP containment","Containment"],"location":"RDP containment > Containment","runes":40,"text":"## Containment\nIsolate the destination host."},"outline":["RDP containment","RDP containment > Triage","RDP containment > Containment","RDP containment > Do not"]}`))
 		default:
 			return false
 		}
 		return true
 	}
 	llm := &scriptedLLM{script: []CompleteResponse{
-		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t1", ToolReadSOP, `{"sop_id":"sop-rdp-7","revision":2,"section":3}`)}},
+		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t1", ToolRecallSOPs, `{"query":"rdp"}`)}},
+		{StopReason: StopToolUse, Content: []ContentBlock{toolUse("t2", ToolReadSOP, `{"sop_id":"sop-rdp-7","section":3}`)}},
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Following sop-rdp-7, isolate the destination host.")}},
 	}}
-	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1", MaxToolRounds: 2})
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1", MaxToolRounds: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1165,41 +1187,116 @@ func TestSession_ReadSOP(t *testing.T) {
 	if err := json.Unmarshal(calls[len(calls)-1].Body, &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.ConsultedSOPs) != 1 || body.ConsultedSOPs[0].SOPID != "sop-rdp-7" || !body.ConsultedSOPs[0].Cited || len(body.ConsultedSOPs[0].Sections) != 1 || body.ConsultedSOPs[0].Sections[0] != 3 || body.ConsultedSOPs[0].Revision != 2 {
-		t.Errorf("consulted SOPs = %+v; want sop-rdp-7 revision 2 cited with section 3", body.ConsultedSOPs)
+	if len(body.ConsultedSOPs) != 1 {
+		t.Fatalf("consulted SOPs = %+v; want one entry", body.ConsultedSOPs)
+	}
+	got := body.ConsultedSOPs[0]
+	if got.SOPID != "sop-rdp-7" || !got.Cited || len(got.Sections) != 2 || got.Sections[0] != 1 || got.Sections[1] != 3 || got.Revision != 2 || got.Cut != "1/16000" {
+		t.Errorf("consulted = %+v; want sop-rdp-7 revision 2 cut 1/16000 cited with sections [1 3]", got)
 	}
 }
 
-// TestRecordConsulted_RevisionsDoNotMerge: sections belong to a revision. A
-// newer revision of the same procedure replaces the entry; an older one's
-// sections are not merged under the newer.
-func TestRecordConsulted_RevisionsDoNotMerge(t *testing.T) {
-	s := &Session{consulted: map[string]ConsultedSOP{}}
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, RetrievalScore: 0.9, Sections: []int{3}}}, nil)
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 2, RetrievalScore: 0.5, Sections: []int{1}}}, nil)
-	if got := s.consulted["sop-1"]; got.Revision != 2 || len(got.Sections) != 1 || got.Sections[0] != 1 {
-		t.Errorf("after a newer revision: %+v; want revision 2 with section 1 only", got)
+// TestSession_ReadSOP_RequiresAPin: a section index means nothing without the
+// revision and cut it came from. A section read of a procedure this session
+// was never shown is refused, as is one at a revision it was not shown; an
+// outline read is unpinned and establishes the pin.
+func TestSession_ReadSOP_RequiresAPin(t *testing.T) {
+	f := newFakeBackend(t)
+	var requests []string
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		if !strings.HasPrefix(r.URL.Path, "/api/sops/sop-x/sections") {
+			return false
+		}
+		requests = append(requests, r.URL.RequestURI())
+		if r.URL.Path == "/api/sops/sop-x/sections" {
+			_, _ = w.Write([]byte(`{"sop_id":"sop-x","title":"X","revision":4,"cut":"1/16000","status":"published","sections":[{"idx":1,"of":2,"location":"X","runes":10},{"idx":2,"of":2,"location":"X > Y","runes":12}]}`))
+		} else {
+			_, _ = w.Write([]byte(`{"sop_id":"sop-x","title":"X","revision":4,"cut":"1/16000","status":"published","section":{"idx":2,"of":2,"location":"X > Y","runes":12,"text":"## Y\nsay so."},"outline":["X","X > Y"]}`))
+		}
+		return true
+	}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: &scriptedLLM{}, InvestigationID: "inv-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x", Section: 2}); err == nil || !strings.Contains(err.Error(), "not recalled or outlined") {
+		t.Fatalf("section read with no pin: %v; want refused", err)
+	}
+	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x", Revision: 4, Section: 2}); err == nil {
+		t.Fatal("a revision the model asserts but was never shown is not a pin")
+	}
+	if len(requests) != 0 {
+		t.Fatalf("refused reads reached the backend: %v", requests)
+	}
+	res, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Consulted) != 1 || res.Consulted[0].Sections != nil || res.Consulted[0].Revision != 4 || res.Consulted[0].Cut != "1/16000" {
+		t.Errorf("outline consulted = %+v; want revision 4, cut 1/16000, no section", res.Consulted)
+	}
+	s.recordConsulted(res.Consulted, nil)
+	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x", Section: 2}); err != nil {
+		t.Fatalf("section read after the outline: %v", err)
+	}
+	if _, err := s.readSOP(ctx, readSOPInput{SOPID: "sop-x", Revision: 3, Section: 2}); err == nil {
+		t.Error("a revision not shown this session accepted")
+	}
+	if len(requests) != 2 || requests[0] != "/api/sops/sop-x/sections" || requests[1] != "/api/sops/sop-x/sections/2?cut=1%2F16000&revision=4" {
+		t.Errorf("requests = %v; want the unpinned outline then the section pinned to revision 4 and cut 1/16000", requests)
+	}
+}
+
+// TestRecordConsulted_RevisionsAreSeparateEntries: sections belong to a
+// revision. A turn that was shown two revisions of one procedure (a recall,
+// then a read after a re-import) records both, each with its own sections and
+// its own citation; neither is lost to the other.
+func TestRecordConsulted_RevisionsAreSeparateEntries(t *testing.T) {
+	s := &Session{consulted: map[consultedKey]ConsultedSOP{}}
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Cut: "1/16000", RetrievalScore: 0.9, Sections: []int{3}}}, nil)
+	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 2, Cut: "1/16000", RetrievalScore: 0.5}}, nil) // an outline of the new revision
+	if len(s.consulted) != 2 {
+		t.Fatalf("entries = %+v; want one per revision", s.consulted)
 	}
 	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Sections: []int{4}}}, nil)
-	if got := s.consulted["sop-1"]; got.Revision != 2 || len(got.Sections) != 1 {
-		t.Errorf("an older revision merged in: %+v", got)
+	if got := s.consulted[consultedKey{id: "sop-1", revision: 1}]; len(got.Sections) != 2 || got.Sections[0] != 3 || got.Sections[1] != 4 || got.Cut != "1/16000" {
+		t.Errorf("revision 1 after a second read: %+v; want sections [3 4]", got)
 	}
-	// Unknown revisions (0) merge as before.
-	s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Sections: []int{2}}}, nil)
-	if got := s.consulted["sop-1"]; len(got.Sections) != 2 {
-		t.Errorf("unpinned read did not merge: %+v", got)
+	if got := s.consulted[consultedKey{id: "sop-1", revision: 2}]; got.Sections != nil {
+		t.Errorf("revision 2 took revision 1's sections: %+v", got)
+	}
+	list := s.consultedList("Per sop-1, isolate.")
+	if len(list) != 2 || list[0].Revision != 1 || !list[0].Cited || list[1].Revision != 2 || list[1].Cited {
+		t.Errorf("list = %+v; want revision 1 cited (sections read) and revision 2 not (outline only)", list)
+	}
+	if s.sectionPins["sop-1"][1] != "1/16000" || s.sectionPins["sop-1"][2] != "1/16000" {
+		t.Errorf("pins = %v; want the cut of both revisions", s.sectionPins)
 	}
 }
 
-// TestRecordConsulted_CapsSections: the record never exceeds the aggregate's
-// bound, whatever the tools showed.
-func TestRecordConsulted_CapsSections(t *testing.T) {
-	s := &Session{consulted: map[string]ConsultedSOP{}}
-	for i := 1; i <= maxRecordedSections+40; i++ {
-		s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Sections: []int{i}}}, nil)
+// TestRecordConsulted_NeverTruncates: every section the tools showed is in
+// the record. The aggregate's bound is derived from what a turn's tool calls
+// can show (TestRecallLimitWithinAggregateBound), so nothing is dropped to
+// fit it.
+func TestRecordConsulted_NeverTruncates(t *testing.T) {
+	s := &Session{consulted: map[consultedKey]ConsultedSOP{}}
+	const shown = 300
+	for i := 1; i <= shown; i++ {
+		s.recordConsulted([]ConsultedSOP{{SOPID: "sop-1", Revision: 1, Sections: []int{i}}}, nil)
 	}
-	if got := s.consulted["sop-1"]; len(got.Sections) != maxRecordedSections || got.Sections[len(got.Sections)-1] != maxRecordedSections {
-		t.Errorf("sections = %d (last %d); want the first %d", len(got.Sections), got.Sections[len(got.Sections)-1], maxRecordedSections)
+	if got := s.consulted[consultedKey{id: "sop-1", revision: 1}]; len(got.Sections) != shown || got.Sections[shown-1] != shown {
+		t.Errorf("sections = %d; want all %d shown", len(got.Sections), shown)
+	}
+}
+
+// TestRecallLimitWithinAggregateBound: the aggregate bounds a consulted
+// entry's sections at its tool-call limit times the most sections one result
+// can show. The agent's recall limit is that number, so the bound is not
+// reachable and the record is never cut to fit.
+func TestRecallLimitWithinAggregateBound(t *testing.T) {
+	if recallLimit > aggregate.MaxSectionsPerToolResult {
+		t.Errorf("recallLimit %d exceeds aggregate.MaxSectionsPerToolResult %d: a turn could show more sections than the record may hold", recallLimit, aggregate.MaxSectionsPerToolResult)
 	}
 }
 
@@ -1271,6 +1368,7 @@ func TestSession_ReadSOP_OversizedSectionIsPaged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.pinSections("sop-big", 1, "1/16000") // as a recall hit would have
 	res, err := s.readSOP(context.Background(), readSOPInput{SOPID: "sop-big", Section: 2})
 	if err != nil {
 		t.Fatal(err)
@@ -1571,8 +1669,8 @@ func TestClipRunes(t *testing.T) {
 // calls REQUESTED) and flagging a fabricated id that isn't on record. This is
 // what the prompt honesty rules could not guarantee.
 func TestSession_ReconcileActionClaims(t *testing.T) {
-	const realID = "dd4352b1-4924-4e6d-a448-94005141264a"  // exists, FAILED
-	const fakeID = "7c3e0f9b-4d2a-4e1c-9a6f-2b8d1e5a0c34"  // fabricated
+	const realID = "dd4352b1-4924-4e6d-a448-94005141264a" // exists, FAILED
+	const fakeID = "7c3e0f9b-4d2a-4e1c-9a6f-2b8d1e5a0c34" // fabricated
 	f := newFakeBackend(t)
 	f.actions = []ActionStatus{{ActionID: realID, ActionType: "ticket.create", Tier: "T2", Status: "FAILED"}}
 
@@ -1947,5 +2045,21 @@ func TestToolSetHash(t *testing.T) {
 	}
 	if hash(verb("a", "A.", "available"), verb("b", "B.", "degraded")) == base {
 		t.Error("a degraded verb did not move the hash")
+	}
+}
+
+// TestSectionInParts_TinyLimit: a result limit under eight bytes makes the
+// part size zero; the loop must still advance and terminate.
+func TestSectionInParts_TinyLimit(t *testing.T) {
+	raw := []byte(`{"sop_id":"s","section":{"idx":1,"text":"abc"},"outline":["A"]}`)
+	done := make(chan []byte, 1)
+	go func() { done <- sectionInParts(raw, 0) }()
+	select {
+	case out := <-done:
+		if !strings.Contains(string(out), `"text_parts":["a","b","c"]`) {
+			t.Errorf("parts = %s; want one rune each", out)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("sectionInParts did not terminate on a zero part size")
 	}
 }

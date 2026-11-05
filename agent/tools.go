@@ -205,8 +205,8 @@ var recallUnitOverride = map[string]any{
 
 type readSOPInput struct {
 	SOPID    string `json:"sop_id" required:"true" desc:"the sop_id a recall_sops hit returned"`
-	Revision int    `json:"revision" desc:"the revision the hit returned, so the index is read against the same cut; a changed procedure is refused and must be recalled again"`
-	Section  int    `json:"section" desc:"the section to read whole, by its idx from a hit's section or outline; omit for the outline alone"`
+	Revision int    `json:"revision" desc:"the revision the hit or outline returned; omitted, the newest revision you were shown this session. A section is read against that revision's numbering; a procedure changed since is refused and must be recalled again"`
+	Section  int    `json:"section" desc:"the section to read whole, by its idx from a hit's section or outline; omit for the outline alone. A section read needs a recall or outline of the procedure first"`
 }
 
 type recallSimilarInput struct {
@@ -639,14 +639,26 @@ func (s *Session) readSOP(ctx context.Context, in readSOPInput) (toolResult, err
 	if in.Section < 0 {
 		return toolResult{}, fmt.Errorf("read_sop: section must be a positive index, got %d", in.Section)
 	}
+	if in.Revision < 0 {
+		return toolResult{}, fmt.Errorf("read_sop: revision must be positive, got %d", in.Revision)
+	}
 	var (
 		raw json.RawMessage
 		err error
 	)
 	if in.Section == 0 {
-		raw, err = s.backend.SOPSections(ctx, in.SOPID, in.Revision)
+		// The outline establishes the pin: it answers the current revision
+		// and cut, and the model's revision, if given, is honoured.
+		raw, err = s.backend.SOPSections(ctx, in.SOPID, sectionPin{Revision: in.Revision})
 	} else {
-		raw, err = s.backend.SOPSection(ctx, in.SOPID, in.Section, in.Revision)
+		// A section index is read only against the revision and cut it came
+		// from: the pin is the session's own record of what was shown, not
+		// a number the model may omit.
+		pin, perr := s.sectionPinFor(in.SOPID, in.Revision)
+		if perr != nil {
+			return toolResult{}, perr
+		}
+		raw, err = s.backend.SOPSection(ctx, in.SOPID, in.Section, pin)
 	}
 	if err != nil {
 		return toolResult{}, err
@@ -681,7 +693,8 @@ func sectionInParts(raw []byte, partRunes int) []byte {
 	}
 	delete(section, "text")
 	runes := []rune(text)
-	parts := make([]string, 0, len(runes)/max(partRunes, 1)+1)
+	partRunes = max(partRunes, 1) // a page under eight bytes would otherwise never advance
+	parts := make([]string, 0, len(runes)/partRunes+1)
 	for at := 0; at < len(runes); at += partRunes {
 		parts = append(parts, string(runes[at:min(at+partRunes, len(runes))]))
 	}

@@ -22,8 +22,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "22ddad5bbc15e943d8ec6e9d4b8213224f6859de56b46bdd7a4682f3ed036ed9",
-		framingLeadingOnly: "42e7c29e440df7f710ed9b1a01b2732e967fbae71d67c94400e1e2dbd5afa692",
+		framingLeadingNull: "457998381a4d1f0a7c9f34a41a9f23cdcc1cd624cf83a435a3c78dc8484aac1f",
+		framingLeadingOnly: "15dc2b4e747008fe89f7e04254fc4a6c6abf1b64a7791b15dcb6c09f6abe71b0",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -73,7 +73,7 @@ var componentGolden = map[string]string{
 	"prompt":                                           "7ba7d77c1ba5b94dbb28a9eff9bd949ac6559b9a9789e23f6f69599590806cc0",
 	"prompt/leading_only":                              "fa7a504531324a86c4960f517e5a4a62e32f7a0e99b69218a9f2a23c071cdda6",
 	"tools/recall_sops":                                "8c6809eb0dd1c94cbeb3a8e14fcae26eb627b2ca29785cc9b4fddfdcb347861c",
-	"tools/read_sop":                                   "ba156d8e650523d90b1d1432f7ff05216c03a34da284cdfe4134e4ded3986a70",
+	"tools/read_sop":                                   "d2a3d735e2d12528e5f651c56b8403778179d882ddb5a9405f88326d358a1b28",
 	"tools/recall_similar_investigations":              "013a01bbff06558a7d972be60d2e93248f23e54e71e1f5ce87196e800d45d711",
 	"tools/prior_investigations":                       "433c5d17cb369e9f19d36a54571b007c5230278d076c129006b037d61341f49e",
 	"tools/propose_hypothesis":                         "7e8b3212c19b856139929b44c97ebea7eef78588a613b189a26ff9eb0828baf9",

@@ -119,7 +119,12 @@ type Session struct {
 	pendingActions []ActionResponse // actions proposed this turn, for the surface to offer approval
 	// consulted accumulates the turn's recall_sops retrievals (by sop_id,
 	// keeping the best score) — the knowledge provenance the commit carries.
-	consulted map[string]ConsultedSOP
+	consulted map[consultedKey]ConsultedSOP
+	// sectionPins remembers, for the session, the cut each revision of each
+	// procedure was shown under (by a recall hit, an outline or a section
+	// read), so a read_sop section read is pinned to the numbering the model
+	// holds whether or not the model repeats the revision.
+	sectionPins map[string]map[int]string
 	// consultedSimilar accumulates the turn's recall_similar_investigations
 	// retrievals (by investigation_ref, best score) — case-knowledge provenance.
 	consultedSimilar map[string]ConsultedSimilarInvestigation
@@ -188,7 +193,10 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 		now:             cfg.Clock,
 		// The investigation id is always a legit engine id — never a fabrication
 		// even when the model quotes it back (e.g. from a ticket body).
-		seenIDs: map[string]bool{strings.ToLower(cfg.InvestigationID): true},
+		seenIDs:          map[string]bool{strings.ToLower(cfg.InvestigationID): true},
+		sectionPins:      map[string]map[int]string{},
+		consulted:        map[consultedKey]ConsultedSOP{},
+		consultedSimilar: map[string]ConsultedSimilarInvestigation{},
 	}
 	if s.maxRounds <= 0 {
 		s.maxRounds = defaultMaxToolRounds
@@ -474,7 +482,7 @@ func (s *Session) HypothesisFraming() string {
 // held and committed before the next turn's.
 func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error) {
 	s.pendingActions = nil
-	s.consulted = map[string]ConsultedSOP{}
+	s.consulted = map[consultedKey]ConsultedSOP{}
 	s.consultedSimilar = map[string]ConsultedSimilarInvestigation{}
 	// The reasoning state must be current at every turn: between turns the
 	// analyst adopts with a restatement, frames a rival by hand, adds or
@@ -894,30 +902,29 @@ func (s *Session) complete(ctx context.Context, side []ContentBlock) (resp Compl
 	return resp, false, err
 }
 
-// maxRecordedSections caps the sections one consulted entry records, the
-// aggregate's bound for the field (maxConsultedSections there): the turn is
-// committed whatever the tools showed. Under the default rounds and recall
-// limit a turn cannot show this many sections of one procedure.
-const maxRecordedSections = 256
+// consultedKey is one entry of the turn's knowledge provenance: a procedure
+// at a revision. Sections belong to a revision, and a turn can show more
+// than one (a recall before a re-import, a read after), so each revision
+// shown is its own entry and nothing shown is lost.
+type consultedKey struct {
+	id       string
+	revision int
+}
 
 // recordConsulted accumulates what one tool call put in front of the model into
-// the turn's knowledge provenance: one entry per id with the best score, the
-// title once known, and the union of the sections shown (a recall hit's, or
-// a read_sop's). Sections belong to a revision: a newer revision of the same
-// procedure replaces the entry, an older one's sections are not merged.
+// the turn's knowledge provenance: one entry per procedure and revision with
+// the best score, the title once known, and the union of the sections shown
+// (a recall hit's, or a read_sop's). The record is never truncated: the
+// aggregate's bound exceeds what a turn's tool calls can show
+// (aggregate.MaxSectionsPerToolResult per call). The cut each revision was
+// shown under is kept for the session, for pinning later reads.
 func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarInvestigation) {
 	for _, c := range sops {
-		c.Sections = capSections(c.Sections)
-		prev, ok := s.consulted[c.SOPID]
+		s.pinSections(c.SOPID, c.Revision, c.Cut)
+		key := consultedKey{id: c.SOPID, revision: c.Revision}
+		prev, ok := s.consulted[key]
 		if !ok {
-			s.consulted[c.SOPID] = c
-			continue
-		}
-		switch {
-		case c.Revision != 0 && prev.Revision != 0 && c.Revision > prev.Revision:
-			s.consulted[c.SOPID] = c
-			continue
-		case c.Revision != 0 && prev.Revision != 0 && c.Revision < prev.Revision:
+			s.consulted[key] = c
 			continue
 		}
 		if c.RetrievalScore > prev.RetrievalScore {
@@ -926,11 +933,11 @@ func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarI
 		if prev.Title == "" {
 			prev.Title = c.Title
 		}
-		if prev.Revision == 0 {
-			prev.Revision = c.Revision
+		if prev.Cut == "" {
+			prev.Cut = c.Cut
 		}
-		prev.Sections = capSections(mergeSections(prev.Sections, c.Sections))
-		s.consulted[c.SOPID] = prev
+		prev.Sections = mergeSections(prev.Sections, c.Sections)
+		s.consulted[key] = prev
 	}
 	for _, c := range cases {
 		if prev, ok := s.consultedSimilar[c.InvestigationRef]; !ok || c.RetrievalScore > prev.RetrievalScore {
@@ -939,13 +946,40 @@ func (s *Session) recordConsulted(sops []ConsultedSOP, cases []ConsultedSimilarI
 	}
 }
 
-// capSections keeps a section list within maxRecordedSections (the lowest
-// indexes), so the commit never exceeds the aggregate's bound.
-func capSections(secs []int) []int {
-	if len(secs) <= maxRecordedSections {
-		return secs
+// pinSections remembers the cut a procedure's revision was shown under.
+func (s *Session) pinSections(id string, revision int, cut string) {
+	if id == "" || revision <= 0 || cut == "" {
+		return
 	}
-	return secs[:maxRecordedSections]
+	if s.sectionPins == nil {
+		s.sectionPins = map[string]map[int]string{}
+	}
+	if s.sectionPins[id] == nil {
+		s.sectionPins[id] = map[int]string{}
+	}
+	s.sectionPins[id][revision] = cut
+}
+
+// sectionPinFor is the pin a section read of a procedure is made under: the
+// revision the model asked for, or the newest it was shown when it did not
+// say, with the cut that revision was shown under. A section index means
+// nothing without one, so a procedure this session never recalled or
+// outlined, or a revision it was not shown, is refused.
+func (s *Session) sectionPinFor(id string, revision int) (sectionPin, error) {
+	known := s.sectionPins[id]
+	if len(known) == 0 {
+		return sectionPin{}, fmt.Errorf("read_sop: %s was not recalled or outlined in this session; its section indexes belong to a revision and cut you have not been shown. Call recall_sops, or read_sop without a section, first", id)
+	}
+	if revision == 0 {
+		for r := range known {
+			revision = max(revision, r)
+		}
+	}
+	cut, ok := known[revision]
+	if !ok {
+		return sectionPin{}, fmt.Errorf("read_sop: %s was not shown at revision %d in this session; use the revision a hit or outline returned", id, revision)
+	}
+	return sectionPin{Revision: revision, Cut: cut}, nil
 }
 
 // consultedSOPs reads the procedures out of a recall_sops result: each hit's
@@ -956,6 +990,7 @@ func consultedSOPs(content []byte) []ConsultedSOP {
 			SOPID    string  `json:"sop_id"`
 			Title    string  `json:"title"`
 			Revision int     `json:"revision"`
+			Cut      string  `json:"cut"`
 			Score    float64 `json:"score"`
 			Section  struct {
 				Idx int `json:"idx"`
@@ -970,7 +1005,7 @@ func consultedSOPs(content []byte) []ConsultedSOP {
 		if r.SOPID == "" {
 			continue
 		}
-		c := ConsultedSOP{SOPID: r.SOPID, Title: r.Title, Revision: r.Revision, RetrievalScore: r.Score}
+		c := ConsultedSOP{SOPID: r.SOPID, Title: r.Title, Revision: r.Revision, Cut: r.Cut, RetrievalScore: r.Score}
 		if r.Section.Idx > 0 {
 			c.Sections = []int{r.Section.Idx}
 		}
@@ -980,21 +1015,28 @@ func consultedSOPs(content []byte) []ConsultedSOP {
 }
 
 // readSOPConsulted reads the procedure out of a read_sop result: the section
-// read, or none for an outline (headings are not the procedure).
+// read, or none for an outline (headings are not the procedure). A section
+// counts as read only when its text was on the page: a section too large for
+// one page travels as text_parts, and a page of such a result that holds
+// none of them (the outline alone) showed the model the section's place,
+// not the section.
 func readSOPConsulted(content []byte) []ConsultedSOP {
 	var res struct {
 		SOPID    string `json:"sop_id"`
 		Title    string `json:"title"`
 		Revision int    `json:"revision"`
+		Cut      string `json:"cut"`
 		Section  struct {
-			Idx int `json:"idx"`
+			Idx  int    `json:"idx"`
+			Text string `json:"text"`
 		} `json:"section"`
+		TextParts []json.RawMessage `json:"text_parts"`
 	}
 	if json.Unmarshal(content, &res) != nil || res.SOPID == "" {
 		return nil
 	}
-	c := ConsultedSOP{SOPID: res.SOPID, Title: res.Title, Revision: res.Revision}
-	if res.Section.Idx > 0 {
+	c := ConsultedSOP{SOPID: res.SOPID, Title: res.Title, Revision: res.Revision, Cut: res.Cut}
+	if res.Section.Idx > 0 && (res.Section.Text != "" || len(res.TextParts) > 0) {
 		c.Sections = []int{res.Section.Idx}
 	}
 	return []ConsultedSOP{c}
@@ -1038,7 +1080,15 @@ func (s *Session) consultedList(modelText string) []ConsultedSOP {
 		c.Cited = len(c.Sections) > 0 && strings.Contains(lower, strings.ToLower(c.SOPID))
 		out = append(out, c)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].RetrievalScore > out[j].RetrievalScore })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].RetrievalScore != out[j].RetrievalScore {
+			return out[i].RetrievalScore > out[j].RetrievalScore
+		}
+		if out[i].SOPID != out[j].SOPID {
+			return out[i].SOPID < out[j].SOPID
+		}
+		return out[i].Revision < out[j].Revision
+	})
 	return out
 }
 

@@ -37,11 +37,11 @@
       "InputSchema": {
         "properties": {
           "revision": {
-            "description": "the revision the hit returned, so the index is read against the same cut; a changed procedure is refused and must be recalled again",
+            "description": "the revision the hit or outline returned; omitted, the newest revision you were shown this session. A section is read against that revision's numbering; a procedure changed since is refused and must be recalled again",
             "type": "integer"
           },
           "section": {
-            "description": "the section to read whole, by its idx from a hit's section or outline; omit for the outline alone",
+            "description": "the section to read whole, by its idx from a hit's section or outline; omit for the outline alone. A section read needs a recall or outline of the procedure first",
             "type": "integer"
           },
           "sop_id": {
@@ -408,11 +408,11 @@
       "InputSchema": {
         "properties": {
           "revision": {
-            "description": "the revision the hit returned, so the index is read against the same cut; a changed procedure is refused and must be recalled again",
+            "description": "the revision the hit or outline returned; omitted, the newest revision you were shown this session. A section is read against that revision's numbering; a procedure changed since is refused and must be recalled again",
             "type": "integer"
           },
           "section": {
-            "description": "the section to read whole, by its idx from a hit's section or outline; omit for the outline alone",
+            "description": "the section to read whole, by its idx from a hit's section or outline; omit for the outline alone. A section read needs a recall or outline of the procedure first",
             "type": "integer"
           },
           "sop_id": {
