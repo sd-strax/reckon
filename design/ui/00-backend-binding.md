@@ -293,7 +293,7 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     `GET/POST /api/investigations/{id}/dependencies`, `/api/dependencies/{id}/attach|confirm|waive`);
     SENT when the `notify.*` action it rides on succeeds (the result path on every attempt,
     the outcome-resolution route, a settle after attach, the sweep's reconcile under them all),
-    pinned to a send in flight, resolved by the analyst alone, never by a delegate, never after
+    pinned to a send in flight (judged in the store's transaction), resolved by the analyst alone, never by a delegate, never after
     conclusion (sealed in the store's transaction); the preflight and the Notify step count
     OPEN + SENT and say when the slice could not be read; the signed bundle carries
     `dependencies.json`.*

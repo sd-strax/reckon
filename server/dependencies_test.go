@@ -221,6 +221,25 @@ func TestDependencies_Lifecycle(t *testing.T) {
 	if err := store.Waive(context.Background(), raced.ID, dependency.Actor{ID: "test-subject"}, "out of scope", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	// A dependency still OPEN on a send that succeeded (its mark missed, the
+	// reconciler not yet by): moving it would take away the link the recovery
+	// needs. The attach settles it SENT in its own transaction and refuses.
+	waiting, err := store.Create(context.Background(), dependency.Create{
+		AggregateID: invID, TenantID: module.SingleTenantUUID, Title: "close the change ticket", Owner: "change board",
+		NotifyActionID: notifyID, By: dependency.Actor{ID: "test-subject"}, At: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, body := do("POST", "/api/dependencies/"+waiting.ID.String()+"/attach", AttachDependencyBody{NotifyActionID: otherID.String()}); code != http.StatusConflict {
+		t.Errorf("move off a succeeded send = %d: %s; want 409", code, body)
+	}
+	if got, _ := store.Get(context.Background(), waiting.ID); got.Status != dependency.StatusSent || got.NotifyActionID != notifyID {
+		t.Errorf("after the refused move = %s on %s; want SENT, still on the succeeded send", got.Status, got.NotifyActionID)
+	}
+	if err := store.Waive(context.Background(), waiting.ID, dependency.Actor{ID: "test-subject"}, "closed with the incident", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	if code, _ := do("POST", "/api/dependencies/"+rotate.DependencyID+"/attach", AttachDependencyBody{NotifyActionID: notifyID.String()}); code != http.StatusUnprocessableEntity {
 		t.Errorf("attach to a SUCCEEDED send = %d; want 422", code)
 	}
@@ -265,8 +284,8 @@ func TestDependencies_Lifecycle(t *testing.T) {
 		Dependencies []DependencyView `json:"dependencies"`
 	}
 	_ = json.Unmarshal(raw, &out)
-	if len(out.Dependencies) != 3 || out.Dependencies[0].DependencyID != rotate.DependencyID {
-		t.Fatalf("listed = %+v; want rotate, re-image, then the raced one", out.Dependencies)
+	if len(out.Dependencies) != 4 || out.Dependencies[0].DependencyID != rotate.DependencyID {
+		t.Fatalf("listed = %+v; want rotate, re-image, the raced one, the waiting one", out.Dependencies)
 	}
 	if n, _ := store.OpenCount(context.Background(), invID); n != 0 {
 		t.Errorf("open count = %d; want 0", n)

@@ -66,6 +66,13 @@ var ErrInvalid = errors.New("invalid dependency input")
 // discarded: its dependencies are part of the sealed record and do not change.
 var ErrClosed = errors.New("investigation is closed; its dependencies are sealed")
 
+// ErrInFlight is returned when a dependency would be moved off a send that is
+// approved, executing or of unknown outcome: that send's outcome decides
+// whether the owner was asked, so the dependency stays on it. It is also
+// returned, after the dependency has been marked SENT, when the send turns out
+// to have succeeded already.
+var ErrInFlight = errors.New("the dependency rides on a send whose outcome decides it")
+
 // HistoryEntry is one event on a dependency: who, when, what, and the note or
 // reference it carried.
 type HistoryEntry struct {
@@ -206,15 +213,66 @@ func (s *Store) List(ctx context.Context, aggregateID uuid.UUID) ([]Dependency, 
 
 // Attach rides the dependency on a notify.* action (Nil detaches it). Legal
 // while OPEN; a SENT dependency already rode a sent message, a resolved one is
-// final. The caller checks the action belongs to the investigation and is a
-// pending notify.* action.
+// final. The caller checks the new action belongs to the investigation and is
+// a pending notify.* action. The current ride is checked here, in the
+// transaction: a share lock on its action_current row serializes against the
+// approval and the result that move it, so an approved, executing or
+// outcome-unknown send keeps the dependency (ErrInFlight), and one that has
+// already succeeded marks it SENT in the same transaction and refuses the
+// move. A ride that stopped, or never started, is free to change.
 func (s *Store) Attach(ctx context.Context, id, actionID uuid.UUID, by Actor, at time.Time) error {
 	event, ref := EventAttached, actionID.String()
 	if actionID == uuid.Nil {
 		event, ref = EventDetached, ""
 	}
-	return s.transition(ctx, id, []string{StatusOpen}, "notify_action_id = $4", []any{nullUUID(actionID)},
-		HistoryEntry{At: at.UTC(), By: by.ID, ByName: by.Name, Event: event, Ref: ref})
+	entry, err := json.Marshal([]HistoryEntry{{At: at.UTC(), By: by.ID, ByName: by.Name, Event: event, Ref: ref}})
+	if err != nil {
+		return err
+	}
+	// A ride found to have succeeded is settled SENT and the move refused;
+	// the settle has to commit, so the refusal is returned after the
+	// transaction rather than from inside it.
+	settled := false
+	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		cur, err := lockDependency(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := lockOpen(ctx, tx, cur.aggregateID); err != nil {
+			return err
+		}
+		if cur.status != StatusOpen {
+			return statusRefusal(cur.status)
+		}
+		if cur.notifyActionID != uuid.Nil && cur.notifyActionID != actionID {
+			status, err := lockAction(ctx, tx, cur.notifyActionID)
+			if err != nil {
+				return err
+			}
+			switch status {
+			case aggregate.ActionStatusApproved, aggregate.ActionStatusExecuting, aggregate.ActionStatusOutcomeUnknown:
+				return fmt.Errorf("%w: the send is %s", ErrInFlight, status)
+			case aggregate.ActionStatusSucceeded:
+				_, err := markSentTx(ctx, tx, cur.notifyActionID, at)
+				settled = err == nil
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE dependencies SET notify_action_id = $2, updated_at = $3, history = history || $4::jsonb
+			WHERE dependency_id = $1
+		`, id, nullUUID(actionID), at.UTC(), entry); err != nil {
+			return fmt.Errorf("update dependency: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if settled {
+		return fmt.Errorf("%w: the send succeeded; the dependency is now SENT", ErrInFlight)
+	}
+	return nil
 }
 
 // MarkSent moves every OPEN dependency riding on the action to SENT. Called
@@ -224,12 +282,8 @@ func (s *Store) Attach(ctx context.Context, id, actionID uuid.UUID, by Actor, at
 // sealed record says the owner had not been asked when the investigation
 // concluded, and that stays true.
 func (s *Store) MarkSent(ctx context.Context, actionID uuid.UUID, at time.Time) (int, error) {
-	entry, err := json.Marshal([]HistoryEntry{{At: at.UTC(), By: "engine", Event: EventSent, Ref: actionID.String()}})
-	if err != nil {
-		return 0, err
-	}
 	var n int64
-	err = s.inTx(ctx, func(tx *sql.Tx) error {
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		var aggregateID uuid.UUID
 		err := tx.QueryRowContext(ctx, `
 			SELECT aggregate_id FROM dependencies WHERE notify_action_id = $1 AND status = $2 LIMIT 1
@@ -245,18 +299,29 @@ func (s *Store) MarkSent(ctx context.Context, actionID uuid.UUID, at time.Time) 
 		} else if err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, `
-			UPDATE dependencies
-			SET status = $2, updated_at = $3, history = history || $4::jsonb
-			WHERE notify_action_id = $1 AND status = $5
-		`, actionID, StatusSent, at.UTC(), entry, StatusOpen)
-		if err != nil {
-			return fmt.Errorf("mark dependencies sent: %w", err)
-		}
-		n, _ = res.RowsAffected()
-		return nil
+		n, err = markSentTx(ctx, tx, actionID, at)
+		return err
 	})
 	return int(n), err
+}
+
+// markSentTx is the SENT update inside a transaction whose caller holds the
+// investigation lock: every OPEN dependency riding on the action moves.
+func markSentTx(ctx context.Context, tx *sql.Tx, actionID uuid.UUID, at time.Time) (int64, error) {
+	entry, err := json.Marshal([]HistoryEntry{{At: at.UTC(), By: "engine", Event: EventSent, Ref: actionID.String()}})
+	if err != nil {
+		return 0, err
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE dependencies
+		SET status = $2, updated_at = $3, history = history || $4::jsonb
+		WHERE notify_action_id = $1 AND status = $5
+	`, actionID, StatusSent, at.UTC(), entry, StatusOpen)
+	if err != nil {
+		return 0, fmt.Errorf("mark dependencies sent: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // OpenRides returns the distinct notify.* actions that OPEN dependencies ride
@@ -325,15 +390,11 @@ func (s *Store) transition(ctx context.Context, id uuid.UUID, from []string, set
 	q := `UPDATE dependencies SET ` + set + `, updated_at = $2, history = history || $3::jsonb
 	      WHERE dependency_id = $1 AND status IN (` + strings.Join(placeholders, ", ") + `)`
 	return s.inTx(ctx, func(tx *sql.Tx) error {
-		var aggregateID uuid.UUID
-		err := tx.QueryRowContext(ctx, `SELECT aggregate_id FROM dependencies WHERE dependency_id = $1 FOR UPDATE`, id).Scan(&aggregateID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
+		cur, err := lockDependency(ctx, tx, id)
 		if err != nil {
-			return fmt.Errorf("lock dependency: %w", err)
+			return err
 		}
-		if err := lockOpen(ctx, tx, aggregateID); err != nil {
+		if err := lockOpen(ctx, tx, cur.aggregateID); err != nil {
 			return err
 		}
 		res, err := tx.ExecContext(ctx, q, bound...)
@@ -343,15 +404,60 @@ func (s *Store) transition(ctx context.Context, id uuid.UUID, from []string, set
 		if n, _ := res.RowsAffected(); n == 1 {
 			return nil
 		}
-		var status string
-		if err := tx.QueryRowContext(ctx, `SELECT status FROM dependencies WHERE dependency_id = $1`, id).Scan(&status); err != nil {
-			return fmt.Errorf("read dependency: %w", err)
-		}
-		if status == StatusConfirmed || status == StatusWaived {
-			return ErrResolved
-		}
-		return fmt.Errorf("%w: dependency is %s", ErrInvalid, status)
+		return statusRefusal(cur.status)
 	})
+}
+
+// lockedDependency is what a mutation reads about its row under the lock.
+type lockedDependency struct {
+	aggregateID    uuid.UUID
+	status         string
+	notifyActionID uuid.UUID
+}
+
+// lockDependency takes the row lock on a dependency for the rest of the
+// transaction and reads what its mutations decide on.
+func lockDependency(ctx context.Context, tx *sql.Tx, id uuid.UUID) (lockedDependency, error) {
+	var cur lockedDependency
+	var notify uuid.NullUUID
+	err := tx.QueryRowContext(ctx, `
+		SELECT aggregate_id, status, notify_action_id FROM dependencies WHERE dependency_id = $1 FOR UPDATE
+	`, id).Scan(&cur.aggregateID, &cur.status, &notify)
+	if errors.Is(err, sql.ErrNoRows) {
+		return cur, ErrNotFound
+	}
+	if err != nil {
+		return cur, fmt.Errorf("lock dependency: %w", err)
+	}
+	if notify.Valid {
+		cur.notifyActionID = notify.UUID
+	}
+	return cur, nil
+}
+
+// lockAction takes a share lock on an action's current row and returns its
+// status. The aggregate updates action_current in the transaction that appends
+// the approval or the result, so the status read here cannot change under the
+// caller before it commits. An action with no row has no status to wait for.
+func lockAction(ctx context.Context, tx *sql.Tx, actionID uuid.UUID) (string, error) {
+	var status string
+	err := tx.QueryRowContext(ctx, `SELECT status FROM action_current WHERE action_id = $1 FOR SHARE`, actionID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("lock action: %w", err)
+	}
+	return status, nil
+}
+
+// statusRefusal is the error for a mutation refused by the dependency's
+// status: resolved is final, anything else names the status.
+func statusRefusal(status string) error {
+	if status == StatusConfirmed || status == StatusWaived {
+		return ErrResolved
+	}
+	return fmt.Errorf("%w: dependency is %s", ErrInvalid, status)
 }
 
 // lockOpen takes a share lock on the investigation's current row for the rest

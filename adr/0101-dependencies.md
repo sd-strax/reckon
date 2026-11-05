@@ -57,8 +57,13 @@ pass marks the OPEN dependencies riding on a SUCCEEDED send, so a MarkSent
 that failed after its fact committed is caught within the sweep's interval.
 While the ride is in flight (APPROVED, EXECUTING, OUTCOME_UNKNOWN) the
 dependency stays on it: re-pointing or detaching is refused, since the send's
-outcome is what decides whether the owner was asked; a ride that stopped
-(failed, expired, rejected) can move to a pending replacement. CONFIRMED or
+outcome is what decides whether the owner was asked. The store judges that in
+the attach transaction, under a share lock on the ride's `action_current` row,
+which the aggregate updates when it approves or records the result, so an
+approval cannot slip between the check and the write; a ride that has already
+succeeded marks the dependency SENT in that same transaction and refuses the
+move, so the link the reconciler would need is never taken away. A ride that
+stopped (failed, expired, rejected) can move to a pending replacement. CONFIRMED or
 WAIVED by the analyst, with a note; a waive needs one, since a conclusion with
 work knowingly left open is legitimate only when the record says why. Resolved
 is final. A reply on the channel never moves a dependency.

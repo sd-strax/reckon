@@ -187,10 +187,9 @@ func (b *Backend) attachDependency(w http.ResponseWriter, r *http.Request, depID
 		}
 		actionID = id
 	}
-	if actionID != d.NotifyActionID && b.rideInFlight(r.Context(), d.NotifyActionID) {
-		writeJSONError(w, http.StatusConflict, "the dependency rides on a send in flight; its outcome decides whether it was asked")
-		return
-	}
+	// The current ride is the store's to judge, under its locks: a send in
+	// flight keeps the dependency (409), one that already succeeded marks it
+	// SENT and refuses the move.
 	if err := b.cfg.Dependencies.Attach(r.Context(), depID, actionID, dependencyActor(claims), time.Now()); err != nil {
 		writeDependencyError(w, err)
 		return
@@ -326,26 +325,6 @@ func (b *Backend) notifyActionOf(w http.ResponseWriter, r *http.Request, invID u
 	}
 }
 
-// rideInFlight reports whether the notify.* action a dependency rides on is
-// APPROVED, EXECUTING or OUTCOME_UNKNOWN: a send that may still go out, or
-// whose outcome a person has yet to establish. Re-pointing or detaching then
-// would take the dependency off a send that could mark it SENT. A ride that
-// stopped (failed, expired, rejected) or never started is free to move.
-func (b *Backend) rideInFlight(ctx context.Context, actionID uuid.UUID) bool {
-	if actionID == uuid.Nil {
-		return false
-	}
-	ac, err := b.cfg.Reads.LoadActionCurrent(ctx, actionID)
-	if err != nil {
-		return false
-	}
-	switch ac.Status {
-	case aggregate.ActionStatusApproved, aggregate.ActionStatusExecuting, aggregate.ActionStatusOutcomeUnknown:
-		return true
-	}
-	return false
-}
-
 // settleSentUnder catches the send that completed between the pending check
 // and the write: the action is read again after the attachment, and if it
 // SUCCEEDED meanwhile the dependencies riding on it move to SENT here, since
@@ -383,14 +362,14 @@ func dependencyActor(c authz.Claims) dependency.Actor {
 	return dependency.Actor{ID: c.Subject, Name: c.PreferredUsername}
 }
 
-// writeDependencyError maps the store's errors: not found 404, resolved or
-// sealed by the investigation's closure 409, invalid input 422, anything else
-// 500.
+// writeDependencyError maps the store's errors: not found 404; resolved,
+// sealed by the investigation's closure, or riding on a send in flight 409;
+// invalid input 422; anything else 500.
 func writeDependencyError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, dependency.ErrNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, dependency.ErrResolved), errors.Is(err, dependency.ErrClosed):
+	case errors.Is(err, dependency.ErrResolved), errors.Is(err, dependency.ErrClosed), errors.Is(err, dependency.ErrInFlight):
 		writeJSONError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, dependency.ErrInvalid):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
