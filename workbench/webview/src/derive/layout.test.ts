@@ -20,46 +20,46 @@ const noComms: CommsThread[] = [];
 
 describe("stage", () => {
   it("walks Investigate → Contain → Notify → Close from the record", () => {
-    expect(stageOf({ status: "ACTIVE", verdict: null, actions: [], comms: noComms, openOwnerItems: 0 }).current).toBe("investigate");
-    const contain = stageOf({ status: "ACTIVE", verdict, actions: [A({ pending: true })], comms: noComms, openOwnerItems: 0 });
+    expect(stageOf({ status: "ACTIVE", verdict: null, actions: [], comms: noComms, openDependencies: 0 }).current).toBe("investigate");
+    const contain = stageOf({ status: "ACTIVE", verdict, actions: [A({ pending: true })], comms: noComms, openDependencies: 0 });
     expect(contain.current).toBe("contain");
     expect(contain.done.investigate && contain.done.verdict).toBe(true);
-    const notify = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), A({ actionId: "n", actionType: "notify.email", status: "REQUESTED", pending: true })], comms: noComms, openOwnerItems: 0 });
+    const notify = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), A({ actionId: "n", actionType: "notify.email", status: "REQUESTED", pending: true })], comms: noComms, openDependencies: 0 });
     expect(notify.current).toBe("notify");
     expect(notify.done.contain).toBe(true);
     // A containment whose outcome is unknown is not done until a person resolves it (adr/0216).
-    const unknown = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), A({ actionId: "u", status: "OUTCOME_UNKNOWN" })], comms: noComms, openOwnerItems: 0 });
+    const unknown = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), A({ actionId: "u", status: "OUTCOME_UNKNOWN" })], comms: noComms, openDependencies: 0 });
     expect(unknown.current).toBe("contain");
     expect(unknown.done.contain).toBe(false);
-    const awaiting = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" })], comms: [{ status: "awaiting_reply" } as CommsThread], openOwnerItems: 0 });
+    const awaiting = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" })], comms: [{ status: "awaiting_reply" } as CommsThread], openDependencies: 0 });
     expect(awaiting.current).toBe("notify");
     const sent = A({ actionId: "n", actionType: "notify.slack", status: "SUCCEEDED" });
-    const close = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), sent], comms: noComms, openOwnerItems: 0 });
+    const close = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), sent], comms: noComms, openDependencies: 0 });
     expect(close.current).toBe("close");
-    expect(stageOf({ status: "CONCLUDED", verdict, actions: [], comms: noComms, openOwnerItems: 0 }).current).toBeNull();
+    expect(stageOf({ status: "CONCLUDED", verdict, actions: [], comms: noComms, openDependencies: 0 }).current).toBeNull();
   });
   it("marks a step done only when something was done for it (#145)", () => {
     // The road test: a MALICIOUS verdict, nothing contained, only the case-note comment.
     const note = A({ actionId: "c", actionType: "ticket.comment", status: "SUCCEEDED" });
-    const nothing = stageOf({ status: "ACTIVE", verdict, actions: [note], comms: noComms, openOwnerItems: 0 });
+    const nothing = stageOf({ status: "ACTIVE", verdict, actions: [note], comms: noComms, openDependencies: 0 });
     expect(nothing.done.contain).toBe(false);
     expect(nothing.done.notify).toBe(false);
     expect(nothing.current).toBe("contain");
     // A reversal is not containment; a failed isolation contained nothing.
-    const failed = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "FAILED" }), A({ actionId: "r", actionType: "host.unisolate", isReversal: true, status: "SUCCEEDED" })], comms: noComms, openOwnerItems: 0 });
+    const failed = stageOf({ status: "ACTIVE", verdict, actions: [A({ status: "FAILED" }), A({ actionId: "r", actionType: "host.unisolate", isReversal: true, status: "SUCCEEDED" })], comms: noComms, openDependencies: 0 });
     expect(failed.done.contain).toBe(false);
     // A benign verdict with nothing done reads as not needed, not as done.
-    const benign = stageOf({ status: "ACTIVE", verdict: { disposition: "BENIGN", verdictAt: "" }, actions: [note], comms: noComms, openOwnerItems: 0 });
+    const benign = stageOf({ status: "ACTIVE", verdict: { disposition: "BENIGN", verdictAt: "" }, actions: [note], comms: noComms, openDependencies: 0 });
     expect(benign.done.contain || benign.done.notify).toBe(false);
     expect(benign.notNeeded.contain && benign.notNeeded.notify).toBe(true);
     expect(benign.current).toBe("close");
   });
   it("derives one primary action per stage", () => {
-    const review = primaryAction({ status: "ACTIVE", verdict, actions: [A({ pending: true }), A({ actionId: "b", pending: true })], comms: noComms, openOwnerItems: 0 }, stageOf({ status: "ACTIVE", verdict, actions: [A({ pending: true })], comms: noComms, openOwnerItems: 0 }), false);
+    const review = primaryAction({ status: "ACTIVE", verdict, actions: [A({ pending: true }), A({ actionId: "b", pending: true })], comms: noComms, openDependencies: 0 }, stageOf({ status: "ACTIVE", verdict, actions: [A({ pending: true })], comms: noComms, openDependencies: 0 }), false);
     expect(review).toEqual({ kind: "review", count: 2 });
-    const i = { status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" })], comms: [{ status: "awaiting_reply" } as CommsThread], openOwnerItems: 0 };
+    const i = { status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" })], comms: [{ status: "awaiting_reply" } as CommsThread], openDependencies: 0 };
     expect(primaryAction(i, stageOf(i), false)).toEqual({ kind: "notify" });
-    const j = { status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), A({ actionId: "n", actionType: "notify.slack", status: "SUCCEEDED" })], comms: noComms, openOwnerItems: 0 };
+    const j = { status: "ACTIVE", verdict, actions: [A({ status: "SUCCEEDED" }), A({ actionId: "n", actionType: "notify.slack", status: "SUCCEEDED" })], comms: noComms, openDependencies: 0 };
     expect(primaryAction(j, stageOf(j), true)).toEqual({ kind: "conclude" });
     expect(primaryAction(j, stageOf(j), false)).toBeNull();
   });
@@ -95,14 +95,14 @@ describe("matrix", () => {
 
 describe("preflight", () => {
   it("names each unmet gate and where to satisfy it", () => {
-    const items = concludePreflight({ verdict: null, pins: [], actions: [A({ pending: true })], comms: [{ status: "awaiting_reply" } as CommsThread], openOwnerItems: 1 });
+    const items = concludePreflight({ verdict: null, pins: [], actions: [A({ pending: true })], comms: [{ status: "awaiting_reply" } as CommsThread], openDependencies: 1 });
     expect(items.map((x) => x.ok)).toEqual([false, false, false, false, false]);
     expect(items[0]!.lens).toBe("reasoning");
     expect(items[2]!.text).toBe("1 action(s) not yet terminal");
     expect(concludeAllowed(items)).toBe(false);
-    const clean = concludePreflight({ verdict, pins: [{ interpretationId: "p", finding: "", inputRefs: [], actor: "HUMAN", pinnedAt: "", superseded: false }], actions: [A({ status: "SUCCEEDED" })], comms: noComms, openOwnerItems: 0 });
+    const clean = concludePreflight({ verdict, pins: [{ interpretationId: "p", finding: "", inputRefs: [], actor: "HUMAN", pinnedAt: "", superseded: false }], actions: [A({ status: "SUCCEEDED" })], comms: noComms, openDependencies: 0 });
     expect(preflightClean(clean)).toBe(true);
-    expect(concludeAllowed(concludePreflight({ verdict, pins: [], actions: [], comms: noComms, openOwnerItems: 0 }))).toBe(true); // the engine gates only the verdict
+    expect(concludeAllowed(concludePreflight({ verdict, pins: [], actions: [], comms: noComms, openDependencies: 0 }))).toBe(true); // the engine gates only the verdict
   });
 });
 

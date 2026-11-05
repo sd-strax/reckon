@@ -1,0 +1,26 @@
+{
+  "dependency_id": "x",
+  "title": "x",
+  "owner": "x",
+  "detail": "x",
+  "status": "x",
+  "notify_action_id": "x",
+  "external_ref": "x",
+  "created_by": "x",
+  "created_by_name": "x",
+  "created_at": "2026-01-02T03:04:05Z",
+  "resolved_by": "x",
+  "resolved_by_name": "x",
+  "resolved_at": "2026-01-02T03:04:05Z",
+  "resolution_note": "x",
+  "history": [
+    {
+      "at": "2026-01-02T03:04:05Z",
+      "by": "x",
+      "by_name": "x",
+      "event": "x",
+      "note": "x",
+      "ref": "x"
+    }
+  ]
+}

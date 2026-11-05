@@ -17,7 +17,7 @@ export interface ConcludeInputs {
   pins: PinRow[];
   actions: ActionRow[];
   comms: CommsThread[];
-  openOwnerItems: number;
+  openDependencies: number;
 }
 
 export function concludePreflight(i: ConcludeInputs): PreflightItem[] {
@@ -29,7 +29,7 @@ export function concludePreflight(i: ConcludeInputs): PreflightItem[] {
     { ok: activePins > 0, text: activePins > 0 ? `${activePins} evidence item(s) pinned` : "no pinned evidence", lens: "reasoning" },
     { ok: open.length === 0, text: open.length === 0 ? "every action is terminal" : `${open.length} action(s) not yet terminal`, lens: "response" },
     { ok: awaiting === 0, text: awaiting === 0 ? "no comms thread awaits a reply" : `${awaiting} comms thread(s) still await replies — mark them done or accept leaving them open`, lens: "response" },
-    { ok: i.openOwnerItems === 0, text: i.openOwnerItems === 0 ? "no owner action item outstanding" : `${i.openOwnerItems} owner action item(s) not confirmed`, lens: "response" },
+    { ok: i.openDependencies === 0, text: i.openDependencies === 0 ? "no dependency on others outstanding" : `${i.openDependencies} dependenc${i.openDependencies === 1 ? "y" : "ies"} on others not confirmed or waived`, lens: "response" },
   ];
 }
 

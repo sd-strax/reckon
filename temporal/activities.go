@@ -17,6 +17,7 @@ import (
 	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/comms"
+	"github.com/sd-strax/reckon/dependency"
 )
 
 // fatalErrorType is the non-retryable ApplicationError type a FATAL dispatch
@@ -47,17 +48,20 @@ type Activities struct {
 	// swap has to happen behind a stable field.
 	resolver *action.AtomicResolver
 	comms    *comms.Store
+	deps     *dependency.Store
 }
 
 // NewActivities constructs the activity set. resolver is an AtomicResolver so
 // the dispatch path can be hot-swapped on reload (11 §5.1). comms may
 // be nil — with it, a SUCCEEDED notify.* result opens (or, via thread_ref,
-// extends) its comms thread; without it, results record exactly as before. It
-// is a constructor parameter rather than a builder method because the worker
-// registers this struct wholesale (RegisterActivity), and Temporal panics on
-// any exported method that isn't a valid activity signature.
-func NewActivities(handler *aggregate.Handler, resolver *action.AtomicResolver, comms *comms.Store) *Activities {
-	return &Activities{handler: handler, resolver: resolver, comms: comms}
+// extends) its comms thread; without it, results record exactly as before.
+// deps may be nil too — with it, the same result moves the dependencies
+// riding on the action to SENT (adr/0101). Both are constructor parameters
+// rather than builder methods because the worker registers this struct
+// wholesale (RegisterActivity), and Temporal panics on any exported method
+// that isn't a valid activity signature.
+func NewActivities(handler *aggregate.Handler, resolver *action.AtomicResolver, comms *comms.Store, deps *dependency.Store) *Activities {
+	return &Activities{handler: handler, resolver: resolver, comms: comms, deps: deps}
 }
 
 // CheckDispatched is the dispatch-ledger guard (08 §6b) as workflows recorded it
@@ -340,8 +344,22 @@ func (a *Activities) EmitResulted(ctx context.Context, in EmitResultedInput) err
 	// second thread).
 	if len(res.AppliedEvents) > 0 {
 		a.recordCommsThread(ctx, id, in)
+		a.markDependenciesSent(ctx, id, in)
 	}
 	return nil
+}
+
+// markDependenciesSent moves the dependencies riding on a SUCCEEDED notify.*
+// action to SENT (adr/0101): the engine's own fact about its own send, the one
+// transition a dependency makes without a person. Best-effort and idempotent
+// (only OPEN rows move), like the comms thread beside it.
+func (a *Activities) markDependenciesSent(ctx context.Context, actionID uuid.UUID, in EmitResultedInput) {
+	if a.deps == nil || in.FinalOutcome != aggregate.ActionStatusSucceeded {
+		return
+	}
+	if _, err := a.deps.MarkSent(ctx, actionID, time.Now().UTC()); err != nil {
+		activityLogger(ctx).Warn("dependencies not marked sent", "action_id", actionID, "error", err)
+	}
 }
 
 // recordCommsThread translates one successful notify.* result into comms

@@ -23,6 +23,7 @@ import (
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/comms"
 	"github.com/sd-strax/reckon/config"
+	"github.com/sd-strax/reckon/dependency"
 	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/internal/adapterplugin"
 	"github.com/sd-strax/reckon/internal/branding"
@@ -294,7 +295,11 @@ func serve(cfg config.Config) error {
 	// result path opens threads for SUCCEEDED notify.* dispatches, and the
 	// backend serves/acts on them.
 	commsStore := comms.NewStore(aggDB)
-	activities, dispatchResolver, err := buildActionActivities(cfg, handler, commsStore, adapterHost)
+	// The dependency store (adr/0101) rides the main DB too: the result path
+	// marks the dependencies on a SUCCEEDED notify.* dispatch SENT, and the
+	// backend serves/acts on them.
+	dependencyStore := dependency.NewStore(aggDB)
+	activities, dispatchResolver, err := buildActionActivities(cfg, handler, commsStore, dependencyStore, adapterHost)
 	if err != nil {
 		return err
 	}
@@ -396,6 +401,7 @@ func serve(cfg config.Config) error {
 		ActionResolver: actionResolver,
 		Knowledge:      knowledgeStore,
 		Comms:          commsStore,
+		Dependencies:   dependencyStore,
 
 		TenantNamespace:         cfg.Capability.TenantNamespace,
 		ExportIncludeSideStores: cfg.Export.IncludeSideStores,
@@ -573,7 +579,7 @@ func buildBackendActionResolver(cfg config.Config, host *adapterplugin.Host) (*a
 // handler + write-side action resolver) from the tenant config, or nil when no
 // write bindings are configured. Reuses the capability config path — the
 // action_adapters/action_bindings keys can share the same file (08 §4).
-func buildActionActivities(cfg config.Config, handler *aggregate.Handler, commsStore *comms.Store, host *adapterplugin.Host) (*temporal.Activities, *action.AtomicResolver, error) {
+func buildActionActivities(cfg config.Config, handler *aggregate.Handler, commsStore *comms.Store, dependencyStore *dependency.Store, host *adapterplugin.Host) (*temporal.Activities, *action.AtomicResolver, error) {
 	if cfg.Capability.ConfigPath == "" {
 		return nil, nil, nil // action layer off entirely
 	}
@@ -588,7 +594,7 @@ func buildActionActivities(cfg config.Config, handler *aggregate.Handler, commsS
 		return nil, nil, err
 	}
 	holder := action.NewAtomicResolver(resolver)
-	return temporal.NewActivities(handler, holder, commsStore), holder, nil
+	return temporal.NewActivities(handler, holder, commsStore, dependencyStore), holder, nil
 }
 
 // buildActionResolverFromFile builds the write-side action resolver from the

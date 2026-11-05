@@ -32,6 +32,10 @@ func (b *Backend) routes() []route {
 		{"GET /investigations/{id}/thread", read, withUUID(b.listInvestigationThread)},
 		{"GET /investigations/{id}/pins", read, withUUID(b.listInvestigationPins)},
 		{"GET /investigations/{id}/comms", read, withUUID(b.listInvestigationComms)},
+		// The work the conclusion depends on that only someone outside reckon
+		// can do (adr/0101): read, create, ride on a message, resolve.
+		{"GET /investigations/{id}/dependencies", read, withUUID(b.listInvestigationDependencies)},
+		{"POST /investigations/{id}/dependencies", analyst, withUUID(b.createDependency)},
 		// The events retrieved for the investigation and the calls that retrieved
 		// them (adr/0092): reads over the persisted record, never a capability call.
 		{"GET /investigations/{id}/events", read, withUUID(b.listInvestigationEvents)},
@@ -92,6 +96,9 @@ func (b *Backend) routes() []route {
 		{"POST /comms/{id}/ack", analyst, withUUID(b.commsAck)},
 		{"POST /comms/{id}/done", analyst, withUUID(b.commsDone)},
 		{"POST /comms/{id}/snooze", analyst, withUUID(b.commsSnooze)},
+		{"POST /dependencies/{id}/attach", analyst, withUUID(b.attachDependency)},
+		{"POST /dependencies/{id}/confirm", analyst, withUUID(b.confirmDependency)},
+		{"POST /dependencies/{id}/waive", analyst, withUUID(b.waiveDependency)},
 	}
 	if b.cfg.Knowledge == nil {
 		return rs

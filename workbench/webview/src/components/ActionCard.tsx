@@ -2,8 +2,9 @@
 // (Response) carries every decision-grade element and the state's buttons;
 // `compact` (a turn in the companion) carries the header, the Because chips
 // and the Approve/Reject pair, everything else a link to the full card. Both
-// render the same ActionRow, so they can never disagree. The policy fact is
-// gap §6.16: until it lands the card states the required mode the engine froze.
+// render the same ActionRow, so they can never disagree. The Approval row
+// states the requirement the engine froze (adr/0099); a notification card lists
+// the dependencies riding on it (adr/0101).
 import { useApp } from "../app";
 import { actionStatusBadge, canRerequest, canResolve, canReverse, reversalEnded, successors } from "../derive/actions";
 import { actionPreview, undoWords } from "../derive/actionPreview";
@@ -69,6 +70,8 @@ export function failureSentence(a: Pick<ActionRow, "status" | "targets">): strin
 
 export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full" | "compact"; draft?: boolean }) {
   const { state, dispatch, send, openPrompt, openInspector, goTo, aside, setAside } = useApp();
+  // The dependencies this notification asks for (adr/0101).
+  const riding = a.actionType.startsWith("notify.") ? (state.snap?.dependencies || []).filter((d) => d.notifyActionId === a.actionId) : [];
   const isNotify = a.actionType.startsWith("notify.");
   const sb = actionStatusBadge(a);
   const group = groupOf(a);
@@ -205,6 +208,7 @@ export function ActionCard({ a, variant, draft }: { a: ActionRow; variant: "full
     <div className={"card actioncard full " + group} id={"obj-" + a.actionId} style={a.expired && a.status === "EXPIRED" ? { opacity: 0.75 } : undefined}>
       {head}
       <WillDo a={a} />
+      {riding.length ? <div className="cardmeta acdeps">asks for {riding.map((d, i) => <span key={d.dependencyId}>{i ? ", " : ""}<button className="linklike" onClick={() => openInspector({ kind: "dependency", dependencyId: d.dependencyId })}>{d.title}</button> ({d.owner})</span>)}</div> : null}
       {(a.evidenceRefs || []).length ? <div className="acbecause"><span className="kicker">Based on</span> {a.evidenceRefs.map((r) => <RefChip key={r} refId={r} />)}</div> : null}
       <dl className="acfacts">
         <div><dt>Can be undone</dt><dd>{undoWords(a.reversibility)}</dd></div>

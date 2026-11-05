@@ -1,6 +1,6 @@
 // The stage indicator and the primary action (08 §8.2, impl §7.1): five steps
-// over the derived lifecycle — no new aggregate state. Owner items count
-// under Notify once gap §6.17 exists; until then the input is empty. Pure.
+// over the derived lifecycle — no new aggregate state. Open dependencies
+// (adr/0101) hold the Notify step. Pure.
 import type { ActionRow, CommsThread, InvestigationSummary, Verdict } from "../../../src/viewTypes";
 
 export type Step = "investigate" | "verdict" | "contain" | "notify" | "close";
@@ -16,8 +16,8 @@ export interface StageInputs {
   verdict: Verdict | null | undefined;
   actions: ActionRow[];
   comms: CommsThread[];
-  /** Gap §6.17: OPEN/SENT owner items; empty until the record carries them. */
-  openOwnerItems: number;
+  /** OPEN/SENT dependencies (adr/0101): work owed outside reckon holds Notify. */
+  openDependencies: number;
   /** Every hypothesis is decided (supported, refuted or abandoned) — the verdict is due. */
   allDecided?: boolean;
 }
@@ -56,7 +56,7 @@ export function stageOf(i: StageInputs): Stage {
   const notify = i.actions.filter(isNotify);
   const awaiting = i.comms.some((t) => t.status === "awaiting_reply" || t.status === "followed_up");
   const containDone = contain.some(took) && contain.every(terminal);
-  const notifyDone = notify.some((a) => a.status === "SUCCEEDED") && notify.every(terminal) && !awaiting && i.openOwnerItems === 0;
+  const notifyDone = notify.some((a) => a.status === "SUCCEEDED") && notify.every(terminal) && !awaiting && i.openDependencies === 0;
   const closed = status === "CONCLUDED" || status === "ARCHIVED" || status === "DISCARDED";
   const notNeeded: Record<Step, boolean> = {
     investigate: false, verdict: false, close: false,

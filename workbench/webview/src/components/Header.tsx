@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../app";
 import { caseNoteStatus } from "../derive/actions";
+import { openDependencies } from "../derive/dependencies";
 import { concludeAllowed, concludePreflight, preflightClean } from "../derive/preflight";
 import { STEPS, STEP_LABELS, nearestExpiry, primaryAction, stageOf } from "../derive/stage";
 import { Countdown } from "./shared";
@@ -18,9 +19,10 @@ export function Header() {
   const verdict = snap?.investigation.verdict || null;
   const comms = snap?.comms || [];
   const hs = snap?.hypotheses || [];
-  const inputs = { status: engine, verdict, actions, comms, openOwnerItems: 0, allDecided: hs.length > 0 && !hs.some((h) => h.status === "PROPOSED" || h.status === "OPEN") };
+  const owed = openDependencies(snap?.dependencies || []);
+  const inputs = { status: engine, verdict, actions, comms, openDependencies: owed, allDecided: hs.length > 0 && !hs.some((h) => h.status === "PROPOSED" || h.status === "OPEN") };
   const stage = stageOf(inputs);
-  const preflight = concludePreflight({ verdict, pins: snap?.pins || [], actions, comms, openOwnerItems: 0 });
+  const preflight = concludePreflight({ verdict, pins: snap?.pins || [], actions, comms, openDependencies: owed });
   const primary = snap ? primaryAction(inputs, stage, preflightClean(preflight)) : null;
   const expiry = nearestExpiry(actions);
   const seed = snap?.investigation.seed;

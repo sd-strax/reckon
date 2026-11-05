@@ -299,6 +299,39 @@
         "escalationPolicy": "two-follow-ups"
       }
     ],
+    "dependencies": [
+      {
+        "dependencyId": "dep-1",
+        "title": "Confirm whether maintenance was scheduled on host-a",
+        "owner": "it-ops",
+        "detail": "the session's timing matches a maintenance window only if one existed",
+        "status": "SENT",
+        "notifyActionId": "act-0",
+        "createdBy": "analyst-1",
+        "createdByName": "analyst-1",
+        "createdAt": "2026-10-20T09:04:00.000Z",
+        "history": [
+          { "at": "2026-10-20T09:04:00.000Z", "by": "analyst-1", "byName": "analyst-1", "event": "created" },
+          { "at": "2026-10-20T09:04:00.000Z", "by": "analyst-1", "byName": "analyst-1", "event": "attached", "ref": "act-0" },
+          { "at": "2026-10-20T09:06:00.000Z", "by": "engine", "event": "sent", "ref": "act-0" }
+        ]
+      },
+      {
+        "dependencyId": "dep-2",
+        "title": "Re-image host-a once the isolation is lifted",
+        "owner": "desktop team",
+        "status": "OPEN",
+        "notifyActionId": "act-2",
+        "externalRef": "OPS-4411",
+        "createdBy": "analyst-1",
+        "createdByName": "analyst-1",
+        "createdAt": "2026-10-20T09:12:00.000Z",
+        "history": [
+          { "at": "2026-10-20T09:12:00.000Z", "by": "analyst-1", "byName": "analyst-1", "event": "created", "ref": "OPS-4411" },
+          { "at": "2026-10-20T09:12:00.000Z", "by": "analyst-1", "byName": "analyst-1", "event": "attached", "ref": "act-2" }
+        ]
+      }
+    ],
     "thread": [
       {
         "sequenceNo": 2,

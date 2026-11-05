@@ -239,6 +239,27 @@ export const comms = object({
   })),
 });
 
+export const dependency = object({
+  dependency_id: str,
+  title: str,
+  owner: str,
+  detail: optional(str),
+  status: str,
+  notify_action_id: optional(str),
+  external_ref: optional(str),
+  created_by: str,
+  created_by_name: optional(str),
+  created_at: str,
+  resolved_by: optional(str),
+  resolved_by_name: optional(str),
+  resolved_at: optional(str),
+  resolution_note: optional(str),
+  history: optional(list(object({ at: str, by: str, by_name: optional(str), event: str, note: optional(str), ref: optional(str) }))),
+});
+export type RawDependency = Decoded<typeof dependency>;
+
+export const dependencies = object({ dependencies: list(dependency) });
+
 export const actionRequested = object({ action_id: str, status: str });
 
 export const actionDecision = object({ action_id: str, status: str, stage: optional(str) });

@@ -14,6 +14,7 @@ import (
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/comms"
+	"github.com/sd-strax/reckon/dependency"
 	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/knowledge"
 )
@@ -155,6 +156,40 @@ func (f *fakeComms) Snooze(_ context.Context, id uuid.UUID, principal string, _ 
 	return f.act(id, principal)
 }
 
+// fakeDependencies holds one dependency and records the last act's principal.
+type fakeDependencies struct {
+	dep       dependency.Dependency
+	principal string
+	err       error
+}
+
+func (f *fakeDependencies) List(context.Context, uuid.UUID) ([]dependency.Dependency, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []dependency.Dependency{f.dep}, nil
+}
+func (f *fakeDependencies) Get(context.Context, uuid.UUID) (dependency.Dependency, error) {
+	return f.dep, f.err
+}
+func (f *fakeDependencies) Create(_ context.Context, c dependency.Create) (dependency.Dependency, error) {
+	f.principal = c.By.ID
+	f.dep = dependency.Dependency{ID: uuid.New(), AggregateID: c.AggregateID, Title: c.Title, Owner: c.Owner, Detail: c.Detail, Status: dependency.StatusOpen, CreatedBy: c.By.ID}
+	return f.dep, f.err
+}
+func (f *fakeDependencies) Attach(_ context.Context, _, _ uuid.UUID, by dependency.Actor, _ time.Time) error {
+	f.principal = by.ID
+	return f.err
+}
+func (f *fakeDependencies) Confirm(_ context.Context, _ uuid.UUID, by dependency.Actor, _, _ string, _ time.Time) error {
+	f.principal = by.ID
+	return f.err
+}
+func (f *fakeDependencies) Waive(_ context.Context, _ uuid.UUID, by dependency.Actor, _, _ string, _ time.Time) error {
+	f.principal = by.ID
+	return f.err
+}
+
 // fakeKnowledge has one case summary, and fails everything else with err.
 type fakeKnowledge struct {
 	summary knowledge.CaseSummaryView
@@ -204,11 +239,12 @@ func newFakeBackend(t *testing.T) *Backend {
 	t.Helper()
 	return &Backend{
 		cfg: BackendConfig{
-			Handler:   &fakeCommands{err: aggregate.ErrNotFound},
-			Reads:     &fakeReads{},
-			Evidence:  &fakeEvidence{err: evidence.ErrNotFound},
-			Comms:     &fakeComms{},
-			Knowledge: &fakeKnowledge{err: knowledge.ErrNoSummary},
+			Handler:      &fakeCommands{err: aggregate.ErrNotFound},
+			Reads:        &fakeReads{},
+			Evidence:     &fakeEvidence{err: evidence.ErrNotFound},
+			Comms:        &fakeComms{},
+			Dependencies: &fakeDependencies{},
+			Knowledge:    &fakeKnowledge{err: knowledge.ErrNoSummary},
 		},
 		verifier: testVerifier(t),
 	}
@@ -294,6 +330,36 @@ func TestCommsAck_OnFakes(t *testing.T) {
 	store.err = errStoreDown
 	if code, _ := send(t, b, "POST", "/api/comms/"+id.String()+"/done", mintToken(t, nil), ""); code != http.StatusUnprocessableEntity {
 		t.Errorf("refused act: status %d; want 422", code)
+	}
+}
+
+// TestDependencies_OnFakes: no store is a 503; a create is the token subject's
+// act; the store's refusals map to their statuses (resolved 409, invalid 422).
+func TestDependencies_OnFakes(t *testing.T) {
+	b := newFakeBackend(t)
+	inv := uuid.New()
+	b.cfg.Dependencies = nil
+	if code, _ := send(t, b, "GET", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, nil), ""); code != http.StatusServiceUnavailable {
+		t.Errorf("no store: status %d; want 503", code)
+	}
+	store := &fakeDependencies{}
+	b.cfg.Dependencies = store
+	if code, body := send(t, b, "POST", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, nil), `{"title":"rotate","owner":"platform"}`); code != http.StatusCreated {
+		t.Fatalf("create: status %d: %s", code, body)
+	}
+	if store.principal != "test-subject" || store.dep.Title != "rotate" {
+		t.Errorf("create recorded %q / %q", store.principal, store.dep.Title)
+	}
+	if code, _ := send(t, b, "POST", "/api/investigations/"+inv.String()+"/dependencies", mintToken(t, nil), `{"title":"rotate"}`); code != http.StatusBadRequest {
+		t.Errorf("create without owner: status %d; want 400", code)
+	}
+	store.err = dependency.ErrResolved
+	if code, _ := send(t, b, "POST", "/api/dependencies/"+store.dep.ID.String()+"/confirm", mintToken(t, nil), `{"note":"done"}`); code != http.StatusConflict {
+		t.Errorf("resolved: status %d; want 409", code)
+	}
+	store.err = dependency.ErrInvalid
+	if code, _ := send(t, b, "POST", "/api/dependencies/"+store.dep.ID.String()+"/waive", mintToken(t, nil), `{}`); code != http.StatusUnprocessableEntity {
+		t.Errorf("invalid: status %d; want 422", code)
 	}
 }
 

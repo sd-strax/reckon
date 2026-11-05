@@ -152,6 +152,11 @@ type BackendConfig struct {
 	// opened by the action-result path, never by these routes.
 	Comms commsStore
 
+	// Dependencies, when non-nil, enables the dependency routes (adr/0101):
+	// GET/POST /api/investigations/{id}/dependencies + /api/dependencies acts.
+	// SENT is set by the action-result path, never by these routes.
+	Dependencies dependencyStore
+
 	// TenantNamespace is this install's identity namespace UUID (03 §7.1),
 	// stamped onto export bundles + their archive path.
 	TenantNamespace string

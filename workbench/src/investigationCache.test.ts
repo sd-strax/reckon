@@ -13,7 +13,7 @@ function detail(lastEventSequence: number, state = "ACTIVE"): InvestigationDetai
 }
 
 /** A backend whose answers the test sets, counting transcript reads. */
-type Read = "getInvestigation" | "hypotheses" | "capabilities" | "thread" | "actions" | "pins" | "comms" | "transcript";
+type Read = "getInvestigation" | "hypotheses" | "capabilities" | "thread" | "actions" | "pins" | "comms" | "dependencies" | "transcript";
 
 function fakeClient(over: Partial<Record<Read, (...args: never[]) => Promise<unknown>>> = {}) {
   const calls = { transcript: 0 };
@@ -25,12 +25,13 @@ function fakeClient(over: Partial<Record<Read, (...args: never[]) => Promise<unk
     actions: async () => [] as ActionRow[],
     pins: async () => [],
     comms: async () => [],
+    dependencies: async () => [],
     transcript: async (id: string) => { calls.transcript++; return { body: "body of " + id }; },
     ...over,
   };
   const client = {
     investigations: { get: f.getInvestigation, hypotheses: f.hypotheses, thread: f.thread, pins: f.pins, transcript: f.transcript },
-    actions: { list: f.actions, comms: f.comms },
+    actions: { list: f.actions, comms: f.comms, dependencies: f.dependencies },
     capabilities: { list: f.capabilities },
   } as unknown as CacheClient;
   return { client, calls };

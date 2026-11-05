@@ -48,6 +48,10 @@ func TestWireFixtures(t *testing.T) {
 	wirefixture.Check[struct {
 		Threads []CommsThreadView `json:"threads"`
 	}](t, dir, "comms")
+	wirefixture.Check[struct {
+		Dependencies []DependencyView `json:"dependencies"`
+	}](t, dir, "dependencies")
+	wirefixture.Check[DependencyView](t, dir, "dependency")
 	wirefixture.Check[RequestActionResponse](t, dir, "actionRequested")
 	wirefixture.Check[ActionDecisionResponse](t, dir, "actionDecision")
 	wirefixture.Check[struct {

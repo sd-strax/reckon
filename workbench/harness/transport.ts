@@ -101,6 +101,30 @@ export class HarnessTransport implements WebviewTransport {
         this.emit({ type: "state.patch", seq: s.seq, patch: { events: s.events ?? [], eventsTotal: s.eventsTotal ?? 0, eventsError: null, eventsCursor: null, eventGroups: flat ? null : s.eventGroups ?? [], eventKeys: flat ? [] : s.eventKeys ?? [], eventsFoldedOver: flat ? 0 : s.eventsFoldedOver ?? 0 } });
         break;
       }
+      // Dependencies (adr/0101): the real host forwards the act to the engine
+      // and re-reads the slice; here the recorded slice moves the same way, so
+      // a click's effect is visible.
+      case "dependency.create":
+      case "dependency.attach":
+      case "dependency.resolve": {
+        const s = this.data?.snapshot;
+        if (!s) break;
+        const now = new Date().toISOString();
+        const deps = [...(s.dependencies ?? [])];
+        if (intent.type === "dependency.create") {
+          deps.push({ dependencyId: "dep-" + (deps.length + 1), title: intent.title, owner: intent.owner, detail: intent.detail, externalRef: intent.externalRef, notifyActionId: intent.notifyActionId, status: "OPEN", createdBy: "you", createdAt: now, history: [{ at: now, by: "you", event: "created" }] });
+        } else {
+          const i = deps.findIndex((d) => d.dependencyId === intent.dependencyId);
+          const d = deps[i];
+          if (!d) break;
+          deps[i] = intent.type === "dependency.attach"
+            ? { ...d, notifyActionId: intent.notifyActionId, history: [...d.history, { at: now, by: "you", event: "attached", ref: intent.notifyActionId }] }
+            : { ...d, status: intent.verb === "confirm" ? "CONFIRMED" : "WAIVED", resolvedBy: "you", resolvedAt: now, resolutionNote: intent.note, externalRef: intent.externalRef || d.externalRef, history: [...d.history, { at: now, by: "you", event: intent.verb === "confirm" ? "confirmed" : "waived", note: intent.note, ref: intent.externalRef }] };
+        }
+        this.data = { ...this.data!, snapshot: { ...s, dependencies: deps } };
+        this.emit({ type: "state.snapshot", seq: s.seq, snapshot: this.data.snapshot });
+        break;
+      }
       // Every other intent is an act the real host forwards to the engine;
       // here it is only recorded.
     }

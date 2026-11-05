@@ -652,6 +652,42 @@ export interface CommsThread {
   escalationPolicy?: string;
 }
 
+/** One event on a dependency (mirrors server.DependencyHistoryView). */
+export interface DependencyHistoryEntry {
+  at: string;
+  by: string;
+  byName?: string;
+  event: string; // created | attached | detached | sent | confirmed | waived
+  note?: string;
+  ref?: string;
+}
+
+/**
+ * One dependency (mirrors server.DependencyView, adr/0101): work the
+ * conclusion depends on that only someone outside reckon can do. OPEN when
+ * recorded, SENT when the notify action it rides on succeeded, CONFIRMED or
+ * WAIVED by the analyst with a note. A reply never moves it.
+ */
+export interface Dependency {
+  dependencyId: string;
+  title: string;
+  owner: string;
+  detail?: string;
+  status: string; // OPEN | SENT | CONFIRMED | WAIVED
+  /** The notify.* action the ask rides on, when attached. */
+  notifyActionId?: string;
+  /** Where the work lives outside reckon (a ticket, a thread permalink). */
+  externalRef?: string;
+  createdBy: string;
+  createdByName?: string;
+  createdAt: string;
+  resolvedBy?: string;
+  resolvedByName?: string;
+  resolvedAt?: string;
+  resolutionNote?: string;
+  history: DependencyHistoryEntry[];
+}
+
 /** Where an approve/reject left the action (mirrors server.ActionDecisionResponse). */
 export interface ActionDecision {
   actionId: string;

@@ -5,6 +5,7 @@ import { useApp } from "../../app";
 import { actionStatusBadge } from "../../derive/actions";
 import { Badge, RefChip, fmtDateTime, fmtTime } from "../shared";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
+import { DEPENDENCY_LABEL, dependencyTone, resolveDependencySpec } from "../Dependencies";
 
 const ESCALATION_THRESHOLD = 10; // 04 §1: T2→T3 above this many distinct targets
 
@@ -155,6 +156,46 @@ export function ThreadInspector({ threadId }: { threadId: string }) {
           </div>
         ) },
       ]} />
+    </>
+  );
+}
+
+/** A dependency (adr/0101): what, owner, why, when asked, status, and its
+ * history; confirm or waive while it still counts. Rendered from the snapshot. */
+export function DependencyInspector({ dependencyId }: { dependencyId: string }) {
+  const { state, openInspector, openPrompt, send } = useApp();
+  const d = state.snap?.dependencies?.find((x) => x.dependencyId === dependencyId);
+  if (!d) return <div className="empty">This dependency is not in the snapshot.</div>;
+  const riding = d.notifyActionId ? state.snap?.actions?.find((a) => a.actionId === d.notifyActionId) : undefined;
+  const live = d.status === "OPEN" || d.status === "SENT";
+  const asked = d.history.find((e) => e.event === "sent")?.at;
+  const who = (by: string, name?: string) => name || by;
+  return (
+    <>
+      <div className="isub"><Badge tone={dependencyTone(d.status)}>{DEPENDENCY_LABEL[d.status] || d.status.toLowerCase()}</Badge> <span className="mono">{d.owner}</span> · recorded {fmtDateTime(d.createdAt)}</div>
+      <KV rows={[
+        { k: "What", v: d.title },
+        { k: "Owner", v: d.owner },
+        { k: "Why", v: d.detail || undefined },
+        { k: "Rides on", v: riding ? <button className="linklike" onClick={() => openInspector({ kind: "action", actionId: riding.actionId })}>{riding.actionType} → {riding.targets.join(", ")}</button> : (d.notifyActionId ? d.notifyActionId : "no notification yet") },
+        { k: "Asked", v: asked ? fmtDateTime(asked) : "not yet sent" },
+        { k: "Status", v: DEPENDENCY_LABEL[d.status] || d.status, mono: true },
+        { k: "Where it lives", v: d.externalRef || undefined, mono: true },
+        { k: d.status === "WAIVED" ? "Waived" : "Confirmed", v: !live && d.resolvedAt ? who(d.resolvedBy || "", d.resolvedByName) + " · " + fmtDateTime(d.resolvedAt) + (d.resolutionNote ? " — " + d.resolutionNote : "") : undefined },
+      ]} />
+      <Section title="History">
+        <ol className="ihistory">
+          {d.history.map((e, i) => (
+            <li key={i}><span className="imeta">{fmtTime(e.at)}</span> <b>{e.event}</b> · {who(e.by, e.byName)}{e.note ? ": " + e.note : ""}{e.ref ? <> · <span className="mono">{e.ref}</span></> : null}</li>
+          ))}
+        </ol>
+      </Section>
+      {live ? (
+        <div className="decide">
+          <button className="primary" onClick={() => openPrompt(resolveDependencySpec(d, "confirm", (note, externalRef) => send({ type: "dependency.resolve", dependencyId: d.dependencyId, verb: "confirm", note, externalRef })))}>Confirm…</button>
+          <button onClick={() => openPrompt(resolveDependencySpec(d, "waive", (note, externalRef) => send({ type: "dependency.resolve", dependencyId: d.dependencyId, verb: "waive", note, externalRef })))}>Waive…</button>
+        </div>
+      ) : null}
     </>
   );
 }
