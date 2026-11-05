@@ -121,6 +121,12 @@ var ErrInvalidRequest = errors.New("knowledge: invalid request")
 // number. The server answers 409.
 var ErrRevisionChanged = errors.New("knowledge: sop revision changed since recall")
 
+// ErrCutChanged marks a section read pinned to a cut that is no longer the
+// one stored: a changed section budget or splitter re-cuts a revision and
+// renumbers its sections without a new revision, so the pin names both. The
+// server answers 409, as for ErrRevisionChanged.
+var ErrCutChanged = errors.New("knowledge: sop sections re-cut since recall")
+
 // Reindex brings the tenant's knowledge up to date with the substrate's
 // configuration (section rule, embedding model): the host runs it at startup
 // and an operator on demand. Returns the number of entries touched.

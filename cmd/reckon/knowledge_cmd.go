@@ -146,8 +146,14 @@ func runKnowledgeReindex(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "%s: reindex %s\n", branding.CLI, job.State)
-	for job.State == "running" {
+	if job.Run == "" {
+		return fmt.Errorf("reindex: the backend named no run (state %s)", job.State)
+	}
+	run := job.Run
+	fmt.Fprintf(os.Stderr, "%s: reindex %s (run %s)\n", branding.CLI, job.State, run)
+	// Only this run's outcome counts: a restart answers idle with no run, and
+	// a later start replaces the state with another run's.
+	for job.Run == run && job.State == "running" {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("reindex still running after %s; `%s knowledge reindex` reports it when it finishes", reindexWait, branding.CLI)
@@ -157,8 +163,13 @@ func runKnowledgeReindex(args []string) error {
 			return err
 		}
 	}
-	if job.State == "failed" {
+	switch {
+	case job.Run != run:
+		return fmt.Errorf("reindex run %s was lost before it finished (the backend restarted or another run replaced it); run it again", run)
+	case job.State == "failed":
 		return fmt.Errorf("reindex failed: %s", job.Error)
+	case job.State != "done":
+		return fmt.Errorf("reindex run %s ended in state %q", run, job.State)
 	}
 	fmt.Fprintf(os.Stderr, "%s: reindexed %d entr%s\n", branding.CLI, job.Entries, plural(job.Entries, "y", "ies"))
 	return nil
@@ -170,6 +181,7 @@ const (
 )
 
 type reindexJob struct {
+	Run     string `json:"run"`
 	State   string `json:"state"`
 	Entries int    `json:"entries"`
 	Error   string `json:"error"`

@@ -82,6 +82,6 @@ type knowledgeStore interface {
 	ListSummaries(ctx context.Context, tenantID uuid.UUID, limit int) ([]knowledge.CaseSummaryView, error)
 	SummaryByInvestigation(ctx context.Context, tenantID uuid.UUID, investigationRef string) (knowledge.CaseSummaryView, error)
 	Reindex(ctx context.Context, tenantID uuid.UUID) (int, error)
-	Sections(ctx context.Context, tenantID, id uuid.UUID, revision int) (knowledge.SOPOutline, error)
-	Section(ctx context.Context, tenantID, id uuid.UUID, idx, revision int) (knowledge.SOPSectionRead, error)
+	Sections(ctx context.Context, tenantID, id uuid.UUID, pin knowledge.SectionPin) (knowledge.SOPOutline, error)
+	Section(ctx context.Context, tenantID, id uuid.UUID, idx int, pin knowledge.SectionPin) (knowledge.SOPSectionRead, error)
 }

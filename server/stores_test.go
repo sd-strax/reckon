@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -187,10 +188,10 @@ func (f *fakeKnowledge) PriorByEntity(context.Context, uuid.UUID, knowledge.Prio
 	return knowledge.PriorResult{}, f.err
 }
 func (f *fakeKnowledge) Reindex(context.Context, uuid.UUID) (int, error) { return 0, f.err }
-func (f *fakeKnowledge) Sections(context.Context, uuid.UUID, uuid.UUID, int) (knowledge.SOPOutline, error) {
+func (f *fakeKnowledge) Sections(context.Context, uuid.UUID, uuid.UUID, knowledge.SectionPin) (knowledge.SOPOutline, error) {
 	return knowledge.SOPOutline{}, f.err
 }
-func (f *fakeKnowledge) Section(context.Context, uuid.UUID, uuid.UUID, int, int) (knowledge.SOPSectionRead, error) {
+func (f *fakeKnowledge) Section(context.Context, uuid.UUID, uuid.UUID, int, knowledge.SectionPin) (knowledge.SOPSectionRead, error) {
 	return knowledge.SOPSectionRead{}, f.err
 }
 func (f *fakeKnowledge) WriteSummary(context.Context, uuid.UUID, knowledge.Summary) (uuid.UUID, error) {
@@ -360,29 +361,47 @@ func TestReindexKnowledge_OnFakes(t *testing.T) {
 	if code, body := send(t, b, "GET", "/api/knowledge/reindex", analyst, ""); code != http.StatusOK || !strings.Contains(body, `"state":"idle"`) {
 		t.Fatalf("before any run: %d %s", code, body)
 	}
-	if code, body := send(t, b, "POST", "/api/knowledge/reindex", analyst, ""); code != http.StatusAccepted || !strings.Contains(body, `"state":"running"`) {
+	code, body := send(t, b, "POST", "/api/knowledge/reindex", analyst, "")
+	if code != http.StatusAccepted || !strings.Contains(body, `"state":"running"`) {
 		t.Fatalf("start: %d %s", code, body)
 	}
-	awaitState := func(want string) string {
+	var started ReindexJob
+	if err := json.Unmarshal([]byte(body), &started); err != nil || started.Run == "" {
+		t.Fatalf("the POST names no run: %v %s", err, body)
+	}
+	awaitState := func(want string) ReindexJob {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
 			_, body := send(t, b, "GET", "/api/knowledge/reindex", analyst, "")
-			if strings.Contains(body, `"state":"`+want+`"`) {
-				return body
+			var job ReindexJob
+			if err := json.Unmarshal([]byte(body), &job); err != nil {
+				t.Fatalf("GET: %v %s", err, body)
+			}
+			if job.State == want {
+				return job
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
 		t.Fatalf("reindex never reached %s", want)
-		return ""
+		return ReindexJob{}
 	}
-	awaitState("done")
+	if job := awaitState("done"); job.Run != started.Run {
+		t.Errorf("done state belongs to run %q, polled %q", job.Run, started.Run)
+	}
 
+	// A second run has its own id, so a poller of the first cannot take the
+	// second's outcome for its own.
 	store.err = errStoreDown
-	if code, _ := send(t, b, "POST", "/api/knowledge/reindex", analyst, ""); code != http.StatusAccepted {
+	code, body = send(t, b, "POST", "/api/knowledge/reindex", analyst, "")
+	if code != http.StatusAccepted {
 		t.Fatalf("restart: %d", code)
 	}
-	if body := awaitState("failed"); !strings.Contains(body, errStoreDown.Error()) {
-		t.Errorf("failed run does not carry its error: %s", body)
+	var second ReindexJob
+	if err := json.Unmarshal([]byte(body), &second); err != nil || second.Run == "" || second.Run == started.Run {
+		t.Fatalf("second run should have its own id: %v %s", err, body)
+	}
+	if job := awaitState("failed"); job.Run != second.Run || !strings.Contains(job.Error, errStoreDown.Error()) {
+		t.Errorf("failed run: %+v", job)
 	}
 }

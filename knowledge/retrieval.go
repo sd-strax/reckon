@@ -63,7 +63,11 @@ type SOPMatch struct {
 	// Revision is the SOP revision the hit's section indexes belong to; a
 	// section read passes it back so a re-import between recall and read is
 	// detected (ErrRevisionChanged) rather than answered with another section.
-	Revision       int        `json:"revision"`
+	Revision int `json:"revision"`
+	// Cut names the cut the section indexes belong to (substrate
+	// Section.Cut); a section read passes it back with the revision, since a
+	// changed section budget re-cuts a revision without changing it.
+	Cut            string     `json:"cut"`
 	Excerpt        string     `json:"excerpt"`
 	Truncated      bool       `json:"truncated,omitempty"`
 	Section        SectionRef `json:"section"`
@@ -130,6 +134,7 @@ func (s *Store) RecallSOPs(ctx context.Context, tenantID uuid.UUID, req RecallRe
 			SOPID:          lineage,
 			Title:          h.Title,
 			Revision:       h.Revision,
+			Cut:            h.Cut,
 			Excerpt:        h.Excerpt,
 			Truncated:      h.Truncated,
 			Section:        sectionRefOf(h.Section),
@@ -182,6 +187,7 @@ func (s *Store) browseByTag(ctx context.Context, tenantID uuid.UUID, req RecallR
 			SOPID:          lineage,
 			Title:          e.Title,
 			Revision:       e.Revision,
+			Cut:            secs[0].Cut(),
 			Excerpt:        excerpt,
 			Truncated:      truncated,
 			Section:        section,

@@ -61,7 +61,11 @@ func (b *Backend) recallSOPs(w http.ResponseWriter, r *http.Request) {
 // the last run started on demand, or none. A run is one embedder call per
 // stale entry, so it outlives an HTTP request's deadline; the POST starts it
 // and answers 202, and the state is read here until it is done or failed.
+// Run identifies the run: a poller keeps the id the POST returned and
+// accepts only that run's done state, since a restart answers idle and a
+// later POST replaces the state with another run's.
 type ReindexJob struct {
+	Run        string     `json:"run,omitempty"`
 	State      string     `json:"state"` // idle | running | done | failed
 	Entries    int        `json:"entries,omitempty"`
 	Error      string     `json:"error,omitempty"`
@@ -88,7 +92,8 @@ func (b *Backend) startReindexKnowledge(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	now := time.Now().UTC()
-	b.reindex = ReindexJob{State: "running", StartedAt: &now}
+	run := uuid.NewString()
+	b.reindex = ReindexJob{Run: run, State: "running", StartedAt: &now}
 	job := b.reindex
 	b.reindexMu.Unlock()
 
@@ -100,6 +105,9 @@ func (b *Backend) startReindexKnowledge(w http.ResponseWriter, r *http.Request) 
 		done := time.Now().UTC()
 		b.reindexMu.Lock()
 		defer b.reindexMu.Unlock()
+		if b.reindex.Run != run {
+			return // one run at a time; the state is this run's or nobody's
+		}
 		b.reindex.FinishedAt = &done
 		b.reindex.Entries = n
 		if err != nil {
@@ -123,18 +131,31 @@ func (b *Backend) getReindexKnowledge(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, job)
 }
 
-// revisionParam reads the optional ?revision= a section read pins itself to.
-func revisionParam(w http.ResponseWriter, r *http.Request) (int, bool) {
-	raw := r.URL.Query().Get("revision")
-	if raw == "" {
-		return 0, true
+// pinParams reads the optional ?revision= and ?cut= a section read pins
+// itself to: the revision and cut a recall hit reported, so the index is read
+// against the numbering it came from (409 when either has moved).
+func pinParams(w http.ResponseWriter, r *http.Request) (knowledge.SectionPin, bool) {
+	q := r.URL.Query()
+	pin := knowledge.SectionPin{Cut: q.Get("cut")}
+	if raw := q.Get("revision"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeJSONError(w, http.StatusBadRequest, "revision must be a positive integer")
+			return knowledge.SectionPin{}, false
+		}
+		pin.Revision = n
 	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 {
-		writeJSONError(w, http.StatusBadRequest, "revision must be a positive integer")
-		return 0, false
+	return pin, true
+}
+
+// pinMoved answers a pinned section read whose revision or cut is no longer
+// the stored one: 409, the caller recalls.
+func pinMoved(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, knowledge.ErrRevisionChanged) || errors.Is(err, knowledge.ErrCutChanged) {
+		writeJSONError(w, http.StatusConflict, err.Error())
+		return true
 	}
-	return n, true
+	return false
 }
 
 // recallSimilar handles POST /api/knowledge/recall_similar_investigations
@@ -379,13 +400,12 @@ func (b *Backend) getSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 // getSOPSections handles GET /api/sops/{id}/sections: the procedure's outline,
 // every section's place without its text (design/06 §4.2).
 func (b *Backend) getSOPSections(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	revision, ok := revisionParam(w, r)
+	pin, ok := pinParams(w, r)
 	if !ok {
 		return
 	}
-	out, err := b.cfg.Knowledge.Sections(r.Context(), module.SingleTenantUUID, id, revision)
-	if errors.Is(err, knowledge.ErrRevisionChanged) {
-		writeJSONError(w, http.StatusConflict, err.Error())
+	out, err := b.cfg.Knowledge.Sections(r.Context(), module.SingleTenantUUID, id, pin)
+	if pinMoved(w, err) {
 		return
 	}
 	if errors.Is(err, knowledge.ErrNotFound) {
@@ -407,13 +427,12 @@ func (b *Backend) getSOPSection(w http.ResponseWriter, r *http.Request, id uuid.
 		writeJSONError(w, http.StatusBadRequest, "section index in path must be a positive integer")
 		return
 	}
-	revision, ok := revisionParam(w, r)
+	pin, ok := pinParams(w, r)
 	if !ok {
 		return
 	}
-	out, err := b.cfg.Knowledge.Section(r.Context(), module.SingleTenantUUID, id, n, revision)
-	if errors.Is(err, knowledge.ErrRevisionChanged) {
-		writeJSONError(w, http.StatusConflict, err.Error())
+	out, err := b.cfg.Knowledge.Section(r.Context(), module.SingleTenantUUID, id, n, pin)
+	if pinMoved(w, err) {
 		return
 	}
 	if errors.Is(err, knowledge.ErrNotFound) {
