@@ -219,3 +219,81 @@ func TestReindexWithoutAnEmbedderRecutsSections(t *testing.T) {
 		t.Errorf("a keyword-only reindex wrote %d vectors", n)
 	}
 }
+
+func TestBlankBodyIsRejectedAndNeverIndexed(t *testing.T) {
+	st := newTestStore(t, WithEmbedder(sectionEmbedder()))
+	ctx := context.Background()
+	if _, err := st.Put(ctx, testNS, "procedures", Entry{Title: "Blank", Body: " \n\n\t\n"}); !errors.Is(err, ErrBlankBody) {
+		t.Fatalf("whitespace body accepted: %v", err)
+	}
+	e := seedProcedureAndDistractor(t, st)
+	if _, err := st.Revise(ctx, testNS, "procedures", e.ID, Revision{Title: "Blank", Body: "   "}); !errors.Is(err, ErrBlankBody) {
+		t.Fatalf("whitespace revision accepted: %v", err)
+	}
+	// Recall over the corpus is unaffected: nothing unrankable got in.
+	if _, err := st.Recall(ctx, testNS, RecallQuery{Corpus: "procedures", Query: "how do I isolate the destination host?"}); err != nil {
+		t.Fatal(err)
+	}
+	// A row made blank behind the store's back is reported by Reindex, never
+	// silently re-cut to nothing.
+	if _, err := testDB.Exec(`UPDATE substrate_entries SET body = ' ' WHERE id = $1`, e.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testDB.Exec(`DELETE FROM substrate_sections WHERE entry_id = $1`, e.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Reindex(ctx, testNS); !errors.Is(err, ErrBlankBody) {
+		t.Fatalf("Reindex over a blank body: %v; want ErrBlankBody", err)
+	}
+}
+
+func TestReindexNewModelKeepsOtherModelsSectionVectors(t *testing.T) {
+	a := newTestStore(t, WithEmbedder(&fakeEmbedder{model: "model-a"}))
+	ctx := context.Background()
+	e, err := a.Put(ctx, testNS, "procedures", Entry{Title: "Containment", Body: procedureDoc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewPostgres(testDB, testCorpora(), WithEmbedder(&fakeEmbedder{model: "model-b"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, err := b.Reindex(ctx, testNS); err != nil || count != 1 {
+		t.Fatalf("Reindex under model-b: %d, %v", count, err)
+	}
+	for _, model := range []string{"model-a", "model-b"} {
+		if n := countRows(t, `SELECT count(*) FROM substrate_embeddings WHERE entry_id = $1 AND model = $2`, e.ID, model); n != 5 {
+			t.Errorf("%s has %d vectors after the backfill, want 5 (document + 4 sections)", model, n)
+		}
+	}
+	// The cut was kept, not rewritten.
+	if n := countRows(t, `SELECT count(*) FROM substrate_sections WHERE entry_id = $1`, e.ID); n != 4 {
+		t.Errorf("sections after backfill = %d", n)
+	}
+	// A reader still on model-a ranks as before.
+	if _, err := a.Recall(ctx, testNS, RecallQuery{Corpus: "procedures", Query: "anything"}); err != nil {
+		t.Errorf("model-a recall after a model-b backfill: %v", err)
+	}
+	if count, err := b.Reindex(ctx, testNS); err != nil || count != 0 {
+		t.Fatalf("second Reindex should be a no-op: %d, %v", count, err)
+	}
+}
+
+func TestKeywordRecallMissingSectionsFailLoudly(t *testing.T) {
+	st := newTestStore(t) // keyword backend
+	e := seedProcedureAndDistractor(t, st)
+	ctx := context.Background()
+	if _, err := testDB.Exec(`DELETE FROM substrate_sections WHERE entry_id = $1`, e.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A query that would match the un-cut entry's title must not answer EMPTY.
+	_, err := st.Recall(ctx, testNS, RecallQuery{Corpus: "procedures", Query: "containment"})
+	if !errors.Is(err, ErrNoSections) {
+		t.Fatalf("want ErrNoSections, got %v", err)
+	}
+	// Under a filter that excludes the un-cut entry, recall proceeds.
+	res, err := st.Recall(ctx, testNS, RecallQuery{Corpus: "procedures", Query: "phishing", Tags: []string{"phishing"}})
+	if err != nil || len(res.Results) != 1 {
+		t.Fatalf("filtered recall: %v, %d results", err, len(res.Results))
+	}
+}

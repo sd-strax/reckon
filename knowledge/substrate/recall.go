@@ -2,6 +2,8 @@ package substrate
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -336,6 +338,14 @@ func (p *Postgres) recallKeyword(ctx context.Context, ns string, q RecallQuery) 
 			return RecallResult{}, err
 		}
 	} else {
+		// The ranking starts from the sections, so an eligible entry without a
+		// cut would vanish and EMPTY would be claimed where recall is simply
+		// not possible (§5.5); it is an error here as on the vector backend.
+		if id, missing, err := p.firstUnsectioned(ctx, ns, q); err != nil {
+			return RecallResult{}, err
+		} else if missing {
+			return RecallResult{}, fmt.Errorf("%w: entry %s", ErrNoSections, id)
+		}
 		// Sections carry the rank; the entry columns ride along so one query
 		// answers both units. ENTRY keeps each entry's best section
 		// (DISTINCT ON, ordered by rank within the entry) and orders the
@@ -452,6 +462,31 @@ func (p *Postgres) candidates(ctx context.Context, ns string, q RecallQuery) ([]
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// firstUnsectioned finds one eligible candidate (same filters as candidates)
+// that has no section rows at all.
+func (p *Postgres) firstUnsectioned(ctx context.Context, ns string, q RecallQuery) (uuid.UUID, bool, error) {
+	query := `SELECT e.id FROM substrate_entries e
+		 WHERE e.namespace = $1 AND e.corpus = $2 AND e.superseded_at IS NULL
+		   AND NOT EXISTS (SELECT 1 FROM substrate_sections s WHERE s.entry_id = e.id)`
+	args := []any{ns, q.Corpus}
+	query += strings.ReplaceAll(statusClause(q.IncludeRetired), " status", " e.status")
+	if len(q.Tags) > 0 {
+		args = append(args, pq.Array(q.Tags))
+		query += fmt.Sprintf(" AND e.tags && $%d", len(args)) //nolint:gosec // G202: appends a positional placeholder; every value is parameterized
+	}
+	query += ` LIMIT 1`
+	var id uuid.UUID
+	err := p.db.QueryRowContext(ctx, query, args...).Scan(&id)
+	switch {
+	case err == nil:
+		return id, true, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return uuid.Nil, false, nil
+	default:
+		return uuid.Nil, false, fmt.Errorf("substrate: recall sections check: %w", err)
+	}
 }
 
 func statusClause(includeRetired bool) string {

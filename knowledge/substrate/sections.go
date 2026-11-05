@@ -89,13 +89,26 @@ func SplitSections(body string, budgetRunes int) []Section {
 		title string
 	}
 	var headings []headingAt
-	inFence := false
+	var fence struct {
+		open bool
+		ch   byte
+		n    int
+	}
 	for i, l := range lines {
-		if fence := strings.TrimSpace(l.text); strings.HasPrefix(fence, "```") || strings.HasPrefix(fence, "~~~") {
-			inFence = !inFence
-			continue
+		if ch, n, rest, ok := fenceLine(l.text); ok {
+			switch {
+			case !fence.open:
+				fence.open, fence.ch, fence.n = true, ch, n
+				continue
+			case ch == fence.ch && n >= fence.n && strings.TrimSpace(rest) == "":
+				// A fence closes only on a run of its own character at least
+				// as long as the opening, with nothing after it (CommonMark);
+				// a shorter or different run inside it is content.
+				fence.open = false
+				continue
+			}
 		}
-		if inFence {
+		if fence.open {
 			continue
 		}
 		if level, title, ok := atxHeading(l.text); ok {
@@ -163,6 +176,28 @@ func SplitSections(body string, budgetRunes int) []Section {
 		out[i].Idx = i + 1
 	}
 	return out
+}
+
+// fenceLine reports whether a line opens or closes a fenced code block: up to
+// three spaces of indent, then a run of at least three backticks or tildes.
+// It returns the fence character, the run length and what follows the run.
+func fenceLine(line string) (ch byte, n int, rest string, ok bool) {
+	i := 0
+	for i < len(line) && i < 3 && line[i] == ' ' {
+		i++
+	}
+	if i >= len(line) || (line[i] != '`' && line[i] != '~') {
+		return 0, 0, "", false
+	}
+	ch = line[i]
+	for i < len(line) && line[i] == ch {
+		i++
+		n++
+	}
+	if n < 3 {
+		return 0, 0, "", false
+	}
+	return ch, n, line[i:], true
 }
 
 // bodyLine is one line of a body: its rune offsets (end excludes the

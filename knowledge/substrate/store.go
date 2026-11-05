@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -129,6 +130,9 @@ func (p *Postgres) Put(ctx context.Context, ns, corpus string, e Entry) (Entry, 
 	if e.Title == "" || e.Body == "" {
 		return Entry{}, fmt.Errorf("substrate: entry needs title and body")
 	}
+	if strings.TrimSpace(e.Body) == "" {
+		return Entry{}, ErrBlankBody // a body with no section would make the whole corpus unrankable
+	}
 	if def.Archetype == Derived && (e.Provenance == nil || e.Provenance.Producer == "") {
 		return Entry{}, fmt.Errorf("substrate: derived corpus %q requires provenance.producer", corpus)
 	}
@@ -182,6 +186,9 @@ func (p *Postgres) Revise(ctx context.Context, ns, corpus string, id uuid.UUID, 
 	}
 	if r.Title == "" || r.Body == "" {
 		return Entry{}, fmt.Errorf("substrate: revision needs title and body")
+	}
+	if strings.TrimSpace(r.Body) == "" {
+		return Entry{}, ErrBlankBody
 	}
 
 	var next Entry
@@ -482,12 +489,27 @@ func (p *Postgres) Reindex(ctx context.Context, ns string) (int, error) {
 	}
 	for i, id := range todo {
 		err := p.inTx(ctx, func(tx *sql.Tx) error {
-			var e Entry
-			var err error
-			e, err = scanEntry(tx.QueryRowContext(ctx,
+			e, err := scanEntry(tx.QueryRowContext(ctx,
 				`SELECT `+entryCols+` FROM substrate_entries WHERE id = $1 FOR UPDATE`, id))
 			if err != nil {
 				return fmt.Errorf("substrate: reindex load %s: %w", id, err)
+			}
+			// A current cut is kept, and only the active model's missing
+			// vectors are filled: re-cutting would drop every other model's
+			// section vectors, and models coexist through a migration window
+			// (§10). Only a stale or missing cut is rewritten.
+			var current int
+			if err := tx.QueryRowContext(ctx,
+				`SELECT count(*) FROM substrate_sections WHERE entry_id = $1 AND splitter_version = $2 AND budget_runes = $3`,
+				id, SplitterVersion, p.sectionBudget).Scan(&current); err != nil {
+				return fmt.Errorf("substrate: reindex check %s: %w", id, err)
+			}
+			if current > 0 {
+				secs, err := loadSections(ctx, tx, id)
+				if err != nil {
+					return err
+				}
+				return p.embedEntry(ctx, tx, e, secs)
 			}
 			return p.indexEntry(ctx, tx, e)
 		})
@@ -506,6 +528,11 @@ func (p *Postgres) indexEntry(ctx context.Context, tx *sql.Tx, e Entry) error {
 	secs, err := p.writeSections(ctx, tx, e)
 	if err != nil {
 		return err
+	}
+	if len(secs) == 0 {
+		// Never stored silently: an entry without a section is unrankable and
+		// would fail every RANK recall that reaches it (§5.5).
+		return fmt.Errorf("%w: entry %s", ErrBlankBody, e.ID)
 	}
 	return p.embedEntry(ctx, tx, e, secs)
 }

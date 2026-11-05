@@ -269,3 +269,39 @@ func dumpSections(secs []Section) string {
 	}
 	return b.String()
 }
+
+func TestSplitSections_FenceClosesOnlyWithItsOwnDelimiter(t *testing.T) {
+	body := strings.Join([]string{
+		"Preamble.",
+		"````",
+		"```",
+		"# inside: a shorter run does not close the outer fence",
+		"```",
+		"~~~",
+		"# inside: a different character does not close it",
+		"```` trailing text keeps it open too",
+		"````",
+		"# Real",
+		"   ~~~",
+		"# inside an indented tilde fence",
+		"~~~~",
+		"## After",
+	}, "\n")
+	got := SplitSections(body, 0)
+	wantPaths := [][]string{nil, {"Real"}, {"Real", "After"}}
+	if len(got) != len(wantPaths) {
+		t.Fatalf("got %d sections, want %d:\n%s", len(got), len(wantPaths), dumpSections(got))
+	}
+	for i, s := range got {
+		if len(s.HeadingPath) != len(wantPaths[i]) || (len(wantPaths[i]) > 0 && !reflect.DeepEqual(s.HeadingPath, wantPaths[i])) {
+			t.Errorf("section %d: path %q, want %q", i, s.HeadingPath, wantPaths[i])
+		}
+	}
+	if !strings.Contains(got[0].Text, "a shorter run") || !strings.Contains(got[0].Text, "a different character") {
+		t.Errorf("fenced lines left the preamble:\n%s", got[0].Text)
+	}
+	if !strings.Contains(got[1].Text, "indented tilde fence") {
+		t.Errorf("the indented tilde fence's content left the Real section:\n%s", got[1].Text)
+	}
+	assertOffsets(t, body, got)
+}
