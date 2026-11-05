@@ -1,6 +1,6 @@
 # 0303 — The section is the unit of SOP recall, and the agent reads the rest by section
 
-Issue: #303 · PR: pending · Status: accepted
+Issue: #303 · PR: #306 · Status: accepted
 
 ## Context
 
