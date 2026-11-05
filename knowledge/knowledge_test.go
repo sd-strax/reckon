@@ -95,7 +95,7 @@ func reset(t *testing.T, opts ...substrate.Option) *Store {
 	if !testReady {
 		t.Skip("embedded postgres not available")
 	}
-	if _, err := testDB.Exec(`TRUNCATE substrate_entries, substrate_embeddings, substrate_tombstones`); err != nil {
+	if _, err := testDB.Exec(`TRUNCATE substrate_entries, substrate_sections, substrate_embeddings, substrate_tombstones`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	sub, err := substrate.NewPostgres(testDB, []substrate.CorpusDef{
