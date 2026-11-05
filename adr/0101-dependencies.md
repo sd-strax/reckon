@@ -1,6 +1,6 @@
 # 0101 — Work the conclusion depends on that only someone outside reckon can do is a dependency: its own record, asked through the message, resolved by the analyst alone
 
-Issue: #101 · PR: pending · Status: accepted
+Issue: #101 · PR: #307 · Status: accepted
 
 ## Context
 
