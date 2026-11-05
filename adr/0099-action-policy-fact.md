@@ -1,6 +1,6 @@
 # 0099 — A requested action's card states the frozen Gate 2 requirement from the list row; the policy decision stays on the record
 
-Issue: #99 · PR: pending · Status: accepted
+Issue: #99 · PR: #305 · Status: accepted
 
 ## Context
 
