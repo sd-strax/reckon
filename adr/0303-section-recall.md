@@ -56,8 +56,9 @@ the hit carries must stay a view over hashed content, never a second record.
 - **A hit carries the section, its place and the outline.** `excerpt` is the
   matched section's text (SIMILARITY: the first section); `section` is
   `{idx, of, heading_path, part, parts, location}`; `outline` is one location
-  per section; `truncated` says the budget cut the excerpt; `revision` is the
-  SOP revision the indexes belong to. The fields are additive on the `§8`
+  per section; `truncated` says the budget cut the excerpt; `revision` and
+  `cut` are the SOP revision and the cut (`<splitter>/<budget>`,
+  `Section.Cut`) the indexes belong to. The fields are additive on the `§8`
   one-way-door wire. The match rationale names the section: `best section
   "A > B" (3 of 5)`. The browse path (no query) reads the stored cut too, so
   its numbering is the one a section read answers to.
@@ -70,36 +71,49 @@ the hit carries must stay a view over hashed content, never a second record.
   one that keeps five hits under its result page
   (`maxResultBytes × 2 / (5 × 3)` runes), so a hit is never clipped after the
   fact.
-- **The rest is read by section, against the revision recalled.**
+- **The rest is read by section, against the revision and cut recalled.**
   `GET /api/sops/{id}/sections` answers the outline (every section's place and
   length, no text) and `GET /api/sops/{id}/sections/{n}` one section whole
   with the outline around it, both on the read role, over the SOP's current
-  revision. Section indexes belong to a revision, so a read passes
-  `?revision=` from the hit and is refused with 409 (`ErrRevisionChanged`)
-  when a re-import moved the current revision, rather than answered with a
+  revision. Section indexes are stable only within one revision *and* one
+  cut: a re-import moves the revision, and a changed section budget re-cuts
+  the same revision under new numbers. So a read passes `?revision=` and
+  `?cut=` from the hit and is refused with 409 (`ErrRevisionChanged`,
+  `ErrCutChanged`) when either has moved, rather than answered with a
   different section under the same number; the agent then recalls. The
-  agent's `read_sop {sop_id, revision?, section?}` tool reaches them. A
-  section larger than the result page is reshaped into `text_parts` the page
-  machinery pages, so every section is readable whatever the budget. The
-  recall tool's text and the prompt say a hit carries one section and the
-  rest is read with `read_sop`.
+  agent's `read_sop {sop_id, revision?, section?}` tool reaches them, and the
+  pin is the agent's, not the model's: the session remembers the cut each
+  revision of each procedure was shown under (by a hit, an outline or a
+  read), a section read is pinned to the revision the model names or the
+  newest it was shown, and a section read of a procedure the session was
+  never shown, or at a revision it was not shown, is refused before it
+  reaches the backend. An outline read is unpinned and establishes the pin.
+  A section larger than the result page is reshaped into `text_parts` the
+  page machinery pages (the part size is at least one rune, whatever the
+  page), so every section is readable whatever the budget. The recall tool's
+  text and the prompt say a hit carries one section and the rest is read
+  with `read_sop`.
 - **The record names what was shown, and `cited` requires it.**
   `ConsultedSOP.Sections` (agent, server body, aggregate; validated 1-based and
   bounded) is the union of the section indexes a turn had in front of the
   model: each recall hit's, on every page the model read (a held result
   remembers its tool, and `read_result` credits each page), each `read_sop`
-  section's; an outline read records the procedure with no section. The entry
-  carries the revision the sections belong to; a newer revision replaces it
-  and an older one's sections are not merged under it. The agent caps what it
-  records at the aggregate's bound (256 sections per procedure, beyond what
-  the default rounds and recall limit can show), so a commit never fails on
-  what the tools showed. `cited` now means the model's own text named the
-  procedure by its ref *and* at least one section of it was shown; the
-  aggregate refuses a cited entry with no section on every write path, since
-  the structural rule cannot depend on which client wrote. This tightens
-  [0236](0236-knowledge-citation.md), whose ref rule stands. The
-  `cite-knowledge` prompt rule is revised to say so (Revised #303,
-  PendingValidation #303).
+  section's; an outline read records the procedure with no section, and so
+  does a page of a parted section read that carries no part (the outline
+  past the last part is the section's place, not the section). One entry
+  stands for one procedure at one revision, carrying the `revision` and
+  `cut` its sections belong to: a turn shown two revisions (a recall, then a
+  read after a re-import) records both, and the aggregate refuses the same
+  procedure and revision twice. The record is never truncated: the aggregate
+  bounds an entry's sections at its tool-call limit times the most sections
+  one result can show (`MaxSectionsPerToolResult`, the agent's recall limit,
+  which a test holds the agent to), a number no act can reach. `cited` now
+  means the model's own text named the procedure by its ref *and* at least
+  one section of it was shown; the aggregate refuses a cited entry with no
+  section on every write path, since the structural rule cannot depend on
+  which client wrote. This tightens [0236](0236-knowledge-citation.md), whose
+  ref rule stands. The `cite-knowledge` prompt rule is revised to say so
+  (Revised #303, PendingValidation #303).
 - **`Reindex` is an operational path, on the contract.** It joins the
   substrate's `Store` interface, works without an embedder (sections only),
   re-cuts sections stored under another splitter version or budget, and fills
@@ -111,10 +125,14 @@ the hit carries must stay a view over hashed content, never a second record.
   after the dependency probes, before the listener, failing startup on error,
   so a changed embedding model or section rule is reconciled before the first
   recall; a current corpus costs one scan. On demand the run is a job:
-  `POST /api/knowledge/reindex` (analyst) starts it and answers 202, `GET`
-  reports idle, running, done or failed with the count or the error, one run
-  at a time, and `reckon knowledge reindex` starts and polls; a run is one
-  embedder call per stale entry and must not sit under a request's deadline.
+  `POST /api/knowledge/reindex` (analyst) starts it and answers 202 with a
+  `run` id, `GET` reports idle, running, done or failed with the run, the
+  count or the error, one run at a time, and `reckon knowledge reindex`
+  starts and polls, accepting only its own run's done state: a restart
+  answers idle with no run, and a later start replaces the state with
+  another run's, and either is reported as a lost run, not success. A run is
+  one embedder call per stale entry and must not sit under a request's
+  deadline.
   A candidate without sections is `ErrNoSections` on both backends (the
   keyword ranker checks the eligible entries before ranking from the
   sections table, so an un-cut entry is never answered EMPTY), a section
@@ -161,9 +179,9 @@ the hit carries must stay a view over hashed content, never a second record.
   ranker.
 - This is a change to what the model reads. The `prompt` component's digest
   moves from 67a4243d to 7ba7d77c, `tools/recall_sops` from 753f05fb to
-  8c6809eb, and `tools/read_sop` is new at ba156d8e. `PromptVersion` moves
-  from 362b6290 to 22ddad5b under `leading_null` and from e7568f3c to
-  42e7c29e under `leading_only`.
+  8c6809eb, and `tools/read_sop` is new at d2a3d735. `PromptVersion` moves
+  from 362b6290 to 45799838 under `leading_null` and from e7568f3c to
+  15dc2b4e under `leading_only`.
 - **The baselines are not rerun in this PR.** As in
   [0236](0236-knowledge-citation.md), the rerun is deferred to the pass that
   closes the open epics; `cite-knowledge` stays `PendingValidation` until a

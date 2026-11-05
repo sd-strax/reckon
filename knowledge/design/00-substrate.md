@@ -201,9 +201,11 @@ into parts), stored as rows with the `splitter_version` and budget that
 produced them, and each section is embedded on its own beside the whole
 document (§10). The cut is deterministic in the body and the rule; the content
 hash (§3) still covers the whole entry, never a section, so sections carry no
-attestation of their own — they locate text within hashed content.
-`Sections(ns, corpus, id)` reads them; `Reindex` rebuilds rows made under
-another rule.
+attestation of their own — they locate text within hashed content. A section
+names its cut (`Section.Cut`, `<splitter_version>/<budget>`): indexes are
+stable only within one revision and one cut, and a host that hands an index
+to a reader pins both. `Sections(ns, corpus, id)` reads them; `Reindex`
+rebuilds rows made under another rule.
 
 ---
 
@@ -295,6 +297,7 @@ crudely; quality improves with the backend, the contract doesn't move.
 RecallResult
   results        list<{
                    entry_id, revision, title,
+                   cut              # the cut the section index belongs to (§2.3)
                    excerpt          # the section's text within the budget (§5.6)
                    truncated        # the budget cut it
                    section          # {idx, of, heading_path, part, parts, location}
