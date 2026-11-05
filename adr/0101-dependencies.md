@@ -47,14 +47,21 @@ dependency keeps the work's.
 SENT when the `notify.*` action it rides on SUCCEEDS, from the engine's own
 fact about its own send, idempotently (only OPEN rows move), wherever that
 fact is established: the result activity on every attempt that carries the
-success, a retry after the commit included; the route a person resolves an
-`OUTCOME_UNKNOWN` send on, which never passes through the activity; and the
+success, a retry after the commit included, and a failure there fails the
+activity so Temporal's retry is the durable path; the route a person resolves
+an `OUTCOME_UNKNOWN` send on, which never passes through the activity; the
 attach and create routes, which read the action again after the write so an
 attachment that landed as the send completed is not left OPEN under a sent
-message. CONFIRMED or WAIVED by the analyst, with a note; a waive needs one,
-since a conclusion with work knowingly left open is legitimate only when the
-record says why. Resolved is final. A reply on the channel never moves a
-dependency.
+message; and, under all of them, the stranded-action sweep, which on every
+pass marks the OPEN dependencies riding on a SUCCEEDED send, so a MarkSent
+that failed after its fact committed is caught within the sweep's interval.
+While the ride is in flight (APPROVED, EXECUTING, OUTCOME_UNKNOWN) the
+dependency stays on it: re-pointing or detaching is refused, since the send's
+outcome is what decides whether the owner was asked; a ride that stopped
+(failed, expired, rejected) can move to a pending replacement. CONFIRMED or
+WAIVED by the analyst, with a note; a waive needs one, since a conclusion with
+work knowingly left open is legitimate only when the record says why. Resolved
+is final. A reply on the channel never moves a dependency.
 
 **Every write is a person's act on an open investigation.** An AI delegate's
 token is refused on record, attach, confirm and waive, as it is on an action's
@@ -62,7 +69,16 @@ outcome: a confirmation is an attestation in the human's name (`adr/0054`),
 and the analyst route role alone does not tell a delegate from the analyst it
 acts for. A write names an investigation that exists, and one that is not
 CONCLUDED, ARCHIVED or DISCARDED: the concluded record is what was exported
-and signed, so its dependencies are as sealed as the rest of it.
+and signed, so its dependencies are as sealed as the rest of it. The seal is
+the store's, in the same transaction as every mutation (create, attach, mark
+sent, confirm, waive): a share lock on the investigation's `investigation_current`
+row, which the aggregate updates in the transaction that appends the
+concluding event, so a conclusion that committed first is read and refused
+and one that starts later waits. The route's own check before the write gives
+the clearer answer (404, 409); the transaction is what holds. A send that
+completes after the conclusion moves nothing: the sealed record says the
+owner had not been asked when the investigation concluded, and that stays
+true.
 
 **Attachment is the action id.** A dependency rides on a requested, pending
 `notify.*` action of its own investigation. There is no draft object: a
@@ -125,7 +141,9 @@ invalid input 422.
   export and the signed bundle, and nothing changes it after the conclusion.
 - One more slice in the snapshot, one more store on the main database, one
   more hook on the result path beside the comms thread and on the outcome
-  resolution route, one more file in the bundle; the aggregate and its events
-  are untouched.
+  resolution route, one more step in the stranded-action sweep, one more file
+  in the bundle; the aggregate and its events are untouched. The store reads
+  the aggregate's `investigation_current` projection for the seal, the first
+  side record to do so; it lives on the same database for that reason.
 - The owner's name is free text and the reference is a string. Binding either
   to an identity or a connector is a later step, as it is for the comms target.

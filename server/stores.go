@@ -78,6 +78,7 @@ type dependencyStore interface {
 	Create(ctx context.Context, c dependency.Create) (dependency.Dependency, error)
 	Attach(ctx context.Context, id, actionID uuid.UUID, by dependency.Actor, at time.Time) error
 	MarkSent(ctx context.Context, actionID uuid.UUID, at time.Time) (int, error)
+	OpenRides(ctx context.Context) ([]uuid.UUID, error)
 	Confirm(ctx context.Context, id uuid.UUID, by dependency.Actor, note, externalRef string, at time.Time) error
 	Waive(ctx context.Context, id uuid.UUID, by dependency.Actor, note, externalRef string, at time.Time) error
 }

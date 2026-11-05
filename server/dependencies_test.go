@@ -151,6 +151,16 @@ func TestDependencies_Lifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
+	// Approved, the send is in flight: the dependency stays on it until the
+	// outcome says whether the owner was asked. Another pending notification
+	// cannot take it, and it cannot be detached.
+	otherID := requestNotify(t, invID, "#desktop")
+	if code, body := do("POST", "/api/dependencies/"+reimage.DependencyID+"/attach", AttachDependencyBody{NotifyActionID: otherID.String()}); code != http.StatusConflict {
+		t.Errorf("re-point off an approved send = %d: %s; want 409", code, body)
+	}
+	if code, body := do("POST", "/api/dependencies/"+reimage.DependencyID+"/attach", AttachDependencyBody{}); code != http.StatusConflict {
+		t.Errorf("detach from an approved send = %d: %s; want 409", code, body)
+	}
 	if err := acts.EmitDispatched(context.Background(), temporal.EmitDispatchedInput{
 		ActionID: notifyID.String(), AggregateID: invID.String(), TenantID: module.SingleTenantUUID.String(),
 		ApproverID: "test-subject", AdapterRequestID: "wf-" + notifyID.String(),
@@ -263,6 +273,111 @@ func TestDependencies_Lifecycle(t *testing.T) {
 	}
 	if _, err := store.Get(context.Background(), uuid.New()); !errors.Is(err, dependency.ErrNotFound) {
 		t.Errorf("Get unknown = %v; want ErrNotFound", err)
+	}
+
+	// 6. The conclusion seals the record. A dependency riding on a send still
+	// executing when the investigation concludes stays as the conclusion found
+	// it: the route refuses, the store refuses in the same transaction as its
+	// write, and the send's later success moves nothing (the activity still
+	// completes, and the reconciler leaves it alone).
+	lateDep, lateID := func() (DependencyView, uuid.UUID) {
+		id := requestNotify(t, invID, "#identity")
+		code, raw := do("POST", "/api/investigations/"+invID.String()+"/dependencies", CreateDependencyBody{Title: "revoke the refresh tokens", Owner: "identity team", NotifyActionID: id.String()})
+		if code != http.StatusCreated {
+			t.Fatalf("create late = %d: %s", code, raw)
+		}
+		var d DependencyView
+		_ = json.Unmarshal(raw, &d)
+		humanHandle(t, invID, aggregate.ApproveAction{ActionID: id, Authorization: aggregate.Authorization{Mode: aggregate.AuthModeManual, Stage: aggregate.AuthStageSolo, PrimaryApproverRef: "test-subject", PrimaryApprovedAt: time.Now()}})
+		dispatched(t, invID, id)
+		return d, id
+	}()
+	humanHandle(t, invID, aggregate.RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationEvidencePin, InputRefs: []string{"observed-data--x"}, Rationale: "the dropper"})
+	humanHandle(t, invID, aggregate.RecordInterpretation{InterpretationID: uuid.New(), InterpretationType: aggregate.InterpretationVerdict, Verdict: &aggregate.VerdictNode{Disposition: aggregate.VerdictMalicious}, InputRefs: []string{"observed-data--x"}, Rationale: "confirmed"})
+	humanHandle(t, invID, aggregate.ConcludeInvestigation{ReportRef: "report--1", Summary: "Confirmed; one dependency still owed."})
+	if code, body := do("POST", "/api/dependencies/"+lateDep.DependencyID+"/waive", ResolveDependencyBody{Note: "too late"}); code != http.StatusConflict {
+		t.Errorf("waive after conclusion = %d: %s; want 409", code, body)
+	}
+	lateUUID := uuid.MustParse(lateDep.DependencyID)
+	if err := store.Waive(context.Background(), lateUUID, dependency.Actor{ID: "test-subject"}, "too late", "", time.Now()); !errors.Is(err, dependency.ErrClosed) {
+		t.Errorf("store waive after conclusion = %v; want ErrClosed", err)
+	}
+	if _, err := store.Create(context.Background(), dependency.Create{AggregateID: invID, TenantID: module.SingleTenantUUID, Title: "x", Owner: "y", By: dependency.Actor{ID: "test-subject"}, At: time.Now()}); !errors.Is(err, dependency.ErrClosed) {
+		t.Errorf("store create after conclusion = %v; want ErrClosed", err)
+	}
+	if err := acts.EmitResulted(context.Background(), temporal.EmitResultedInput{
+		ActionID: lateID.String(), AggregateID: invID.String(), TenantID: module.SingleTenantUUID.String(),
+		ApproverID: "test-subject", FinalOutcome: "SUCCEEDED", PerTargetResults: map[string]string{"0": "OK"}, Attempts: 1,
+	}); err != nil {
+		t.Fatalf("result after conclusion: %v", err)
+	}
+	b.reconcileDependencies(context.Background())
+	if got, _ := store.Get(context.Background(), lateUUID); got.Status != dependency.StatusOpen {
+		t.Errorf("dependency after a send that completed past the conclusion = %s; want OPEN, as the conclusion found it", got.Status)
+	}
+}
+
+// requestNotify records a requested notify.slack action to one target.
+func requestNotify(t *testing.T, invID uuid.UUID, target string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	humanHandle(t, invID, aggregate.RequestAction{
+		ActionID: id, ActionType: "notify.slack", Tier: aggregate.TierT2,
+		Targets:    []aggregate.TargetSpec{{ResolvedIdentifier: target}},
+		Parameters: json.RawMessage(`{"message":"please act"}`),
+		ExpiresAt:  time.Now().Add(time.Hour), Rationale: "coordinate",
+	})
+	return id
+}
+
+// TestDependencies_Reconcile: a notify.* result committed without its
+// dependencies moving (the activity's MarkSent failed, or never ran) is caught
+// by the sweep's reconciler, which marks every OPEN dependency riding on a
+// SUCCEEDED send. A send that FAILED leaves its dependency OPEN.
+func TestDependencies_Reconcile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	if _, err := testDB.Exec(`TRUNCATE dependencies`); err != nil {
+		t.Fatalf("truncate dependencies: %v", err)
+	}
+	invID := activeInvestigation(t)
+	store := dependency.NewStore(testDB)
+	b := newTestBackend(t)
+	b.cfg.Dependencies = store
+
+	sent := func(title, outcome string) uuid.UUID {
+		t.Helper()
+		id := requestNotify(t, invID, "#"+title)
+		d, err := store.Create(context.Background(), dependency.Create{
+			AggregateID: invID, TenantID: module.SingleTenantUUID, Title: title, Owner: "platform team",
+			NotifyActionID: id, By: dependency.Actor{ID: "test-subject"}, At: time.Now(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		humanHandle(t, invID, aggregate.ApproveAction{ActionID: id, Authorization: aggregate.Authorization{Mode: aggregate.AuthModeManual, Stage: aggregate.AuthStageSolo, PrimaryApproverRef: "test-subject", PrimaryApprovedAt: time.Now()}})
+		dispatched(t, invID, id)
+		// The result lands on the aggregate without the activity's follow-up.
+		systemHandle(t, invID, aggregate.ResultAction{ActionID: id, FinalOutcome: outcome, PerTargetResults: map[string]string{"0": "OK"}, Attempts: 1})
+		return d.ID
+	}
+	ok := sent("rotate", aggregate.ActionStatusSucceeded)
+	failed := sent("reimage", aggregate.ActionStatusFailed)
+	if got, _ := store.Get(context.Background(), ok); got.Status != dependency.StatusOpen {
+		t.Fatalf("before the reconcile: %s; want OPEN", got.Status)
+	}
+	b.reconcileDependencies(context.Background())
+	if got, _ := store.Get(context.Background(), ok); got.Status != dependency.StatusSent {
+		t.Errorf("under a SUCCEEDED send after the reconcile: %s; want SENT", got.Status)
+	}
+	if got, _ := store.Get(context.Background(), failed); got.Status != dependency.StatusOpen {
+		t.Errorf("under a FAILED send after the reconcile: %s; want OPEN", got.Status)
+	}
+	rides, err := store.OpenRides(context.Background())
+	if err != nil || len(rides) != 1 {
+		t.Errorf("open rides after the reconcile = %v, %v; want the failed send alone", rides, err)
 	}
 }
 

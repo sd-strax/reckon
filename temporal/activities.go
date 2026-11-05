@@ -345,26 +345,28 @@ func (a *Activities) EmitResulted(ctx context.Context, in EmitResultedInput) err
 	if len(res.AppliedEvents) > 0 {
 		a.recordCommsThread(ctx, id, in)
 	}
-	// The dependencies, by contrast, move on every attempt: MarkSent is
-	// idempotent (only OPEN rows move), so a retry after the commit, or after
-	// a failed first MarkSent, still leaves the record agreeing with the
-	// committed result.
-	a.markDependenciesSent(ctx, id, in)
-	return nil
+	// The dependencies, by contrast, move on every attempt, and a failure
+	// fails the activity: MarkSent is idempotent (only OPEN rows move), and
+	// the result commit is recognised on a retry, so Temporal's retry is the
+	// durable path to a record that agrees with the committed result.
+	return a.markDependenciesSent(ctx, id, in)
 }
 
 // markDependenciesSent moves the dependencies riding on a SUCCEEDED notify.*
 // action to SENT (adr/0101): the engine's own fact about its own send, the one
-// transition a dependency makes without a person. Best-effort and idempotent
-// (only OPEN rows move), so it runs on every attempt that carries a SUCCEEDED
-// result, not only the one that appended it.
-func (a *Activities) markDependenciesSent(ctx context.Context, actionID uuid.UUID, in EmitResultedInput) {
+// transition a dependency makes without a person. Idempotent (only OPEN rows
+// move), so it runs on every attempt that carries a SUCCEEDED result, not only
+// the one that appended it, and its error is returned retryable rather than
+// logged: a transient failure here would otherwise leave the dependency OPEN
+// under a sent message with nothing scheduled to come back for it.
+func (a *Activities) markDependenciesSent(ctx context.Context, actionID uuid.UUID, in EmitResultedInput) error {
 	if a.deps == nil || in.FinalOutcome != aggregate.ActionStatusSucceeded {
-		return
+		return nil
 	}
 	if _, err := a.deps.MarkSent(ctx, actionID, time.Now().UTC()); err != nil {
-		activityLogger(ctx).Warn("dependencies not marked sent", "action_id", actionID, "error", err)
+		return fmt.Errorf("mark dependencies sent for action %s: %w", actionID, err)
 	}
+	return nil
 }
 
 // recordCommsThread translates one successful notify.* result into comms

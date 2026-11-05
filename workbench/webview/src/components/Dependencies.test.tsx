@@ -98,6 +98,20 @@ describe("dependencies on others", () => {
     expect(transport.intents.find((m) => m.type === "dependency.attach")).toEqual({ type: "dependency.attach", dependencyId: "dep-2", notifyActionId: "act-2" });
   });
 
+  it("keeps an open dependency on a send in flight, even with another notification pending", () => {
+    // act-2 is approved and will send; act-8 is a second, pending notification.
+    mount((s) => {
+      const notify = s.snapshot.actions!.find((a) => a.actionId === "act-2")!;
+      s.snapshot.actions!.push({ ...notify, actionId: "act-8" });
+      notify.status = "APPROVED";
+      notify.pending = false;
+    });
+    tab("Response");
+    const card = document.getElementById("obj-dep-2")!;
+    expect(within(card).queryByText("Move to another notification…")).toBeNull();
+    expect(within(card).queryByText("Attach to notification…")).toBeNull();
+  });
+
   it("offers no resolution on a concluded record, in the section or the inspector", () => {
     mount((s) => { s.snapshot.investigation.state = "CONCLUDED"; });
     tab("Response");

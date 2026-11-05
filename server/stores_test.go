@@ -188,6 +188,9 @@ func (f *fakeDependencies) Attach(_ context.Context, _, _ uuid.UUID, by dependen
 func (f *fakeDependencies) MarkSent(context.Context, uuid.UUID, time.Time) (int, error) {
 	return 0, f.err
 }
+func (f *fakeDependencies) OpenRides(context.Context) ([]uuid.UUID, error) {
+	return nil, f.err
+}
 func (f *fakeDependencies) Confirm(_ context.Context, _ uuid.UUID, by dependency.Actor, _, _ string, _ time.Time) error {
 	f.principal = by.ID
 	return f.err

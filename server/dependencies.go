@@ -187,6 +187,10 @@ func (b *Backend) attachDependency(w http.ResponseWriter, r *http.Request, depID
 		}
 		actionID = id
 	}
+	if actionID != d.NotifyActionID && b.rideInFlight(r.Context(), d.NotifyActionID) {
+		writeJSONError(w, http.StatusConflict, "the dependency rides on a send in flight; its outcome decides whether it was asked")
+		return
+	}
 	if err := b.cfg.Dependencies.Attach(r.Context(), depID, actionID, dependencyActor(claims), time.Now()); err != nil {
 		writeDependencyError(w, err)
 		return
@@ -322,6 +326,26 @@ func (b *Backend) notifyActionOf(w http.ResponseWriter, r *http.Request, invID u
 	}
 }
 
+// rideInFlight reports whether the notify.* action a dependency rides on is
+// APPROVED, EXECUTING or OUTCOME_UNKNOWN: a send that may still go out, or
+// whose outcome a person has yet to establish. Re-pointing or detaching then
+// would take the dependency off a send that could mark it SENT. A ride that
+// stopped (failed, expired, rejected) or never started is free to move.
+func (b *Backend) rideInFlight(ctx context.Context, actionID uuid.UUID) bool {
+	if actionID == uuid.Nil {
+		return false
+	}
+	ac, err := b.cfg.Reads.LoadActionCurrent(ctx, actionID)
+	if err != nil {
+		return false
+	}
+	switch ac.Status {
+	case aggregate.ActionStatusApproved, aggregate.ActionStatusExecuting, aggregate.ActionStatusOutcomeUnknown:
+		return true
+	}
+	return false
+}
+
 // settleSentUnder catches the send that completed between the pending check
 // and the write: the action is read again after the attachment, and if it
 // SUCCEEDED meanwhile the dependencies riding on it move to SENT here, since
@@ -339,9 +363,10 @@ func (b *Backend) settleSentUnder(ctx context.Context, actionID uuid.UUID) bool 
 // markDependenciesSent moves the OPEN dependencies riding on a SUCCEEDED
 // notify.* action to SENT (adr/0101): the engine's own fact about its own
 // send. Idempotent; a failure logs, since the action record already holds the
-// result. The result activity is the usual caller's twin; this one serves the
-// routes that establish a success without it: a person resolving an
-// OUTCOME_UNKNOWN send, and an attachment racing the send's completion.
+// result and reconcileDependencies will move the rows on its next pass. The
+// result activity is the usual caller's twin; this one serves the routes that
+// establish a success without it (a person resolving an OUTCOME_UNKNOWN send,
+// an attachment racing the send's completion) and the reconciler.
 func (b *Backend) markDependenciesSent(ctx context.Context, ac aggregate.ActionCurrent) int {
 	if b.cfg.Dependencies == nil || ac.Status != aggregate.ActionStatusSucceeded || !strings.HasPrefix(ac.ActionType, "notify.") {
 		return 0
@@ -358,13 +383,14 @@ func dependencyActor(c authz.Claims) dependency.Actor {
 	return dependency.Actor{ID: c.Subject, Name: c.PreferredUsername}
 }
 
-// writeDependencyError maps the store's errors: not found 404, resolved 409,
-// invalid input 422, anything else 500.
+// writeDependencyError maps the store's errors: not found 404, resolved or
+// sealed by the investigation's closure 409, invalid input 422, anything else
+// 500.
 func writeDependencyError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, dependency.ErrNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, dependency.ErrResolved):
+	case errors.Is(err, dependency.ErrResolved), errors.Is(err, dependency.ErrClosed):
 		writeJSONError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, dependency.ErrInvalid):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())

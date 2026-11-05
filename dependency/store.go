@@ -13,6 +13,11 @@
 // its own fact about its own send); CONFIRMED or WAIVED by the analyst, with a
 // note. A reply on the channel never moves a dependency: the owner's word is a
 // human attestation the analyst records. Resolved is final.
+//
+// The investigation's closure seals its dependencies: they are part of what
+// the conclusion exports and signs. Every mutation runs in one transaction
+// with a share lock on the investigation's current row, so a conclusion that
+// committed first is seen and refused, and one that starts later waits.
 package dependency
 
 import (
@@ -25,6 +30,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/aggregate"
 )
 
 // Statuses.
@@ -52,8 +59,12 @@ var ErrNotFound = errors.New("dependency not found")
 var ErrResolved = errors.New("dependency already resolved")
 
 // ErrInvalid is returned when the input does not make a dependency (no title, no owner, a
-// waive without a note).
+// waive without a note, an investigation that does not exist).
 var ErrInvalid = errors.New("invalid dependency input")
+
+// ErrClosed is returned when the investigation is concluded, archived or
+// discarded: its dependencies are part of the sealed record and do not change.
+var ErrClosed = errors.New("investigation is closed; its dependencies are sealed")
 
 // HistoryEntry is one event on a dependency: who, when, what, and the note or
 // reference it carried.
@@ -143,16 +154,25 @@ func (s *Store) Create(ctx context.Context, c Create) (Dependency, error) {
 		return Dependency{}, err
 	}
 	id := uuid.New()
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO dependencies (
-			dependency_id, aggregate_id, tenant_id, title, owner, detail, status,
-			notify_action_id, external_ref, created_by, created_by_name, created_at,
-			updated_at, history
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13)
-	`, id, c.AggregateID, c.TenantID, c.Title, c.Owner, c.Detail, StatusOpen,
-		nullUUID(c.NotifyActionID), c.ExternalRef, c.By.ID, c.By.Name, now, raw)
+	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		if err := lockOpen(ctx, tx, c.AggregateID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO dependencies (
+				dependency_id, aggregate_id, tenant_id, title, owner, detail, status,
+				notify_action_id, external_ref, created_by, created_by_name, created_at,
+				updated_at, history
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13)
+		`, id, c.AggregateID, c.TenantID, c.Title, c.Owner, c.Detail, StatusOpen,
+			nullUUID(c.NotifyActionID), c.ExternalRef, c.By.ID, c.By.Name, now, raw)
+		if err != nil {
+			return fmt.Errorf("insert dependency: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return Dependency{}, fmt.Errorf("insert dependency: %w", err)
+		return Dependency{}, err
 	}
 	return s.Get(ctx, id)
 }
@@ -198,23 +218,66 @@ func (s *Store) Attach(ctx context.Context, id, actionID uuid.UUID, by Actor, at
 }
 
 // MarkSent moves every OPEN dependency riding on the action to SENT. Called
-// from the action-result path when a notify.* dispatch SUCCEEDS; idempotent,
-// since only OPEN rows move. Returns how many moved.
+// wherever the engine establishes that a notify.* send SUCCEEDED; idempotent,
+// since only OPEN rows move. Returns how many moved. A send that completes
+// after its investigation closed moves nothing and is not an error: the
+// sealed record says the owner had not been asked when the investigation
+// concluded, and that stays true.
 func (s *Store) MarkSent(ctx context.Context, actionID uuid.UUID, at time.Time) (int, error) {
 	entry, err := json.Marshal([]HistoryEntry{{At: at.UTC(), By: "engine", Event: EventSent, Ref: actionID.String()}})
 	if err != nil {
 		return 0, err
 	}
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE dependencies
-		SET status = $2, updated_at = $3, history = history || $4::jsonb
-		WHERE notify_action_id = $1 AND status = $5
-	`, actionID, StatusSent, at.UTC(), entry, StatusOpen)
+	var n int64
+	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		var aggregateID uuid.UUID
+		err := tx.QueryRowContext(ctx, `
+			SELECT aggregate_id FROM dependencies WHERE notify_action_id = $1 AND status = $2 LIMIT 1
+		`, actionID, StatusOpen).Scan(&aggregateID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("find dependencies riding on %s: %w", actionID, err)
+		}
+		if err := lockOpen(ctx, tx, aggregateID); errors.Is(err, ErrClosed) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `
+			UPDATE dependencies
+			SET status = $2, updated_at = $3, history = history || $4::jsonb
+			WHERE notify_action_id = $1 AND status = $5
+		`, actionID, StatusSent, at.UTC(), entry, StatusOpen)
+		if err != nil {
+			return fmt.Errorf("mark dependencies sent: %w", err)
+		}
+		n, _ = res.RowsAffected()
+		return nil
+	})
+	return int(n), err
+}
+
+// OpenRides returns the distinct notify.* actions that OPEN dependencies ride
+// on, for the reconciler that moves them once the action has SUCCEEDED.
+func (s *Store) OpenRides(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT notify_action_id FROM dependencies WHERE status = $1 AND notify_action_id IS NOT NULL
+	`, StatusOpen)
 	if err != nil {
-		return 0, fmt.Errorf("mark dependencies sent: %w", err)
+		return nil, fmt.Errorf("query open rides: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan open ride: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // Confirm records the owner's confirmation as the analyst's act: a note on
@@ -243,10 +306,10 @@ func (s *Store) resolve(ctx context.Context, id uuid.UUID, status, event string,
 }
 
 // transition applies a SET clause to a dependency in one of the allowed
-// statuses and appends a history entry. The clause is a package-internal
-// constant; its values are bound from $4 on. A dependency in another status
-// is reported as resolved (the only statuses outside OPEN/SENT are final) or
-// not found.
+// statuses and appends a history entry, in one transaction with the closure
+// check on its investigation. The clause is a package-internal constant; its
+// values are bound from $4 on. A dependency in another status is reported as
+// resolved (the only statuses outside OPEN/SENT are final) or not found.
 func (s *Store) transition(ctx context.Context, id uuid.UUID, from []string, set string, args []any, e HistoryEntry) error {
 	entry, err := json.Marshal([]HistoryEntry{e})
 	if err != nil {
@@ -261,21 +324,81 @@ func (s *Store) transition(ctx context.Context, id uuid.UUID, from []string, set
 	//nolint:gosec // G201: set and the placeholders are built from constants in this file; every value is bound.
 	q := `UPDATE dependencies SET ` + set + `, updated_at = $2, history = history || $3::jsonb
 	      WHERE dependency_id = $1 AND status IN (` + strings.Join(placeholders, ", ") + `)`
-	res, err := s.db.ExecContext(ctx, q, bound...)
-	if err != nil {
-		return fmt.Errorf("update dependency: %w", err)
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		var aggregateID uuid.UUID
+		err := tx.QueryRowContext(ctx, `SELECT aggregate_id FROM dependencies WHERE dependency_id = $1 FOR UPDATE`, id).Scan(&aggregateID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("lock dependency: %w", err)
+		}
+		if err := lockOpen(ctx, tx, aggregateID); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, q, bound...)
+		if err != nil {
+			return fmt.Errorf("update dependency: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			return nil
+		}
+		var status string
+		if err := tx.QueryRowContext(ctx, `SELECT status FROM dependencies WHERE dependency_id = $1`, id).Scan(&status); err != nil {
+			return fmt.Errorf("read dependency: %w", err)
+		}
+		if status == StatusConfirmed || status == StatusWaived {
+			return ErrResolved
+		}
+		return fmt.Errorf("%w: dependency is %s", ErrInvalid, status)
+	})
+}
+
+// lockOpen takes a share lock on the investigation's current row for the rest
+// of the transaction and refuses a closed investigation. The lock is what
+// serializes a dependency's mutation against the conclusion: the aggregate
+// updates investigation_current in the transaction that appends the
+// concluding event, so a conclusion that committed first is read here, and
+// one that starts later waits for this transaction to end.
+func lockOpen(ctx context.Context, tx *sql.Tx, aggregateID uuid.UUID) error {
+	var status string
+	err := tx.QueryRowContext(ctx, `SELECT status FROM investigation_current WHERE aggregate_id = $1 FOR SHARE`, aggregateID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: investigation %s not found", ErrInvalid, aggregateID)
 	}
-	if n, _ := res.RowsAffected(); n == 1 {
-		return nil
-	}
-	cur, err := s.Get(ctx, id)
 	if err != nil {
+		return fmt.Errorf("lock investigation: %w", err)
+	}
+	switch status {
+	case aggregate.StatusConcluded, aggregate.StatusArchived, aggregate.StatusDiscarded:
+		return fmt.Errorf("%w: investigation is %s", ErrClosed, status)
+	}
+	return nil
+}
+
+// inTx runs fn in one transaction, committing on nil and rolling back on an
+// error or a panic.
+func (s *Store) inTx(ctx context.Context, fn func(tx *sql.Tx) error) (err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback()
+			panic(p)
+		}
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if err = fn(tx); err != nil {
 		return err
 	}
-	if cur.Resolved() {
-		return ErrResolved
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
 	}
-	return fmt.Errorf("%w: dependency is %s", ErrInvalid, cur.Status)
+	return nil
 }
 
 // OpenCount returns how many dependencies are still OPEN or SENT.

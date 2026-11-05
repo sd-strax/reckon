@@ -5,7 +5,7 @@
 // WAIVED with the reason. A reply on the channel never moves one. Nothing here
 // mirrors the conversation; a dependency points out to where the work lives.
 import { useApp } from "../app";
-import { openDependencies } from "../derive/dependencies";
+import { openDependencies, rideStopped } from "../derive/dependencies";
 import type { Dependency } from "../../../src/viewTypes";
 import type { PromptSpec } from "./PromptCard";
 import { Badge, fmtDateTime } from "./shared";
@@ -71,9 +71,9 @@ export function Dependencies() {
       {(deps || []).map((d) => {
         const riding = d.notifyActionId ? actions.find((a) => a.actionId === d.notifyActionId) : undefined;
         const live = d.status === "OPEN" || d.status === "SENT";
-        // A ride that will not send: the notification failed, expired or was
-        // rejected. The OPEN dependency can move to a replacement.
-        const rideDead = !!riding && !riding.pending;
+        // A ride that will not send (failed, expired, rejected): the OPEN
+        // dependency can move to a replacement. One in flight keeps its link.
+        const rideDead = !!riding && rideStopped(riding);
         return (
           <div key={d.dependencyId} className={"card depcard" + (live ? "" : " settled")} id={"obj-" + d.dependencyId}>
             <div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Dependency } from "../../../src/viewTypes";
-import { openDependencies } from "./dependencies";
+import { openDependencies, rideStopped } from "./dependencies";
 import { concludePreflight } from "./preflight";
 import { stageOf } from "./stage";
 import { stillToDo } from "./summary";
@@ -13,6 +13,11 @@ const verdict = { disposition: "MALICIOUS", verdictAt: "" };
 describe("dependencies in the derivations", () => {
   it("counts the ones still owed", () => {
     expect(openDependencies([dep({ status: "OPEN" }), dep({ status: "SENT" }), dep({ status: "CONFIRMED" }), dep({ status: "WAIVED" })])).toBe(2);
+  });
+  it("tells a ride that stopped from one in flight", () => {
+    for (const status of ["FAILED", "TIMEOUT", "REJECTED", "EXPIRED", "PARTIAL"]) expect(rideStopped({ status, expired: status === "EXPIRED" })).toBe(true);
+    expect(rideStopped({ status: "REQUESTED", expired: true })).toBe(true); // lazily expired, still pending
+    for (const status of ["REQUESTED", "PENDING_SECONDARY", "APPROVED", "EXECUTING", "OUTCOME_UNKNOWN", "SUCCEEDED"]) expect(rideStopped({ status, expired: false })).toBe(false);
   });
   it("tells a slice that could not be read from an empty one", () => {
     expect(openDependencies([])).toBe(0);
