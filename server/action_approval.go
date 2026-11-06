@@ -99,7 +99,7 @@ func (b *Backend) approveAction(w http.ResponseWriter, r *http.Request, actionID
 	// Actor derived from the claims (not hardcoded HUMAN): the 403 above
 	// already rejected delegate tokens, and deriving keeps the aggregate's
 	// AI-write-protection a REAL second layer behind that check.
-	env := newEnvelope(ac.AggregateID, actorFromClaims(claims), now)
+	env := newEnvelope(ac.AggregateID, actorFromRequest(r, claims), now)
 	_, err = b.cfg.Handler.Handle(r.Context(), env, aggregate.ApproveAction{ActionID: actionID, Authorization: auth})
 	if err != nil {
 		writeCommandError(w, "approve action", err)
@@ -222,7 +222,7 @@ func (b *Backend) rejectAction(w http.ResponseWriter, r *http.Request, actionID 
 		return
 	}
 
-	env := newEnvelope(ac.AggregateID, actorFromClaims(claims), commandNow()) // actor derived, so the allowlist backs the 403 above
+	env := newEnvelope(ac.AggregateID, actorFromRequest(r, claims), commandNow()) // actor derived, so the allowlist backs the 403 above
 	_, err = b.cfg.Handler.Handle(r.Context(), env, aggregate.RejectAction{ActionID: actionID, Reason: body.Reason})
 	if err != nil {
 		writeCommandError(w, "reject action", err)
@@ -269,7 +269,7 @@ func (b *Backend) resolveActionOutcome(w http.ResponseWriter, r *http.Request, a
 		return
 	}
 
-	env := newEnvelope(ac.AggregateID, actorFromClaims(claims), commandNow())
+	env := newEnvelope(ac.AggregateID, actorFromRequest(r, claims), commandNow())
 	_, err = b.cfg.Handler.Handle(r.Context(), env, aggregate.ResolveActionOutcome{
 		ActionID:  actionID,
 		Outcome:   body.Outcome,

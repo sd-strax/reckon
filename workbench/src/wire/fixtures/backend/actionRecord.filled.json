@@ -52,6 +52,12 @@
       "actor": {
         "principal": "x",
         "principal_name": "x",
+        "roles": [
+          "x"
+        ],
+        "required_roles": [
+          "x"
+        ],
         "kind": "x",
         "model": "x"
       },

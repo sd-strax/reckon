@@ -47,7 +47,7 @@ func (b *Backend) renameInvestigation(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	env := newEnvelope(id, actorFromClaims(claims), commandNow())
+	env := newEnvelope(id, actorFromRequest(r, claims), commandNow())
 	res, err := b.cfg.Handler.Handle(r.Context(), env, aggregate.RenameInvestigation{Title: title})
 	if err != nil {
 		writeCommandError(w, "rename", err)

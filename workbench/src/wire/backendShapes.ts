@@ -159,6 +159,10 @@ export const hypotheses = object({
 const actor = object({
   principal: str,
   principal_name: optional(str),
+  // What the issuer asserted in the token at the act, and the role set reckon
+  // required of it (adr/0105); absent on acts recorded before either existed.
+  roles: optional(list(str)),
+  required_roles: optional(list(str)),
   kind: str,
   model: optional(str),
 });

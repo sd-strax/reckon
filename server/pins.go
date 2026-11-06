@@ -82,7 +82,7 @@ func (b *Backend) supersedeInterpretation(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	env := newEnvelope(invID, actorFromClaims(claims), commandNow())
+	env := newEnvelope(invID, actorFromRequest(r, claims), commandNow())
 	res, err := b.cfg.Handler.Handle(r.Context(), env, aggregate.SupersedeInterpretation{
 		SupersededID: interpID,
 		Reason:       body.Reason,

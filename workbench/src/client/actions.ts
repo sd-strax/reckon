@@ -180,7 +180,7 @@ export class ActionsClient {
       action: mapAction(r.action),
       history: r.history.map((h) => ({
         sequenceNo: h.sequence_no, eventType: h.event_type, occurredAt: h.occurred_at,
-        actor: { principal: h.actor.principal, principalName: h.actor.principal_name, kind: h.actor.kind, model: h.actor.model },
+        actor: { principal: h.actor.principal, principalName: h.actor.principal_name, roles: h.actor.roles, requiredRoles: h.actor.required_roles, kind: h.actor.kind, model: h.actor.model },
         status: h.status, detail: h.detail,
       })),
       authorization: {

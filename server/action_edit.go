@@ -68,7 +68,7 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 	}
 
 	// Gate 2 again, over the request as it will now read.
-	actor := actorFromClaims(claims)
+	actor := actorFromRequest(r, claims)
 	now := commandNow()
 	probe := aggregate.RequestAction{
 		ActionID: ac.ActionID, ActionType: ac.ActionType, Tier: ac.Tier,

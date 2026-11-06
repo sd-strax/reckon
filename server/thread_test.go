@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/sd-strax/reckon/aggregate"
@@ -24,7 +25,7 @@ func TestInvestigationThread_ReassemblesReasoning(t *testing.T) {
 	invID := activeInvestigation(t)
 	b := newTestBackend(t)
 
-	aiToken := mintToken(t, map[string]any{"delegate_kind": "claude"})
+	aiToken := mintToken(t, map[string]any{"delegate_kind": "claude", "realm_access": map[string]any{"roles": []string{"analyst", "approver"}}})
 	if resp, _ := postInterpretation(t, b, aiToken, RecordInterpretationBody{
 		InvestigationRef:   invID.String(),
 		InterpretationType: "pivot",
@@ -75,6 +76,16 @@ func TestInvestigationThread_ReassemblesReasoning(t *testing.T) {
 	}
 	if last.Actor.Kind != "AI_DELEGATED" || last.Actor.Principal == "" {
 		t.Errorf("actor = %+v; want AI_DELEGATED with the human principal", last.Actor)
+	}
+	// What authorized the act rides on its actor (adr/0105): the roles the
+	// token asserted, and the role set the route required.
+	if !slices.Equal(last.Actor.Roles, []string{"analyst", "approver"}) || !slices.Equal(last.Actor.RequiredRoles, []string{"analyst"}) {
+		t.Errorf("actor authorization = roles %v, required %v; want the token's [analyst approver] and the route's [analyst]", last.Actor.Roles, last.Actor.RequiredRoles)
+	}
+	// An act recorded straight through the handler (the activation here)
+	// passed no route gate and carries neither.
+	if first := out.Thread[0]; first.Actor.Roles != nil || first.Actor.RequiredRoles != nil {
+		t.Errorf("activation actor = %+v; want no roles and no gate on an act that passed no route", first.Actor)
 	}
 	if last.Confidence != "MEDIUM" || last.ToolCalls != 1 || !last.HasTranscript {
 		t.Errorf("provenance fields lost: %+v", last)

@@ -204,7 +204,7 @@ export interface ActionRecord {
     sequenceNo: number;
     eventType: string;
     occurredAt: string;
-    actor: { principal: string; principalName?: string; kind: string; model?: string };
+    actor: ThreadActor;
     status?: string;
     detail?: string;
   }[];
@@ -536,11 +536,23 @@ export interface ToolCallRecord {
   args: unknown;
 }
 
+/** The actor of an act as the record keeps it (mirrors server.ThreadActorView). */
+export interface ThreadActor {
+  principal: string;
+  principalName?: string;
+  /** What the identity provider asserted in the token at the time of the act (adr/0105). */
+  roles?: string[];
+  /** The role set reckon required of the act, any of (adr/0105). */
+  requiredRoles?: string[];
+  kind: string;
+  model?: string;
+}
+
 /** One reasoning act in the thread (mirrors server.ThreadEntryView). */
 export interface ThreadEntry {
   sequenceNo: number;
   occurredAt: string;
-  actor: { principal: string; principalName?: string; kind: string; model?: string };
+  actor: ThreadActor;
   interpretationId: string;
   interpretationType: string;
   summary: string;

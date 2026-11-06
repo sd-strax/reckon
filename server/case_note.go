@@ -169,5 +169,5 @@ func (b *Backend) requestCaseNote(w http.ResponseWriter, r *http.Request, id uui
 		writeJSONError(w, http.StatusConflict, err.Error())
 		return
 	}
-	b.dispatchActionRequest(w, r, actorFromClaims(claims), claims.Subject, body)
+	b.dispatchActionRequest(w, r, actorFromRequest(r, claims), claims.Subject, body)
 }

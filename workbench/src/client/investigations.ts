@@ -217,6 +217,8 @@ export class InvestigationsClient {
       actor: {
         principal: e.actor.principal,
         principalName: e.actor.principal_name,
+        roles: e.actor.roles,
+        requiredRoles: e.actor.required_roles,
         kind: e.actor.kind,
         model: e.actor.model,
       },
