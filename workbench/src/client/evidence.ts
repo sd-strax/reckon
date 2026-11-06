@@ -17,6 +17,7 @@ function mapView(v: RawEventView): EventView {
     category: v.category,
   };
   if (v.sentence) view.sentence = v.sentence.map((t) => ({ t: t.t === "entity" && t.ref ? "entity" : "text", ref: t.ref, text: t.text }));
+  if (v.decoded) view.decoded = { field: v.decoded.field, encoding: v.decoded.encoding, text: v.decoded.text };
   return view;
 }
 
