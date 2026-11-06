@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/internal/sopdoc"
 	"github.com/sd-strax/reckon/knowledge/substrate"
 )
 
@@ -167,6 +168,7 @@ func (s *Store) Create(ctx context.Context, sop SOP) (uuid.UUID, error) {
 	if sop.TenantID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("Create: tenant_id required")
 	}
+	sop.Body = sopdoc.CanonicalBody(sop.Body)
 	if sop.Title == "" || sop.Body == "" {
 		return uuid.Nil, fmt.Errorf("Create: title and body required")
 	}
@@ -195,6 +197,7 @@ func (s *Store) Import(ctx context.Context, sop SOP) (uuid.UUID, ImportOutcome, 
 	if sop.TenantID == uuid.Nil {
 		return uuid.Nil, "", fmt.Errorf("Import: tenant_id required")
 	}
+	sop.Body = sopdoc.CanonicalBody(sop.Body)
 	if sop.Title == "" || sop.Body == "" {
 		return uuid.Nil, "", fmt.Errorf("Import: title and body required")
 	}
@@ -264,9 +267,11 @@ func lineageFromSourceURL(url string) (uuid.UUID, bool) {
 // the source's system and version. The importer and the import time are the
 // provenance of the ingest, not the content (design/06 §2.4), so an identical
 // document imported again by someone else is unchanged and leaves no trace.
-// The comparison mirrors what a revision would write: tags as the substrate
-// stores them (reserved ones stripped, duplicates folded, order ignored), and
-// an import that names no author keeps the revision's, so it compares equal.
+// The comparison mirrors what a revision would write: the body in its
+// canonical form (every write path stores it so, sopdoc.CanonicalBody), tags
+// as the substrate stores them (reserved ones stripped, duplicates folded,
+// order ignored), and an import that names no author keeps the revision's, so
+// it compares equal.
 // A retired entry is never unchanged: the re-import revives the lineage.
 func sameContent(e substrate.Entry, sop SOP) bool {
 	src, _ := e.Meta["source"].(map[string]any)
@@ -374,7 +379,7 @@ func (s *Store) Update(ctx context.Context, tenantID, id uuid.UUID, title, body 
 	}
 	_, err = s.sub.Revise(ctx, tenantID.String(), CorpusProcedures, e.ID, substrate.Revision{
 		Title:      title,
-		Body:       body,
+		Body:       sopdoc.CanonicalBody(body),
 		Tags:       withLineage(tags, id),
 		Advice:     recommendation,
 		AuthoredBy: e.AuthoredBy, // carry the original author forward

@@ -683,6 +683,26 @@ func TestImportSOP_Unchanged(t *testing.T) {
 		t.Errorf("a no-op import wrote a revision: %d -> %d", before.Revision, got.Revision)
 	}
 
+	// A body is stored in its canonical form on every write path, so what
+	// `show` prints and `import` reads back compares equal to what a JSON
+	// import stored with CRLFs and a trailing newline; the indentation of an
+	// opening code block is content and is kept.
+	coded := doc
+	coded.Body = "    Get-Process\r\n\r\nThen isolate.\r\n"
+	if _, outcome, err := s.Import(ctx, coded); err != nil || outcome != ImportRevised {
+		t.Fatalf("CRLF body: %s %v", outcome, err)
+	}
+	if got, _ := s.Get(ctx, testTenant, id); got.Body != "    Get-Process\n\nThen isolate." {
+		t.Errorf("stored body not canonical: %q", got.Body)
+	}
+	coded.Body = "    Get-Process\n\nThen isolate."
+	if _, outcome, err := s.Import(ctx, coded); err != nil || outcome != ImportUnchanged {
+		t.Errorf("canonical re-import of the CRLF body: %s %v; want unchanged", outcome, err)
+	}
+	if _, outcome, err := s.Import(ctx, doc); err != nil || outcome != ImportRevised {
+		t.Fatalf("restore: %s %v", outcome, err)
+	}
+
 	// A retired lineage re-imported with the same content is revived, so the
 	// import is a revision: the record changes.
 	if err := s.Retire(ctx, testTenant, id); err != nil {
