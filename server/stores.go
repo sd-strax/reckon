@@ -87,7 +87,7 @@ type dependencyStore interface {
 type knowledgeStore interface {
 	Create(ctx context.Context, sop knowledge.SOP) (uuid.UUID, error)
 	Get(ctx context.Context, tenantID, id uuid.UUID) (knowledge.SOP, error)
-	Import(ctx context.Context, sop knowledge.SOP) (uuid.UUID, bool, error)
+	Import(ctx context.Context, sop knowledge.SOP) (uuid.UUID, knowledge.ImportOutcome, error)
 	List(ctx context.Context, tenantID uuid.UUID, includeRetired bool) ([]knowledge.SOP, error)
 	Retire(ctx context.Context, tenantID, id uuid.UUID) error
 	Update(ctx context.Context, tenantID, id uuid.UUID, title, body string, tags []string, recommendation string) error
