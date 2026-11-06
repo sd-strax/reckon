@@ -177,7 +177,7 @@ document (`09 §9.5`, `workbench-react.md §2.6`); `importView.ts` is deleted wh
 | N2 | Add documents through the native file picker (multi-select); `file:` and `untitled:` URIs only | `<Import>` → `import.choose`; folder choice added per `09 §9.5` | [ ] |
 | N3 | One row per document: checkbox, parsed title, filename; toggle rows in and out | `<Import>` rows (`import.toggle`) | [ ] |
 | N4 | Import the checked rows; each `POST /api/sops/import_markdown` with the raw markdown | host `import.run` → `importSOPMarkdown` unchanged | [ ] |
-| N5 | Per-document outcome: created ("Added to the SOP library as …"), revised ("Revised existing SOP …"), failed with the server's message | `<Import>` outcome badges: added · revised (with version) · failed | [ ] |
+| N5 | Per-document outcome: created ("Added to the SOP library as …"), revised ("Revised existing SOP …"), unchanged ("Already in the SOP library as …, nothing changed"), failed with the server's message | `<Import>` outcome badges: added · revised (with version) · unchanged · failed | [ ] |
 | N6 | Refresh re-reads the chosen documents from disk | `import.refresh` | [ ] |
 | N7 | "Imported — consultable now on the knowledge rail" line | reworded to name the Knowledge section | [ ] |
 | N8 | Parsed frontmatter shown before import; missing recommended fields flagged | *new* (`09 §9.5`): dry run, `workbench-react.md §8.0` | [ ] |

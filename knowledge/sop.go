@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/internal/sopdoc"
 	"github.com/sd-strax/reckon/knowledge/substrate"
 )
 
@@ -85,7 +86,24 @@ type SOP struct {
 	Source     *SOPSource `json:"source,omitempty"`
 	ImportedBy string     `json:"imported_by,omitempty"`
 	ImportedAt *time.Time `json:"imported_at,omitempty"`
+
+	// Revision counts the lineage's revisions, 1 for a fresh import; a
+	// re-import that changes content moves it, one that changes nothing does
+	// not. It is the revision a recall hit and a section read name.
+	Revision int `json:"revision"`
 }
+
+// ImportOutcome says what an Import did to the lineage its source names.
+type ImportOutcome string
+
+// The three outcomes. Unchanged means the current revision already carries the
+// imported content, so nothing was written: no revision, no re-cut, no
+// re-embedding, and a section pin taken against the current revision holds.
+const (
+	ImportCreated   ImportOutcome = "created"
+	ImportRevised   ImportOutcome = "revised"
+	ImportUnchanged ImportOutcome = "unchanged"
+)
 
 // Store is the SOP corpus, backed by the memory substrate.
 type Store struct {
@@ -150,6 +168,7 @@ func (s *Store) Create(ctx context.Context, sop SOP) (uuid.UUID, error) {
 	if sop.TenantID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("Create: tenant_id required")
 	}
+	sop.Body = sopdoc.CanonicalBody(sop.Body)
 	if sop.Title == "" || sop.Body == "" {
 		return uuid.Nil, fmt.Errorf("Create: title and body required")
 	}
@@ -171,27 +190,51 @@ func (s *Store) Create(ctx context.Context, sop SOP) (uuid.UUID, error) {
 // Import upserts institutional knowledge from an external source (design/06
 // §2.4): keyed on Source.URL, importing the same document again becomes a
 // revision of the existing SOP (its lineage id stable, the prior version
-// hash-addressable) instead of a duplicate. Returns the SOP id and whether a
-// new SOP was created (false = revised).
-func (s *Store) Import(ctx context.Context, sop SOP) (uuid.UUID, bool, error) {
+// hash-addressable) instead of a duplicate. Returns the SOP id and what was
+// done: created, revised, or unchanged when the current revision already
+// carries the content (sameContent), in which case nothing is written.
+func (s *Store) Import(ctx context.Context, sop SOP) (uuid.UUID, ImportOutcome, error) {
 	if sop.TenantID == uuid.Nil {
-		return uuid.Nil, false, fmt.Errorf("Import: tenant_id required")
+		return uuid.Nil, "", fmt.Errorf("Import: tenant_id required")
 	}
+	sop.Body = sopdoc.CanonicalBody(sop.Body)
 	if sop.Title == "" || sop.Body == "" {
-		return uuid.Nil, false, fmt.Errorf("Import: title and body required")
+		return uuid.Nil, "", fmt.Errorf("Import: title and body required")
 	}
 	if sop.Source == nil || sop.Source.URL == "" {
-		return uuid.Nil, false, fmt.Errorf("Import: source.url required (the re-import lineage key)")
+		return uuid.Nil, "", fmt.Errorf("Import: source.url required (the re-import lineage key)")
 	}
 	existing, err := s.findBySourceURL(ctx, sop.TenantID, sop.Source.URL)
 	if err != nil {
-		return uuid.Nil, false, err
+		return uuid.Nil, "", err
+	}
+	if existing == nil {
+		// A SOP authored in-product has no source. Its lineage id is its
+		// pointer (SOPSourcePrefix, what `show` prints for it), so a document
+		// shown and imported again revises that lineage instead of opening a
+		// second one beside it; the revision then carries the source, and
+		// later imports match it by url.
+		if id, ok := lineageFromSourceURL(sop.Source.URL); ok {
+			e, err := s.resolveCurrent(ctx, sop.TenantID, id, true)
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				return uuid.Nil, "", err
+			}
+			if err == nil {
+				existing = &e
+			}
+		}
 	}
 	if existing == nil {
 		id, err := s.Create(ctx, sop)
-		return id, true, err
+		if err != nil {
+			return uuid.Nil, "", err
+		}
+		return id, ImportCreated, nil
 	}
 	lineage, _ := lineageOf(existing.Tags)
+	if existing.Status != substrate.StatusRetired && sameContent(*existing, sop) {
+		return lineage, ImportUnchanged, nil
+	}
 	if _, err := s.sub.Revise(ctx, sop.TenantID.String(), CorpusProcedures, existing.ID, substrate.Revision{
 		Title:      sop.Title,
 		Body:       sop.Body,
@@ -200,9 +243,68 @@ func (s *Store) Import(ctx context.Context, sop SOP) (uuid.UUID, bool, error) {
 		AuthoredBy: sop.AuthorID,
 		Meta:       sopMeta(sop),
 	}); err != nil {
-		return uuid.Nil, false, fmt.Errorf("re-import sop: %w", err)
+		return uuid.Nil, "", fmt.Errorf("re-import sop: %w", err)
 	}
-	return lineage, false, nil
+	return lineage, ImportRevised, nil
+}
+
+// SOPSourcePrefix is the source url of a SOP that has no external source: its
+// own lineage id. `show` prints it, and Import resolves it to the lineage.
+const SOPSourcePrefix = "reckon://sop/"
+
+// lineageFromSourceURL reads a lineage id out of a SOPSourcePrefix url.
+func lineageFromSourceURL(url string) (uuid.UUID, bool) {
+	rest, ok := strings.CutPrefix(url, SOPSourcePrefix)
+	if !ok {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(rest)
+	return id, err == nil
+}
+
+// sameContent reports whether the current revision already carries what the
+// import brings: title, body, tags, recommendation, the document's author and
+// the source's system and version. The importer and the import time are the
+// provenance of the ingest, not the content (design/06 §2.4), so an identical
+// document imported again by someone else is unchanged and leaves no trace.
+// The comparison mirrors what a revision would write: the body in its
+// canonical form on both sides (every write path now stores it so, and a row
+// written before that is compared canonical without touching its stored,
+// hash-addressed bytes), tags as the substrate stores them (reserved ones
+// stripped, duplicates folded, order ignored), and an import that names no
+// author keeps the revision's, so it compares equal.
+// A retired entry is never unchanged: the re-import revives the lineage.
+func sameContent(e substrate.Entry, sop SOP) bool {
+	src, _ := e.Meta["source"].(map[string]any)
+	return e.Title == sop.Title &&
+		sopdoc.CanonicalBody(e.Body) == sop.Body &&
+		e.Advice == sop.Recommendation &&
+		(sop.AuthorID == "" || e.AuthoredBy == sop.AuthorID) &&
+		sameTags(stripReserved(e.Tags), stripReserved(sop.Tags)) &&
+		str(src["system"]) == sop.Source.System &&
+		str(src["version"]) == sop.Source.Version
+}
+
+// sameTags compares two tag lists as sets: neither the order a document lists
+// its tags in nor a tag repeated is content.
+func sameTags(a, b []string) bool {
+	set := func(tags []string) map[string]bool {
+		m := make(map[string]bool, len(tags))
+		for _, t := range tags {
+			m[t] = true
+		}
+		return m
+	}
+	sa, sb := set(a), set(b)
+	if len(sa) != len(sb) {
+		return false
+	}
+	for t := range sa {
+		if !sb[t] {
+			return false
+		}
+	}
+	return true
 }
 
 // findBySourceURL locates the current SOP entry whose source pointer matches —
@@ -278,7 +380,7 @@ func (s *Store) Update(ctx context.Context, tenantID, id uuid.UUID, title, body 
 	}
 	_, err = s.sub.Revise(ctx, tenantID.String(), CorpusProcedures, e.ID, substrate.Revision{
 		Title:      title,
-		Body:       body,
+		Body:       sopdoc.CanonicalBody(body),
 		Tags:       withLineage(tags, id),
 		Advice:     recommendation,
 		AuthoredBy: e.AuthoredBy, // carry the original author forward
@@ -380,6 +482,7 @@ func toSOP(e substrate.Entry, tenantID, lineage uuid.UUID) SOP {
 		UpdatedAt:      e.Updated,
 		PublishedAt:    e.PublishedAt,
 		RetiredAt:      e.RetiredAt,
+		Revision:       e.Revision,
 	}
 	if len(e.SignedOffBy) > 0 {
 		sop.SignerID = e.SignedOffBy[0]

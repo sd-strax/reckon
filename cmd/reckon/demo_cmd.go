@@ -14,7 +14,6 @@ import (
 	"time"
 
 	reckon "github.com/sd-strax/reckon"
-	"github.com/sd-strax/reckon/agent"
 	"github.com/sd-strax/reckon/config"
 	"github.com/sd-strax/reckon/internal/branding"
 	"github.com/sd-strax/reckon/runtime"
@@ -48,14 +47,10 @@ func runDemo(args []string) error {
 // activates the fixture-backed capabilities.
 func runDemoSeed(args []string) error {
 	fl := flag.NewFlagSet("demo seed", flag.ContinueOnError)
-	user := fl.String("user", envOrDefault("RECKON_USER", branding.CLI+"-admin"), "backend login user (or RECKON_USER)")
-	pass := fl.String("password", os.Getenv("RECKON_PASSWORD"), "backend login password (or RECKON_PASSWORD)")
-	scenario := fl.String("scenario", envOrDefault("RECKON_DEMO_SCENARIO", reckon.DemoScenario), "bundled fixture scenario to wire (or RECKON_DEMO_SCENARIO): "+demoScenarioList())
+	user, pass := loginFlags(fl)
+	scenario := fl.String("scenario", envOr("RECKON_DEMO_SCENARIO", reckon.DemoScenario), "bundled fixture scenario to wire (or RECKON_DEMO_SCENARIO): "+demoScenarioList())
 	if err := fl.Parse(args); err != nil {
 		return err
-	}
-	if *pass == "" {
-		*pass = branding.CLI // the dev-auth default, same as `knowledge import`
 	}
 	if _, ok := reckon.DemoConfigBaseFor(*scenario); !ok {
 		return fmt.Errorf("no bundled demo scenario %q (have: %s)", *scenario, demoScenarioList())
@@ -96,11 +91,10 @@ func runDemoSeed(args []string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	backendURL := fmt.Sprintf("http://localhost:%d", cfg.Backend.HTTPPort)
-	issuer := fmt.Sprintf("http://localhost:%d/realms/%s", cfg.Keycloak.HTTPPort, cfg.Keycloak.Realm)
-	cred, err := agent.NewCredential(ctx, issuer, branding.CLI, *user, *pass)
+	backendURL := localBackendURL(cfg)
+	cred, err := backendLogin(ctx, cfg, branding.CLI, *user, *pass)
 	if err != nil {
-		return fmt.Errorf("login: %w\n  hint: run `%s dev-auth` first (the shipped realm has no login user)", err, branding.CLI)
+		return err
 	}
 	token, err := cred.Token(ctx)
 	if err != nil {

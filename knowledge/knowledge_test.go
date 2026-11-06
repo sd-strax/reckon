@@ -16,6 +16,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/sd-strax/reckon/internal/pgmigrate"
+	"github.com/sd-strax/reckon/internal/sopdoc"
 	"github.com/sd-strax/reckon/internal/testpg"
 	"github.com/sd-strax/reckon/knowledge/substrate"
 )
@@ -203,18 +204,18 @@ func TestImportSOP(t *testing.T) {
 		},
 		ImportedBy: "sam",
 	}
-	id, created, err := s.Import(ctx, doc)
+	id, outcome, err := s.Import(ctx, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !created {
-		t.Error("first import should create")
+	if outcome != ImportCreated {
+		t.Errorf("first import: %s, want created", outcome)
 	}
 	got, err := s.Get(ctx, testTenant, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AuthorID != "Jane Okoro" || got.ImportedBy != "sam" || got.ImportedAt == nil {
+	if got.AuthorID != "Jane Okoro" || got.ImportedBy != "sam" || got.ImportedAt == nil || got.Revision != 1 {
 		t.Errorf("attribution not round-tripped: %+v", got)
 	}
 	if got.Source == nil || got.Source.URL != doc.Source.URL || got.Source.System != "confluence" || got.Source.Version != "3.2" {
@@ -224,15 +225,15 @@ func TestImportSOP(t *testing.T) {
 	// Re-import of the SAME source URL is a revision — same id, no duplicate.
 	doc.Body = "Isolate first, preserve volatile evidence, and notify legal."
 	doc.Source.Version = "3.3"
-	id2, created, err := s.Import(ctx, doc)
+	id2, outcome, err := s.Import(ctx, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created || id2 != id {
-		t.Errorf("re-import should revise the same SOP: created=%v id %s vs %s", created, id2, id)
+	if outcome != ImportRevised || id2 != id {
+		t.Errorf("re-import should revise the same SOP: %s id %s vs %s", outcome, id2, id)
 	}
 	got, _ = s.Get(ctx, testTenant, id)
-	if !strings.Contains(got.Body, "notify legal") || got.Source.Version != "3.3" {
+	if !strings.Contains(got.Body, "notify legal") || got.Source.Version != "3.3" || got.Revision != 2 {
 		t.Errorf("re-import content not applied: %+v", got)
 	}
 	list, _ := s.List(ctx, testTenant, false)
@@ -244,8 +245,8 @@ func TestImportSOP(t *testing.T) {
 	other := doc
 	other.Title = "BEC Response"
 	other.Source = &SOPSource{URL: "https://wiki.example.com/RUNBOOK-77"}
-	if _, created, err := s.Import(ctx, other); err != nil || !created {
-		t.Errorf("distinct source should create: created=%v err=%v", created, err)
+	if _, outcome, err := s.Import(ctx, other); err != nil || outcome != ImportCreated {
+		t.Errorf("distinct source should create: %s err=%v", outcome, err)
 	}
 
 	// Missing source.url is refused — it is the lineage key.
@@ -265,12 +266,12 @@ func TestImportSOP(t *testing.T) {
 		t.Fatalf("after retire: %d live SOPs, want 1", len(live))
 	}
 	doc.Body = "Isolate first, preserve volatile evidence, notify legal, and brief the IR lead."
-	id3, created, err := s.Import(ctx, doc)
+	id3, outcome, err := s.Import(ctx, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created || id3 != id {
-		t.Errorf("re-import of a retired source should revive the lineage: created=%v id %s vs %s", created, id3, id)
+	if outcome != ImportRevised || id3 != id {
+		t.Errorf("re-import of a retired source should revive the lineage: %s id %s vs %s", outcome, id3, id)
 	}
 	got, err = s.Get(ctx, testTenant, id)
 	if err != nil || !strings.Contains(got.Body, "IR lead") {
@@ -600,5 +601,193 @@ func TestSOPSections_CutPinned(t *testing.T) {
 	}
 	if _, err := s2.Section(ctx, testTenant, id, 1, SectionPin{Revision: 1, Cut: "1/60"}); err != nil {
 		t.Errorf("read under the new cut: %v", err)
+	}
+}
+
+// TestImportSOP_Unchanged: a re-import that brings the content the current
+// revision already carries writes nothing. The importer and the import time
+// are provenance, not content, so a second person importing the same document
+// is unchanged too; the order of the tags is not content; any compared field
+// moving is a revision; and a retired lineage is revived, never unchanged.
+func TestImportSOP_Unchanged(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	doc := SOP{
+		TenantID:       testTenant,
+		Title:          "Ransomware Containment Runbook",
+		Body:           "# Scope\n\nIsolate first.\n\n# Triage\n\nPreserve volatile evidence.",
+		Tags:           []string{"ransomware", "T1486"},
+		Recommendation: "isolate",
+		AuthorID:       "Jane Okoro",
+		Source:         &SOPSource{System: "confluence", URL: "https://wiki.example.com/RUNBOOK-42", Version: "3.2"},
+		ImportedBy:     "sam",
+	}
+	id, outcome, err := s.Import(ctx, doc)
+	if err != nil || outcome != ImportCreated {
+		t.Fatalf("first import: %s %v", outcome, err)
+	}
+	first, _ := s.Get(ctx, testTenant, id)
+
+	same := doc
+	same.ImportedBy = "alex" // a different importer, the same document
+	same.Tags = []string{"T1486", "ransomware"}
+	if id2, outcome, err := s.Import(ctx, same); err != nil || outcome != ImportUnchanged || id2 != id {
+		t.Fatalf("identical re-import: %s %s %v; want unchanged under %s", id2, outcome, err, id)
+	}
+	after, _ := s.Get(ctx, testTenant, id)
+	if after.Revision != 1 || after.ImportedBy != "sam" || !after.ImportedAt.Equal(*first.ImportedAt) {
+		t.Errorf("unchanged import wrote something: %+v", after)
+	}
+	if list, _ := s.List(ctx, testTenant, false); len(list) != 1 || list[0].Revision != 1 {
+		t.Errorf("unchanged import changed the list: %+v", list)
+	}
+
+	// Each compared field moving on its own is a revision.
+	for name, change := range map[string]func(*SOP){
+		"title":          func(x *SOP) { x.Title += " (v2)" },
+		"body":           func(x *SOP) { x.Body += "\n\nNotify legal." },
+		"tags":           func(x *SOP) { x.Tags = append(x.Tags, "legal") },
+		"recommendation": func(x *SOP) { x.Recommendation = "escalate" },
+		"author":         func(x *SOP) { x.AuthorID = "Sam Lee" },
+		"source system":  func(x *SOP) { x.Source = &SOPSource{System: "wiki", URL: x.Source.URL, Version: x.Source.Version} },
+		"source version": func(x *SOP) { x.Source = &SOPSource{System: x.Source.System, URL: x.Source.URL, Version: "3.3"} },
+	} {
+		changed := doc
+		change(&changed)
+		if _, outcome, err := s.Import(ctx, changed); err != nil || outcome != ImportRevised {
+			t.Errorf("%s changed: %s %v; want revised", name, outcome, err)
+		}
+		if _, outcome, err := s.Import(ctx, doc); err != nil || outcome != ImportRevised {
+			t.Errorf("%s restored: %s %v; want revised", name, outcome, err)
+		}
+	}
+
+	// What a revision would write anyway is not a change: a repeated tag
+	// folds, a reserved tag echoed back is stripped, and an import naming no
+	// author keeps the revision's author.
+	before, _ := s.Get(ctx, testTenant, id)
+	for name, change := range map[string]func(*SOP){
+		"repeated tag":      func(x *SOP) { x.Tags = []string{"ransomware", "T1486", "ransomware"} },
+		"reserved tag echo": func(x *SOP) { x.Tags = []string{"ransomware", "T1486", "__sop_lineage:" + id.String()} },
+		"no author":         func(x *SOP) { x.AuthorID = "" },
+	} {
+		same := doc
+		change(&same)
+		if _, outcome, err := s.Import(ctx, same); err != nil || outcome != ImportUnchanged {
+			t.Errorf("%s: %s %v; want unchanged", name, outcome, err)
+		}
+	}
+	if got, _ := s.Get(ctx, testTenant, id); got.Revision != before.Revision {
+		t.Errorf("a no-op import wrote a revision: %d -> %d", before.Revision, got.Revision)
+	}
+
+	// A body is stored in its canonical form on every write path, so what
+	// `show` prints and `import` reads back compares equal to what a JSON
+	// import stored with CRLFs and a trailing newline; the indentation of an
+	// opening code block is content and is kept.
+	coded := doc
+	coded.Body = "    Get-Process\r\n\r\nThen isolate.\r\n"
+	if _, outcome, err := s.Import(ctx, coded); err != nil || outcome != ImportRevised {
+		t.Fatalf("CRLF body: %s %v", outcome, err)
+	}
+	if got, _ := s.Get(ctx, testTenant, id); got.Body != "    Get-Process\n\nThen isolate." {
+		t.Errorf("stored body not canonical: %q", got.Body)
+	}
+	coded.Body = "    Get-Process\n\nThen isolate."
+	if _, outcome, err := s.Import(ctx, coded); err != nil || outcome != ImportUnchanged {
+		t.Errorf("canonical re-import of the CRLF body: %s %v; want unchanged", outcome, err)
+	}
+	if _, outcome, err := s.Import(ctx, doc); err != nil || outcome != ImportRevised {
+		t.Fatalf("restore: %s %v", outcome, err)
+	}
+
+	// A retired lineage re-imported with the same content is revived, so the
+	// import is a revision: the record changes.
+	if err := s.Retire(ctx, testTenant, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, outcome, err := s.Import(ctx, doc); err != nil || outcome != ImportRevised {
+		t.Errorf("retired then re-imported: %s %v; want revised", outcome, err)
+	}
+	if got, _ := s.Get(ctx, testTenant, id); got.Status != StatusPublished {
+		t.Errorf("revived SOP status %s", got.Status)
+	}
+}
+
+// TestImportSOP_LineageAsSource: a SOP authored in-product has no source; its
+// lineage id is its pointer (what `show` prints), so importing the shown
+// document revises that lineage, never opens a second one, and the revision
+// then carries the pointer so the next identical import is unchanged.
+func TestImportSOP_LineageAsSource(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	id, err := s.Create(ctx, SOP{TenantID: testTenant, Title: "Authored here", Body: "Step one.", Tags: []string{"x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := SOP{
+		TenantID: testTenant, Title: "Authored here", Body: "Step one.", Tags: []string{"x"},
+		Source: &SOPSource{System: "reckon", URL: SOPSourcePrefix + id.String()},
+	}
+	got, outcome, err := s.Import(ctx, shown)
+	if err != nil || outcome != ImportRevised || got != id {
+		t.Fatalf("first import of the shown document: %s %s %v; want revised under %s", got, outcome, err, id)
+	}
+	if _, outcome, err := s.Import(ctx, shown); err != nil || outcome != ImportUnchanged {
+		t.Errorf("second import: %s %v; want unchanged", outcome, err)
+	}
+	if list, _ := s.List(ctx, testTenant, false); len(list) != 1 || list[0].Revision != 2 || list[0].Source == nil || list[0].Source.URL != SOPSourcePrefix+id.String() {
+		t.Errorf("want one lineage at revision 2 carrying its pointer: %+v", list)
+	}
+	// A pointer to a lineage that does not exist is an ordinary new source.
+	fresh := shown
+	fresh.Source = &SOPSource{URL: SOPSourcePrefix + uuid.NewString()}
+	if _, outcome, err := s.Import(ctx, fresh); err != nil || outcome != ImportCreated {
+		t.Errorf("unknown lineage pointer: %s %v; want created", outcome, err)
+	}
+}
+
+// TestImportSOP_UnchangedAgainstARawRow: a row written before bodies had one
+// stored form (CRLFs, a trailing newline, as the JSON route once passed them
+// through) is compared in canonical form, so an untouched show-then-import of
+// it is unchanged and its stored bytes, which the content hash covers, are
+// left as they are.
+func TestImportSOP_UnchangedAgainstARawRow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	lineage := uuid.New()
+	raw := "    Get-Process\r\n\r\nThen isolate.\r\n"
+	src := &SOPSource{System: "confluence", URL: "https://wiki.example.com/RAW-1", Version: "1"}
+	if _, err := s.sub.Put(ctx, testTenant.String(), CorpusProcedures, substrate.Entry{
+		Title: "Raw", Body: raw, Tags: withLineage([]string{"x"}, lineage), AuthoredBy: "Jane Okoro",
+		Meta: sopMeta(SOP{Source: src, ImportedBy: "sam"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	shown, err := s.Get(ctx, testTenant, lineage)
+	if err != nil || shown.Body != raw {
+		t.Fatalf("the raw row is served as stored: %q %v", shown.Body, err)
+	}
+	again := SOP{TenantID: testTenant, Title: "Raw", Body: sopdoc.CanonicalBody(shown.Body), Tags: shown.Tags, AuthorID: shown.AuthorID, Source: src, ImportedBy: "alex"}
+	if id, outcome, err := s.Import(ctx, again); err != nil || outcome != ImportUnchanged || id != lineage {
+		t.Errorf("untouched re-import of a raw row: %s %s %v; want unchanged", id, outcome, err)
+	}
+	// The identical original payload, CRLFs and all, is unchanged too.
+	again.Body = raw
+	if _, outcome, err := s.Import(ctx, again); err != nil || outcome != ImportUnchanged {
+		t.Errorf("original raw payload again: %s %v; want unchanged", outcome, err)
+	}
+	if got, _ := s.Get(ctx, testTenant, lineage); got.Revision != 1 || got.Body != raw {
+		t.Errorf("the stored row moved: rev %d body %q", got.Revision, got.Body)
 	}
 }

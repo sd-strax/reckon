@@ -201,20 +201,29 @@ func (f *fakeDependencies) Waive(_ context.Context, _ uuid.UUID, by dependency.A
 	return f.err
 }
 
-// fakeKnowledge has one case summary, and fails everything else with err.
+// fakeKnowledge has one case summary and one SOP, answers an import with
+// outcome, and fails everything else with err.
 type fakeKnowledge struct {
 	summary knowledge.CaseSummaryView
+	sop     knowledge.SOP
+	outcome knowledge.ImportOutcome
 	err     error
 }
 
 func (f *fakeKnowledge) Create(context.Context, knowledge.SOP) (uuid.UUID, error) {
 	return uuid.Nil, f.err
 }
-func (f *fakeKnowledge) Get(context.Context, uuid.UUID, uuid.UUID) (knowledge.SOP, error) {
-	return knowledge.SOP{}, knowledge.ErrNotFound
+func (f *fakeKnowledge) Get(_ context.Context, _, id uuid.UUID) (knowledge.SOP, error) {
+	if f.err != nil {
+		return knowledge.SOP{}, f.err
+	}
+	if id != f.sop.ID {
+		return knowledge.SOP{}, knowledge.ErrNotFound
+	}
+	return f.sop, nil
 }
-func (f *fakeKnowledge) Import(context.Context, knowledge.SOP) (uuid.UUID, bool, error) {
-	return uuid.Nil, false, f.err
+func (f *fakeKnowledge) Import(context.Context, knowledge.SOP) (uuid.UUID, knowledge.ImportOutcome, error) {
+	return f.sop.ID, f.outcome, f.err
 }
 func (f *fakeKnowledge) List(context.Context, uuid.UUID, bool) ([]knowledge.SOP, error) {
 	return nil, f.err
@@ -502,5 +511,52 @@ func TestReindexKnowledge_OnFakes(t *testing.T) {
 	}
 	if job := awaitState("failed"); job.Run != second.Run || !strings.Contains(job.Error, errStoreDown.Error()) {
 		t.Errorf("failed run: %+v", job)
+	}
+}
+
+// TestGetSOP_OnFakes: a missing SOP is the 404 the inspector shows as "no such
+// procedure"; a store that cannot answer is a 500 with a reference, never a
+// 404 (#294).
+func TestGetSOP_OnFakes(t *testing.T) {
+	b := newFakeBackend(t)
+	store := &fakeKnowledge{sop: knowledge.SOP{ID: uuid.New(), Title: "Containment"}}
+	b.cfg.Knowledge = store
+	reader := mintToken(t, nil)
+
+	if code, body := send(t, b, "GET", "/api/sops/"+store.sop.ID.String(), reader, ""); code != http.StatusOK || !strings.Contains(body, `"title":"Containment"`) {
+		t.Errorf("present: %d %s", code, body)
+	}
+	if code, body := send(t, b, "GET", "/api/sops/"+uuid.NewString(), reader, ""); code != http.StatusNotFound || !strings.Contains(body, "sop not found") {
+		t.Errorf("missing: %d %s", code, body)
+	}
+	store.err = errStoreDown
+	code, body := send(t, b, "GET", "/api/sops/"+store.sop.ID.String(), reader, "")
+	if code != http.StatusInternalServerError || strings.Contains(body, "not found") {
+		t.Errorf("store down: %d %s; want 500 with a reference", code, body)
+	}
+}
+
+// TestImportSOP_Outcomes: both import routes answer the store's outcome word;
+// a created lineage is 201, a revision and an unchanged re-import 200.
+func TestImportSOP_Outcomes(t *testing.T) {
+	b := newFakeBackend(t)
+	store := &fakeKnowledge{sop: knowledge.SOP{ID: uuid.New()}}
+	b.cfg.Knowledge = store
+	analyst := mintToken(t, nil)
+	payload := `{"title":"Containment","body":"Isolate first.","source":{"url":"file:c.md"}}`
+	markdown := `{"filename":"c.md","content":"# Containment\n\nIsolate first.\n"}`
+
+	for outcome, want := range map[knowledge.ImportOutcome]int{
+		knowledge.ImportCreated:   http.StatusCreated,
+		knowledge.ImportRevised:   http.StatusOK,
+		knowledge.ImportUnchanged: http.StatusOK,
+	} {
+		store.outcome = outcome
+		for path, body := range map[string]string{"/api/sops/import": payload, "/api/sops/import_markdown": markdown} {
+			code, resp := send(t, b, "POST", path, analyst, body)
+			if code != want || !strings.Contains(resp, `"outcome":"`+string(outcome)+`"`) {
+				t.Errorf("%s %s: %d %s; want %d with the outcome", path, outcome, code, resp, want)
+			}
+		}
 	}
 }

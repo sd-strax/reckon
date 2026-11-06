@@ -5,7 +5,7 @@
 // documents already open in the editor (what is imported is each buffer as
 // shown, unsaved edits included — nothing is re-read behind the analyst's
 // back), lets them add files from disk, and renders each document's result
-// (created / revised / failed) in place. Attribution comes from each
+// (created / revised / unchanged / failed) in place. Attribution comes from each
 // document's YAML frontmatter (title, author, tags, source), parsed server-side.
 //
 // The page is the bundle's `import` surface (webview/src/surfaces/ImportApp.tsx);
@@ -14,7 +14,7 @@
 import * as vscode from "vscode";
 import { BackendClient } from "./backend";
 import { panelHtml, panelOptions } from "./panelHtml";
-import type { ImportInboundMessage, ImportRenderMessage } from "./protocol";
+import type { ImportInboundMessage, ImportOutcome, ImportRenderMessage } from "./protocol";
 import { errText } from "./util";
 
 const SOP_EXTENSIONS = ["md", "markdown", "txt"];
@@ -28,7 +28,20 @@ interface Row {
   fromDisk: boolean;
   dirty: boolean;
   checked: boolean;
-  result?: { outcome: "created" | "revised" | "failed"; title: string; message?: string };
+  result?: { outcome: ImportOutcome; title: string; message?: string };
+}
+
+/** The server's outcome word as the row's. A word this panel does not know is
+ * not guessed at: the row reports it as a failure naming the word. */
+function importOutcome(word: string): ImportOutcome {
+  switch (word) {
+    case "created":
+    case "revised":
+    case "unchanged":
+      return word;
+    default:
+      throw new Error(`the server answered an import outcome this workbench does not know: "${word}"`);
+  }
 }
 
 export class ImportSOPsView {
@@ -206,7 +219,7 @@ export class ImportSOPsView {
         // a bare basename would make two different "runbook.md" files silently
         // revise each other. Matches the CLI, which keys on the cleaned path.
         const res = await this.client.knowledge.importMarkdown(row.uri.fsPath, content);
-        row.result = { outcome: res.outcome === "created" ? "created" : "revised", title: res.title };
+        row.result = { outcome: importOutcome(res.outcome), title: res.title };
         row.checked = false;
         ok++;
         this.log.info(`imported SOP ${res.outcome}: ${res.title} (${row.name})`);
