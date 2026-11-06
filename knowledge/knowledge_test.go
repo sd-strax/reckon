@@ -16,6 +16,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/sd-strax/reckon/internal/pgmigrate"
+	"github.com/sd-strax/reckon/internal/sopdoc"
 	"github.com/sd-strax/reckon/internal/testpg"
 	"github.com/sd-strax/reckon/knowledge/substrate"
 )
@@ -749,5 +750,44 @@ func TestImportSOP_LineageAsSource(t *testing.T) {
 	fresh.Source = &SOPSource{URL: SOPSourcePrefix + uuid.NewString()}
 	if _, outcome, err := s.Import(ctx, fresh); err != nil || outcome != ImportCreated {
 		t.Errorf("unknown lineage pointer: %s %v; want created", outcome, err)
+	}
+}
+
+// TestImportSOP_UnchangedAgainstARawRow: a row written before bodies had one
+// stored form (CRLFs, a trailing newline, as the JSON route once passed them
+// through) is compared in canonical form, so an untouched show-then-import of
+// it is unchanged and its stored bytes, which the content hash covers, are
+// left as they are.
+func TestImportSOP_UnchangedAgainstARawRow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	lineage := uuid.New()
+	raw := "    Get-Process\r\n\r\nThen isolate.\r\n"
+	src := &SOPSource{System: "confluence", URL: "https://wiki.example.com/RAW-1", Version: "1"}
+	if _, err := s.sub.Put(ctx, testTenant.String(), CorpusProcedures, substrate.Entry{
+		Title: "Raw", Body: raw, Tags: withLineage([]string{"x"}, lineage), AuthoredBy: "Jane Okoro",
+		Meta: sopMeta(SOP{Source: src, ImportedBy: "sam"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	shown, err := s.Get(ctx, testTenant, lineage)
+	if err != nil || shown.Body != raw {
+		t.Fatalf("the raw row is served as stored: %q %v", shown.Body, err)
+	}
+	again := SOP{TenantID: testTenant, Title: "Raw", Body: sopdoc.CanonicalBody(shown.Body), Tags: shown.Tags, AuthorID: shown.AuthorID, Source: src, ImportedBy: "alex"}
+	if id, outcome, err := s.Import(ctx, again); err != nil || outcome != ImportUnchanged || id != lineage {
+		t.Errorf("untouched re-import of a raw row: %s %s %v; want unchanged", id, outcome, err)
+	}
+	// The identical original payload, CRLFs and all, is unchanged too.
+	again.Body = raw
+	if _, outcome, err := s.Import(ctx, again); err != nil || outcome != ImportUnchanged {
+		t.Errorf("original raw payload again: %s %v; want unchanged", outcome, err)
+	}
+	if got, _ := s.Get(ctx, testTenant, lineage); got.Revision != 1 || got.Body != raw {
+		t.Errorf("the stored row moved: rev %d body %q", got.Revision, got.Body)
 	}
 }

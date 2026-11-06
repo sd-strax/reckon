@@ -268,15 +268,16 @@ func lineageFromSourceURL(url string) (uuid.UUID, bool) {
 // provenance of the ingest, not the content (design/06 §2.4), so an identical
 // document imported again by someone else is unchanged and leaves no trace.
 // The comparison mirrors what a revision would write: the body in its
-// canonical form (every write path stores it so, sopdoc.CanonicalBody), tags
-// as the substrate stores them (reserved ones stripped, duplicates folded,
-// order ignored), and an import that names no author keeps the revision's, so
-// it compares equal.
+// canonical form on both sides (every write path now stores it so, and a row
+// written before that is compared canonical without touching its stored,
+// hash-addressed bytes), tags as the substrate stores them (reserved ones
+// stripped, duplicates folded, order ignored), and an import that names no
+// author keeps the revision's, so it compares equal.
 // A retired entry is never unchanged: the re-import revives the lineage.
 func sameContent(e substrate.Entry, sop SOP) bool {
 	src, _ := e.Meta["source"].(map[string]any)
 	return e.Title == sop.Title &&
-		e.Body == sop.Body &&
+		sopdoc.CanonicalBody(e.Body) == sop.Body &&
 		e.Advice == sop.Recommendation &&
 		(sop.AuthorID == "" || e.AuthoredBy == sop.AuthorID) &&
 		sameTags(stripReserved(e.Tags), stripReserved(sop.Tags)) &&

@@ -55,8 +55,11 @@ Three CLI commands each carried their own copy of the dev-auth login.
   indentation kept, since an opening code block is content) is applied by
   `Parse` to what it reads and by the store on every write path (`Create`,
   `Import`, `Update`), so the JSON route, the markdown route, the CLI and
-  `show` agree byte for byte and the comparison is a string comparison. A
-  body with nothing but whitespace is refused as empty.
+  `show` agree byte for byte. The comparison canonicalises the stored side
+  too, so a row written before this rule (CRLFs, a trailing newline) is
+  unchanged under an untouched re-import while its stored bytes, which the
+  content hash covers, stay as they are. A body with nothing but whitespace
+  is refused as empty.
 - **A SOP's lineage id is a valid source pointer.** A SOP authored in-product
   has no source. `show` prints `reckon://sop/<id>` (`SOPSourcePrefix`) for
   it, and `Import` resolves that pointer to the lineage when no entry
