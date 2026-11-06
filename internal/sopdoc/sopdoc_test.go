@@ -1,6 +1,7 @@
 package sopdoc
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,31 @@ func TestParse_Errors(t *testing.T) {
 func TestTitleStem(t *testing.T) {
 	if got := TitleStem("/a/b/ransomware-containment.md"); got != "ransomware containment" {
 		t.Errorf("TitleStem = %q", got)
+	}
+}
+
+// TestRender_RoundTrip: what Render writes, Parse reads back as the same
+// document, so `show > f.md` then `import f.md` is an unchanged re-import.
+func TestRender_RoundTrip(t *testing.T) {
+	for name, doc := range map[string]Doc{
+		"full": {
+			Title: "Ransomware Containment Runbook", Author: "Jane Okoro",
+			Tags: []string{"ransomware", "T1486"}, Recommendation: "isolate",
+			SourceSystem: "confluence", SourceURL: "https://wiki.example.com/RUNBOOK-42", SourceVersion: "3.2",
+			Body: "# Scope\n\nIsolate first: preserve volatile evidence.\n\n```\n---\nnot frontmatter\n---\n```\n\n# Triage\n\n- step one\n- step two",
+		},
+		"sparse": {Title: "x: y", SourceURL: "file:/tmp/x.md", Body: "Reset the mailbox."},
+	} {
+		raw, err := Render(doc)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got, err := Parse(raw, "fallback")
+		if err != nil {
+			t.Fatalf("%s: parse what Render wrote: %v\n%s", name, err, raw)
+		}
+		if !reflect.DeepEqual(got, doc) {
+			t.Errorf("%s: round trip changed the document\n got %+v\nwant %+v\n%s", name, got, doc, raw)
+		}
 	}
 }

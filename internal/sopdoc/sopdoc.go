@@ -35,14 +35,14 @@ type Doc struct {
 // frontmatter is the YAML block a document may open with.
 type frontmatter struct {
 	Title          string   `yaml:"title"`
-	Author         string   `yaml:"author"`
-	Tags           []string `yaml:"tags"`
-	Recommendation string   `yaml:"recommendation"`
+	Author         string   `yaml:"author,omitempty"`
+	Tags           []string `yaml:"tags,omitempty"`
+	Recommendation string   `yaml:"recommendation,omitempty"`
 	Source         struct {
-		System  string `yaml:"system"`
+		System  string `yaml:"system,omitempty"`
 		URL     string `yaml:"url"`
-		Version string `yaml:"version"`
-	} `yaml:"source"`
+		Version string `yaml:"version,omitempty"`
+	} `yaml:"source,omitempty"`
 }
 
 // Parse parses markdown with optional leading `---` YAML frontmatter.
@@ -75,6 +75,34 @@ func Parse(raw []byte, fallbackTitle string) (Doc, error) {
 		doc.Title = fallbackTitle
 	}
 	return doc, nil
+}
+
+// Render is the inverse of Parse: the document as a markdown file with a YAML
+// frontmatter block carrying the attribution Parse reads, then the body. A
+// document rendered, saved and imported again is unchanged, because the
+// frontmatter holds exactly the fields the import compares and nothing of the
+// ingest (no importer, no time). Empty fields are left out.
+func Render(doc Doc) ([]byte, error) {
+	fm := frontmatter{
+		Title:          doc.Title,
+		Author:         doc.Author,
+		Tags:           doc.Tags,
+		Recommendation: doc.Recommendation,
+	}
+	fm.Source.System = doc.SourceSystem
+	fm.Source.URL = doc.SourceURL
+	fm.Source.Version = doc.SourceVersion
+	head, err := yaml.Marshal(fm)
+	if err != nil {
+		return nil, fmt.Errorf("frontmatter: %w", err)
+	}
+	var out bytes.Buffer
+	out.WriteString("---\n")
+	out.Write(head)
+	out.WriteString("---\n\n")
+	out.WriteString(strings.TrimSpace(doc.Body))
+	out.WriteString("\n")
+	return out.Bytes(), nil
 }
 
 // TitleStem derives a human title from a filename (dashes → spaces), for the
