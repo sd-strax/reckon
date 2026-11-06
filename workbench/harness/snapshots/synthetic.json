@@ -1156,6 +1156,7 @@
     ]
   },
   "docs": {
+    "7c6b5a49-3827-4160-9f8e-7d6c5b4a3920": {"ref": "7c6b5a49-3827-4160-9f8e-7d6c5b4a3920", "kind": "ocsf", "type": "Process Activity", "classUid": 1007, "time": "2026-10-20T09:03:30Z", "recordedAt": "2026-10-20T09:05:00Z", "sourceTool": "fixture:scenario", "payload": {"class_uid": 1007, "activity_name": "Launch", "actor": {"user": {"name": "user-a"}}, "device": {"hostname": "host-a"}, "process": {"name": "powershell.exe", "pid": 6120, "cmd_line": "powershell.exe -NoProfile -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkA"}}, "view": {"sentence": [{"t": "text", "text": "user-a launched powershell.exe on "}, {"t": "entity", "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01", "text": "host-a"}], "fields": [{"label": "Process", "value": "powershell.exe", "mono": true}, {"label": "PID", "value": "6120", "mono": true}, {"label": "Command line", "value": "powershell.exe -NoProfile -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkA", "mono": true}, {"label": "User", "value": "user-a", "mono": true}, {"label": "Host", "value": "host-a", "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01", "mono": true}], "category": "process", "decoded": {"field": "process.cmd_line", "encoding": "base64-utf16le", "text": "IEX (New-Object Net.WebClient)"}}},
     "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": {
       "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
       "kind": "stix",

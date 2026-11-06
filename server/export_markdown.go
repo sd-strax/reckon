@@ -423,14 +423,38 @@ func (rl *refLabeler) resolve(ref string) string {
 		return ref
 	}
 	// The event's sentence (adr/0090) when its class has one, the class name
-	// otherwise; the time stays, the export is read without a timeline.
+	// otherwise; the time stays, the export is read without a timeline. An
+	// encoded command line's decoded text follows (adr/0300), clipped: the
+	// inspector shows the whole.
 	label := e.ClassName
-	if entities, err := rl.evidence.EventEntities(rl.ctx, id); err == nil {
-		if v := eventView(e, entities); len(v.Sentence) > 0 {
-			label = sentenceText(v)
-		}
+	// The view renders without entities too (the inspector does the same when
+	// none resolve), so a failed entity read costs the chips, not the view.
+	entities, _ := rl.evidence.EventEntities(rl.ctx, id)
+	v := eventView(e, entities)
+	if len(v.Sentence) > 0 {
+		label = sentenceText(v)
 	}
+	label += decodedSuffix(v)
 	return fmt.Sprintf("%s @ %s", label, e.Time.UTC().Format("15:04:05Z"))
+}
+
+// exportDecodedMax bounds the decoded text on an export line.
+const exportDecodedMax = 160
+
+// decodedSuffix is the export's rendering of a view's decoded command line:
+// the encoding named, the text on one line and clipped, empty when there is
+// none. The label lands inside a backtick code span, and decoded text is the
+// attacker's: a backtick in it would close the span and let the rest render
+// as markup, so backticks become straight quotes.
+func decodedSuffix(v ocsfview.View) string {
+	if v.Decoded == nil {
+		return ""
+	}
+	text := strings.Join(strings.Fields(strings.ReplaceAll(v.Decoded.Text, "`", "'")), " ")
+	if r := []rune(text); len(r) > exportDecodedMax {
+		text = string(r[:exportDecodedMax-1]) + "…"
+	}
+	return " · decoded (" + v.Decoded.Encoding + "): " + text
 }
 
 // sentenceText is a view's sentence as plain text, for surfaces without chips.
