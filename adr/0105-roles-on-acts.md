@@ -1,6 +1,6 @@
 # 0105 — What authorized an act is two facts with two owners: the gate reckon applied, and the roles the issuer asserted in the token
 
-Issue: #105 · PR: pending · Status: accepted
+Issue: #105 · PR: #308 · Status: accepted
 
 ## Context
 
