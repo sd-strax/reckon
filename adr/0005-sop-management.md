@@ -50,6 +50,13 @@ Three CLI commands each carried their own copy of the dev-auth login.
   the current revision holds. Accepted consequence: an identical re-import
   by a different person leaves no trace. A retired lineage is never
   unchanged: the re-import revives it, which is a change to the record.
+- **A body has one stored form.** `sopdoc.CanonicalBody` (LF line endings, no
+  leading blank lines, no trailing whitespace; the first content line's
+  indentation kept, since an opening code block is content) is applied by
+  `Parse` to what it reads and by the store on every write path (`Create`,
+  `Import`, `Update`), so the JSON route, the markdown route, the CLI and
+  `show` agree byte for byte and the comparison is a string comparison. A
+  body with nothing but whitespace is refused as empty.
 - **A SOP's lineage id is a valid source pointer.** A SOP authored in-product
   has no source. `show` prints `reckon://sop/<id>` (`SOPSourcePrefix`) for
   it, and `Import` resolves that pointer to the lineage when no entry
@@ -109,7 +116,10 @@ Three CLI commands each carried their own copy of the dev-auth login.
 
 - An operator can list, read and retire the corpus without curl; `show`
   output is a valid import document, so editing a procedure is show, edit,
-  import.
+  import. The list client reads the whole response: `GET /api/sops` carries
+  every current SOP with its body and is not paged, so a cap would hand a
+  truncated document to the decoder; paging the list is a route change for
+  the day a corpus needs it.
 - A re-run of an import directory is a no-op that says so, and a running
   agent session's section pins survive it.
 - `GET /api/sops/{id}` can no longer report an outage as a missing

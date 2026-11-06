@@ -212,7 +212,10 @@ func (c *knowledgeClient) call(ctx context.Context, method, path string, want in
 		return nil, err
 	}
 	defer resp.Body.Close() //nolint:errcheck // read-side close
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	// The whole response: the list carries every current SOP with its body
+	// and is not paged, and a cap would hand a truncated document to the
+	// decoder as if it were the server's answer. The backend is the local one.
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
