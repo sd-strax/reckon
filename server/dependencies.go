@@ -13,6 +13,7 @@ import (
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/dependency"
+	"github.com/sd-strax/reckon/module"
 )
 
 // The dependencies read+act surface (binding §6 gap 17, adr/0101): the work
@@ -138,7 +139,7 @@ func (b *Backend) createDependency(w http.ResponseWriter, r *http.Request, invID
 		actionID = id
 	}
 	d, err := b.cfg.Dependencies.Create(r.Context(), dependency.Create{
-		AggregateID: invID, TenantID: newEnvelope(invID, actorFromClaims(claims), commandNow()).TenantID,
+		AggregateID: invID, TenantID: module.SingleTenantUUID,
 		Title: body.Title, Owner: body.Owner, Detail: body.Detail, ExternalRef: body.ExternalRef,
 		NotifyActionID: actionID, By: dependencyActor(claims), At: time.Now(),
 	})

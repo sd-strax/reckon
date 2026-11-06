@@ -250,7 +250,7 @@ func (b *Backend) requestAction(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
-	b.dispatchActionRequest(w, r, actorFromClaims(claims), claims.Subject, body)
+	b.dispatchActionRequest(w, r, actorFromRequest(r, claims), claims.Subject, body)
 }
 
 // dispatchActionRequest is the shared request path (fresh request_action and
@@ -457,8 +457,7 @@ func (b *Backend) rerequestAction(w http.ResponseWriter, r *http.Request, priorI
 
 	// Reconstruct the request from the original's FROZEN fields — a faithful
 	// "same action, fresh clock", not a client reconstruction that could drift.
-	b.dispatchActionRequest(w, r,
-		aggregate.Actor{PrincipalID: claims.Subject, Kind: aggregate.ActorHuman}, claims.Subject,
+	b.dispatchActionRequest(w, r, actorFromRequest(r, claims), claims.Subject,
 		RequestActionBody{
 			ActionType:       prior.ActionType,
 			Targets:          prior.Targets,

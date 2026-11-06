@@ -205,7 +205,7 @@ func (b *Backend) recordInterpretation(w http.ResponseWriter, r *http.Request) {
 	// Actor.Kind comes from the JWT delegate_kind claim — NEVER the request body
 	// (04 §5.6): otherwise an AI-authored interpretation could
 	// masquerade as human-authored, or vice versa.
-	actor := actorFromClaims(claims)
+	actor := actorFromRequest(r, claims)
 
 	cmd := aggregate.RecordInterpretation{
 		InterpretationID:   uuid.New(),

@@ -308,6 +308,10 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     time alongside `principal_name` (`adr/0077`), for the person inspector (`ui/08 §8.6.1`).
     Display only: authorization still reads the live token, and reckon still mirrors no
     roles.
+    *Built: `adr/0105`, as two facts on the actor: `required_roles`, the gate reckon applied
+    (the route's role set), and `roles`, what the issuer asserted in the token at the act,
+    never presented as the person's entitlements; served on the thread and the action history;
+    the Person inspector labels each and says when neither was recorded.*
 20. **Addressable capability calls** — a stable id per capability call within a committed
     turn record, resolvable by an endpoint, so the bundle, the Story timeline and the
     residual panel can open the call that produced their evidence (`ui/08 §8.6.1`).

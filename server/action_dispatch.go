@@ -25,7 +25,10 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 	}
 
 	// The approval is attributed to the policy's accountable human, who is
-	// the recorded principal — satisfying the actor/approver invariant.
+	// the recorded principal — satisfying the actor/approver invariant. No
+	// token was presented for this act and no route gate applied: the actor
+	// carries neither roles nor a gate (adr/0105), and the action record names
+	// the policy that authorized it.
 	approveEnv := newEnvelope(reqEnv.AggregateID,
 		aggregate.Actor{PrincipalID: decision.PolicyAccountable, Kind: aggregate.ActorHuman}, now)
 	_, err := b.cfg.Handler.Handle(ctx, approveEnv, aggregate.ApproveAction{

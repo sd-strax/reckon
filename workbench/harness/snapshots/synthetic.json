@@ -338,6 +338,8 @@
         "occurredAt": "2026-10-20T09:01:00.000Z",
         "actor": {
           "principal": "agent@reckon",
+          "roles": ["analyst"],
+          "requiredRoles": ["analyst"],
           "kind": "AI_DELEGATED",
           "model": "claude"
         },
@@ -378,6 +380,8 @@
         "occurredAt": "2026-10-20T09:03:00.000Z",
         "actor": {
           "principal": "agent@reckon",
+          "roles": ["analyst"],
+          "requiredRoles": ["analyst"],
           "kind": "AI_DELEGATED",
           "model": "claude"
         },
@@ -421,6 +425,8 @@
         "occurredAt": "2026-10-20T09:07:00.000Z",
         "actor": {
           "principal": "agent@reckon",
+          "roles": ["analyst"],
+          "requiredRoles": ["analyst"],
           "kind": "AI_DELEGATED",
           "model": "claude"
         },
@@ -442,6 +448,8 @@
         "occurredAt": "2026-10-20T09:08:00.000Z",
         "actor": {
           "principal": "analyst-1",
+          "roles": ["analyst", "approver"],
+          "requiredRoles": ["analyst"],
           "kind": "HUMAN"
         },
         "interpretationId": "interp-aapp-1",
@@ -478,6 +486,8 @@
         "occurredAt": "2026-10-20T09:10:00.000Z",
         "actor": {
           "principal": "analyst-1",
+          "roles": ["analyst", "approver"],
+          "requiredRoles": ["analyst"],
           "kind": "HUMAN"
         },
         "interpretationId": "interp-reset-1",
@@ -496,6 +506,8 @@
         "occurredAt": "2026-10-20T09:11:00.000Z",
         "actor": {
           "principal": "analyst-1",
+          "roles": ["analyst", "approver"],
+          "requiredRoles": ["analyst"],
           "kind": "HUMAN"
         },
         "interpretationId": "interp-verdict-old",
@@ -516,6 +528,8 @@
         "occurredAt": "2026-10-20T09:12:00.000Z",
         "actor": {
           "principal": "agent@reckon",
+          "roles": ["analyst"],
+          "requiredRoles": ["analyst"],
           "kind": "AI_DELEGATED",
           "model": "claude"
         },

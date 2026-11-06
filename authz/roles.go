@@ -13,7 +13,9 @@ package authz
 // reference role strings via a typed name rather than re-typing strings.
 //
 // Roles live in the IdP and travel in JWTs; reckon does not cache or mirror
-// them. See reckon/CLAUDE.md "Architectural commitments".
+// them for authorization, which reads the live token on every request. The
+// record keeps, display only, what a token asserted at the moment of an act
+// (adr/0105). See reckon/CLAUDE.md "Architectural commitments".
 const (
 	RoleViewer         = "viewer"
 	RoleAnalyst        = "analyst"

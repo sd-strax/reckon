@@ -159,7 +159,9 @@ func requireRoles(roles []string, next http.HandlerFunc) http.HandlerFunc {
 			})
 			return
 		}
-		next(w, r)
+		// The gate the act passed rides to the handler, for the actor it
+		// records (adr/0105).
+		next(w, r.WithContext(withRequiredRoles(r.Context(), roles)))
 	}
 }
 

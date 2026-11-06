@@ -26,7 +26,12 @@ type ThreadActorView struct {
 	// PrincipalName is the display name the identity provider presented at the
 	// time of the act (adr/0077); empty on events recorded before it existed.
 	PrincipalName string `json:"principal_name,omitempty"`
-	Kind          string `json:"kind"` // HUMAN | AI_DELEGATED | SYSTEM
+	// Roles is what the identity provider asserted in the token at the time of
+	// the act; RequiredRoles the role set reckon required of it (adr/0105).
+	// Both empty on events recorded before they existed and on SYSTEM acts.
+	Roles         []string `json:"roles,omitempty"`
+	RequiredRoles []string `json:"required_roles,omitempty"`
+	Kind          string   `json:"kind"` // HUMAN | AI_DELEGATED | SYSTEM
 	// Model names the LLM for AI-delegated acts (actor.delegate).
 	Model string `json:"model,omitempty"`
 }
@@ -117,7 +122,7 @@ func (b *Backend) loadThread(ctx context.Context, invID uuid.UUID) ([]ThreadEntr
 }
 
 func threadActor(a aggregate.Actor) ThreadActorView {
-	v := ThreadActorView{Principal: a.PrincipalID, PrincipalName: a.PrincipalName, Kind: a.Kind}
+	v := ThreadActorView{Principal: a.PrincipalID, PrincipalName: a.PrincipalName, Roles: a.Roles, RequiredRoles: a.RequiredRoles, Kind: a.Kind}
 	if v.Kind == "" {
 		v.Kind = aggregate.ActorHuman
 	}

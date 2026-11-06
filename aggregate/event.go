@@ -127,7 +127,19 @@ type Actor struct {
 	// provider presents it (Keycloak preferred_username), captured at command
 	// time for display — the record is keyed and authorized by PrincipalID,
 	// never by this (adr/0077). Empty on events recorded before it existed.
-	PrincipalName string      `json:"principal_name,omitempty"`
+	PrincipalName string `json:"principal_name,omitempty"`
+	// Roles is what the identity provider asserted about the principal in the
+	// token the act was made with: the realm roles and reckon client roles as
+	// the token carried them, a projection the deployment's mappers chose for
+	// reckon, not the principal's entitlements at large (adr/0105). Display
+	// only, like the name; empty on events recorded before it existed and on
+	// SYSTEM acts.
+	Roles []string `json:"roles,omitempty"`
+	// RequiredRoles is the gate reckon applied to the act: the role set the
+	// route required (any of), which the token satisfied. Reckon's own fact,
+	// in reckon's vocabulary, so the record's authorization claim stays
+	// verifiable after the route table changes (adr/0105). Display only.
+	RequiredRoles []string    `json:"required_roles,omitempty"`
 	Kind          string      `json:"kind,omitempty"` // HUMAN | AI_DELEGATED | SYSTEM; empty = HUMAN
 	Delegate      *AIDelegate `json:"delegate,omitempty"`
 }

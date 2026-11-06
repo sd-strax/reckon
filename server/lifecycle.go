@@ -60,7 +60,7 @@ func (b *Backend) investigationLifecycle(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	env := newEnvelope(id, actorFromClaims(claims), commandNow())
+	env := newEnvelope(id, actorFromRequest(r, claims), commandNow())
 	res, err := b.cfg.Handler.Handle(r.Context(), env, cmd)
 	if err != nil {
 		writeCommandError(w, body.Transition, err)

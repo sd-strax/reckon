@@ -10,6 +10,7 @@ import { ToolRow } from "../ToolRow";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
 import { received } from "../../derive/knowledgeUse";
 import { relevanceOfBand } from "../../../../src/relevance";
+import type { ThreadActor } from "../../../../src/viewTypes";
 
 export function TurnInspector({ interpretationId }: { interpretationId: string }) {
   const { state, openInspector } = useApp();
@@ -211,18 +212,48 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
 export function PersonInspector({ principalId }: { principalId: string }) {
   const { state, openInspector } = useApp();
   const acts = (state.snap?.thread || []).filter((e) => e.actor.principal === principalId);
+  // The engine's acts in the principal's name (a dispatch or a result on
+  // their approval, an expiry on their request, adr/0217) are attributed to
+  // them but are not theirs: they carry no authorization, and the label claims
+  // no approval, since an expiry records the absence of one.
+  const own = acts.filter((e) => e.actor.kind !== "SYSTEM");
   const name = acts.find((e) => e.actor.principalName)?.actor.principalName || principalId;
   const approvals = acts.filter((e) => e.interpretationType === "action-approval").length;
   const first = acts[0];
   const opened = state.snap?.investigation.seed && first && first.sequenceNo <= 2;
+  // Two facts with two owners (adr/0105): the gate reckon applied to each act,
+  // and what the identity provider asserted in the token at the time. Unions
+  // across the principal's acts here; an act recorded before either existed
+  // says so rather than reading as "no roles".
+  const union = (pick: (a: ThreadActor) => string[] | undefined) => Array.from(new Set(own.flatMap((e) => pick(e.actor) || []))).sort();
+  const required = union((a) => a.requiredRoles);
+  const asserted = union((a) => a.roles);
+  const recorded = own.filter((e) => e.actor.requiredRoles?.length || e.actor.roles?.length).length;
+  // One label per act, consistent with what the summary counts as recorded:
+  // the gate when there is one; "gate not recorded" when only the token's
+  // roles are; "authorization not on this act" when neither is, which is an
+  // act before this record, or an approval a policy made in the person's name.
+  const gate = (e: { actor: ThreadActor }) =>
+    e.actor.kind === "SYSTEM" ? " · the engine, in their name"
+    : e.actor.requiredRoles?.length ? ` · as ${e.actor.requiredRoles.join(" or ")}`
+    : e.actor.roles?.length ? " · gate not recorded" : " · authorization not on this act";
   return (
     <>
-      <div className="isub">From the identity provider at the time of each act; reckon stores no roles of its own.</div>
+      <div className="isub">What authorized each act, as the record kept it at the time; reckon mirrors no roles and the identity provider may say otherwise today.</div>
       <div className="ithiscase"><span className="kicker">In this case:</span> <span className="icite">{opened ? "opened it · " : ""}{acts.length} act{acts.length === 1 ? "" : "s"}{approvals ? ` · ${approvals} approval${approvals === 1 ? "" : "s"}` : ""}</span></div>
       <Section title="What they did here">
         {acts.length ? acts.map((e) => (
-          <div key={e.sequenceNo} className="irow"><span className="imeta">{fmtTime(e.occurredAt)}</span> {e.actor.kind === "AI_DELEGATED" ? "reckon on their behalf: " : ""}<a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || e.interpretationType}</a></div>
+          <div key={e.sequenceNo} className="irow"><span className="imeta">{fmtTime(e.occurredAt)}</span> {e.actor.kind === "AI_DELEGATED" ? "reckon on their behalf: " : ""}<a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || e.interpretationType}</a><span className="imeta">{gate(e)}</span></div>
         )) : <div className="empty">no acts in this investigation</div>}
+      </Section>
+      <Section title="What authorized their acts">
+        {recorded ? (
+          <KV rows={[
+            { k: "Reckon required", v: required.length ? required.join(", ") : "—", mono: true },
+            { k: "Issuer asserted", v: asserted.length ? asserted.join(", ") : "—", mono: true },
+          ]} />
+        ) : <div className="empty">{own.length ? "on none of their acts here" : "no acts of their own here"}</div>}
+        <p className="imeta">"Reckon required" is the role the route demanded of the act, reckon's own check. "Issuer asserted" is what the identity provider put in the token at the act, as the deployment maps it for reckon: not the person's entitlements at large.{own.length > recorded ? ` ${own.length - recorded} of their acts carry neither: recorded before this version, or an approval a policy made in their name, which the action record attributes to the policy.` : ""}</p>
       </Section>
       <Section title="Identity"><KV rows={[{ k: "Principal id", v: principalId, mono: true }, { k: "Display name", v: name }]} /></Section>
     </>

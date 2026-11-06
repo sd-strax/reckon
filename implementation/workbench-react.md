@@ -971,6 +971,15 @@ union of roles those acts carried, with the caption that current roles may diffe
 recorded before the field existed show no roles, and the inspector says so. Issuer is the
 `/api/auth-config` issuer.
 
+*Built: `adr/0105`, reframed. The token's role list is not the person's roles but the issuer's
+assertion, the projection its mappers chose for reckon; so the actor carries two facts with two
+owners, `roles` (what the token asserted) and `required_roles` (the role set the route required,
+reckon's gate), captured by `actorFromRequest` with the gate recorded on the request by the role
+middleware. Served on `ThreadActorView` and the action history's actor; the Person inspector
+reads "as analyst" per act, the union of asserted roles labelled as the issuer's at the time, and
+"authorization not recorded" for older acts. The issuer is not shown: it rides no message the
+webview receives today.*
+
 ### 8.9 §6.20 — Addressable capability calls
 
 *Landed as `adr/0092`. The tool-call record carries the engine's id as `capability_call_id`;
