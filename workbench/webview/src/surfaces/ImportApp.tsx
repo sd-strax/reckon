@@ -4,7 +4,7 @@
 // the rows (the open editors, the files added from disk) and the import; this
 // surface renders its state and posts the analyst's choices.
 import { useEffect, useId, useState } from "react";
-import type { ImportInboundMessage, ImportRenderMessage, ImportRow } from "../../../src/protocol";
+import type { ImportInboundMessage, ImportOutcome, ImportRenderMessage, ImportRow } from "../../../src/protocol";
 import type { WebviewTransport } from "../transport";
 
 export type ImportTransport = WebviewTransport<ImportInboundMessage, ImportRenderMessage>;
@@ -72,6 +72,18 @@ export function ImportApp({ transport }: { transport: ImportTransport }) {
   );
 }
 
+/** The result line under a row that was imported. */
+function outcomeLine(outcome: ImportOutcome, title: string): string {
+  switch (outcome) {
+    case "created":
+      return `Added to the SOP library as “${title}”`;
+    case "unchanged":
+      return `Already in the SOP library as “${title}”, nothing changed`;
+    default:
+      return `Revised existing SOP “${title}”`;
+  }
+}
+
 function Row({ row: r, busy, onToggle }: { row: ImportRow; busy: boolean; onToggle: (row: ImportRow, checked: boolean) => void }) {
   // The checkbox's id is React's, unique per row: one derived from the URI
   // could collide (a-b.md and ab.md) and a label would toggle the wrong file.
@@ -90,9 +102,7 @@ function Row({ row: r, busy, onToggle }: { row: ImportRow; busy: boolean; onTogg
       </div>
       {r.result ? (
         <div className={"result" + (outcome === "failed" ? " failed" : "")}>
-          {outcome === "failed"
-            ? (r.result.message || "import failed")
-            : `${outcome === "created" ? "Added to the SOP library as " : "Revised existing SOP "}“${r.result.title}”`}
+          {r.result.outcome === "failed" ? (r.result.message || "import failed") : outcomeLine(r.result.outcome, r.result.title)}
         </div>
       ) : null}
     </div>

@@ -60,3 +60,27 @@ describe("ImportSOPsView: a change of identity", () => {
     expect(JSON.stringify(createdPanels()[1]!.webview.posted)).not.toContain("alice.md");
   });
 });
+
+describe("ImportSOPsView: the outcome per row", () => {
+  it("carries the server's word, and reports a word it does not know as that row's failure", async () => {
+    const answers = ["created", "revised", "unchanged", "merged"];
+    const importSOPMarkdown = vi.fn(async () => ({ outcome: answers.shift()!, title: "A" }));
+    const view = new ImportSOPsView(vscode.Uri.file("/ext"), { knowledge: { importMarkdown: importSOPMarkdown } } as unknown as BackendClient, fakeLog());
+    vi.mocked(vscode.window.showOpenDialog).mockResolvedValueOnce(["/a.md", "/b.md", "/c.md", "/d.md"].map((p) => vscode.Uri.file(p)));
+    view.open();
+    createdPanels()[0]!.webview.receive({ type: "addFiles" });
+    await settle();
+    createdPanels()[0]!.webview.receive({ type: "import" });
+    await vi.waitFor(() => expect(importSOPMarkdown).toHaveBeenCalledTimes(4));
+    await settle();
+
+    const posted = JSON.stringify(createdPanels()[0]!.webview.posted);
+    for (const word of ["created", "revised", "unchanged"]) {
+      expect(posted).toContain(`"outcome":"${word}"`);
+    }
+    expect(posted).toContain('"outcome":"failed"');
+    expect(posted).toContain("does not know");
+    expect(posted).not.toContain('"outcome":"merged"');
+    view.dispose();
+  });
+});
