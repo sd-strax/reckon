@@ -67,8 +67,10 @@ the principal's acts, labelled as what the identity provider asserted in the
 token at the time of each act, with the caption that current roles may differ
 and reckon mirrors none. An act carrying neither reads as such, with the
 two causes named, an older record or a policy's approval in the person's
-name, and no claim as to which. SYSTEM acts attributed to the principal, a
-dispatch or a result on their approval, read as the engine's and carry none.
+name, and no claim as to which. SYSTEM acts attributed to the principal read
+as the engine's, in the principal's name, and carry none; the label claims no
+approval, since the engine also records an expiry in the requester's name
+precisely because no approval came (`adr/0217`).
 
 ## Alternatives rejected
 

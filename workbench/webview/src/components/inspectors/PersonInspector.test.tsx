@@ -34,9 +34,10 @@ describe("person inspector", () => {
     expect(within(inspector).getByText(/carry neither/).textContent).toContain("1 of their acts carry neither");
   });
 
-  it("attributes the engine's acts to the engine and carries no authorization for them", () => {
+  it("attributes the engine's acts to the engine, claiming no approval, and carries no authorization for them", () => {
     const inspector = mountWith({ kind: "person", principalId: "system" });
-    expect(within(inspector).getAllByText(/the engine, on their approval/).length).toBeGreaterThan(0);
+    expect(within(inspector).getAllByText(/the engine, in their name/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/on their approval/)).toBeNull();
     expect(within(inspector).getByText("no acts of their own here")).toBeTruthy();
     expect(screen.queryByText("Issuer asserted")).toBeNull();
   });

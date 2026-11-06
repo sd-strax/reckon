@@ -212,8 +212,10 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
 export function PersonInspector({ principalId }: { principalId: string }) {
   const { state, openInspector } = useApp();
   const acts = (state.snap?.thread || []).filter((e) => e.actor.principal === principalId);
-  // The engine's acts on the principal's approval (a dispatch, a result) are
-  // attributed to them but are not theirs: they carry no authorization.
+  // The engine's acts in the principal's name (a dispatch or a result on
+  // their approval, an expiry on their request, adr/0217) are attributed to
+  // them but are not theirs: they carry no authorization, and the label claims
+  // no approval, since an expiry records the absence of one.
   const own = acts.filter((e) => e.actor.kind !== "SYSTEM");
   const name = acts.find((e) => e.actor.principalName)?.actor.principalName || principalId;
   const approvals = acts.filter((e) => e.interpretationType === "action-approval").length;
@@ -232,7 +234,7 @@ export function PersonInspector({ principalId }: { principalId: string }) {
   // roles are; "authorization not on this act" when neither is, which is an
   // act before this record, or an approval a policy made in the person's name.
   const gate = (e: { actor: ThreadActor }) =>
-    e.actor.kind === "SYSTEM" ? " · the engine, on their approval"
+    e.actor.kind === "SYSTEM" ? " · the engine, in their name"
     : e.actor.requiredRoles?.length ? ` · as ${e.actor.requiredRoles.join(" or ")}`
     : e.actor.roles?.length ? " · gate not recorded" : " · authorization not on this act";
   return (
