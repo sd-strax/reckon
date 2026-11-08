@@ -1,6 +1,6 @@
 # 0109 — Knowledge citations are a projection: cited in N investigations, and where
 
-Issue: #109 · PR: — · Status: accepted
+Issue: #109 · PR: #311 · Status: accepted
 
 ## Context
 
