@@ -337,6 +337,10 @@ export type CaseInboundMessage =
   | { type: "open"; id: string; title?: string };
 
 /** One candidate document of the Import SOPs panel (design/06 §2.4), as posted. */
+/** What one import did, as the server says it, plus the panel's own "failed". An
+ * `unchanged` re-import brought what the library already holds: nothing was written. */
+export type ImportOutcome = "created" | "revised" | "unchanged" | "failed";
+
 export interface ImportRow {
   /** The document's URI, the row's identity. */
   id: string;
@@ -346,7 +350,7 @@ export interface ImportRow {
   fromDisk: boolean;
   dirty: boolean;
   checked: boolean;
-  result?: { outcome: "created" | "revised" | "failed"; title: string; message?: string };
+  result?: { outcome: ImportOutcome; title: string; message?: string };
 }
 
 export type ImportRenderMessage =

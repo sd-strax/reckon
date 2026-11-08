@@ -273,7 +273,7 @@ func (b *Backend) importSOP(w http.ResponseWriter, r *http.Request) {
 	if importer == "" {
 		importer = claims.Subject
 	}
-	id, created, err := b.cfg.Knowledge.Import(r.Context(), knowledge.SOP{
+	id, outcome, err := b.cfg.Knowledge.Import(r.Context(), knowledge.SOP{
 		TenantID: module.SingleTenantUUID,
 		Title:    body.Title, Body: body.Body, Tags: body.Tags,
 		Recommendation: body.Recommendation,
@@ -287,13 +287,16 @@ func (b *Backend) importSOP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "import sop: "+err.Error())
 		return
 	}
-	status := http.StatusOK
-	outcome := "revised"
-	if created {
-		status = http.StatusCreated
-		outcome = "created"
+	writeJSON(w, importStatus(outcome), map[string]string{"id": id.String(), "outcome": string(outcome)})
+}
+
+// importStatus maps an import outcome to its status: a new lineage is 201,
+// a revision and an unchanged re-import are 200 (both name an existing SOP).
+func importStatus(outcome knowledge.ImportOutcome) int {
+	if outcome == knowledge.ImportCreated {
+		return http.StatusCreated
 	}
-	writeJSON(w, status, map[string]string{"id": id.String(), "outcome": outcome})
+	return http.StatusOK
 }
 
 // SOPMarkdownBody is the workbench import payload (design/06 §2.4): a raw
@@ -334,7 +337,7 @@ func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 	if importer == "" {
 		importer = claims.Subject
 	}
-	id, created, err := b.cfg.Knowledge.Import(r.Context(), knowledge.SOP{
+	id, outcome, err := b.cfg.Knowledge.Import(r.Context(), knowledge.SOP{
 		TenantID: module.SingleTenantUUID,
 		Title:    doc.Title, Body: doc.Body, Tags: doc.Tags,
 		Recommendation: doc.Recommendation,
@@ -348,11 +351,7 @@ func (b *Backend) importMarkdownSOP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "import sop: "+err.Error())
 		return
 	}
-	status, outcome := http.StatusOK, "revised"
-	if created {
-		status, outcome = http.StatusCreated, "created"
-	}
-	writeJSON(w, status, map[string]string{"id": id.String(), "outcome": outcome, "title": doc.Title})
+	writeJSON(w, importStatus(outcome), map[string]string{"id": id.String(), "outcome": string(outcome), "title": doc.Title})
 }
 
 func (b *Backend) createSOP(w http.ResponseWriter, r *http.Request) {
@@ -388,10 +387,18 @@ func (b *Backend) listSOPs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"sops": sops})
 }
 
+// getSOP handles GET /api/sops/{id}: the current revision, retired included.
+// Only a missing SOP is a 404; a store that cannot answer is a 500 with a
+// reference, as for the section routes below, so an outage is never reported
+// to the inspector as a procedure that does not exist.
 func (b *Backend) getSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	sop, err := b.cfg.Knowledge.Get(r.Context(), module.SingleTenantUUID, id)
-	if err != nil {
+	if errors.Is(err, knowledge.ErrNotFound) {
 		writeJSONError(w, http.StatusNotFound, "sop not found")
+		return
+	}
+	if err != nil {
+		writeInternalError(w, "get sop", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, sop)

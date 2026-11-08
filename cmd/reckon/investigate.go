@@ -73,20 +73,19 @@ func runInvestigate(invID string) error {
 	if err != nil {
 		return err
 	}
-	issuer := fmt.Sprintf("http://localhost:%d/realms/%s", cfg.Keycloak.HTTPPort, cfg.Keycloak.Realm)
-	backendURL := fmt.Sprintf("http://localhost:%d", cfg.Backend.HTTPPort)
+	backendURL := localBackendURL(cfg)
 
 	user := envOr("RECKON_USER", branding.CLI+"-admin")
 	pass := envOr("RECKON_PASSWORD", branding.CLI)
 
 	ctx := context.Background()
-	humanCred, err := agent.NewCredential(ctx, issuer, branding.CLI, user, pass)
+	humanCred, err := backendLogin(ctx, cfg, branding.CLI, user, pass)
 	if err != nil {
-		return fmt.Errorf("login (human client): %w\n  hint: the shipped realm has no login user and ROPC is off — run `%s dev-auth` first", err, branding.CLI)
+		return err
 	}
-	agentCred, err := agent.NewCredential(ctx, issuer, branding.CLI+"-agent", user, pass)
+	agentCred, err := backendLogin(ctx, cfg, branding.CLI+"-agent", user, pass)
 	if err != nil {
-		return fmt.Errorf("login (agent client): %w", err)
+		return err
 	}
 
 	client := agent.NewClient(backendURL, agentCred, humanCred)
@@ -421,13 +420,6 @@ func report(verb string, out json.RawMessage, err error) {
 		return
 	}
 	fmt.Printf("%s: %s\n", verb, compactJSON(out))
-}
-
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
 
 func compactJSON(raw json.RawMessage) string {

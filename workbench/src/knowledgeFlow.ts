@@ -8,6 +8,22 @@ import type { DocumentHost } from "./documentHost";
 import { candidateSOPMarkdown, slugifyTitle } from "./documentText";
 import { errText } from "./util";
 
+/** The status line after a draft was added, by what the import did. A word the
+ * server answers that this workbench does not know is not guessed at: it is
+ * reported as the failure, the draft kept. */
+function acceptedLine(outcome: string): string {
+  switch (outcome) {
+    case "created":
+      return "added to the library";
+    case "revised":
+      return "updated in the library";
+    case "unchanged":
+      return "already in the library, unchanged";
+    default:
+      throw new Error(`the server answered an import outcome this workbench does not know: "${outcome}"`);
+  }
+}
+
 export class KnowledgeFlow {
   constructor(private readonly host: DocumentHost) {}
 
@@ -121,8 +137,9 @@ export class KnowledgeFlow {
     if (!draft) return;
     try {
       const res = await this.host.client.knowledge.importMarkdown(slugifyTitle(draft.title) + ".md", draft.doc.getText());
+      const message = acceptedLine(res.outcome);
       this.sopDrafts.delete(id);
-      void this.host.post(panel, { type: "sop.status", state: "added", title: res.title, message: res.outcome === "revised" ? "updated in the library" : "added to the library" });
+      void this.host.post(panel, { type: "sop.status", state: "added", title: res.title, message });
     } catch (err) {
       void this.host.post(panel, { type: "sop.status", state: "ready", title: draft.title, message: "adding it failed — " + errText(err) });
     }

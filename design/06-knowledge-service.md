@@ -160,6 +160,24 @@ attribution (`title`, `author`, `tags`, `recommendation`,
   not an accumulation of near-duplicates. (Frontmatter-less files default
   their source to `file:<path>`, so re-running an import directory is
   idempotent too.)
+- **A re-import that changes nothing is `unchanged`.** An import answers one
+  of three outcomes: `created`, `revised`, `unchanged`. The facade compares
+  the content against the current revision (title, body, tags,
+  recommendation, author, source system and version) before revising; the
+  importer and the import time are provenance of the ingest, not content, so
+  the same document imported again by someone else is unchanged and writes
+  nothing: no revision, no re-cut, no re-embedding, and a section pin taken
+  against the current revision (§4.2) still holds. A retired lineage is
+  revived by a re-import and is never unchanged.
+- **The operator's window is the CLI.** `reckon knowledge list`
+  (`--include-retired`), `show <id>` and `retire <id>` are thin clients over
+  `GET /api/sops`, `GET /api/sops/{id}` and `DELETE /api/sops/{id}`, each
+  with `--json` for the server's record. `show` prints the current revision
+  as the frontmatter + markdown document import reads, so a shown document
+  imported again is unchanged; a SOP with no external source is shown with
+  its lineage id as the pointer (`reckon://sop/<id>`), which import resolves
+  to the same lineage. The list shows the source url, since it is the
+  lineage key an operator reads to predict what a re-import will revise.
 
 ### 2.5 OSS single-tenant installs
 

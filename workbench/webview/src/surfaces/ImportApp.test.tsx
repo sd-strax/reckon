@@ -57,9 +57,12 @@ describe("the Import SOPs surface (design/06 §2.4)", () => {
 
     act(() => t.emit({ type: "state", busy: false, done: { ok: 1, failed: 1 }, rows: [
       row({ result: { outcome: "revised", title: "Containment" } }),
+      row({ id: "file:///b.md", name: "b.md", result: { outcome: "unchanged", title: "Triage" } }),
       row({ id: "file:///c.md", name: "c.md", result: { outcome: "failed", title: "c.md", message: "no frontmatter title" } }),
     ] }));
     expect(screen.getByText("Revised existing SOP “Containment”")).toBeTruthy();
+    expect(screen.getByText("Already in the SOP library as “Triage”, nothing changed")).toBeTruthy();
+    expect(screen.getByText("unchanged")).toBeTruthy();
     expect(screen.getByText("no frontmatter title")).toBeTruthy();
     expect(screen.getByText("1 imported, 1 failed — see each row.")).toBeTruthy();
   });

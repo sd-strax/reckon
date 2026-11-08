@@ -23,16 +23,45 @@ import (
 // runKnowledge dispatches the `knowledge` subcommands.
 func runKnowledge(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s knowledge import <files or dirs> | %s knowledge reindex", branding.CLI, branding.CLI)
+		return fmt.Errorf("usage: %s knowledge import <files or dirs> | list | show <id> | retire <id> | reindex", branding.CLI)
 	}
 	switch args[0] {
 	case "import":
 		return runKnowledgeImport(args[1:])
+	case "list":
+		return runKnowledgeList(args[1:])
+	case "show":
+		return runKnowledgeShow(args[1:])
+	case "retire":
+		return runKnowledgeRetire(args[1:])
 	case "reindex":
 		return runKnowledgeReindex(args[1:])
 	default:
-		return fmt.Errorf("unknown knowledge subcommand %q (want: import, reindex)", args[0])
+		return fmt.Errorf("unknown knowledge subcommand %q (want: import, list, show, retire, reindex)", args[0])
 	}
+}
+
+// loginFlags declares the dev-auth login flags every CLI client command takes,
+// read from the environment when set; an empty password is the dev-auth
+// default (backendLogin).
+func loginFlags(fl *flag.FlagSet) (user, pass *string) {
+	user = fl.String("user", envOr("RECKON_USER", branding.CLI+"-admin"), "backend login user (or RECKON_USER)")
+	pass = fl.String("password", os.Getenv("RECKON_PASSWORD"), "backend login password (or RECKON_PASSWORD)")
+	return user, pass
+}
+
+// knowledgeSession loads the config and signs in: the backend to call and the
+// credential to call it with.
+func knowledgeSession(ctx context.Context, user, pass string) (*agent.Credential, string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, "", fmt.Errorf("load config: %w", err)
+	}
+	cred, err := backendLogin(ctx, cfg, branding.CLI, user, pass)
+	if err != nil {
+		return nil, "", err
+	}
+	return cred, localBackendURL(cfg), nil
 }
 
 // runKnowledgeImport seeds the SOP corpus from existing institutional
@@ -46,17 +75,13 @@ func runKnowledge(args []string) error {
 // the SOP in place — the prior version stays hash-addressable for audit.
 func runKnowledgeImport(args []string) error {
 	fl := flag.NewFlagSet("knowledge import", flag.ContinueOnError)
-	user := fl.String("user", envOrDefault("RECKON_USER", branding.CLI+"-admin"), "backend login user (or RECKON_USER)")
-	pass := fl.String("password", os.Getenv("RECKON_PASSWORD"), "backend login password (or RECKON_PASSWORD)")
+	user, pass := loginFlags(fl)
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
 	paths := fl.Args()
 	if len(paths) == 0 {
 		return fmt.Errorf("usage: %s knowledge import [-user u] [-password p] <file-or-dir>...\n  files: .md/.markdown/.txt with optional YAML frontmatter (title, author, tags, recommendation, source{system,url,version})\n  richer formats: convert first, e.g. `pandoc runbook.docx -t gfm`", branding.CLI)
-	}
-	if *pass == "" {
-		*pass = branding.CLI // the dev-auth default, same as the eval harness
 	}
 
 	files, err := collectImportFiles(paths)
@@ -67,14 +92,9 @@ func runKnowledgeImport(args []string) error {
 		return fmt.Errorf("no importable files (.md/.markdown/.txt) under %s", strings.Join(paths, ", "))
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	backendURL := fmt.Sprintf("http://localhost:%d", cfg.Backend.HTTPPort)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	cred, err := knowledgeLogin(ctx, cfg, *user, *pass)
+	cred, backendURL, err := knowledgeSession(ctx, *user, *pass)
 	if err != nil {
 		return err
 	}
@@ -93,7 +113,7 @@ func runKnowledgeImport(args []string) error {
 			fmt.Fprintf(os.Stderr, "  FAIL  %s — %v\n", path, err)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "  %-7s %s — %q\n", outcome, path, doc.Title)
+		fmt.Fprintf(os.Stderr, "  %-9s %s — %q\n", outcome, path, doc.Title)
 	}
 	fmt.Fprintf(os.Stderr, "%s: imported %d/%d file(s)\n", branding.CLI, len(files)-failed, len(files))
 	if failed > 0 {
@@ -102,41 +122,21 @@ func runKnowledgeImport(args []string) error {
 	return nil
 }
 
-// knowledgeLogin signs in through dev-auth against the local realm, as every
-// knowledge subcommand does.
-func knowledgeLogin(ctx context.Context, cfg config.Config, user, pass string) (*agent.Credential, error) {
-	issuer := fmt.Sprintf("http://localhost:%d/realms/%s", cfg.Keycloak.HTTPPort, cfg.Keycloak.Realm)
-	cred, err := agent.NewCredential(ctx, issuer, branding.CLI, user, pass)
-	if err != nil {
-		return nil, fmt.Errorf("login: %w\n  hint: the shipped realm has no login user and ROPC is off — run `%s dev-auth` first", err, branding.CLI)
-	}
-	return cred, nil
-}
-
 // runKnowledgeReindex asks the running backend to bring the knowledge corpus
 // up to date with its section rule and embedding model — the reconciliation
 // the backend also runs at startup — and reports how many entries it touched.
 func runKnowledgeReindex(args []string) error {
 	fl := flag.NewFlagSet("knowledge reindex", flag.ContinueOnError)
-	user := fl.String("user", envOrDefault("RECKON_USER", branding.CLI+"-admin"), "backend login user (or RECKON_USER)")
-	pass := fl.String("password", os.Getenv("RECKON_PASSWORD"), "backend login password (or RECKON_PASSWORD)")
+	user, pass := loginFlags(fl)
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
 	if fl.NArg() != 0 {
 		return fmt.Errorf("usage: %s knowledge reindex [-user u] [-password p]", branding.CLI)
 	}
-	if *pass == "" {
-		*pass = branding.CLI // the dev-auth default, same as the eval harness
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	backendURL := fmt.Sprintf("http://localhost:%d", cfg.Backend.HTTPPort)
 	ctx, cancel := context.WithTimeout(context.Background(), reindexWait)
 	defer cancel()
-	cred, err := knowledgeLogin(ctx, cfg, *user, *pass)
+	cred, backendURL, err := knowledgeSession(ctx, *user, *pass)
 	if err != nil {
 		return err
 	}
@@ -316,11 +316,4 @@ func postSOPImport(ctx context.Context, cred *agent.Credential, backendURL strin
 		out.Outcome = "ok"
 	}
 	return out.Outcome, nil
-}
-
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }

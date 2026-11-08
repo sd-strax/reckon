@@ -848,6 +848,21 @@ describe("InvestigationDocuments: the wire boundary", () => {
     await vi.waitFor(() => expect(posted()).toContainEqual(expect.objectContaining({ type: "sop.status", state: "failed" })));
   });
 
+  it("keeps a draft whose accept answered an outcome word the workbench does not know, and says so", async () => {
+    const doc = { uri: vscode.Uri.parse("untitled:Untitled-2"), isClosed: false, getText: () => "# T\n\nB" } as unknown as vscode.TextDocument;
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValueOnce(doc);
+    const importMarkdown = vi.fn(async () => ({ outcome: "merged", title: "T" }));
+    const { docs } = documents(backend({ "knowledge.importMarkdown": importMarkdown }).client);
+    docs.show("inv-1");
+    createdPanels()[0]!.webview.receive({ type: "sop.draft" });
+    await vi.waitFor(() => expect(posted()).toContainEqual(expect.objectContaining({ type: "sop.status", state: "ready", title: "T" })));
+
+    createdPanels()[0]!.webview.receive({ type: "sop.accept" });
+    await vi.waitFor(() => expect(importMarkdown).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(posted()).toContainEqual(expect.objectContaining({ type: "sop.status", state: "ready", message: expect.stringContaining("does not know") })));
+    expect(posted()).not.toContainEqual(expect.objectContaining({ type: "sop.status", state: "added" }));
+  });
+
   it("does not throw on a message of unknown type", () => {
     const { docs } = documents(backend().client);
     docs.show("inv-1");
