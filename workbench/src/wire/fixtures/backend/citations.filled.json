@@ -1,0 +1,18 @@
+{
+  "ref": "x",
+  "cited_in": 1,
+  "recalled_in": 1,
+  "investigations": [
+    {
+      "investigation_id": "x",
+      "title": "x",
+      "status": "x",
+      "cited": true,
+      "last_at": "2026-01-02T03:04:05Z",
+      "acts": 1,
+      "revisions": [
+        1
+      ]
+    }
+  ]
+}

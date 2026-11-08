@@ -114,6 +114,7 @@ func (b *Backend) routes() []route {
 		{"GET /knowledge/reindex", read, b.getReindexKnowledge},
 		{"GET /knowledge/case_summaries", read, b.listCaseSummaries},
 		{"GET /knowledge/case_summaries/{ref}", read, b.getCaseSummary},
+		{"GET /knowledge/case_summaries/{ref}/citations", read, b.listCaseCitations},
 		{"GET /sops", read, b.listSOPs},
 		{"POST /sops", analyst, b.createSOP},
 		{"POST /sops/import", analyst, b.importSOP},
@@ -121,6 +122,7 @@ func (b *Backend) routes() []route {
 		{"GET /sops/{id}", read, withUUID(b.getSOP)},
 		{"GET /sops/{id}/sections", read, withUUID(b.getSOPSections)},
 		{"GET /sops/{id}/sections/{n}", read, withUUID(b.getSOPSection)},
+		{"GET /sops/{id}/citations", read, withUUID(b.listSOPCitations)},
 		{"PUT /sops/{id}", analyst, withUUID(b.updateSOP)},
 		{"DELETE /sops/{id}", analyst, withUUID(b.retireSOP)},
 		// `reckon demo seed` loads the demo knowledge pack; the handler refuses

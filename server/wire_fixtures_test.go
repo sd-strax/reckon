@@ -75,13 +75,14 @@ func TestWireFixtures(t *testing.T) {
 	wirefixture.Check[InvestigationCallsResponse](t, dir, "investigationCalls")
 	wirefixture.Check[CapabilityCallView](t, dir, "capabilityCall")
 	wirefixture.Check[ActionRecordView](t, dir, "actionRecord")
-	wirefixture.Check[knowledge.CaseSummaryView](t, dir, "caseSummary")
+	wirefixture.Check[CaseSummaryDetail](t, dir, "caseSummary")
 	wirefixture.Check[struct {
-		SOPs []knowledge.SOP `json:"sops"`
+		SOPs []SOPRow `json:"sops"`
 	}](t, dir, "sops")
 	wirefixture.Check[struct {
-		CaseSummaries []knowledge.CaseSummaryView `json:"case_summaries"`
+		CaseSummaries []CaseSummaryRow `json:"case_summaries"`
 	}](t, dir, "caseSummaries")
+	wirefixture.Check[KnowledgeCitationsResponse](t, dir, "citations")
 	wirefixture.Check[knowledge.RecallResult](t, dir, "recallSOPs")
 	wirefixture.Check[knowledge.SimilarResult](t, dir, "recallSimilar")
 	wirefixture.Check[knowledge.SOP](t, dir, "sop")

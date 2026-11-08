@@ -38,6 +38,8 @@ type readModel interface {
 	ListPendingActionCurrents(ctx context.Context) ([]aggregate.ActionCurrent, error)
 	ListPredictions(ctx context.Context, aggregateID uuid.UUID) ([]aggregate.PredictionCurrent, error)
 	ListRefAppearances(ctx context.Context, ref string) ([]aggregate.RefAppearance, error)
+	ListKnowledgeCitations(ctx context.Context, ref string) ([]aggregate.KnowledgeCitation, error)
+	CitationCounts(ctx context.Context, refs []string) (map[string]aggregate.CitationCount, error)
 	ListStrandedActionCurrents(ctx context.Context) ([]aggregate.ActionCurrent, error)
 	LoadActionCurrent(ctx context.Context, actionID uuid.UUID) (aggregate.ActionCurrent, error)
 	LoadInterpretation(ctx context.Context, id uuid.UUID) (aggregate.InterpretationRecorded, error)
@@ -89,6 +91,7 @@ type knowledgeStore interface {
 	Get(ctx context.Context, tenantID, id uuid.UUID) (knowledge.SOP, error)
 	Import(ctx context.Context, sop knowledge.SOP) (uuid.UUID, knowledge.ImportOutcome, error)
 	List(ctx context.Context, tenantID uuid.UUID, includeRetired bool) ([]knowledge.SOP, error)
+	ListBySource(ctx context.Context, tenantID uuid.UUID, prefix string) ([]knowledge.SOP, error)
 	Retire(ctx context.Context, tenantID, id uuid.UUID) error
 	Update(ctx context.Context, tenantID, id uuid.UUID, title, body string, tags []string, recommendation string) error
 	RecallSOPs(ctx context.Context, tenantID uuid.UUID, req knowledge.RecallRequest) (knowledge.RecallResult, error)
