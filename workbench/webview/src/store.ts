@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a snapshot or patch older than
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, SOPDoc } from "../../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, SOPDoc } from "../../src/viewTypes";
 import type { ActionTypeView, InvestigationSnapshot, LibraryItem, RenderMessage, SopDraftState } from "../../src/protocol";
 
 export interface LiveToolResult {
@@ -75,6 +75,8 @@ export interface State {
   transcripts: Record<string, string>;
   actionRecords: Record<string, ActionRecord>;
   caseSummaries: Record<string, CaseSummaryView | null>;
+  /** Where a procedure (by sop id) or a past case (by ref) was consulted across investigations (adr/0109). */
+  citations: Record<string, KnowledgeCitations>;
   /** Capability calls by id (adr/0092), and the retrieved events around an opened event. */
   calls: Record<string, CapabilityCall>;
   around: Record<string, EventRow[]>;
@@ -115,6 +117,7 @@ export const initialState: State = {
   transcripts: {},
   actionRecords: {},
   caseSummaries: {},
+  citations: {},
   calls: {},
   around: {},
   repeats: {},
@@ -259,13 +262,13 @@ function onMessage(state: State, msg: RenderMessage): State {
       // The pane is named by the verb (derive/inspect.ts targetName).
       return { ...state, calls: { ...state.calls, [msg.callId]: msg.call }, labels: { ...state.labels, ["call:" + msg.callId]: msg.call.verb }, inspectorErrors: dropKey(state.inspectorErrors, msg.callId) };
     case "inspector.procedure":
-      return { ...state, sops: { ...state.sops, [msg.sopId]: msg.sop }, inspectorErrors: dropKey(state.inspectorErrors, msg.sopId) };
+      return { ...state, sops: { ...state.sops, [msg.sopId]: msg.sop }, citations: withCitations(state.citations, msg.sopId, msg.citations), inspectorErrors: dropKey(state.inspectorErrors, msg.sopId) };
     case "inspector.turn":
       return { ...state, transcripts: { ...state.transcripts, [msg.interpretationId]: msg.body }, inspectorErrors: dropKey(state.inspectorErrors, msg.interpretationId) };
     case "inspector.action":
       return { ...state, actionRecords: { ...state.actionRecords, [msg.actionId]: msg.record }, inspectorErrors: dropKey(state.inspectorErrors, msg.actionId) };
     case "inspector.case":
-      return { ...state, caseSummaries: { ...state.caseSummaries, [msg.investigationRef]: msg.summary }, inspectorErrors: dropKey(state.inspectorErrors, msg.investigationRef) };
+      return { ...state, caseSummaries: { ...state.caseSummaries, [msg.investigationRef]: msg.summary }, citations: withCitations(state.citations, msg.investigationRef, msg.citations), inspectorErrors: dropKey(state.inspectorErrors, msg.investigationRef) };
     case "action.settled":
       return { ...state, actionsInFlight: dropKey(state.actionsInFlight, msg.actionId) };
     case "inspector.error":
@@ -331,5 +334,10 @@ function dropKey<T>(m: Record<string, T>, k: string): Record<string, T> {
   if (!(k in m)) return m;
   const { [k]: _dropped, ...rest } = m;
   return rest;
+}
+
+/** The citations an inspector answer carried, kept under its key; an answer without them (the read failed) drops a stale entry. */
+function withCitations(m: Record<string, KnowledgeCitations>, k: string, c: KnowledgeCitations | undefined): Record<string, KnowledgeCitations> {
+  return c ? { ...m, [k]: c } : dropKey(m, k);
 }
 

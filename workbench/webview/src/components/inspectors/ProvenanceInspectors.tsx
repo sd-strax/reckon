@@ -10,7 +10,47 @@ import { ToolRow } from "../ToolRow";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
 import { received } from "../../derive/knowledgeUse";
 import { relevanceOfBand } from "../../../../src/relevance";
-import type { ThreadActor } from "../../../../src/viewTypes";
+import type { KnowledgeCitations, ThreadActor } from "../../../../src/viewTypes";
+
+/**
+ * Where a procedure or a past case was consulted in other investigations
+ * (adr/0109): one row each, in adr/0236's two words — "cited" when an act
+ * there named it by ref, "recalled, not cited" otherwise. The current
+ * investigation is left out; "In this case" above already says what happened
+ * here. A row opens that investigation.
+ */
+function CitedElsewhere({ citations, here, arrived }: { citations: KnowledgeCitations | undefined; here: string | undefined; arrived: boolean }) {
+  const { send } = useApp();
+  // Three states: the inspector's answer is still in flight; it came without
+  // citations (that read failed); it came with them.
+  if (!arrived) return <Loading what="where it was consulted" />;
+  if (!citations) return <div className="empty">Where this was consulted elsewhere could not be read.</div>;
+  const rows = citations.investigations.filter((c) => !sameInvestigation(c.investigationId, here));
+  if (!rows.length) return <div className="empty">Not consulted in any other investigation.</div>;
+  return (
+    <>
+      {rows.map((c) => (
+        <div key={c.investigationId} className="irow">
+          {c.cited ? "cited" : "recalled, not cited"}: <a onClick={() => send({ type: "investigation.open", id: c.investigationId, title: c.title })}>{c.title || c.investigationId}</a>
+          <span className="imeta">{" · "}{c.status.toLowerCase()} · {fmtDateTime(c.lastAt)}{c.acts > 1 ? ` · ${c.acts} turns` : ""}{c.revisions.length ? ` · revision ${c.revisions.join(", ")}` : ""}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** A citation row names the aggregate id; a snapshot or a case ref may carry the `grouping--` prefix. */
+function sameInvestigation(a: string, b: string | undefined): boolean {
+  return b !== undefined && a.replace(/^grouping--/, "") === b.replace(/^grouping--/, "");
+}
+
+/** The tab label: the count of other investigations the ref was consulted in. */
+function citedLabel(citations: KnowledgeCitations | undefined, here: string | undefined): string {
+  if (!citations) return "Cited elsewhere";
+  const others = citations.investigations.filter((c) => !sameInvestigation(c.investigationId, here));
+  const cited = others.filter((c) => c.cited).length;
+  return `Cited elsewhere · ${cited} of ${others.length}`;
+}
 
 export function TurnInspector({ interpretationId }: { interpretationId: string }) {
   const { state, openInspector } = useApp();
@@ -116,6 +156,8 @@ export function ActInspector({ interpretationId }: { interpretationId: string })
 export function CaseInspector({ investigationRef }: { investigationRef: string }) {
   const { state, send, openInspector } = useApp();
   const summary = state.caseSummaries[investigationRef];
+  const citations = state.citations[investigationRef];
+  const here = state.snap?.investigation.id;
   // How this case was used here (#132): only what the agent's recalls carried.
   const got = received(state.snap, "case", investigationRef);
   const match = got.find((g) => g.band || g.rationale);
@@ -147,9 +189,15 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
                     { k: "Verdict", v: summary.verdictDisposition ? `${summary.verdictDisposition}${summary.verdictRationale ? " — " + summary.verdictRationale : ""}` : undefined },
                   ]} />
                 </Section>
+                <Section title="Procedures learned from this case">
+                  {summary.learnedProcedures.length
+                    ? summary.learnedProcedures.map((p) => <div key={p.id} className="irow"><a onClick={() => openInspector({ kind: "sop", sopId: p.id })}>{p.title || p.id}</a></div>)
+                    : <div className="empty">none accepted into the library from this case</div>}
+                </Section>
               </>
             )
         ) },
+        { id: "cited", label: citedLabel(citations, here), body: () => <CitedElsewhere citations={citations} here={here} arrived={summary !== undefined} /> },
         { id: "read", label: "What the agent read", body: () => (
           got.length ? got.map((g, i) => (
             <div key={i}>
@@ -170,6 +218,8 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
 export function ProcedureInspector({ sopId }: { sopId: string }) {
   const { state, openInspector } = useApp();
   const sop = state.sops[sopId];
+  const citations = state.citations[sopId];
+  const here = state.snap?.investigation.id;
   const got = received(state.snap, "sop", sopId);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSops || []).filter((s) => s.sopId === sopId).map((s) => ({ e, s })));
   const ledTo = (state.snap?.actions || []).filter((a) => consulted.some(({ e }) => (e.outputRefs || []).includes(a.actionId)));
@@ -204,6 +254,7 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
             </>
           )
         ) },
+        { id: "cited", label: citedLabel(citations, here), body: () => <CitedElsewhere citations={citations} here={here} arrived={sop !== undefined} /> },
       ]} />
     </>
   );

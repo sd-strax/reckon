@@ -483,9 +483,10 @@ export const caseSummary = object({
   tags: list(str),
   revision: num,
   content_hash: optional(str),
+  learned_procedures: list(object({ id: str, title: str })),
 });
 
-export const sops = object({ sops: list(object({ id: str, title: str, tags: list(str) })) });
+export const sops = object({ sops: list(object({ id: str, title: str, tags: list(str), cited_in: num })) });
 
 export const caseSummaries = object({
   case_summaries: list(object({
@@ -493,6 +494,23 @@ export const caseSummaries = object({
     title: str,
     verdict_disposition: optional(str),
     conclusion_at: optional(str),
+    cited_in: num,
+  })),
+});
+
+/** GET /api/sops/{id}/citations and /api/knowledge/case_summaries/{ref}/citations (adr/0109). */
+export const citations = object({
+  ref: str,
+  cited_in: num,
+  recalled_in: num,
+  investigations: list(object({
+    investigation_id: str,
+    title: str,
+    status: str,
+    cited: bool,
+    last_at: str,
+    acts: num,
+    revisions: list(num),
   })),
 });
 

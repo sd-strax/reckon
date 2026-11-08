@@ -258,6 +258,29 @@ export interface CaseSummaryView {
   tags: string[];
   revision: number;
   contentHash?: string;
+  /** Procedures accepted into the library from this case (source reckon://investigation/<id>, adr/0109). */
+  learnedProcedures: { id: string; title: string }[];
+}
+
+/**
+ * Where a procedure or a past case was consulted across investigations
+ * (mirrors server.KnowledgeCitationsResponse, adr/0109): one row per
+ * investigation, "cited" when any act there named it by ref (adr/0236).
+ */
+export interface KnowledgeCitations {
+  ref: string;
+  citedIn: number;
+  recalledIn: number;
+  investigations: {
+    investigationId: string;
+    title: string;
+    status: string;
+    cited: boolean;
+    lastAt: string;
+    acts: number;
+    /** The SOP revisions the acts had in front of them; empty for a case. */
+    revisions: number[];
+  }[];
 }
 
 /** One procedure (mirrors knowledge.SOP, the fields the inspector shows). */

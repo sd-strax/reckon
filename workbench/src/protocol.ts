@@ -29,6 +29,7 @@ import type {
   Hypothesis,
   InvestigationDetail,
   InvestigationSummary,
+  KnowledgeCitations,
   PinRow,
   SOPDoc,
   ThreadEntry,
@@ -69,6 +70,8 @@ export interface LibraryItem {
   detail?: string;
   /** On a search hit: "close match" | "related" | "loosely related". */
   relevance?: string;
+  /** On a browse row: distinct investigations with an act that cited it (adr/0109). */
+  citedIn?: number;
 }
 
 /** An action type the analyst may request (#146): its name and its own fields. */
@@ -199,11 +202,13 @@ export type RenderMessage =
   // `around` is the window of retrieved events on the same entity (adr/0092); empty when the record has none.
   | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; appearances: Appearance[]; around?: EventRow[]; repeats?: EventRepeats }
   | { type: "inspector.call"; callId: string; call: CapabilityCall }
-  | { type: "inspector.procedure"; sopId: string; sop: SOPDoc }
+  // citations is where the ref was consulted across investigations (adr/0109);
+  // absent when that read failed, so the document still opens.
+  | { type: "inspector.procedure"; sopId: string; sop: SOPDoc; citations?: KnowledgeCitations }
   | { type: "inspector.turn"; interpretationId: string; body: string }
   | { type: "inspector.action"; actionId: string; record: ActionRecord }
   // summary is null when the corpus holds none for the ref (an honest gap).
-  | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null }
+  | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null; citations?: KnowledgeCitations }
   | { type: "inspector.error"; target: string; message: string }
   // The action types the analyst can request directly (#146): available ones only.
   | { type: "actionTypes"; types: ActionTypeView[] }
