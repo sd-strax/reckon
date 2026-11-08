@@ -370,6 +370,32 @@ func (s *Store) List(ctx context.Context, tenantID uuid.UUID, includeRetired boo
 	return out, nil
 }
 
+// InvestigationSourcePrefix is the source url of a SOP drafted from a concluded
+// investigation and accepted into the library (adr/0156): the prefix followed
+// by the investigation's id. The lineage key of that accept path, and the join
+// behind "procedures learned from this case" (adr/0109).
+const InvestigationSourcePrefix = "reckon://investigation/"
+
+// ListBySource returns the current, unretired SOPs whose source url starts
+// with prefix, newest first: with InvestigationSourcePrefix and an id, the
+// procedures learned from that investigation.
+func (s *Store) ListBySource(ctx context.Context, tenantID uuid.UUID, prefix string) ([]SOP, error) {
+	if prefix == "" {
+		return nil, fmt.Errorf("ListBySource: prefix required")
+	}
+	all, err := s.List(ctx, tenantID, false)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SOP, 0)
+	for _, sop := range all {
+		if sop.Source != nil && strings.HasPrefix(sop.Source.URL, prefix) {
+			out = append(out, sop)
+		}
+	}
+	return out, nil
+}
+
 // Update replaces the editable fields of a SOP as a new revision, keeping its
 // lineage id (the prior revision's content stays hash-addressable). A retired
 // SOP cannot be updated.
