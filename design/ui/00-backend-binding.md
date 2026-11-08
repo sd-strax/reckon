@@ -326,6 +326,10 @@ Motivated by the knowledge surfaces (`ui/09`, `adr/0084`), not yet built:
 22. **Citation counts and where-used** — for a procedure or a past case, the investigations
     that consulted it and whether each applied it, from the `consulted_*` provenance on
     interpretations (`00 §6.9`), as a fold across investigations (`ui/09 §9.3`).
+    *Built: `adr/0109`, the `knowledge_citations` projection; `GET /api/sops/{id}/citations`
+    and `GET /api/knowledge/case_summaries/{ref}/citations` (one row per investigation,
+    "cited" or "recalled, not cited", never "applied"), `cited_in` on the list rows, and
+    `learned_procedures` on the case detail.*
 23. **Ask outside an investigation** — an agent session not bound to an investigation,
     whose only tools are the two recall calls, which answers with citations and records
     nothing in any investigation (`ui/09 §9.2`). Same client-side loop and model key as

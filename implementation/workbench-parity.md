@@ -150,6 +150,7 @@ behaviors kept, C4–C7 the section's additions from `09`.
 | L4 | Attestation (`note`) and null observation (`x-null-observation`) titled as human statement / "Nothing observed: … (coverage complete)" | `<AttestationInspector>` (the statement, who said it, who recorded it, the question it answers) and `<AbsenceInspector>` (Search · Provenance · Raw, re-run wider) | [h] |
 | L5 | Transcript opens for a thread step | *superseded*: `<TurnInspector>` Answer · Tool calls · Consulted · Transcript | [h] |
 | L6 | Every ref type the current chips can carry opens something: event, observed-data, null observation, indicator / sighting, note, prediction, hypothesis, entity types | every ref type resolves to a renderer (`derive/inspect.ts`): evidence, entity, absence, detection (with `related`), attestation, prediction, hypothesis, alias; action, thread, case, turn, person, procedure by target kind | [h] |
+| L7 | Procedure and case inspectors: "Cited elsewhere" (one row per other investigation, "cited" / "recalled, not cited", opens it); "Procedures learned from this case" on the case Summary; "cited in N investigations" on Library rows (`adr/0109`) | `<CitedElsewhere>` tab in `ProvenanceInspectors.tsx`; `citations` on `inspector.procedure` / `inspector.case`; `citedIn` on `LibraryItem` | [h] |
 
 ## M. Infrastructure
 
