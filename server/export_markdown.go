@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/capability/ocsfview"
 )
 
@@ -424,8 +425,8 @@ func (rl *refLabeler) resolve(ref string) string {
 	}
 	// The event's sentence (adr/0090) when its class has one, the class name
 	// otherwise; the time stays, the export is read without a timeline. An
-	// encoded command line's decoded text follows (adr/0300), clipped: the
-	// inspector shows the whole.
+	// encoded command line follows as stored, with its decoded text beside it
+	// (adr/0300).
 	label := e.ClassName
 	// The view renders without entities too (the inspector does the same when
 	// none resolve), so a failed entity read costs the chips, not the view.
@@ -434,27 +435,45 @@ func (rl *refLabeler) resolve(ref string) string {
 	if len(v.Sentence) > 0 {
 		label = sentenceText(v)
 	}
-	label += decodedSuffix(v)
+	label += decodedSuffix(v, e.Payload)
 	return fmt.Sprintf("%s @ %s", label, e.Time.UTC().Format("15:04:05Z"))
 }
 
 // exportDecodedMax bounds the decoded text on an export line.
 const exportDecodedMax = 160
 
-// decodedSuffix is the export's rendering of a view's decoded command line:
-// the encoding named, the text on one line and clipped, empty when there is
-// none. The label lands inside a backtick code span, and decoded text is the
-// attacker's: a backtick in it would close the span and let the rest render
-// as markup, so backticks become straight quotes.
-func decodedSuffix(v ocsfview.View) string {
+// decodedSuffix is the export's rendering of a view's decoded command line,
+// empty when there is none: the field as stored, named, then the decoded text
+// with its encoding named. The sentence never carries the command line, so the
+// stored value goes here whole: it is the fact, and a reader verifies the
+// decode from it. The decoded text is clipped; the inspector shows the whole.
+// Both land inside a backtick code span and both are the attacker's text: a
+// backtick would close the span and let the rest render as markup, so
+// backticks become straight quotes.
+func decodedSuffix(v ocsfview.View, payload []byte) string {
 	if v.Decoded == nil {
 		return ""
 	}
-	text := strings.Join(strings.Fields(strings.ReplaceAll(v.Decoded.Text, "`", "'")), " ")
+	var out strings.Builder
+	var p map[string]any
+	_ = json.Unmarshal(payload, &p)
+	if stored, ok := capability.LookupPath(p, v.Decoded.Field); ok {
+		if s, _ := stored.(string); s != "" {
+			out.WriteString(" · " + v.Decoded.Field + ": " + spanSafe(s))
+		}
+	}
+	text := spanSafe(v.Decoded.Text)
 	if r := []rune(text); len(r) > exportDecodedMax {
 		text = string(r[:exportDecodedMax-1]) + "…"
 	}
-	return " · decoded (" + v.Decoded.Encoding + "): " + text
+	out.WriteString(" · decoded (" + v.Decoded.Encoding + "): " + text)
+	return out.String()
+}
+
+// spanSafe puts text on one line inside a backtick code span: whitespace
+// collapsed, backticks replaced by straight quotes.
+func spanSafe(text string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(text, "`", "'")), " ")
 }
 
 // sentenceText is a view's sentence as plain text, for surfaces without chips.

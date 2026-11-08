@@ -33,16 +33,24 @@ beside it, labelled.
 templates from `process.cmd_line` and `job.command_line`. One decode per
 view. Every surface that renders the view carries it: the evidence inspector
 in a "Decoded command line" section under the summary, the export's cited
-event line as a clipped suffix naming the encoding. The Story timeline's row
+event line as a suffix carrying the field as stored and then the decoded
+text with its encoding named. The Story timeline's row
 shows the sentence, which never carries the command line, and is untouched.
 The layout table's row is amended to say so.
 
 **Only when it decodes cleanly.** A decoder that guesses puts plausible
 garbage next to evidence. The encodings are a closed list, each with an
-exact test: `base64-utf16le`, PowerShell's, anchored on its flag in any
-spelling PowerShell accepts (`-e`, `-ec`, `-enc`, `-EncodedCommand`, with a
-dash or a slash) on a line that has named PowerShell before it, so another
-tool's `-e` means nothing; an even byte count, well-formed code units, and
+exact test: `base64-utf16le`, PowerShell's, found where PowerShell's own
+command-line grammar puts it and nowhere else: PowerShell invoked as the
+program (the first word of the line, or the word a Windows shell launches
+after `/c`, `start` or a chain operator), then its host options, each
+option's value stepped over, until `-File`, `-Command`, a lone dash or a bare
+word ends them and the rest of the line is the script's own arguments; the
+switch itself in any spelling PowerShell accepts (`-e`, `-ec`, `-enc`,
+`-EncodedCommand`, a dash or a slash, an optional second dash as PowerShell
+strips one). So another tool's `-e`, a `-e` after `-File`, and PowerShell
+named as data on someone else's command line all mean nothing. The token
+must then be an even byte count, well-formed code units, and
 text that is at least three quarters ASCII, since a PowerShell command is
 and a short run of random bytes read as UTF-16 is not (it lands in the
 graphic ideographic planes and would otherwise pass as text); and `base64`,
@@ -61,12 +69,16 @@ capability results, not the inspector's rendering, so nothing model-facing
 changes (`adr/0232`); giving the agent the decoded text is a later step
 through a capability result, not through this view.
 
-**The export escapes it.** The decoded text is the attacker's and the
-export's cited-event line sits in a code span; a backtick in the text would
-close the span and let the rest render as markup, so the export replaces
-backticks with straight quotes and clips the line. The view renders with or
-without resolved entities, so a failed entity read costs the export its
-chips, never the decoded text.
+**The export carries the original too, and escapes both.** The sentence
+names the program and never the command line, and the export renders no
+field list, so beside the decoded text the cited-event line carries the
+field as stored, named, and whole: it is the fact, and a reader verifies the
+decode from it. The decoded text is clipped; the inspector shows the whole.
+Both are the attacker's text and the line sits in a code span; a backtick
+would close the span and let the rest render as markup, so the export
+replaces backticks with straight quotes. The view renders with or without
+resolved entities, so a failed entity read costs the export its chips, never
+the command line or its decode.
 
 ## Alternatives rejected
 
@@ -87,7 +99,11 @@ chips, never the decoded text.
 
 - An encoded command line reads decoded in the inspector and the export,
   with the encoding and the field named and the original beside it.
-- A command line that does not decode cleanly looks exactly as before.
+- A command line that does not decode cleanly looks exactly as before. So
+  does one where PowerShell is the value of another program's option, as in
+  a task scheduler's `/tr`: that process line decodes nothing, and the
+  scheduled job's own command-line field, which carries the PowerShell
+  invocation as the program, is where the decode appears.
 - The view's JSON grows by one optional object; no storage changes.
 - A further encoding, if one proves common, is one exact test added to the
   closed list and to the tests of innocent command lines that must not

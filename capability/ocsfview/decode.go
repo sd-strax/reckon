@@ -33,27 +33,22 @@ const (
 const minBase64Token = 16
 
 // decodeCommandLine finds the one encoded argument in a command line and reads
-// it back. PowerShell's encoded command is tried first: a flag PowerShell
-// accepts (any prefix of -EncodedCommand from -e on, or -ec), on a line where
-// PowerShell has been named before it, so another tool's -e means nothing here;
-// its argument as base64 of UTF-16LE. A flagged token that is not UTF-16LE is
-// not a PowerShell command and gets no second guess. Then each other bare
-// token long enough to be meant as a blob is tried as base64 of UTF-8. The
-// first clean decode wins.
+// it back. PowerShell's encoded command is tried first, and only where
+// PowerShell's own command-line grammar puts it: PowerShell invoked as the
+// program (the first word, or the word a shell launches), then its host
+// options, which end at -File, -Command or a lone dash, after which every word
+// belongs to the script. The encoded-command switch there, in any spelling
+// PowerShell accepts, names a base64 token of UTF-16LE. A flagged token that is
+// not UTF-16LE is not a PowerShell command and gets no second guess. Then each
+// other bare token long enough to be meant as a blob is tried as base64 of
+// UTF-8. The first clean decode wins.
 func decodeCommandLine(cmd string) (encoding, text string, ok bool) {
 	tokens := strings.Fields(cmd)
 	flagged := -1
-	powershell := false
-	for i, tok := range tokens {
-		if isPowerShell(unquote(tok)) {
-			powershell = true
-		}
-		if powershell && isEncodedCommandFlag(tok) && i+1 < len(tokens) {
-			flagged = i + 1
-			if text, ok := decodeUTF16LE(unquote(tokens[i+1])); ok {
-				return EncodingBase64UTF16LE, text, true
-			}
-			break
+	if at := powerShellEncodedArgument(tokens); at >= 0 {
+		flagged = at
+		if text, ok := decodeUTF16LE(unquote(tokens[at])); ok {
+			return EncodingBase64UTF16LE, text, true
 		}
 	}
 	for i, tok := range tokens {
@@ -71,6 +66,66 @@ func decodeCommandLine(cmd string) (encoding, text string, ok bool) {
 	return "", "", false
 }
 
+// powerShellEncodedArgument is the index of the token PowerShell would read as
+// its encoded command, or -1. It walks PowerShell's host options from the
+// invocation, consuming the value of each option that takes one, and stops
+// where the host options end: -File, -Command, a lone dash, or a word that is
+// no option and no option's value (PowerShell reads it as the file or the
+// command, and the rest of the line as that script's own arguments).
+func powerShellEncodedArgument(tokens []string) int {
+	start := powerShellInvocation(tokens)
+	if start < 0 {
+		return -1
+	}
+	for i := start + 1; i < len(tokens); i++ {
+		name, isSwitch := powerShellSwitch(tokens[i])
+		if !isSwitch {
+			return -1
+		}
+		switch classifySwitch(name) {
+		case switchEncodedCommand:
+			if i+1 < len(tokens) {
+				return i + 1
+			}
+			return -1
+		case switchEndsOptions:
+			return -1
+		case switchTakesValue:
+			i++
+		case switchFlag:
+			// takes no value; the walk continues
+		}
+	}
+	return -1
+}
+
+// powerShellInvocation is the index of the token that invokes PowerShell as
+// the program, or -1: the first word of the line, or the word a Windows shell
+// launches (after cmd's /c, /k or /r, after start or call, or after a chain
+// operator). PowerShell named anywhere else is data on someone else's command
+// line, and its words are not PowerShell's options.
+func powerShellInvocation(tokens []string) int {
+	for i, tok := range tokens {
+		if !isPowerShell(unquote(tok)) {
+			continue
+		}
+		if i == 0 || launchesNext(tokens[i-1]) {
+			return i
+		}
+	}
+	return -1
+}
+
+// launchesNext reports whether a Windows shell reads the token after this one
+// as a program to run.
+func launchesNext(tok string) bool {
+	switch strings.ToLower(unquote(tok)) {
+	case "/c", "/k", "/r", "start", "call", "&&", "||", "|", ";", "&":
+		return true
+	}
+	return false
+}
+
 // isPowerShell recognises the PowerShell program by its name, with or without
 // a path and an extension: powershell, powershell_ise, pwsh.
 func isPowerShell(tok string) bool {
@@ -82,17 +137,72 @@ func isPowerShell(tok string) bool {
 	return name == "powershell" || name == "powershell_ise" || name == "pwsh"
 }
 
-// isEncodedCommandFlag recognises PowerShell's encoded-command switch: a dash
-// or slash, then a non-empty prefix of "encodedcommand" or the documented
-// short form "ec", case-insensitively (-e, -ec, -enc, -EncodedCommand all name
-// it).
-func isEncodedCommandFlag(tok string) bool {
-	if len(tok) < 2 || (tok[0] != '-' && tok[0] != '/') {
-		return false
+// powerShellSwitch reads a token as one of PowerShell's switches: a dash or a
+// slash, an optional second dash (PowerShell strips one before matching, so
+// --EncodedCommand is accepted), then the lower-cased name. A lone dash is the
+// switch that reads the command from standard input; it is returned as an
+// empty name. Anything else is not a switch.
+func powerShellSwitch(tok string) (name string, ok bool) {
+	tok = unquote(tok)
+	if tok == "" || (tok[0] != '-' && tok[0] != '/') {
+		return "", false
 	}
-	name := strings.ToLower(tok[1:])
-	const full = "encodedcommand"
-	return name == "ec" || (name != "" && len(name) <= len(full) && full[:len(name)] == name)
+	name = strings.ToLower(strings.TrimPrefix(tok[1:], "-"))
+	return name, true
+}
+
+// switchKind is how a PowerShell switch bears on finding the encoded command.
+type switchKind int
+
+const (
+	switchFlag           switchKind = iota // takes no value; skip it
+	switchTakesValue                       // takes the next token as its value
+	switchEndsOptions                      // -File, -Command, a lone dash: the rest is the script's
+	switchEncodedCommand                   // the next token is the encoded command
+)
+
+// classifySwitch names what PowerShell does with a switch, by the switch names
+// and shortest abbreviations its parser accepts. A name that matches nothing is
+// a flag: it takes no value and the walk continues.
+func classifySwitch(name string) switchKind {
+	switch {
+	case name == "":
+		return switchEndsOptions
+	case name == "ec", abbreviates(name, "encodedcommand", "e"):
+		return switchEncodedCommand
+	case abbreviates(name, "file", "f"), abbreviates(name, "command", "c"):
+		return switchEndsOptions
+	}
+	for _, opt := range valueSwitches {
+		if abbreviates(name, opt.full, opt.min) {
+			return switchTakesValue
+		}
+	}
+	return switchFlag
+}
+
+// valueSwitches are PowerShell's host options that take a value, with the
+// shortest abbreviation PowerShell accepts for each, so the value is stepped
+// over rather than read as the end of the options.
+var valueSwitches = []struct{ full, min string }{
+	{"executionpolicy", "ex"},
+	{"windowstyle", "w"},
+	{"inputformat", "inp"},
+	{"outputformat", "o"},
+	{"version", "v"},
+	{"psconsolefile", "psc"},
+	{"configurationname", "config"},
+	{"configurationfile", "configurationfile"},
+	{"workingdirectory", "wd"},
+	{"settingsfile", "settings"},
+	{"custompipename", "cus"},
+	{"encodedarguments", "encodeda"},
+}
+
+// abbreviates reports whether name is a prefix of full no shorter than min,
+// which is how PowerShell matches a switch.
+func abbreviates(name, full, min string) bool {
+	return len(name) >= len(min) && len(name) <= len(full) && full[:len(name)] == name
 }
 
 // decodeUTF16LE reads a base64 token as UTF-16LE text: an even number of
