@@ -73,12 +73,17 @@ structured facts. Both were weighed against the record as it is.
     framed by hand, a prediction result or a verdict recorded between turns
     has no transcript, and a context reset discards the earlier turns. So
     the draft reads the record now, the investigation's lifecycle and
-    verdict, the hypothesis set and the action record, and the request
-    carries them ahead of the instruction as a turn's `[engine]` blocks do
-    (the clock, a record header `sideNarrativeRecord`, then the
-    reasoning-state and engine-state blocks the turn loop already renders).
-    A failed read fails the draft: a draft over a partial record would state
-    less than the record holds, stamped as current.
+    verdict, the hypothesis set, the action record and the thread, and the
+    request carries them ahead of the instruction as a turn's `[engine]`
+    blocks do: the clock, a record header (`sideNarrativeRecord`), the
+    reasoning-state and engine-state blocks the turn loop already renders,
+    then the content those two tally: the thread's acts, oldest first, each
+    as its author recorded it with a verdict's disposition and a superseded
+    mark (the most recent 40, rationale clipped), and every prediction with
+    its statement, outcome, evidence refs and a person's attestation
+    (`agent/narrative_record.go`). A failed read fails the draft: a draft
+    over a partial record would state less than the record holds, stamped
+    as current.
   - **Emptiness is judged against the record.** With no conversation and
     nothing recorded beyond the seed (no act on the thread but a context
     reset marker, no hypothesis, no action) it refuses rather than narrate
@@ -87,11 +92,10 @@ structured facts. Both were weighed against the record as it is.
     from the record's state alone.
   - The sidecar method is `draftNarrative {session_id}` → `{revision,
     chars}`, holding the session like a turn. The side instruction and the
-    record header join the ledger ([0232](0232-model-facing-text.md));
-    `SideInstructionVersion` moves from `a1bd6f38…` to `ba2bfd37…` and the
-    component golden gains `side/narrative` and `side/narrative-record`
-    with its verdict renderings. No baseline rerun: no eval assertion grades
-    the side products.
+    grounding blocks' texts join the ledger ([0232](0232-model-facing-text.md));
+    `SideInstructionVersion` moves from `a1bd6f38…` to `efb1378e…` and the
+    component golden gains `side/narrative` and the `side/narrative-*`
+    entries. No baseline rerun: no eval assertion grades the side products.
 - **The analyst's revision is a plain write on the human token.** The
   workbench posts `narrative.edit {body}`, the host calls the route with the
   person's token, and the record attributes the revision to them.

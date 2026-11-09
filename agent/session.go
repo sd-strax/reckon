@@ -839,9 +839,11 @@ type narrativeRecord struct {
 }
 
 // narrativeRecord reads the investigation, its hypotheses, its actions and
-// its thread, and renders the engine-state blocks for the draft. Every read
-// must succeed: a draft grounded on a partial record would state less than
-// the record holds, stamped as current.
+// its thread, and renders the blocks for the draft: the clock and the
+// record header, the turn loop's reasoning-state and action blocks, then
+// the thread's acts and every prediction with its statement and evidence
+// (narrative_record.go). Every read must succeed: a draft grounded on a
+// partial record would state less than the record holds, stamped as current.
 func (s *Session) narrativeRecord(ctx context.Context) (narrativeRecord, error) {
 	inv, err := s.backend.GetInvestigation(ctx, s.investigationID)
 	if err != nil {
@@ -880,11 +882,12 @@ func (s *Session) narrativeRecord(ctx context.Context) (narrativeRecord, error) 
 		rec.blocks = append(rec.blocks, TextBlock(ab))
 		rec.hasActs = true
 	}
-	for _, e := range thread {
-		if e.InterpretationType != interpretationContextReset {
-			rec.hasActs = true
-			break
-		}
+	if tb := narrativeActsBlock(thread); tb != "" {
+		rec.blocks = append(rec.blocks, TextBlock(tb))
+		rec.hasActs = true
+	}
+	if pb := narrativeTestsBlock(hyps); pb != "" {
+		rec.blocks = append(rec.blocks, TextBlock(pb))
 	}
 	return rec, nil
 }

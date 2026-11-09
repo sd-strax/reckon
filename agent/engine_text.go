@@ -190,6 +190,35 @@ var (
 	// sideNarrativeNoVerdict renders the absence of a verdict.
 	sideNarrativeNoVerdict = modelText{ID: "narrative-record-no-verdict", Origin: "#103",
 		Text: "none yet"}
+	// sideNarrativeActs carries the committed reasoning thread into the
+	// draft: each act's type, author and rationale as recorded, a verdict's
+	// disposition, and whether a later act retracted it. A finding pinned by
+	// hand or a verdict recorded between turns has no transcript, and the
+	// draft runs with no tools, so what the record states must be in the
+	// request or it is not in the draft (narrative_record.go).
+	sideNarrativeActs = modelText{ID: "narrative-acts", Origin: "#103",
+		Text: "[record acts — the committed reasoning thread, oldest first, each as its author recorded it; an act marked superseded was retracted by a later one and is not current:\n%s]"}
+	sideNarrativeAct = modelText{ID: "narrative-act", Origin: "#103",
+		Text: "#%d %s by %s%s%s: %s"}
+	sideNarrativeActDisposition = modelText{ID: "narrative-act-disposition", Origin: "#103",
+		Text: " %s"}
+	sideNarrativeActSuperseded = modelText{ID: "narrative-act-superseded", Origin: "#103",
+		Text: " [superseded]"}
+	sideNarrativeActsElided = modelText{ID: "narrative-acts-elided", Origin: "#103",
+		Text: "… %d earlier acts not shown"}
+	sideNarrativeLine = modelText{ID: "narrative-line", Origin: "#103",
+		Text: "\n"}
+	// sideNarrativeTests carries every prediction with its statement and
+	// outcome, which the reasoning-state block tallies only, with the
+	// evidence it cites and a person's attestation when one decided it.
+	sideNarrativeTests = modelText{ID: "narrative-tests", Origin: "#103",
+		Text: "[record tests — every prediction with its statement and outcome:\n%s]"}
+	sideNarrativeTest = modelText{ID: "narrative-test", Origin: "#103",
+		Text: "%s under %s, %s: %s%s%s"}
+	sideNarrativeTestEvidence = modelText{ID: "narrative-test-evidence", Origin: "#103",
+		Text: "; evidence %s"}
+	sideNarrativeTestAttested = modelText{ID: "narrative-test-attested", Origin: "#103",
+		Text: "; attested by a person: %s"}
 	// sideProposeSOP asks for one structured candidate SOP. It leans on the
 	// SOPs and similar past cases the session recalled (they are in its
 	// conversation) so the model generalizes rather than duplicates.
@@ -216,4 +245,10 @@ var (
 
 // sideInstructions is the side-instruction text in a fixed order, for
 // SideInstructionVersion and the ledger test.
-var sideInstructions = []modelText{sideSummarize, sideNarrative, sideNarrativeRecord, sideNarrativeVerdict, sideNarrativeNoVerdict, sideProposeSOP, sideProposeSOPAnyway}
+var sideInstructions = []modelText{
+	sideSummarize,
+	sideNarrative, sideNarrativeRecord, sideNarrativeVerdict, sideNarrativeNoVerdict,
+	sideNarrativeActs, sideNarrativeAct, sideNarrativeActDisposition, sideNarrativeActSuperseded, sideNarrativeActsElided, sideNarrativeLine,
+	sideNarrativeTests, sideNarrativeTest, sideNarrativeTestEvidence, sideNarrativeTestAttested,
+	sideProposeSOP, sideProposeSOPAnyway,
+}

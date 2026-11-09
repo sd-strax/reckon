@@ -58,7 +58,7 @@ func whatMoved(dial string) string {
 // TestSideInstructions_Frozen pins the side completions' version. A change
 // re-attributes the summary and SOP draft; no baseline rerun (adr/0232).
 func TestSideInstructions_Frozen(t *testing.T) {
-	const want = "ba2bfd37be32c23fd557062bcfd8d42863cc1af44e3affc75eea3c1f393b37f9"
+	const want = "efb1378e320e86a4e69b576f675dd14b8fe040717c2f21dcda5048ee2dfceba4"
 	if got := SideInstructionVersion(); got != want {
 		t.Errorf("side instruction version = %s; want %s\n"+
 			"  a side instruction changed; TestPrompt_ComponentsFrozen names which. If that is deliberate: update both goldens and the entry's Revised.",
@@ -131,6 +131,16 @@ var componentGolden = map[string]string{
 	"side/narrative-record":                            "e8c86689d4d761e7e2a7e3fafbb2a838c0c072cbf8ab15ea8d0d9daa0855b009",
 	"side/narrative-record-verdict":                    "7ff78404a18215b631da819118c3b7e05fb7e4054d38f5af92c835fde769bf3e",
 	"side/narrative-record-no-verdict":                 "98ca0d518997f8a451313302400a160071805ed29e8395176981edc6ac1f2ea1",
+	"side/narrative-acts":                              "ccc4c0816c464c87d7de686ddb4ad872dc71406bc17fa4b0efa7c69a90f2bf36",
+	"side/narrative-act":                               "bb2bddf9904d22936dab56ed8e6cd3e86edc89de8c92b7ea229cb9b91d657032",
+	"side/narrative-act-disposition":                   "d490e970c99e149938ff4d596af951e7d553d2402e60deabe01349d0d5d82fce",
+	"side/narrative-act-superseded":                    "56d29ba758ea1b835aec2a87b6f2ef51103ddf30706bd1c688b0497b4a3f8f74",
+	"side/narrative-acts-elided":                       "d796d94307797628e358a259b014726ddb0867d8de5c77583e29b4cc3dba9b5c",
+	"side/narrative-line":                              "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+	"side/narrative-tests":                             "7739bc0a5bbd4fbc9b55186a4b1eeed89f81d1708ad4a231ba5af7b189292a53",
+	"side/narrative-test":                              "1cd689d1d7479ef2b5822f3b61db551c852e18e91d6366e4dd711446147afd8f",
+	"side/narrative-test-evidence":                     "563459045d8c9b5cb29531e32527b897e1e574eaa7040a8ecdbbb7784de9a933",
+	"side/narrative-test-attested":                     "5ee7e05789411619ac114ec92c8f5fa382d51d95388c0696ba1890445bda0feb",
 	"side/propose-sop":                                 "78af65d40b45f73007c9cb90ff306f68f2a6e9f6843facb0849ad159f1a73fab",
 	"side/propose-sop-anyway":                          "53d278cafac910a914934aaa0fe71703e446f79f62c9ed88d8c0e63259d44969",
 }

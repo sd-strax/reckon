@@ -584,6 +584,18 @@ type ThreadEntry struct {
 	InterpretationType string `json:"interpretation_type"`
 	// Summary is the act's rationale.
 	Summary string `json:"summary"`
+	// Actor is who recorded the act; the narrative draft says so.
+	Actor ThreadActor `json:"actor"`
+	// Superseded reports that a later act retracted this one; it stays on the
+	// thread but is not current.
+	Superseded bool `json:"superseded,omitempty"`
+	// Disposition is a verdict act's disposition.
+	Disposition string `json:"disposition,omitempty"`
+}
+
+// ThreadActor is the actor of a thread entry: HUMAN, AI_DELEGATED or SYSTEM.
+type ThreadActor struct {
+	Kind string `json:"kind"`
 }
 
 // Thread returns the investigation's committed reasoning thread in sequence

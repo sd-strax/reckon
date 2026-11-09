@@ -2124,7 +2124,23 @@ func lastUserText(req CompleteRequest) string {
 // between turns reaches the draft though no turn carried it.
 func TestSession_DraftNarrative(t *testing.T) {
 	f := newFakeBackend(t)
-	f.override = narrativePost(f)
+	post := narrativePost(f)
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		if strings.HasSuffix(r.URL.Path, "/thread") {
+			// The thread as the record holds it after the turn: the turn's
+			// act, a finding pinned by hand, a hypothesis retracted by a
+			// refinement, and a verdict; a reset marker says nothing.
+			_, _ = w.Write([]byte(`{"thread":[
+				{"sequence_no":2,"interpretation_type":"context-reset","summary":"reset","actor":{"kind":"HUMAN"}},
+				{"sequence_no":3,"interpretation_type":"hypothesis","summary":"Two logons seen; H1 proposed.","actor":{"kind":"AI_DELEGATED"},"has_transcript":true},
+				{"sequence_no":4,"interpretation_type":"evidence-pin","summary":"The second logon came from the jump host, confirmed by the badge log.","actor":{"kind":"HUMAN"}},
+				{"sequence_no":5,"interpretation_type":"hypothesis","summary":"Perhaps a scanner","actor":{"kind":"HUMAN"},"superseded":true},
+				{"sequence_no":6,"interpretation_type":"verdict","summary":"confirmed by the second logon","actor":{"kind":"HUMAN"},"disposition":"MALICIOUS"}
+			]}`))
+			return true
+		}
+		return post(w, r)
+	}
 	llm := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Two logons seen; H1 proposed.")}},
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("So far the investigation found two interactive logons on WIN-FILE01; H1 stands untested.")}},
@@ -2136,9 +2152,10 @@ func TestSession_DraftNarrative(t *testing.T) {
 	if _, err := s.Turn(context.Background(), "investigate"); err != nil {
 		t.Fatalf("turn: %v", err)
 	}
-	// Between the turn and the draft the analyst recorded a result, a verdict
-	// and an action by hand: none of it is in the conversation.
-	f.hypotheses = json.RawMessage(`{"hypotheses":[{"id":"h-1","handle":"H1","statement":"user-a moved laterally over RDP","status":"OPEN","predictions":[{"id":"p-1","ordinal":1,"statement":"a second logon follows","status":"CONFIRMED"}]}]}`)
+	// Between the turn and the draft the analyst recorded a result (with a
+	// person's attestation), a verdict and an action by hand: none of it is
+	// in the conversation.
+	f.hypotheses = json.RawMessage(`{"hypotheses":[{"id":"h-1","handle":"H1","statement":"user-a moved laterally over RDP","status":"OPEN","predictions":[{"id":"p-1","ordinal":1,"statement":"a second logon follows","status":"CONFIRMED","test_kind":"manual","test_result_refs":["note--77"],"attestation":{"content":"the account owner denied the logon by phone"}}]}]}`)
 	f.investigation = &Investigation{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE", Verdict: &InvestigationVerdict{Disposition: "MALICIOUS", Rationale: "confirmed by the second logon"}}
 	f.actions = []ActionStatus{{ActionID: "act-9", ActionType: "host.isolate", Status: "SUCCEEDED"}}
 	hypReads := len(f.callsTo("/api/investigations/inv-1/hypotheses"))
@@ -2162,11 +2179,22 @@ func TestSession_DraftNarrative(t *testing.T) {
 		"status ACTIVE; verdict MALICIOUS (confirmed by the second logon)",
 		textReasoningState.Text, "user-a moved laterally over RDP", "1 confirmed",
 		"act-9 host.isolate=SUCCEEDED",
+		// The thread's acts as recorded, with who recorded them, the verdict's
+		// disposition and the retraction; the reset marker is not an act.
+		"#4 evidence-pin by HUMAN: The second logon came from the jump host, confirmed by the badge log.",
+		"#5 hypothesis by HUMAN [superseded]: Perhaps a scanner",
+		"#6 verdict by HUMAN MALICIOUS: confirmed by the second logon",
+		// Every prediction with its statement, evidence and attestation, which
+		// the reasoning-state block tallies only.
+		"P1 (p-1) under H1, CONFIRMED: a second logon follows; evidence note--77; attested by a person: the account owner denied the logon by phone",
 		sideNarrative.Text,
 	} {
 		if !strings.Contains(side, want) {
 			t.Errorf("the draft request lacks %q:\n%s", want, side)
 		}
+	}
+	if strings.Contains(side, "context-reset") {
+		t.Error("the reset marker rode the draft as an act")
 	}
 	if strings.LastIndex(side, sideNarrative.Text) < strings.LastIndex(side, "act-9") {
 		t.Error("the instruction must follow the record's state")

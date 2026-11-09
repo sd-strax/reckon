@@ -50,6 +50,16 @@ type predictionRow struct {
 	Ordinal       int      `json:"ordinal"`
 	Discriminates []string `json:"discriminates"`
 	TestKind      string   `json:"test_kind"` // "manual" when a person tests it (adr/0054)
+	// TestResultRefs and Attestation are the outcome's evidence (adr/0054):
+	// the narrative draft carries them, since the block above tallies
+	// outcomes only.
+	TestResultRefs []string        `json:"test_result_refs"`
+	Attestation    *attestationRow `json:"attestation"`
+}
+
+// attestationRow is the human observation a manual outcome cites.
+type attestationRow struct {
+	Content string `json:"content"`
 }
 
 // predictionLabel is how the block names a prediction: its ordinal (P3) when
