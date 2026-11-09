@@ -45,8 +45,9 @@ command-line grammar puts it and nowhere else. The line is read as a shell
 reads it: cut into commands at the shell's chain operators, glued to words or
 not, outside the shell's own quoting (cmd toggles at every double quote and
 escapes with a caret; sh quotes with either character, escapes with a
-backslash, joins a line at a backslash before a line break, and drops a
-comment from an unquoted `#` opening a word to the end of the line); each
+backslash, joins a line at a backslash before a line break, and runs nothing
+that begins after an unquoted `#` opening a word, sh's comment, to the end of
+the line, so a PowerShell found there is never decoded); each
 command's words split as argv splits them (a quote toggles,
 a backslash before one makes it a literal character, an apostrophe quotes
 only under POSIX rules, a quote with no match ahead is text so a truncated
@@ -83,7 +84,8 @@ with padding that fits. In both the text must be wholly printable, with no
 replacement character, and non-empty. Quote characters around a token are
 stripped whether or not they pair, since the blob is often the last word of
 a quoted sub-command. A flagged token that is not UTF-16LE is not a
-PowerShell command and gets no second guess as bare base64. Anything else
+PowerShell command and gets no second guess as bare base64, and no word of
+a comment is read at all. Anything else
 yields nothing, and the view says nothing.
 
 **Not deobfuscation.** The view decodes one encoding of one field and

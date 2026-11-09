@@ -2,6 +2,7 @@ package ocsfview
 
 import (
 	"encoding/base64"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf16"
@@ -43,15 +44,18 @@ const minBase64Token = 16
 // guess. Then each other bare word long enough to be meant as a blob is tried
 // as base64 of UTF-8. The first clean decode wins.
 func decodeCommandLine(cmd string) (encoding, text string, ok bool) {
-	flagged := powerShellEncodedArguments(cmd)
-	for _, tok := range flagged {
+	live, dead := powerShellEncodedArguments(cmd)
+	for _, tok := range live {
 		if text, ok := decodeUTF16LE(unquote(tok)); ok {
 			return EncodingBase64UTF16LE, text, true
 		}
 	}
+	// A word inside a comment is one the shell never reads, so neither does
+	// the view: never decoded, and no second guess either. It is matched
+	// whole, so a comment that mentions a live blob does not hide it.
 	for _, tok := range strings.Fields(cmd) {
 		tok = unquote(tok)
-		if len(tok) < minBase64Token || isFlagged(tok, flagged) {
+		if len(tok) < minBase64Token || isFlagged(tok, live) || slices.Contains(dead, tok) {
 			continue
 		}
 		if text, ok := decodeUTF8(tok); ok {
@@ -114,7 +118,8 @@ func shellOf(line string) shell {
 type token struct {
 	text   string
 	quoted bool
-	start  int // byte offset in the command tokenize was given
+	start  int  // byte offset in the command tokenize was given
+	dead   bool // on a command's first word: the shell never runs it (a comment)
 }
 
 // tokenize splits one command into the words the program receives. A double
@@ -231,23 +236,29 @@ func hasMatch(ahead string, q byte) bool {
 // splitCommands cuts a command line into its commands at the shell's chain
 // operators (&&, ||, &, |, and ; under POSIX), glued to words or not, outside
 // the shell's own quoting: cmd toggles a quoted region at every double quote
-// and escapes with a caret; sh quotes with either character, escapes with a
-// backslash (a backslash before a line break joins the lines), and an
-// unquoted # where a word would begin starts a comment that runs to the end
-// of the line (shell command language §2.3). Each command comes back with
-// its byte offset in the line.
+// and escapes with a caret; sh quotes with either character and escapes with
+// a backslash (a backslash before a line break joins the lines). Under POSIX
+// rules an unquoted # where a word would begin starts a comment that runs to
+// the end of the line (shell command language §2.3): the comment begins a
+// command of its own, and it and every command beginning inside it are cut
+// as any other but marked dead, since the shell never runs them. Each
+// command comes back with its byte offset in the line.
 func splitCommands(line string, sh shell) []command {
 	var out []command
 	start := 0
 	var quote byte
 	posix := sh == posixShell
-	inWord := false // whether the previous character continues a word
+	inWord := false      // whether the previous character continues a word
+	commentFrom := -1    // where the current line's comment begins, if one has
+	deadPending := false // the segment being read began in a comment that has since ended
 	cut := func(end, next int) {
 		if c := strings.TrimSpace(line[start:end]); c != "" {
-			out = append(out, command{text: c, start: start + strings.Index(line[start:end], c)})
+			at := start + strings.Index(line[start:end], c)
+			out = append(out, command{text: c, start: at, dead: deadPending || (commentFrom >= 0 && at >= commentFrom)})
 		}
 		start = next
 		inWord = false
+		deadPending = false
 	}
 	for i := 0; i < len(line); i++ {
 		c := line[i]
@@ -267,13 +278,10 @@ func splitCommands(line string, sh shell) []command {
 		case c == '"', posix && c == '\'':
 			quote = c
 			inWord = true
-		case posix && c == '#' && !inWord:
-			end := strings.IndexByte(line[i:], '\n')
-			if end < 0 {
-				end = len(line) - i
-			}
-			cut(i, i+end) // the comment runs to the line break
-			i += end - 1
+		case posix && c == '#' && !inWord && commentFrom < 0:
+			cut(i, i) // a comment: it and what begins after it are dead until the line break
+			commentFrom = i
+			inWord = true
 		case c == '&' || c == '|':
 			if i+1 < len(line) && line[i+1] == c {
 				cut(i, i+2)
@@ -285,6 +293,14 @@ func splitCommands(line string, sh shell) []command {
 			cut(i, i+1)
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
 			inWord = false
+			if c == '\n' && commentFrom >= 0 {
+				// The comment ends here; a segment that began inside it stays
+				// dead however far it runs on.
+				if p := strings.TrimSpace(line[start:i]); p != "" && start+strings.Index(line[start:i], p) >= commentFrom {
+					deadPending = true
+				}
+				commentFrom = -1
+			}
 		default:
 			inWord = true
 		}
@@ -293,10 +309,12 @@ func splitCommands(line string, sh shell) []command {
 	return out
 }
 
-// command is one command of a line: its text and where it starts in the line.
+// command is one command of a line: its text, where it starts in the line,
+// and whether it lies in a comment the shell never runs.
 type command struct {
 	text  string
 	start int
+	dead  bool
 }
 
 // --- command position -----------------------------------------------------------
@@ -306,15 +324,24 @@ const maxNesting = 8
 
 // powerShellEncodedArguments are the tokens PowerShell would read as encoded
 // commands on the line: one per PowerShell in command position whose host
-// options carry the switch, in order.
-func powerShellEncodedArguments(line string) []string {
-	var out []string
+// options carry the switch, in order. With them, apart, the dead words: those
+// of a comment the shell never runs, long enough to be taken for a blob,
+// which no other reading should claim.
+func powerShellEncodedArguments(line string) (live, dead []string) {
 	for _, inv := range powerShellInvocations(line, shellOf(line), 0) {
+		if inv[0].dead {
+			for _, t := range inv {
+				if len(t.text) >= minBase64Token {
+					dead = append(dead, t.text)
+				}
+			}
+			continue
+		}
 		if tok, ok := encodedArgument(inv); ok {
-			out = append(out, tok)
+			live = append(live, tok)
 		}
 	}
-	return out
+	return live, dead
 }
 
 // encodedArgument walks one PowerShell invocation's host options as
@@ -359,7 +386,17 @@ func powerShellInvocations(line string, sh shell, depth int) [][]token {
 	}
 	var out [][]token
 	for _, c := range splitCommands(line, sh) {
-		out = append(out, programInvocations(c.text, tokenize(c.text, sh == posixShell), depth)...)
+		tokens := tokenize(c.text, sh == posixShell)
+		if c.dead {
+			// A comment: the shell runs none of it, so its words come back as
+			// they are, marked dead, for the caller to keep from other readings.
+			if len(tokens) > 0 {
+				tokens[0].dead = true
+				out = append(out, tokens)
+			}
+			continue
+		}
+		out = append(out, programInvocations(c.text, tokens, depth)...)
 	}
 	return out
 }
