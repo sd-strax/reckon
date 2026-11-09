@@ -1,6 +1,6 @@
 # 0097 — A cited section is readable as it was, and the inspector says whether it changed since
 
-Issue: #97 · PR: #TBD · Status: accepted
+Issue: #97 · PR: #312 · Status: accepted
 
 ## Context
 
