@@ -56,9 +56,12 @@ records it, is read as CreateProcess tries it, word by word until a word
 names PowerShell or another program file. PowerShell is in command position when it is that program, or
 when the program is a shell or wrapper the view knows (cmd's `/c`, `/k` or
 `/r` string, `start` after its switches and the first quoted word that is
-its title, `call`, an sh-family `-c` after options, and sudo, env, nohup,
-timeout and nice after theirs) and PowerShell is in command position on the
-command line it launches. Every PowerShell so found is tried, in order. From there its host options are read as
+its title, `call`, an sh-family `-c` after options, whose command string is
+the one word that follows, quoted or not, since the words after it are the
+shell's positional parameters, and sudo, env, nohup, timeout and nice after
+their options, the assignments sudo and env accept and timeout's duration,
+each word read by its text since the wrapper sees argv without quotes) and
+PowerShell is in command position on the command line it launches. Every PowerShell so found is tried, in order. From there its host options are read as
 PowerShell's parser reads them, from its switch table transcribed in the
 parser's order with the first match winning: each switch a case-insensitive
 prefix no shorter than its accepted abbreviation, the explicit aliases

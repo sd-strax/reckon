@@ -127,9 +127,10 @@ type token struct {
 // still toggles, and an odd one makes the quote a literal character, so `\"`
 // never opens or closes a run; argv's doubled quote inside a Windows run is a
 // literal quote. Under POSIX rules a backslash outside quotes makes the next
-// character text (an escaped space does not end the word); inside a
-// single-quoted run everything is text, and in a double-quoted one a backslash
-// before an apostrophe stays.
+// character text, a backslash included (an escaped space does not end the
+// word); inside a single-quoted run everything is text, and in a
+// double-quoted one a backslash escapes only a quote, a backslash, a dollar
+// or a backquote and stays before anything else, an apostrophe included.
 func tokenize(cmd string, posix bool) []token {
 	var out []token
 	var b strings.Builder
@@ -156,9 +157,9 @@ func tokenize(cmd string, posix bool) []token {
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
 		switch {
-		case posix && quote == 0 && c == '\\' && i+1 < len(cmd) && !isQuote(cmd[i+1]) && cmd[i+1] != '\\':
+		case posix && c == '\\' && i+1 < len(cmd) && (quote == 0 || (quote == '"' && strings.IndexByte("\"\\$`", cmd[i+1]) >= 0)):
 			begin(i)
-			b.WriteByte(cmd[i+1]) // sh: a backslash makes the next character text
+			b.WriteByte(cmd[i+1]) // sh: the backslash makes the next character text
 			i++
 		case c == '\\' && quote != '\'':
 			n := 1
@@ -402,13 +403,14 @@ func programInvocations(cmd string, tokens []token, depth int) [][]token {
 		return nil
 	case isShFamily(name):
 		// Options first: -o, -O, +O, --rcfile and --init-file take a value;
-		// short options may be clustered (-lc), and the first cluster carrying c makes the next
-		// word the command string. A quoted string is a command line of its
-		// own; an unquoted one is read with the rest of the command, since
-		// telemetry that joins argv with spaces has lost the quotes.
+		// short options may be clustered (-lc), and the first cluster carrying
+		// c makes the next word, and only that word, the command string: the
+		// shell runs that one argv element as a command line of its own and
+		// the words after it are its positional parameters. The shell sees
+		// argv without quotes, so quoting decides nothing here.
 		for i := 0; i < len(rest); i++ {
 			t := rest[i]
-			if t.quoted || (!strings.HasPrefix(t.text, "-") && !strings.HasPrefix(t.text, "+")) {
+			if !strings.HasPrefix(t.text, "-") && !strings.HasPrefix(t.text, "+") {
 				return nil // a script file
 			}
 			if takesValue(t.text, shValued) {
@@ -416,10 +418,7 @@ func programInvocations(cmd string, tokens []token, depth int) [][]token {
 				continue
 			}
 			if !strings.HasPrefix(t.text, "--") && strings.ContainsRune(t.text, 'c') && i+1 < len(rest) {
-				if rest[i+1].quoted {
-					return powerShellInvocations(rest[i+1].text, posixShell, depth+1)
-				}
-				return powerShellInvocations(cmd[rest[i+1].start:], posixShell, depth+1)
+				return powerShellInvocations(rest[i+1].text, posixShell, depth+1)
 			}
 		}
 		return nil
@@ -515,7 +514,9 @@ func set(words ...string) map[string]bool {
 // wrappedCommand is the index in rest of the command a wrapper runs, after
 // its options (a valued option takes the next word unless written as
 // --name=value), the VAR=value assignments sudo and env accept, and
-// timeout's duration; -1 when nothing follows.
+// timeout's duration; -1 when nothing follows. The wrapper sees argv without
+// quotes, so each word is classified by its text alone: a quoted assignment
+// or duration is still an assignment or a duration.
 func wrappedCommand(name string, rest []token) int {
 	valued := wrapperValued[name]
 	assignments := name == "sudo" || name == "env"
@@ -526,8 +527,6 @@ func wrappedCommand(name string, rest []token) int {
 	for i := 0; i < len(rest); i++ {
 		t := rest[i]
 		switch {
-		case t.quoted:
-			return i
 		case len(t.text) > 1 && strings.HasPrefix(t.text, "-"):
 			if takesValue(t.text, valued) {
 				i++
