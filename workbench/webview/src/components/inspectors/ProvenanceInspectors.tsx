@@ -10,6 +10,7 @@ import { ToolRow } from "../ToolRow";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
 import { received, type Received } from "../../derive/knowledgeUse";
 import { diffLines } from "../../derive/diff";
+import { delivered, deliveryKey, type Delivery } from "../../derive/delivered";
 import { relevanceOfBand } from "../../../../src/relevance";
 import { recordedSections } from "../../../../src/procedureReads";
 import type { KnowledgeCitations, ProcedureReads, ProcedureSectionRead, ProcedureTurnRead, ThreadActor } from "../../../../src/viewTypes";
@@ -220,36 +221,46 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
 /**
  * What the agent read of a procedure here, as it was (adr/0097). For each act
  * that recorded sections, the sections under the revision and cut it saw,
- * read back from the library: "exactly as retrieved" when that is still the
- * current revision; otherwise "revised since", with the current text under
- * the same heading and the changes between them. The recall results'
- * excerpts follow as what recall showed: recall and read are two different
- * things. `reads` is absent while nothing was recorded (acts before sections
- * existed) and when the read-back failed; the two read differently.
+ * read back from the library, and beside each how much of it reached the
+ * model, read from the committed tool results (derive/delivered.ts): a recall
+ * excerpt is cut to a budget and a large section is read in parts, so the
+ * stored section and the text delivered are two things. "Exactly as
+ * retrieved" is said only when the revision is current and every section of
+ * the turn was received whole; otherwise the pane says how much was
+ * received. A revised procedure shows the current text under the same heading
+ * and the changes between them. The recall results' excerpts follow as what
+ * recall showed. `reads` is absent while nothing was recorded (acts before
+ * sections existed) and when the read-back failed; the two read differently.
  */
-function WhatTheAgentRead({ reads, recorded, arrived, got, turnLabel, openTurn }: {
+function WhatTheAgentRead({ reads, recorded, arrived, got, deliveries, turnLabel, openTurn }: {
   reads: ProcedureReads | undefined;
   recorded: boolean;
   /** The host's answer for this procedure has arrived (the document is here); before that, the reads are in flight, not failed. */
   arrived: boolean;
   got: Received[];
+  deliveries: Map<string, Delivery>;
   turnLabel: (interpretationId: string) => string;
   openTurn: (interpretationId: string) => void;
 }) {
   if (!recorded && !got.length) return <div className="empty">The agent has not read this procedure in this investigation.</div>;
   if (recorded && !arrived) return <Loading what="what the agent read" />;
+  const deliveryOf = (t: ProcedureTurnRead, s: ProcedureSectionRead) => deliveries.get(deliveryKey(t.interpretationId, t.revision, t.cut, s.idx));
+  const header = (t: ProcedureTurnRead) => {
+    if (t.revision !== reads?.currentRevision) return `revised since this case consulted it: revision ${t.revision} then, ${reads?.currentRevision} now`;
+    return t.sections.every((s) => deliveryOf(t, s)?.whole)
+      ? `revision ${t.revision}, exactly as retrieved`
+      : `revision ${t.revision}, as it stood when the agent retrieved it`;
+  };
   return (
     <>
       {recorded && !reads ? <div className="empty">What the agent read could not be read back from the library.</div> : null}
       {reads?.turns.map((t) => (
         <div key={t.interpretationId + "/" + t.revision + "/" + t.cut} className="iread">
           <div className="imeta">
-            {t.revision === reads.currentRevision
-              ? `revision ${t.revision}, exactly as retrieved`
-              : `revised since this case consulted it: revision ${t.revision} then, ${reads.currentRevision} now`}
+            {header(t)}
             {" — in "}<a onClick={() => openTurn(t.interpretationId)}>{turnLabel(t.interpretationId)}</a>
           </div>
-          {t.sections.map((s) => <SectionRead key={s.idx} s={s} turn={t} current={reads.currentRevision} />)}
+          {t.sections.map((s) => <SectionRead key={s.idx} s={s} turn={t} current={reads.currentRevision} delivery={deliveryOf(t, s)} />)}
         </div>
       ))}
       {got.length ? (
@@ -266,26 +277,45 @@ function WhatTheAgentRead({ reads, recorded, arrived, got, turnLabel, openTurn }
   );
 }
 
-/** One section as retrieved; when the procedure was revised since, also the current text and the changes. */
-function SectionRead({ s, turn, current }: { s: ProcedureSectionRead; turn: ProcedureTurnRead; current: number }) {
-  const [view, setView] = useState<"then" | "now" | "diff">("then");
+const runes = (text: string) => Array.from(text).length;
+
+/** How much of the section reached the model, in a line. */
+function deliveryLine(d: Delivery | undefined, section: string): string {
+  if (!d) return "what the agent received of it is not in the loaded transcript";
+  if (d.parts) return d.whole ? `received whole, read in ${d.parts.of} parts` : `read in parts: ${d.parts.got} of ${d.parts.of} received`;
+  if (d.whole) return d.via === "recall" ? "received whole, in the recall result" : "received whole, read with read_sop";
+  return `the recall result carried the first ${runes(d.text)} of ${runes(section)} runes`;
+}
+
+/**
+ * One section: the revision's text, what of it was received when that is
+ * less, and under a revised procedure the current text and the changes.
+ */
+function SectionRead({ s, turn, current, delivery }: { s: ProcedureSectionRead; turn: ProcedureTurnRead; current: number; delivery: Delivery | undefined }) {
+  const partial = !!delivery && !delivery.whole;
+  const [view, setView] = useState<"then" | "got" | "now" | "diff">(partial ? "got" : "then");
   const same = turn.revision === current;
+  const views: [typeof view, string][] = [["then", `Revision ${turn.revision}`]];
+  if (partial) views.push(["got", "Received"]);
+  if (!same) views.push(["now", "Current"], ["diff", "Changes"]);
   const gone = <div className="empty">No section of revision {current} sits under this heading any more.</div>;
   return (
     <div className="isect">
       <div className="isecthead">
         <span className="kicker">{s.location}</span>
-        {!same ? (
+        {views.length > 1 ? (
           <span className="iviews">
-            {([["then", "As retrieved"], ["now", "Current"], ["diff", "Changes"]] as const).map(([v, label]) => (
+            {views.map(([v, label]) => (
               <button key={v} className={"ghost" + (view === v ? " on" : "")} aria-pressed={view === v} onClick={() => setView(v)}>{label}</button>
             ))}
           </span>
         ) : null}
       </div>
-      {same || view === "then" ? <pre className="isecttext">{s.text}</pre> : null}
-      {!same && view === "now" ? (s.current ? <pre className="isecttext">{s.current.text}</pre> : gone) : null}
-      {!same && view === "diff" ? (
+      <div className="imeta">{deliveryLine(delivery, s.text)}</div>
+      {view === "then" ? <pre className="isecttext">{s.text}</pre> : null}
+      {view === "got" && delivery ? <pre className="isecttext">{delivery.text}</pre> : null}
+      {view === "now" ? (s.current ? <pre className="isecttext">{s.current.text}</pre> : gone) : null}
+      {view === "diff" ? (
         s.current
           ? (s.current.text === s.text
             ? <div className="empty">Unchanged in revision {current}.</div>
@@ -305,6 +335,7 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
   const got = received(state.snap, "sop", sopId);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSops || []).filter((s) => s.sopId === sopId).map((s) => ({ e, s })));
   const recorded = consulted.some(({ s }) => recordedSections(s));
+  const deliveries = useMemo(() => delivered(state.snap, sopId), [state.snap, sopId]);
   const turnLabel = (interpretationId: string) => (state.snap?.thread || []).find((e) => e.interpretationId === interpretationId)?.summary || "a turn";
   const ledTo = (state.snap?.actions || []).filter((a) => consulted.some(({ e }) => (e.outputRefs || []).includes(a.actionId)));
   return (
@@ -317,7 +348,7 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
       </div>
       <Tabs tabs={[
         { id: "read", label: "What the agent read", body: () => (
-          <WhatTheAgentRead reads={reads} recorded={recorded} arrived={sop !== undefined} got={got} turnLabel={turnLabel} openTurn={(interpretationId) => openInspector({ kind: "turn", interpretationId })} />
+          <WhatTheAgentRead reads={reads} recorded={recorded} arrived={sop !== undefined} got={got} deliveries={deliveries} turnLabel={turnLabel} openTurn={(interpretationId) => openInspector({ kind: "turn", interpretationId })} />
         ) },
         { id: "whole", label: "Whole document", body: () => (
           sop === undefined ? <Loading what="procedure" /> : (

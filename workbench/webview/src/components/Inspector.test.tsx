@@ -182,7 +182,8 @@ describe("the inspector", () => {
     let p = pane();
     expect(within(p).getByText(/revised since this case consulted it: revision 1 then, 2 now/)).toBeTruthy();
     expect(within(p).getByText("Procedure one", { selector: ".isecthead .kicker" })).toBeTruthy(); // the heading path
-    expect(within(p).getByText(/with the owner first\.$/, { selector: ".isecttext" })).toBeTruthy(); // as retrieved, by default
+    expect(within(p).getByText("received whole, in the recall result")).toBeTruthy(); // from the committed tool result, not assumed
+    expect(within(p).getByText(/with the owner first\.$/, { selector: ".isecttext" })).toBeTruthy(); // the revision's text, by default
     fireEvent.click(within(p).getByRole("button", { name: "Current" }));
     expect(within(p).getByText(/account owner first, by phone/, { selector: ".isecttext" })).toBeTruthy();
     fireEvent.click(within(p).getByRole("button", { name: "Changes" }));
@@ -201,6 +202,20 @@ describe("the inspector", () => {
     p = pane();
     expect(within(p).getByText(/revision 1, exactly as retrieved/)).toBeTruthy();
     expect(within(p).queryByRole("button", { name: "Changes" })).toBeNull();
+    cleanup();
+
+    // The recall excerpt was cut to its budget: not "exactly as retrieved"; the Received view shows what arrived.
+    const cut = clone();
+    cut.procedureReads = same.procedureReads;
+    for (const t of cut.snapshot.turns) t.body = t.body.replace('"excerpt": "# Procedure one', '"truncated": true, "excerpt": "# Procedure one');
+    mount(cut);
+    fireEvent.click(within(lib()).getByText("Procedure one"));
+    p = pane();
+    expect(within(p).getByText(/revision 1, as it stood when the agent retrieved it/)).toBeTruthy();
+    expect(within(p).getByText(/the recall result carried the first \d+ of \d+ runes/)).toBeTruthy();
+    expect(within(p).getByRole("button", { name: "Received", pressed: true })).toBeTruthy(); // what arrived is shown first
+    fireEvent.click(within(p).getByRole("button", { name: "Revision 1" }));
+    expect(within(p).getByText(/with the owner first\.$/, { selector: ".isecttext" })).toBeTruthy();
     cleanup();
 
     // The heading is gone from the current revision: Current and Changes say so.

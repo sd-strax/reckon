@@ -30,8 +30,8 @@ export function recordedSections(s: Consulted): s is Consulted & { revision: num
  * Reads back every section the thread's acts recorded of one procedure.
  * Undefined when no act recorded sections: there is nothing to read back and
  * the inspector shows what the recall results carried. A section read once
- * is read once however many acts recorded it; the current revision's
- * outline is read once. A counterpart is looked up by heading path, never by
+ * is read once however many acts recorded it, and an outline once per
+ * revision and cut. A counterpart is looked up by heading path, never by
  * index, since an edit or a re-cut renumbers; see counterpart for how parts
  * and repeated headings are matched. Any failed read fails the whole: the
  * pane then says the reads could not be made, rather than showing some.
@@ -53,8 +53,16 @@ export async function procedureReads(reader: ProcedureReader, sopId: string, thr
     }
     return p;
   };
-  let outline: Promise<SOPOutlineView> | undefined;
-  const currentOutline = () => (outline ??= reader.revisionOutline(sopId, current));
+  const outlines = new Map<string, Promise<SOPOutlineView>>();
+  const outline = (revision: number, cut: string) => {
+    const key = `${revision}/${cut}`;
+    let p = outlines.get(key);
+    if (!p) {
+      p = reader.revisionOutline(sopId, revision, cut || undefined);
+      outlines.set(key, p);
+    }
+    return p;
+  };
 
   const turns: ProcedureTurnRead[] = [];
   for (const r of recorded) {
@@ -63,8 +71,9 @@ export async function procedureReads(reader: ProcedureReader, sopId: string, thr
       const then = await section(r.revision, r.cut, idx);
       const read: ProcedureSectionRead = { idx: then.idx, location: then.location, text: then.text };
       if (r.revision !== current) {
-        const now = await currentOutline();
-        const match = counterpart(then, now);
+        const [thenOutline, now] = await Promise.all([outline(r.revision, r.cut), outline(current, "")]);
+        const thenEntry = thenOutline.sections.find((o) => o.idx === then.idx) ?? { idx: then.idx, location: then.location, headingPath: then.headingPath, part: then.part, parts: then.parts };
+        const match = counterpart(thenEntry, thenOutline, now);
         if (!match.length) {
           read.current = null;
         } else {
@@ -88,30 +97,42 @@ export async function procedureReads(reader: ProcedureReader, sopId: string, thr
 type OutlineSection = SOPOutlineView["sections"][number];
 
 /**
- * The current revision's sections that stand where a retrieved section stood:
- * those under the same heading path. A heading cut into parts (a long section
- * under the budget) is one heading: when the retrieved section was part k of
- * n and the current side has the same part k of n it is that one, otherwise
- * every current part under the heading together, so the pane never says a
- * heading is gone because its parts moved. A heading the document repeats
- * (two "Notes" under the same parent) is told apart by its order among its
- * namesakes in each revision's outline. Empty when the heading is gone.
+ * The sections of an outline that stand under one heading path, grouped
+ * into occurrences: a heading the document repeats (two "Notes" under the
+ * same parent) is several occurrences, and a heading cut into parts (a long
+ * section under the budget) is one occurrence of several sections. Parts are
+ * consecutive and numbered from 1, so a section that is not a part, or is
+ * part 1, opens an occurrence.
  */
-function counterpart(then: SOPSectionView, now: SOPOutlineView): OutlineSection[] {
-  const path = then.headingPath.join("\u0000");
-  const group = now.sections.filter((s) => s.headingPath.join("\u0000") === path);
-  if (!group.length) return [];
-  const cut = (s: { parts?: number }) => (s.parts ?? 0) > 1;
-  if (!cut(then) && !group.some(cut)) {
-    // Whole headings on both sides: the same ordinal among namesakes, as
-    // locations repeat only for repeated headings here.
-    const ordinal = then.outline.slice(0, then.idx - 1).filter((l) => l === then.location).length;
-    const same = group[ordinal] ?? group[0];
-    return same ? [same] : [];
+function occurrences(sections: OutlineSection[], path: string): OutlineSection[][] {
+  const out: OutlineSection[][] = [];
+  for (const s of sections) {
+    if (s.headingPath.join("\u0000") !== path) continue;
+    const last = out[out.length - 1];
+    if (last && (s.parts ?? 0) > 1 && (s.part ?? 0) > 1 && last[0]?.parts === s.parts) last.push(s);
+    else out.push([s]);
   }
-  if (cut(then)) {
-    const exact = group.find((s) => s.part === then.part && s.parts === then.parts);
+  return out;
+}
+
+/**
+ * The current revision's sections that stand where a retrieved section stood.
+ * The retrieved section's heading path is matched, never its index; among
+ * repeated headings the same occurrence by order is taken, and a missing
+ * occurrence is gone, never its first namesake. Within the occurrence: the
+ * same part when the retrieved section was a part and the current side is
+ * cut the same way, otherwise every section of the occurrence together, so
+ * the pane never says a heading is gone because its parts moved. Empty when
+ * the heading, or that occurrence of it, is gone.
+ */
+function counterpart(then: OutlineSection, thenOutline: SOPOutlineView, now: SOPOutlineView): OutlineSection[] {
+  const path = then.headingPath.join("\u0000");
+  const ordinal = occurrences(thenOutline.sections, path).findIndex((o) => o.some((s) => s.idx === then.idx));
+  const occurrence = occurrences(now.sections, path)[ordinal];
+  if (ordinal < 0 || !occurrence) return [];
+  if ((then.parts ?? 0) > 1) {
+    const exact = occurrence.find((s) => s.part === then.part && s.parts === then.parts);
     if (exact) return [exact];
   }
-  return group;
+  return occurrence;
 }

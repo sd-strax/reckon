@@ -49,9 +49,9 @@ describe("what the agent read of a procedure, as it was (adr/0097)", () => {
     expect(t1?.sections[0]).toEqual({ idx: 2, location: "RDP > Triage", text: "## Triage\nConfirm the session.", current: { revision: 2, idx: 2, location: "RDP > Triage", text: "## Triage\nConfirm the session with the owner." } });
     expect(t1?.sections[1]).toEqual({ idx: 3, location: "RDP > Containment", text: "## Containment\nIsolate.", current: null }); // the heading is gone from revision 2
     expect(t2?.sections[0]?.text).toBe("## Triage\nConfirm the session.");
-    // Section 2 of revision 1 was recorded twice and read once; the current outline once.
+    // Section 2 of revision 1 was recorded twice and read once; each outline once.
     expect(calls.filter((c) => c === "section 1 2 1/16000").length).toBe(1);
-    expect(calls.filter((c) => c.startsWith("outline")).length).toBe(1);
+    expect(calls.filter((c) => c.startsWith("outline")).sort()).toEqual(["outline 1 1/16000", "outline 2 -"]);
     expect(calls.some((c) => c.includes("sop-9"))).toBe(false);
   });
 
@@ -110,5 +110,28 @@ describe("what the agent read of a procedure, as it was (adr/0097)", () => {
     // The second "Notes" is matched to the second "Notes", not the first.
     expect(notesA?.current?.text).toBe("## Notes\nFirst notes.");
     expect(notesB?.current?.text).toBe("## Notes\nSecond notes, revised.");
+  });
+
+  it("tells repeated headings apart before matching their parts, and a missing occurrence is gone, not the first namesake", async () => {
+    // Both revisions: two "Notes" headings under P, each cut into two parts. Revision 2 drops the second Notes.
+    const notes = (n: number, suffix: string) => [
+      { location: `P > Notes (part 1/2)`, headingPath: ["P", "Notes"], part: 1, parts: 2, text: `## Notes\n${n} first${suffix}` },
+      { location: `P > Notes (part 2/2)`, headingPath: ["P", "Notes"], part: 2, parts: 2, text: `${n} second${suffix}` },
+    ];
+    const rows: Record<number, ReturnType<typeof notes>> = { 1: [...notes(1, ""), ...notes(2, "")], 2: [...notes(1, " revised")] };
+    const reader: ProcedureReader = {
+      async revisions() { return { current: 2 }; },
+      async revisionOutline(_id, revision) { return { revision, cut: "1/16000", sections: (rows[revision] ?? []).map((r, i) => ({ idx: i + 1, ...r, text: undefined })) }; },
+      async revisionSection(_id, revision, idx) {
+        const r = (rows[revision] ?? [])[idx - 1];
+        if (!r) throw new Error("404");
+        return { revision, cut: "1/16000", idx, of: (rows[revision] ?? []).length, ...r, outline: (rows[revision] ?? []).map((x) => x.location) };
+      },
+    };
+    const got = await procedureReads(reader, "sop-1", [entry("t1", [{ sopId: "sop-1", cited: true, revision: 1, cut: "1/16000", sections: [1, 3, 4] }])]);
+    const [firstNotesP1, secondNotesP1, secondNotesP2] = got?.turns[0]?.sections ?? [];
+    expect(firstNotesP1?.current?.text).toBe("## Notes\n1 first revised"); // part 1 of the first Notes, not of the second
+    expect(secondNotesP1?.current).toBeNull(); // the second Notes is gone; its namesake is not offered
+    expect(secondNotesP2?.current).toBeNull();
   });
 });

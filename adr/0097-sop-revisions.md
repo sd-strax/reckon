@@ -90,19 +90,39 @@ words: a procedure is cited or recalled, never applied or followed.
   failed; the pane distinguishes the two from the thread it already holds.
   The reads start from the committed thread, never from anything the webview
   holds.
+- **The stored section and the text delivered are two things, and the pane
+  says which it shows.** The record's tuple names the section as stored; how
+  much of it reached the model is in the committed tool results: a recall hit
+  carries the section as an excerpt cut to a budget (`truncated` when it
+  was), and a section larger than one result page is read as `text_parts`
+  the model pages through `read_result`, each page credited to the section.
+  `webview/src/derive/delivered.ts` reads those results out of the committed
+  turns, per turn and tuple: the excerpt and whether it was whole, the
+  section's text, or the parts received and how many there are. Each
+  section line says "received whole, in the recall result", "received
+  whole, read with read_sop", "the recall result carried the first K of M
+  runes", "read in parts: k of n received", or that what was received is not
+  in the loaded transcript. A section received in part shows the received
+  text first, with the revision's text a view away.
 - **"What the agent read" says what it is.** One block per act: "revision N,
-  exactly as retrieved" when N is the current revision, or "revised since
-  this case consulted it: revision N then, M now". Each section shows its
-  heading path and its text; under a revised procedure it offers As
-  retrieved · Current · Changes, and when no section of the current revision
+  exactly as retrieved" only when N is the current revision and every
+  section of the act was received whole; "revision N, as it stood when the
+  agent retrieved it" when N is current and something was cut; or "revised
+  since this case consulted it: revision N then, M now". Each section shows
+  its heading path, the delivery line and its text; under a revised
+  procedure it offers Revision N · Current · Changes (Received as well when
+  the delivery was partial), and when no section of the current revision
   sits under that heading any more, Current and Changes say so. The recall
   results' excerpts follow as "Recall showed": recall and read are two
   different things. The words are the issue's and [0236](0236-knowledge-citation.md)'s;
   never "applied" or "followed".
-- **The diff is computed in the webview**, a line-level longest common
-  subsequence (`webview/src/derive/diff.ts`): equal runs kept, removed and
-  added lines marked. Both texts are one section each, bounded by the
-  section budget, so the quadratic table is small. No dependency.
+- **The diff is computed in the webview and bounded**
+  (`webview/src/derive/diff.ts`): equal lines at both ends are matched
+  first, the middle is a line-level longest common subsequence when its
+  table fits one million cells, and a removed-then-added block when it does
+  not, so a section of thousands of short lines (the rune budget does not
+  bound the line count) can neither stall the webview nor take its memory.
+  No dependency.
 - **The case inspector is unchanged.** Case summaries are revisions too, but
   whether a past case's narrative changed since is #103's question.
 
@@ -126,7 +146,16 @@ words: a procedure is cited or recalled, never applied or followed.
   after it; the heading path is what the analyst reads the section as.
 - **Matching the counterpart by location string.** The location carries
   the part suffix, so a heading whose parts moved would read as gone, and a
-  repeated heading would match its first namesake.
+  repeated heading would match its first namesake. The match is by heading
+  path, occurrences first (a repeated heading by its order, a heading cut
+  into parts as one occurrence), then parts within the occurrence; a missing
+  occurrence is gone, never its namesake.
+- **Presenting the stored section as what the agent received.** The tuple
+  cannot support that: the recall excerpt budget and the result page cut
+  what was delivered, and the model may read only some pages. The committed
+  tool results say what arrived, and the pane reads them.
+- **An unbounded LCS table.** Two valid sections can hold thousands of
+  lines each; the table is quadratic in lines, not runes.
 - **A server-side diff route.** The webview already holds both texts; the
   server stays a reader of revisions.
 - **A diff library.** A third-party license shipped with the extension for
@@ -151,10 +180,12 @@ words: a procedure is cited or recalled, never applied or followed.
   small. A historical read of a re-cut row recomputes the cut on each
   request rather than storing it; sections are bounded by the budget and a
   body is one document.
-- Opening a procedure costs the host one thread read and one revision
-  section read per distinct section the acts recorded, plus the current
-  outline and counterparts when the procedure was revised; the pane opens
-  on the document and the citations if those reads fail.
+- Opening a procedure costs the host one thread read, one revision section
+  read per distinct section the acts recorded, one outline per revision and
+  cut involved, and the counterparts when the procedure was revised; the
+  pane opens on the document and the citations if those reads fail. The
+  delivery lines cost nothing beyond the transcripts the webview holds; a
+  turn outside the loaded window says so rather than guessing.
 - Three wire shapes are new and the thread decoder names three fields the
   server already sent; the fixtures are regenerated. `consulted_sops` on the
   wire is unchanged.
