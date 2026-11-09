@@ -64,10 +64,9 @@ cuts of one revision, and the aggregate accepts that: a key over
   the facade's shapes). The knowledge facade stays unaware of the
   projection. A failed count fails the list rather than showing zeros as
   facts; a deployment without the aggregate lists its corpus with every count
-  zero. On the wire `cited_in` and `learned_procedures` are optional to the
-  workbench's decoders: a backend serving API v1 from before this record omits
-  them, and a client supporting v1 works against every v1 backend
-  (`internal/apiversion`); absent is shown as not reported, never as zero.
+  zero. `cited_in` and `learned_procedures` are required fields of the
+  shape, and the workbench's decoders require them: a decoder describes what
+  the backend sends, and the backend always sends these.
 - **"Procedures learned from this case"** are the SOPs whose source url is
   `reckon://investigation/<id>` (the draft-accept path, adr/0156). The facade
   gains `ListBySource(prefix)` (current, unretired) and the constant
@@ -116,6 +115,12 @@ cuts of one revision, and the aggregate accepts that: a key over
   revision.
 - **A self-citation guard.** The lifecycle cannot produce the state; a guard
   would be code for a case that does not occur.
+- **Optional decoders for a backend from before this record.** A workbench
+  updated ahead of its backend would then show a corpus without counts
+  instead of failing to decode. Rejected: the decoders are the schema the
+  backend serves, and loosening them to describe a shape the backend does not
+  send trades schema adherence for cross-version compatibility, which is not
+  a constraint the project carries at this time; the two ship together.
 
 ## Consequences
 

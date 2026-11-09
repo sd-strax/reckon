@@ -190,10 +190,9 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
                   ]} />
                 </Section>
                 <Section title="Procedures learned from this case">
-                  {summary.learnedProcedures === undefined ? <div className="empty">not reported by this backend</div>
-                    : summary.learnedProcedures.length
-                      ? summary.learnedProcedures.map((p) => <div key={p.id} className="irow"><a onClick={() => openInspector({ kind: "sop", sopId: p.id })}>{p.title || p.id}</a></div>)
-                      : <div className="empty">none accepted into the library from this case</div>}
+                  {summary.learnedProcedures.length
+                    ? summary.learnedProcedures.map((p) => <div key={p.id} className="irow"><a onClick={() => openInspector({ kind: "sop", sopId: p.id })}>{p.title || p.id}</a></div>)
+                    : <div className="empty">none accepted into the library from this case</div>}
                 </Section>
               </>
             )

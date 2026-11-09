@@ -90,7 +90,7 @@ export class KnowledgeClient {
       actionsTaken: r.actions_taken.map((a) => ({ actionType: a.action_type, targetCount: a.target_count, outcome: a.outcome })),
       conclusionOutcome: r.conclusion_outcome, durationHours: r.duration_hours, verdictDisposition: r.verdict_disposition,
       verdictRationale: r.verdict_rationale, tags: r.tags, revision: r.revision, contentHash: r.content_hash,
-      learnedProcedures: r.learned_procedures?.map((p) => ({ id: p.id, title: p.title })),
+      learnedProcedures: r.learned_procedures.map((p) => ({ id: p.id, title: p.title })),
     };
   }
 
