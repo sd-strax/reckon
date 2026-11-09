@@ -112,7 +112,7 @@ func (InvestigationCurrentProjector) Apply(ctx context.Context, tx *sql.Tx, evt 
 		return nil
 
 	case EventTypeInterpretationRecorded, EventTypeInterpretationSuperseded,
-		EventTypeMemberAdded, EventTypeMemberRemoved, EventTypeEvidenceAttached:
+		EventTypeMemberAdded, EventTypeMemberRemoved, EventTypeEvidenceAttached, EventTypeNarrativeRecorded:
 		// These don't change basic state (the reasoning thread and membership
 		// projections land separately); advance the cursor so
 		// last_event_sequence reflects the true latest event — important after a

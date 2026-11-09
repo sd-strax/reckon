@@ -308,7 +308,12 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     `dependencies.json`.*
 18. **Narrative summary at any time** — the two-tier summary of `06 §3.2` produced on
     demand for an open investigation, not only at conclusion, with its authorship (drafted,
-    edited by) recorded.
+    edited by) recorded. *Built in part: `adr/0103`, the narrative as revisions on the
+    investigation aggregate (`investigation.narrative_recorded`, the event's actor as the
+    authorship), drafted on demand through the sidecar on the analyst's key and edited as a
+    human revision, at `GET|POST /api/investigations/{id}/narrative` and on the detail; the
+    Summary lens shows it with "drafted by reckon · edited by …" and prefills the conclusion.
+    The structured facts stay derived in the page; a server read of them is not built.*
 19. **Roles on acts** — the role that authorized an act, captured from the token at command
     time alongside `principal_name` (`adr/0077`), for the person inspector (`ui/08 §8.6.1`).
     Display only: authorization still reads the live token, and reckon still mirrors no

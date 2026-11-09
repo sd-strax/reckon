@@ -2,11 +2,13 @@
 // absent until drafted, never templated), key entities with derivable
 // status words, still to do, procedures cited, the handoff note and the
 // export. Every element names its source or says it is a gap.
+import { useState } from "react";
 import { useApp } from "../../app";
 import { terminal } from "../../derive/stage";
 import { hypName } from "../../derive/hyps";
 import { handoffNote, keyEntities, proceduresCited, stillToDo } from "../../derive/summary";
-import { Badge, Countdown, Empty, RefChip, fmtTime } from "../shared";
+import { Badge, Countdown, Empty, Markdown, RefChip, fmtDateTime, fmtTime } from "../shared";
+import type { NarrativeAuthor, NarrativeView } from "../../../../src/viewTypes";
 import { verdictLinks } from "../../derive/verdict";
 import { scrollToAct } from "../Chronicle";
 
@@ -37,6 +39,89 @@ function AfterConclusion() {
       {d?.state === "added" ? <div className="imeta">“{d.title}” {d.message}.</div> : null}
       {d?.state === "discarded" ? <div className="imeta">Draft discarded.</div> : null}
     </div>
+  );
+}
+
+/** "drafted by reckon" or "drafted by <name>", with the model when the record names one. */
+function authorWords(a: NarrativeAuthor): string {
+  if (a.kind === "AI_DELEGATED") return "drafted by reckon" + (a.model ? ` (${a.model})` : "");
+  return "drafted by " + (a.name || "a person");
+}
+
+/**
+ * What happened (ui/08 §8.4, adr/0103): the narrative with its authorship,
+ * drafted by the model on request and revised by a person, never templated.
+ * The line names who drafted the first revision and who edited last, says
+ * how far the record has moved since it was written, and offers Draft and
+ * Edit. Nothing here is written until the analyst asks.
+ */
+function WhatHappened({ narrative, lastEventSequence, hasRecord }: { narrative: NarrativeView | undefined; lastEventSequence: number; hasRecord: boolean }) {
+  const { state, send, dispatch } = useApp();
+  const status = state.narrativeStatus;
+  // The editor's text, and the record's save count when it was submitted.
+  // The text is the only copy of the analyst's edit, so the editor stays
+  // open with it until the record carries the revision (the count moves) or
+  // the analyst cancels; a refused save shows why and keeps the text.
+  const [editing, setEditing] = useState<{ text: string; submittedAt: number | null } | null>(null);
+  const drafting = status?.state === "drafting";
+  const open = editing !== null && (editing.submittedAt === null || editing.submittedAt === state.narrativeSaves);
+  const save = () => {
+    if (!editing) return;
+    const body = editing.text.trim();
+    if (!body || body === narrative?.body) {
+      setEditing(null);
+      return;
+    }
+    setEditing({ ...editing, submittedAt: state.narrativeSaves });
+    // Saving from this instant, ahead of the host's own word, so a second
+    // press cannot send the revision twice and an earlier refusal is gone.
+    dispatch({ type: "msg", msg: { type: "narrative.status", state: "saving" } });
+    send({ type: "narrative.edit", body });
+  };
+  if (editing !== null && open) {
+    const submitted = editing.submittedAt !== null;
+    const refused = submitted && status?.state === "save-failed" ? (status.message ?? "the record refused it") : null;
+    const saving = submitted && refused === null;
+    return (
+      <div className="narrative-edit">
+        <textarea aria-label="Narrative" value={editing.text} onChange={(e) => setEditing({ text: e.target.value, submittedAt: null })} rows={10} disabled={saving} />
+        <div className="decide">
+          <button className="primary" disabled={saving || !editing.text.trim()} onClick={save}>{saving ? "Saving…" : "Save as my revision"}</button>
+          <button disabled={saving} onClick={() => setEditing(null)}>Cancel</button>
+          {refused !== null ? (
+            <span className="imeta err">Not saved: {refused}. Your text is still here.</span>
+          ) : (
+            <span className="imeta">Saved as a revision in your name; the earlier text stays on the record.</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+  const moved = narrative ? lastEventSequence - narrative.sequenceNo : 0;
+  return (
+    <>
+      {narrative ? (
+        <>
+          <Markdown text={narrative.body} className="narrative" />
+          <div className="imeta">
+            {authorWords(narrative.draftedBy)}
+            {narrative.revision > 1 && narrative.author.kind === "HUMAN" ? ` · edited by ${narrative.author.name || "a person"}` : ""}
+            {/* A redraft is the current revision's model, which may differ from the first draft's. */}
+            {narrative.revision > 1 && narrative.author.kind !== "HUMAN" ? ` · redrafted by reckon${narrative.author.model ? ` (${narrative.author.model})` : ""}` : ""}
+            {` · revision ${narrative.revision} · ${fmtDateTime(narrative.occurredAt)}`}
+            {moved > 0 ? ` · the record has moved ${moved} event${moved === 1 ? "" : "s"} since` : ""}
+          </div>
+        </>
+      ) : !drafting ? (
+        <Empty>No narrative yet. Draft one from the record, or write your own; the Thread and the Story lens hold the record either way.</Empty>
+      ) : null}
+      {drafting ? <div className="imeta">Drafting from the record…</div> : null}
+      {status?.state === "failed" ? <div className="imeta err">Drafting failed: {status.message}</div> : null}
+      <div className="decide">
+        <button disabled={drafting || !hasRecord} title={hasRecord ? "One model call over the record, on your key; recorded as the model's draft under your name" : "Nothing on the record to narrate yet"} onClick={() => send({ type: "narrative.draft" })}>{narrative ? "Draft again" : "Draft narrative"}</button>
+        <button disabled={drafting} onClick={() => setEditing({ text: narrative?.body ?? "", submittedAt: null })}>{narrative ? "Edit" : "Write"}</button>
+      </div>
+    </>
   );
 }
 
@@ -95,7 +180,8 @@ export function SummaryLens() {
 
       <section className="lsection">
         <h3>What happened</h3>
-        <Empty>No narrative yet — it is written when the investigation concludes. The Thread and the Story lens hold the record.</Empty>
+        {/* A context-reset marker alone is not an act; the session judges the same way (agent/session.go). */}
+        <WhatHappened narrative={snap.investigation.narrative} lastEventSequence={snap.investigation.lastEventSequence} hasRecord={(snap.thread || []).some((e) => e.interpretationType !== "context-reset") || hs.length > 0 || actions.length > 0} />
       </section>
 
       <section className="lsection">
@@ -134,7 +220,7 @@ export function SummaryLens() {
       </section>
 
       <div className="decide">
-        <button onClick={() => send({ type: "copy", text: handoffNote(snap.investigation.title, verdict, actions, todo, hs, cited) })}>Copy handoff note</button>
+        <button onClick={() => send({ type: "copy", text: handoffNote(snap.investigation.title, verdict, actions, todo, hs, cited, snap.investigation.narrative?.body) })}>Copy handoff note</button>
         <button title="The live markdown snapshot — paste into a ticket unedited" onClick={() => send({ type: "export.open" })}>Export report</button>
         {concluded ? <button title="Ask reckon to generalize a reusable procedure from this case; you review it before it joins the library" disabled={state.sopDraft?.state === "drafting"} onClick={() => send({ type: "sop.draft" })}>Draft SOP from this case</button> : null}
       </div>

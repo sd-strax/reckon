@@ -28,6 +28,9 @@ export const turn = object({
   error: optional(str),
 });
 
+/** draftNarrative: the revision the record now stands at (adr/0103). */
+export const draftNarrative = object({ revision: num, chars: num });
+
 export const proposeSOP = object({
   warranted: bool,
   title: str,

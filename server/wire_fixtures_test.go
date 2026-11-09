@@ -90,6 +90,7 @@ func TestWireFixtures(t *testing.T) {
 	wirefixture.Check[knowledge.SOPSectionRead](t, dir, "sopSection")
 	wirefixture.Check[LifecycleResponse](t, dir, "lifecycle")
 	wirefixture.Check[RenameResponse](t, dir, "renamed")
+	wirefixture.Check[NarrativeView](t, dir, "narrative")
 	wirefixture.Check[struct {
 		ID      string `json:"id"`
 		Outcome string `json:"outcome"`

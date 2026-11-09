@@ -307,7 +307,7 @@ func foldState(events []Event) (aggregateState, error) {
 				return aggregateState{}, fmt.Errorf("fold interpretation.superseded seq %d: %w", e.SequenceNo, err)
 			}
 			foldSupersession(&s, p)
-		case EventTypeRenamed, EventTypeMemberAdded, EventTypeMemberRemoved, EventTypeEvidenceAttached:
+		case EventTypeRenamed, EventTypeMemberAdded, EventTypeMemberRemoved, EventTypeEvidenceAttached, EventTypeNarrativeRecorded:
 			// Metadata only: no command's legality depends on them, so the
 			// write side carries nothing. Listed so the default below stays
 			// an error.
@@ -415,6 +415,8 @@ func applyCommand(env Envelope, cmd Command, state aggregateState, newID idSourc
 		return discardEvents(env, state, c, newID)
 	case RenameInvestigation:
 		return renameEvent(env, state, c)
+	case RecordNarrative:
+		return narrativeEvent(env, state, c)
 	case AddMember:
 		return membershipEvent(env, state, EventTypeMemberAdded, MemberAdded(c))
 	case RemoveMember:
@@ -466,7 +468,8 @@ func aiAllowed(cmd Command) bool {
 		ActivateInvestigation, PauseInvestigation, ResumeInvestigation,
 		AddMember, RemoveMember, AttachEvidence,
 		RecordInterpretation, SupersedeInterpretation,
-		RequestAction:
+		RequestAction,
+		RecordNarrative:
 		// RecordInterpretation admission does NOT make every act AI-legal: the
 		// per-act guards inside it still apply (human-only hypothesis ack; the
 		// AI-verdict dial's default-deny). SupersedeInterpretation is reasoning

@@ -110,6 +110,10 @@ export interface AgentTransport {
   /** Client-side candidate-SOP generalization at conclusion (design/06: the
    * compounding loop). Returns a draft for the analyst to accept or discard. */
   proposeSOP(investigationId: string, force?: boolean): Promise<SOPCandidate>;
+  /** Draft the investigation's narrative at any point (adr/0103): one BYOK
+   * completion in the sidecar, recorded through the agent token as the
+   * model's revision under the signed-in person. Returns the revision. */
+  draftNarrative(investigationId: string): Promise<{ revision: number; chars: number }>;
   dispose(): void;
 }
 
@@ -337,6 +341,12 @@ export class SidecarTransport implements AgentTransport {
    * conversation, informed by the SOPs + similar past cases it consulted. The
    * candidate is returned, not persisted — the analyst accepts or discards it.
    */
+  async draftNarrative(investigationId: string): Promise<{ revision: number; chars: number }> {
+    const conn = await this.ensureConnection();
+    const sessionId = await this.ensureSession(conn, investigationId);
+    return decode("draftNarrative", shapes.draftNarrative, await conn.sendRequest("draftNarrative", { session_id: sessionId }));
+  }
+
   async proposeSOP(investigationId: string, force?: boolean): Promise<SOPCandidate> {
     const conn = await this.ensureConnection();
     const sessionId = await this.ensureSession(conn, investigationId);

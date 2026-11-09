@@ -44,6 +44,7 @@ type readModel interface {
 	LoadActionCurrent(ctx context.Context, actionID uuid.UUID) (aggregate.ActionCurrent, error)
 	LoadInterpretation(ctx context.Context, id uuid.UUID) (aggregate.InterpretationRecorded, error)
 	LoadInvestigationCurrent(ctx context.Context, aggID aggregate.AggregateID) (aggregate.InvestigationCurrent, error)
+	Narrative(ctx context.Context, aggID aggregate.AggregateID) (aggregate.Narrative, error)
 	Thread(ctx context.Context, aggID aggregate.AggregateID) ([]aggregate.ThreadAct, error)
 	TranscriptBody(ctx context.Context, tenantID uuid.UUID, hash string) ([]byte, error)
 }

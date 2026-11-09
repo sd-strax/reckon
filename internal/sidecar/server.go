@@ -72,6 +72,7 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, opts Options) error {
 		"resetSession":       s.handleResetSession,
 		"summarizeConcluded": s.handleSummarizeConcluded,
 		"proposeSOP":         s.handleProposeSOP,
+		"draftNarrative":     s.handleDraftNarrative,
 		"cancel":             s.handleCancel,
 		"shutdown":           func(context.Context, json.RawMessage) (any, error) { return struct{}{}, nil },
 	})
@@ -594,6 +595,44 @@ func (s *service) handleSummarizeConcluded(ctx context.Context, raw json.RawMess
 		return nil, cancelledOr(runCtx, err)
 	}
 	return map[string]any{"chars": len(narrative)}, nil
+}
+
+// draftNarrativeParams identifies the session whose investigation to narrate.
+type draftNarrativeParams struct {
+	SessionID string `json:"session_id"`
+}
+
+// draftNarrativeResult is the wire shape of a recorded draft: the revision
+// the record now stands at, and the size of the text (the text itself is
+// read back from the record, with its authorship).
+type draftNarrativeResult struct {
+	Revision int `json:"revision"`
+	Chars    int `json:"chars"`
+}
+
+// handleDraftNarrative writes one revision of the investigation's narrative
+// (adr/0103): one BYOK model completion over the session's own conversation,
+// posted through the agent token so the record attributes it to the model
+// under the signed-in person. It holds the session like a turn (begin).
+func (s *service) handleDraftNarrative(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p draftNarrativeParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, errInvalidParams("draftNarrative: %v", err)
+	}
+	st, err := s.session(p.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	runCtx, release, err := st.begin(ctx, "a turn is in progress — wait for it to finish, then draft the narrative")
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	text, rev, err := st.sess.DraftNarrative(runCtx)
+	if err != nil {
+		return nil, cancelledOr(runCtx, err)
+	}
+	return draftNarrativeResult{Revision: rev, Chars: len(text)}, nil
 }
 
 // proposeSOPParams identifies the session whose concluded investigation to

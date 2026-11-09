@@ -17,6 +17,7 @@ func TestWireFixtures(t *testing.T) {
 	wirefixture.Check[createSessionResult](t, dir, "createSession")
 	wirefixture.Check[turnResult](t, dir, "turn")
 	wirefixture.Check[proposeSOPResult](t, dir, "proposeSOP")
+	wirefixture.Check[draftNarrativeResult](t, dir, "draftNarrative")
 	wirefixture.Check[turnTextNote](t, dir, "text")
 	wirefixture.Check[turnStepNote](t, dir, "step")
 	wirefixture.Check[turnToolCallNote](t, dir, "toolCall")

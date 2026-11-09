@@ -278,6 +278,16 @@ type Investigation struct {
 	// §x-hypothesis): "leading_null" (default) or "leading_only". Empty is
 	// treated as leading_null.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
+	// Verdict is the disposition of record (01 §Verdict), absent when none.
+	// The narrative draft reads it so an account written between turns says
+	// what the record holds, not what the conversation last heard.
+	Verdict *InvestigationVerdict `json:"verdict,omitempty"`
+}
+
+// InvestigationVerdict is the verdict as the detail serves it.
+type InvestigationVerdict struct {
+	Disposition string `json:"disposition"`
+	Rationale   string `json:"rationale,omitempty"`
 }
 
 // Seed is the subset of the investigation's root the prompt renders (the fields
@@ -517,6 +527,21 @@ func (c *Client) SubmitSummaryNarrative(ctx context.Context, investigationRef, n
 	return c.do(ctx, http.MethodPost, "/api/knowledge/summary_narrative", c.agentSrc, body, nil)
 }
 
+// RecordNarrative appends one revision of the investigation's narrative
+// (agent token, adr/0103): the record attributes it to the model under the
+// principal. Returns the revision recorded.
+func (c *Client) RecordNarrative(ctx context.Context, investigationID, body, model string) (int, error) {
+	var out struct {
+		Revision int `json:"revision"`
+	}
+	req := map[string]any{"body": body}
+	if model != "" {
+		req["model"] = model
+	}
+	err := c.do(ctx, http.MethodPost, "/api/investigations/"+url.PathEscape(investigationID)+"/narrative", c.agentSrc, req, &out)
+	return out.Revision, err
+}
+
 // RecordInterpretation appends one reasoning act (agent token).
 func (c *Client) RecordInterpretation(ctx context.Context, body InterpretationRequest) (InterpretationResponse, error) {
 	var out InterpretationResponse
@@ -559,6 +584,18 @@ type ThreadEntry struct {
 	InterpretationType string `json:"interpretation_type"`
 	// Summary is the act's rationale.
 	Summary string `json:"summary"`
+	// Actor is who recorded the act; the narrative draft says so.
+	Actor ThreadActor `json:"actor"`
+	// Superseded reports that a later act retracted this one; it stays on the
+	// thread but is not current.
+	Superseded bool `json:"superseded,omitempty"`
+	// Disposition is a verdict act's disposition.
+	Disposition string `json:"disposition,omitempty"`
+}
+
+// ThreadActor is the actor of a thread entry: HUMAN, AI_DELEGATED or SYSTEM.
+type ThreadActor struct {
+	Kind string `json:"kind"`
 }
 
 // Thread returns the investigation's committed reasoning thread in sequence

@@ -44,6 +44,7 @@ const transport = {
   cancel: vi.fn(async () => undefined),
   summarizeConcluded: vi.fn(async () => undefined),
   proposeSOP: vi.fn(async () => ({ warranted: true, title: "T", body: "B", tags: [], recommendation: "", rationale: "" })),
+  draftNarrative: vi.fn(async () => ({ revision: 1, chars: 10 })),
 } as unknown as AgentTransport;
 
 function documents(client: BackendClient) {

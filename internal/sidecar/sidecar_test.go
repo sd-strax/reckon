@@ -178,6 +178,10 @@ func fakeBackend(t *testing.T) *httptest.Server {
 			"seed_summary": "entity WIN-FILE01", "knowledge_injection": "auto",
 		})
 	})
+	mux.HandleFunc("/api/investigations/inv-1/narrative", func(w http.ResponseWriter, r *http.Request) {
+		requireDelegate(r)
+		_, _ = w.Write([]byte(`{"investigation_ref":"inv-1","revision":2,"body":"n"}`))
+	})
 	// Implicit retrieval (design/06 §5.1): one SOP, one similar case.
 	mux.HandleFunc("/api/knowledge/recall_sops", func(w http.ResponseWriter, r *http.Request) {
 		requireDelegate(r)
@@ -197,6 +201,10 @@ func fakeBackend(t *testing.T) *httptest.Server {
 			},
 			"status": "available",
 		}}})
+	})
+	mux.HandleFunc("/api/investigations/inv-1/thread", func(w http.ResponseWriter, r *http.Request) {
+		requireDelegate(r)
+		_ = json.NewEncoder(w).Encode(map[string]any{"thread": []any{}})
 	})
 	mux.HandleFunc("/api/investigations/inv-1/hypotheses", func(w http.ResponseWriter, r *http.Request) {
 		requireDelegate(r)
@@ -850,6 +858,28 @@ type sopLLM struct{ text string }
 
 func (l *sopLLM) Complete(context.Context, agent.CompleteRequest) (agent.CompleteResponse, error) {
 	return agent.CompleteResponse{Content: []agent.ContentBlock{agent.TextBlock(l.text)}, StopReason: agent.StopEndTurn}, nil
+}
+
+// TestServe_DraftNarrativeWireShape (adr/0103): the draft is recorded through
+// the agent token and the result names the revision and the size. The fake
+// record carries one requested action and no conversation, the shape of an
+// investigation worked by hand: the draft runs over the record alone.
+func TestServe_DraftNarrativeWireShape(t *testing.T) {
+	backend := fakeBackend(t)
+	c := startSidecar(t, &sopLLM{text: "So far: one host, one logon."})
+	id := openSession(t, c, backend.URL)
+
+	resp := c.call("draftNarrative", draftNarrativeParams{SessionID: id})
+	if resp.Error != nil {
+		t.Fatalf("draftNarrative: %+v", resp.Error)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(resp.Result, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, map[string]any{"revision": float64(2), "chars": float64(len("So far: one host, one logon."))}) {
+		t.Errorf("wire = %v", got)
+	}
 }
 
 // TestServe_ProposeSOPWireShape (adr/0237): the candidate's wire keys are the

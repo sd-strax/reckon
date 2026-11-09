@@ -6,7 +6,8 @@
 import type { BackendHttp } from "./http";
 import * as shapes from "../wire/backendShapes";
 import type { RawInvestigation } from "../wire/backendShapes";
-import type { ArtifactLocation, Hypothesis, InvestigationDetail, InvestigationSummary, PinRow, Seed, ThreadEntry, ToolCallRecord } from "../viewTypes";
+import type { ArtifactLocation, Hypothesis, InvestigationDetail, InvestigationSummary, NarrativeAuthor, NarrativeView, PinRow, Seed, ThreadEntry, ToolCallRecord } from "../viewTypes";
+import type { Decoded } from "../wire/decode";
 
 /** Map a raw seed body to the client Seed shape (shared by list/get/create). */
 function mapSeed(s: RawInvestigation["seed"]): Seed | undefined {
@@ -78,7 +79,17 @@ export class InvestigationsClient {
       caseNote: r.case_note?.case_id ? { caseId: r.case_note.case_id, body: r.case_note.body, systemName: r.case_note.system_name } : undefined,
       createdAt: r.created_at,
       openedByName: r.opened_by_name,
+      narrative: r.narrative ? narrativeView(r.narrative) : undefined,
     };
+  }
+
+  /**
+   * POST /api/investigations/{id}/narrative — a person's revision of the
+   * narrative (adr/0103), on the human token; the record attributes it to
+   * them. The model's draft goes through the sidecar, not here.
+   */
+  async recordNarrative(id: string, body: string): Promise<NarrativeView> {
+    return narrativeView(await this.http.post(`/api/investigations/${encodeURIComponent(id)}/narrative`, { body }, shapes.narrative));
   }
 
   /** POST /api/investigations — seed a new investigation. Analyst role. */
@@ -493,4 +504,13 @@ export class InvestigationsClient {
     }
     return await res.text();
   }
+}
+
+function narrativeView(r: Decoded<typeof shapes.narrative>): NarrativeView {
+  const author = (a: { kind: string; name?: string; model?: string }): NarrativeAuthor => ({ kind: a.kind, name: a.name, model: a.model });
+  return {
+    revision: r.revision, body: r.body, sequenceNo: r.sequence_no, occurredAt: r.occurred_at,
+    author: author(r.author), draftedBy: author(r.drafted_by),
+    revisions: r.revisions.map((x) => ({ revision: x.revision, sequenceNo: x.sequence_no, occurredAt: x.occurred_at, author: author(x.author), body: x.body })),
+  };
 }

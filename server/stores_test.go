@@ -40,6 +40,7 @@ type fakeReads struct {
 	actionErr     error
 	investigation aggregate.InvestigationCurrent
 	citations     []aggregate.KnowledgeCitation
+	narrative     aggregate.Narrative
 	counts        map[string]aggregate.CitationCount
 	citationsErr  error
 }
@@ -66,6 +67,12 @@ func (*fakeReads) ActionHistory(context.Context, aggregate.AggregateID, uuid.UUI
 func (*fakeReads) CountInvestigations(context.Context) (int, error) { return 0, nil }
 func (*fakeReads) InvestigationForCase(context.Context, string) (string, error) {
 	return "", aggregate.ErrNoRecord
+}
+func (f *fakeReads) Narrative(context.Context, aggregate.AggregateID) (aggregate.Narrative, error) {
+	if f.narrative.Current.Revision == 0 {
+		return aggregate.Narrative{}, aggregate.ErrNoRecord
+	}
+	return f.narrative, nil
 }
 func (*fakeReads) InvestigationOpening(context.Context, aggregate.AggregateID) (time.Time, aggregate.Actor, error) {
 	return time.Time{}, aggregate.Actor{}, aggregate.ErrNoRecord

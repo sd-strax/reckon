@@ -22,7 +22,19 @@
       },
       "createdAt": "2026-10-20T09:05:00Z",
       "openedByName": "Analyst One",
-      "knowledgeInjection": "opt_in"
+      "knowledgeInjection": "opt_in",
+      "narrative": {
+        "revision": 2,
+        "body": "Two interactive logons by user-a on host-a from 10.0.0.9 were reviewed. H1 (not the account owner) was proposed against H2; the host was isolated while the owner is contacted.",
+        "sequenceNo": 12,
+        "occurredAt": "2026-10-20T09:11:00Z",
+        "author": { "kind": "HUMAN", "name": "Analyst One" },
+        "draftedBy": { "kind": "AI_DELEGATED", "name": "Analyst One", "model": "demo-model" },
+        "revisions": [
+          { "revision": 2, "sequenceNo": 12, "occurredAt": "2026-10-20T09:11:00Z", "author": { "kind": "HUMAN", "name": "Analyst One" }, "body": "Two interactive logons by user-a on host-a from 10.0.0.9 were reviewed. H1 (not the account owner) was proposed against H2; the host was isolated while the owner is contacted." },
+          { "revision": 1, "sequenceNo": 11, "occurredAt": "2026-10-20T09:10:30Z", "author": { "kind": "AI_DELEGATED", "name": "Analyst One", "model": "demo-model" }, "body": "Two interactive logons by user-a on host-a were reviewed; H1 and H2 were proposed." }
+        ]
+      }
     },
     "hypotheses": [
       {

@@ -122,7 +122,7 @@ func TestMain(m *testing.M) {
 		cleanupDir()
 		log.Fatalf("sql.Open: %v", err)
 	}
-	testHandler = aggregate.NewHandler(aggregate.NewStore(testDB), aggregate.InvestigationCurrentProjector{}, aggregate.ActionCurrentProjector{}, aggregate.ReasoningNodeProjector{}, aggregate.VerdictPinProjector{}, aggregate.RefAppearanceProjector{}, aggregate.KnowledgeCitationProjector{}).
+	testHandler = aggregate.NewHandler(aggregate.NewStore(testDB), aggregate.InvestigationCurrentProjector{}, aggregate.ActionCurrentProjector{}, aggregate.ReasoningNodeProjector{}, aggregate.VerdictPinProjector{}, aggregate.RefAppearanceProjector{}, aggregate.KnowledgeCitationProjector{}, aggregate.NarrativeProjector{}).
 		WithSideStore(aggregate.NewSideStore(testDB))
 
 	testReady = true
@@ -140,7 +140,7 @@ func resetInvestigations(t *testing.T) {
 	if !testReady {
 		t.Skip("integration setup unavailable")
 	}
-	if _, err := testDB.Exec(`TRUNCATE events, investigation_current, action_current, hypothesis_current, prediction_current, stix_objects, evidence_pin_current, ref_appearances, knowledge_citations`); err != nil {
+	if _, err := testDB.Exec(`TRUNCATE events, investigation_current, action_current, hypothesis_current, prediction_current, stix_objects, evidence_pin_current, ref_appearances, knowledge_citations, investigation_narratives`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 }

@@ -20,6 +20,7 @@ function transport(script: (p: TurnProgress) => void, settle: () => Promise<Turn
     closeSession: async () => undefined,
     summarizeConcluded: async () => undefined,
     proposeSOP: async () => { throw new Error("unused"); },
+    draftNarrative: async () => { throw new Error("unused"); },
     dispose: () => undefined,
   };
 }

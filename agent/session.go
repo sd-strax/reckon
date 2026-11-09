@@ -776,6 +776,122 @@ func (s *Session) SummarizeConcluded(ctx context.Context) (string, error) {
 	return text, nil
 }
 
+// DraftNarrative writes one revision of the investigation's narrative
+// (adr/0103): one BYOK model completion over the session's own conversation
+// and a fresh read of the record, at any point of the investigation, posted
+// to the narrative endpoint through the agent token so the record attributes
+// it to the model under the signed-in person. Like SummarizeConcluded it is a
+// side product, not a turn: the conversation is not mutated, and a fresh
+// session rehydrates from the committed thread first. Returns the text and
+// the revision recorded.
+//
+// The draft is of the record, not of the conversation. A hypothesis the
+// analyst framed by hand, a prediction result or a verdict recorded between
+// turns has no transcript, and a context reset discards the earlier turns; so
+// the lifecycle, the verdict, the hypothesis set and the action record are
+// read now and ride the request as the authoritative state, the way a turn's
+// [engine] blocks do. A failed read fails the draft rather than narrating from
+// the conversation alone. With nothing on the record and no conversation the
+// model would narrate the seed line, or invent, so the draft is refused.
+func (s *Session) DraftNarrative(ctx context.Context) (string, int, error) {
+	if len(s.messages) == 0 {
+		s.rehydrate(ctx)
+	}
+	record, err := s.narrativeRecord(ctx)
+	if err != nil {
+		return "", 0, fmt.Errorf("agent: draft narrative: %w", err)
+	}
+	if len(s.messages) == 0 && !record.hasActs {
+		return "", 0, fmt.Errorf("agent: draft narrative: nothing on the record to narrate yet")
+	}
+	resp, err := s.sideCompletionWith(ctx, append(record.blocks, TextBlock(sideNarrative.Text)))
+	if err != nil {
+		return "", 0, fmt.Errorf("agent: draft narrative: %w", err)
+	}
+	var narrative strings.Builder
+	for _, blk := range resp.Content {
+		if blk.Type == BlockText {
+			narrative.WriteString(blk.Text)
+		}
+	}
+	text := strings.TrimSpace(narrative.String())
+	if text == "" {
+		return "", 0, fmt.Errorf("agent: draft narrative: the model returned no text")
+	}
+	model := ""
+	if m, ok := s.llm.(interface{ ModelName() string }); ok {
+		model = m.ModelName()
+	}
+	rev, err := s.backend.RecordNarrative(ctx, s.investigationID, text, model)
+	if err != nil {
+		return "", 0, fmt.Errorf("agent: record narrative: %w", err)
+	}
+	return text, rev, nil
+}
+
+// narrativeRecord is the record as the engine holds it, read for one draft:
+// the blocks that ride the request, and whether anything has been recorded
+// beyond the seed (an act on the thread other than a context-reset marker, a
+// hypothesis, or an action).
+type narrativeRecord struct {
+	blocks  []ContentBlock
+	hasActs bool
+}
+
+// narrativeRecord reads the investigation, its hypotheses, its actions and
+// its thread, and renders the blocks for the draft: the clock and the
+// record header, the turn loop's reasoning-state and action blocks, then
+// the thread's acts and every prediction with its statement and evidence
+// (narrative_record.go). Every read must succeed: a draft grounded on a
+// partial record would state less than the record holds, stamped as current.
+func (s *Session) narrativeRecord(ctx context.Context) (narrativeRecord, error) {
+	inv, err := s.backend.GetInvestigation(ctx, s.investigationID)
+	if err != nil {
+		return narrativeRecord{}, fmt.Errorf("read investigation: %w", err)
+	}
+	hyps, err := s.backend.ListHypotheses(ctx, s.investigationID)
+	if err != nil {
+		return narrativeRecord{}, fmt.Errorf("read hypotheses: %w", err)
+	}
+	acts, err := s.backend.ListActions(ctx, s.investigationID)
+	if err != nil {
+		return narrativeRecord{}, fmt.Errorf("read actions: %w", err)
+	}
+	thread, err := s.backend.Thread(ctx, s.investigationID)
+	if err != nil {
+		return narrativeRecord{}, fmt.Errorf("read thread: %w", err)
+	}
+	s.hyps = hyps // the next turn's reasoning-state block starts from the same read
+
+	verdict := sideNarrativeNoVerdict.Text
+	if v := inv.Verdict; v != nil {
+		verdict = v.Disposition
+		if r := strings.TrimSpace(v.Rationale); r != "" {
+			verdict = fmt.Sprintf(sideNarrativeVerdict.Text, v.Disposition, r)
+		}
+	}
+	rec := narrativeRecord{blocks: []ContentBlock{
+		TextBlock(clockBlock(s.now())),
+		TextBlock(fmt.Sprintf(sideNarrativeRecord.Text, inv.Status, verdict)),
+	}}
+	if hb := hypothesisStateBlock(hyps); hb != "" {
+		rec.blocks = append(rec.blocks, TextBlock(hb))
+		rec.hasActs = true
+	}
+	if ab := actionStateBlock(acts); ab != "" {
+		rec.blocks = append(rec.blocks, TextBlock(ab))
+		rec.hasActs = true
+	}
+	if tb := narrativeActsBlock(thread); tb != "" {
+		rec.blocks = append(rec.blocks, TextBlock(tb))
+		rec.hasActs = true
+	}
+	if pb := narrativeTestsBlock(hyps); pb != "" {
+		rec.blocks = append(rec.blocks, TextBlock(pb))
+	}
+	return rec, nil
+}
+
 // summaryRetryDelay is the single not-found retry backoff in
 // SummarizeConcluded — long enough for the post-conclusion pipeline's
 // structured write, short enough not to hang the conclude UX.
@@ -852,11 +968,18 @@ func parseSOPCandidate(text string) (SOPCandidate, error) {
 // history may hold tool calls, but the model may call none. A fresh session
 // (sidecar respawn) rehydrates from the committed thread first.
 func (s *Session) sideCompletion(ctx context.Context, instruction string) (CompleteResponse, error) {
+	return s.sideCompletionWith(ctx, []ContentBlock{TextBlock(instruction)})
+}
+
+// sideCompletionWith is sideCompletion over several blocks as the analyst's
+// last message: engine-state blocks ahead of the instruction, for a side
+// product that must read the record as it is now (DraftNarrative).
+func (s *Session) sideCompletionWith(ctx context.Context, side []ContentBlock) (CompleteResponse, error) {
 	if len(s.messages) == 0 {
 		s.rehydrate(ctx)
 	}
 	var scratch strings.Builder // a side completion has no transcript
-	resp, _, err := s.completeFitted(ctx, &scratch, []ContentBlock{TextBlock(instruction)})
+	resp, _, err := s.completeFitted(ctx, &scratch, side)
 	return resp, err
 }
 

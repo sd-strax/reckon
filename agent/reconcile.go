@@ -126,7 +126,17 @@ func (s *Session) turnFooter(ctx context.Context, finalText string, actionsReque
 // the engine can't be read.
 func (s *Session) engineStateAnchor(ctx context.Context) string {
 	acts, err := s.backend.ListActions(ctx, s.investigationID)
-	if err != nil || len(acts) == 0 {
+	if err != nil {
+		return ""
+	}
+	return actionStateBlock(acts)
+}
+
+// actionStateBlock renders the action record as the anchor states it: one
+// row per action with its status, and the count awaiting approval. Empty when
+// there are no actions.
+func actionStateBlock(acts []ActionStatus) string {
+	if len(acts) == 0 {
 		return ""
 	}
 	rows := make([]string, 0, len(acts))
