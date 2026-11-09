@@ -115,6 +115,29 @@ export interface Verdict {
 }
 
 /** A single investigation's detail (mirrors server.InvestigationView). */
+/** Who recorded a narrative revision (adr/0103): a person, or the model under a person. */
+export interface NarrativeAuthor {
+  kind: string; // HUMAN | AI_DELEGATED
+  name?: string;
+  /** The drafting model, on an AI_DELEGATED revision. */
+  model?: string;
+}
+
+/**
+ * The investigation's narrative (mirrors server.NarrativeView, adr/0103): the
+ * current revision, who recorded it and who drafted the first, the event it
+ * was written at, and the history newest first.
+ */
+export interface NarrativeView {
+  revision: number;
+  body: string;
+  sequenceNo: number;
+  occurredAt: string;
+  author: NarrativeAuthor;
+  draftedBy: NarrativeAuthor;
+  revisions: { revision: number; sequenceNo: number; occurredAt: string; author: NarrativeAuthor; body: string }[];
+}
+
 export interface InvestigationDetail {
   id: string;
   title: string;
@@ -132,6 +155,8 @@ export interface InvestigationDetail {
   createdAt?: string;
   /** Who opened it: the creating act's actor by display name (adr/0077). */
   openedByName?: string;
+  /** The written account of the record with its authorship (adr/0103); absent until one is recorded. */
+  narrative?: NarrativeView;
 }
 
 /** One pinned-evidence row (mirrors server.PinView). */

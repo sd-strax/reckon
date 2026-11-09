@@ -96,6 +96,8 @@ export interface State {
   /** A procedure drafted from this concluded case (adr/0156), and the case summary's outcome. */
   sopDraft: { state: SopDraftState; title?: string; message?: string } | null;
   summaryStatus: { state: "written" | "baseline" | "failed"; detail?: string } | null;
+  /** The narrative draft the analyst asked for (adr/0103): in flight or failed; cleared when the record carries it. */
+  narrativeStatus: { state: "drafting" | "written" | "failed"; message?: string } | null;
   /** The knowledge library (adr/0129): what there is, and the last search's hits. */
   library: {
     sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number;
@@ -146,6 +148,7 @@ export const initialState: State = {
   actionTypes: [],
   sopDraft: null,
   summaryStatus: null,
+  narrativeStatus: null,
   live: [],
   streaming: false,
   preserveLive: false,
@@ -232,6 +235,8 @@ function onMessage(state: State, msg: RenderMessage): State {
       return { ...state, sopDraft: { state: msg.state, title: msg.title, message: msg.message } };
     case "summary.status":
       return { ...state, summaryStatus: { state: msg.state, detail: msg.detail } };
+    case "narrative.status":
+      return { ...state, narrativeStatus: msg.state === "written" ? null : { state: msg.state, message: msg.message } };
     case "library":
       return {
         ...state,
@@ -272,6 +277,10 @@ function onMessage(state: State, msg: RenderMessage): State {
       if (!state.snap || msg.seq < state.seq) return state; // stale
       const snap = { ...state.snap, ...msg.patch };
       const next: State = { ...state, seq: msg.seq, snap, title: msg.patch.investigation ? msg.patch.investigation.title : state.title };
+      // A failed draft's note is about the narrative as it was; a re-read of
+      // the investigation (an edit saved, a draft landed) replaces it. A draft
+      // still in flight keeps its note.
+      if (msg.patch.investigation && state.narrativeStatus?.state === "failed") next.narrativeStatus = null;
       if (msg.patch.thread !== undefined && !state.streaming && !state.preserveLive) next.live = [];
       return next;
     }

@@ -87,6 +87,21 @@ const seed = object({
   case_ref: optional(str),
 });
 
+/** Who recorded a narrative revision (server.NarrativeAuthorView, adr/0103). */
+const narrativeAuthor = object({ kind: str, name: optional(str), model: optional(str) });
+
+/** GET /api/investigations/{id}/narrative, and `narrative` on the detail (adr/0103). */
+export const narrative = object({
+  investigation_ref: str,
+  revision: num,
+  body: str,
+  sequence_no: num,
+  occurred_at: str,
+  author: narrativeAuthor,
+  drafted_by: narrativeAuthor,
+  revisions: list(object({ revision: num, sequence_no: num, occurred_at: str, author: narrativeAuthor, body: str })),
+});
+
 export const investigation = object({
   aggregate_id: str,
   title: str,
@@ -105,6 +120,7 @@ export const investigation = object({
   seed_summary: optional(str),
   case_note_on_seed: optional(str),
   case_note: optional(object({ case_id: str, body: str, system_name: optional(str) })),
+  narrative: optional(narrative),
 });
 export type RawInvestigation = Decoded<typeof investigation>;
 

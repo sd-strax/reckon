@@ -164,6 +164,17 @@ var (
 			"what actions were taken and their outcomes, and anything a future analyst handling a similar case " +
 			"should know. State only what is in the record — no speculation, no embellishment. " +
 			"Respond with the narrative text alone."}
+	// sideNarrative drafts the investigation's narrative at any point (adr/0103):
+	// a handoff account of the record so far, in the past tense, with what is
+	// still open; nothing the record does not state. Unlike sideSummarize it
+	// does not presume a conclusion.
+	sideNarrative = modelText{ID: "narrative", Origin: "#103",
+		Text: "Write a narrative of this investigation as it stands, for a colleague who was not " +
+			"in it: 150–300 words of plain prose (no headers, no lists), in the past tense. Say what was " +
+			"investigated (the seed), what the evidence showed, which hypotheses stand, were supported or " +
+			"were refuted, what actions were taken and their outcomes, and what is still open. If there is " +
+			"a verdict, say it and why. State only what is in the record — no speculation, no embellishment, " +
+			"and do not present the investigation as concluded unless it is. Respond with the narrative text alone."}
 	// sideProposeSOP asks for one structured candidate SOP. It leans on the
 	// SOPs and similar past cases the session recalled (they are in its
 	// conversation) so the model generalizes rather than duplicates.
@@ -190,4 +201,4 @@ var (
 
 // sideInstructions is the side-instruction text in a fixed order, for
 // SideInstructionVersion and the ledger test.
-var sideInstructions = []modelText{sideSummarize, sideProposeSOP, sideProposeSOPAnyway}
+var sideInstructions = []modelText{sideSummarize, sideNarrative, sideProposeSOP, sideProposeSOPAnyway}

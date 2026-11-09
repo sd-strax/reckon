@@ -729,3 +729,7 @@ pre.decoded { white-space: pre-wrap; word-break: break-all; margin: 0 0 4px; fon
 .ioutline { margin: 4px 0 8px 1.2em; padding: 0; font-size: var(--fs-xs); }
 .regionknowledge { font-size: var(--fs-xs); padding: 1px 6px; }
 .kerror { color: var(--error-fg); margin: 0 0 8px; }
+/* The narrative (adr/0103): the account and the editor on the Summary lens. */
+.narrative { font-size: var(--fs-sm); }
+.narrative-edit textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: var(--fs-sm); color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--r-sm); padding: 7px 10px; resize: vertical; }
+.narrative-edit textarea:focus { outline: none; border-color: var(--he-primary); }

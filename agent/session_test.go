@@ -2088,3 +2088,75 @@ func TestSectionInParts_TinyLimit(t *testing.T) {
 		t.Fatal("sectionInParts did not terminate on a zero part size")
 	}
 }
+
+// TestSession_DraftNarrative (adr/0103): one no-tools completion over the
+// session's conversation, posted to the narrative endpoint through the agent
+// token with the model named, without mutating the conversation.
+func TestSession_DraftNarrative(t *testing.T) {
+	f := newFakeBackend(t)
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/narrative") {
+			// An overridden call is not recorded by the fake; keep the record here.
+			body, _ := io.ReadAll(r.Body)
+			f.calls = append(f.calls, recordedCall{Method: r.Method, Path: r.URL.Path, Token: strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), Body: body})
+			_, _ = w.Write([]byte(`{"investigation_ref":"inv-1","revision":3,"body":"x"}`))
+			return true
+		}
+		return false
+	}
+	llm := &scriptedLLM{script: []CompleteResponse{
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Two logons seen; H1 proposed.")}},
+		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("So far the investigation found two interactive logons on WIN-FILE01; H1 stands untested.")}},
+	}}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1"})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if _, err := s.Turn(context.Background(), "investigate"); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	before := len(s.messages)
+	text, rev, err := s.DraftNarrative(context.Background())
+	if err != nil {
+		t.Fatalf("DraftNarrative: %v", err)
+	}
+	if rev != 3 || !strings.Contains(text, "two interactive logons") || len(s.messages) != before {
+		t.Errorf("rev %d text %q messages %d->%d", rev, text, before, len(s.messages))
+	}
+	last := llm.requests[len(llm.requests)-1]
+	if !last.ToolChoiceNone {
+		t.Error("the draft completion offered tools the model could call")
+	}
+	calls := f.callsTo("/api/investigations/inv-1/narrative")
+	if len(calls) != 1 || calls[0].Method != http.MethodPost || calls[0].Token != "AGENT_TOKEN" {
+		t.Fatalf("narrative calls = %+v; want one POST on the agent token", calls)
+	}
+	var body struct {
+		Body  string `json:"body"`
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(calls[0].Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	// The scripted LLM names no model, so none is posted; a real client's name rides as "model".
+	if body.Body != text || body.Model != "" {
+		t.Errorf("posted %+v; want the text and no model", body)
+	}
+}
+
+// TestSession_DraftNarrative_NothingOnTheRecord: a fresh session over an
+// investigation with no acts drafts nothing; the model is not called.
+func TestSession_DraftNarrative_NothingOnTheRecord(t *testing.T) {
+	f := newFakeBackend(t)
+	llm := &scriptedLLM{}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1"})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if _, _, err := s.DraftNarrative(context.Background()); err == nil || !strings.Contains(err.Error(), "nothing on the record") {
+		t.Fatalf("DraftNarrative on an empty record: %v; want a refusal", err)
+	}
+	if len(llm.requests) != 0 {
+		t.Errorf("the model was called %d times; want none", len(llm.requests))
+	}
+}

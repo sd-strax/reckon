@@ -146,7 +146,7 @@ func TestApplyCommand_TenantMismatchRejected(t *testing.T) {
 // dropping it silently (#214).
 func TestFoldState_UnknownEventType(t *testing.T) {
 	stream := []Event{{SequenceNo: 1, Type: EventTypeCreated}}
-	for i, typ := range []string{EventTypeRenamed, EventTypeMemberAdded, EventTypeMemberRemoved, EventTypeEvidenceAttached} {
+	for i, typ := range []string{EventTypeRenamed, EventTypeMemberAdded, EventTypeMemberRemoved, EventTypeEvidenceAttached, EventTypeNarrativeRecorded} {
 		stream = append(stream, Event{SequenceNo: int64(i + 2), Type: typ, Payload: json.RawMessage(`{}`)})
 	}
 	if _, err := foldState(stream); err != nil {

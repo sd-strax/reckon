@@ -47,6 +47,8 @@ func (b *Backend) routes() []route {
 		{"POST /investigations/{id}/export", analyst, withUUID(b.exportInvestigation)},
 		{"POST /investigations/{id}/lifecycle", analyst, withUUID(b.investigationLifecycle)},
 		{"POST /investigations/{id}/rename", analyst, withUUID(b.renameInvestigation)},
+		{"GET /investigations/{id}/narrative", read, withUUID(b.getNarrative)},
+		{"POST /investigations/{id}/narrative", analyst, withUUID(b.recordNarrative)},
 		// The "opened in reckon" note on the seed case (adr/0032).
 		{"POST /investigations/{id}/case_note", analyst, withUUID(b.requestCaseNote)},
 

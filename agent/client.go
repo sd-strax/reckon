@@ -517,6 +517,21 @@ func (c *Client) SubmitSummaryNarrative(ctx context.Context, investigationRef, n
 	return c.do(ctx, http.MethodPost, "/api/knowledge/summary_narrative", c.agentSrc, body, nil)
 }
 
+// RecordNarrative appends one revision of the investigation's narrative
+// (agent token, adr/0103): the record attributes it to the model under the
+// principal. Returns the revision recorded.
+func (c *Client) RecordNarrative(ctx context.Context, investigationID, body, model string) (int, error) {
+	var out struct {
+		Revision int `json:"revision"`
+	}
+	req := map[string]any{"body": body}
+	if model != "" {
+		req["model"] = model
+	}
+	err := c.do(ctx, http.MethodPost, "/api/investigations/"+url.PathEscape(investigationID)+"/narrative", c.agentSrc, req, &out)
+	return out.Revision, err
+}
+
 // RecordInterpretation appends one reasoning act (agent token).
 func (c *Client) RecordInterpretation(ctx context.Context, body InterpretationRequest) (InterpretationResponse, error) {
 	var out InterpretationResponse

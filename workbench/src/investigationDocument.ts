@@ -35,6 +35,7 @@ import { ActionDecisions } from "./actionDecisions";
 import { ReasoningWrites } from "./reasoningWrites";
 import { EvidenceReads } from "./evidenceReads";
 import { KnowledgeFlow } from "./knowledgeFlow";
+import { NarrativeFlow } from "./narrativeFlow";
 import { ReportExport } from "./reportExport";
 
 export class InvestigationDocuments implements DocumentHost {
@@ -64,6 +65,7 @@ export class InvestigationDocuments implements DocumentHost {
   private readonly reasoning: ReasoningWrites;
   private readonly evidence: EvidenceReads;
   private readonly knowledge: KnowledgeFlow;
+  private readonly narrative: NarrativeFlow;
   private readonly export: ReportExport;
 
   constructor(
@@ -88,6 +90,7 @@ export class InvestigationDocuments implements DocumentHost {
     this.reasoning = new ReasoningWrites(this);
     this.evidence = new EvidenceReads(this);
     this.knowledge = new KnowledgeFlow(this);
+    this.narrative = new NarrativeFlow(this);
     this.export = new ReportExport(this);
   }
 
@@ -394,6 +397,12 @@ export class InvestigationDocuments implements DocumentHost {
       },
       "sop.draft": (msg) => {
         void this.knowledge.draftSOP(id, panel, msg.force);
+      },
+      "narrative.draft": () => {
+        if (!isDraftKey(id)) void this.narrative.draft(id, panel);
+      },
+      "narrative.edit": (msg) => {
+        if (!isDraftKey(id)) void this.narrative.edit(id, panel, msg.body);
       },
       "sop.accept": () => {
         void this.knowledge.acceptSOP(id, panel);

@@ -87,7 +87,7 @@ per investigation overrides the default (view state, not investigation state, li
 | Element | Source |
 |---|---|
 | Four tiles: verdict, containment progress + nearest expiry, notification status, open questions | Verdict act; `/actions`; comms threads (`00 §4`); `/hypotheses` (`INCONCLUSIVE` / `UNTESTED`) |
-| "What happened" narrative, with its authorship line ("drafted by reckon · edited by …") | Gap `00 §6.18` |
+| "What happened" narrative, with its authorship line ("drafted by reckon · edited by …") | Gap `00 §6.18`; *built: `adr/0103`, `narrative` on the investigation detail, Draft and Edit on the lens* |
 | Key entities with role and status | Grouping objects (`00 §2.1`) + citation roles; status words from the verdict and actions |
 | Still to do | `REQUESTED` actions with countdowns, owner action items (gap `00 §6.17`), outstanding notification, open predictions |
 | Procedures cited | `consulted_*` with `cited = true` (`00 §6.9`) |

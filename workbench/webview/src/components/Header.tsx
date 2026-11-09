@@ -48,9 +48,12 @@ export function Header() {
     if (commit && v && v !== state.title) send({ type: "rename", title: v });
   };
 
+  // The latest narrative prefills the summary of record (adr/0103): the
+  // analyst edits what was already reviewed rather than starting from nothing.
   const conclude = () => openPrompt({
     title: "Conclude investigation",
     label: "Summary of record — what did this investigation determine?",
+    value: state.snap?.investigation.narrative?.body,
     placeholder: "e.g. Confirmed C2 beaconing from the file server; host isolated, IOCs blocked.",
     helper: preflight.map((x) => (x.ok ? "☑ " : "☐ ") + x.text).join(" · ") + " · Concluding consumes the verdict of record and files the final report reference; you can reopen later.",
     confirm: "Conclude",

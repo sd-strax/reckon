@@ -223,6 +223,9 @@ export type RenderMessage =
   // and whether the case's knowledge summary was written.
   | { type: "sop.status"; state: SopDraftState; title?: string; message?: string }
   | { type: "summary.status"; state: "written" | "baseline" | "failed"; detail?: string }
+  // The narrative draft the analyst asked for (adr/0103): in flight, written
+  // (the refresh carries the text on the investigation), or failed.
+  | { type: "narrative.status"; state: "drafting" | "written" | "failed"; message?: string }
   // The knowledge library (adr/0129): the browse lists, and one search's hits.
   // casesTotal is every past case in the corpus, beyond the listing's page
   // (adr/0107); absent where it was not read.
@@ -261,6 +264,10 @@ export type InboundMessage =
   | { type: "sop.draft"; force?: boolean }
   | { type: "sop.accept" }
   | { type: "sop.discard" }
+  // The investigation's narrative (adr/0103): ask the model for a draft, or
+  // record the analyst's own revision.
+  | { type: "narrative.draft" }
+  | { type: "narrative.edit"; body: string }
   // The knowledge library (adr/0129): load it, search it, import into it.
   | { type: "library.get" }
   | { type: "library.search"; text: string }

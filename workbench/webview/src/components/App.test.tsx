@@ -136,11 +136,13 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText("none yet")).toBeTruthy(); // verdict tile
     expect(within(lens()).getByText("2 of 4 approved")).toBeTruthy(); // containment: SUCCEEDED + FAILED were approved; REQUESTED and EXPIRED were not
     expect(within(lens()).getByText("isolated")).toBeTruthy(); // host-a's derivable status word
-    expect(within(lens()).getByText(/No narrative yet — it is written when the investigation concludes/)).toBeTruthy();
+    expect(within(lens()).getByText(/drafted by reckon \(demo-model\) · edited by Analyst One · revision 2/)).toBeTruthy(); // the narrative's authorship (adr/0103)
+    expect(within(lens()).getByText(/the record has moved 2 events since/)).toBeTruthy();
     expect(within(lens()).getByText("Procedure one")).toBeTruthy();
     fireEvent.click(within(lens()).getByText("Copy handoff note"));
     const copied = transport.intents.find((i) => i.type === "copy") as { text: string };
     expect(copied.text).toContain("Still to do:");
+    expect(copied.text).toContain("Two interactive logons by user-a"); // the narrative leads the handoff note
     fireEvent.click(within(lens()).getByText("Export report"));
     expect(transport.intents.some((i) => i.type === "export.open")).toBe(true);
   });

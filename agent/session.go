@@ -776,6 +776,47 @@ func (s *Session) SummarizeConcluded(ctx context.Context) (string, error) {
 	return text, nil
 }
 
+// DraftNarrative writes one revision of the investigation's narrative
+// (adr/0103): one BYOK model completion over the session's own conversation,
+// at any point of the investigation, posted to the narrative endpoint through
+// the agent token so the record attributes it to the model under the
+// signed-in person. Like SummarizeConcluded it is a side product, not a
+// turn: the conversation is not mutated, and a fresh session rehydrates from
+// the committed thread first. Returns the text and the revision recorded.
+func (s *Session) DraftNarrative(ctx context.Context) (string, int, error) {
+	if len(s.messages) == 0 {
+		s.rehydrate(ctx)
+	}
+	// With no act on the record the model would narrate the seed line alone,
+	// or invent; the record is what a narrative is of.
+	if len(s.messages) == 0 {
+		return "", 0, fmt.Errorf("agent: draft narrative: nothing on the record to narrate yet")
+	}
+	resp, err := s.sideCompletion(ctx, sideNarrative.Text)
+	if err != nil {
+		return "", 0, fmt.Errorf("agent: draft narrative: %w", err)
+	}
+	var narrative strings.Builder
+	for _, blk := range resp.Content {
+		if blk.Type == BlockText {
+			narrative.WriteString(blk.Text)
+		}
+	}
+	text := strings.TrimSpace(narrative.String())
+	if text == "" {
+		return "", 0, fmt.Errorf("agent: draft narrative: the model returned no text")
+	}
+	model := ""
+	if m, ok := s.llm.(interface{ ModelName() string }); ok {
+		model = m.ModelName()
+	}
+	rev, err := s.backend.RecordNarrative(ctx, s.investigationID, text, model)
+	if err != nil {
+		return "", 0, fmt.Errorf("agent: record narrative: %w", err)
+	}
+	return text, rev, nil
+}
+
 // summaryRetryDelay is the single not-found retry backoff in
 // SummarizeConcluded — long enough for the post-conclusion pipeline's
 // structured write, short enough not to hang the conclude UX.

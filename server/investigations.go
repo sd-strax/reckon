@@ -48,6 +48,10 @@ type InvestigationView struct {
 	CreatedAt    *time.Time `json:"created_at,omitempty"`
 	OpenedByName string     `json:"opened_by_name,omitempty"`
 
+	// Narrative is the investigation's written account with its authorship
+	// (adr/0103); absent until one is recorded. Detail responses only.
+	Narrative *NarrativeView `json:"narrative,omitempty"`
+
 	// HypothesisFraming is the tenant's competing-hypotheses dial
 	// (config.Reasoning.HypothesisFraming; 01 §x-hypothesis): "leading_null"
 	// (default) or "leading_only". Detail responses only — the agent session
@@ -215,6 +219,10 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request, id uu
 		if view.OpenedByName == "" {
 			view.OpenedByName = actor.PrincipalID
 		}
+	}
+	if view.Narrative, err = b.narrativeOnDetail(r, id); err != nil {
+		writeInternalError(w, "load narrative", err)
+		return
 	}
 	writeJSON(w, http.StatusOK, view)
 }

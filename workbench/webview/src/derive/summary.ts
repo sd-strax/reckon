@@ -90,8 +90,10 @@ export function proceduresCited(thread: ThreadEntry[]): { sopId: string; title: 
 }
 
 /** The handoff note (08 §8.4 Summary): the facts, as text, for the clipboard. */
-export function handoffNote(title: string, verdict: Verdict | null | undefined, actions: ActionRow[], todo: TodoItem[], hs: Hypothesis[], cited: { title: string }[]): string {
+export function handoffNote(title: string, verdict: Verdict | null | undefined, actions: ActionRow[], todo: TodoItem[], hs: Hypothesis[], cited: { title: string }[], narrative?: string): string {
   const lines: string[] = [title, ""];
+  // The written account first when one exists (adr/0103); the facts follow it.
+  if (narrative?.trim()) lines.push(narrative.trim(), "");
   lines.push(verdict ? `Verdict: ${verdict.disposition}${verdict.rationale ? " — " + verdict.rationale : ""}` : "Verdict: none yet");
   const live = hs.filter((h) => h.status !== "ABANDONED");
   if (live.length) lines.push("Hypotheses: " + live.map((h) => `${hypName(h, hs)} ${h.status}`).join("; "));

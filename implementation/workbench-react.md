@@ -951,6 +951,14 @@ and the engine-side gate.*
 
 ### 8.7 §6.18 — Narrative summary at any time
 
+> *Superseded in part by `adr/0103`: the narrative is recorded as events on the
+> investigation aggregate (`investigation.narrative_recorded`, the actor as the
+> authorship), not in an `investigation_narratives` table of its own with author
+> columns; the facts read (`summary/`, `GET /api/investigations/{id}/summary`) is
+> not built, the page derives them. The rest below is as built: the client-plane
+> draft, the human edit as a revision, the authorship line, the conclusion prefill,
+> the handoff note carrying the narrative.*
+
 **Decision.** Two tiers, as `06 §3.2`: structured facts are a server-side pure function over
 the projections at any state (the existing `buildSummary` generalized out of `temporal/` into
 `summary/` and served on `GET /api/investigations/{id}/summary`: verdict with author name,
