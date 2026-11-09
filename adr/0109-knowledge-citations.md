@@ -64,14 +64,21 @@ cuts of one revision, and the aggregate accepts that: a key over
   the facade's shapes). The knowledge facade stays unaware of the
   projection. A failed count fails the list rather than showing zeros as
   facts; a deployment without the aggregate lists its corpus with every count
-  zero.
+  zero. On the wire `cited_in` and `learned_procedures` are optional to the
+  workbench's decoders: a backend serving API v1 from before this record omits
+  them, and a client supporting v1 works against every v1 backend
+  (`internal/apiversion`); absent is shown as not reported, never as zero.
 - **"Procedures learned from this case"** are the SOPs whose source url is
   `reckon://investigation/<id>` (the draft-accept path, adr/0156). The facade
   gains `ListBySource(prefix)` (current, unretired) and the constant
   `InvestigationSourcePrefix`; `GET /api/knowledge/case_summaries/{ref}`
   gains `learned_procedures: [{id, title}]`. A summary's ref is the
   investigation's id, or `grouping--<id>` for a case seeded without a local
-  aggregate; the prefix is stripped before the lookup.
+  aggregate; the prefix is stripped before the lookup. The lookup reads the
+  current revision's source, so `Store.Update` now carries the entry's
+  attribution (source, importer, time) onto the revision it writes: an edit
+  changes the content, not where the document came from, and before this the
+  edit route dropped it, which also broke the import's lineage key.
 - **No self-citation guard.** A summary is written at conclusion, so an
   investigation cannot recall its own; the lifecycle does not produce the
   state.
@@ -85,10 +92,15 @@ cuts of one revision, and the aggregate accepts that: a key over
   last act's time, the act count when more than one, and the SOP revisions
   seen; a row opens that investigation. The case inspector's Summary tab
   gains "Procedures learned from this case", each opening the procedure. The
-  Library rows carry "cited in N investigations". The citations read rides
+  Library rows carry "cited in N investigations", and the host re-posts the
+  Library whenever a refresh re-reads the thread (a committed turn is what
+  changes the counts), so a count follows a turn that cited a procedure
+  without a reload; the cost is the two list reads a refresh already pays
+  for the thread. The citations read rides
   beside the document read; when it fails the pane still opens and the tab
-  says the read failed, never "none". The host's `inspector.procedure` and
-  `inspector.case` messages carry `citations` optionally.
+  says the read failed, never "none"; while the answer is in flight it says
+  loading. The host's `inspector.procedure` and `inspector.case` messages
+  carry `citations` optionally.
 
 ## Alternatives rejected
 
