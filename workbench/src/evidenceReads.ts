@@ -236,9 +236,16 @@ export class EvidenceReads {
         case "call":
           void this.host.post(panel, { type: "inspector.call", callId: target.callId, call: await this.host.client.evidence.call(id, target.callId) });
           return;
-        case "sop":
-          void this.host.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop: await this.host.client.knowledge.sop(target.sopId) });
+        case "sop": {
+          // The document and where it was consulted (adr/0109) are two reads;
+          // a failed second one leaves the pane without the tab, never closed.
+          const [sop, citations] = await Promise.all([
+            this.host.client.knowledge.sop(target.sopId),
+            this.host.client.knowledge.sopCitations(target.sopId).catch((err: unknown) => { this.host.log.debug(`citations ${target.sopId}: ${errText(err)}`); return undefined; }),
+          ]);
+          void this.host.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop, citations });
           return;
+        }
         case "turn": {
           const body = await this.host.cache.transcript(target.interpretationId);
           void this.host.post(panel, { type: "inspector.turn", interpretationId: target.interpretationId, body });
@@ -250,9 +257,14 @@ export class EvidenceReads {
           void this.host.post(panel, { type: "inspector.action", actionId: target.actionId, record });
           return;
         }
-        case "case":
-          void this.host.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary: await this.host.client.knowledge.caseSummary(target.investigationRef) });
+        case "case": {
+          const [summary, citations] = await Promise.all([
+            this.host.client.knowledge.caseSummary(target.investigationRef),
+            this.host.client.knowledge.caseCitations(target.investigationRef).catch((err: unknown) => { this.host.log.debug(`citations ${target.investigationRef}: ${errText(err)}`); return undefined; }),
+          ]);
+          void this.host.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary, citations });
           return;
+        }
         default:
           return; // thread, person: rendered from the snapshot alone
       }

@@ -30,7 +30,7 @@ export interface Logger {
 const TURN_WINDOW = 40;
 
 /** Slices not read from the event log: their answers carry no sequence. */
-export type UnsequencedSlice = "knowledge" | "enablement";
+export type UnsequencedSlice = "knowledge" | "enablement" | "library";
 
 export class InvestigationCache {
   private readonly watermarks = new Map<string, number>();

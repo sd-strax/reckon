@@ -27,5 +27,11 @@
     "x"
   ],
   "revision": 1,
-  "content_hash": "x"
+  "content_hash": "x",
+  "learned_procedures": [
+    {
+      "id": "x",
+      "title": "x"
+    }
+  ]
 }

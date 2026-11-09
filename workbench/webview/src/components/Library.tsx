@@ -22,7 +22,11 @@ function Items({ title, items, empty }: { title: string; items: LibraryItem[]; e
         <div key={k.kind + k.ref} className={"libitem " + k.kind}>
           <a className="libtitle" onClick={() => openInspector(k.kind === "sop" ? { kind: "sop", sopId: k.ref } : { kind: "case", investigationRef: k.ref })}>{k.title}</a>
           {k.relevance ? <span className={"librel " + k.relevance.replace(/ /g, "-")}>{k.relevance}</span> : null}
-          {k.detail ? <div className="imeta">{k.detail}</div> : null}
+          {k.detail || k.citedIn !== undefined ? (
+            <div className="imeta">
+              {[k.detail, k.citedIn !== undefined ? `cited in ${k.citedIn} investigation${k.citedIn === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")}
+            </div>
+          ) : null}
           <a className="libask" onClick={() => ask(k)}>Ask reckon to use this</a>
         </div>
       )) : <div className="empty">{empty}</div>}

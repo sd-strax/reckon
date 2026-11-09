@@ -29,7 +29,8 @@
         "x"
       ],
       "revision": 1,
-      "content_hash": "x"
+      "content_hash": "x",
+      "cited_in": 1
     }
   ]
 }

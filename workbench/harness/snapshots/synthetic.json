@@ -1551,7 +1551,29 @@
         "seed:entity",
         "disposition:MALICIOUS"
       ],
-      "revision": 2
+      "revision": 2,
+      "learnedProcedures": [
+        { "id": "sop-1", "title": "Procedure one" }
+      ]
+    }
+  },
+  "citations": {
+    "sop-1": {
+      "ref": "sop-1",
+      "citedIn": 1,
+      "recalledIn": 1,
+      "investigations": [
+        { "investigationId": "grouping--2c3b8d6f-6b0f-4c8f-a02b-7e4f3b2c1d02", "title": "Prior case A", "status": "CONCLUDED", "cited": true, "lastAt": "2026-05-14T09:30:00Z", "acts": 2, "revisions": [1] },
+        { "investigationId": "11111111-2222-4333-8444-555555555555", "title": "Service account sweep", "status": "ACTIVE", "cited": false, "lastAt": "2026-10-20T11:00:00Z", "acts": 1, "revisions": [1] }
+      ]
+    },
+    "grouping--prior-1": {
+      "ref": "grouping--prior-1",
+      "citedIn": 0,
+      "recalledIn": 1,
+      "investigations": [
+        { "investigationId": "11111111-2222-4333-8444-555555555555", "title": "Service account sweep", "status": "ACTIVE", "cited": false, "lastAt": "2026-10-20T11:00:00Z", "acts": 1, "revisions": [] }
+      ]
     }
   },
   "queue": {
@@ -1620,14 +1642,16 @@
       {
         "kind": "sop",
         "ref": "sop-1",
-        "title": "Procedure one"
+        "title": "Procedure one",
+        "citedIn": 1
       }
     ],
     "cases": [
       {
         "kind": "case",
         "ref": "grouping--prior-1",
-        "title": "Prior case A"
+        "title": "Prior case A",
+        "citedIn": 0
       }
     ]
   },

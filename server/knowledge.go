@@ -205,7 +205,20 @@ func (b *Backend) listCaseSummaries(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, "case_summaries", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"case_summaries": list})
+	refs := make([]string, 0, len(list))
+	for _, v := range list {
+		refs = append(refs, v.InvestigationRef)
+	}
+	counts, err := b.citationCounts(r.Context(), refs)
+	if err != nil {
+		writeInternalError(w, "case_summaries citations", err)
+		return
+	}
+	rows := make([]CaseSummaryRow, 0, len(list))
+	for _, v := range list {
+		rows = append(rows, CaseSummaryRow{CaseSummaryView: v, CitedIn: counts[v.InvestigationRef].CitedIn})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"case_summaries": rows})
 }
 
 // getCaseSummary handles GET /api/knowledge/case_summaries/{investigation_ref}
@@ -224,7 +237,12 @@ func (b *Backend) getCaseSummary(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, "case_summaries", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, v)
+	learned, err := b.learnedProcedures(r.Context(), v.InvestigationRef)
+	if err != nil {
+		writeInternalError(w, "case_summaries learned procedures", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, CaseSummaryDetail{CaseSummaryView: v, LearnedProcedures: learned})
 }
 
 // SummaryNarrativeBody is the client-side enrichment payload (design/06 §3.2
@@ -384,7 +402,20 @@ func (b *Backend) listSOPs(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, "list sops", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sops": sops})
+	refs := make([]string, 0, len(sops))
+	for _, s := range sops {
+		refs = append(refs, s.ID.String())
+	}
+	counts, err := b.citationCounts(r.Context(), refs)
+	if err != nil {
+		writeInternalError(w, "list sops citations", err)
+		return
+	}
+	rows := make([]SOPRow, 0, len(sops))
+	for _, s := range sops {
+		rows = append(rows, SOPRow{SOP: s, CitedIn: counts[s.ID.String()].CitedIn})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sops": rows})
 }
 
 // getSOP handles GET /api/sops/{id}: the current revision, retired included.

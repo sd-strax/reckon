@@ -7,7 +7,17 @@ import type { LibraryItem } from "../protocol";
 import { relevanceOfBand, relevanceOfScore } from "../relevance";
 import * as shapes from "../wire/backendShapes";
 import type { Decoded } from "../wire/decode";
-import type { CaseSummaryView, SOPDoc } from "../viewTypes";
+import type { CaseSummaryView, KnowledgeCitations, SOPDoc } from "../viewTypes";
+
+function citationsView(r: Decoded<typeof shapes.citations>): KnowledgeCitations {
+  return {
+    ref: r.ref, citedIn: r.cited_in, recalledIn: r.recalled_in,
+    investigations: r.investigations.map((i) => ({
+      investigationId: i.investigation_id, title: i.title, status: i.status, cited: i.cited,
+      lastAt: i.last_at, acts: i.acts, revisions: i.revisions,
+    })),
+  };
+}
 
 export class KnowledgeClient {
   constructor(private readonly http: BackendHttp) {}
@@ -15,7 +25,7 @@ export class KnowledgeClient {
   /** GET /api/sops — the procedures in the library (adr/0129). */
   async procedures(): Promise<LibraryItem[]> {
     const r = await this.http.get("/api/sops", shapes.sops);
-    return r.sops.filter((x) => x.id).map((x) => ({ kind: "sop" as const, ref: x.id, title: x.title || x.id, detail: x.tags.join(", ") || undefined }));
+    return r.sops.filter((x) => x.id).map((x) => ({ kind: "sop" as const, ref: x.id, title: x.title || x.id, detail: x.tags.join(", ") || undefined, citedIn: x.cited_in }));
   }
 
   /** GET /api/knowledge/case_summaries — the past cases in the library (adr/0129). */
@@ -24,7 +34,21 @@ export class KnowledgeClient {
     return r.case_summaries.filter((x) => x.investigation_ref).map((x) => ({
       kind: "case" as const, ref: x.investigation_ref, title: x.title || x.investigation_ref,
       detail: [x.verdict_disposition?.toLowerCase(), x.conclusion_at ? "concluded " + x.conclusion_at.slice(0, 10) : ""].filter(Boolean).join(" · ") || undefined,
+      citedIn: x.cited_in,
     }));
+  }
+
+  /**
+   * GET /api/sops/{id}/citations — the investigations that consulted a
+   * procedure (adr/0109), one row each, "cited" or "recalled, not cited".
+   */
+  async sopCitations(id: string): Promise<KnowledgeCitations> {
+    return citationsView(await this.http.get(`/api/sops/${encodeURIComponent(id)}/citations`, shapes.citations));
+  }
+
+  /** GET /api/knowledge/case_summaries/{ref}/citations — the same for a past case. */
+  async caseCitations(investigationRef: string): Promise<KnowledgeCitations> {
+    return citationsView(await this.http.get(`/api/knowledge/case_summaries/${encodeURIComponent(investigationRef)}/citations`, shapes.citations));
   }
 
   /** Search both corpora (adr/0129): the substrate's recall, relevance in words. */
@@ -66,6 +90,7 @@ export class KnowledgeClient {
       actionsTaken: r.actions_taken.map((a) => ({ actionType: a.action_type, targetCount: a.target_count, outcome: a.outcome })),
       conclusionOutcome: r.conclusion_outcome, durationHours: r.duration_hours, verdictDisposition: r.verdict_disposition,
       verdictRationale: r.verdict_rationale, tags: r.tags, revision: r.revision, contentHash: r.content_hash,
+      learnedProcedures: r.learned_procedures.map((p) => ({ id: p.id, title: p.title })),
     };
   }
 

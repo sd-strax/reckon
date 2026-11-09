@@ -39,6 +39,16 @@ type fakeReads struct {
 	action        aggregate.ActionCurrent
 	actionErr     error
 	investigation aggregate.InvestigationCurrent
+	citations     []aggregate.KnowledgeCitation
+	counts        map[string]aggregate.CitationCount
+	citationsErr  error
+}
+
+func (f *fakeReads) ListKnowledgeCitations(context.Context, string) ([]aggregate.KnowledgeCitation, error) {
+	return f.citations, f.citationsErr
+}
+func (f *fakeReads) CitationCounts(context.Context, []string) (map[string]aggregate.CitationCount, error) {
+	return f.counts, f.citationsErr
 }
 
 func (f *fakeReads) LoadActionCurrent(context.Context, uuid.UUID) (aggregate.ActionCurrent, error) {
@@ -204,10 +214,17 @@ func (f *fakeDependencies) Waive(_ context.Context, _ uuid.UUID, by dependency.A
 // fakeKnowledge has one case summary and one SOP, answers an import with
 // outcome, and fails everything else with err.
 type fakeKnowledge struct {
-	summary knowledge.CaseSummaryView
-	sop     knowledge.SOP
-	outcome knowledge.ImportOutcome
-	err     error
+	summary   knowledge.CaseSummaryView
+	summaries []knowledge.CaseSummaryView
+	sop       knowledge.SOP
+	sops      []knowledge.SOP
+	learned   []knowledge.SOP
+	outcome   knowledge.ImportOutcome
+	err       error
+}
+
+func (f *fakeKnowledge) ListBySource(context.Context, uuid.UUID, string) ([]knowledge.SOP, error) {
+	return f.learned, f.err
 }
 
 func (f *fakeKnowledge) Create(context.Context, knowledge.SOP) (uuid.UUID, error) {
@@ -226,7 +243,7 @@ func (f *fakeKnowledge) Import(context.Context, knowledge.SOP) (uuid.UUID, knowl
 	return f.sop.ID, f.outcome, f.err
 }
 func (f *fakeKnowledge) List(context.Context, uuid.UUID, bool) ([]knowledge.SOP, error) {
-	return nil, f.err
+	return f.sops, f.err
 }
 func (f *fakeKnowledge) Retire(context.Context, uuid.UUID, uuid.UUID) error { return f.err }
 func (f *fakeKnowledge) Update(context.Context, uuid.UUID, uuid.UUID, string, string, []string, string) error {
@@ -255,7 +272,7 @@ func (f *fakeKnowledge) EnrichSummary(context.Context, uuid.UUID, string, string
 	return uuid.Nil, f.err
 }
 func (f *fakeKnowledge) ListSummaries(context.Context, uuid.UUID, int) ([]knowledge.CaseSummaryView, error) {
-	return nil, f.err
+	return f.summaries, f.err
 }
 func (f *fakeKnowledge) SummaryByInvestigation(context.Context, uuid.UUID, string) (knowledge.CaseSummaryView, error) {
 	return f.summary, f.err

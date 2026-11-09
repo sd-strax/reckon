@@ -172,6 +172,54 @@ describe("the inspector", () => {
     expect(within(p).getByText("The agent has not read this case in this investigation.")).toBeTruthy();
   });
 
+  it("shows where a procedure and a past case were consulted elsewhere, in the two words, and the procedures learned from a case (adr/0109)", () => {
+    const transport = mount();
+    const lib = () => document.querySelector("#knowledgeSection") as HTMLElement;
+    // The library rows carry the count.
+    expect(within(lib()).getByText(/cited in 1 investigation$/)).toBeTruthy();
+    expect(within(lib()).getByText(/cited in 0 investigations/)).toBeTruthy();
+
+    fireEvent.click(within(lib()).getByText("Procedure one"));
+    let p = pane();
+    fireEvent.click(within(p).getByRole("tab", { name: "Cited elsewhere · 1 of 2" }));
+    expect(within(p).getByText(/^cited:/)).toBeTruthy();
+    expect(within(p).getByText(/^recalled, not cited:/)).toBeTruthy();
+    expect(within(p).getAllByText(/revision 1/).length).toBe(2); // the revision each investigation had in front of it
+    expect(within(p).queryByText(/applied|followed/)).toBeNull(); // never those words (adr/0236)
+    fireEvent.click(within(p).getByText("Service account sweep"));
+    expect(transport.intents.find((i) => i.type === "investigation.open")).toMatchObject({ id: "11111111-2222-4333-8444-555555555555", title: "Service account sweep" });
+
+    fireEvent.click(within(lib()).getByText("Prior case A"));
+    p = pane();
+    expect(within(p).getByText("Procedures learned from this case")).toBeTruthy();
+    fireEvent.click(within(p).getByText("Procedure one", { selector: ".irow a" }));
+    expect(within(pane()).getByText("Procedure")).toBeTruthy(); // the learned procedure opens
+    fireEvent.click(within(pane()).getByText("‹ back"));
+    p = pane();
+    fireEvent.click(within(p).getByRole("tab", { name: "Cited elsewhere · 0 of 1" }));
+    expect(within(p).getByText(/^recalled, not cited:/)).toBeTruthy();
+  });
+
+  it("opens a procedure without the tab's rows when the citations read failed, and says loading while the answer is in flight", () => {
+    const data = JSON.parse(JSON.stringify(synthetic)) as HarnessSnapshot;
+    delete data.citations;
+    const transport = new HarnessTransport(data);
+    render(<AppProvider transport={transport}><App /></AppProvider>);
+    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Procedure one"));
+    const p = pane();
+    fireEvent.click(within(p).getByRole("tab", { name: "Cited elsewhere" }));
+    expect(within(p).getByText(/could not be read/)).toBeTruthy();
+    expect(within(p).queryByText(/Not consulted in any other/)).toBeNull(); // a failed read is not "none"
+
+    // A procedure the harness has not answered yet: the tab is loading, not failed.
+    act(() => transport.emit({ type: "library", sops: [{ kind: "sop", ref: "sop-pending", title: "Pending procedure" }], cases: [] }));
+    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Pending procedure"));
+    const q = pane();
+    fireEvent.click(within(q).getByRole("tab", { name: "Cited elsewhere" }));
+    expect(within(q).queryByText(/could not be read/)).toBeNull();
+    expect(within(q).getByText(/where it was consulted/)).toBeTruthy();
+  });
+
   it("shows an honest error for a ref the record cannot open", () => {
     const transport = mount();
     fireEvent.click(screen.getByRole("tab", { name: /^Summary/ })); // key entities carry the account chip

@@ -443,6 +443,15 @@ The `cited` flag distinguishes SOPs/summaries the LLM merely retrieved from thos
 
 These fields are queryable. "Show me every Interpretation that cited SOP-RANSOMWARE-CONTAINMENT v3.2" is a single SQL query against the projection. "Show me cases where the LLM had access to SOP X but chose not to cite it" is similarly direct.
 
+> **Built (adr/0109).** The projection is `knowledge_citations` in the main
+> database, maintained by `KnowledgeCitationProjector` in the append
+> transaction: one row per consulted entry, keyed by ref, investigation,
+> interpretation, revision and cut, so one act that saw a procedure at two
+> revisions keeps both. Reads collapse to one row per investigation
+> (`cited = bool_or`), served at `GET /api/sops/{id}/citations` and
+> `GET /api/knowledge/case_summaries/{ref}/citations`, and as `cited_in` on
+> the list rows.
+
 ### 6.2 Layer B — retrieved snippets in side store
 
 The actual retrieved SOP excerpts and summary snippets land in a Layer B side store (`reckon_main.knowledge_retrievals` table, structurally identical to `ai_tool_calls`). Each row is keyed by content hash; multiple Interpretations citing the same SOP version share the same row.

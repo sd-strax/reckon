@@ -59,6 +59,8 @@ func routeCases() []struct {
 		{"POST", "/sops/import", authz.AnalystRoles},
 		{"GET", "/sops/" + id + "/sections", authz.ReadRoles},
 		{"GET", "/sops/" + id + "/sections/2", authz.ReadRoles},
+		{"GET", "/sops/" + id + "/citations", authz.ReadRoles},
+		{"GET", "/knowledge/case_summaries/" + id + "/citations", authz.ReadRoles},
 		{"POST", "/sops/import_markdown", authz.AnalystRoles},
 		{"GET", "/sops/" + id, authz.ReadRoles},
 		{"PUT", "/sops/" + id, authz.AnalystRoles},
