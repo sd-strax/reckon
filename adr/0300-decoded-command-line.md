@@ -44,8 +44,10 @@ exact test: `base64-utf16le`, PowerShell's, found where PowerShell's own
 command-line grammar puts it and nowhere else. The line is read as a shell
 reads it: cut into commands at the shell's chain operators, glued to words or
 not, outside the shell's own quoting (cmd toggles at every double quote and
-escapes with a caret, sh quotes with either character and escapes with a
-backslash); each command's words split as argv splits them (a quote toggles,
+escapes with a caret; sh quotes with either character, escapes with a
+backslash, joins a line at a backslash before a line break, and drops a
+comment from an unquoted `#` opening a word to the end of the line); each
+command's words split as argv splits them (a quote toggles,
 a backslash before one makes it a literal character, an apostrophe quotes
 only under POSIX rules, a quote with no match ahead is text so a truncated
 line still reads word by word), so a quoted path is one word and a quoted

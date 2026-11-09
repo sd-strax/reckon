@@ -128,9 +128,11 @@ type token struct {
 // never opens or closes a run; argv's doubled quote inside a Windows run is a
 // literal quote. Under POSIX rules a backslash outside quotes makes the next
 // character text, a backslash included (an escaped space does not end the
-// word); inside a single-quoted run everything is text, and in a
-// double-quoted one a backslash escapes only a quote, a backslash, a dollar
-// or a backquote and stays before anything else, an apostrophe included.
+// word), except a line break, which it joins: both characters vanish (shell
+// command language §2.2.1); inside a single-quoted run everything is text,
+// and in a double-quoted one a backslash escapes only a quote, a backslash, a
+// dollar, a backquote or a line break and stays before anything else, an
+// apostrophe included (§2.2.3).
 func tokenize(cmd string, posix bool) []token {
 	var out []token
 	var b strings.Builder
@@ -157,6 +159,8 @@ func tokenize(cmd string, posix bool) []token {
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
 		switch {
+		case posix && c == '\\' && quote != '\'' && i+1 < len(cmd) && cmd[i+1] == '\n':
+			i++ // sh: a line continuation; both characters vanish
 		case posix && c == '\\' && i+1 < len(cmd) && (quote == 0 || (quote == '"' && strings.IndexByte("\"\\$`", cmd[i+1]) >= 0)):
 			begin(i)
 			b.WriteByte(cmd[i+1]) // sh: the backslash makes the next character text
@@ -227,32 +231,49 @@ func hasMatch(ahead string, q byte) bool {
 // splitCommands cuts a command line into its commands at the shell's chain
 // operators (&&, ||, &, |, and ; under POSIX), glued to words or not, outside
 // the shell's own quoting: cmd toggles a quoted region at every double quote
-// and escapes with a caret; sh quotes with either character and escapes with
-// a backslash. Each command comes back with its byte offset in the line.
+// and escapes with a caret; sh quotes with either character, escapes with a
+// backslash (a backslash before a line break joins the lines), and an
+// unquoted # where a word would begin starts a comment that runs to the end
+// of the line (shell command language §2.3). Each command comes back with
+// its byte offset in the line.
 func splitCommands(line string, sh shell) []command {
 	var out []command
 	start := 0
 	var quote byte
+	posix := sh == posixShell
+	inWord := false // whether the previous character continues a word
 	cut := func(end, next int) {
 		if c := strings.TrimSpace(line[start:end]); c != "" {
 			out = append(out, command{text: c, start: start + strings.Index(line[start:end], c)})
 		}
 		start = next
+		inWord = false
 	}
 	for i := 0; i < len(line); i++ {
 		c := line[i]
 		switch {
+		case posix && c == '\\' && quote != '\'' && i+1 < len(line) && line[i+1] == '\n':
+			i++ // a line continuation vanishes; the word state is the previous character's
 		case quote != 0:
 			switch {
-			case sh == posixShell && quote == '"' && c == '\\':
+			case posix && quote == '"' && c == '\\':
 				i++ // sh: escapes the next character inside double quotes too
 			case c == quote:
 				quote = 0
 			}
-		case sh == windowsShell && c == '^', sh == posixShell && c == '\\':
+		case sh == windowsShell && c == '^', posix && c == '\\':
 			i++ // escapes the next character
-		case c == '"', sh == posixShell && c == '\'':
+			inWord = true
+		case c == '"', posix && c == '\'':
 			quote = c
+			inWord = true
+		case posix && c == '#' && !inWord:
+			end := strings.IndexByte(line[i:], '\n')
+			if end < 0 {
+				end = len(line) - i
+			}
+			cut(i, i+end) // the comment runs to the line break
+			i += end - 1
 		case c == '&' || c == '|':
 			if i+1 < len(line) && line[i+1] == c {
 				cut(i, i+2)
@@ -260,8 +281,12 @@ func splitCommands(line string, sh shell) []command {
 			} else {
 				cut(i, i+1)
 			}
-		case c == ';' && sh == posixShell:
+		case c == ';' && posix:
 			cut(i, i+1)
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			inWord = false
+		default:
+			inWord = true
 		}
 	}
 	cut(len(line), len(line))
