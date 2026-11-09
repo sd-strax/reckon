@@ -97,8 +97,10 @@ words: a procedure is cited or recalled, never applied or followed.
   was), and a section larger than one result page is read as `text_parts`
   the model pages through `read_result`, each page credited to the section.
   `webview/src/derive/delivered.ts` reads those results out of the committed
-  turns, per turn and tuple: the excerpt and whether it was whole, the
-  section's text, or the parts received and how many there are. Each
+  turns, per turn and tuple, a recall result's later pages included (a
+  `read_result` page keeps its source's shape, and the agent credits the
+  hits on it): the excerpt and whether it was whole, the section's text, or
+  the parts received and how many there are. Each
   section line says "received whole, in the recall result", "received
   whole, read with read_sop", "the recall result carried the first K of M
   runes", "read in parts: k of n received", or that what was received is not
@@ -121,8 +123,8 @@ words: a procedure is cited or recalled, never applied or followed.
   first, the middle is a line-level longest common subsequence when its
   table fits one million cells, and a removed-then-added block when it does
   not, so a section of thousands of short lines (the rune budget does not
-  bound the line count) can neither stall the webview nor take its memory.
-  No dependency.
+  bound the line count) can neither stall the webview nor take its memory;
+  lines are appended one at a time, never spread into a call. No dependency.
 - **The case inspector is unchanged.** Case summaries are revisions too, but
   whether a past case's narrative changed since is #103's question.
 

@@ -47,4 +47,14 @@ describe("the section diff stays bounded", () => {
     // Identical long texts cost nothing: every line matches at the head.
     expect(diffLines(before, before).every((l) => l.kind === "same")).toBe(true);
   });
+
+  it("handles a counterpart of hundreds of thousands of lines without spreading them into a call", () => {
+    const big = Array.from({ length: 200_000 }, (_, i) => `line ${i}`).join("\n");
+    const got = diffLines("# Head\nshort", "# Head\n" + big);
+    expect(got.length).toBe(200_002);
+    expect(got[0]).toEqual({ kind: "same", text: "# Head" });
+    expect(got[1]).toEqual({ kind: "del", text: "short" });
+    expect(got.filter((l) => l.kind === "add").length).toBe(200_000);
+    expect(diffLines(big, big).length).toBe(200_000);
+  });
 });

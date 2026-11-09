@@ -4,10 +4,12 @@
 // an excerpt cut to a budget (`truncated` when it was), a read_sop result
 // carries the section's text whole or, when the section is larger than one
 // result page, as `text_parts` the model reads page by page through
-// read_result, each page credited to the section. This reads those results
-// out of the committed turns, so the inspector can say "received whole" or
-// how much was received, rather than presenting the stored section as what
-// the agent saw. Pure.
+// read_result, each page credited to the section. A recall result over the
+// page size is paged the same way, its later pages keeping the recall shape
+// (`results`), and the agent credits the hits on them too. This reads those
+// results out of the committed turns, so the inspector can say "received
+// whole" or how much was received, rather than presenting the stored
+// section as what the agent saw. Pure.
 import type { InvestigationSnapshot } from "../../../src/protocol";
 import { unescapeT } from "../transcript";
 
@@ -56,7 +58,9 @@ export function delivered(snap: InvestigationSnapshot | null, sopId: string): Ma
       let body: unknown;
       try { body = JSON.parse(unescapeT(m[2])); } catch { continue; }
       if (typeof body !== "object" || body === null) continue;
-      if (m[1] === "recall_sops") {
+      // A recall result, first page or a later one through read_result: the
+      // shape says which, since a read_result page keeps its source's shape.
+      if (m[1] === "recall_sops" || Array.isArray((body as RecallResult).results)) {
         for (const r of (body as RecallResult).results || []) {
           if (r.sop_id !== sopId || typeof r.revision !== "number" || typeof r.cut !== "string" || typeof r.section?.idx !== "number") continue;
           better(deliveryKey(entry.interpretationId, r.revision, r.cut, r.section.idx), {

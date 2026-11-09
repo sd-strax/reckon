@@ -23,15 +23,20 @@ export function diffLines(before: string, after: string): DiffLine[] {
   while (head < a.length && head < b.length && a[head] === b[head]) head++;
   let tail = 0;
   while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
-  const out: DiffLine[] = a.slice(0, head).map((text) => ({ kind: "same", text }));
+  // Appended one at a time: a spread would hand every line to push as an
+  // argument, and a combined counterpart of many thousand lines would
+  // exceed the engine's argument limit.
+  const out: DiffLine[] = [];
+  for (let i = 0; i < head; i++) out.push({ kind: "same", text: a[i] ?? "" });
   const midA = a.slice(head, a.length - tail);
   const midB = b.slice(head, b.length - tail);
   if ((midA.length + 1) * (midB.length + 1) <= MAX_DIFF_CELLS) {
-    out.push(...lcsDiff(midA, midB));
+    for (const l of lcsDiff(midA, midB)) out.push(l);
   } else {
-    out.push(...midA.map((text): DiffLine => ({ kind: "del", text })), ...midB.map((text): DiffLine => ({ kind: "add", text })));
+    for (const text of midA) out.push({ kind: "del", text });
+    for (const text of midB) out.push({ kind: "add", text });
   }
-  out.push(...a.slice(a.length - tail).map((text): DiffLine => ({ kind: "same", text })));
+  for (let i = a.length - tail; i < a.length; i++) out.push({ kind: "same", text: a[i] ?? "" });
   return out;
 }
 

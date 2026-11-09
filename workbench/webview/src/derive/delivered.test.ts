@@ -27,6 +27,15 @@ describe("what of a section reached the model (adr/0097)", () => {
     expect(got.get(deliveryKey("t2", 1, "1/16000", 3))).toEqual({ text: "aaabbbccc", whole: false, via: "read_sop", parts: { got: 3, of: 5 } });
   });
 
+  it("reads recall hits on a later read_result page, which keeps the recall shape", () => {
+    const got = delivered(snap([
+      '[tool_result recall_sops id=k1 error=false] {"results":[{"sop_id":"sop-1","revision":1,"cut":"1/16000","excerpt":"first page","section":{"idx":1}}],"result_bounded":{"result_id":"res-7","offset":0,"next_offset":1,"lists":{"results":{"returned":1,"total":2}}}}',
+      '[tool_result read_result id=k2 error=false] {"results":[{"sop_id":"sop-1","revision":1,"cut":"1/16000","excerpt":"second page, cut","truncated":true,"section":{"idx":4}}],"result_bounded":{"result_id":"res-7","offset":1,"lists":{"results":{"returned":1,"total":2}}}}',
+    ]), "sop-1");
+    expect(got.get(deliveryKey("t2", 1, "1/16000", 1))).toEqual({ text: "first page", whole: true, via: "recall" });
+    expect(got.get(deliveryKey("t2", 1, "1/16000", 4))).toEqual({ text: "second page, cut", whole: false, via: "recall" });
+  });
+
   it("keeps the fuller delivery when a turn received a section twice", () => {
     const got = delivered(snap([
       '[tool_result recall_sops id=k1 error=false] {"results":[{"sop_id":"sop-1","revision":1,"cut":"1/16000","excerpt":"## Triage\\\\nConf","truncated":true,"section":{"idx":2}}]}',
