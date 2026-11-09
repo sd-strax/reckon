@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a snapshot or patch older than
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, SOPDoc } from "../../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, ProcedureReads, SOPDoc } from "../../src/viewTypes";
 import type { ActionTypeView, InvestigationSnapshot, LibraryItem, RenderMessage, SopDraftState } from "../../src/protocol";
 
 export interface LiveToolResult {
@@ -77,6 +77,8 @@ export interface State {
   caseSummaries: Record<string, CaseSummaryView | null>;
   /** Where a procedure (by sop id) or a past case (by ref) was consulted across investigations (adr/0109). */
   citations: Record<string, KnowledgeCitations>;
+  /** What the agent read of a procedure here, as it was (adr/0097); absent when nothing was recorded or the read failed. */
+  procedureReads: Record<string, ProcedureReads>;
   /** Capability calls by id (adr/0092), and the retrieved events around an opened event. */
   calls: Record<string, CapabilityCall>;
   around: Record<string, EventRow[]>;
@@ -118,6 +120,7 @@ export const initialState: State = {
   actionRecords: {},
   caseSummaries: {},
   citations: {},
+  procedureReads: {},
   calls: {},
   around: {},
   repeats: {},
@@ -262,7 +265,13 @@ function onMessage(state: State, msg: RenderMessage): State {
       // The pane is named by the verb (derive/inspect.ts targetName).
       return { ...state, calls: { ...state.calls, [msg.callId]: msg.call }, labels: { ...state.labels, ["call:" + msg.callId]: msg.call.verb }, inspectorErrors: dropKey(state.inspectorErrors, msg.callId) };
     case "inspector.procedure":
-      return { ...state, sops: { ...state.sops, [msg.sopId]: msg.sop }, citations: withCitations(state.citations, msg.sopId, msg.citations), inspectorErrors: dropKey(state.inspectorErrors, msg.sopId) };
+      return {
+        ...state,
+        sops: { ...state.sops, [msg.sopId]: msg.sop },
+        citations: withCitations(state.citations, msg.sopId, msg.citations),
+        procedureReads: msg.reads ? { ...state.procedureReads, [msg.sopId]: msg.reads } : dropKey(state.procedureReads, msg.sopId),
+        inspectorErrors: dropKey(state.inspectorErrors, msg.sopId),
+      };
     case "inspector.turn":
       return { ...state, transcripts: { ...state.transcripts, [msg.interpretationId]: msg.body }, inspectorErrors: dropKey(state.inspectorErrors, msg.interpretationId) };
     case "inspector.action":

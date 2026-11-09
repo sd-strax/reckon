@@ -363,7 +363,12 @@
           {
             "sopId": "sop-1",
             "title": "Procedure one",
-            "cited": true
+            "cited": true,
+            "revision": 1,
+            "cut": "1/16000",
+            "sections": [
+              1
+            ]
           }
         ],
         "consultedSimilar": [
@@ -549,7 +554,7 @@
       {
         "sequenceNo": 2,
         "occurredAt": "2026-10-20T09:01:00.000Z",
-        "body": "[user] Review the seed host's recent interactive logons.\n[tool_use recall_sops id=tk1] {\"query\":\"rdp session owner\"}\n[tool_result recall_sops id=tk1 error=false] {\"results\": [{\"sop_id\": \"sop-1\", \"title\": \"Procedure one\", \"excerpt\": \"Confirm the session with the owner first.\", \"score\": 0.82, \"match_rationale\": \"matches the seed host\"}], \"coverage\": \"COMPLETE\"}\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round"
+        "body": "[user] Review the seed host's recent interactive logons.\n[tool_use recall_sops id=tk1] {\"query\":\"rdp session owner\"}\n[tool_result recall_sops id=tk1 error=false] {\"results\": [{\"sop_id\": \"sop-1\", \"title\": \"Procedure one\", \"revision\": 1, \"cut\": \"1/16000\", \"excerpt\": \"# Procedure one\\\\n\\\\nConfirm the session with the owner first.\", \"section\": {\"idx\": 1, \"of\": 2, \"location\": \"Procedure one\"}, \"score\": 0.82, \"match_rationale\": \"matches the seed host\"}], \"coverage\": \"COMPLETE\"}\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round"
       },
       {
         "sequenceNo": 4,
@@ -1502,7 +1507,7 @@
     "sop-1": {
       "id": "sop-1",
       "title": "Procedure one",
-      "body": "# Procedure one\n\nConfirm the session with the owner first.\n\n## Triage\n\n1. Compare with the account's usual logons.",
+      "body": "# Procedure one\n\nConfirm the session with the account owner first, by phone.\n\n## Triage\n\n1. Compare with the account's usual logons.",
       "tags": [
         "T1078",
         "triage"
@@ -1555,6 +1560,31 @@
       "revision": 2,
       "learnedProcedures": [
         { "id": "sop-1", "title": "Procedure one" }
+      ]
+    }
+  },
+  "procedureReads": {
+    "sop-1": {
+      "currentRevision": 2,
+      "turns": [
+        {
+          "interpretationId": "interp-turn-1",
+          "revision": 1,
+          "cut": "1/16000",
+          "sections": [
+            {
+              "idx": 1,
+              "location": "Procedure one",
+              "text": "# Procedure one\n\nConfirm the session with the owner first.",
+              "current": {
+                "revision": 2,
+                "idx": 1,
+                "location": "Procedure one",
+                "text": "# Procedure one\n\nConfirm the session with the account owner first, by phone."
+              }
+            }
+          ]
+        }
       ]
     }
   },

@@ -436,6 +436,17 @@ body.loading #rail { opacity: 0.6; }
 .ihistory li { margin: 3px 0; line-height: 1.4; }
 .irow { margin: 3px 0; line-height: 1.45; }
 .iquote { margin: 6px 0; padding: 6px 10px; border-left: 2px solid var(--he-primary); background: var(--fill); font-style: italic; }
+/* What the agent read of a procedure, as it was (adr/0097): one block per turn, one section each with its views. */
+.iread { margin: 8px 0 12px; }
+.isect { margin: 6px 0; }
+.isecthead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.iviews { display: inline-flex; gap: 2px; }
+.iviews button { font-size: var(--fs-xs); padding: 1px 6px; }
+.iviews button.on { background: var(--fill); font-weight: 600; }
+.isecttext, .idiff { font-family: var(--mono); font-size: var(--fs-xs); white-space: pre-wrap; word-break: break-word; background: var(--fill); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 8px; margin: 4px 0; }
+.idiff .dl { padding: 0 4px; }
+.idiff .dl.add { background: color-mix(in srgb, var(--ok) 18%, transparent); }
+.idiff .dl.del { background: color-mix(in srgb, var(--bad) 18%, transparent); text-decoration: line-through; }
 .itranscript { font-family: var(--mono); font-size: var(--fs-xs); white-space: pre-wrap; word-break: break-word; background: var(--fill); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 9px 10px; max-height: 60vh; overflow: auto; }
 .idoc { font-size: var(--fs-sm); }
 .pglyph { font-family: var(--mono); font-weight: 700; }

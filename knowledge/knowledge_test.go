@@ -791,3 +791,135 @@ func TestImportSOP_UnchangedAgainstARawRow(t *testing.T) {
 		t.Errorf("the stored row moved: rev %d body %q", got.Revision, got.Body)
 	}
 }
+
+// TestSOPRevisions: every revision of a lineage is listed and readable as it
+// was (adr/0097). A section an act was shown is read back by revision, cut
+// and index after two edits, after the store dropped the row's sections, and
+// after the lineage was retired; a read never answers 409.
+func TestSOPRevisions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	const v1 = "# RDP containment\n\nScope line.\n\n## Triage\nConfirm the session.\n\n## Containment\nIsolate the destination host.\n"
+	const v2 = "# RDP containment\n\nScope line.\n\n## Triage\nConfirm the session with the account owner.\n\n## Containment\nIsolate the destination host.\n"
+	const v3 = "# RDP containment\n\nScope line.\n\n## Containment\nIsolate the destination host, then the source.\n\n## Do not\nDo not reimage first.\n"
+	id, err := s.Create(ctx, SOP{TenantID: testTenant, Title: "RDP containment", Body: v1, AuthorID: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What an act recorded while revision 1 was current.
+	shown, err := s.Section(ctx, testTenant, id, 2, SectionPin{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Update(ctx, testTenant, id, "RDP containment", v2, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Update(ctx, testTenant, id, "RDP containment", v3, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	revs, err := s.Revisions(ctx, testTenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revs.SOPID != id || revs.Current != 3 || len(revs.Revisions) != 3 {
+		t.Fatalf("revisions %+v", revs)
+	}
+	for i, r := range revs.Revisions {
+		if r.Revision != 3-i {
+			t.Errorf("revision %d listed at %d: newest first", r.Revision, i)
+		}
+		if r.Current != (r.Revision == 3) || (r.SupersededAt == nil) != r.Current {
+			t.Errorf("revision %d: current %v superseded_at %v", r.Revision, r.Current, r.SupersededAt)
+		}
+		if r.ContentHash == "" || r.CreatedAt.IsZero() || r.AuthoredBy != "alice" {
+			t.Errorf("revision %d: %+v", r.Revision, r)
+		}
+	}
+
+	// Revision 1's section 2 reads back as it was, with revision 1's outline
+	// around it, while the procedure stands at revision 3 with a different
+	// section 2.
+	read, err := s.RevisionSection(ctx, testTenant, id, shown.Revision, 2, shown.Cut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Revision != 1 || read.Cut != "1/16000" || read.Section.Text != shown.Section.Text || !strings.HasPrefix(read.Section.Text, "## Triage") || len(read.Outline) != 3 {
+		t.Errorf("revision 1 section 2: %+v", read)
+	}
+	if cur, err := s.RevisionSection(ctx, testTenant, id, 3, 2, ""); err != nil || !strings.HasPrefix(cur.Section.Text, "## Containment") || cur.Revision != 3 {
+		t.Errorf("revision 3 section 2 (stored cut): %v %+v", err, cur)
+	}
+	if outline, err := s.RevisionSections(ctx, testTenant, id, 1, shown.Cut); err != nil || outline.Revision != 1 || len(outline.Sections) != 3 || outline.Sections[1].Location != "RDP containment > Triage" {
+		t.Errorf("revision 1 outline: %v %+v", err, outline)
+	}
+
+	// The store drops the old row's sections (what a re-cut does) and the
+	// same read recomputes the same text under the recorded cut.
+	rows, err := s.lineageRows(ctx, testTenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testDB.Exec(`DELETE FROM substrate_sections WHERE entry_id = $1`, rows[2].ID); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.RevisionSection(ctx, testTenant, id, 1, 2, shown.Cut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Section.Text != shown.Section.Text || again.Cut != shown.Cut || len(again.Outline) != 3 {
+		t.Errorf("recomputed read differs: %+v", again)
+	}
+	// With no stored sections and no cut asked for, the current rule and
+	// default budget cut it.
+	if dflt, err := s.RevisionSections(ctx, testTenant, id, 1, ""); err != nil || dflt.Cut != "1/16000" || len(dflt.Sections) != 3 {
+		t.Errorf("default cut of a row with no sections: %v %+v", err, dflt)
+	}
+	// A cut under another budget is a different cut of the same revision,
+	// recomputed on request: the scope paragraph and headings are cut into
+	// parts under 40 runes.
+	small, err := s.RevisionSections(ctx, testTenant, id, 1, "1/40")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if small.Cut != "1/40" || len(small.Sections) <= 3 {
+		t.Errorf("small-budget cut: %+v", small)
+	}
+
+	// Refusals are 404-shaped or 400-shaped, never a moved pin.
+	if _, err := s.RevisionSection(ctx, testTenant, id, 9, 1, ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown revision: %v", err)
+	}
+	if _, err := s.RevisionSection(ctx, testTenant, id, 1, 7, shown.Cut); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown index: %v", err)
+	}
+	if _, err := s.RevisionSections(ctx, testTenant, uuid.New(), 1, ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown lineage: %v", err)
+	}
+	if _, err := s.Revisions(ctx, testTenant, uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown lineage revisions: %v", err)
+	}
+	for _, bad := range []string{"99/16000", "x", "1/"} {
+		if _, err := s.RevisionSections(ctx, testTenant, id, 1, bad); !errors.Is(err, ErrBadCut) {
+			t.Errorf("cut %q: %v; want ErrBadCut", bad, err)
+		}
+	}
+
+	// A retired lineage still lists and reads: the record points at it.
+	if err := s.Retire(ctx, testTenant, id); err != nil {
+		t.Fatal(err)
+	}
+	if revs, err := s.Revisions(ctx, testTenant, id); err != nil || revs.Current != 3 || len(revs.Revisions) != 3 {
+		t.Errorf("retired revisions: %v %+v", err, revs)
+	}
+	if read, err := s.RevisionSection(ctx, testTenant, id, 1, 2, shown.Cut); err != nil || read.Section.Text != shown.Section.Text {
+		t.Errorf("retired read: %v %+v", err, read)
+	}
+	// The status is the row's own: the retirement is on the current row.
+	if read, err := s.RevisionSections(ctx, testTenant, id, 3, ""); err != nil || read.Status != StatusRetired {
+		t.Errorf("retired current row: %v %+v", err, read)
+	}
+}

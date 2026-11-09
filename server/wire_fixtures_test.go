@@ -86,6 +86,9 @@ func TestWireFixtures(t *testing.T) {
 	wirefixture.Check[knowledge.RecallResult](t, dir, "recallSOPs")
 	wirefixture.Check[knowledge.SimilarResult](t, dir, "recallSimilar")
 	wirefixture.Check[knowledge.SOP](t, dir, "sop")
+	wirefixture.Check[knowledge.SOPRevisions](t, dir, "sopRevisions")
+	wirefixture.Check[knowledge.SOPOutline](t, dir, "sopOutline")
+	wirefixture.Check[knowledge.SOPSectionRead](t, dir, "sopSection")
 	wirefixture.Check[LifecycleResponse](t, dir, "lifecycle")
 	wirefixture.Check[RenameResponse](t, dir, "renamed")
 	wirefixture.Check[struct {

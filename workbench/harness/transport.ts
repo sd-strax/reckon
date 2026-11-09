@@ -1,7 +1,7 @@
 // The harness transport (impl §5.4): answers the webview from a recorded
 // snapshot set and echoes every intent, so a click's effect is visible and
 // component tests can assert on what the page asked the host for.
-import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, SOPDoc } from "../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, ProcedureReads, SOPDoc } from "../src/viewTypes";
 import type { InboundMessage, InspectorTarget, InvestigationSnapshot, LibraryItem, RenderMessage } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
@@ -21,6 +21,8 @@ export interface HarnessSnapshot {
   caseSummaries?: Record<string, CaseSummaryView | null>;
   /** Where a procedure (by sop id) or a past case (by ref) was consulted elsewhere (adr/0109). */
   citations?: Record<string, KnowledgeCitations>;
+  /** What the agent read of a procedure (by sop id) here, as it was (adr/0097). */
+  procedureReads?: Record<string, ProcedureReads>;
   /** Capability calls by id, and the retrieved events around one event (adr/0092). */
   calls?: Record<string, CapabilityCall>;
   around?: Record<string, EventRow[]>;
@@ -146,7 +148,7 @@ export class HarnessTransport implements WebviewTransport {
       }
       case "sop": {
         const sop = d?.sops?.[target.sopId];
-        if (sop) this.emit({ type: "inspector.procedure", sopId: target.sopId, sop, citations: d?.citations?.[target.sopId] });
+        if (sop) this.emit({ type: "inspector.procedure", sopId: target.sopId, sop, citations: d?.citations?.[target.sopId], reads: d?.procedureReads?.[target.sopId] });
         else this.emit({ type: "inspector.error", target: target.sopId, message: "procedure not recorded in this harness stage" });
         break;
       }

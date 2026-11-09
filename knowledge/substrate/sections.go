@@ -4,16 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
-// SplitterVersion names the rule that cut a body into sections. Stored with
-// every section row so a later rule can tell its own rows from older ones and
-// Reindex can rebuild them. Bump it when SplitSections changes its output
-// for any input.
+// SplitterVersion names the rule that cuts a body into sections today. Stored
+// with every section row so a later rule can tell its own rows from older
+// ones and Reindex can rebuild them. A change to the rule's output for any
+// input is a new version: the new rule is added to SplitSectionsAt under the
+// next number and this constant moves to it, while every earlier rule stays
+// in code, so a cut recorded under any version is reproducible from the
+// revision's body for as long as the body is.
 const SplitterVersion = 1
 
 // DefaultSectionBudgetRunes bounds one section at write time (WithSectionBudget
@@ -55,8 +59,51 @@ type Section struct {
 // Cut names the cut a stored section belongs to, "<splitter>/<budget>". Section
 // indexes are stable within one revision and one cut; a re-cut under another
 // budget or splitter renumbers them, so a reader that was handed an index
-// passes the cut back and is refused when it has moved.
+// passes the cut back: a current-revision read is refused when it has moved,
+// and a historical read recomputes it (ParseCut, SplitSectionsAt).
 func (s Section) Cut() string { return fmt.Sprintf("%d/%d", s.SplitterVersion, s.BudgetRunes) }
+
+// ParseCut reads a cut identifier back into its splitter version and budget.
+// A string that is not two non-negative integers joined by "/" is ErrBadCut;
+// a version this build has no rule for is ErrUnknownSplitter. The budget is
+// not bounded: any budget a store was ever configured with was valid.
+func ParseCut(cut string) (version, budgetRunes int, err error) {
+	v, b, ok := strings.Cut(cut, "/")
+	if !ok {
+		return 0, 0, fmt.Errorf("%w: %q", ErrBadCut, cut)
+	}
+	version, err = strconv.Atoi(v)
+	if err != nil || version < 0 {
+		return 0, 0, fmt.Errorf("%w: %q", ErrBadCut, cut)
+	}
+	budgetRunes, err = strconv.Atoi(b)
+	if err != nil || budgetRunes < 0 {
+		return 0, 0, fmt.Errorf("%w: %q", ErrBadCut, cut)
+	}
+	if version < 1 || version > SplitterVersion {
+		return 0, 0, fmt.Errorf("%w: %d", ErrUnknownSplitter, version)
+	}
+	return version, budgetRunes, nil
+}
+
+// SplitSectionsAt cuts a body under the named splitter version, the rule in
+// force when a stored cut was made, so a section a reader was once shown can
+// be recomputed from its revision's body after the store has re-cut the row.
+// Every section carries the version and budget it was cut under. A version
+// this build has no rule for is ErrUnknownSplitter.
+func SplitSectionsAt(version int, body string, budgetRunes int) ([]Section, error) {
+	var secs []Section
+	switch version {
+	case 1:
+		secs = splitSectionsV1(body, budgetRunes)
+	default:
+		return nil, fmt.Errorf("%w: %d", ErrUnknownSplitter, version)
+	}
+	for i := range secs {
+		secs[i].SplitterVersion, secs[i].BudgetRunes = version, budgetRunes
+	}
+	return secs, nil
+}
 
 // Location renders where the section sits, for rationale text and the
 // record: the heading path joined with " > ", with the part when cut.
@@ -71,14 +118,22 @@ func (s Section) Location() string {
 	return loc
 }
 
-// SplitSections cuts a body into sections on ATX headings ("#" to "######"
-// at the start of a line, followed by a space). Text before the first heading
-// is its own section when it is not blank; a body with no headings is one
-// section. Headings inside fenced code blocks are text, not headings. A
-// section longer than budgetRunes is cut on paragraph boundaries into parts
-// (budgetRunes <= 0 means no budget). The result is deterministic in the body
-// and SplitterVersion; a blank body yields nil.
+// SplitSections cuts a body under the current splitter version: the cut the
+// store makes at write time. See SplitSectionsAt.
 func SplitSections(body string, budgetRunes int) []Section {
+	secs, _ := SplitSectionsAt(SplitterVersion, body, budgetRunes) // the current version always has a rule
+	return secs
+}
+
+// splitSectionsV1 is splitter version 1. It cuts a body into sections on ATX
+// headings ("#" to "######" at the start of a line, followed by a space). Text
+// before the first heading is its own section when it is not blank; a body
+// with no headings is one section. Headings inside fenced code blocks are
+// text, not headings. A section longer than budgetRunes is cut on paragraph
+// boundaries into parts (budgetRunes <= 0 means no budget). The result is
+// deterministic in the body; a blank body yields nil. The rule is frozen: a
+// change to its output for any input is splitter version 2, beside it.
+func splitSectionsV1(body string, budgetRunes int) []Section {
 	runes := []rune(body)
 	var lines []bodyLine
 	for at := 0; at < len(runes); {

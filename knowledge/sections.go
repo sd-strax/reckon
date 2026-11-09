@@ -65,11 +65,7 @@ func (s *Store) Sections(ctx context.Context, tenantID, id uuid.UUID, pin Sectio
 	if err != nil {
 		return SOPOutline{}, err
 	}
-	out := SOPOutline{SOPID: id, Title: e.Title, Revision: e.Revision, Cut: secs[0].Cut(), Status: sopStatus(e.Status), Sections: make([]SOPSection, 0, len(secs))}
-	for _, sec := range secs {
-		out.Sections = append(out.Sections, sopSectionOf(sec, len(secs), false))
-	}
-	return out, nil
+	return outlineOf(id, e, secs), nil
 }
 
 // Section returns one section of a SOP's current revision, by its 1-based
@@ -80,6 +76,21 @@ func (s *Store) Section(ctx context.Context, tenantID, id uuid.UUID, idx int, pi
 	if err != nil {
 		return SOPSectionRead{}, err
 	}
+	return sectionReadOf(id, e, secs, idx)
+}
+
+// outlineOf renders a revision's sections as its outline. secs is non-empty.
+func outlineOf(id uuid.UUID, e substrate.Entry, secs []substrate.Section) SOPOutline {
+	out := SOPOutline{SOPID: id, Title: e.Title, Revision: e.Revision, Cut: secs[0].Cut(), Status: sopStatus(e.Status), Sections: make([]SOPSection, 0, len(secs))}
+	for _, sec := range secs {
+		out.Sections = append(out.Sections, sopSectionOf(sec, len(secs), false))
+	}
+	return out
+}
+
+// sectionReadOf renders one section of a revision whole, with the outline
+// around it. An index the cut does not have is ErrNotFound.
+func sectionReadOf(id uuid.UUID, e substrate.Entry, secs []substrate.Section, idx int) (SOPSectionRead, error) {
 	out := SOPSectionRead{SOPID: id, Title: e.Title, Revision: e.Revision, Cut: secs[0].Cut(), Status: sopStatus(e.Status), Outline: make([]string, 0, len(secs))}
 	found := false
 	for _, sec := range secs {

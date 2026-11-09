@@ -182,7 +182,16 @@ export const thread = object({
     has_transcript: optional(bool),
     superseded: optional(bool),
     disposition: optional(str),
-    consulted_sops: optional(list(object({ sop_id: str, title: optional(str), cited: bool }))),
+    consulted_sops: optional(list(object({
+      sop_id: str,
+      title: optional(str),
+      cited: bool,
+      // The revision, cut and section indexes the act had in front of it
+      // (adr/0303); absent on acts recorded before sections existed.
+      revision: optional(num),
+      cut: optional(str),
+      sections: optional(list(num)),
+    }))),
     consulted_similar_investigations: optional(list(object({
       investigation_ref: str,
       title: optional(str),
@@ -534,6 +543,56 @@ export const sop = object({
   imported_at: optional(str),
   created_at: str,
   updated_at: str,
+});
+
+/** One section of a procedure (knowledge.SOPSection): its place, and its text when read singly. */
+const sopSectionItem = object({
+  idx: num,
+  of: num,
+  heading_path: list(str),
+  part: optional(num),
+  parts: optional(num),
+  location: str,
+  runes: num,
+  text: optional(str),
+});
+
+/** GET /api/sops/{id}/revisions/{r}/sections — one revision's outline (adr/0097). */
+export const sopOutline = object({
+  sop_id: str,
+  title: str,
+  revision: num,
+  cut: str,
+  status: str,
+  sections: list(sopSectionItem),
+});
+
+/** GET /api/sops/{id}/revisions/{r}/sections/{n} — one section of one revision, whole. */
+export const sopSection = object({
+  sop_id: str,
+  title: str,
+  revision: num,
+  cut: str,
+  status: str,
+  section: sopSectionItem,
+  outline: list(str),
+});
+
+/** GET /api/sops/{id}/revisions — a procedure's revision history, newest first. */
+export const sopRevisions = object({
+  sop_id: str,
+  current: num,
+  revisions: list(object({
+    revision: num,
+    content_hash: str,
+    created_at: str,
+    superseded_at: optional(str),
+    authored_by: optional(str),
+    imported_by: optional(str),
+    imported_at: optional(str),
+    source: optional(object({ system: optional(str), url: str, version: optional(str) })),
+    current: bool,
+  })),
 });
 
 export const lifecycle = object({ status: str, export_workflow_id: optional(str) });

@@ -11,6 +11,7 @@ import type { DocumentHost } from "./documentHost";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 import type { InspectorTarget } from "./protocol";
 import { SingleFlight } from "./singleFlight";
+import { procedureReads } from "./procedureReads";
 import { errText } from "./util";
 
 /** How many retrieved events the Story lens is given, and how many sit each side of an anchor. */
@@ -237,13 +238,19 @@ export class EvidenceReads {
           void this.host.post(panel, { type: "inspector.call", callId: target.callId, call: await this.host.client.evidence.call(id, target.callId) });
           return;
         case "sop": {
-          // The document and where it was consulted (adr/0109) are two reads;
-          // a failed second one leaves the pane without the tab, never closed.
-          const [sop, citations] = await Promise.all([
+          // The document, where it was consulted (adr/0109) and what the
+          // agent read of it here as it was (adr/0097) are three reads; a
+          // failed second or third leaves the pane without that part, never
+          // closed. The reads start from the committed thread, not from
+          // anything the webview holds.
+          const [sop, citations, reads] = await Promise.all([
             this.host.client.knowledge.sop(target.sopId),
             this.host.client.knowledge.sopCitations(target.sopId).catch((err: unknown) => { this.host.log.debug(`citations ${target.sopId}: ${errText(err)}`); return undefined; }),
+            this.host.client.investigations.thread(id)
+              .then((thread) => procedureReads(this.host.client.knowledge, target.sopId, thread))
+              .catch((err: unknown) => { this.host.log.debug(`procedure reads ${target.sopId}: ${errText(err)}`); return undefined; }),
           ]);
-          void this.host.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop, citations });
+          void this.host.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop, citations, reads });
           return;
         }
         case "turn": {

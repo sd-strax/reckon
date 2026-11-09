@@ -287,6 +287,68 @@ export interface KnowledgeCitations {
   }[];
 }
 
+/** One revision of a procedure (mirrors knowledge.SOPRevision, adr/0097). */
+export interface SOPRevisionRow {
+  revision: number;
+  contentHash: string;
+  createdAt: string;
+  supersededAt?: string;
+  authoredBy?: string;
+  importedBy?: string;
+  importedAt?: string;
+  current: boolean;
+}
+
+/** A section of one revision of a procedure, read singly (mirrors knowledge.SOPSectionRead). */
+export interface SOPSectionView {
+  revision: number;
+  cut: string;
+  idx: number;
+  of: number;
+  location: string;
+  headingPath: string[];
+  /** Set when the section is part `part` of `parts` under its heading (a long section cut on paragraphs). */
+  part?: number;
+  parts?: number;
+  text: string;
+  /** Every section's location in that revision under that cut. */
+  outline: string[];
+}
+
+/** One revision's outline (mirrors knowledge.SOPOutline). */
+export interface SOPOutlineView {
+  revision: number;
+  cut: string;
+  sections: { idx: number; location: string; headingPath: string[]; part?: number; parts?: number }[];
+}
+
+/**
+ * What the agent read of a procedure in this investigation, as it was
+ * (adr/0097): for each act that recorded sections, the sections under the
+ * revision and cut it recorded, read back from the library, and beside each
+ * what the current revision holds under the same heading. `current` is not
+ * read when the act saw the current revision; it is null when no section of
+ * the current revision sits under that heading any more.
+ */
+export interface ProcedureReads {
+  currentRevision: number;
+  turns: ProcedureTurnRead[];
+}
+
+export interface ProcedureTurnRead {
+  interpretationId: string;
+  revision: number;
+  cut: string;
+  sections: ProcedureSectionRead[];
+}
+
+export interface ProcedureSectionRead {
+  idx: number;
+  location: string;
+  text: string;
+  current?: { revision: number; idx: number; location: string; text: string } | null;
+}
+
 /** One procedure (mirrors knowledge.SOP, the fields the inspector shows). */
 export interface SOPDoc {
   id: string;
@@ -591,7 +653,12 @@ export interface ThreadEntry {
   superseded: boolean;
   /** A verdict act's disposition (BENIGN | SUSPICIOUS | MALICIOUS). */
   disposition?: string;
-  consultedSops: { sopId: string; title?: string; cited: boolean }[];
+  /**
+   * The procedures the act consulted, each with the revision, cut and section
+   * indexes it had in front of it (adr/0303); the three are absent on acts
+   * recorded before sections existed.
+   */
+  consultedSops: { sopId: string; title?: string; cited: boolean; revision?: number; cut?: string; sections?: number[] }[];
   consultedSimilar: { investigationRef: string; title?: string; band?: string; cited: boolean }[];
 }
 
