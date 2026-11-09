@@ -22,6 +22,10 @@ func TestDecodeCommandLine(t *testing.T) {
 		{"quoted program path with spaces", `"C:\Program Files\PowerShell\7\pwsh.exe" -enc ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"an unquoted install path with spaces", `C:\Program Files\PowerShell\7\pwsh.exe -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"an unquoted install path with a parenthesised directory", `C:\Program Files (x86)\Windows PowerShell\powershell.exe -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
+		{"an unquoted install path with forward slashes", `C:/Program Files/PowerShell/7/pwsh.exe -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
+		{"an unquoted install path with a dot-led directory", `C:\Program .tools\pwsh.exe -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
+		{"the ISE has no encoded command", `powershell_ise.exe -enc ZQBjAGgAbwA=`, "", ""},
+		{"the ISE by path", `C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe -enc ZQBjAGgAbwA=`, "", ""},
 		{"an unquoted path with spaces that is not PowerShell", `C:\Program Files\Tool\run.exe powershell -e ZQBjAGgAbwA=`, "", ""},
 		{"a program file with a path, PowerShell as its argument", `C:\Tools\launcher.exe powershell -e ZQBjAGgAbwA=`, "", ""},
 		{"an extensionless program with a path, PowerShell as its argument", `C:\Tools\launcher powershell -e ZQBjAGgAbwA=`, "", ""},
@@ -29,6 +33,7 @@ func TestDecodeCommandLine(t *testing.T) {
 		{"an extensionless program with a path, PowerShell's full path as its argument", `C:\Tools\launcher C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -e ZQBjAGgAbwA=`, "", ""},
 		{"an extensionless program with a path, a relative PowerShell path as its argument", `C:\Tools\launcher .\bin\powershell -e ZQBjAGgAbwA=`, "", ""},
 		{"an extensionless program with a path, a rooted PowerShell path as its argument", `C:\Tools\launcher \bin\powershell.exe -e ZQBjAGgAbwA=`, "", ""},
+		{"an extensionless program with a path, a parent-relative PowerShell path as its argument", `C:\Tools\launcher ..\bin\powershell.exe -e ZQBjAGgAbwA=`, "", ""},
 		{"a POSIX path", `/usr/bin/pwsh -nop -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"an escaped space in a POSIX path", `/opt/my\ tools/pwsh -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"a POSIX path in apostrophes", `'/opt/my tools/pwsh' -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
@@ -38,14 +43,18 @@ func TestDecodeCommandLine(t *testing.T) {
 		{"explicit aliases -if -of -ea -wd take values", `pwsh -if Text -of XML -ea AAAA -wd "C:\Program Files" -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"abbreviations resolve in the parser's order (-in is Interactive, -s is ServerMode)", `pwsh -in -s -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"Windows PowerShell -version takes a value", `powershell -version 2 -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
+		{"pwsh -version stops the parse, so nothing after it is read", `pwsh -version 7 -e ZQBjAGgAbwA=`, "", ""},
+		{"pwsh -v likewise", `pwsh -v -e ZQBjAGgAbwA=`, "", ""},
+		{"-help does not stop the parse: the encoded command is designated, whether or not PowerShell then runs it", `pwsh -help -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"Windows PowerShell -ImportSystemModules is a flag", `powershell -ImportSystemModules -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"quoted encoded token", `powershell -enc "ZQBjAGgAbwA="`, EncodingBase64UTF16LE, "echo"},
 		{"a quoted value with spaces", `powershell -wd "C:\Program Files" -enc ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"a backslash-escaped quote is a literal quote, so the value splits and the options end", `powershell -wd \"C:\Program Files\" -enc ZQBjAGgAbwA=`, "", ""},
-		{"a lost closing quote still reads word by word", `"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -nop -enc ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
-		{"a stray quote after the program", `powershell.exe" -nop -enc ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
-		{"an escaped quote ahead is no match, so a stray quote is text", `powershell -nop -w "hidden -enc ZQBjAGgAbwA= \"x`, EncodingBase64UTF16LE, "echo"},
-		{"an apostrophe is text on a Windows line", `powershell -nop -enc 'ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"a lost closing quote makes the rest of the line one word, so nothing is read", `"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -nop -enc ZQBjAGgAbwA=`, "", ""},
+		{"a stray quote after the program", `powershell.exe" -nop -enc ZQBjAGgAbwA=`, "", ""},
+		{"an unmatched quote hands -w the rest of the line", `powershell -nop -w "hidden -enc ZQBjAGgAbwA= \"x`, "", ""},
+		{"apostrophes on a Windows line are handed to PowerShell, which cannot decode them", `powershell -nop -enc 'ZQBjAGgAbwA='`, "", ""},
+		{"a token in the URL alphabet is not one PowerShell can decode", `powershell -enc ZQBjAGgAbwAgACcAPwA_AD8AJwA=`, "", ""},
 		{"an unknown switch ends the options as a file", `pwsh -foo -e ZQBjAGgAbwA=`, "", ""},
 		{"-cwa ends the options", `pwsh -cwa whoami -e ZQBjAGgAbwA=`, "", ""},
 		{"-e after -File is the script's argument", `powershell.exe -File .\probe.ps1 -e ZQBjAGgAbwA=`, "", ""},
@@ -125,8 +134,8 @@ func TestRender_DecodedBesideTheOriginal(t *testing.T) {
 
 // TestTokenize: words split as the shell hands them to the program; a quoted
 // word is one token with its quotes removed, whatever it holds; a quote may
-// open inside a word; an apostrophe quotes under POSIX rules and is text under
-// Windows rules.
+// open inside a word, and one with no match runs to the end of the line; an
+// apostrophe quotes under POSIX rules and is text under Windows rules.
 func TestTokenize(t *testing.T) {
 	line := `"C:\Program Files\pwsh.exe" -wd it's "say \"hi\" && x" ""C:\p q" a" tail`
 	check := func(name string, got, want []token) {
@@ -149,12 +158,12 @@ func TestTokenize(t *testing.T) {
 		{text: `q a`, quoted: true},
 		{text: "tail"},
 	})
-	check("posix", tokenize(`'a b' it's`, true), []token{{text: "a b", quoted: true}, {text: "it's"}})
+	check("posix", tokenize(`'a b' it's`, true), []token{{text: "a b", quoted: true}, {text: "its", quoted: true}})
 	if got := tokenize("", false); len(got) != 0 {
 		t.Errorf("empty line tokenized to %+v", got)
 	}
-	if got := tokenize(`a "unterminated -e ZQBjAGgAbwA=`, false); len(got) != 4 || got[1].quoted || got[1].text != `"unterminated` {
-		t.Errorf("unmatched quote = %+v; want it read as text", got)
+	if got := tokenize(`a "unterminated -e ZQBjAGgAbwA=`, false); len(got) != 2 || !got[1].quoted || got[1].text != `unterminated -e ZQBjAGgAbwA=` {
+		t.Errorf("unmatched quote = %+v; want the rest of the line as one word", got)
 	}
 	if got := tokenize(`"a ""b"" c"`, false); len(got) != 1 || got[0].text != `a "b" c` {
 		t.Errorf("argv doubled quote = %+v; want one token a \"b\" c", got)

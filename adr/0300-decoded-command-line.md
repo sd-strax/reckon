@@ -45,8 +45,9 @@ PowerShell's, found where PowerShell's own command-line grammar puts it and
 nowhere else. The line's words are split as argv splits them (a quote
 toggles, a backslash before one makes it a literal character, an apostrophe
 quotes only under sh's rules, which apply when the program lives under a
-POSIX path, a quote with no match ahead is text so a truncated line still
-reads word by word), so a quoted path is one word. The first word is the
+POSIX path, and a quote with no match ahead runs to the end of the line, so
+the rest of a truncated line is one word and reads as nothing), so a quoted
+path is one word. The first word is the
 program; an unquoted program path with spaces, as a Run key or a task
 records it, is read as CreateProcess tries it, prefix by prefix: bare
 words are parts of the path, a quoted word, a switch-shaped word or a word
@@ -54,25 +55,39 @@ that begins a path of its own is the first argument and the program is
 whatever came before it, and PowerShell is found when a word continuing the
 path names it, unless another program file ends the path first; a POSIX
 argv[0] is exact and gets no such recovery. The view reads the line only when
-that program is PowerShell, under any path, quoted or not. From there its
-host options are read as PowerShell's parser reads them, from its switch
-table transcribed in the parser's order with the first match winning: each
+that program is a PowerShell console host, `powershell` or `pwsh`, under any
+path, quoted or not; the ISE is not one, its command line has no encoded
+command. From there its host options are read as PowerShell's parser reads
+them, from its switch table transcribed in the parser's order with the first
+match winning: each
 switch a case-insensitive prefix no shorter than its accepted abbreviation,
 the explicit aliases (`-ep`, `-if`, `-of`, `-ea`, `-wd`, `-ec`) as entries
 of their own, an optional second dash stripped, each value-taking switch
 consuming the next word, and the options ending at `-File`, `-Command`, a
 lone dash, a word that is no switch or a switch the parser does not know,
-after which the line is the script's own arguments. So another tool's `-e`,
-a `-e` after `-File`, and PowerShell named as a word on someone else's
-command line all mean nothing. The flagged token must then be an even byte
-count, well-formed code units, and text that is at least three quarters
-ASCII, since a PowerShell command is and a short run of random bytes read as
-UTF-16 is not (it lands in the graphic ideographic planes and would
-otherwise pass as text); the text must be wholly printable, with no
-replacement character, and non-empty. Quote characters around the token are
-stripped whether or not they pair. A flagged token that is not UTF-16LE is
-not a PowerShell command and gets no second guess. Anything else yields
+and on pwsh at `-Version`, which prints and stops reading (Windows
+PowerShell's takes the engine version as a value), after which the line is
+the script's own arguments. So another tool's `-e`, a `-e` after `-File`,
+and PowerShell named as a word on someone else's command line all mean
+nothing. The flagged token is read exactly as PowerShell receives it,
+quotes an argv split left on it included, through the conversion PowerShell
+itself applies: base64 in the standard alphabet with padding that fits, an
+even byte count, well-formed code units, and text that is at least three
+quarters ASCII, since a PowerShell command is and a short run of random
+bytes read as UTF-16 is not (it lands in the graphic ideographic planes and
+would otherwise pass as text); the text must be wholly printable, with no
+replacement character, and non-empty. A flagged token that is not UTF-16LE
+is not a PowerShell command and gets no second guess. Anything else yields
 nothing, and the view says nothing.
+
+**The claim is the designation, not the run.** The view decodes the
+argument PowerShell's parser designates as the encoded command, as
+PowerShell would decode it. Whether PowerShell then ran it is not the view's
+claim: a `-Help` on the same line, an option value PowerShell would reject,
+an execution policy, a missing module all decide that, and so does what the
+decoded command itself does. Those are PowerShell's runtime, and the
+analyst's reading of the event; the view's one statement is "this argument
+decodes to this text", beside the field that carries it.
 
 **A program that is not PowerShell is not read.** A line whose program is a
 shell (`cmd /c powershell -enc …`, `cmd /c start powershell …`, `sh -c 'pwsh

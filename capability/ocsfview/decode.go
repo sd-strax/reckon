@@ -43,7 +43,7 @@ func decodeCommandLine(cmd string) (encoding, text string, ok bool) {
 	if !found {
 		return "", "", false
 	}
-	text, ok = decodeUTF16LE(unquote(tok))
+	text, ok = decodeUTF16LE(tok)
 	if !ok {
 		return "", "", false
 	}
@@ -64,8 +64,8 @@ type token struct {
 // quote toggles a run in which spaces are text; so does a single quote under
 // POSIX rules, while Windows programs read an apostrophe as text. A quote may
 // toggle anywhere in a word, as both families allow; a quote with no match
-// ahead is text, so a line whose closing quote was lost still reads word by
-// word. Backslashes are text (they are Windows path separators) except before
+// ahead runs to the end of the line, as it does in argv, so the rest of a
+// line whose closing quote was lost is one word. Backslashes are text (they are Windows path separators) except before
 // a quote, where argv's rule applies: each pair is one backslash and the quote
 // still toggles, and an odd one makes the quote a literal character, so `\"`
 // never opens or closes a run; argv's doubled quote inside a Windows run is a
@@ -128,11 +128,7 @@ func tokenize(cmd string, posix bool) []token {
 			flush()
 		case isQuote(c):
 			inWord = true
-			if !hasMatch(cmd[i+1:], c) {
-				b.WriteByte(c) // no match ahead: text
-			} else {
-				quoted, quote = true, c
-			}
+			quoted, quote = true, c
 		default:
 			inWord = true
 			b.WriteByte(c)
@@ -140,25 +136,6 @@ func tokenize(cmd string, posix bool) []token {
 	}
 	flush()
 	return out
-}
-
-// hasMatch reports whether an unescaped quote character q lies ahead: one
-// preceded by an even number of backslashes, since an odd number makes it a
-// literal character that closes nothing.
-func hasMatch(ahead string, q byte) bool {
-	for i := 0; i < len(ahead); i++ {
-		if ahead[i] != q {
-			continue
-		}
-		n := 0
-		for j := i - 1; j >= 0 && ahead[j] == '\\'; j-- {
-			n++
-		}
-		if n%2 == 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // --- command position -----------------------------------------------------------
@@ -190,7 +167,7 @@ func powerShellInvocation(line string) ([]token, bool) {
 		return nil, false
 	}
 	for j := 1; j < len(tokens) && continuesPath(tokens[j]); j++ {
-		if strings.Contains(tokens[j].text, `\`) && isPowerShellName(programName(tokens[j].text)) {
+		if strings.ContainsAny(tokens[j].text, `\/`) && isPowerShellName(programName(tokens[j].text)) {
 			return tokens[j:], true
 		}
 		if isProgramFile(tokens[j].text) {
@@ -202,14 +179,16 @@ func powerShellInvocation(line string) ([]token, bool) {
 
 // continuesPath reports whether a word can be the next part of an unquoted
 // program path with spaces: unquoted, not shaped as a switch, and not the
-// start of a path of its own.
+// start of a path of its own (a drive, a rooted path, a relative path).
 func continuesPath(t token) bool {
 	if t.quoted || t.text == "" {
 		return false
 	}
-	switch t.text[0] {
-	case '-', '/', '\\', '.':
+	switch {
+	case t.text[0] == '-' || t.text[0] == '/' || t.text[0] == '\\':
 		return false
+	case strings.HasPrefix(strings.TrimLeft(t.text, "."), `\`) || strings.HasPrefix(strings.TrimLeft(t.text, "."), "/"):
+		return false // .\ or ..\: a relative path of its own
 	}
 	return len(t.text) < 2 || t.text[1] != ':'
 }
@@ -219,11 +198,18 @@ func continuesPath(t token) bool {
 // value-taking switch consuming the next token, and the walk ending at the
 // first token that ends the options (-File, -Command, a word that is no
 // switch, a switch the parser does not know, a lone dash), after which the
-// rest of the line is the script's own arguments.
+// rest of the line is the script's own arguments. The two hosts differ on
+// one switch: Windows PowerShell's -Version takes the engine version to run
+// under, while pwsh's prints its version and stops reading the line, so
+// nothing after it is an encoded command.
 func encodedArgument(inv []token) (string, bool) {
+	pwsh := programName(inv[0].text) == "pwsh"
 	for i := 1; i < len(inv); i++ {
 		name, isSwitch := switchKey(inv[i].text)
 		if !isSwitch {
+			return "", false
+		}
+		if pwsh && matchesSwitch(name, "version", "v") {
 			return "", false
 		}
 		switch classifySwitch(name) {
@@ -243,8 +229,11 @@ func encodedArgument(inv []token) (string, bool) {
 	return "", false
 }
 
+// isPowerShellName reports whether a program name is a PowerShell console
+// host. The ISE is not one: its command line opens files in the editor and
+// has no encoded-command switch.
 func isPowerShellName(name string) bool {
-	return name == "powershell" || name == "powershell_ise" || name == "pwsh"
+	return name == "powershell" || name == "pwsh"
 }
 
 // isPathStart reports whether an unquoted word begins a Windows path: a drive
@@ -265,7 +254,7 @@ func isProgramFile(word string) bool {
 // programName is the program a word names: lower-cased, without its path and
 // without a .exe extension.
 func programName(word string) string {
-	name := strings.ToLower(unquote(word))
+	name := strings.ToLower(word)
 	if i := strings.LastIndexAny(name, `\/`); i >= 0 {
 		name = name[i+1:]
 	}
@@ -310,9 +299,7 @@ var hostSwitches = []struct {
 	name, min string
 	kind      switchKind
 }{
-	// Windows PowerShell's -Version takes a value; pwsh's prints and exits,
-	// with nothing after it that could be an encoded command.
-	{"version", "v", switchTakesValue},
+	{"version", "v", switchTakesValue}, // Windows PowerShell; pwsh's ends the parse, see encodedArgument
 	{"help", "h", switchFlag},
 	{"?", "?", switchFlag},
 	{"login", "l", switchFlag},
@@ -361,11 +348,17 @@ var hostSwitches = []struct {
 // script file, so it ends the options; so does the empty name of a lone dash.
 func classifySwitch(name string) switchKind {
 	for _, s := range hostSwitches {
-		if len(name) >= len(s.min) && len(name) <= len(s.name) && s.name[:len(name)] == name {
+		if matchesSwitch(name, s.name, s.min) {
 			return s.kind
 		}
 	}
 	return switchEndsOptions
+}
+
+// matchesSwitch is the parser's test for one switch: the normalised name is
+// a prefix of the switch's name no shorter than its accepted abbreviation.
+func matchesSwitch(name, full, min string) bool {
+	return len(name) >= len(min) && len(name) <= len(full) && full[:len(name)] == name
 }
 
 // --- decoders ---------------------------------------------------------------------
@@ -411,26 +404,25 @@ func mostlyASCII(text string) bool {
 }
 
 // base64Bytes decodes a token that is wholly base64 with correct padding, in
-// the standard or the URL alphabet. A token with other characters, or with
-// padding that does not fit, is not a blob.
+// the standard alphabet, the one PowerShell's own conversion accepts. A token
+// with other characters, the URL alphabet's included, or with padding that
+// does not fit, is not a blob PowerShell could read.
 func base64Bytes(tok string) ([]byte, bool) {
 	if tok == "" || len(tok)%4 != 0 {
 		return nil, false
 	}
 	for _, c := range tok {
 		switch {
-		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '+', c == '/', c == '-', c == '_', c == '=':
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '+', c == '/', c == '=':
 		default:
 			return nil, false
 		}
 	}
-	if raw, err := base64.StdEncoding.DecodeString(tok); err == nil {
-		return raw, true
+	raw, err := base64.StdEncoding.DecodeString(tok)
+	if err != nil {
+		return nil, false
 	}
-	if raw, err := base64.URLEncoding.DecodeString(tok); err == nil {
-		return raw, true
-	}
-	return nil, false
+	return raw, true
 }
 
 // printable reports whether text is wholly graphic runes, spaces, tabs and line
@@ -452,13 +444,6 @@ func printable(text string) bool {
 		}
 	}
 	return true
-}
-
-// unquote strips stray quote characters around a word, matched or not: the
-// program's name or its token may carry the quote of a line whose other
-// quote was lost, or an apostrophe a Windows program reads as text.
-func unquote(tok string) string {
-	return strings.Trim(tok, `"'`)
 }
 
 // decode records the command line's decoded argument on the view, when the
