@@ -620,6 +620,9 @@ export class InvestigationDocuments implements DocumentHost {
           hypotheses: patch.hypotheses, pins: patch.pins, actions: patch.actions ?? undefined, seed: patch.investigation?.seed,
         });
         void this.evidence.postEvents(id, panel, seq);
+        // A committed act may have consulted knowledge: the Library's
+        // "cited in N investigations" follows the record (adr/0109).
+        void this.knowledge.postLibrary(panel);
       }
       // Unsequenced follow-ups finish inside this operation (see load).
       await Promise.all([this.postQueue(panel), this.actions.resendActionRecords(id, panel, seq)]);

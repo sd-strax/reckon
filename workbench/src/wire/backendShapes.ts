@@ -483,10 +483,13 @@ export const caseSummary = object({
   tags: list(str),
   revision: num,
   content_hash: optional(str),
-  learned_procedures: list(object({ id: str, title: str })),
+  // Optional, with cited_in below: a backend serving API v1 from before
+  // adr/0109 omits them, and a client supporting v1 works against every v1
+  // backend (internal/apiversion). Absent means not reported, not zero.
+  learned_procedures: optional(list(object({ id: str, title: str }))),
 });
 
-export const sops = object({ sops: list(object({ id: str, title: str, tags: list(str), cited_in: num })) });
+export const sops = object({ sops: list(object({ id: str, title: str, tags: list(str), cited_in: optional(num) })) });
 
 export const caseSummaries = object({
   case_summaries: list(object({
@@ -494,7 +497,7 @@ export const caseSummaries = object({
     title: str,
     verdict_disposition: optional(str),
     conclusion_at: optional(str),
-    cited_in: num,
+    cited_in: optional(num),
   })),
 });
 

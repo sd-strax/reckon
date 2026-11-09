@@ -203,6 +203,7 @@ describe("the inspector", () => {
   it("opens a procedure without the tab's rows when the citations read failed, and says loading while the answer is in flight", () => {
     const data = JSON.parse(JSON.stringify(synthetic)) as HarnessSnapshot;
     delete data.citations;
+    delete data.caseSummaries!["grouping--prior-1"]!.learnedProcedures; // a backend from before adr/0109 omits it
     const transport = new HarnessTransport(data);
     render(<AppProvider transport={transport}><App /></AppProvider>);
     fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Procedure one"));
@@ -210,6 +211,9 @@ describe("the inspector", () => {
     fireEvent.click(within(p).getByRole("tab", { name: "Cited elsewhere" }));
     expect(within(p).getByText(/could not be read/)).toBeTruthy();
     expect(within(p).queryByText(/Not consulted in any other/)).toBeNull(); // a failed read is not "none"
+
+    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Prior case A"));
+    expect(within(pane()).getByText("not reported by this backend")).toBeTruthy(); // absent is not "none"
 
     // A procedure the harness has not answered yet: the tab is loading, not failed.
     act(() => transport.emit({ type: "library", sops: [{ kind: "sop", ref: "sop-pending", title: "Pending procedure" }], cases: [] }));

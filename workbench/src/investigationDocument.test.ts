@@ -266,6 +266,23 @@ describe("InvestigationDocuments: closing", () => {
     expect(cursorPatches()[2]!.patch.events!.map((e) => e.id)).toEqual(["e-1", "e-prev"]);
   });
 
+  it("re-posts the Library when a refresh re-reads the thread, so a count follows a citing turn (adr/0109)", async () => {
+    let citedIn = 0;
+    const procedures = vi.fn(async () => [{ kind: "sop" as const, ref: "sop-1", title: "Procedure one", citedIn }]);
+    const { client } = backend({ "knowledge.procedures": procedures });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    const libraries = () => posted().filter((m) => m.type === "library") as Extract<RenderMessage, { type: "library" }>[];
+    await vi.waitFor(() => expect(libraries().length).toBe(1));
+    expect(libraries()[0]!.sops[0]!.citedIn).toBe(0);
+    citedIn = 1; // a turn committed a citation; the record now counts it
+    panel.webview.receive({ type: "refresh" });
+    await vi.waitFor(() => expect(libraries().length).toBe(2));
+    expect(libraries()[1]!.sops[0]!.citedIn).toBe(1);
+  });
+
   it("does not report the failure of an older read retired by a newer read of the record", async () => {
     let failOlder: ((err: Error) => void) | undefined;
     const slow = new Promise<never>((_, reject) => { failOlder = reject; });

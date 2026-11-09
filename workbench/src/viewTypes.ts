@@ -258,8 +258,8 @@ export interface CaseSummaryView {
   tags: string[];
   revision: number;
   contentHash?: string;
-  /** Procedures accepted into the library from this case (source reckon://investigation/<id>, adr/0109). */
-  learnedProcedures: { id: string; title: string }[];
+  /** Procedures accepted into the library from this case (source reckon://investigation/<id>, adr/0109); undefined when the backend does not report them. */
+  learnedProcedures?: { id: string; title: string }[];
 }
 
 /**
