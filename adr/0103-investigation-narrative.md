@@ -1,6 +1,6 @@
 # 0103 — The investigation's narrative is a revision on the record, drafted on demand and edited by a person, each with its author
 
-Issue: #103 · PR: #TBD · Status: accepted
+Issue: #103 · PR: #316 · Status: accepted
 
 ## Context
 
