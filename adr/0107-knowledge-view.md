@@ -1,6 +1,6 @@
 # 0107 — The Knowledge view is built: past cases listed with filters, procedures and cases read outside any investigation
 
-Issue: #107 · PR: #TBD · Status: accepted
+Issue: #107 · PR: #314 · Status: accepted
 
 ## Context
 
