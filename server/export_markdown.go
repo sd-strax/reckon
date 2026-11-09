@@ -472,9 +472,12 @@ func decodedSuffix(v ocsfview.View, payload []byte) string {
 }
 
 // clipRunes bounds text to max runes, the last one an ellipsis when it was cut.
-func clipRunes(text string, max int) string {
-	if r := []rune(text); len(r) > max {
-		return string(r[:max-1]) + "…"
+func clipRunes(text string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if r := []rune(text); len(r) > limit {
+		return string(r[:limit-1]) + "…"
 	}
 	return text
 }

