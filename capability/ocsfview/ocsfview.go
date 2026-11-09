@@ -74,12 +74,14 @@ type Field struct {
 }
 
 // View is the rendering of one event. Sentence is absent for a class without a
-// template; Fields is never nil. The decoded command line of §8.1 is a later
-// addition and has no slot here yet.
+// template; Fields is never nil. Decoded is the command line's encoded
+// argument read back (adr/0300), present only when a known encoding decodes
+// cleanly; the field it came from is always rendered as stored.
 type View struct {
-	Sentence []Token `json:"sentence,omitempty"`
-	Fields   []Field `json:"fields"`
-	Category string  `json:"category"`
+	Sentence []Token  `json:"sentence,omitempty"`
+	Fields   []Field  `json:"fields"`
+	Category string   `json:"category"`
+	Decoded  *Decoded `json:"decoded,omitempty"`
 	// Slots are the class's slot values the template registered, for the
 	// group-by fold (group.go); not on the wire.
 	Slots []SlotValue `json:"-"`
@@ -191,7 +193,7 @@ func Render(e Event, entities []Entity) View {
 	if r.fields == nil {
 		r.fields = []Field{}
 	}
-	return View{Sentence: r.sentence, Fields: r.fields, Category: Category(e.ClassUID, e.Payload), Slots: r.slots}
+	return View{Sentence: r.sentence, Fields: r.fields, Category: Category(e.ClassUID, e.Payload), Decoded: r.decoded, Slots: r.slots}
 }
 
 // renderer accumulates one view. The sentence helpers add nothing for an
@@ -202,6 +204,7 @@ type renderer struct {
 	sentence []Token
 	fields   []Field
 	slots    []SlotValue
+	decoded  *Decoded
 }
 
 // keySlot registers a slot's value for the fold: the ref when the record
@@ -582,6 +585,7 @@ func (r *renderer) process() {
 		r.mono("PID", strconv.Itoa(pid))
 	}
 	r.mono("Command line", r.str("process.cmd_line"))
+	r.decode("process.cmd_line")
 	if !parent.empty() {
 		text := parent.text
 		if ppid := r.int("process.parent_process.pid"); ppid != 0 && r.str("process.parent_process.name") != "" {
@@ -913,6 +917,7 @@ func (r *renderer) scheduledJob() {
 	r.entityField("Job", job)
 	r.mono("Path", path)
 	r.mono("Command line", r.str("job.command_line"))
+	r.decode("job.command_line")
 	r.entityField("Runs as", slot{text: r.qualifiedUser("job.user"), ref: runAs.ref})
 	r.activityField()
 	r.entityField("Actor", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})

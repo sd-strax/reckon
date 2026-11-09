@@ -313,6 +313,9 @@ const eventView = object({
   sentence: optional(list(object({ t: str, ref: optional(str), text: str }))),
   fields: list(object({ label: str, value: str, ref: optional(str), mono: optional(bool), tone: optional(str) })),
   category: str,
+  // An encoded command line read back (adr/0300): present only when a known
+  // encoding decoded cleanly; the field it came from is in `fields` as stored.
+  decoded: optional(object({ field: str, encoding: str, text: str })),
 });
 export type RawEventView = Decoded<typeof eventView>;
 

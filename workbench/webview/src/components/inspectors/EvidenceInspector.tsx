@@ -6,7 +6,7 @@
 // server's sentence with its curated fields (adr/0090) above every field of
 // the payload.
 import { useApp } from "../../app";
-import type { EventField, EventRow, EvidenceDoc } from "../../../../src/viewTypes";
+import type { EventField, EventRow, EventView, EvidenceDoc } from "../../../../src/viewTypes";
 import { refType, refTypeLabel } from "../../refs";
 import { EntityChip, RefChip, Sentence, fmtDateTime } from "../shared";
 import { Fields, Json, KV, Loading, Section, Tabs } from "./primitives";
@@ -87,6 +87,23 @@ function Summary({ fields }: { fields: EventField[] }) {
   );
 }
 
+/** The closed list of encodings the view recognises (ocsfview.Encoding*), by
+ * their wire ids; an id outside it shows as itself. */
+const ENCODING_LABEL: Record<string, string> = { "base64-utf16le": "base64 of UTF-16LE", base64: "base64" };
+
+/** An encoded command line read back (adr/0300): the text, which field it came
+ * from and which encoding was found. The original stays in the summary above
+ * as stored; the view decodes one encoding of one field and stops. */
+function DecodedCommand({ decoded }: { decoded: NonNullable<EventView["decoded"]> }) {
+  const encoding = Object.hasOwn(ENCODING_LABEL, decoded.encoding) ? ENCODING_LABEL[decoded.encoding] : decoded.encoding;
+  return (
+    <Section title="Decoded command line">
+      <pre className="mono decoded">{decoded.text}</pre>
+      <div className="imeta">{encoding}, from <span className="mono">{decoded.field}</span>; the original is above as stored. One encoding of one field, nothing further.</div>
+    </Section>
+  );
+}
+
 /** The call that retrieved this event, from the record the Story lens holds. */
 function retrievedBy(refId: string, events: EventRow[] | null | undefined, around: EventRow[] | undefined): EventRow | undefined {
   return (events ?? []).find((e) => e.id === refId) ?? (around ?? []).find((e) => e.id === refId);
@@ -114,6 +131,7 @@ export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: stri
           <>
             {isOD && objectRefs.length ? <Section title="Objects it contains">{objectRefs.map((r) => <RefChip key={r} refId={r} />)}</Section> : null}
             {doc.view?.fields.length ? <Summary fields={doc.view.fields} /> : null}
+            {doc.view?.decoded ? <DecodedCommand decoded={doc.view.decoded} /> : null}
             <Section title={doc.kind === "ocsf" ? "Event fields" : "Properties"}><Fields obj={propsOf(doc)} /></Section>
             {doc.kind === "ocsf" ? <AroundIt refId={target.ref} rows={around} /> : null}
           </>

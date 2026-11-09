@@ -266,7 +266,8 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     it may live client-side keyed by `class_uid`; the short title is recorded with the
     prediction, never generated at render time. *Built: `adr/0090`, server-side in
     `capability/ocsfview`, `view` on every event row and on `GET /api/evidence/{ref}`;
-    `title` on `x-prediction`. The decoded command line is #300.*
+    `title` on `x-prediction`. The decoded command line landed as `adr/0300`: `decoded` on the
+    view, only when a known encoding decodes cleanly, the original always shown.*
 13. **Entity-scoped event query** — the cited and retrieved events for one entity within
     one investigation, ordered by event time, for the inspector's "around it" strip and
     the Story timeline. A read over persisted `ocsf_events` (§6.3), not a new capability

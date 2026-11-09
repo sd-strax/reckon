@@ -179,6 +179,10 @@ export interface EventView {
   sentence?: SentenceToken[];
   fields: EventField[];
   category: string;
+  /** An encoded command line read back (adr/0300); absent unless a known encoding decoded
+   * cleanly. `encoding` is one of the view package's closed list ("base64-utf16le" | "base64"),
+   * carried as the wire id. */
+  decoded?: { field: string; encoding: string; text: string };
 }
 
 export interface EvidenceDoc {

@@ -33,7 +33,12 @@
             "tone": "x"
           }
         ],
-        "category": "x"
+        "category": "x",
+        "decoded": {
+          "field": "x",
+          "encoding": "x",
+          "text": "x"
+        }
       }
     }
   ],

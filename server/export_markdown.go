@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/capability/ocsfview"
 )
 
@@ -423,14 +424,65 @@ func (rl *refLabeler) resolve(ref string) string {
 		return ref
 	}
 	// The event's sentence (adr/0090) when its class has one, the class name
-	// otherwise; the time stays, the export is read without a timeline.
+	// otherwise; the time stays, the export is read without a timeline. An
+	// encoded command line follows as stored, with its decoded text beside it
+	// (adr/0300).
 	label := e.ClassName
-	if entities, err := rl.evidence.EventEntities(rl.ctx, id); err == nil {
-		if v := eventView(e, entities); len(v.Sentence) > 0 {
-			label = sentenceText(v)
+	// The view renders without entities too (the inspector does the same when
+	// none resolve), so a failed entity read costs the chips, not the view.
+	entities, _ := rl.evidence.EventEntities(rl.ctx, id)
+	v := eventView(e, entities)
+	if len(v.Sentence) > 0 {
+		label = sentenceText(v)
+	}
+	label += decodedSuffix(v, e.Payload)
+	return fmt.Sprintf("%s @ %s", label, e.Time.UTC().Format("15:04:05Z"))
+}
+
+// exportDecodedMax bounds the decoded text on an export line; exportStoredMax
+// bounds the stored command line, several times larger since base64 of
+// UTF-16LE runs near three times the length of its text.
+const (
+	exportDecodedMax = 160
+	exportStoredMax  = 480
+)
+
+// decodedSuffix is the export's rendering of a view's decoded command line,
+// empty when there is none: the field as stored, named, then the decoded text
+// with its encoding named. The sentence never carries the command line, so the
+// stored value goes here: it is the fact the decode was read from, and the
+// reader sees the two side by side. Both are clipped, the stored value at the
+// larger bound, so a long blob identifies itself without filling the page;
+// the inspector shows the whole of both. The label the suffix joins is made
+// span-safe as a whole where it is put in a code span.
+func decodedSuffix(v ocsfview.View, payload []byte) string {
+	if v.Decoded == nil {
+		return ""
+	}
+	var out strings.Builder
+	var p map[string]any
+	_ = json.Unmarshal(payload, &p)
+	if stored, ok := capability.LookupPath(p, v.Decoded.Field); ok {
+		if s, _ := stored.(string); s != "" {
+			out.WriteString(" · " + v.Decoded.Field + ": " + clipRunes(s, exportStoredMax))
 		}
 	}
-	return fmt.Sprintf("%s @ %s", label, e.Time.UTC().Format("15:04:05Z"))
+	out.WriteString(" · decoded (" + v.Decoded.Encoding + "): " + clipRunes(v.Decoded.Text, exportDecodedMax))
+	return out.String()
+}
+
+// clipRunes bounds text to max runes, the last one an ellipsis when it was cut.
+func clipRunes(text string, max int) string {
+	if r := []rune(text); len(r) > max {
+		return string(r[:max-1]) + "…"
+	}
+	return text
+}
+
+// spanSafe puts text on one line inside a backtick code span: backticks
+// replaced by straight quotes, whitespace collapsed.
+func spanSafe(text string) string {
+	return oneLine(strings.ReplaceAll(text, "`", "'"))
 }
 
 // sentenceText is a view's sentence as plain text, for surfaces without chips.
@@ -443,10 +495,14 @@ func sentenceText(v ocsfview.View) string {
 }
 
 // labeledList renders refs as their human labels in backticks, comma-joined.
+// A label is telemetry text (the sentence's names, a command line, its
+// decode): a backtick in it would close the span and let the rest render as
+// markup, a line break would break the list row, so each label is made
+// span-safe here, where the backticks are added.
 func labeledList(rl *refLabeler, refs []string) string {
 	out := make([]string, len(refs))
 	for i, r := range refs {
-		out[i] = "`" + rl.label(r) + "`"
+		out[i] = "`" + spanSafe(rl.label(r)) + "`"
 	}
 	return strings.Join(out, ", ")
 }

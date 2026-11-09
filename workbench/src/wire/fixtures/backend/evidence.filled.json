@@ -26,7 +26,12 @@
         "tone": "x"
       }
     ],
-    "category": "x"
+    "category": "x",
+    "decoded": {
+      "field": "x",
+      "encoding": "x",
+      "text": "x"
+    }
   },
   "related": {
     "sightings": [
@@ -58,7 +63,12 @@
               "tone": "x"
             }
           ],
-          "category": "x"
+          "category": "x",
+          "decoded": {
+            "field": "x",
+            "encoding": "x",
+            "text": "x"
+          }
         },
         "related": {
           "sightings": null,
@@ -94,7 +104,12 @@
             "tone": "x"
           }
         ],
-        "category": "x"
+        "category": "x",
+        "decoded": {
+          "field": "x",
+          "encoding": "x",
+          "text": "x"
+        }
       },
       "related": {
         "sightings": null,
@@ -130,7 +145,12 @@
               "tone": "x"
             }
           ],
-          "category": "x"
+          "category": "x",
+          "decoded": {
+            "field": "x",
+            "encoding": "x",
+            "text": "x"
+          }
         },
         "related": {
           "sightings": null,

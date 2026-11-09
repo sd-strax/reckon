@@ -179,7 +179,7 @@ two).
 |---|---|
 | Sentence ("svc_backup interactive RDP logon to WIN-FILE01 from 10.0.4.20") | Gap `00 §6.12` |
 | Field table, curated per OCSF class (authentication: user, logon type, source, destination, result; process: name, pid, command line, parent, user; network: source, destination, port, domain, protocol) | `GET /api/evidence/{ref}` + gap `00 §6.12` |
-| Encoded command lines shown decoded beside the original | Client-side decode of the cited field; the original is always shown |
+| Encoded command lines shown decoded beside the original | The event view's `decoded` (server-side, with the sentence; `adr/0300`), only when a known encoding decodes cleanly; the original is always shown |
 | "Around it": the events just before and after on the same entity | Gap `00 §6.13` |
 | Source line: capability verb, coverage word | The capability result envelope (`03 §6.1`) |
 | Provenance tab: verb, adapter, the query sent, coverage, ingest time, normalizer version, content hash | Capability provenance (`03 §4.13`) |

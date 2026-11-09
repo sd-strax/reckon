@@ -687,3 +687,6 @@ body.gripDragging { cursor: col-resize; user-select: none; }
 .members { list-style: none; grid-column: 1 / -1; margin: 2px 0 0; padding: 0 0 0 12px; border-left: 1px dashed var(--border); }
 .trow.member { grid-template-columns: 130px minmax(0, 1fr); padding: 2px 6px; }
 .irow.repeat { margin-bottom: 6px; }
+
+/* An encoded command line read back (adr/0300): the whole text, wrapped, beside the stored field. */
+pre.decoded { white-space: pre-wrap; word-break: break-all; margin: 0 0 4px; font-size: 12px; }
