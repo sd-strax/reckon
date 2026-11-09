@@ -403,6 +403,8 @@ export interface SOPDoc {
   importedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** The revision this body is (adr/0107: the outline shown beside it is read for the same one). */
+  revision?: number;
 }
 
 /** A prediction's declared falsification test (mirrors aggregate.QuerySpec). */

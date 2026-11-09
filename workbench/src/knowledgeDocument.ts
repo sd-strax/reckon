@@ -134,12 +134,13 @@ export class KnowledgeDocument {
 
   private async postLibrary(panel: vscode.WebviewPanel): Promise<void> {
     const latest = this.begin("library");
+    let sopsError: string | undefined;
     const [sops, cases] = await Promise.all([
-      this.client.knowledge.procedures().catch((err: unknown) => { this.log.debug(`knowledge view procedures: ${errText(err)}`); return []; }),
+      this.client.knowledge.procedures().catch((err: unknown) => { sopsError = errText(err); this.log.debug(`knowledge view procedures: ${sopsError}`); return []; }),
       this.client.knowledge.caseList().catch((err: unknown) => { this.log.debug(`knowledge view cases: ${errText(err)}`); return undefined; }),
     ]);
     // A failed case read sends no total: the view then claims no corpus size.
-    if (latest()) this.post(panel, { type: "library", sops, cases: cases?.items ?? [], casesTotal: cases?.total });
+    if (latest()) this.post(panel, { type: "library", sops, cases: cases?.items ?? [], casesTotal: cases?.total, sopsError });
   }
 
   private async postFacets(panel: vscode.WebviewPanel): Promise<void> {

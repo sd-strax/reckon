@@ -55,7 +55,7 @@ export function Library() {
       </div>
       {open ? (
         <>
-          <QueryBar showing={!!r} onSearch={(text) => send({ type: "library.search", text })} onClear={() => dispatch({ type: "library.clear" })} />
+          <QueryBar showing={!!r} onSearch={(text) => { dispatch({ type: "library.searching", query: text }); send({ type: "library.search", text }); }} onClear={() => dispatch({ type: "library.clear" })} />
           {r ? (
             <div className="libresults">
               <div className="imeta">Results for “{r.query}”</div>

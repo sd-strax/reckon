@@ -97,7 +97,15 @@ export interface State {
   sopDraft: { state: SopDraftState; title?: string; message?: string } | null;
   summaryStatus: { state: "written" | "baseline" | "failed"; detail?: string } | null;
   /** The knowledge library (adr/0129): what there is, and the last search's hits. */
-  library: { sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number; loaded: boolean; results: { query: string; sops: LibraryItem[]; cases: LibraryItem[] } | null };
+  library: {
+    sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number;
+    /** The last procedures read failed; the list is the one read before it. */
+    sopsError?: string;
+    loaded: boolean;
+    results: { query: string; sops: LibraryItem[]; cases: LibraryItem[] } | null;
+    /** The search asked last; an answer for any other, or after it was dismissed, is not shown. */
+    pending?: string;
+  };
   live: LiveItem[];
   streaming: boolean;
   /** A failed turn's live copy is the only record of it: keep it until a new turn. */
@@ -149,6 +157,8 @@ export const initialState: State = {
 export type Action =
   | { type: "msg"; msg: RenderMessage }
   | { type: "library.clear" }
+  /** A search was sent: only its answer is shown, and only until it is dismissed. */
+  | { type: "library.searching"; query: string }
   /** The page asks again after a failed load (the Knowledge view's Retry). */
   | { type: "error.clear" }
   | { type: "draft.submitting" }
@@ -182,7 +192,9 @@ function appendText(t: LiveTurn, delta: string): void {
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "library.clear":
-      return { ...state, library: { ...state.library, results: null } };
+      return { ...state, library: { ...state.library, results: null, pending: undefined } };
+    case "library.searching":
+      return { ...state, library: { ...state.library, pending: action.query } };
     case "error.clear":
       return { ...state, error: null };
     case "draft.submitting":
@@ -221,9 +233,16 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "summary.status":
       return { ...state, summaryStatus: { state: msg.state, detail: msg.detail } };
     case "library":
-      return { ...state, library: { ...state.library, sops: msg.sops, cases: msg.cases, casesTotal: msg.casesTotal, loaded: true } };
+      return {
+        ...state,
+        library: msg.sopsError
+          // A failed read keeps what was read before and says it failed.
+          ? { ...state.library, cases: msg.cases, casesTotal: msg.casesTotal, sopsError: msg.sopsError, loaded: true }
+          : { ...state.library, sops: msg.sops, cases: msg.cases, casesTotal: msg.casesTotal, sopsError: undefined, loaded: true },
+      };
     case "library.results":
-      return { ...state, library: { ...state.library, results: { query: msg.query, sops: msg.sops, cases: msg.cases } } };
+      if (state.library.pending !== msg.query) return state;
+      return { ...state, library: { ...state.library, pending: undefined, results: { query: msg.query, sops: msg.sops, cases: msg.cases } } };
     case "pastCases":
       return { ...state, pastCases: { filter: msg.filter, rows: msg.rows, total: msg.total, error: msg.error } };
     case "pastCases.facets":

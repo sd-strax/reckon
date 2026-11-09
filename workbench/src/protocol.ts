@@ -226,7 +226,8 @@ export type RenderMessage =
   // The knowledge library (adr/0129): the browse lists, and one search's hits.
   // casesTotal is every past case in the corpus, beyond the listing's page
   // (adr/0107); absent where it was not read.
-  | { type: "library"; sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number }
+  // sopsError is set when the procedures could not be read: not an empty library.
+  | { type: "library"; sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number; sopsError?: string }
   | { type: "library.results"; query: string; sops: LibraryItem[]; cases: LibraryItem[] }
   // The Knowledge view's past cases under a filter (adr/0107), with how many
   // matched; error is set, and rows empty, when the read failed.

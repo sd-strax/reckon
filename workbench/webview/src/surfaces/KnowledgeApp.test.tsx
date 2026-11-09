@@ -175,4 +175,26 @@ describe("the Knowledge view (adr/0107)", () => {
     fireEvent.click(within(pane).getByText("Copy"));
     expect(t.intents.some((i) => i.type === "copy")).toBe(true);
   });
+
+  it("says the procedures could not be read, with Retry, rather than calling the library empty", () => {
+    const t = open();
+    act(() => t.emit({ type: "library", sops: [], cases: [], sopsError: "HTTP 500" }));
+    expect(screen.getByRole("alert").textContent).toContain("The procedures could not be read: HTTP 500");
+    expect(screen.queryByText("no procedures yet — import some")).toBeNull();
+    const nav = screen.getByRole("navigation", { name: "Knowledge sections" });
+    expect(within(nav).getByText("Procedures").textContent).toBe("Procedures"); // no count claimed
+    fireEvent.click(screen.getByText("Retry"));
+    expect(t.intents).toContainEqual({ type: "library.get" });
+  });
+
+  it("does not let a search dismissed by changing section come back", () => {
+    const t = open();
+    library(t);
+    fireEvent.change(screen.getByLabelText("Search procedures and past cases"), { target: { value: "rdp" } });
+    fireEvent.click(screen.getByText("Search"));
+    fireEvent.click(screen.getByRole("button", { name: "Import" })); // left before the answer came
+    act(() => t.emit({ type: "library.results", query: "rdp", sops: [], cases: [] }));
+    expect(screen.queryByText("Results for “rdp”")).toBeNull();
+    expect(screen.getByText("Import procedures…")).toBeTruthy();
+  });
 });

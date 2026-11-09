@@ -17,9 +17,9 @@ function knowledge(over: Record<string, unknown> = {}) {
     caseFacets: async () => ({ techniques: [], dispositions: [] }),
     pastCases: async () => ({ rows: [], total: 0 }),
     search: async () => ({ sops: [], cases: [] }),
-    sop: async (id: string) => ({ id, title: "Containment", body: "b", tags: [], status: "published" }),
+    sop: async (id: string) => ({ id, title: "Containment", body: "b", tags: [], status: "published", revision: 4 }),
     sopCitations: async () => { throw new Error("no projection"); },
-    outline: async () => ({ revision: 1, cut: "1/16000", sections: [] }),
+    revisionOutline: async (_id: string, revision: number) => ({ revision, cut: "1/16000", sections: [] }),
     caseSummary: async () => null,
     caseCitations: async () => ({ ref: "r", citedIn: 0, recalledIn: 0, investigations: [] }),
     ...over,
@@ -68,7 +68,7 @@ describe("KnowledgeDocument (adr/0107)", () => {
     panel.webview.receive({ type: "pastCases.get", filter: { techniques: [] } });
     await vi.waitFor(() => expect(posted()).toContainEqual({ type: "pastCases", filter: { techniques: [] }, rows: [], total: 0, error: "db down" }));
     panel.webview.receive({ type: "inspector.open", target: { kind: "sop", sopId: "sop-1" } });
-    await vi.waitFor(() => expect(posted().find((m) => m.type === "inspector.procedure")).toMatchObject({ sopId: "sop-1", citations: undefined, reads: undefined, outline: { revision: 1 } }));
+    await vi.waitFor(() => expect(posted().find((m) => m.type === "inspector.procedure")).toMatchObject({ sopId: "sop-1", citations: undefined, reads: undefined, outline: { revision: 4 } })); // the outline is the body's revision
   });
 
   it("re-reads what is on screen after an import, under the last filter asked for", async () => {
@@ -86,6 +86,12 @@ describe("KnowledgeDocument (adr/0107)", () => {
     const { panel, posted } = opened({});
     panel.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "x-host--1" } });
     await vi.waitFor(() => expect(posted()).toContainEqual(expect.objectContaining({ type: "inspector.error", target: "x-host--1" })));
+  });
+
+  it("reports a failed procedures read as a failure, not an empty library", async () => {
+    const { panel, posted } = opened({ procedures: async () => { throw new Error("HTTP 500"); } });
+    panel.webview.receive({ type: "library.get" });
+    await vi.waitFor(() => expect(posted().find((m) => m.type === "library")).toMatchObject({ sops: [], sopsError: "HTTP 500" }));
   });
 
   it("sends the corpus total beside the library rows, and none when the case read failed", async () => {

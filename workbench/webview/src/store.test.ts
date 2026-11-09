@@ -130,11 +130,33 @@ describe("reducer: the library", () => {
     const item = { kind: "sop" as const, ref: "sop-1", title: "S" };
     let s = run([{ type: "library", sops: [item], cases: [] }]);
     expect(s.library.loaded).toBe(true);
+    s = reducer(s, { type: "library.searching", query: "rdp" });
     s = run([{ type: "library.results", query: "rdp", sops: [{ ...item, relevance: "related" }], cases: [] }], s);
     expect(s.library.results?.query).toBe("rdp");
     s = reducer(s, { type: "library.clear" });
     expect(s.library.results).toBeNull();
     expect(s.library.sops).toEqual([item]);
+  });
+
+  it("shows only the answer to the search asked last, and none after it was dismissed (adr/0107)", () => {
+    let s = reducer(initialState, { type: "library.searching", query: "old" });
+    s = reducer(s, { type: "library.searching", query: "new" });
+    s = run([{ type: "library.results", query: "old", sops: [], cases: [] }], s);
+    expect(s.library.results).toBeNull(); // an older search's answer, landing late
+    s = reducer(s, { type: "library.clear" }); // dismissed while "new" is in flight
+    s = run([{ type: "library.results", query: "new", sops: [], cases: [] }], s);
+    expect(s.library.results).toBeNull();
+  });
+
+  it("keeps a failed procedures read apart from an empty library, and the list read before it", () => {
+    const item = { kind: "sop" as const, ref: "sop-1", title: "S" };
+    let s = run([{ type: "library", sops: [item], cases: [] }]);
+    s = run([{ type: "library", sops: [], cases: [], sopsError: "HTTP 500" }], s);
+    expect(s.library.sopsError).toBe("HTTP 500");
+    expect(s.library.sops).toEqual([item]);
+    s = run([{ type: "library", sops: [], cases: [] }], s);
+    expect(s.library.sopsError).toBeUndefined();
+    expect(s.library.sops).toEqual([]); // a successful empty read is empty
   });
 });
 describe("reducer: rename", () => {

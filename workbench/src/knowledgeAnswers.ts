@@ -24,15 +24,18 @@ type CaseAnswer = Extract<RenderMessage, { type: "inspector.case" }>;
  */
 export async function procedureAnswer(host: AnswerHost, sopId: string, thread?: () => Promise<ThreadEntry[]>): Promise<ProcedureAnswer> {
   const quiet = (what: string) => (err: unknown): undefined => { host.log.debug(`${what} ${sopId}: ${errText(err)}`); return undefined; };
-  const [sop, citations, outline, reads] = await Promise.all([
-    host.client.knowledge.sop(sopId),
-    host.client.knowledge.sopCitations(sopId).catch(quiet("citations")),
-    host.client.knowledge.outline(sopId).catch(quiet("outline")),
-    thread
-      ? thread().then((t) => procedureReads(host.client.knowledge, sopId, t)).catch(quiet("procedure reads"))
-      : Promise.resolve(undefined),
-  ]);
-  return { type: "inspector.procedure", sopId, sop, citations, outline, reads };
+  const citations = host.client.knowledge.sopCitations(sopId).catch(quiet("citations"));
+  const reads = thread
+    ? thread().then((t) => procedureReads(host.client.knowledge, sopId, t)).catch(quiet("procedure reads"))
+    : Promise.resolve(undefined);
+  const sop = await host.client.knowledge.sop(sopId);
+  // The outline is read for the revision the body is, through the revision
+  // route: two independent "current" reads could straddle an edit and show
+  // one revision's body under another's headings.
+  const outline = sop.revision
+    ? await host.client.knowledge.revisionOutline(sopId, sop.revision).catch(quiet("outline"))
+    : undefined;
+  return { type: "inspector.procedure", sopId, sop, citations: await citations, outline, reads: await reads };
 }
 
 /** One past case for the inspector: its summary (null when the corpus holds none) and where it was cited. */

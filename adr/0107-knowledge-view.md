@@ -98,7 +98,8 @@ or the Knowledge view. The Knowledge view won:
     facets and the past cases under the last filter asked for.
   - The library answer carries the corpus total beside its page, which the
     section count and "n of m match" read; when that read fails neither
-    claims a size.
+    claims a size. A failed procedures read is reported as a failure with
+    Retry, never as an empty library, and keeps the list read before it.
 - **Past cases are a table, filtered by the API.** Every filter change is a
   request; nothing is sieved in the page.
   - The controls are technique chips from the facets (ANDed), a disposition
@@ -115,10 +116,16 @@ or the Knowledge view. The Knowledge view won:
 - **One query bar component** (`components/QueryBar.tsx`) is mounted in the
   Knowledge view and in the Library. In this record it searches only. A
   search replaces the view's content with the results under a header naming
-  the query, with a way back to the section.
-- **The procedure pane shows the current outline** (`GET /api/sops/{id}/sections`,
-  [0303](0303-section-recall.md)) and its revision in both surfaces, read
-  beside the document. A failed outline read leaves the pane without it.
+  the query, with a way back to the section. The store shows only the answer
+  to the search asked last, and none once it was dismissed (Clear, back, or
+  another section), so a slow answer cannot replace what the analyst moved
+  to.
+- **The procedure pane shows the outline of the revision its body is**, in
+  both surfaces ([0303](0303-section-recall.md)). The document is read first;
+  the outline is then read for that revision through the revision route
+  ([0097](0097-sop-revisions.md)), since two independent reads of the current
+  revision could straddle an edit and show one revision's body under
+  another's headings. A failed outline read leaves the pane without it.
   `src/knowledgeAnswers.ts` composes the procedure and past-case answers once
   for both hosts.
 - **Pane names come from the answer** where no investigation's thread names

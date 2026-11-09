@@ -74,11 +74,6 @@ export class KnowledgeClient {
     return { techniques: r.techniques, dispositions: r.dispositions };
   }
 
-  /** GET /api/sops/{id}/sections — the current revision's outline, every section's place (adr/0303). */
-  async outline(id: string): Promise<SOPOutlineView> {
-    const r = await this.http.get(`/api/sops/${encodeURIComponent(id)}/sections`, shapes.sopOutline);
-    return { revision: r.revision, cut: r.cut, sections: r.sections.map((s) => ({ idx: s.idx, location: s.location, headingPath: s.heading_path, part: s.part, parts: s.parts })) };
-  }
 
   /**
    * GET /api/sops/{id}/citations — the investigations that consulted a
@@ -113,6 +108,7 @@ export class KnowledgeClient {
       recommendation: r.recommendation, authorId: r.author_id,
       source: r.source ? { system: r.source.system, url: r.source.url, version: r.source.version } : undefined,
       importedBy: r.imported_by, importedAt: r.imported_at, createdAt: r.created_at, updatedAt: r.updated_at,
+      revision: r.revision,
     };
   }
 

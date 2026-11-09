@@ -556,6 +556,7 @@ export const sop = object({
   imported_at: optional(str),
   created_at: str,
   updated_at: str,
+  revision: num,
 });
 
 /** One section of a procedure (knowledge.SOPSection): its place, and its text when read singly. */

@@ -59,7 +59,7 @@ function KnowledgeView() {
   const [section, setSection] = useState<Section>("procedures");
   const lib = state.library;
   const r = lib.results;
-  const counts: Record<Section, number | undefined> = { procedures: lib.loaded ? lib.sops.length : undefined, cases: lib.loaded ? lib.casesTotal : undefined, import: undefined };
+  const counts: Record<Section, number | undefined> = { procedures: lib.loaded && !lib.sopsError ? lib.sops.length : undefined, cases: lib.loaded ? lib.casesTotal : undefined, import: undefined };
   return (
     <div className="kview">
       <nav className="knav" aria-label="Knowledge sections">
@@ -77,7 +77,7 @@ function KnowledgeView() {
             {state.error} <button onClick={() => { dispatch({ type: "error.clear" }); send({ type: "refresh" }); }}>Retry</button>
           </div>
         ) : null}
-        <QueryBar showing={!!r} onSearch={(text) => send({ type: "library.search", text })} onClear={() => dispatch({ type: "library.clear" })} />
+        <QueryBar showing={!!r} onSearch={(text) => { dispatch({ type: "library.searching", query: text }); send({ type: "library.search", text }); }} onClear={() => dispatch({ type: "library.clear" })} />
         {r ? (
           <div className="kresults">
             <div className="kresultshead">
@@ -88,7 +88,16 @@ function KnowledgeView() {
             <Items title="Past cases" items={r.cases} empty="no past case matches" ask={false} />
           </div>
         ) : section === "procedures" ? (
-          <Items title="Procedures" items={lib.sops} empty={lib.loaded ? "no procedures yet — import some" : "loading…"} ask={false} />
+          <>
+            {lib.sopsError ? (
+              <div className="kerror" role="alert">
+                The procedures could not be read: {lib.sopsError} <button onClick={() => send({ type: "library.get" })}>Retry</button>
+              </div>
+            ) : null}
+            {!lib.sopsError || lib.sops.length
+              ? <Items title="Procedures" items={lib.sops} empty={lib.loaded ? "no procedures yet — import some" : "loading…"} ask={false} />
+              : null}
+          </>
         ) : section === "cases" ? (
           <PastCases onOpen={(ref) => openInspector({ kind: "case", investigationRef: ref })} />
         ) : (
