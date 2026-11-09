@@ -410,6 +410,11 @@ func (s *Store) Update(ctx context.Context, tenantID, id uuid.UUID, title, body 
 		Tags:       withLineage(tags, id),
 		Advice:     recommendation,
 		AuthoredBy: e.AuthoredBy, // carry the original author forward
+		// The attribution too (design/06 §2.4): the source pointer is the
+		// lineage key an import and the learned-from join read, and the
+		// importer and time are the ingest's provenance; an edit changes the
+		// content, not where the document came from.
+		Meta: e.Meta,
 	})
 	if err != nil {
 		return fmt.Errorf("update sop: %w", err)

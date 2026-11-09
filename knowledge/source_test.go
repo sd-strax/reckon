@@ -47,6 +47,21 @@ func TestListBySource(t *testing.T) {
 		t.Fatalf("got %+v; want only the learned SOP (another investigation's, a file's, a retired one and an unsourced one are out)", got)
 	}
 	_ = gone
+	// An ordinary edit keeps the attribution: the source pointer survives the
+	// revision, so the learned-from join and the import lineage key still hold.
+	if err := s.Update(ctx, testTenant, learned, "Learned here, edited", "Step one, then two.", []string{"x"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	edited, err := s.Get(ctx, testTenant, learned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited.Revision != 2 || edited.Source == nil || edited.Source.URL != InvestigationSourcePrefix+"inv-1" || edited.Source.System != "reckon" {
+		t.Errorf("after an edit: %+v; want revision 2 with the source kept", edited)
+	}
+	if got, err := s.ListBySource(ctx, testTenant, InvestigationSourcePrefix+"inv-1"); err != nil || len(got) != 1 || got[0].Title != "Learned here, edited" {
+		t.Errorf("after an edit the learned SOP is gone from its case: %+v, %v", got, err)
+	}
 	if got, err := s.ListBySource(ctx, testTenant, InvestigationSourcePrefix+"inv-1/"); err != nil || len(got) != 0 {
 		t.Errorf("a prefix no url carries: %v, %v; want none", got, err)
 	}
