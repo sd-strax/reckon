@@ -81,13 +81,19 @@ is not a PowerShell command and gets no second guess. Anything else yields
 nothing, and the view says nothing.
 
 **The claim is the designation, not the run.** The view decodes the
-argument PowerShell's parser designates as the encoded command, as
-PowerShell would decode it. Whether PowerShell then ran it is not the view's
-claim: a `-Help` on the same line, an option value PowerShell would reject,
-an execution policy, a missing module all decide that, and so does what the
-decoded command itself does. Those are PowerShell's runtime, and the
-analyst's reading of the event; the view's one statement is "this argument
-decodes to this text", beside the field that carries it.
+argument the encoded-command switch names, found by walking PowerShell's
+switch table as its parser does, and decodes it as PowerShell would. Whether
+PowerShell's startup would then have accepted the rest of the line, or run
+the command, is not the view's claim: a `-Help` on the same line, an option
+value PowerShell rejects, an execution policy, a missing module all decide
+that, and so does what the decoded command itself does. Those checks are
+open-ended and some depend on the host the event came from (a window style
+is an error on a POSIX host and valid on Windows; a settings file must exist
+there; an encoded-arguments value is validated by PowerShell's own
+deserializer), so following them would reopen the surface the switch table
+closes. They are PowerShell's runtime, and the analyst's reading of the
+event; the view's one statement is "this argument decodes to this text",
+beside the field that carries it.
 
 **A program that is not PowerShell is not read.** A line whose program is a
 shell (`cmd /c powershell -enc …`, `cmd /c start powershell …`, `sh -c 'pwsh

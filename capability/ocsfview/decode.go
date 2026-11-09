@@ -148,9 +148,11 @@ func tokenize(cmd string, posix bool) []token {
 // records it, is read as CreateProcess tries it, each space-bounded prefix in
 // turn: bare words are passed over as parts of the path, and the walk ends at
 // a quoted word, a word shaped as a switch (a leading dash or slash) or a
-// word that begins a path of its own (a drive, a leading backslash, a leading
-// dot), since each of those is an argument and the program is whatever came
-// before it; PowerShell is found when a word that continues the path (it
+// word that begins a path of its own (a drive, a leading backslash, or dot
+// segments followed by a separator, as in .\ or ..\), since each of those is
+// an argument and the program is whatever came before it; a word that merely
+// starts with a dot, as a dot-led directory name does, continues the path.
+// PowerShell is found when a word that continues the path (it
 // carries a separator) names it, and another program file ends the path. A
 // POSIX argv[0] is exact, a space in it recorded quoted or escaped, so no such
 // recovery is made under sh's rules. PowerShell anywhere else is a word on
@@ -179,7 +181,9 @@ func powerShellInvocation(line string) ([]token, bool) {
 
 // continuesPath reports whether a word can be the next part of an unquoted
 // program path with spaces: unquoted, not shaped as a switch, and not the
-// start of a path of its own (a drive, a rooted path, a relative path).
+// start of a path of its own (a drive, a rooted path, or a relative path
+// written as dot segments and a separator: .\ ..\ ./ ../). A word that only
+// begins with a dot is a path part, since a directory may be named so.
 func continuesPath(t token) bool {
 	if t.quoted || t.text == "" {
 		return false
