@@ -358,8 +358,8 @@ func (p *Postgres) List(ctx context.Context, ns, corpus string, f ListFilter) ([
 	} else if !f.IncludeRetired {
 		q += ` AND status <> 'RETIRED'`
 	}
-	if f.Tag != "" {
-		args = append(args, f.Tag)
+	for _, tag := range f.Tags {
+		args = append(args, tag)
 		q += fmt.Sprintf(" AND $%d = ANY(tags)", len(args))
 	}
 	if !f.IncludeSuperseded {

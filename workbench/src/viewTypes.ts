@@ -287,6 +287,46 @@ export interface KnowledgeCitations {
   }[];
 }
 
+/**
+ * One past case as the Knowledge view lists it (mirrors server.CaseSummaryRow,
+ * adr/0107): the structured summary's fields, typed rather than folded into a
+ * line of text.
+ */
+export interface PastCaseRow {
+  ref: string;
+  title: string;
+  concludedAt?: string;
+  /** The verdict's word: BENIGN, SUSPICIOUS or MALICIOUS. */
+  disposition?: string;
+  techniques: string[];
+  entities: string[];
+  /** Each action taken, with its recorded outcome word verbatim. */
+  actions: { actionType: string; targetCount: number; outcome: string }[];
+  durationHours?: number;
+  citedIn: number;
+  /** A narrative was written over the deterministic baseline. */
+  narrative: boolean;
+}
+
+/**
+ * What the past-case listing is narrowed by (adr/0107). Techniques are ANDed;
+ * the dates are calendar days, both inclusive, as the analyst picks them.
+ */
+export interface PastCaseFilter {
+  techniques: string[];
+  disposition?: string;
+  /** YYYY-MM-DD: concluded on or after this day. */
+  from?: string;
+  /** YYYY-MM-DD: concluded on or before this day. */
+  to?: string;
+}
+
+/** The techniques and dispositions present in the corpus, most common first. */
+export interface PastCaseFacets {
+  techniques: { value: string; count: number }[];
+  dispositions: { value: string; count: number }[];
+}
+
 /** One revision of a procedure (mirrors knowledge.SOPRevision, adr/0097). */
 export interface SOPRevisionRow {
   revision: number;
@@ -363,6 +403,8 @@ export interface SOPDoc {
   importedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** The revision this body is (adr/0107: the outline shown beside it is read for the same one). */
+  revision?: number;
 }
 
 /** A prediction's declared falsification test (mirrors aggregate.QuerySpec). */

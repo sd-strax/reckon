@@ -30,9 +30,13 @@ import type {
   InvestigationDetail,
   InvestigationSummary,
   KnowledgeCitations,
+  PastCaseFacets,
+  PastCaseFilter,
+  PastCaseRow,
   PinRow,
   ProcedureReads,
   SOPDoc,
+  SOPOutlineView,
   ThreadEntry,
 } from "./viewTypes";
 
@@ -207,7 +211,7 @@ export type RenderMessage =
   // absent when that read failed, so the document still opens. reads is what
   // the agent read of it here, as it was (adr/0097): absent when no act
   // recorded sections, and when that read failed.
-  | { type: "inspector.procedure"; sopId: string; sop: SOPDoc; citations?: KnowledgeCitations; reads?: ProcedureReads }
+  | { type: "inspector.procedure"; sopId: string; sop: SOPDoc; citations?: KnowledgeCitations; reads?: ProcedureReads; outline?: SOPOutlineView }
   | { type: "inspector.turn"; interpretationId: string; body: string }
   | { type: "inspector.action"; actionId: string; record: ActionRecord }
   // summary is null when the corpus holds none for the ref (an honest gap).
@@ -220,8 +224,15 @@ export type RenderMessage =
   | { type: "sop.status"; state: SopDraftState; title?: string; message?: string }
   | { type: "summary.status"; state: "written" | "baseline" | "failed"; detail?: string }
   // The knowledge library (adr/0129): the browse lists, and one search's hits.
-  | { type: "library"; sops: LibraryItem[]; cases: LibraryItem[] }
+  // casesTotal is every past case in the corpus, beyond the listing's page
+  // (adr/0107); absent where it was not read.
+  // sopsError is set when the procedures could not be read: not an empty library.
+  | { type: "library"; sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number; sopsError?: string }
   | { type: "library.results"; query: string; sops: LibraryItem[]; cases: LibraryItem[] }
+  // The Knowledge view's past cases under a filter (adr/0107), with how many
+  // matched; error is set, and rows empty, when the read failed.
+  | { type: "pastCases"; filter: PastCaseFilter; rows: PastCaseRow[]; total: number; error?: string }
+  | { type: "pastCases.facets"; facets: PastCaseFacets }
   // The host finished handling a decision on this action (approve, reject,
   // re-request, reversal), whatever the outcome, after refreshing the record.
   | { type: "action.settled"; actionId: string }
@@ -254,6 +265,10 @@ export type InboundMessage =
   | { type: "library.get" }
   | { type: "library.search"; text: string }
   | { type: "library.import" }
+  // The Knowledge view (adr/0107): its past cases under a filter, and opening
+  // the view from the investigation's left region.
+  | { type: "pastCases.get"; filter: PastCaseFilter }
+  | { type: "knowledge.open" }
   // The lens and companion mode the analyst chose, mirrored to globalState so
   // the tree can deep-link (view state, never investigation state).
   | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }
@@ -327,7 +342,23 @@ export type InboundMessage =
 // Each surface has its own pair of unions, as narrow as the panel.
 
 /** The surfaces the bundle can mount. */
-export type Surface = "investigation" | "case" | "import";
+export type Surface = "investigation" | "case" | "import" | "knowledge";
+
+/**
+ * The Knowledge view (adr/0107, ui/09 §9.1): knowledge only, outside any
+ * investigation. It mounts the investigation document's store with no
+ * investigation loaded, so its pair is a subset of that document's: the
+ * library, search, the past-case listing, the procedure and case inspectors,
+ * import, and opening an investigation a case names. Nothing in it acts on
+ * an investigation.
+ */
+export type KnowledgeRenderMessage = Extract<RenderMessage, {
+  type: "library" | "library.results" | "pastCases" | "pastCases.facets" | "inspector.procedure" | "inspector.case" | "inspector.error" | "error";
+}>;
+
+export type KnowledgeInboundMessage = Extract<InboundMessage, {
+  type: "ready" | "refresh" | "library.get" | "library.search" | "library.import" | "pastCases.get" | "inspector.open" | "investigation.open" | "copy";
+}>;
 
 /** The case document (adr/0030): one system-of-record case, read-only. */
 export type CaseRenderMessage =

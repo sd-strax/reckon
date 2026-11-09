@@ -15,6 +15,7 @@ import { Session } from "./auth";
 import { SidecarTransport } from "./agentTransport";
 import { InvestigationDocuments } from "./investigationDocument";
 import { ImportSOPsView } from "./importView";
+import { KnowledgeDocument } from "./knowledgeDocument";
 import { CasesProvider } from "./casesTree";
 import { InvestigationsProvider } from "./investigationsTree";
 import { SeenTracker } from "./seenTracker";
@@ -54,7 +55,10 @@ export function activate(context: vscode.ExtensionContext): void {
     apiKey: () => context.secrets.get(ANTHROPIC_KEY_SECRET),
     getToken: (kind, force) => session.token(kind, force),
   }, log);
-  const importSOPs = new ImportSOPsView(context.extensionUri, client, log);
+  // The Knowledge view (adr/0107): procedures and past cases outside any
+  // investigation; an import re-reads what it lists.
+  const knowledgeView = new KnowledgeDocument(context.extensionUri, client, log);
+  const importSOPs = new ImportSOPsView(context.extensionUri, client, log, () => knowledgeView.refresh());
   const documents = new InvestigationDocuments(
     context.extensionUri, client, log, transport,
     () => client.me().then((m) => ({ name: m.username, principal: m.subject })).catch(() => null),
@@ -92,6 +96,7 @@ export function activate(context: vscode.ExtensionContext): void {
       transport.endSessions();
       documents.identityChanged();
       caseDocs.closeAll();
+      knowledgeView.closeAll();
       importSOPs.identityChanged();
       // Not on the restore at start-up: nobody changed, the window just opened.
       if (started) {
@@ -149,6 +154,17 @@ export function activate(context: vscode.ExtensionContext): void {
     // choosing what becomes institutional knowledge is operational input, so it
     // lives on a reckon surface (open-editor documents with checkboxes, add
     // from disk, per-document outcome) — never the top-of-window quick input.
+    // The Knowledge view (adr/0107, ui/09 §9.1): browse, search and filter
+    // the procedures and past cases outside any investigation; opened from
+    // the investigation's left region header too.
+    vscode.commands.registerCommand("reckon.openKnowledge", () => {
+      if (!session.signedIn) {
+        void vscode.window.showWarningMessage("reckon: sign in before opening the Knowledge view");
+        return;
+      }
+      knowledgeView.open();
+    }),
+
     vscode.commands.registerCommand("reckon.importSOP", () => {
       if (!session.signedIn) {
         void vscode.window.showWarningMessage("reckon: sign in before importing SOPs");

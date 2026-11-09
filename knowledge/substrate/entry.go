@@ -118,8 +118,8 @@ type Transition struct {
 // ListFilter narrows List. Zero value: latest published/draft/in-review
 // revisions only (no retired, no superseded), no tag filter, no cap.
 type ListFilter struct {
-	Status            Status // exact status; empty = any non-retired
-	Tag               string // entries carrying this tag
+	Status            Status   // exact status; empty = any non-retired
+	Tags              []string // entries carrying every one of these tags; empty = no tag filter
 	IncludeRetired    bool
 	IncludeSuperseded bool
 	Limit             int // 0 = no cap

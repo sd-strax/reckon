@@ -327,7 +327,10 @@ Motivated by the knowledge surfaces (`ui/09`, `adr/0084`), not yet built:
 21. **Listing concluded-case summaries** — browse the past-case corpus without a query, with
     filters on technique, disposition and conclusion date (`ui/09 §9.4`). Recall requires a
     query today; the procedure facade already owns an empty-query browse, and past cases
-    need the same.
+    need the same. *Built: `adr/0107`. The listing existed; it now takes `technique`
+    (repeatable, ANDed), `disposition`, `concluded_after`, `concluded_before` and `limit`,
+    answers `total`, and `GET /api/knowledge/case_summaries/facets` lists the values present.
+    The Knowledge view renders it as a filtered table.*
 22. **Citation counts and where-used** — for a procedure or a past case, the investigations
     that consulted it and whether each applied it, from the `consulted_*` provenance on
     interpretations (`00 §6.9`), as a fold across investigations (`ui/09 §9.3`).

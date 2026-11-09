@@ -55,6 +55,9 @@ export class ImportSOPsView {
     private readonly extensionUri: vscode.Uri,
     private readonly client: BackendClient,
     private readonly log: vscode.LogOutputChannel,
+    // Called when an import wrote at least one document, so a surface listing
+    // the library re-reads it (the Knowledge view, adr/0107).
+    private readonly onImported: () => void = () => {},
   ) {}
 
   /** Open (or reveal) the panel and rescan the open editors. Disk rows added
@@ -233,6 +236,7 @@ export class ImportSOPsView {
       this.push({ busy: true });
     }
     this.push({ busy: false, done: { ok, failed: selected.length - ok } });
+    if (ok > 0) this.onImported();
   }
 
   private push(extra: { busy?: boolean; done?: { ok: number; failed: number } } = {}): void {

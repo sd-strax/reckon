@@ -60,6 +60,8 @@ export function LeftRegion() {
     <nav id="leftRegion" className={collapsed ? "collapsed" : ""} aria-label="Work queue">
       <div className="regionhead">
         <button className="iconbtn" title={collapsed ? "Expand the work queue" : "Collapse the work queue"} onClick={() => setCollapsed((c) => !c)}>{collapsed ? "»" : "«"}</button>
+        {/* The region's header also opens the Knowledge view (ui/08 §8.3, adr/0107). */}
+        {!collapsed ? <button className="ghost regionknowledge" title="Procedures and past cases, outside any investigation" onClick={() => send({ type: "knowledge.open" })}>Knowledge</button> : null}
       </div>
       {!collapsed ? (
         <>

@@ -60,6 +60,7 @@ func routeCases() []struct {
 		{"GET", "/sops/" + id + "/sections", authz.ReadRoles},
 		{"GET", "/sops/" + id + "/sections/2", authz.ReadRoles},
 		{"GET", "/sops/" + id + "/revisions", authz.ReadRoles},
+		{"GET", "/knowledge/case_summaries/facets", authz.ReadRoles},
 		{"GET", "/sops/" + id + "/revisions/1/sections", authz.ReadRoles},
 		{"GET", "/sops/" + id + "/revisions/1/sections/2", authz.ReadRoles},
 		{"GET", "/sops/" + id + "/citations", authz.ReadRoles},

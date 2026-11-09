@@ -410,6 +410,13 @@ export class InvestigationDocuments implements DocumentHost {
       "library.import": () => {
         void vscode.commands.executeCommand("reckon.importSOP");
       },
+      // The left region's header opens the Knowledge view (ui/08 §8.3, adr/0107).
+      "knowledge.open": () => {
+        void vscode.commands.executeCommand("reckon.openKnowledge");
+      },
+      // The filtered past-case listing is the Knowledge view's; the Library
+      // here lists every case and never sends it.
+      "pastCases.get": () => {},
       "view.state": (msg) => {
         this.onViewState?.(id, msg.lens, msg.companion);
       },

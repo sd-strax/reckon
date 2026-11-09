@@ -90,7 +90,10 @@ author. Retired procedures are hidden by default and shown marked when included.
 **List.** One row per concluded investigation summary: title, concluded date, disposition,
 techniques, primary entities, actions taken with outcomes, duration. Filters: technique,
 disposition, date range. Source: gap `00 §6.21` (recall needs a query; listing does not
-exist).
+exist). *Built (`adr/0107`): the Knowledge view's Past cases table, filtered by the API
+(`GET /api/knowledge/case_summaries` with technique, disposition and a conclusion-day range;
+facets from `/facets`), with "n of m match"; the detail is the similar-case inspector without
+its "In this case" parts, with Open that investigation.*
 
 **Detail** is the similar-case inspector (`ui/08 §8.6.1`) at full width, with **Open the
 investigation** (read-only once concluded) and "Procedures learned from this case" when a

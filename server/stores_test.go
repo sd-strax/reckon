@@ -222,8 +222,11 @@ type fakeKnowledge struct {
 	revisions knowledge.SOPRevisions
 	outline   knowledge.SOPOutline
 	section   knowledge.SOPSectionRead
-	outcome   knowledge.ImportOutcome
-	err       error
+	facets    knowledge.SummaryFacets
+	// lastFilter is the filter the last ListSummaries call was given.
+	lastFilter knowledge.SummaryFilter
+	outcome    knowledge.ImportOutcome
+	err        error
 }
 
 func (f *fakeKnowledge) ListBySource(context.Context, uuid.UUID, string) ([]knowledge.SOP, error) {
@@ -283,8 +286,12 @@ func (f *fakeKnowledge) WriteSummary(context.Context, uuid.UUID, knowledge.Summa
 func (f *fakeKnowledge) EnrichSummary(context.Context, uuid.UUID, string, string, string) (uuid.UUID, error) {
 	return uuid.Nil, f.err
 }
-func (f *fakeKnowledge) ListSummaries(context.Context, uuid.UUID, int) ([]knowledge.CaseSummaryView, error) {
-	return f.summaries, f.err
+func (f *fakeKnowledge) ListSummaries(_ context.Context, _ uuid.UUID, filter knowledge.SummaryFilter) (knowledge.SummaryList, error) {
+	f.lastFilter = filter
+	return knowledge.SummaryList{Summaries: f.summaries, Total: len(f.summaries)}, f.err
+}
+func (f *fakeKnowledge) CaseSummaryFacets(context.Context, uuid.UUID) (knowledge.SummaryFacets, error) {
+	return f.facets, f.err
 }
 func (f *fakeKnowledge) SummaryByInvestigation(context.Context, uuid.UUID, string) (knowledge.CaseSummaryView, error) {
 	return f.summary, f.err
