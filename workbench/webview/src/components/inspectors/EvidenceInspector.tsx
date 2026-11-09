@@ -87,15 +87,15 @@ function Summary({ fields }: { fields: EventField[] }) {
   );
 }
 
-/** An encoded command line read back (adr/0300): the text, which field it came
- * from and which encoding was found. The original stays in the summary above
- * as stored; the view decodes one encoding of one field and stops. */
 /** The closed list of encodings the view recognises (ocsfview.Encoding*), by
  * their wire ids; an id outside it shows as itself. */
 const ENCODING_LABEL: Record<string, string> = { "base64-utf16le": "base64 of UTF-16LE", base64: "base64" };
 
+/** An encoded command line read back (adr/0300): the text, which field it came
+ * from and which encoding was found. The original stays in the summary above
+ * as stored; the view decodes one encoding of one field and stops. */
 function DecodedCommand({ decoded }: { decoded: NonNullable<EventView["decoded"]> }) {
-  const encoding = ENCODING_LABEL[decoded.encoding] ?? decoded.encoding;
+  const encoding = Object.hasOwn(ENCODING_LABEL, decoded.encoding) ? ENCODING_LABEL[decoded.encoding] : decoded.encoding;
   return (
     <Section title="Decoded command line">
       <pre className="mono decoded">{decoded.text}</pre>

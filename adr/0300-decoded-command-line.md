@@ -41,16 +41,35 @@ The layout table's row is amended to say so.
 **Only when it decodes cleanly.** A decoder that guesses puts plausible
 garbage next to evidence. The encodings are a closed list, each with an
 exact test: `base64-utf16le`, PowerShell's, found where PowerShell's own
-command-line grammar puts it and nowhere else: PowerShell invoked as the
-program (the first word of the line, or the word a Windows shell launches
-after `/c`, `start` or a chain operator), then its host options, each
-option's value stepped over, until `-File`, `-Command`, a lone dash or a bare
-word ends them and the rest of the line is the script's own arguments; the
-switch itself in any spelling PowerShell accepts (`-e`, `-ec`, `-enc`,
-`-EncodedCommand`, a dash or a slash, an optional second dash as PowerShell
-strips one). So another tool's `-e`, a `-e` after `-File`, and PowerShell
-named as data on someone else's command line all mean nothing. The token
-must then be an even byte count, well-formed code units, and
+command-line grammar puts it and nowhere else. The line is read as a shell
+reads it: cut into commands at the shell's chain operators, glued to words or
+not, outside the shell's own quoting (cmd toggles at every double quote and
+escapes with a caret, sh quotes with either character and escapes with a
+backslash); each command's words split as argv splits them (a quote toggles,
+a backslash before one makes it a literal character, an apostrophe quotes
+only under POSIX rules, a quote with no match ahead is text so a truncated
+line still reads word by word), so a quoted path is one word and a quoted
+sub-command one word holding a command line of its own, read under cmd's own
+rule for a string that opens with a quote. The first word of each command is
+its program; an unquoted program path with spaces, as a Run key or a task
+records it, is read as CreateProcess tries it, word by word until a word
+names PowerShell or another program file. PowerShell is in command position when it is that program, or
+when the program is a shell or wrapper the view knows (cmd's `/c`, `/k` or
+`/r` string, `start` after its switches and the first quoted word that is
+its title, `call`, an sh-family `-c` after options, and sudo, env, nohup,
+timeout and nice after theirs) and PowerShell is in command position on the
+command line it launches. Every PowerShell so found is tried, in order. From there its host options are read as
+PowerShell's parser reads them, from its switch table transcribed in the
+parser's order with the first match winning: each switch a case-insensitive
+prefix no shorter than its accepted abbreviation, the explicit aliases
+(`-ep`, `-if`, `-of`, `-ea`, `-wd`, `-ec`) as entries of their own, an
+optional second dash stripped, each value-taking switch consuming the next
+word, and the options ending at `-File`, `-Command`, a lone dash, a word that
+is no switch or a switch the parser does not know, after which the line is
+the script's own arguments. So another tool's `-e`, a `-e` after `-File`,
+and PowerShell named as a word on someone else's command line all mean
+nothing. The flagged token must then be an even byte count, well-formed code
+units, and
 text that is at least three quarters ASCII, since a PowerShell command is
 and a short run of random bytes read as UTF-16 is not (it lands in the
 graphic ideographic planes and would otherwise pass as text); and `base64`,
@@ -69,14 +88,18 @@ capability results, not the inspector's rendering, so nothing model-facing
 changes (`adr/0232`); giving the agent the decoded text is a later step
 through a capability result, not through this view.
 
-**The export carries the original too, and escapes both.** The sentence
-names the program and never the command line, and the export renders no
-field list, so beside the decoded text the cited-event line carries the
-field as stored, named, and whole: it is the fact, and a reader verifies the
-decode from it. The decoded text is clipped; the inspector shows the whole.
-Both are the attacker's text and the line sits in a code span; a backtick
-would close the span and let the rest render as markup, so the export
-replaces backticks with straight quotes. The view renders with or without
+**The export carries the original too, and escapes the whole line.** The
+sentence names the program and never the command line, and the export
+renders no field list, so beside the decoded text the cited-event line
+carries the field as stored, named: it is the fact, and a reader verifies
+the decode from it. Both are clipped, the stored value at a bound several
+times the decoded text's since base64 of UTF-16LE runs near three times the
+length of its text; the inspector shows the whole, and a blob cited by five
+predictions does not become five pages. The whole label sits in a code span
+and all of it is telemetry text, the sentence's names as much as the command
+line; a backtick would close the span and let the rest render as markup and
+a line break would break the row, so the export makes the whole label
+span-safe where it adds the backticks. The view renders with or without
 resolved entities, so a failed entity read costs the export its chips, never
 the command line or its decode.
 
@@ -100,10 +123,12 @@ the command line or its decode.
 - An encoded command line reads decoded in the inspector and the export,
   with the encoding and the field named and the original beside it.
 - A command line that does not decode cleanly looks exactly as before. So
-  does one where PowerShell is the value of another program's option, as in
-  a task scheduler's `/tr`: that process line decodes nothing, and the
-  scheduled job's own command-line field, which carries the PowerShell
-  invocation as the program, is where the decode appears.
+  does one where an encoded PowerShell line is the value of another
+  program's option, as in a task scheduler's `/tr` or a registry tool's
+  `/d`: that process did not invoke PowerShell, so its line decodes nothing.
+  The scheduled job's own command-line field carries the PowerShell
+  invocation as the program and decodes there; the process the task later
+  starts carries it as its own line and decodes there.
 - The view's JSON grows by one optional object; no storage changes.
 - A further encoding, if one proves common, is one exact test added to the
   closed list and to the tests of innocent command lines that must not
