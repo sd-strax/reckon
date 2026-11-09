@@ -89,7 +89,7 @@ function Summary({ fields }: { fields: EventField[] }) {
 
 /** The closed list of encodings the view recognises (ocsfview.Encoding*), by
  * their wire ids; an id outside it shows as itself. */
-const ENCODING_LABEL: Record<string, string> = { "base64-utf16le": "base64 of UTF-16LE", base64: "base64" };
+const ENCODING_LABEL: Record<string, string> = { "base64-utf16le": "base64 of UTF-16LE" };
 
 /** An encoded command line read back (adr/0300): the text, which field it came
  * from and which encoding was found. The original stays in the summary above

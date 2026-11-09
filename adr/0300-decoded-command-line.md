@@ -38,51 +38,56 @@ text with its encoding named. The Story timeline's row
 shows the sentence, which never carries the command line, and is untouched.
 The layout table's row is amended to say so.
 
-**Only when it decodes cleanly.** A decoder that guesses puts plausible
-garbage next to evidence. The encodings are a closed list, each with an
-exact test: `base64-utf16le`, PowerShell's, found where PowerShell's own
-command-line grammar puts it and nowhere else. The line is read as a shell
-reads it: cut into commands at the shell's chain operators, glued to words or
-not, outside the shell's own quoting (cmd toggles at every double quote and
-escapes with a caret, sh quotes with either character and escapes with a
-backslash); each command's words split as argv splits them (a quote toggles,
-a backslash before one makes it a literal character, an apostrophe quotes
-only under POSIX rules, a quote with no match ahead is text so a truncated
-line still reads word by word), so a quoted path is one word and a quoted
-sub-command one word holding a command line of its own, read under cmd's own
-rule for a string that opens with a quote. The first word of each command is
-its program; an unquoted program path with spaces, as a Run key or a task
-records it, is read as CreateProcess tries it, word by word until a word
-names PowerShell or another program file. PowerShell is in command position when it is that program, or
-when the program is a shell or wrapper the view knows (cmd's `/c`, `/k` or
-`/r` string, `start` after its switches and the first quoted word that is
-its title, `call`, an sh-family `-c` after options, whose command string is
-the one word that follows, quoted or not, since the words after it are the
-shell's positional parameters, and sudo, env, nohup, timeout and nice after
-their options, the assignments sudo and env accept and timeout's duration,
-each word read by its text since the wrapper sees argv without quotes) and
-PowerShell is in command position on the command line it launches. Every PowerShell so found is tried, in order. From there its host options are read as
-PowerShell's parser reads them, from its switch table transcribed in the
-parser's order with the first match winning: each switch a case-insensitive
-prefix no shorter than its accepted abbreviation, the explicit aliases
-(`-ep`, `-if`, `-of`, `-ea`, `-wd`, `-ec`) as entries of their own, an
-optional second dash stripped, each value-taking switch consuming the next
-word, and the options ending at `-File`, `-Command`, a lone dash, a word that
-is no switch or a switch the parser does not know, after which the line is
-the script's own arguments. So another tool's `-e`, a `-e` after `-File`,
-and PowerShell named as a word on someone else's command line all mean
-nothing. The flagged token must then be an even byte count, well-formed code
-units, and
-text that is at least three quarters ASCII, since a PowerShell command is
-and a short run of random bytes read as UTF-16 is not (it lands in the
-graphic ideographic planes and would otherwise pass as text); and `base64`,
-the shell pattern, for a bare token of at least sixteen base64 characters
-with padding that fits. In both the text must be wholly printable, with no
-replacement character, and non-empty. Quote characters around a token are
-stripped whether or not they pair, since the blob is often the last word of
-a quoted sub-command. A flagged token that is not UTF-16LE is not a
-PowerShell command and gets no second guess as bare base64. Anything else
-yields nothing, and the view says nothing.
+**Only when it decodes cleanly, and only PowerShell's own line.** A decoder
+that guesses puts plausible garbage next to evidence. The encodings are a
+closed list, today of one entry, with an exact test for each: `base64-utf16le`,
+PowerShell's, found where PowerShell's own command-line grammar puts it and
+nowhere else. The line's words are split as argv splits them (a quote
+toggles, a backslash before one makes it a literal character, an apostrophe
+quotes only under sh's rules, which apply when the program lives under a
+POSIX path, a quote with no match ahead is text so a truncated line still
+reads word by word), so a quoted path is one word. The first word is the
+program; an unquoted program path with spaces, as a Run key or a task
+records it, is read as CreateProcess tries it, prefix by prefix: bare
+words are parts of the path, a quoted word, a switch-shaped word or a word
+that begins a path of its own is the first argument and the program is
+whatever came before it, and PowerShell is found when a word continuing the
+path names it, unless another program file ends the path first; a POSIX
+argv[0] is exact and gets no such recovery. The view reads the line only when
+that program is PowerShell, under any path, quoted or not. From there its
+host options are read as PowerShell's parser reads them, from its switch
+table transcribed in the parser's order with the first match winning: each
+switch a case-insensitive prefix no shorter than its accepted abbreviation,
+the explicit aliases (`-ep`, `-if`, `-of`, `-ea`, `-wd`, `-ec`) as entries
+of their own, an optional second dash stripped, each value-taking switch
+consuming the next word, and the options ending at `-File`, `-Command`, a
+lone dash, a word that is no switch or a switch the parser does not know,
+after which the line is the script's own arguments. So another tool's `-e`,
+a `-e` after `-File`, and PowerShell named as a word on someone else's
+command line all mean nothing. The flagged token must then be an even byte
+count, well-formed code units, and text that is at least three quarters
+ASCII, since a PowerShell command is and a short run of random bytes read as
+UTF-16 is not (it lands in the graphic ideographic planes and would
+otherwise pass as text); the text must be wholly printable, with no
+replacement character, and non-empty. Quote characters around the token are
+stripped whether or not they pair. A flagged token that is not UTF-16LE is
+not a PowerShell command and gets no second guess. Anything else yields
+nothing, and the view says nothing.
+
+**A program that is not PowerShell is not read.** A line whose program is a
+shell (`cmd /c powershell -enc …`, `cmd /c start powershell …`, `sh -c 'pwsh
+-e …'`), a wrapper (`sudo`, `nohup`) or any other tool shows as stored, even
+when PowerShell
+and its encoded command are plainly on it. Reading such a line means reading
+the launcher's own grammar, which is where the view guessed: each shell and
+wrapper has its own quoting, its own operators and its own rule for which
+word is the command, and every one the view learned brought a form it
+misread. The view's reading has a closed surface, the argv split of one
+command and PowerShell's switch table, so that a false decode has nowhere to
+come from; what it declines to read is read on demand, by a decoder the
+analyst or the agent points at the string, where the result is labelled as
+a decode of what was given and never stands beside the event as a fact
+about it.
 
 **Not deobfuscation.** The view decodes one encoding of one field and
 stops. What the decoded command does, and whether it hides a further layer,
@@ -112,8 +117,25 @@ the command line or its decode.
   four surfaces have to agree; the view package already exists for that.
 - **Decoding every base64-looking token.** Short alphanumeric words are valid
   base64 by accident; a decoded word beside evidence that was never encoded
-  is a false statement. The length floor and the printable test are the
-  cost of saying nothing wrong.
+  is a false statement. A bare-token pass with a length floor and the
+  printable test was built and then withdrawn: it had no anchor in any
+  grammar, so a credential in a header, a quoted multi-word argument or a
+  word in a shell comment decoded as readily as a shell's `base64 -d` blob,
+  and each fix for one such reading contradicted another.
+- **Reading the line as a shell reads it.** The view did for a while cut
+  the line into commands at cmd's and sh's operators under their quoting,
+  and followed cmd's `/c`, `start`, an sh-family `-c` and the common
+  wrappers to the PowerShell they launch, so that `cmd /c powershell -enc …`
+  decoded. Every construct of the shell the reading did not yet know (a
+  comment, a line continuation, a here-document, a word a wrapper takes as
+  its own) made the view decode a PowerShell the shell never ran, or move a
+  command's words onto another's, and teaching it each one widened the
+  reading without closing it. The surface is
+  the whole of two shell languages and every wrapper's option table, and it
+  grows with every launcher an attacker reaches for; a closed surface that
+  misses is preferred to an open one that fabricates. The lines it covered
+  are better served by a decode on demand than by a reading that must be
+  right unasked.
 - **Recording the decoded text on the event.** The telemetry layer is
   immutable, and the decode is a function of the stored bytes; recording it
   would make a view look like a fact.
@@ -128,11 +150,15 @@ the command line or its decode.
 - A command line that does not decode cleanly looks exactly as before. So
   does one where an encoded PowerShell line is the value of another
   program's option, as in a task scheduler's `/tr` or a registry tool's
-  `/d`: that process did not invoke PowerShell, so its line decodes nothing.
-  The scheduled job's own command-line field carries the PowerShell
-  invocation as the program and decodes there; the process the task later
-  starts carries it as its own line and decodes there.
+  `/d`, or the command a shell or wrapper launches, as in `cmd /c
+  powershell -enc …`: that process did not invoke PowerShell as its program,
+  so its line decodes nothing. The scheduled job's own command-line field
+  carries the PowerShell invocation as the program and decodes there; the
+  process the shell or the task later starts carries it as its own line and
+  decodes there, which in a process tree is the usual case.
 - The view's JSON grows by one optional object; no storage changes.
 - A further encoding, if one proves common, is one exact test added to the
   closed list and to the tests of innocent command lines that must not
-  decode.
+  decode, anchored as this one is on the grammar of the program that reads
+  it. A further launcher is not added: a string the view does not read is
+  decoded on demand, outside this view.

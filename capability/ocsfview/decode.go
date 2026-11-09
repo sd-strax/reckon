@@ -16,7 +16,7 @@ import (
 // decoder that guesses puts plausible garbage next to evidence.
 type Decoded struct {
 	Field    string `json:"field"`
-	Encoding string `json:"encoding"` // base64-utf16le | base64
+	Encoding string `json:"encoding"` // base64-utf16le
 	Text     string `json:"text"`
 }
 
@@ -24,97 +24,40 @@ type Decoded struct {
 // and anything else is not attempted.
 const (
 	EncodingBase64UTF16LE = "base64-utf16le" // PowerShell's -EncodedCommand
-	EncodingBase64        = "base64"         // a shell one-liner's blob
 )
 
-// minBase64Token is the shortest bare token the view will try as base64. Short
-// alphanumeric words are often valid base64 by accident; at this length an
-// accidental decode to wholly printable text is vanishingly rare.
-const minBase64Token = 16
-
-// decodeCommandLine finds the one encoded argument in a command line and reads
-// it back. PowerShell's encoded command is tried first, and only where
-// PowerShell's own command-line grammar puts it: PowerShell in command
-// position (the program of the line, or of a command a shell on the line
-// launches), then its host options read as its parser reads them, up to the
-// first token that ends them, after which every word belongs to the script.
-// The encoded-command switch there names a base64 token of UTF-16LE. A flagged
-// token that is not UTF-16LE is not a PowerShell command and gets no second
-// guess. Then each other bare word long enough to be meant as a blob is tried
-// as base64 of UTF-8. The first clean decode wins.
+// decodeCommandLine reads back the encoded command of a command line whose
+// program is PowerShell. The line is split into the words the program
+// receives; the first names the program. When it is PowerShell, its host
+// options are read as PowerShell's parser reads them, up to the first word
+// that ends them, after which every word belongs to the script; the
+// encoded-command switch there names a base64 token of UTF-16LE. A line whose
+// program is anything else, a shell or a wrapper included, is not read: the
+// view says nothing rather than reading another program's command line.
 func decodeCommandLine(cmd string) (encoding, text string, ok bool) {
-	flagged := powerShellEncodedArguments(cmd)
-	for _, tok := range flagged {
-		if text, ok := decodeUTF16LE(unquote(tok)); ok {
-			return EncodingBase64UTF16LE, text, true
-		}
+	inv, found := powerShellInvocation(cmd)
+	if !found {
+		return "", "", false
 	}
-	for _, tok := range strings.Fields(cmd) {
-		tok = unquote(tok)
-		if len(tok) < minBase64Token || isFlagged(tok, flagged) {
-			continue
-		}
-		if text, ok := decodeUTF8(tok); ok {
-			return EncodingBase64, text, true
-		}
+	tok, found := encodedArgument(inv)
+	if !found {
+		return "", "", false
 	}
-	return "", "", false
-}
-
-// isFlagged reports whether a whitespace-split word is one PowerShell was
-// given as an encoded command, which gets no second guess. The two readings
-// split differently (a quoted word is one token, a word may carry a stray
-// quote), so a word is flagged when either contains the other. A flagged
-// token too short to be a blob flags nothing: it is not one, and the words
-// that happen to contain it are not it.
-func isFlagged(word string, flagged []string) bool {
-	for _, f := range flagged {
-		if len(f) >= minBase64Token && (strings.Contains(f, word) || strings.Contains(word, f)) {
-			return true
-		}
+	text, ok = decodeUTF16LE(unquote(tok))
+	if !ok {
+		return "", "", false
 	}
-	return false
+	return EncodingBase64UTF16LE, text, true
 }
 
 // --- tokens ---------------------------------------------------------------------
 
-// shell is whose rules a command line is read under: the shell decides where
-// one command ends and the next begins, and how the words of each are quoted.
-type shell int
-
-const (
-	windowsShell shell = iota // cmd's rules for operators, argv's for words
-	posixShell                // sh's rules for both
-)
-
-// shellOf is the shell whose rules a whole command line is read under: POSIX
-// when its program is an sh-family shell, a POSIX wrapper such as sudo, or
-// lives under a POSIX path; Windows otherwise.
-func shellOf(line string) shell {
-	f := strings.Fields(line)
-	if len(f) == 0 {
-		return windowsShell
-	}
-	var rest []token
-	if len(f) > 1 {
-		rest = []token{{text: f[1]}}
-	}
-	if name := programName(f[0]); isShFamily(name) || isWrapper(name, rest) || strings.HasPrefix(f[0], "/") {
-		return posixShell
-	}
-	return windowsShell
-}
-
 // token is one word of a command as the program receives it: quotes removed,
-// whether any of it was quoted (a quoted word is one argument however many
-// spaces it holds; a shell reads it as neither an operator nor one of its own
-// switches, while a program's argv has no quotes left to see), and where it
-// starts in the command, so a shell that takes the rest of the command can be
-// handed exactly that.
+// and whether any of it was quoted (a quoted word is one argument however many
+// spaces it holds, and never the start of an unquoted path).
 type token struct {
 	text   string
 	quoted bool
-	start  int // byte offset in the command tokenize was given
 }
 
 // tokenize splits one command into the words the program receives. A double
@@ -135,19 +78,13 @@ func tokenize(cmd string, posix bool) []token {
 	var out []token
 	var b strings.Builder
 	inWord, quoted := false, false
-	start := 0
 	var quote byte
 	flush := func() {
 		if inWord {
-			out = append(out, token{text: b.String(), quoted: quoted, start: start})
+			out = append(out, token{text: b.String(), quoted: quoted})
 		}
 		b.Reset()
 		inWord, quoted = false, false
-	}
-	begin := func(i int) {
-		if !inWord {
-			start, inWord = i, true
-		}
 	}
 	isQuote := func(c byte) bool { return c == '"' || (posix && c == '\'') }
 	// escapable is whether a backslash before this quote character counts:
@@ -158,7 +95,7 @@ func tokenize(cmd string, posix bool) []token {
 		c := cmd[i]
 		switch {
 		case posix && c == '\\' && i+1 < len(cmd) && (quote == 0 || (quote == '"' && strings.IndexByte("\"\\$`", cmd[i+1]) >= 0)):
-			begin(i)
+			inWord = true
 			b.WriteByte(cmd[i+1]) // sh: the backslash makes the next character text
 			i++
 		case c == '\\' && quote != '\'':
@@ -166,7 +103,7 @@ func tokenize(cmd string, posix bool) []token {
 			for i+n < len(cmd) && cmd[i+n] == '\\' {
 				n++
 			}
-			begin(i)
+			inWord = true
 			if i+n < len(cmd) && escapable(cmd[i+n]) {
 				b.WriteString(strings.Repeat(`\`, n/2))
 				if n%2 == 1 {
@@ -190,14 +127,14 @@ func tokenize(cmd string, posix bool) []token {
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
 			flush()
 		case isQuote(c):
-			begin(i)
+			inWord = true
 			if !hasMatch(cmd[i+1:], c) {
 				b.WriteByte(c) // no match ahead: text
 			} else {
 				quoted, quote = true, c
 			}
 		default:
-			begin(i)
+			inWord = true
 			b.WriteByte(c)
 		}
 	}
@@ -224,72 +161,57 @@ func hasMatch(ahead string, q byte) bool {
 	return false
 }
 
-// splitCommands cuts a command line into its commands at the shell's chain
-// operators (&&, ||, &, |, and ; under POSIX), glued to words or not, outside
-// the shell's own quoting: cmd toggles a quoted region at every double quote
-// and escapes with a caret; sh quotes with either character and escapes with
-// a backslash. Each command comes back with its byte offset in the line.
-func splitCommands(line string, sh shell) []command {
-	var out []command
-	start := 0
-	var quote byte
-	cut := func(end, next int) {
-		if c := strings.TrimSpace(line[start:end]); c != "" {
-			out = append(out, command{text: c, start: start + strings.Index(line[start:end], c)})
-		}
-		start = next
-	}
-	for i := 0; i < len(line); i++ {
-		c := line[i]
-		switch {
-		case quote != 0:
-			switch {
-			case sh == posixShell && quote == '"' && c == '\\':
-				i++ // sh: escapes the next character inside double quotes too
-			case c == quote:
-				quote = 0
-			}
-		case sh == windowsShell && c == '^', sh == posixShell && c == '\\':
-			i++ // escapes the next character
-		case c == '"', sh == posixShell && c == '\'':
-			quote = c
-		case c == '&' || c == '|':
-			if i+1 < len(line) && line[i+1] == c {
-				cut(i, i+2)
-				i++
-			} else {
-				cut(i, i+1)
-			}
-		case c == ';' && sh == posixShell:
-			cut(i, i+1)
-		}
-	}
-	cut(len(line), len(line))
-	return out
-}
-
-// command is one command of a line: its text and where it starts in the line.
-type command struct {
-	text  string
-	start int
-}
-
 // --- command position -----------------------------------------------------------
 
-// maxNesting bounds how many shells deep the search for PowerShell goes.
-const maxNesting = 8
-
-// powerShellEncodedArguments are the tokens PowerShell would read as encoded
-// commands on the line: one per PowerShell in command position whose host
-// options carry the switch, in order.
-func powerShellEncodedArguments(line string) []string {
-	var out []string
-	for _, inv := range powerShellInvocations(line, shellOf(line), 0) {
-		if tok, ok := encodedArgument(inv); ok {
-			out = append(out, tok)
+// powerShellInvocation is the line's words from PowerShell on when PowerShell
+// is its program: named by the first word, quoted or not, under any path, or
+// reached along an unquoted Windows program path with spaces in it. Words
+// split as argv splits them, under sh's quoting when the program lives under
+// a POSIX path. The unquoted path with spaces, as a Run key or a task often
+// records it, is read as CreateProcess tries it, each space-bounded prefix in
+// turn: bare words are passed over as parts of the path, and the walk ends at
+// a quoted word, a word shaped as a switch (a leading dash or slash) or a
+// word that begins a path of its own (a drive, a leading backslash, a leading
+// dot), since each of those is an argument and the program is whatever came
+// before it; PowerShell is found when a word that continues the path (it
+// carries a separator) names it, and another program file ends the path. A
+// POSIX argv[0] is exact, a space in it recorded quoted or escaped, so no such
+// recovery is made under sh's rules. PowerShell anywhere else is a word on
+// some other program's command line, and that program is not read.
+func powerShellInvocation(line string) ([]token, bool) {
+	tokens := tokenize(line, strings.HasPrefix(strings.TrimLeft(line, " \t\"'"), "/"))
+	if len(tokens) == 0 {
+		return nil, false
+	}
+	if isPowerShellName(programName(tokens[0].text)) {
+		return tokens, true
+	}
+	if !isPathStart(tokens[0]) || isProgramFile(tokens[0].text) {
+		return nil, false
+	}
+	for j := 1; j < len(tokens) && continuesPath(tokens[j]); j++ {
+		if strings.Contains(tokens[j].text, `\`) && isPowerShellName(programName(tokens[j].text)) {
+			return tokens[j:], true
+		}
+		if isProgramFile(tokens[j].text) {
+			return nil, false // the path ends at another program
 		}
 	}
-	return out
+	return nil, false
+}
+
+// continuesPath reports whether a word can be the next part of an unquoted
+// program path with spaces: unquoted, not shaped as a switch, and not the
+// start of a path of its own.
+func continuesPath(t token) bool {
+	if t.quoted || t.text == "" {
+		return false
+	}
+	switch t.text[0] {
+	case '-', '/', '\\', '.':
+		return false
+	}
+	return len(t.text) < 2 || t.text[1] != ':'
 }
 
 // encodedArgument walks one PowerShell invocation's host options as
@@ -321,144 +243,6 @@ func encodedArgument(inv []token) (string, bool) {
 	return "", false
 }
 
-// powerShellInvocations finds every PowerShell in command position on a
-// command line, each as its words from the program on. The line is cut into
-// commands at the shell's operators; the first word of each is its program.
-// PowerShell is in command position when it is that program, or when that
-// program is a shell this view knows and PowerShell is in command position on
-// the command line the shell launches. PowerShell anywhere else is a word on
-// some other program's command line.
-func powerShellInvocations(line string, sh shell, depth int) [][]token {
-	if depth > maxNesting {
-		return nil
-	}
-	var out [][]token
-	for _, c := range splitCommands(line, sh) {
-		out = append(out, programInvocations(c.text, tokenize(c.text, sh == posixShell), depth)...)
-	}
-	return out
-}
-
-// programInvocations reads one command (a program and its words) and returns
-// PowerShell's invocations: the command itself when the program is
-// PowerShell, or those in command position on the command line a known shell
-// launches: cmd's /c, /k or /r string under cmd's quote rule, start's program
-// after its switches and title, call's command, a wrapper's command after its
-// options, an sh-family -c string.
-func programInvocations(cmd string, tokens []token, depth int) [][]token {
-	if len(tokens) == 0 {
-		return nil
-	}
-	rest := tokens[1:]
-	switch name := programName(tokens[0].text); {
-	case isPowerShellName(name):
-		return [][]token{tokens}
-	case name == "cmd":
-		// Only /c, /k or /r make cmd run the string that follows; with other
-		// switches alone it opens a shell and the rest is nothing.
-		runs := false
-		for len(rest) > 0 && isCmdSwitch(rest[0]) {
-			if l := strings.ToLower(rest[0].text); l == "/c" || l == "/k" || l == "/r" {
-				runs = true
-			}
-			rest = rest[1:]
-		}
-		if !runs || len(rest) == 0 {
-			return nil
-		}
-		for _, cl := range cmdCommandLines(cmd[rest[0].start:]) {
-			if out := powerShellInvocations(cl, windowsShell, depth+1); out != nil {
-				return out
-			}
-		}
-		return nil
-	case name == "start":
-		// start's switches, then its first quoted word as the window title
-		// (a quoted program path on its own opens a window so titled and
-		// runs nothing, cmd's well-known trap), then the program.
-		titled := false
-		for len(rest) > 0 {
-			switch {
-			case isCmdSwitch(rest[0]):
-				if l := strings.ToLower(rest[0].text); (l == "/d" || l == "/node" || l == "/affinity") && len(rest) > 1 {
-					rest = rest[1:]
-				}
-				rest = rest[1:]
-			case rest[0].quoted && !titled:
-				rest, titled = rest[1:], true
-			default:
-				return powerShellInvocations(cmd[rest[0].start:], windowsShell, depth+1)
-			}
-		}
-		return nil
-	case name == "call":
-		if len(rest) == 0 {
-			return nil
-		}
-		return powerShellInvocations(cmd[rest[0].start:], windowsShell, depth+1)
-	case isWrapper(name, rest):
-		if i := wrappedCommand(name, rest); i >= 0 {
-			return powerShellInvocations(cmd[rest[i].start:], posixShell, depth+1)
-		}
-		return nil
-	case isShFamily(name):
-		// Options first: -o, -O, +O, --rcfile and --init-file take a value;
-		// short options may be clustered (-lc), and the first cluster carrying
-		// c makes the next word, and only that word, the command string: the
-		// shell runs that one argv element as a command line of its own and
-		// the words after it are its positional parameters. The shell sees
-		// argv without quotes, so quoting decides nothing here.
-		for i := 0; i < len(rest); i++ {
-			t := rest[i]
-			if !strings.HasPrefix(t.text, "-") && !strings.HasPrefix(t.text, "+") {
-				return nil // a script file
-			}
-			if takesValue(t.text, shValued) {
-				i++
-				continue
-			}
-			if !strings.HasPrefix(t.text, "--") && strings.ContainsRune(t.text, 'c') && i+1 < len(rest) {
-				return powerShellInvocations(rest[i+1].text, posixShell, depth+1)
-			}
-		}
-		return nil
-	case isPathStart(tokens[0]) && !isProgramFile(tokens[0].text):
-		// No program the view knows: an unquoted program path with spaces, as
-		// a Run key or a task often records it. CreateProcess tries each
-		// space-bounded prefix as the program; the view takes the first whose
-		// last word names PowerShell, and gives up at another program file.
-		for j := 1; j < len(tokens) && !tokens[j].quoted && !strings.HasPrefix(tokens[j].text, "-") && !strings.HasPrefix(tokens[j].text, "/"); j++ {
-			name := programName(tokens[j].text)
-			if isPowerShellName(name) {
-				return [][]token{tokens[j:]}
-			}
-			if isProgramFile(tokens[j].text) {
-				return nil // the path ends at another program
-			}
-		}
-		return nil
-	}
-	return nil
-}
-
-// cmdCommandLines is how cmd reads the string after /c or /k when it starts
-// with a quote: either the first and last quotes are stripped and the rest is
-// the command line, or the quotes are kept because the quoted string is the
-// path of the program itself. cmd decides by looking the file up; the view
-// cannot, so it returns both readings, the stripped one first, and the caller
-// takes whichever yields PowerShell in command position.
-func cmdCommandLines(rest string) []string {
-	rest = strings.TrimSpace(rest)
-	if !strings.HasPrefix(rest, `"`) || strings.Count(rest, `"`) < 2 {
-		return []string{rest}
-	}
-	stripped := rest[1:]
-	if i := strings.LastIndex(stripped, `"`); i >= 0 {
-		stripped = stripped[:i] + stripped[i+1:]
-	}
-	return []string{stripped, rest}
-}
-
 func isPowerShellName(name string) bool {
 	return name == "powershell" || name == "powershell_ise" || name == "pwsh"
 }
@@ -474,93 +258,6 @@ func isProgramFile(word string) bool {
 	switch strings.ToLower(word[strings.LastIndex(word, ".")+1:]) {
 	case "exe", "com", "bat", "cmd", "ps1", "vbs", "js", "msi", "scr":
 		return strings.Contains(word, ".")
-	}
-	return false
-}
-
-func isCmdSwitch(t token) bool {
-	return !t.quoted && strings.HasPrefix(t.text, "/")
-}
-
-// Wrappers run the command that follows their own options: sudo, env, nohup,
-// timeout and nice.
-func isWrapper(name string, rest []token) bool {
-	switch name {
-	case "sudo", "env", "nohup", "nice":
-		return true
-	case "timeout":
-		// Also a cmd builtin (timeout /t 5), which runs nothing.
-		return len(rest) > 0 && !strings.HasPrefix(rest[0].text, "/")
-	}
-	return false
-}
-
-// wrapperValued are the wrapper options that take the next word as a value.
-var wrapperValued = map[string]map[string]bool{
-	"sudo":    set("-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir", "-h", "--host", "-p", "--prompt", "-U", "--other-user", "-r", "--role", "-t", "--type", "-T", "--command-timeout"),
-	"env":     set("-u", "--unset", "-C", "--chdir", "-S", "--split-string"),
-	"timeout": set("-k", "--kill-after", "-s", "--signal"),
-	"nice":    set("-n", "--adjustment"),
-}
-
-func set(words ...string) map[string]bool {
-	m := make(map[string]bool, len(words))
-	for _, w := range words {
-		m[w] = true
-	}
-	return m
-}
-
-// wrappedCommand is the index in rest of the command a wrapper runs, after
-// its options (a valued option takes the next word unless written as
-// --name=value), the VAR=value assignments sudo and env accept, and
-// timeout's duration; -1 when nothing follows. The wrapper sees argv without
-// quotes, so each word is classified by its text alone: a quoted assignment
-// or duration is still an assignment or a duration.
-func wrappedCommand(name string, rest []token) int {
-	valued := wrapperValued[name]
-	assignments := name == "sudo" || name == "env"
-	positional := 0
-	if name == "timeout" {
-		positional = 1
-	}
-	for i := 0; i < len(rest); i++ {
-		t := rest[i]
-		switch {
-		case len(t.text) > 1 && strings.HasPrefix(t.text, "-"):
-			if takesValue(t.text, valued) {
-				i++
-			}
-		case assignments && strings.Contains(t.text, "="):
-		case positional > 0:
-			positional--
-		default:
-			return i
-		}
-	}
-	return -1
-}
-
-// takesValue reports whether an option word takes the next word as its
-// value: a valued long option without =, a valued short option, or a cluster
-// of short options whose last letter is valued (sudo -Eu root).
-func takesValue(word string, valued map[string]bool) bool {
-	if strings.Contains(word, "=") {
-		return false
-	}
-	if valued[word] {
-		return true
-	}
-	return !strings.HasPrefix(word, "--") && len(word) > 2 && valued["-"+word[len(word)-1:]]
-}
-
-// shValued are the sh-family options that take the next word as a value.
-var shValued = set("-o", "-O", "+O", "--rcfile", "--init-file")
-
-func isShFamily(name string) bool {
-	switch name {
-	case "sh", "bash", "zsh", "dash", "ksh":
-		return true
 	}
 	return false
 }
@@ -713,19 +410,6 @@ func mostlyASCII(text string) bool {
 	return total > 0 && ascii*4 >= total*3
 }
 
-// decodeUTF8 reads a base64 token as UTF-8 text: valid, printable, non-empty.
-func decodeUTF8(tok string) (string, bool) {
-	raw, ok := base64Bytes(tok)
-	if !ok || len(raw) == 0 || !utf8.Valid(raw) {
-		return "", false
-	}
-	text := string(raw)
-	if !printable(text) {
-		return "", false
-	}
-	return text, true
-}
-
 // base64Bytes decodes a token that is wholly base64 with correct padding, in
 // the standard or the URL alphabet. A token with other characters, or with
 // padding that does not fit, is not a blob.
@@ -771,8 +455,8 @@ func printable(text string) bool {
 }
 
 // unquote strips stray quote characters around a word, matched or not: the
-// bare pass reads whitespace-split words, where a blob often carries the
-// closing quote of the sub-command it ends.
+// program's name or its token may carry the quote of a line whose other
+// quote was lost, or an apostrophe a Windows program reads as text.
 func unquote(tok string) string {
 	return strings.Trim(tok, `"'`)
 }
