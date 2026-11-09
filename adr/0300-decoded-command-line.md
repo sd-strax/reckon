@@ -42,10 +42,19 @@ The layout table's row is amended to say so.
 garbage next to evidence. The encodings are a closed list, each with an
 exact test: `base64-utf16le`, PowerShell's, found where PowerShell's own
 command-line grammar puts it and nowhere else. The line is read as a shell
-reads it: cut into commands at the shell's chain operators, glued to words or
-not, outside the shell's own quoting (cmd toggles at every double quote and
-escapes with a caret, sh quotes with either character and escapes with a
-backslash); each command's words split as argv splits them (a quote toggles,
+reads it: cut into commands at the shell's operators, glued to words or
+not, outside the shell's own quoting (cmd toggles at every double quote,
+escapes with a caret and groups commands in parentheses; sh quotes with either character, escapes with a
+backslash, joins a line at a backslash before a line break, separates
+commands at a line break and at a parenthesis as at a semicolon, reads a
+command substitution, backquoted or `$(` and inside double quotes too, as
+commands of its own while the command holding it keeps it as a word,
+skips a here-document's body, drops a comment from an unquoted `#` opening a
+word to the end of the line, and reads a command's program after the
+reserved words a command follows, `do`, `then`, `else`, `{` and the like
+written plainly, after its variable assignments and redirections, and after
+`exec`, `command` and `time`, all as the shell command language specifies);
+each command's words split as argv splits them (a quote toggles,
 a backslash before one makes it a literal character, an apostrophe quotes
 only under POSIX rules, a quote with no match ahead is text so a truncated
 line still reads word by word), so a quoted path is one word and a quoted
@@ -53,14 +62,17 @@ sub-command one word holding a command line of its own, read under cmd's own
 rule for a string that opens with a quote. The first word of each command is
 its program; an unquoted program path with spaces, as a Run key or a task
 records it, is read as CreateProcess tries it, word by word until a word
-names PowerShell or another program file. PowerShell is in command position when it is that program, or
+names PowerShell or another program file, which is then the program.
+PowerShell is in command position when it is that program, or
 when the program is a shell or wrapper the view knows (cmd's `/c`, `/k` or
 `/r` string, `start` after its switches and the first quoted word that is
-its title, `call`, an sh-family `-c` after options, whose command string is
-the one word that follows, quoted or not, since the words after it are the
-shell's positional parameters, and sudo, env, nohup, timeout and nice after
+its title, `call`, an sh-family `-c`, whose command string is the first word
+after its options that is no option, that word alone, quoted or not, since
+the words after it are the shell's positional parameters, and sudo, env,
+nohup, timeout and nice after
 their options, the assignments sudo and env accept and timeout's duration,
-each word read by its text since the wrapper sees argv without quotes) and
+each word read by its text since the wrapper sees argv without quotes, and
+env's split string as a command line of its own) and
 PowerShell is in command position on the command line it launches. Every PowerShell so found is tried, in order. From there its host options are read as
 PowerShell's parser reads them, from its switch table transcribed in the
 parser's order with the first match winning: each switch a case-insensitive

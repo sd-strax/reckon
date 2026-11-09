@@ -95,11 +95,23 @@ func shellOf(line string) shell {
 	if len(f) == 0 {
 		return windowsShell
 	}
-	var rest []token
-	if len(f) > 1 {
-		rest = []token{{text: f[1]}}
+	if strings.HasPrefix(strings.TrimLeft(f[0], `'"`), "/") {
+		return posixShell // a POSIX path, whatever it contains
 	}
-	if name := programName(f[0]); isShFamily(name) || isWrapper(name, rest) || strings.HasPrefix(f[0], "/") {
+	if strings.Contains(f[0], `\`) || (len(f[0]) > 1 && f[0][1] == ':') {
+		return windowsShell // a Windows path, whatever program it names
+	}
+	// The wrapper check wants the words of the first command as the cut
+	// command carries them, glued operators ending them too.
+	var rest []token
+	if cmds := splitCommands(line, windowsShell); len(cmds) > 0 {
+		if words := strings.Fields(cmds[0].text); len(words) > 1 {
+			for _, w := range words[1:] {
+				rest = append(rest, token{text: w})
+			}
+		}
+	}
+	if name := programName(f[0]); isShFamily(name) || isWrapper(name, rest) {
 		return posixShell
 	}
 	return windowsShell
@@ -115,6 +127,7 @@ type token struct {
 	text   string
 	quoted bool
 	start  int // byte offset in the command tokenize was given
+	plain  int // bytes of text, from its start, that were neither quoted nor escaped
 }
 
 // tokenize splits one command into the words the program receives. A double
@@ -128,28 +141,40 @@ type token struct {
 // never opens or closes a run; argv's doubled quote inside a Windows run is a
 // literal quote. Under POSIX rules a backslash outside quotes makes the next
 // character text, a backslash included (an escaped space does not end the
-// word); inside a single-quoted run everything is text, and in a
-// double-quoted one a backslash escapes only a quote, a backslash, a dollar
-// or a backquote and stays before anything else, an apostrophe included.
+// word), except a line break, which it joins: both characters vanish (shell
+// command language §2.2.1); inside a single-quoted run everything is text
+// (§2.2.2), and in a double-quoted one a backslash escapes only a quote, a
+// backslash, a dollar, a backquote or a line break and stays before anything
+// else, an apostrophe included (§2.2.3).
 func tokenize(cmd string, posix bool) []token {
 	var out []token
 	var b strings.Builder
 	inWord, quoted := false, false
-	start := 0
+	start, plain := 0, -1
 	var quote byte
 	flush := func() {
 		if inWord {
-			out = append(out, token{text: b.String(), quoted: quoted, start: start})
+			if plain < 0 {
+				plain = b.Len()
+			}
+			out = append(out, token{text: b.String(), quoted: quoted, start: start, plain: plain})
 		}
 		b.Reset()
-		inWord, quoted = false, false
+		inWord, quoted, plain = false, false, -1
 	}
 	begin := func(i int) {
 		if !inWord {
 			start, inWord = i, true
 		}
 	}
+	// marked notes where quoting or escaping first changed the word's text.
+	marked := func() {
+		if plain < 0 {
+			plain = b.Len()
+		}
+	}
 	isQuote := func(c byte) bool { return c == '"' || (posix && c == '\'') }
+	closing := findLastQuotes(cmd, posix)
 	// escapable is whether a backslash before this quote character counts:
 	// never inside a POSIX double-quoted run for an apostrophe, which sh keeps
 	// with its backslash.
@@ -157,8 +182,18 @@ func tokenize(cmd string, posix bool) []token {
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
 		switch {
+		case posix && c == '\\' && quote != '\'' && i+1 < len(cmd) && cmd[i+1] == '\n':
+			i++ // sh: a line continuation; both characters vanish
+		case posix && quote != '\'' && (c == '`' || strings.HasPrefix(cmd[i:], "$(")):
+			// A command substitution or arithmetic expansion is part of the
+			// word, the spaces and quotes inside it included (§2.3).
+			end := substitutionClose(cmd, i)
+			begin(i)
+			b.WriteString(cmd[i:end])
+			i = end - 1
 		case posix && c == '\\' && i+1 < len(cmd) && (quote == 0 || (quote == '"' && strings.IndexByte("\"\\$`", cmd[i+1]) >= 0)):
 			begin(i)
+			marked()
 			b.WriteByte(cmd[i+1]) // sh: the backslash makes the next character text
 			i++
 		case c == '\\' && quote != '\'':
@@ -168,6 +203,7 @@ func tokenize(cmd string, posix bool) []token {
 			}
 			begin(i)
 			if i+n < len(cmd) && escapable(cmd[i+n]) {
+				marked()
 				b.WriteString(strings.Repeat(`\`, n/2))
 				if n%2 == 1 {
 					b.WriteByte(cmd[i+n]) // a literal quote
@@ -191,9 +227,10 @@ func tokenize(cmd string, posix bool) []token {
 			flush()
 		case isQuote(c):
 			begin(i)
-			if !hasMatch(cmd[i+1:], c) {
+			if !closing.ahead(i, c) {
 				b.WriteByte(c) // no match ahead: text
 			} else {
+				marked()
 				quoted, quote = true, c
 			}
 		default:
@@ -205,54 +242,137 @@ func tokenize(cmd string, posix bool) []token {
 	return out
 }
 
-// hasMatch reports whether an unescaped quote character q lies ahead: one
-// preceded by an even number of backslashes, since an odd number makes it a
-// literal character that closes nothing.
-func hasMatch(ahead string, q byte) bool {
-	for i := 0; i < len(ahead); i++ {
-		if ahead[i] != q {
-			continue
-		}
-		n := 0
-		for j := i - 1; j >= 0 && ahead[j] == '\\'; j-- {
-			n++
-		}
-		if n%2 == 0 {
-			return true
+// lastQuotes are the positions of the last quote characters in a command
+// that can close a run: for a double quote, one preceded by an even number
+// of backslashes, since an odd number makes it a literal character that
+// closes nothing; for an apostrophe under POSIX rules, any, since nothing
+// inside single quotes escapes. Found in one pass, so a quote-heavy line is
+// read in linear time.
+type lastQuotes struct{ double, single int }
+
+func findLastQuotes(cmd string, posix bool) lastQuotes {
+	l := lastQuotes{double: -1, single: -1}
+	for i := 0; i < len(cmd); i++ {
+		switch cmd[i] {
+		case '"':
+			n := 0
+			for j := i - 1; j >= 0 && cmd[j] == '\\'; j-- {
+				n++
+			}
+			if n%2 == 0 {
+				l.double = i
+			}
+		case '\'':
+			if posix {
+				l.single = i
+			}
 		}
 	}
-	return false
+	return l
 }
 
-// splitCommands cuts a command line into its commands at the shell's chain
-// operators (&&, ||, &, |, and ; under POSIX), glued to words or not, outside
-// the shell's own quoting: cmd toggles a quoted region at every double quote
-// and escapes with a caret; sh quotes with either character and escapes with
-// a backslash. Each command comes back with its byte offset in the line.
+// ahead reports whether a quote character q that can close a run lies after
+// index i.
+func (l lastQuotes) ahead(i int, q byte) bool {
+	if q == '"' {
+		return l.double > i
+	}
+	return l.single > i
+}
+
+// splitCommands cuts a command line into its commands at the shell's
+// operators, glued to words or not, outside the shell's own quoting. cmd cuts
+// at &&, ||, & and |, at the parentheses of a group opening a command,
+// toggles a quoted region at every double quote and escapes with a caret; an
+// & that completes a redirection (2>&1) is no operator for either shell. sh
+// cuts at those operators, at a semicolon, at a line break, at
+// a parenthesis, an operator of its own whose subshell runs what it holds; a
+// command substitution, backquoted or $( ), inside double quotes as well as
+// outside, yields its own commands while staying a word of the command that
+// holds it (shell command language §2.2.3, §2.3, §2.6.3, §2.9.3); it quotes with either character,
+// escapes with a backslash (a backslash before a line break joins the lines),
+// an unquoted # where a word would begin starts a comment that runs to the
+// end of the line, and the lines after a << operator's line, up to its
+// delimiter, are a here-document's body and no command (§2.7.4). Each command
+// comes back with its byte offset in the line.
 func splitCommands(line string, sh shell) []command {
 	var out []command
 	start := 0
 	var quote byte
+	posix := sh == posixShell
+	inWord := false        // whether the previous character continues a word
+	afterRedirect := false // whether the previous character was an unquoted < or >
+	groups := 0            // cmd's open parenthesised groups
+	var heredocs []heredoc // announced on the current line, bodies to follow
 	cut := func(end, next int) {
 		if c := strings.TrimSpace(line[start:end]); c != "" {
 			out = append(out, command{text: c, start: start + strings.Index(line[start:end], c)})
 		}
 		start = next
+		inWord = false
+	}
+	substitutes := func(i int) bool { // $( or a backquote, which double quotes do not quote
+		return posix && (line[i] == '`' || (line[i] == '$' && i+1 < len(line) && line[i+1] == '(' && !strings.HasPrefix(line[i:], "$((")))
 	}
 	for i := 0; i < len(line); i++ {
 		c := line[i]
+		wasRedirect := afterRedirect
+		afterRedirect = false
 		switch {
-		case quote != 0:
+		case posix && c == '\\' && quote != '\'' && i+1 < len(line) && line[i+1] == '\n':
+			i++ // a line continuation vanishes; the word state is the previous character's
+		case quote != 0 && (quote != '"' || !substitutes(i)):
 			switch {
-			case sh == posixShell && quote == '"' && c == '\\':
+			case posix && quote == '"' && c == '\\':
 				i++ // sh: escapes the next character inside double quotes too
 			case c == quote:
 				quote = 0
 			}
-		case sh == windowsShell && c == '^', sh == posixShell && c == '\\':
+		case sh == windowsShell && c == '^', posix && c == '\\':
 			i++ // escapes the next character
-		case c == '"', sh == posixShell && c == '\'':
+			inWord = true
+		case c == '"', posix && c == '\'':
 			quote = c
+			inWord = true
+		case posix && c == '#' && !inWord:
+			end := strings.IndexByte(line[i:], '\n')
+			if end < 0 {
+				end = len(line) - i
+			}
+			cut(i, i+end) // the comment runs to the line break, which then cuts
+			i += end - 1
+		case substitutes(i):
+			// The substitution's text is commands of its own, read first as
+			// the shell runs them first; the enclosing command keeps the
+			// substitution as part of its word.
+			inner, end := substitutionBounds(line, i)
+			for _, sub := range splitCommands(line[inner:end], sh) {
+				sub.start += inner
+				out = append(out, sub)
+			}
+			i = end
+			inWord = true
+		case posix && strings.HasPrefix(line[i:], "$(("):
+			i = arithmeticEnd(line, i) - 1 // an arithmetic expansion is a word; its << is a shift
+			inWord = true
+		case posix && (c == '(' || c == ')'):
+			cut(i, i+1) // a subshell
+		case sh == windowsShell && c == '(' && opensGroup(line[start:i]):
+			cut(i, i+1) // cmd groups commands in parentheses that open a command
+			groups++
+		case sh == windowsShell && c == ')' && groups > 0:
+			cut(i, i+1)
+			groups--
+		case posix && strings.HasPrefix(line[i:], "<<<"):
+			i += 2 // a here-string: its word is data
+			inWord = true
+		case posix && strings.HasPrefix(line[i:], "<<"):
+			var h heredoc
+			h, i = readHeredocOperator(line, i)
+			heredocs = append(heredocs, h)
+			inWord = true
+		case c == '&' && wasRedirect:
+			inWord = true // a redirection's & (2>&1, <&0), no operator
 		case c == '&' || c == '|':
 			if i+1 < len(line) && line[i+1] == c {
 				cut(i, i+2)
@@ -260,12 +380,162 @@ func splitCommands(line string, sh shell) []command {
 			} else {
 				cut(i, i+1)
 			}
-		case c == ';' && sh == posixShell:
+		case posix && c == '\n':
+			next := i + 1
+			if len(heredocs) > 0 {
+				next = skipHeredocBodies(line, next, heredocs)
+				heredocs = nil
+			}
+			cut(i, next)
+			i = next - 1
+		case posix && c == ';':
 			cut(i, i+1)
+		case c == ' ' || c == '\t':
+			inWord = false
+		default:
+			inWord = true
+			afterRedirect = c == '<' || c == '>'
 		}
 	}
 	cut(len(line), len(line))
 	return out
+}
+
+// substitutionBounds is the text of the command substitution opening at i, a
+// backquote or $(: the index its commands begin at and the index of the
+// closing backquote or parenthesis, or the end of the line when none closes
+// it. Quotes and backslashes inside are honoured when matching.
+func substitutionBounds(line string, i int) (inner, end int) {
+	if line[i] == '`' {
+		for j := i + 1; j < len(line); j++ {
+			switch line[j] {
+			case '\\':
+				j++
+			case '`':
+				return i + 1, j
+			}
+		}
+		return i + 1, len(line)
+	}
+	depth := 1
+	var quote byte
+	for j := i + 2; j < len(line); j++ {
+		c := line[j]
+		switch {
+		case quote != 0:
+			if c == '\\' && quote == '"' {
+				j++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '\\':
+			j++
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth == 0 {
+				return i + 2, j
+			}
+		}
+	}
+	return i + 2, len(line)
+}
+
+// substitutionClose is the index just past the command substitution or
+// arithmetic expansion opening at i, or the end of the line when nothing
+// closes it.
+func substitutionClose(cmd string, i int) int {
+	if strings.HasPrefix(cmd[i:], "$((") {
+		return arithmeticEnd(cmd, i)
+	}
+	_, end := substitutionBounds(cmd, i)
+	return min(end+1, len(cmd))
+}
+
+// arithmeticEnd is the index just past the )) closing the $(( at i, or the
+// end of the line when none closes it.
+func arithmeticEnd(line string, i int) int {
+	depth := 0
+	for j := i + 1; j < len(line); j++ {
+		switch line[j] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return j + 1
+			}
+		}
+	}
+	return len(line)
+}
+
+// opensGroup reports whether a parenthesis after the given text of a command
+// opens a cmd group: at the command's start, or at the start of the string
+// cmd's /c, /k or /r runs, which is a command line of its own; anywhere else
+// a parenthesis is text, as in an install path.
+func opensGroup(before string) bool {
+	f := strings.Fields(before)
+	if len(f) == 0 {
+		return true
+	}
+	switch strings.ToLower(f[len(f)-1]) {
+	case "/c", "/k", "/r":
+		return true
+	}
+	return false
+}
+
+// heredoc is a here-document announced by << on a line: its delimiter, with
+// any quoting removed, and whether <<- strips leading tabs from the body.
+type heredoc struct {
+	delimiter string
+	stripTabs bool
+}
+
+// readHeredocOperator reads << or <<- at i and the delimiter word after it;
+// it returns the here-document and the index of the word's last byte.
+func readHeredocOperator(line string, i int) (heredoc, int) {
+	j := i + 2
+	h := heredoc{stripTabs: j < len(line) && line[j] == '-'}
+	if h.stripTabs {
+		j++
+	}
+	for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
+		j++
+	}
+	k := j
+	for k < len(line) && strings.IndexByte(" \t\n;&|()<>", line[k]) < 0 {
+		k++
+	}
+	h.delimiter = strings.NewReplacer(`"`, "", `'`, "", `\`, "").Replace(line[j:k])
+	return h, k - 1
+}
+
+// skipHeredocBodies returns the index just past the bodies of the given
+// here-documents, which begin at from, each ending at the first line equal to
+// its delimiter; a body no delimiter ends runs to the end of the input.
+func skipHeredocBodies(line string, from int, docs []heredoc) int {
+	for _, h := range docs {
+		for from < len(line) {
+			end := strings.IndexByte(line[from:], '\n')
+			if end < 0 {
+				end = len(line) - from
+			}
+			body := line[from : from+end]
+			if h.stripTabs {
+				body = strings.TrimLeft(body, "\t")
+			}
+			from = min(from+end+1, len(line))
+			if body == h.delimiter {
+				break
+			}
+		}
+	}
+	return from
 }
 
 // command is one command of a line: its text and where it starts in the line.
@@ -333,10 +603,110 @@ func powerShellInvocations(line string, sh shell, depth int) [][]token {
 		return nil
 	}
 	var out [][]token
+	posix := sh == posixShell
 	for _, c := range splitCommands(line, sh) {
-		out = append(out, programInvocations(c.text, tokenize(c.text, sh == posixShell), depth)...)
+		tokens := tokenize(c.text, posix)
+		if posix {
+			tokens = afterCommandPrefix(tokens)
+		}
+		out = append(out, programInvocations(c.text, tokens, depth)...)
 	}
 	return out
+}
+
+// commandOpeners are sh's reserved words that a command follows, so the word
+// after one of them is that command's program (shell command language §2.4);
+// the closing words (done, fi, esac, }) and case, for and in, which a name
+// follows, are not among them. With them, the utilities that run the command
+// named by their next word: exec, command and time.
+var commandOpeners = set("if", "then", "elif", "else", "while", "until", "do", "{", "!", "exec", "command", "time")
+
+// utilityOptions are, for exec, command and time, the options that take a
+// value; the three run the command after their options (exec -a name, time
+// -f format).
+var utilityOptions = map[string]map[string]bool{"exec": set("-a"), "command": {}, "time": set("-f", "-o")}
+
+// afterCommandPrefix drops what sh reads before a command's program: the
+// reserved words a command follows, written without quoting or escaping
+// (a quoted or escaped one is a program name), the NAME=value assignments
+// and the redirections that precede a simple command (§2.9.1), and exec,
+// command and time, which run the command that follows their options.
+// command -v and -V describe a command and run nothing.
+func afterCommandPrefix(tokens []token) []token {
+	for len(tokens) > 1 {
+		t := tokens[0]
+		switch {
+		case !t.quoted && t.plain == len(t.text) && commandOpeners[t.text]:
+			if t.text == "command" && (tokens[1].text == "-v" || tokens[1].text == "-V") {
+				return tokens // describes the command and runs nothing
+			}
+			valued, utility := utilityOptions[t.text]
+			tokens = tokens[1:]
+			for utility && len(tokens) > 1 && len(tokens[0].text) > 1 && strings.HasPrefix(tokens[0].text, "-") {
+				if takesValue(tokens[0].text, valued) {
+					tokens = tokens[1:]
+				}
+				tokens = tokens[1:]
+			}
+			continue
+		case isAssignmentWord(t):
+		case t.plain > 0 && isRedirection(t.text):
+			if redirectionTarget(t.text) == "" { // the operator alone: the next word is its target
+				if len(tokens) < 3 {
+					return tokens
+				}
+				tokens = tokens[1:]
+			}
+		default:
+			return tokens
+		}
+		tokens = tokens[1:]
+	}
+	return tokens
+}
+
+// isRedirection reports whether a word begins with a redirection operator,
+// optionally after a file descriptor number: <, >, >>, <<, <<-, <&, >&, <>
+// or >| (§2.7).
+func isRedirection(word string) bool {
+	return redirectionOperator(word) != ""
+}
+
+// redirectionOperator is the redirection operator a word begins with, after
+// any file descriptor digits, or empty.
+func redirectionOperator(word string) string {
+	rest := strings.TrimLeft(word, "0123456789")
+	for _, op := range []string{"<<-", "<<", "<&", ">&", "<>", ">>", ">|", "<", ">"} {
+		if strings.HasPrefix(rest, op) {
+			return op
+		}
+	}
+	return ""
+}
+
+// redirectionTarget is what follows the redirection operator in a word.
+func redirectionTarget(word string) string {
+	rest := strings.TrimLeft(word, "0123456789")
+	return strings.TrimPrefix(rest, redirectionOperator(word))
+}
+
+// isAssignmentWord reports whether a word is NAME=value with the name and the
+// equals sign written plainly (§2.10.2 rule 7): a name of letters, digits
+// and underscores, not starting with a digit, then an equals sign.
+func isAssignmentWord(t token) bool {
+	word := t.text
+	eq := strings.IndexByte(word, '=')
+	if eq <= 0 || eq >= t.plain {
+		return false
+	}
+	for i, r := range word[:eq] {
+		letter := r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		digit := i > 0 && r >= '0' && r <= '9'
+		if !letter && !digit {
+			return false
+		}
+	}
+	return true
 }
 
 // programInvocations reads one command (a program and its words) and returns
@@ -397,28 +767,44 @@ func programInvocations(cmd string, tokens []token, depth int) [][]token {
 		}
 		return powerShellInvocations(cmd[rest[0].start:], windowsShell, depth+1)
 	case isWrapper(name, rest):
+		if name == "env" {
+			if line, ok := splitStringCommand(cmd, rest); ok {
+				return powerShellInvocations(line, posixShell, depth+1)
+			}
+		}
 		if i := wrappedCommand(name, rest); i >= 0 {
 			return powerShellInvocations(cmd[rest[i].start:], posixShell, depth+1)
 		}
 		return nil
 	case isShFamily(name):
 		// Options first: -o, -O, +O, --rcfile and --init-file take a value;
-		// short options may be clustered (-lc), and the first cluster carrying
-		// c makes the next word, and only that word, the command string: the
-		// shell runs that one argv element as a command line of its own and
-		// the words after it are its positional parameters. The shell sees
-		// argv without quotes, so quoting decides nothing here.
+		// short options may be clustered (-lc) and -- ends them. When a
+		// cluster carried c, the first word that is no option is the command
+		// string, that word alone: the shell runs that one argv element as a
+		// command line of its own and the words after it are its positional
+		// parameters. The shell sees argv without quotes, so quoting decides
+		// nothing here.
+		commandString := false
 		for i := 0; i < len(rest); i++ {
 			t := rest[i]
-			if !strings.HasPrefix(t.text, "-") && !strings.HasPrefix(t.text, "+") {
+			switch {
+			case t.text == "--":
+				if commandString && i+1 < len(rest) {
+					return powerShellInvocations(rest[i+1].text, posixShell, depth+1)
+				}
+				return nil
+			case !strings.HasPrefix(t.text, "-") && !strings.HasPrefix(t.text, "+"):
+				if commandString {
+					return powerShellInvocations(t.text, posixShell, depth+1)
+				}
 				return nil // a script file
-			}
-			if takesValue(t.text, shValued) {
-				i++
-				continue
-			}
-			if !strings.HasPrefix(t.text, "--") && strings.ContainsRune(t.text, 'c') && i+1 < len(rest) {
-				return powerShellInvocations(rest[i+1].text, posixShell, depth+1)
+			default:
+				if !strings.HasPrefix(t.text, "--") && strings.ContainsRune(t.text, 'c') {
+					commandString = true // a cluster carrying c (-c, -lc, -co pipefail)
+				}
+				if takesValue(t.text, shValued) {
+					i++
+				}
 			}
 		}
 		return nil
@@ -426,14 +812,15 @@ func programInvocations(cmd string, tokens []token, depth int) [][]token {
 		// No program the view knows: an unquoted program path with spaces, as
 		// a Run key or a task often records it. CreateProcess tries each
 		// space-bounded prefix as the program; the view takes the first whose
-		// last word names PowerShell, and gives up at another program file.
+		// last word names PowerShell or another program file, which is then
+		// the program, read with the words after it as its command line.
 		for j := 1; j < len(tokens) && !tokens[j].quoted && !strings.HasPrefix(tokens[j].text, "-") && !strings.HasPrefix(tokens[j].text, "/"); j++ {
 			name := programName(tokens[j].text)
 			if isPowerShellName(name) {
 				return [][]token{tokens[j:]}
 			}
 			if isProgramFile(tokens[j].text) {
-				return nil // the path ends at another program
+				return programInvocations(cmd, tokens[j:], depth+1)
 			}
 		}
 		return nil
@@ -489,8 +876,9 @@ func isWrapper(name string, rest []token) bool {
 	case "sudo", "env", "nohup", "nice":
 		return true
 	case "timeout":
-		// Also a cmd builtin (timeout /t 5), which runs nothing.
-		return len(rest) > 0 && !strings.HasPrefix(rest[0].text, "/")
+		// Also a cmd builtin (timeout /t 5, timeout 5), which runs nothing;
+		// the wrapper has a duration and then a command.
+		return len(rest) > 1 && !strings.HasPrefix(rest[0].text, "/")
 	}
 	return false
 }
@@ -541,6 +929,48 @@ func wrappedCommand(name string, rest []token) int {
 	return -1
 }
 
+// splitStringCommand is the command line env -S (--split-string) runs: the
+// option's value, which env splits into words, followed by the words after
+// it; false when env has no such option before its command.
+func splitStringCommand(cmd string, rest []token) (string, bool) {
+	for i := 0; i < len(rest); i++ {
+		t := rest[i]
+		var value string
+		switch {
+		case t.text == "-S" || t.text == "--split-string":
+			if i+1 >= len(rest) {
+				return "", false
+			}
+			i++
+			value = rest[i].text
+		case strings.HasPrefix(t.text, "--split-string="):
+			value = strings.TrimPrefix(t.text, "--split-string=")
+		case strings.HasPrefix(t.text, "-S"):
+			value = t.text[2:]
+		case strings.HasPrefix(t.text, "-") && !strings.HasPrefix(t.text, "--") && strings.HasSuffix(t.text, "S") && len(t.text) > 2:
+			if i+1 >= len(rest) { // a cluster ending in S (env -iS): the next word is the string
+				return "", false
+			}
+			i++
+			value = rest[i].text
+		case len(t.text) > 1 && strings.HasPrefix(t.text, "-"):
+			if takesValue(t.text, wrapperValued["env"]) {
+				i++
+			}
+			continue
+		case strings.Contains(t.text, "="):
+			continue
+		default:
+			return "", false // the command comes first
+		}
+		if i+1 < len(rest) {
+			value += " " + cmd[rest[i+1].start:]
+		}
+		return value, true
+	}
+	return "", false
+}
+
 // takesValue reports whether an option word takes the next word as its
 // value: a valued long option without =, a valued short option, or a cluster
 // of short options whose last letter is valued (sudo -Eu root).
@@ -551,7 +981,18 @@ func takesValue(word string, valued map[string]bool) bool {
 	if valued[word] {
 		return true
 	}
-	return !strings.HasPrefix(word, "--") && len(word) > 2 && valued["-"+word[len(word)-1:]]
+	if strings.HasPrefix(word, "--") || len(word) < 3 {
+		return false
+	}
+	for i := 1; i < len(word); i++ {
+		if valued["-"+word[i:i+1]] {
+			// The first valued letter of a cluster takes the rest of the word
+			// as its value (sudo -uroot); only as the last letter does it take
+			// the next word (sudo -Eu root).
+			return i == len(word)-1
+		}
+	}
+	return false
 }
 
 // shValued are the sh-family options that take the next word as a value.
@@ -719,8 +1160,8 @@ func decodeUTF8(tok string) (string, bool) {
 	if !ok || len(raw) == 0 || !utf8.Valid(raw) {
 		return "", false
 	}
-	text := string(raw)
-	if !printable(text) {
+	text := strings.TrimPrefix(string(raw), string(rune(byteOrderMark)))
+	if text == "" || !printable(text) {
 		return "", false
 	}
 	return text, true
