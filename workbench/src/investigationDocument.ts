@@ -402,7 +402,7 @@ export class InvestigationDocuments implements DocumentHost {
         void this.knowledge.discardSOP(id, panel);
       },
       "library.get": () => {
-        void this.knowledge.postLibrary(panel);
+        void this.knowledge.postLibrary(id, panel);
       },
       "library.search": (msg) => {
         void this.knowledge.searchLibrary(panel, msg.text);
@@ -571,7 +571,7 @@ export class InvestigationDocuments implements DocumentHost {
       void this.client.capabilities.enablement()
         .then((data) => data, () => null)
         .then((data) => { if (latestEnablement()) void this.patch(id, panel, { enablement: data }); });
-      void this.knowledge.postLibrary(panel);
+      void this.knowledge.postLibrary(id, panel);
       void this.actions.postActionTypes(panel);
       if (String(snapshot.investigation.state).toUpperCase() === "CONCLUDED") {
         void this.knowledge.postSummaryStatus(id, panel);
@@ -622,7 +622,7 @@ export class InvestigationDocuments implements DocumentHost {
         void this.evidence.postEvents(id, panel, seq);
         // A committed act may have consulted knowledge: the Library's
         // "cited in N investigations" follows the record (adr/0109).
-        void this.knowledge.postLibrary(panel);
+        void this.knowledge.postLibrary(id, panel);
       }
       // Unsequenced follow-ups finish inside this operation (see load).
       await Promise.all([this.postQueue(panel), this.actions.resendActionRecords(id, panel, seq)]);

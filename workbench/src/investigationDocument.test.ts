@@ -283,6 +283,30 @@ describe("InvestigationDocuments: closing", () => {
     expect(libraries()[1]!.sops[0]!.citedIn).toBe(1);
   });
 
+  it("drops an older Library answer that lands after a newer one, so a stale count never overwrites the new one", async () => {
+    let releaseOlder: (() => void) | undefined;
+    const slow = new Promise<void>((r) => { releaseOlder = r; });
+    let reads = 0;
+    const procedures = vi.fn(async () => {
+      const n = ++reads;
+      if (n === 1) { await slow; return [{ kind: "sop" as const, ref: "sop-1", title: "Procedure one", citedIn: 0 }]; } // the load's read, slow
+      return [{ kind: "sop" as const, ref: "sop-1", title: "Procedure one", citedIn: 1 }];
+    });
+    const { client } = backend({ "knowledge.procedures": procedures });
+    const { docs } = documents(client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    const libraries = () => posted().filter((m) => m.type === "library") as Extract<RenderMessage, { type: "library" }>[];
+    await vi.waitFor(() => expect(procedures).toHaveBeenCalledTimes(1));
+    panel.webview.receive({ type: "refresh" }); // a newer read of the library, which answers first
+    await vi.waitFor(() => expect(libraries().length).toBe(1));
+    expect(libraries()[0]!.sops[0]!.citedIn).toBe(1);
+    releaseOlder!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(libraries().length).toBe(1); // the older answer was dropped
+  });
+
   it("does not report the failure of an older read retired by a newer read of the record", async () => {
     let failOlder: ((err: Error) => void) | undefined;
     const slow = new Promise<never>((_, reject) => { failOlder = reject; });

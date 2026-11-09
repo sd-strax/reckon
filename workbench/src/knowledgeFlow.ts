@@ -56,14 +56,20 @@ export class KnowledgeFlow {
     }
   }
 
-  /** The knowledge library (adr/0129): every procedure and past case, to browse. */
-  async postLibrary(panel: vscode.WebviewPanel): Promise<void> {
+  /**
+   * The knowledge library (adr/0129): every procedure and past case, to
+   * browse. Unsequenced, so the latest request wins (adr/0109): a load, a
+   * refresh after a committed turn and a `library.get` may overlap, and an
+   * older answer landing after a newer one would put a stale count back.
+   */
+  async postLibrary(id: string, panel: vscode.WebviewPanel): Promise<void> {
+    const latest = this.host.cache.beginRequest(id, "library");
     try {
       const [sops, cases] = await Promise.all([
         this.host.client.knowledge.procedures().catch(() => []),
         this.host.client.knowledge.cases().catch(() => []),
       ]);
-      void this.host.post(panel, { type: "library", sops, cases });
+      if (latest()) void this.host.post(panel, { type: "library", sops, cases });
     } catch (err) {
       this.host.log.debug(`library: ${errText(err)}`);
     }

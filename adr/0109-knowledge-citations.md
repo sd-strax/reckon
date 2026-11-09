@@ -95,7 +95,9 @@ cuts of one revision, and the aggregate accepts that: a key over
   Library whenever a refresh re-reads the thread (a committed turn is what
   changes the counts), so a count follows a turn that cited a procedure
   without a reload; the cost is the two list reads a refresh already pays
-  for the thread. The citations read rides
+  for the thread. The Library is an unsequenced slice and the latest request
+  wins: a load, a refresh and a `library.get` may overlap, and an older
+  answer that lands after a newer one is dropped, never posted over it. The citations read rides
   beside the document read; when it fails the pane still opens and the tab
   says the read failed, never "none"; while the answer is in flight it says
   loading. The host's `inspector.procedure` and `inspector.case` messages
