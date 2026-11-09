@@ -2089,14 +2089,11 @@ func TestSectionInParts_TinyLimit(t *testing.T) {
 	}
 }
 
-// TestSession_DraftNarrative (adr/0103): one no-tools completion over the
-// session's conversation, posted to the narrative endpoint through the agent
-// token with the model named, without mutating the conversation.
-func TestSession_DraftNarrative(t *testing.T) {
-	f := newFakeBackend(t)
-	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+// narrativePost intercepts the narrative POST on the fake, records the call
+// (an overridden call is not recorded by the fake) and answers revision 3.
+func narrativePost(f *fakeBackend) func(w http.ResponseWriter, r *http.Request) bool {
+	return func(w http.ResponseWriter, r *http.Request) bool {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/narrative") {
-			// An overridden call is not recorded by the fake; keep the record here.
 			body, _ := io.ReadAll(r.Body)
 			f.calls = append(f.calls, recordedCall{Method: r.Method, Path: r.URL.Path, Token: strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), Body: body})
 			_, _ = w.Write([]byte(`{"investigation_ref":"inv-1","revision":3,"body":"x"}`))
@@ -2104,6 +2101,30 @@ func TestSession_DraftNarrative(t *testing.T) {
 		}
 		return false
 	}
+}
+
+// lastUserText joins the text blocks of a request's last message.
+func lastUserText(req CompleteRequest) string {
+	var b strings.Builder
+	last := req.Messages[len(req.Messages)-1]
+	for _, blk := range last.Content {
+		if blk.Type == BlockText {
+			b.WriteString(blk.Text)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// TestSession_DraftNarrative (adr/0103): one no-tools completion over the
+// session's conversation and a fresh read of the record, posted to the
+// narrative endpoint through the agent token with the model named, without
+// mutating the conversation. The record's state rides the request ahead of
+// the instruction: a verdict, a prediction result or an action recorded
+// between turns reaches the draft though no turn carried it.
+func TestSession_DraftNarrative(t *testing.T) {
+	f := newFakeBackend(t)
+	f.override = narrativePost(f)
 	llm := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Two logons seen; H1 proposed.")}},
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("So far the investigation found two interactive logons on WIN-FILE01; H1 stands untested.")}},
@@ -2115,6 +2136,12 @@ func TestSession_DraftNarrative(t *testing.T) {
 	if _, err := s.Turn(context.Background(), "investigate"); err != nil {
 		t.Fatalf("turn: %v", err)
 	}
+	// Between the turn and the draft the analyst recorded a result, a verdict
+	// and an action by hand: none of it is in the conversation.
+	f.hypotheses = json.RawMessage(`{"hypotheses":[{"id":"h-1","handle":"H1","statement":"user-a moved laterally over RDP","status":"OPEN","predictions":[{"id":"p-1","ordinal":1,"statement":"a second logon follows","status":"CONFIRMED"}]}]}`)
+	f.investigation = &Investigation{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE", Verdict: &InvestigationVerdict{Disposition: "MALICIOUS", Rationale: "confirmed by the second logon"}}
+	f.actions = []ActionStatus{{ActionID: "act-9", ActionType: "host.isolate", Status: "SUCCEEDED"}}
+	hypReads := len(f.callsTo("/api/investigations/inv-1/hypotheses"))
 	before := len(s.messages)
 	text, rev, err := s.DraftNarrative(context.Background())
 	if err != nil {
@@ -2123,9 +2150,26 @@ func TestSession_DraftNarrative(t *testing.T) {
 	if rev != 3 || !strings.Contains(text, "two interactive logons") || len(s.messages) != before {
 		t.Errorf("rev %d text %q messages %d->%d", rev, text, before, len(s.messages))
 	}
+	if n := len(f.callsTo("/api/investigations/inv-1/hypotheses")); n != hypReads+1 {
+		t.Errorf("hypotheses read %d times for the draft; want one fresh read", n-hypReads)
+	}
 	last := llm.requests[len(llm.requests)-1]
 	if !last.ToolChoiceNone {
 		t.Error("the draft completion offered tools the model could call")
+	}
+	side := lastUserText(last)
+	for _, want := range []string{
+		"status ACTIVE; verdict MALICIOUS (confirmed by the second logon)",
+		textReasoningState.Text, "user-a moved laterally over RDP", "1 confirmed",
+		"act-9 host.isolate=SUCCEEDED",
+		sideNarrative.Text,
+	} {
+		if !strings.Contains(side, want) {
+			t.Errorf("the draft request lacks %q:\n%s", want, side)
+		}
+	}
+	if strings.LastIndex(side, sideNarrative.Text) < strings.LastIndex(side, "act-9") {
+		t.Error("the instruction must follow the record's state")
 	}
 	calls := f.callsTo("/api/investigations/inv-1/narrative")
 	if len(calls) != 1 || calls[0].Method != http.MethodPost || calls[0].Token != "AGENT_TOKEN" {
@@ -2145,9 +2189,17 @@ func TestSession_DraftNarrative(t *testing.T) {
 }
 
 // TestSession_DraftNarrative_NothingOnTheRecord: a fresh session over an
-// investigation with no acts drafts nothing; the model is not called.
+// investigation with no acts drafts nothing; the model is not called. A
+// thread holding only a context-reset marker is still nothing.
 func TestSession_DraftNarrative_NothingOnTheRecord(t *testing.T) {
 	f := newFakeBackend(t)
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		if strings.HasSuffix(r.URL.Path, "/thread") {
+			_, _ = w.Write([]byte(`{"thread":[{"sequence_no":2,"interpretation_type":"context-reset","summary":"reset"}]}`))
+			return true
+		}
+		return false
+	}
 	llm := &scriptedLLM{}
 	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1"})
 	if err != nil {
@@ -2158,5 +2210,86 @@ func TestSession_DraftNarrative_NothingOnTheRecord(t *testing.T) {
 	}
 	if len(llm.requests) != 0 {
 		t.Errorf("the model was called %d times; want none", len(llm.requests))
+	}
+}
+
+// TestSession_DraftNarrative_FromTheRecordAlone: an investigation worked by
+// hand, or one just after a context reset, has acts on the record and no
+// conversation to replay. The draft runs over the record's state alone.
+func TestSession_DraftNarrative_FromTheRecordAlone(t *testing.T) {
+	for name, set := range map[string]func(f *fakeBackend){
+		"a hypothesis framed by hand": func(f *fakeBackend) {
+			f.hypotheses = json.RawMessage(`{"hypotheses":[{"id":"h-1","handle":"H1","statement":"a service account was abused","status":"OPEN","predictions":[]}]}`)
+		},
+		"a verdict on the thread": func(f *fakeBackend) {
+			f.override = func(w http.ResponseWriter, r *http.Request) bool {
+				switch {
+				case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/narrative"):
+					return narrativePost(f)(w, r)
+				case strings.HasSuffix(r.URL.Path, "/thread"):
+					_, _ = w.Write([]byte(`{"thread":[{"sequence_no":3,"interpretation_type":"verdict","summary":"benign: the admin confirmed the change"}]}`))
+					return true
+				}
+				return false
+			}
+			f.investigation = &Investigation{AggregateID: "inv-1", Title: "INV", Status: "ACTIVE", Verdict: &InvestigationVerdict{Disposition: "BENIGN"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFakeBackend(t)
+			f.override = narrativePost(f)
+			set(f)
+			llm := &scriptedLLM{script: []CompleteResponse{{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("The record so far.")}}}}
+			s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1"})
+			if err != nil {
+				t.Fatalf("NewSession: %v", err)
+			}
+			text, rev, err := s.DraftNarrative(context.Background())
+			if err != nil || rev != 3 || text != "The record so far." {
+				t.Fatalf("DraftNarrative: %q %d %v", text, rev, err)
+			}
+			req := llm.requests[0]
+			if len(req.Messages) != 1 || !req.ToolChoiceNone {
+				t.Fatalf("request: %d messages, ToolChoiceNone=%v; want the record's state alone, no tools callable", len(req.Messages), req.ToolChoiceNone)
+			}
+			if side := lastUserText(req); !strings.Contains(side, "[record —") || !strings.Contains(side, sideNarrative.Text) {
+				t.Errorf("request lacks the record block or the instruction:\n%s", side)
+			}
+			if len(s.messages) != 0 {
+				t.Errorf("the draft left %d messages in the conversation", len(s.messages))
+			}
+		})
+	}
+}
+
+// TestSession_DraftNarrative_RecordReadFails: a draft grounded on a partial
+// record would state less than the record holds; a failed read fails the
+// draft before the model is called.
+func TestSession_DraftNarrative_RecordReadFails(t *testing.T) {
+	f := newFakeBackend(t)
+	f.override = func(w http.ResponseWriter, r *http.Request) bool {
+		if strings.HasSuffix(r.URL.Path, "/actions") && r.Method == http.MethodGet {
+			http.Error(w, "down", http.StatusBadGateway)
+			return true
+		}
+		return false
+	}
+	llm := &scriptedLLM{script: []CompleteResponse{{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("seen")}}}}
+	s, err := NewSession(context.Background(), Config{Backend: f.client(), LLM: llm, InvestigationID: "inv-1"})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if _, err := s.Turn(context.Background(), "investigate"); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	calls := len(llm.requests)
+	if _, _, err := s.DraftNarrative(context.Background()); err == nil || !strings.Contains(err.Error(), "read actions") {
+		t.Fatalf("DraftNarrative with the action read down: %v; want the read failure", err)
+	}
+	if len(llm.requests) != calls {
+		t.Error("the model was called over a partial record")
+	}
+	if n := f.callsTo("/api/investigations/inv-1/narrative"); len(n) != 0 {
+		t.Error("a narrative was posted")
 	}
 }

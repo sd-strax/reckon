@@ -34,12 +34,30 @@ export class NarrativeFlow {
     }
   }
 
-  /** Record the analyst's revision, then re-read. */
+  /**
+   * Record the analyst's revision, then re-read. The editor keeps the text
+   * until the record carries it: saving, then saved after the re-read (so the
+   * lens shows the new text as the editor closes), or save-failed with the
+   * reason and the text still in the editor. A refusal re-reads nothing: the
+   * record did not move.
+   */
   async edit(id: string, panel: vscode.WebviewPanel, body: string): Promise<void> {
     const text = body.trim();
     if (!text) return;
-    await this.host.mutate(id, panel, "narrative", async () => {
+    void this.host.post(panel, { type: "narrative.status", state: "saving" });
+    const current = this.host.sameIdentity();
+    try {
       await this.host.client.investigations.recordNarrative(id, text);
-    });
+    } catch (err) {
+      if (current()) void this.host.post(panel, { type: "narrative.status", state: "save-failed", message: errText(err) });
+      return;
+    }
+    if (!current()) return;
+    try {
+      await this.host.refresh(id, panel);
+    } finally {
+      // The revision is on the record whatever the re-read did.
+      if (current()) void this.host.post(panel, { type: "narrative.status", state: "saved" });
+    }
   }
 }

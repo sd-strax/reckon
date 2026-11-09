@@ -48,13 +48,33 @@ describe("the narrative flow (adr/0103)", () => {
     expect(posted).toEqual([{ type: "narrative.status", state: "drafting" }]);
   });
 
-  it("records an edit on the human token and ignores a blank one", async () => {
-    const { h, recordNarrative, refresh } = host();
+  it("records an edit on the human token, says saving then saved after the re-read, and ignores a blank one", async () => {
+    const { h, posted, recordNarrative, refresh } = host();
     const flow = new NarrativeFlow(h);
     await flow.edit("inv-1", {} as never, "  My account.  ");
     expect(recordNarrative).toHaveBeenCalledWith("inv-1", "My account.");
     expect(refresh).toHaveBeenCalledOnce();
+    expect(posted).toEqual([{ type: "narrative.status", state: "saving" }, { type: "narrative.status", state: "saved" }]);
     await flow.edit("inv-1", {} as never, "   ");
     expect(recordNarrative).toHaveBeenCalledOnce();
+    expect(posted.length).toBe(2);
+  });
+
+  it("reports a refused edit with the reason and re-reads nothing, so the editor keeps the text", async () => {
+    const { h, posted, recordNarrative, refresh } = host();
+    recordNarrative.mockRejectedValueOnce(new Error("422 Body is 20001 runes; at most 20000"));
+    await new NarrativeFlow(h).edit("inv-1", {} as never, "x".repeat(20001));
+    expect(posted).toEqual([
+      { type: "narrative.status", state: "saving" },
+      { type: "narrative.status", state: "save-failed", message: "422 Body is 20001 runes; at most 20000" },
+    ]);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("still says saved when the re-read after an edit fails", async () => {
+    const { h, posted } = host();
+    (h as unknown as { refresh: () => Promise<void> }).refresh = async () => { throw new Error("read failed"); };
+    await expect(new NarrativeFlow(h).edit("inv-1", {} as never, "Mine.")).rejects.toThrow("read failed");
+    expect(posted[1]).toEqual({ type: "narrative.status", state: "saved" });
   });
 });

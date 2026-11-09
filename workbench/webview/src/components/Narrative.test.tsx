@@ -42,6 +42,14 @@ describe("the narrative on the Summary lens (adr/0103)", () => {
     fireEvent.change(box, { target: { value: "Rewritten by the analyst." } });
     fireEvent.click(within(lens()).getByText("Save as my revision"));
     expect(transport.intents).toContainEqual({ type: "narrative.edit", body: "Rewritten by the analyst." });
+    // The text stays in the editor, read-only, until the record carries it.
+    expect((within(lens()).getByLabelText("Narrative") as HTMLTextAreaElement).value).toBe("Rewritten by the analyst.");
+    expect((within(lens()).getByText("Saving…") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(lens()).getByText("Saving…"));
+    expect(transport.intents.filter((i) => i.type === "narrative.edit").length).toBe(1);
+    act(() => transport.emit({ type: "narrative.status", state: "saving" }));
+    act(() => transport.emit({ type: "narrative.status", state: "saved" }));
+    expect(within(lens()).queryByLabelText("Narrative")).toBeNull();
     // Cancel records nothing; an unchanged save records nothing.
     fireEvent.click(within(lens()).getByRole("button", { name: "Edit" }));
     fireEvent.click(within(lens()).getByText("Cancel"));
@@ -49,6 +57,26 @@ describe("the narrative on the Summary lens (adr/0103)", () => {
     fireEvent.click(within(lens()).getByText("Save as my revision"));
     expect(transport.intents.filter((i) => i.type === "narrative.edit").length).toBe(1);
     expect(within(lens()).getByRole("button", { name: "Draft again" })).toBeTruthy();
+  });
+
+  it("keeps a refused edit in the editor with the reason, and lets the analyst fix and resave it", () => {
+    const transport = mount(data);
+    fireEvent.click(within(lens()).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(lens()).getByLabelText("Narrative"), { target: { value: "Too long." } });
+    fireEvent.click(within(lens()).getByText("Save as my revision"));
+    act(() => transport.emit({ type: "narrative.status", state: "saving" }));
+    act(() => transport.emit({ type: "narrative.status", state: "save-failed", message: "Body is 20001 runes; at most 20000" }));
+    const box = within(lens()).getByLabelText("Narrative") as HTMLTextAreaElement;
+    expect(box.value).toBe("Too long.");
+    expect(box.disabled).toBe(false);
+    expect(within(lens()).getByText(/Not saved: Body is 20001 runes; at most 20000/)).toBeTruthy();
+    fireEvent.change(box, { target: { value: "Short." } });
+    expect(within(lens()).queryByText(/Not saved/)).toBeNull();
+    fireEvent.click(within(lens()).getByText("Save as my revision"));
+    expect(transport.intents.filter((i) => i.type === "narrative.edit").map((i) => (i as { body: string }).body)).toEqual(["Too long.", "Short."]);
+    act(() => transport.emit({ type: "narrative.status", state: "saved" }));
+    expect(within(lens()).queryByLabelText("Narrative")).toBeNull();
+    expect(within(lens()).queryByText(/Not saved/)).toBeNull();
   });
 
   it("says a model-only narrative was drafted by reckon, and a human-first one by its author", () => {
@@ -77,6 +105,8 @@ describe("the narrative on the Summary lens (adr/0103)", () => {
     delete e.snapshot.investigation.narrative;
     e.snapshot.thread = [];
     e.snapshot.turns = [];
+    e.snapshot.hypotheses = [];
+    e.snapshot.actions = [];
     mount(e);
     expect((within(lens()).getByRole("button", { name: "Draft narrative" }) as HTMLButtonElement).disabled).toBe(true);
     expect((within(lens()).getByRole("button", { name: "Write" }) as HTMLButtonElement).disabled).toBe(false);

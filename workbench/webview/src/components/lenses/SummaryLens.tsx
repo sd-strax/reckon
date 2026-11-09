@@ -56,23 +56,43 @@ function authorWords(a: NarrativeAuthor): string {
  * Edit. Nothing here is written until the analyst asks.
  */
 function WhatHappened({ narrative, lastEventSequence, hasRecord }: { narrative: NarrativeView | undefined; lastEventSequence: number; hasRecord: boolean }) {
-  const { state, send } = useApp();
+  const { state, send, dispatch } = useApp();
   const status = state.narrativeStatus;
-  const [editing, setEditing] = useState<string | null>(null);
+  // The editor's text, and the record's save count when it was submitted.
+  // The text is the only copy of the analyst's edit, so the editor stays
+  // open with it until the record carries the revision (the count moves) or
+  // the analyst cancels; a refused save shows why and keeps the text.
+  const [editing, setEditing] = useState<{ text: string; submittedAt: number | null } | null>(null);
   const drafting = status?.state === "drafting";
+  const open = editing !== null && (editing.submittedAt === null || editing.submittedAt === state.narrativeSaves);
   const save = () => {
-    const body = (editing ?? "").trim();
-    setEditing(null);
-    if (body && body !== narrative?.body) send({ type: "narrative.edit", body });
+    if (!editing) return;
+    const body = editing.text.trim();
+    if (!body || body === narrative?.body) {
+      setEditing(null);
+      return;
+    }
+    setEditing({ ...editing, submittedAt: state.narrativeSaves });
+    // Saving from this instant, ahead of the host's own word, so a second
+    // press cannot send the revision twice and an earlier refusal is gone.
+    dispatch({ type: "msg", msg: { type: "narrative.status", state: "saving" } });
+    send({ type: "narrative.edit", body });
   };
-  if (editing !== null) {
+  if (editing !== null && open) {
+    const submitted = editing.submittedAt !== null;
+    const refused = submitted && status?.state === "save-failed" ? (status.message ?? "the record refused it") : null;
+    const saving = submitted && refused === null;
     return (
       <div className="narrative-edit">
-        <textarea aria-label="Narrative" value={editing} onChange={(e) => setEditing(e.target.value)} rows={10} />
+        <textarea aria-label="Narrative" value={editing.text} onChange={(e) => setEditing({ text: e.target.value, submittedAt: null })} rows={10} disabled={saving} />
         <div className="decide">
-          <button className="primary" disabled={!editing.trim()} onClick={save}>Save as my revision</button>
-          <button onClick={() => setEditing(null)}>Cancel</button>
-          <span className="imeta">Saved as a revision in your name; the earlier text stays on the record.</span>
+          <button className="primary" disabled={saving || !editing.text.trim()} onClick={save}>{saving ? "Saving…" : "Save as my revision"}</button>
+          <button disabled={saving} onClick={() => setEditing(null)}>Cancel</button>
+          {refused !== null ? (
+            <span className="imeta err">Not saved: {refused}. Your text is still here.</span>
+          ) : (
+            <span className="imeta">Saved as a revision in your name; the earlier text stays on the record.</span>
+          )}
         </div>
       </div>
     );
@@ -99,7 +119,7 @@ function WhatHappened({ narrative, lastEventSequence, hasRecord }: { narrative: 
       {status?.state === "failed" ? <div className="imeta err">Drafting failed: {status.message}</div> : null}
       <div className="decide">
         <button disabled={drafting || !hasRecord} title={hasRecord ? "One model call over the record, on your key; recorded as the model's draft under your name" : "Nothing on the record to narrate yet"} onClick={() => send({ type: "narrative.draft" })}>{narrative ? "Draft again" : "Draft narrative"}</button>
-        <button disabled={drafting} onClick={() => setEditing(narrative?.body ?? "")}>{narrative ? "Edit" : "Write"}</button>
+        <button disabled={drafting} onClick={() => setEditing({ text: narrative?.body ?? "", submittedAt: null })}>{narrative ? "Edit" : "Write"}</button>
       </div>
     </>
   );
@@ -160,7 +180,8 @@ export function SummaryLens() {
 
       <section className="lsection">
         <h3>What happened</h3>
-        <WhatHappened narrative={snap.investigation.narrative} lastEventSequence={snap.investigation.lastEventSequence} hasRecord={(snap.thread || []).length > 0} />
+        {/* A context-reset marker alone is not an act; the session judges the same way (agent/session.go). */}
+        <WhatHappened narrative={snap.investigation.narrative} lastEventSequence={snap.investigation.lastEventSequence} hasRecord={(snap.thread || []).some((e) => e.interpretationType !== "context-reset") || hs.length > 0 || actions.length > 0} />
       </section>
 
       <section className="lsection">

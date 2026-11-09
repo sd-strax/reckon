@@ -68,14 +68,30 @@ structured facts. Both were weighed against the record as it is.
   prose in the past tense, the record so far, what stands, was supported or
   refuted, what was done, what is open; nothing the record does not state;
   not presented as concluded unless it is), then posts the text and the
-  model's name through the agent token. With no act on the record it
-  refuses rather than narrate the seed line alone, and the lens offers no
-  draft until the thread has an act. The sidecar method is
-  `draftNarrative {session_id}` → `{revision, chars}`, holding the session
-  like a turn. The side instruction joins the ledger ([0232](0232-model-facing-text.md));
-  `SideInstructionVersion` moves from `a1bd6f38…` to `04f09ec1…` and the
-  component golden gains `side/narrative`. No baseline rerun: no eval
-  assertion grades the side products.
+  model's name through the agent token.
+  - **The draft is of the record, not of the conversation.** A hypothesis
+    framed by hand, a prediction result or a verdict recorded between turns
+    has no transcript, and a context reset discards the earlier turns. So
+    the draft reads the record now, the investigation's lifecycle and
+    verdict, the hypothesis set and the action record, and the request
+    carries them ahead of the instruction as a turn's `[engine]` blocks do
+    (the clock, a record header `sideNarrativeRecord`, then the
+    reasoning-state and engine-state blocks the turn loop already renders).
+    A failed read fails the draft: a draft over a partial record would state
+    less than the record holds, stamped as current.
+  - **Emptiness is judged against the record.** With no conversation and
+    nothing recorded beyond the seed (no act on the thread but a context
+    reset marker, no hypothesis, no action) it refuses rather than narrate
+    the seed line alone; the lens offers no draft in the same case. An
+    investigation worked by hand, or one just after a context reset, drafts
+    from the record's state alone.
+  - The sidecar method is `draftNarrative {session_id}` → `{revision,
+    chars}`, holding the session like a turn. The side instruction and the
+    record header join the ledger ([0232](0232-model-facing-text.md));
+    `SideInstructionVersion` moves from `a1bd6f38…` to `ba2bfd37…` and the
+    component golden gains `side/narrative` and `side/narrative-record`
+    with its verdict renderings. No baseline rerun: no eval assertion grades
+    the side products.
 - **The analyst's revision is a plain write on the human token.** The
   workbench posts `narrative.edit {body}`, the host calls the route with the
   person's token, and the record attributes the revision to them.
@@ -88,8 +104,11 @@ structured facts. Both were weighed against the record as it is.
   re-read. It
   offers **Draft narrative** (then **Draft again**) and **Edit** (an editor
   on the lens, saved as the analyst's revision; cancel and an unchanged save
-  record nothing). While a draft runs it says so and disables both; a failed
-  draft says why. The gap line is gone. The conclude prompt is prefilled with
+  record nothing). The editor holds the only copy of the analyst's text, so
+  it stays open, read-only, from the press until the record carries the
+  revision and the re-read shows it; a refused save (the bound, a failed
+  request) says why and keeps the text editable. While a draft runs the lens
+  says so and disables both; a failed draft says why. The gap line is gone. The conclude prompt is prefilled with
   the current body. The handoff note leads with the narrative when one
   exists and keeps the facts beneath.
 - **The knowledge summary pipeline is unchanged.** At conclusion the

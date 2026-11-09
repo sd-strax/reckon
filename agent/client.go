@@ -278,6 +278,16 @@ type Investigation struct {
 	// §x-hypothesis): "leading_null" (default) or "leading_only". Empty is
 	// treated as leading_null.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
+	// Verdict is the disposition of record (01 §Verdict), absent when none.
+	// The narrative draft reads it so an account written between turns says
+	// what the record holds, not what the conversation last heard.
+	Verdict *InvestigationVerdict `json:"verdict,omitempty"`
+}
+
+// InvestigationVerdict is the verdict as the detail serves it.
+type InvestigationVerdict struct {
+	Disposition string `json:"disposition"`
+	Rationale   string `json:"rationale,omitempty"`
 }
 
 // Seed is the subset of the investigation's root the prompt renders (the fields

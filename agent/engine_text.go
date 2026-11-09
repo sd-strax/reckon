@@ -175,6 +175,21 @@ var (
 			"were refuted, what actions were taken and their outcomes, and what is still open. If there is " +
 			"a verdict, say it and why. State only what is in the record — no speculation, no embellishment, " +
 			"and do not present the investigation as concluded unless it is. Respond with the narrative text alone."}
+	// sideNarrativeRecord heads the record as the engine holds it when the
+	// draft is asked for: the lifecycle and the verdict, then the reasoning
+	// and action state blocks the turn loop renders (state.go, reconcile.go).
+	// A manual act, a prediction result or a verdict recorded between turns
+	// has no transcript, and a context reset discards the earlier turns, so
+	// the draft is grounded on a fresh read of the record, not on the
+	// conversation alone.
+	sideNarrativeRecord = modelText{ID: "narrative-record", Origin: "#103",
+		Text: "[record — the investigation as the engine holds it now, read for this draft; where the conversation and this disagree, this is current: status %s; verdict %s]"}
+	// sideNarrativeVerdict renders a verdict of record with its rationale.
+	sideNarrativeVerdict = modelText{ID: "narrative-record-verdict", Origin: "#103",
+		Text: "%s (%s)"}
+	// sideNarrativeNoVerdict renders the absence of a verdict.
+	sideNarrativeNoVerdict = modelText{ID: "narrative-record-no-verdict", Origin: "#103",
+		Text: "none yet"}
 	// sideProposeSOP asks for one structured candidate SOP. It leans on the
 	// SOPs and similar past cases the session recalled (they are in its
 	// conversation) so the model generalizes rather than duplicates.
@@ -201,4 +216,4 @@ var (
 
 // sideInstructions is the side-instruction text in a fixed order, for
 // SideInstructionVersion and the ledger test.
-var sideInstructions = []modelText{sideSummarize, sideNarrative, sideProposeSOP, sideProposeSOPAnyway}
+var sideInstructions = []modelText{sideSummarize, sideNarrative, sideNarrativeRecord, sideNarrativeVerdict, sideNarrativeNoVerdict, sideProposeSOP, sideProposeSOPAnyway}

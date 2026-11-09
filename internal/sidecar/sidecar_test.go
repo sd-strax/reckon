@@ -202,6 +202,10 @@ func fakeBackend(t *testing.T) *httptest.Server {
 			"status": "available",
 		}}})
 	})
+	mux.HandleFunc("/api/investigations/inv-1/thread", func(w http.ResponseWriter, r *http.Request) {
+		requireDelegate(r)
+		_ = json.NewEncoder(w).Encode(map[string]any{"thread": []any{}})
+	})
 	mux.HandleFunc("/api/investigations/inv-1/hypotheses", func(w http.ResponseWriter, r *http.Request) {
 		requireDelegate(r)
 		_ = json.NewEncoder(w).Encode(map[string]any{"hypotheses": []any{}})
@@ -857,18 +861,13 @@ func (l *sopLLM) Complete(context.Context, agent.CompleteRequest) (agent.Complet
 }
 
 // TestServe_DraftNarrativeWireShape (adr/0103): the draft is recorded through
-// the agent token and the result names the revision and the size.
+// the agent token and the result names the revision and the size. The fake
+// record carries one requested action and no conversation, the shape of an
+// investigation worked by hand: the draft runs over the record alone.
 func TestServe_DraftNarrativeWireShape(t *testing.T) {
 	backend := fakeBackend(t)
 	c := startSidecar(t, &sopLLM{text: "So far: one host, one logon."})
 	id := openSession(t, c, backend.URL)
-	// A narrative is of the record: with no act yet the draft is refused.
-	if resp := c.call("draftNarrative", draftNarrativeParams{SessionID: id}); resp.Error == nil || !strings.Contains(resp.Error.Message, "nothing on the record") {
-		t.Fatalf("draft of an empty record: %+v; want a refusal", resp.Error)
-	}
-	if resp := c.call("turn", turnParams{SessionID: id, Text: "one logon seen"}); resp.Error != nil {
-		t.Fatalf("turn: %+v", resp.Error)
-	}
 
 	resp := c.call("draftNarrative", draftNarrativeParams{SessionID: id})
 	if resp.Error != nil {

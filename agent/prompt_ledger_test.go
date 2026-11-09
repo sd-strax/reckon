@@ -58,7 +58,7 @@ func whatMoved(dial string) string {
 // TestSideInstructions_Frozen pins the side completions' version. A change
 // re-attributes the summary and SOP draft; no baseline rerun (adr/0232).
 func TestSideInstructions_Frozen(t *testing.T) {
-	const want = "04f09ec1bbec49017ac3742feba5544b9ef85f5cbeb2ef1558cf2604d0078952"
+	const want = "ba2bfd37be32c23fd557062bcfd8d42863cc1af44e3affc75eea3c1f393b37f9"
 	if got := SideInstructionVersion(); got != want {
 		t.Errorf("side instruction version = %s; want %s\n"+
 			"  a side instruction changed; TestPrompt_ComponentsFrozen names which. If that is deliberate: update both goldens and the entry's Revised.",
@@ -128,6 +128,9 @@ var componentGolden = map[string]string{
 	"engine-text/clipped":                              "b4935894c8ce16bde67bbffc672428b1533c4f1e1e8b1ce21a2933183db6bfa5",
 	"side/summarize":                                   "876f69bf2774f065305f8afbadbaacbf00592ac42769161d64d3b5aadd8735e6",
 	"side/narrative":                                   "7b5acdbdead0dd2a29020c7ec41466e6ea2dda068aec05637c8171702edd9052",
+	"side/narrative-record":                            "e8c86689d4d761e7e2a7e3fafbb2a838c0c072cbf8ab15ea8d0d9daa0855b009",
+	"side/narrative-record-verdict":                    "7ff78404a18215b631da819118c3b7e05fb7e4054d38f5af92c835fde769bf3e",
+	"side/narrative-record-no-verdict":                 "98ca0d518997f8a451313302400a160071805ed29e8395176981edc6ac1f2ea1",
 	"side/propose-sop":                                 "78af65d40b45f73007c9cb90ff306f68f2a6e9f6843facb0849ad159f1a73fab",
 	"side/propose-sop-anyway":                          "53d278cafac910a914934aaa0fe71703e446f79f62c9ed88d8c0e63259d44969",
 }

@@ -96,8 +96,10 @@ export interface State {
   /** A procedure drafted from this concluded case (adr/0156), and the case summary's outcome. */
   sopDraft: { state: SopDraftState; title?: string; message?: string } | null;
   summaryStatus: { state: "written" | "baseline" | "failed"; detail?: string } | null;
-  /** The narrative draft the analyst asked for (adr/0103): in flight or failed; cleared when the record carries it. */
-  narrativeStatus: { state: "drafting" | "written" | "failed"; message?: string } | null;
+  /** The narrative (adr/0103): a draft in flight or failed, or an edit saving or refused; cleared when the record carries it. */
+  narrativeStatus: { state: "drafting" | "failed" | "saving" | "save-failed"; message?: string } | null;
+  /** How many edits the record has taken in this session, so the editor closes once its own landed. */
+  narrativeSaves: number;
   /** The knowledge library (adr/0129): what there is, and the last search's hits. */
   library: {
     sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number;
@@ -149,6 +151,7 @@ export const initialState: State = {
   sopDraft: null,
   summaryStatus: null,
   narrativeStatus: null,
+  narrativeSaves: 0,
   live: [],
   streaming: false,
   preserveLive: false,
@@ -236,7 +239,9 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "summary.status":
       return { ...state, summaryStatus: { state: msg.state, detail: msg.detail } };
     case "narrative.status":
-      return { ...state, narrativeStatus: msg.state === "written" ? null : { state: msg.state, message: msg.message } };
+      if (msg.state === "saved") return { ...state, narrativeStatus: null, narrativeSaves: state.narrativeSaves + 1 };
+      if (msg.state === "written") return { ...state, narrativeStatus: null };
+      return { ...state, narrativeStatus: { state: msg.state, message: msg.message } };
     case "library":
       return {
         ...state,
