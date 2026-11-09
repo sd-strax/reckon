@@ -3,6 +3,8 @@ package substrate
 import (
 	"context"
 	"errors"
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/google/uuid"
@@ -248,5 +250,46 @@ func TestWriteTimeEmbeddingAndReindex(t *testing.T) {
 	}
 	if count, err = st2.Reindex(ctx, testNS); err != nil || count != 0 {
 		t.Fatalf("second Reindex should be a no-op: %d, %v", count, err)
+	}
+}
+
+// TestListTagsAreANDed: a list filter names any number of tags and an entry
+// must carry every one; one tag filters as before, none filters nothing.
+func TestListTagsAreANDed(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for _, e := range []Entry{
+		{Title: "both", Body: "b", Tags: []string{"a", "b"}},
+		{Title: "only a", Body: "b", Tags: []string{"a"}},
+		{Title: "only b", Body: "b", Tags: []string{"b", "c"}},
+	} {
+		if _, err := st.Put(ctx, testNS, "procedures", e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	titles := func(f ListFilter) []string {
+		t.Helper()
+		got, err := st.List(ctx, testNS, "procedures", f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, 0, len(got))
+		for _, e := range got {
+			out = append(out, e.Title)
+		}
+		sort.Strings(out)
+		return out
+	}
+	if got := titles(ListFilter{Tags: []string{"a", "b"}}); !reflect.DeepEqual(got, []string{"both"}) {
+		t.Errorf("a AND b = %v; want [both]", got)
+	}
+	if got := titles(ListFilter{Tags: []string{"a"}}); !reflect.DeepEqual(got, []string{"both", "only a"}) {
+		t.Errorf("a = %v", got)
+	}
+	if got := titles(ListFilter{}); len(got) != 3 {
+		t.Errorf("no tags = %v; want all three", got)
+	}
+	if got := titles(ListFilter{Tags: []string{"a", "z"}}); len(got) != 0 {
+		t.Errorf("a AND z = %v; want none", got)
 	}
 }

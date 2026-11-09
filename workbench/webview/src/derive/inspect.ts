@@ -112,7 +112,7 @@ export function targetName(t: InspectorTarget, snap: InvestigationSnapshot | nul
     }
     case "sop": {
       const consulted = snap?.thread?.flatMap((e) => e.consultedSops || []).find((s) => s.sopId === t.sopId);
-      return consulted?.title || "Procedure";
+      return consulted?.title || labels["sop:" + t.sopId] || "Procedure";
     }
     case "turn": {
       const e = snap?.thread?.find((x) => x.interpretationId === t.interpretationId);
@@ -128,7 +128,7 @@ export function targetName(t: InspectorTarget, snap: InvestigationSnapshot | nul
     }
     case "case": {
       const consulted = snap?.thread?.flatMap((e) => e.consultedSimilar || []).find((s) => s.investigationRef === t.investigationRef);
-      return consulted?.title || "Past case";
+      return consulted?.title || labels["case:" + t.investigationRef] || "Past case";
     }
     case "call": return labels["call:" + t.callId] || "Capability call";
     case "dependency": {

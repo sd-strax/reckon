@@ -113,6 +113,7 @@ func (b *Backend) routes() []route {
 		{"POST /knowledge/reindex", analyst, b.startReindexKnowledge},
 		{"GET /knowledge/reindex", read, b.getReindexKnowledge},
 		{"GET /knowledge/case_summaries", read, b.listCaseSummaries},
+		{"GET /knowledge/case_summaries/facets", read, b.caseSummaryFacets},
 		{"GET /knowledge/case_summaries/{ref}", read, b.getCaseSummary},
 		{"GET /knowledge/case_summaries/{ref}/citations", read, b.listCaseCitations},
 		{"GET /sops", read, b.listSOPs},

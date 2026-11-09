@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -200,11 +201,16 @@ func (b *Backend) priorInvestigations(w http.ResponseWriter, r *http.Request) {
 // investigations' summaries, most recent first — the library's past cases
 // (adr/0129). Any authenticated reader.
 func (b *Backend) listCaseSummaries(w http.ResponseWriter, r *http.Request) {
-	list, err := b.cfg.Knowledge.ListSummaries(r.Context(), module.SingleTenantUUID, 100)
+	filter, ok := summaryFilterParams(w, r)
+	if !ok {
+		return
+	}
+	got, err := b.cfg.Knowledge.ListSummaries(r.Context(), module.SingleTenantUUID, filter)
 	if err != nil {
 		writeInternalError(w, "case_summaries", err)
 		return
 	}
+	list := got.Summaries
 	refs := make([]string, 0, len(list))
 	for _, v := range list {
 		refs = append(refs, v.InvestigationRef)
@@ -218,7 +224,87 @@ func (b *Backend) listCaseSummaries(w http.ResponseWriter, r *http.Request) {
 	for _, v := range list {
 		rows = append(rows, CaseSummaryRow{CaseSummaryView: v, CitedIn: counts[v.InvestigationRef].CitedIn})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"case_summaries": rows})
+	writeJSON(w, http.StatusOK, CaseSummaryListResponse{CaseSummaries: rows, Total: got.Total})
+}
+
+// CaseSummaryListResponse answers GET /api/knowledge/case_summaries: the
+// rows on this page, most recently concluded first, and how many matched
+// the filter before the limit (adr/0107).
+type CaseSummaryListResponse struct {
+	CaseSummaries []CaseSummaryRow `json:"case_summaries"`
+	Total         int              `json:"total"`
+}
+
+// Bounds of the past-case listing's limit: the default when none is given,
+// and the most one page may hold.
+const (
+	defaultSummaryLimit = 100
+	maxSummaryLimit     = 500
+)
+
+// summaryFilterParams reads the listing's filter from the query (adr/0107):
+// technique (repeatable, ANDed), disposition, concluded_after (inclusive),
+// concluded_before (exclusive), each date RFC 3339 or YYYY-MM-DD (midnight
+// UTC), and limit. A malformed value is 400.
+func summaryFilterParams(w http.ResponseWriter, r *http.Request) (knowledge.SummaryFilter, bool) {
+	q := r.URL.Query()
+	f := knowledge.SummaryFilter{Disposition: q.Get("disposition"), Limit: defaultSummaryLimit}
+	for _, t := range q["technique"] {
+		// A technique is an ATT&CK id; a colon would reach the summary's
+		// other tags (seed:, entity:, the reserved source tag) through it.
+		if strings.Contains(t, ":") {
+			writeJSONError(w, http.StatusBadRequest, "technique must be an ATT&CK technique id")
+			return knowledge.SummaryFilter{}, false
+		}
+		if t != "" {
+			f.Techniques = append(f.Techniques, t)
+		}
+	}
+	for _, p := range []struct {
+		name string
+		into *time.Time
+	}{{"concluded_after", &f.ConcludedAfter}, {"concluded_before", &f.ConcludedBefore}} {
+		raw := q.Get(p.name)
+		if raw == "" {
+			continue
+		}
+		t, err := parseDateParam(raw)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, p.name+" must be an RFC 3339 time or a YYYY-MM-DD date")
+			return knowledge.SummaryFilter{}, false
+		}
+		*p.into = t
+	}
+	if raw := q.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxSummaryLimit {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("limit must be an integer from 1 to %d", maxSummaryLimit))
+			return knowledge.SummaryFilter{}, false
+		}
+		f.Limit = n
+	}
+	return f, true
+}
+
+// parseDateParam reads an RFC 3339 time, or a YYYY-MM-DD date as midnight UTC.
+func parseDateParam(raw string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.DateOnly, raw)
+}
+
+// caseSummaryFacets handles GET /api/knowledge/case_summaries/facets: the
+// technique ids and dispositions present in the past-case corpus with their
+// counts, so the Knowledge view's filters offer only values that match
+// something (adr/0107).
+func (b *Backend) caseSummaryFacets(w http.ResponseWriter, r *http.Request) {
+	out, err := b.cfg.Knowledge.CaseSummaryFacets(r.Context(), module.SingleTenantUUID)
+	if err != nil {
+		writeInternalError(w, "case_summaries facets", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // getCaseSummary handles GET /api/knowledge/case_summaries/{investigation_ref}

@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a snapshot or patch older than
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, ProcedureReads, SOPDoc } from "../../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, PastCaseFacets, PastCaseFilter, PastCaseRow, ProcedureReads, SOPDoc, SOPOutlineView } from "../../src/viewTypes";
 import type { ActionTypeView, InvestigationSnapshot, LibraryItem, RenderMessage, SopDraftState } from "../../src/protocol";
 
 export interface LiveToolResult {
@@ -79,6 +79,12 @@ export interface State {
   citations: Record<string, KnowledgeCitations>;
   /** What the agent read of a procedure here, as it was (adr/0097); absent when nothing was recorded or the read failed. */
   procedureReads: Record<string, ProcedureReads>;
+  /** A procedure's current outline (adr/0303), by sop id; absent when that read failed. */
+  outlines: Record<string, SOPOutlineView>;
+  /** The Knowledge view's past cases under the last filter answered (adr/0107); null until the first answer. */
+  pastCases: { filter: PastCaseFilter; rows: PastCaseRow[]; total: number; error?: string } | null;
+  /** The techniques and dispositions present in the corpus, for the filters; null until read. */
+  caseFacets: PastCaseFacets | null;
   /** Capability calls by id (adr/0092), and the retrieved events around an opened event. */
   calls: Record<string, CapabilityCall>;
   around: Record<string, EventRow[]>;
@@ -91,7 +97,7 @@ export interface State {
   sopDraft: { state: SopDraftState; title?: string; message?: string } | null;
   summaryStatus: { state: "written" | "baseline" | "failed"; detail?: string } | null;
   /** The knowledge library (adr/0129): what there is, and the last search's hits. */
-  library: { sops: LibraryItem[]; cases: LibraryItem[]; loaded: boolean; results: { query: string; sops: LibraryItem[]; cases: LibraryItem[] } | null };
+  library: { sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number; loaded: boolean; results: { query: string; sops: LibraryItem[]; cases: LibraryItem[] } | null };
   live: LiveItem[];
   streaming: boolean;
   /** A failed turn's live copy is the only record of it: keep it until a new turn. */
@@ -121,6 +127,9 @@ export const initialState: State = {
   caseSummaries: {},
   citations: {},
   procedureReads: {},
+  outlines: {},
+  pastCases: null,
+  caseFacets: null,
   calls: {},
   around: {},
   repeats: {},
@@ -140,6 +149,8 @@ export const initialState: State = {
 export type Action =
   | { type: "msg"; msg: RenderMessage }
   | { type: "library.clear" }
+  /** The page asks again after a failed load (the Knowledge view's Retry). */
+  | { type: "error.clear" }
   | { type: "draft.submitting" }
   | { type: "draft.searching"; status: string }
   /** A decision on this action was sent to the host. */
@@ -172,6 +183,8 @@ export function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "library.clear":
       return { ...state, library: { ...state.library, results: null } };
+    case "error.clear":
+      return { ...state, error: null };
     case "draft.submitting":
       return { ...state, draft: { ...state.draft, submitting: true, error: "" } };
     case "draft.searching":
@@ -208,9 +221,13 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "summary.status":
       return { ...state, summaryStatus: { state: msg.state, detail: msg.detail } };
     case "library":
-      return { ...state, library: { ...state.library, sops: msg.sops, cases: msg.cases, loaded: true } };
+      return { ...state, library: { ...state.library, sops: msg.sops, cases: msg.cases, casesTotal: msg.casesTotal, loaded: true } };
     case "library.results":
       return { ...state, library: { ...state.library, results: { query: msg.query, sops: msg.sops, cases: msg.cases } } };
+    case "pastCases":
+      return { ...state, pastCases: { filter: msg.filter, rows: msg.rows, total: msg.total, error: msg.error } };
+    case "pastCases.facets":
+      return { ...state, caseFacets: msg.facets };
     case "draft.error":
       return { ...state, draft: { ...state.draft, submitting: false, error: msg.message, unknownEntity: !!msg.unknownEntity } };
     case "state.snapshot": {
@@ -270,6 +287,9 @@ function onMessage(state: State, msg: RenderMessage): State {
         sops: { ...state.sops, [msg.sopId]: msg.sop },
         citations: withCitations(state.citations, msg.sopId, msg.citations),
         procedureReads: msg.reads ? { ...state.procedureReads, [msg.sopId]: msg.reads } : dropKey(state.procedureReads, msg.sopId),
+        outlines: msg.outline ? { ...state.outlines, [msg.sopId]: msg.outline } : dropKey(state.outlines, msg.sopId),
+        // The pane's name, where no investigation's thread names it (the Knowledge view).
+        labels: { ...state.labels, ["sop:" + msg.sopId]: msg.sop.title },
         inspectorErrors: dropKey(state.inspectorErrors, msg.sopId),
       };
     case "inspector.turn":
@@ -277,7 +297,13 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "inspector.action":
       return { ...state, actionRecords: { ...state.actionRecords, [msg.actionId]: msg.record }, inspectorErrors: dropKey(state.inspectorErrors, msg.actionId) };
     case "inspector.case":
-      return { ...state, caseSummaries: { ...state.caseSummaries, [msg.investigationRef]: msg.summary }, citations: withCitations(state.citations, msg.investigationRef, msg.citations), inspectorErrors: dropKey(state.inspectorErrors, msg.investigationRef) };
+      return {
+        ...state,
+        caseSummaries: { ...state.caseSummaries, [msg.investigationRef]: msg.summary },
+        citations: withCitations(state.citations, msg.investigationRef, msg.citations),
+        labels: msg.summary?.title ? { ...state.labels, ["case:" + msg.investigationRef]: msg.summary.title } : state.labels,
+        inspectorErrors: dropKey(state.inspectorErrors, msg.investigationRef),
+      };
     case "action.settled":
       return { ...state, actionsInFlight: dropKey(state.actionsInFlight, msg.actionId) };
     case "inspector.error":

@@ -11,7 +11,7 @@ import type { DocumentHost } from "./documentHost";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 import type { InspectorTarget } from "./protocol";
 import { SingleFlight } from "./singleFlight";
-import { procedureReads } from "./procedureReads";
+import { caseAnswer, procedureAnswer } from "./knowledgeAnswers";
 import { errText } from "./util";
 
 /** How many retrieved events the Story lens is given, and how many sit each side of an anchor. */
@@ -238,19 +238,9 @@ export class EvidenceReads {
           void this.host.post(panel, { type: "inspector.call", callId: target.callId, call: await this.host.client.evidence.call(id, target.callId) });
           return;
         case "sop": {
-          // The document, where it was consulted (adr/0109) and what the
-          // agent read of it here as it was (adr/0097) are three reads; a
-          // failed second or third leaves the pane without that part, never
-          // closed. The reads start from the committed thread, not from
-          // anything the webview holds.
-          const [sop, citations, reads] = await Promise.all([
-            this.host.client.knowledge.sop(target.sopId),
-            this.host.client.knowledge.sopCitations(target.sopId).catch((err: unknown) => { this.host.log.debug(`citations ${target.sopId}: ${errText(err)}`); return undefined; }),
-            this.host.client.investigations.thread(id)
-              .then((thread) => procedureReads(this.host.client.knowledge, target.sopId, thread))
-              .catch((err: unknown) => { this.host.log.debug(`procedure reads ${target.sopId}: ${errText(err)}`); return undefined; }),
-          ]);
-          void this.host.post(panel, { type: "inspector.procedure", sopId: target.sopId, sop, citations, reads });
+          // The reads start from the committed thread, not from anything the
+          // webview holds (adr/0097).
+          void this.host.post(panel, await procedureAnswer(this.host, target.sopId, () => this.host.client.investigations.thread(id)));
           return;
         }
         case "turn": {
@@ -265,11 +255,7 @@ export class EvidenceReads {
           return;
         }
         case "case": {
-          const [summary, citations] = await Promise.all([
-            this.host.client.knowledge.caseSummary(target.investigationRef),
-            this.host.client.knowledge.caseCitations(target.investigationRef).catch((err: unknown) => { this.host.log.debug(`citations ${target.investigationRef}: ${errText(err)}`); return undefined; }),
-          ]);
-          void this.host.post(panel, { type: "inspector.case", investigationRef: target.investigationRef, summary, citations });
+          void this.host.post(panel, await caseAnswer(this.host, target.investigationRef));
           return;
         }
         default:

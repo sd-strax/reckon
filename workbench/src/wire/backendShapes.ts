@@ -500,14 +500,27 @@ export const caseSummary = object({
 
 export const sops = object({ sops: list(object({ id: str, title: str, tags: list(str), cited_in: num })) });
 
+/** GET /api/knowledge/case_summaries — the past-case listing, filtered (adr/0107). */
 export const caseSummaries = object({
   case_summaries: list(object({
     investigation_ref: str,
     title: str,
+    generator_model: optional(str),
     verdict_disposition: optional(str),
     conclusion_at: optional(str),
+    techniques: list(str),
+    primary_entities: list(str),
+    actions_taken: list(object({ action_type: str, target_count: num, outcome: str })),
+    duration_hours: optional(num),
     cited_in: num,
   })),
+  total: num,
+});
+
+/** GET /api/knowledge/case_summaries/facets — the values present in the corpus (adr/0107). */
+export const caseFacets = object({
+  techniques: list(object({ value: str, count: num })),
+  dispositions: list(object({ value: str, count: num })),
 });
 
 /** GET /api/sops/{id}/citations and /api/knowledge/case_summaries/{ref}/citations (adr/0109). */

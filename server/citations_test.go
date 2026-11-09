@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -237,5 +238,46 @@ func TestKnowledgeCitations_EndToEnd(t *testing.T) {
 	code, out = call(http.MethodGet, "/api/knowledge/case_summaries/"+prior+"/citations", nil)
 	if code != http.StatusOK || out["cited_in"] != float64(0) || out["recalled_in"] != float64(2) {
 		t.Errorf("case citations = %d %v; want 0 cited, 2 recalled", code, out)
+	}
+}
+
+// TestCaseSummaryListing_Filters_OnFakes: the listing reads its filter from
+// the query (adr/0107), answers the total beside the rows, refuses a
+// malformed date or limit, and serves the facets.
+func TestCaseSummaryListing_Filters_OnFakes(t *testing.T) {
+	b := newFakeBackend(t)
+	fake := &fakeKnowledge{
+		summaries: []knowledge.CaseSummaryView{{InvestigationRef: "grouping--a", Title: "a"}},
+		facets:    knowledge.SummaryFacets{Techniques: []knowledge.FacetCount{{Value: "T1078", Count: 2}}, Dispositions: []knowledge.FacetCount{{Value: "MALICIOUS", Count: 1}}},
+	}
+	b.cfg.Knowledge = fake
+	b.cfg.Reads = &fakeReads{}
+	token := mintToken(t, nil)
+
+	code, body := send(t, b, "GET", "/api/knowledge/case_summaries?technique=T1078&technique=T1021.001&disposition=malicious&concluded_after=2026-10-01&concluded_before=2026-10-09T00:00:00Z&limit=5", token, "")
+	if code != http.StatusOK || !strings.Contains(body, `"total":1`) {
+		t.Fatalf("filtered list = %d %s", code, body)
+	}
+	f := fake.lastFilter
+	if !reflect.DeepEqual(f.Techniques, []string{"T1078", "T1021.001"}) || f.Disposition != "malicious" || f.Limit != 5 ||
+		!f.ConcludedAfter.Equal(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) || !f.ConcludedBefore.Equal(time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("filter = %+v", f)
+	}
+	if code, _ := send(t, b, "GET", "/api/knowledge/case_summaries", token, ""); code != http.StatusOK || fake.lastFilter.Limit != 100 || len(fake.lastFilter.Techniques) != 0 {
+		t.Errorf("no parameters = %d %+v; want the default limit and no filter", code, fake.lastFilter)
+	}
+	for _, q := range []string{"technique=entity:dc-02", "technique=__case_source:grouping--a", "concluded_after=yesterday", "concluded_before=2026-13-40", "limit=0", "limit=501", "limit=x"} {
+		if code, _ := send(t, b, "GET", "/api/knowledge/case_summaries?"+q, token, ""); code != http.StatusBadRequest {
+			t.Errorf("%s = %d; want 400", q, code)
+		}
+	}
+
+	code, body = send(t, b, "GET", "/api/knowledge/case_summaries/facets", token, "")
+	if code != http.StatusOK || !strings.Contains(body, `"techniques":[{"value":"T1078","count":2}]`) || !strings.Contains(body, `"dispositions":[{"value":"MALICIOUS","count":1}]`) {
+		t.Errorf("facets = %d %s", code, body)
+	}
+	fake.err = errors.New("db down")
+	if code, _ := send(t, b, "GET", "/api/knowledge/case_summaries/facets", token, ""); code != http.StatusInternalServerError {
+		t.Errorf("failed facets = %d; want 500", code)
 	}
 }

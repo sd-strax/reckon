@@ -7,7 +7,7 @@ import type { LibraryItem } from "../protocol";
 import { relevanceOfBand, relevanceOfScore } from "../relevance";
 import * as shapes from "../wire/backendShapes";
 import type { Decoded } from "../wire/decode";
-import type { CaseSummaryView, KnowledgeCitations, SOPDoc, SOPOutlineView, SOPRevisionRow, SOPSectionView } from "../viewTypes";
+import type { CaseSummaryView, KnowledgeCitations, PastCaseFacets, PastCaseFilter, PastCaseRow, SOPDoc, SOPOutlineView, SOPRevisionRow, SOPSectionView } from "../viewTypes";
 
 function citationsView(r: Decoded<typeof shapes.citations>): KnowledgeCitations {
   return {
@@ -28,14 +28,56 @@ export class KnowledgeClient {
     return r.sops.filter((x) => x.id).map((x) => ({ kind: "sop" as const, ref: x.id, title: x.title || x.id, detail: x.tags.join(", ") || undefined, citedIn: x.cited_in }));
   }
 
-  /** GET /api/knowledge/case_summaries — the past cases in the library (adr/0129). */
+  /** GET /api/knowledge/case_summaries — the past cases in the library (adr/0129), unfiltered. */
   async cases(): Promise<LibraryItem[]> {
-    const r = await this.http.get("/api/knowledge/case_summaries", shapes.caseSummaries);
-    return r.case_summaries.filter((x) => x.investigation_ref).map((x) => ({
-      kind: "case" as const, ref: x.investigation_ref, title: x.title || x.investigation_ref,
-      detail: [x.verdict_disposition?.toLowerCase(), x.conclusion_at ? "concluded " + x.conclusion_at.slice(0, 10) : ""].filter(Boolean).join(" · ") || undefined,
-      citedIn: x.cited_in,
-    }));
+    return (await this.caseList()).items;
+  }
+
+  /** The unfiltered listing as library rows, and how many past cases the corpus holds beyond its page. */
+  async caseList(): Promise<{ items: LibraryItem[]; total: number }> {
+    const { rows, total } = await this.pastCases({ techniques: [] });
+    return { total, items: rows.map((x) => ({
+      kind: "case" as const, ref: x.ref, title: x.title || x.ref,
+      detail: [x.disposition?.toLowerCase(), x.concludedAt ? "concluded " + x.concludedAt.slice(0, 10) : ""].filter(Boolean).join(" · ") || undefined,
+      citedIn: x.citedIn,
+    })) };
+  }
+
+  /**
+   * GET /api/knowledge/case_summaries?technique=&disposition=&concluded_after=&concluded_before=
+   * (adr/0107): the past cases matching the filter, newest first, and how many
+   * matched. The analyst's "to" day is inclusive; the route's bound is
+   * exclusive, so it is sent as the next day.
+   */
+  async pastCases(filter: PastCaseFilter): Promise<{ rows: PastCaseRow[]; total: number }> {
+    const q = new URLSearchParams();
+    for (const t of filter.techniques) q.append("technique", t);
+    if (filter.disposition) q.set("disposition", filter.disposition);
+    if (filter.from) q.set("concluded_after", filter.from);
+    if (filter.to) q.set("concluded_before", nextDay(filter.to));
+    const query = q.toString();
+    const r = await this.http.get(`/api/knowledge/case_summaries${query ? "?" + query : ""}`, shapes.caseSummaries);
+    return {
+      total: r.total,
+      rows: r.case_summaries.filter((x) => x.investigation_ref).map((x) => ({
+        ref: x.investigation_ref, title: x.title, concludedAt: x.conclusion_at, disposition: x.verdict_disposition,
+        techniques: x.techniques, entities: x.primary_entities,
+        actions: x.actions_taken.map((a) => ({ actionType: a.action_type, targetCount: a.target_count, outcome: a.outcome })),
+        durationHours: x.duration_hours, citedIn: x.cited_in, narrative: !!x.generator_model,
+      })),
+    };
+  }
+
+  /** GET /api/knowledge/case_summaries/facets — the techniques and dispositions present (adr/0107). */
+  async caseFacets(): Promise<PastCaseFacets> {
+    const r = await this.http.get("/api/knowledge/case_summaries/facets", shapes.caseFacets);
+    return { techniques: r.techniques, dispositions: r.dispositions };
+  }
+
+  /** GET /api/sops/{id}/sections — the current revision's outline, every section's place (adr/0303). */
+  async outline(id: string): Promise<SOPOutlineView> {
+    const r = await this.http.get(`/api/sops/${encodeURIComponent(id)}/sections`, shapes.sopOutline);
+    return { revision: r.revision, cut: r.cut, sections: r.sections.map((s) => ({ idx: s.idx, location: s.location, headingPath: s.heading_path, part: s.part, parts: s.parts })) };
   }
 
   /**
@@ -140,4 +182,10 @@ export class KnowledgeClient {
 /** The ?cut= of a revision read; none when the record carries no cut. */
 function cutQuery(cut: string | undefined): string {
   return cut ? `?cut=${encodeURIComponent(cut)}` : "";
+}
+
+/** The calendar day after a YYYY-MM-DD day, as YYYY-MM-DD (UTC). */
+export function nextDay(day: string): string {
+  const t = Date.parse(day + "T00:00:00Z");
+  return Number.isNaN(t) ? day : new Date(t + 86_400_000).toISOString().slice(0, 10);
 }

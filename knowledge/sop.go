@@ -441,7 +441,7 @@ func (s *Store) Retire(ctx context.Context, tenantID, id uuid.UUID) error {
 // for a missing or retired SOP, matching the pre-substrate behavior.
 func (s *Store) resolveCurrent(ctx context.Context, tenantID, id uuid.UUID, includeRetired bool) (substrate.Entry, error) {
 	entries, err := s.sub.List(ctx, tenantID.String(), CorpusProcedures, substrate.ListFilter{
-		Tag:            lineageTagPrefix + id.String(),
+		Tags:           []string{lineageTagPrefix + id.String()},
 		IncludeRetired: includeRetired,
 	})
 	if err != nil {

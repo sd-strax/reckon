@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -358,8 +359,89 @@ func TestListSummaries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	list, err := s.ListSummaries(ctx, testTenant, 10)
-	if err != nil || len(list) != 2 || list[0].Title != "newer" {
+	list, err := s.ListSummaries(ctx, testTenant, SummaryFilter{Limit: 10})
+	if err != nil || len(list.Summaries) != 2 || list.Summaries[0].Title != "newer" || list.Total != 2 {
 		t.Fatalf("list = %+v %v; want newer first", list, err)
 	}
+}
+
+// TestListSummaries_Filtered: technique, disposition and the conclusion range
+// narrow the listing (adr/0107); techniques are ANDed, the disposition is the
+// verdict's word in any case, the range is [after, before), total counts
+// before the limit, and the facets count only what is present.
+func TestListSummaries_Filtered(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	s := reset(t)
+	ctx := context.Background()
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
+	for _, c := range []struct {
+		title       string
+		techniques  []string
+		disposition string
+		at          time.Time
+	}{
+		{"rdp", []string{"T1021.001", "T1078"}, "MALICIOUS", day(1)},
+		{"valid account", []string{"T1078"}, "SUSPICIOUS", day(5)},
+		{"benign admin", []string{"T1021.001"}, "BENIGN", day(9)},
+	} {
+		if _, err := s.WriteSummary(ctx, testTenant, Summary{
+			InvestigationRef: "grouping--" + uuid.New().String(), Title: c.title, SummaryText: "b", ExtractorVersion: "2",
+			ConclusionAt: c.at, Techniques: c.techniques, VerdictDisposition: c.disposition,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	titles := func(f SummaryFilter) ([]string, int) {
+		t.Helper()
+		got, err := s.ListSummaries(ctx, testTenant, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, 0, len(got.Summaries))
+		for _, v := range got.Summaries {
+			out = append(out, v.Title)
+		}
+		return out, got.Total
+	}
+	check := func(name string, f SummaryFilter, want []string, total int) {
+		t.Helper()
+		got, n := titles(f)
+		if !reflect.DeepEqual(got, want) || n != total {
+			t.Errorf("%s: %v (total %d); want %v (total %d)", name, got, n, want, total)
+		}
+	}
+	check("technique", SummaryFilter{Techniques: []string{"T1078"}}, []string{"valid account", "rdp"}, 2)
+	check("two techniques AND", SummaryFilter{Techniques: []string{"T1078", "T1021.001"}}, []string{"rdp"}, 1)
+	check("disposition any case", SummaryFilter{Disposition: "benign"}, []string{"benign admin"}, 1)
+	check("range [after, before)", SummaryFilter{ConcludedAfter: day(1), ConcludedBefore: day(9)}, []string{"valid account", "rdp"}, 2)
+	check("after only", SummaryFilter{ConcludedAfter: day(2)}, []string{"benign admin", "valid account"}, 2)
+	check("limit keeps the total", SummaryFilter{Limit: 1}, []string{"benign admin"}, 3)
+	check("nothing matches", SummaryFilter{Techniques: []string{"T9999"}}, []string{}, 0)
+
+	facets, err := s.CaseSummaryFacets(ctx, testTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantT := []FacetCount{{"T1021.001", 2}, {"T1078", 2}}
+	wantD := []FacetCount{{"BENIGN", 1}, {"MALICIOUS", 1}, {"SUSPICIOUS", 1}}
+	if !reflect.DeepEqual(facets.Techniques, wantT) || !reflect.DeepEqual(facets.Dispositions, wantD) {
+		t.Errorf("facets = %+v; want %v %v", facets, wantT, wantD)
+	}
+
+	// A summary written without a conclusion time has none: it lists last
+	// with an empty time and never matches a range.
+	if _, err := s.WriteSummary(ctx, testTenant, Summary{
+		InvestigationRef: "grouping--" + uuid.New().String(), Title: "undated", SummaryText: "b", ExtractorVersion: "2", VerdictDisposition: "benign",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	check("before only excludes the undated", SummaryFilter{ConcludedBefore: day(30)}, []string{"benign admin", "valid account", "rdp"}, 3)
+	all, err := s.ListSummaries(ctx, testTenant, SummaryFilter{})
+	if err != nil || all.Summaries[len(all.Summaries)-1].Title != "undated" || all.Summaries[len(all.Summaries)-1].ConclusionAt != "" {
+		t.Errorf("undated summary: %v %+v", err, all.Summaries)
+	}
+	// The disposition matches whatever case the entry was written in.
+	check("lower-case written, upper-case asked", SummaryFilter{Disposition: "BENIGN"}, []string{"benign admin", "undated"}, 2)
 }

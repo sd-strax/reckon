@@ -27,9 +27,9 @@ function CitedElsewhere({ citations, here, arrived }: { citations: KnowledgeCita
   // Three states: the inspector's answer is still in flight; it came without
   // citations (that read failed); it came with them.
   if (!arrived) return <Loading what="where it was consulted" />;
-  if (!citations) return <div className="empty">Where this was consulted elsewhere could not be read.</div>;
+  if (!citations) return <div className="empty">{here === undefined ? "Where this was consulted could not be read." : "Where this was consulted elsewhere could not be read."}</div>;
   const rows = citations.investigations.filter((c) => !sameInvestigation(c.investigationId, here));
-  if (!rows.length) return <div className="empty">Not consulted in any other investigation.</div>;
+  if (!rows.length) return <div className="empty">{here === undefined ? "Not consulted in any investigation." : "Not consulted in any other investigation."}</div>;
   return (
     <>
       {rows.map((c) => (
@@ -49,6 +49,8 @@ function sameInvestigation(a: string, b: string | undefined): boolean {
 
 /** The tab label: the count of other investigations the ref was consulted in. */
 function citedLabel(citations: KnowledgeCitations | undefined, here: string | undefined): string {
+  // Outside an investigation (the Knowledge view) there is no "elsewhere".
+  if (here === undefined) return citations ? `Where cited · ${citations.citedIn} of ${citations.citedIn + citations.recalledIn}` : "Where cited";
   if (!citations) return "Cited elsewhere";
   const others = citations.investigations.filter((c) => !sameInvestigation(c.investigationId, here));
   const cited = others.filter((c) => c.cited).length;
@@ -165,16 +167,21 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
   const got = received(state.snap, "case", investigationRef);
   const match = got.find((g) => g.band || g.rationale);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSimilar || []).filter((s) => s.investigationRef === investigationRef).map((s) => ({ e, s })));
+  // Outside an investigation (the Knowledge view) there is no "In this case"
+  // and nothing the agent read: knowledge only (ui/09 §9.1).
+  const inInvestigation = !!state.snap;
   return (
     <>
       <div className="isub">
         {match?.band ? <Badge tone={match.band === "NEAR_DUPLICATE" ? "ok" : match.band === "DISTINCT" ? "muted" : "info"}>{relevanceOfBand(match.band)}</Badge> : null}
         {summary ? <> Concluded {summary.conclusionAt ? fmtDateTime(summary.conclusionAt) : "—"}{summary.verdictDisposition ? " · " + summary.verdictDisposition.toLowerCase() : ""}{summary.durationHours ? ` · ${summary.durationHours} hours` : ""}</> : null}
       </div>
-      <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
-        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.cited ? "the agent cited it" : "the agent recalled it, not cited"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
-        {!consulted.length ? <span className="empty">the agent has not recalled it in this investigation</span> : null}
-      </div>
+      {inInvestigation ? (
+        <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
+          {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.cited ? "the agent cited it" : "the agent recalled it, not cited"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
+          {!consulted.length ? <span className="empty">the agent has not recalled it in this investigation</span> : null}
+        </div>
+      ) : null}
       <Tabs tabs={[
         { id: "summary", label: "Summary", body: () => (
           summary === undefined ? <Loading what="case summary" />
@@ -201,14 +208,14 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
             )
         ) },
         { id: "cited", label: citedLabel(citations, here), body: () => <CitedElsewhere citations={citations} here={here} arrived={summary !== undefined} /> },
-        { id: "read", label: "What the agent read", body: () => (
+        ...(inInvestigation ? [{ id: "read", label: "What the agent read", body: () => (
           got.length ? got.map((g, i) => (
             <div key={i}>
               {g.excerpt ? <blockquote className="iquote">{g.excerpt}</blockquote> : null}
               <div className="imeta">{[g.band ? relevanceOfBand(g.band) : "", g.rationale || ""].filter(Boolean).join(" · ")} — in <a onClick={() => openInspector({ kind: "turn", interpretationId: g.interpretationId })}>{g.summary || "a turn"}</a></div>
             </div>
           )) : <div className="empty">The agent has not read this case in this investigation.</div>
-        ) },
+        ) }] : []),
       ]} />
       <div className="decide">
         <button onClick={() => send({ type: "investigation.open", id: investigationRef.replace(/^grouping--/, ""), title: summary?.title })}>Open that investigation</button>
@@ -338,18 +345,24 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
   const deliveries = useMemo(() => delivered(state.snap, sopId), [state.snap, sopId]);
   const turnLabel = (interpretationId: string) => (state.snap?.thread || []).find((e) => e.interpretationId === interpretationId)?.summary || "a turn";
   const ledTo = (state.snap?.actions || []).filter((a) => consulted.some(({ e }) => (e.outputRefs || []).includes(a.actionId)));
+  const outline = state.outlines[sopId];
+  // Outside an investigation (the Knowledge view, ui/09 §9.1) there is no
+  // "In this case" and nothing the agent read: knowledge only.
+  const inInvestigation = !!state.snap;
   return (
     <>
       <div className="isub">{sop ? <>{sop.source?.system ? sop.source.system + " · " : ""}{sop.source?.url ? <span className="mono">{sop.source.url}</span> : "markdown"}{sop.importedBy ? ` · imported by ${sop.importedBy}` : ""}{sop.importedAt ? ` · ${fmtDateTime(sop.importedAt)}` : ""}</> : null}</div>
-      <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
-        {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.cited ? "the agent cited it" : "the agent recalled it, not cited"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
-        {ledTo.map((a) => <span key={a.actionId} className="icite">led to <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a></span>)}
-        {!consulted.length ? <span className="empty">the agent has not recalled it in this investigation</span> : null}
-      </div>
+      {inInvestigation ? (
+        <div className="ithiscase"><span className="kicker">In this case:</span>{" "}
+          {consulted.map(({ e, s }) => <span key={e.sequenceNo} className="icite">{s.cited ? "the agent cited it" : "the agent recalled it, not cited"} in <a onClick={() => openInspector({ kind: "turn", interpretationId: e.interpretationId })}>{e.summary || "a turn"}</a></span>)}
+          {ledTo.map((a) => <span key={a.actionId} className="icite">led to <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a></span>)}
+          {!consulted.length ? <span className="empty">the agent has not recalled it in this investigation</span> : null}
+        </div>
+      ) : null}
       <Tabs tabs={[
-        { id: "read", label: "What the agent read", body: () => (
+        ...(inInvestigation ? [{ id: "read", label: "What the agent read", body: () => (
           <WhatTheAgentRead reads={reads} recorded={recorded} arrived={sop !== undefined} got={got} deliveries={deliveries} turnLabel={turnLabel} openTurn={(interpretationId) => openInspector({ kind: "turn", interpretationId })} />
-        ) },
+        ) }] : []),
         { id: "whole", label: "Whole document", body: () => (
           sop === undefined ? <Loading what="procedure" /> : (
             <>
@@ -359,7 +372,13 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
                 { k: "Tags", v: sop.tags.join(", ") || undefined, mono: true },
                 { k: "Author", v: sop.authorId },
                 { k: "Version", v: sop.source?.version, mono: true },
+                { k: "Revision", v: outline ? String(outline.revision) : undefined, mono: true },
               ]} />
+              {outline ? (
+                <Section title={`Outline · ${outline.sections.length} section${outline.sections.length === 1 ? "" : "s"}`}>
+                  <ol className="ioutline">{outline.sections.map((o) => <li key={o.idx}>{o.location}</li>)}</ol>
+                </Section>
+              ) : null}
               <Markdown text={sop.body} className="idoc" />
             </>
           )

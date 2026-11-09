@@ -5,9 +5,15 @@
 // request in the composer.
 import { useEffect, useState } from "react";
 import { useApp } from "../app";
+import { QueryBar } from "./QueryBar";
 import type { LibraryItem } from "../../../src/protocol";
 
-function Items({ title, items, empty }: { title: string; items: LibraryItem[]; empty: string }) {
+/**
+ * One group of library rows. `ask` offers "Ask reckon to use this", which
+ * stages a request in the investigation's composer: inside an investigation
+ * only, since the Knowledge view acts on none (ui/09 §9.1).
+ */
+export function Items({ title, items, empty, ask: offerAsk = true }: { title: string; items: LibraryItem[]; empty: string; ask?: boolean }) {
   const { openInspector, stage, setCompanionMode } = useApp();
   const ask = (k: LibraryItem) => {
     setCompanionMode("conversation");
@@ -27,7 +33,7 @@ function Items({ title, items, empty }: { title: string; items: LibraryItem[]; e
               {[k.detail, k.citedIn !== undefined ? `cited in ${k.citedIn} investigation${k.citedIn === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")}
             </div>
           ) : null}
-          <a className="libask" onClick={() => ask(k)}>Ask reckon to use this</a>
+          {offerAsk ? <a className="libask" onClick={() => ask(k)}>Ask reckon to use this</a> : null}
         </div>
       )) : <div className="empty">{empty}</div>}
     </div>
@@ -38,10 +44,7 @@ export function Library() {
   const { state, send, dispatch } = useApp();
   const lib = state.library;
   const [open, setOpen] = useState(true);
-  const [q, setQ] = useState("");
   useEffect(() => { if (open && !lib.loaded) send({ type: "library.get" }); }, [open, lib.loaded, send]);
-  const search = () => { const text = q.trim(); if (text) send({ type: "library.search", text }); };
-  const clear = () => { setQ(""); dispatch({ type: "library.clear" }); };
   const r = lib.results;
   return (
     <section className="ksection" id="knowledgeSection">
@@ -52,11 +55,7 @@ export function Library() {
       </div>
       {open ? (
         <>
-          <div className="ksearch">
-            <input type="text" value={q} placeholder="Search procedures and past cases…" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); search(); } if (e.key === "Escape") clear(); }} />
-            <button disabled={!q.trim()} onClick={search}>Search</button>
-            {r ? <button className="ghost" onClick={clear}>Clear</button> : null}
-          </div>
+          <QueryBar showing={!!r} onSearch={(text) => send({ type: "library.search", text })} onClear={() => dispatch({ type: "library.clear" })} />
           {r ? (
             <div className="libresults">
               <div className="imeta">Results for “{r.query}”</div>
@@ -71,6 +70,7 @@ export function Library() {
           )}
           <div className="libfoot">
             <button onClick={() => send({ type: "library.import" })}>Import procedures…</button>
+            <button className="ghost" onClick={() => send({ type: "knowledge.open" })}>Open the Knowledge view</button>
             <span className="imeta">The agent reads these only when it recalls them — ask it in the conversation.</span>
           </div>
         </>

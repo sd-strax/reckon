@@ -8,6 +8,7 @@ import { AppProvider } from "./app";
 import { App } from "./components/App";
 import { CaseApp } from "./surfaces/CaseApp";
 import { ImportApp } from "./surfaces/ImportApp";
+import { KnowledgeApp } from "./surfaces/KnowledgeApp";
 import { VsCodeTransport } from "./transport";
 import "./styles/tokens.css";
 import "./styles/app.css";
@@ -23,6 +24,9 @@ if (root) {
       break;
     case "import":
       mount.render(<ImportApp transport={new VsCodeTransport()} />);
+      break;
+    case "knowledge":
+      mount.render(<KnowledgeApp transport={new VsCodeTransport()} />);
       break;
     default:
       mount.render(

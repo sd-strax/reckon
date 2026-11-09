@@ -701,3 +701,31 @@ body.gripDragging { cursor: col-resize; user-select: none; }
 
 /* An encoded command line read back (adr/0300): the whole text, wrapped, beside the stored field. */
 pre.decoded { white-space: pre-wrap; word-break: break-all; margin: 0 0 4px; font-size: 12px; }
+
+/* The Knowledge view (adr/0107, ui/09 §9.1): sections · content · detail. */
+.kview { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; height: 100vh; overflow: hidden; }
+.knav { border-right: 1px solid var(--border); padding: var(--sp-3); display: flex; flex-direction: column; gap: 2px; }
+.knav .kicker { margin-bottom: 6px; }
+.knavrow { display: flex; justify-content: space-between; align-items: baseline; text-align: left; background: none; border: none; color: inherit; padding: 4px 6px; border-radius: var(--r-sm); cursor: pointer; }
+.knavrow.on { background: var(--fill); font-weight: 600; }
+.kmain { overflow-y: auto; padding: var(--sp-3) var(--sp-4) var(--sp-6); min-width: 0; }
+.kdetail { position: relative; min-width: 0; }
+.kdetail #inspectorDock { position: static; height: 100vh; }
+.kdetail .inspector { width: min(640px, 48vw); }
+.kresultshead { display: flex; justify-content: space-between; align-items: baseline; margin: 8px 0; }
+.kfilters { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; margin: 8px 0 6px; }
+.kfacet { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.kfacet .chip { font-size: var(--fs-xs); padding: 1px 6px; border-radius: var(--r-sm); border: 1px solid var(--border); background: none; color: inherit; cursor: pointer; }
+.kfacet .chip.on { background: var(--fill); border-color: var(--he-primary); }
+.kmatch { margin: 4px 0 8px; }
+.ktable { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.ktable th { text-align: left; font-weight: 600; color: var(--text-3); font-size: var(--fs-xs); border-bottom: 1px solid var(--border); padding: 4px 6px; }
+.ktable td { vertical-align: top; padding: 6px; border-bottom: 1px solid var(--border); }
+.verdictpill { font-size: var(--fs-xs); padding: 0 6px; border-radius: 999px; border: 1px solid currentColor; }
+.verdictpill.malicious { color: var(--bad); }
+.verdictpill.suspicious { color: var(--warn); }
+.verdictpill.benign { color: var(--ok); }
+.kimport { max-width: 60ch; }
+.ioutline { margin: 4px 0 8px 1.2em; padding: 0; font-size: var(--fs-xs); }
+.regionknowledge { font-size: var(--fs-xs); padding: 1px 6px; }
+.kerror { color: var(--error-fg); margin: 0 0 8px; }

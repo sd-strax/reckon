@@ -79,9 +79,8 @@ func TestWireFixtures(t *testing.T) {
 	wirefixture.Check[struct {
 		SOPs []SOPRow `json:"sops"`
 	}](t, dir, "sops")
-	wirefixture.Check[struct {
-		CaseSummaries []CaseSummaryRow `json:"case_summaries"`
-	}](t, dir, "caseSummaries")
+	wirefixture.Check[CaseSummaryListResponse](t, dir, "caseSummaries")
+	wirefixture.Check[knowledge.SummaryFacets](t, dir, "caseFacets")
 	wirefixture.Check[KnowledgeCitationsResponse](t, dir, "citations")
 	wirefixture.Check[knowledge.RecallResult](t, dir, "recallSOPs")
 	wirefixture.Check[knowledge.SimilarResult](t, dir, "recallSimilar")

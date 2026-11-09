@@ -300,7 +300,10 @@ This is a decision this document makes; it is flagged in §11.
 webview (above). The **Knowledge view** is its own document in the main area: one webview
 panel, created by `knowledgeDocument.ts` the way `caseDocument.ts` creates a case document,
 kept as a singleton (`retainContextWhenHidden`, revealed rather than re-created), rendering
-`<KnowledgeApp>` from the same bundle with `data-surface="knowledge"`. It shares `<LeftRegion>`,
+`<KnowledgeApp>` from the same bundle with `data-surface="knowledge"`. *Built (`adr/0107`): the
+singleton panel, `knowledge.open` from the investigation's left region and Library, Procedures ·
+Past cases · Import with the query bar and the inspector dock; the Work toggle in the Knowledge
+document's region is not built, and the view lists its sections in its own navigation.* It shares `<LeftRegion>`,
 the inspector dock, the dialogs, the primitives and the tokens with the investigation document;
 it shares no state with any investigation, and nothing in it posts an investigation intent.
 

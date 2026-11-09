@@ -145,7 +145,7 @@ func (s *Store) revisionSections(ctx context.Context, tenantID, id uuid.UUID, re
 // and retired rows included. An unknown lineage is ErrNotFound.
 func (s *Store) lineageRows(ctx context.Context, tenantID, id uuid.UUID) ([]substrate.Entry, error) {
 	rows, err := s.sub.List(ctx, tenantID.String(), CorpusProcedures, substrate.ListFilter{
-		Tag:               lineageTagPrefix + id.String(),
+		Tags:              []string{lineageTagPrefix + id.String()},
 		IncludeRetired:    true,
 		IncludeSuperseded: true,
 	})

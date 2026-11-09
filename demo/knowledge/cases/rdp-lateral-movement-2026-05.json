@@ -12,7 +12,7 @@
   ],
   "conclusion_outcome": "succeeded",
   "duration_hours": 6.5,
-  "verdict_disposition": "true_positive",
+  "verdict_disposition": "MALICIOUS",
   "verdict_rationale": "A stolen valid account (corp\\j.rivera) was used to RDP from FINANCE-07 into DC-02, where discovery tooling ran. Containing the destination and disabling the account stopped the pivot.",
   "summary_text": "Interactive RDP logon from FINANCE-07 to the domain controller DC-02 using corp\\j.rivera, an account with no operational reason to reach DC-02. Post-logon process activity showed host and domain discovery. Determined true-positive hands-on-keyboard lateral movement (T1021.001) on a stolen valid account (T1078). Contained by isolating DC-02 and disabling the account; no evidence of persistence or data staging before containment."
 }

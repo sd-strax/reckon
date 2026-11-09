@@ -84,7 +84,7 @@ func (s *Store) WriteSummary(ctx context.Context, tenantID uuid.UUID, sum Summar
 	// Re-derivation is a revision (design/06 §3.1): find a prior summary of this
 	// source and revise it, else write a fresh one.
 	prior, err := s.sub.List(ctx, ns, CorpusCaseSummaries, substrate.ListFilter{
-		Tag:            summarySourcePrefix + sum.InvestigationRef,
+		Tags:           []string{summarySourcePrefix + sum.InvestigationRef},
 		IncludeRetired: true,
 	})
 	if err != nil {
@@ -212,22 +212,140 @@ func (s *Store) RecallSimilar(ctx context.Context, tenantID uuid.UUID, req Simil
 	return out, nil
 }
 
-// ListSummaries returns the concluded investigations' summaries, most recently
-// concluded first — the library's past cases (adr/0129).
-func (s *Store) ListSummaries(ctx context.Context, tenantID uuid.UUID, limit int) ([]CaseSummaryView, error) {
-	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{})
+// SummaryFilter narrows the past-case listing (adr/0107). The zero value
+// lists everything. Techniques are tags the summary producer writes on every
+// entry (summaryTags), so they filter in the substrate. The disposition and
+// the conclusion time are compared here, after the list, over the entry's
+// meta: the disposition so that it matches in any case, as the facets count
+// it, whatever case an older entry's tag was written in; the time because it
+// is host meta the substrate does not read. A summary without a conclusion
+// time never matches a range.
+type SummaryFilter struct {
+	// Techniques are ATT&CK technique ids, every one of which a summary must
+	// carry.
+	Techniques []string
+	// Disposition is the verdict's word (BENIGN, SUSPICIOUS, MALICIOUS);
+	// compared without regard to case.
+	Disposition string
+	// ConcludedAfter is inclusive and ConcludedBefore exclusive; zero is no
+	// bound.
+	ConcludedAfter, ConcludedBefore time.Time
+	// Limit caps the rows returned; Total still counts every match. 0 = no cap.
+	Limit int
+}
+
+// SummaryList is the past-case listing: the rows, most recently concluded
+// first, and how many matched before the limit, so a view can say "3 of 5".
+type SummaryList struct {
+	Summaries []CaseSummaryView
+	Total     int
+}
+
+// ListSummaries returns the concluded investigations' summaries matching the
+// filter, most recently concluded first: the library's past cases
+// (adr/0129) and the Knowledge view's (adr/0107).
+func (s *Store) ListSummaries(ctx context.Context, tenantID uuid.UUID, f SummaryFilter) (SummaryList, error) {
+	tags := make([]string, 0, len(f.Techniques)+1)
+	for _, t := range f.Techniques {
+		if t = strings.TrimSpace(t); t != "" {
+			tags = append(tags, t)
+		}
+	}
+	disposition := strings.TrimSpace(f.Disposition)
+	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{Tags: tags})
 	if err != nil {
-		return nil, fmt.Errorf("list case summaries: %w", err)
+		return SummaryList{}, fmt.Errorf("list case summaries: %w", err)
 	}
 	out := make([]CaseSummaryView, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, caseSummaryView(e))
+		v := caseSummaryView(e)
+		if disposition != "" && !strings.EqualFold(v.VerdictDisposition, disposition) {
+			continue
+		}
+		if !concludedWithin(v.ConclusionAt, f.ConcludedAfter, f.ConcludedBefore) {
+			continue
+		}
+		out = append(out, v)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].ConclusionAt > out[j].ConclusionAt })
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
+	total := len(out)
+	if f.Limit > 0 && len(out) > f.Limit {
+		out = out[:f.Limit]
 	}
-	return out, nil
+	return SummaryList{Summaries: out, Total: total}, nil
+}
+
+// concludedWithin reports whether a summary's conclusion time falls in
+// [after, before); a zero bound is open. With either bound set, a summary
+// whose time is missing or unreadable is outside.
+func concludedWithin(at string, after, before time.Time) bool {
+	if after.IsZero() && before.IsZero() {
+		return true
+	}
+	t, err := time.Parse(time.RFC3339, at)
+	if err != nil || t.IsZero() {
+		return false
+	}
+	if !after.IsZero() && t.Before(after) {
+		return false
+	}
+	if !before.IsZero() && !t.Before(before) {
+		return false
+	}
+	return true
+}
+
+// FacetCount is one value present in the corpus and how many summaries carry it.
+type FacetCount struct {
+	Value string `json:"value"`
+	Count int    `json:"count"`
+}
+
+// SummaryFacets are the technique ids and dispositions present in the
+// past-case corpus, most common first (GET
+// /api/knowledge/case_summaries/facets), so a filter offers only values
+// that would match something.
+type SummaryFacets struct {
+	Techniques   []FacetCount `json:"techniques"`
+	Dispositions []FacetCount `json:"dispositions"`
+}
+
+// CaseSummaryFacets counts the techniques and dispositions over every
+// summary in the corpus.
+func (s *Store) CaseSummaryFacets(ctx context.Context, tenantID uuid.UUID) (SummaryFacets, error) {
+	all, err := s.ListSummaries(ctx, tenantID, SummaryFilter{})
+	if err != nil {
+		return SummaryFacets{}, err
+	}
+	techniques, dispositions := map[string]int{}, map[string]int{}
+	for _, v := range all.Summaries {
+		seen := map[string]bool{}
+		for _, t := range v.Techniques {
+			if t != "" && !seen[t] {
+				seen[t] = true
+				techniques[t]++
+			}
+		}
+		if v.VerdictDisposition != "" {
+			dispositions[strings.ToUpper(v.VerdictDisposition)]++
+		}
+	}
+	return SummaryFacets{Techniques: facetCounts(techniques), Dispositions: facetCounts(dispositions)}, nil
+}
+
+// facetCounts orders a value count most common first, then by value.
+func facetCounts(m map[string]int) []FacetCount {
+	out := make([]FacetCount, 0, len(m))
+	for v, n := range m {
+		out = append(out, FacetCount{Value: v, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Value < out[j].Value
+	})
+	return out
 }
 
 // PriorRequest asks which concluded investigations involved an entity.
@@ -259,7 +377,7 @@ func (s *Store) PriorByEntity(ctx context.Context, tenantID uuid.UUID, req Prior
 	if limit <= 0 {
 		limit = defaultRecallLimit
 	}
-	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{Tag: tag})
+	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{Tags: []string{tag}})
 	if err != nil {
 		return PriorResult{}, fmt.Errorf("prior_investigations: %w", err)
 	}
@@ -285,7 +403,7 @@ func (s *Store) PriorByEntity(ctx context.Context, tenantID uuid.UUID, req Prior
 func (s *Store) unmatchedTags(ctx context.Context, tenantID uuid.UUID, tags []string) ([]string, error) {
 	var out []string
 	for _, t := range tags {
-		hits, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{Tag: t, Limit: 1})
+		hits, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{Tags: []string{t}, Limit: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -333,7 +451,7 @@ func (s *Store) EnrichSummary(ctx context.Context, tenantID uuid.UUID, investiga
 	}
 	ns := tenantID.String()
 	prior, err := s.sub.List(ctx, ns, CorpusCaseSummaries, substrate.ListFilter{
-		Tag:            summarySourcePrefix + investigationRef,
+		Tags:           []string{summarySourcePrefix + investigationRef},
 		IncludeRetired: true,
 	})
 	if err != nil {
@@ -456,7 +574,7 @@ func (s *Store) SummaryByInvestigation(ctx context.Context, tenantID uuid.UUID, 
 		return CaseSummaryView{}, fmt.Errorf("SummaryByInvestigation: investigation_ref required")
 	}
 	entries, err := s.sub.List(ctx, tenantID.String(), CorpusCaseSummaries, substrate.ListFilter{
-		Tag: summarySourcePrefix + investigationRef,
+		Tags: []string{summarySourcePrefix + investigationRef},
 	})
 	if err != nil {
 		return CaseSummaryView{}, fmt.Errorf("resolve summary: %w", err)
@@ -504,6 +622,11 @@ func caseSummaryView(e substrate.Entry) CaseSummaryView {
 		return out
 	}
 	v.ConclusionAt = str("conclusion_at")
+	// A summary written without a conclusion time carries the zero time
+	// formatted; it has none, and says so by leaving the field empty.
+	if t, err := time.Parse(time.RFC3339, v.ConclusionAt); err == nil && t.IsZero() {
+		v.ConclusionAt = ""
+	}
 	v.SeedKind, v.SeedValue = str("seed_kind"), str("seed_value")
 	v.Techniques = strs("techniques")
 	v.PrimaryEntities = strs("primary_entities")
