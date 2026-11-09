@@ -1,6 +1,6 @@
 # 0300 — An encoded command line is read back beside the original, in the event view, only when a known encoding decodes cleanly
 
-Issue: #300 · PR: #310 · Status: accepted
+Issue: #300 · PR: #310, #315 · Status: accepted
 
 ## Context
 
