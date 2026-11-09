@@ -805,8 +805,8 @@ the baselines are expected to stand.
 *Built: `adr/0090`. The entity refs in a sentence come from the objects the record derived from
 the event, bound by value, not from a read-time identity run (a row carries no source scope).
 `decoded` built as `adr/0300`: set by the process and scheduled-job templates, only when
-PowerShell's encoded command (base64 of UTF-16LE, anchored on its flag) or a bare base64 token of
-sixteen or more characters decodes cleanly to printable text; the evidence inspector shows it
+PowerShell is the line's program and its encoded command (base64 of UTF-16LE, found by
+PowerShell's own switch table) decodes cleanly to printable text; the evidence inspector shows it
 under the summary and the export's cited-event line carries it clipped; the stored command line
 stays primary everywhere, the fold included.*
 
