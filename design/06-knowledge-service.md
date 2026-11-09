@@ -321,7 +321,12 @@ The ranker emits a `match_rationale` per result: a short prose explanation of wh
 > outline) and `GET /api/sops/{id}/sections/{n}` (one section whole, with the
 > outline), both taking `?revision=` and `?cut=` from the hit and answering
 > 409 when either has moved since, which the agent reaches through `read_sop`
-> (§5.2). The earlier text follows as the record of the first design.
+> (§5.2). A person reads what an act was shown after the procedure moved on
+> through `GET /api/sops/{id}/revisions` and
+> `GET /api/sops/{id}/revisions/{r}/sections[/{n}]?cut=` (`adr/0097`): any
+> revision, under any cut it once had, recomputed from the revision's body
+> when the store no longer holds that cut, and never 409. The earlier text
+> follows as the record of the first design.
 
 For SOPs: the full body up to a token budget (default 4000 tokens). For longer SOPs, return the most-relevant section identified by sub-document embedding.
 

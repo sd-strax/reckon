@@ -8,7 +8,8 @@
 // Env: RECKON_USER (default reckon-admin), RECKON_PASSWORD (default reckon).
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { BackendClient, type ActionRecord, type Appearance, type CaseSummaryView, type EvidenceDoc, type KnowledgeCitations, type SOPDoc, type ThreadEntry } from "../src/backend";
+import { BackendClient, type ActionRecord, type Appearance, type CaseSummaryView, type EvidenceDoc, type KnowledgeCitations, type ProcedureReads, type SOPDoc, type ThreadEntry } from "../src/backend";
+import { procedureReads } from "../src/procedureReads";
 import { buildDerivedViews } from "../src/derivedViews";
 import { deriveEvidenceLabel } from "../src/evidenceLabel";
 import type { ChronicleTurn, InvestigationSnapshot } from "../src/protocol";
@@ -115,10 +116,13 @@ async function main(): Promise<void> {
     // Where each was consulted elsewhere (adr/0109), as the host reads it
     // beside the document; a failed read is left out, as the host leaves it.
     const citations: Record<string, KnowledgeCitations> = {};
+    // And what the agent read of each procedure, as it was (adr/0097).
+    const reads: Record<string, ProcedureReads> = {};
     for (const e of thread ?? []) {
       for (const s of e.consultedSops || []) if (!(s.sopId in sops)) {
         try { sops[s.sopId] = await client.knowledge.sop(s.sopId); } catch { /* gone */ }
         try { citations[s.sopId] = await client.knowledge.sopCitations(s.sopId); } catch { /* not read */ }
+        try { const r = await procedureReads(client.knowledge, s.sopId, thread ?? []); if (r) reads[s.sopId] = r; } catch { /* not read */ }
       }
       for (const s of e.consultedSimilar || []) if (!(s.investigationRef in caseSummaries)) {
         try { caseSummaries[s.investigationRef] = await client.knowledge.caseSummary(s.investigationRef); } catch { /* none */ }
@@ -127,7 +131,7 @@ async function main(): Promise<void> {
     }
     const name = arg("--name", investigation.state.toLowerCase() + "-" + id.slice(0, 8));
     const file = join(outDir, name + ".json");
-    writeFileSync(file, JSON.stringify({ name, snapshot, labels, appearances, docs, transcripts, actionRecords, sops, caseSummaries, citations }, null, 2) + "\n");
+    writeFileSync(file, JSON.stringify({ name, snapshot, labels, appearances, docs, transcripts, actionRecords, sops, caseSummaries, citations, procedureReads: reads }, null, 2) + "\n");
     console.log(`wrote ${file} (seq ${snapshot.seq}, ${thread?.length ?? 0} thread entries, ${Object.keys(labels).length} labels)`);
   }
 }

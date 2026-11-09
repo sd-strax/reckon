@@ -219,6 +219,9 @@ type fakeKnowledge struct {
 	sop       knowledge.SOP
 	sops      []knowledge.SOP
 	learned   []knowledge.SOP
+	revisions knowledge.SOPRevisions
+	outline   knowledge.SOPOutline
+	section   knowledge.SOPSectionRead
 	outcome   knowledge.ImportOutcome
 	err       error
 }
@@ -264,6 +267,15 @@ func (f *fakeKnowledge) Sections(context.Context, uuid.UUID, uuid.UUID, knowledg
 }
 func (f *fakeKnowledge) Section(context.Context, uuid.UUID, uuid.UUID, int, knowledge.SectionPin) (knowledge.SOPSectionRead, error) {
 	return knowledge.SOPSectionRead{}, f.err
+}
+func (f *fakeKnowledge) Revisions(context.Context, uuid.UUID, uuid.UUID) (knowledge.SOPRevisions, error) {
+	return f.revisions, f.err
+}
+func (f *fakeKnowledge) RevisionSections(context.Context, uuid.UUID, uuid.UUID, int, string) (knowledge.SOPOutline, error) {
+	return f.outline, f.err
+}
+func (f *fakeKnowledge) RevisionSection(context.Context, uuid.UUID, uuid.UUID, int, int, string) (knowledge.SOPSectionRead, error) {
+	return f.section, f.err
 }
 func (f *fakeKnowledge) WriteSummary(context.Context, uuid.UUID, knowledge.Summary) (uuid.UUID, error) {
 	return uuid.Nil, f.err

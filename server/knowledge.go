@@ -484,6 +484,85 @@ func (b *Backend) getSOPSection(w http.ResponseWriter, r *http.Request, id uuid.
 	writeJSON(w, http.StatusOK, out)
 }
 
+// listSOPRevisions handles GET /api/sops/{id}/revisions: every revision of
+// the procedure, newest first, the current one flagged (adr/0097). A retired
+// procedure lists too: the record points at it.
+func (b *Backend) listSOPRevisions(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	out, err := b.cfg.Knowledge.Revisions(r.Context(), module.SingleTenantUUID, id)
+	if errors.Is(err, knowledge.ErrNotFound) {
+		writeJSONError(w, http.StatusNotFound, "sop not found")
+		return
+	}
+	if err != nil {
+		writeInternalError(w, "sop revisions", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// getSOPRevisionSections handles GET /api/sops/{id}/revisions/{r}/sections:
+// the outline of one revision under ?cut= (the stored cut when absent),
+// recomputed from the revision's body when the store no longer holds that
+// cut. Unlike the current-revision read this never answers 409: the
+// revision and cut name the text, and the text is kept.
+func (b *Backend) getSOPRevisionSections(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	rev, ok := revisionParam(w, r)
+	if !ok {
+		return
+	}
+	out, err := b.cfg.Knowledge.RevisionSections(r.Context(), module.SingleTenantUUID, id, rev, r.URL.Query().Get("cut"))
+	if revisionReadFailed(w, "sop revision sections", err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// getSOPRevisionSection handles GET /api/sops/{id}/revisions/{r}/sections/{n}:
+// one section of one revision whole, as an act was shown it (adr/0097).
+func (b *Backend) getSOPRevisionSection(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	rev, ok := revisionParam(w, r)
+	if !ok {
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil || n < 1 {
+		writeJSONError(w, http.StatusBadRequest, "section index in path must be a positive integer")
+		return
+	}
+	out, err := b.cfg.Knowledge.RevisionSection(r.Context(), module.SingleTenantUUID, id, rev, n, r.URL.Query().Get("cut"))
+	if revisionReadFailed(w, "sop revision section", err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// revisionParam reads the {r} path value of a revision read.
+func revisionParam(w http.ResponseWriter, r *http.Request) (int, bool) {
+	rev, err := strconv.Atoi(r.PathValue("r"))
+	if err != nil || rev < 1 {
+		writeJSONError(w, http.StatusBadRequest, "revision in path must be a positive integer")
+		return 0, false
+	}
+	return rev, true
+}
+
+// revisionReadFailed answers a failed revision read: 404 for an unknown
+// procedure, revision or section, 400 for a cut this build cannot make, 500
+// otherwise. Reports whether it wrote.
+func revisionReadFailed(w http.ResponseWriter, what string, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, knowledge.ErrNotFound):
+		writeJSONError(w, http.StatusNotFound, "sop, revision or section not found")
+	case errors.Is(err, knowledge.ErrBadCut):
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+	default:
+		writeInternalError(w, what, err)
+	}
+	return true
+}
+
 func (b *Backend) updateSOP(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var body SOPBody
 	if !decodeBody(w, r, &body, maxBodyBytes) {

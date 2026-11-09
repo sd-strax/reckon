@@ -151,6 +151,7 @@ behaviors kept, C4–C7 the section's additions from `09`.
 | L5 | Transcript opens for a thread step | *superseded*: `<TurnInspector>` Answer · Tool calls · Consulted · Transcript | [h] |
 | L6 | Every ref type the current chips can carry opens something: event, observed-data, null observation, indicator / sighting, note, prediction, hypothesis, entity types | every ref type resolves to a renderer (`derive/inspect.ts`): evidence, entity, absence, detection (with `related`), attestation, prediction, hypothesis, alias; action, thread, case, turn, person, procedure by target kind | [h] |
 | L7 | Procedure and case inspectors: "Cited elsewhere" (one row per other investigation, "cited" / "recalled, not cited", opens it); "Procedures learned from this case" on the case Summary; "cited in N investigations" on Library rows (`adr/0109`) | `<CitedElsewhere>` tab in `ProvenanceInspectors.tsx`; `citations` on `inspector.procedure` / `inspector.case`; `citedIn` on `LibraryItem` | [h] |
+| L8 | Procedure inspector "What the agent read": each turn's recorded sections read back under the revision and cut it saw, "revision N, exactly as retrieved" / "revised since this case consulted it: revision N then, M now", As retrieved · Current · Changes, "Recall showed" beneath (`adr/0097`) | `<WhatTheAgentRead>` in `ProvenanceInspectors.tsx`; `reads` on `inspector.procedure` composed by `src/procedureReads.ts` over `GET /api/sops/{id}/revisions[/{r}/sections[/{n}]]`; `derive/diff.ts` | [h] |
 
 ## M. Infrastructure
 

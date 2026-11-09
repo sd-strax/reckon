@@ -1,6 +1,7 @@
 package substrate
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -304,4 +305,47 @@ func TestSplitSections_FenceClosesOnlyWithItsOwnDelimiter(t *testing.T) {
 		t.Errorf("the indented tilde fence's content left the Real section:\n%s", got[1].Text)
 	}
 	assertOffsets(t, body, got)
+}
+
+func TestSplitSectionsAt_VersionOneIsTheCurrentRule(t *testing.T) {
+	got, err := SplitSectionsAt(1, procedureDoc, DefaultSectionBudgetRunes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := SplitSections(procedureDoc, DefaultSectionBudgetRunes)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SplitSectionsAt(1) differs from SplitSections:\n%s\n%s", dumpSections(got), dumpSections(want))
+	}
+	for i, s := range got {
+		if s.SplitterVersion != 1 || s.BudgetRunes != DefaultSectionBudgetRunes || s.Cut() != "1/16000" {
+			t.Errorf("section %d carries cut %q, want 1/16000", i, s.Cut())
+		}
+	}
+}
+
+func TestSplitSectionsAt_UnknownVersion(t *testing.T) {
+	for _, v := range []int{0, SplitterVersion + 1, 99} {
+		if _, err := SplitSectionsAt(v, procedureDoc, 0); !errors.Is(err, ErrUnknownSplitter) {
+			t.Errorf("version %d: %v; want ErrUnknownSplitter", v, err)
+		}
+	}
+}
+
+func TestParseCut(t *testing.T) {
+	if v, b, err := ParseCut("1/16000"); err != nil || v != 1 || b != 16000 {
+		t.Errorf("1/16000: %d %d %v", v, b, err)
+	}
+	if v, b, err := ParseCut("1/0"); err != nil || v != 1 || b != 0 {
+		t.Errorf("1/0 (no budget): %d %d %v", v, b, err)
+	}
+	for _, bad := range []string{"", "1", "/", "1/", "/16000", "a/b", "1/-5", "-1/16000", "1/16000/2"} {
+		if _, _, err := ParseCut(bad); !errors.Is(err, ErrBadCut) {
+			t.Errorf("%q: %v; want ErrBadCut", bad, err)
+		}
+	}
+	for _, unknown := range []string{"0/16000", "99/16000"} {
+		if _, _, err := ParseCut(unknown); !errors.Is(err, ErrUnknownSplitter) {
+			t.Errorf("%q: %v; want ErrUnknownSplitter", unknown, err)
+		}
+	}
 }

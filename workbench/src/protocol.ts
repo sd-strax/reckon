@@ -31,6 +31,7 @@ import type {
   InvestigationSummary,
   KnowledgeCitations,
   PinRow,
+  ProcedureReads,
   SOPDoc,
   ThreadEntry,
 } from "./viewTypes";
@@ -203,8 +204,10 @@ export type RenderMessage =
   | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; appearances: Appearance[]; around?: EventRow[]; repeats?: EventRepeats }
   | { type: "inspector.call"; callId: string; call: CapabilityCall }
   // citations is where the ref was consulted across investigations (adr/0109);
-  // absent when that read failed, so the document still opens.
-  | { type: "inspector.procedure"; sopId: string; sop: SOPDoc; citations?: KnowledgeCitations }
+  // absent when that read failed, so the document still opens. reads is what
+  // the agent read of it here, as it was (adr/0097): absent when no act
+  // recorded sections, and when that read failed.
+  | { type: "inspector.procedure"; sopId: string; sop: SOPDoc; citations?: KnowledgeCitations; reads?: ProcedureReads }
   | { type: "inspector.turn"; interpretationId: string; body: string }
   | { type: "inspector.action"; actionId: string; record: ActionRecord }
   // summary is null when the corpus holds none for the ref (an honest gap).

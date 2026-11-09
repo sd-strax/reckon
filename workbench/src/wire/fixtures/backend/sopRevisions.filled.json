@@ -1,0 +1,21 @@
+{
+  "sop_id": "00000000-0000-0000-0000-000000000000",
+  "current": 1,
+  "revisions": [
+    {
+      "revision": 1,
+      "content_hash": "x",
+      "created_at": "2026-01-02T03:04:05Z",
+      "superseded_at": "2026-01-02T03:04:05Z",
+      "authored_by": "x",
+      "imported_by": "x",
+      "imported_at": "2026-01-02T03:04:05Z",
+      "source": {
+        "system": "x",
+        "url": "x",
+        "version": "x"
+      },
+      "current": true
+    }
+  ]
+}

@@ -1,16 +1,18 @@
 // Turn (Answer · Tool calls · Consulted · Transcript), Similar past case
 // (Summary · Why it matched), Procedure (What the AI read · Whole document ·
 // Versions) and Person — the provenance inspectors (08 §8.6, §8.6.1).
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApp } from "../../app";
 import { hypName } from "../../derive/hyps";
 import { parseTranscript } from "../../transcript";
 import { Badge, Markdown, RefChip, fmtDateTime, fmtTime } from "../shared";
 import { ToolRow } from "../ToolRow";
 import { Json, KV, Loading, Section, Tabs } from "./primitives";
-import { received } from "../../derive/knowledgeUse";
+import { received, type Received } from "../../derive/knowledgeUse";
+import { diffLines } from "../../derive/diff";
 import { relevanceOfBand } from "../../../../src/relevance";
-import type { KnowledgeCitations, ThreadActor } from "../../../../src/viewTypes";
+import { recordedSections } from "../../../../src/procedureReads";
+import type { KnowledgeCitations, ProcedureReads, ProcedureSectionRead, ProcedureTurnRead, ThreadActor } from "../../../../src/viewTypes";
 
 /**
  * Where a procedure or a past case was consulted in other investigations
@@ -215,13 +217,95 @@ export function CaseInspector({ investigationRef }: { investigationRef: string }
   );
 }
 
+/**
+ * What the agent read of a procedure here, as it was (adr/0097). For each act
+ * that recorded sections, the sections under the revision and cut it saw,
+ * read back from the library: "exactly as retrieved" when that is still the
+ * current revision; otherwise "revised since", with the current text under
+ * the same heading and the changes between them. The recall results'
+ * excerpts follow as what recall showed: recall and read are two different
+ * things. `reads` is absent while nothing was recorded (acts before sections
+ * existed) and when the read-back failed; the two read differently.
+ */
+function WhatTheAgentRead({ reads, recorded, arrived, got, turnLabel, openTurn }: {
+  reads: ProcedureReads | undefined;
+  recorded: boolean;
+  /** The host's answer for this procedure has arrived (the document is here); before that, the reads are in flight, not failed. */
+  arrived: boolean;
+  got: Received[];
+  turnLabel: (interpretationId: string) => string;
+  openTurn: (interpretationId: string) => void;
+}) {
+  if (!recorded && !got.length) return <div className="empty">The agent has not read this procedure in this investigation.</div>;
+  if (recorded && !arrived) return <Loading what="what the agent read" />;
+  return (
+    <>
+      {recorded && !reads ? <div className="empty">What the agent read could not be read back from the library.</div> : null}
+      {reads?.turns.map((t) => (
+        <div key={t.interpretationId + "/" + t.revision + "/" + t.cut} className="iread">
+          <div className="imeta">
+            {t.revision === reads.currentRevision
+              ? `revision ${t.revision}, exactly as retrieved`
+              : `revised since this case consulted it: revision ${t.revision} then, ${reads.currentRevision} now`}
+            {" — in "}<a onClick={() => openTurn(t.interpretationId)}>{turnLabel(t.interpretationId)}</a>
+          </div>
+          {t.sections.map((s) => <SectionRead key={s.idx} s={s} turn={t} current={reads.currentRevision} />)}
+        </div>
+      ))}
+      {got.length ? (
+        <Section title="Recall showed">
+          {got.map((g, i) => (
+            <div key={i}>
+              {g.excerpt ? <blockquote className="iquote">{g.excerpt}</blockquote> : <div className="empty">recalled without an excerpt</div>}
+              <div className="imeta">{g.rationale ? g.rationale + " — " : ""}in <a onClick={() => openTurn(g.interpretationId)}>{g.summary || "a turn"}</a></div>
+            </div>
+          ))}
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
+/** One section as retrieved; when the procedure was revised since, also the current text and the changes. */
+function SectionRead({ s, turn, current }: { s: ProcedureSectionRead; turn: ProcedureTurnRead; current: number }) {
+  const [view, setView] = useState<"then" | "now" | "diff">("then");
+  const same = turn.revision === current;
+  const gone = <div className="empty">No section of revision {current} sits under this heading any more.</div>;
+  return (
+    <div className="isect">
+      <div className="isecthead">
+        <span className="kicker">{s.location}</span>
+        {!same ? (
+          <span className="iviews">
+            {([["then", "As retrieved"], ["now", "Current"], ["diff", "Changes"]] as const).map(([v, label]) => (
+              <button key={v} className={"ghost" + (view === v ? " on" : "")} aria-pressed={view === v} onClick={() => setView(v)}>{label}</button>
+            ))}
+          </span>
+        ) : null}
+      </div>
+      {same || view === "then" ? <pre className="isecttext">{s.text}</pre> : null}
+      {!same && view === "now" ? (s.current ? <pre className="isecttext">{s.current.text}</pre> : gone) : null}
+      {!same && view === "diff" ? (
+        s.current
+          ? (s.current.text === s.text
+            ? <div className="empty">Unchanged in revision {current}.</div>
+            : <div className="idiff">{diffLines(s.text, s.current.text).map((l, i) => <div key={i} className={"dl " + l.kind}>{l.text || " "}</div>)}</div>)
+          : gone
+      ) : null}
+    </div>
+  );
+}
+
 export function ProcedureInspector({ sopId }: { sopId: string }) {
   const { state, openInspector } = useApp();
   const sop = state.sops[sopId];
   const citations = state.citations[sopId];
+  const reads = state.procedureReads[sopId];
   const here = state.snap?.investigation.id;
   const got = received(state.snap, "sop", sopId);
   const consulted = (state.snap?.thread || []).flatMap((e) => (e.consultedSops || []).filter((s) => s.sopId === sopId).map((s) => ({ e, s })));
+  const recorded = consulted.some(({ s }) => recordedSections(s));
+  const turnLabel = (interpretationId: string) => (state.snap?.thread || []).find((e) => e.interpretationId === interpretationId)?.summary || "a turn";
   const ledTo = (state.snap?.actions || []).filter((a) => consulted.some(({ e }) => (e.outputRefs || []).includes(a.actionId)));
   return (
     <>
@@ -233,12 +317,7 @@ export function ProcedureInspector({ sopId }: { sopId: string }) {
       </div>
       <Tabs tabs={[
         { id: "read", label: "What the agent read", body: () => (
-          got.length ? got.map((g, i) => (
-            <div key={i}>
-              {g.excerpt ? <blockquote className="iquote">{g.excerpt}</blockquote> : <div className="empty">recalled without an excerpt</div>}
-              <div className="imeta">{g.rationale ? g.rationale + " — " : ""}in <a onClick={() => openInspector({ kind: "turn", interpretationId: g.interpretationId })}>{g.summary || "a turn"}</a></div>
-            </div>
-          )) : <div className="empty">The agent has not read this procedure in this investigation.</div>
+          <WhatTheAgentRead reads={reads} recorded={recorded} arrived={sop !== undefined} got={got} turnLabel={turnLabel} openTurn={(interpretationId) => openInspector({ kind: "turn", interpretationId })} />
         ) },
         { id: "whole", label: "Whole document", body: () => (
           sop === undefined ? <Loading what="procedure" /> : (

@@ -234,6 +234,7 @@ export class InvestigationsClient {
       disposition: e.disposition || undefined,
       consultedSops: (e.consulted_sops ?? []).map((c) => ({
         sopId: c.sop_id, title: c.title, cited: c.cited,
+        revision: c.revision, cut: c.cut, sections: c.sections,
       })),
       consultedSimilar: (e.consulted_similar_investigations ?? []).map((c) => ({
         investigationRef: c.investigation_ref, title: c.title, band: c.band, cited: c.cited,

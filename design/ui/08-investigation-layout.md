@@ -198,7 +198,13 @@ two).
 
 **Procedure excerpt.** Procedures are whatever was imported — a PDF, a document, a web
 page, markdown — so the inspector is anchored on the **excerpt the agent retrieved**, not
-on the document's structure. Tabs: What the AI read · Whole document · Versions.
+on the document's structure. Tabs: What the AI read · Whole document · Versions. *Built
+(`adr/0097`): "What the agent read" lists, per turn that consulted it, the sections the
+record names, read back under the revision and cut the turn saw: "revision N, exactly as
+retrieved" or "revised since this case consulted it: revision N then, M now", each section
+with As retrieved · Current · Changes; the recall results' excerpts follow as "Recall
+showed". The revision list is served (`GET /api/sops/{id}/revisions`); a Versions tab is
+not yet drawn.*
 
 | Element | Source |
 |---|---|

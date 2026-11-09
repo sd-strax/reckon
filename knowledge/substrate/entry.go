@@ -78,7 +78,7 @@ type Entry struct {
 	VersionLabel string    // corpus convention (e.g. semver); not interpreted
 
 	// Curated governance.
-	AuthoredBy string   // opaque principal
+	AuthoredBy  string   // opaque principal
 	SignedOffBy []string // opaque principals recorded at the PUBLISHED transition
 
 	// Derived provenance.
@@ -136,6 +136,11 @@ var (
 	ErrNoEmbedding    = errors.New("substrate: published entry lacks an embedding for the active model")
 	ErrNoSections     = errors.New("substrate: published entry has no sections under the current rule")
 	ErrBlankBody      = errors.New("substrate: body has no content to index")
+	// ErrUnknownSplitter marks a cut naming a splitter version this build has
+	// no rule for: a version above the current one, or zero.
+	ErrUnknownSplitter = errors.New("substrate: unknown splitter version")
+	// ErrBadCut marks a cut identifier that is not "<splitter>/<budget>".
+	ErrBadCut = errors.New("substrate: malformed cut")
 )
 
 const maxNamespaceBytes = 128

@@ -7,7 +7,7 @@ import type { LibraryItem } from "../protocol";
 import { relevanceOfBand, relevanceOfScore } from "../relevance";
 import * as shapes from "../wire/backendShapes";
 import type { Decoded } from "../wire/decode";
-import type { CaseSummaryView, KnowledgeCitations, SOPDoc } from "../viewTypes";
+import type { CaseSummaryView, KnowledgeCitations, SOPDoc, SOPOutlineView, SOPRevisionRow, SOPSectionView } from "../viewTypes";
 
 function citationsView(r: Decoded<typeof shapes.citations>): KnowledgeCitations {
   return {
@@ -74,6 +74,37 @@ export class KnowledgeClient {
     };
   }
 
+  /** GET /api/sops/{id}/revisions — every revision of a procedure, newest first, and which is current (adr/0097). */
+  async revisions(id: string): Promise<{ current: number; revisions: SOPRevisionRow[] }> {
+    const r = await this.http.get(`/api/sops/${encodeURIComponent(id)}/revisions`, shapes.sopRevisions);
+    return {
+      current: r.current,
+      revisions: r.revisions.map((x) => ({
+        revision: x.revision, contentHash: x.content_hash, createdAt: x.created_at, supersededAt: x.superseded_at,
+        authoredBy: x.authored_by, importedBy: x.imported_by, importedAt: x.imported_at, current: x.current,
+      })),
+    };
+  }
+
+  /**
+   * GET /api/sops/{id}/revisions/{r}/sections?cut= — one revision's outline
+   * under a cut (the stored cut when none is given). Never 409: a cut the
+   * store no longer holds is recomputed from the revision's body.
+   */
+  async revisionOutline(id: string, revision: number, cut?: string): Promise<SOPOutlineView> {
+    const r = await this.http.get(`/api/sops/${encodeURIComponent(id)}/revisions/${revision}/sections${cutQuery(cut)}`, shapes.sopOutline);
+    return { revision: r.revision, cut: r.cut, sections: r.sections.map((s) => ({ idx: s.idx, location: s.location, headingPath: s.heading_path, part: s.part, parts: s.parts })) };
+  }
+
+  /** GET /api/sops/{id}/revisions/{r}/sections/{n}?cut= — one section of one revision, as an act was shown it. */
+  async revisionSection(id: string, revision: number, idx: number, cut?: string): Promise<SOPSectionView> {
+    const r = await this.http.get(`/api/sops/${encodeURIComponent(id)}/revisions/${revision}/sections/${idx}${cutQuery(cut)}`, shapes.sopSection);
+    return {
+      revision: r.revision, cut: r.cut, idx: r.section.idx, of: r.section.of, location: r.section.location,
+      headingPath: r.section.heading_path, part: r.section.part, parts: r.section.parts, text: r.section.text ?? "", outline: r.outline,
+    };
+  }
+
   /** GET /api/knowledge/case_summaries/{ref} — one concluded case's summary; null when none exists. */
   async caseSummary(investigationRef: string): Promise<CaseSummaryView | null> {
     let r: Decoded<typeof shapes.caseSummary>;
@@ -104,4 +135,9 @@ export class KnowledgeClient {
     const r = await this.http.post("/api/sops/import_markdown", { filename, content }, shapes.sopImported);
     return { title: r.title, outcome: r.outcome };
   }
+}
+
+/** The ?cut= of a revision read; none when the record carries no cut. */
+function cutQuery(cut: string | undefined): string {
+  return cut ? `?cut=${encodeURIComponent(cut)}` : "";
 }

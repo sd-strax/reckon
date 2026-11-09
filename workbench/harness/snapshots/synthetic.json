@@ -363,7 +363,12 @@
           {
             "sopId": "sop-1",
             "title": "Procedure one",
-            "cited": true
+            "cited": true,
+            "revision": 1,
+            "cut": "1/16000",
+            "sections": [
+              1
+            ]
           }
         ],
         "consultedSimilar": [
@@ -1501,7 +1506,7 @@
     "sop-1": {
       "id": "sop-1",
       "title": "Procedure one",
-      "body": "# Procedure one\n\nConfirm the session with the owner first.\n\n## Triage\n\n1. Compare with the account's usual logons.",
+      "body": "# Procedure one\n\nConfirm the session with the account owner first, by phone.\n\n## Triage\n\n1. Compare with the account's usual logons.",
       "tags": [
         "T1078",
         "triage"
@@ -1554,6 +1559,31 @@
       "revision": 2,
       "learnedProcedures": [
         { "id": "sop-1", "title": "Procedure one" }
+      ]
+    }
+  },
+  "procedureReads": {
+    "sop-1": {
+      "currentRevision": 2,
+      "turns": [
+        {
+          "interpretationId": "interp-turn-1",
+          "revision": 1,
+          "cut": "1/16000",
+          "sections": [
+            {
+              "idx": 1,
+              "location": "Procedure one",
+              "text": "# Procedure one\n\nConfirm the session with the owner first.",
+              "current": {
+                "revision": 2,
+                "idx": 1,
+                "location": "Procedure one",
+                "text": "# Procedure one\n\nConfirm the session with the account owner first, by phone."
+              }
+            }
+          ]
+        }
       ]
     }
   },

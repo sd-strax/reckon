@@ -104,4 +104,7 @@ type knowledgeStore interface {
 	Reindex(ctx context.Context, tenantID uuid.UUID) (int, error)
 	Sections(ctx context.Context, tenantID, id uuid.UUID, pin knowledge.SectionPin) (knowledge.SOPOutline, error)
 	Section(ctx context.Context, tenantID, id uuid.UUID, idx int, pin knowledge.SectionPin) (knowledge.SOPSectionRead, error)
+	Revisions(ctx context.Context, tenantID, id uuid.UUID) (knowledge.SOPRevisions, error)
+	RevisionSections(ctx context.Context, tenantID, id uuid.UUID, revision int, cut string) (knowledge.SOPOutline, error)
+	RevisionSection(ctx context.Context, tenantID, id uuid.UUID, revision, idx int, cut string) (knowledge.SOPSectionRead, error)
 }

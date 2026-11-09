@@ -1,7 +1,7 @@
 // The inspector (08 §8.6, §8.6.1): every citation opens it, the frame is the
 // same for every type, the back stack and the pin work, Esc closes it, and
 // each renderer shows its record from the harness stage.
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { AppProvider } from "../app";
 import { App } from "./App";
@@ -10,8 +10,8 @@ import synthetic from "../../../harness/snapshots/synthetic.json";
 
 const data = synthetic as unknown as HarnessSnapshot;
 
-function mount() {
-  const transport = new HarnessTransport(data);
+function mount(d: HarnessSnapshot = data) {
+  const transport = new HarnessTransport(d);
   render(<AppProvider transport={transport}><App /></AppProvider>);
   return transport;
 }
@@ -159,7 +159,7 @@ describe("the inspector", () => {
     fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Procedure one"));
     p = pane();
     expect(within(p).getByText("Procedure")).toBeTruthy();
-    expect(within(p).getByText(/Confirm the session with the owner first/)).toBeTruthy(); // what the agent's recall carried (#132)
+    expect(within(p).getAllByText(/Confirm the session with the owner first/).length).toBe(2); // the section read back as it was (adr/0097), and what recall showed (#132)
     fireEvent.click(within(p).getByRole("tab", { name: "Whole document" }));
     expect(within(p).getByText("confirm-with-owner")).toBeTruthy();
 
@@ -170,6 +170,69 @@ describe("the inspector", () => {
     expect(within(p).queryByText("Include in context")).toBeNull(); // the library is not context (adr/0129)
     fireEvent.click(within(p).getByRole("tab", { name: "What the agent read" }));
     expect(within(p).getByText("The agent has not read this case in this investigation.")).toBeTruthy();
+  });
+
+  it("shows what the agent read of a procedure as it was, and whether it changed since (adr/0097)", () => {
+    const lib = () => document.querySelector("#knowledgeSection") as HTMLElement;
+    const clone = (): HarnessSnapshot => JSON.parse(JSON.stringify(data));
+
+    // Revised since: the header names both revisions; the three views.
+    mount();
+    fireEvent.click(within(lib()).getByText("Procedure one"));
+    let p = pane();
+    expect(within(p).getByText(/revised since this case consulted it: revision 1 then, 2 now/)).toBeTruthy();
+    expect(within(p).getByText("Procedure one", { selector: ".isecthead .kicker" })).toBeTruthy(); // the heading path
+    expect(within(p).getByText(/with the owner first\.$/, { selector: ".isecttext" })).toBeTruthy(); // as retrieved, by default
+    fireEvent.click(within(p).getByRole("button", { name: "Current" }));
+    expect(within(p).getByText(/account owner first, by phone/, { selector: ".isecttext" })).toBeTruthy();
+    fireEvent.click(within(p).getByRole("button", { name: "Changes" }));
+    expect(within(p).getByText("Confirm the session with the owner first.", { selector: ".dl.del" })).toBeTruthy();
+    expect(within(p).getByText("Confirm the session with the account owner first, by phone.", { selector: ".dl.add" })).toBeTruthy();
+    expect(within(p).getByText("# Procedure one", { selector: ".dl.same" })).toBeTruthy();
+    expect(within(p).getByText("Recall showed")).toBeTruthy(); // recall and read are two different things
+    expect(within(p).queryByText(/applied|followed/)).toBeNull(); // never those words (adr/0236)
+    cleanup();
+
+    // Exactly as retrieved: the act saw the current revision; no views to switch.
+    const same = clone();
+    same.procedureReads = {}; same.procedureReads["sop-1"] = { currentRevision: 1, turns: [{ interpretationId: "interp-turn-1", revision: 1, cut: "1/16000", sections: [{ idx: 1, location: "Procedure one", text: "# Procedure one\n\nConfirm the session with the owner first." }] }] };
+    mount(same);
+    fireEvent.click(within(lib()).getByText("Procedure one"));
+    p = pane();
+    expect(within(p).getByText(/revision 1, exactly as retrieved/)).toBeTruthy();
+    expect(within(p).queryByRole("button", { name: "Changes" })).toBeNull();
+    cleanup();
+
+    // The heading is gone from the current revision: Current and Changes say so.
+    const gone = clone();
+    const goneSection = gone.procedureReads?.["sop-1"]?.turns[0]?.sections[0];
+    if (goneSection) goneSection.current = null;
+    mount(gone);
+    fireEvent.click(within(lib()).getByText("Procedure one"));
+    p = pane();
+    fireEvent.click(within(p).getByRole("button", { name: "Current" }));
+    expect(within(p).getByText(/No section of revision 2 sits under this heading any more/)).toBeTruthy();
+    cleanup();
+
+    // The read-back failed (or the harness has none): the pane says so and still shows what recall showed.
+    const failed = clone();
+    delete failed.procedureReads;
+    mount(failed);
+    fireEvent.click(within(lib()).getByText("Procedure one"));
+    p = pane();
+    expect(within(p).getByText(/could not be read back from the library/)).toBeTruthy();
+    expect(within(p).getByText("Recall showed")).toBeTruthy();
+    cleanup();
+
+    // Nothing recorded (an act before sections existed): only what recall showed, no failure.
+    const bare = clone();
+    delete bare.procedureReads;
+    for (const e of bare.snapshot.thread || []) for (const s of e.consultedSops) { delete s.revision; delete s.cut; delete s.sections; }
+    mount(bare);
+    fireEvent.click(within(lib()).getByText("Procedure one"));
+    p = pane();
+    expect(within(p).queryByText(/could not be read back/)).toBeNull();
+    expect(within(p).getByText("Recall showed")).toBeTruthy();
   });
 
   it("shows where a procedure and a past case were consulted elsewhere, in the two words, and the procedures learned from a case (adr/0109)", () => {
