@@ -228,24 +228,49 @@ func (b *resultBuilder) finish(extensions map[string]any) NormalizationResult {
 // in device.uid; neither is identity.
 //
 // A record with no hostname mints a weak host on the MAC, or failing that on
-// (source tool, device.uid), marked weak. A record with a hostname and a MAC
+// (source tool, device.uid), marked weak, with the same properties less the
+// hostname, FQDN and the FQDN's domain. A record with a hostname and a MAC
 // or device id also mints the weak host each of those alone would have minted,
 // outside object_refs, with an aliases edge from it to the strong host: the
 // source said in this record that the identifier names that machine, so an
-// event it later attributes to the identifier alone reads under the host.
+// event it later attributes to the identifier alone reads under the host. A
+// record with no hostname, a MAC and a device id applies the same rule to the
+// MAC weak host it mints: the device id's weak host is aliased to it.
+//
+// A placeholder hostname, MAC or device id (identity.Placeholder*) reads as
+// absent: it mints no host, no weak host and no alias, and is not kept as a
+// property.
 func (b *resultBuilder) host(prefix string) identity.STIXID {
 	p := b.evt.Payload
 	hostname := strings.TrimRight(strings.TrimSpace(pathStr(p, prefix+".hostname")), ".")
 	mac := strings.TrimSpace(pathStr(p, prefix+".mac"))
 	uid := strings.TrimSpace(pathStr(p, prefix+".uid"))
 
+	// A placeholder MAC or device id names nothing (adr/0211): it is neither
+	// a property nor an alias.
+	hasMAC, hasUID := !identity.PlaceholderMAC(mac), !identity.PlaceholderDeviceUID(uid)
+	props := b.deviceFacts(prefix, mac, uid, hasMAC, hasUID)
+
 	strong := b.r.Host(identity.HostIdentity{Hostname: hostname})
 	if strong == "" {
-		id, props := b.weakHost(mac, uid)
+		// The weak host keeps the record's facts too, under the key it is
+		// minted on and the weak mark.
+		id, idProps := b.weakHost(mac, uid)
 		if id == "" {
 			return ""
 		}
-		return b.addSCO(id, identity.TypeHost, props)
+		for k, v := range idProps {
+			props[k] = v
+		}
+		b.addSCO(id, identity.TypeHost, props)
+		// Minted on the MAC, the record also says its device id names that
+		// machine: the one-record alias rule, as for a strong host.
+		if hasMAC && hasUID {
+			weak, weakProps := b.weakHost("", uid)
+			b.addLinkedSCO(weak, identity.TypeHost, weakProps)
+			b.addRel(RelAliases, weak, id)
+		}
+		return id
 	}
 
 	// The reported name split as the resolver splits it, case kept: a value
@@ -255,20 +280,47 @@ func (b *resultBuilder) host(prefix string) identity.STIXID {
 	if _, domain := identity.SplitHostname(hostname); hasDot && domain == "" {
 		short, rest, hasDot = hostname, "", false
 	}
-	props := map[string]any{"hostname": short}
+	props["hostname"] = short
 	if hasDot {
 		props["fqdn"] = hostname
 	}
-	if domain := firstNonEmpty(strings.TrimSpace(pathStr(p, prefix+".domain")), rest); domain != "" {
+	if _, ok := props["domain"]; !ok && !identity.PlaceholderDomain(rest) {
+		props["domain"] = rest
+	}
+	b.addSCO(strong, identity.TypeHost, props)
+
+	if hasMAC {
+		weak, weakProps := b.weakHost(mac, "")
+		b.addLinkedSCO(weak, identity.TypeHost, weakProps)
+		b.addRel(RelAliases, weak, strong)
+	}
+	if hasUID {
+		weak, weakProps := b.weakHost("", uid)
+		b.addLinkedSCO(weak, identity.TypeHost, weakProps)
+		b.addRel(RelAliases, weak, strong)
+	}
+	return strong
+}
+
+// deviceFacts is what a device object at prefix says about the machine besides
+// its hostname, kept as properties on the host the record mints, strong or
+// weak: device.domain, the MAC, the device id keyed by the source that gave
+// it, device.uid_alt and the agent list. A placeholder MAC or device id
+// (hasMAC, hasUID false) is left out.
+func (b *resultBuilder) deviceFacts(prefix, mac, uid string, hasMAC, hasUID bool) map[string]any {
+	p := b.evt.Payload
+	props := map[string]any{}
+	// A placeholder domain ("-", "unknown"), judged whole, names none.
+	if domain := strings.TrimSpace(pathStr(p, prefix+".domain")); !identity.PlaceholderDomain(domain) {
 		props["domain"] = domain
 	}
-	if mac != "" {
+	if hasMAC {
 		props["mac"] = mac
 	}
 	switch {
-	case uid != "" && b.evt.SourceTool != "":
+	case hasUID && b.evt.SourceTool != "":
 		props["source_ids"] = map[string]any{b.evt.SourceTool: uid}
-	case uid != "":
+	case hasUID:
 		props["device_uid"] = uid // no source to key it by
 	}
 	if alt := strings.TrimSpace(pathStr(p, prefix+".uid_alt")); alt != "" {
@@ -277,27 +329,19 @@ func (b *resultBuilder) host(prefix string) identity.STIXID {
 	if agents := agentList(p, prefix+".agent_list"); len(agents) > 0 {
 		props["agents"] = agents
 	}
-	b.addSCO(strong, identity.TypeHost, props)
-
-	if mac != "" {
-		weak, weakProps := b.weakHost(mac, "")
-		b.addLinkedSCO(weak, identity.TypeHost, weakProps)
-		b.addRel(RelAliases, weak, strong)
-	}
-	if uid != "" {
-		weak, weakProps := b.weakHost("", uid)
-		b.addLinkedSCO(weak, identity.TypeHost, weakProps)
-		b.addRel(RelAliases, weak, strong)
-	}
-	return strong
+	return props
 }
 
 // weakHost mints the weak x-host a device object with no hostname identifies
-// (adr/0211): on the MAC, else on (source tool, device uid). It returns ""
-// when neither is present.
+// (adr/0211): on the MAC, else on (source tool, device uid), the tiers
+// identity.Host applies, a placeholder in either read as absent. It returns ""
+// when neither is usable.
 func (b *resultBuilder) weakHost(mac, uid string) (identity.STIXID, map[string]any) {
-	if mac != "" {
+	if !identity.PlaceholderMAC(mac) {
 		return b.r.Host(identity.HostIdentity{MAC: mac}), map[string]any{"mac": mac, "weak": true}
+	}
+	if identity.PlaceholderDeviceUID(uid) {
+		return "", nil
 	}
 	id := b.r.Host(identity.HostIdentity{SourceTool: b.evt.SourceTool, SourceUID: uid})
 	if id == "" {
@@ -373,7 +417,8 @@ func (b *resultBuilder) ipAddr(path string) identity.STIXID {
 }
 
 // addIPValue adds an ipv4-addr or ipv6-addr SCO for a literal address value
-// (used when the value comes from an array element, not a fixed path).
+// (used when the value comes from an array element, not a fixed path). A
+// placeholder address mints no id, so nothing is added and "" is returned.
 func (b *resultBuilder) addIPValue(v string) identity.STIXID {
 	if v == "" {
 		return ""

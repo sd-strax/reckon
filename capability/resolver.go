@@ -369,10 +369,14 @@ func nullObservation(ids *identity.Resolver, verb string, input CallInput, sourc
 func subjectRefs(ids *identity.Resolver, entity map[string]any) []identity.STIXID {
 	var refs []identity.STIXID
 	if v, ok := entity["ip"].(string); ok && v != "" {
+		var id identity.STIXID
 		if strings.Contains(v, ":") {
-			refs = append(refs, ids.IPv6Addr(v))
+			id = ids.IPv6Addr(v)
 		} else {
-			refs = append(refs, ids.IPv4Addr(v))
+			id = ids.IPv4Addr(v)
+		}
+		if id != "" { // a placeholder address names nothing
+			refs = append(refs, id)
 		}
 	}
 	if v, ok := entity["domain"].(string); ok && v != "" {

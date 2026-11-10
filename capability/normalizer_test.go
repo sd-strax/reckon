@@ -441,14 +441,15 @@ func TestHostAliasEmission(t *testing.T) {
 	}
 }
 
-// TestHostNormalizerVersions: every normalizer that mints a host is at version
-// 2 (adr/0211, a shaping change is a re-normalization under §4.13); the
-// normalizers that mint none stay at 1.
+// TestHostNormalizerVersions: every normalizer whose shaping adr/0211 changed
+// is at version 2 (a shaping change is a re-normalization under §4.13): the
+// ones that mint a host, and email, whose attachment files are identified by
+// hash and placeholder hashes no longer count; the rest stay at 1.
 func TestHostNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
 		{1007, 2}, {3002, 2}, {4001, 2}, {4003, 2}, {1001, 2}, {1003, 2}, {1006, 2}, {1009, 2},
-		{3005, 2}, {4011, 2}, {2004, 2}, {5001, 2}, {4009, 1}, {2005, 1}, {0, 1},
+		{3005, 2}, {4011, 2}, {2004, 2}, {5001, 2}, {4009, 2}, {2005, 1}, {0, 1},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {

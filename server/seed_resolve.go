@@ -79,6 +79,11 @@ func resolveSeedInput(res *identity.Resolver, value, kind string) (seedResolutio
 			return seedResolution{}, fmt.Errorf("%q is not a host name, IP address or file hash — check it for a typo", v)
 		}
 		ref, label := resolveEntityToken(res, v)
+		if ref == "" {
+			// A placeholder (localhost, 0.0.0.0, the empty file's hash) names
+			// nothing, so the resolver mints no id to root on (adr/0211).
+			return seedResolution{}, fmt.Errorf("%q is a placeholder value that names no host, address or file", v)
+		}
 		return seedResolution{
 			Seed: aggregate.Seed{
 				Type:             aggregate.SeedEntity,
@@ -120,7 +125,7 @@ func seedSummaryOf(s *aggregate.Seed) string {
 // resolver's own shaping; the label is display only. A host is minted on the
 // token as typed: the resolver folds case and the FQDN to the short name
 // (adr/0211), so "WIN-FILE01" and "win-file01.corp.example" seed the host the
-// events mint.
+// events mint. A placeholder token mints nothing and ref is "".
 func resolveEntityToken(res *identity.Resolver, token string) (ref, label string) {
 	if ip := net.ParseIP(token); ip != nil {
 		if ip.To4() != nil {
@@ -154,10 +159,8 @@ func (b *Backend) unknownHost(r *http.Request, s seedResolution) (bool, string) 
 		return false, ""
 	}
 	host := s.Seed.EntityIdentifier
-	// The inventory is asked for the short name, the host's identity
-	// (adr/0211): a seed typed as the FQDN names the same host.
-	short, _ := identity.SplitHostname(host)
-	res, err := resolver.Resolve(r.Context(), "get_host_context", capability.CallInput{Entity: map[string]any{"host": map[string]any{"hostname": short}}})
+	// The inventory is asked with the name as typed, since folding is for ids, not for a tool's query.
+	res, err := resolver.Resolve(r.Context(), "get_host_context", capability.CallInput{Entity: map[string]any{"host": map[string]any{"hostname": host}}})
 	if err != nil || res.Coverage != capability.CoverageComplete || len(res.ObservedDataRefs) > 0 || len(res.EntityRefs) > 0 {
 		return false, ""
 	}

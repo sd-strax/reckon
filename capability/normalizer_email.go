@@ -8,7 +8,7 @@ import "github.com/sd-strax/reckon/identity"
 type emailNormalizer struct{ r *identity.Resolver }
 
 func (*emailNormalizer) ClassUID() int { return 4009 }
-func (*emailNormalizer) Version() int  { return 1 }
+func (*emailNormalizer) Version() int  { return 2 } // 2: placeholder file hashes, adr/0211
 
 func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

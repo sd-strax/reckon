@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -122,12 +123,18 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 			v.Related = relatedView(n)
 		}
 		if obj.Type == identity.TypeHost {
+			// The identity view degrades as appearances do: a store error
+			// leaves the object readable without it.
 			id, err := b.cfg.Evidence.HostIdentity(r.Context(), obj.Ref)
-			if err != nil {
-				writeInternalError(w, "query host identity", err)
+			switch {
+			case errors.Is(err, evidence.ErrMalformedRef):
+				writeJSONError(w, http.StatusBadRequest, "malformed STIX ref")
 				return
+			case err != nil:
+				slog.Warn("evidence without the identity view", "ref", obj.Ref, "error", err)
+			default:
+				v.Identity = identityView(id)
 			}
-			v.Identity = identityView(id)
 		}
 		writeJSON(w, http.StatusOK, v)
 		return

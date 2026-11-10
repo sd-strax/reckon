@@ -53,24 +53,45 @@ no hostname, the host is minted on the MAC, or failing that on the pair
 (source tool, `device.uid`), and carries `weak: true`. A weak identifier
 never joins anything on its own: two sources' agent ids are two weak hosts.
 
+**A placeholder is not an identity.** Sources emit a value when they have
+none: an all-zero or all-one MAC, an unspecified, loopback or broadcast
+address, `localhost` or a dash for a hostname, the nil GUID for a device id,
+the hash of the empty file. Each names nothing, and minting on it makes one
+entity of every record that carries it: every machine reporting a zero MAC
+would alias to one weak host and read as one machine. The resolver holds a
+built-in, per-type list of such values, and a value that does not parse as
+its type counts the same, and treats a field holding one as absent: a host
+falls to its next tier, an address mints nothing, a hash is passed over for
+the next one or for the file's name and path, and a file with neither mints
+nothing; the seen-as view does not count one as a domain, an address or an
+agent id. The list is short, names only values that cannot be an identifier,
+and is not configuration: a per-install list would mint different ids for one
+record on two installs. Adding to it is a shaping change under §4.13.
+
 **An alias from one record is a fact; the normalizer emits it.** When one
-record carries a hostname and a MAC or a device id, the normalizer mints the
-weak host that identifier alone would have minted, outside the observation's
-`object_refs`, and emits `aliases` from it to the strong host, DIRECT, with
-the record's provenance. The source said in that record that its agent id
+record carries a hostname and a MAC or a device id, or no hostname but a MAC
+and a device id, the normalizer mints the weak host each lesser identifier
+alone would have minted, outside the observation's `object_refs`, and emits
+`aliases` from it to the host the record minted, DIRECT, with the record's
+provenance. The source said in that record that its agent id
 names that hostname; no cross-event inference and no statistics are
 involved, so the capability layer is still pure I/O. An event the same source
 later attributes to its agent id alone lands on the weak host and reads under
 the strong one.
 
 **Reads follow the alias set in one place.** The evidence store resolves an
-entity to its alias set, the undirected closure of `aliases` edges minus any
-pair a live `distinct-from` edge separates and minus withdrawn assertions,
-bounded in depth. The events filter, the window around an event, the pivot
-and the appearances across investigations expand the asked-for host to that
-set. The ids themselves are untouched: nothing is merged, re-minted or
-deleted, and an alias withdrawn tomorrow splits the reads again with no data
-to repair.
+entity to its alias set. Live `aliases` edges join; a live `distinct-from`
+pair is never crossed. A host reachable from both ends of a split, each end
+reached without passing through the other, is contested and reads alone: the
+record ties it to two machines a person said are different, and the engine
+does not pick a side. Every other host reads with the component it reaches
+through uncontested hosts, bounded in depth. The answer does not depend on
+which end of an alias the question starts from. The events filter, the
+window around an event, the pivot and the appearances across investigations
+expand the asked-for host to that set. The ids themselves are untouched:
+nothing is merged, re-minted or deleted; an alias withdrawn tomorrow, or a
+split placed on the link that is wrong, moves the reads with no data to
+repair.
 
 **Over-merge is visible, not detected.** The host's identity view lists what
 the record has seen under the id: the distinct domains, the agent and device
@@ -143,11 +164,20 @@ and an adapter for a live source is held to it over its own captures.
 - Two machines with one short name in two domains read as one host until an
   analyst splits them; the inspector says what the record has seen so the
   analyst can.
+- A chain of aliases between two hosts a person split reads as single hosts
+  until the person cuts the link that is wrong; the inspector lists every
+  alias so the link can be found. An identifier that moves from one machine
+  to another in sequence, an agent id following a re-imaged laptop, is a
+  question of when each association was observed, which the alias edges'
+  provenance already holds; reading an identifier by the association live at
+  the event's time is a follow-up, not a split.
 - `distinct-from` enters the domain model beside `aliases`; `stix_edges`
   holds human assertions with their history; three analyst-only endpoints and
   an identity view on the evidence read are added; the entity inspector gains
   "Also seen as", the seen-under line, and the join, split and withdraw acts.
 - Host-minting normalizers are at version 2; observations from version 1 are
-  unchanged and their hosts are not re-identified.
+  unchanged and their hosts are not re-identified. The same bump carries the
+  placeholder rule for addresses and hashes: an address or file entity minted
+  on a placeholder under version 1 keeps its id and gains no new events.
 - Account, group and hash-less file identity have the same shape of problem
   and are not changed here; the same two layers apply when they are.

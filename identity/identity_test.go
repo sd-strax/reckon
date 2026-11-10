@@ -317,6 +317,87 @@ func TestHostTiers(t *testing.T) {
 	}
 }
 
+// TestHostPlaceholders: a placeholder reads as an absent field (adr/0211), so
+// the host falls to its next tier, and nothing at all mints nothing.
+func TestHostPlaceholders(t *testing.T) {
+	r := NewResolver(nsA)
+	mac := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e"})
+	if got := r.Host(HostIdentity{Hostname: "localhost", MAC: "00:1a:2b:3c:4d:5e"}); got != mac {
+		t.Errorf("a localhost hostname must fall to the MAC: %q vs %q", got, mac)
+	}
+	for _, addr := range []string{"127.0.0.1", "0.0.0.0", "::1"} {
+		if got := r.Host(HostIdentity{Hostname: addr, MAC: "00:1a:2b:3c:4d:5e"}); got != mac {
+			t.Errorf("a %s hostname must fall to the MAC: %q vs %q", addr, got, mac)
+		}
+	}
+	uid := r.Host(HostIdentity{SourceTool: "edr", SourceUID: "a-1"})
+	if got := r.Host(HostIdentity{Hostname: "-", MAC: "00:00:00:00:00:00", SourceTool: "edr", SourceUID: "a-1"}); got != uid {
+		t.Errorf("a dash hostname and a zero MAC must fall to the uid: %q vs %q", got, uid)
+	}
+	if got := r.Host(HostIdentity{MAC: "00:00:00:00:00:00"}); got != "" {
+		t.Errorf("a zero MAC alone must mint nothing: %q", got)
+	}
+	if got := r.Host(HostIdentity{MAC: "00:00:00:00:00:00", SourceTool: "edr", SourceUID: "{00000000-0000-0000-0000-000000000000}"}); got != "" {
+		t.Errorf("a zero MAC and the nil GUID must mint nothing: %q", got)
+	}
+}
+
+// TestMACForms: the accepted MAC forms are identity's fixed rule, not the
+// toolchain's: every accepted form of one address mints one host, and any
+// other form is no MAC at all.
+func TestMACForms(t *testing.T) {
+	r := NewResolver(nsA)
+	want := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e"})
+	for _, v := range []string{"00-1A-2B-3C-4D-5E", "001a.2b3c.4d5e", "001A2B3C4D5E", " 00:1a:2b:3c:4d:5e "} {
+		if got := r.Host(HostIdentity{MAC: v}); got != want {
+			t.Errorf("Host(MAC %q) = %q; want %q", v, got, want)
+		}
+	}
+	eui64 := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e:6f:70"})
+	if eui64 == "" || eui64 == want || r.Host(HostIdentity{MAC: "001a2b3c4d5e6f70"}) != eui64 || r.Host(HostIdentity{MAC: "00-1a-2b-3c-4d-5e-6f-70"}) != eui64 {
+		t.Errorf("EUI-64 forms: %q", eui64)
+	}
+	if got := canonicalMAC("001A.2B3C.4D5E"); got != "00:1a:2b:3c:4d:5e" {
+		t.Errorf("canonicalMAC = %q", got)
+	}
+	for _, v := range []string{
+		"00:1a-2b:3c:4d:5e", "001a.2b3c.4d5e.6f70", "001a2b3c4d5", "00:1a:2b:3c:4d", "00.1a.2b.3c.4d.5e",
+		"00:00:5e:10:00:00:00:00:fe:80:00:00:00:00:00:00:02:00:5e:10", "zz:1a:2b:3c:4d:5e",
+	} {
+		if FoldMAC(v) != "" || !PlaceholderMAC(v) || r.Host(HostIdentity{MAC: v}) != "" {
+			t.Errorf("%q accepted as a MAC", v)
+		}
+	}
+}
+
+// TestAddressAndFilePlaceholders: a placeholder address mints nothing; a
+// file whose only hash is a placeholder takes the hash-less path.
+func TestAddressAndFilePlaceholders(t *testing.T) {
+	r := NewResolver(nsA)
+	if got := r.IPv4Addr("0.0.0.0"); got != "" {
+		t.Errorf("IPv4Addr(0.0.0.0) = %q, want empty", got)
+	}
+	if got := r.IPv6Addr("::1"); got != "" {
+		t.Errorf("IPv6Addr(::1) = %q, want empty", got)
+	}
+	if r.IPv4Addr("10.0.0.1") == "" {
+		t.Error("a private address must mint")
+	}
+
+	const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	named := FileIdentity{Hashes: map[string]string{"SHA-256": emptySHA256}, Name: "empty.txt", ParentDirectory: "/tmp"}
+	if got, want := r.File(named), r.File(FileIdentity{Name: "empty.txt", ParentDirectory: "/tmp"}); got != want {
+		t.Errorf("an empty-file hash must fall to the name triple: %q vs %q", got, want)
+	}
+	if got := r.File(FileIdentity{Hashes: map[string]string{"SHA-256": emptySHA256}}); got != "" {
+		t.Errorf("a file with only a placeholder hash must mint nothing: %q", got)
+	}
+	if got, want := r.File(FileIdentity{Hashes: map[string]string{"sha256": emptySHA256, "md5": "0123456789abcdef0123456789abcdef"}}),
+		r.File(FileIdentity{Hashes: map[string]string{"md5": "0123456789abcdef0123456789abcdef"}}); got != want {
+		t.Errorf("a placeholder hash must be skipped for the next usable one: %q vs %q", got, want)
+	}
+}
+
 // TestSplitHostname: the short name and the DNS domain, both folded.
 func TestSplitHostname(t *testing.T) {
 	cases := []struct{ in, host, domain string }{

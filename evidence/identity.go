@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/module"
 )
 
 // Identity reads (adr/0211). A host's id is its short hostname; what the key
@@ -29,26 +30,24 @@ const (
 // aliasDepth bounds the alias walk: a chain longer than this is not followed.
 const aliasDepth = 8
 
-// AliasSet returns the refs that read as one entity with ref, ref first. The
-// set is computed in three steps, none of which breaks a tie:
+// AliasSet returns the refs that read as one entity with ref, ref first, by
+// one rule that breaks no tie (an edge whose payload carries a withdrawn_at
+// is not live):
 //
-//   - the closure: the undirected walk of the live aliases edges from ref, at
-//     most aliasDepth steps, never crossing an aliases edge whose two ends a
-//     live distinct-from separates (an edge whose payload carries a
-//     withdrawn_at is not live);
-//   - the cut: drop every member asserted distinct from ref, both ends of
-//     every live distinct-from pair whose two ends are both in the closure,
-//     and every member aliased (by an edge no distinct-from cuts) to both
-//     ends of a live distinct-from pair, whether or not those ends survive;
-//     ref itself is never dropped;
-//   - the component: what remains connected to ref through aliases edges;
-//     a member reachable only through a dropped one falls out.
+//   - live aliases edges join; a live distinct-from pair is never crossed;
+//   - a node is contested when it is reachable from both ends of some live
+//     distinct-from pair, each end reached without passing through the
+//     other; a contested node reads alone;
+//   - otherwise ref's set is what it reaches through aliases edges within
+//     aliasDepth steps, never crossing a distinct-from pair and never
+//     entering a contested node.
 //
-// So a returned set never holds both ends of a live distinct-from pair. A
-// weak host two machines asserted apart both claim is disputed: it joins
-// neither and neither reads it, so its events are attributed to no machine
-// until the analyst says which. The identity views still list every alias,
-// so the dispute is visible. A ref with no edges is its own set.
+// Contested does not depend on ref and reaching is symmetric, so b is in a's
+// set exactly when a is in b's, and no set holds both ends of a live
+// distinct-from pair. Symmetry holds within the neighbourhood the store
+// loads, the nodes aliasDepth aliases steps from the asked-for refs: a pair
+// or a path beyond it is not seen. The identity views still list every
+// alias, so a contested host's dispute is visible. A ref with no edges is its own set.
 func (s *Store) AliasSet(ctx context.Context, ref string) ([]string, error) {
 	if _, ok := refUUID(ref); !ok {
 		return nil, ErrMalformedRef
@@ -73,6 +72,7 @@ func (s *Store) aliasSets(ctx context.Context, refs []string) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
+	contested := g.contested() // one graph, one contested set for every seed
 	out := []string{}
 	for _, r := range refs {
 		id, ok := refUUID(r)
@@ -82,7 +82,7 @@ func (s *Store) aliasSets(ctx context.Context, refs []string) ([]string, error) 
 		if !slices.Contains(out, r) {
 			out = append(out, r)
 		}
-		for _, m := range g.walk(id) {
+		for _, m := range g.walk(id, contested) {
 			if ref := g.types[m] + "--" + m.String(); !slices.Contains(out, ref) {
 				out = append(out, ref)
 			}
@@ -104,21 +104,31 @@ type aliasGraph struct {
 // aliases edges reach, then the live identity edges among those nodes.
 func (s *Store) aliasGraph(ctx context.Context, seeds []uuid.UUID) (aliasGraph, error) {
 	g := aliasGraph{types: map[uuid.UUID]string{}, joined: map[uuid.UUID][]uuid.UUID{}, apart: map[[2]uuid.UUID]bool{}}
+	// The store is single-tenant (Persist writes module.SingleTenantUUID); the
+	// tenant_id filter is what the edge and object indexes lead with.
+	tenant := module.SingleTenantUUID
 	rows, err := s.db.QueryContext(ctx, `
 		WITH RECURSIVE
-		joined AS (
-			SELECT source_ref AS a, target_ref AS b FROM stix_edges
-			WHERE relationship_type = '`+relAliases+`' AND payload->>'withdrawn_at' IS NULL
-			UNION SELECT target_ref, source_ref FROM stix_edges
-			WHERE relationship_type = '`+relAliases+`' AND payload->>'withdrawn_at' IS NULL
-		),
+		-- Each step reads only the live aliases edges at the frontier, in
+		-- both directions; the lateral join keeps the recursive reference
+		-- single, as Postgres requires.
 		walk (id, depth) AS (
 			SELECT seed, 0 FROM unnest($1::uuid[]) AS seed
 			UNION
-			SELECT j.b, w.depth + 1 FROM walk w JOIN joined j ON j.a = w.id WHERE w.depth < $2
+			SELECT n.other, w.depth + 1 FROM walk w
+			CROSS JOIN LATERAL (
+				SELECT e.target_ref AS other FROM stix_edges e
+				WHERE e.tenant_id = $3 AND e.source_ref = w.id
+				  AND e.relationship_type = '`+relAliases+`' AND e.payload->>'withdrawn_at' IS NULL
+				UNION ALL
+				SELECT e.source_ref FROM stix_edges e
+				WHERE e.tenant_id = $3 AND e.target_ref = w.id
+				  AND e.relationship_type = '`+relAliases+`' AND e.payload->>'withdrawn_at' IS NULL
+			) n
+			WHERE w.depth < $2
 		)
-		SELECT DISTINCT w.id, o.type FROM walk w JOIN stix_objects o ON o.id = w.id
-	`, uuidArray(seeds), aliasDepth)
+		SELECT DISTINCT w.id, o.type FROM walk w JOIN stix_objects o ON o.id = w.id AND o.tenant_id = $3
+	`, uuidArray(seeds), aliasDepth, tenant)
 	if err != nil {
 		return aliasGraph{}, fmt.Errorf("query alias neighbourhood: %w", err)
 	}
@@ -141,10 +151,10 @@ func (s *Store) aliasGraph(ctx context.Context, seeds []uuid.UUID) (aliasGraph, 
 	}
 	edges, err := s.db.QueryContext(ctx, `
 		SELECT source_ref, target_ref, relationship_type FROM stix_edges
-		WHERE relationship_type IN ('`+relAliases+`', '`+relDistinctFrom+`')
+		WHERE tenant_id = $2 AND relationship_type IN ('`+relAliases+`', '`+relDistinctFrom+`')
 		  AND payload->>'withdrawn_at' IS NULL
 		  AND source_ref = ANY($1) AND target_ref = ANY($1)
-	`, uuidArray(nodes))
+	`, uuidArray(nodes), tenant)
 	if err != nil {
 		return aliasGraph{}, fmt.Errorf("query identity edges among the neighbourhood: %w", err)
 	}
@@ -166,34 +176,15 @@ func (s *Store) aliasGraph(ctx context.Context, seeds []uuid.UUID) (aliasGraph, 
 }
 
 // walk returns seed's alias set by the AliasSet rule, seed excluded, in
-// (depth, id) order for a stable answer.
-func (g aliasGraph) walk(seed uuid.UUID) []uuid.UUID {
-	closure := g.reach(seed, nil)
-	dropped := map[uuid.UUID]bool{}
-	// apart holds each pair in both directions, so dropping y covers both ends.
-	// The seed is in its closure, so a member apart from it is dropped too.
-	for pair := range g.apart {
-		x, y := pair[0], pair[1]
-		_, inX := closure[x]
-		_, inY := closure[y]
-		if inX && inY && y != seed {
-			dropped[y] = true
-		}
+// (depth, id) order for a stable answer: nothing when seed is contested,
+// else what seed reaches without crossing a distinct-from pair or entering a
+// contested node. contested is g.contested(), computed once per graph by the
+// caller.
+func (g aliasGraph) walk(seed uuid.UUID, contested map[uuid.UUID]bool) []uuid.UUID {
+	if contested[seed] {
+		return nil
 	}
-	// A member aliased to both ends of a live distinct-from pair is disputed:
-	// two machines asserted apart both claim it, so it joins neither.
-	for m := range closure {
-		if m == seed {
-			continue
-		}
-		for pair := range g.apart {
-			if g.aliased(m, pair[0]) && g.aliased(m, pair[1]) {
-				dropped[m] = true
-				break
-			}
-		}
-	}
-	component := g.reach(seed, dropped)
+	component := g.reach(seed, contested)
 	out := make([]uuid.UUID, 0, len(component))
 	for id := range component {
 		if id != seed {
@@ -209,10 +200,25 @@ func (g aliasGraph) walk(seed uuid.UUID) []uuid.UUID {
 	return out
 }
 
-// aliased reports whether a live aliases edge joins a and b that no live
-// distinct-from between them cuts.
-func (g aliasGraph) aliased(a, b uuid.UUID) bool {
-	return !g.apart[[2]uuid.UUID{a, b}] && slices.Contains(g.joined[a], b)
+// contested returns the nodes reachable from both ends of some live
+// distinct-from pair, each end reached without passing through the other; the
+// ends themselves are not contested by their own pair.
+func (g aliasGraph) contested() map[uuid.UUID]bool {
+	out := map[uuid.UUID]bool{}
+	// apart holds each pair in both directions; take each pair once.
+	for pair := range g.apart {
+		x, y := pair[0], pair[1]
+		if strings.Compare(x.String(), y.String()) > 0 {
+			continue
+		}
+		fromY := g.reach(y, map[uuid.UUID]bool{x: true})
+		for n := range g.reach(x, map[uuid.UUID]bool{y: true}) {
+			if _, ok := fromY[n]; ok && n != x && n != y {
+				out[n] = true
+			}
+		}
+	}
+	return out
 }
 
 // reach walks the persisted nodes joined to seed by aliases edges, at most
@@ -289,10 +295,10 @@ type HostIdentityView struct {
 // at either end. SeenAs reads the events whose observed-data names ref or a
 // member of its alias set, and keeps the device objects (device, src_endpoint,
 // dst_endpoint, and the same under a detection's evidence) that name one of
-// the set's hosts: by hostname, by MAC, or by the (source tool, device uid) a
-// host was seen under. So an unjoined weak host shows its own records' facts,
-// and a record naming a joined host by its device id alone adds to the
-// strong host's.
+// the set's hosts, each object on its own first tier: by hostname, else by
+// MAC, else by the (source tool, device uid) a host was minted on. So an
+// unjoined weak host shows its own records' facts, and a record naming a
+// joined host by its device id alone adds to the strong host's.
 func (s *Store) HostIdentity(ctx context.Context, ref string) (HostIdentityView, error) {
 	id, ok := refUUID(ref)
 	if !ok {
@@ -327,11 +333,11 @@ func (s *Store) identityEdges(ctx context.Context, id uuid.UUID, out *HostIdenti
 		SELECT e.id, e.relationship_type, CASE WHEN e.source_ref = $1 THEN e.target_ref ELSE e.source_ref END AS other,
 		       COALESCE(o.type, ''), e.payload, e.created
 		FROM stix_edges e
-		LEFT JOIN stix_objects o ON o.id = CASE WHEN e.source_ref = $1 THEN e.target_ref ELSE e.source_ref END
-		WHERE e.relationship_type IN ('`+relAliases+`', '`+relDistinctFrom+`')
+		LEFT JOIN stix_objects o ON o.tenant_id = $2 AND o.id = CASE WHEN e.source_ref = $1 THEN e.target_ref ELSE e.source_ref END
+		WHERE e.tenant_id = $2 AND e.relationship_type IN ('`+relAliases+`', '`+relDistinctFrom+`')
 		  AND (e.source_ref = $1 OR e.target_ref = $1)
 		ORDER BY e.created, e.id
-	`, id)
+	`, id, module.SingleTenantUUID)
 	if err != nil {
 		return fmt.Errorf("query identity edges: %w", err)
 	}
@@ -424,14 +430,14 @@ func (m *hostMatch) addName(v string) {
 }
 
 func (m *hostMatch) addMAC(v string) {
-	if mac := foldMAC(v); mac != "" && !slices.Contains(m.macs, mac) {
+	if mac := identity.FoldMAC(v); mac != "" && !slices.Contains(m.macs, mac) {
 		m.macs = append(m.macs, mac)
 	}
 }
 
 func (m *hostMatch) addSource(tool, uid string) {
 	tool, uid = strings.ToLower(strings.TrimSpace(tool)), strings.TrimSpace(uid)
-	if uid == "" {
+	if identity.PlaceholderDeviceUID(uid) {
 		return
 	}
 	for i := range m.uids {
@@ -442,21 +448,37 @@ func (m *hostMatch) addSource(tool, uid string) {
 	m.tools, m.uids = append(m.tools, tool), append(m.uids, uid)
 }
 
-// foldMAC folds a MAC to its bare lowercase hex digits, so every form
-// identity's canonical MAC accepts (colon, dash, dotted, bare) folds alike.
-// The seen-as query folds the same way in SQL; the two must agree.
-func foldMAC(v string) string {
-	return strings.ToLower(strings.Map(func(r rune) rune {
-		if strings.ContainsRune("0123456789abcdefABCDEF", r) {
-			return r
-		}
-		return -1
-	}, v))
-}
+// literalPlaceholderSQL is true, in the seen-as query, for a device object
+// whose hostname field h holds an address literal (literal) that
+// identity.PlaceholderHostname refuses as identity.PlaceholderIP does: an
+// unspecified, loopback or broadcast address, IPv4-mapped forms included. A
+// value Postgres cannot read as a bare address is no address, and neither,
+// as net.ParseIP has it, is one with a mask or a dotted-decimal octet with a
+// leading zero, which Postgres would read; TestLiteralPlaceholderAgrees holds
+// the two to a table.
+const literalPlaceholderSQL = `CASE WHEN literal AND strpos(h, '/') = 0 AND h !~ '((^|[.:])0[0-9]+\.|\.0[0-9]+$)'
+			AND pg_input_is_valid(h, 'inet') THEN
+			h::inet = ANY('{0.0.0.0,255.255.255.255,::,::1,::ffff:0.0.0.0,::ffff:255.255.255.255}'::inet[])
+			OR h::inet << '127.0.0.0/8'::inet OR h::inet << '::ffff:127.0.0.0/104'::inet
+		ELSE false END`
 
-// hostMatchers reads what the x-hosts among refs can be matched on: a strong
-// host's hostname, mac, source_ids and (with no source) device_uid; a weak
-// host's mac, or source_tool and device_uid.
+// macForm matches, on a trimmed lowercase value, exactly the MAC forms
+// identity.FoldMAC accepts: six bytes as colon- or dash-separated pairs,
+// dotted groups of four, or 12 bare hex digits; eight bytes as colon- or
+// dash-separated pairs, or 16 bare hex digits. The seen-as query uses it to
+// choose an object's MAC tier as identity.PlaceholderMAC does; the two must
+// agree, and TestMACFormAgreesWithFoldMAC holds them to it.
+const macForm = `^([0-9a-f]{2}(:[0-9a-f]{2}){5}|[0-9a-f]{2}(-[0-9a-f]{2}){5}|[0-9a-f]{4}(\.[0-9a-f]{4}){2}|[0-9a-f]{12}` +
+	`|[0-9a-f]{2}(:[0-9a-f]{2}){7}|[0-9a-f]{2}(-[0-9a-f]{2}){7}|[0-9a-f]{16})$`
+
+// hostMatchers reads what the x-hosts among refs can be matched on: only the
+// identifier each was minted on (identity.Host's tiers, a placeholder read as
+// absent by the same identity predicates). A strong host
+// contributes its short hostname and nothing else; its mac and device ids are
+// facts reported about it, joined (or not) through the weak hosts' aliases
+// edges. A weak host contributes its mac if it has one, else its
+// (source_tool, device_uid). So a cut or contested alias really cuts: a weak
+// host outside the set lends the set none of its identifiers.
 func (s *Store) hostMatchers(ctx context.Context, refs []string) (hostMatch, error) {
 	var m hostMatch
 	ids := make([]uuid.UUID, 0, len(refs))
@@ -470,8 +492,8 @@ func (s *Store) hostMatchers(ctx context.Context, refs []string) (hostMatch, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT COALESCE(payload->'properties', '{}'::jsonb) FROM stix_objects
-		WHERE id = ANY($1) AND type = $2
-	`, uuidArray(ids), identity.TypeHost)
+		WHERE tenant_id = $3 AND id = ANY($1) AND type = $2
+	`, uuidArray(ids), identity.TypeHost, module.SingleTenantUUID)
 	if err != nil {
 		return hostMatch{}, fmt.Errorf("query host identifiers: %w", err)
 	}
@@ -481,20 +503,24 @@ func (s *Store) hostMatchers(ctx context.Context, refs []string) (hostMatch, err
 		if err := rows.Scan(&raw); err != nil {
 			return hostMatch{}, fmt.Errorf("scan host identifiers: %w", err)
 		}
+		// The keys capability's host extractor writes: hostname on a strong
+		// host; mac, or source_tool and device_uid, on a weak one.
 		var p struct {
-			Hostname   string            `json:"hostname"`
-			MAC        string            `json:"mac"`
-			SourceIDs  map[string]string `json:"source_ids"`
-			SourceTool string            `json:"source_tool"`
-			DeviceUID  string            `json:"device_uid"`
+			Hostname   string `json:"hostname"`
+			MAC        string `json:"mac"`
+			SourceTool string `json:"source_tool"`
+			DeviceUID  string `json:"device_uid"`
 		}
 		_ = json.Unmarshal(raw, &p)
-		m.addName(p.Hostname)
-		m.addMAC(p.MAC)
-		for tool, uid := range p.SourceIDs {
-			m.addSource(tool, uid)
+		// The tier is identity's: a placeholder reads as absent (adr/0211).
+		switch {
+		case !identity.PlaceholderHostname(p.Hostname):
+			m.addName(p.Hostname)
+		case !identity.PlaceholderMAC(p.MAC):
+			m.addMAC(p.MAC)
+		default:
+			m.addSource(p.SourceTool, p.DeviceUID)
 		}
-		m.addSource(p.SourceTool, p.DeviceUID)
 	}
 	return m, rows.Err()
 }
@@ -502,19 +528,25 @@ func (s *Store) hostMatchers(ctx context.Context, refs []string) (hostMatch, err
 // seenAs collects what the device objects of the events referencing any of
 // refs report, for the objects that name the host set. The extraction is SQL:
 // each device object (device, src_endpoint, dst_endpoint, at the top level
-// and under a detection's evidence, 03 §4.12) whose hostname folds to a name
-// (an address in the hostname field compared whole, as identity.SplitHostname
-// keeps it), whose MAC folds to a MAC, or whose (event source tool, uid) is a
-// pair the set was seen under, yields its domain, the FQDN's remainder, its
-// uid, uid_alt and the agent_list uids keyed by the event's source tool, and
-// its address.
+// and under a detection's evidence, 03 §4.12) is matched on its own first
+// tier only, the tier identity.Host would mint it on. An object with a
+// hostname matches only when the hostname folds to one of the names (an
+// address in the hostname field compared whole, as identity.SplitHostname
+// keeps it); its MAC and uid are not consulted, because under adr/0211 that
+// object mints that hostname's host, and its weaker ids are that host's facts,
+// not another's. An object with no hostname but a MAC matches only by the
+// folded MAC; one with neither matches only by its (event source tool, uid).
+// A matched object yields its domain, the FQDN's remainder, its uid, uid_alt
+// and the agent_list uids keyed by the event's source tool, and its address.
+// A placeholder (identity.Placeholder*) reads as absent when choosing an
+// object's tier and is never yielded as a domain, an agent id or an address.
 func (s *Store) seenAs(ctx context.Context, refs []string, match hostMatch) (SeenAs, error) {
 	out := SeenAs{Domains: []string{}, Agents: []SourceID{}, IPs: []string{}}
 	rows, err := s.db.QueryContext(ctx, `
 		WITH ev AS (
 			SELECT e.source_tool, e.payload FROM ocsf_events e
 			WHERE EXISTS (
-				SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id
+				SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id AND o.tenant_id = $8
 				WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ?| $1::text[])
 		),
 		dev AS (
@@ -535,26 +567,51 @@ func (s *Store) seenAs(ctx context.Context, refs []string, match hostMatch) (See
 				FROM dev WHERE jsonb_typeof(d) = 'object'
 			) z
 		),
-		-- The MAC fold (bare lowercase hex digits) must agree with foldMAC.
+		-- Each object matches on its own first tier only (hostname, else MAC,
+		-- else the source's uid), as identity.Host mints, a placeholder read
+		-- as absent: the hostname tier unless the hostname is a placeholder
+		-- (noname: the short name is one of identity.PlaceholderHostnames,
+		-- $6, which holds '', or it is an address literal identity.PlaceholderIP
+		-- refuses, literalPlaceholderSQL), the MAC tier when the MAC has a form
+		-- identity.FoldMAC accepts (macForm, $7) and its digits are not all
+		-- zero or all f, as identity.PlaceholderMAC rules. The fold of an
+		-- accepted form (its hex digits, lowercased) must agree with
+		-- identity.FoldMAC.
+		tiered AS (
+			SELECT source_tool, d, h, literal, short, mac, (short = ANY($6::text[]) OR `+literalPlaceholderSQL+`) AS noname
+			FROM (
+				SELECT source_tool, d, h, literal,
+					CASE WHEN literal THEN h ELSE split_part(h, '.', 1) END AS short,
+					lower(btrim(COALESCE(d->>'mac', ''))) AS mac
+				FROM named
+			) t
+		),
 		m AS (
-			SELECT source_tool, d, h, literal FROM named
-			WHERE (h <> '' AND (CASE WHEN literal THEN h ELSE split_part(h, '.', 1) END) = ANY($2::text[]))
-			   OR lower(regexp_replace(COALESCE(d->>'mac', ''), '[^0-9A-Fa-f]', '', 'g')) = ANY($3::text[])
-			   OR EXISTS (
-				SELECT 1 FROM unnest($4::text[], $5::text[]) AS p(tool, uid)
-				WHERE p.tool = lower(btrim(source_tool)) AND p.uid = btrim(d->>'uid'))
+			SELECT source_tool, d, h, literal, noname FROM tiered
+			WHERE CASE
+				WHEN NOT noname THEN short = ANY($2::text[])
+				WHEN mac ~ $7 AND regexp_replace(mac, '[^0-9a-f]', '', 'g') !~ '^(0+|f+)$' THEN
+					regexp_replace(mac, '[^0-9a-f]', '', 'g') = ANY($3::text[])
+				ELSE EXISTS (
+					SELECT 1 FROM unnest($4::text[], $5::text[]) AS p(tool, uid)
+					WHERE p.tool = lower(btrim(source_tool)) AND p.uid = btrim(d->>'uid'))
+			END
 		)
 		SELECT DISTINCT kind, tool, value FROM (
 			SELECT 'domain' AS kind, '' AS tool, lower(btrim(d->>'domain')) AS value FROM m
-			UNION ALL SELECT 'domain', '', substr(h, strpos(h, '.') + 1) FROM m WHERE NOT literal AND strpos(h, '.') > 0
+			-- The FQDN's remainder only when the hostname names a host: the
+			-- "localdomain" of localhost.localdomain is no domain.
+			UNION ALL SELECT 'domain', '', substr(h, strpos(h, '.') + 1) FROM m WHERE NOT literal AND NOT noname AND strpos(h, '.') > 0
 			UNION ALL SELECT 'agent', source_tool, btrim(d->>'uid') FROM m
 			UNION ALL SELECT 'agent', source_tool, btrim(d->>'uid_alt') FROM m
 			UNION ALL SELECT 'agent', source_tool, btrim(a->>'uid') FROM m,
 				jsonb_array_elements(CASE WHEN jsonb_typeof(d->'agent_list') = 'array' THEN d->'agent_list' ELSE '[]'::jsonb END) AS a
 			UNION ALL SELECT 'ip', '', btrim(d->>'ip') FROM m
 		) x
-		WHERE value IS NOT NULL AND value <> ''
-	`, textArray(refs), textArray(match.names), textArray(match.macs), textArray(match.tools), textArray(match.uids))
+		-- A placeholder domain is no discriminator: the hostname list, $6.
+		WHERE value IS NOT NULL AND value <> '' AND NOT (kind = 'domain' AND value = ANY($6::text[]))
+	`, textArray(refs), textArray(match.names), textArray(match.macs), textArray(match.tools), textArray(match.uids),
+		textArray(identity.PlaceholderHostnames()), macForm, module.SingleTenantUUID)
 	if err != nil {
 		return SeenAs{}, fmt.Errorf("query seen-as: %w", err)
 	}
@@ -564,12 +621,14 @@ func (s *Store) seenAs(ctx context.Context, refs []string, match hostMatch) (See
 		if err := rows.Scan(&kind, &tool, &value); err != nil {
 			return SeenAs{}, fmt.Errorf("scan seen-as: %w", err)
 		}
-		switch kind {
-		case "domain":
+		// A placeholder id or address is no discriminator (adr/0211); the
+		// domains were filtered in the query.
+		switch {
+		case kind == "domain":
 			out.Domains = append(out.Domains, value)
-		case "agent":
+		case kind == "agent" && !identity.PlaceholderDeviceUID(value):
 			out.Agents = append(out.Agents, SourceID{Tool: tool, UID: value})
-		case "ip":
+		case kind == "ip" && !identity.PlaceholderIP(value):
 			out.IPs = append(out.IPs, value)
 		}
 	}

@@ -1407,14 +1407,18 @@ by a merge or a judgement in this layer (adr/0211).
 
 *Under-merge*: a source that names a machine only by its own agent or device
 id mints a weak host the hostname cannot join. When one record carries the
-hostname and a MAC or a device id, the normalizer mints the weak host that
-identifier alone would have minted, outside the observation's `object_refs`,
-and emits `aliases` from it to the strong host, DIRECT, with the record's
-provenance: the source said in that record that its id names that hostname.
+hostname and a MAC or a device id, or no hostname but a MAC and a device id,
+the normalizer mints the weak host each lesser identifier alone would have
+minted, outside the observation's `object_refs`, and emits `aliases` from it
+to the host the record minted, DIRECT, with the record's provenance: the
+source said in that record that its id names that host.
 Reads by entity (the events filter, the window around an event, the pivot,
 the appearances across investigations) expand the asked-for host to its
-alias set: the undirected closure of the live `aliases` edges, bounded in
-depth, minus any pair a live `distinct-from` edge separates. An event the
+alias set: live `aliases` edges join and a live `distinct-from` pair is
+never crossed; a host reachable from both ends of a split, each end reached
+without passing through the other, is contested and reads alone; every other
+host reads with the component it reaches through uncontested hosts, bounded
+in depth (adr/0211). An event the
 source later attributes to its id alone lands on the weak host and reads
 under the strong one. Nothing is re-minted; withdrawing an alias splits the
 reads again with no data to repair.
@@ -1450,8 +1454,16 @@ same id), deterministic, and stateless; it can be unit-tested exhaustively
 against fixtures.
 
 Division of labor within that rule: the `IdentityResolver` applies only the
-*folding* described in §7.2 — case, whitespace, and format canonicalization.
-Per-type *shaping* of inputs (composing `account_login` as `domain\user`
+*folding* described in §7.2 — case, whitespace, and format canonicalization —
+and refuses a *placeholder*: a value a source emits when it has none, which
+names nothing and would otherwise mint one entity for every record that
+carries it (an all-zero or all-one MAC, an unspecified, loopback or broadcast
+address, `localhost` or a dash as a hostname, the nil GUID as a device id, the
+hash of the empty file), and a value that does not parse as its type. The
+list is built in, short, and per type; a placeholder field is treated as
+absent, so a host falls to its next tier, an address mints nothing, and a
+hash is passed over for the next one or for the file's name and path
+(adr/0211). Per-type *shaping* of inputs (composing `account_login` as `domain\user`
 versus an email address versus a bare Unix username, choosing which host
 identifier tier is available, selecting the strongest file hash) happens in
 the normalizer before the resolver is called, because only the normalizer

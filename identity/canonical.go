@@ -88,14 +88,65 @@ func canonicalURL(v string) string {
 	return u.String()
 }
 
-// canonicalMAC normalizes a MAC address to lowercase colon-separated form
-// (net.HardwareAddr.String). Unparseable values fall back to lowercased input.
-func canonicalMAC(v string) string {
-	s := strings.TrimSpace(v)
-	if hw, err := net.ParseMAC(s); err == nil {
-		return hw.String()
+// FoldMAC folds a MAC address to its bare lowercase hex digits, or returns ""
+// when v is not in an accepted form. The forms are a fixed rule of identity,
+// not whatever the standard library parses, so a MAC mints the same host on
+// every toolchain. After trimming, exactly these are accepted, in either case:
+// six bytes as xx:xx:xx:xx:xx:xx or xx-xx-xx-xx-xx-xx, dotted
+// xxxx.xxxx.xxxx, or 12 bare hex digits; eight bytes (EUI-64) as
+// colon- or dash-separated pairs, or 16 bare hex digits. One separator
+// throughout. The evidence store's seen-as query applies the same forms in
+// SQL; the two must agree.
+func FoldMAC(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	var parts []string
+	switch {
+	case len(s) == 12 || len(s) == 16:
+		parts = []string{s}
+	case len(s) == 14 && s[4] == '.':
+		parts = strings.Split(s, ".")
+		if len(parts) != 3 || !allLen(parts, 4) {
+			return ""
+		}
+	case len(s) > 2 && (s[2] == ':' || s[2] == '-'):
+		parts = strings.Split(s, s[2:3])
+		if (len(parts) != 6 && len(parts) != 8) || !allLen(parts, 2) {
+			return ""
+		}
+	default:
+		return ""
 	}
-	return strings.ToLower(s)
+	digits := strings.Join(parts, "")
+	if strings.Trim(digits, "0123456789abcdef") != "" {
+		return ""
+	}
+	return digits
+}
+
+// allLen reports whether every part is n bytes long.
+func allLen(parts []string, n int) bool {
+	for _, p := range parts {
+		if len(p) != n {
+			return false
+		}
+	}
+	return true
+}
+
+// canonicalMAC formats a MAC from its fold (FoldMAC) as lowercase
+// colon-separated pairs, so the bare, dashed, dotted and colon forms of one
+// address are one value. A value in no accepted form falls back to its
+// lowercased input; Host never mints on one (PlaceholderMAC refuses it).
+func canonicalMAC(v string) string {
+	digits := FoldMAC(v)
+	if digits == "" {
+		return strings.ToLower(strings.TrimSpace(v))
+	}
+	pairs := make([]string, 0, len(digits)/2)
+	for i := 0; i < len(digits); i += 2 {
+		pairs = append(pairs, digits[i:i+2])
+	}
+	return strings.Join(pairs, ":")
 }
 
 // canonicalHostname folds a hostname to the short name that is an x-host's

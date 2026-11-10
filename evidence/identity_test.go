@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
+	"regexp"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,7 +129,7 @@ func TestAliasSet_DistinctCut(t *testing.T) {
 	}
 
 	assertEdge(t, "distinct-from", c, a, false)
-	// The weak host both claim is disputed: it joins neither machine and
+	// The weak host both claim is contested: it joins neither machine and
 	// neither machine reads it, so its events are attributed to no one until
 	// the analyst says which; nothing breaks the tie.
 	for _, from := range []identity.STIXID{a, b, c} {
@@ -155,6 +158,32 @@ func TestAliasSet_DistinctCut(t *testing.T) {
 	}
 	if got, _ := s.AliasSet(ctx, string(c)); !sameSet(got, c, b) {
 		t.Errorf("AliasSet(c) = %v; want {c, b}", got)
+	}
+}
+
+// TestAliasSet_DisputedSeed: a weak host aliased to both ends of a live
+// distinct-from pair is contested whichever end the question starts from: asked
+// for itself it reads alone, and it does not carry a third alias across.
+func TestAliasSet_DisputedSeed(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	w, a, b, c := stixID("x-host"), stixID("x-host"), stixID("x-host"), stixID("x-host")
+	persistObjects(t, s, []capability.SCO{hostSCO(w, ""), hostSCO(a, "ws1"), hostSCO(b, "ws2"), hostSCO(c, "ws3")},
+		observedAlias(w, a, "edr"), observedAlias(w, b, "edr"), observedAlias(w, c, "edr"))
+
+	// Withdrawn: the four read as one from any of them.
+	assertEdge(t, "distinct-from", a, b, true)
+	for _, from := range []identity.STIXID{w, a, b, c} {
+		if got, _ := s.AliasSet(ctx, string(from)); !sameSet(got, w, a, b, c) || got[0] != string(from) {
+			t.Errorf("AliasSet(%s) = %v; want {w, a, b, c} with it first", from, got)
+		}
+	}
+
+	assertEdge(t, "distinct-from", a, b, false)
+	for _, from := range []identity.STIXID{w, a, b, c} {
+		if got, _ := s.AliasSet(ctx, string(from)); !sameSet(got, from) {
+			t.Errorf("AliasSet(%s) = %v; want it alone", from, got)
+		}
 	}
 }
 
@@ -322,5 +351,270 @@ func TestHostIdentity(t *testing.T) {
 	byHost, err := s.InvestigationEvents(ctx, inv, EventFilter{Entity: string(strong)})
 	if err != nil || byHost.Total != 3 {
 		t.Errorf("events by the strong host = %d, %v; want 3", byHost.Total, err)
+	}
+}
+
+// TestHostIdentity_MatchesByFirstTier: a host set lends seen-as only the
+// identifiers its hosts were minted on, and a device object is matched on its
+// own first tier only. A weak host cut out of a set takes its uid with it, and
+// a device object with a hostname (or a MAC) is never matched on its uid.
+func TestHostIdentity_MatchesByFirstTier(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry(identity.NewResolver(uuid.MustParse("44444444-4444-4444-8444-444444444444")))
+	ids := reg.Identity()
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	event := func(classUID, minute int, payload map[string]any) capability.OcsfEvent {
+		payload["class_uid"] = classUID
+		return capability.OcsfEvent{
+			ID: uuid.Must(uuid.NewV7()), ClassUID: classUID, Time: base.Add(time.Duration(minute) * time.Minute),
+			RecordedAt: base, SourceTool: "edr", Payload: payload,
+		}
+	}
+	user := map[string]any{"name": "alice"}
+	evts := []capability.OcsfEvent{
+		// Two inventories from one tool naming one device id: the weak host on
+		// (edr, 007) is aliased to both machines.
+		event(5001, 1, map[string]any{"device": map[string]any{"hostname": "hosta", "uid": "007", "ip": "10.0.0.1"}}),
+		event(5001, 2, map[string]any{"device": map[string]any{"hostname": "hostc", "uid": "007", "ip": "10.0.0.19"}}),
+		// A logon to hosta from hostc: the source endpoint is hostc's fact,
+		// whatever uid it carries.
+		event(3002, 3, map[string]any{"actor": map[string]any{"user": user},
+			"dst_endpoint": map[string]any{"hostname": "hosta", "uid": "007"},
+			"src_endpoint": map[string]any{"hostname": "hostc", "uid": "007", "domain": "other.example", "ip": "10.0.0.9"}}),
+		// The device id alone: the weak host's own record.
+		event(5001, 4, map[string]any{"device": map[string]any{"uid": "007", "ip": "10.0.0.7"}}),
+		// A logon to hosta from a hostname-less endpoint with a MAC no host in
+		// the set was minted on: matched by MAC only. Its device id is its
+		// own: a record with a MAC and a uid aliases the uid's weak host to
+		// the MAC host, so a shared 007 here would join the MAC host to the
+		// set by the record's own word.
+		event(3002, 5, map[string]any{"actor": map[string]any{"user": user},
+			"dst_endpoint": map[string]any{"hostname": "hosta"},
+			"src_endpoint": map[string]any{"mac": "02:00:00:00:00:02", "uid": "m-2", "ip": "10.0.0.8"}}),
+		// The MAC host's own inventory.
+		event(5001, 6, map[string]any{"device": map[string]any{"mac": "02:00:00:00:00:02", "uid": "m-2", "ip": "10.0.0.18"}}),
+	}
+	res := capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: evts}
+	for _, e := range evts {
+		nr, err := reg.Normalize(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nr.EventID = e.ID
+		res.Normalized = append(res.Normalized, nr)
+	}
+	inv := uuid.New()
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "v", StartedAt: base}, res)
+
+	a := ids.Host(identity.HostIdentity{Hostname: "hosta"})
+	c := ids.Host(identity.HostIdentity{Hostname: "hostc"})
+	w := ids.Host(identity.HostIdentity{SourceTool: "edr", SourceUID: "007"})
+	w2 := ids.Host(identity.HostIdentity{MAC: "02:00:00:00:00:02"})
+
+	seen := func(ref identity.STIXID) SeenAs {
+		t.Helper()
+		v, err := s.HostIdentity(ctx, string(ref))
+		if err != nil {
+			t.Fatalf("HostIdentity: %v", err)
+		}
+		return v.SeenAs
+	}
+
+	// No assertion yet: the shared device id joins the two machines, so
+	// hostc's facts read under hosta. The MAC endpoint is still not matched
+	// through the uid.
+	if got, _ := s.AliasSet(ctx, string(a)); !sameSet(got, a, w, c) {
+		t.Fatalf("AliasSet(a) = %v; want {a, w, c}", got)
+	}
+	if got := seen(a); !slices.Equal(got.IPs, []string{"10.0.0.1", "10.0.0.19", "10.0.0.7", "10.0.0.9"}) || !slices.Contains(got.Domains, "other.example") {
+		t.Errorf("joined seen as = %+v; want both machines' facts and the weak host's, not the MAC endpoint's", got)
+	}
+
+	// Asserted apart: the weak host is contested and hosta reads alone; the
+	// uid it was minted on is no longer hosta's to match on.
+	assertEdge(t, "distinct-from", a, c, false)
+	if got, _ := s.AliasSet(ctx, string(a)); !sameSet(got, a) {
+		t.Fatalf("AliasSet(a) = %v; want a alone", got)
+	}
+	if got := seen(a); !slices.Equal(got.IPs, []string{"10.0.0.1"}) || slices.Contains(got.Domains, "other.example") {
+		t.Errorf("seen as after distinct-from = %+v; want hosta's own address only, no other.example", got)
+	}
+
+	// The analyst says the weak host is not hostc's: it joins hosta again and
+	// its uid matches its own record, but a device object with a hostname or
+	// a MAC is matched on that alone, so hostc's inventory and both source
+	// endpoints stay out.
+	assertEdge(t, "distinct-from", w, c, false)
+	if got, _ := s.AliasSet(ctx, string(a)); !sameSet(got, a, w) {
+		t.Fatalf("AliasSet(a) = %v; want {a, w}", got)
+	}
+	if got := seen(a); !slices.Equal(got.IPs, []string{"10.0.0.1", "10.0.0.7"}) || slices.Contains(got.Domains, "other.example") {
+		t.Errorf("seen as with w joined = %+v; want 10.0.0.1 and 10.0.0.7 only, no other.example", got)
+	}
+
+	// The MAC host reads its own inventory, matched by its MAC.
+	if got := seen(w2); !slices.Equal(got.IPs, []string{"10.0.0.18"}) {
+		t.Errorf("MAC host seen as = %+v; want 10.0.0.18", got)
+	}
+}
+
+// TestHostIdentity_Placeholders (adr/0211): a placeholder is no discriminator
+// in the seen-as view, and a device object's tier skips one as identity.Host
+// does: a localhost hostname falls to the MAC, a zero MAC to the uid.
+func TestHostIdentity_Placeholders(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry(identity.NewResolver(uuid.MustParse("55555555-5555-4555-8555-555555555555")))
+	ids := reg.Identity()
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	event := func(minute int, device map[string]any) capability.OcsfEvent {
+		return capability.OcsfEvent{
+			ID: uuid.Must(uuid.NewV7()), ClassUID: 5001, Time: base.Add(time.Duration(minute) * time.Minute),
+			RecordedAt: base, SourceTool: "edr", Payload: map[string]any{"class_uid": 5001, "device": device},
+		}
+	}
+	evts := []capability.OcsfEvent{
+		event(1, map[string]any{"hostname": "WS9", "domain": "-", "ip": "0.0.0.0", "uid": "0"}),
+		event(2, map[string]any{"hostname": "ws9", "domain": "corp", "ip": "10.1.1.1"}),
+		event(3, map[string]any{"hostname": "localhost", "mac": "02:00:00:00:00:03", "ip": "10.2.2.2"}),
+		event(4, map[string]any{"mac": "00:00:00:00:00:00", "uid": "u-9", "ip": "10.3.3.3"}),
+		// localhost.localdomain names no host, and its remainder no domain.
+		event(5, map[string]any{"hostname": "localhost.localdomain", "mac": "02:00:00:00:00:04", "ip": "10.4.4.4"}),
+		// A loopback address in the hostname field names no host either.
+		event(6, map[string]any{"hostname": "127.0.0.1", "mac": "02:00:00:00:00:05", "ip": "10.5.5.5"}),
+	}
+	res := capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: evts}
+	for _, e := range evts {
+		nr, err := reg.Normalize(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nr.EventID = e.ID
+		res.Normalized = append(res.Normalized, nr)
+	}
+	inv := uuid.New()
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "v", StartedAt: base}, res)
+
+	seen := func(ref identity.STIXID) SeenAs {
+		t.Helper()
+		if ref == "" {
+			t.Fatal("no host minted")
+		}
+		v, err := s.HostIdentity(ctx, string(ref))
+		if err != nil {
+			t.Fatalf("HostIdentity: %v", err)
+		}
+		return v.SeenAs
+	}
+	ws9 := seen(ids.Host(identity.HostIdentity{Hostname: "ws9"}))
+	if !slices.Equal(ws9.Domains, []string{"corp"}) || !slices.Equal(ws9.IPs, []string{"10.1.1.1"}) || len(ws9.Agents) != 0 {
+		t.Errorf("ws9 seen as = %+v; want domain corp and 10.1.1.1 only, no placeholder", ws9)
+	}
+	if got := seen(ids.Host(identity.HostIdentity{MAC: "02:00:00:00:00:03"})); !slices.Equal(got.IPs, []string{"10.2.2.2"}) {
+		t.Errorf("MAC host behind a localhost hostname seen as = %+v; want 10.2.2.2", got)
+	}
+	if got := seen(ids.Host(identity.HostIdentity{SourceTool: "edr", SourceUID: "u-9"})); !slices.Equal(got.IPs, []string{"10.3.3.3"}) {
+		t.Errorf("uid host behind a zero MAC seen as = %+v; want 10.3.3.3", got)
+	}
+	if got := seen(ids.Host(identity.HostIdentity{MAC: "02:00:00:00:00:04"})); len(got.Domains) != 0 || !slices.Equal(got.IPs, []string{"10.4.4.4"}) {
+		t.Errorf("MAC host behind localhost.localdomain seen as = %+v; want 10.4.4.4 and no domain", got)
+	}
+	if got := seen(ids.Host(identity.HostIdentity{MAC: "02:00:00:00:00:05"})); !slices.Equal(got.IPs, []string{"10.5.5.5"}) {
+		t.Errorf("MAC host behind a 127.0.0.1 hostname seen as = %+v; want 10.5.5.5", got)
+	}
+}
+
+// TestLiteralPlaceholderAgrees: for an address literal in the hostname field,
+// the seen-as query's placeholder test (literalPlaceholderSQL, in Postgres)
+// agrees with identity.PlaceholderHostname.
+func TestLiteralPlaceholderAgrees(t *testing.T) {
+	s := newStore(t)
+	values := []string{
+		"127.0.0.1", "127.9.9.9", "0.0.0.0", "255.255.255.255", "::", "::1", "0:0:0:0:0:0:0:1",
+		"::ffff:127.0.0.1", "::ffff:0.0.0.0", "::ffff:255.255.255.255", "::FFFF:7F00:1",
+		"10.0.0.5", "169.254.1.1", "fe80::1", "2001:db8::1", "::ffff:10.0.0.1",
+		"1.2.3", "999.1.1.1", "127.1", "127.0.0.01", "127.0.0.1/8", "::1/128", "ws1.corp:3389", "fe80::1%eth0",
+		"::01", "::ffff:127.0.0.01", "::ffff:127.000.0.1", "0.0.0.00",
+		"WS1", "localhost", "",
+	}
+	// The values come from a set-returning function, so the planner cannot
+	// fold the cast as a constant, as it cannot over the query's own rows.
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT n, `+literalPlaceholderSQL+` FROM (
+			SELECT n, h, (h ~ '^[0-9.]+$' OR h LIKE '%:%') AS literal
+			FROM (SELECT n, lower(rtrim(btrim(v), '.')) AS h FROM unnest($1::text[]) WITH ORDINALITY AS u(v, n)) a
+		) b ORDER BY n`, textArray(values))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n int
+		var got bool
+		if err := rows.Scan(&n, &got); err != nil {
+			t.Fatal(err)
+		}
+		v := values[n-1]
+		short, _ := identity.SplitHostname(v)
+		want := net.ParseIP(short) != nil && identity.PlaceholderHostname(v)
+		if got != want {
+			t.Errorf("%q: literalPlaceholderSQL = %v; identity says an address placeholder: %v", v, got, want)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMACFormAgreesWithFoldMAC: the seen-as query's MAC form accepts exactly
+// what identity.FoldMAC accepts, in Go's regexp and in Postgres, and its fold
+// of an accepted form is FoldMAC's, so its tier choice is
+// identity.PlaceholderMAC's.
+func TestMACFormAgreesWithFoldMAC(t *testing.T) {
+	s := newStore(t)
+	re := regexp.MustCompile(macForm)
+	cases := []struct {
+		in     string
+		accept bool
+	}{
+		{"00:1a:2b:3c:4d:5e", true},
+		{"00-1A-2B-3C-4D-5E", true},
+		{"001a.2b3c.4d5e", true},
+		{"001A2B3C4D5E", true},
+		{"00:1a:2b:3c:4d:5e:6f:70", true},
+		{"00-1a-2b-3c-4d-5e-6f-70", true},
+		{"001a2b3c4d5e6f70", true},
+		{"00:00:00:00:00:00", true}, // a form; the placeholder rule is separate
+		{"00:1a-2b:3c:4d:5e", false},
+		{"001a.2b3c.4d5e.6f70", false},
+		{"001a2b3c4d5", false},
+		{"001a2b3c4d5e6", false},
+		{"unknown", false},
+		{"", false},
+		{"00:1a:2b:3c:4d", false},
+		{"00:1a:2b:3c:4d:5e:", false},
+		{"0:1a:2b:3c:4d:5e", false},
+		{"00:1a:2b:3c:4d:5g", false},
+		{"00.1a.2b.3c.4d.5e", false},
+		{"00:00:5e:10:00:00:00:00:fe:80:00:00:00:00:00:00:02:00:5e:10", false}, // 20-byte form: not accepted
+	}
+	for _, c := range cases {
+		folded := strings.ToLower(strings.TrimSpace(c.in))
+		var sqlMatch bool
+		var sqlFold string
+		if err := s.db.QueryRowContext(context.Background(),
+			`SELECT $1 ~ $2, regexp_replace($1, '[^0-9a-f]', '', 'g')`, folded, macForm).Scan(&sqlMatch, &sqlFold); err != nil {
+			t.Fatal(err)
+		}
+		goFold := identity.FoldMAC(c.in)
+		if (goFold != "") != c.accept || re.MatchString(folded) != c.accept || sqlMatch != c.accept {
+			t.Errorf("%q: FoldMAC = %q, Go regexp %v, Postgres %v; want accepted = %v", c.in, goFold, re.MatchString(folded), sqlMatch, c.accept)
+		}
+		if c.accept && sqlFold != goFold {
+			t.Errorf("%q: SQL fold %q, FoldMAC %q", c.in, sqlFold, goFold)
+		}
 	}
 }

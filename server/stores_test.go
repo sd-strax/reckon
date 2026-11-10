@@ -129,6 +129,8 @@ type fakeEvidence struct {
 	identity evidence.HostIdentityView
 	aliases  []string
 	err      error
+	// identityErr, when set, fails HostIdentity alone.
+	identityErr error
 }
 
 func (f *fakeEvidence) Persist(context.Context, evidence.Call, capability.CapabilityResult) error {
@@ -165,6 +167,9 @@ func (f *fakeEvidence) AliasSet(_ context.Context, ref string) ([]string, error)
 	return f.aliases, f.err
 }
 func (f *fakeEvidence) HostIdentity(context.Context, string) (evidence.HostIdentityView, error) {
+	if f.identityErr != nil {
+		return evidence.HostIdentityView{}, f.identityErr
+	}
 	return f.identity, f.err
 }
 
@@ -446,6 +451,15 @@ func TestGetEvidence_HostIdentity(t *testing.T) {
 		t.Errorf("seen_as = %+v", id.SeenAs)
 	}
 
+	// The identity view failing alone degrades: the host still opens, without it.
+	store.identityErr = errStoreDown
+	code, body = send(t, b, "GET", "/api/evidence/x-host--1", mintToken(t, nil), "")
+	if code != http.StatusOK || strings.Contains(body, `"identity"`) || !strings.Contains(body, `x-host--1`) {
+		t.Errorf("identity view down: status %d, body %s; want 200 with the object and no identity", code, body)
+	}
+	store.identityErr = nil
+
+	// The object read failing is still an error.
 	store.err = errStoreDown
 	if code, _ := send(t, b, "GET", "/api/evidence/x-host--1", mintToken(t, nil), ""); code != http.StatusInternalServerError {
 		t.Errorf("store down: status %d; want 500", code)
