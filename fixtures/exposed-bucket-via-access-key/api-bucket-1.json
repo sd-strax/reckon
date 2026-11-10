@@ -19,6 +19,22 @@
         "resource.uid": [
           "arn:aws:s3:::acme-internal-exports",
           null
+        ],
+        "resource.name": [
+          "acme-internal-exports",
+          null
+        ],
+        "service": [
+          "s3.amazonaws.com",
+          null
+        ],
+        "principal.credential": [
+          "AKIAIOSFODNN7EXAMPLE",
+          null
+        ],
+        "account.uid": [
+          "111122223333",
+          null
         ]
       }
     },

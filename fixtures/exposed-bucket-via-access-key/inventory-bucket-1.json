@@ -1,0 +1,92 @@
+{
+  "fixture_meta": {
+    "scenario": "exposed-bucket-via-access-key",
+    "matches": {
+      "verb": "get_cloud_resource_context",
+      "params": {
+        "resource.uid": [
+          "arn:aws:s3:::acme-internal-exports",
+          null
+        ],
+        "resource.name": [
+          "acme-internal-exports",
+          null
+        ]
+      }
+    },
+    "delay_ms": 40
+  },
+  "ocsf": {
+    "class_uid": 5023,
+    "class_name": "Cloud Resources Inventory Info",
+    "category_uid": 5,
+    "activity_id": 2,
+    "activity_name": "Collect",
+    "type_uid": 502302,
+    "time": "2026-07-14T10:00:00Z",
+    "severity_id": 1,
+    "metadata": {
+      "product": {
+        "vendor_name": "fixture-cloud",
+        "name": "fixture-cloud-config"
+      },
+      "version": "1.7.0"
+    },
+    "cloud": {
+      "provider": "AWS",
+      "account": {
+        "uid": "111122223333",
+        "name": "acme-prod",
+        "type_id": 10
+      },
+      "region": "us-east-1"
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::acme-internal-exports",
+        "name": "acme-internal-exports",
+        "type": "AWS::S3::Bucket",
+        "region": "us-east-1",
+        "data": {
+          "policy": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "PublicRead",
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::acme-internal-exports/*"
+              }
+            ]
+          },
+          "public_access_block": {
+            "block_public_acls": false,
+            "ignore_public_acls": false,
+            "block_public_policy": false,
+            "restrict_public_buckets": false
+          },
+          "versioning": "Suspended",
+          "encryption": "AES256"
+        },
+        "labels": [
+          "env:prod",
+          "data-class:internal"
+        ],
+        "tags": [
+          {
+            "name": "env",
+            "value": "prod"
+          },
+          {
+            "name": "data-class",
+            "value": "internal"
+          }
+        ],
+        "criticality": "High",
+        "created_time": "2025-03-11T16:42:00Z",
+        "modified_time": "2026-07-14T09:28:00Z"
+      }
+    ]
+  }
+}

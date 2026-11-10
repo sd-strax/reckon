@@ -1,0 +1,114 @@
+# Example tenant capability config (design/03-capability-layer.md §3.2) for the
+# bundled exposed-bucket-via-access-key fixture scenario — the cloud-rooted
+# shape of case in the eval corpus (design/10 §6, adr/0058): a control-plane
+# trail, no host, no process, no network flow. Wire it with
+# `reckon demo seed --scenario exposed-bucket-via-access-key` (fresh install) or
+# `reckon demo scenario exposed-bucket-via-access-key` (swap, stack down). One
+# scenario is wired at a time: the fixture adapter answers from one directory.
+
+tenant: demo
+
+adapters:
+  fixture:
+    class: fixture
+    enabled: true
+    scenario: exposed-bucket-via-access-key
+
+bindings:
+  # The cloud control-plane verbs (03 §2.10). The one entity the call carries
+  # is a principal (by name or by the access key it used), a resource or an
+  # account; each is passed under its own param so a fixture answers to the
+  # one it names. `outcome` is the discriminating axis the impossible-travel
+  # scenario set: the fixtures answer SUCCESS and FAILURE separately and ALL
+  # with both, so the denied call is a test the agent has to ask for. The
+  # principal's 30-day baseline is time-scoped: a 24-hour window shows the
+  # incident, a 30-day one the pattern it departs from. The fixture adapter
+  # ignores `limit`; a real adapter passes it through.
+  get_cloud_api_activity:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        principal:
+          name: '${entity.user.name?}'
+          credential: '${entity.user.credential_uid?}'
+        resource:
+          uid: '${entity.cloud_resource.uid?}'
+          name: '${entity.cloud_resource.name?}'
+        account:
+          uid: '${entity.cloud_account.uid?}'
+        operation: '${operation?}'
+        service: '${service?}'
+        outcome: '${outcome ?? "ALL"}'
+        limit: '${limit ?? 200}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  # The resource's change timeline: the mutating calls on it, which the
+  # fixtures answer from the same recorded calls as the activity search.
+  get_cloud_resource_history:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        resource:
+          uid: '${entity.cloud_resource.uid?}'
+          name: '${entity.cloud_resource.name?}'
+        limit: '${limit ?? 200}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  # What the resource is now: a configuration snapshot (OCSF 5023).
+  get_cloud_resource_context:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        resource:
+          uid: '${entity.cloud_resource.uid?}'
+          name: '${entity.cloud_resource.name?}'
+
+  search_alerts:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params: {}
+
+  # Threat-intel context for the calls' source address. The scenario carries
+  # one external indicator, so the fixture matches any indicator query; a real
+  # adapter resolves on the indicator value.
+  get_indicator_context:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        indicator:
+          ip: '${entity.ip?}'
+
+  # The case system of record. The team queue returns the alert's own ticket;
+  # a free-text filter (a change request for the bucket) matches no fixture and
+  # is COMPLETE with zero cases — evidence of absence against the planned-change
+  # hypothesis.
+  query_external_cases:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        filter: '${filter?}'
+        queue: '${queue?}'
+        status: '${status?}'
+
+  get_external_case_details:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        case_id: '${case_id}'
+
+policies:
+  default_window:
+    investigation: PT24H
+    hunt: PT30D
+  case_queue: SOC Tier 2

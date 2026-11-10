@@ -66,6 +66,47 @@ func TestDefaultCatalog_HuntVerbs(t *testing.T) {
 	}
 }
 
+// cloudVerbs are the §2.10 cloud control-plane verbs (#321).
+var cloudVerbs = []string{"get_cloud_api_activity", "get_cloud_resource_context", "get_cloud_resource_history"}
+
+// TestDefaultCatalog_CloudVerbs: every cloud verb is registered with inputs of
+// known types and at most one entity; the activity search takes its entity
+// optionally (the across-accounts question), the per-resource pair requires
+// one. Their text is held to the vocabulary guard below with the rest.
+func TestDefaultCatalog_CloudVerbs(t *testing.T) {
+	c := DefaultCatalog()
+	for _, v := range cloudVerbs {
+		d, ok := c.Descriptor(v)
+		if !ok {
+			t.Errorf("%s: not in DefaultCatalog", v)
+			continue
+		}
+		if d.Intent == "" || d.Output == "" {
+			t.Errorf("%s: intent/output empty", v)
+		}
+		var entity *InputParam
+		for i := range d.Inputs {
+			in := d.Inputs[i]
+			if !verbInputTypes[in.Type] {
+				t.Errorf("%s.%s: input type %q is not one the tool renderer knows", v, in.Name, in.Type)
+			}
+			if in.Type == "entity" {
+				if entity != nil {
+					t.Errorf("%s: two entity inputs; the tool shape carries one", v)
+				}
+				entity = &in
+			}
+		}
+		if v == "get_cloud_api_activity" {
+			if entity == nil || entity.Required {
+				t.Errorf("%s: must take an optional entity; got %+v", v, entity)
+			}
+		} else if entity == nil || !entity.Required {
+			t.Errorf("%s: must require an entity; got %+v", v, entity)
+		}
+	}
+}
+
 // identifierKeys are the fixture leaves whose values name a scenario: the
 // same set the agent's prompt guard uses, so the catalog's model-facing text
 // is held to the rule the prompt is (adr/0057): state the verb without

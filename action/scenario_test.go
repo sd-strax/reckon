@@ -192,6 +192,61 @@ func TestShippedImpossibleTravelActionScenario(t *testing.T) {
 	}
 }
 
+// TestShippedExposedBucketActionScenario: the cloud-rooted scenario's write
+// side. The principal and the source address dispatch end to end; there is no
+// host, so host isolation is unbound and advertises as unavailable, and a
+// principal the scenario never mentions fails honestly.
+func TestShippedExposedBucketActionScenario(t *testing.T) {
+	cfg, err := LoadActionConfig("../examples/action/exposed-bucket.yaml")
+	if err != nil {
+		t.Fatalf("load shipped action config: %v", err)
+	}
+	resolver, catalog, err := BuildActionResolver(cfg, "../fixtures", true)
+	if err != nil {
+		t.Fatalf("build resolver: %v", err)
+	}
+	avail := map[string]ActionAvailability{}
+	for _, s := range resolver.ListActionTypes(catalog) {
+		avail[s.Descriptor.ActionType] = s.Status
+	}
+	for _, at := range []string{"account.disable", "account.enable", "ioc.block", "ioc.unblock", "ticket.create", "ticket.close", "notify.slack", "notify.email"} {
+		if avail[at] != ActionAvailable {
+			t.Errorf("bound action %s = %q; want available", at, avail[at])
+		}
+	}
+	for _, at := range []string{"host.isolate", "host.unisolate"} {
+		if avail[at] == ActionAvailable {
+			t.Errorf("%s is available but the scenario has no host — it must be unbound", at)
+		}
+	}
+
+	dispatch := func(actionType, identifier string) (WriteResult, error) {
+		t.Helper()
+		cmd, err := BuildRequestCommand(catalog, ActionRequest{
+			ActionType:   actionType,
+			Targets:      []aggregate.TargetSpec{{EntityRef: "user-account--1", ResolvedIdentifier: identifier}},
+			EvidenceRefs: []string{"observed-data--put-bucket-policy"},
+			Rationale:    "contain the principal behind the public bucket policy",
+		}, time.Now())
+		if err != nil {
+			t.Fatalf("build %s request: %v", actionType, err)
+		}
+		res, _, err := resolver.Resolve(context.Background(), DispatchRequest{ActionID: cmd.ActionID, ActionType: cmd.ActionType, Targets: cmd.Targets})
+		return res, err
+	}
+	for _, c := range []struct{ actionType, identifier string }{
+		{"account.disable", "deploy-ci"}, {"account.enable", "deploy-ci"},
+		{"ioc.block", "203.0.113.77"}, {"ioc.unblock", "203.0.113.77"},
+	} {
+		if res, err := dispatch(c.actionType, c.identifier); err != nil || res.FinalOutcome != OutcomeSucceeded {
+			t.Errorf("%s(%s): outcome=%q err=%v; want SUCCEEDED", c.actionType, c.identifier, res.FinalOutcome, err)
+		}
+	}
+	if _, err := dispatch("account.disable", "someone-else"); err == nil {
+		t.Error("account.disable on a principal the scenario never mentions should fail, not succeed")
+	}
+}
+
 // TestShippedScenariosBindEveryInverse guards the Reverse path in the demo: a
 // bound action whose catalog entry names an inverse must have that inverse bound
 // too, or the reversal is approved and then fails at dispatch with no binding.
@@ -199,6 +254,7 @@ func TestShippedScenariosBindEveryInverse(t *testing.T) {
 	for _, path := range []string{
 		"../examples/action/lateral-movement.yaml",
 		"../examples/action/impossible-travel.yaml",
+		"../examples/action/exposed-bucket.yaml",
 	} {
 		cfg, err := LoadActionConfig(path)
 		if err != nil {

@@ -758,3 +758,67 @@ func resourceRefs(v View) []string {
 	}
 	return refs
 }
+
+// inventorySnapshot is a cloud resource configuration snapshot of one bucket.
+const inventorySnapshot = `{"class_uid":5023,"category_uid":5,"activity_id":2,"activity_name":"Collect",
+	"cloud":{"provider":"AWS","account":{"uid":"111122223333","name":"acme-prod"},"region":"us-east-1"},
+	"resources":[{"uid":"arn:aws:s3:::acme-internal-exports","name":"acme-internal-exports","type":"AWS::S3::Bucket","region":"us-east-1",
+		"data":{"versioning":"Suspended","policy":{"Version":"2012-10-17"},"encryption":"AES256"},
+		"labels":["env:prod","data-class:internal"],"criticality":"High","owner":{"name":"data-platform"},
+		"created_time":"2025-03-02T12:00:00Z","modified_time":"2026-07-14T09:28:00Z"}]}`
+
+// TestRender_CloudInventory: the resource and its account as chips bound to
+// the record, the type and region in the sentence, the configuration as its
+// top-level keys, the asset category; with no provider (so nothing minted)
+// the same sentence reads with unbound text.
+func TestRender_CloudInventory(t *testing.T) {
+	ents := []Entity{
+		ent("x-cloud-account--a", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
+		ent("x-cloud-resource--r", map[string]any{"uid": "arn:aws:s3:::acme-internal-exports", "name": "acme-internal-exports"}),
+	}
+	v := Render(Event{ClassUID: 5023, Payload: payload(inventorySnapshot)}, ents)
+	const want = "acme-internal-exports (AWS::S3::Bucket) in acme-prod, us-east-1"
+	if got := sentenceText(v); got != want {
+		t.Errorf("sentence = %q", got)
+	}
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"x-cloud-resource--r", "x-cloud-account--a"}) {
+		t.Errorf("sentence refs = %v", refs)
+	}
+	if v.Category != CategoryAsset {
+		t.Errorf("category = %s", v.Category)
+	}
+	for label, want := range map[string]Field{
+		"Resource":      {Label: "Resource", Value: "acme-internal-exports", Ref: "x-cloud-resource--r", Mono: true},
+		"Type":          {Label: "Type", Value: "AWS::S3::Bucket", Mono: true},
+		"Account":       {Label: "Account", Value: "acme-prod", Ref: "x-cloud-account--a", Mono: true},
+		"Region":        {Label: "Region", Value: "us-east-1"},
+		"Owner":         {Label: "Owner", Value: "data-platform"},
+		"Created":       {Label: "Created", Value: "2025-03-02T12:00:00Z"},
+		"Modified":      {Label: "Modified", Value: "2026-07-14T09:28:00Z"},
+		"Criticality":   {Label: "Criticality", Value: "High", Tone: severityTone("High")},
+		"Labels":        {Label: "Labels", Value: "env:prod, data-class:internal"},
+		"Configuration": {Label: "Configuration", Value: "encryption, policy, versioning"},
+	} {
+		if f, ok := fieldValue(v, label); !ok || f != want {
+			t.Errorf("%s field = %+v; want %+v", label, f, want)
+		}
+	}
+	slots := map[string]SlotValue{}
+	for _, s := range v.Slots {
+		slots[s.Name] = s
+	}
+	if slots["resource"].Ref != "x-cloud-resource--r" || slots["account"].Ref != "x-cloud-account--a" ||
+		slots["type"].Text != "AWS::S3::Bucket" || slots["region"].Text != "us-east-1" || slots["owner"].Text != "data-platform" {
+		t.Errorf("slots = %+v", v.Slots)
+	}
+
+	p := payload(inventorySnapshot)
+	delete(p["cloud"].(map[string]any), "provider")
+	v = Render(Event{ClassUID: 5023, Payload: p}, nil)
+	if got := sentenceText(v); got != want {
+		t.Errorf("no provider: sentence = %q; want %q", got, want)
+	}
+	if refs := entityRefs(v); len(refs) != 0 {
+		t.Errorf("no provider: sentence refs = %v; want none", refs)
+	}
+}

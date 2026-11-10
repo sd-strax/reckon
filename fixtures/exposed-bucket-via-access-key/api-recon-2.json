@@ -18,6 +18,21 @@
         ],
         "resource.uid": [
           null
+        ],
+        "resource.name": [
+          null
+        ],
+        "service": [
+          "s3.amazonaws.com",
+          null
+        ],
+        "principal.credential": [
+          "AKIAIOSFODNN7EXAMPLE",
+          null
+        ],
+        "account.uid": [
+          "111122223333",
+          null
         ]
       }
     },

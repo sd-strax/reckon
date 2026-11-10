@@ -19,6 +19,22 @@
         "resource.uid": [
           "arn:aws:s3:::acme-release-artifacts",
           null
+        ],
+        "resource.name": [
+          "acme-release-artifacts",
+          null
+        ],
+        "service": [
+          "s3.amazonaws.com",
+          null
+        ],
+        "principal.credential": [
+          "AKIAIOSFODNN7EXAMPLE",
+          null
+        ],
+        "account.uid": [
+          "111122223333",
+          null
         ]
       }
     },
