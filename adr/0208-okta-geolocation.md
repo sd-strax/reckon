@@ -1,6 +1,6 @@
 # 0208 — A sign-in's reported place rides the OCSF event as a Geo Location attributed to its provider, read by the event view and extracted by nothing
 
-Issue: #208 · PR: pending · Status: accepted
+Issue: #208 · PR: #323 · Status: accepted
 
 ## Context
 
