@@ -50,15 +50,18 @@ turns:
     min_quotes: 3
 
   # Discriminating tests (R2) after the scripted Adopt: the principal's
-  # incident day against its 30-day pattern. R3 rides this turn too: a
-  # decision recorded on the propose turn is the failure adr/0051 gates. What the trail shows: the key
+  # incident day against its 30-day pattern. As in the sibling drivers, the
+  # analyst names no clock-relative window: the session runs on the real
+  # clock and the fixtures are dated, so the agent takes its windows from the
+  # evidence it has read. R3 rides this turn too: a decision recorded on the
+  # propose turn is the failure adr/0051 gates. What the trail shows: the key
   # AKIAIOSFODNN7EXAMPLE, ListUsers denied (AccessDenied), CreateAccessKey and
   # AttachUserPolicy (AdministratorAccess) on svc-backup — none of it in a
   # baseline of nightly artifact uploads.
   - user: >-
-      I've adopted both hypotheses. What else did that principal do in the
-      last 24 hours, and how does that compare with its pattern over the last
-      30 days? Record the predictions that would decide between the
+      I've adopted both hypotheses. What else did that principal do on the day
+      of the change, and how does that compare with its usual pattern over the
+      weeks before it? Record the predictions that would decide between the
       hypotheses, each under the hypothesis that expects it, marking which
       rival it discriminates against, and include at least one test under the
       alternative.

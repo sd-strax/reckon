@@ -27,6 +27,15 @@
         "resource.region": [
           "us-east-1",
           null
+        ],
+        "resource.zone": [
+          null
+        ],
+        "resource.group": [
+          null
+        ],
+        "resource.namespace": [
+          null
         ]
       }
     },

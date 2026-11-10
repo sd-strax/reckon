@@ -19,12 +19,12 @@ bindings:
   # is a principal (by name or by the access key it used), a resource or an
   # account; each is passed under its own param so a fixture answers to the
   # one it names. A resource named rather than identified passes the scope it
-  # was given (provider, type, account, region), so a same-named resource
-  # elsewhere is not answered when the caller names its scope; providers are
-  # lowercased to the slug the fixtures match. `outcome` is the
-  # discriminating axis the impossible-travel scenario set: the fixtures
-  # answer SUCCESS and FAILURE separately and ALL with both, so the denied
-  # call is a test the agent has to ask for. Every call is time-scoped: a
+  # was given (provider, type, account, region, zone, group, namespace), so a
+  # same-named resource elsewhere is not answered when the caller names its
+  # scope; providers are lowercased to the slug the fixtures match. `outcome`
+  # is the discriminating axis the impossible-travel scenario set: the
+  # fixtures answer SUCCESS and FAILURE separately and ALL with both, so the
+  # denied call is a test the agent has to ask for. Every call is time-scoped: a
   # 24-hour window shows the incident, a 30-day one the pattern it departs
   # from, a window before the incident only that pattern. The fixture adapter
   # ignores `limit`; a real adapter passes it through.
@@ -43,6 +43,9 @@ bindings:
           type: '${entity.cloud_resource.type?}'
           account_uid: '${entity.cloud_resource.account_uid?}'
           region: '${entity.cloud_resource.region?}'
+          zone: '${entity.cloud_resource.zone?}'
+          group: '${entity.cloud_resource.group?}'
+          namespace: '${entity.cloud_resource.namespace?}'
         account:
           uid: '${entity.cloud_account.uid?}'
           provider: '${entity.cloud_account.provider? | lower}'
@@ -68,6 +71,9 @@ bindings:
           type: '${entity.cloud_resource.type?}'
           account_uid: '${entity.cloud_resource.account_uid?}'
           region: '${entity.cloud_resource.region?}'
+          zone: '${entity.cloud_resource.zone?}'
+          group: '${entity.cloud_resource.group?}'
+          namespace: '${entity.cloud_resource.namespace?}'
         limit: '${limit ?? 200}'
         window:
           from: '${window.from | iso8601}'
@@ -86,6 +92,9 @@ bindings:
           type: '${entity.cloud_resource.type?}'
           account_uid: '${entity.cloud_resource.account_uid?}'
           region: '${entity.cloud_resource.region?}'
+          zone: '${entity.cloud_resource.zone?}'
+          group: '${entity.cloud_resource.group?}'
+          namespace: '${entity.cloud_resource.namespace?}'
 
   search_alerts:
     - adapter: fixture

@@ -600,6 +600,17 @@ func TestShippedExposedBucketScenario(t *testing.T) {
 	if ops := operations(call("get_cloud_resource_history", scoped("111122223333", "AWS::S3::Bucket"), map[string]any{"window": day})); !slices.Equal(ops, []string{"PutBucketPolicy"}) {
 		t.Errorf("history(bucket by full scope) = %v; want PutBucketPolicy", ops)
 	}
+	// A zone, group or namespace the bucket does not have names another
+	// resource under the name rule, so it is an absence too.
+	for _, k := range []string{"zone", "group", "namespace"} {
+		e := scoped("111122223333", "AWS::S3::Bucket")
+		e["cloud_resource"].(map[string]any)[k] = "other"
+		absent("context(bucket by name, "+k+" other)", call("get_cloud_resource_context", e, nil))
+		absent("history(bucket by name, "+k+" other)", call("get_cloud_resource_history", e, map[string]any{"window": day}))
+	}
+	if r := call("get_cloud_resource_context", scoped("111122223333", "AWS::S3::Bucket"), nil); len(r.Events) != 1 {
+		t.Errorf("context(bucket by full scope) = %d events; want the snapshot", len(r.Events))
+	}
 	if r := call("get_cloud_resource_context", map[string]any{"cloud_resource": map[string]any{"uid": "arn:aws:s3:::acme-internal-exports"}}, nil); len(r.Events) != 1 {
 		t.Errorf("context(bucket by uid alone) = %d events; want the snapshot", len(r.Events))
 	}

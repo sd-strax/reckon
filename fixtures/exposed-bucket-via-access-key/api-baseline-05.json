@@ -55,6 +55,15 @@
         "account.provider": [
           "aws",
           null
+        ],
+        "resource.zone": [
+          null
+        ],
+        "resource.group": [
+          null
+        ],
+        "resource.namespace": [
+          null
         ]
       }
     },
