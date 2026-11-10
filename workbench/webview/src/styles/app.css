@@ -457,6 +457,18 @@ body.loading #rail { opacity: 0.6; }
 .inspector .app-row:hover { background: var(--hover); }
 .inspector .app-row .app-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inspector .app-row .app-status { flex: none; font-size: var(--fs-xs); color: var(--text-3); }
+/* A host's identity (adr/0211): its edges with their origin, a withdrawn one dimmed and labelled, and the inline acts. */
+.iedge { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.iedge.withdrawn { opacity: 0.6; }
+.iedge .inote { flex-basis: 100%; color: var(--text-2); font-size: var(--fs-xs); font-style: italic; }
+.iedge .iedgeact { margin-left: auto; font-size: var(--fs-xs); padding: 0 7px; }
+.iseenwarn { color: var(--warn); font-weight: 600; }
+.iform { display: grid; gap: 5px; margin: 6px 0 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--fill); }
+.iform label { font-size: var(--fs-xs); color: var(--text-2); display: grid; gap: 2px; }
+.iform input { width: 100%; box-sizing: border-box; font: inherit; font-size: var(--fs-sm); color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--r-sm); padding: 3px 8px; }
+.iform input:focus { outline: none; border-color: var(--he-primary); }
+.iform .iformerr { color: var(--bad); font-size: var(--fs-xs); }
+.iform .iformbtns { display: flex; gap: 6px; }
 .sopchip { cursor: pointer; }
 .pord { cursor: pointer; }
 .pord:hover { text-decoration: underline dotted; }

@@ -35,6 +35,23 @@ func actorFromRequest(r *http.Request, c authz.Claims) aggregate.Actor {
 	return a
 }
 
+// humanClaims reads the caller's claims for a human act and refuses an AI
+// delegate: the analyst route role admits a delegate token carrying the
+// human's subject, so a handler whose act is a person's has to look. Missing
+// claims are a wiring error (500); a delegate is 403.
+func humanClaims(w http.ResponseWriter, r *http.Request) (authz.Claims, bool) {
+	claims, ok := authz.FromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusInternalServerError, "auth context missing")
+		return authz.Claims{}, false
+	}
+	if claims.DelegateKind != "" {
+		writeJSONError(w, http.StatusForbidden, "an AI delegate cannot take this act: it is a person's")
+		return authz.Claims{}, false
+	}
+	return claims, true
+}
+
 type requiredRolesKey struct{}
 
 // withRequiredRoles records on the context the role set a route required of

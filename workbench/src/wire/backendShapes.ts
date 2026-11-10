@@ -344,6 +344,32 @@ const eventView = object({
 });
 export type RawEventView = Decoded<typeof eventView>;
 
+// A host's identity view (adr/0211): the aliases and distinct-from edges that
+// touch it, each with its origin, and what the record has seen under it. It is
+// the identity acts' answer and rides on a host's evidence read.
+const identityEdge = object({
+  edge_id: str,
+  other_ref: str,
+  kind: str,
+  source: optional(str),
+  by: optional(str),
+  by_name: optional(str),
+  at: str,
+  note: optional(str),
+  withdrawn: bool,
+});
+
+export const hostIdentity = object({
+  aliases: list(identityEdge),
+  distinct: list(identityEdge),
+  seen_as: object({
+    domains: list(str),
+    agents: list(object({ tool: str, uid: str })),
+    ips: list(str),
+  }),
+});
+export type RawHostIdentity = Decoded<typeof hostIdentity>;
+
 export interface RawEvidence {
   ref: string;
   kind: string;
@@ -355,6 +381,7 @@ export interface RawEvidence {
   source_tool?: string;
   view?: RawEventView;
   related?: { sightings: RawEvidence[]; identity?: RawEvidence; evidence: RawEvidence[] };
+  identity?: RawHostIdentity;
 }
 
 export const evidence: Decoder<RawEvidence> = object({
@@ -372,6 +399,8 @@ export const evidence: Decoder<RawEvidence> = object({
     identity: optional(lazy(() => evidence)),
     evidence: list(lazy(() => evidence)),
   })),
+  // On an x-host only (adr/0211).
+  identity: optional(hostIdentity),
 });
 
 // The investigation's retrieved record (adr/0092): events by call, and the calls.

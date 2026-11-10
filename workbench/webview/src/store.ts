@@ -120,6 +120,12 @@ export interface State {
   me: { name: string; principal: string } | null;
   /** Actions with a decision sent and not yet settled by the host: every card for one disables. */
   actionsInFlight: Record<string, true>;
+  /**
+   * The identity acts on a host (adr/0211), by its ref: one in flight, the
+   * last refusal, and how many have landed, so an inline form closes once its
+   * own act landed.
+   */
+  identityActs: Record<string, { pending: boolean; error?: string; landed: number }>;
 }
 
 export const initialState: State = {
@@ -158,6 +164,7 @@ export const initialState: State = {
   queue: null,
   me: null,
   actionsInFlight: {},
+  identityActs: {},
 };
 
 export type Action =
@@ -170,7 +177,9 @@ export type Action =
   | { type: "draft.submitting" }
   | { type: "draft.searching"; status: string }
   /** A decision on this action was sent to the host. */
-  | { type: "action.sent"; actionId: string };
+  | { type: "action.sent"; actionId: string }
+  /** An identity act on this host was sent to the host (adr/0211). */
+  | { type: "identity.sent"; ref: string };
 
 function currentTurn(live: LiveItem[]): LiveTurn | null {
   const last = live[live.length - 1];
@@ -209,6 +218,8 @@ export function reducer(state: State, action: Action): State {
       return { ...state, draft: { ...state.draft, status: action.status, cases: [] } };
     case "action.sent":
       return { ...state, actionsInFlight: { ...state.actionsInFlight, [action.actionId]: true } };
+    case "identity.sent":
+      return { ...state, identityActs: { ...state.identityActs, [action.ref]: { pending: true, landed: state.identityActs[action.ref]?.landed ?? 0 } } };
     case "msg":
       return onMessage(state, action.msg);
   }
@@ -311,6 +322,16 @@ function onMessage(state: State, msg: RenderMessage): State {
         inspectorErrors: dropKey(state.inspectorErrors, msg.ref),
       };
     }
+    case "inspector.identity": {
+      const doc = state.docs[msg.ref];
+      return {
+        ...state,
+        docs: doc ? { ...state.docs, [msg.ref]: { ...doc, identity: msg.identity } } : state.docs,
+        identityActs: { ...state.identityActs, [msg.ref]: { pending: false, landed: (state.identityActs[msg.ref]?.landed ?? 0) + 1 } },
+      };
+    }
+    case "identity.error":
+      return { ...state, identityActs: { ...state.identityActs, [msg.ref]: { pending: false, error: msg.message, landed: state.identityActs[msg.ref]?.landed ?? 0 } } };
     case "inspector.call":
       // The pane is named by the verb (derive/inspect.ts targetName).
       return { ...state, calls: { ...state.calls, [msg.callId]: msg.call }, labels: { ...state.labels, ["call:" + msg.callId]: msg.call.verb }, inspectorErrors: dropKey(state.inspectorErrors, msg.callId) };

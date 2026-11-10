@@ -26,6 +26,7 @@ import type {
   EventRepeats,
   EventRow,
   EvidenceDoc,
+  HostIdentity,
   Hypothesis,
   InvestigationDetail,
   InvestigationSummary,
@@ -217,6 +218,10 @@ export type RenderMessage =
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null; citations?: KnowledgeCitations }
   | { type: "inspector.error"; target: string; message: string }
+  // A host's identity view after the analyst joined, split or withdrew
+  // (adr/0211), and an act the server refused, for the inline form to say.
+  | { type: "inspector.identity"; ref: string; identity: HostIdentity }
+  | { type: "identity.error"; ref: string; message: string }
   // The action types the analyst can request directly (#146): available ones only.
   | { type: "actionTypes"; types: ActionTypeView[] }
   // Drafting a procedure from a concluded case (adr/0156): where the draft is,
@@ -336,6 +341,11 @@ export type InboundMessage =
   // The webview opened an inspector pane (view state) and needs the record
   // behind it; the host answers with the matching inspector.* message.
   | { type: "inspector.open"; target: InspectorTarget }
+  // The analyst's acts on a host's identity (adr/0211): "same as another
+  // host" (aliases) or "not the same host" (distinct), the other host named
+  // by its name or its ref; and withdrawing an asserted edge. Human acts.
+  | { type: "identity.assert"; ref: string; relation: "aliases" | "distinct"; other: string; note?: string }
+  | { type: "identity.withdraw"; ref: string; edgeId: string; note?: string }
   | { type: "export.open" }
   | { type: "copy"; text: string }
   | { type: "investigation.open"; id: string; title?: string }

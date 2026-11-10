@@ -223,6 +223,32 @@ export interface EvidenceDoc {
   view?: EventView;
   /** On an `indicator--` ref: its sightings, vendor identity and recursed evidence (08 §8.6.1). */
   related?: { sightings: EvidenceDoc[]; identity: EvidenceDoc | null; evidence: EvidenceDoc[] };
+  /** On an `x-host--` ref: its identity view (adr/0211). */
+  identity?: HostIdentity;
+}
+
+/**
+ * One aliases or distinct-from edge touching a host (adr/0211): "observed" is
+ * a source's record (`source` the tool), "asserted" a person's (who, when, the
+ * note). A withdrawn edge is listed, marked.
+ */
+export interface IdentityEdge {
+  edgeId: string;
+  otherRef: string;
+  kind: "observed" | "asserted";
+  source?: string;
+  by?: string;
+  byName?: string;
+  at: string;
+  note?: string;
+  withdrawn: boolean;
+}
+
+/** A host's identity as the record holds it: its edges, and what it has been seen as. */
+export interface HostIdentity {
+  aliases: IdentityEdge[];
+  distinct: IdentityEdge[];
+  seenAs: { domains: string[]; agents: { tool: string; uid: string }[]; ips: string[] };
 }
 
 /** One action's record (mirrors server.ActionRecordView): the card is the

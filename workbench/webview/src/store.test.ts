@@ -168,3 +168,19 @@ describe("reducer: rename", () => {
     expect(s.renameRequest?.nonce).toBe(2);
   });
 });
+
+describe("reducer: a host's identity acts (adr/0211)", () => {
+  const ref = "x-host--1";
+  const identity = { aliases: [], distinct: [], seenAs: { domains: [], agents: [], ips: [] } };
+  it("holds an act in flight until its answer or its refusal, and counts what landed", () => {
+    let s = reducer(initialState, { type: "identity.sent", ref });
+    expect(s.identityActs[ref]).toEqual({ pending: true, landed: 0 });
+    s = run([{ type: "identity.error", ref, message: "the signed-in person changed" }], s);
+    expect(s.identityActs[ref]).toEqual({ pending: false, error: "the signed-in person changed", landed: 0 });
+    s = reducer(s, { type: "identity.sent", ref });
+    expect(s.identityActs[ref]!.error).toBeUndefined();
+    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {} }, appearances: [] }, { type: "inspector.identity", ref, identity }], s);
+    expect(s.identityActs[ref]).toEqual({ pending: false, landed: 1 });
+    expect(s.docs[ref]!.identity).toEqual(identity);
+  });
+});

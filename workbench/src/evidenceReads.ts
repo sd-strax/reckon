@@ -4,7 +4,7 @@
 // answers (impl §2.4, §4.1). Failures are not cached; a change of person
 // clears everything (adr/0241).
 import type * as vscode from "vscode";
-import type { Appearance, EventRepeats, EventRow, EvidenceDoc, ThreadEntry } from "./backend";
+import type { Appearance, EventRepeats, EventRow, EvidenceDoc, HostIdentity, ThreadEntry } from "./backend";
 import { BackendRequestError } from "./client/http";
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
 import type { DocumentHost } from "./documentHost";
@@ -266,6 +266,47 @@ export class EvidenceReads {
         : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "callId" in target ? target.callId : "";
       void this.host.post(panel, { type: "inspector.error", target: key, message: errText(err) });
     }
+  }
+
+  /**
+   * The analyst's "same as another host" / "not the same host" on the host in
+   * view (adr/0211). The answer is the host's refreshed identity view, posted
+   * for the pane to re-render; the rest of the pane (other investigations,
+   * repeated observations) follows the alias set, so it is answered again. A
+   * refusal is posted for the inline form to say.
+   */
+  async assertIdentity(id: string, panel: vscode.WebviewPanel, msg: { ref: string; relation: "aliases" | "distinct"; other: string; note?: string }): Promise<void> {
+    await this.identityAct(id, panel, msg.ref, () => this.host.client.evidence.assertIdentity(msg.ref, msg.relation, msg.other, msg.note));
+  }
+
+  /** Withdraw an asserted identity edge (adr/0211), answering the view of the host in view. */
+  async withdrawIdentity(id: string, panel: vscode.WebviewPanel, msg: { ref: string; edgeId: string; note?: string }): Promise<void> {
+    await this.identityAct(id, panel, msg.ref, () => this.host.client.evidence.withdrawIdentity(msg.edgeId, msg.ref, msg.note));
+  }
+
+  private async identityAct(id: string, panel: vscode.WebviewPanel, ref: string, act: () => Promise<HostIdentity>): Promise<void> {
+    const current = this.host.sameIdentity();
+    let identity: HostIdentity;
+    try {
+      identity = await act();
+    } catch (err) {
+      void this.host.post(panel, { type: "identity.error", ref, message: errText(err) });
+      return;
+    }
+    if (!current()) {
+      // The answer was the previous person's: drop it, but settle the form.
+      void this.host.post(panel, { type: "identity.error", ref, message: "the signed-in person changed while this was in flight; open the host again to see where it stands" });
+      return;
+    }
+    // The alias closure can change beyond the edge's two ends: every host's
+    // view is read afresh when next opened.
+    const held = this.docCache.get(ref);
+    for (const key of [...this.docCache.keys()]) {
+      if (key.startsWith("x-host--")) this.docCache.delete(key);
+    }
+    if (held) this.docCache.set(ref, { ...held, identity });
+    void this.host.post(panel, { type: "inspector.identity", ref, identity });
+    await this.answerInspector(id, panel, { kind: "ref", ref });
   }
 
   /** The person changed: nothing read as the previous one stays. */

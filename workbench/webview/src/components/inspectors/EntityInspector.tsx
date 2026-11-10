@@ -1,7 +1,8 @@
 // Entity (account, host, IP, domain, process …): type, value, deterministic
 // id on hover; role and counts in this case; repeated observations (the
 // entity's retrieved events folded by the default key, adr/0095, shown only
-// when a group repeats); actions on it; other investigations; Pivot (stages,
+// when a group repeats); a host's identity and the acts on it (adr/0211);
+// actions on it; other investigations; Pivot (stages,
 // never fires), Pin, Copy. The popover of ui/02 §2.4 folded in (impl §2.1).
 import { useApp } from "../../app";
 import { inThisCase } from "../../derive/citations";
@@ -10,6 +11,7 @@ import { refTypeLabel } from "../../refs";
 import { Badge, Sentence } from "../shared";
 import { pinSpec } from "../PromptCard";
 import { Fields, Json, Loading, Section } from "./primitives";
+import { HostIdentitySection } from "./HostIdentity";
 
 export function EntityInspector({ refId }: { refId: string }) {
   const { state, send, openPrompt, openInspector, stage } = useApp();
@@ -18,6 +20,8 @@ export function EntityInspector({ refId }: { refId: string }) {
   const apps = state.appearances[refId];
   const c = inThisCase(refId, state.snap);
   const typeLabel = refTypeLabel(refId);
+  // A host's identity and the acts on it (adr/0211); hosts only for now.
+  const isHost = refId.startsWith("x-host--");
   const seed = state.snap?.investigation.seed;
   const role = seed?.entityRef === refId ? "seed subject" : c.actions.some((x) => x.role === "target") ? "action target" : c.predictions.length || c.pins.length ? "cited" : "appears";
   const actionsOn = (state.snap?.actions || []).filter((a) => (a.targets || []).includes(label || "") || (a.targets || []).includes(refId));
@@ -52,6 +56,7 @@ export function EntityInspector({ refId }: { refId: string }) {
       <Section title="Role in this case">
         <div>{role} · {c.acts.length} act{c.acts.length === 1 ? "" : "s"} cite it · {actionsOn.length} action{actionsOn.length === 1 ? "" : "s"} on it</div>
       </Section>
+      {isHost && doc ? <HostIdentitySection refId={refId} identity={doc.identity} /> : null}
       {repeated.length && rep ? (
         <Section title="Repeated observations">
           {truncated ? <div className="imeta">{plural(rep.total, "retrieved event")} on this entity · folded over {covered}</div> : null}

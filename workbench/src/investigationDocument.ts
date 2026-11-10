@@ -389,6 +389,12 @@ export class InvestigationDocuments implements DocumentHost {
           ? this.cache.exclusive(id, () => this.evidence.answerInspector(id, panel, msg.target))
           : this.evidence.answerInspector(id, panel, msg.target));
       },
+      "identity.assert": (msg) => {
+        void this.evidence.assertIdentity(id, panel, msg);
+      },
+      "identity.withdraw": (msg) => {
+        void this.evidence.withdrawIdentity(id, panel, msg);
+      },
       "queue.get": () => {
         void this.cache.exclusive(id, () => this.postQueue(panel));
       },
