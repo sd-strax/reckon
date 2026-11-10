@@ -11,8 +11,14 @@
 // The Resolver is pure, deterministic, and stateless: it holds only the tenant
 // namespace and derives ids by hashing. Adapters MUST NOT compute ids — the
 // normalizer, via this resolver, is the single arbiter of identity (§7.4).
-// Aliasing two ids is an explicit edge created by the agent or analyst, never a
-// destructive merge.
+// Two ids the key cannot join are joined by an explicit aliases edge, from a
+// source's record or a person's assertion, never by a destructive merge
+// (adr/0211).
+//
+// A placeholder (a zero MAC, an unspecified address, "localhost", the nil
+// GUID, the hash of the empty file) names nothing, so it is refused as an
+// identity and ignored as a discriminator; the list is built in and
+// deliberately short (placeholders.go, adr/0211).
 package identity
 
 import (
@@ -101,13 +107,22 @@ func (r *Resolver) mint(stixType string, contributing map[string]any) STIXID {
 
 // --- standard SCOs (no STIX deviation) --------------------------------------
 
-// IPv4Addr resolves an IPv4 address SCO.
+// IPv4Addr resolves an IPv4 address SCO. It returns "" for a placeholder
+// (PlaceholderIP: unparseable, unspecified, loopback, broadcast), which names
+// no address.
 func (r *Resolver) IPv4Addr(value string) STIXID {
+	if PlaceholderIP(value) {
+		return ""
+	}
 	return r.mint(TypeIPv4Addr, map[string]any{"value": canonicalIP(value)})
 }
 
-// IPv6Addr resolves an IPv6 address SCO.
+// IPv6Addr resolves an IPv6 address SCO. It returns "" for a placeholder
+// (PlaceholderIP), which names no address.
 func (r *Resolver) IPv6Addr(value string) STIXID {
+	if PlaceholderIP(value) {
+		return ""
+	}
 	return r.mint(TypeIPv6Addr, map[string]any{"value": canonicalIP(value)})
 }
 
@@ -138,29 +153,38 @@ type FileIdentity struct {
 // algorithm participates in identity alongside the digest (mirroring STIX 2.1,
 // whose id-contributing property for file is the hashes dict) so digests from
 // different algorithms can never merge two files.
+//
+// A placeholder hash (PlaceholderHash: all zeros, or the empty input's digest)
+// is not used: every empty file shares it. With no usable hash the fallback
+// triple applies, and with neither a name nor a parent directory there is
+// nothing to identify the file by, so File returns "".
 func (r *Resolver) File(f FileIdentity) STIXID {
 	if algo, digest := pickHash(f.Hashes); digest != "" {
 		return r.mint(TypeFile, map[string]any{
 			"hashes": map[string]string{algo: digest},
 		})
 	}
+	name, dir := strings.TrimSpace(f.Name), strings.TrimSpace(f.ParentDirectory)
+	if name == "" && dir == "" {
+		return ""
+	}
 	return r.mint(TypeFile, map[string]any{
-		"name":             strings.TrimSpace(f.Name),
-		"parent_directory": strings.TrimSpace(f.ParentDirectory),
+		"name":             name,
+		"parent_directory": dir,
 		"size":             f.Size,
 	})
 }
 
 // pickHash returns the strongest available (algorithm, digest), both
 // canonicalized (algorithm as bare lowercase name, digest lowercased), or
-// ("", "") when no hash is present.
+// ("", "") when no usable hash is present. A placeholder digest is skipped.
 func pickHash(hashes map[string]string) (algo, digest string) {
 	// Normalize keys once so lookup is case/format-insensitive ("SHA-256",
 	// "sha256", "SHA256" all match).
 	norm := make(map[string]string, len(hashes))
 	for k, v := range hashes {
-		key := strings.ToLower(strings.ReplaceAll(k, "-", ""))
-		if v = strings.TrimSpace(v); v != "" {
+		key := foldAlgo(k)
+		if v = strings.TrimSpace(v); v != "" && !PlaceholderHash(key, v) {
 			norm[key] = strings.ToLower(v)
 		}
 	}
@@ -262,30 +286,42 @@ func (r *Resolver) EmailMessage(messageID, from, subject string, date time.Time)
 
 // --- custom SCOs (§7.2) -----------------------------------------------------
 
-// HostIdentity carries the identity-contributing fields of an x-host, in
-// priority order: AssetID (CMDB) > (Domain, Hostname) > MAC > Hostname.
+// HostIdentity carries the fields an x-host is identified by (adr/0211). The
+// short hostname is the identity: Host folds it with canonicalHostname, so
+// "WIN-FILE01", "win-file01" and "win-file01.corp.example." are one host.
+// MAC, and failing that the pair (SourceTool, SourceUID), are weak tiers used
+// only when no hostname is present; a host minted on either is a weak host
+// that never joins another on its own. The device uid alone is enough for the
+// last tier (an empty tool folds as ""), so a record with only a uid still
+// has a host for its registry keys and tasks to key on. Domain, device and agent ids are
+// properties of the host, not identity, and the normalizer keeps them on the
+// SCO it mints.
 type HostIdentity struct {
-	AssetID  string
-	Domain   string
-	Hostname string
-	MAC      string
+	Hostname   string
+	MAC        string
+	SourceTool string
+	SourceUID  string
 }
 
-// Host resolves an x-host SCO using the strongest available identifier.
+// Host resolves an x-host SCO on the first tier present: the canonical short
+// hostname, else the MAC, else (source tool, device uid), the uid required and
+// the tool possibly empty. A placeholder (PlaceholderHostname, PlaceholderMAC,
+// PlaceholderDeviceUID) reads as absent, so the host falls to its next tier.
+// It returns "" when no tier is present: there is nothing to identify the
+// host by.
 func (r *Resolver) Host(h HostIdentity) STIXID {
-	switch {
-	case strings.TrimSpace(h.AssetID) != "":
-		return r.mint(TypeHost, map[string]any{"asset_id": strings.TrimSpace(h.AssetID)})
-	case strings.TrimSpace(h.Domain) != "" && strings.TrimSpace(h.Hostname) != "":
-		return r.mint(TypeHost, map[string]any{
-			"domain":   strings.ToLower(strings.TrimSpace(h.Domain)),
-			"hostname": strings.ToLower(strings.TrimSpace(h.Hostname)),
-		})
-	case strings.TrimSpace(h.MAC) != "":
-		return r.mint(TypeHost, map[string]any{"mac_address": canonicalMAC(h.MAC)})
-	default:
-		return r.mint(TypeHost, map[string]any{"hostname": strings.ToLower(strings.TrimSpace(h.Hostname))})
+	if !PlaceholderHostname(h.Hostname) {
+		return r.mint(TypeHost, map[string]any{"hostname": canonicalHostname(h.Hostname)})
 	}
+	if !PlaceholderMAC(h.MAC) {
+		return r.mint(TypeHost, map[string]any{"mac_address": canonicalMAC(h.MAC)})
+	}
+	tool := strings.ToLower(strings.TrimSpace(h.SourceTool))
+	uid := strings.TrimSpace(h.SourceUID)
+	if !PlaceholderDeviceUID(uid) {
+		return r.mint(TypeHost, map[string]any{"source_tool": tool, "device_uid": uid})
+	}
+	return ""
 }
 
 // RegistryKey resolves an x-registry-key SCO. hive and key_path are lowercased;

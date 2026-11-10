@@ -38,7 +38,7 @@ func inventoryPayload() map[string]any {
 	}
 }
 
-// TestCloudInventory_Snapshot covers §4.17 on a bucket snapshot: the account
+// TestCloudInventory_Snapshot covers §4.18 on a bucket snapshot: the account
 // and the resource as typed objects, the resource keyed by its uid exactly as
 // the 6003 call on it keys it (no belongs-to: the uid carries its owner), and
 // the configuration on the one ObservedData.

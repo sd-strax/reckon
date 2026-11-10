@@ -378,6 +378,33 @@ func TestRender_BindsStoredShapes(t *testing.T) {
 	}
 }
 
+// TestRender_BindsHostByShortName: an x-host is identified by its short
+// hostname (adr/0211), so a record naming the FQDN binds the host whose
+// hostname is its first label, in either case, and a host stored before the
+// split with the full name still binds; the slot shows the name as reported.
+func TestRender_BindsHostByShortName(t *testing.T) {
+	for _, stored := range []string{"WS1", "ws1.corp.example"} {
+		v := Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"path":"C:\\Temp\\a.dll"},"device":{"hostname":"ws1.Corp.Example."}}`)}, []Entity{
+			ent("x-host--h", map[string]any{"hostname": stored}),
+		})
+		var bound bool
+		for _, tok := range v.Sentence {
+			if tok.T == "entity" && tok.Ref == "x-host--h" {
+				bound = tok.Text == "ws1.Corp.Example."
+			}
+		}
+		if !bound {
+			t.Errorf("stored hostname %q: FQDN record did not bind with its reported text: %+v", stored, v.Sentence)
+		}
+	}
+	v := Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"path":"C:\\Temp\\a.dll"},"device":{"hostname":"ws2.corp.example"}}`)}, []Entity{
+		ent("x-host--h", map[string]any{"hostname": "ws1"}),
+	})
+	if refs := entityRefs(v); slices.Contains(refs, "x-host--h") {
+		t.Errorf("another short name bound: %v", refs)
+	}
+}
+
 // TestRender_EmailAttachments counts the attachments the normalizer reads.
 func TestRender_EmailAttachments(t *testing.T) {
 	v := Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":"a@x.example","subject":"s","attachments":[{"name":"invoice.zip"},{"name":"a.pdf"}]}}`)}, nil)

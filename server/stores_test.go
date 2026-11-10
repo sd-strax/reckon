@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -43,6 +44,7 @@ type fakeReads struct {
 	narrative     aggregate.Narrative
 	counts        map[string]aggregate.CitationCount
 	citationsErr  error
+	appearances   map[string][]aggregate.RefAppearance
 }
 
 func (f *fakeReads) ListKnowledgeCitations(context.Context, string) ([]aggregate.KnowledgeCitation, error) {
@@ -98,8 +100,8 @@ func (*fakeReads) ListPendingActionCurrents(context.Context) ([]aggregate.Action
 func (*fakeReads) ListPredictions(context.Context, uuid.UUID) ([]aggregate.PredictionCurrent, error) {
 	return nil, nil
 }
-func (*fakeReads) ListRefAppearances(context.Context, string) ([]aggregate.RefAppearance, error) {
-	return nil, nil
+func (f *fakeReads) ListRefAppearances(_ context.Context, ref string) ([]aggregate.RefAppearance, error) {
+	return f.appearances[ref], nil
 }
 func (*fakeReads) ListStrandedActionCurrents(context.Context) ([]aggregate.ActionCurrent, error) {
 	return nil, nil
@@ -120,10 +122,15 @@ func (*fakeReads) TranscriptBody(context.Context, uuid.UUID, string) ([]byte, er
 	return nil, aggregate.ErrNoRecord
 }
 
-// fakeEvidence answers every ref with object and err.
+// fakeEvidence answers every ref with object and err; a host reads as
+// identity, its alias set as aliases (the ref alone when nil).
 type fakeEvidence struct {
-	object evidence.Object
-	err    error
+	object   evidence.Object
+	identity evidence.HostIdentityView
+	aliases  []string
+	err      error
+	// identityErr, when set, fails HostIdentity alone.
+	identityErr error
 }
 
 func (f *fakeEvidence) Persist(context.Context, evidence.Call, capability.CapabilityResult) error {
@@ -149,6 +156,21 @@ func (f *fakeEvidence) EventEntities(context.Context, uuid.UUID) ([]evidence.Obj
 }
 func (f *fakeEvidence) IndicatorNeighbourhood(context.Context, evidence.Object) (evidence.Neighbourhood, error) {
 	return evidence.Neighbourhood{}, f.err
+}
+func (f *fakeEvidence) AliasSet(_ context.Context, ref string) ([]string, error) {
+	if errors.Is(f.err, evidence.ErrNotFound) {
+		return []string{ref}, nil // the store never reports a ref unknown: it is its own set
+	}
+	if f.aliases == nil {
+		return []string{ref}, f.err
+	}
+	return f.aliases, f.err
+}
+func (f *fakeEvidence) HostIdentity(context.Context, string) (evidence.HostIdentityView, error) {
+	if f.identityErr != nil {
+		return evidence.HostIdentityView{}, f.identityErr
+	}
+	return f.identity, f.err
 }
 
 // fakeComms records who acted on which thread and answers with err.
@@ -379,6 +401,126 @@ func TestGetEvidence_OnFakes(t *testing.T) {
 		if code, body := send(t, b, "GET", "/api/evidence/note--1", mintToken(t, nil), ""); code != want {
 			t.Errorf("store answers %v: status %d; want %d: %s", err, code, want, body)
 		}
+	}
+}
+
+// TestGetEvidence_HostIdentity: an x-host reads with its identity view in the
+// API's shape (adr/0211); any other object carries none.
+func TestGetEvidence_HostIdentity(t *testing.T) {
+	b := newFakeBackend(t)
+	at := time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
+	store := &fakeEvidence{
+		object: evidence.Object{Ref: "x-host--1", Type: "x-host", Payload: []byte(`{"id":"x-host--1"}`)},
+		identity: evidence.HostIdentityView{
+			Aliases: []evidence.IdentityEdge{{EdgeID: "relationship--a", OtherRef: "x-host--2", Kind: evidence.IdentityObserved, Source: "edr", At: at}},
+			Distinct: []evidence.IdentityEdge{{EdgeID: "relationship--d", OtherRef: "x-host--3", Kind: evidence.IdentityAsserted,
+				By: "u-1", ByName: "Ana Analyst", At: at, Note: "two machines", Withdrawn: true}},
+			SeenAs: evidence.SeenAs{Domains: []string{"corp", "corp.example"}, Agents: []evidence.SourceID{{Tool: "edr", UID: "a-7"}}},
+		},
+	}
+	b.cfg.Evidence = store
+
+	code, body := send(t, b, "GET", "/api/evidence/x-host--1", mintToken(t, nil), "")
+	if code != http.StatusOK {
+		t.Fatalf("status %d: %s", code, body)
+	}
+	var got struct {
+		Identity *struct {
+			Aliases  []map[string]any `json:"aliases"`
+			Distinct []map[string]any `json:"distinct"`
+			SeenAs   struct {
+				Domains []string            `json:"domains"`
+				Agents  []map[string]string `json:"agents"`
+				IPs     []string            `json:"ips"`
+			} `json:"seen_as"`
+		} `json:"identity"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil || got.Identity == nil {
+		t.Fatalf("no identity on a host: %s (%v)", body, err)
+	}
+	id := got.Identity
+	if len(id.Aliases) != 1 || id.Aliases[0]["edge_id"] != "relationship--a" || id.Aliases[0]["other_ref"] != "x-host--2" ||
+		id.Aliases[0]["kind"] != "observed" || id.Aliases[0]["source"] != "edr" || id.Aliases[0]["withdrawn"] != false {
+		t.Errorf("aliases = %v", id.Aliases)
+	}
+	if len(id.Distinct) != 1 || id.Distinct[0]["kind"] != "asserted" || id.Distinct[0]["by_name"] != "Ana Analyst" ||
+		id.Distinct[0]["note"] != "two machines" || id.Distinct[0]["withdrawn"] != true || id.Distinct[0]["at"] != "2026-01-03T00:00:00Z" {
+		t.Errorf("distinct = %v", id.Distinct)
+	}
+	if len(id.SeenAs.Domains) != 2 || len(id.SeenAs.Agents) != 1 || id.SeenAs.Agents[0]["tool"] != "edr" || id.SeenAs.Agents[0]["uid"] != "a-7" || id.SeenAs.IPs == nil {
+		t.Errorf("seen_as = %+v", id.SeenAs)
+	}
+
+	// The identity view failing alone degrades: the host still opens, without it.
+	store.identityErr = errStoreDown
+	code, body = send(t, b, "GET", "/api/evidence/x-host--1", mintToken(t, nil), "")
+	if code != http.StatusOK || strings.Contains(body, `"identity"`) || !strings.Contains(body, `x-host--1`) {
+		t.Errorf("identity view down: status %d, body %s; want 200 with the object and no identity", code, body)
+	}
+	store.identityErr = nil
+
+	// The object read failing is still an error.
+	store.err = errStoreDown
+	if code, _ := send(t, b, "GET", "/api/evidence/x-host--1", mintToken(t, nil), ""); code != http.StatusInternalServerError {
+		t.Errorf("store down: status %d; want 500", code)
+	}
+
+	store.err = nil
+	store.object = evidence.Object{Ref: "note--1", Type: "note", Payload: []byte(`{"id":"note--1"}`)}
+	if _, body := send(t, b, "GET", "/api/evidence/note--1", mintToken(t, nil), ""); strings.Contains(body, `"identity"`) {
+		t.Errorf("a note carries an identity: %s", body)
+	}
+}
+
+// TestRefAppearances_FollowAliases: a host's appearances are the union over
+// its alias set, one row per investigation (adr/0211).
+func TestRefAppearances_FollowAliases(t *testing.T) {
+	b := newFakeBackend(t)
+	inv1, inv2 := uuid.New(), uuid.New()
+	day := func(d int) sql.NullTime {
+		return sql.NullTime{Time: time.Date(2026, 1, d, 0, 0, 0, 0, time.UTC), Valid: true}
+	}
+	b.cfg.Reads = &fakeReads{appearances: map[string][]aggregate.RefAppearance{
+		"x-host--strong": {{AggregateID: inv1, Title: "one", FirstSeen: day(2), LastSeen: day(3), Mentions: 2}},
+		"x-host--weak": {
+			{AggregateID: inv2, Title: "two", FirstSeen: day(5), LastSeen: day(6), Mentions: 1},
+			{AggregateID: inv1, Title: "one", FirstSeen: day(1), LastSeen: day(4), Mentions: 1},
+		},
+	}}
+	b.cfg.Evidence = &fakeEvidence{aliases: []string{"x-host--strong", "x-host--weak"}}
+
+	code, body := send(t, b, "GET", "/api/entities/x-host--strong/appearances", mintToken(t, nil), "")
+	if code != http.StatusOK {
+		t.Fatalf("status %d: %s", code, body)
+	}
+	var got struct {
+		Ref         string           `json:"ref"`
+		Appearances []AppearanceView `json:"appearances"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Ref != "x-host--strong" || len(got.Appearances) != 2 {
+		t.Fatalf("appearances = %+v", got)
+	}
+	first, second := got.Appearances[0], got.Appearances[1]
+	if first.InvestigationID != inv2.String() || second.InvestigationID != inv1.String() || second.Mentions != 3 ||
+		!second.FirstSeen.Equal(day(1).Time) || !second.LastSeen.Equal(day(4).Time) {
+		t.Errorf("merged = %+v, %+v; want inv2 then inv1 with 3 mentions over days 1..4", first, second)
+	}
+
+	// An evidence store error degrades to the ref alone, never a 500.
+	b.cfg.Evidence = &fakeEvidence{err: errStoreDown}
+	code, body = send(t, b, "GET", "/api/entities/x-host--strong/appearances", mintToken(t, nil), "")
+	if err := json.Unmarshal([]byte(body), &got); code != http.StatusOK || err != nil || len(got.Appearances) != 1 || got.Appearances[0].Mentions != 2 {
+		t.Errorf("evidence store down: status %d, %+v, %v; want the ref's own appearances", code, got.Appearances, err)
+	}
+
+	// No evidence store: the ref alone, as before.
+	b.cfg.Evidence = nil
+	_, body = send(t, b, "GET", "/api/entities/x-host--strong/appearances", mintToken(t, nil), "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil || len(got.Appearances) != 1 || got.Appearances[0].Mentions != 2 {
+		t.Errorf("without an evidence store = %+v, %v", got.Appearances, err)
 	}
 }
 

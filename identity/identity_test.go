@@ -93,7 +93,9 @@ func TestCanonicalizationEquivalence(t *testing.T) {
 		{"url ipv6 host keeps brackets", r.URL("http://[2001:DB8::1]:80/x"), r.URL("http://[2001:db8::1]/x")},
 		{"email case", r.EmailAddr("Alice@Contoso.com"), r.EmailAddr("alice@contoso.com")},
 		{"user case", r.UserAccount("CONTOSO\\Alice", "S-1", "windows-domain"), r.UserAccount("contoso\\alice", "s-1", "windows-domain")},
-		{"host domain/hostname case", r.Host(HostIdentity{Domain: "CORP", Hostname: "WS1"}), r.Host(HostIdentity{Domain: "corp", Hostname: "ws1"})},
+		{"host hostname case", r.Host(HostIdentity{Hostname: "WS1"}), r.Host(HostIdentity{Hostname: "ws1"})},
+		{"host fqdn vs short", r.Host(HostIdentity{Hostname: "WS1.Corp.Example"}), r.Host(HostIdentity{Hostname: "ws1"})},
+		{"host trailing dot", r.Host(HostIdentity{Hostname: " ws1.corp.example. "}), r.Host(HostIdentity{Hostname: "ws1"})},
 		{"mac format", r.Host(HostIdentity{MAC: "00-1A-2B-3C-4D-5E"}), r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e"})},
 		{"registry case", r.RegistryKey("x-host--1", "HKLM", "Software\\Run", "Val"), r.RegistryKey("x-host--1", "hklm", "software\\run", "Val")},
 	}
@@ -265,6 +267,109 @@ func TestScopedNamespace(t *testing.T) {
 	}
 }
 
+// TestHostTiers covers adr/0211: the short hostname is the identity and
+// outranks every weak tier; MAC, then (source tool, device uid), identify a
+// host only when no hostname is present; nothing present mints nothing.
+func TestHostTiers(t *testing.T) {
+	r := NewResolver(nsA)
+	strong := r.Host(HostIdentity{Hostname: "ws1"})
+
+	if got := r.Host(HostIdentity{Hostname: "WS1", MAC: "00:1a:2b:3c:4d:5e", SourceTool: "edr", SourceUID: "a-1"}); got != strong {
+		t.Errorf("hostname must outrank MAC and source id: %q vs %q", got, strong)
+	}
+
+	mac := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e"})
+	if mac == "" || mac == strong {
+		t.Errorf("MAC tier: got %q", mac)
+	}
+	if got := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e", SourceTool: "edr", SourceUID: "a-1"}); got != mac {
+		t.Error("MAC must outrank the source id")
+	}
+
+	src := r.Host(HostIdentity{SourceTool: "EDR ", SourceUID: " a-1"})
+	if src == "" || src != r.Host(HostIdentity{SourceTool: "edr", SourceUID: "a-1"}) {
+		t.Errorf("source-id tier must fold the tool name and trim the uid: %q", src)
+	}
+	if src == r.Host(HostIdentity{SourceTool: "ids", SourceUID: "a-1"}) {
+		t.Error("the same uid from two tools must be two weak hosts")
+	}
+	if bare := r.Host(HostIdentity{SourceUID: "a-1"}); bare == "" || bare == src {
+		t.Errorf("a uid without a tool must mint its own weak host: %q", bare)
+	}
+	if r.Host(HostIdentity{SourceTool: "edr"}) != "" {
+		t.Error("a tool without a uid must mint nothing")
+	}
+
+	// An IP literal in the hostname field is kept whole: two addresses are two
+	// hosts, never the host "10".
+	v4a, v4b := r.Host(HostIdentity{Hostname: "10.0.0.5"}), r.Host(HostIdentity{Hostname: "10.0.0.6"})
+	if v4a == "" || v4a == v4b || v4a == r.Host(HostIdentity{Hostname: "10"}) {
+		t.Errorf("IPv4 literal hostnames: %q %q", v4a, v4b)
+	}
+	if r.Host(HostIdentity{Hostname: "FE80::1"}) != r.Host(HostIdentity{Hostname: "fe80::1"}) {
+		t.Error("an IPv6 literal hostname must fold case")
+	}
+
+	for _, empty := range []HostIdentity{{}, {Hostname: "  "}, {Hostname: "."}} {
+		if got := r.Host(empty); got != "" {
+			t.Errorf("Host(%+v) = %q, want empty", empty, got)
+		}
+	}
+}
+
+// TestHostPlaceholders: a placeholder reads as an absent field (adr/0211), so
+// the host falls to its next tier, and nothing at all mints nothing.
+func TestHostPlaceholders(t *testing.T) {
+	r := NewResolver(nsA)
+	mac := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e"})
+	if got := r.Host(HostIdentity{Hostname: "localhost", MAC: "00:1a:2b:3c:4d:5e"}); got != mac {
+		t.Errorf("a localhost hostname must fall to the MAC: %q vs %q", got, mac)
+	}
+	for _, addr := range []string{"127.0.0.1", "0.0.0.0", "::1"} {
+		if got := r.Host(HostIdentity{Hostname: addr, MAC: "00:1a:2b:3c:4d:5e"}); got != mac {
+			t.Errorf("a %s hostname must fall to the MAC: %q vs %q", addr, got, mac)
+		}
+	}
+	uid := r.Host(HostIdentity{SourceTool: "edr", SourceUID: "a-1"})
+	if got := r.Host(HostIdentity{Hostname: "-", MAC: "00:00:00:00:00:00", SourceTool: "edr", SourceUID: "a-1"}); got != uid {
+		t.Errorf("a dash hostname and a zero MAC must fall to the uid: %q vs %q", got, uid)
+	}
+	if got := r.Host(HostIdentity{MAC: "00:00:00:00:00:00"}); got != "" {
+		t.Errorf("a zero MAC alone must mint nothing: %q", got)
+	}
+	if got := r.Host(HostIdentity{MAC: "00:00:00:00:00:00", SourceTool: "edr", SourceUID: "{00000000-0000-0000-0000-000000000000}"}); got != "" {
+		t.Errorf("a zero MAC and the nil GUID must mint nothing: %q", got)
+	}
+}
+
+// TestMACForms: the accepted MAC forms are identity's fixed rule, not the
+// toolchain's: every accepted form of one address mints one host, and any
+// other form is no MAC at all.
+func TestMACForms(t *testing.T) {
+	r := NewResolver(nsA)
+	want := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e"})
+	for _, v := range []string{"00-1A-2B-3C-4D-5E", "001a.2b3c.4d5e", "001A2B3C4D5E", " 00:1a:2b:3c:4d:5e "} {
+		if got := r.Host(HostIdentity{MAC: v}); got != want {
+			t.Errorf("Host(MAC %q) = %q; want %q", v, got, want)
+		}
+	}
+	eui64 := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e:6f:70"})
+	if eui64 == "" || eui64 == want || r.Host(HostIdentity{MAC: "001a2b3c4d5e6f70"}) != eui64 || r.Host(HostIdentity{MAC: "00-1a-2b-3c-4d-5e-6f-70"}) != eui64 {
+		t.Errorf("EUI-64 forms: %q", eui64)
+	}
+	if got := canonicalMAC("001A.2B3C.4D5E"); got != "00:1a:2b:3c:4d:5e" {
+		t.Errorf("canonicalMAC = %q", got)
+	}
+	for _, v := range []string{
+		"00:1a-2b:3c:4d:5e", "001a.2b3c.4d5e.6f70", "001a2b3c4d5", "00:1a:2b:3c:4d", "00.1a.2b.3c.4d.5e",
+		"00:00:5e:10:00:00:00:00:fe:80:00:00:00:00:00:00:02:00:5e:10", "zz:1a:2b:3c:4d:5e",
+	} {
+		if FoldMAC(v) != "" || !PlaceholderMAC(v) || r.Host(HostIdentity{MAC: v}) != "" {
+			t.Errorf("%q accepted as a MAC", v)
+		}
+	}
+}
+
 // TestCloudAccount: "<x-cloud-account>--<uuidv5>", deterministic, provider
 // folded for case, the uid's case kept unless it is a GUID, and a different
 // account or provider a different id.
@@ -383,6 +488,57 @@ func TestCloudResourcePriority(t *testing.T) {
 	} {
 		if id, rule := r.CloudResource(c); rule != CloudResourceNone || id != "" {
 			t.Errorf("CloudResource(%+v) = %q, rule %d; want nothing", c, id, rule)
+		}
+	}
+}
+
+// TestAddressAndFilePlaceholders: a placeholder address mints nothing; a
+// file whose only hash is a placeholder takes the hash-less path.
+func TestAddressAndFilePlaceholders(t *testing.T) {
+	r := NewResolver(nsA)
+	if got := r.IPv4Addr("0.0.0.0"); got != "" {
+		t.Errorf("IPv4Addr(0.0.0.0) = %q, want empty", got)
+	}
+	if got := r.IPv6Addr("::1"); got != "" {
+		t.Errorf("IPv6Addr(::1) = %q, want empty", got)
+	}
+	if r.IPv4Addr("10.0.0.1") == "" {
+		t.Error("a private address must mint")
+	}
+
+	const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	named := FileIdentity{Hashes: map[string]string{"SHA-256": emptySHA256}, Name: "empty.txt", ParentDirectory: "/tmp"}
+	if got, want := r.File(named), r.File(FileIdentity{Name: "empty.txt", ParentDirectory: "/tmp"}); got != want {
+		t.Errorf("an empty-file hash must fall to the name triple: %q vs %q", got, want)
+	}
+	if got := r.File(FileIdentity{Hashes: map[string]string{"SHA-256": emptySHA256}}); got != "" {
+		t.Errorf("a file with only a placeholder hash must mint nothing: %q", got)
+	}
+	if got, want := r.File(FileIdentity{Hashes: map[string]string{"sha256": emptySHA256, "md5": "0123456789abcdef0123456789abcdef"}}),
+		r.File(FileIdentity{Hashes: map[string]string{"md5": "0123456789abcdef0123456789abcdef"}}); got != want {
+		t.Errorf("a placeholder hash must be skipped for the next usable one: %q vs %q", got, want)
+	}
+}
+
+// TestSplitHostname: the short name and the DNS domain, both folded.
+func TestSplitHostname(t *testing.T) {
+	cases := []struct{ in, host, domain string }{
+		{"WS1", "ws1", ""},
+		{"WS1.Corp.Example.", "ws1", "corp.example"},
+		{" ws1.corp ", "ws1", "corp"},
+		{"", "", ""},
+		{".", "", ""},
+		{"10.0.0.5", "10.0.0.5", ""},
+		{" 10.0.0.5. ", "10.0.0.5", ""},
+		{"FE80::1", "fe80::1", ""},
+		{"1.2.3", "1.2.3", ""},
+		{"999.1.1.1", "999.1.1.1", ""},
+		{"WS1.corp:3389", "ws1.corp:3389", ""},
+	}
+	for _, c := range cases {
+		h, d := SplitHostname(c.in)
+		if h != c.host || d != c.domain {
+			t.Errorf("SplitHostname(%q) = (%q, %q), want (%q, %q)", c.in, h, d, c.host, c.domain)
 		}
 	}
 }

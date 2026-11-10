@@ -93,7 +93,7 @@ type EventRow struct {
 }
 
 // EventFilter narrows an investigation's events. Entity keeps events whose
-// observed-data names the ref; Category keeps one OCSF category (auth,
+// observed-data names the ref or a member of its alias set (adr/0211); Category keeps one OCSF category (auth,
 // process, network, detection); Around centres the list on one event: Limit
 // events before and after it on the same host, else on the same entities.
 // Without Around the list is a page in event time: oldest first, or newest
@@ -230,9 +230,18 @@ func (s *Store) InvestigationEvents(ctx context.Context, investigationID uuid.UU
 		return Events{Rows: []EventRow{}}, nil // an unknown category matches nothing
 	}
 	if f.Entity != "" {
+		// The entity reads with its alias set (adr/0211): an event a source
+		// attributed only to a weak host is listed under the host it aliases.
+		set, err := s.aliasSets(ctx, []string{f.Entity})
+		if err != nil {
+			return Events{}, err
+		}
+		if len(set) == 0 {
+			set = []string{f.Entity} // not a STIX ref: matches what names it, which is nothing
+		}
 		q.where(fmt.Sprintf(`EXISTS (
 			SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id
-			WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ? %s)`, q.arg(f.Entity)))
+			WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ?| %s::text[])`, q.arg(textArray(set))))
 	}
 
 	if f.Around != (uuid.UUID{}) {
@@ -271,7 +280,8 @@ func (s *Store) InvestigationEvents(ctx context.Context, investigationID uuid.UU
 
 // eventsAround lists limit events before and after the anchor, within the
 // same filter, on the anchor's host entities when it names any, else on any
-// of its entities; the anchor itself is included. An anchor that is not a
+// of its entities, each widened to its alias set; the anchor itself is
+// included. An anchor that is not a
 // member of the investigation is ErrNotFound; one that names no entity has an
 // empty window, since "around" means on the same entity. Total is the count
 // of the window.
@@ -303,12 +313,16 @@ func (s *Store) eventsAround(ctx context.Context, investigationID uuid.UUID, q *
 	if len(shared) == 0 {
 		return Events{Rows: []EventRow{}}, nil
 	}
-	// The anchor's own entities: an event sharing any of them is "around" it.
-	ors := make([]string, 0, len(shared))
-	for _, r := range shared {
-		ors = append(ors, "o.payload->'object_refs' ? "+q.arg(r))
+	// The anchor's own entities, each with its alias set (adr/0211): an event
+	// sharing any of them is "around" it.
+	shared, err = s.aliasSets(ctx, shared)
+	if err != nil {
+		return Events{}, err
 	}
-	q.where(`EXISTS (SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id WHERE ode.ocsf_event_id = e.id AND (` + strings.Join(ors, " OR ") + `))`)
+	if len(shared) == 0 {
+		return Events{Rows: []EventRow{}}, nil
+	}
+	q.where(`EXISTS (SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ?| ` + q.arg(textArray(shared)) + `::text[])`)
 	atArg, idArg := q.arg(at), q.arg(anchor)
 	before := q.clone()
 	before.where(fmt.Sprintf("(e.time < %s OR (e.time = %s AND e.id < %s))", atArg, atArg, idArg))

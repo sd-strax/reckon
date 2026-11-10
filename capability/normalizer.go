@@ -44,6 +44,8 @@ func NewRegistry(r *identity.Resolver) *Registry {
 	reg.Register(&emailNormalizer{r: r})
 	reg.Register(&emailURLNormalizer{r: r})
 	reg.Register(&caseNormalizer{r: r})
+	reg.Register(&deviceInventoryNormalizer{r: r})
+
 	reg.Register(&apiActivityNormalizer{r: r})
 	reg.Register(&cloudInventoryNormalizer{r: r})
 	// detection_finding recurses into the registry to normalize nested
@@ -120,18 +122,20 @@ type resultBuilder struct {
 	evt  OcsfEvent
 	prov Provenance
 
-	seen  map[identity.STIXID]bool
-	scos  []SCO
-	rels  []Relationship
-	edges []Edge
-	refs  []identity.STIXID
+	seen   map[identity.STIXID]bool // SCOs recorded
+	inRefs map[identity.STIXID]bool // SCOs in object_refs
+	scos   []SCO
+	rels   []Relationship
+	edges  []Edge
+	refs   []identity.STIXID
 }
 
 func newBuilder(r *identity.Resolver, evt OcsfEvent, normalizer string, version int) *resultBuilder {
 	return &resultBuilder{
-		r:    r,
-		evt:  evt,
-		seen: make(map[identity.STIXID]bool),
+		r:      r,
+		evt:    evt,
+		seen:   make(map[identity.STIXID]bool),
+		inRefs: make(map[identity.STIXID]bool),
 		prov: Provenance{
 			DerivationMode:    DerivationDirect,
 			Tool:              evt.SourceTool,
@@ -145,13 +149,33 @@ func newBuilder(r *identity.Resolver, evt OcsfEvent, normalizer string, version 
 // addSCO records an SCO plus its extracted-from edge and object_ref, deduping if
 // the same id was already added for this event. Returns the id for convenience.
 func (b *resultBuilder) addSCO(id identity.STIXID, typ string, props map[string]any) identity.STIXID {
+	if id == "" {
+		return id
+	}
+	if !b.seen[id] {
+		b.seen[id] = true
+		b.scos = append(b.scos, SCO{ID: id, Type: typ, Properties: props, Provenance: b.prov})
+		b.edges = append(b.edges, Edge{Type: EdgeExtractedFrom, SourceRef: id, OcsfEventID: b.evt.ID.String()})
+	}
+	if !b.inRefs[id] {
+		b.inRefs[id] = true
+		b.refs = append(b.refs, id)
+	}
+	return id
+}
+
+// addLinkedSCO records an SCO and its extracted-from edge without adding it to
+// the observation's object_refs: an object the record names only through a
+// relationship, such as the weak host an alias joins to the strong one
+// (adr/0211). It dedupes like addSCO, and a later addSCO of the same id still
+// puts it in object_refs.
+func (b *resultBuilder) addLinkedSCO(id identity.STIXID, typ string, props map[string]any) identity.STIXID {
 	if id == "" || b.seen[id] {
 		return id
 	}
 	b.seen[id] = true
 	b.scos = append(b.scos, SCO{ID: id, Type: typ, Properties: props, Provenance: b.prov})
 	b.edges = append(b.edges, Edge{Type: EdgeExtractedFrom, SourceRef: id, OcsfEventID: b.evt.ID.String()})
-	b.refs = append(b.refs, id)
 	return id
 }
 
@@ -196,22 +220,167 @@ func (b *resultBuilder) finish(extensions map[string]any) NormalizationResult {
 // the SCO, and return its id (or "" when the source fields are absent).
 
 // host extracts an x-host SCO from an OCSF endpoint/device object at prefix
-// (e.g. "device", "dst_endpoint").
+// (e.g. "device", "dst_endpoint"), shaped per adr/0211 (03 §7.2, §7.4).
+//
+// The hostname is the identity: a record that carries one mints the strong
+// host on its short name, and keeps everything else the device object says as
+// properties: the FQDN, the domain (device.domain, else the FQDN's remainder),
+// the MAC, the device id keyed by the source that gave it, device.uid_alt and
+// the agent list. OCSF defines device.uid as the device's own id and
+// agent_list[].uid as the sensor's, but a source with only an agent id puts it
+// in device.uid; neither is identity.
+//
+// A record with no hostname mints a weak host on the MAC, or failing that on
+// (source tool, device.uid), marked weak, with the same properties less the
+// hostname, FQDN and the FQDN's domain. A record with a hostname and a MAC
+// or device id also mints the weak host each of those alone would have minted,
+// outside object_refs, with an aliases edge from it to the strong host: the
+// source said in this record that the identifier names that machine, so an
+// event it later attributes to the identifier alone reads under the host. A
+// record with no hostname, a MAC and a device id applies the same rule to the
+// MAC weak host it mints: the device id's weak host is aliased to it.
+//
+// A placeholder hostname, MAC or device id (identity.Placeholder*) reads as
+// absent: it mints no host, no weak host and no alias, and is not kept as a
+// property.
 func (b *resultBuilder) host(prefix string) identity.STIXID {
 	p := b.evt.Payload
-	hostname := pathStr(p, prefix+".hostname")
-	assetID := pathStr(p, prefix+".uid")
-	domain := pathStr(p, prefix+".domain")
-	mac := pathStr(p, prefix+".mac")
-	if hostname == "" && assetID == "" && mac == "" {
-		return ""
+	hostname := strings.TrimRight(strings.TrimSpace(pathStr(p, prefix+".hostname")), ".")
+	mac := strings.TrimSpace(pathStr(p, prefix+".mac"))
+	uid := strings.TrimSpace(pathStr(p, prefix+".uid"))
+
+	// A placeholder MAC or device id names nothing (adr/0211): it is neither
+	// a property nor an alias.
+	hasMAC, hasUID := !identity.PlaceholderMAC(mac), !identity.PlaceholderDeviceUID(uid)
+	props := b.deviceFacts(prefix, mac, uid, hasMAC, hasUID)
+
+	strong := b.r.Host(identity.HostIdentity{Hostname: hostname})
+	if strong == "" {
+		// The weak host keeps the record's facts too, under the key it is
+		// minted on and the weak mark.
+		id, idProps := b.weakHost(mac, uid)
+		if id == "" {
+			return ""
+		}
+		for k, v := range idProps {
+			props[k] = v
+		}
+		b.addSCO(id, identity.TypeHost, props)
+		// Minted on the MAC, the record also says its device id names that
+		// machine: the one-record alias rule, as for a strong host.
+		if hasMAC && hasUID {
+			weak, weakProps := b.weakHost("", uid)
+			b.addLinkedSCO(weak, identity.TypeHost, weakProps)
+			b.addRel(RelAliases, weak, id)
+		}
+		return id
 	}
-	id := b.r.Host(identity.HostIdentity{AssetID: assetID, Domain: domain, Hostname: hostname, MAC: mac})
-	props := map[string]any{"hostname": hostname}
-	if domain != "" {
+
+	// The reported name split as the resolver splits it, case kept: a value
+	// identity.SplitHostname keeps whole (an address in the hostname field) is
+	// whole here too, with no FQDN and no domain.
+	short, rest, hasDot := strings.Cut(hostname, ".")
+	if _, domain := identity.SplitHostname(hostname); hasDot && domain == "" {
+		short, rest, hasDot = hostname, "", false
+	}
+	props["hostname"] = short
+	if hasDot {
+		props["fqdn"] = hostname
+	}
+	if _, ok := props["domain"]; !ok && !identity.PlaceholderDomain(rest) {
+		props["domain"] = rest
+	}
+	b.addSCO(strong, identity.TypeHost, props)
+
+	if hasMAC {
+		weak, weakProps := b.weakHost(mac, "")
+		b.addLinkedSCO(weak, identity.TypeHost, weakProps)
+		b.addRel(RelAliases, weak, strong)
+	}
+	if hasUID {
+		weak, weakProps := b.weakHost("", uid)
+		b.addLinkedSCO(weak, identity.TypeHost, weakProps)
+		b.addRel(RelAliases, weak, strong)
+	}
+	return strong
+}
+
+// deviceFacts is what a device object at prefix says about the machine besides
+// its hostname, kept as properties on the host the record mints, strong or
+// weak: device.domain, the MAC, the device id keyed by the source that gave
+// it, device.uid_alt and the agent list. A placeholder MAC or device id
+// (hasMAC, hasUID false) is left out.
+func (b *resultBuilder) deviceFacts(prefix, mac, uid string, hasMAC, hasUID bool) map[string]any {
+	p := b.evt.Payload
+	props := map[string]any{}
+	// A placeholder domain ("-", "unknown"), judged whole, names none.
+	if domain := strings.TrimSpace(pathStr(p, prefix+".domain")); !identity.PlaceholderDomain(domain) {
 		props["domain"] = domain
 	}
-	return b.addSCO(id, identity.TypeHost, props)
+	if hasMAC {
+		props["mac"] = mac
+	}
+	switch {
+	case hasUID && b.evt.SourceTool != "":
+		props["source_ids"] = map[string]any{b.evt.SourceTool: uid}
+	case hasUID:
+		props["device_uid"] = uid // no source to key it by
+	}
+	if alt := strings.TrimSpace(pathStr(p, prefix+".uid_alt")); alt != "" {
+		props["device_uid_alt"] = alt
+	}
+	if agents := agentList(p, prefix+".agent_list"); len(agents) > 0 {
+		props["agents"] = agents
+	}
+	return props
+}
+
+// weakHost mints the weak x-host a device object with no hostname identifies
+// (adr/0211): on the MAC, else on (source tool, device uid), the tiers
+// identity.Host applies, a placeholder in either read as absent. It returns ""
+// when neither is usable.
+func (b *resultBuilder) weakHost(mac, uid string) (identity.STIXID, map[string]any) {
+	if !identity.PlaceholderMAC(mac) {
+		return b.r.Host(identity.HostIdentity{MAC: mac}), map[string]any{"mac": mac, "weak": true}
+	}
+	if identity.PlaceholderDeviceUID(uid) {
+		return "", nil
+	}
+	id := b.r.Host(identity.HostIdentity{SourceTool: b.evt.SourceTool, SourceUID: uid})
+	if id == "" {
+		return "", nil
+	}
+	return id, map[string]any{"source_tool": b.evt.SourceTool, "device_uid": uid, "weak": true}
+}
+
+// agentList reads an OCSF agent_list at path as [{uid, name, vendor_name}],
+// keeping only the fields present and dropping empty entries.
+func agentList(p map[string]any, path string) []any {
+	v, ok := lookupPath(p, path)
+	if !ok {
+		return nil
+	}
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var out []any
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		agent := map[string]any{}
+		for _, k := range []string{"uid", "name", "vendor_name"} {
+			if s := strings.TrimSpace(toString(m[k])); s != "" {
+				agent[k] = s
+			}
+		}
+		if len(agent) > 0 {
+			out = append(out, agent)
+		}
+	}
+	return out
 }
 
 // userAccount extracts a user-account SCO from an OCSF user object at prefix
@@ -251,7 +420,8 @@ func (b *resultBuilder) ipAddr(path string) identity.STIXID {
 }
 
 // addIPValue adds an ipv4-addr or ipv6-addr SCO for a literal address value
-// (used when the value comes from an array element, not a fixed path).
+// (used when the value comes from an array element, not a fixed path). A
+// placeholder address mints no id, so nothing is added and "" is returned.
 func (b *resultBuilder) addIPValue(v string) identity.STIXID {
 	if v == "" {
 		return ""

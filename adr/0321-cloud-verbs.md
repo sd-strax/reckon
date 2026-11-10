@@ -57,7 +57,7 @@ mutating call answers both verbs from one file (`matches.verb` as a list);
 a read is never a history entry.
 
 **Context is a 5023 snapshot, normalized by `03 §4.15`'s identity rules.**
-A new normalizer (`03 §4.17`) mints the account, the resources and, when it
+A new normalizer (`03 §4.18`) mints the account, the resources and, when it
 carries an identifier, the owner as a cloud principal, exactly as the
 activity normalizer does, so the snapshot of a bucket and the call that made
 it public meet on one `x-cloud-resource`. The configuration — policy,

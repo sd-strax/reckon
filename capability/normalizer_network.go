@@ -9,7 +9,7 @@ import "github.com/sd-strax/reckon/identity"
 type networkNormalizer struct{ r *identity.Resolver }
 
 func (*networkNormalizer) ClassUID() int { return 4001 }
-func (*networkNormalizer) Version() int  { return 1 }
+func (*networkNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *networkNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

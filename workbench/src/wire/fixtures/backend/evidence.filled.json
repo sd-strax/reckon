@@ -73,6 +73,48 @@
         "related": {
           "sightings": null,
           "evidence": null
+        },
+        "identity": {
+          "aliases": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "distinct": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "seen_as": {
+            "domains": [
+              "x"
+            ],
+            "agents": [
+              {
+                "tool": "x",
+                "uid": "x"
+              }
+            ],
+            "ips": [
+              "x"
+            ]
+          }
         }
       }
     ],
@@ -114,6 +156,48 @@
       "related": {
         "sightings": null,
         "evidence": null
+      },
+      "identity": {
+        "aliases": [
+          {
+            "edge_id": "x",
+            "other_ref": "x",
+            "kind": "x",
+            "source": "x",
+            "by": "x",
+            "by_name": "x",
+            "at": "2026-01-02T03:04:05Z",
+            "note": "x",
+            "withdrawn": true
+          }
+        ],
+        "distinct": [
+          {
+            "edge_id": "x",
+            "other_ref": "x",
+            "kind": "x",
+            "source": "x",
+            "by": "x",
+            "by_name": "x",
+            "at": "2026-01-02T03:04:05Z",
+            "note": "x",
+            "withdrawn": true
+          }
+        ],
+        "seen_as": {
+          "domains": [
+            "x"
+          ],
+          "agents": [
+            {
+              "tool": "x",
+              "uid": "x"
+            }
+          ],
+          "ips": [
+            "x"
+          ]
+        }
       }
     },
     "evidence": [
@@ -155,8 +239,92 @@
         "related": {
           "sightings": null,
           "evidence": null
+        },
+        "identity": {
+          "aliases": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "distinct": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "seen_as": {
+            "domains": [
+              "x"
+            ],
+            "agents": [
+              {
+                "tool": "x",
+                "uid": "x"
+              }
+            ],
+            "ips": [
+              "x"
+            ]
+          }
         }
       }
     ]
+  },
+  "identity": {
+    "aliases": [
+      {
+        "edge_id": "x",
+        "other_ref": "x",
+        "kind": "x",
+        "source": "x",
+        "by": "x",
+        "by_name": "x",
+        "at": "2026-01-02T03:04:05Z",
+        "note": "x",
+        "withdrawn": true
+      }
+    ],
+    "distinct": [
+      {
+        "edge_id": "x",
+        "other_ref": "x",
+        "kind": "x",
+        "source": "x",
+        "by": "x",
+        "by_name": "x",
+        "at": "2026-01-02T03:04:05Z",
+        "note": "x",
+        "withdrawn": true
+      }
+    ],
+    "seen_as": {
+      "domains": [
+        "x"
+      ],
+      "agents": [
+        {
+          "tool": "x",
+          "uid": "x"
+        }
+      ],
+      "ips": [
+        "x"
+      ]
+    }
   }
 }

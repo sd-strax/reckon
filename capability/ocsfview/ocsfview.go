@@ -381,13 +381,22 @@ func propEquals(props map[string]any, key, want string) bool {
 	return want != "" && strings.EqualFold(toString(props[key]), want)
 }
 
-// host binds an OCSF endpoint/device object at prefix to its x-host.
+// host binds an OCSF endpoint/device object at prefix to its x-host. The
+// x-host is identified by the short hostname (adr/0211), so the reported name
+// and the entity's hostname property are compared in their short form: an FQDN
+// in the record binds the host whose hostname is its first label, and a host
+// minted before the FQDN split, whose hostname property is the full name, still
+// binds. The slot's text stays the name as reported.
 func (r *renderer) host(prefix string) slot {
 	name := r.str(prefix + ".hostname")
-	if name == "" {
+	short, _ := identity.SplitHostname(name)
+	if short == "" {
 		return slot{}
 	}
-	return slot{text: name, ref: r.bind(identity.TypeHost, func(p map[string]any) bool { return propEquals(p, "hostname", name) })}
+	return slot{text: name, ref: r.bind(identity.TypeHost, func(p map[string]any) bool {
+		got, _ := identity.SplitHostname(toString(p["hostname"]))
+		return got == short
+	})}
 }
 
 // user binds an OCSF user object at prefix to its user-account. The record's
@@ -1268,7 +1277,7 @@ func (r *renderer) deviceInventory() {
 	r.keyText("criticality", strings.ToLower(crit))
 }
 
-// cloudInventory renders a cloud resource configuration snapshot (03 §4.17):
+// cloudInventory renders a cloud resource configuration snapshot (03 §4.18):
 // what the resource is, where it lives and how it is configured. The resource
 // and the account bind as on a control-plane call (the payload paths are the
 // same in both classes); the configuration reads as its top-level keys, the

@@ -88,6 +88,16 @@ func TestResolveSeedInput(t *testing.T) {
 		t.Errorf("host id not deterministic across case: %q vs %q", again.Seed.EntityRef, host.Seed.EntityRef)
 	}
 
+	// The FQDN seeds the same host (adr/0211: the short hostname is the
+	// identity), the one the events mint, and the display stays as typed.
+	fqdn, _ := resolveSeedInput(res, "win-file01.corp.example", aggregate.SeedEntity)
+	if fqdn.Seed.EntityRef != host.Seed.EntityRef || fqdn.Display != "host win-file01.corp.example" || fqdn.Seed.EntityIdentifier != "win-file01.corp.example" {
+		t.Errorf("FQDN seed = %+v (display %q); want the host %s as typed", fqdn.Seed, fqdn.Display, host.Seed.EntityRef)
+	}
+	if want := string(res.Host(identity.HostIdentity{Hostname: "win-file01"})); host.Seed.EntityRef != want {
+		t.Errorf("seed host %s is not the host the events mint, %s", host.Seed.EntityRef, want)
+	}
+
 	// Forcing entity on a sentence is refused rather than minting a nonsense host.
 	if _, err := resolveSeedInput(res, "two words", aggregate.SeedEntity); err == nil {
 		t.Error("forcing entity on a multi-word value should error")

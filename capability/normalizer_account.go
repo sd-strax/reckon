@@ -10,7 +10,7 @@ import "github.com/sd-strax/reckon/identity"
 type accountChangeNormalizer struct{ r *identity.Resolver }
 
 func (*accountChangeNormalizer) ClassUID() int { return 3005 }
-func (*accountChangeNormalizer) Version() int  { return 1 }
+func (*accountChangeNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *accountChangeNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
