@@ -1,6 +1,6 @@
 # 0321 — Three cloud control-plane verbs join the catalog: activity by principal, resource, account, operation or service with the entity optional; one resource's current configuration as a 5023 snapshot; one resource's change timeline
 
-Issue: #321 · PR: pending · Status: accepted
+Issue: #321 · PR: #328 · Status: accepted
 
 ## Context
 
