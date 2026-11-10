@@ -292,3 +292,49 @@ func TestResolveNullObservation(t *testing.T) {
 		t.Error("an unavailable verb must not mint a null observation")
 	}
 }
+
+// TestSubjectRefs_Cloud: a cloud account and a cloud resource named as the
+// subject resolve to the ids the api_activity normalizer mints for them, by
+// uid or by name under the account; a subject without a provider, or a
+// resource that nothing identifies, is left out.
+func TestSubjectRefs_Cloud(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	acct := ids.CloudAccount("aws", "111122223333")
+	byUID, _ := ids.CloudResource(identity.CloudResourceIdentity{Provider: "aws", UID: "arn:aws:s3:::acme-internal-exports"})
+	byName, _ := ids.CloudResource(identity.CloudResourceIdentity{AccountRef: acct, Type: "AWS::S3::Bucket", Name: "acme-logs"})
+
+	got := subjectRefs(ids, map[string]any{"cloud_account": map[string]any{"provider": "AWS", "uid": "111122223333"}})
+	if len(got) != 1 || got[0] != acct {
+		t.Errorf("cloud_account = %v; want %s", got, acct)
+	}
+	got = subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "AWS", "uid": "arn:aws:s3:::acme-internal-exports"}})
+	if len(got) != 1 || got[0] != byUID {
+		t.Errorf("cloud_resource by uid = %v; want %s", got, byUID)
+	}
+	got = subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "aws", "account_uid": "111122223333", "type": "AWS::S3::Bucket", "name": "acme-logs"}})
+	if len(got) != 1 || got[0] != byName {
+		t.Errorf("cloud_resource by name = %v; want %s", got, byName)
+	}
+	for _, e := range []map[string]any{
+		{"cloud_account": map[string]any{"provider": "aws"}},
+		{"cloud_account": map[string]any{"uid": "111122223333"}},
+		{"cloud_account": map[string]any{"provider": " ", "uid": "111122223333"}},
+		{"cloud_resource": map[string]any{"provider": "aws", "name": "acme-logs"}},
+		{"cloud_resource": map[string]any{"uid": "arn:aws:s3:::acme-internal-exports"}},
+		{"cloud_resource": map[string]any{"account_uid": "111122223333", "type": "AWS::S3::Bucket", "name": "acme-logs"}},
+	} {
+		if got := subjectRefs(ids, e); len(got) != 0 {
+			t.Errorf("subjectRefs(%v) = %v; want none", e, got)
+		}
+	}
+
+	// The normalizer agrees: the account and resource it mints are these ids.
+	res, _ := NewRegistry(ids).Normalize(makeEvent(apiPayload()))
+	minted := map[identity.STIXID]bool{}
+	for _, s := range res.SCOs {
+		minted[s.ID] = true
+	}
+	if !minted[acct] || !minted[byUID] {
+		t.Errorf("normalizer minted %v; want the subject ids %s and %s", minted, acct, byUID)
+	}
+}

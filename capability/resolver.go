@@ -364,7 +364,7 @@ func nullObservation(ids *identity.Resolver, verb string, input CallInput, sourc
 
 // subjectRefs resolves the SCO ids a call's typed entity names, where the
 // identity is unambiguous from the input alone (03 §7.4: shaping is the
-// normalizer's contract, so an account — which needs domain composition — is
+// normalizer's contract, so a user account — which needs domain composition — is
 // not resolved here).
 func subjectRefs(ids *identity.Resolver, entity map[string]any) []identity.STIXID {
 	var refs []identity.STIXID
@@ -386,6 +386,30 @@ func subjectRefs(ids *identity.Resolver, entity map[string]any) []identity.STIXI
 		domain, _ := h["domain"].(string)
 		if hostname != "" {
 			refs = append(refs, ids.Host(identity.HostIdentity{Hostname: hostname, Domain: domain}))
+		}
+	}
+	// Cloud subjects take the provider through the same slug the api_activity
+	// normalizer applies, so a subject names the id the events minted. A cloud
+	// subject without a provider names nothing: the provider is half its
+	// identity.
+	if a, ok := entity["cloud_account"].(map[string]any); ok {
+		provider, uid := providerSlug(scalarString(a["provider"])), scalarString(a["uid"])
+		if provider != "" && uid != "" {
+			refs = append(refs, ids.CloudAccount(provider, uid))
+		}
+	}
+	if c, ok := entity["cloud_resource"].(map[string]any); ok {
+		if provider := providerSlug(scalarString(c["provider"])); provider != "" {
+			var account identity.STIXID
+			if uid := scalarString(c["account_uid"]); uid != "" {
+				account = ids.CloudAccount(provider, uid)
+			}
+			if id, rule := ids.CloudResource(identity.CloudResourceIdentity{
+				Provider: provider, UID: scalarString(c["uid"]), AccountRef: account,
+				Type: scalarString(c["type"]), Name: scalarString(c["name"]),
+			}); rule != identity.CloudResourceNone {
+				refs = append(refs, id)
+			}
 		}
 	}
 	return refs

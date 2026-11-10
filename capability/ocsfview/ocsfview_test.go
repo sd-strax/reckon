@@ -319,7 +319,7 @@ func entityRefs(v View) []string {
 // TestRender_UnknownClass: the top-level scalars as fields, no sentence, the
 // category from category_uid.
 func TestRender_UnknownClass(t *testing.T) {
-	v := Render(Event{ClassUID: 6003, Payload: payload(`{"class_uid":6003,"category_uid":6,"time":"2026-01-01T00:00:00Z","api":{"operation":"GetObject"},"severity":"Informational","count":2,"ok":true}`)}, nil)
+	v := Render(Event{ClassUID: 8001, Payload: payload(`{"class_uid":8001,"category_uid":8,"time":"2026-01-01T00:00:00Z","api":{"operation":"GetObject"},"severity":"Informational","count":2,"ok":true}`)}, nil)
 	if v.Sentence != nil {
 		t.Errorf("sentence for an unknown class: %+v", v.Sentence)
 	}
@@ -394,5 +394,168 @@ func TestEntityFromObject(t *testing.T) {
 	}
 	if e := EntityFromObject("x", "x", []byte(`nope`)); e.Props != nil {
 		t.Errorf("malformed payload: %+v", e)
+	}
+}
+
+// apiCall is a cloud API call on one bucket, the account named by
+// cloud.account.
+const apiCall = `{"class_uid":6003,"category_uid":6,"activity_name":"Update",
+	"actor":{"user":{"uid":"arn:aws:iam::111122223333:user/deploy-ci","name":"deploy-ci","credential_uid":"AKIAIOSFODNN7EXAMPLE","account":{"uid":"111122223333"}},"session":{"uid":"sess-1"}},
+	"api":{"operation":"PutBucketPolicy","service":{"name":"s3.amazonaws.com"}},
+	"cloud":{"provider":"AWS","account":{"uid":"111122223333","name":"acme-prod"},"region":"us-east-1"},
+	"resources":[{"uid":"arn:aws:s3:::acme-internal-exports","name":"acme-internal-exports","type":"AWS::S3::Bucket"}],
+	"src_endpoint":{"ip":"203.0.113.77"},"http_request":{"user_agent":"aws-cli/2.15.0"},"status":"Success","status_id":1}`
+
+func apiEntities() []Entity {
+	return []Entity{
+		ent("user-account--p", map[string]any{"account_login": "", "user_id": "arn:aws:iam::111122223333:user/deploy-ci", "account_type": "aws", "display_name": "deploy-ci"}),
+		ent("x-cloud-account--a", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
+		ent("x-cloud-resource--r", map[string]any{"uid": "arn:aws:s3:::acme-internal-exports", "name": "acme-internal-exports"}),
+		ent("ipv4-addr--s", map[string]any{"value": "203.0.113.77"}),
+	}
+}
+
+// TestRender_APIActivity: the sentence with the principal, resource, account
+// and source as chips bound to the record, the curated fields, the outcome
+// toned, the application category.
+func TestRender_APIActivity(t *testing.T) {
+	v := Render(Event{ClassUID: 6003, Payload: payload(apiCall)}, apiEntities())
+	if got := sentenceText(v); got != "deploy-ci PutBucketPolicy acme-internal-exports in acme-prod · Success" {
+		t.Errorf("sentence = %q", got)
+	}
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"user-account--p", "x-cloud-resource--r", "x-cloud-account--a"}) {
+		t.Errorf("sentence refs = %v", refs)
+	}
+	if v.Category != CategoryApplication {
+		t.Errorf("category = %s", v.Category)
+	}
+	for label, want := range map[string]Field{
+		"Principal":  {Label: "Principal", Value: "deploy-ci", Ref: "user-account--p", Mono: true},
+		"Operation":  {Label: "Operation", Value: "PutBucketPolicy", Mono: true},
+		"Service":    {Label: "Service", Value: "s3.amazonaws.com"},
+		"Resource":   {Label: "Resource", Value: "acme-internal-exports", Ref: "x-cloud-resource--r", Mono: true},
+		"Account":    {Label: "Account", Value: "acme-prod", Ref: "x-cloud-account--a", Mono: true},
+		"Region":     {Label: "Region", Value: "us-east-1"},
+		"Outcome":    {Label: "Outcome", Value: "Success", Tone: "ok"},
+		"Source":     {Label: "Source", Value: "203.0.113.77", Ref: "ipv4-addr--s", Mono: true},
+		"Credential": {Label: "Credential", Value: "AKIAIOSFODNN7EXAMPLE", Mono: true},
+		"Session":    {Label: "Session", Value: "sess-1", Mono: true},
+		"User agent": {Label: "User agent", Value: "aws-cli/2.15.0"},
+	} {
+		if f, ok := fieldValue(v, label); !ok || f != want {
+			t.Errorf("%s field = %+v; want %+v", label, f, want)
+		}
+	}
+	slots := map[string]SlotValue{}
+	for _, s := range v.Slots {
+		slots[s.Name] = s
+	}
+	if slots["actor"].Ref != "user-account--p" || slots["account"].Ref != "x-cloud-account--a" || slots["source"].Ref != "ipv4-addr--s" ||
+		slots["operation"].Text != "PutBucketPolicy" || slots["resource"].Text != "acme-internal-exports" || slots["outcome"].Text != "Success" {
+		t.Errorf("slots = %+v", v.Slots)
+	}
+}
+
+// TestRender_APIActivityShapes: without a resource the service reads in
+// parentheses; a failure tones bad and names the error; many resources fold to
+// the first and a count; an app-only call reads as the app; a resource bound
+// by type and name; an account named only by the caller's account.
+func TestRender_APIActivityShapes(t *testing.T) {
+	v := Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci"}},"api":{"operation":"ListUsers","service":{"name":"iam.amazonaws.com"},"response":{"error":"AccessDenied"}},
+		"cloud":{"account":{"uid":"111122223333"}},"status_id":2}`)}, apiEntities())
+	if got := sentenceText(v); got != "deploy-ci ListUsers (iam.amazonaws.com) in 111122223333 · Failure: AccessDenied" {
+		t.Errorf("no-resource failure sentence = %q", got)
+	}
+	if f, _ := fieldValue(v, "Outcome"); f.Value != "Failure: AccessDenied" || f.Tone != "bad" {
+		t.Errorf("Outcome = %+v", f)
+	}
+
+	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci"}},"api":{"operation":"DeleteObjects"},
+		"resources":[{"uid":"arn:aws:s3:::acme-internal-exports"},{"uid":"arn:aws:s3:::b"},{"uid":"arn:aws:s3:::c"}]}`)}, apiEntities())
+	if got := sentenceText(v); got != "deploy-ci DeleteObjects arn:aws:s3:::acme-internal-exports, +2 more" {
+		t.Errorf("many-resources sentence = %q", got)
+	}
+	n := 0
+	for _, f := range v.Fields {
+		if f.Label == "Resource" {
+			n++
+		}
+	}
+	if n != 3 {
+		t.Errorf("Resource fields = %d; want 3", n)
+	}
+	for _, s := range v.Slots {
+		if s.Name == "resource" && s.Text != "arn:aws:s3:::acme-internal-exports, arn:aws:s3:::b, arn:aws:s3:::c" {
+			t.Errorf("resource slot = %+v", s)
+		}
+	}
+
+	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"app_name":"backup.example.internal"},"api":{"operation":"GetObject"}}`)}, nil)
+	if got := sentenceText(v); got != "backup.example.internal called GetObject" {
+		t.Errorf("app-only sentence = %q", got)
+	}
+	if got := sentenceText(Render(Event{ClassUID: 6003, Payload: map[string]any{}}, nil)); got != "API call" {
+		t.Errorf("empty sentence = %q", got)
+	}
+
+	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci","account":{"uid":"111122223333"}}},"api":{"operation":"PutObject"},
+		"resources":[{"name":"acme-logs","type":"AWS::S3::Bucket"}]}`)}, []Entity{
+		ent("x-cloud-resource--other", map[string]any{"name": "acme-logs", "type": "AWS::DynamoDB::Table"}),
+		ent("x-cloud-resource--n", map[string]any{"name": "acme-logs", "type": "AWS::S3::Bucket"}),
+		ent("x-cloud-account--a", map[string]any{"account_uid": "111122223333"}),
+	})
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"x-cloud-resource--n", "x-cloud-account--a"}) {
+		t.Errorf("name-bound refs = %v", refs)
+	}
+}
+
+// TestRender_APIActivityPrincipal: the principal binds by the durable id the
+// record keyed it on: the user's uid with a name, the uid alone (the chip
+// reads the uid), the session issuer for a role.
+func TestRender_APIActivityPrincipal(t *testing.T) {
+	const arn = "arn:aws:iam::111122223333:user/deploy-ci"
+	byID := []Entity{
+		ent("user-account--other", map[string]any{"account_login": "", "user_id": "arn:aws:iam::444455556666:user/deploy-ci"}),
+		ent("user-account--p", map[string]any{"account_login": "", "user_id": arn}),
+	}
+	v := Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"uid":"` + arn + `","name":"deploy-ci"}},"api":{"operation":"PutObject"}}`)}, byID)
+	if v.Sentence[0] != (Token{T: "entity", Ref: "user-account--p", Text: "deploy-ci"}) {
+		t.Errorf("name+uid principal = %+v", v.Sentence[0])
+	}
+	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"uid":"` + arn + `"}},"api":{"operation":"PutObject"}}`)}, byID)
+	if v.Sentence[0] != (Token{T: "entity", Ref: "user-account--p", Text: arn}) || sentenceText(v) != arn+" PutObject" {
+		t.Errorf("uid-only principal = %+v (%q)", v.Sentence, sentenceText(v))
+	}
+	role := []Entity{ent("user-account--role", map[string]any{"account_login": "", "user_id": "arn:aws:iam::111122223333:role/Deploy"})}
+	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"uid":"arn:aws:sts::111122223333:assumed-role/Deploy/i-0abc","name":"Deploy"},
+		"session":{"issuer":"arn:aws:iam::111122223333:role/Deploy","uid":"i-0abc"}},"api":{"operation":"PutObject"}}`)}, role)
+	if v.Sentence[0] != (Token{T: "entity", Ref: "user-account--role", Text: "Deploy"}) {
+		t.Errorf("issuer-bound role = %+v", v.Sentence[0])
+	}
+}
+
+// TestRender_APIActivityOutcomeAndCaller: an error tones the outcome bad with
+// no status given; a cross-account call shows the caller's account beside the
+// account the call ran in, and a same-account call does not.
+func TestRender_APIActivityOutcomeAndCaller(t *testing.T) {
+	v := Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci"}},"api":{"operation":"ListUsers","response":{"error":"AccessDenied"}}}`)}, nil)
+	if f, _ := fieldValue(v, "Outcome"); f.Value != "Failure: AccessDenied" || f.Tone != "bad" {
+		t.Errorf("Outcome without status = %+v", f)
+	}
+	ents := []Entity{
+		ent("x-cloud-account--target", map[string]any{"account_uid": "444455556666"}),
+		ent("x-cloud-account--home", map[string]any{"account_uid": "111122223333"}),
+	}
+	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci","account":{"uid":"111122223333","name":"acme-prod"}}},
+		"api":{"operation":"GetObject"},"cloud":{"account":{"uid":"444455556666","name":"acme-shared"}}}`)}, ents)
+	if f, _ := fieldValue(v, "Account"); f.Value != "acme-shared" || f.Ref != "x-cloud-account--target" {
+		t.Errorf("Account = %+v", f)
+	}
+	if f, ok := fieldValue(v, "Caller account"); !ok || f.Value != "acme-prod" || f.Ref != "x-cloud-account--home" {
+		t.Errorf("Caller account = %+v, %v", f, ok)
+	}
+	v = Render(Event{ClassUID: 6003, Payload: payload(apiCall)}, apiEntities())
+	if _, ok := fieldValue(v, "Caller account"); ok {
+		t.Error("same-account call shows a caller account")
 	}
 }

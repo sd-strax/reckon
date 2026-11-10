@@ -944,6 +944,93 @@ any standard OCSF class. Two options, in order of preference:
 The choice is per-tool. A custom CMDB integration probably warrants a custom
 class; a one-off enrichment script probably doesn't.
 
+### 4.15 OCSF api_activity (class_uid 6003) → STIX
+
+Input: an OCSF API Activity event — a control-plane call against a cloud
+account — with `actor.user.*` (the principal: `uid`, `uid_alt`, `name`,
+`full_name`, `type_id`, `type`, `account.{uid,name,type_id}`,
+`programmatic_credentials[].uid`, `credential_uid`), `actor.session.*`
+(`uid`, `issuer`, `credential_uid`, `is_mfa`), `actor.app_name`, `api.operation`,
+`api.service.name`, `api.request.uid`, `api.response.{code,error,error_message,message}`,
+`cloud.provider`, `cloud.account.{uid,name,type_id}`, `cloud.org.uid`,
+`cloud.region`, `resources[].{uid,name,type,region,cloud_partition}`,
+`src_endpoint.ip`, `activity_id`, `activity_name`, `status_id`, `status`,
+`http_request.user_agent`, `time`. Every field read exists in OCSF 1.1.0
+through 1.7.0 (`programmatic_credentials` arrives in 1.7.0 and is preferred
+when present); the two deprecated there (`user.credential_uid`,
+`cloud.project_uid`) are read as fallbacks behind their replacements. An
+identifier that arrives as a JSON number is read only when it is an exactly
+representable integer; a value JSON decoding has already rounded is not an
+identifier and mints nothing.
+
+Output:
+
+- One `user-account` SCO for the principal. A cloud principal — a user, a
+  role, a service principal, a service account — is a `user-account`, not a
+  type of its own: STIX already carries `user_id`, `account_login`,
+  `account_type`, `is_service_account` and `display_name`, and every verb,
+  inspector and aliasing rule that takes a user takes it unchanged. Shaping
+  (§7.4, the normalizer's contract): `account_type` is the provider slug
+  (`aws`, `azure`, `gcp`), **not** `cloud` — `cloud` names the identity
+  provider's sign-in account, which lives in another namespace and relates
+  to the control-plane principal by an explicit `aliases` edge (§7.3).
+  **Identity rests on the provider's durable principal identifier alone**,
+  carried as `user_id` with an empty `account_login`: in a cloud control
+  plane the unique identifier — the ARN, the directory object id, the
+  service-account email — *is* the principal, and the human-readable name
+  is a label (`display_name`), never identity. The durable identifier is
+  `actor.user.uid`, else `actor.user.uid_alt`, for every provider; a
+  provider row applies only where a provider's actor identifier is
+  session-scoped, and today there is one: for `aws`, `actor.session.issuer`
+  is preferred when present (the role a session was assumed from, so every
+  session of one role is one principal). **No identifier, no principal**:
+  an event carrying only a name, or only `actor.app_name`, mints no
+  `user-account`; the name rides the ObservedData as `principal_name`. A
+  name is never composed into an identity the source did not give.
+  `is_service_account` is set for a role or a System/Service `type_id`; the
+  credential id and the session ride as properties and extensions, never as
+  identity.
+- One `x-cloud-account` SCO for the account the call ran in, from
+  `cloud.account.uid`, else `actor.user.account.uid`, else the deprecated
+  `cloud.project_uid`; and, when `actor.user.account.uid` names a different
+  account, a second `x-cloud-account` for the principal's home account (a
+  cross-account call shows both). Identity `(provider, account_uid)` (§7.2).
+- One `x-cloud-resource` SCO per `resources[]` entry that can be
+  identified: by `(provider, uid)` when the source gives the provider's
+  unique id, else by `(account_ref, type, name)` under the event's account,
+  else not at all (§7.2). The engine does no provider-specific parsing of
+  an id; a resource identified by its unique id carries no `account_ref`,
+  since the id is its own statement of ownership.
+- `ipv4-addr` / `ipv6-addr` for `src_endpoint.ip`.
+- STIX `Relationship` of type `belongs-to` (the STIX 2.1 vocabulary, adopted)
+  from a resource to the event's account **only when the resource was
+  identified under that account** (the name rule) — a resource named by a
+  provider-unique id may be shared, managed by the provider, or another
+  account's, and the engine does not claim an owner it cannot see; and from
+  the principal to its own account, the one `actor.user.account.uid` names,
+  never inferred from the account the call ran in.
+- One `ObservedData` referencing all of the above. The operation is the
+  observation: `operation`, `service`, `activity`, `status`, `error`,
+  `error_message`, `response_code`, `request_uid`, `region`, `session`,
+  `credential_uid`, `user_agent`, `app_name`, `principal_name` and
+  `resource_count` ride in its extensions, the
+  way §4.9 keeps the activity and the privilege. There is no relationship
+  from principal to resource and no split per resource: one event is one
+  observation, and the graph does not grow a relationship type per API verb.
+- Edges as in §4.1.
+
+Failure modes, all splits and never merges (with no name in the tuple and
+no identifier composed by the engine, two principals can share an id only
+when the provider gave them one): an `aws` source that puts the full
+assumed-role identifier in `actor.user.uid` and names no issuer makes each
+session of one role a distinct principal; a principal seen once with `uid`
+and once with only `uid_alt` is two principals; a resource seen once by its
+unique id and once by a bare name is two SCOs. Each is the `x-host` kind of
+split and each is remedied by an `aliases` edge, not by a rule change. Whether a control-plane caller that *is* the identity provider's
+account (one directory serving both) should be shaped to stitch with its
+sign-in is deferred until such a source exists; the provider rows are where
+that goes.
+
 ---
 
 ## 5. Extension Mechanism
@@ -1283,6 +1370,15 @@ namespace UUID per §7.1.
 - **`x-scheduled-task`** (custom): `(host_ref.id, name, path)`, name and path
   lowercased.
 - **`x-group`** (custom): `(directory_ref.value, group_name)` lowercased.
+- **`x-cloud-account`** (custom): `(provider, account_uid)`, provider
+  lowercased; the uid as the provider issues it (a GUID-shaped uid
+  lowercased).
+- **`x-cloud-resource`** (custom): priority order — `(provider, uid)` when
+  the provider's unique resource id is present (unique within the provider
+  and already carrying its account; folded as the account uid is), else
+  `(account_ref.id, type, name)` lowercased under the event's account, else
+  the resource is not minted. The `x-host` pattern: strongest identifier
+  first, no parsing of the id.
 
 **Deviation: `process`.** STIX 2.1 specifies no `id_contributing_properties`
 for `process`, intentionally — the spec authors made the call that PIDs are
@@ -1360,6 +1456,16 @@ for the same human are deliberately distinct SCOs even when the
 is an explicit `aliases` edge created by the agent or analyst, never an
 implicit identity merge.
 
+Cloud control-plane principals (§4.15) use the provider as `account_type`
+(`aws`, `azure`, `gcp`), the provider's durable principal identifier as
+`user_id` (`actor.user.uid`, with a per-provider row where the actor
+identifier is session-scoped: on `aws` the session issuer, so every session
+of one role is one principal) and an **empty** `account_login`: the
+identifier is the principal and the name is a label. An event with no
+identifier mints no principal. The identity provider's sign-in account for
+the same human stays `cloud`; the two are different accounts and, when
+known to be one person, are linked by `aliases`.
+
 ### 7.3 Cross-tool stitching: practical implications
 
 All cross-tool stitching is scoped to a single tenant by construction (§7.1):
@@ -1383,6 +1489,14 @@ They are different accounts. The relationship between them, if known, is
 expressed with an `aliases` edge created either by an `x-interpretation` of
 type `extraction` (when both are extracted from the same enrichment call) or a
 later analyst judgment.
+
+The same rule separates a control-plane principal from a sign-in account:
+an `aws` `user-account` (the role or user a call ran as, §4.15) and the
+`cloud` `user-account` that signed in to the identity provider are
+different accounts in different namespaces, and nothing merges them. A
+resource seen by its unique id and again by a bare name is two
+`x-cloud-resource` SCOs for the same reason a host seen by asset id and by
+hostname is two `x-host` SCOs; `aliases` is the remedy in both cases.
 
 ### 7.4 Computation location
 
