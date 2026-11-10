@@ -627,7 +627,11 @@ Output:
 
 Input: OCSF authentication event with `actor.user.name`, `actor.user.domain`,
 `dst_endpoint.hostname`, `src_endpoint.ip`, `auth_protocol`, `logon_type`,
-`status` (SUCCESS/FAILURE), `time`.
+`status` (SUCCESS/FAILURE), `time`; optionally `src_endpoint.location`, the
+source's reported place as an OCSF Geo Location (`city`, `region`, `country`
+or the country as the source named it in `desc`, `lat`/`long`, `provider`),
+carried on the event and read by the event view, not extracted into a STIX
+object (`adr/0208`).
 
 Output:
 
