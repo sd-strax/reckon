@@ -8,7 +8,7 @@ import "github.com/sd-strax/reckon/identity"
 type registryNormalizer struct{ r *identity.Resolver }
 
 func (*registryNormalizer) ClassUID() int { return 1003 }
-func (*registryNormalizer) Version() int  { return 1 }
+func (*registryNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -36,7 +36,7 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 type scheduledJobNormalizer struct{ r *identity.Resolver }
 
 func (*scheduledJobNormalizer) ClassUID() int { return 1006 }
-func (*scheduledJobNormalizer) Version() int  { return 1 }
+func (*scheduledJobNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *scheduledJobNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -63,7 +63,7 @@ func (n *scheduledJobNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, 
 type moduleNormalizer struct{ r *identity.Resolver }
 
 func (*moduleNormalizer) ClassUID() int { return 1009 }
-func (*moduleNormalizer) Version() int  { return 1 }
+func (*moduleNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *moduleNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	b := newBuilder(n.r, evt, "module_activity", n.Version())

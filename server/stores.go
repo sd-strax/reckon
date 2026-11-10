@@ -56,6 +56,8 @@ type evidenceStore interface {
 	Event(ctx context.Context, id uuid.UUID) (evidence.Event, error)
 	EventEntities(ctx context.Context, eventID uuid.UUID) ([]evidence.Object, error)
 	IndicatorNeighbourhood(ctx context.Context, indicator evidence.Object) (evidence.Neighbourhood, error)
+	AliasSet(ctx context.Context, ref string) ([]string, error)
+	HostIdentity(ctx context.Context, ref string) (evidence.HostIdentityView, error)
 	InvestigationEvents(ctx context.Context, investigationID uuid.UUID, f evidence.EventFilter) (evidence.Events, error)
 	Calls(ctx context.Context, investigationID uuid.UUID) ([]evidence.CallRecord, error)
 	Call(ctx context.Context, investigationID, callID uuid.UUID) (evidence.CallRecord, error)

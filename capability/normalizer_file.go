@@ -8,7 +8,7 @@ import "github.com/sd-strax/reckon/identity"
 type fileActivityNormalizer struct{ r *identity.Resolver }
 
 func (*fileActivityNormalizer) ClassUID() int { return 1001 }
-func (*fileActivityNormalizer) Version() int  { return 1 }
+func (*fileActivityNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *fileActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

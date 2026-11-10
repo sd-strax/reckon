@@ -88,14 +88,106 @@ func canonicalURL(v string) string {
 	return u.String()
 }
 
-// canonicalMAC normalizes a MAC address to lowercase colon-separated form
-// (net.HardwareAddr.String). Unparseable values fall back to lowercased input.
-func canonicalMAC(v string) string {
-	s := strings.TrimSpace(v)
-	if hw, err := net.ParseMAC(s); err == nil {
-		return hw.String()
+// FoldMAC folds a MAC address to its bare lowercase hex digits, or returns ""
+// when v is not in an accepted form. The forms are a fixed rule of identity,
+// not whatever the standard library parses, so a MAC mints the same host on
+// every toolchain. After trimming, exactly these are accepted, in either case:
+// six bytes as xx:xx:xx:xx:xx:xx or xx-xx-xx-xx-xx-xx, dotted
+// xxxx.xxxx.xxxx, or 12 bare hex digits; eight bytes (EUI-64) as
+// colon- or dash-separated pairs, or 16 bare hex digits. One separator
+// throughout. The evidence store's seen-as query applies the same forms in
+// SQL; the two must agree.
+func FoldMAC(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	var parts []string
+	switch {
+	case len(s) == 12 || len(s) == 16:
+		parts = []string{s}
+	case len(s) == 14 && s[4] == '.':
+		parts = strings.Split(s, ".")
+		if len(parts) != 3 || !allLen(parts, 4) {
+			return ""
+		}
+	case len(s) > 2 && (s[2] == ':' || s[2] == '-'):
+		parts = strings.Split(s, s[2:3])
+		if (len(parts) != 6 && len(parts) != 8) || !allLen(parts, 2) {
+			return ""
+		}
+	default:
+		return ""
 	}
-	return strings.ToLower(s)
+	digits := strings.Join(parts, "")
+	if strings.Trim(digits, "0123456789abcdef") != "" {
+		return ""
+	}
+	return digits
+}
+
+// allLen reports whether every part is n bytes long.
+func allLen(parts []string, n int) bool {
+	for _, p := range parts {
+		if len(p) != n {
+			return false
+		}
+	}
+	return true
+}
+
+// canonicalMAC formats a MAC from its fold (FoldMAC) as lowercase
+// colon-separated pairs, so the bare, dashed, dotted and colon forms of one
+// address are one value. A value in no accepted form falls back to its
+// lowercased input; Host never mints on one (PlaceholderMAC refuses it).
+func canonicalMAC(v string) string {
+	digits := FoldMAC(v)
+	if digits == "" {
+		return strings.ToLower(strings.TrimSpace(v))
+	}
+	pairs := make([]string, 0, len(digits)/2)
+	for i := 0; i < len(digits); i += 2 {
+		pairs = append(pairs, digits[i:i+2])
+	}
+	return strings.Join(pairs, ":")
+}
+
+// canonicalHostname folds a hostname to the short name that is an x-host's
+// identity (adr/0211): trimmed, lowercased, trailing dots removed, cut at the
+// first dot; an IP literal in the hostname field is kept whole. It returns ""
+// when nothing remains.
+func canonicalHostname(v string) string {
+	host, _ := SplitHostname(v)
+	return host
+}
+
+// SplitHostname splits a reported hostname into the lowercase short name and
+// the lowercase remainder after the first dot, the DNS domain. Both are ""
+// when the value is empty; the domain is "" for a short name. Callers that
+// keep the domain as a property use it; identity uses the short name only.
+// A source with no resolved name may put the address in the hostname field:
+// a value that is not a hostname is returned whole with no domain, never split
+// at its dots, so two addresses stay two hosts. That is a value that parses as
+// an IP, consists only of digits and dots, or contains a colon: a legal
+// hostname is never all digits and dots, and a colon never belongs in one.
+// The evidence store's seen-as query applies the same rule in SQL; the two
+// must agree.
+func SplitHostname(v string) (host, domain string) {
+	s := strings.TrimRight(strings.ToLower(strings.TrimSpace(v)), ".")
+	if notHostname(s) {
+		return s, ""
+	}
+	host, domain, _ = strings.Cut(s, ".")
+	return host, domain
+}
+
+// notHostname reports whether a folded hostname-field value is an address or
+// other literal kept whole: an IP, only digits and dots, or any colon.
+func notHostname(s string) bool {
+	if s == "" {
+		return false
+	}
+	if net.ParseIP(s) != nil || strings.Contains(s, ":") {
+		return true
+	}
+	return strings.Trim(s, "0123456789.") == ""
 }
 
 // isDefaultPort reports whether port is the scheme's default (stripped from the

@@ -1,4 +1,4 @@
-.PHONY: help build test test-all test-race run vet tidy hooks clean ci ci-full bundle lint eval eval-accept eval-regrade workbench-ci workbench-package wire-fixtures demo-reseed
+.PHONY: help build test test-all conformance test-race run vet tidy hooks clean ci ci-full bundle lint eval eval-accept eval-regrade workbench-ci workbench-package wire-fixtures demo-reseed
 .DEFAULT_GOAL := help
 
 help: ## List available targets
@@ -29,6 +29,9 @@ test: ## Fast tests: unit + httptest integration. Race detector on. Skips slow e
 
 test-all: ## All tests including slow embedded-deps lifecycle tests (embedded Pg, Temporal dev server). A few minutes; binaries are cached after the first run.
 	go test -race -count=1 ./...
+
+conformance: ## Host identity conformance (adr/0211): one machine as three tools report it normalizes to one host, weak hosts aliased to it
+	go test -race -count=1 -run TestHostIdentityConformance ./capability/
 
 test-race: test ## Alias for `test` (race detector is always on now)
 

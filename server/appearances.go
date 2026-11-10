@@ -2,12 +2,15 @@ package server
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/module"
 )
 
@@ -27,14 +30,31 @@ type AppearanceView struct {
 
 // listRefAppearances serves GET /api/entities/{ref}/appearances: every
 // investigation whose thread cites the ref — "appears in N other
-// investigations", powered by deterministic identity (03 §7). Any reader.
+// investigations", powered by deterministic identity (03 §7) — or, when the
+// evidence store is configured, any member of its alias set (adr/0211), so a
+// case that cited a host under the weak id one source gave it is listed under
+// the host. Any reader.
 func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
 		return
 	}
 	ref := r.PathValue("ref")
-	apps, err := b.cfg.Reads.ListRefAppearances(r.Context(), ref)
+	refs := []string{ref}
+	if b.cfg.Evidence != nil {
+		set, err := b.cfg.Evidence.AliasSet(r.Context(), ref)
+		switch {
+		case errors.Is(err, evidence.ErrMalformedRef):
+			// Not a STIX ref the store can walk: the ref alone, as before.
+		case err != nil:
+			// The appearances are the aggregate's read and stand without the
+			// evidence store: the ref alone, the alias set noted as lost.
+			slog.Warn("appearances without the alias set", "ref", ref, "error", err)
+		default:
+			refs = set
+		}
+	}
+	apps, err := b.refAppearances(r, refs)
 	if err != nil {
 		writeInternalError(w, "list appearances", err)
 		return
@@ -59,6 +79,43 @@ func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ref": ref, "appearances": out})
+}
+
+// refAppearances lists the appearances of every ref, one row per
+// investigation: mentions summed, the earliest first sighting and the latest
+// last, most recently touched first.
+func (b *Backend) refAppearances(r *http.Request, refs []string) ([]aggregate.RefAppearance, error) {
+	if len(refs) == 1 {
+		return b.cfg.Reads.ListRefAppearances(r.Context(), refs[0])
+	}
+	var out []aggregate.RefAppearance
+	index := map[aggregate.AggregateID]int{}
+	for _, ref := range refs {
+		apps, err := b.cfg.Reads.ListRefAppearances(r.Context(), ref)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range apps {
+			i, ok := index[a.AggregateID]
+			if !ok {
+				index[a.AggregateID] = len(out)
+				out = append(out, a)
+				continue
+			}
+			m := &out[i]
+			m.Mentions += a.Mentions
+			if a.FirstSeen.Valid && (!m.FirstSeen.Valid || a.FirstSeen.Time.Before(m.FirstSeen.Time)) {
+				m.FirstSeen = a.FirstSeen
+			}
+			if a.LastSeen.Valid && (!m.LastSeen.Valid || a.LastSeen.Time.After(m.LastSeen.Time)) {
+				m.LastSeen = a.LastSeen
+			}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].LastSeen.Time.After(out[j].LastSeen.Time)
+	})
+	return out, nil
 }
 
 // getInterpretationTranscript serves GET /api/interpretations/{id}/transcript:
