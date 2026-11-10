@@ -536,6 +536,18 @@ func (r *renderer) authentication() {
 	}
 	r.clause(" to ", host)
 	r.clause(" from ", src)
+	// The source's reported place (adr/0208) reads after the address it
+	// belongs to, never alone: without a source it would read as the host's.
+	// Who located it rides in the sentence, since the export and the timeline
+	// read the sentence alone and a geolocation provider's reading of an
+	// address is not where the person was.
+	place := r.place("src_endpoint.location")
+	if !src.empty() && place != "" {
+		r.text(" in " + place)
+		if p := r.str("src_endpoint.location.provider"); p != "" {
+			r.text(" (located by " + p + ")")
+		}
+	}
 	if failed {
 		r.text(" failed")
 	}
@@ -543,6 +555,7 @@ func (r *renderer) authentication() {
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.field("Logon type", logon)
 	r.entityField("Source", src)
+	r.field("Location", r.locationText("src_endpoint.location"))
 	r.entityField("Destination", host)
 	r.field("Result", status).Tone = statusTone(status)
 	r.field("Detail", r.str("status_detail"))
@@ -1277,6 +1290,52 @@ func pastToPassive(verb string) string {
 		return "was " + first
 	}
 	return "was " + verb
+}
+
+// place is an OCSF Geo Location as the sentence says it: the city and the
+// country code, the region standing in for a missing city, the country alone
+// when that is all there is. A location with none of those but a desc (a
+// source that named a country and nothing else, adr/0208) reads its desc:
+// the place the record holds must reach the timeline and the export, which
+// read the sentence alone. "" when the object has none of them.
+func (r *renderer) place(path string) string {
+	city := r.str(path + ".city")
+	if city == "" {
+		city = r.str(path + ".region")
+	}
+	if p := joinNonEmpty(", ", city, r.str(path+".country")); p != "" {
+		return p
+	}
+	return r.str(path + ".desc")
+}
+
+// locationText is the Location field: city, region and country code; the
+// location's description (OCSF desc, free text as the producer wrote it,
+// which for a source that named a country no code is known for is that
+// name); and who reported the place when the event says (OCSF
+// location.provider) — a geolocation provider's reading of an address, not
+// where a person was.
+func (r *renderer) locationText(path string) string {
+	text := joinNonEmpty(" · ",
+		joinNonEmpty(", ", r.str(path+".city"), r.str(path+".region"), r.str(path+".country")),
+		r.str(path+".desc"))
+	if text == "" {
+		return ""
+	}
+	if p := r.str(path + ".provider"); p != "" {
+		text += " · reported by " + p
+	}
+	return text
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	out := parts[:0:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
 }
 
 func endpoint(ip string, port int) string {
