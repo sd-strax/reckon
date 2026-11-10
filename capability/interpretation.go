@@ -42,6 +42,9 @@ const (
 	RelMemberOfGroup     = "member-of-group"
 	RelContains          = "contains"
 	RelClicked           = "clicked"
+	// RelBelongsTo is STIX 2.1's SCO relationship, adopted for a cloud
+	// resource or principal and the account it lives in (03 §4.15).
+	RelBelongsTo = "belongs-to"
 )
 
 // Provenance is the uniform provenance carried by every normalizer output

@@ -11,6 +11,7 @@ export const REF_TYPE_LABELS: Record<string, string> = {
   "identity": "vendor", "sighting": "sighting",
   "note": "attestation", // a human statement recorded as evidence (adr/0054)
   "x-null-observation": "nothing observed", // a complete, empty answer recorded as evidence (adr/0061)
+  "x-cloud-account": "cloud account", "x-cloud-resource": "cloud resource",
 };
 
 /** Entity-type palette classes: one fixed colour per type, everywhere. */
@@ -20,12 +21,14 @@ export const REF_CHIP_CLASS: Record<string, string> = {
   "domain-name": "chip-domain", "url": "chip-domain", "email-addr": "chip-email",
   "indicator": "chip-alert", "sighting": "chip-alert",
   "x-hypothesis": "chip-brand", "x-prediction": "chip-brand",
+  "x-cloud-account": "chip-host", "x-cloud-resource": "chip-hash",
 };
 
 /** Entity types get the popover (ui/02 §2.4); everything else opens its record. */
 export const ENTITY_POPOVER_TYPES = new Set([
   "x-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file",
   "domain-name", "email-addr", "url", "windows-registry-key", "indicator",
+  "x-cloud-account", "x-cloud-resource",
 ]);
 
 /** The STIX type prefix of a ref, "" for an OCSF event id. */

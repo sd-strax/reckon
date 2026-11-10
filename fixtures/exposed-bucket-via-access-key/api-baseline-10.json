@@ -1,0 +1,92 @@
+{
+  "fixture_meta": {
+    "scenario": "exposed-bucket-via-access-key",
+    "matches": {
+      "verb": "get_cloud_api_activity",
+      "params": {
+        "principal.name": [
+          "deploy-ci",
+          null
+        ],
+        "operation": [
+          "ListBucket",
+          null
+        ],
+        "outcome": [
+          "SUCCESS",
+          "ALL"
+        ],
+        "resource.uid": [
+          "arn:aws:s3:::acme-release-artifacts",
+          null
+        ]
+      }
+    },
+    "delay_ms": 15,
+    "time_scoped": true
+  },
+  "ocsf": {
+    "class_uid": 6003,
+    "class_name": "API Activity",
+    "category_uid": 6,
+    "activity_id": 2,
+    "activity_name": "Read",
+    "type_uid": 600302,
+    "time": "2026-07-11T02:20:10Z",
+    "severity_id": 1,
+    "metadata": {
+      "product": {
+        "vendor_name": "fixture-cloud",
+        "name": "fixture-cloud-audit"
+      },
+      "version": "1.1.0"
+    },
+    "actor": {
+      "user": {
+        "uid": "arn:aws:iam::111122223333:user/deploy-ci",
+        "name": "deploy-ci",
+        "type_id": 1,
+        "account": {
+          "uid": "111122223333",
+          "name": "acme-prod",
+          "type_id": 10
+        },
+        "credential_uid": "AKIAIOSFODNN7EXAMPLE"
+      }
+    },
+    "api": {
+      "operation": "ListBucket",
+      "service": {
+        "name": "s3.amazonaws.com"
+      },
+      "request": {
+        "uid": "b7e1c0d4-5a2f-4e8b-9c31-000000000010"
+      }
+    },
+    "cloud": {
+      "provider": "AWS",
+      "account": {
+        "uid": "111122223333",
+        "name": "acme-prod",
+        "type_id": 10
+      },
+      "region": "us-east-1"
+    },
+    "src_endpoint": {
+      "ip": "198.51.100.10"
+    },
+    "http_request": {
+      "user_agent": "aws-sdk-go-v2/1.30.3 os/linux lang/go#1.22.5 md/GOOS#linux md/GOARCH#amd64"
+    },
+    "status": "Success",
+    "status_id": 1,
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::acme-release-artifacts",
+        "name": "acme-release-artifacts",
+        "type": "AWS::S3::Bucket",
+        "region": "us-east-1"
+      }
+    ]
+  }
+}

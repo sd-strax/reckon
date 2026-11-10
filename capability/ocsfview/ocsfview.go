@@ -90,13 +90,14 @@ type View struct {
 // Category words, from category_uid (the thousands digit of class_uid) with the
 // case class named apart: the Story filters and the inspector read them.
 const (
-	CategoryProcess   = "process"
-	CategoryDetection = "detection"
-	CategoryAuth      = "auth"
-	CategoryNetwork   = "network"
-	CategoryAsset     = "asset"
-	CategoryCase      = "case"
-	CategoryOther     = "other"
+	CategoryProcess     = "process"
+	CategoryDetection   = "detection"
+	CategoryAuth        = "auth"
+	CategoryNetwork     = "network"
+	CategoryAsset       = "asset"
+	CategoryCase        = "case"
+	CategoryApplication = "application"
+	CategoryOther       = "other"
 )
 
 // Category names an event's category.
@@ -119,13 +120,15 @@ func Category(classUID int, payload map[string]any) string {
 		return CategoryNetwork
 	case 5:
 		return CategoryAsset
+	case 6:
+		return CategoryApplication
 	default:
 		return CategoryOther
 	}
 }
 
-// The classes with a template: every class a normalizer handles (03 §4.1–§4.12)
-// and device inventory.
+// The classes with a template: every class a normalizer handles (03 §4.1–§4.12,
+// §4.15) and device inventory.
 const (
 	classFileActivity    = 1001
 	classRegistryKey     = 1003
@@ -141,6 +144,7 @@ const (
 	classEmail           = 4009
 	classEmailURL        = 4011
 	classDeviceInventory = 5001
+	classAPIActivity     = 6003
 )
 
 // Classes lists the class_uids with a sentence template, sorted.
@@ -149,6 +153,7 @@ func Classes() []int {
 		classFileActivity, classRegistryKey, classScheduledJob, classProcess, classModule,
 		classDetection, classCase, classAuthentication, classAccountChange,
 		classNetwork, classDNS, classEmail, classEmailURL, classDeviceInventory,
+		classAPIActivity,
 	}
 }
 
@@ -187,6 +192,8 @@ func Render(e Event, entities []Entity) View {
 		r.caseFinding()
 	case classDeviceInventory:
 		r.deviceInventory()
+	case classAPIActivity:
+		r.apiActivity()
 	default:
 		r.scalars()
 	}
@@ -251,6 +258,35 @@ func (r *renderer) keyList(name string, slots []slot, fold bool) {
 		id = string(enc)
 	}
 	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(vals, ", "), Identity: id})
+}
+
+// keyRefList registers a multi-valued slot of entities: the texts joined for
+// reading, and as identity, encoded with boundaries intact and sorted, each
+// value's ref when the record minted it, else its exact text. Two different
+// objects that read the same (two resources one name) never fold; an unbound
+// value keys by its text exactly.
+func (r *renderer) keyRefList(name string, slots []slot) {
+	texts := make([]string, 0, len(slots))
+	keys := make([]string, 0, len(slots))
+	for _, s := range slots {
+		if s.text == "" {
+			continue
+		}
+		texts = append(texts, s.text)
+		if s.ref != "" {
+			keys = append(keys, "ref:"+s.ref)
+		} else {
+			keys = append(keys, "text:"+s.text)
+		}
+	}
+	sort.Strings(texts)
+	sort.Strings(keys)
+	var id string
+	if len(keys) > 0 { // no values is no value, which never folds
+		enc, _ := json.Marshal(keys) // strings always marshal
+		id = string(enc)
+	}
+	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(texts, ", "), Identity: id})
 }
 
 // slot is a sentence slot: what the payload shows, and the record's ref when
@@ -1227,6 +1263,196 @@ func (r *renderer) deviceInventory() {
 	r.keyText("os", os)
 	r.keyText("owner", owner)
 	r.keyText("criticality", strings.ToLower(crit))
+}
+
+// apiStatuses are the OCSF status_id captions, for a payload that carries the
+// id without the name.
+var apiStatuses = map[int]string{1: "Success", 2: "Failure"}
+
+// apiActivity renders a cloud control-plane call (03 §4.15): who called which
+// operation on what, in which account, and how it ended. The principal binds
+// to its user-account by the durable id the record keyed it on, the account
+// to its x-cloud-account by uid, each resource to its x-cloud-resource by uid
+// or by type and name.
+func (r *renderer) apiActivity() {
+	principal := r.cloudPrincipal()
+	app := r.str("actor.app_name")
+	op := r.str("api.operation")
+	service := r.str("api.service.name")
+	resources := r.cloudResources()
+	account, accountUID := r.cloudAccount()
+	src := r.ip("src_endpoint.ip")
+	status := firstNonEmpty(r.str("status"), apiStatuses[r.int("status_id")])
+	errCode := r.str("api.response.error")
+	outcome, tone := status, statusTone(status)
+	if errCode != "" {
+		outcome, tone = firstNonEmpty(status, "Failure")+": "+errCode, "bad"
+	}
+
+	switch {
+	case !principal.empty():
+		r.entity(principal)
+		if op == "" {
+			r.text(" called")
+		}
+	case app != "":
+		r.text(app + " called")
+	default:
+		r.text("API call")
+	}
+	if op != "" {
+		r.text(" " + op)
+	}
+	if len(resources) > 0 {
+		r.text(" ")
+		r.entity(resources[0])
+		if n := len(resources) - 1; n > 0 {
+			r.text(fmt.Sprintf(", +%d more", n))
+		}
+	} else if service != "" {
+		r.text(" (" + service + ")")
+	}
+	r.clause(" in ", account)
+	if outcome != "" {
+		r.text(" · " + outcome)
+	}
+
+	if principal.empty() {
+		r.field("Principal", app)
+	} else {
+		r.entityField("Principal", principal)
+	}
+	r.mono("Operation", op)
+	r.field("Service", service)
+	for _, res := range resources {
+		r.entityField("Resource", res)
+	}
+	r.entityField("Account", account)
+	if caller := r.callerAccount(); !caller.empty() && !strings.EqualFold(r.str("actor.user.account.uid"), accountUID) {
+		r.entityField("Caller account", caller)
+	}
+	r.field("Region", r.str("cloud.region"))
+	r.field("Outcome", outcome).Tone = tone
+	r.entityField("Source", src)
+	r.mono("Credential", r.credential())
+	r.mono("Session", r.str("actor.session.uid"))
+	r.field("User agent", r.str("http_request.user_agent"))
+
+	actor := principal
+	if actor.empty() {
+		actor = slot{text: app}
+	}
+	r.keySlot("actor", actor)
+	r.keyText("operation", op)
+	r.keyText("service", service)
+	r.keyRefList("resource", resources)
+	r.keySlot("account", account)
+	r.keyText("outcome", outcome)
+	r.keySlot("source", src)
+}
+
+// cloudPrincipal binds the caller to its user-account by the durable id the
+// normalizer keyed it on: the session issuer, the user's uid or its alternate
+// uid, tried in that order against user_id. The order is the union of the
+// normalizer's provider rows, safe because the entities a view receives are
+// the ones derived from that event. The chip reads the name, else the full
+// name, else the id.
+func (r *renderer) cloudPrincipal() slot {
+	name := r.str("actor.user.name")
+	ids := []string{r.str("actor.session.issuer"), r.str("actor.user.uid"), r.str("actor.user.uid_alt")}
+	text := firstNonEmpty(name, r.str("actor.user.full_name"), ids[1], ids[2], ids[0])
+	if text == "" {
+		return slot{}
+	}
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return propEquals(p, "user_id", id) }); ref != "" {
+			return slot{text: text, ref: ref}
+		}
+	}
+	return slot{text: text}
+}
+
+// cloudAccount binds the account the call ran in: cloud.account, else the
+// caller's account, else the deprecated project_uid, as the normalizer reads
+// it, and returns its uid. The account's name is shown when the payload gives
+// one.
+func (r *renderer) cloudAccount() (slot, string) {
+	for _, pre := range []string{"cloud.account", "actor.user.account"} {
+		if s := r.accountAt(pre); !s.empty() {
+			return s, strings.TrimSpace(r.str(pre + ".uid"))
+		}
+	}
+	uid := strings.TrimSpace(r.str("cloud.project_uid"))
+	if uid == "" {
+		return slot{}, ""
+	}
+	return slot{text: uid, ref: r.bindAccount(uid)}, uid
+}
+
+// callerAccount binds the principal's own account, actor.user.account.
+func (r *renderer) callerAccount() slot { return r.accountAt("actor.user.account") }
+
+// accountAt binds the OCSF account object at prefix to its x-cloud-account.
+func (r *renderer) accountAt(prefix string) slot {
+	uid := strings.TrimSpace(r.str(prefix + ".uid"))
+	if uid == "" {
+		return slot{}
+	}
+	return slot{text: firstNonEmpty(r.str(prefix+".name"), uid), ref: r.bindAccount(uid)}
+}
+
+func (r *renderer) bindAccount(uid string) string {
+	return r.bind(identity.TypeCloudAccount, func(p map[string]any) bool { return propEquals(p, "account_uid", uid) })
+}
+
+// cloudResources binds each resources[] entry to its x-cloud-resource: by uid
+// when the entry has one, else by the name-rule tuple (03 §7.2).
+func (r *renderer) cloudResources() []slot {
+	var out []slot
+	for _, item := range pathList(r.p, "resources") {
+		m, _ := item.(map[string]any)
+		uid, name, typ := toString(m["uid"]), toString(m["name"]), toString(m["type"])
+		region := strings.TrimSpace(toString(m["region"]))
+		zone := strings.TrimSpace(toString(m["zone"]))
+		group := strings.TrimSpace(firstNonEmpty(pathStr(m, "group.name"), pathStr(m, "group.uid")))
+		namespace := strings.TrimSpace(toString(m["namespace"]))
+		text := firstNonEmpty(name, uid)
+		if text == "" {
+			continue
+		}
+		// By name the match mirrors the identity tuple: the name and the
+		// namespace exactly (trimmed), type, region, zone and group without
+		// case, an absent scope as "".
+		ref := r.bind(identity.TypeCloudResource, func(p map[string]any) bool {
+			if uid != "" {
+				return propEquals(p, "uid", uid)
+			}
+			return name != "" && strings.TrimSpace(toString(p["name"])) == strings.TrimSpace(name) &&
+				strings.EqualFold(toString(p["type"]), typ) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["region"])), region) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["zone"])), zone) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["group"])), group) &&
+				strings.TrimSpace(toString(p["namespace"])) == namespace
+		})
+		out = append(out, slot{text: text, ref: ref})
+	}
+	return out
+}
+
+// credential is the access key the call was made with, in the normalizer's
+// order: the programmatic_credentials list (1.6.0 and later), then the user
+// and session fields that are deprecated.
+func (r *renderer) credential() string {
+	if list := pathList(r.p, "actor.user.programmatic_credentials"); len(list) > 0 {
+		m, _ := list[0].(map[string]any)
+		if c := toString(m["uid"]); c != "" {
+			return c
+		}
+	}
+	return firstNonEmpty(r.str("actor.user.credential_uid"), r.str("actor.session.credential_uid"))
 }
 
 // scalars is the view of a class without a template: the payload's top-level

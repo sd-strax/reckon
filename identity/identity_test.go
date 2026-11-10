@@ -264,3 +264,145 @@ func TestScopedNamespace(t *testing.T) {
 		t.Error("same entity resolved to different ids within one scope")
 	}
 }
+
+// TestCloudAccount: "<x-cloud-account>--<uuidv5>", deterministic, provider
+// folded for case, the uid's case kept unless it is a GUID, and a different
+// account or provider a different id.
+func TestCloudAccount(t *testing.T) {
+	r := NewResolver(nsA)
+	id := r.CloudAccount("aws", "111122223333")
+	if typ, u := splitID(t, id); typ != TypeCloudAccount || u.Version() != 5 {
+		t.Errorf("id %q: type %q, v%d", id, typ, u.Version())
+	}
+	if r.CloudAccount("aws", "111122223333") != id {
+		t.Error("CloudAccount not deterministic")
+	}
+	if r.CloudAccount(" AWS ", " 111122223333 ") != id {
+		t.Error("provider case and whitespace must fold")
+	}
+	if r.CloudAccount("aws", "444455556666") == id || r.CloudAccount("gcp", "111122223333") == id {
+		t.Error("a different account or provider must be a different id")
+	}
+	guid := "0F8FAD5B-D9CB-469F-A165-70867728950E"
+	if r.CloudAccount("azure", guid) != r.CloudAccount("azure", strings.ToLower(guid)) {
+		t.Error("a GUID-shaped account uid must fold for case")
+	}
+	if r.CloudAccount("gcp", "Acme-Prod") == r.CloudAccount("gcp", "acme-prod") {
+		t.Error("a non-GUID account uid keeps its case")
+	}
+}
+
+// TestCloudResourcePriority: the provider's unique id beats the scoped name,
+// one uid seen under two names is one resource, and a name resolves only
+// under an account.
+func TestCloudResourcePriority(t *testing.T) {
+	r := NewResolver(nsA)
+	acct := r.CloudAccount("aws", "111122223333")
+	other := r.CloudAccount("aws", "444455556666")
+	const arn = "arn:aws:s3:::acme-internal-exports"
+
+	byUID, rule := r.CloudResource(CloudResourceIdentity{Provider: "aws", UID: arn, AccountRef: acct, Type: "AWS::S3::Bucket", Name: "acme-internal-exports"})
+	if rule != CloudResourceByUID {
+		t.Fatalf("a resource with a uid resolved by rule %d; want by uid", rule)
+	}
+	if typ, u := splitID(t, byUID); typ != TypeCloudResource || u.Version() != 5 {
+		t.Errorf("id %q: type %q, v%d", byUID, typ, u.Version())
+	}
+	// The uid alone is the identity: the name, type and account do not move it.
+	for _, c := range []CloudResourceIdentity{
+		{Provider: "aws", UID: arn},
+		{Provider: "AWS", UID: " " + arn + " ", AccountRef: other, Name: "exports-renamed"},
+	} {
+		if got, _ := r.CloudResource(c); got != byUID {
+			t.Errorf("CloudResource(%+v) = %s; want the uid's id %s", c, got, byUID)
+		}
+	}
+	if got, _ := r.CloudResource(CloudResourceIdentity{Provider: "aws", UID: "arn:aws:s3:::ACME-INTERNAL-EXPORTS"}); got == byUID {
+		t.Error("a non-GUID resource uid keeps its case")
+	}
+
+	byName, rule := r.CloudResource(CloudResourceIdentity{Provider: "aws", AccountRef: acct, Type: "AWS::S3::Bucket", Name: "acme-internal-exports"})
+	if rule != CloudResourceByName || byName == byUID {
+		t.Fatalf("by name: %s, rule %d; want a scoped id distinct from the uid's", byName, rule)
+	}
+	if got, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: " aws::s3::bucket ", Name: " acme-internal-exports "}); got != byName {
+		t.Error("type must fold for case and whitespace, the name for whitespace")
+	}
+	orders, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Name: "Orders"})
+	lower, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Name: "orders"})
+	if orders == lower {
+		t.Error("names differing only in case must be two resources")
+	}
+	east, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Region: "us-east-1", Name: "Orders"})
+	west, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Region: "us-west-2", Name: "Orders"})
+	eastUpper, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Region: " US-EAST-1 ", Name: "Orders"})
+	if east == west || east != eastUpper || east == orders {
+		t.Errorf("regions: east=%s west=%s eastUpper=%s none=%s; want two regions apart, region folded, absent region distinct", east, west, eastUpper, orders)
+	}
+	if again, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Name: "Orders"}); again != orders {
+		t.Error("two region-less sightings of one name must be one resource")
+	}
+	vm := func(group, namespace string) STIXID {
+		id, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "Microsoft.Compute/virtualMachines", Region: "eastus", Group: group, Namespace: namespace, Name: "api"})
+		return id
+	}
+	if vm("rg-a", "") == vm("rg-b", "") || vm("RG-A ", "") != vm("rg-a", "") || vm(" ", "") != vm("", "") || vm("", "") == vm("rg-a", "") {
+		t.Error("group: rg-a and rg-b must be apart, case folded, absent on both one id")
+	}
+	if vm("", "team-a") == vm("", "team-b") || vm("", " team-a ") != vm("", "team-a") || vm("", "team-a") == vm("", "") {
+		t.Error("namespace: team-a and team-b must be apart, whitespace trimmed, absent distinct")
+	}
+	if vm("", "SourceA") == vm("", "sourcea") {
+		t.Error("namespace: names differing only in case must be two resources (no case rule in OCSF)")
+	}
+	gce := func(zone string) STIXID {
+		id, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "compute.googleapis.com/Instance", Region: "us-central1", Zone: zone, Name: "api"})
+		return id
+	}
+	if gce("us-central1-a") == gce("us-central1-b") {
+		t.Error("zone: one name in two zones must be two resources")
+	}
+	if gce(" US-CENTRAL1-A ") != gce("us-central1-a") {
+		t.Error("zone: case and whitespace must fold, like region")
+	}
+	if gce("") == gce("us-central1-a") {
+		t.Error("zone: a sighting with a zone splits from one without")
+	}
+	if absent, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "compute.googleapis.com/Instance", Region: "us-central1", Name: "api"}); absent != gce("") || gce(" ") != gce("") {
+		t.Error("zone: absent, empty and blank must be one id")
+	}
+	if got, _ := r.CloudResource(CloudResourceIdentity{AccountRef: other, Type: "AWS::S3::Bucket", Name: "acme-internal-exports"}); got == byName {
+		t.Error("the same name under another account must be another resource")
+	}
+
+	for _, c := range []CloudResourceIdentity{
+		{},
+		{Provider: "aws", Type: "AWS::S3::Bucket", Name: "acme-internal-exports"}, // no account to scope the name
+		{Provider: "aws", AccountRef: acct, Type: "AWS::S3::Bucket"},              // no name
+		{Provider: "aws", UID: "   ", AccountRef: acct},
+	} {
+		if id, rule := r.CloudResource(c); rule != CloudResourceNone || id != "" {
+			t.Errorf("CloudResource(%+v) = %q, rule %d; want nothing", c, id, rule)
+		}
+	}
+}
+
+// TestCloudScoped: the same account and resource in two source scopes are
+// distinct ids, and stable within each.
+func TestCloudScoped(t *testing.T) {
+	base := NewResolver(nsA)
+	a, b := base.Scoped("org-a"), base.Scoped("org-b")
+	if a.CloudAccount("aws", "111122223333") == b.CloudAccount("aws", "111122223333") {
+		t.Error("an account must not stitch across scopes")
+	}
+	c := CloudResourceIdentity{Provider: "aws", UID: "arn:aws:s3:::acme-release-artifacts"}
+	ra, _ := a.CloudResource(c)
+	rb, _ := b.CloudResource(c)
+	again, _ := base.Scoped("org-a").CloudResource(c)
+	if ra == rb || ra != again {
+		t.Errorf("resource across scopes: a=%s b=%s again=%s", ra, rb, again)
+	}
+	if NewResolver(nsB).CloudAccount("aws", "111122223333") == base.CloudAccount("aws", "111122223333") {
+		t.Error("an account must not stitch across tenants")
+	}
+}

@@ -1,0 +1,49 @@
+{
+  "fixture_meta": {
+    "scenario": "exposed-bucket-via-access-key",
+    "matches": {
+      "verb": "get_indicator_context",
+      "params": {
+        "indicator.ip": "*"
+      }
+    },
+    "delay_ms": 60
+  },
+  "ocsf": {
+    "class_uid": 5021,
+    "class_name": "OSINT Inventory Info",
+    "time": "2026-07-14T09:45:00Z",
+    "metadata": {
+      "product": {
+        "vendor_name": "fixture-ti"
+      }
+    },
+    "osint": [
+      {
+        "value": "203.0.113.77",
+        "type": "IP Address",
+        "type_id": 2,
+        "reputation": {
+          "provider": "fixture-ti",
+          "score": "Suspicious",
+          "score_id": 4,
+          "base_score": 64
+        },
+        "confidence": "Medium",
+        "autonomous_system": {
+          "number": 64511,
+          "name": "ExampleNet Cloud Hosting Ltd"
+        },
+        "location": {
+          "country": "DE",
+          "city": "Frankfurt"
+        },
+        "categories": [
+          "hosting",
+          "VPN exit"
+        ],
+        "comment": "Commercial hosting range with a consumer-VPN exit; no prior sightings against this tenant; no residential attribution."
+      }
+    ]
+  }
+}

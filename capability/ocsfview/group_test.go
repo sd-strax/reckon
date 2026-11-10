@@ -30,7 +30,7 @@ func TestSlots_EveryTemplateRegistersItsCatalogue(t *testing.T) {
 			}
 		}
 	}
-	if Slots(6003) != nil || len(DefaultKey(6003)) != 0 {
+	if Slots(8001) != nil || len(DefaultKey(8001)) != 0 {
 		t.Error("a class without a template has slots")
 	}
 }
@@ -156,8 +156,8 @@ func TestFold_NoValueNeverFolds(t *testing.T) {
 	items := []GroupItem{
 		{ID: "a", ClassUID: classNetwork, Time: at, Slots: Render(Event{ClassUID: classNetwork, Payload: map[string]any{}}, nil).Slots},
 		{ID: "b", ClassUID: classNetwork, Time: at, Slots: Render(Event{ClassUID: classNetwork, Payload: map[string]any{}}, nil).Slots},
-		{ID: "c", ClassUID: 6003, Time: at},
-		{ID: "d", ClassUID: 6003, Time: at},
+		{ID: "c", ClassUID: 8001, Time: at},
+		{ID: "d", ClassUID: 8001, Time: at},
 	}
 	if groups := Fold(items, nil, ""); len(groups) != 4 {
 		t.Errorf("groups = %d; want each alone", len(groups))
@@ -247,14 +247,14 @@ func TestFold_ChangedObservationsStayApart(t *testing.T) {
 // never folds, where an absent class folds on its default; a class without
 // slots in the catalogue is accepted that way.
 func TestFold_ExplicitEmptyKey(t *testing.T) {
-	keys, err := ParseKeys("3002:;6003:")
-	if err != nil || keys[classAuthentication] == nil || len(keys[classAuthentication]) != 0 || keys[6003] == nil {
+	keys, err := ParseKeys("3002:;8001:")
+	if err != nil || keys[classAuthentication] == nil || len(keys[classAuthentication]) != 0 || keys[8001] == nil {
 		t.Fatalf("ParseKeys = %v, %v; want present, empty entries", keys, err)
 	}
 	if groups := Fold(scenarioLogons(), keys, ""); len(groups) != 9 {
 		t.Errorf("groups with no key = %d; want every logon alone", len(groups))
 	}
-	if _, err := ParseKeys("6003:user"); err == nil {
+	if _, err := ParseKeys("8001:user"); err == nil {
 		t.Error("a slot on a class without slots accepted")
 	}
 }

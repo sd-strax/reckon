@@ -21,6 +21,7 @@ const ENTITY_TYPES = new Set([
   "x-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file",
   "domain-name", "email-addr", "url", "windows-registry-key", "x-registry-key",
   "x-scheduled-task", "x-group", "mac-addr", "software",
+  "x-cloud-account", "x-cloud-resource",
 ]);
 
 /** A stable key for a target: the pane identity and the fetch cache key. */

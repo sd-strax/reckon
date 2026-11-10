@@ -337,3 +337,103 @@ func TestQueryLogsBestEffortNormalization(t *testing.T) {
 		t.Errorf("adapter called %d times; want 1", siem.calls)
 	}
 }
+
+// TestSubjectRefs_Cloud: a cloud account and a cloud resource named as the
+// subject resolve to the ids the api_activity normalizer mints for them, by
+// uid or by name under the account; a subject without a provider, or a
+// resource that nothing identifies, is left out.
+func TestSubjectRefs_Cloud(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	acct := ids.CloudAccount("aws", "111122223333")
+	byUID, _ := ids.CloudResource(identity.CloudResourceIdentity{Provider: "aws", UID: "arn:aws:s3:::acme-internal-exports"})
+	byName, _ := ids.CloudResource(identity.CloudResourceIdentity{AccountRef: acct, Type: "AWS::S3::Bucket", Name: "acme-logs"})
+
+	got := subjectRefs(ids, map[string]any{"cloud_account": map[string]any{"provider": "AWS", "uid": "111122223333"}})
+	if len(got) != 1 || got[0] != acct {
+		t.Errorf("cloud_account = %v; want %s", got, acct)
+	}
+	got = subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "AWS", "uid": "arn:aws:s3:::acme-internal-exports"}})
+	if len(got) != 1 || got[0] != byUID {
+		t.Errorf("cloud_resource by uid = %v; want %s", got, byUID)
+	}
+	got = subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "aws", "account_uid": "111122223333", "type": "AWS::S3::Bucket", "name": "acme-logs"}})
+	if len(got) != 1 || got[0] != byName {
+		t.Errorf("cloud_resource by name = %v; want %s", got, byName)
+	}
+	// A region scopes the name, as the normalizer passes resources[].region.
+	p := apiPayload()
+	p["resources"] = []any{map[string]any{"name": "Orders", "type": "AWS::DynamoDB::Table", "region": "us-east-1"}}
+	nr, _ := NewRegistry(ids).Normalize(makeEvent(p))
+	var regioned identity.STIXID
+	for _, s := range nr.SCOs {
+		if s.Type == identity.TypeCloudResource {
+			regioned = s.ID
+		}
+	}
+	got = subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "aws", "account_uid": "111122223333", "type": "AWS::DynamoDB::Table", "region": "us-east-1", "name": "Orders"}})
+	if regioned == "" || len(got) != 1 || got[0] != regioned {
+		t.Errorf("cloud_resource by name in a region = %v; want the normalizer's %s", got, regioned)
+	}
+	p["cloud"] = map[string]any{"provider": "Azure", "account": map[string]any{"uid": "0f8fad5b-d9cb-469f-a165-70867728950e"}}
+	p["resources"] = []any{map[string]any{"name": "api", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": map[string]any{"name": "rg-a"}, "namespace": "team-a"}}
+	nr, _ = NewRegistry(ids).Normalize(makeEvent(p))
+	var grouped identity.STIXID
+	for _, s := range nr.SCOs {
+		if s.Type == identity.TypeCloudResource {
+			grouped = s.ID
+		}
+	}
+	got = subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "Azure", "account_uid": "0f8fad5b-d9cb-469f-a165-70867728950e", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-a", "namespace": "team-a", "name": "api"}})
+	if grouped == "" || len(got) != 1 || got[0] != grouped {
+		t.Errorf("cloud_resource by name in a group = %v; want the normalizer's %s", got, grouped)
+	}
+	// A zone and a mixed-case namespace resolve to the normalizer's id: the
+	// zone folded like the region, the namespace with its case kept.
+	p["cloud"] = map[string]any{"provider": "GCP", "account": map[string]any{"uid": "acme-prod-1234"}}
+	p["resources"] = []any{map[string]any{"name": "api", "type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-a", "namespace": "SourceA"}}
+	nr, _ = NewRegistry(ids).Normalize(makeEvent(p))
+	var zoned identity.STIXID
+	for _, s := range nr.SCOs {
+		if s.Type == identity.TypeCloudResource {
+			zoned = s.ID
+		}
+	}
+	zonedSubject := func(zone, namespace string) []identity.STIXID {
+		return subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "GCP", "account_uid": "acme-prod-1234", "type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": zone, "namespace": namespace, "name": "api"}})
+	}
+	if got = zonedSubject("US-CENTRAL1-A", "SourceA"); zoned == "" || len(got) != 1 || got[0] != zoned {
+		t.Errorf("cloud_resource by name in a zone = %v; want the normalizer's %s", got, zoned)
+	}
+	if got = zonedSubject("us-central1-b", "SourceA"); len(got) != 1 || got[0] == zoned {
+		t.Errorf("another zone = %v; want a different resource", got)
+	}
+	if got = zonedSubject("us-central1-a", "sourcea"); len(got) != 1 || got[0] == zoned {
+		t.Errorf("namespace with another case = %v; want a different resource", got)
+	}
+	if other := subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "aws", "account_uid": "111122223333", "type": "AWS::DynamoDB::Table", "region": "us-west-2", "name": "Orders"}}); len(other) != 1 || other[0] == regioned {
+		t.Errorf("another region = %v; want a different resource", other)
+	}
+
+	for _, e := range []map[string]any{
+		{"cloud_account": map[string]any{"provider": "aws"}},
+		{"cloud_account": map[string]any{"uid": "111122223333"}},
+		{"cloud_account": map[string]any{"provider": " ", "uid": "111122223333"}},
+		{"cloud_resource": map[string]any{"provider": "aws", "name": "acme-logs"}},
+		{"cloud_resource": map[string]any{"uid": "arn:aws:s3:::acme-internal-exports"}},
+		{"cloud_resource": map[string]any{"account_uid": "111122223333", "type": "AWS::S3::Bucket", "name": "acme-logs"}},
+	} {
+		if got := subjectRefs(ids, e); len(got) != 0 {
+			t.Errorf("subjectRefs(%v) = %v; want none", e, got)
+		}
+	}
+
+	// The normalizer agrees: the account and resource it mints are these ids.
+	res, _ := NewRegistry(ids).Normalize(makeEvent(apiPayload()))
+	minted := map[identity.STIXID]bool{}
+	for _, s := range res.SCOs {
+		minted[s.ID] = true
+	}
+	if !minted[acct] || !minted[byUID] {
+		t.Errorf("normalizer minted %v; want the subject ids %s and %s", minted, acct, byUID)
+	}
+}
