@@ -1,6 +1,6 @@
 # 0211 — A host is one entity across sources: its hostname is its identity, every other identifier is kept beside it, and joins or splits the record cannot derive are explicit edges an analyst sees and makes
 
-Issue: #211 · PR: #325 · Status: accepted
+Issue: #211 · PR: #325, #329 · Status: accepted
 
 ## Context
 
