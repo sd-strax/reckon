@@ -8,7 +8,7 @@ import "github.com/sd-strax/reckon/identity"
 type processNormalizer struct{ r *identity.Resolver }
 
 func (*processNormalizer) ClassUID() int { return 1007 }
-func (*processNormalizer) Version() int  { return 1 }
+func (*processNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *processNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

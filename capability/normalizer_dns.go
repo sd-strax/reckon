@@ -12,7 +12,7 @@ import (
 type dnsNormalizer struct{ r *identity.Resolver }
 
 func (*dnsNormalizer) ClassUID() int { return 4003 }
-func (*dnsNormalizer) Version() int  { return 1 }
+func (*dnsNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *dnsNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

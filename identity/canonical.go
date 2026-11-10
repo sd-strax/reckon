@@ -98,6 +98,47 @@ func canonicalMAC(v string) string {
 	return strings.ToLower(s)
 }
 
+// canonicalHostname folds a hostname to the short name that is an x-host's
+// identity (adr/0211): trimmed, lowercased, trailing dots removed, cut at the
+// first dot; an IP literal in the hostname field is kept whole. It returns ""
+// when nothing remains.
+func canonicalHostname(v string) string {
+	host, _ := SplitHostname(v)
+	return host
+}
+
+// SplitHostname splits a reported hostname into the lowercase short name and
+// the lowercase remainder after the first dot, the DNS domain. Both are ""
+// when the value is empty; the domain is "" for a short name. Callers that
+// keep the domain as a property use it; identity uses the short name only.
+// A source with no resolved name may put the address in the hostname field:
+// a value that is not a hostname is returned whole with no domain, never split
+// at its dots, so two addresses stay two hosts. That is a value that parses as
+// an IP, consists only of digits and dots, or contains a colon: a legal
+// hostname is never all digits and dots, and a colon never belongs in one.
+// The evidence store's seen-as query applies the same rule in SQL; the two
+// must agree.
+func SplitHostname(v string) (host, domain string) {
+	s := strings.TrimRight(strings.ToLower(strings.TrimSpace(v)), ".")
+	if notHostname(s) {
+		return s, ""
+	}
+	host, domain, _ = strings.Cut(s, ".")
+	return host, domain
+}
+
+// notHostname reports whether a folded hostname-field value is an address or
+// other literal kept whole: an IP, only digits and dots, or any colon.
+func notHostname(s string) bool {
+	if s == "" {
+		return false
+	}
+	if net.ParseIP(s) != nil || strings.Contains(s, ":") {
+		return true
+	}
+	return strings.Trim(s, "0123456789.") == ""
+}
+
 // isDefaultPort reports whether port is the scheme's default (stripped from the
 // canonical URL).
 func isDefaultPort(scheme, port string) bool {

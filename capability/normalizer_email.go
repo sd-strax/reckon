@@ -64,7 +64,7 @@ func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) 
 type emailURLNormalizer struct{ r *identity.Resolver }
 
 func (*emailURLNormalizer) ClassUID() int { return 4011 }
-func (*emailURLNormalizer) Version() int  { return 1 }
+func (*emailURLNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *emailURLNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

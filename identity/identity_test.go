@@ -93,7 +93,9 @@ func TestCanonicalizationEquivalence(t *testing.T) {
 		{"url ipv6 host keeps brackets", r.URL("http://[2001:DB8::1]:80/x"), r.URL("http://[2001:db8::1]/x")},
 		{"email case", r.EmailAddr("Alice@Contoso.com"), r.EmailAddr("alice@contoso.com")},
 		{"user case", r.UserAccount("CONTOSO\\Alice", "S-1", "windows-domain"), r.UserAccount("contoso\\alice", "s-1", "windows-domain")},
-		{"host domain/hostname case", r.Host(HostIdentity{Domain: "CORP", Hostname: "WS1"}), r.Host(HostIdentity{Domain: "corp", Hostname: "ws1"})},
+		{"host hostname case", r.Host(HostIdentity{Hostname: "WS1"}), r.Host(HostIdentity{Hostname: "ws1"})},
+		{"host fqdn vs short", r.Host(HostIdentity{Hostname: "WS1.Corp.Example"}), r.Host(HostIdentity{Hostname: "ws1"})},
+		{"host trailing dot", r.Host(HostIdentity{Hostname: " ws1.corp.example. "}), r.Host(HostIdentity{Hostname: "ws1"})},
 		{"mac format", r.Host(HostIdentity{MAC: "00-1A-2B-3C-4D-5E"}), r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e"})},
 		{"registry case", r.RegistryKey("x-host--1", "HKLM", "Software\\Run", "Val"), r.RegistryKey("x-host--1", "hklm", "software\\run", "Val")},
 	}
@@ -262,5 +264,78 @@ func TestScopedNamespace(t *testing.T) {
 	// ...but within one organization, the same entity is the same id.
 	if acme.IPv4Addr("10.0.0.1") != acmeAgain.IPv4Addr("10.0.0.1") {
 		t.Error("same entity resolved to different ids within one scope")
+	}
+}
+
+// TestHostTiers covers adr/0211: the short hostname is the identity and
+// outranks every weak tier; MAC, then (source tool, device uid), identify a
+// host only when no hostname is present; nothing present mints nothing.
+func TestHostTiers(t *testing.T) {
+	r := NewResolver(nsA)
+	strong := r.Host(HostIdentity{Hostname: "ws1"})
+
+	if got := r.Host(HostIdentity{Hostname: "WS1", MAC: "00:1a:2b:3c:4d:5e", SourceTool: "edr", SourceUID: "a-1"}); got != strong {
+		t.Errorf("hostname must outrank MAC and source id: %q vs %q", got, strong)
+	}
+
+	mac := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e"})
+	if mac == "" || mac == strong {
+		t.Errorf("MAC tier: got %q", mac)
+	}
+	if got := r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e", SourceTool: "edr", SourceUID: "a-1"}); got != mac {
+		t.Error("MAC must outrank the source id")
+	}
+
+	src := r.Host(HostIdentity{SourceTool: "EDR ", SourceUID: " a-1"})
+	if src == "" || src != r.Host(HostIdentity{SourceTool: "edr", SourceUID: "a-1"}) {
+		t.Errorf("source-id tier must fold the tool name and trim the uid: %q", src)
+	}
+	if src == r.Host(HostIdentity{SourceTool: "ids", SourceUID: "a-1"}) {
+		t.Error("the same uid from two tools must be two weak hosts")
+	}
+	if bare := r.Host(HostIdentity{SourceUID: "a-1"}); bare == "" || bare == src {
+		t.Errorf("a uid without a tool must mint its own weak host: %q", bare)
+	}
+	if r.Host(HostIdentity{SourceTool: "edr"}) != "" {
+		t.Error("a tool without a uid must mint nothing")
+	}
+
+	// An IP literal in the hostname field is kept whole: two addresses are two
+	// hosts, never the host "10".
+	v4a, v4b := r.Host(HostIdentity{Hostname: "10.0.0.5"}), r.Host(HostIdentity{Hostname: "10.0.0.6"})
+	if v4a == "" || v4a == v4b || v4a == r.Host(HostIdentity{Hostname: "10"}) {
+		t.Errorf("IPv4 literal hostnames: %q %q", v4a, v4b)
+	}
+	if r.Host(HostIdentity{Hostname: "FE80::1"}) != r.Host(HostIdentity{Hostname: "fe80::1"}) {
+		t.Error("an IPv6 literal hostname must fold case")
+	}
+
+	for _, empty := range []HostIdentity{{}, {Hostname: "  "}, {Hostname: "."}} {
+		if got := r.Host(empty); got != "" {
+			t.Errorf("Host(%+v) = %q, want empty", empty, got)
+		}
+	}
+}
+
+// TestSplitHostname: the short name and the DNS domain, both folded.
+func TestSplitHostname(t *testing.T) {
+	cases := []struct{ in, host, domain string }{
+		{"WS1", "ws1", ""},
+		{"WS1.Corp.Example.", "ws1", "corp.example"},
+		{" ws1.corp ", "ws1", "corp"},
+		{"", "", ""},
+		{".", "", ""},
+		{"10.0.0.5", "10.0.0.5", ""},
+		{" 10.0.0.5. ", "10.0.0.5", ""},
+		{"FE80::1", "fe80::1", ""},
+		{"1.2.3", "1.2.3", ""},
+		{"999.1.1.1", "999.1.1.1", ""},
+		{"WS1.corp:3389", "ws1.corp:3389", ""},
+	}
+	for _, c := range cases {
+		h, d := SplitHostname(c.in)
+		if h != c.host || d != c.domain {
+			t.Errorf("SplitHostname(%q) = (%q, %q), want (%q, %q)", c.in, h, d, c.host, c.domain)
+		}
 	}
 }

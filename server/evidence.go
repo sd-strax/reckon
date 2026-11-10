@@ -11,6 +11,7 @@ import (
 
 	"github.com/sd-strax/reckon/capability/ocsfview"
 	"github.com/sd-strax/reckon/evidence"
+	"github.com/sd-strax/reckon/identity"
 )
 
 // GET /api/evidence/{ref} opens any cited ref read-only (design/ui 02 §2.8
@@ -38,6 +39,47 @@ type EvidenceView struct {
 	// observed-data the finding recursed — so the Detection inspector is one
 	// fetch (design/ui 08 §8.6.1). Nil for every other type.
 	Related *EvidenceRelated `json:"related,omitempty"`
+
+	// Identity is set on an `x-host--` ref (adr/0211): the aliases and
+	// distinct-from edges that touch the host, each with its origin, and what
+	// the record has seen under it. Nil for every other type.
+	Identity *EvidenceIdentity `json:"identity,omitempty"`
+}
+
+// EvidenceIdentity is a host's identity view.
+type EvidenceIdentity struct {
+	Aliases  []IdentityEdgeView `json:"aliases"`
+	Distinct []IdentityEdgeView `json:"distinct"`
+	SeenAs   SeenAsView         `json:"seen_as"`
+}
+
+// IdentityEdgeView is one aliases or distinct-from edge. Kind "observed" is a
+// source's record, Source the tool; "asserted" is a person's, with who, when
+// and the note.
+type IdentityEdgeView struct {
+	EdgeID    string    `json:"edge_id"`
+	OtherRef  string    `json:"other_ref"`
+	Kind      string    `json:"kind"`
+	Source    string    `json:"source,omitempty"`
+	By        string    `json:"by,omitempty"`
+	ByName    string    `json:"by_name,omitempty"`
+	At        time.Time `json:"at"`
+	Note      string    `json:"note,omitempty"`
+	Withdrawn bool      `json:"withdrawn"`
+}
+
+// SeenAsView is what the record has seen under a host: distinct domains, the
+// agent and device ids by source, the addresses.
+type SeenAsView struct {
+	Domains []string       `json:"domains"`
+	Agents  []SourceIDView `json:"agents"`
+	IPs     []string       `json:"ips"`
+}
+
+// SourceIDView is an id a source reported for a host.
+type SourceIDView struct {
+	Tool string `json:"tool"`
+	UID  string `json:"uid"`
 }
 
 // EvidenceRelated is the detection finding's neighbourhood in the object store.
@@ -78,6 +120,14 @@ func (b *Backend) getEvidence(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			v.Related = relatedView(n)
+		}
+		if obj.Type == identity.TypeHost {
+			id, err := b.cfg.Evidence.HostIdentity(r.Context(), obj.Ref)
+			if err != nil {
+				writeInternalError(w, "query host identity", err)
+				return
+			}
+			v.Identity = identityView(id)
 		}
 		writeJSON(w, http.StatusOK, v)
 		return
@@ -127,4 +177,22 @@ func relatedView(n evidence.Neighbourhood) *EvidenceRelated {
 		out.Evidence = append(out.Evidence, stixView(o))
 	}
 	return out
+}
+
+func identityView(v evidence.HostIdentityView) *EvidenceIdentity {
+	edges := func(in []evidence.IdentityEdge) []IdentityEdgeView {
+		out := make([]IdentityEdgeView, 0, len(in))
+		for _, e := range in {
+			out = append(out, IdentityEdgeView{
+				EdgeID: e.EdgeID, OtherRef: e.OtherRef, Kind: e.Kind, Source: e.Source,
+				By: e.By, ByName: e.ByName, At: e.At, Note: e.Note, Withdrawn: e.Withdrawn,
+			})
+		}
+		return out
+	}
+	seen := SeenAsView{Domains: nonNilStrings(v.SeenAs.Domains), Agents: []SourceIDView{}, IPs: nonNilStrings(v.SeenAs.IPs)}
+	for _, a := range v.SeenAs.Agents {
+		seen.Agents = append(seen.Agents, SourceIDView{Tool: a.Tool, UID: a.UID})
+	}
+	return &EvidenceIdentity{Aliases: edges(v.Aliases), Distinct: edges(v.Distinct), SeenAs: seen}
 }

@@ -42,6 +42,10 @@ const (
 	RelMemberOfGroup     = "member-of-group"
 	RelContains          = "contains"
 	RelClicked           = "clicked"
+	// RelAliases joins a weak x-host (MAC or source device id) to the strong
+	// host the same record names by hostname (adr/0211): an identity assertion
+	// from the source, never a merge (01 edge table).
+	RelAliases = "aliases"
 )
 
 // Provenance is the uniform provenance carried by every normalizer output

@@ -383,9 +383,8 @@ func subjectRefs(ids *identity.Resolver, entity map[string]any) []identity.STIXI
 	}
 	if h, ok := entity["host"].(map[string]any); ok {
 		hostname, _ := h["hostname"].(string)
-		domain, _ := h["domain"].(string)
-		if hostname != "" {
-			refs = append(refs, ids.Host(identity.HostIdentity{Hostname: hostname, Domain: domain}))
+		if id := ids.Host(identity.HostIdentity{Hostname: hostname}); id != "" {
+			refs = append(refs, id)
 		}
 	}
 	return refs

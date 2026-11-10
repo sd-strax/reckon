@@ -117,7 +117,10 @@ func seedSummaryOf(s *aggregate.Seed) string {
 // resolveEntityToken mints the STIX id for a single artifact token and returns
 // a human type label for the chip. The sub-classification (IP → IPv4/IPv6, a
 // 32/40/64-hex string → file, everything else → host) mirrors the identity
-// resolver's own shaping; the label is display only.
+// resolver's own shaping; the label is display only. A host is minted on the
+// token as typed: the resolver folds case and the FQDN to the short name
+// (adr/0211), so "WIN-FILE01" and "win-file01.corp.example" seed the host the
+// events mint.
 func resolveEntityToken(res *identity.Resolver, token string) (ref, label string) {
 	if ip := net.ParseIP(token); ip != nil {
 		if ip.To4() != nil {
@@ -151,7 +154,10 @@ func (b *Backend) unknownHost(r *http.Request, s seedResolution) (bool, string) 
 		return false, ""
 	}
 	host := s.Seed.EntityIdentifier
-	res, err := resolver.Resolve(r.Context(), "get_host_context", capability.CallInput{Entity: map[string]any{"host": map[string]any{"hostname": host}}})
+	// The inventory is asked for the short name, the host's identity
+	// (adr/0211): a seed typed as the FQDN names the same host.
+	short, _ := identity.SplitHostname(host)
+	res, err := resolver.Resolve(r.Context(), "get_host_context", capability.CallInput{Entity: map[string]any{"host": map[string]any{"hostname": short}}})
 	if err != nil || res.Coverage != capability.CoverageComplete || len(res.ObservedDataRefs) > 0 || len(res.EntityRefs) > 0 {
 		return false, ""
 	}

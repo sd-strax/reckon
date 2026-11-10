@@ -11,8 +11,9 @@
 // The Resolver is pure, deterministic, and stateless: it holds only the tenant
 // namespace and derives ids by hashing. Adapters MUST NOT compute ids — the
 // normalizer, via this resolver, is the single arbiter of identity (§7.4).
-// Aliasing two ids is an explicit edge created by the agent or analyst, never a
-// destructive merge.
+// Two ids the key cannot join are joined by an explicit aliases edge, from a
+// source's record or a person's assertion, never by a destructive merge
+// (adr/0211).
 package identity
 
 import (
@@ -257,30 +258,40 @@ func (r *Resolver) EmailMessage(messageID, from, subject string, date time.Time)
 
 // --- custom SCOs (§7.2) -----------------------------------------------------
 
-// HostIdentity carries the identity-contributing fields of an x-host, in
-// priority order: AssetID (CMDB) > (Domain, Hostname) > MAC > Hostname.
+// HostIdentity carries the fields an x-host is identified by (adr/0211). The
+// short hostname is the identity: Host folds it with canonicalHostname, so
+// "WIN-FILE01", "win-file01" and "win-file01.corp.example." are one host.
+// MAC, and failing that the pair (SourceTool, SourceUID), are weak tiers used
+// only when no hostname is present; a host minted on either is a weak host
+// that never joins another on its own. The device uid alone is enough for the
+// last tier (an empty tool folds as ""), so a record with only a uid still
+// has a host for its registry keys and tasks to key on. Domain, device and agent ids are
+// properties of the host, not identity, and the normalizer keeps them on the
+// SCO it mints.
 type HostIdentity struct {
-	AssetID  string
-	Domain   string
-	Hostname string
-	MAC      string
+	Hostname   string
+	MAC        string
+	SourceTool string
+	SourceUID  string
 }
 
-// Host resolves an x-host SCO using the strongest available identifier.
+// Host resolves an x-host SCO on the first tier present: the canonical short
+// hostname, else the MAC, else (source tool, device uid), the uid required and
+// the tool possibly empty. It returns "" when none is present: there is
+// nothing to identify the host by.
 func (r *Resolver) Host(h HostIdentity) STIXID {
-	switch {
-	case strings.TrimSpace(h.AssetID) != "":
-		return r.mint(TypeHost, map[string]any{"asset_id": strings.TrimSpace(h.AssetID)})
-	case strings.TrimSpace(h.Domain) != "" && strings.TrimSpace(h.Hostname) != "":
-		return r.mint(TypeHost, map[string]any{
-			"domain":   strings.ToLower(strings.TrimSpace(h.Domain)),
-			"hostname": strings.ToLower(strings.TrimSpace(h.Hostname)),
-		})
-	case strings.TrimSpace(h.MAC) != "":
-		return r.mint(TypeHost, map[string]any{"mac_address": canonicalMAC(h.MAC)})
-	default:
-		return r.mint(TypeHost, map[string]any{"hostname": strings.ToLower(strings.TrimSpace(h.Hostname))})
+	if name := canonicalHostname(h.Hostname); name != "" {
+		return r.mint(TypeHost, map[string]any{"hostname": name})
 	}
+	if strings.TrimSpace(h.MAC) != "" {
+		return r.mint(TypeHost, map[string]any{"mac_address": canonicalMAC(h.MAC)})
+	}
+	tool := strings.ToLower(strings.TrimSpace(h.SourceTool))
+	uid := strings.TrimSpace(h.SourceUID)
+	if uid != "" {
+		return r.mint(TypeHost, map[string]any{"source_tool": tool, "device_uid": uid})
+	}
+	return ""
 }
 
 // RegistryKey resolves an x-registry-key SCO. hive and key_path are lowercased;

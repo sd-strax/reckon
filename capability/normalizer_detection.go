@@ -22,7 +22,7 @@ type detectionNormalizer struct {
 }
 
 func (*detectionNormalizer) ClassUID() int { return 2004 }
-func (*detectionNormalizer) Version() int  { return 1 }
+func (*detectionNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -48,10 +48,11 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 			result.ObservedData = append(result.ObservedData, sub.ObservedData...)
 			result.Relationships = append(result.Relationships, sub.Relationships...)
 			result.Edges = append(result.Edges, sub.Edges...)
-			for _, s := range sub.SCOs {
-				entityRefs = append(entityRefs, s.ID)
-			}
+			// The sighting is against the entities the evidence observed, its
+			// object_refs; an SCO the record names only through a relationship
+			// (a weak host an alias joins, adr/0211) is not where it was sighted.
 			for _, od := range sub.ObservedData {
+				entityRefs = append(entityRefs, od.ObjectRefs...)
 				odRefs = append(odRefs, od.ID)
 			}
 		}

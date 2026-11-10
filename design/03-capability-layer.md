@@ -598,6 +598,13 @@ SCOs (with computed UUIDv5 ids), one or more `ObservedData` SDOs, and the edges
 connecting them to the originating `OcsfEvent`. All outputs carry uniform
 provenance.
 
+Device objects (`device`, `src_endpoint`, `dst_endpoint`) are shaped once, by
+the shared host extractor, for every class: OCSF `device.uid` is the device's
+own id and `agent_list[].uid` the sensor's, but neither is identity; the host
+is keyed on its hostname and keeps both as properties, and when one record
+names the hostname beside a MAC or a device id the extractor also emits the
+weak host and its `aliases` edge (§7.2, §7.3).
+
 ### 4.1 OCSF process_activity (class_uid 1007) → STIX
 
 Input: an OCSF process_activity event with fields including `process.pid`,
@@ -1275,9 +1282,18 @@ namespace UUID per §7.1.
   digest (the canonical JSON carries the `{algorithm: digest}` pair, mirroring
   STIX 2.1's `hashes` contributing property), so equal digest strings under
   different algorithms can never merge two files.
-- **`x-host`** (custom): priority order — `(asset_id_from_cmdb)` if known, else
-  `(domain, hostname)` lowercased, else `(mac_address)` lowercased and
-  colon-separated, else `(hostname)` alone.
+- **`x-host`** (custom): `(hostname)`, the short hostname — trimmed,
+  lowercased, a trailing dot removed, cut at the first dot — so `WIN-FILE01`,
+  `win-file01` and `win-file01.corp.example` are one host (adr/0211). Only
+  when a record carries no hostname is the host minted on a weak identifier:
+  `(mac_address)` lowercased and colon-separated, else
+  `(source_tool, device_uid)`; such a host carries `weak: true` and never
+  joins another on its own. The DNS domain (the FQDN's remainder),
+  `device.domain`, `device.uid`, `device.uid_alt`, the agent ids and the MAC
+  are properties of the host, never identity; the device and agent ids are
+  kept keyed by the source that reported them. Two machines with one short
+  name in two domains share an id, which the record shows rather than guesses
+  (§7.3).
 - **`x-registry-key`** (custom): `(host_ref.id, hive, key_path, value_name)`,
   hive and key_path lowercased.
 - **`x-scheduled-task`** (custom): `(host_ref.id, name, path)`, name and path
@@ -1367,14 +1383,33 @@ the same `8.8.8.8` from tenant A's CrowdStrike and tenant A's Splunk produce
 the same `ipv4-addr` SCO; the same `8.8.8.8` from tenant B's CrowdStrike
 produces a *different* SCO. Stitching cannot leak across tenants.
 
-Within a tenant, two CrowdStrike hosts with the same hostname but different
-`device_id`s will stitch into one `x-host` if the CMDB asset id isn't
-available — which may be wrong. This is a known limitation. The mitigation is the `aliases` edge from
-the domain model: when the resolver detects a likely false stitch (e.g., two
-`x-host` SCOs that resolve to the same id but have different `device_id`s in
-their backing OcsfEvents), it emits a `Note` flagging the conflict for analyst
-review rather than silently overwriting. A human (or future de-aliasing tool)
-can split with an explicit `aliases` edge if needed.
+Within a tenant a host is keyed on its short hostname (§7.2), and the key
+fails in two directions; both are handled by explicit edges and facts, never
+by a merge or a judgement in this layer (adr/0211).
+
+*Under-merge*: a source that names a machine only by its own agent or device
+id mints a weak host the hostname cannot join. When one record carries the
+hostname and a MAC or a device id, the normalizer mints the weak host that
+identifier alone would have minted, outside the observation's `object_refs`,
+and emits `aliases` from it to the strong host, DIRECT, with the record's
+provenance: the source said in that record that its id names that hostname.
+Reads by entity (the events filter, the window around an event, the pivot,
+the appearances across investigations) expand the asked-for host to its
+alias set: the undirected closure of the live `aliases` edges, bounded in
+depth, minus any pair a live `distinct-from` edge separates. An event the
+source later attributes to its id alone lands on the weak host and reads
+under the strong one. Nothing is re-minted; withdrawing an alias splits the
+reads again with no data to repair.
+
+*Over-merge*: two machines with one short name share an id. The resolver
+emits no note; the host's identity view lists what the record has seen under
+the id, computed at read time from the device objects of the events that
+reference it: the distinct domains, the agent and device ids per source, the
+addresses. One hostname under two domains reads as seen under two domains,
+and the analyst decides. Two hosts the record did not join are joined by an
+analyst's `aliases`; two it wrongly joined or two the analyst knows apart are
+separated by `distinct-from` (01-domain-model.md edge table). Both are human
+acts, recorded with who and when, and withdrawn by marking, not deleting.
 
 For users: an Entra ID `user-account` (account_type `cloud`) and an AD
 `user-account` (account_type `windows-domain`) for the same human will *not*
