@@ -45,8 +45,9 @@ const DemoConfigBase = "lateral-movement"
 // corpus (design/10 §6) has one driver script per scenario; a prompt rule is
 // a principle only when it holds on more than one shape of case.
 var DemoScenarios = map[string]string{
-	DemoScenario:               DemoConfigBase,
-	"impossible-travel-signin": "impossible-travel",
+	DemoScenario:                    DemoConfigBase,
+	"impossible-travel-signin":      "impossible-travel",
+	"exposed-bucket-via-access-key": "exposed-bucket",
 }
 
 // DemoConfigBaseFor returns the example-config base name for a bundled

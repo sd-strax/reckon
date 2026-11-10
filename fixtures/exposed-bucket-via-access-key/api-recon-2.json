@@ -18,10 +18,52 @@
         ],
         "resource.uid": [
           null
+        ],
+        "resource.name": [
+          null
+        ],
+        "service": [
+          "s3.amazonaws.com",
+          null
+        ],
+        "principal.credential": [
+          "AKIAIOSFODNN7EXAMPLE",
+          null
+        ],
+        "account.uid": [
+          "111122223333",
+          null
+        ],
+        "resource.provider": [
+          "aws",
+          null
+        ],
+        "resource.type": [
+          null
+        ],
+        "resource.account_uid": [
+          null
+        ],
+        "resource.region": [
+          null
+        ],
+        "account.provider": [
+          "aws",
+          null
+        ],
+        "resource.zone": [
+          null
+        ],
+        "resource.group": [
+          null
+        ],
+        "resource.namespace": [
+          null
         ]
       }
     },
-    "delay_ms": 25
+    "delay_ms": 25,
+    "time_scoped": true
   },
   "ocsf": {
     "class_uid": 6003,

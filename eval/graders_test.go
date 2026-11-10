@@ -908,13 +908,13 @@ func TestGradeR3(t *testing.T) {
 	}
 }
 
-// TestDrivers_R3AnchorsAligned: both committed driver scripts grade the two
+// TestDrivers_R3AnchorsAligned: every committed driver script grades the two
 // R3 turns (propose, decide) with the same anchor list, so a decline is judged
 // alike whichever scenario it happens in — and neither turn is left without
 // anchors (which would make a decline NOT_EXERCISED rather than graded).
 func TestDrivers_R3AnchorsAligned(t *testing.T) {
 	var ref []string
-	for _, name := range []string{"lateral-movement.yaml", "impossible-travel.yaml"} {
+	for _, name := range []string{"lateral-movement.yaml", "impossible-travel.yaml", "exposed-bucket.yaml"} {
 		s, err := LoadScenario(filepath.Join("scenarios", name))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -937,6 +937,6 @@ func TestDrivers_R3AnchorsAligned(t *testing.T) {
 		}
 	}
 	if ref == nil {
-		t.Fatal("no R3 turn found in either driver")
+		t.Fatal("no R3 turn found in any driver")
 	}
 }

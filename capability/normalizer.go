@@ -47,6 +47,7 @@ func NewRegistry(r *identity.Resolver) *Registry {
 	reg.Register(&deviceInventoryNormalizer{r: r})
 
 	reg.Register(&apiActivityNormalizer{r: r})
+	reg.Register(&cloudInventoryNormalizer{r: r})
 	// detection_finding recurses into the registry to normalize nested
 	// evidence, so it takes a back-reference to reg.
 	reg.Register(&detectionNormalizer{r: r, reg: reg})

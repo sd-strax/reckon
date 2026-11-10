@@ -2,10 +2,13 @@ package capability
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/identity"
 )
 
 // TestShippedLateralMovementScenario loads the committed example config and the
@@ -427,5 +430,198 @@ func TestShippedImpossibleTravelScenario(t *testing.T) {
 	}
 	if detail.Coverage != CoverageComplete || len(detail.ObservedDataRefs) != 1 {
 		t.Errorf("get_external_case_details: coverage=%q refs=%d; want COMPLETE/1", detail.Coverage, len(detail.ObservedDataRefs))
+	}
+}
+
+// TestShippedExposedBucketScenario loads the cloud-rooted scenario and resolves
+// its bound verbs end to end. The axes its eval driver relies on are pinned
+// here: the window tells the incident day from the 30-day baseline, `outcome`
+// isolates the denied call, an operation alone searches across principals,
+// history is the mutating calls on one resource in time order, and the
+// configuration snapshot of the bucket names the resource the calls on it
+// minted.
+func TestShippedExposedBucketScenario(t *testing.T) {
+	cfg, err := LoadTenantConfig("../examples/capability/exposed-bucket.yaml")
+	if err != nil {
+		t.Fatalf("load shipped config: %v", err)
+	}
+	res, catalog, err := BuildResolver(cfg, "../fixtures", uuid.New(), true)
+	if err != nil {
+		t.Fatalf("build resolver: %v", err)
+	}
+	avail := map[string]bool{}
+	for _, v := range res.AvailableVerbs(catalog) {
+		avail[v] = true
+	}
+	bound := []string{
+		"get_cloud_api_activity", "get_cloud_resource_history", "get_cloud_resource_context",
+		"search_alerts", "get_indicator_context", "query_external_cases", "get_external_case_details",
+	}
+	for _, v := range bound {
+		if !avail[v] {
+			t.Errorf("verb %s not available in shipped scenario", v)
+		}
+	}
+	for v := range avail {
+		if v != "list_capabilities" && !slices.Contains(bound, v) {
+			t.Errorf("verb %s is available; the scenario binds only %v", v, bound)
+		}
+	}
+	for _, v := range []string{"get_process_ancestry", "get_network_connections", "get_host_context", "enumerate_logons", "query_logs"} {
+		if avail[v] {
+			t.Errorf("verb %s is available but the scenario has no data for it — it must be unbound", v)
+		}
+	}
+
+	ctx := context.Background()
+	call := func(verb string, entity map[string]any, extra map[string]any) CapabilityResult {
+		t.Helper()
+		r, err := res.Resolve(ctx, verb, CallInput{Entity: entity, Extra: extra})
+		if err != nil {
+			t.Fatalf("%s: %v", verb, err)
+		}
+		if r.Coverage != CoverageComplete {
+			t.Errorf("%s(%v, %v): coverage=%q; want COMPLETE", verb, entity, extra, r.Coverage)
+		}
+		return r
+	}
+	operations := func(r CapabilityResult) []string {
+		var out []string
+		for _, e := range r.Events {
+			out = append(out, pathStr(e.Payload, "api.operation"))
+		}
+		return out
+	}
+	day := map[string]any{"from": "2026-07-14T00:00:00Z", "to": "2026-07-15T00:00:00Z"}
+	month := map[string]any{"from": "2026-06-14T00:00:00Z", "to": "2026-07-15T00:00:00Z"}
+	principal := map[string]any{"user": map[string]any{"name": "deploy-ci"}}
+
+	if r := call("get_cloud_api_activity", principal, map[string]any{"window": day}); len(r.Events) != 7 {
+		t.Errorf("activity(deploy-ci, incident day) = %d events %v; want 7", len(r.Events), operations(r))
+	}
+	if r := call("get_cloud_api_activity", principal, map[string]any{"window": month}); len(r.Events) != 17 {
+		t.Errorf("activity(deploy-ci, 30 days) = %d events; want 17 (10 baseline + 7 incident-day)", len(r.Events))
+	}
+	if r := call("get_cloud_api_activity", principal, map[string]any{"window": day, "outcome": "FAILURE"}); len(r.Events) != 1 ||
+		operations(r)[0] != "ListUsers" || pathStr(r.Events[0].Payload, "api.response.error") != "AccessDenied" {
+		t.Errorf("activity(FAILURE) = %v; want the one denied ListUsers", operations(r))
+	}
+	if r := call("get_cloud_api_activity", nil, map[string]any{"window": day, "operation": "PutBucketPolicy"}); len(r.Events) != 1 {
+		t.Errorf("activity(operation only) = %v; want the one PutBucketPolicy", operations(r))
+	}
+
+	bucket := map[string]any{"cloud_resource": map[string]any{"uid": "arn:aws:s3:::acme-internal-exports", "provider": "AWS"}}
+	hist := call("get_cloud_resource_history", bucket, map[string]any{"window": day})
+	if ops := operations(hist); !slices.Equal(ops, []string{"PutBucketPolicy"}) {
+		t.Errorf("history(bucket) = %v; want only PutBucketPolicy (the read is not a change)", ops)
+	}
+	user := map[string]any{"cloud_resource": map[string]any{"uid": "arn:aws:iam::111122223333:user/svc-backup", "provider": "AWS"}}
+	if ops := operations(call("get_cloud_resource_history", user, map[string]any{"window": day})); !slices.Equal(ops, []string{"CreateAccessKey", "AttachUserPolicy"}) {
+		t.Errorf("history(svc-backup) = %v; want CreateAccessKey then AttachUserPolicy", ops)
+	}
+
+	// Every param the binding passes discriminates: the bucket by name alone
+	// reaches only its own change, a service narrows the principal's day, and
+	// a key or an account the scenario never used answers with a citeable
+	// absence.
+	byName := map[string]any{"cloud_resource": map[string]any{
+		"provider": "aws", "name": "acme-internal-exports", "type": "AWS::S3::Bucket", "account_uid": "111122223333",
+	}}
+	if ops := operations(call("get_cloud_resource_history", byName, map[string]any{"window": day})); !slices.Equal(ops, []string{"PutBucketPolicy"}) {
+		t.Errorf("history(bucket by name) = %v; want only PutBucketPolicy", ops)
+	}
+	if ops := operations(call("get_cloud_api_activity", principal, map[string]any{"window": day, "service": "iam.amazonaws.com"})); !slices.Equal(ops, []string{"ListUsers", "CreateAccessKey", "AttachUserPolicy"}) {
+		t.Errorf("activity(deploy-ci, iam) = %v; want ListUsers, CreateAccessKey, AttachUserPolicy", ops)
+	}
+	for name, entity := range map[string]map[string]any{
+		"new key":       {"user": map[string]any{"credential_uid": "AKIAI44QH8DHBEXAMPLE"}},
+		"other account": {"cloud_account": map[string]any{"provider": "aws", "uid": "999999999999"}},
+	} {
+		r := call("get_cloud_api_activity", entity, map[string]any{"window": day})
+		if len(r.Events) != 0 || r.NullObservation == nil || len(r.ObservedDataRefs) != 1 {
+			t.Errorf("activity(%s): events=%d null=%v refs=%d; want COMPLETE, none, one null observation",
+				name, len(r.Events), r.NullObservation != nil, len(r.ObservedDataRefs))
+		}
+	}
+
+	resourceID := func(r CapabilityResult) identity.STIXID {
+		for _, n := range r.Normalized {
+			for _, s := range n.SCOs {
+				if s.Type == identity.TypeCloudResource && s.Properties["uid"] == "arn:aws:s3:::acme-internal-exports" {
+					return s.ID
+				}
+			}
+		}
+		return ""
+	}
+	ctxRes := call("get_cloud_resource_context", bucket, nil)
+	if len(ctxRes.Events) != 1 || ctxRes.Events[0].ClassUID != 5023 || len(ctxRes.Normalized) != 1 {
+		t.Fatalf("context(bucket) = %d events; want one 5023 snapshot", len(ctxRes.Events))
+	}
+	if id := resourceID(ctxRes); id == "" || id != resourceID(hist) {
+		t.Errorf("snapshot resource %s; the PutBucketPolicy call minted %s", id, resourceID(hist))
+	}
+	if ext := ctxRes.Normalized[0].ObservedData[0].Extensions; ext["configuration"] == nil {
+		t.Errorf("snapshot ext = %v; want the configuration", ext)
+	}
+
+	// Every call is time-scoped: a window before the incident reaches only
+	// the baseline, a window of the bucket's quiet days is a citeable absence,
+	// and a call with no window has open bounds and reaches everything.
+	absent := func(what string, r CapabilityResult) {
+		t.Helper()
+		if len(r.Events) != 0 || r.NullObservation == nil || len(r.ObservedDataRefs) != 1 {
+			t.Errorf("%s: events=%d %v null=%v refs=%d; want COMPLETE, none, one null observation",
+				what, len(r.Events), operations(r), r.NullObservation != nil, len(r.ObservedDataRefs))
+		}
+	}
+	quiet := map[string]any{"from": "2026-07-01T00:00:00Z", "to": "2026-07-02T00:00:00Z"}
+	absent("history(bucket, July 1-2)", call("get_cloud_resource_history", bucket, map[string]any{"window": quiet}))
+	before := map[string]any{"from": "2026-06-12T00:00:00Z", "to": "2026-07-12T00:00:00Z"}
+	if r := call("get_cloud_api_activity", principal, map[string]any{"window": before}); len(r.Events) != 10 {
+		t.Errorf("activity(deploy-ci, before the incident) = %d events %v; want the 10 baseline calls", len(r.Events), operations(r))
+	}
+	if r := call("get_cloud_api_activity", principal, nil); len(r.Events) != 17 {
+		t.Errorf("activity(deploy-ci, no window) = %d events; want all 17 (open bounds)", len(r.Events))
+	}
+	if ops := operations(call("get_cloud_resource_history", bucket, nil)); !slices.Equal(ops, []string{"PutBucketPolicy"}) {
+		t.Errorf("history(bucket, no window) = %v; want PutBucketPolicy", ops)
+	}
+
+	// A resource named rather than identified is scoped: the same name in
+	// another account, or with another type, is not this bucket.
+	scoped := func(account, typ string) map[string]any {
+		return map[string]any{"cloud_resource": map[string]any{
+			"provider": "aws", "name": "acme-internal-exports", "type": typ, "account_uid": account,
+		}}
+	}
+	absent("context(bucket by name, other account)", call("get_cloud_resource_context", scoped("999999999999", "AWS::S3::Bucket"), nil))
+	absent("history(bucket by name, other type)", call("get_cloud_resource_history", scoped("111122223333", "AWS::DynamoDB::Table"), map[string]any{"window": day}))
+	if ops := operations(call("get_cloud_resource_history", scoped("111122223333", "AWS::S3::Bucket"), map[string]any{"window": day})); !slices.Equal(ops, []string{"PutBucketPolicy"}) {
+		t.Errorf("history(bucket by full scope) = %v; want PutBucketPolicy", ops)
+	}
+	// A zone, group or namespace the bucket does not have names another
+	// resource under the name rule, so it is an absence too.
+	for _, k := range []string{"zone", "group", "namespace"} {
+		e := scoped("111122223333", "AWS::S3::Bucket")
+		e["cloud_resource"].(map[string]any)[k] = "other"
+		absent("context(bucket by name, "+k+" other)", call("get_cloud_resource_context", e, nil))
+		absent("history(bucket by name, "+k+" other)", call("get_cloud_resource_history", e, map[string]any{"window": day}))
+	}
+	if r := call("get_cloud_resource_context", scoped("111122223333", "AWS::S3::Bucket"), nil); len(r.Events) != 1 {
+		t.Errorf("context(bucket by full scope) = %d events; want the snapshot", len(r.Events))
+	}
+	if r := call("get_cloud_resource_context", map[string]any{"cloud_resource": map[string]any{"uid": "arn:aws:s3:::acme-internal-exports"}}, nil); len(r.Events) != 1 {
+		t.Errorf("context(bucket by uid alone) = %d events; want the snapshot", len(r.Events))
+	}
+
+	none := call("get_cloud_api_activity", nil, map[string]any{"window": day, "operation": "DeleteBucket"})
+	if len(none.Events) != 0 || none.NullObservation == nil || len(none.ObservedDataRefs) != 1 {
+		t.Errorf("activity(unknown operation): events=%d null=%v refs=%d; want COMPLETE, none, one null observation",
+			len(none.Events), none.NullObservation != nil, len(none.ObservedDataRefs))
+	}
+
+	if r := call("get_external_case_details", nil, map[string]any{"case_id": "INC0013020"}); len(r.ObservedDataRefs) != 1 || !caseNumbers(r)["INC0013020"] {
+		t.Errorf("get_external_case_details(INC0013020) = %v; want the case", caseNumbers(r))
 	}
 }

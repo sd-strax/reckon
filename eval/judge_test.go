@@ -304,11 +304,11 @@ func TestReader_ParsesStatus(t *testing.T) {
 	}
 }
 
-// TestLoadScenario_AttestManual: both committed drivers author an answer on
+// TestLoadScenario_AttestManual: every committed driver authors an answer on
 // their decide turn, with who and how; the step is data in the script, never
 // a rule in the runner.
 func TestLoadScenario_AttestManual(t *testing.T) {
-	for _, name := range []string{"lateral-movement.yaml", "impossible-travel.yaml"} {
+	for _, name := range []string{"lateral-movement.yaml", "impossible-travel.yaml", "exposed-bucket.yaml"} {
 		s, err := LoadScenario(filepath.Join("scenarios", name))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)

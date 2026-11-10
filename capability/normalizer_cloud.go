@@ -20,7 +20,12 @@ import (
 type apiActivityNormalizer struct{ r *identity.Resolver }
 
 func (*apiActivityNormalizer) ClassUID() int { return 6003 }
-func (*apiActivityNormalizer) Version() int  { return 1 }
+
+// Version starts at 2: a 6003 event normalized before this normalizer
+// existed went through the opaque default at version 1, and the
+// ObservedData id carries the version but not the normalizer's name, so a
+// version 1 here would mint the same id and keep the entity-less observation.
+func (*apiActivityNormalizer) Version() int { return 2 }
 
 func (n *apiActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -104,26 +109,41 @@ var userTypes = map[int]string{1: "User", 2: "Admin", 3: "System", 4: "Service",
 func (b *resultBuilder) cloudPrincipal(provider string) identity.STIXID {
 	p := b.evt.Payload
 	userID, fromSession := durablePrincipalID(provider, p)
+	user, _ := lookupPath(p, "actor.user")
+	m, _ := user.(map[string]any)
+	return b.cloudUser(provider, userID, m, fromSession, credentialUID(p))
+}
+
+// cloudUser adds the user-account for a cloud principal from its OCSF User
+// object: keyed on userID in the provider namespace, with an empty login, the
+// full name or name as the display name, and the type, credential and home
+// account when given. The caller supplies the durable id, since which field
+// holds it depends on where the object sits (the 6003 actor, a 5023 resource
+// owner). An empty userID mints nothing.
+func (b *resultBuilder) cloudUser(provider, userID string, user map[string]any, service bool, credential string) identity.STIXID {
 	if userID == "" {
 		return ""
 	}
-	typeID := pathInt(p, "actor.user.type_id")
+	if user == nil {
+		user = map[string]any{}
+	}
+	typeID := pathInt(user, "type_id")
 	props := map[string]any{
 		"account_login":      "",
 		"user_id":            userID,
 		"account_type":       provider,
-		"is_service_account": fromSession || typeID == 3 || typeID == 4,
+		"is_service_account": service || typeID == 3 || typeID == 4,
 	}
-	if d := firstNonEmpty(pathStr(p, "actor.user.full_name"), strings.TrimSpace(pathStr(p, "actor.user.name"))); d != "" {
+	if d := firstNonEmpty(pathStr(user, "full_name"), strings.TrimSpace(pathStr(user, "name"))); d != "" {
 		props["display_name"] = d
 	}
-	if t := firstNonEmpty(userTypes[typeID], pathStr(p, "actor.user.type")); t != "" {
+	if t := firstNonEmpty(userTypes[typeID], pathStr(user, "type")); t != "" {
 		props["user_type"] = t
 	}
-	if c := credentialUID(p); c != "" {
-		props["credential_uid"] = c
+	if credential != "" {
+		props["credential_uid"] = credential
 	}
-	if a := pathScalar(p, "actor.user.account.uid"); a != "" {
+	if a := pathScalar(user, "account.uid"); a != "" {
 		props["cloud_account_uid"] = a
 	}
 	return b.addSCO(b.r.UserAccount("", userID, provider), identity.TypeUserAccount, props)

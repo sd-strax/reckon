@@ -2,7 +2,10 @@
   "fixture_meta": {
     "scenario": "exposed-bucket-via-access-key",
     "matches": {
-      "verb": "get_cloud_api_activity",
+      "verb": [
+        "get_cloud_api_activity",
+        "get_cloud_resource_history"
+      ],
       "params": {
         "principal.name": [
           "deploy-ci",
@@ -14,15 +17,62 @@
         ],
         "outcome": [
           "SUCCESS",
-          "ALL"
+          "ALL",
+          null
         ],
         "resource.uid": [
           "arn:aws:s3:::acme-internal-exports",
           null
+        ],
+        "resource.name": [
+          "acme-internal-exports",
+          null
+        ],
+        "service": [
+          "s3.amazonaws.com",
+          null
+        ],
+        "principal.credential": [
+          "AKIAIOSFODNN7EXAMPLE",
+          null
+        ],
+        "account.uid": [
+          "111122223333",
+          null
+        ],
+        "resource.provider": [
+          "aws",
+          null
+        ],
+        "resource.type": [
+          "AWS::S3::Bucket",
+          null
+        ],
+        "resource.account_uid": [
+          "111122223333",
+          null
+        ],
+        "resource.region": [
+          "us-east-1",
+          null
+        ],
+        "account.provider": [
+          "aws",
+          null
+        ],
+        "resource.zone": [
+          null
+        ],
+        "resource.group": [
+          null
+        ],
+        "resource.namespace": [
+          null
         ]
       }
     },
-    "delay_ms": 25
+    "delay_ms": 25,
+    "time_scoped": true
   },
   "ocsf": {
     "class_uid": 6003,

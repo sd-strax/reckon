@@ -189,6 +189,35 @@ func DefaultCatalog() *Catalog {
 			Output: "list<observed_data>",
 		},
 		{
+			Verb:   "get_cloud_api_activity",
+			Intent: "List cloud control-plane API calls — who did what to which resource in which account — matching a principal, resource or account given as the entity, and/or an operation or service name, in a window; omit the entity to search across accounts by operation or service. Give at least one filter: an unfiltered window of an audit trail is not a question.",
+			Inputs: []InputParam{
+				optionalEntityInput("subject", `optional entity to narrow to, as one of {"user":{"name":"<principal>"}} or {"user":{"credential_uid":"<access key id>"}} (a cloud principal: user, role or service principal, by name or by the credential it used), {"cloud_resource":{"provider":"aws","uid":"<provider resource id>"}} or {"cloud_resource":{"provider":"aws","name":"<name>","type":"<type>","account_uid":"<account id>"}}, or {"cloud_account":{"provider":"aws","uid":"<account id>"}}; omit to search across accounts by operation or service`),
+				windowInput(),
+				{Name: "operation", Type: "string", Required: false, Desc: "the provider's API operation name as the audit trail records it"},
+				{Name: "service", Type: "string", Required: false, Desc: "the provider's service name as the audit trail records it"},
+				{Name: "outcome", Type: "enum", Required: false, Desc: "SUCCESS|FAILURE|ALL (default ALL)"},
+				limitInput(200),
+			},
+			Output: "list<observed_data>",
+		},
+		{
+			Verb:   "get_cloud_resource_context",
+			Intent: "Fetch the current configuration of one cloud resource — policy, exposure settings, tags, labels, owner, created and modified times — as a cloud resource inventory snapshot.",
+			Inputs: []InputParam{entityInput("resource", `the x-cloud-resource, as {"cloud_resource":{"provider":"aws","uid":"<provider resource id>"}} or {"cloud_resource":{"provider":"aws","name":"<name>","type":"<type>","account_uid":"<account id>"}}`)},
+			Output: "resource context",
+		},
+		{
+			Verb:   "get_cloud_resource_history",
+			Intent: "List the control-plane calls that created, changed or deleted one cloud resource in a window, oldest first — the resource's change timeline.",
+			Inputs: []InputParam{
+				entityInput("resource", `the x-cloud-resource, as {"cloud_resource":{"provider":"aws","uid":"<provider resource id>"}} or {"cloud_resource":{"provider":"aws","name":"<name>","type":"<type>","account_uid":"<account id>"}}`),
+				windowInput(),
+				limitInput(200),
+			},
+			Output: "list<observed_data>",
+		},
+		{
 			Verb:   "enumerate_logons",
 			Intent: "List authentication events against a user or host in a window, optionally filtered by outcome.",
 			Inputs: []InputParam{entityInput("target", "user-account or host"), windowInput(), {Name: "outcome", Type: "enum", Required: false, Desc: "SUCCESS|FAILURE|ALL"}},

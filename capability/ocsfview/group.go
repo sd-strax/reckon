@@ -85,6 +85,7 @@ var classSlots = map[int][]SlotSpec{
 	classDetection:       {{"vendor", "Vendor"}, {"title", "Finding"}, {"severity", "Severity"}, {"host", "Host"}, {"user", "Account"}},
 	classCase:            {{"status", "Status"}, {"priority", "Priority"}, {"assigned", "Assigned to"}},
 	classDeviceInventory: {{"host", "Host"}, {"os", "OS"}, {"owner", "Owner"}, {"criticality", "Criticality"}},
+	classCloudInventory:  {{"resource", "Resource"}, {"type", "Type"}, {"account", "Account"}, {"region", "Region"}, {"owner", "Owner"}},
 	classAPIActivity:     {{"actor", "By"}, {"operation", "Operation"}, {"service", "Service"}, {"resource", "Resource"}, {"account", "Account"}, {"outcome", "Outcome"}, {"source", "Source"}},
 }
 

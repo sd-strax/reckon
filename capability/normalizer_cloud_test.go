@@ -132,7 +132,7 @@ func TestAPIActivity_IAMUser(t *testing.T) {
 	}
 
 	od := res.ObservedData[0]
-	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 1 || od.Provenance.DerivationMode != DerivationDirect {
+	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 2 || od.Provenance.DerivationMode != DerivationDirect {
 		t.Errorf("provenance = %+v", od.Provenance)
 	}
 	if len(od.ObjectRefs) != 4 {

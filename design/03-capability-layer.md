@@ -236,9 +236,54 @@ a sibling-of-LLM context retrieval, while external case lookup is a
 vendor-tool capability call producing telemetry like any other read-side
 adapter.
 
+### 2.10 Cloud control plane
+
+**`get_cloud_api_activity(subject?: Entity, window: TimeWindow, operation?: string, service?: string, outcome?: SUCCESS|FAILURE|ALL = ALL, limit?: int = 200) -> list<ObservedData>`**
+Control-plane API calls — OCSF API Activity (class 6003, §4.15) — matching
+every given filter. The entity is optional, the fleet-wide shape of §2's
+conventions: given a `user-account` it asks what that principal did (the
+account may be named by its credential id, since "what did this access key
+do" names the key, not the user); given an `x-cloud-resource`, who touched
+it; given an `x-cloud-account`, what happened in it; absent, `operation` or
+`service` alone asks who called that anywhere in the window — the
+"across accounts" question. The entity's wire shape is stated in the
+descriptor's own text — `{"user":{"name"}}` or `{"user":{"credential_uid"}}`,
+`{"cloud_resource":{"provider","uid"}}` or `{"cloud_resource":{"provider",
+"name","type","account_uid"}}`, `{"cloud_account":{"provider","uid"}}`
+(§3.3.1) — because the model learns a verb from its descriptor alone and a
+guessed key is not an empty answer but a wrong one against a source that
+treats an absent filter as unfiltered. At least one filter is the verb's contract, stated
+in its intent: an unfiltered window of an audit trail is not a question. The
+engine does not enforce it (no verb's inputs are validated beyond the tool
+schema, and the hunt verbs of §2.2 and §2.5 accept an unfiltered sweep,
+bounded by `limit` and the result budget); a source adapter that cannot
+answer an unbounded query refuses it under §6.2.
+
+**`get_cloud_resource_context(resource: Entity) -> {resource: Entity, account_ref?: Entity, configuration: ObservedData}`**
+"What is this resource now": the current configuration of one cloud
+resource — policy, exposure settings, tags, labels, owner, created and
+modified times — as an OCSF Cloud Resources Inventory Info event (class
+5023, §4.18) normalized to the same `x-cloud-resource` and `x-cloud-account`
+ids §4.15 mints from activity, so the snapshot and the calls that produced it
+meet on one node. The parallel of `get_host_context` for a resource; the
+half of the story the trail cannot tell (is the bucket public *now*).
+
+**`get_cloud_resource_history(resource: Entity, window: TimeWindow, limit?: int = 200) -> list<ObservedData>`**
+The calls that created, changed or deleted one resource in the window
+(activity Create, Update, Delete), oldest first: the change timeline. The
+same class as `get_cloud_api_activity`, pre-filtered and ordered, kept as
+its own verb because a real source answers it from a different place (a
+configuration timeline rather than the raw trail) and because the question
+wants the whole ordered timeline, not a filtered page — the
+`get_failed_auth_burst` precedent beside `enumerate_logons`.
+
+A fixture may answer the activity verb and the history verb from one
+recorded mutating call (`matches.verb` as a list, §9.2); a read is never a
+history entry.
+
 ---
 
-A note on the count: 22 query verbs (plus the §2.9 external case lookup verbs) hits the upper end of the 15-25 target. I
+A note on the count: 22 query verbs (plus the §2.9 external case lookup verbs and the §2.10 cloud control-plane verbs) hits the upper end of the 15-25 target. I
 considered collapsing `get_failed_auth_burst` into `enumerate_logons` and
 `get_email_clicks` into `get_email_messages`. I kept them separate because they
 map to distinct analyst intents and benefit from server-side pre-filtering when
@@ -411,6 +456,15 @@ references a host), the template path mirrors the input shape:
 `${entity.process.pid}`, `${entity.process.host.external_id}`. Adapters
 expecting a flat parameter shape must walk the structure themselves; the
 templating layer doesn't flatten.
+
+The entity object is keyed by kind, and the keys are the wire contract the
+verb descriptors state in their input text: `host.{hostname,domain,
+external_id}`, `process.{pid,…}`, `user.{name,account_login,credential_uid,
+…}`, `ip`, `domain`, `url`, and for the cloud verbs (§2.10)
+`cloud_resource.{provider,uid,name,type,region,zone,group,namespace,
+account_uid}` and `cloud_account.{provider,uid}`. A cloud root carries its
+`provider` because every cloud identity is scoped by it (§7.2) and the
+absence resolver cites a subject only through it (§4.13).
 
 #### 3.3.2 Transformations
 
@@ -944,7 +998,12 @@ Normalizers are versioned. The version is recorded in the ObservedData's
 provenance. If a normalizer is improved, prior OcsfEvents can be re-normalized
 into new ObservedData; old ObservedData remains valid (immutable in spirit, even
 if the model permits mutation). Re-normalization writes new ObservedData and
-links them to the same OcsfEvent.
+links them to the same OcsfEvent. The ObservedData id (§7.1) carries the
+version but not the normalizer's name, and the opaque default is version 1,
+so a typed normalizer that takes over a class the default used to handle
+starts at version 2: a payload stored opaque before the normalizer existed
+keeps its row, and the typed observation gets its own id beside it rather
+than colliding with it and being discarded on write.
 
 ### 4.14 Custom OCSF classes for non-standard tools
 
@@ -1127,6 +1186,55 @@ Output:
 - One `ObservedData` referencing the host and address, its extensions
   carrying `os_name`, `owner_name` and `criticality` when present.
 - Edges as in §4.1.
+
+### 4.18 OCSF cloud_resources_inventory_info (class_uid 5023) → STIX
+
+Input: an OCSF Cloud Resources Inventory Info event — a snapshot of one or
+more cloud resources as they are now — with `cloud.{provider,account.{uid,
+name,type_id},region,project_uid}`, `resources[].{uid,name,type,region,zone,
+group,namespace,data,labels,tags,criticality,owner,created_time,
+modified_time}`, `activity_id`, `activity_name`, `time`. The class first
+exists at OCSF 1.4.0; `created_time` and `modified_time` arrive at 1.7.0.
+Its version range (§4.16) is 1.7.0 at both ends: the first source for the
+class is a configuration adapter the engine ships, shaped to 1.7.0, and the
+bundled fixture declares 1.7.0; a 1.4.0-shaped snapshot still normalizes to
+the same ids by field detection, which a test holds.
+
+Output. The identity rules are §4.15's, unchanged, so a snapshot of a
+resource and the calls against it meet on one node:
+
+- **No provider, no cloud identities**: without `cloud.provider` the event
+  yields its ObservedData only.
+- One `x-cloud-account` from `cloud.account.uid`, else the deprecated
+  `cloud.project_uid`; identity `(provider, account_uid)`.
+- One `x-cloud-resource` per `resources[]` entry that can be identified, by
+  `(provider, uid)` else the name-rule tuple under the event's account
+  (§7.2); `belongs-to` to the account only under the name rule.
+- One `user-account` for `resources[].owner` when it carries an identifier
+  (`owner.uid`, else `owner.uid_alt`), shaped as a cloud principal (§4.15:
+  provider slug as `account_type`, identifier as `user_id`, empty
+  `account_login`, the name as `display_name`); the owner's name rides the
+  observation as `owner_name` either way, as `principal_name` does in §4.15,
+  and an owner without an identifier yields no SCO. No identifier is
+  composed.
+- One `ObservedData` referencing all of the above, carrying the
+  configuration in its extensions: `activity`, `activity_id`, `region`,
+  `resource_count`, and for the first resource `resource_uid`,
+  `resource_name`, `type`, `configuration` (the resource's `data`, as
+  decoded), `labels`, `tags`, `criticality`, `created_time`,
+  `modified_time`, `owner_name`. The configuration is data the model reads
+  through the event view, never an entity: a policy document is a property
+  of the resource at a moment, and the moment is the observation. The schema
+  version is not copied (§4.16).
+- Edges as in §4.1.
+
+The 1.7.0 `databucket`, `database`, `table`, `container` and `idp` objects
+the class may carry instead of `resources[]` are not read: the fixture and
+the first adapter carry the resource under `resources[]`, and a source that
+fills only the typed objects is a row for the shaping table, not a new
+normalizer. Failure modes are §4.15's; a snapshot and an activity event that
+name the same resource by different identifiers (unique id in one, bare
+name in the other) are the same split, remedied by `aliases`.
 
 ---
 

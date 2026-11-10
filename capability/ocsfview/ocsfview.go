@@ -144,6 +144,7 @@ const (
 	classEmail           = 4009
 	classEmailURL        = 4011
 	classDeviceInventory = 5001
+	classCloudInventory  = 5023
 	classAPIActivity     = 6003
 )
 
@@ -153,7 +154,7 @@ func Classes() []int {
 		classFileActivity, classRegistryKey, classScheduledJob, classProcess, classModule,
 		classDetection, classCase, classAuthentication, classAccountChange,
 		classNetwork, classDNS, classEmail, classEmailURL, classDeviceInventory,
-		classAPIActivity,
+		classCloudInventory, classAPIActivity,
 	}
 }
 
@@ -192,6 +193,8 @@ func Render(e Event, entities []Entity) View {
 		r.caseFinding()
 	case classDeviceInventory:
 		r.deviceInventory()
+	case classCloudInventory:
+		r.cloudInventory()
 	case classAPIActivity:
 		r.apiActivity()
 	default:
@@ -1272,6 +1275,74 @@ func (r *renderer) deviceInventory() {
 	r.keyText("os", os)
 	r.keyText("owner", owner)
 	r.keyText("criticality", strings.ToLower(crit))
+}
+
+// cloudInventory renders a cloud resource configuration snapshot (03 §4.18):
+// what the resource is, where it lives and how it is configured. The resource
+// and the account bind as on a control-plane call (the payload paths are the
+// same in both classes); the configuration reads as its top-level keys, the
+// values being the raw payload's to show.
+func (r *renderer) cloudInventory() {
+	resources := r.cloudResources()
+	var res slot
+	if len(resources) > 0 {
+		res = resources[0]
+	}
+	first, _ := firstOf(pathList(r.p, "resources")).(map[string]any)
+	typ := toString(first["type"])
+	account, _ := r.cloudAccount()
+	region := firstNonEmpty(r.str("cloud.region"), strings.TrimSpace(toString(first["region"])))
+	owner := firstNonEmpty(pathStr(first, "owner.name"), pathStr(first, "owner.full_name"), pathStr(first, "owner.uid"))
+	crit := toString(first["criticality"])
+
+	if res.empty() {
+		r.text("Cloud resource")
+	} else {
+		r.entity(res)
+	}
+	if typ != "" {
+		r.text(" (" + typ + ")")
+	}
+	r.clause(" in ", account)
+	if region != "" {
+		if account.empty() {
+			r.text(" in " + region)
+		} else {
+			r.text(", " + region)
+		}
+	}
+
+	r.entityField("Resource", res)
+	r.mono("Type", typ)
+	r.entityField("Account", account)
+	r.field("Region", region)
+	r.field("Owner", owner)
+	r.field("Created", toString(first["created_time"]))
+	r.field("Modified", toString(first["modified_time"]))
+	r.field("Criticality", crit).Tone = severityTone(crit)
+	r.field("Labels", strings.Join(stringList(pathList(first, "labels")), ", "))
+	if data, ok := first["data"].(map[string]any); ok {
+		keys := make([]string, 0, len(data))
+		for k := range data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		r.field("Configuration", strings.Join(keys, ", "))
+	}
+
+	r.keySlot("resource", res)
+	r.keyText("type", typ)
+	r.keySlot("account", account)
+	r.keyText("region", region)
+	r.keyText("owner", owner)
+}
+
+// firstOf is a list's first element, nil for an empty list.
+func firstOf(l []any) any {
+	if len(l) == 0 {
+		return nil
+	}
+	return l[0]
 }
 
 // apiStatuses are the OCSF status_id captions, for a payload that carries the
