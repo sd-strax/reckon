@@ -41,21 +41,26 @@ model.
   - **The country code comes from the country's English name in the Unicode
     CLDR data `golang.org/x/text` carries** (`language/display`, already a
     dependency of the module). Both sides are folded before matching: case,
-    "&" and "and", a leading "St." and "Saint", the curly apostrophe, a
-    trailing parenthetical, the "SAR China" suffix and Macao's two
-    spellings, spacing; so the spellings a geolocation source uses
-    ("Trinidad and Tobago", "Hong Kong", "Myanmar", "Saint Lucia") meet
-    CLDR's. Diacritics are not folded: "São Tomé" matches, "Sao Tome" does
-    not. A two-letter code given as one is accepted and
-    canonicalized ("UK" to "GB"), and held to the same test as a name: a
-    withdrawn code CLDR names no country by ("AN", "SU") is not a code. No
-    table is kept in the adapter and nothing is guessed: a name that is not
-    CLDR's current English name under the folding ("Czech Republic",
-    "Russian Federation", "Viet Nam") yields no code, and the name is
-    carried in `desc` ("the description of the geographical location")
-    beside the rest of the place, so what Okta said is never lost and
-    `country` never holds a value that is not a code. A name alone with no
-    code is not a place.
+    "&" and "and", a leading "St." and "Saint", the article "the", the
+    curly apostrophe, a trailing parenthetical, the "SAR China" suffix and
+    Macao's two spellings, spacing; so the spellings a geolocation source
+    uses ("Trinidad and Tobago", "Hong Kong", "Myanmar", "Saint Lucia",
+    "The Bahamas") meet CLDR's. Diacritics are not folded: "São Tomé"
+    matches, "Sao Tome" does not. A two-letter code given as one is
+    accepted when CLDR canonicalizes it to a current country ("UK" to "GB",
+    "DD" to "DE"), and held to the same test as a name: a withdrawn code
+    CLDR names no country by ("AN", "SU") is not a code. No table is kept
+    in the adapter and nothing is guessed: a name that is not the English
+    name in the shipped CLDR tables under the folding yields no code, and
+    the name is carried in `desc` ("the description of the geographical
+    location") beside the rest of the place, so what Okta said is never
+    lost and `country` never holds a value that is not a code. That covers
+    older and ISO-official forms ("Czech Republic", "Russian Federation",
+    "Viet Nam") and equally newer names the shipped tables predate
+    ("Eswatini", "North Macedonia", "Cabo Verde", "Türkiye", where x/text
+    v0.33.0 still says "Swaziland", "Macedonia", "Cape Verde", "Turkey");
+    the latter close when x/text moves, with no change here. A name alone
+    with no code is not a place.
   - Okta's `state` is a name ("Ontario"), and OCSF names `region` "the
     alphanumeric code that identifies the principal subdivision". Okta
     carries no code, and OCSF has no other subdivision field, so the name is

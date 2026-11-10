@@ -93,6 +93,8 @@ func TestCountryCode(t *testing.T) {
 		"Trinidad and Tobago": "TT", "Bosnia and Herzegovina": "BA", "Saint Kitts and Nevis": "KN",
 		"Côte d'Ivoire": "CI", "Myanmar": "MM", "Hong Kong": "HK", "Macao": "MO", "Macau": "MO",
 		"Saint Lucia": "LC", "St. Lucia": "LC", "Sao Tome and Principe": "", "São Tomé and Príncipe": "ST",
+		"The Bahamas": "BS", "The Netherlands": "NL", "Saint Vincent and the Grenadines": "VC",
+		"DD": "DE", "tp": "TL",
 		"  Canada ": "CA",
 	} {
 		got, ok := countryCode(name)
@@ -106,10 +108,11 @@ func TestCountryCode(t *testing.T) {
 			t.Errorf("countryCode(%q) = %q, %v; want %q", name, got, ok, want)
 		}
 	}
-	// Not CLDR's current English name under the folding, so unknown here (the
-	// caller keeps the name as desc): older or ISO-official names, a fiction,
-	// a withdrawn code, a non-country region.
-	for _, name := range []string{"", "Atlantis", "Czech Republic", "Russian Federation", "Viet Nam", "ZZ", "EU", "AN", "SU", "YU", "001"} {
+	// Not the English name in the shipped CLDR tables under the folding, so
+	// unknown here (the caller keeps the name as desc): older or ISO-official
+	// names, newer names the shipped tables predate, a fiction, a withdrawn
+	// code, a non-country region.
+	for _, name := range []string{"", "Atlantis", "Czech Republic", "Russian Federation", "Viet Nam", "Eswatini", "North Macedonia", "ZZ", "EU", "AN", "SU", "YU", "001"} {
 		if got, ok := countryCode(name); ok {
 			t.Errorf("countryCode(%q) = %q; want no code", name, got)
 		}

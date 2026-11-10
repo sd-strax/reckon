@@ -49,15 +49,20 @@ func countrySet() countries {
 }
 
 // countryCode is the alpha-2 code for a country as Okta names it, or for a
-// code given as one; false when the name is unknown. A deprecated code ("UK")
-// resolves to the current one ("GB"); a withdrawn one CLDR names no country
-// by is not a code. Names are matched after foldName on both sides, so the
-// spellings a geolocation source uses ("Trinidad and Tobago", "Hong Kong",
-// "Saint Kitts and Nevis", "Myanmar") meet CLDR's ("Trinidad & Tobago",
-// "Hong Kong SAR China", "St. Kitts & Nevis", "Myanmar (Burma)"). A name
-// that is not CLDR's current English name under that folding ("Czech
-// Republic", "Russian Federation", "Viet Nam") is unknown here and is
-// carried as the location's desc by the caller.
+// code given as one; false when the name is unknown. A code CLDR
+// canonicalizes to a current country ("UK" to "GB", "DD" to "DE") resolves to
+// it; a withdrawn one CLDR names no country by ("AN", "SU") is not a code.
+// Names are matched after foldName on both sides, so the spellings a
+// geolocation source uses ("Trinidad and Tobago", "Hong Kong", "Saint Kitts
+// and Nevis", "Myanmar", "The Bahamas") meet CLDR's ("Trinidad & Tobago",
+// "Hong Kong SAR China", "St. Kitts & Nevis", "Myanmar (Burma)", "Bahamas").
+// A name that is not the English name in the shipped CLDR tables under that
+// folding is unknown here and is carried as the location's desc by the
+// caller: an older or ISO-official form ("Czech Republic", "Russian
+// Federation", "Viet Nam"), and equally a newer one the shipped tables
+// predate ("Eswatini", "North Macedonia", "Cabo Verde", "Türkiye" against
+// x/text v0.33.0's "Swaziland", "Macedonia", "Cape Verde", "Turkey"); the
+// latter close when x/text moves.
 func countryCode(s string) (string, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -76,9 +81,10 @@ func countryCode(s string) (string, bool) {
 
 // foldName makes a country name comparable across the spellings geolocation
 // sources and CLDR use: case; "&" for "and"; a leading "St." for "Saint";
-// the curly apostrophe; a trailing parenthetical ("Myanmar (Burma)"); the
-// "SAR China" suffix on Hong Kong and Macau, and Macao's two spellings; runs
-// of spaces.
+// the article "the" ("The Bahamas", "Saint Vincent and the Grenadines"); the
+// curly apostrophe; a trailing parenthetical ("Myanmar (Burma)"); the "SAR
+// China" suffix on Hong Kong and Macau, and Macao's two spellings; runs of
+// spaces. Diacritics are not folded.
 func foldName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if i := strings.LastIndex(s, " ("); i > 0 && strings.HasSuffix(s, ")") {
@@ -96,5 +102,12 @@ func foldName(s string) string {
 			break
 		}
 	}
-	return strings.Join(strings.Fields(s), " ")
+	words := strings.Fields(s)
+	kept := words[:0]
+	for _, w := range words {
+		if w != "the" {
+			kept = append(kept, w)
+		}
+	}
+	return strings.Join(kept, " ")
 }
