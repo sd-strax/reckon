@@ -45,7 +45,13 @@ model.
     the raw event. So the name is carried verbatim as `desc`, "the
     description of the geographical location", and `country` is not
     written. A fixture or another adapter that holds a code writes
-    `country`; the view reads whichever is there.
+    `country`; the view reads whichever is there. When the country is all
+    Okta reported, which a geolocation provider does for many VPN, cloud
+    and mobile ranges, the location holds `desc` and `provider` alone. OCSF
+    asks for one of city, country, region or postal code in a Geo Location,
+    and that object does not meet it; this is accepted, recorded here,
+    because the alternatives are to drop the reported place or to guess a
+    code, and no reader in reckon enforces the constraint.
   - Okta's `state` is a name ("Ontario"), and OCSF names `region` "the
     alphanumeric code that identifies the principal subdivision". Okta
     carries no code, and OCSF has no other subdivision field, so the name is
@@ -66,8 +72,10 @@ model.
 - **The event view says the place, and who located it, after the source it
   names.** The authentication sentence reads "… from 203.0.113.5 in
   Toronto, CA (located by okta)" (the region standing in for a missing
-  city, the country alone when that is all there is; the parenthesis only
-  when the event names a provider), only when the sentence names a source
+  city, the country alone when that is all there is, the location's `desc`
+  when it has no city, region or country at all, so a country-only place
+  from the adapter above reads "in Türkiye (located by okta)"; the
+  parenthesis only when the event names a provider), only when the sentence names a source
   address: without one the place would read as the host's. The attribution
   is in the sentence, not only in a field, because the markdown export and
   the Story timeline read the sentence alone, and a report that said

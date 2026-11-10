@@ -1294,13 +1294,19 @@ func pastToPassive(verb string) string {
 
 // place is an OCSF Geo Location as the sentence says it: the city and the
 // country code, the region standing in for a missing city, the country alone
-// when that is all there is; "" when the object has none of them.
+// when that is all there is. A location with none of those but a desc (a
+// source that named a country and nothing else, adr/0208) reads its desc:
+// the place the record holds must reach the timeline and the export, which
+// read the sentence alone. "" when the object has none of them.
 func (r *renderer) place(path string) string {
 	city := r.str(path + ".city")
 	if city == "" {
 		city = r.str(path + ".region")
 	}
-	return joinNonEmpty(", ", city, r.str(path+".country"))
+	if p := joinNonEmpty(", ", city, r.str(path+".country")); p != "" {
+		return p
+	}
+	return r.str(path + ".desc")
 }
 
 // locationText is the Location field: city, region and country code; the

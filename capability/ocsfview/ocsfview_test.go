@@ -90,6 +90,17 @@ func TestRender_Authentication_Location(t *testing.T) {
 	if f, _ := fieldValue(v, "Location"); f.Value != "Atlantis City · Atlantis · reported by okta" {
 		t.Errorf("Location field = %+v", f)
 	}
+	// A country-only location from a source that names countries (the Okta
+	// adapter's shape): the sentence reads the description, so the timeline
+	// and the export carry the place and who located it.
+	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"198.51.100.7","location":{"desc":"Türkiye","provider":"okta"}}}`)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	if got := sentenceText(v); got != "m.reyes logon from 198.51.100.7 in Türkiye (located by okta)" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, _ := fieldValue(v, "Location"); f.Value != "Türkiye · reported by okta" {
+		t.Errorf("Location field = %+v", f)
+	}
 	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Toronto","country":"CA","desc":"corporate office"}}}`)
 	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
 	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Toronto, CA" {
