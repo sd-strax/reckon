@@ -1,0 +1,24 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": "get_persistence_artifacts",
+      "params": { "host.hostname": ["WIN-FILE01", null] }
+    },
+    "time_scoped": true,
+    "delay_ms": 40
+  },
+  "ocsf": {
+    "class_uid": 1003,
+    "class_name": "Registry Key Activity",
+    "time": "2026-04-20T14:33:40Z",
+    "activity_name": "CREATE",
+    "reg_key": { "hive": "HKEY_LOCAL_MACHINE", "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run" },
+    "reg_value": { "name": "SyncHost", "data": "C:\\ProgramData\\SyncHost\\synchost.exe", "type": "REG_SZ" },
+    "actor": {
+      "process": { "pid": 6120, "name": "powershell.exe", "created_time": "2026-04-20T14:33:05Z" },
+      "user": { "name": "svc_backup", "domain": "CONTOSO", "uid": "S-1-5-21-2002" }
+    },
+    "device": { "hostname": "WIN-FILE01", "domain": "CONTOSO" }
+  }
+}

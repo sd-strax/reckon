@@ -107,6 +107,108 @@ bindings:
       params:
         case_id: '${case_id}'
 
+  # The hunt verbs (03 §2.2–2.7). Every fixture below is time-scoped, so "this
+  # week" reaches them and a window after the incident is a COMPLETE empty
+  # answer — the citeable absence a fleet sweep records for its clean hosts.
+  #
+  # The fleet-wide pair takes its entity optionally: no entity sweeps every
+  # host the scenario knows (two of them planted, the rest absent); a host or
+  # account narrows. The fixture adapter matches values exactly and cannot
+  # search text, so the image/command-line filters are wildcarded here; a real
+  # adapter applies them.
+  get_process_executions:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        subject:
+          hostname: '${entity.host.hostname?}'
+          user: '${entity.user.name?}'
+        image_hash: '${image_hash?}'
+        image_path: '${image_path?}'
+        command_line_contains: '${command_line_contains?}'
+        limit: '${limit ?? 200}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  get_persistence_artifacts:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        host:
+          hostname: '${entity.host.hostname?}'
+        limit: '${limit ?? 200}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  get_file_activity:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        file:
+          hash: '${entity.file.hash?}'
+          path: '${entity.file.path?}'
+          hostname: '${entity.host.hostname?}'
+        limit: '${limit ?? 200}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  resolve_dns:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        name:
+          domain: '${entity.domain?}'
+          hostname: '${entity.host.hostname?}'
+        limit: '${limit ?? 200}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  get_privilege_changes:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      params:
+        target:
+          user: '${entity.user.name?}'
+          hostname: '${entity.host.hostname?}'
+        limit: '${limit ?? 200}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  # Fan-out by design (03 §3.4): every bound source answers and the results
+  # merge. One source here; a real tenant adds a binding per source. The
+  # scenario's DNS, network and file fixtures each also answer this verb, so a
+  # pivot on the destination address, the domain or the dropped file's hash
+  # finds its sightings; any other indicator is a COMPLETE empty answer.
+  pivot_on_indicator:
+    - adapter: fixture
+      operation: replay
+      priority: 100
+      fanout: true
+      params:
+        indicator:
+          ip: '${entity.ip?}'
+          domain: '${entity.domain?}'
+          url: '${entity.url?}'
+          hash: '${entity.file.hash?}'
+        limit: '${limit ?? 500}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  # query_logs is deliberately unbound: the escape hatch is for a real log
+  # source, and a fixture cannot run a query. Unbound, it is listed
+  # unavailable and trimmed from the agent's tool set (03 §6.3).
+
   # Bound to the disabled fixture_context instance above — the shipped
   # installed-not-enabled gap the enablement flow closes.
   get_host_context:

@@ -2,6 +2,7 @@ package capability
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -326,7 +327,7 @@ func TestFixtureAnyOf(t *testing.T) {
 // of a query about another value (#164).
 func TestFixtureNullMatchesAbsentParam(t *testing.T) {
 	var f fixtureFile
-	f.FixtureMeta.Matches.Verb = "enumerate_logons"
+	f.FixtureMeta.Matches.Verb = fixtureVerbs{"enumerate_logons"}
 	f.FixtureMeta.Matches.Params = map[string]any{"target.user": []any{nil, "jdoe"}}
 	cases := []struct {
 		params map[string]any
@@ -340,5 +341,34 @@ func TestFixtureNullMatchesAbsentParam(t *testing.T) {
 		if got := fixtureMatches(f, "enumerate_logons", c.params); got != c.want {
 			t.Errorf("params %v: match=%v; want %v", c.params, got, c.want)
 		}
+	}
+}
+
+// TestFixtureVerbList: matches.verb may be one verb or a list; a listed
+// fixture answers each of its verbs and no other, and the order key stays
+// stable across the two spellings.
+func TestFixtureVerbList(t *testing.T) {
+	a := newTestFixture(t, map[string]string{
+		"dns.json": `{
+          "fixture_meta":{"scenario":"s","matches":{"verb":["resolve_dns","pivot_on_indicator"],"params":{}},"delay_ms":0},
+          "ocsf":{"class_uid":4003,"class_name":"DNS Activity","time":"2026-06-11T03:21:08Z","query":{"hostname":"a.example"}}
+        }`,
+		"one.json": `{
+          "fixture_meta":{"scenario":"s","matches":{"verb":"resolve_dns","params":{}},"delay_ms":0},
+          "ocsf":{"class_uid":4003,"class_name":"DNS Activity","time":"2026-06-11T03:22:08Z","query":{"hostname":"b.example"}}
+        }`,
+	})
+	for verb, want := range map[string]int{"resolve_dns": 2, "pivot_on_indicator": 1, "enumerate_logons": 0} {
+		resp, err := a.Invoke(context.Background(), "replay", map[string]any{ParamVerb: verb})
+		if err != nil {
+			t.Fatalf("invoke %s: %v", verb, err)
+		}
+		if len(resp.Events) != want {
+			t.Errorf("verb=%s returned %d events; want %d", verb, len(resp.Events), want)
+		}
+	}
+	var bad fixtureFile
+	if err := json.Unmarshal([]byte(`{"fixture_meta":{"matches":{"verb":7}}}`), &bad); err == nil {
+		t.Error("a numeric matches.verb parsed; want an error")
 	}
 }

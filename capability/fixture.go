@@ -27,7 +27,11 @@ type fixtureFile struct {
 	FixtureMeta struct {
 		Scenario string `json:"scenario"`
 		Matches  struct {
-			Verb   string         `json:"verb"`
+			// Verb is the verb (or verbs) the fixture answers: one string or a
+			// list, so one recorded event can answer two questions (a DNS
+			// resolution under resolve_dns and under pivot_on_indicator)
+			// without a second copy of the payload. Empty answers any verb.
+			Verb   fixtureVerbs   `json:"verb"`
 			Params map[string]any `json:"params"`
 		} `json:"matches"`
 		DelayMS int `json:"delay_ms"`
@@ -44,6 +48,41 @@ type fixtureFile struct {
 		TimeScoped bool `json:"time_scoped"`
 	} `json:"fixture_meta"`
 	OCSF map[string]any `json:"ocsf"`
+}
+
+// fixtureVerbs is matches.verb: a single verb or a list of verbs in the JSON.
+type fixtureVerbs []string
+
+func (v *fixtureVerbs) UnmarshalJSON(data []byte) error {
+	var one string
+	if err := json.Unmarshal(data, &one); err == nil {
+		if one == "" {
+			*v = nil
+		} else {
+			*v = fixtureVerbs{one}
+		}
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(data, &many); err != nil {
+		return fmt.Errorf("matches.verb: want a verb or a list of verbs: %w", err)
+	}
+	*v = many
+	return nil
+}
+
+// contains reports whether verb is one the fixture answers; an empty list
+// answers any verb.
+func (v fixtureVerbs) contains(verb string) bool {
+	if len(v) == 0 {
+		return true
+	}
+	for _, x := range v {
+		if x == verb {
+			return true
+		}
+	}
+	return false
 }
 
 // fixtureWindow reads the reserved window params a binding may pass
@@ -155,7 +194,7 @@ func (a *FixtureAdapter) load() error {
 // ordering (chronological within a verb).
 func fixtureOrder(f fixtureFile) string {
 	t, _ := f.OCSF["time"].(string)
-	return t + "|" + f.FixtureMeta.Matches.Verb
+	return t + "|" + strings.Join(f.FixtureMeta.Matches.Verb, ",")
 }
 
 // Invoke replays the fixtures whose matches block satisfies the incoming verb
@@ -207,7 +246,7 @@ func (a *FixtureAdapter) Health() HealthStatus {
 }
 
 // fixtureMatches reports whether a fixture applies to the incoming (verb,
-// params): the verb must equal matches.verb, and every matches.param must equal
+// params): the verb must be among matches.verb, and every matches.param must equal
 // the value at its dotted path in params. "*" matches anything; a list of
 // values matches any one of them (§9.1) — how a fixture answers to
 // `outcome: SUCCESS` and `outcome: ALL` without also answering to `FAILURE`,
@@ -216,7 +255,7 @@ func (a *FixtureAdapter) Health() HealthStatus {
 // fixture can answer "this account, or no account asked for" and stay out of
 // a query about another account.
 func fixtureMatches(f fixtureFile, verb string, params map[string]any) bool {
-	if f.FixtureMeta.Matches.Verb != "" && f.FixtureMeta.Matches.Verb != verb {
+	if !f.FixtureMeta.Matches.Verb.contains(verb) {
 		return false
 	}
 	for path, want := range f.FixtureMeta.Matches.Params {

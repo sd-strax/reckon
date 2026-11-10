@@ -111,7 +111,7 @@ func verbToolDef(c Capability) ToolDef {
 				"description": in.Desc,
 			}
 		default:
-			props[in.Name] = map[string]any{"type": "string", "description": in.Desc}
+			props[in.Name] = verbScalarSchema(in.Type, in.Desc)
 			if in.Required {
 				required = append(required, in.Name)
 			}
@@ -556,14 +556,28 @@ func parametersSchema(actionTypes []ActionType) map[string]any {
 }
 
 // jsonSchemaType maps an InputParam type to a JSON Schema scalar type, defaulting
-// to string for anything non-scalar (entity inputs never reach here).
+// to string for anything non-scalar (entity inputs never reach here). A
+// catalog's "int" is JSON Schema's "integer".
 func jsonSchemaType(t string) string {
 	switch t {
 	case "string", "number", "integer", "boolean":
 		return t
+	case "int":
+		return "integer"
 	default:
 		return "string"
 	}
+}
+
+// verbScalarSchema is the JSON Schema of one non-entity, non-window verb input:
+// a scalar by jsonSchemaType, or an array of strings for a `list<string>`
+// input, so a count arrives as a number and a list as a list rather than as
+// text the binding would have to parse.
+func verbScalarSchema(typ, desc string) map[string]any {
+	if typ == "list<string>" {
+		return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": desc}
+	}
+	return map[string]any{"type": jsonSchemaType(typ), "description": desc}
 }
 
 // appendUnique appends v to s if absent, preserving order.

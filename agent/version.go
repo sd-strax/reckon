@@ -120,7 +120,9 @@ func exampleCatalog() []ActionType {
 }
 
 // exampleVerb is a capability descriptor with every input kind the loop
-// renders (entity, time window, scalar), for the same reason. Its literal
+// renders (entity, time window, and each scalar kind the renderer
+// distinguishes: string by default, int, list<string>), for the same reason:
+// a change to how any one kind renders moves the version. Its literal
 // strings are part of the version too, through tools/<verb>.
 func exampleVerb() Capability {
 	var c Capability
@@ -131,7 +133,7 @@ func exampleVerb() Capability {
 	for _, in := range []struct {
 		name, kind string
 		required   bool
-	}{{"target", "entity", true}, {"window", "time_window", false}, {"limit", "string", false}} {
+	}{{"target", "entity", true}, {"window", "time_window", false}, {"limit", "int", false}, {"scopes", "list<string>", false}} {
 		c.Descriptor.Inputs = append(c.Descriptor.Inputs, struct {
 			Name     string `json:"name"`
 			Type     string `json:"type"`
