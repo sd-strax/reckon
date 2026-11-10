@@ -1,6 +1,6 @@
 # 0320 — A cloud principal is a `user-account` identified by the provider's durable identifier alone, with the provider as its type; the account and its resources are two custom SCOs; an API Activity event is one observation carrying the operation
 
-Issue: #320 · PR: pending · Status: accepted
+Issue: #320 · PR: #327 · Status: accepted
 
 ## Context
 
