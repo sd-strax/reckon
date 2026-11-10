@@ -1,6 +1,6 @@
 # 0210 — The catalog carries the hunt verbs; a fleet-wide verb takes its entity optionally; composite inputs flatten to scalars on the wire
 
-Issue: #210 · PR: pending · Status: accepted
+Issue: #210 · PR: #326 · Status: accepted
 
 ## Context
 
