@@ -79,13 +79,23 @@ func TestRender_Authentication_Location(t *testing.T) {
 		t.Errorf("sentence = %q", got)
 	}
 
-	// A country the adapter could not code rides as desc and stands in.
+	// The location's description is shown as what it is, never as the country:
+	// a country name the adapter could not code (adr/0208) and a producer's
+	// own description read the same way, after the place.
 	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Atlantis City","desc":"Atlantis","provider":"okta"}}}`)
 	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
-	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Atlantis City, Atlantis" {
+	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Atlantis City" {
 		t.Errorf("sentence = %q", got)
 	}
-	if f, _ := fieldValue(v, "Location"); f.Value != "Atlantis City, Atlantis · reported by okta" {
+	if f, _ := fieldValue(v, "Location"); f.Value != "Atlantis City · Atlantis · reported by okta" {
+		t.Errorf("Location field = %+v", f)
+	}
+	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Toronto","country":"CA","desc":"corporate office"}}}`)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Toronto, CA" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, _ := fieldValue(v, "Location"); f.Value != "Toronto, CA · corporate office" {
 		t.Errorf("Location field = %+v", f)
 	}
 

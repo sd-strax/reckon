@@ -80,18 +80,36 @@ func TestNormalizeAuthEvent_Geolocation(t *testing.T) {
 }
 
 // TestCountryCode: the full English names Okta sends resolve to alpha-2
-// codes, case-insensitively; a code given as one is accepted; a name the
-// CLDR data does not know is not a code.
+// codes, case-insensitively and across the spellings a geolocation source
+// and CLDR differ on; a code given as one is accepted and canonicalized; a
+// name the CLDR data does not know, and a withdrawn code CLDR names no
+// country by, are not codes.
 func TestCountryCode(t *testing.T) {
 	for name, want := range map[string]string{
 		"Canada": "CA", "United States": "US", "united kingdom": "GB", "Germany": "DE",
-		"South Korea": "KR", "Netherlands": "NL", "ca": "CA", "US": "US",
+		"South Korea": "KR", "Netherlands": "NL", "ca": "CA", "US": "US", "UK": "GB",
+		// Source spellings against CLDR's: "&", "St.", the curly apostrophe, a
+		// parenthetical, "SAR China".
+		"Trinidad and Tobago": "TT", "Bosnia and Herzegovina": "BA", "Saint Kitts and Nevis": "KN",
+		"Côte d'Ivoire": "CI", "Myanmar": "MM", "Hong Kong": "HK", "Macao": "MO", "Macau": "MO",
+		"Saint Lucia": "LC", "St. Lucia": "LC", "Sao Tome and Principe": "", "São Tomé and Príncipe": "ST",
+		"  Canada ": "CA",
 	} {
-		if got, ok := countryCode(name); !ok || got != want {
+		got, ok := countryCode(name)
+		if want == "" { // diacritics are not folded: an ASCII respelling is unknown
+			if ok {
+				t.Errorf("countryCode(%q) = %q; want no code", name, got)
+			}
+			continue
+		}
+		if !ok || got != want {
 			t.Errorf("countryCode(%q) = %q, %v; want %q", name, got, ok, want)
 		}
 	}
-	for _, name := range []string{"", "Atlantis", "ZZ", "EU"} {
+	// Not CLDR's current English name under the folding, so unknown here (the
+	// caller keeps the name as desc): older or ISO-official names, a fiction,
+	// a withdrawn code, a non-country region.
+	for _, name := range []string{"", "Atlantis", "Czech Republic", "Russian Federation", "Viet Nam", "ZZ", "EU", "AN", "SU", "YU", "001"} {
 		if got, ok := countryCode(name); ok {
 			t.Errorf("countryCode(%q) = %q; want no code", name, got)
 		}

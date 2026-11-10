@@ -1287,30 +1287,26 @@ func pastToPassive(verb string) string {
 }
 
 // place is an OCSF Geo Location as the sentence says it: the city and the
-// country, the region standing in for a missing city, the country alone when
-// that is all there is; "" when the object has none of them. A location with
-// no country code carries the country as the source named it in desc
-// (adr/0208), which stands in for the code.
+// country code, the region standing in for a missing city, the country alone
+// when that is all there is; "" when the object has none of them.
 func (r *renderer) place(path string) string {
 	city := r.str(path + ".city")
 	if city == "" {
 		city = r.str(path + ".region")
 	}
-	return joinNonEmpty(", ", city, r.country(path))
+	return joinNonEmpty(", ", city, r.str(path+".country"))
 }
 
-func (r *renderer) country(path string) string {
-	if c := r.str(path + ".country"); c != "" {
-		return c
-	}
-	return r.str(path + ".desc")
-}
-
-// locationText is the Location field: city, region and country, and who
-// reported them when the event says (OCSF location.provider) — a geolocation
-// provider's reading of an address, not where a person was.
+// locationText is the Location field: city, region and country code; the
+// location's description (OCSF desc, free text as the producer wrote it,
+// which for a source that named a country no code is known for is that
+// name); and who reported the place when the event says (OCSF
+// location.provider) — a geolocation provider's reading of an address, not
+// where a person was.
 func (r *renderer) locationText(path string) string {
-	text := joinNonEmpty(", ", r.str(path+".city"), r.str(path+".region"), r.country(path))
+	text := joinNonEmpty(" · ",
+		joinNonEmpty(", ", r.str(path+".city"), r.str(path+".region"), r.str(path+".country")),
+		r.str(path+".desc"))
 	if text == "" {
 		return ""
 	}

@@ -40,9 +40,18 @@ model.
   raw Okta event stays under `okta` as before.
   - **The country code comes from the country's English name in the Unicode
     CLDR data `golang.org/x/text` carries** (`language/display`, already a
-    dependency of the module), matched case-insensitively; a two-letter code
-    given as one is accepted. No table is kept in the adapter and nothing is
-    guessed: a name CLDR does not know yields no code, and the name is
+    dependency of the module). Both sides are folded before matching: case,
+    "&" and "and", a leading "St." and "Saint", the curly apostrophe, a
+    trailing parenthetical, the "SAR China" suffix and Macao's two
+    spellings, spacing; so the spellings a geolocation source uses
+    ("Trinidad and Tobago", "Hong Kong", "Myanmar", "Saint Lucia") meet
+    CLDR's. Diacritics are not folded: "São Tomé" matches, "Sao Tome" does
+    not. A two-letter code given as one is accepted and
+    canonicalized ("UK" to "GB"), and held to the same test as a name: a
+    withdrawn code CLDR names no country by ("AN", "SU") is not a code. No
+    table is kept in the adapter and nothing is guessed: a name that is not
+    CLDR's current English name under the folding ("Czech Republic",
+    "Russian Federation", "Viet Nam") yields no code, and the name is
     carried in `desc` ("the description of the geographical location")
     beside the rest of the place, so what Okta said is never lost and
     `country` never holds a value that is not a code. A name alone with no
@@ -67,14 +76,18 @@ model.
 - **The event view says the place after the source it names.** The
   authentication sentence reads "… from 203.0.113.5 in Toronto, CA" (the
   region standing in for a missing city, the country alone when that is all
-  there is, `desc` standing in for a missing code), only when the sentence
-  names a source address: without one the place would read as the host's.
-  The sentence names a source by its address today, as before; a source
-  given by hostname alone is not in the sentence and so neither is its
-  place. A Location field carries city, region and country, with "reported
-  by <provider>" when the event names one, whether or not the sentence has
-  the place. The place is not a group-by key (adr/0095): two sign-ins from
-  one address fold together whatever the provider said of it.
+  there is), only when the sentence names a source address: without one the
+  place would read as the host's. The sentence names a source by its
+  address today, as before; a source given by hostname alone is not in the
+  sentence and so neither is its place. A Location field carries city,
+  region and country, then the location's `desc` as the free text OCSF
+  defines it to be, whoever wrote it (for the adapter above, a country name
+  no code is known for; for another producer, whatever it described), then
+  "reported by <provider>" when the event names one, whether or not the
+  sentence has the place. The view reads OCSF, not one adapter's
+  convention: `desc` is never shown as the country. The place is not a
+  group-by key (adr/0095): two sign-ins from one address fold together
+  whatever the provider said of it.
 
 ## Alternatives rejected
 
