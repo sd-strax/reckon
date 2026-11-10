@@ -538,9 +538,15 @@ func (r *renderer) authentication() {
 	r.clause(" from ", src)
 	// The source's reported place (adr/0208) reads after the address it
 	// belongs to, never alone: without a source it would read as the host's.
+	// Who located it rides in the sentence, since the export and the timeline
+	// read the sentence alone and a geolocation provider's reading of an
+	// address is not where the person was.
 	place := r.place("src_endpoint.location")
 	if !src.empty() && place != "" {
 		r.text(" in " + place)
+		if p := r.str("src_endpoint.location.provider"); p != "" {
+			r.text(" (located by " + p + ")")
+		}
 	}
 	if failed {
 		r.text(" failed")

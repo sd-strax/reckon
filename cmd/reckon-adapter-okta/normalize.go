@@ -107,14 +107,13 @@ const geoProvider = "okta"
 // geoLocation reshapes Okta's client.geographicalContext into an OCSF Geo
 // Location object (adr/0208): city; region from Okta's state, carried as the
 // name Okta gives (OCSF names the field a subdivision code; Okta has no code);
-// country as the ISO 3166-1 alpha-2 code OCSF requires, found from the full
-// name Okta sends (countryCode), the name itself kept as desc when no code is
-// known for it; the postal code as a string (Okta's examples send both a
+// the country name Okta gives as desc, verbatim — OCSF's country is the ISO
+// alpha-2 code, Okta sends a name, and reckon carries the name rather than
+// guess the code; the postal code as a string (Okta's examples send both a
 // number and a string; a number has lost any leading zero before it reaches
 // here); lat and long from geolocation (OCSF deprecated coordinates in 1.2.0
-// for these two); and the provider. nil when none of city, region, country
-// and postal code is present — OCSF requires at least one of them for a
-// location to stand.
+// for these two); and the provider. nil when the context names no place at
+// all (coordinates alone are not one).
 func geoLocation(e map[string]any) map[string]any {
 	geo, _ := digAny(e, "client", "geographicalContext").(map[string]any)
 	if geo == nil {
@@ -128,16 +127,12 @@ func geoLocation(e map[string]any) map[string]any {
 		loc["region"] = v
 	}
 	if v := strings.TrimSpace(str(geo["country"])); v != "" {
-		if code, ok := countryCode(v); ok {
-			loc["country"] = code
-		} else {
-			loc["desc"] = v
-		}
+		loc["desc"] = v
 	}
 	if v := scalarString(geo["postalCode"]); v != "" {
 		loc["postal_code"] = v
 	}
-	if len(loc) == 0 || (len(loc) == 1 && loc["desc"] != nil) {
+	if len(loc) == 0 {
 		return nil
 	}
 	if lat, ok := toFloat(digAny(geo, "geolocation", "lat")); ok {

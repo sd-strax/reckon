@@ -29,38 +29,23 @@ model.
 ## Decision
 
 - **The adapter maps `geographicalContext` onto an OCSF Geo Location at
-  `src_endpoint.location`.** `city`; `region` from Okta's `state`; `country`
-  as the ISO 3166-1 alpha-2 code OCSF requires, found from the full name
-  Okta sends; `postal_code` as a string (Okta's documented examples send
-  both a number and a string); `lat` and `long` from `geolocation.lat` and
-  `lon`, not the `coordinates` pair OCSF deprecated in 1.2.0 in their
-  favour. The object is omitted when none of city, region, country and
-  postal code is present: OCSF requires at least one of them for a location
-  to stand, and a bare coordinate pair is not a place the view can say. The
-  raw Okta event stays under `okta` as before.
-  - **The country code comes from the country's English name in the Unicode
-    CLDR data `golang.org/x/text` carries** (`language/display`, already a
-    dependency of the module). Both sides are folded before matching: case,
-    "&" and "and", a leading "St." and "Saint", the article "the", the
-    curly apostrophe, a trailing parenthetical, the "SAR China" suffix and
-    Macao's two spellings, spacing; so the spellings a geolocation source
-    uses ("Trinidad and Tobago", "Hong Kong", "Myanmar", "Saint Lucia",
-    "The Bahamas") meet CLDR's. Diacritics are not folded: "São Tomé"
-    matches, "Sao Tome" does not. A two-letter code given as one is
-    accepted when CLDR canonicalizes it to a current country ("UK" to "GB",
-    "DD" to "DE"), and held to the same test as a name: a withdrawn code
-    CLDR names no country by ("AN", "SU") is not a code. No table is kept
-    in the adapter and nothing is guessed: a name that is not the English
-    name in the shipped CLDR tables under the folding yields no code, and
-    the name is carried in `desc` ("the description of the geographical
-    location") beside the rest of the place, so what Okta said is never
-    lost and `country` never holds a value that is not a code. That covers
-    older and ISO-official forms ("Czech Republic", "Russian Federation",
-    "Viet Nam") and equally newer names the shipped tables predate
-    ("Eswatini", "North Macedonia", "Cabo Verde", "Türkiye", where x/text
-    v0.33.0 still says "Swaziland", "Macedonia", "Cape Verde", "Turkey");
-    the latter close when x/text moves, with no change here. A name alone
-    with no code is not a place.
+  `src_endpoint.location`.** `city`; `region` from Okta's `state`; the
+  country name Okta sends, verbatim, as `desc`; `postal_code` as a string
+  (Okta's documented examples send both a number and a string); `lat` and
+  `long` from `geolocation.lat` and `lon`, not the `coordinates` pair OCSF
+  deprecated in 1.2.0 in their favour. The object is omitted when the
+  context names no place at all: a bare coordinate pair is not a place the
+  view can say. The raw Okta event stays under `okta` as before.
+  - **The country rides as the name Okta sends, in `desc`; no code is
+    guessed.** OCSF's `country` is the ISO 3166-1 alpha-2 code and Okta
+    sends a full name ("Canada", "Türkiye"). Translating one into the other
+    is a mapping reckon would have to own and keep current across every
+    provider's spelling, for a two-letter code nothing in reckon reads: the
+    analyst reads the place as text in the inspector and the model reads
+    the raw event. So the name is carried verbatim as `desc`, "the
+    description of the geographical location", and `country` is not
+    written. A fixture or another adapter that holds a code writes
+    `country`; the view reads whichever is there.
   - Okta's `state` is a name ("Ontario"), and OCSF names `region` "the
     alphanumeric code that identifies the principal subdivision". Okta
     carries no code, and OCSF has no other subdivision field, so the name is
@@ -78,21 +63,26 @@ model.
   OCSF event, where the model already reads it. `03 §4.2` lists
   `src_endpoint.location` as an optional input that is carried, not
   extracted.
-- **The event view says the place after the source it names.** The
-  authentication sentence reads "… from 203.0.113.5 in Toronto, CA" (the
-  region standing in for a missing city, the country alone when that is all
-  there is), only when the sentence names a source address: without one the
-  place would read as the host's. The sentence names a source by its
-  address today, as before; a source given by hostname alone is not in the
-  sentence and so neither is its place. A Location field carries city,
-  region and country, then the location's `desc` as the free text OCSF
-  defines it to be, whoever wrote it (for the adapter above, a country name
-  no code is known for; for another producer, whatever it described), then
-  "reported by <provider>" when the event names one, whether or not the
-  sentence has the place. The view reads OCSF, not one adapter's
-  convention: `desc` is never shown as the country. The place is not a
-  group-by key (adr/0095): two sign-ins from one address fold together
-  whatever the provider said of it.
+- **The event view says the place, and who located it, after the source it
+  names.** The authentication sentence reads "… from 203.0.113.5 in
+  Toronto, CA (located by okta)" (the region standing in for a missing
+  city, the country alone when that is all there is; the parenthesis only
+  when the event names a provider), only when the sentence names a source
+  address: without one the place would read as the host's. The attribution
+  is in the sentence, not only in a field, because the markdown export and
+  the Story timeline read the sentence alone, and a report that said
+  "Toronto" without saying it was a geolocation provider's reading of an
+  address would state as fact what the record holds as a provider's claim.
+  The sentence names a source by its address today, as before; a source
+  given by hostname alone is not in the sentence and so neither is its
+  place. A Location field carries city, region and country, then the
+  location's `desc` as the free text OCSF defines it to be, whoever wrote
+  it (for the adapter above, the country name Okta sent; for another
+  producer, whatever it described), then "reported by <provider>"
+  when the event names one, whether or not the sentence has the place. The
+  view reads OCSF, not one adapter's convention: `desc` is never shown as
+  the country. The place is not a group-by key (adr/0095): two sign-ins
+  from one address fold together whatever the provider said of it.
 
 ## Alternatives rejected
 
@@ -106,9 +96,18 @@ model.
   the alpha-2 code; a name there is a value no consumer of the schema can
   rely on, and the fixture's events would carry codes while real ones
   carried names.
-- **A country table in the adapter.** A hand-kept list of two hundred and
-  fifty names drifts from both Okta's spelling and ISO's; the CLDR data the
-  module already ships is maintained for exactly this.
+- **Translating the name into the code.** Tried in review, through the
+  CLDR English region names `golang.org/x/text` carries plus a list of
+  ISO's own short names and the renames those tables predate. It worked
+  for most names and kept needing one more entry ("Türkiye", "Eswatini",
+  "Hong Kong", "Saint Vincent and the Grenadines"), each a round of review,
+  for a field no reader in reckon consults. A mapping that has to track
+  every provider's spelling is a product of its own, not a line in an
+  adapter.
+- **Attribution in the Location field alone.** The inspector would say who
+  located the address; the export and the timeline, which carry only the
+  sentence, would not, and the report is where a reader cannot open the
+  inspector.
 - **Dropping Okta's `state`** because it is a name, not a code. The field is
   the only subdivision OCSF offers, and a name an analyst can read beats an
   absent value.
@@ -125,9 +124,6 @@ model.
   holds. No migration, no API shape change. The wire samples the workbench's
   decoders are tested against are unchanged: none of them carries a located
   sign-in.
-- `golang.org/x/text` moves from an indirect to a direct dependency of the
-  module (same version, BSD-3, already shipped); `language/display` adds its
-  name tables to the Okta adapter binary.
 - Other adapters that learn a place from their source map it to the same
-  object and set their own `provider`, resolving a country name the same
-  way if their source sends one; the view needs nothing more.
+  object and set their own `provider`, a country name as `desc` and a code
+  as `country`; the view needs nothing more.

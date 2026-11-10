@@ -51,7 +51,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 		"src_endpoint":{"ip":"203.0.113.5","location":{"city":"Toronto","region":"Ontario","country":"CA","provider":"okta"}},
 		"logon_type":"Interactive","status":"SUCCESS"}`)
 	v := Render(Event{ClassUID: 3002, Payload: p}, nil)
-	if got := sentenceText(v); got != "m.reyes interactive logon to corp-sso from 203.0.113.5 in Toronto, CA" {
+	if got := sentenceText(v); got != "m.reyes interactive logon to corp-sso from 203.0.113.5 in Toronto, CA (located by okta)" {
 		t.Errorf("sentence = %q", got)
 	}
 	if f, ok := fieldValue(v, "Location"); !ok || f.Value != "Toronto, Ontario, CA · reported by okta" {
@@ -84,7 +84,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	// own description read the same way, after the place.
 	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Atlantis City","desc":"Atlantis","provider":"okta"}}}`)
 	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
-	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Atlantis City" {
+	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Atlantis City (located by okta)" {
 		t.Errorf("sentence = %q", got)
 	}
 	if f, _ := fieldValue(v, "Location"); f.Value != "Atlantis City · Atlantis · reported by okta" {
