@@ -951,6 +951,24 @@ any standard OCSF class. Two options, in order of preference:
 The choice is per-tool. A custom CMDB integration probably warrants a custom
 class; a one-off enrichment script probably doesn't.
 
+### 4.15 OCSF device_inventory_info (class_uid 5001) → STIX
+
+Input: OCSF device_inventory_info with `device.*` (hostname, domain, uid,
+uid_alt, mac, ip, agent_list, os, owner, criticality), `time`.
+
+Output:
+
+- `x-host` SCO for the device, shaped by the shared host extractor (§4
+  preamble, §7.2). An inventory record that names the hostname beside the
+  source's device id or the MAC also yields the weak host that identifier
+  mints, outside `object_refs`, with an `aliases` edge to the strong host:
+  this is the record through which a source's later activity named only by
+  its device id joins the host (§7.3, adr/0211).
+- `ipv4-addr` / `ipv6-addr` SCO for `device.ip` if present.
+- One `ObservedData` referencing the host and address, its extensions
+  carrying `os_name`, `owner_name` and `criticality` when present.
+- Edges as in §4.1.
+
 ---
 
 ## 5. Extension Mechanism

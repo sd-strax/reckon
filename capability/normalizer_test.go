@@ -448,7 +448,7 @@ func TestHostNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
 		{1007, 2}, {3002, 2}, {4001, 2}, {4003, 2}, {1001, 2}, {1003, 2}, {1006, 2}, {1009, 2},
-		{3005, 2}, {4011, 2}, {2004, 2}, {4009, 1}, {2005, 1}, {0, 1},
+		{3005, 2}, {4011, 2}, {2004, 2}, {5001, 2}, {4009, 1}, {2005, 1}, {0, 1},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {

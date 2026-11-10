@@ -1,19 +1,34 @@
 package capability
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/capability/ocsfview"
 	"github.com/sd-strax/reckon/identity"
 )
 
+// inventoryEvent is a device_inventory_info record (class 5001) from tool.
+func inventoryEvent(tool string, dev map[string]any) OcsfEvent {
+	return OcsfEvent{
+		ID: uuid.Must(uuid.NewV7()), ClassUID: 5001, ClassName: "Device Inventory Info",
+		Time: time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC), RecordedAt: time.Now(), SourceTool: tool,
+		Payload: map[string]any{"class_uid": 5001, "device": dev},
+	}
+}
+
 // TestHostIdentityConformance is the host identity conformance check
-// (adr/0211, `make conformance`): one machine as three tools report it
-// normalizes to one strong x-host, each record that carries a device id also
-// yields the weak host that id alone mints, aliased to the strong host and kept
-// out of the observation's object_refs, and a later record that names the
-// machine by its device id alone lands on that weak host, so it reads under
-// the strong one through the alias. An adapter for a live source is held to
-// the same properties over its own captures.
+// (adr/0211, `make conformance`): one machine as three tools' inventories
+// report it normalizes to one strong x-host, each record that carries a
+// device id also yields the weak host that id alone mints, aliased to the
+// strong host and kept out of the observation's object_refs, and a later
+// activity record that names the machine by its device id alone lands on that
+// weak host, so it reads under the strong one through the alias. An adapter
+// for a live source is held to the same properties over its own captures.
 func TestHostIdentityConformance(t *testing.T) {
 	reg := testRegistry()
 	ids := reg.Identity()
@@ -50,7 +65,7 @@ func TestHostIdentityConformance(t *testing.T) {
 	strong := ids.Host(identity.HostIdentity{Hostname: "ws1"})
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			res, err := reg.Normalize(hostEvent(c.tool, c.device))
+			res, err := reg.Normalize(inventoryEvent(c.tool, c.device))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,18 +105,63 @@ func TestHostIdentityConformance(t *testing.T) {
 		})
 	}
 
-	// A record from the second tool naming the machine by its agent id alone
-	// mints the weak host the second record aliased, so it joins the strong
-	// host through that alias.
+	// Inventory first, activity after: the second tool's inventory named the
+	// hostname beside its agent id (above); its process record naming the
+	// agent id alone mints the weak host that inventory aliased, so it joins
+	// the strong host through that alias.
 	res, err := reg.Normalize(hostEvent("host-ids", map[string]any{"uid": "007"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	weak := ids.Host(identity.HostIdentity{SourceTool: "host-ids", SourceUID: "007"})
 	if got := scoOfType(res.SCOs, identity.TypeHost); got != weak {
-		t.Errorf("device-id-only record minted %s; want the aliased weak host %s", got, weak)
+		t.Errorf("device-id-only process record minted %s; want the aliased weak host %s", got, weak)
 	}
 	if !refsContain(res.ObservedData[0].ObjectRefs, weak) {
 		t.Error("the device-id-only record's host is not in its object_refs")
+	}
+}
+
+// TestDeviceInventoryFixture: the scenario's host-context record (class 5001)
+// mints the WIN-FILE01 host the scenario's other events mint, with its
+// properties and the inventory facts in the extensions, and still renders
+// bound to it.
+func TestDeviceInventoryFixture(t *testing.T) {
+	raw, err := os.ReadFile("../fixtures/lateral-movement-via-rdp/host-context-1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		OCSF map[string]any `json:"ocsf"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	reg := testRegistry()
+	evt := makeEvent(f.OCSF)
+	res, err := reg.Normalize(evt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := reg.Identity().Host(identity.HostIdentity{Hostname: "WIN-FILE01"})
+	h, ok := scoByID(res.SCOs, host)
+	if !ok || h.Properties["hostname"] != "WIN-FILE01" || h.Properties["domain"] != "CONTOSO" {
+		t.Fatalf("inventory host = %+v (found %v); want WIN-FILE01 in CONTOSO", h, ok)
+	}
+	if res.ObservedData[0].Provenance.Normalizer != "device_inventory_info" || !refsContain(res.ObservedData[0].ObjectRefs, host) {
+		t.Errorf("observed-data = %+v", res.ObservedData[0])
+	}
+	ext := res.ObservedData[0].Extensions
+	if ext["os_name"] != "Windows Server 2022" || ext["owner_name"] != "File Services" || ext["criticality"] != "high" {
+		t.Errorf("extensions = %v", ext)
+	}
+
+	ents := make([]ocsfview.Entity, 0, len(res.SCOs))
+	for _, s := range res.SCOs {
+		ents = append(ents, ocsfview.Entity{Ref: string(s.ID), Type: s.Type, Props: s.Properties})
+	}
+	v := ocsfview.Render(ocsfview.Event{ClassUID: 5001, Payload: f.OCSF}, ents)
+	if len(v.Sentence) == 0 || v.Sentence[0].T != "entity" || v.Sentence[0].Ref != string(host) {
+		t.Errorf("rendered sentence = %+v; want it to open on the host", v.Sentence)
 	}
 }

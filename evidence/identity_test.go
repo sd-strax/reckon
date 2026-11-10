@@ -126,30 +126,35 @@ func TestAliasSet_DistinctCut(t *testing.T) {
 	}
 
 	assertEdge(t, "distinct-from", c, a, false)
-	if got, _ := s.AliasSet(ctx, string(a)); !sameSet(got, a, b) {
-		t.Errorf("AliasSet(a) = %v; want {a, b}: c is asserted distinct from a", got)
+	// The weak host both claim is disputed: it joins neither machine and
+	// neither machine reads it, so its events are attributed to no one until
+	// the analyst says which; nothing breaks the tie.
+	for _, from := range []identity.STIXID{a, b, c} {
+		if got, _ := s.AliasSet(ctx, string(from)); !sameSet(got, from) {
+			t.Errorf("AliasSet(%s) = %v; want it alone", from, got)
+		}
 	}
-	if got, _ := s.AliasSet(ctx, string(c)); !sameSet(got, c, b) {
-		t.Errorf("AliasSet(c) = %v; want {c, b}", got)
+	// The identity views still list every edge, so the dispute is visible.
+	for from, want := range map[identity.STIXID]int{a: 1, b: 2, c: 1} {
+		v, err := s.HostIdentity(ctx, string(from))
+		if err != nil || len(v.Aliases) != want {
+			t.Errorf("%s's identity view aliases = %+v, %v; want %d", from, v.Aliases, err, want)
+		}
 	}
-	// The weak host both claim joins neither: no set holds both ends of a live
-	// distinct-from pair and nothing breaks the tie, so b reads alone until
-	// the analyst says which machine it is.
-	if got, _ := s.AliasSet(ctx, string(b)); !sameSet(got, b) {
-		t.Errorf("AliasSet(b) = %v; want b alone", got)
-	}
-	v, err := s.HostIdentity(ctx, string(b))
-	if err != nil || len(v.Aliases) != 2 {
-		t.Errorf("b's identity view = %+v, %v; want both aliases listed", v.Aliases, err)
+	if v, _ := s.HostIdentity(ctx, string(a)); len(v.Aliases) != 1 || v.Aliases[0].OtherRef != string(b) {
+		t.Errorf("a's identity view = %+v; want its alias to b listed", v.Aliases)
 	}
 
-	// A distinct-from on an aliased pair removes that edge from the walk.
+	// The analyst says b is not a: b is c's, and reads with it.
 	assertEdge(t, "distinct-from", a, b, false)
 	if got, _ := s.AliasSet(ctx, string(a)); !sameSet(got, a) {
 		t.Errorf("AliasSet(a) = %v; want a alone", got)
 	}
 	if got, _ := s.AliasSet(ctx, string(b)); !sameSet(got, b, c) {
 		t.Errorf("AliasSet(b) = %v; want {b, c}", got)
+	}
+	if got, _ := s.AliasSet(ctx, string(c)); !sameSet(got, c, b) {
+		t.Errorf("AliasSet(c) = %v; want {c, b}", got)
 	}
 }
 
@@ -224,6 +229,12 @@ func TestHostIdentity(t *testing.T) {
 		event("host-ids", 2, map[string]any{"hostname": "ws1.corp.example", "uid": "007", "agent_list": []any{map[string]any{"uid": "007-sensor"}}}),
 		event("host-ids", 3, map[string]any{"uid": "007", "ip": "10.0.0.6"}), // the agent id alone: lands on the weak host
 		event("host-ids", 4, map[string]any{"hostname": "ws2", "domain": "OTHER", "uid": "008"}),
+		// Two weak hosts no record joins: one on a MAC, one on a source's id.
+		event("lab-edr", 5, map[string]any{"mac": "AA-BB-CC-DD-EE-FF", "uid": "zz9", "uid_alt": "hw-9", "domain": "LAB", "ip": "10.9.9.9"}),
+		event("lab-ids", 6, map[string]any{"uid": "u-1", "ip": "10.8.8.8"}),
+		// The MAC host again, its MAC in the dotted form: one host for
+		// identity, and matched by seen-as.
+		event("lab-switch", 7, map[string]any{"mac": "aabb.ccdd.eeff", "ip": "10.9.9.10"}),
 	}
 	res := capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: evts}
 	for _, e := range evts {
@@ -269,13 +280,13 @@ func TestHostIdentity(t *testing.T) {
 		t.Errorf("distinct edge = %+v", d)
 	}
 
-	// Seen as: both domain forms, every id by source, the address of the
-	// records naming ws1; ws2's record and the hostless record contribute
-	// nothing a hostname matches.
+	// Seen as: both domain forms, every id by source, and the addresses of the
+	// records naming ws1, the one naming it by its agent id alone included;
+	// ws2's record contributes nothing.
 	want := SeenAs{
 		Domains: []string{"corp", "corp.example"},
 		Agents:  []SourceID{{"forensics-client", "C.1"}, {"host-ids", "007"}, {"host-ids", "007-sensor"}},
-		IPs:     []string{"10.0.0.5"},
+		IPs:     []string{"10.0.0.5", "10.0.0.6"},
 	}
 	if !slices.Equal(v.SeenAs.Domains, want.Domains) || !slices.Equal(v.SeenAs.Agents, want.Agents) || !slices.Equal(v.SeenAs.IPs, want.IPs) {
 		t.Errorf("seen as = %+v; want %+v", v.SeenAs, want)
@@ -289,6 +300,24 @@ func TestHostIdentity(t *testing.T) {
 	if len(wv.Aliases) != 1 || wv.Aliases[0].OtherRef != string(strong) || !slices.Equal(wv.SeenAs.Domains, want.Domains) {
 		t.Errorf("weak host view = %+v", wv)
 	}
+	// An unjoined weak host shows its own records' facts: matched by its MAC,
+	// or by the source's id it was minted on.
+	for _, c := range []struct {
+		ref  identity.STIXID
+		want SeenAs
+	}{
+		{ids.Host(identity.HostIdentity{MAC: "aa:bb:cc:dd:ee:ff"}), SeenAs{Domains: []string{"lab"}, Agents: []SourceID{{"lab-edr", "hw-9"}, {"lab-edr", "zz9"}}, IPs: []string{"10.9.9.10", "10.9.9.9"}}},
+		{ids.Host(identity.HostIdentity{SourceTool: "lab-ids", SourceUID: "u-1"}), SeenAs{Domains: []string{}, Agents: []SourceID{{"lab-ids", "u-1"}}, IPs: []string{"10.8.8.8"}}},
+	} {
+		got, err := s.HostIdentity(ctx, string(c.ref))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(got.SeenAs.Domains, c.want.Domains) || !slices.Equal(got.SeenAs.Agents, c.want.Agents) || !slices.Equal(got.SeenAs.IPs, c.want.IPs) {
+			t.Errorf("unjoined weak host %s seen as = %+v; want %+v", c.ref, got.SeenAs, c.want)
+		}
+	}
+
 	// The weak host's own event is under the strong host.
 	byHost, err := s.InvestigationEvents(ctx, inv, EventFilter{Entity: string(strong)})
 	if err != nil || byHost.Total != 3 {

@@ -44,6 +44,7 @@ func NewRegistry(r *identity.Resolver) *Registry {
 	reg.Register(&emailNormalizer{r: r})
 	reg.Register(&emailURLNormalizer{r: r})
 	reg.Register(&caseNormalizer{r: r})
+	reg.Register(&deviceInventoryNormalizer{r: r})
 	// detection_finding recurses into the registry to normalize nested
 	// evidence, so it takes a back-reference to reg.
 	reg.Register(&detectionNormalizer{r: r, reg: reg})

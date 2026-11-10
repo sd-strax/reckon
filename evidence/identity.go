@@ -36,16 +36,19 @@ const aliasDepth = 8
 //     most aliasDepth steps, never crossing an aliases edge whose two ends a
 //     live distinct-from separates (an edge whose payload carries a
 //     withdrawn_at is not live);
-//   - the cut: drop every member asserted distinct from ref, and both ends of
-//     every live distinct-from pair whose two ends are both in the closure
-//     (ref itself is never dropped);
+//   - the cut: drop every member asserted distinct from ref, both ends of
+//     every live distinct-from pair whose two ends are both in the closure,
+//     and every member aliased (by an edge no distinct-from cuts) to both
+//     ends of a live distinct-from pair, whether or not those ends survive;
+//     ref itself is never dropped;
 //   - the component: what remains connected to ref through aliases edges;
 //     a member reachable only through a dropped one falls out.
 //
 // So a returned set never holds both ends of a live distinct-from pair. A
-// weak host two machines asserted apart both claim joins neither until the
-// analyst says which; its identity view still lists both aliases, so the
-// ambiguity is visible. A ref with no edges is its own set.
+// weak host two machines asserted apart both claim is disputed: it joins
+// neither and neither reads it, so its events are attributed to no machine
+// until the analyst says which. The identity views still list every alias,
+// so the dispute is visible. A ref with no edges is its own set.
 func (s *Store) AliasSet(ctx context.Context, ref string) ([]string, error) {
 	if _, ok := refUUID(ref); !ok {
 		return nil, ErrMalformedRef
@@ -177,6 +180,19 @@ func (g aliasGraph) walk(seed uuid.UUID) []uuid.UUID {
 			dropped[y] = true
 		}
 	}
+	// A member aliased to both ends of a live distinct-from pair is disputed:
+	// two machines asserted apart both claim it, so it joins neither.
+	for m := range closure {
+		if m == seed {
+			continue
+		}
+		for pair := range g.apart {
+			if g.aliased(m, pair[0]) && g.aliased(m, pair[1]) {
+				dropped[m] = true
+				break
+			}
+		}
+	}
 	component := g.reach(seed, dropped)
 	out := make([]uuid.UUID, 0, len(component))
 	for id := range component {
@@ -191,6 +207,12 @@ func (g aliasGraph) walk(seed uuid.UUID) []uuid.UUID {
 		return strings.Compare(a.String(), b.String())
 	})
 	return out
+}
+
+// aliased reports whether a live aliases edge joins a and b that no live
+// distinct-from between them cuts.
+func (g aliasGraph) aliased(a, b uuid.UUID) bool {
+	return !g.apart[[2]uuid.UUID{a, b}] && slices.Contains(g.joined[a], b)
 }
 
 // reach walks the persisted nodes joined to seed by aliases edges, at most
@@ -266,9 +288,11 @@ type HostIdentityView struct {
 // HostIdentity reads a host's identity view. The edges are the ones with ref
 // at either end. SeenAs reads the events whose observed-data names ref or a
 // member of its alias set, and keeps the device objects (device, src_endpoint,
-// dst_endpoint, and the same under a detection's evidence) whose hostname
-// folds to a hostname the set's hosts carry; a set with no hostname, a weak
-// host never joined, has seen nothing a hostname can match.
+// dst_endpoint, and the same under a detection's evidence) that name one of
+// the set's hosts: by hostname, by MAC, or by the (source tool, device uid) a
+// host was seen under. So an unjoined weak host shows its own records' facts,
+// and a record naming a joined host by its device id alone adds to the
+// strong host's.
 func (s *Store) HostIdentity(ctx context.Context, ref string) (HostIdentityView, error) {
 	id, ok := refUUID(ref)
 	if !ok {
@@ -282,14 +306,14 @@ func (s *Store) HostIdentity(ctx context.Context, ref string) (HostIdentityView,
 	if err != nil {
 		return HostIdentityView{}, err
 	}
-	names, err := s.hostnames(ctx, set)
+	match, err := s.hostMatchers(ctx, set)
 	if err != nil {
 		return HostIdentityView{}, err
 	}
-	if len(names) == 0 {
-		return out, nil
+	if match.empty() {
+		return out, nil // nothing a device object could be matched on
 	}
-	out.SeenAs, err = s.seenAs(ctx, set, names)
+	out.SeenAs, err = s.seenAs(ctx, set, match)
 	if err != nil {
 		return HostIdentityView{}, err
 	}
@@ -385,9 +409,56 @@ func identityEdge(payload []byte, created time.Time) IdentityEdge {
 	return e
 }
 
-// hostnames returns the canonical short hostnames the x-hosts among refs
-// carry as their hostname property.
-func (s *Store) hostnames(ctx context.Context, refs []string) ([]string, error) {
+// hostMatch is what a device object may name a host set by: canonical short
+// hostnames, folded MACs, and (source tool, device uid) pairs, tool folded.
+type hostMatch struct {
+	names, macs, tools, uids []string
+}
+
+func (m hostMatch) empty() bool { return len(m.names) == 0 && len(m.macs) == 0 && len(m.uids) == 0 }
+
+func (m *hostMatch) addName(v string) {
+	if short, _ := identity.SplitHostname(v); short != "" && !slices.Contains(m.names, short) {
+		m.names = append(m.names, short)
+	}
+}
+
+func (m *hostMatch) addMAC(v string) {
+	if mac := foldMAC(v); mac != "" && !slices.Contains(m.macs, mac) {
+		m.macs = append(m.macs, mac)
+	}
+}
+
+func (m *hostMatch) addSource(tool, uid string) {
+	tool, uid = strings.ToLower(strings.TrimSpace(tool)), strings.TrimSpace(uid)
+	if uid == "" {
+		return
+	}
+	for i := range m.uids {
+		if m.tools[i] == tool && m.uids[i] == uid {
+			return
+		}
+	}
+	m.tools, m.uids = append(m.tools, tool), append(m.uids, uid)
+}
+
+// foldMAC folds a MAC to its bare lowercase hex digits, so every form
+// identity's canonical MAC accepts (colon, dash, dotted, bare) folds alike.
+// The seen-as query folds the same way in SQL; the two must agree.
+func foldMAC(v string) string {
+	return strings.ToLower(strings.Map(func(r rune) rune {
+		if strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return r
+		}
+		return -1
+	}, v))
+}
+
+// hostMatchers reads what the x-hosts among refs can be matched on: a strong
+// host's hostname, mac, source_ids and (with no source) device_uid; a weak
+// host's mac, or source_tool and device_uid.
+func (s *Store) hostMatchers(ctx context.Context, refs []string) (hostMatch, error) {
+	var m hostMatch
 	ids := make([]uuid.UUID, 0, len(refs))
 	for _, r := range refs {
 		if id, ok := refUUID(r); ok && strings.HasPrefix(r, identity.TypeHost+"--") {
@@ -395,37 +466,49 @@ func (s *Store) hostnames(ctx context.Context, refs []string) ([]string, error) 
 		}
 	}
 	if len(ids) == 0 {
-		return nil, nil
+		return m, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT COALESCE(payload->'properties'->>'hostname', '') FROM stix_objects
+		SELECT COALESCE(payload->'properties', '{}'::jsonb) FROM stix_objects
 		WHERE id = ANY($1) AND type = $2
 	`, uuidArray(ids), identity.TypeHost)
 	if err != nil {
-		return nil, fmt.Errorf("query hostnames: %w", err)
+		return hostMatch{}, fmt.Errorf("query host identifiers: %w", err)
 	}
 	defer rows.Close()
-	var out []string
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, fmt.Errorf("scan hostname: %w", err)
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return hostMatch{}, fmt.Errorf("scan host identifiers: %w", err)
 		}
-		if short, _ := identity.SplitHostname(name); short != "" && !slices.Contains(out, short) {
-			out = append(out, short)
+		var p struct {
+			Hostname   string            `json:"hostname"`
+			MAC        string            `json:"mac"`
+			SourceIDs  map[string]string `json:"source_ids"`
+			SourceTool string            `json:"source_tool"`
+			DeviceUID  string            `json:"device_uid"`
 		}
+		_ = json.Unmarshal(raw, &p)
+		m.addName(p.Hostname)
+		m.addMAC(p.MAC)
+		for tool, uid := range p.SourceIDs {
+			m.addSource(tool, uid)
+		}
+		m.addSource(p.SourceTool, p.DeviceUID)
 	}
-	return out, rows.Err()
+	return m, rows.Err()
 }
 
 // seenAs collects what the device objects of the events referencing any of
-// refs report, for the objects naming one of names. The extraction is SQL:
+// refs report, for the objects that name the host set. The extraction is SQL:
 // each device object (device, src_endpoint, dst_endpoint, at the top level
 // and under a detection's evidence, 03 §4.12) whose hostname folds to a name
 // (an address in the hostname field compared whole, as identity.SplitHostname
-// keeps it) yields its domain, the FQDN's remainder, its uid, uid_alt and the
-// agent_list uids keyed by the event's source tool, and its address.
-func (s *Store) seenAs(ctx context.Context, refs, names []string) (SeenAs, error) {
+// keeps it), whose MAC folds to a MAC, or whose (event source tool, uid) is a
+// pair the set was seen under, yields its domain, the FQDN's remainder, its
+// uid, uid_alt and the agent_list uids keyed by the event's source tool, and
+// its address.
+func (s *Store) seenAs(ctx context.Context, refs []string, match hostMatch) (SeenAs, error) {
 	out := SeenAs{Domains: []string{}, Agents: []SourceID{}, IPs: []string{}}
 	rows, err := s.db.QueryContext(ctx, `
 		WITH ev AS (
@@ -448,14 +531,18 @@ func (s *Store) seenAs(ctx context.Context, refs, names []string) (SeenAs, error
 		named AS (
 			SELECT source_tool, d, h, (h ~ '^[0-9.]+$' OR h LIKE '%:%') AS literal
 			FROM (
-				SELECT source_tool, d, lower(rtrim(btrim(d->>'hostname'), '.')) AS h
+				SELECT source_tool, d, lower(rtrim(btrim(COALESCE(d->>'hostname', '')), '.')) AS h
 				FROM dev WHERE jsonb_typeof(d) = 'object'
 			) z
-			WHERE h <> ''
 		),
+		-- The MAC fold (bare lowercase hex digits) must agree with foldMAC.
 		m AS (
 			SELECT source_tool, d, h, literal FROM named
-			WHERE (CASE WHEN literal THEN h ELSE split_part(h, '.', 1) END) = ANY($2::text[])
+			WHERE (h <> '' AND (CASE WHEN literal THEN h ELSE split_part(h, '.', 1) END) = ANY($2::text[]))
+			   OR lower(regexp_replace(COALESCE(d->>'mac', ''), '[^0-9A-Fa-f]', '', 'g')) = ANY($3::text[])
+			   OR EXISTS (
+				SELECT 1 FROM unnest($4::text[], $5::text[]) AS p(tool, uid)
+				WHERE p.tool = lower(btrim(source_tool)) AND p.uid = btrim(d->>'uid'))
 		)
 		SELECT DISTINCT kind, tool, value FROM (
 			SELECT 'domain' AS kind, '' AS tool, lower(btrim(d->>'domain')) AS value FROM m
@@ -467,7 +554,7 @@ func (s *Store) seenAs(ctx context.Context, refs, names []string) (SeenAs, error
 			UNION ALL SELECT 'ip', '', btrim(d->>'ip') FROM m
 		) x
 		WHERE value IS NOT NULL AND value <> ''
-	`, textArray(refs), textArray(names))
+	`, textArray(refs), textArray(match.names), textArray(match.macs), textArray(match.tools), textArray(match.uids))
 	if err != nil {
 		return SeenAs{}, fmt.Errorf("query seen-as: %w", err)
 	}
