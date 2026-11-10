@@ -19,7 +19,12 @@ import (
 type cloudInventoryNormalizer struct{ r *identity.Resolver }
 
 func (*cloudInventoryNormalizer) ClassUID() int { return 5023 }
-func (*cloudInventoryNormalizer) Version() int  { return 1 }
+
+// Version starts at 2: a 5023 snapshot normalized before this normalizer
+// existed went through the opaque default at version 1, and the
+// ObservedData id carries the version but not the normalizer's name, so a
+// version 1 here would mint the same id and keep the entity-less observation.
+func (*cloudInventoryNormalizer) Version() int { return 2 }
 
 func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

@@ -998,7 +998,12 @@ Normalizers are versioned. The version is recorded in the ObservedData's
 provenance. If a normalizer is improved, prior OcsfEvents can be re-normalized
 into new ObservedData; old ObservedData remains valid (immutable in spirit, even
 if the model permits mutation). Re-normalization writes new ObservedData and
-links them to the same OcsfEvent.
+links them to the same OcsfEvent. The ObservedData id (§7.1) carries the
+version but not the normalizer's name, and the opaque default is version 1,
+so a typed normalizer that takes over a class the default used to handle
+starts at version 2: a payload stored opaque before the normalizer existed
+keeps its row, and the typed observation gets its own id beside it rather
+than colliding with it and being discarded on write.
 
 ### 4.14 Custom OCSF classes for non-standard tools
 

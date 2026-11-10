@@ -565,6 +565,45 @@ func TestShippedExposedBucketScenario(t *testing.T) {
 		t.Errorf("snapshot ext = %v; want the configuration", ext)
 	}
 
+	// Every call is time-scoped: a window before the incident reaches only
+	// the baseline, a window of the bucket's quiet days is a citeable absence,
+	// and a call with no window has open bounds and reaches everything.
+	absent := func(what string, r CapabilityResult) {
+		t.Helper()
+		if len(r.Events) != 0 || r.NullObservation == nil || len(r.ObservedDataRefs) != 1 {
+			t.Errorf("%s: events=%d %v null=%v refs=%d; want COMPLETE, none, one null observation",
+				what, len(r.Events), operations(r), r.NullObservation != nil, len(r.ObservedDataRefs))
+		}
+	}
+	quiet := map[string]any{"from": "2026-07-01T00:00:00Z", "to": "2026-07-02T00:00:00Z"}
+	absent("history(bucket, July 1-2)", call("get_cloud_resource_history", bucket, map[string]any{"window": quiet}))
+	before := map[string]any{"from": "2026-06-12T00:00:00Z", "to": "2026-07-12T00:00:00Z"}
+	if r := call("get_cloud_api_activity", principal, map[string]any{"window": before}); len(r.Events) != 10 {
+		t.Errorf("activity(deploy-ci, before the incident) = %d events %v; want the 10 baseline calls", len(r.Events), operations(r))
+	}
+	if r := call("get_cloud_api_activity", principal, nil); len(r.Events) != 17 {
+		t.Errorf("activity(deploy-ci, no window) = %d events; want all 17 (open bounds)", len(r.Events))
+	}
+	if ops := operations(call("get_cloud_resource_history", bucket, nil)); !slices.Equal(ops, []string{"PutBucketPolicy"}) {
+		t.Errorf("history(bucket, no window) = %v; want PutBucketPolicy", ops)
+	}
+
+	// A resource named rather than identified is scoped: the same name in
+	// another account, or with another type, is not this bucket.
+	scoped := func(account, typ string) map[string]any {
+		return map[string]any{"cloud_resource": map[string]any{
+			"provider": "aws", "name": "acme-internal-exports", "type": typ, "account_uid": account,
+		}}
+	}
+	absent("context(bucket by name, other account)", call("get_cloud_resource_context", scoped("999999999999", "AWS::S3::Bucket"), nil))
+	absent("history(bucket by name, other type)", call("get_cloud_resource_history", scoped("111122223333", "AWS::DynamoDB::Table"), map[string]any{"window": day}))
+	if ops := operations(call("get_cloud_resource_history", scoped("111122223333", "AWS::S3::Bucket"), map[string]any{"window": day})); !slices.Equal(ops, []string{"PutBucketPolicy"}) {
+		t.Errorf("history(bucket by full scope) = %v; want PutBucketPolicy", ops)
+	}
+	if r := call("get_cloud_resource_context", map[string]any{"cloud_resource": map[string]any{"uid": "arn:aws:s3:::acme-internal-exports"}}, nil); len(r.Events) != 1 {
+		t.Errorf("context(bucket by uid alone) = %d events; want the snapshot", len(r.Events))
+	}
+
 	none := call("get_cloud_api_activity", nil, map[string]any{"window": day, "operation": "DeleteBucket"})
 	if len(none.Events) != 0 || none.NullObservation == nil || len(none.ObservedDataRefs) != 1 {
 		t.Errorf("activity(unknown operation): events=%d null=%v refs=%d; want COMPLETE, none, one null observation",

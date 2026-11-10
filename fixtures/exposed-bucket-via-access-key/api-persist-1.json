@@ -39,10 +39,31 @@
         "account.uid": [
           "111122223333",
           null
+        ],
+        "resource.provider": [
+          "aws",
+          null
+        ],
+        "resource.type": [
+          "AWS::IAM::User",
+          null
+        ],
+        "resource.account_uid": [
+          "111122223333",
+          null
+        ],
+        "resource.region": [
+          "us-east-1",
+          null
+        ],
+        "account.provider": [
+          "aws",
+          null
         ]
       }
     },
-    "delay_ms": 25
+    "delay_ms": 25,
+    "time_scoped": true
   },
   "ocsf": {
     "class_uid": 6003,

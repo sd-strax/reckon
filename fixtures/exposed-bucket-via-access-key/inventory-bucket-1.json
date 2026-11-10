@@ -11,6 +11,22 @@
         "resource.name": [
           "acme-internal-exports",
           null
+        ],
+        "resource.provider": [
+          "aws",
+          null
+        ],
+        "resource.type": [
+          "AWS::S3::Bucket",
+          null
+        ],
+        "resource.account_uid": [
+          "111122223333",
+          null
+        ],
+        "resource.region": [
+          "us-east-1",
+          null
         ]
       }
     },

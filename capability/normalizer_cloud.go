@@ -20,7 +20,12 @@ import (
 type apiActivityNormalizer struct{ r *identity.Resolver }
 
 func (*apiActivityNormalizer) ClassUID() int { return 6003 }
-func (*apiActivityNormalizer) Version() int  { return 1 }
+
+// Version starts at 2: a 6003 event normalized before this normalizer
+// existed went through the opaque default at version 1, and the
+// ObservedData id carries the version but not the normalizer's name, so a
+// version 1 here would mint the same id and keep the entity-less observation.
+func (*apiActivityNormalizer) Version() int { return 2 }
 
 func (n *apiActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

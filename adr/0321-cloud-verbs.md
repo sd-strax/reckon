@@ -106,7 +106,12 @@ produced by a deliberate evaluation run, not in this change.
 - `DefaultCatalog` grows by three; `tool_set_hash` moves on every install
   that binds them; `PromptVersion` holds.
 - A second cloud normalizer and view template; `HandledClasses` gains 5023;
-  the 5023 version range is recorded under `03 §4.16`'s rule.
+  the 5023 version range is recorded under `03 §4.16`'s rule. The normalizer
+  starts at version 2, and the 6003 normalizer moves from 1 to 2 for the same
+  reason, now stated in `03 §4.13`: the observation id carries the version
+  and not the normalizer's name, and the opaque default is version 1, so a
+  payload stored opaque before the typed normalizer existed would otherwise
+  collide with the typed observation and keep its entity-less row.
 - A third bundled scenario, cloud-rooted, with bindings, actions and a
   driver: a prompt rule must now hold on three shapes of case, and the
   evaluation attributes the new tool set against no baseline until one is
