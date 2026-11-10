@@ -1,0 +1,29 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": ["resolve_dns", "pivot_on_indicator"],
+      "params": {
+        "name.domain": ["exfil.example.net", null],
+        "name.hostname": ["WIN-FILE01", null],
+        "indicator.domain": ["exfil.example.net", null],
+        "indicator.ip": ["185.220.101.5", "10.0.4.20", null],
+        "indicator.hash": [null],
+        "indicator.url": [null]
+      }
+    },
+    "time_scoped": true,
+    "delay_ms": 40
+  },
+  "ocsf": {
+    "class_uid": 4003,
+    "class_name": "DNS Activity",
+    "time": "2026-04-20T14:33:15Z",
+    "activity_name": "RESPONSE",
+    "query": { "hostname": "exfil.example.net", "type": "A" },
+    "answers": [ { "type": "A", "rdata": "185.220.101.5", "ttl": 60 } ],
+    "rcode": "NOERROR",
+    "src_endpoint": { "ip": "10.0.4.20" },
+    "device": { "hostname": "WIN-FILE01", "domain": "CONTOSO" }
+  }
+}
