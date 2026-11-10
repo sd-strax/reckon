@@ -330,14 +330,17 @@ func (r *Resolver) CloudAccount(provider, uid string) STIXID {
 
 // CloudResourceIdentity carries the identity-contributing fields of an
 // x-cloud-resource, in priority order: the provider's unique resource id (UID)
-// > the resource's (Type, Region, Group, Namespace, Name) under its account
-// (AccountRef).
+// > the resource's (Type, Region, Zone, Group, Namespace, Name) under its
+// account (AccountRef). Zone is OCSF's availability zone, a field newer
+// schema versions carry and older ones do not (03 §4.16); it is empty when
+// absent.
 type CloudResourceIdentity struct {
 	Provider   string
 	UID        string
 	AccountRef STIXID
 	Type       string
 	Region     string
+	Zone       string
 	Group      string
 	Namespace  string
 	Name       string
@@ -354,29 +357,32 @@ const (
 	// CloudResourceByUID: the provider's unique resource id, which carries
 	// its own owner.
 	CloudResourceByUID
-	// CloudResourceByName: (account_ref, type, region, group, namespace,
-	// name), scoped under the account it was named in.
+	// CloudResourceByName: (account_ref, type, region, zone, group,
+	// namespace, name), scoped under the account it was named in.
 	CloudResourceByName
 )
 
 // CloudResource resolves an x-cloud-resource SCO using the strongest available
 // identifier (03 §7.2): (provider, uid) when the provider's unique resource id
 // is present, since it is unique within the provider and already carries its
-// account; else (account_ref, type, region, group, namespace, name), the
-// resource scoped under its account and every parent scope OCSF's resource
-// object can express (region, resource group, namespace); for a source whose
-// uniqueness scope lies outside those fields the unique id is the only strong
-// identity. Type, region, group and namespace are lowercased (region codes and
-// resource-group names are case-insensitive, namespaces lowercase by rule);
-// the name is trimmed and keeps its case, because cloud resource names are
-// case-sensitive for several resource types and the resolver folds only where
-// a namespace is case-insensitive: a source that varies a name's case splits
-// one resource into two, which an aliases edge repairs, rather than merging
-// two resources into one. An absent scope is empty, so two sightings that
-// both omit it still meet. It returns CloudResourceNone and no
-// id when nothing identifies the resource (no uid, and no name with an account
-// to scope it), so an unscoped name never mints an id that would merge across
-// accounts. No provider-specific parsing: the uid is folded, never split.
+// account; else (account_ref, type, region, zone, group, namespace, name),
+// the resource scoped under its account and every parent scope OCSF's
+// resource object can express (region, availability zone, resource group,
+// namespace); for a source whose uniqueness scope lies outside those fields
+// the unique id is the only strong identity. Type, region, zone and group are
+// lowercased (closed or case-insensitive vocabularies: region and zone codes,
+// resource-group names); the namespace and the name are trimmed and keep
+// their case, because OCSF's namespace is a generic string with no case rule,
+// cloud resource names are case-sensitive for several resource types, and the
+// resolver folds only where a vocabulary is case-insensitive: a source that
+// varies a namespace's or name's case splits one resource into two, which an
+// aliases edge repairs, rather than merging two resources into one. An absent
+// scope is empty, so two sightings that both omit it still meet; an absent
+// zone, a field only newer schema versions carry (03 §4.16), is the common
+// case. It returns CloudResourceNone and no id when nothing identifies the
+// resource (no uid, and no name with an account to scope it), so an unscoped
+// name never mints an id that would merge across accounts. No
+// provider-specific parsing: the uid is folded, never split.
 func (r *Resolver) CloudResource(c CloudResourceIdentity) (STIXID, CloudResourceRule) {
 	if uid := canonicalCloudUID(c.UID); uid != "" {
 		return r.mint(TypeCloudResource, map[string]any{
@@ -392,8 +398,9 @@ func (r *Resolver) CloudResource(c CloudResourceIdentity) (STIXID, CloudResource
 		"account_ref": string(c.AccountRef),
 		"type":        strings.ToLower(strings.TrimSpace(c.Type)),
 		"region":      strings.ToLower(strings.TrimSpace(c.Region)),
+		"zone":        strings.ToLower(strings.TrimSpace(c.Zone)),
 		"group":       strings.ToLower(strings.TrimSpace(c.Group)),
-		"namespace":   strings.ToLower(strings.TrimSpace(c.Namespace)),
+		"namespace":   strings.TrimSpace(c.Namespace),
 		"name":        name,
 	}), CloudResourceByName
 }

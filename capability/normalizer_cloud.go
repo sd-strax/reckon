@@ -129,9 +129,9 @@ func (b *resultBuilder) cloudPrincipal(provider string) identity.STIXID {
 	return b.addSCO(b.r.UserAccount("", userID, provider), identity.TypeUserAccount, props)
 }
 
-// credentialUID is the access key the call was made with: the 1.7.0
-// programmatic_credentials list first, then the deprecated user and session
-// fields.
+// credentialUID is the access key the call was made with: the
+// programmatic_credentials list (1.6.0 and later) first, then the deprecated
+// user and session fields.
 func credentialUID(p map[string]any) string {
 	if v, ok := lookupPath(p, "actor.user.programmatic_credentials"); ok {
 		if list, ok := v.([]any); ok && len(list) > 0 {
@@ -230,10 +230,10 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 			continue
 		}
 		uid, name, typ, region := scalarString(m["uid"]), toString(m["name"]), toString(m["type"]), scalarString(m["region"])
-		group, namespace := resourceGroup(m), scalarString(m["namespace"])
+		zone, group, namespace := scalarString(m["zone"]), resourceGroup(m), scalarString(m["namespace"])
 		id, rule := b.r.CloudResource(identity.CloudResourceIdentity{
 			Provider: provider, UID: uid, AccountRef: account, Type: typ,
-			Region: region, Group: group, Namespace: namespace, Name: name,
+			Region: region, Zone: zone, Group: group, Namespace: namespace, Name: name,
 		})
 		if rule == identity.CloudResourceNone || seen[id] {
 			continue
@@ -242,7 +242,7 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 		props := map[string]any{"provider": provider}
 		fields := map[string]string{
 			"uid": uid, "name": name, "type": typ,
-			"region": region, "group": group, "namespace": namespace,
+			"region": region, "zone": zone, "group": group, "namespace": namespace,
 			"cloud_partition": toString(m["cloud_partition"]),
 		}
 		// Only a scoped resource names the account it lives in; a uid

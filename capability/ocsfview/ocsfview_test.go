@@ -720,3 +720,41 @@ func TestRender_APIActivityResourceGroups(t *testing.T) {
 		t.Errorf("resource refs = %v; want %v", refs, want)
 	}
 }
+
+// TestRender_APIActivityResourceZones: one name in two zones binds to two
+// resources, the zone matched without case like the region.
+func TestRender_APIActivityResourceZones(t *testing.T) {
+	v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"Stop"},"resources":[
+		{"name":"api","type":"compute.googleapis.com/Instance","region":"us-central1","zone":"us-central1-a"},
+		{"name":"api","type":"compute.googleapis.com/Instance","region":"us-central1","zone":"US-CENTRAL1-B"}]}`)}, []Entity{
+		ent("x-cloud-resource--a", map[string]any{"name": "api", "type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-a"}),
+		ent("x-cloud-resource--b", map[string]any{"name": "api", "type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-b"}),
+	})
+	if refs, want := resourceRefs(v), []string{"x-cloud-resource--a", "x-cloud-resource--b"}; !slices.Equal(refs, want) {
+		t.Errorf("resource refs = %v; want %v", refs, want)
+	}
+}
+
+// TestRender_APIActivityResourceNamespaceCase: namespaces differing only in
+// case bind to two resources, the namespace matched exactly like the name.
+func TestRender_APIActivityResourceNamespaceCase(t *testing.T) {
+	v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"GetTable"},"resources":[
+		{"name":"orders","type":"AWS::Glue::Table","namespace":"sourcea"},
+		{"name":"orders","type":"AWS::Glue::Table","namespace":"SourceA"}]}`)}, []Entity{
+		ent("x-cloud-resource--upper", map[string]any{"name": "orders", "type": "AWS::Glue::Table", "namespace": "SourceA"}),
+		ent("x-cloud-resource--lower", map[string]any{"name": "orders", "type": "AWS::Glue::Table", "namespace": "sourcea"}),
+	})
+	if refs, want := resourceRefs(v), []string{"x-cloud-resource--lower", "x-cloud-resource--upper"}; !slices.Equal(refs, want) {
+		t.Errorf("resource refs = %v; want %v", refs, want)
+	}
+}
+
+func resourceRefs(v View) []string {
+	var refs []string
+	for _, f := range v.Fields {
+		if f.Label == "Resource" {
+			refs = append(refs, f.Ref)
+		}
+	}
+	return refs
+}

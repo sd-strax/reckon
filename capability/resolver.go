@@ -407,7 +407,7 @@ func subjectRefs(ids *identity.Resolver, entity map[string]any) []identity.STIXI
 			}
 			if id, rule := ids.CloudResource(identity.CloudResourceIdentity{
 				Provider: provider, UID: scalarString(c["uid"]), AccountRef: account,
-				Type: scalarString(c["type"]), Region: scalarString(c["region"]),
+				Type: scalarString(c["type"]), Region: scalarString(c["region"]), Zone: scalarString(c["zone"]),
 				Group: scalarString(c["group"]), Namespace: scalarString(c["namespace"]), Name: scalarString(c["name"]),
 			}); rule != identity.CloudResourceNone {
 				refs = append(refs, id)

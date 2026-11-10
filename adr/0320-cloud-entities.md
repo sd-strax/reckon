@@ -20,14 +20,19 @@ The normalizer shapes inputs and the resolver only folds (`03 §7.4`). A new
 `x-` type needs a reason nothing adopted fits (`01 §Invented`). Nothing the
 model reads may change (`adr/0057`, `adr/0232`).
 
-The fields relied on were checked against the OCSF schema at 1.3.0 and
-1.7.0: `actor.user.{uid,uid_alt,name,type_id,account,credential_uid}`,
+The fields relied on were checked against the OCSF schema at 1.1.0, 1.3.0
+and 1.7.0, with each arrival and deprecation version read at the release
+that introduced it: `actor.user.{uid,uid_alt,name,type_id,account,credential_uid}`,
 `actor.session.{uid,issuer,credential_uid,is_mfa}`, `api.{operation,
 service,request,response}`, `cloud.{provider,account,org,region}`,
-`resources[].{uid,name,type,region,cloud_partition}`, `status_id`. None is
-removed between the two; `user.credential_uid` (for
-`programmatic_credentials`) and `cloud.project_uid` (for `account.uid`) are
-deprecated and read as fallbacks. OCSF documents `user.uid` as, for example,
+`resources[].{uid,name,type,region,group,namespace,cloud_partition}`,
+`status_id`. The floor is 1.1.0, the version the first cloud audit-log
+source writes. None of those is removed between 1.1.0 and 1.7.0; two are
+deprecated inside the range, `cloud.project_uid` (since 1.4.0, for
+`account.uid`) and `user.credential_uid` (since 1.6.0, for
+`programmatic_credentials`), and are read as fallbacks; two arrive above
+the floor, `resources[].zone` at 1.5.0 and `user.programmatic_credentials`
+at 1.6.0, and are read when present. OCSF documents `user.uid` as, for example,
 "the AWS user ARN" and `user.credential_uid` as "the AWS Access Key ID";
 where a source places an assumed role's session is not documented and is
 checked on live data when the first adapter lands.
@@ -77,12 +82,14 @@ the one it acted in. Region is not on the account; it rides the observation.
 uid)` when the source gives the provider's unique resource id, which is
 unique within the provider and already carries its account, so a resource
 read across accounts is still its owner's; else `(account_ref, type,
-region, group, namespace, name)` under the event's account — every parent
-scope the schema's resource object can express (the group as its name,
-else its id), because one account may hold same-named resources in two
-regions, two resource groups or two namespaces — the name's case preserved because resource names are
-case-sensitive for several types and the resolver folds only where a
-namespace is case-insensitive; else the resource is not minted. For a
+region, zone, group, namespace, name)` under the event's account — every
+parent scope the schema's resource object can express (the group as its
+name, else its id), because one account may hold same-named resources in
+two regions, two zones, two resource groups or two namespaces — the name's
+and the namespace's case preserved, because resource names are
+case-sensitive for several types, the schema gives `namespace` no case
+rule, and the resolver folds only where a vocabulary is case-insensitive;
+else the resource is not minted. For a
 source whose uniqueness scope lies outside those fields the unique id is
 the only strong identity the engine can promise. This is the `x-host` priority pattern. The engine
 parses no provider id to find an account.
@@ -102,6 +109,21 @@ resource and the source address, and carries `operation`, `service`,
 `request_uid`, `region`, `session`, `credential_uid`, `user_agent`,
 `app_name`, `principal_name` and `resource_count` in its extensions, the way the account-change normalizer keeps the activity
 and the privilege (`03 §4.9`). An event is never split per resource.
+
+**A version range per class, not a pinned schema** (`03 §4.16`). The
+normalizer reads a floor, 1.1.0, and a ceiling, 1.7.0: every field it needs
+exists at the floor; a field that arrives above the floor
+(`resources[].zone` at 1.5.0, `programmatic_credentials` at 1.6.0) is read
+when present and contributes nothing when absent; a deprecated pair is
+dual-read, replacement first; nothing branches on `metadata.version`, which
+stays on the stored event for diagnostics. An above-floor field may enter
+identity — the zone does — because its
+absence is an empty component that still meets another absence, so the cost
+of admitting it is a split between a source that carries it and one that
+does not, while the cost of excluding it is a merge of two same-named
+resources in two zones that no edge can undo. A floor-shaped event and a
+ceiling-shaped event of the same entities mint the same ids, and a test
+holds both.
 
 **Surfaces.** The event view (`capability/ocsfview`) gains a 6003 template
 (principal, operation, resource, account, outcome, with the group-by slots
@@ -151,15 +173,23 @@ no verb exists for them yet.
 - **A relationship type per operation, or one observation per resource.**
   The graph would grow with the API surface and one event would stop being
   one observation.
-- **Lowercasing the resource name, as the registry-key rule does.** A
-  registry path is case-insensitive; a cloud resource name often is not,
-  and two tables differing by case would have merged.
-- **A name-rule tuple without the region, the group and the namespace.**
-  One account may hold two same-named resources in two regions, two
-  resource groups or two namespaces; they would have merged. The tuple is
-  defined over the scopes the schema carries, not over a provider's name,
-  so a source that sends none contributes empty fields and nothing changes
-  for it.
+- **Lowercasing the resource name or the namespace, as the registry-key
+  rule does.** A registry path is case-insensitive; a cloud resource name
+  often is not, and the schema gives `namespace` no case rule, so two
+  tables, or two namespaces, differing by case would have merged.
+- **A name-rule tuple without the region, the zone, the group and the
+  namespace.** One account may hold two same-named resources in two regions,
+  two zones, two resource groups or two namespaces; they would have merged.
+  The tuple is defined over the scopes the schema carries, not over a
+  provider's name, so a source that sends none contributes empty fields and
+  nothing changes for it.
+- **Identity over floor-version fields only.** Would keep an id independent
+  of which schema version observed the entity, at the price of merging two
+  same-named resources in two zones for every source above the floor. A
+  split is repaired by an edge; a merge is not.
+- **Branching on `metadata.version`.** Producers backport fields and
+  mis-declare versions; the attribute's presence is the signal, and the
+  version is diagnostics.
 - **Cloud identities for an event with no provider.** Two unrelated
   applications' coincident caller and resource ids would have merged under
   an empty namespace; before this change such events were opaque and
@@ -177,9 +207,9 @@ no verb exists for them yet.
   `aliases`: an `aws` source that carries the full session identifier as
   the principal id and names no issuer; a principal seen once with its
   primary identifier and once with only the alternate; a resource seen
-  once by unique id and once by bare name, once with its region, group or
-  namespace and once without, or with its name's case varied by the
-  source. There is no false-merge mode short of a source whose group id
+  once by unique id and once by bare name, once with its region, zone,
+  group or namespace and once without, or with its name's or namespace's
+  case varied by the source. There is no false-merge mode short of a source whose group id
   equals another group's name, which no provider's identifiers permit: no
   name enters the tuple, no identifier is composed by the engine, and a
   numeric identifier that JSON decoding has rounded is not read as one.
@@ -189,6 +219,9 @@ no verb exists for them yet.
   and no pivot until it carries identifiers.
 - A resource named by its unique id has no owner edge; the account pivot
   for such a resource runs through the observations that reference both.
+- The version-range rule in `03 §4.16` is stated for every class, not this
+  one: a floor per source, a ceiling per schema check, feature detection
+  between, and a test at both ends. Moving a floor is an ADR.
 - A 6003 event never goes opaque again; a provider that fills the fields
   differently is a row in the shaping table, not a new type.
 - The prompt, the tool definitions and the engine text are untouched;

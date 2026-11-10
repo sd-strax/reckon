@@ -349,8 +349,27 @@ func TestCloudResourcePriority(t *testing.T) {
 	if vm("rg-a", "") == vm("rg-b", "") || vm("RG-A ", "") != vm("rg-a", "") || vm(" ", "") != vm("", "") || vm("", "") == vm("rg-a", "") {
 		t.Error("group: rg-a and rg-b must be apart, case folded, absent on both one id")
 	}
-	if vm("", "team-a") == vm("", "team-b") || vm("", " Team-A") != vm("", "team-a") || vm("", "team-a") == vm("", "") {
-		t.Error("namespace: team-a and team-b must be apart, case folded, absent distinct")
+	if vm("", "team-a") == vm("", "team-b") || vm("", " team-a ") != vm("", "team-a") || vm("", "team-a") == vm("", "") {
+		t.Error("namespace: team-a and team-b must be apart, whitespace trimmed, absent distinct")
+	}
+	if vm("", "SourceA") == vm("", "sourcea") {
+		t.Error("namespace: names differing only in case must be two resources (no case rule in OCSF)")
+	}
+	gce := func(zone string) STIXID {
+		id, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "compute.googleapis.com/Instance", Region: "us-central1", Zone: zone, Name: "api"})
+		return id
+	}
+	if gce("us-central1-a") == gce("us-central1-b") {
+		t.Error("zone: one name in two zones must be two resources")
+	}
+	if gce(" US-CENTRAL1-A ") != gce("us-central1-a") {
+		t.Error("zone: case and whitespace must fold, like region")
+	}
+	if gce("") == gce("us-central1-a") {
+		t.Error("zone: a sighting with a zone splits from one without")
+	}
+	if absent, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "compute.googleapis.com/Instance", Region: "us-central1", Name: "api"}); absent != gce("") || gce(" ") != gce("") {
+		t.Error("zone: absent, empty and blank must be one id")
 	}
 	if got, _ := r.CloudResource(CloudResourceIdentity{AccountRef: other, Type: "AWS::S3::Bucket", Name: "acme-internal-exports"}); got == byName {
 		t.Error("the same name under another account must be another resource")

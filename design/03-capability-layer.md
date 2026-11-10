@@ -965,12 +965,16 @@ account — with `actor.user.*` (the principal: `uid`, `uid_alt`, `name`,
 (`uid`, `issuer`, `credential_uid`, `is_mfa`), `actor.app_name`, `api.operation`,
 `api.service.name`, `api.request.uid`, `api.response.{code,error,error_message,message}`,
 `cloud.provider`, `cloud.account.{uid,name,type_id}`, `cloud.org.uid`,
-`cloud.region`, `resources[].{uid,name,type,region,group.{name,uid},namespace,cloud_partition}`,
+`cloud.region`, `resources[].{uid,name,type,region,zone,group.{name,uid},namespace,cloud_partition}`,
 `src_endpoint.ip`, `activity_id`, `activity_name`, `status_id`, `status`,
-`http_request.user_agent`, `time`. Every field read exists in OCSF 1.1.0
-through 1.7.0 (`programmatic_credentials` arrives in 1.7.0 and is preferred
-when present); the two deprecated there (`user.credential_uid`,
-`cloud.project_uid`) are read as fallbacks behind their replacements. An
+`http_request.user_agent`, `time`. The class's version range (§4.16) is
+1.1.0, the floor, through 1.7.0, the ceiling: every field the normalizer
+needs exists at 1.1.0; `resources[].zone` (from 1.5.0) and
+`programmatic_credentials[].uid` (from 1.6.0) arrive above the floor and
+are read when present, contributing nothing when absent; the two fields
+deprecated inside the range (`cloud.project_uid` since 1.4.0,
+`user.credential_uid` since 1.6.0) are read as fallbacks behind their
+replacements. An
 identifier that arrives as a JSON number is read only when it is an exactly
 representable integer; a value JSON decoding has already rounded is not an
 identifier and mints nothing.
@@ -1014,8 +1018,8 @@ unrelated applications' coincident ids could share. With a provider:
   cross-account call shows both). Identity `(provider, account_uid)` (§7.2).
 - One `x-cloud-resource` SCO per `resources[]` entry that can be
   identified: by `(provider, uid)` when the source gives the provider's
-  unique id, else by `(account_ref, type, region, group, namespace, name)`
-  under the event's account, else not at all (§7.2). The engine does no provider-specific
+  unique id, else by `(account_ref, type, region, zone, group, namespace,
+  name)` under the event's account, else not at all (§7.2). The engine does no provider-specific
   parsing of an id; a resource identified by its unique id carries no
   `account_ref`, since the id is its own statement of ownership.
 - `ipv4-addr` / `ipv6-addr` for `src_endpoint.ip`.
@@ -1043,13 +1047,61 @@ assumed-role identifier in `actor.user.uid` and names no issuer makes each
 session of one role a distinct principal; a principal seen once with `uid`
 and once with only `uid_alt` is two principals; a resource seen once by its
 unique id and once by a bare name is two SCOs, as is one named once with
-its region, group or namespace and once without, or with its name's case
-varied by the source.
+its region, zone, group or namespace and once without, or with its name's
+or namespace's case varied by the source.
 Each is the `x-host` kind of split and each is remedied by an `aliases`
 edge, not by a rule change. Whether a control-plane caller that *is* the
 identity provider's account (one directory serving both) should be shaped to stitch with its
 sign-in is deferred until such a source exists; the provider rows are where
 that goes.
+
+
+### 4.16 OCSF schema versions: a floor, a ceiling, and feature detection
+
+The engine pins no single OCSF version. Each normalizer is written against a
+**version range** for its class. The **floor** is the oldest schema version a
+supported source emits for that class, declared by the class's fixture in
+`metadata.version` (for §4.15 it is 1.1.0, the version the first cloud
+audit-log source writes). The **ceiling** is the newest published schema the
+normalizer was checked against, 1.7.0. OCSF reserves breaking changes for a
+major version; within a major line an attribute is added as optional or
+deprecated in place, and none of §4.15's fields was removed or made required
+anywhere from 1.1.0 to 1.7.0 — which is what makes a range workable. The
+rules, which §4.15 follows and every class is held to:
+
+- **Read the floor, benefit from the ceiling.** Every field a normalizer
+  *requires* exists at the floor. A field that arrives above the floor is
+  read when present, and its absence changes nothing: an empty property, an
+  empty tuple component. A floor-shaped event and a ceiling-shaped event of
+  the same thing normalize to the same entities with the same ids; the
+  ceiling event carries more properties.
+- **Detect the field, not the version.** No normalizer branches on
+  `metadata.version`. Producers backport attributes, mis-declare versions
+  and mix versions in one feed; the presence of the attribute is the only
+  reliable signal. The version stays on the stored OcsfEvent
+  (`metadata.version` in the payload, reachable from the ObservedData's
+  `derived-from` edge) for diagnostics; it is not copied into the
+  observation and never drives shaping.
+- **Dual-read across a deprecation.** When a version inside the range
+  deprecates a field the floor still carries, the normalizer reads the
+  replacement first and the deprecated field as the fallback, for as long
+  as the floor is below the deprecating version. The class's ADR names each pair (§4.15:
+  `programmatic_credentials[].uid` over `user.credential_uid`,
+  `cloud.account.uid` over `cloud.project_uid`).
+- **Identity may admit an above-floor field, empty when absent.** A field
+  that exists only above the floor may be identity-contributing (§7.2) when
+  leaving it out would merge distinct entities. Its absence contributes an
+  empty component, so two sightings that both omit it still meet, and a
+  sighting that carries it splits from one that does not: a split of the
+  `x-host` kind, named in the class's failure modes and repaired by
+  `aliases`. The alternative — identity over floor fields only — is a merge
+  no edge can undo once data is recorded against the shared id.
+- **Test both ends.** A class's fixture is written at the floor and declares
+  it in `metadata.version` (the cloud scenario does; the two earlier
+  scenarios predate the rule and declare none); the normalizer's tests carry
+  one ceiling-shaped event of the same entities and assert the same ids.
+  Moving a floor — dropping the oldest source — is an ADR, because it
+  changes which fallback reads may go.
 
 ---
 
@@ -1396,13 +1448,17 @@ namespace UUID per §7.1.
 - **`x-cloud-resource`** (custom): priority order — `(provider, uid)` when
   the provider's unique resource id is present (unique within the provider
   and already carrying its account; folded as the account uid is), else
-  `(account_ref.id, type, region, group, namespace, name)` under the
+  `(account_ref.id, type, region, zone, group, namespace, name)` under the
   event's account — every parent scope OCSF's resource object can express:
-  type, region, the resource group (`group.name`, else `group.uid`) and
-  `namespace` folded for case (closed or case-insensitive vocabularies) and
-  empty when the source carries none, the **name with its case preserved**, since resource names
-  are case-sensitive for several resource types and the resolver folds only
-  where a namespace is case-insensitive — else the resource is not minted.
+  type, region, the availability zone (`zone`, an above-floor field under
+  §4.16, absent below 1.5.0 and so empty for a floor-version source) and
+  the resource group (`group.name`, else `group.uid`) folded for case
+  (closed or case-insensitive vocabularies), the `namespace` and the **name
+  with their case preserved** — OCSF's `namespace` is a generic string with
+  no case rule and resource names are case-sensitive for several resource
+  types, and the resolver folds only where a vocabulary is
+  case-insensitive — each scope empty when the source carries none; else
+  the resource is not minted.
   For a source whose uniqueness scope lies outside those fields the unique
   id is the only strong identity. The `x-host` pattern: strongest
   identifier first, no parsing of the id.

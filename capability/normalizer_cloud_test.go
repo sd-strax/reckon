@@ -345,6 +345,109 @@ func TestAPIActivity_ResourceGroups(t *testing.T) {
 	}
 }
 
+// TestAPIActivity_ResourceZones: one name in one project and region but two
+// availability zones, with no uid, is two resources under the account.
+func TestAPIActivity_ResourceZones(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	p := apiPayload()
+	p["cloud"] = map[string]any{"provider": "GCP", "account": map[string]any{"uid": "acme-prod-1234"}}
+	p["resources"] = []any{
+		map[string]any{"name": "api", "type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-a"},
+		map[string]any{"name": "api", "type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-b"},
+	}
+	res := normalizeOne(t, p)
+	acct := ids.CloudAccount("gcp", "acme-prod-1234")
+	rs := scosOf(res, identity.TypeCloudResource)
+	if len(rs) != 2 || rs[0].ID == rs[1].ID {
+		t.Fatalf("resources = %+v; want two", rs)
+	}
+	for i, z := range []string{"us-central1-a", "us-central1-b"} {
+		want, _ := ids.CloudResource(identity.CloudResourceIdentity{AccountRef: acct, Type: "compute.googleapis.com/Instance", Region: "us-central1", Zone: z, Name: "api"})
+		if rs[i].ID != want || rs[i].Properties["zone"] != z || !hasEdge(res, RelBelongsTo, rs[i].ID, acct) {
+			t.Errorf("resource %d = %+v; want zone %s and belongs-to the account", i, rs[i], z)
+		}
+	}
+}
+
+// TestAPIActivity_ResourceNamespaceCase: OCSF's namespace has no case rule,
+// so two resources differing only in its case are two resources.
+func TestAPIActivity_ResourceNamespaceCase(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	p := apiPayload()
+	p["resources"] = []any{
+		map[string]any{"name": "orders", "type": "AWS::Glue::Table", "region": "us-east-1", "namespace": "SourceA"},
+		map[string]any{"name": "orders", "type": "AWS::Glue::Table", "region": "us-east-1", "namespace": "sourcea"},
+	}
+	res := normalizeOne(t, p)
+	acct := ids.CloudAccount("aws", "111122223333")
+	rs := scosOf(res, identity.TypeCloudResource)
+	if len(rs) != 2 || rs[0].ID == rs[1].ID {
+		t.Fatalf("resources = %+v; want two", rs)
+	}
+	for i, ns := range []string{"SourceA", "sourcea"} {
+		want, _ := ids.CloudResource(identity.CloudResourceIdentity{AccountRef: acct, Type: "AWS::Glue::Table", Region: "us-east-1", Namespace: ns, Name: "orders"})
+		if rs[i].ID != want || rs[i].Properties["namespace"] != ns {
+			t.Errorf("resource %d = %+v; want namespace %s with its case", i, rs[i], ns)
+		}
+	}
+}
+
+// TestAPIActivity_SchemaVersionRange (03 §4.16, test both ends): a
+// floor-shaped (1.1.0) and a ceiling-shaped (1.7.0) event of the same call
+// mint the same principal, account and resources; the ceiling's extra fields
+// add nothing to identity, and the schema version is never copied into the
+// observation.
+func TestAPIActivity_SchemaVersionRange(t *testing.T) {
+	floor := apiPayload()
+	floor["metadata"] = map[string]any{"version": "1.1.0", "product": map[string]any{"name": "CloudTrail"}}
+	floor["resources"] = []any{
+		map[string]any{"uid": "arn:aws:s3:::acme-internal-exports", "name": "acme-internal-exports", "type": "AWS::S3::Bucket", "region": "us-east-1"},
+		map[string]any{"name": "Orders", "type": "AWS::DynamoDB::Table", "region": "us-east-1"},
+	}
+
+	ceiling := apiPayload()
+	ceiling["metadata"] = map[string]any{"version": "1.7.0", "product": map[string]any{"name": "CloudTrail"}}
+	user := ceiling["actor"].(map[string]any)["user"].(map[string]any)
+	delete(user, "credential_uid")
+	user["programmatic_credentials"] = []any{map[string]any{"uid": "AKIAIOSFODNN7EXAMPLE"}}
+	extra := func(m map[string]any, alt string) map[string]any {
+		m["uid_alt"] = alt
+		m["role_id"] = 1
+		m["tags"] = []any{map[string]any{"name": "env", "value": "prod"}}
+		m["created_time"] = 1720000000000
+		return m
+	}
+	ceiling["resources"] = []any{
+		extra(map[string]any{"uid": "arn:aws:s3:::acme-internal-exports", "name": "acme-internal-exports", "type": "AWS::S3::Bucket", "region": "us-east-1"}, "acme-internal-exports-alt"),
+		extra(map[string]any{"name": "Orders", "type": "AWS::DynamoDB::Table", "region": "us-east-1"}, "orders-alt"),
+	}
+
+	a, b := normalizeOne(t, floor), normalizeOne(t, ceiling)
+	idsOf := func(res NormalizationResult, typ string) []identity.STIXID {
+		var out []identity.STIXID
+		for _, s := range scosOf(res, typ) {
+			out = append(out, s.ID)
+		}
+		return out
+	}
+	for typ, n := range map[string]int{identity.TypeUserAccount: 1, identity.TypeCloudAccount: 1, identity.TypeCloudResource: 2} {
+		fa, ce := idsOf(a, typ), idsOf(b, typ)
+		if len(fa) != n || !slices.Equal(fa, ce) {
+			t.Errorf("%s: floor %v, ceiling %v; want the same %d ids", typ, fa, ce, n)
+		}
+	}
+	for i, res := range []NormalizationResult{a, b} {
+		if u := scosOf(res, identity.TypeUserAccount); len(u) != 1 || u[0].Properties["credential_uid"] != "AKIAIOSFODNN7EXAMPLE" {
+			t.Errorf("event %d principal = %+v; want the key read from either field", i, u)
+		}
+		for _, k := range []string{"version", "schema_version", "metadata_version"} {
+			if _, ok := res.ObservedData[0].Extensions[k]; ok {
+				t.Errorf("event %d ext carries %s: %v", i, k, res.ObservedData[0].Extensions)
+			}
+		}
+	}
+}
+
 // TestAPIActivity_NoProvider: a 6003 event with no cloud.provider (a
 // non-cloud application API) mints no cloud identity, whatever ids it
 // carries; the call is still one ObservedData with its fields and source.

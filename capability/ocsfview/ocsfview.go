@@ -1409,22 +1409,23 @@ func (r *renderer) bindAccount(uid string) string {
 }
 
 // cloudResources binds each resources[] entry to its x-cloud-resource: by uid
-// when the entry has one, else by type and name.
+// when the entry has one, else by the name-rule tuple (03 §7.2).
 func (r *renderer) cloudResources() []slot {
 	var out []slot
 	for _, item := range pathList(r.p, "resources") {
 		m, _ := item.(map[string]any)
 		uid, name, typ := toString(m["uid"]), toString(m["name"]), toString(m["type"])
 		region := strings.TrimSpace(toString(m["region"]))
+		zone := strings.TrimSpace(toString(m["zone"]))
 		group := strings.TrimSpace(firstNonEmpty(pathStr(m, "group.name"), pathStr(m, "group.uid")))
 		namespace := strings.TrimSpace(toString(m["namespace"]))
 		text := firstNonEmpty(name, uid)
 		if text == "" {
 			continue
 		}
-		// By name the match mirrors the identity tuple: the name exactly
-		// (trimmed), type, region, group and namespace without case, an
-		// absent scope as "".
+		// By name the match mirrors the identity tuple: the name and the
+		// namespace exactly (trimmed), type, region, zone and group without
+		// case, an absent scope as "".
 		ref := r.bind(identity.TypeCloudResource, func(p map[string]any) bool {
 			if uid != "" {
 				return propEquals(p, "uid", uid)
@@ -1432,8 +1433,9 @@ func (r *renderer) cloudResources() []slot {
 			return name != "" && strings.TrimSpace(toString(p["name"])) == strings.TrimSpace(name) &&
 				strings.EqualFold(toString(p["type"]), typ) &&
 				strings.EqualFold(strings.TrimSpace(toString(p["region"])), region) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["zone"])), zone) &&
 				strings.EqualFold(strings.TrimSpace(toString(p["group"])), group) &&
-				strings.EqualFold(strings.TrimSpace(toString(p["namespace"])), namespace)
+				strings.TrimSpace(toString(p["namespace"])) == namespace
 		})
 		out = append(out, slot{text: text, ref: ref})
 	}
@@ -1441,8 +1443,8 @@ func (r *renderer) cloudResources() []slot {
 }
 
 // credential is the access key the call was made with, in the normalizer's
-// order: the 1.7.0 credential list, then the deprecated user and session
-// fields.
+// order: the programmatic_credentials list (1.6.0 and later), then the user
+// and session fields that are deprecated.
 func (r *renderer) credential() string {
 	if list := pathList(r.p, "actor.user.programmatic_credentials"); len(list) > 0 {
 		m, _ := list[0].(map[string]any)
