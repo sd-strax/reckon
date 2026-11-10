@@ -700,3 +700,23 @@ func TestRender_APIActivityResourceByName(t *testing.T) {
 		t.Errorf("resource refs = %v; want %v", refs, want)
 	}
 }
+
+// TestRender_APIActivityResourceGroups: two same-named VMs in one region and
+// two resource groups each bind their own chip.
+func TestRender_APIActivityResourceGroups(t *testing.T) {
+	v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"Restart"},"resources":[
+		{"name":"api","type":"Microsoft.Compute/virtualMachines","region":"eastus","group":{"name":"rg-a"}},
+		{"name":"api","type":"Microsoft.Compute/virtualMachines","region":"eastus","group":{"name":"RG-B"}}]}`)}, []Entity{
+		ent("x-cloud-resource--a", map[string]any{"name": "api", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-a"}),
+		ent("x-cloud-resource--b", map[string]any{"name": "api", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-b"}),
+	})
+	var refs []string
+	for _, f := range v.Fields {
+		if f.Label == "Resource" {
+			refs = append(refs, f.Ref)
+		}
+	}
+	if want := []string{"x-cloud-resource--a", "x-cloud-resource--b"}; !slices.Equal(refs, want) {
+		t.Errorf("resource refs = %v; want %v", refs, want)
+	}
+}

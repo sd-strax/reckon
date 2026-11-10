@@ -342,6 +342,16 @@ func TestCloudResourcePriority(t *testing.T) {
 	if again, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Name: "Orders"}); again != orders {
 		t.Error("two region-less sightings of one name must be one resource")
 	}
+	vm := func(group, namespace string) STIXID {
+		id, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "Microsoft.Compute/virtualMachines", Region: "eastus", Group: group, Namespace: namespace, Name: "api"})
+		return id
+	}
+	if vm("rg-a", "") == vm("rg-b", "") || vm("RG-A ", "") != vm("rg-a", "") || vm(" ", "") != vm("", "") || vm("", "") == vm("rg-a", "") {
+		t.Error("group: rg-a and rg-b must be apart, case folded, absent on both one id")
+	}
+	if vm("", "team-a") == vm("", "team-b") || vm("", " Team-A") != vm("", "team-a") || vm("", "team-a") == vm("", "") {
+		t.Error("namespace: team-a and team-b must be apart, case folded, absent distinct")
+	}
 	if got, _ := r.CloudResource(CloudResourceIdentity{AccountRef: other, Type: "AWS::S3::Bucket", Name: "acme-internal-exports"}); got == byName {
 		t.Error("the same name under another account must be another resource")
 	}

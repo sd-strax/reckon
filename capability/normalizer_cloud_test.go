@@ -316,6 +316,35 @@ func TestAPIActivity_Resources(t *testing.T) {
 	}
 }
 
+// TestAPIActivity_ResourceGroups: two same-named VMs in one region and two
+// resource groups, with no uid, are two resources under the account.
+func TestAPIActivity_ResourceGroups(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	p := apiPayload()
+	p["cloud"] = map[string]any{"provider": "Azure", "account": map[string]any{"uid": "0f8fad5b-d9cb-469f-a165-70867728950e", "type_id": 13}}
+	p["resources"] = []any{
+		map[string]any{"name": "api", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": map[string]any{"name": "rg-a"}},
+		map[string]any{"name": "api", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": map[string]any{"uid": "rg-b"}},
+		map[string]any{"name": "api", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "namespace": float64(12)},
+	}
+	res := normalizeOne(t, p)
+	acct := ids.CloudAccount("azure", "0f8fad5b-d9cb-469f-a165-70867728950e")
+	rs := scosOf(res, identity.TypeCloudResource)
+	if len(rs) != 3 || rs[0].ID == rs[1].ID {
+		t.Fatalf("resources = %+v; want three", rs)
+	}
+	numeric, _ := ids.CloudResource(identity.CloudResourceIdentity{AccountRef: acct, Type: "Microsoft.Compute/virtualMachines", Region: "eastus", Namespace: "12", Name: "api"})
+	if rs[2].ID != numeric || rs[2].Properties["namespace"] != "12" {
+		t.Errorf("numeric namespace resource = %+v; want namespace \"12\"", rs[2])
+	}
+	for i, g := range []string{"rg-a", "rg-b"} {
+		want, _ := ids.CloudResource(identity.CloudResourceIdentity{AccountRef: acct, Type: "Microsoft.Compute/virtualMachines", Region: "eastus", Group: g, Name: "api"})
+		if rs[i].ID != want || rs[i].Properties["group"] != g || rs[i].Properties["account_ref"] != string(acct) || !hasEdge(res, RelBelongsTo, rs[i].ID, acct) {
+			t.Errorf("resource %d = %+v; want group %s, account_ref and belongs-to", i, rs[i], g)
+		}
+	}
+}
+
 // TestAPIActivity_NoProvider: a 6003 event with no cloud.provider (a
 // non-cloud application API) mints no cloud identity, whatever ids it
 // carries; the call is still one ObservedData with its fields and source.

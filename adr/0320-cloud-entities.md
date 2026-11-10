@@ -77,11 +77,14 @@ the one it acted in. Region is not on the account; it rides the observation.
 uid)` when the source gives the provider's unique resource id, which is
 unique within the provider and already carries its account, so a resource
 read across accounts is still its owner's; else `(account_ref, type,
-region, name)` under the event's account, the name's case preserved because
-resource names are case-sensitive for several types and the resolver folds
-only where a namespace is case-insensitive, the region in the tuple because
-one account may hold same-named resources in two regions; else the
-resource is not minted. This is the `x-host` priority pattern. The engine
+region, group, namespace, name)` under the event's account — every parent
+scope the schema's resource object can express (the group as its name,
+else its id), because one account may hold same-named resources in two
+regions, two resource groups or two namespaces — the name's case preserved because resource names are
+case-sensitive for several types and the resolver folds only where a
+namespace is case-insensitive; else the resource is not minted. For a
+source whose uniqueness scope lies outside those fields the unique id is
+the only strong identity the engine can promise. This is the `x-host` priority pattern. The engine
 parses no provider id to find an account.
 
 **Edges and the observation.** `belongs-to`, the STIX 2.1 relationship
@@ -151,8 +154,12 @@ no verb exists for them yet.
 - **Lowercasing the resource name, as the registry-key rule does.** A
   registry path is case-insensitive; a cloud resource name often is not,
   and two tables differing by case would have merged.
-- **A name-rule tuple without the region.** One account may hold two
-  same-named resources in two regions; they would have merged.
+- **A name-rule tuple without the region, the group and the namespace.**
+  One account may hold two same-named resources in two regions, two
+  resource groups or two namespaces; they would have merged. The tuple is
+  defined over the scopes the schema carries, not over a provider's name,
+  so a source that sends none contributes empty fields and nothing changes
+  for it.
 - **Cloud identities for an event with no provider.** Two unrelated
   applications' coincident caller and resource ids would have merged under
   an empty namespace; before this change such events were opaque and
@@ -170,10 +177,11 @@ no verb exists for them yet.
   `aliases`: an `aws` source that carries the full session identifier as
   the principal id and names no issuer; a principal seen once with its
   primary identifier and once with only the alternate; a resource seen
-  once by unique id and once by bare name, once with its region and once
-  without, or with its name's case varied by the source. There is no
-  false-merge mode:
-  no name enters the tuple, no identifier is composed by the engine, and a
+  once by unique id and once by bare name, once with its region, group or
+  namespace and once without, or with its name's case varied by the
+  source. There is no false-merge mode short of a source whose group id
+  equals another group's name, which no provider's identifiers permit: no
+  name enters the tuple, no identifier is composed by the engine, and a
   numeric identifier that JSON decoding has rounded is not read as one.
   The first live source records which forms it fills.
 - A principal with no provider identifier is not an entity in the graph; a

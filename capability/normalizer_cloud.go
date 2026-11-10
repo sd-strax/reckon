@@ -229,9 +229,11 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 		if !ok {
 			continue
 		}
-		uid, name, typ, region := scalarString(m["uid"]), toString(m["name"]), toString(m["type"]), toString(m["region"])
+		uid, name, typ, region := scalarString(m["uid"]), toString(m["name"]), toString(m["type"]), scalarString(m["region"])
+		group, namespace := resourceGroup(m), scalarString(m["namespace"])
 		id, rule := b.r.CloudResource(identity.CloudResourceIdentity{
-			Provider: provider, UID: uid, AccountRef: account, Type: typ, Region: region, Name: name,
+			Provider: provider, UID: uid, AccountRef: account, Type: typ,
+			Region: region, Group: group, Namespace: namespace, Name: name,
 		})
 		if rule == identity.CloudResourceNone || seen[id] {
 			continue
@@ -240,7 +242,8 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 		props := map[string]any{"provider": provider}
 		fields := map[string]string{
 			"uid": uid, "name": name, "type": typ,
-			"region": region, "cloud_partition": toString(m["cloud_partition"]),
+			"region": region, "group": group, "namespace": namespace,
+			"cloud_partition": toString(m["cloud_partition"]),
 		}
 		// Only a scoped resource names the account it lives in; a uid
 		// carries its own owner.
@@ -255,6 +258,13 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 		out = append(out, cloudResource{id: b.addSCO(id, identity.TypeCloudResource, props), rule: rule})
 	}
 	return out
+}
+
+// resourceGroup reads an OCSF resource's group (a Group object): its name,
+// else its uid.
+func resourceGroup(m map[string]any) string {
+	g, _ := m["group"].(map[string]any)
+	return firstNonEmpty(toString(g["name"]), scalarString(g["uid"]))
 }
 
 // pathScalar reads a scalar at path as a string, an identifier given as a

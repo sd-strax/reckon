@@ -965,7 +965,7 @@ account — with `actor.user.*` (the principal: `uid`, `uid_alt`, `name`,
 (`uid`, `issuer`, `credential_uid`, `is_mfa`), `actor.app_name`, `api.operation`,
 `api.service.name`, `api.request.uid`, `api.response.{code,error,error_message,message}`,
 `cloud.provider`, `cloud.account.{uid,name,type_id}`, `cloud.org.uid`,
-`cloud.region`, `resources[].{uid,name,type,region,cloud_partition}`,
+`cloud.region`, `resources[].{uid,name,type,region,group.{name,uid},namespace,cloud_partition}`,
 `src_endpoint.ip`, `activity_id`, `activity_name`, `status_id`, `status`,
 `http_request.user_agent`, `time`. Every field read exists in OCSF 1.1.0
 through 1.7.0 (`programmatic_credentials` arrives in 1.7.0 and is preferred
@@ -1014,8 +1014,8 @@ unrelated applications' coincident ids could share. With a provider:
   cross-account call shows both). Identity `(provider, account_uid)` (§7.2).
 - One `x-cloud-resource` SCO per `resources[]` entry that can be
   identified: by `(provider, uid)` when the source gives the provider's
-  unique id, else by `(account_ref, type, region, name)` under the event's
-  account, else not at all (§7.2). The engine does no provider-specific
+  unique id, else by `(account_ref, type, region, group, namespace, name)`
+  under the event's account, else not at all (§7.2). The engine does no provider-specific
   parsing of an id; a resource identified by its unique id carries no
   `account_ref`, since the id is its own statement of ownership.
 - `ipv4-addr` / `ipv6-addr` for `src_endpoint.ip`.
@@ -1043,7 +1043,8 @@ assumed-role identifier in `actor.user.uid` and names no issuer makes each
 session of one role a distinct principal; a principal seen once with `uid`
 and once with only `uid_alt` is two principals; a resource seen once by its
 unique id and once by a bare name is two SCOs, as is one named once with
-its region and once without, or with its name's case varied by the source.
+its region, group or namespace and once without, or with its name's case
+varied by the source.
 Each is the `x-host` kind of split and each is remedied by an `aliases`
 edge, not by a rule change. Whether a control-plane caller that *is* the
 identity provider's account (one directory serving both) should be shaped to stitch with its
@@ -1395,13 +1396,16 @@ namespace UUID per §7.1.
 - **`x-cloud-resource`** (custom): priority order — `(provider, uid)` when
   the provider's unique resource id is present (unique within the provider
   and already carrying its account; folded as the account uid is), else
-  `(account_ref.id, type, region, name)` under the event's account — type
-  and region lowercased (closed vocabularies), the **name with its case
-  preserved**, since resource names are case-sensitive for several resource
-  types and the resolver folds only where a namespace is case-insensitive;
-  the region folded for case, empty when the source carries none — else the
-  resource is not minted. The `x-host` pattern: strongest identifier first, no parsing
-  of the id.
+  `(account_ref.id, type, region, group, namespace, name)` under the
+  event's account — every parent scope OCSF's resource object can express:
+  type, region, the resource group (`group.name`, else `group.uid`) and
+  `namespace` folded for case (closed or case-insensitive vocabularies) and
+  empty when the source carries none, the **name with its case preserved**, since resource names
+  are case-sensitive for several resource types and the resolver folds only
+  where a namespace is case-insensitive — else the resource is not minted.
+  For a source whose uniqueness scope lies outside those fields the unique
+  id is the only strong identity. The `x-host` pattern: strongest
+  identifier first, no parsing of the id.
 
 **Deviation: `process`.** STIX 2.1 specifies no `id_contributing_properties`
 for `process`, intentionally — the spec authors made the call that PIDs are

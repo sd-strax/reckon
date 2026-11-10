@@ -374,6 +374,19 @@ func TestSubjectRefs_Cloud(t *testing.T) {
 	if regioned == "" || len(got) != 1 || got[0] != regioned {
 		t.Errorf("cloud_resource by name in a region = %v; want the normalizer's %s", got, regioned)
 	}
+	p["cloud"] = map[string]any{"provider": "Azure", "account": map[string]any{"uid": "0f8fad5b-d9cb-469f-a165-70867728950e"}}
+	p["resources"] = []any{map[string]any{"name": "api", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": map[string]any{"name": "rg-a"}, "namespace": "team-a"}}
+	nr, _ = NewRegistry(ids).Normalize(makeEvent(p))
+	var grouped identity.STIXID
+	for _, s := range nr.SCOs {
+		if s.Type == identity.TypeCloudResource {
+			grouped = s.ID
+		}
+	}
+	got = subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "Azure", "account_uid": "0f8fad5b-d9cb-469f-a165-70867728950e", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-a", "namespace": "team-a", "name": "api"}})
+	if grouped == "" || len(got) != 1 || got[0] != grouped {
+		t.Errorf("cloud_resource by name in a group = %v; want the normalizer's %s", got, grouped)
+	}
 	if other := subjectRefs(ids, map[string]any{"cloud_resource": map[string]any{"provider": "aws", "account_uid": "111122223333", "type": "AWS::DynamoDB::Table", "region": "us-west-2", "name": "Orders"}}); len(other) != 1 || other[0] == regioned {
 		t.Errorf("another region = %v; want a different resource", other)
 	}

@@ -1416,19 +1416,24 @@ func (r *renderer) cloudResources() []slot {
 		m, _ := item.(map[string]any)
 		uid, name, typ := toString(m["uid"]), toString(m["name"]), toString(m["type"])
 		region := strings.TrimSpace(toString(m["region"]))
+		group := strings.TrimSpace(firstNonEmpty(pathStr(m, "group.name"), pathStr(m, "group.uid")))
+		namespace := strings.TrimSpace(toString(m["namespace"]))
 		text := firstNonEmpty(name, uid)
 		if text == "" {
 			continue
 		}
 		// By name the match mirrors the identity tuple: the name exactly
-		// (trimmed), type and region without case, an absent region as "".
+		// (trimmed), type, region, group and namespace without case, an
+		// absent scope as "".
 		ref := r.bind(identity.TypeCloudResource, func(p map[string]any) bool {
 			if uid != "" {
 				return propEquals(p, "uid", uid)
 			}
 			return name != "" && strings.TrimSpace(toString(p["name"])) == strings.TrimSpace(name) &&
 				strings.EqualFold(toString(p["type"]), typ) &&
-				strings.EqualFold(strings.TrimSpace(toString(p["region"])), region)
+				strings.EqualFold(strings.TrimSpace(toString(p["region"])), region) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["group"])), group) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["namespace"])), namespace)
 		})
 		out = append(out, slot{text: text, ref: ref})
 	}
