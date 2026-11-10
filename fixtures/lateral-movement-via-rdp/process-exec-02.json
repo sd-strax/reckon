@@ -2,10 +2,12 @@
   "fixture_meta": {
     "scenario": "lateral-movement-via-rdp",
     "matches": {
-      "verb": "get_process_executions",
+      "verb": ["get_process_executions", "get_process_ancestry"],
       "params": {
+        "host.hostname": ["WIN-APP02", null],
+        "process.pid": [4412, null],
         "subject.hostname": ["WIN-APP02", null],
-        "subject.user": ["svc_backup", null],
+        "subject.user": ["svc_backup", "CONTOSO\\svc_backup", null],
         "image_hash": ["9f1c2d3e4a5b6c7d8e9f0011223344556677889900aabbccddeeff0011223344", null],
         "image_path": "*",
         "command_line_contains": "*"

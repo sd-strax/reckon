@@ -7,7 +7,7 @@
         "name.domain": ["exfil.example.net", null],
         "name.hostname": ["WIN-FILE01", null],
         "indicator.domain": ["exfil.example.net", null],
-        "indicator.ip": ["185.220.101.5", null],
+        "indicator.ip": ["185.220.101.5", "10.0.4.20", null],
         "indicator.hash": [null],
         "indicator.url": [null]
       }

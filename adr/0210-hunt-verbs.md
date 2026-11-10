@@ -51,7 +51,11 @@ snapshot, so a fleet sweep is honest about what the model has not read.
   the resolution before the connection, the group add. Every new fixture is
   time-scoped, so a window after the incident is absence. `pivot_on_indicator`
   is bound `fanout: true` on the one fixture adapter and the DNS, network and
-  file fixtures answer it on the address, the name and the hash.
+  file fixtures answer it on the address, the name and the hash. The bindings
+  no longer default the host to the first one, and the first host's fixtures
+  name it, so a follow-up on the second host answers with its own process and
+  logon and is an honest absence for connections; a user-rooted logon
+  question sees every host.
 - **`query_logs` is declared and unbound in both demo scenarios.** A fixture
   cannot run a query, and a demo should not teach the model the escape hatch.
   It is proven through a stub adapter: a row of a known class normalizes

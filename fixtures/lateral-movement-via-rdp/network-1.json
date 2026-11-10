@@ -7,9 +7,13 @@
         "pivot_on_indicator"
       ],
       "params": {
-        "endpoint.hostname": "*",
+        "endpoint.hostname": [
+          "WIN-FILE01",
+          null
+        ],
         "indicator.ip": [
           "185.220.101.5",
+          "10.0.4.20",
           null
         ],
         "indicator.domain": [

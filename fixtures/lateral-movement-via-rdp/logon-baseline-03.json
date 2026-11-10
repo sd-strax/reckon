@@ -4,7 +4,7 @@
     "matches": {
       "verb": "enumerate_logons",
       "params": {
-        "target.hostname": "*",
+        "target.hostname": ["WIN-FILE01", null],
         "target.user": "svc_backup"
       }
     },

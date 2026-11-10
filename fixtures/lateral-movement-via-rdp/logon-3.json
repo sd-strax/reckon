@@ -1,0 +1,21 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": "enumerate_logons",
+      "params": { "target.hostname": ["WIN-APP02", null], "outcome": "*", "target.user": [null, "svc_backup", "CONTOSO\\svc_backup"] }
+    },
+    "delay_ms": 40,
+    "time_scoped": true
+  },
+  "ocsf": {
+    "class_uid": 3002,
+    "class_name": "Authentication",
+    "time": "2026-04-20T14:38:35Z",
+    "actor": { "user": { "name": "svc_backup", "domain": "CONTOSO", "uid": "S-1-5-21-2002" } },
+    "dst_endpoint": { "hostname": "WIN-APP02", "domain": "CONTOSO" },
+    "src_endpoint": { "ip": "10.0.4.20" },
+    "logon_type": "Network",
+    "status": "SUCCESS"
+  }
+}

@@ -4,7 +4,7 @@
     "matches": {
       "verb": "get_privilege_changes",
       "params": {
-        "target.user": ["svc_backup", null],
+        "target.user": ["svc_backup", "CONTOSO\\svc_backup", null],
         "target.hostname": ["WIN-FILE01", null]
       }
     },
