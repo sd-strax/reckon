@@ -536,6 +536,12 @@ func (r *renderer) authentication() {
 	}
 	r.clause(" to ", host)
 	r.clause(" from ", src)
+	// The source's reported place (adr/0208) reads after the address it
+	// belongs to, never alone: without a source it would read as the host's.
+	place := r.place("src_endpoint.location")
+	if !src.empty() && place != "" {
+		r.text(" in " + place)
+	}
 	if failed {
 		r.text(" failed")
 	}
@@ -543,6 +549,7 @@ func (r *renderer) authentication() {
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.field("Logon type", logon)
 	r.entityField("Source", src)
+	r.field("Location", r.locationText("src_endpoint.location"))
 	r.entityField("Destination", host)
 	r.field("Result", status).Tone = statusTone(status)
 	r.field("Detail", r.str("status_detail"))
@@ -1277,6 +1284,50 @@ func pastToPassive(verb string) string {
 		return "was " + first
 	}
 	return "was " + verb
+}
+
+// place is an OCSF Geo Location as the sentence says it: the city and the
+// country, the region standing in for a missing city, the country alone when
+// that is all there is; "" when the object has none of them. A location with
+// no country code carries the country as the source named it in desc
+// (adr/0208), which stands in for the code.
+func (r *renderer) place(path string) string {
+	city := r.str(path + ".city")
+	if city == "" {
+		city = r.str(path + ".region")
+	}
+	return joinNonEmpty(", ", city, r.country(path))
+}
+
+func (r *renderer) country(path string) string {
+	if c := r.str(path + ".country"); c != "" {
+		return c
+	}
+	return r.str(path + ".desc")
+}
+
+// locationText is the Location field: city, region and country, and who
+// reported them when the event says (OCSF location.provider) — a geolocation
+// provider's reading of an address, not where a person was.
+func (r *renderer) locationText(path string) string {
+	text := joinNonEmpty(", ", r.str(path+".city"), r.str(path+".region"), r.country(path))
+	if text == "" {
+		return ""
+	}
+	if p := r.str(path + ".provider"); p != "" {
+		text += " · reported by " + p
+	}
+	return text
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	out := parts[:0:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
 }
 
 func endpoint(ip string, port int) string {

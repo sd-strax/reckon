@@ -2,13 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 )
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 
-// normalize shapes an okta-mcp tool's JSON text output into OCSF events (11 §5.4
+// normalize shapes an okta-mcp tool's JSON text output into OCSF events (11 §0
 // — by the time data crosses the adapter boundary it is OCSF; the engine's
 // normalizer then maps OCSF → STIX). It RESHAPES Okta's native fields into the
 // exact OCSF paths the engine's normalizers read (capability/normalizer_auth.go
@@ -79,18 +80,92 @@ func opaque(objs []map[string]any) []ocsfEvent {
 }
 
 // authPayload maps an Okta auth LogEvent onto the OCSF 3002 paths the engine's
-// auth normalizer reads: actor.user.{name,uid}, src_endpoint.ip, status.
+// auth normalizer reads: actor.user.{name,uid}, src_endpoint.ip, status. The
+// client's reported place rides src_endpoint.location (adr/0208).
 func authPayload(e map[string]any) map[string]any {
+	src := map[string]any{"ip": digStr(e, "client", "ipAddress")}
+	if loc := geoLocation(e); loc != nil {
+		src["location"] = loc
+	}
 	return map[string]any{
 		"actor": map[string]any{"user": map[string]any{
 			"name": digStr(e, "actor", "alternateId"),
 			"uid":  digStr(e, "actor", "id"),
 		}},
-		"src_endpoint": map[string]any{"ip": digStr(e, "client", "ipAddress")},
+		"src_endpoint": src,
 		"status":       digStr(e, "outcome", "result"),
 		"logon_type":   str(e["eventType"]),
 		"okta":         e,
 	}
+}
+
+// geoProvider attributes the place: it is Okta's IP geolocation of the client,
+// not where the person was. OCSF's location.provider is "the provider of the
+// geographical location data".
+const geoProvider = "okta"
+
+// geoLocation reshapes Okta's client.geographicalContext into an OCSF Geo
+// Location object (adr/0208): city; region from Okta's state, carried as the
+// name Okta gives (OCSF names the field a subdivision code; Okta has no code);
+// country as the ISO 3166-1 alpha-2 code OCSF requires, found from the full
+// name Okta sends (countryCode), the name itself kept as desc when no code is
+// known for it; the postal code as a string (Okta's examples send both a
+// number and a string; a number has lost any leading zero before it reaches
+// here); lat and long from geolocation (OCSF deprecated coordinates in 1.2.0
+// for these two); and the provider. nil when none of city, region, country
+// and postal code is present — OCSF requires at least one of them for a
+// location to stand.
+func geoLocation(e map[string]any) map[string]any {
+	geo, _ := digAny(e, "client", "geographicalContext").(map[string]any)
+	if geo == nil {
+		return nil
+	}
+	loc := map[string]any{}
+	if v := str(geo["city"]); v != "" {
+		loc["city"] = v
+	}
+	if v := str(geo["state"]); v != "" {
+		loc["region"] = v
+	}
+	if v := strings.TrimSpace(str(geo["country"])); v != "" {
+		if code, ok := countryCode(v); ok {
+			loc["country"] = code
+		} else {
+			loc["desc"] = v
+		}
+	}
+	if v := scalarString(geo["postalCode"]); v != "" {
+		loc["postal_code"] = v
+	}
+	if len(loc) == 0 || (len(loc) == 1 && loc["desc"] != nil) {
+		return nil
+	}
+	if lat, ok := toFloat(digAny(geo, "geolocation", "lat")); ok {
+		if lon, ok := toFloat(digAny(geo, "geolocation", "lon")); ok {
+			loc["lat"] = lat
+			loc["long"] = lon
+		}
+	}
+	loc["provider"] = geoProvider
+	return loc
+}
+
+// scalarString reads a string, or a JSON number as text (json.Unmarshal into
+// any gives float64); anything else is "".
+func scalarString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	}
+	return ""
+}
+
+// toFloat reads a JSON number.
+func toFloat(v any) (float64, bool) {
+	f, ok := v.(float64)
+	return f, ok
 }
 
 // accountPayload maps an Okta lifecycle/privilege/group LogEvent onto the OCSF
@@ -217,16 +292,20 @@ func str(v any) string {
 }
 
 // digStr reads a nested string at a path of map keys.
-func digStr(m map[string]any, path ...string) string {
+func digStr(m map[string]any, path ...string) string { return str(digAny(m, path...)) }
+
+// digAny reads a nested value at a path of map keys; nil when the path is not
+// there.
+func digAny(m map[string]any, path ...string) any {
 	cur := any(m)
 	for _, k := range path {
 		mm, ok := cur.(map[string]any)
 		if !ok {
-			return ""
+			return nil
 		}
 		cur = mm[k]
 	}
-	return str(cur)
+	return cur
 }
 
 func firstNonEmpty(vals ...string) string {
