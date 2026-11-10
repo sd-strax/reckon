@@ -1,0 +1,28 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": "get_persistence_artifacts",
+      "params": { "host.hostname": ["WIN-FILE01", null] }
+    },
+    "time_scoped": true,
+    "delay_ms": 40
+  },
+  "ocsf": {
+    "class_uid": 1006,
+    "class_name": "Scheduled Job Activity",
+    "time": "2026-04-20T14:33:50Z",
+    "activity_name": "CREATE",
+    "job": {
+      "name": "SyncHost",
+      "path": "\\Microsoft\\Windows\\SyncHost\\SyncHost",
+      "command_line": "C:\\ProgramData\\SyncHost\\synchost.exe",
+      "user": { "name": "svc_backup", "domain": "CONTOSO", "uid": "S-1-5-21-2002" }
+    },
+    "actor": {
+      "process": { "pid": 6120, "name": "powershell.exe", "created_time": "2026-04-20T14:33:05Z" },
+      "user": { "name": "svc_backup", "domain": "CONTOSO", "uid": "S-1-5-21-2002" }
+    },
+    "device": { "hostname": "WIN-FILE01", "domain": "CONTOSO" }
+  }
+}

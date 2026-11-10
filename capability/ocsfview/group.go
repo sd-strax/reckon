@@ -85,6 +85,7 @@ var classSlots = map[int][]SlotSpec{
 	classDetection:       {{"vendor", "Vendor"}, {"title", "Finding"}, {"severity", "Severity"}, {"host", "Host"}, {"user", "Account"}},
 	classCase:            {{"status", "Status"}, {"priority", "Priority"}, {"assigned", "Assigned to"}},
 	classDeviceInventory: {{"host", "Host"}, {"os", "OS"}, {"owner", "Owner"}, {"criticality", "Criticality"}},
+	classAPIActivity:     {{"actor", "By"}, {"operation", "Operation"}, {"service", "Service"}, {"resource", "Resource"}, {"account", "Account"}, {"outcome", "Outcome"}, {"source", "Source"}},
 }
 
 // defaultKeys are the §8.3 keys, the account added to authentication; a class
@@ -93,6 +94,7 @@ var defaultKeys = map[int][]string{
 	classAuthentication: {"user", "logon_type", "src", "dst"},
 	classNetwork:        {"dst", "dst_port"},
 	classProcess:        {"image", "parent"},
+	classAPIActivity:    {"actor", "operation", "resource"},
 }
 
 // Slots lists the slots of a class a key may name; nil for a class without a

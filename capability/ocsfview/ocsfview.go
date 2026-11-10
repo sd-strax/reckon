@@ -90,13 +90,14 @@ type View struct {
 // Category words, from category_uid (the thousands digit of class_uid) with the
 // case class named apart: the Story filters and the inspector read them.
 const (
-	CategoryProcess   = "process"
-	CategoryDetection = "detection"
-	CategoryAuth      = "auth"
-	CategoryNetwork   = "network"
-	CategoryAsset     = "asset"
-	CategoryCase      = "case"
-	CategoryOther     = "other"
+	CategoryProcess     = "process"
+	CategoryDetection   = "detection"
+	CategoryAuth        = "auth"
+	CategoryNetwork     = "network"
+	CategoryAsset       = "asset"
+	CategoryCase        = "case"
+	CategoryApplication = "application"
+	CategoryOther       = "other"
 )
 
 // Category names an event's category.
@@ -119,13 +120,15 @@ func Category(classUID int, payload map[string]any) string {
 		return CategoryNetwork
 	case 5:
 		return CategoryAsset
+	case 6:
+		return CategoryApplication
 	default:
 		return CategoryOther
 	}
 }
 
-// The classes with a template: every class a normalizer handles (03 §4.1–§4.12)
-// and device inventory.
+// The classes with a template: every class a normalizer handles (03 §4.1–§4.12,
+// §4.15) and device inventory.
 const (
 	classFileActivity    = 1001
 	classRegistryKey     = 1003
@@ -141,6 +144,7 @@ const (
 	classEmail           = 4009
 	classEmailURL        = 4011
 	classDeviceInventory = 5001
+	classAPIActivity     = 6003
 )
 
 // Classes lists the class_uids with a sentence template, sorted.
@@ -149,6 +153,7 @@ func Classes() []int {
 		classFileActivity, classRegistryKey, classScheduledJob, classProcess, classModule,
 		classDetection, classCase, classAuthentication, classAccountChange,
 		classNetwork, classDNS, classEmail, classEmailURL, classDeviceInventory,
+		classAPIActivity,
 	}
 }
 
@@ -187,6 +192,8 @@ func Render(e Event, entities []Entity) View {
 		r.caseFinding()
 	case classDeviceInventory:
 		r.deviceInventory()
+	case classAPIActivity:
+		r.apiActivity()
 	default:
 		r.scalars()
 	}
@@ -251,6 +258,35 @@ func (r *renderer) keyList(name string, slots []slot, fold bool) {
 		id = string(enc)
 	}
 	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(vals, ", "), Identity: id})
+}
+
+// keyRefList registers a multi-valued slot of entities: the texts joined for
+// reading, and as identity, encoded with boundaries intact and sorted, each
+// value's ref when the record minted it, else its exact text. Two different
+// objects that read the same (two resources one name) never fold; an unbound
+// value keys by its text exactly.
+func (r *renderer) keyRefList(name string, slots []slot) {
+	texts := make([]string, 0, len(slots))
+	keys := make([]string, 0, len(slots))
+	for _, s := range slots {
+		if s.text == "" {
+			continue
+		}
+		texts = append(texts, s.text)
+		if s.ref != "" {
+			keys = append(keys, "ref:"+s.ref)
+		} else {
+			keys = append(keys, "text:"+s.text)
+		}
+	}
+	sort.Strings(texts)
+	sort.Strings(keys)
+	var id string
+	if len(keys) > 0 { // no values is no value, which never folds
+		enc, _ := json.Marshal(keys) // strings always marshal
+		id = string(enc)
+	}
+	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(texts, ", "), Identity: id})
 }
 
 // slot is a sentence slot: what the payload shows, and the record's ref when
@@ -545,6 +581,18 @@ func (r *renderer) authentication() {
 	}
 	r.clause(" to ", host)
 	r.clause(" from ", src)
+	// The source's reported place (adr/0208) reads after the address it
+	// belongs to, never alone: without a source it would read as the host's.
+	// Who located it rides in the sentence, since the export and the timeline
+	// read the sentence alone and a geolocation provider's reading of an
+	// address is not where the person was.
+	place := r.place("src_endpoint.location")
+	if !src.empty() && place != "" {
+		r.text(" in " + place)
+		if p := r.str("src_endpoint.location.provider"); p != "" {
+			r.text(" (located by " + p + ")")
+		}
+	}
 	if failed {
 		r.text(" failed")
 	}
@@ -552,6 +600,7 @@ func (r *renderer) authentication() {
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.field("Logon type", logon)
 	r.entityField("Source", src)
+	r.field("Location", r.locationText("src_endpoint.location"))
 	r.entityField("Destination", host)
 	r.field("Result", status).Tone = statusTone(status)
 	r.field("Detail", r.str("status_detail"))
@@ -1225,6 +1274,196 @@ func (r *renderer) deviceInventory() {
 	r.keyText("criticality", strings.ToLower(crit))
 }
 
+// apiStatuses are the OCSF status_id captions, for a payload that carries the
+// id without the name.
+var apiStatuses = map[int]string{1: "Success", 2: "Failure"}
+
+// apiActivity renders a cloud control-plane call (03 §4.15): who called which
+// operation on what, in which account, and how it ended. The principal binds
+// to its user-account by the durable id the record keyed it on, the account
+// to its x-cloud-account by uid, each resource to its x-cloud-resource by uid
+// or by type and name.
+func (r *renderer) apiActivity() {
+	principal := r.cloudPrincipal()
+	app := r.str("actor.app_name")
+	op := r.str("api.operation")
+	service := r.str("api.service.name")
+	resources := r.cloudResources()
+	account, accountUID := r.cloudAccount()
+	src := r.ip("src_endpoint.ip")
+	status := firstNonEmpty(r.str("status"), apiStatuses[r.int("status_id")])
+	errCode := r.str("api.response.error")
+	outcome, tone := status, statusTone(status)
+	if errCode != "" {
+		outcome, tone = firstNonEmpty(status, "Failure")+": "+errCode, "bad"
+	}
+
+	switch {
+	case !principal.empty():
+		r.entity(principal)
+		if op == "" {
+			r.text(" called")
+		}
+	case app != "":
+		r.text(app + " called")
+	default:
+		r.text("API call")
+	}
+	if op != "" {
+		r.text(" " + op)
+	}
+	if len(resources) > 0 {
+		r.text(" ")
+		r.entity(resources[0])
+		if n := len(resources) - 1; n > 0 {
+			r.text(fmt.Sprintf(", +%d more", n))
+		}
+	} else if service != "" {
+		r.text(" (" + service + ")")
+	}
+	r.clause(" in ", account)
+	if outcome != "" {
+		r.text(" · " + outcome)
+	}
+
+	if principal.empty() {
+		r.field("Principal", app)
+	} else {
+		r.entityField("Principal", principal)
+	}
+	r.mono("Operation", op)
+	r.field("Service", service)
+	for _, res := range resources {
+		r.entityField("Resource", res)
+	}
+	r.entityField("Account", account)
+	if caller := r.callerAccount(); !caller.empty() && !strings.EqualFold(r.str("actor.user.account.uid"), accountUID) {
+		r.entityField("Caller account", caller)
+	}
+	r.field("Region", r.str("cloud.region"))
+	r.field("Outcome", outcome).Tone = tone
+	r.entityField("Source", src)
+	r.mono("Credential", r.credential())
+	r.mono("Session", r.str("actor.session.uid"))
+	r.field("User agent", r.str("http_request.user_agent"))
+
+	actor := principal
+	if actor.empty() {
+		actor = slot{text: app}
+	}
+	r.keySlot("actor", actor)
+	r.keyText("operation", op)
+	r.keyText("service", service)
+	r.keyRefList("resource", resources)
+	r.keySlot("account", account)
+	r.keyText("outcome", outcome)
+	r.keySlot("source", src)
+}
+
+// cloudPrincipal binds the caller to its user-account by the durable id the
+// normalizer keyed it on: the session issuer, the user's uid or its alternate
+// uid, tried in that order against user_id. The order is the union of the
+// normalizer's provider rows, safe because the entities a view receives are
+// the ones derived from that event. The chip reads the name, else the full
+// name, else the id.
+func (r *renderer) cloudPrincipal() slot {
+	name := r.str("actor.user.name")
+	ids := []string{r.str("actor.session.issuer"), r.str("actor.user.uid"), r.str("actor.user.uid_alt")}
+	text := firstNonEmpty(name, r.str("actor.user.full_name"), ids[1], ids[2], ids[0])
+	if text == "" {
+		return slot{}
+	}
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return propEquals(p, "user_id", id) }); ref != "" {
+			return slot{text: text, ref: ref}
+		}
+	}
+	return slot{text: text}
+}
+
+// cloudAccount binds the account the call ran in: cloud.account, else the
+// caller's account, else the deprecated project_uid, as the normalizer reads
+// it, and returns its uid. The account's name is shown when the payload gives
+// one.
+func (r *renderer) cloudAccount() (slot, string) {
+	for _, pre := range []string{"cloud.account", "actor.user.account"} {
+		if s := r.accountAt(pre); !s.empty() {
+			return s, strings.TrimSpace(r.str(pre + ".uid"))
+		}
+	}
+	uid := strings.TrimSpace(r.str("cloud.project_uid"))
+	if uid == "" {
+		return slot{}, ""
+	}
+	return slot{text: uid, ref: r.bindAccount(uid)}, uid
+}
+
+// callerAccount binds the principal's own account, actor.user.account.
+func (r *renderer) callerAccount() slot { return r.accountAt("actor.user.account") }
+
+// accountAt binds the OCSF account object at prefix to its x-cloud-account.
+func (r *renderer) accountAt(prefix string) slot {
+	uid := strings.TrimSpace(r.str(prefix + ".uid"))
+	if uid == "" {
+		return slot{}
+	}
+	return slot{text: firstNonEmpty(r.str(prefix+".name"), uid), ref: r.bindAccount(uid)}
+}
+
+func (r *renderer) bindAccount(uid string) string {
+	return r.bind(identity.TypeCloudAccount, func(p map[string]any) bool { return propEquals(p, "account_uid", uid) })
+}
+
+// cloudResources binds each resources[] entry to its x-cloud-resource: by uid
+// when the entry has one, else by the name-rule tuple (03 §7.2).
+func (r *renderer) cloudResources() []slot {
+	var out []slot
+	for _, item := range pathList(r.p, "resources") {
+		m, _ := item.(map[string]any)
+		uid, name, typ := toString(m["uid"]), toString(m["name"]), toString(m["type"])
+		region := strings.TrimSpace(toString(m["region"]))
+		zone := strings.TrimSpace(toString(m["zone"]))
+		group := strings.TrimSpace(firstNonEmpty(pathStr(m, "group.name"), pathStr(m, "group.uid")))
+		namespace := strings.TrimSpace(toString(m["namespace"]))
+		text := firstNonEmpty(name, uid)
+		if text == "" {
+			continue
+		}
+		// By name the match mirrors the identity tuple: the name and the
+		// namespace exactly (trimmed), type, region, zone and group without
+		// case, an absent scope as "".
+		ref := r.bind(identity.TypeCloudResource, func(p map[string]any) bool {
+			if uid != "" {
+				return propEquals(p, "uid", uid)
+			}
+			return name != "" && strings.TrimSpace(toString(p["name"])) == strings.TrimSpace(name) &&
+				strings.EqualFold(toString(p["type"]), typ) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["region"])), region) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["zone"])), zone) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["group"])), group) &&
+				strings.TrimSpace(toString(p["namespace"])) == namespace
+		})
+		out = append(out, slot{text: text, ref: ref})
+	}
+	return out
+}
+
+// credential is the access key the call was made with, in the normalizer's
+// order: the programmatic_credentials list (1.6.0 and later), then the user
+// and session fields that are deprecated.
+func (r *renderer) credential() string {
+	if list := pathList(r.p, "actor.user.programmatic_credentials"); len(list) > 0 {
+		m, _ := list[0].(map[string]any)
+		if c := toString(m["uid"]); c != "" {
+			return c
+		}
+	}
+	return firstNonEmpty(r.str("actor.user.credential_uid"), r.str("actor.session.credential_uid"))
+}
+
 // scalars is the view of a class without a template: the payload's top-level
 // scalars as fields, the class and clock keys left out, no sentence.
 func (r *renderer) scalars() {
@@ -1286,6 +1525,52 @@ func pastToPassive(verb string) string {
 		return "was " + first
 	}
 	return "was " + verb
+}
+
+// place is an OCSF Geo Location as the sentence says it: the city and the
+// country code, the region standing in for a missing city, the country alone
+// when that is all there is. A location with none of those but a desc (a
+// source that named a country and nothing else, adr/0208) reads its desc:
+// the place the record holds must reach the timeline and the export, which
+// read the sentence alone. "" when the object has none of them.
+func (r *renderer) place(path string) string {
+	city := r.str(path + ".city")
+	if city == "" {
+		city = r.str(path + ".region")
+	}
+	if p := joinNonEmpty(", ", city, r.str(path+".country")); p != "" {
+		return p
+	}
+	return r.str(path + ".desc")
+}
+
+// locationText is the Location field: city, region and country code; the
+// location's description (OCSF desc, free text as the producer wrote it,
+// which for a source that named a country no code is known for is that
+// name); and who reported the place when the event says (OCSF
+// location.provider) — a geolocation provider's reading of an address, not
+// where a person was.
+func (r *renderer) locationText(path string) string {
+	text := joinNonEmpty(" · ",
+		joinNonEmpty(", ", r.str(path+".city"), r.str(path+".region"), r.str(path+".country")),
+		r.str(path+".desc"))
+	if text == "" {
+		return ""
+	}
+	if p := r.str(path + ".provider"); p != "" {
+		text += " · reported by " + p
+	}
+	return text
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	out := parts[:0:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
 }
 
 func endpoint(ip string, port int) string {

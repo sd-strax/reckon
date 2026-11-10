@@ -3,7 +3,7 @@
     "scenario": "lateral-movement-via-rdp",
     "matches": {
       "verb": "enumerate_logons",
-      "params": { "target.hostname": "*", "outcome": "*", "target.user": [null, "svc_backup", "CONTOSO\\svc_backup"] }
+      "params": { "target.hostname": ["WIN-FILE01", null], "outcome": "*", "target.user": [null, "svc_backup", "CONTOSO\\svc_backup"] }
     },
     "delay_ms": 40,
     "time_scoped": true

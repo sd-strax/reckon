@@ -52,7 +52,12 @@ const (
 	TypeRegistryKey    = "x-registry-key"
 	TypeScheduledTask  = "x-scheduled-task"
 	TypeGroup          = "x-group"
-	TypeObservedData   = "observed-data"
+	// TypeCloudAccount and TypeCloudResource are the control-plane objects a
+	// cloud audit event names (03 §7.2): the account (subscription, project)
+	// the call ran in, and the resource it acted on.
+	TypeCloudAccount  = "x-cloud-account"
+	TypeCloudResource = "x-cloud-resource"
+	TypeObservedData  = "observed-data"
 	// TypeNullObservation is the custom SDO recording that a complete query
 	// observed nothing (01 §Invented, adr/0061): the citeable form of absence.
 	TypeNullObservation = "x-null-observation"
@@ -345,6 +350,114 @@ func (r *Resolver) Group(directory, groupName string) STIXID {
 		"directory":  strings.ToLower(strings.TrimSpace(directory)),
 		"group_name": strings.ToLower(strings.TrimSpace(groupName)),
 	})
+}
+
+// CloudAccount resolves an x-cloud-account SCO from (provider, account_uid)
+// (03 §7.2). The provider is lowercased; the account uid is trimmed and keeps
+// its case, except a GUID-shaped uid (an Azure subscription or tenant id),
+// which is hex and lowercased. Which payload field names the account, and the
+// provider slug, are the normalizer's shaping (§7.4).
+func (r *Resolver) CloudAccount(provider, uid string) STIXID {
+	return r.mint(TypeCloudAccount, map[string]any{
+		"provider":    canonicalProvider(provider),
+		"account_uid": canonicalCloudUID(uid),
+	})
+}
+
+// CloudResourceIdentity carries the identity-contributing fields of an
+// x-cloud-resource, in priority order: the provider's unique resource id (UID)
+// > the resource's (Type, Region, Zone, Group, Namespace, Name) under its
+// account (AccountRef). Zone is OCSF's availability zone, a field newer
+// schema versions carry and older ones do not (03 §4.16); it is empty when
+// absent.
+type CloudResourceIdentity struct {
+	Provider   string
+	UID        string
+	AccountRef STIXID
+	Type       string
+	Region     string
+	Zone       string
+	Group      string
+	Namespace  string
+	Name       string
+}
+
+// CloudResourceRule says which identity rule resolved an x-cloud-resource, so
+// a caller can tell an owner-carrying id from an account-scoped one without
+// re-deriving the priority.
+type CloudResourceRule int
+
+const (
+	// CloudResourceNone: nothing identifies the resource; no id was minted.
+	CloudResourceNone CloudResourceRule = iota
+	// CloudResourceByUID: the provider's unique resource id, which carries
+	// its own owner.
+	CloudResourceByUID
+	// CloudResourceByName: (account_ref, type, region, zone, group,
+	// namespace, name), scoped under the account it was named in.
+	CloudResourceByName
+)
+
+// CloudResource resolves an x-cloud-resource SCO using the strongest available
+// identifier (03 §7.2): (provider, uid) when the provider's unique resource id
+// is present, since it is unique within the provider and already carries its
+// account; else (account_ref, type, region, zone, group, namespace, name),
+// the resource scoped under its account and every parent scope OCSF's
+// resource object can express (region, availability zone, resource group,
+// namespace); for a source whose uniqueness scope lies outside those fields
+// the unique id is the only strong identity. Type, region, zone and group are
+// lowercased (closed or case-insensitive vocabularies: region and zone codes,
+// resource-group names); the namespace and the name are trimmed and keep
+// their case, because OCSF's namespace is a generic string with no case rule,
+// cloud resource names are case-sensitive for several resource types, and the
+// resolver folds only where a vocabulary is case-insensitive: a source that
+// varies a namespace's or name's case splits one resource into two, which an
+// aliases edge repairs, rather than merging two resources into one. An absent
+// scope is empty, so two sightings that both omit it still meet; an absent
+// zone, a field only newer schema versions carry (03 §4.16), is the common
+// case. It returns CloudResourceNone and no id when nothing identifies the
+// resource (no uid, and no name with an account to scope it), so an unscoped
+// name never mints an id that would merge across accounts. No
+// provider-specific parsing: the uid is folded, never split.
+func (r *Resolver) CloudResource(c CloudResourceIdentity) (STIXID, CloudResourceRule) {
+	if uid := canonicalCloudUID(c.UID); uid != "" {
+		return r.mint(TypeCloudResource, map[string]any{
+			"provider": canonicalProvider(c.Provider),
+			"uid":      uid,
+		}), CloudResourceByUID
+	}
+	name := strings.TrimSpace(c.Name)
+	if c.AccountRef == "" || name == "" {
+		return "", CloudResourceNone
+	}
+	return r.mint(TypeCloudResource, map[string]any{
+		"account_ref": string(c.AccountRef),
+		"type":        strings.ToLower(strings.TrimSpace(c.Type)),
+		"region":      strings.ToLower(strings.TrimSpace(c.Region)),
+		"zone":        strings.ToLower(strings.TrimSpace(c.Zone)),
+		"group":       strings.ToLower(strings.TrimSpace(c.Group)),
+		"namespace":   strings.TrimSpace(c.Namespace),
+		"name":        name,
+	}), CloudResourceByName
+}
+
+// canonicalProvider folds a cloud provider name for identity: trimmed and
+// lowercased. Mapping provider spellings to one slug is the normalizer's.
+func canonicalProvider(p string) string {
+	return strings.ToLower(strings.TrimSpace(p))
+}
+
+// canonicalCloudUID folds a cloud identifier for identity: trimmed, case kept
+// (an ARN's resource part is case-sensitive), lowercased only when it is a
+// GUID, whose hex digits carry no case.
+func canonicalCloudUID(uid string) string {
+	uid = strings.TrimSpace(uid)
+	if len(uid) == 36 {
+		if _, err := uuid.Parse(uid); err == nil {
+			return strings.ToLower(uid)
+		}
+	}
+	return uid
 }
 
 // --- SDOs -------------------------------------------------------------------

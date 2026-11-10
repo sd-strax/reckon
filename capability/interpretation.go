@@ -46,6 +46,10 @@ const (
 	// host the same record names by hostname (adr/0211): an identity assertion
 	// from the source, never a merge (01 edge table).
 	RelAliases = "aliases"
+
+	// RelBelongsTo is STIX 2.1's SCO relationship, adopted for a cloud
+	// resource or principal and the account it lives in (03 §4.15).
+	RelBelongsTo = "belongs-to"
 )
 
 // Provenance is the uniform provenance carried by every normalizer output

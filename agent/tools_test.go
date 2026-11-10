@@ -283,3 +283,49 @@ func TestConsultedCases_BothShapes(t *testing.T) {
 		t.Errorf("got %+v", got)
 	}
 }
+
+// TestVerbToolDef_InputShapes: a verb's inputs render by their catalog type —
+// an optional entity stays out of `required`, an int is a JSON integer, a
+// list<string> is an array of strings, anything else a string — so a count
+// reaches the binding as a number and a fleet-wide verb can be called with no
+// entity at all (03 §2, #210).
+func TestVerbToolDef_InputShapes(t *testing.T) {
+	var c Capability
+	if err := json.Unmarshal([]byte(`{"status":"available","descriptor":{
+		"verb":"get_process_executions","intent":"Search.","output":"list<observed_data>",
+		"inputs":[
+			{"name":"subject","type":"entity","required":false,"desc":"optional host or user"},
+			{"name":"window","type":"time_window","required":false,"desc":"time bound"},
+			{"name":"command_line_contains","type":"string","required":false,"desc":"substring"},
+			{"name":"limit","type":"int","required":false,"desc":"max"},
+			{"name":"scopes","type":"list<string>","required":false,"desc":"sources"},
+			{"name":"query_text","type":"string","required":true,"desc":"the query"}
+		]}}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	def := verbToolDef(c)
+	props := def.InputSchema["properties"].(map[string]any)
+	typeOf := func(name string) string {
+		p, ok := props[name].(map[string]any)
+		if !ok {
+			t.Fatalf("property %q missing from %v", name, props)
+		}
+		return p["type"].(string)
+	}
+	if typeOf("entity") != "object" || typeOf("window") != "object" {
+		t.Errorf("entity/window: %q/%q; want object/object", typeOf("entity"), typeOf("window"))
+	}
+	if typeOf("command_line_contains") != "string" {
+		t.Errorf("command_line_contains: %q; want string", typeOf("command_line_contains"))
+	}
+	if typeOf("limit") != "integer" {
+		t.Errorf("limit: %q; want integer", typeOf("limit"))
+	}
+	if typeOf("scopes") != "array" || props["scopes"].(map[string]any)["items"].(map[string]any)["type"] != "string" {
+		t.Errorf("scopes: %v; want an array of strings", props["scopes"])
+	}
+	required, _ := def.InputSchema["required"].([]string)
+	if !reflect.DeepEqual(required, []string{"query_text"}) {
+		t.Errorf("required = %v; want [query_text] — the optional entity must not be required", required)
+	}
+}

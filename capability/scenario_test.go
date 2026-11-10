@@ -26,10 +26,16 @@ func TestShippedLateralMovementScenario(t *testing.T) {
 	for _, v := range res.AvailableVerbs(catalog) {
 		avail[v] = true
 	}
-	for _, v := range []string{"enumerate_logons", "get_process_ancestry", "get_network_connections", "search_alerts", "query_external_cases", "get_external_case_details"} {
+	for _, v := range []string{"enumerate_logons", "get_process_ancestry", "get_network_connections", "search_alerts", "query_external_cases", "get_external_case_details",
+		"get_process_executions", "get_persistence_artifacts", "get_file_activity", "resolve_dns", "get_privilege_changes", "pivot_on_indicator"} {
 		if !avail[v] {
 			t.Errorf("verb %s not available in shipped scenario", v)
 		}
+	}
+	// The escape hatch stays unbound on fixtures (a fixture cannot run a query),
+	// so it is trimmed from the demo's tool set.
+	if avail["query_logs"] {
+		t.Error("query_logs is available in the shipped scenario; it must stay unbound")
 	}
 
 	host := CallInput{Entity: map[string]any{"host": map[string]any{"hostname": "WIN-FILE01"}}}
@@ -46,7 +52,7 @@ func TestShippedLateralMovementScenario(t *testing.T) {
 
 	// The incident-day logons answer to the account and the window asked for
 	// (#164): one account's logons exclude the other's, and a window after
-	// both is a complete, empty answer — a citeable absence.
+	// all of them is a complete, empty answer — a citeable absence.
 	user := func(name string, from time.Time) CallInput {
 		return CallInput{Entity: map[string]any{"user": map[string]any{"name": name}}, Window: TimeWindow{From: from}}
 	}
@@ -58,12 +64,12 @@ func TestShippedLateralMovementScenario(t *testing.T) {
 	if len(jdoe.ObservedDataRefs) != 1 {
 		t.Errorf("jdoe's logons that day: refs=%d; want 1 (not svc_backup's)", len(jdoe.ObservedDataRefs))
 	}
-	after, err := res.Resolve(ctx, "enumerate_logons", user("svc_backup", time.Date(2026, 4, 20, 14, 33, 0, 0, time.UTC)))
+	after, err := res.Resolve(ctx, "enumerate_logons", user("svc_backup", time.Date(2026, 4, 20, 15, 0, 0, 0, time.UTC)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if after.Coverage != CoverageComplete || after.NullObservation == nil {
-		t.Errorf("svc_backup after 14:33: coverage=%q null=%v refs=%d; want a COMPLETE empty answer with a null observation",
+		t.Errorf("svc_backup after 15:00: coverage=%q null=%v refs=%d; want a COMPLETE empty answer with a null observation",
 			after.Coverage, after.NullObservation != nil, len(after.ObservedDataRefs))
 	}
 
@@ -142,6 +148,161 @@ func TestShippedLateralMovementScenario(t *testing.T) {
 			t.Errorf("get_external_case_details(%s): got case numbers %v", id, nums)
 		}
 	}
+}
+
+// TestShippedLateralMovementHuntVerbs resolves the hunt verbs (#210) against
+// the shipped scenario: the fleet-wide pair answers with no entity and narrows
+// to a host, a window after the incident is a citeable absence, the file, DNS
+// and privilege verbs answer on their entity, and a pivot on each planted
+// indicator finds its sightings while an unknown one is a complete, empty
+// answer.
+func TestShippedLateralMovementHuntVerbs(t *testing.T) {
+	cfg, err := LoadTenantConfig("../examples/capability/lateral-movement.yaml")
+	if err != nil {
+		t.Fatalf("load shipped config: %v", err)
+	}
+	res, _, err := BuildResolver(cfg, "../fixtures", uuid.New(), true)
+	if err != nil {
+		t.Fatalf("build resolver: %v", err)
+	}
+	ctx := context.Background()
+	host := func(name string) map[string]any { return map[string]any{"host": map[string]any{"hostname": name}} }
+	hostsOf := func(r CapabilityResult) map[string]int {
+		out := map[string]int{}
+		for _, e := range r.Events {
+			out[pathStr(e.Payload, "device.hostname")]++
+		}
+		return out
+	}
+	complete := func(name string, r CapabilityResult, err error, wantEvents int) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if r.Coverage != CoverageComplete || len(r.Events) != wantEvents {
+			t.Errorf("%s: coverage=%q events=%d; want COMPLETE/%d", name, r.Coverage, len(r.Events), wantEvents)
+		}
+	}
+	absent := func(name string, r CapabilityResult, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if r.Coverage != CoverageComplete || r.NullObservation == nil || len(r.Events) != 0 {
+			t.Errorf("%s: coverage=%q null=%v events=%d; want a COMPLETE empty answer with a null observation", name, r.Coverage, r.NullObservation != nil, len(r.Events))
+		}
+	}
+
+	// "Where did this command line run?" — no entity: both hosts.
+	fleet, err := res.Resolve(ctx, "get_process_executions", CallInput{Extra: map[string]any{"command_line_contains": "-EncodedCommand"}})
+	complete("get_process_executions(fleet)", fleet, err, 2)
+	if h := hostsOf(fleet); len(h) != 2 {
+		t.Errorf("get_process_executions(fleet): hosts %v; want two", h)
+	}
+	one, err := res.Resolve(ctx, "get_process_executions", CallInput{Entity: host("WIN-APP02")})
+	complete("get_process_executions(host)", one, err, 1)
+	other, err := res.Resolve(ctx, "get_process_executions", CallInput{Entity: map[string]any{"user": map[string]any{"name": "jdoe"}}})
+	absent("get_process_executions(other account)", other, err)
+	const powershell = "9f1c2d3e4a5b6c7d8e9f0011223344556677889900aabbccddeeff0011223344"
+	byImage, err := res.Resolve(ctx, "get_process_executions", CallInput{Extra: map[string]any{"image_hash": powershell}})
+	complete("get_process_executions(hash)", byImage, err, 2)
+	noImage, err := res.Resolve(ctx, "get_process_executions", CallInput{Extra: map[string]any{"image_hash": "0000000000000000000000000000000000000000000000000000000000000000"}})
+	absent("get_process_executions(unknown hash)", noImage, err)
+
+	// "Which hosts gained persistence this week?" — three artifacts on two hosts;
+	// narrowed to the first host, two; after the incident, none.
+	sweep, err := res.Resolve(ctx, "get_persistence_artifacts", CallInput{})
+	complete("get_persistence_artifacts(fleet)", sweep, err, 3)
+	if h := hostsOf(sweep); h["WIN-FILE01"] != 2 || h["WIN-APP02"] != 1 {
+		t.Errorf("get_persistence_artifacts(fleet): hosts %v; want WIN-FILE01:2 WIN-APP02:1", h)
+	}
+	narrowed, err := res.Resolve(ctx, "get_persistence_artifacts", CallInput{Entity: host("WIN-FILE01")})
+	complete("get_persistence_artifacts(host)", narrowed, err, 2)
+	later, err := res.Resolve(ctx, "get_persistence_artifacts", CallInput{Window: TimeWindow{From: time.Date(2026, 4, 20, 15, 0, 0, 0, time.UTC)}})
+	absent("get_persistence_artifacts(after)", later, err)
+
+	// The dropped file by hash, the resolution by name, the group add by account.
+	const payload = "3a7f9c0e1b2d4f6a8c9e0b1d2f3a4c5e6f708192a3b4c5d6e7f8091a2b3c4d5e"
+	file, err := res.Resolve(ctx, "get_file_activity", CallInput{Entity: map[string]any{"file": map[string]any{"hash": payload}}})
+	complete("get_file_activity(hash)", file, err, 1)
+	noFile, err := res.Resolve(ctx, "get_file_activity", CallInput{Entity: map[string]any{"file": map[string]any{"hash": "0000000000000000000000000000000000000000000000000000000000000000"}}})
+	absent("get_file_activity(unknown hash)", noFile, err)
+	dns, err := res.Resolve(ctx, "resolve_dns", CallInput{Entity: map[string]any{"domain": "exfil.example.net"}})
+	complete("resolve_dns", dns, err, 1)
+	if len(dns.EntityRefs) < 2 {
+		t.Errorf("resolve_dns: %d entities; want the name and its answer", len(dns.EntityRefs))
+	}
+	priv, err := res.Resolve(ctx, "get_privilege_changes", CallInput{Entity: map[string]any{"user": map[string]any{"name": "svc_backup"}}})
+	complete("get_privilege_changes", priv, err, 1)
+
+	// The normalizer writes the account domain-qualified, so a follow-up on
+	// the account as it appears in the record finds the same evidence.
+	qualified := map[string]any{"user": map[string]any{"name": `CONTOSO\svc_backup`}}
+	privQ, err := res.Resolve(ctx, "get_privilege_changes", CallInput{Entity: qualified})
+	complete("get_privilege_changes(qualified)", privQ, err, 1)
+	execQ, err := res.Resolve(ctx, "get_process_executions", CallInput{Entity: qualified})
+	complete("get_process_executions(qualified)", execQ, err, 2)
+
+	// A pivot finds every sighting of the indicator across the scenario's
+	// sources, whichever way it is named; an indicator the scenario never saw
+	// is absence, not unavailability.
+	byIP, err := res.Resolve(ctx, "pivot_on_indicator", CallInput{Entity: map[string]any{"ip": "185.220.101.5"}})
+	complete("pivot_on_indicator(ip)", byIP, err, 2)
+	byDomain, err := res.Resolve(ctx, "pivot_on_indicator", CallInput{Entity: map[string]any{"domain": "exfil.example.net"}})
+	complete("pivot_on_indicator(domain)", byDomain, err, 2)
+	byHash, err := res.Resolve(ctx, "pivot_on_indicator", CallInput{Entity: map[string]any{"file": map[string]any{"hash": payload}}})
+	complete("pivot_on_indicator(hash)", byHash, err, 1)
+	bySource, err := res.Resolve(ctx, "pivot_on_indicator", CallInput{Entity: map[string]any{"ip": "10.0.4.20"}})
+	complete("pivot_on_indicator(source ip)", bySource, err, 2)
+	unknown, err := res.Resolve(ctx, "pivot_on_indicator", CallInput{Entity: map[string]any{"ip": "203.0.113.9"}})
+	absent("pivot_on_indicator(unknown)", unknown, err)
+	pivotLater, err := res.Resolve(ctx, "pivot_on_indicator", CallInput{Entity: map[string]any{"ip": "185.220.101.5"}, Window: TimeWindow{From: time.Date(2026, 4, 20, 15, 0, 0, 0, time.UTC)}})
+	absent("pivot_on_indicator(after)", pivotLater, err)
+
+	// The old verbs are unchanged by the shared fixtures: the connection still
+	// answers only get_network_connections' question, once.
+	net, err := res.Resolve(ctx, "get_network_connections", CallInput{Entity: host("WIN-FILE01")})
+	complete("get_network_connections", net, err, 1)
+
+	// Following the second host: the fleet verbs name it, so a follow-up on it
+	// must answer with its own evidence, never the first host's.
+	pid := func(r CapabilityResult) int {
+		if len(r.Events) != 1 {
+			return 0
+		}
+		return pathInt(r.Events[0].Payload, "process.pid")
+	}
+	ancestry2, err := res.Resolve(ctx, "get_process_ancestry", CallInput{Entity: host("WIN-APP02")})
+	complete("get_process_ancestry(WIN-APP02)", ancestry2, err, 1)
+	if h := hostsOf(ancestry2); h["WIN-APP02"] != 1 {
+		t.Errorf("get_process_ancestry(WIN-APP02): hosts %v; want WIN-APP02:1", h)
+	}
+	if p := pid(ancestry2); p != 4412 {
+		t.Errorf("get_process_ancestry(WIN-APP02): pid %v; want 4412", p)
+	}
+	ancestry1, err := res.Resolve(ctx, "get_process_ancestry", CallInput{Entity: host("WIN-FILE01")})
+	complete("get_process_ancestry(WIN-FILE01)", ancestry1, err, 1)
+	if p := pid(ancestry1); p != 6120 {
+		t.Errorf("get_process_ancestry(WIN-FILE01): pid %v; want 6120", p)
+	}
+	// A process-rooted call names the chain by pid alone; it must walk that
+	// one process, not every host's.
+	for _, want := range []int{6120, 4412} {
+		chain, err := res.Resolve(ctx, "get_process_ancestry", CallInput{Entity: map[string]any{"process": map[string]any{"pid": want}}})
+		complete("get_process_ancestry(pid)", chain, err, 1)
+		if p := pid(chain); p != want {
+			t.Errorf("get_process_ancestry(pid %d): pid %d", want, p)
+		}
+	}
+	logons2, err := res.Resolve(ctx, "enumerate_logons", CallInput{Entity: host("WIN-APP02")})
+	complete("enumerate_logons(WIN-APP02)", logons2, err, 1)
+	// A user-rooted question passes no host and sees the account on every
+	// host: the seven baselines and the incident-day logon on the first, the
+	// network logon on the second.
+	account, err := res.Resolve(ctx, "enumerate_logons", CallInput{Entity: map[string]any{"user": map[string]any{"name": "svc_backup"}}})
+	complete("enumerate_logons(svc_backup, every host)", account, err, 9)
+	net2, err := res.Resolve(ctx, "get_network_connections", CallInput{Entity: host("WIN-APP02")})
+	absent("get_network_connections(WIN-APP02)", net2, err)
 }
 
 // caseNumbers collects the case_number extension the case normalizer wrote on

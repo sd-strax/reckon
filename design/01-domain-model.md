@@ -188,9 +188,9 @@ All objects follow **STIX 2.1 conventions**. Identity is `<type>--<uuidv5>`. Com
 **v0 types:**
 
 - **STIX-native:** `ipv4-addr`, `ipv6-addr`, `domain-name`, `url`, `file`, `directory`, `network-traffic`, `email-addr`, `email-message`, `user-account`, `process`
-- **Custom (`x-` prefix):** `x-host`, `x-registry-key`, `x-scheduled-task`, `x-group`
+- **Custom (`x-` prefix):** `x-host`, `x-registry-key`, `x-scheduled-task`, `x-group`, `x-cloud-account`, `x-cloud-resource`
 
-The four `x-` types cover Windows registry keys, scheduled tasks (and equivalents — cron, launchd, systemd), directory groups (AD / Entra / Okta), and host entities, which STIX 2.1 does not cover natively.
+The six `x-` types cover Windows registry keys, scheduled tasks (and equivalents — cron, launchd, systemd), directory groups (AD / Entra / Okta), host entities, cloud accounts and the resources inside them, which STIX 2.1 does not cover natively. A cloud principal (a user, role, service principal or service account) is a `user-account`, not a new type (03-capability-layer.md §4.15).
 
 Canonical identifiers are normalized on construction. Identity rules (including the three case-insensitivity deviations noted in *Architectural Commitments §4*) live in 03-capability-layer.md §7.2.
 
@@ -648,6 +648,7 @@ EDGE TYPES (v0 vocabulary, open)
 | `loads`          | process        | file           | Observed module/DLL load (emitted by the module_activity normalizer, 03-capability-layer.md §4.8).                                                                                       |
 | `member-of-group`| user-account   | x-group        | Observed directory-group membership (emitted by the account_change normalizer, 03-capability-layer.md §4.9).                                                                             |
 | `clicked`        | user-account   | url            | Observed URL click from email (emitted by the email_url_activity normalizer, 03-capability-layer.md §4.11).                                                                              |
+| `belongs-to`     | x-cloud-resource, user-account | x-cloud-account | Observed membership of a resource identified under an account, or of a principal in its own account (STIX 2.1 vocabulary; emitted by the api_activity normalizer, 03-capability-layer.md §4.15). Never asserted for a resource named by a provider-unique id. |
 
 Standard STIX relationship types (`indicates`, `uses`, `targets`, `communicates-with`, `resolves-to`, `located-at`, etc.) are also valid where applicable.
 
@@ -724,7 +725,7 @@ ADOPTED VS INVENTED
 - **`x-interpretation`** — primitive that records a reasoning act.
 - **`x-action`** — primitive for state-changing operations. Lifecycle and authorization in 04-action-authorization.md.
 - **Custom STIX SDOs:** `x-hypothesis`, `x-prediction`, `x-null-observation` — the last records that a complete query observed nothing (adr/0061). STIX has no form for absence: `observed-data` must observe at least one object and a `sighting` sights an indicator, so "no change record exists for this host in this window" had nothing an outcome could cite. The capability layer mints it on a mechanical condition only — coverage COMPLETE and zero results — carrying the verb, the subject entity, the parameters, the window and the sources; a PARTIAL empty answer mints nothing, so an absence the layer cannot vouch for is not citeable and INCONCLUSIVE is the only honest outcome. Identity is UUIDv5 over (verb, sources, subject, parameters, window), so the same question answered empty twice is one object.
-- **Custom STIX SCOs:** `x-host`, `x-registry-key`, `x-scheduled-task`, `x-group` — entity types not covered by STIX 2.1 native; identity rules in 03-capability-layer.md §7.2.
+- **Custom STIX SCOs:** `x-host`, `x-registry-key`, `x-scheduled-task`, `x-group`, `x-cloud-account`, `x-cloud-resource` — entity types not covered by STIX 2.1 native; identity rules in 03-capability-layer.md §7.2. The cloud account is a SCO rather than an `identity` SDO because it is an observable the telemetry names and the owner the resources reference; the cloud principal is deliberately *not* a new type, since `user-account` already models it.
 - **Custom STIX relationship types:** `x-supports`, `x-refutes`, `reverses`, `distinct-from` (a person's assertion that two entities are not one thing, so reads stop joining them through aliases; withdrawing an alias only removes a join, it does not record that the two are known apart; adr/0211); plus the normalizer-emitted observation relationships `parent-process-of`, `x-authenticated-to`, `loads`, `member-of-group`, `clicked` (03-capability-layer.md §4.1, §4.2, §4.8, §4.9, §4.11).
 - **Investigation extension structure** — `Seed`, `Lifecycle`, `ReasoningThread`, `ConclusionSlot` layered on top of `Grouping`.
 - **Deliberately NOT invented:** pinned evidence and the verdict are *not* new primitives — both are Interpretation acts (`evidence-pin`, `verdict`) whose investigation-level surfaces (the pinned-evidence list, the disposition of record) are folds over the thread. Making them first-class objects would duplicate what the reasoning thread already records.

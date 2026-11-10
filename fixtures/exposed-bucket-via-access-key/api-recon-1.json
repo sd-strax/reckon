@@ -1,0 +1,82 @@
+{
+  "fixture_meta": {
+    "scenario": "exposed-bucket-via-access-key",
+    "matches": {
+      "verb": "get_cloud_api_activity",
+      "params": {
+        "principal.name": [
+          "deploy-ci",
+          null
+        ],
+        "operation": [
+          "GetCallerIdentity",
+          null
+        ],
+        "outcome": [
+          "SUCCESS",
+          "ALL"
+        ],
+        "resource.uid": [
+          null
+        ]
+      }
+    },
+    "delay_ms": 25
+  },
+  "ocsf": {
+    "class_uid": 6003,
+    "class_name": "API Activity",
+    "category_uid": 6,
+    "activity_id": 2,
+    "activity_name": "Read",
+    "type_uid": 600302,
+    "time": "2026-07-14T08:59:00Z",
+    "severity_id": 1,
+    "metadata": {
+      "product": {
+        "vendor_name": "fixture-cloud",
+        "name": "fixture-cloud-audit"
+      },
+      "version": "1.1.0"
+    },
+    "actor": {
+      "user": {
+        "uid": "arn:aws:iam::111122223333:user/deploy-ci",
+        "name": "deploy-ci",
+        "type_id": 1,
+        "account": {
+          "uid": "111122223333",
+          "name": "acme-prod",
+          "type_id": 10
+        },
+        "credential_uid": "AKIAIOSFODNN7EXAMPLE"
+      }
+    },
+    "api": {
+      "operation": "GetCallerIdentity",
+      "service": {
+        "name": "sts.amazonaws.com"
+      },
+      "request": {
+        "uid": "c41d8e2a-7b3f-4f1e-a6d2-3e9b5f0a1101"
+      }
+    },
+    "cloud": {
+      "provider": "AWS",
+      "account": {
+        "uid": "111122223333",
+        "name": "acme-prod",
+        "type_id": 10
+      },
+      "region": "us-east-1"
+    },
+    "src_endpoint": {
+      "ip": "203.0.113.77"
+    },
+    "http_request": {
+      "user_agent": "aws-cli/2.17.20 Python/3.11.9 Darwin/23.5.0 exe/x86_64"
+    },
+    "status": "Success",
+    "status_id": 1
+  }
+}

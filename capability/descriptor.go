@@ -1,6 +1,9 @@
 package capability
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+)
 
 // CapabilityDescriptor is the LLM-facing declaration of a verb (§5.3): its name,
 // an intent description the agent renders into a tool definition, its typed
@@ -58,9 +61,31 @@ func windowInput() InputParam {
 	return InputParam{Name: "window", Type: "time_window", Required: false, Desc: "time bound; defaults to the tenant investigation window"}
 }
 
-// DefaultCatalog registers the v0 verb descriptors the fixture path can service.
-// It is a representative subset of §2, not the full 22 — the rest land as their
-// normalizers and bindings do (§5.1).
+// limitInput is the optional result cap a bulk verb takes; the default is the
+// verb's own (§2). What the model is shown of a large answer is bounded
+// separately, by the session (adr/0209), so this narrows the query, not the page.
+func limitInput(def int) InputParam {
+	return InputParam{Name: "limit", Type: "int", Required: false, Desc: fmt.Sprintf("max observations to return (default %d)", def)}
+}
+
+// optionalEntityInput is an entity input a verb can be asked without: the
+// fleet-wide question ("where did this run", "which hosts gained persistence")
+// has no entity to start from, and the entity, when given, narrows the answer.
+func optionalEntityInput(name, desc string) InputParam {
+	return InputParam{Name: name, Type: "entity", Required: false, Desc: desc}
+}
+
+// DefaultCatalog registers the engine's verb descriptors (§2). A verb here is
+// resolvable the moment a tenant binds it (§5.1); unbound it is listed as
+// unavailable and trimmed from the agent's tool set (§6.3). The verbs still
+// missing from §2 land as their bindings do: get_user_context,
+// get_process_descendants, get_module_loads, get_failed_auth_burst,
+// get_lateral_movement_signals, get_email_messages, get_email_clicks.
+//
+// Composite spec inputs (ProcessFilter, QuerySpec, scopes) are flattened to
+// scalar inputs on the wire, the convention query_external_cases set for
+// CaseFilter: every verb tool shares one input shape — an entity, a window and
+// scalar extras — and each scalar is a template root a binding can address.
 func DefaultCatalog() *Catalog {
 	c := NewCatalog()
 	for _, d := range []CapabilityDescriptor{
@@ -86,6 +111,81 @@ func DefaultCatalog() *Catalog {
 			Verb:   "get_process_ancestry",
 			Intent: "Walk a process's parent chain to root, returning ordered parent-child observations.",
 			Inputs: []InputParam{entityInput("process", "the process to walk from"), windowInput()},
+			Output: "list<observed_data>",
+		},
+		{
+			Verb:   "get_process_executions",
+			Intent: "Search process executions matching an image hash, image path or command-line fragment in a window, across every host unless narrowed to one host or user — the fleet-wide 'where did this run?'.",
+			Inputs: []InputParam{
+				optionalEntityInput("subject", "optional host or user-account to narrow to; omit to search the whole fleet"),
+				windowInput(),
+				{Name: "image_hash", Type: "string", Required: false, Desc: "hash of the executable image (SHA-256 preferred)"},
+				{Name: "image_path", Type: "string", Required: false, Desc: "path of the executable image"},
+				{Name: "command_line_contains", Type: "string", Required: false, Desc: "substring the command line must contain"},
+				limitInput(200),
+			},
+			Output: "list<observed_data>",
+		},
+		{
+			Verb:   "get_persistence_artifacts",
+			Intent: "List persistence artifacts created or changed in a window — autostart registry values, scheduled tasks and jobs, services, loaded modules — on one host, or across every host when no host is given.",
+			Inputs: []InputParam{
+				optionalEntityInput("host", "optional host to narrow to; omit to sweep the fleet"),
+				windowInput(),
+				limitInput(200),
+			},
+			Output: "list<observed_data>",
+		},
+		{
+			Verb:   "get_file_activity",
+			Intent: "List reads, writes, renames and deletes touching a file, identified by hash or path, in a window; optionally narrowed to one host.",
+			Inputs: []InputParam{
+				entityInput("file", `the file, by hash or path, e.g. {"file":{"hash":"<sha256>"}} or {"file":{"path":"<path>"}}; a host may be given beside it`),
+				windowInput(),
+				limitInput(200),
+			},
+			Output: "list<observed_data>",
+		},
+		{
+			Verb:   "resolve_dns",
+			Intent: "List DNS resolutions of a domain name in a window — which hosts asked, and what it resolved to — or every resolution a host made.",
+			Inputs: []InputParam{
+				entityInput("name", `the domain name, e.g. {"domain":"<name>"}, or a host whose resolutions to list`),
+				windowInput(),
+				limitInput(200),
+			},
+			Output: "list<observed_data>",
+		},
+		{
+			Verb:   "get_privilege_changes",
+			Intent: "List group-membership changes and privilege grants or revocations affecting a user-account, or performed on a host, in a window.",
+			Inputs: []InputParam{
+				entityInput("target", "the user-account changed, or the host the change happened on"),
+				windowInput(),
+				limitInput(200),
+			},
+			Output: "list<observed_data>",
+		},
+		{
+			Verb:   "query_logs",
+			Intent: "Run a raw query against a bound log source and normalize the rows best-effort — the escape hatch when no typed verb asks the question. Prefer a typed verb when one fits.",
+			Inputs: []InputParam{
+				{Name: "query_text", Type: "string", Required: true, Desc: "the query, in the bound source's own language"},
+				{Name: "tool", Type: "string", Required: false, Desc: "name of the bound log source to run it on; forwarded to the binding, which decides what it means"},
+				windowInput(),
+				limitInput(1000),
+			},
+			Output: "list<observed_data>",
+		},
+		{
+			Verb:   "pivot_on_indicator",
+			Intent: "Search every bound telemetry source for sightings of an indicator — an IP, domain, URL or file hash — in a window; `scopes` names source scopes for the bindings to apply.",
+			Inputs: []InputParam{
+				entityInput("indicator", `the indicator, e.g. {"ip":"<address>"}, {"domain":"<name>"}, {"url":"<url>"} or {"file":{"hash":"<sha256>"}}`),
+				windowInput(),
+				{Name: "scopes", Type: "list<string>", Required: false, Desc: "source scopes to search, e.g. edr, proxy, dns, email; forwarded to every fanned-out binding, not applied by the engine; omit for every source"},
+				limitInput(500),
+			},
 			Output: "list<observed_data>",
 		},
 		{
