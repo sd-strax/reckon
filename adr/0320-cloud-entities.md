@@ -56,8 +56,12 @@ from, so every session of one role is one principal). **No identifier, no
 principal:** an event carrying only a name, or only `actor.app_name`, mints
 nothing and keeps the name on the observation; the engine never composes an
 identity the source did not give, so two principals share an id only when
-the provider gave them one. A role is marked `is_service_account`; the
-credential id and the session are properties and extensions, never identity.
+the provider gave them one. **No provider, no cloud identities:** API
+Activity also describes non-cloud application APIs, and an event without
+`cloud.provider` yields its observation and source address only, so two
+unrelated applications' coincident ids never become one principal or one
+resource. A role is marked `is_service_account`; the credential id and the
+session are properties and extensions, never identity.
 
 **`x-cloud-account`, a custom SCO on `(provider, account_uid)`.** The
 account is an observable the telemetry names and the owner the resources
@@ -72,10 +76,13 @@ the one it acted in. Region is not on the account; it rides the observation.
 **`x-cloud-resource`, a custom SCO by strongest identifier.** `(provider,
 uid)` when the source gives the provider's unique resource id, which is
 unique within the provider and already carries its account, so a resource
-read across accounts is still its owner's; else `(account_ref, type, name)`
-under the event's account; else the resource is not minted. This is the
-`x-host` priority pattern. The engine parses no provider id to find an
-account.
+read across accounts is still its owner's; else `(account_ref, type,
+region, name)` under the event's account, the name's case preserved because
+resource names are case-sensitive for several types and the resolver folds
+only where a namespace is case-insensitive, the region in the tuple because
+one account may hold same-named resources in two regions; else the
+resource is not minted. This is the `x-host` priority pattern. The engine
+parses no provider id to find an account.
 
 **Edges and the observation.** `belongs-to`, the STIX 2.1 relationship
 vocabulary adopted as is, from a resource to the event's account only when
@@ -141,6 +148,15 @@ no verb exists for them yet.
 - **A relationship type per operation, or one observation per resource.**
   The graph would grow with the API surface and one event would stop being
   one observation.
+- **Lowercasing the resource name, as the registry-key rule does.** A
+  registry path is case-insensitive; a cloud resource name often is not,
+  and two tables differing by case would have merged.
+- **A name-rule tuple without the region.** One account may hold two
+  same-named resources in two regions; they would have merged.
+- **Cloud identities for an event with no provider.** Two unrelated
+  applications' coincident caller and resource ids would have merged under
+  an empty namespace; before this change such events were opaque and
+  asserted nothing.
 
 ## Consequences
 
@@ -150,11 +166,13 @@ no verb exists for them yet.
   `unix`, `ldap`. Whether a control-plane caller that is itself the
   directory account should be shaped to stitch with its sign-in is deferred
   until such a source exists; the slug table is where that row goes.
-- Three false-split modes, each the `x-host` kind and each remedied by
+- The false-split modes, each the `x-host` kind and each remedied by
   `aliases`: an `aws` source that carries the full session identifier as
   the principal id and names no issuer; a principal seen once with its
   primary identifier and once with only the alternate; a resource seen
-  once by unique id and once by bare name. There is no false-merge mode:
+  once by unique id and once by bare name, once with its region and once
+  without, or with its name's case varied by the source. There is no
+  false-merge mode:
   no name enters the tuple, no identifier is composed by the engine, and a
   numeric identifier that JSON decoding has rounded is not read as one.
   The first live source records which forms it fills.

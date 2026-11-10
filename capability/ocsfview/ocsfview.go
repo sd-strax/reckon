@@ -260,6 +260,35 @@ func (r *renderer) keyList(name string, slots []slot, fold bool) {
 	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(vals, ", "), Identity: id})
 }
 
+// keyRefList registers a multi-valued slot of entities: the texts joined for
+// reading, and as identity, encoded with boundaries intact and sorted, each
+// value's ref when the record minted it, else its exact text. Two different
+// objects that read the same (two resources one name) never fold; an unbound
+// value keys by its text exactly.
+func (r *renderer) keyRefList(name string, slots []slot) {
+	texts := make([]string, 0, len(slots))
+	keys := make([]string, 0, len(slots))
+	for _, s := range slots {
+		if s.text == "" {
+			continue
+		}
+		texts = append(texts, s.text)
+		if s.ref != "" {
+			keys = append(keys, "ref:"+s.ref)
+		} else {
+			keys = append(keys, "text:"+s.text)
+		}
+	}
+	sort.Strings(texts)
+	sort.Strings(keys)
+	var id string
+	if len(keys) > 0 { // no values is no value, which never folds
+		enc, _ := json.Marshal(keys) // strings always marshal
+		id = string(enc)
+	}
+	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(texts, ", "), Identity: id})
+}
+
 // slot is a sentence slot: what the payload shows, and the record's ref when
 // the record minted the entity.
 type slot struct {
@@ -1316,7 +1345,7 @@ func (r *renderer) apiActivity() {
 	r.keySlot("actor", actor)
 	r.keyText("operation", op)
 	r.keyText("service", service)
-	r.keyList("resource", resources, false) // resource ids compare exactly
+	r.keyRefList("resource", resources)
 	r.keySlot("account", account)
 	r.keyText("outcome", outcome)
 	r.keySlot("source", src)
@@ -1386,15 +1415,20 @@ func (r *renderer) cloudResources() []slot {
 	for _, item := range pathList(r.p, "resources") {
 		m, _ := item.(map[string]any)
 		uid, name, typ := toString(m["uid"]), toString(m["name"]), toString(m["type"])
+		region := strings.TrimSpace(toString(m["region"]))
 		text := firstNonEmpty(name, uid)
 		if text == "" {
 			continue
 		}
+		// By name the match mirrors the identity tuple: the name exactly
+		// (trimmed), type and region without case, an absent region as "".
 		ref := r.bind(identity.TypeCloudResource, func(p map[string]any) bool {
 			if uid != "" {
 				return propEquals(p, "uid", uid)
 			}
-			return propEquals(p, "name", name) && strings.EqualFold(toString(p["type"]), typ)
+			return name != "" && strings.TrimSpace(toString(p["name"])) == strings.TrimSpace(name) &&
+				strings.EqualFold(toString(p["type"]), typ) &&
+				strings.EqualFold(strings.TrimSpace(toString(p["region"])), region)
 		})
 		out = append(out, slot{text: text, ref: ref})
 	}

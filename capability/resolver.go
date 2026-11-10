@@ -390,8 +390,9 @@ func subjectRefs(ids *identity.Resolver, entity map[string]any) []identity.STIXI
 	}
 	// Cloud subjects take the provider through the same slug the api_activity
 	// normalizer applies, so a subject names the id the events minted. A cloud
-	// subject without a provider names nothing: the provider is half its
-	// identity.
+	// subject without a provider names nothing, the same rule the normalizer
+	// applies to an event without one: with no provider there is no namespace
+	// for a cloud identity.
 	if a, ok := entity["cloud_account"].(map[string]any); ok {
 		provider, uid := providerSlug(scalarString(a["provider"])), scalarString(a["uid"])
 		if provider != "" && uid != "" {
@@ -406,7 +407,7 @@ func subjectRefs(ids *identity.Resolver, entity map[string]any) []identity.STIXI
 			}
 			if id, rule := ids.CloudResource(identity.CloudResourceIdentity{
 				Provider: provider, UID: scalarString(c["uid"]), AccountRef: account,
-				Type: scalarString(c["type"]), Name: scalarString(c["name"]),
+				Type: scalarString(c["type"]), Region: scalarString(c["region"]), Name: scalarString(c["name"]),
 			}); rule != identity.CloudResourceNone {
 				refs = append(refs, id)
 			}

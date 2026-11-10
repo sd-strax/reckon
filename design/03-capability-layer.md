@@ -975,7 +975,12 @@ identifier that arrives as a JSON number is read only when it is an exactly
 representable integer; a value JSON decoding has already rounded is not an
 identifier and mints nothing.
 
-Output:
+Output. **No provider, no cloud identities:** API Activity also describes
+non-cloud application APIs, and without `cloud.provider` there is no
+namespace for a cloud identity, so an event with no provider yields only
+its ObservedData (the operation, its outcome, `principal_name`) and the
+source address — never a principal, an account or a resource that two
+unrelated applications' coincident ids could share. With a provider:
 
 - One `user-account` SCO for the principal. A cloud principal — a user, a
   role, a service principal, a service account — is a `user-account`, not a
@@ -1009,10 +1014,10 @@ Output:
   cross-account call shows both). Identity `(provider, account_uid)` (§7.2).
 - One `x-cloud-resource` SCO per `resources[]` entry that can be
   identified: by `(provider, uid)` when the source gives the provider's
-  unique id, else by `(account_ref, type, name)` under the event's account,
-  else not at all (§7.2). The engine does no provider-specific parsing of
-  an id; a resource identified by its unique id carries no `account_ref`,
-  since the id is its own statement of ownership.
+  unique id, else by `(account_ref, type, region, name)` under the event's
+  account, else not at all (§7.2). The engine does no provider-specific
+  parsing of an id; a resource identified by its unique id carries no
+  `account_ref`, since the id is its own statement of ownership.
 - `ipv4-addr` / `ipv6-addr` for `src_endpoint.ip`.
 - STIX `Relationship` of type `belongs-to` (the STIX 2.1 vocabulary, adopted)
   from a resource to the event's account **only when the resource was
@@ -1037,9 +1042,11 @@ when the provider gave them one): an `aws` source that puts the full
 assumed-role identifier in `actor.user.uid` and names no issuer makes each
 session of one role a distinct principal; a principal seen once with `uid`
 and once with only `uid_alt` is two principals; a resource seen once by its
-unique id and once by a bare name is two SCOs. Each is the `x-host` kind of
-split and each is remedied by an `aliases` edge, not by a rule change. Whether a control-plane caller that *is* the identity provider's
-account (one directory serving both) should be shaped to stitch with its
+unique id and once by a bare name is two SCOs, as is one named once with
+its region and once without, or with its name's case varied by the source.
+Each is the `x-host` kind of split and each is remedied by an `aliases`
+edge, not by a rule change. Whether a control-plane caller that *is* the
+identity provider's account (one directory serving both) should be shaped to stitch with its
 sign-in is deferred until such a source exists; the provider rows are where
 that goes.
 
@@ -1388,9 +1395,13 @@ namespace UUID per §7.1.
 - **`x-cloud-resource`** (custom): priority order — `(provider, uid)` when
   the provider's unique resource id is present (unique within the provider
   and already carrying its account; folded as the account uid is), else
-  `(account_ref.id, type, name)` lowercased under the event's account, else
-  the resource is not minted. The `x-host` pattern: strongest identifier
-  first, no parsing of the id.
+  `(account_ref.id, type, region, name)` under the event's account — type
+  and region lowercased (closed vocabularies), the **name with its case
+  preserved**, since resource names are case-sensitive for several resource
+  types and the resolver folds only where a namespace is case-insensitive;
+  the region folded for case, empty when the source carries none — else the
+  resource is not minted. The `x-host` pattern: strongest identifier first, no parsing
+  of the id.
 
 **Deviation: `process`.** STIX 2.1 specifies no `id_contributing_properties`
 for `process`, intentionally — the spec authors made the call that PIDs are

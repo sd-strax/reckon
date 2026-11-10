@@ -325,8 +325,22 @@ func TestCloudResourcePriority(t *testing.T) {
 	if rule != CloudResourceByName || byName == byUID {
 		t.Fatalf("by name: %s, rule %d; want a scoped id distinct from the uid's", byName, rule)
 	}
-	if got, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: " aws::s3::bucket ", Name: "ACME-Internal-Exports"}); got != byName {
-		t.Error("type and name must fold for case and whitespace")
+	if got, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: " aws::s3::bucket ", Name: " acme-internal-exports "}); got != byName {
+		t.Error("type must fold for case and whitespace, the name for whitespace")
+	}
+	orders, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Name: "Orders"})
+	lower, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Name: "orders"})
+	if orders == lower {
+		t.Error("names differing only in case must be two resources")
+	}
+	east, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Region: "us-east-1", Name: "Orders"})
+	west, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Region: "us-west-2", Name: "Orders"})
+	eastUpper, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Region: " US-EAST-1 ", Name: "Orders"})
+	if east == west || east != eastUpper || east == orders {
+		t.Errorf("regions: east=%s west=%s eastUpper=%s none=%s; want two regions apart, region folded, absent region distinct", east, west, eastUpper, orders)
+	}
+	if again, _ := r.CloudResource(CloudResourceIdentity{AccountRef: acct, Type: "AWS::DynamoDB::Table", Name: "Orders"}); again != orders {
+		t.Error("two region-less sightings of one name must be one resource")
 	}
 	if got, _ := r.CloudResource(CloudResourceIdentity{AccountRef: other, Type: "AWS::S3::Bucket", Name: "acme-internal-exports"}); got == byName {
 		t.Error("the same name under another account must be another resource")

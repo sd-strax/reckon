@@ -639,3 +639,64 @@ func TestRender_APIActivityOutcomeAndCaller(t *testing.T) {
 		t.Error("same-account call shows a caller account")
 	}
 }
+
+// TestRender_APIActivityResourceKey: the resource slot keys on the bound
+// object, so two resources with one display name stay apart, one resource
+// seen twice folds, and an unbound resource keys by its exact text.
+func TestRender_APIActivityResourceKey(t *testing.T) {
+	key := func(uid string, ents []Entity) SlotValue {
+		v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"GetObject"},"resources":[{"uid":"` + uid + `","name":"exports"}]}`)}, ents)
+		for _, s := range v.Slots {
+			if s.Name == "resource" {
+				return s
+			}
+		}
+		t.Fatal("no resource slot")
+		return SlotValue{}
+	}
+	a := key("arn:aws:s3:::exports", []Entity{ent("x-cloud-resource--a", map[string]any{"uid": "arn:aws:s3:::exports"})})
+	b := key("arn:aws:s3:::other/exports", []Entity{ent("x-cloud-resource--b", map[string]any{"uid": "arn:aws:s3:::other/exports"})})
+	again := key("arn:aws:s3:::exports", []Entity{ent("x-cloud-resource--a", map[string]any{"uid": "arn:aws:s3:::exports"})})
+	if a.Text != "exports" || b.Text != "exports" {
+		t.Errorf("texts = %q, %q; want the display name", a.Text, b.Text)
+	}
+	if a.Identity == b.Identity {
+		t.Error("two bound resources with one display name fold")
+	}
+	if a.Identity != again.Identity {
+		t.Error("one bound resource seen twice does not fold")
+	}
+	u1, u2 := key("arn:aws:s3:::x", nil), key("arn:aws:s3:::y", nil)
+	if u1.Identity != u2.Identity || u1.Identity == a.Identity {
+		t.Errorf("unbound keys = %q, %q; want the exact text, apart from the bound one", u1.Identity, u2.Identity)
+	}
+	upper := Render(Event{ClassUID: 6003, Payload: payload(`{"resources":[{"uid":"arn:aws:s3:::x","name":"Exports"}]}`)}, nil)
+	for _, s := range upper.Slots {
+		if s.Name == "resource" && s.Identity == u1.Identity {
+			t.Error("unbound resource text folded for case")
+		}
+	}
+}
+
+// TestRender_APIActivityResourceByName: a by-name resource binds on the
+// identity tuple: the name exactly, the region without case, so three
+// resources that differ only by name case or region each bind their own.
+func TestRender_APIActivityResourceByName(t *testing.T) {
+	v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"DescribeTable"},"resources":[
+		{"name":"Orders","type":"AWS::DynamoDB::Table","region":"us-east-1"},
+		{"name":"orders","type":"AWS::DynamoDB::Table","region":"US-EAST-1"},
+		{"name":"Orders","type":"AWS::DynamoDB::Table","region":"us-west-2"}]}`)}, []Entity{
+		ent("x-cloud-resource--east", map[string]any{"name": "Orders", "type": "AWS::DynamoDB::Table", "region": "us-east-1"}),
+		ent("x-cloud-resource--lower", map[string]any{"name": "orders", "type": "AWS::DynamoDB::Table", "region": "us-east-1"}),
+		ent("x-cloud-resource--west", map[string]any{"name": "Orders", "type": "AWS::DynamoDB::Table", "region": "us-west-2"}),
+	})
+	var refs []string
+	for _, f := range v.Fields {
+		if f.Label == "Resource" {
+			refs = append(refs, f.Ref)
+		}
+	}
+	if want := []string{"x-cloud-resource--east", "x-cloud-resource--lower", "x-cloud-resource--west"}; !slices.Equal(refs, want) {
+		t.Errorf("resource refs = %v; want %v", refs, want)
+	}
+}

@@ -272,12 +272,12 @@ func TestAPIActivity_Resources(t *testing.T) {
 		map[string]any{"name": "Acme-Logs", "type": "AWS::S3::Bucket"},
 		map[string]any{"type": "AWS::S3::Bucket"},
 		"not an object",
-		map[string]any{"name": "acme-logs", "type": "AWS::S3::Bucket"},
+		map[string]any{"name": "Acme-Logs", "type": "aws::s3::bucket"},
 	}
 	res := normalizeOne(t, p)
 	acct := ids.CloudAccount("aws", "111122223333")
 	byUID, _ := ids.CloudResource(identity.CloudResourceIdentity{Provider: "aws", UID: "arn:aws:s3:::acme-release-artifacts"})
-	byName, _ := ids.CloudResource(identity.CloudResourceIdentity{AccountRef: acct, Type: "aws::s3::bucket", Name: "acme-logs"})
+	byName, _ := ids.CloudResource(identity.CloudResourceIdentity{AccountRef: acct, Type: "AWS::S3::Bucket", Name: "Acme-Logs"})
 	rs := scosOf(res, identity.TypeCloudResource)
 	if len(rs) != 2 || rs[0].ID != byUID || rs[1].ID != byName {
 		t.Fatalf("resources = %+v; want the uid one and the named one, once each", rs)
@@ -313,6 +313,40 @@ func TestAPIActivity_Resources(t *testing.T) {
 	}
 	if len(res.Relationships) != 0 {
 		t.Errorf("relationships = %+v; want none without an account", res.Relationships)
+	}
+}
+
+// TestAPIActivity_NoProvider: a 6003 event with no cloud.provider (a
+// non-cloud application API) mints no cloud identity, whatever ids it
+// carries; the call is still one ObservedData with its fields and source.
+func TestAPIActivity_NoProvider(t *testing.T) {
+	appCall := func() map[string]any {
+		p := apiPayload()
+		delete(p, "cloud")
+		return p
+	}
+	a, b := normalizeOne(t, appCall()), normalizeOne(t, appCall())
+	for _, typ := range []string{identity.TypeUserAccount, identity.TypeCloudAccount, identity.TypeCloudResource} {
+		if n := len(scosOf(a, typ)); n != 0 {
+			t.Errorf("%s minted without a provider: %d", typ, n)
+		}
+	}
+	if len(a.Relationships) != 0 {
+		t.Errorf("relationships = %+v; want none", a.Relationships)
+	}
+	ext := a.ObservedData[0].Extensions
+	if ext["operation"] != "PutBucketPolicy" || ext["principal_name"] != "deploy-ci" {
+		t.Errorf("ext = %v; want the operation and principal name", ext)
+	}
+	if len(scosOf(a, identity.TypeIPv4Addr)) != 1 || len(a.SCOs) != 1 {
+		t.Errorf("SCOs = %+v; want only the source address", a.SCOs)
+	}
+	// Coincident uids in two events share nothing cloud-shaped; the address
+	// is the only SCO either holds.
+	for _, s := range b.SCOs {
+		if s.Type != identity.TypeIPv4Addr {
+			t.Errorf("second event minted %s", s.ID)
+		}
 	}
 }
 

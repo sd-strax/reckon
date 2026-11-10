@@ -15,7 +15,8 @@ import (
 // address an ipv4/ipv6-addr. A resource named under the account belongs-to it;
 // the principal belongs-to its own account. The operation, its outcome and the
 // session ride on the one ObservedData, which is the observation: there is no
-// edge from principal to resource.
+// edge from principal to resource. An event with no cloud.provider mints no
+// cloud identities at all (see Normalize).
 type apiActivityNormalizer struct{ r *identity.Resolver }
 
 func (*apiActivityNormalizer) ClassUID() int { return 6003 }
@@ -25,6 +26,13 @@ func (n *apiActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, e
 	p := evt.Payload
 	b := newBuilder(n.r, evt, "api_activity", n.Version())
 	provider := providerSlug(pathStr(p, "cloud.provider"))
+	if provider == "" {
+		// OCSF API Activity also describes non-cloud application APIs. With
+		// no provider there is no namespace for a cloud identity, so nothing
+		// cloud-shaped is minted: the call is still observed, with its source.
+		b.ipAddr("src_endpoint.ip")
+		return b.finish(apiExt(p)), nil
+	}
 
 	principal := b.cloudPrincipal(provider)
 	account := b.cloudAccount(provider)
@@ -221,9 +229,9 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 		if !ok {
 			continue
 		}
-		uid, name, typ := scalarString(m["uid"]), toString(m["name"]), toString(m["type"])
+		uid, name, typ, region := scalarString(m["uid"]), toString(m["name"]), toString(m["type"]), toString(m["region"])
 		id, rule := b.r.CloudResource(identity.CloudResourceIdentity{
-			Provider: provider, UID: uid, AccountRef: account, Type: typ, Name: name,
+			Provider: provider, UID: uid, AccountRef: account, Type: typ, Region: region, Name: name,
 		})
 		if rule == identity.CloudResourceNone || seen[id] {
 			continue
@@ -232,7 +240,7 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 		props := map[string]any{"provider": provider}
 		fields := map[string]string{
 			"uid": uid, "name": name, "type": typ,
-			"region": toString(m["region"]), "cloud_partition": toString(m["cloud_partition"]),
+			"region": region, "cloud_partition": toString(m["cloud_partition"]),
 		}
 		// Only a scoped resource names the account it lives in; a uid
 		// carries its own owner.
