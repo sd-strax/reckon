@@ -61,8 +61,16 @@ to telemetry).
 Conventions for signatures: `Entity` means a STIX SCO id or a canonical
 identifier (string) the layer will resolve. `TimeWindow` is
 `{ from: timestamp, to: timestamp }`. `Limit` is an optional integer with
-per-verb defaults. Every verb returns, in addition to its declared outputs, a
-`CapabilityResult` envelope:
+per-verb defaults. The composite inputs below (`ProcessFilter`, `QuerySpec`,
+`scopes`) name the concept; on the wire every verb has one shape — an entity,
+a window and scalar extras — and a composite is flattened to its scalar
+fields, each a template root a binding addresses (§3.3); a field that names an
+entity (`ProcessFilter.host`, `.user`) rides as the call's entity, and a
+map-valued field (`QuerySpec.parameters`) has no wire slot and is not carried.
+A verb whose question is fleet-wide (`get_process_executions`,
+`get_persistence_artifacts`) takes its entity optionally: absent, it asks
+every host; given, it narrows. Every verb returns, in addition to its declared
+outputs, a `CapabilityResult` envelope:
 
 ```text
 CapabilityResult {
@@ -627,7 +635,11 @@ Output:
 
 Input: OCSF authentication event with `actor.user.name`, `actor.user.domain`,
 `dst_endpoint.hostname`, `src_endpoint.ip`, `auth_protocol`, `logon_type`,
-`status` (SUCCESS/FAILURE), `time`.
+`status` (SUCCESS/FAILURE), `time`; optionally `src_endpoint.location`, the
+source's reported place as an OCSF Geo Location (`city`, `region`, `country`
+or the country as the source named it in `desc`, `lat`/`long`, `provider`),
+carried on the event and read by the event view, not extracted into a STIX
+object (`adr/0208`).
 
 Output:
 
@@ -1673,7 +1685,9 @@ testing), and returns the OCSF event. From there, normalization runs unchanged.
 The OcsfEvent gets `source_tool = "fixture:lateral-movement-via-rdp"` so it's
 traceable but distinguishable from real telemetry.
 
-**Matching.** The verb must equal `matches.verb`, and every `matches.params`
+**Matching.** The call's verb must be `matches.verb`, which is one verb or a
+list of verbs (one recorded resolution answers both `resolve_dns` and
+`pivot_on_indicator` without a second copy), and every `matches.params`
 entry must equal the value at its dotted path in the rendered binding params.
 `"*"` matches anything, including an absent param. A **list** matches any one of
 its values and nothing else — `"outcome": ["SUCCESS", "ALL"]` on the successful

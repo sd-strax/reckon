@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 // mapAt navigates nested map[string]any, failing the test on a miss.
 func mapAt(t *testing.T, m map[string]any, keys ...string) map[string]any {
@@ -36,6 +39,69 @@ func TestNormalizeAuthEvent(t *testing.T) {
 	}
 	if got := evs[0].Raw["status"]; got != "SUCCESS" {
 		t.Errorf("status = %v", got)
+	}
+	if _, has := mapAt(t, evs[0].Raw, "src_endpoint")["location"]; has {
+		t.Errorf("a client with no geographicalContext carried a location: %v", evs[0].Raw["src_endpoint"])
+	}
+}
+
+// TestNormalizeAuthEvent_Geolocation: Okta's client.geographicalContext (the
+// Toronto example from Okta's own sample payload, country as the full name
+// Okta sends) reaches the event as an OCSF Geo Location under src_endpoint,
+// the country name carried verbatim as desc, attributed to Okta (adr/0208).
+func TestNormalizeAuthEvent_Geolocation(t *testing.T) {
+	in := `{"items":[{"eventType":"user.session.start","published":"2026-08-04T10:00:00Z",` +
+		`"actor":{"id":"00uABC","alternateId":"alice@acme.com","type":"User"},` +
+		`"client":{"ipAddress":"203.0.113.5","geographicalContext":{"city":"Toronto","state":"Ontario",` +
+		`"country":"Canada","postalCode":"M4M","geolocation":{"lat":43.6529,"lon":-79.3849}}},` +
+		`"outcome":{"result":"SUCCESS"}}]}`
+	evs, err := normalize("get_logs", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc := mapAt(t, evs[0].Raw, "src_endpoint", "location")
+	for k, want := range map[string]any{
+		"city": "Toronto", "region": "Ontario", "desc": "Canada", "postal_code": "M4M",
+		"lat": 43.6529, "long": -79.3849, "provider": "okta",
+	} {
+		if got := loc[k]; got != want {
+			t.Errorf("location.%s = %v (%T); want %v", k, got, got, want)
+		}
+	}
+	for _, k := range []string{"coordinates", "country"} {
+		if _, has := loc[k]; has {
+			t.Errorf("location.%s was emitted; the name is carried as desc, no code is guessed", k)
+		}
+	}
+	if got := mapAt(t, evs[0].Raw, "src_endpoint")["ip"]; got != "203.0.113.5" {
+		t.Errorf("src_endpoint.ip = %v", got)
+	}
+}
+
+// TestGeoLocation_Edges: a numeric postal code is carried as text; a context
+// with only coordinates names no place, so none is emitted; a country name
+// alone stands, as desc; no context, no location.
+func TestGeoLocation_Edges(t *testing.T) {
+	ev := func(geo string) map[string]any {
+		var e map[string]any
+		if err := json.Unmarshal([]byte(`{"client":{"ipAddress":"1.2.3.4","geographicalContext":`+geo+`}}`), &e); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	loc := geoLocation(ev(`{"city":"New York","state":"New York","country":"United States","postalCode":10013}`))
+	if loc["postal_code"] != "10013" || loc["desc"] != "United States" {
+		t.Errorf("Okta's New York example → %v", loc)
+	}
+	if loc := geoLocation(ev(`{"geolocation":{"lat":1,"lon":2}}`)); loc != nil {
+		t.Errorf("coordinates alone emitted a location: %v", loc)
+	}
+	loc = geoLocation(ev(`{"country":" Türkiye "}`))
+	if loc["desc"] != "Türkiye" || loc["provider"] != "okta" || len(loc) != 2 {
+		t.Errorf("a country alone → %v", loc)
+	}
+	if geoLocation(ev(`null`)) != nil || geoLocation(map[string]any{}) != nil {
+		t.Error("no context emitted a location")
 	}
 }
 

@@ -42,6 +42,86 @@ func ent(ref string, props map[string]any) Entity {
 // TestRender_Authentication: the design's sentence, with the three entities as
 // chips bound to the record's refs, and the curated fields with the result
 // toned.
+// TestRender_Authentication_Location: a source with a reported place reads
+// "from <ip> in <city>, <country>" and the Location field names the place and
+// who reported it (adr/0208); a place with no source address is not said in
+// the sentence, since it would read as the host's.
+func TestRender_Authentication_Location(t *testing.T) {
+	p := payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"dst_endpoint":{"hostname":"corp-sso"},
+		"src_endpoint":{"ip":"203.0.113.5","location":{"city":"Toronto","region":"Ontario","country":"CA","provider":"okta"}},
+		"logon_type":"Interactive","status":"SUCCESS"}`)
+	v := Render(Event{ClassUID: 3002, Payload: p}, nil)
+	if got := sentenceText(v); got != "m.reyes interactive logon to corp-sso from 203.0.113.5 in Toronto, CA (located by okta)" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, ok := fieldValue(v, "Location"); !ok || f.Value != "Toronto, Ontario, CA · reported by okta" {
+		t.Errorf("Location field = %+v", f)
+	}
+
+	// The fixture's shape: city and country, no provider.
+	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"dst_endpoint":{"hostname":"corp-sso"},
+		"src_endpoint":{"ip":"10.0.12.40","location":{"country":"CA","city":"Toronto"}},"status":"FAILURE"}`)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	if got := sentenceText(v); got != "m.reyes logon to corp-sso from 10.0.12.40 in Toronto, CA failed" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, _ := fieldValue(v, "Location"); f.Value != "Toronto, CA" {
+		t.Errorf("Location field = %+v", f)
+	}
+
+	// A region stands in for a missing city; a country alone stands.
+	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"region":"Ontario","country":"CA"}}}`)
+	if got := sentenceText(Render(Event{ClassUID: 3002, Payload: p}, nil)); got != "m.reyes logon from 10.0.12.40 in Ontario, CA" {
+		t.Errorf("sentence = %q", got)
+	}
+	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"country":"CA"}}}`)
+	if got := sentenceText(Render(Event{ClassUID: 3002, Payload: p}, nil)); got != "m.reyes logon from 10.0.12.40 in CA" {
+		t.Errorf("sentence = %q", got)
+	}
+
+	// The location's description is shown as what it is, never as the country:
+	// a country name the adapter could not code (adr/0208) and a producer's
+	// own description read the same way, after the place.
+	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Atlantis City","desc":"Atlantis","provider":"okta"}}}`)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Atlantis City (located by okta)" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, _ := fieldValue(v, "Location"); f.Value != "Atlantis City · Atlantis · reported by okta" {
+		t.Errorf("Location field = %+v", f)
+	}
+	// A country-only location from a source that names countries (the Okta
+	// adapter's shape): the sentence reads the description, so the timeline
+	// and the export carry the place and who located it.
+	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"198.51.100.7","location":{"desc":"Türkiye","provider":"okta"}}}`)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	if got := sentenceText(v); got != "m.reyes logon from 198.51.100.7 in Türkiye (located by okta)" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, _ := fieldValue(v, "Location"); f.Value != "Türkiye · reported by okta" {
+		t.Errorf("Location field = %+v", f)
+	}
+	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Toronto","country":"CA","desc":"corporate office"}}}`)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Toronto, CA" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, _ := fieldValue(v, "Location"); f.Value != "Toronto, CA · corporate office" {
+		t.Errorf("Location field = %+v", f)
+	}
+
+	// No source address: the place is not in the sentence, but the field has it.
+	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"dst_endpoint":{"hostname":"corp-sso"},
+		"src_endpoint":{"location":{"city":"Toronto","country":"CA"}}}`)
+	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
+	if got := sentenceText(v); got != "m.reyes logon to corp-sso" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, ok := fieldValue(v, "Location"); !ok || f.Value != "Toronto, CA" {
+		t.Errorf("Location field = %+v", f)
+	}
+}
+
 func TestRender_Authentication(t *testing.T) {
 	p := payload(`{"class_uid":3002,"actor":{"user":{"name":"svc_backup","domain":"CONTOSO","uid":"S-1"}},
 		"dst_endpoint":{"hostname":"WIN-FILE01","domain":"CONTOSO"},"src_endpoint":{"ip":"10.0.4.20"},

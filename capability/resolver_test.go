@@ -293,6 +293,51 @@ func TestResolveNullObservation(t *testing.T) {
 	}
 }
 
+// TestQueryLogsBestEffortNormalization (03 §2.7): the escape hatch's rows are
+// normalized best-effort — a row of a known class becomes typed ObservedData
+// with entities, a row of an unknown class is wrapped opaque — and the answer
+// is COMPLETE with the query carried as the call's parameters.
+func TestQueryLogsBestEffortNormalization(t *testing.T) {
+	siem := &stubAdapter{name: "siem", healthy: true, resp: AdapterResponse{SourceTool: "siem", Events: []OcsfPayload{
+		{
+			ClassUID: 3002, ClassName: "Authentication", Time: time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC),
+			Raw: map[string]any{
+				"class_uid":    3002,
+				"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO"}},
+				"dst_endpoint": map[string]any{"hostname": "H1", "domain": "CONTOSO"},
+			},
+		},
+		{
+			ClassUID: 9901, ClassName: "Vendor Row", Time: time.Date(2026, 4, 20, 14, 1, 0, 0, time.UTC),
+			Raw: map[string]any{"class_uid": 9901, "message": "something the normalizer has no class for"},
+		},
+	}}}
+	res := newResolver(
+		map[string][]Binding{"query_logs": {{
+			Adapter: "siem", Operation: "op", Priority: 100,
+			Params: map[string]any{"query": "${query_text}", "limit": "${limit ?? 1000}"},
+		}}},
+		map[string]Adapter{"siem": siem},
+	)
+	out, err := res.Resolve(context.Background(), "query_logs", CallInput{Extra: map[string]any{"query_text": "index=auth host=H1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Coverage != CoverageComplete || len(out.Normalized) != 2 {
+		t.Fatalf("coverage=%q normalized=%d; want COMPLETE/2", out.Coverage, len(out.Normalized))
+	}
+	if len(out.Normalized[0].SCOs) == 0 {
+		t.Error("the authentication row produced no entities; want typed normalization")
+	}
+	if len(out.Normalized[1].SCOs) != 0 || len(out.Normalized[1].ObservedData) != 1 {
+		t.Errorf("the unknown-class row: scos=%d observed=%d; want 0 entities and one opaque ObservedData",
+			len(out.Normalized[1].SCOs), len(out.Normalized[1].ObservedData))
+	}
+	if siem.calls != 1 {
+		t.Errorf("adapter called %d times; want 1", siem.calls)
+	}
+}
+
 // TestSubjectRefs_Cloud: a cloud account and a cloud resource named as the
 // subject resolve to the ids the api_activity normalizer mints for them, by
 // uid or by name under the account; a subject without a provider, or a
