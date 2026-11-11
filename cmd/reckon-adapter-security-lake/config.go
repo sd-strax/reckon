@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,12 +49,23 @@ func resourceContext(ctx context.Context, client configAPI, params map[string]an
 	r := resourceScope{
 		uid: str(res, "uid"), name: str(res, "name"), typ: str(res, "type"), provider: str(res, "provider"),
 		accountUID: str(res, "account_uid"), region: str(res, "region"),
+		zone: str(res, "zone"), group: str(res, "group"), namespace: str(res, "namespace"),
 	}
 	if r.provider != "" && !strings.EqualFold(r.provider, "aws") {
 		return nil, errForeignProvider()
 	}
 	if !r.given() {
 		return nil, configErr(nil, "resource context needs a resource uid or name")
+	}
+	// A name-identified resource is narrowed by every scope given; a Config
+	// item records no resource group or namespace, so a scope of either
+	// cannot be confirmed and Config does not answer. A uid is not narrowed.
+	if r.uid == "" {
+		for _, k := range []struct{ key, val string }{{"group", r.group}, {"namespace", r.namespace}} {
+			if k.val != "" {
+				return nil, configErr(nil, k.key+" scope cannot be established from AWS Config")
+			}
+		}
 	}
 	if r.typ == "" {
 		r.typ = configTypeFromARN(r.uid)
@@ -132,12 +144,20 @@ func latestItem(ctx context.Context, client configAPI, typ, id string) (cstypes.
 	if len(out.ConfigurationItems) == 0 {
 		return cstypes.ConfigurationItem{}, configErr(nil, "AWS Config holds no configuration item for "+typ+" "+id)
 	}
-	return out.ConfigurationItems[0], nil
+	item := out.ConfigurationItems[0]
+	switch item.ConfigurationItemStatus {
+	case cstypes.ConfigurationItemStatusOk, cstypes.ConfigurationItemStatusResourceDiscovered:
+		return item, nil
+	}
+	// Deleted, not recorded, or a status this adapter does not know: the
+	// newest item is not a configuration the resource has now.
+	return cstypes.ConfigurationItem{}, configErr(nil, "AWS Config's newest item for "+typ+" "+id+" has status "+strconv.Quote(string(item.ConfigurationItemStatus)))
 }
 
 // checkItem confirms the item is the resource asked about: the same ARN for
-// a resource given by ARN; for one given by name, the account and region the
-// call scoped it to, when given (a name is unique only within them).
+// a resource given by ARN; for one given by name, the account, region and
+// zone the call scoped it to, when given (a name is unique only within
+// them; an item with no zone does not match a given one).
 func checkItem(item cstypes.ConfigurationItem, r resourceScope, id string) error {
 	arn := aws.ToString(item.Arn)
 	if strings.HasPrefix(r.uid, "arn:") && arn != "" && arn != r.uid {
@@ -151,6 +171,9 @@ func checkItem(item cstypes.ConfigurationItem, r resourceScope, id string) error
 	}
 	if g := aws.ToString(item.AwsRegion); r.region != "" && g != r.region {
 		return configErr(nil, "AWS Config's "+r.typ+" "+id+" is in region "+g+", not "+r.region)
+	}
+	if z := aws.ToString(item.AvailabilityZone); r.zone != "" && !strings.EqualFold(z, r.zone) {
+		return configErr(nil, "AWS Config's "+r.typ+" "+id+" is in zone "+strconv.Quote(z)+", not "+r.zone)
 	}
 	return nil
 }
@@ -333,13 +356,8 @@ func inventoryEvent(item cstypes.ConfigurationItem) capability.OcsfPayload {
 	put("name", aws.ToString(item.ResourceName))
 	put("type", string(item.ResourceType))
 	put("region", region)
-	if c := aws.ToString(item.Configuration); c != "" {
-		var parsed any
-		if err := json.Unmarshal([]byte(c), &parsed); err == nil {
-			resource["data"] = parsed
-		} else {
-			resource["data"] = c
-		}
+	if data := configData(item); data != nil {
+		resource["data"] = data
 	}
 	if len(item.Tags) > 0 {
 		names := make([]string, 0, len(item.Tags))
@@ -393,4 +411,121 @@ func timeOrZero(t *time.Time) time.Time {
 		return time.Time{}
 	}
 	return t.UTC()
+}
+
+// configData is the resource's configuration as one object: the item's
+// configuration decoded, with each supplementary configuration entry (for S3
+// the bucket policy, ACL, public access block, encryption…) merged in at the
+// top level under its Config key, its value decoded. On a key clash the base
+// value stays and the supplementary one is filed by mergeClashes. A configuration that is not JSON is kept as
+// the string it is.
+func configData(item cstypes.ConfigurationItem) any {
+	var base any
+	if c := aws.ToString(item.Configuration); c != "" {
+		if err := json.Unmarshal([]byte(c), &base); err != nil {
+			base = c
+		}
+	}
+	if len(item.SupplementaryConfiguration) == 0 {
+		return base
+	}
+	obj, ok := base.(map[string]any)
+	switch {
+	case ok:
+	case base == nil:
+		obj = map[string]any{}
+	default:
+		obj = map[string]any{"configuration": base}
+	}
+	keys := make([]string, 0, len(item.SupplementaryConfiguration))
+	for k := range item.SupplementaryConfiguration {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	clashes := map[string]any{}
+	for _, k := range keys {
+		v := decodeNested(item.SupplementaryConfiguration[k], 0)
+		if _, taken := obj[k]; taken {
+			clashes[k] = v
+			continue
+		}
+		obj[k] = v
+	}
+	if len(clashes) > 0 {
+		mergeClashes(obj, clashes)
+	}
+	return obj
+}
+
+// mergeClashes files supplementary entries whose key the base already has.
+// They go under supplementary_configuration; if the base itself has that
+// key, they merge into it when it is an object (its own keys win, and an
+// entry that would replace one goes under supplementary_configuration_clashes)
+// and otherwise go under supplementary_configuration_clashes.
+func mergeClashes(obj, clashes map[string]any) {
+	const key, fallback = "supplementary_configuration", "supplementary_configuration_clashes"
+	existing, taken := obj[key]
+	if !taken {
+		obj[key] = clashes
+		return
+	}
+	m, ok := existing.(map[string]any)
+	if !ok {
+		obj[fallback] = clashes
+		return
+	}
+	rest := map[string]any{}
+	for k, v := range clashes {
+		if _, has := m[k]; has {
+			rest[k] = v
+			continue
+		}
+		m[k] = v
+	}
+	if len(rest) > 0 {
+		obj[fallback] = rest
+	}
+}
+
+// maxDecodeDepth bounds decodeNested on a pathological value.
+const maxDecodeDepth = 8
+
+// decodeNested decodes a value AWS Config may have JSON-encoded more than
+// once: a string that parses as an object or an array is replaced by it, a
+// string that parses as a string is tried again, and objects and arrays are
+// walked. Anything else is kept as it is.
+func decodeNested(v any, depth int) any {
+	if depth > maxDecodeDepth {
+		return v
+	}
+	switch x := v.(type) {
+	case string:
+		s := x
+		for range maxDecodeDepth {
+			var parsed any
+			if err := json.Unmarshal([]byte(s), &parsed); err != nil {
+				return x
+			}
+			switch p := parsed.(type) {
+			case map[string]any, []any:
+				return decodeNested(p, depth+1)
+			case string:
+				s = p
+			default:
+				return x
+			}
+		}
+		return x
+	case map[string]any:
+		for k, val := range x {
+			x[k] = decodeNested(val, depth+1)
+		}
+		return x
+	case []any:
+		for i, val := range x {
+			x[i] = decodeNested(val, depth+1)
+		}
+		return x
+	}
+	return v
 }

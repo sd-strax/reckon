@@ -50,6 +50,9 @@
                 "VarCharValue": "metadata"
               },
               {
+                "VarCharValue": "unmapped"
+              },
+              {
                 "VarCharValue": "severity_id"
               },
               {
@@ -60,6 +63,9 @@
               },
               {
                 "VarCharValue": "type_uid"
+              },
+              {
+                "VarCharValue": "lake_accountid"
               }
             ]
           },
@@ -102,6 +108,7 @@
               {
                 "VarCharValue": "{\"correlation_uid\":null,\"event_code\":null,\"labels\":null,\"log_level\":null,\"log_name\":null,\"log_provider\":null,\"log_version\":null,\"logged_time\":null,\"modified_time\":null,\"original_time\":null,\"processed_time\":null,\"uid\":\"5f0a1103-0000-4000-8000-000000000004\",\"product\":{\"feature\":null,\"lang\":null,\"name\":\"Security Lake\",\"path\":null,\"uid\":null,\"url_string\":null,\"vendor_name\":\"AWS\",\"version\":null},\"profiles\":[\"cloud\",\"datetime\"],\"version\":\"1.1.0\"}"
               },
+              {},
               {
                 "VarCharValue": "1"
               },
@@ -113,6 +120,9 @@
               },
               {
                 "VarCharValue": "600302"
+              },
+              {
+                "VarCharValue": "111122223333"
               }
             ]
           }
@@ -279,6 +289,18 @@
               "CatalogName": "hive",
               "SchemaName": "",
               "TableName": "",
+              "Name": "unmapped",
+              "Label": "unmapped",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
               "Name": "severity_id",
               "Label": "severity_id",
               "Type": "integer",
@@ -322,6 +344,18 @@
               "Scale": 0,
               "Nullable": "UNKNOWN",
               "CaseSensitive": false
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "lake_accountid",
+              "Label": "lake_accountid",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
             }
           ]
         }

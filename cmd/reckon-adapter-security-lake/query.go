@@ -19,19 +19,84 @@ const (
 	maxLimit     = 1000
 )
 
+// column is one projected column: the table column it reads, the SELECT
+// expression, and the name the result carries.
+type column struct{ source, expr, name string }
+
 // projection is the column list every CloudTrail query reads: the scalars as
-// stored and each struct cast to JSON, which Athena engine v3 renders as an
-// object keyed by field name. rowToEvent reverses it.
-var projection = []string{
-	`"time"`, "time_dt", "activity_id", "activity_name", "status", "status_id",
-	"CAST(actor AS JSON) AS actor",
-	"CAST(api AS JSON) AS api",
-	"CAST(cloud AS JSON) AS cloud",
-	"CAST(resources AS JSON) AS resources",
-	"CAST(src_endpoint AS JSON) AS src_endpoint",
-	"CAST(http_request AS JSON) AS http_request",
-	"CAST(metadata AS JSON) AS metadata",
-	"severity_id", "class_uid", "category_uid", "type_uid",
+// stored, each struct cast to JSON (which Athena engine v3 renders as an
+// object keyed by field name), and the accountid partition under a name of
+// its own, which rowToEvent uses only to supply a missing cloud.account.
+// rowToEvent reverses it.
+var projection = []column{
+	{"time", `"time"`, "time"},
+	{"time_dt", "time_dt", "time_dt"},
+	{"activity_id", "activity_id", "activity_id"},
+	{"activity_name", "activity_name", "activity_name"},
+	{"status", "status", "status"},
+	{"status_id", "status_id", "status_id"},
+	jsonColumn("actor"),
+	jsonColumn("api"),
+	jsonColumn("cloud"),
+	jsonColumn("resources"),
+	jsonColumn("src_endpoint"),
+	jsonColumn("http_request"),
+	jsonColumn("metadata"),
+	jsonColumn("unmapped"),
+	{"severity_id", "severity_id", "severity_id"},
+	{"class_uid", "class_uid", "class_uid"},
+	{"category_uid", "category_uid", "category_uid"},
+	{"type_uid", "type_uid", "type_uid"},
+	{"accountid", "accountid AS " + lakeAccountColumn, lakeAccountColumn},
+}
+
+// lakeAccountColumn is the result name of the projected accountid partition.
+const lakeAccountColumn = "lake_accountid"
+
+// predicateOnlyColumns are table columns the WHERE clause reads that the
+// projection does not.
+var predicateOnlyColumns = []string{"region"}
+
+func jsonColumn(name string) column {
+	return column{name, "CAST(" + name + " AS JSON) AS " + name, name}
+}
+
+// selectList is the projection as SQL.
+func selectList() string {
+	exprs := make([]string, len(projection))
+	for i, c := range projection {
+		exprs[i] = c.expr
+	}
+	return strings.Join(exprs, ", ")
+}
+
+// projectedNames are the result column names, in order.
+func projectedNames() []string {
+	out := make([]string, len(projection))
+	for i, c := range projection {
+		out[i] = c.name
+	}
+	return out
+}
+
+// requiredColumns are the table columns (top-level names, partitions
+// included) the queries read; health checks the table has every one.
+func requiredColumns() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range projection {
+		if !seen[c.source] {
+			seen[c.source] = true
+			out = append(out, c.source)
+		}
+	}
+	for _, c := range predicateOnlyColumns {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // resourceScope is the resource a call names, with every scope key the
@@ -210,8 +275,25 @@ func activityQuery(db, table string, accounts []string, c cloudCall, history boo
 	if err != nil {
 		return sqlQuery{}, err
 	}
+	q, err := activityWhere(accounts, c, history)
+	if err != nil {
+		return sqlQuery{}, err
+	}
+	var b strings.Builder
+	b.WriteString("SELECT " + selectList() + "\n")
+	b.WriteString("FROM " + ref + "\n")
+	b.WriteString("WHERE " + q.clause() + "\n")
+	b.WriteString(`ORDER BY "time" DESC` + "\n")
+	b.WriteString("LIMIT ?")
+	return sqlQuery{sql: b.String(), params: append(q.params, strconv.Itoa(c.limit))}, nil
+}
+
+// activityWhere is the WHERE predicates of an activity (history false) or
+// history (history true) query and their parameters, in order. The queries
+// and health's probe both build from it.
+func activityWhere(accounts []string, c cloudCall, history bool) (*queryBuilder, error) {
 	if history && !c.resource.given() {
-		return sqlQuery{}, fatal("resource history needs a resource uid or name")
+		return nil, fatal("resource history needs a resource uid or name")
 	}
 	q := &queryBuilder{}
 	q.add("time_dt BETWEEN from_iso8601_timestamp(?) AND from_iso8601_timestamp(?)",
@@ -257,20 +339,76 @@ func activityQuery(db, table string, accounts []string, c cloudCall, history boo
 	if history {
 		q.add("activity_id IN (1, 3, 4)")
 	}
-
-	var b strings.Builder
-	b.WriteString("SELECT " + strings.Join(projection, ", ") + "\n")
-	b.WriteString("FROM " + ref + "\n")
-	b.WriteString("WHERE " + strings.Join(q.where, "\n  AND ") + "\n")
-	b.WriteString(`ORDER BY "time" DESC` + "\n")
-	b.WriteString("LIMIT ?")
-	return sqlQuery{sql: b.String(), params: append(q.params, strconv.Itoa(c.limit))}, nil
+	return q, nil
 }
 
-// addAccount filters on the account the call ran in, and on the accountid
-// partition so Athena prunes the scan.
+// clause is the predicates joined as a WHERE clause body.
+func (q *queryBuilder) clause() string { return strings.Join(q.where, "\n  AND ") }
+
+// probeCall is one synthetic call the probe plans.
+type probeCall struct {
+	call    cloudCall
+	history bool
+}
+
+// probeCalls are synthetic calls that between them exercise every predicate
+// activityWhere can emit: an activity call with every filter and a resource
+// named with its type, region and account; an activity call with a region
+// and no resource name (the event-region branch); and a history call on a
+// uid-identified resource (the uid branch and the activity filter). Values
+// are placeholders: the probe matches nothing.
+func probeCalls() []probeCall {
+	epoch := time.Unix(0, 0).UTC()
+	const v = "probe"
+	return []probeCall{
+		{cloudCall{
+			principalName: v, credential: v, accountUID: v, operation: v, service: v, outcome: "SUCCESS",
+			resource: resourceScope{name: v, typ: v, region: v, accountUID: v}, from: epoch, to: epoch,
+		}, false},
+		{cloudCall{resource: resourceScope{region: v}, from: epoch, to: epoch}, false},
+		{cloudCall{resource: resourceScope{uid: v}, from: epoch, to: epoch}, true},
+	}
+}
+
+// probeAccounts stands in for configured account_uids, so the probe plans
+// the accountid IN predicate.
+var probeAccounts = []string{"000000000000"}
+
+// probeQuery is health's probe: the queries' own projection and the WHERE
+// predicates of every query shape (probeCalls, built by activityWhere)
+// against the configured table, behind `false` so it matches nothing. Athena
+// resolves every column the queries read — projected or only filtered on —
+// and checks the caller may read the table, so a missing column, a type a
+// predicate or the projection cannot use, or a denied table fails here. It is
+// built from the same code as the queries, so it cannot drift from them.
+func probeQuery(db, table string) (sqlQuery, error) {
+	ref, err := tableRef(db, table)
+	if err != nil {
+		return sqlQuery{}, err
+	}
+	where := []string{"false"}
+	var params []string
+	for _, p := range probeCalls() {
+		q, err := activityWhere(probeAccounts, p.call, p.history)
+		if err != nil {
+			return sqlQuery{}, err
+		}
+		where = append(where, "("+q.clause()+")")
+		params = append(params, q.params...)
+	}
+	return sqlQuery{
+		sql:    "SELECT " + selectList() + "\nFROM " + ref + "\nWHERE " + strings.Join(where, "\n  AND ") + "\nLIMIT 0",
+		params: params,
+	}, nil
+}
+
+// addAccount filters on the account the call ran in through the accountid
+// partition: the lake partitions each event by its recording account, which
+// is that account, and the partition is present on every row, where
+// cloud.account may be absent (the OCSF 1.1 CloudTrail mapping can carry the
+// account only under actor.user.account). Filtering cloud.account.uid too
+// would drop such rows and answer a false empty.
 func addAccount(q *queryBuilder, uid string) {
-	q.add("cloud.account.uid = ?", strLit(uid))
 	q.add("accountid = ?", strLit(uid))
 }
 

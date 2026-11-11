@@ -10,7 +10,7 @@ import (
 	"github.com/sd-strax/reckon/capability"
 )
 
-const selectLine = `SELECT "time", time_dt, activity_id, activity_name, status, status_id, CAST(actor AS JSON) AS actor, CAST(api AS JSON) AS api, CAST(cloud AS JSON) AS cloud, CAST(resources AS JSON) AS resources, CAST(src_endpoint AS JSON) AS src_endpoint, CAST(http_request AS JSON) AS http_request, CAST(metadata AS JSON) AS metadata, severity_id, class_uid, category_uid, type_uid`
+const selectLine = `SELECT "time", time_dt, activity_id, activity_name, status, status_id, CAST(actor AS JSON) AS actor, CAST(api AS JSON) AS api, CAST(cloud AS JSON) AS cloud, CAST(resources AS JSON) AS resources, CAST(src_endpoint AS JSON) AS src_endpoint, CAST(http_request AS JSON) AS http_request, CAST(metadata AS JSON) AS metadata, CAST(unmapped AS JSON) AS unmapped, severity_id, class_uid, category_uid, type_uid, accountid AS lake_accountid`
 
 const (
 	windowPred = "time_dt BETWEEN from_iso8601_timestamp(?) AND from_iso8601_timestamp(?)"
@@ -66,8 +66,8 @@ func TestActivityQuery_EachFilter(t *testing.T) {
 			[]string{"'arn:aws:iam::111122223333:user/deploy-ci'", "'arn:aws:iam::111122223333:user/deploy-ci'", "'arn:aws:iam::111122223333:user/deploy-ci'"}},
 		{"credential", map[string]any{"principal": map[string]any{"credential": "AKIAIOSFODNN7EXAMPLE"}},
 			[]string{"(actor.user.credential_uid = ? OR actor.session.credential_uid = ?)"}, []string{"'AKIAIOSFODNN7EXAMPLE'", "'AKIAIOSFODNN7EXAMPLE'"}},
-		{"account filters the partition too", map[string]any{"account": map[string]any{"uid": "111122223333", "provider": "aws"}},
-			[]string{"cloud.account.uid = ?", "accountid = ?"}, []string{"'111122223333'", "'111122223333'"}},
+		{"account filters the accountid partition only", map[string]any{"account": map[string]any{"uid": "111122223333", "provider": "aws"}},
+			[]string{"accountid = ?"}, []string{"'111122223333'"}},
 		{"operation", map[string]any{"operation": "PutBucketPolicy"}, []string{"api.operation = ?"}, []string{"'PutBucketPolicy'"}},
 		{"service", map[string]any{"service": "s3.amazonaws.com"}, []string{"api.service.name = ?"}, []string{"'s3.amazonaws.com'"}},
 		{"outcome success", map[string]any{"outcome": "SUCCESS"}, []string{"status_id = 1"}, nil},
@@ -81,8 +81,8 @@ func TestActivityQuery_EachFilter(t *testing.T) {
 			"uid": "arn:aws:s3:::b", "name": "b", "account_uid": "111122223333", "region": "us-east-1", "zone": "z", "group": "g", "namespace": "ns"}},
 			[]string{"any_match(resources, r -> r.uid = ?)"}, []string{"'arn:aws:s3:::b'"}},
 		{"named resource under its account and region", map[string]any{"resource": map[string]any{"name": "b", "account_uid": "111122223333", "region": "us-east-1"}},
-			[]string{"any_match(resources, r -> r.name = ? AND r.region = ?)", "cloud.account.uid = ?", "accountid = ?", "region = ?"},
-			[]string{"'b'", "'us-east-1'", "'111122223333'", "'111122223333'", "'us-east-1'"}},
+			[]string{"any_match(resources, r -> r.name = ? AND r.region = ?)", "accountid = ?", "region = ?"},
+			[]string{"'b'", "'us-east-1'", "'111122223333'", "'us-east-1'"}},
 		{"named resource's type on the same element", map[string]any{"resource": map[string]any{"name": "deploy", "type": "AWS::IAM::Role"}},
 			[]string{"any_match(resources, r -> r.name = ? AND r.type = ?)"}, []string{"'deploy'", "'AWS::IAM::Role'"}},
 		{"region without a resource", map[string]any{"operation": "RunInstances", "resource": map[string]any{"region": "eu-west-1"}},
@@ -133,13 +133,11 @@ WHERE time_dt BETWEEN from_iso8601_timestamp(?) AND from_iso8601_timestamp(?)
   AND accountid IN (?, ?)
   AND (actor.user.uid = ? OR actor.session.issuer = ? OR actor.user.name = ?)
   AND (actor.user.credential_uid = ? OR actor.session.credential_uid = ?)
-  AND cloud.account.uid = ?
   AND accountid = ?
   AND api.operation = ?
   AND api.service.name = ?
   AND status_id = 1
   AND any_match(resources, r -> r.name = ? AND r.type = ? AND r.region = ?)
-  AND cloud.account.uid = ?
   AND accountid = ?
   AND region = ?
 ORDER BY "time" DESC
@@ -152,8 +150,8 @@ LIMIT ?`
 		"'111122223333'", "'444455556666'",
 		"'deploy-ci'", "'deploy-ci'", "'deploy-ci'",
 		"'AKIAIOSFODNN7EXAMPLE'", "'AKIAIOSFODNN7EXAMPLE'",
-		"'111122223333'", "'111122223333'", "'PutBucketPolicy'", "'s3.amazonaws.com'",
-		"'acme-internal-exports'", "'AWS::S3::Bucket'", "'us-east-1'", "'111122223333'", "'111122223333'", "'us-east-1'",
+		"'111122223333'", "'PutBucketPolicy'", "'s3.amazonaws.com'",
+		"'acme-internal-exports'", "'AWS::S3::Bucket'", "'us-east-1'", "'111122223333'", "'us-east-1'",
 		"50",
 	}
 	if !reflect.DeepEqual(q.params, wantArgs) {
@@ -282,5 +280,31 @@ func TestParseLimit(t *testing.T) {
 func TestStrLit(t *testing.T) {
 	if got := strLit("O'Brien"); got != "'O''Brien'" {
 		t.Errorf("strLit = %s", got)
+	}
+}
+
+// TestQuery_NeverFiltersCloudAccount: no account filter reads cloud.account,
+// which a lake row may omit.
+func TestQuery_NeverFiltersCloudAccount(t *testing.T) {
+	c := mustCall(t, map[string]any{
+		"account":  map[string]any{"uid": "111122223333"},
+		"resource": map[string]any{"name": "b", "account_uid": "111122223333"},
+	})
+	for _, history := range []bool{false, true} {
+		q, err := activityQuery(testDB, testTable, []string{"111122223333"}, c, history)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(q.sql, "cloud.account") {
+			t.Errorf("history=%v sql filters cloud.account:\n%s", history, q.sql)
+		}
+	}
+}
+
+func TestRequiredColumns(t *testing.T) {
+	want := []string{"time", "time_dt", "activity_id", "activity_name", "status", "status_id", "actor", "api", "cloud", "resources",
+		"src_endpoint", "http_request", "metadata", "unmapped", "severity_id", "class_uid", "category_uid", "type_uid", "accountid", "region"}
+	if got := requiredColumns(); !reflect.DeepEqual(got, want) {
+		t.Errorf("requiredColumns = %v", got)
 	}
 }

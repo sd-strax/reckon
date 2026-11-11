@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/configservice"
 	cstypes "github.com/aws/aws-sdk-go-v2/service/configservice/types"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 
 	"github.com/sd-strax/reckon/capability"
 )
@@ -102,6 +103,16 @@ func (f *fakeAthena) StopQueryExecution(_ context.Context, in *athena.StopQueryE
 type fakeGlue struct {
 	err   error
 	calls []*glue.GetTableInput
+	// columns, when set, is the table's schema; otherwise every required
+	// column, accountid and region as partition keys.
+	columns []string
+	// link, when set, makes the configured table a resource link to it: a
+	// GetTable without a CatalogId returns the link (no schema), one with
+	// the target's CatalogId returns the target, or targetErr.
+	link      *gluetypes.TableIdentifier
+	targetErr error
+	// noSchema returns the table without a StorageDescriptor.
+	noSchema bool
 }
 
 func (g *fakeGlue) GetTable(_ context.Context, in *glue.GetTableInput, _ ...func(*glue.Options)) (*glue.GetTableOutput, error) {
@@ -109,7 +120,29 @@ func (g *fakeGlue) GetTable(_ context.Context, in *glue.GetTableInput, _ ...func
 	if g.err != nil {
 		return nil, g.err
 	}
-	return &glue.GetTableOutput{}, nil
+	if g.link != nil && in.CatalogId == nil {
+		return &glue.GetTableOutput{Table: &gluetypes.Table{Name: in.Name, DatabaseName: in.DatabaseName, TargetTable: g.link}}, nil
+	}
+	if g.link != nil && g.targetErr != nil {
+		return nil, g.targetErr
+	}
+	if g.noSchema {
+		return &glue.GetTableOutput{Table: &gluetypes.Table{Name: in.Name}}, nil
+	}
+	cols := g.columns
+	if cols == nil {
+		cols = requiredColumns()
+	}
+	t := &gluetypes.Table{StorageDescriptor: &gluetypes.StorageDescriptor{}}
+	for _, c := range cols {
+		col := gluetypes.Column{Name: aws.String(c)}
+		if c == "accountid" || c == "region" || c == "time_dt" {
+			t.PartitionKeys = append(t.PartitionKeys, col)
+		} else {
+			t.StorageDescriptor.Columns = append(t.StorageDescriptor.Columns, col)
+		}
+	}
+	return &glue.GetTableOutput{Table: t}, nil
 }
 
 type fakeConfig struct {
@@ -120,8 +153,11 @@ type fakeConfig struct {
 	items      map[string]cstypes.ConfigurationItem                    // history by resource id, overriding history
 	itemErrs   map[string]error                                        // history failure by resource id
 	byIDs      map[string]*configservice.ListDiscoveredResourcesOutput // lookup by a specific resource id
-	historyIn  []*configservice.GetResourceConfigHistoryInput
-	listIn     []*configservice.ListDiscoveredResourcesInput
+	// exactStatus keeps each item\'s status as set, an empty one included;
+	// otherwise an item with no status is reported OK.
+	exactStatus bool
+	historyIn   []*configservice.GetResourceConfigHistoryInput
+	listIn      []*configservice.ListDiscoveredResourcesInput
 }
 
 func (c *fakeConfig) GetResourceConfigHistory(_ context.Context, in *configservice.GetResourceConfigHistoryInput, _ ...func(*configservice.Options)) (*configservice.GetResourceConfigHistoryOutput, error) {
@@ -132,13 +168,20 @@ func (c *fakeConfig) GetResourceConfigHistory(_ context.Context, in *configservi
 	if err, ok := c.itemErrs[aws.ToString(in.ResourceId)]; ok {
 		return nil, err
 	}
+	out := &configservice.GetResourceConfigHistoryOutput{}
 	if item, ok := c.items[aws.ToString(in.ResourceId)]; ok {
-		return &configservice.GetResourceConfigHistoryOutput{ConfigurationItems: []cstypes.ConfigurationItem{item}}, nil
+		out.ConfigurationItems = []cstypes.ConfigurationItem{item}
+	} else if c.history != nil {
+		out.ConfigurationItems = append(out.ConfigurationItems, c.history.ConfigurationItems...)
 	}
-	if c.history == nil {
-		return &configservice.GetResourceConfigHistoryOutput{}, nil
+	// Config always reports a status; a fake item that sets none is a
+	// recorded, current one.
+	for i := range out.ConfigurationItems {
+		if !c.exactStatus && out.ConfigurationItems[i].ConfigurationItemStatus == "" {
+			out.ConfigurationItems[i].ConfigurationItemStatus = cstypes.ConfigurationItemStatusOk
+		}
 	}
-	return c.history, nil
+	return out, nil
 }
 
 func (c *fakeConfig) ListDiscoveredResources(_ context.Context, in *configservice.ListDiscoveredResourcesInput, _ ...func(*configservice.Options)) (*configservice.ListDiscoveredResourcesOutput, error) {

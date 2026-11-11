@@ -449,3 +449,141 @@ func TestResourceContext_PinnedContinuesPastNameMisses(t *testing.T) {
 		t.Errorf("lookups = %+v", c.listIn)
 	}
 }
+
+// TestResourceContext_SupplementaryConfiguration: an S3 item's
+// supplementary configuration (policy, public access block) joins the
+// configuration, double-encoded JSON decoded, a clashing key kept aside.
+func TestResourceContext_SupplementaryConfiguration(t *testing.T) {
+	policy := `{"Version":"2012-10-17","Statement":[{"Sid":"PublicRead","Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::acme-internal-exports/*"}]}`
+	bucketPolicy, _ := json.Marshal(map[string]string{"policyText": policy})
+	c := bucketConfig()
+	c.history.ConfigurationItems[0].SupplementaryConfiguration = map[string]string{
+		"BucketPolicy":                   string(bucketPolicy),
+		"PublicAccessBlockConfiguration": `{"blockPublicAcls":false,"ignorePublicAcls":false,"blockPublicPolicy":false,"restrictPublicBuckets":false}`,
+		"name":                           `{"from":"supplementary"}`,
+	}
+	events, err := resourceContext(context.Background(), c, bucketParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := events[0].Raw["resources"].([]any)[0].(map[string]any)["data"].(map[string]any)
+	if data["name"] != "acme-internal-exports" || data["creationDate"] == nil {
+		t.Errorf("base configuration lost: %v", data)
+	}
+	text := data["BucketPolicy"].(map[string]any)["policyText"].(map[string]any)
+	if text["Version"] != "2012-10-17" || len(text["Statement"].([]any)) != 1 {
+		t.Errorf("policyText = %v, want the decoded policy", text)
+	}
+	if pab := data["PublicAccessBlockConfiguration"].(map[string]any); pab["blockPublicPolicy"] != false {
+		t.Errorf("public access block = %v", pab)
+	}
+	if extra := data["supplementary_configuration"].(map[string]any); !reflect.DeepEqual(extra["name"], map[string]any{"from": "supplementary"}) {
+		t.Errorf("clash = %v", extra)
+	}
+}
+
+func TestDecodeNested(t *testing.T) {
+	twice, _ := json.Marshal(`{"a":[1,"{\"b\":true}"]}`)
+	got := decodeNested(string(twice), 0)
+	want := map[string]any{"a": []any{float64(1), map[string]any{"b": true}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("decodeNested = %#v", got)
+	}
+	for _, keep := range []string{"plain", "42", `"just a string"`} {
+		if got := decodeNested(keep, 0); got != keep {
+			t.Errorf("decodeNested(%q) = %#v, want it kept", keep, got)
+		}
+	}
+}
+
+// TestResourceContext_ItemStatus: only a recorded, current item answers.
+func TestResourceContext_ItemStatus(t *testing.T) {
+	for status, ok := range map[cstypes.ConfigurationItemStatus]bool{
+		cstypes.ConfigurationItemStatusOk:                         true,
+		cstypes.ConfigurationItemStatusResourceDiscovered:         true,
+		cstypes.ConfigurationItemStatusResourceDeleted:            false,
+		cstypes.ConfigurationItemStatusResourceDeletedNotRecorded: false,
+		cstypes.ConfigurationItemStatusResourceNotRecorded:        false,
+		"SomethingNew": false,
+		"":             false,
+	} {
+		c := bucketConfig()
+		c.exactStatus = true
+		c.history.ConfigurationItems[0].ConfigurationItemStatus = status
+		_, err := resourceContext(context.Background(), c, bucketParams())
+		if ok && err != nil {
+			t.Errorf("%s: %v", status, err)
+		}
+		if !ok {
+			isClass(t, err, capability.ErrFallthrough, string(status))
+		}
+	}
+}
+
+// TestResourceContext_NameScopes: a named resource's zone is checked against
+// the item's availability zone; a group or namespace cannot be confirmed
+// from Config; a uid ignores all three.
+func TestResourceContext_NameScopes(t *testing.T) {
+	named := func(extra map[string]any) map[string]any {
+		res := map[string]any{"name": "acme-internal-exports", "type": "AWS::S3::Bucket"}
+		for k, v := range extra {
+			res[k] = v
+		}
+		return map[string]any{"resource": res}
+	}
+	c := bucketConfig()
+	_, err := resourceContext(context.Background(), c, named(map[string]any{"zone": "us-east-1a"}))
+	isClass(t, err, capability.ErrFallthrough, "zone")
+
+	c = bucketConfig()
+	c.history.ConfigurationItems[0].AvailabilityZone = aws.String("US-EAST-1A")
+	if _, err := resourceContext(context.Background(), c, named(map[string]any{"zone": "us-east-1a"})); err != nil {
+		t.Errorf("matching zone: %v", err)
+	}
+	c = bucketConfig()
+	c.history.ConfigurationItems[0].AvailabilityZone = aws.String("us-east-1b")
+	_, err = resourceContext(context.Background(), c, named(map[string]any{"zone": "us-east-1a"}))
+	isClass(t, err, capability.ErrFallthrough, "zone")
+
+	for _, key := range []string{"group", "namespace"} {
+		c = bucketConfig()
+		_, err = resourceContext(context.Background(), c, named(map[string]any{key: "x"}))
+		isClass(t, err, capability.ErrFallthrough, key+" scope cannot be established from AWS Config")
+		if len(c.listIn) != 0 {
+			t.Errorf("%s: Config must not be asked", key)
+		}
+	}
+
+	c = bucketConfig()
+	byUID := bucketParams()
+	res := byUID["resource"].(map[string]any)
+	res["zone"], res["group"], res["namespace"] = "us-east-1a", "g", "ns"
+	if _, err := resourceContext(context.Background(), c, byUID); err != nil {
+		t.Errorf("a uid must ignore zone, group and namespace: %v", err)
+	}
+}
+
+// TestConfigData_ClashKeys: supplementary entries whose key the base has go
+// under supplementary_configuration, merged into a base object of that name
+// (its own keys kept), else under supplementary_configuration_clashes.
+func TestConfigData_ClashKeys(t *testing.T) {
+	item := func(base string) cstypes.ConfigurationItem {
+		return cstypes.ConfigurationItem{Configuration: aws.String(base), SupplementaryConfiguration: map[string]string{"name": `{"s":1}`, "kept": `{"k":1}`}}
+	}
+	got := configData(item(`{"name":"b","supplementary_configuration":{"own":true}}`)).(map[string]any)
+	if want := map[string]any{"own": true, "name": map[string]any{"s": float64(1)}}; !reflect.DeepEqual(got["supplementary_configuration"], want) {
+		t.Errorf("object base: %v", got["supplementary_configuration"])
+	}
+	got = configData(item(`{"name":"b","supplementary_configuration":"scalar"}`)).(map[string]any)
+	if got["supplementary_configuration"] != "scalar" || !reflect.DeepEqual(got["supplementary_configuration_clashes"], map[string]any{"name": map[string]any{"s": float64(1)}}) {
+		t.Errorf("scalar base: %v", got)
+	}
+	got = configData(item(`{"name":"b","supplementary_configuration":{"name":"own"}}`)).(map[string]any)
+	if sc := got["supplementary_configuration"].(map[string]any); sc["name"] != "own" ||
+		!reflect.DeepEqual(got["supplementary_configuration_clashes"], map[string]any{"name": map[string]any{"s": float64(1)}}) {
+		t.Errorf("clash inside the base object: %v", got)
+	}
+	if !reflect.DeepEqual(got["kept"], map[string]any{"k": float64(1)}) {
+		t.Errorf("non-clashing entry = %v", got["kept"])
+	}
+}

@@ -1,15 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/athena"
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/capability"
@@ -171,26 +173,13 @@ func relsOf(res capability.NormalizationResult) []string {
 	return out
 }
 
-// projectionColumns are the column names the adapter's projection yields:
-// the alias of a cast, the bare name otherwise.
-func projectionColumns() []string {
-	var out []string
-	for _, p := range projection {
-		if _, alias, ok := strings.Cut(p, " AS JSON) AS "); ok {
-			p = alias
-		}
-		out = append(out, strings.Trim(p, `"`))
-	}
-	return out
-}
-
 // TestRawResponses_MatchProjection pins every recorded page to the query the
 // adapter sends: its header row and column metadata are the projection's
 // columns, in order, so a column dropped from or added to the projection
 // fails here until the pages are recaptured.
 func TestRawResponses_MatchProjection(t *testing.T) {
-	want := projectionColumns()
-	if len(want) != len(projection) || want[0] != "time" || want[6] != "actor" {
+	want := projectedNames()
+	if len(want) != len(projection) || want[0] != "time" || want[6] != "actor" || want[len(want)-1] != lakeAccountColumn {
 		t.Fatalf("projection columns = %v", want)
 	}
 	files, err := filepath.Glob(filepath.Join("testdata", "raw_response", "*.json"))
@@ -334,5 +323,85 @@ func TestRowToEvent_KeepsRowClass(t *testing.T) {
 	}
 	if e.ClassUID != 3001 || e.ClassName != "Account Change" || e.Raw["class_uid"] != int64(3001) {
 		t.Errorf("class = %d %q %v", e.ClassUID, e.ClassName, e.Raw["class_uid"])
+	}
+}
+
+// TestRowToEvent_KeepsUnmapped: the source's unmapped fields reach the event.
+func TestRowToEvent_KeepsUnmapped(t *testing.T) {
+	e := lakeEvents(t, "put-bucket-policy.json")[0]
+	if got, want := e.Raw["unmapped"], map[string]any{"recipientAccountId": "111122223333"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("unmapped = %v, want %v", got, want)
+	}
+	if _, ok := lakeEvents(t, "create-access-key.json")[0].Raw["unmapped"]; ok {
+		t.Error("a NULL unmapped column must be absent")
+	}
+}
+
+// TestRowToEvent_PartitionSuppliesAccount: a row with no cloud.account,
+// recorded in account R by a caller from account C, is the call in R — the
+// account and a name-identified resource's owner — not in C.
+func TestRowToEvent_PartitionSuppliesAccount(t *testing.T) {
+	const lakeAcct, callerAcct = "444455556666", "111122223333"
+	pg := loadRawResponse(t, "put-bucket-versioning-by-name.json").Pages[0]
+	cols := rowValues(pg.ResultSet.Rows[0])
+	row := pg.ResultSet.Rows[1].Data
+	row[slices.Index(cols, "cloud")] = datum(`{"provider":"AWS","region":"us-east-1","account":null}`)
+	row[slices.Index(cols, lakeAccountColumn)] = datum(lakeAcct)
+	f := &fakeAthena{pages: []athena.GetQueryResultsOutput{pg}}
+	rs, err := testRunner(f, time.Second).run(context.Background(), sqlQuery{sql: "SELECT 1"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := rowsToEvents(rs, testTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := events[0].Raw["cloud"].(map[string]any)["account"].(map[string]any)["uid"]; got != lakeAcct {
+		t.Errorf("cloud.account.uid = %v, want the partition's", got)
+	}
+	if _, ok := events[0].Raw[lakeAccountColumn]; ok {
+		t.Error("the partition column must not be copied into the event")
+	}
+
+	res := normalizeWire(t, sourceLake, events)[0]
+	r := identity.NewResolver(equivalenceNS)
+	lakeID, callerID := r.CloudAccount("aws", lakeAcct), r.CloudAccount("aws", callerAcct)
+	resources := idsOf(res)[identity.TypeCloudResource]
+	if len(resources) != 1 {
+		t.Fatalf("resources = %v", resources)
+	}
+	var owner identity.STIXID
+	for _, rel := range res.Relationships {
+		if string(rel.SourceRef) == resources[0] {
+			owner = rel.TargetRef
+		}
+	}
+	if owner != lakeID {
+		t.Errorf("resource belongs to %s, want the recording account %s (caller's is %s)", owner, lakeID, callerID)
+	}
+	if !slices.Contains(idsOf(res)[identity.TypeCloudAccount], string(lakeID)) {
+		t.Errorf("accounts = %v, want %s", idsOf(res)[identity.TypeCloudAccount], lakeID)
+	}
+}
+
+// TestRowToEvent_PresentAccountKept: a row carrying cloud.account keeps it
+// over the partition.
+func TestRowToEvent_PresentAccountKept(t *testing.T) {
+	cloud, part := `{"provider":"AWS","account":{"uid":"111122223333"}}`, "999988887777"
+	e, err := rowToEvent([]string{"cloud", lakeAccountColumn}, []*string{&cloud, &part}, testTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.Raw["cloud"].(map[string]any)["account"].(map[string]any)["uid"]; got != "111122223333" {
+		t.Errorf("cloud.account.uid = %v, want the row's own", got)
+	}
+	none := ""
+	e, _ = rowToEvent([]string{lakeAccountColumn}, []*string{&part}, testTable)
+	if got := e.Raw["cloud"].(map[string]any)["account"].(map[string]any)["uid"]; got != part {
+		t.Errorf("no cloud: account = %v", got)
+	}
+	e, _ = rowToEvent([]string{lakeAccountColumn}, []*string{&none}, testTable)
+	if _, ok := e.Raw["cloud"]; ok {
+		t.Error("an empty partition must add nothing")
 	}
 }

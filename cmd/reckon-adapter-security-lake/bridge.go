@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/athena"
 	"github.com/aws/aws-sdk-go-v2/service/configservice"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/sd-strax/reckon/capability"
@@ -353,22 +354,69 @@ type healthResult struct {
 	Message string `json:"message"`
 }
 
-// health proves the credentials, workgroup and output location with a
-// trivial query, then that the CloudTrail table exists.
+// health probes the table with the queries' own projection (probeQuery),
+// then checks the table exists and — when its schema is readable, through a
+// resource link if it is one — carries every column the queries read, which
+// names any missing column. A schema the adapter cannot query is reported
+// here rather than as a failed call.
 func (b *bridge) health(ctx context.Context) healthResult {
 	s, cl := b.snapshot()
 	if s == nil {
 		return healthResult{Healthy: false, Message: "not configured"}
 	}
-	if _, err := b.runner(s, cl).run(ctx, sqlQuery{sql: "SELECT 1"}, 1); err != nil {
+	// The probe runs the queries' projection against the table, so health
+	// proves the credentials, workgroup, output location, table access and
+	// every projected column at once. Any failure is unhealthy, whatever its
+	// class at invoke: health has no retry of its own.
+	probe, err := probeQuery(s.database, s.table)
+	if err != nil {
+		return unhealthy("athena", err)
+	}
+	if _, err := b.runner(s, cl).run(ctx, probe, 1); err != nil {
 		return unhealthy("athena", err)
 	}
 	gctx, cancel := context.WithTimeout(ctx, s.queryTimeout)
 	defer cancel()
-	if _, err := cl.glue.GetTable(gctx, &glue.GetTableInput{DatabaseName: aws.String(s.database), Name: aws.String(s.table)}); err != nil {
+	out, err := cl.glue.GetTable(gctx, &glue.GetTableInput{DatabaseName: aws.String(s.database), Name: aws.String(s.table)})
+	if err != nil {
 		return unhealthy("glue", err)
 	}
-	return healthResult{Healthy: true, Message: fmt.Sprintf("Athena workgroup %s, table %s.%s (%s)", s.workgroup, s.database, s.table, s.region)}
+	ok := fmt.Sprintf("Athena workgroup %s, table %s.%s (%s)", s.workgroup, s.database, s.table, s.region)
+	schema, skipped := readableSchema(gctx, cl.glue, out.Table)
+	if skipped != "" {
+		return healthResult{Healthy: true, Message: ok + "; column check skipped: " + skipped}
+	}
+	if missing := missingColumns(schema); len(missing) > 0 {
+		return healthResult{Healthy: false, Message: fmt.Sprintf("glue: table %s.%s lacks column(s) the queries read: %s", s.database, s.table, strings.Join(missing, ", "))}
+	}
+	return healthResult{Healthy: true, Message: ok}
+}
+
+// readableSchema is the table whose columns the health check reads. A
+// query-access subscriber usually names a Lake Formation resource link,
+// which GetTable returns with a TargetTable and no schema; the target is
+// read instead, one hop only. When no schema can be read — the target's
+// GetTable fails (commonly denied or not found to the subscriber) or the
+// table carries no StorageDescriptor — skipped says why, and health does not
+// fail on a check it could not make: the probe has already resolved every
+// projected column against the table, so the column check only adds names.
+func readableSchema(ctx context.Context, client glueAPI, t *gluetypes.Table) (*gluetypes.Table, string) {
+	if t != nil && t.TargetTable != nil {
+		tt := t.TargetTable
+		out, err := client.GetTable(ctx, &glue.GetTableInput{CatalogId: tt.CatalogId, DatabaseName: tt.DatabaseName, Name: tt.Name})
+		if err != nil {
+			reason := err.Error()
+			if code := errorCode(err); code != "" {
+				reason = code + ": " + reason
+			}
+			return nil, "resource link target " + aws.ToString(tt.DatabaseName) + "." + aws.ToString(tt.Name) + " is not readable (" + reason + ")"
+		}
+		t = out.Table
+	}
+	if t == nil || t.StorageDescriptor == nil {
+		return nil, "the table reports no schema"
+	}
+	return t, ""
 }
 
 func unhealthy(service string, err error) healthResult {
@@ -400,4 +448,27 @@ func result(source string, events []capability.OcsfPayload) invokeResult {
 		out.Events = append(out.Events, ocsfEvent{ClassUID: e.ClassUID, ClassName: e.ClassName, Time: e.Time, Raw: e.Raw})
 	}
 	return out
+}
+
+// missingColumns are the required columns (requiredColumns) the table's
+// schema — its columns and partition keys — does not carry.
+func missingColumns(t *gluetypes.Table) []string {
+	have := map[string]bool{}
+	if t != nil {
+		var cols []gluetypes.Column
+		if t.StorageDescriptor != nil {
+			cols = append(cols, t.StorageDescriptor.Columns...)
+		}
+		cols = append(cols, t.PartitionKeys...)
+		for _, c := range cols {
+			have[strings.ToLower(aws.ToString(c.Name))] = true
+		}
+	}
+	var missing []string
+	for _, c := range requiredColumns() {
+		if !have[c] {
+			missing = append(missing, c)
+		}
+	}
+	return missing
 }

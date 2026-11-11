@@ -60,8 +60,9 @@ narrowed by account, region, zone, group or namespace, since the identifier
 carries its own owner and scope; a resource given by name must match one
 element of `resources[]` on that name and on every scope the caller gave —
 type, the element's own region, zone, resource group and namespace, the
-same tuple its identity is minted from — with the account, and the region
-on the partitions, also narrowing the query so the scan is bounded (the
+same tuple its identity is minted from — with the account and the region
+narrowing the query on the lake's partitions, so the scan is bounded and an
+event whose payload omits its account object is not lost (the
 region partition assumes the call was logged in the resource's region, a
 live-run check for services that log elsewhere); a
 scoped question never broadens to an unscoped answer; such a check can return fewer rows than the limit.
@@ -74,18 +75,36 @@ binding that can answer it is tried.
 
 **Rows are reassembled into the event the lake stored.** The query keeps
 API Activity rows only (`class_uid = 6003`); each projected struct is cast
-to JSON and decoded back into the OCSF object, `metadata` passed through, so
-`metadata.version` stays 1.1.0 and the engine's 6003 normalizer does all the
-shaping. The adapter adds only the table name as `metadata.log_name` when
-the lake left it empty. Whether the lake files some IAM operations under
+to JSON and decoded back into the OCSF object, `metadata` passed through and
+the `unmapped` object kept, since the lake puts source fields without a
+mapping there (the recipient account of a cross-account call among them)
+and the stored event is the raw evidence later reads and re-normalization
+work from. A row whose payload carries no account object takes the
+account from the lake's own recording-account partition, so a row the
+partition filter returns is attributed to the account the question named
+rather than to the caller's home account; a present account object is
+never overwritten. A missing column shows as an unhealthy instance (see
+the health check below) rather than as every call declining. Whether `cloud.account` always equals the
+recording account when present, and whether every subscriber's table
+carries `unmapped`, are live-run checks. `metadata.version` stays 1.1.0 and
+the engine's 6003 normalizer does all the shaping; beyond that account, the
+adapter adds only the table name as `metadata.log_name` when the lake left
+it empty. Whether the lake files some IAM operations under
 Account Change (3001) rather than API Activity is a live-run check; if it
 does, those calls are a second class for this adapter to read.
 
 **Resource context from AWS Config.** The latest configuration item for the
 resource is shaped into one Cloud Resources Inventory Info event (5023) at
 OCSF 1.7.0, the version `03 §4.18` pins for the class: the resource's
-identifier, name, type, region, configuration, tags, creation and capture
-times, under the account it belongs to. Config's resource type vocabulary is
+identifier, name, type, region, configuration — the base configuration
+with Config's supplementary configuration merged in, since for a bucket the
+policy, access control and public-access settings live there — tags,
+creation and capture times, under the account it belongs to. Only an item
+whose status says the resource is recorded and present is current context;
+a deleted or unrecorded item is declined, never shown as a snapshot. A
+name-identified request's zone is checked against the item's availability
+zone; a resource group or namespace cannot be established from a Config
+item, so a request that names one is declined. Config's resource type vocabulary is
 the one OCSF already carries for AWS resources. Config keys a resource by
 its own identifier, which is not always the ARN (a bucket's is its name), so
 the adapter passes an identifier that is not an ARN directly and otherwise
@@ -109,7 +128,13 @@ are FATAL, except a failure that names a missing column or a type
 mismatch, which is the schema-version mismatch `03 §6.2` files under
 FALLTHROUGH; an operation the instance does not serve is FALLTHROUGH. A
 query that fails after it started is stopped, not left to run. Health
-runs a trivial query through the workgroup and checks the table exists.
+runs the queries' own projection and predicates against the table under a
+condition that matches nothing, which proves the workgroup, the
+credentials, the read grant and every column and nested field any query
+reads, at the cost of planning a query; it then reads the
+table's schema, following a Lake Formation resource link to the shared
+table it names, so a missing column is reported by name, and notes a
+schema it cannot read rather than failing on it.
 
 **Instances and scope.** The lake is organization-wide, so an operator runs
 one instance per organization under `03 §3.5` source scope and narrows it to
