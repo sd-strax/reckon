@@ -839,6 +839,18 @@ func TestRender_CloudInventory(t *testing.T) {
 		t.Errorf("slots = %+v", v.Slots)
 	}
 
+	// A live source's epoch milliseconds (OCSF timestamp_t) read as RFC 3339.
+	ms := payload(inventorySnapshot)
+	first := ms["resources"].([]any)[0].(map[string]any)
+	first["created_time"] = float64(1740916800000)
+	first["modified_time"] = float64(1784021280000)
+	ev := Render(Event{ClassUID: 5023, Payload: ms}, ents)
+	for label, want := range map[string]string{"Created": "2025-03-02T12:00:00Z", "Modified": "2026-07-14T09:28:00Z"} {
+		if f, ok := fieldValue(ev, label); !ok || f.Value != want {
+			t.Errorf("epoch %s field = %+v; want %s", label, f, want)
+		}
+	}
+
 	p := payload(inventorySnapshot)
 	delete(p["cloud"].(map[string]any), "provider")
 	v = Render(Event{ClassUID: 5023, Payload: p}, nil)
@@ -847,5 +859,23 @@ func TestRender_CloudInventory(t *testing.T) {
 	}
 	if refs := entityRefs(v); len(refs) != 0 {
 		t.Errorf("no provider: sentence refs = %v; want none", refs)
+	}
+}
+
+// TestOcsfTimestamp repeats capability's TestOcsfTimestamp table: the view
+// and the 5023 normalizer read a timestamp by one rule.
+func TestOcsfTimestamp(t *testing.T) {
+	for _, tc := range []struct {
+		in   any
+		want string
+	}{
+		{float64(1784021280000), "2026-07-14T09:28:00Z"}, {int64(1784021280000), "2026-07-14T09:28:00Z"},
+		{1784021280123, "2026-07-14T09:28:00.123Z"}, {" 2025-03-02T12:00:00Z ", "2025-03-02T12:00:00Z"},
+		{float64(1.5), ""}, {float64(1 << 53), ""}, {int64(1 << 53), ""}, {true, ""}, {nil, ""},
+		{json.Number("1784021280000"), "2026-07-14T09:28:00Z"},
+	} {
+		if got := ocsfTimestamp(tc.in); got != tc.want {
+			t.Errorf("ocsfTimestamp(%v) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }

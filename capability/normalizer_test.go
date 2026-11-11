@@ -447,13 +447,15 @@ func TestHostAliasEmission(t *testing.T) {
 // attachment files are identified by hash and placeholder hashes no longer
 // count. Or it took over a class the opaque default handled (5001, 6003,
 // 5023): the ObservedData id carries the version but not the normalizer's
-// name, so version 1 would collide with the opaque observation. The case
-// normalizer and the opaque default are at 1.
+// name, so version 1 would collide with the opaque observation. 5023 is at 3:
+// its created and modified times became RFC 3339 in the extensions whatever
+// form the payload carries them in. The case normalizer and the opaque
+// default are at 1.
 func TestHostNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
 		{1007, 2}, {3002, 2}, {4001, 2}, {4003, 2}, {1001, 2}, {1003, 2}, {1006, 2}, {1009, 2},
-		{3005, 2}, {4011, 2}, {2004, 2}, {5001, 2}, {4009, 2}, {6003, 2}, {5023, 2}, {2005, 1}, {0, 1},
+		{3005, 2}, {4011, 2}, {2004, 2}, {5001, 2}, {4009, 2}, {6003, 2}, {5023, 3}, {2005, 1}, {0, 1},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {
