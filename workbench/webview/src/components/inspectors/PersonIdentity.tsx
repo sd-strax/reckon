@@ -47,12 +47,12 @@ function personSpec(refId: string, kind: FormKind): ActSpec {
 
 /**
  * The hosts the retrieved events of this investigation name beside one of
- * the accounts, live ones only: a lens over the events the webview holds,
+ * the accounts a read of the person walks: a lens over the events the webview holds,
  * never a read of its own.
  */
 function hostsUsed(events: { entityRefs: string[] }[], accounts: Set<string>): string[] {
-  // accounts holds every account of each live row's alias set: an event that
-  // names an alias of an owned account is that account's.
+  // accounts is the set a read of the person walks, as the server answers
+  // it (readAccounts): never rebuilt here from the rows.
   const out: string[] = [];
   for (const e of events) {
     if (!e.entityRefs.some((r) => accounts.has(r))) continue;
@@ -79,11 +79,11 @@ export function PersonIdentitySection({ refId, identity }: { refId: string; iden
   // attached here) are listed on their own, so none is hidden.
   const placed = new Set(accounts.flatMap((a) => (a.cut && a.cutBy ? [a.cutBy.edgeId] : [])));
   const unplaced = accountApart.filter((d) => !placed.has(d.edgeId));
-  const live = new Set(accounts.filter((a) => !a.withdrawn && !a.cut).flatMap((a) => (a.accountAliases.length ? a.accountAliases : [a.accountRef])));
+  const read = new Set(identity?.readAccounts ?? []);
   // Over the events the webview holds, and says so when they are a page of more.
   const held = state.snap?.events ?? [];
   const total = state.snap?.eventsTotal ?? held.length;
-  const hosts = hostsUsed(held, live);
+  const hosts = hostsUsed(held, read);
   const covers = total > held.length
     ? `named by events that name one of these accounts, among the newest ${held.length} of ${total} retrieved events in this investigation`
     : "named by the retrieved events in this investigation that name one of these accounts";

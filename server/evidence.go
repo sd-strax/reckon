@@ -117,11 +117,16 @@ type OwnerView struct {
 //	{"aliases": [IdentityEdgeView], "distinct": [IdentityEdgeView],
 //	 "accounts": [{"account_ref", "person_ref", "account_aliases", "edge_id", "kind", "source"?, "by"?, "by_name"?,
 //	               "at", "note"?, "withdrawn", "cut", "cut_edge_id"?, "cut_account_ref"?,
-//	               "cut_person_ref"?, "cut_by"?, "cut_by_name"?, "cut_at"?, "cut_note"?}]}
+//	               "cut_person_ref"?, "cut_by"?, "cut_by_name"?, "cut_at"?, "cut_note"?}],
+//	 "read_accounts": [ref]}
 type EvidencePersonIdentity struct {
 	Aliases  []IdentityEdgeView  `json:"aliases"`
 	Distinct []IdentityEdgeView  `json:"distinct"`
 	Accounts []PersonAccountView `json:"accounts"`
+	// ReadAccounts is the accounts a read of the person walks, cuts applied
+	// (PersonAccountSet, accounts only): the set the inspector's lenses match
+	// on. The rows' account_aliases are for display.
+	ReadAccounts []string `json:"read_accounts"`
 }
 
 // PersonAccountView is one account attached to a person of the asked-for
@@ -348,7 +353,7 @@ func personIdentityView(v evidence.PersonIdentityView) *EvidencePersonIdentity {
 			CutBy: a.CutBy.By, CutByName: a.CutBy.ByName, CutAt: cutAt(a.CutBy), CutNote: a.CutBy.Note,
 		})
 	}
-	return &EvidencePersonIdentity{Aliases: edgeViews(v.Aliases), Distinct: edgeViews(v.Distinct), Accounts: accounts}
+	return &EvidencePersonIdentity{Aliases: edgeViews(v.Aliases), Distinct: edgeViews(v.Distinct), Accounts: accounts, ReadAccounts: nonNilStrings(v.ReadAccounts)}
 }
 
 // cutAt is a cut's time on the wire: absent when there is no cut.

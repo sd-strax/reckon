@@ -553,7 +553,11 @@ func TestEvidence_PersonRowsWalkTheSet(t *testing.T) {
 		{IdentityEdge: evidence.IdentityEdge{EdgeID: "relationship--o1", Kind: evidence.IdentityObserved}, AccountRef: acct, PersonRef: owner, AccountAliases: []string{acct, other}, Cut: true, CutBy: by},
 	}
 	store.accountIdentity.Owners = []evidence.Owner{{IdentityEdge: evidence.IdentityEdge{EdgeID: "relationship--o1", Kind: evidence.IdentityObserved}, PersonRef: owner, AccountRef: acct, Cut: true, CutBy: by}}
+	store.personIdentity.ReadAccounts = []string{other}
 	_, body := send(t, b, "GET", "/api/evidence/"+person, mintToken(t, nil), "")
+	if !strings.Contains(body, `"read_accounts":["`+other+`"]`) {
+		t.Errorf("person view without its read accounts: %s", body)
+	}
 	var v EvidenceView
 	if json.Unmarshal([]byte(body), &v) != nil || v.PersonIdentity == nil || len(v.PersonIdentity.Accounts) != 1 {
 		t.Fatalf("person read: %s", body)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -376,5 +377,50 @@ func TestPersonIdentity_WalksAliasedPersons(t *testing.T) {
 	}
 	if !slices.Contains(set, string(a)) {
 		t.Errorf("PersonAccountSet(P1) = %v; the view lists an account the read does not walk", set)
+	}
+}
+
+// TestPersonIdentity_ReadAccountsApplyCuts (adr/0324): the person view's
+// read accounts are exactly what a read of the person walks, cuts applied.
+// John owns SID1 and SID2 by record and SAM aliases both; with SID2 cut
+// from John the read walks SID1 alone, though SID1's row still lists SAM
+// among its aliases.
+func TestPersonIdentity_ReadAccountsApplyCuts(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	sid1, sid2, sam, john := stixID(identity.TypeUserAccount), stixID(identity.TypeUserAccount), stixID(identity.TypeUserAccount), stixID(identity.TypeIdentity)
+	persistObjects(t, s, []capability.SCO{accountSCO(sid1), accountSCO(sid2), accountSCO(sam), personSCO(john, nil)},
+		observedRel(capability.RelAliases, sam, sid1), observedRel(capability.RelAliases, sam, sid2),
+		observedRel(capability.RelBelongsTo, sid1, john), observedRel(capability.RelBelongsTo, sid2, john))
+	if err := s.AssertDistinct(ctx, testIDs, string(sid2), string(john), ana, "the login was recycled"); err != nil {
+		t.Fatal(err)
+	}
+	pv, err := s.PersonIdentity(ctx, string(john))
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := s.PersonAccountSet(ctx, string(john))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, r := range set {
+		if strings.HasPrefix(r, identity.TypeUserAccount+"--") {
+			want = append(want, r)
+		}
+	}
+	got := slices.Clone(pv.ReadAccounts)
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("ReadAccounts = %v; want PersonAccountSet's accounts %v", got, want)
+	}
+	if !slices.Contains(got, string(sid1)) || slices.Contains(got, string(sid2)) || slices.Contains(got, string(sam)) {
+		t.Errorf("ReadAccounts = %v; want SID1 in, SID2 and SAM out", got)
+	}
+	for _, a := range pv.Accounts {
+		if a.AccountRef == string(sid1) && !slices.Contains(a.AccountAliases, string(sam)) {
+			t.Errorf("SID1's row aliases = %v; want SAM listed for display", a.AccountAliases)
+		}
 	}
 }

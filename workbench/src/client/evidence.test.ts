@@ -83,6 +83,7 @@ describe("an account's and a person's identity views (adr/0324)", () => {
     ]);
     expect(doc.personIdentity?.accounts.map((a) => [a.accountRef, a.kind, a.cut])).toEqual([["user-account--10", "observed", false], ["user-account--17", "asserted", false]]);
     expect(doc.personIdentity?.distinct[0]?.note).toBe("namesakes");
+    expect(doc.personIdentity?.readAccounts).toEqual(["user-account--10", "user-account--9", "user-account--17"]);
     const zero = await client(fixture("evidence.zero")).e.get("user-account--1");
     expect(zero.accountIdentity).toBeUndefined();
     expect(zero.personIdentity).toBeUndefined();
@@ -99,6 +100,7 @@ describe("an account's and a person's identity views (adr/0324)", () => {
     expect(onPerson?.personIdentity?.accounts[0]?.cut).toBe(true);
     expect(onPerson?.personIdentity?.accounts[0]?.personRef).toBe("x");
     expect(onPerson?.personIdentity?.accounts[0]?.accountAliases).toEqual(["x"]);
+    expect(onPerson?.personIdentity?.readAccounts).toEqual(["x"]);
     expect(onPerson?.personIdentity?.accounts[0]?.cutBy).toEqual({ edgeId: "x", accountRef: "x", personRef: "x", by: "x", byName: "x", at: "2026-01-02T03:04:05Z", note: "x" });
     const zero = client(fixture("identityAct.zero")).e;
     expect(await zero.assertIdentity("user-account--a", "distinct", { ref: "identity--p" })).toBeNull();

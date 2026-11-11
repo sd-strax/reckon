@@ -410,6 +410,7 @@ const personIdentity = object({
   aliases: list(identityEdge),
   distinct: list(identityEdge),
   accounts: list(object({ account_ref: str, person_ref: str, account_aliases: list(str), ...belongsTo })),
+  read_accounts: list(str),
 });
 export type RawPersonIdentity = Decoded<typeof personIdentity>;
 

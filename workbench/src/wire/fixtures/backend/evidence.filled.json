@@ -231,6 +231,9 @@
               "cut_at": "2026-01-02T03:04:05Z",
               "cut_note": "x"
             }
+          ],
+          "read_accounts": [
+            "x"
           ]
         }
       }
@@ -431,6 +434,9 @@
             "cut_at": "2026-01-02T03:04:05Z",
             "cut_note": "x"
           }
+        ],
+        "read_accounts": [
+          "x"
         ]
       }
     },
@@ -631,6 +637,9 @@
               "cut_at": "2026-01-02T03:04:05Z",
               "cut_note": "x"
             }
+          ],
+          "read_accounts": [
+            "x"
           ]
         }
       }
@@ -789,6 +798,11 @@
         "withdrawn": false,
         "cut": false
       }
+    ],
+    "read_accounts": [
+      "user-account--10",
+      "user-account--9",
+      "user-account--17"
     ]
   }
 }

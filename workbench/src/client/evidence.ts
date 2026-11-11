@@ -64,6 +64,7 @@ export function mapPersonIdentity(r: RawPersonIdentity): PersonIdentity {
       source: a.source, by: a.by, byName: a.by_name, at: a.at, note: a.note, withdrawn: a.withdrawn, cut: a.cut,
       ...cutBy(a),
     })),
+    readAccounts: r.read_accounts,
   };
 }
 

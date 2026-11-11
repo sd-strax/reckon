@@ -271,7 +271,7 @@ describe("reducer: an account's and a person's identity (adr/0324)", () => {
   const vendor = "identity--2";
   const edge = { edgeId: "relationship--1", otherRef: "user-account--2", kind: "observed" as const, source: "dc", at: "2026-01-02T03:04:05Z", withdrawn: false };
   const accountView = { aliases: [edge], distinct: [], seenAs: { logins: ["jdoe"], ids: [], principalNames: [] }, owners: [] };
-  const personView = { aliases: [], distinct: [], accounts: [{ accountRef: acct, personRef: person, accountAliases: [acct], edgeId: "relationship--o", kind: "observed" as const, source: "idp", at: "2026-01-02T03:04:05Z", withdrawn: false, cut: false }] };
+  const personView = { aliases: [], distinct: [], accounts: [{ accountRef: acct, personRef: person, accountAliases: [acct], edgeId: "relationship--o", kind: "observed" as const, source: "idp", at: "2026-01-02T03:04:05Z", withdrawn: false, cut: false }], readAccounts: [acct] };
   const person$ = { type: "identity", payload: { properties: { identity_class: "individual" } } };
   const docs: RenderMessage[] = [
     { type: "inspector.evidence", ref: acct, doc: { ref: acct, kind: "stix", type: "user-account", payload: {}, accountIdentity: accountView }, appearances: [] },

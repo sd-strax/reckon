@@ -240,7 +240,7 @@ describe("an account's and a person's identity in the inspector reads (adr/0324)
     distinct: [], seenAs: { logins: [], ids: [], principalNames: [] }, owners: [],
   });
   const personView = (edgeId: string): PersonIdentity => ({
-    aliases: [{ edgeId, otherRef: "identity--2", kind: "asserted", by: "u-1", at: "2026-01-02T03:04:05Z", withdrawn: false }], distinct: [], accounts: [],
+    aliases: [{ edgeId, otherRef: "identity--2", kind: "asserted", by: "u-1", at: "2026-01-02T03:04:05Z", withdrawn: false }], distinct: [], accounts: [], readAccounts: [],
   });
   const accountDoc = (edgeId: string): EvidenceDoc => ({ ref: acct, kind: "stix", type: "user-account", payload: { properties: { account_login: "jdoe" } }, accountIdentity: accountView(edgeId) });
   const personDoc = (edgeId: string): EvidenceDoc => ({ ref: person, kind: "stix", type: "identity", payload: { properties: { identity_class: "individual" } }, personIdentity: personView(edgeId) });

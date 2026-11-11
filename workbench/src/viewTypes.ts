@@ -339,6 +339,12 @@ export interface PersonIdentity {
   /** Persons asserted apart, and accounts asserted not to be this person's (the cut). */
   distinct: IdentityEdge[];
   accounts: PersonAccountEdge[];
+  /**
+   * The accounts a read of the person walks, cuts applied, as the server's
+   * read answers them: the one set a lens matches on. A row's
+   * accountAliases are for display, never a substitute for it.
+   */
+  readAccounts: string[];
 }
 
 /** One action's record (mirrors server.ActionRecordView): the card is the

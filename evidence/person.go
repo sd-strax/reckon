@@ -434,6 +434,11 @@ type PersonIdentityView struct {
 	Aliases  []IdentityEdge
 	Distinct []IdentityEdge
 	Accounts []PersonAccount
+	// ReadAccounts is the accounts a read of the person walks, exactly as
+	// PersonAccountSet answers them (accounts only): the effective set, cuts
+	// applied. The rows' AccountAliases are for display; a consumer that
+	// asks which accounts are the person's reads this.
+	ReadAccounts []string
 }
 
 // PersonIdentity reads a person's identity view.
@@ -458,6 +463,16 @@ func (s *Store) PersonIdentity(ctx context.Context, ref string) (PersonIdentityV
 	cuts, err := s.cutsFrom(ctx, self)
 	if err != nil {
 		return PersonIdentityView{}, err
+	}
+	read, err := s.PersonAccountSet(ctx, self)
+	if err != nil {
+		return PersonIdentityView{}, err
+	}
+	out.ReadAccounts = []string{}
+	for _, r := range read {
+		if strings.HasPrefix(r, identity.TypeUserAccount+"--") {
+			out.ReadAccounts = append(out.ReadAccounts, r)
+		}
 	}
 	sets := map[string][]string{}
 	for _, p := range personsFirst(self, persons) {

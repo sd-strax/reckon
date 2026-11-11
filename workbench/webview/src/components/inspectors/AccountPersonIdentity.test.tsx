@@ -67,6 +67,8 @@ const personView: PersonIdentity = {
     // Attached to a person aliased to this one: the account a read of this person walks, with an alias of its own.
     { accountRef: acct3, personRef: personH, accountAliases: [acct3, acct3login], edgeId: "relationship--p4", kind: "observed", source: "idp", at, withdrawn: false, cut: false },
   ],
+  // What a read of the person walks: the cut accounts are not in it.
+  readAccounts: [acct, acct3, acct3login],
 };
 
 const personDoc = (ref: string, view?: PersonIdentity): EvidenceDoc => ({
@@ -360,6 +362,39 @@ describe("a person's identity in the inspector (adr/0324)", () => {
     emit(transport, { type: "identity.changed", ref: personA, acted: true });
     expect(transport.intents.slice(before).filter((i) => i.type === "inspector.open")).toEqual([]);
     expect(within(pane()).queryByText("This view may be out of date.")).toBeNull();
+  });
+
+  it("matches Hosts used on the set the read walks alone, never on a row's aliases", () => {
+    // John owns SID1 and SID2 by record and SAM aliases both; SID2 is cut, so the
+    // read walks SID1 alone, while SID1's row still lists SAM and SID2 for display.
+    const sid1 = "user-account--00000000-0000-4000-8000-000000000021";
+    const sid2 = "user-account--00000000-0000-4000-8000-000000000022";
+    const sam = "user-account--00000000-0000-4000-8000-000000000023";
+    const hostH = "x-host--00000000-0000-4000-8000-0000000000f3";
+    const hostH2 = "x-host--00000000-0000-4000-8000-0000000000f4";
+    const john: PersonIdentity = {
+      aliases: [],
+      distinct: [{ edgeId: "relationship--rc", otherRef: sid2, kind: "asserted", by: "u-1", byName: "Ana Analyst", at, withdrawn: false }],
+      accounts: [
+        { accountRef: sid1, personRef: personA, accountAliases: [sid1, sam, sid2], edgeId: "relationship--j1", kind: "observed", source: "idp", at, withdrawn: false, cut: false },
+        { accountRef: sid2, personRef: personA, accountAliases: [sid2, sam, sid1], edgeId: "relationship--j2", kind: "observed", source: "idp", at, withdrawn: false, cut: true, cutBy: { edgeId: "relationship--rc", accountRef: sid2, personRef: personA } },
+      ],
+      readAccounts: [sid1],
+    };
+    const event = base.snapshot.events![0]!;
+    const data: HarnessSnapshot = {
+      ...base,
+      snapshot: { ...base.snapshot, events: [
+        { ...event, id: "4e5f6071-8293-44a5-b6c7-d8e9f0a1b2c3", entityRefs: [sam, hostH] },
+        { ...event, id: "5f607182-93a4-45b6-c7d8-e9f0a1b2c3d4", entityRefs: [sid1, hostH2] },
+      ] },
+      docs: { ...base.docs, [acct]: { ref: acct, kind: "stix", type: "user-account", payload: {}, accountIdentity: accountView() }, [personA]: personDoc(personA, john) },
+      labels: { ...base.labels, [hostH]: "ws-recycled", [hostH2]: "ws-john" },
+    };
+    render(<AppProvider transport={new HarnessTransport(data)}><App /></AppProvider>);
+    openPerson();
+    expect(within(pane()).getByText("ws-john")).toBeTruthy();
+    expect(within(pane()).queryByText("ws-recycled")).toBeNull();
   });
 
   it("says Hosts used covers the held page of events when the record holds more", () => {
