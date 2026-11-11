@@ -179,7 +179,7 @@ func TestDescribe(t *testing.T) {
 // TestDescribe_BindingsMatchExample pins the default bindings to the example
 // tenant config, which carries the cloud scenario's full-scope shape.
 func TestDescribe_BindingsMatchExample(t *testing.T) {
-	cfg, err := capability.LoadTenantConfig("../../examples/adapters/security-lake/tenant-config.yaml")
+	cfg, err := capability.LoadTenantConfig("../../examples/adapters/aws-security-lake/tenant-config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestHandle_ActivityEndToEnd(t *testing.T) {
 		t.Fatalf("invoke: %+v", werr)
 	}
 	out := res.(invokeResult)
-	if out.SourceTool != "security-lake" || len(out.Events) != 1 || out.Events[0].ClassUID != 6003 {
+	if out.SourceTool != "aws-security-lake" || len(out.Events) != 1 || out.Events[0].ClassUID != 6003 {
 		t.Errorf("result = %s %d", out.SourceTool, len(out.Events))
 	}
 	in := f.started[0]

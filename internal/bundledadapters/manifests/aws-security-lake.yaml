@@ -8,8 +8,8 @@
 # Resources Inventory Info (5023). It serves the cloud control-plane verbs
 # (03 §2.10).
 #
-# Bundled: `reckon adapter install security-lake` places it, `reckon adapter
-# setup security-lake` captures the access key to the keychain; then enable it
+# Bundled: `reckon adapter install aws-security-lake` places it, `reckon adapter
+# setup aws-security-lake` captures the access key to the keychain; then enable it
 # in the tenant config (see tenant-config.yaml).
 #
 # Credentials come only from configure (the x-secret fields below, resolved by
@@ -18,11 +18,11 @@
 # and, with account_uids set, an accountid filter; a call with no window is
 # refused rather than scanning the lake.
 manifest_version: 1
-name: security-lake
+name: aws-security-lake
 version: 0.1.0
 protocol_versions: [1]
 class: NATIVE_API
-exec: ["./reckon-adapter-security-lake"]
+exec: ["./reckon-adapter-aws-security-lake"]
 # no runtime: — native static binary (12 §2)
 summary: # CLAIMED — the describe handshake is the authority (11 §3)
   verbs: [get_cloud_api_activity, get_cloud_resource_history, get_cloud_resource_context]

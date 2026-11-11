@@ -28,14 +28,18 @@ import (
 const (
 	version = "0.1.0"
 
-	sourceLake   = "security-lake"
+	// sourceLake is the source tool of the lake's events. It is independent
+	// of the adapter name (adapterName) by decision, though the two are
+	// equal today: a source tool is part of every observation id its events
+	// mint, so it is not renamed with the adapter (adr/0331).
+	sourceLake   = "aws-security-lake"
 	sourceConfig = "aws-config"
 
 	defaultQueryTimeout = 60 * time.Second
 	// credentialExpiryWindow refreshes an assumed-role session this long
 	// before it expires.
 	credentialExpiryWindow = 5 * time.Minute
-	roleSessionName        = "reckon-security-lake"
+	roleSessionName        = "reckon-aws-security-lake"
 )
 
 var (

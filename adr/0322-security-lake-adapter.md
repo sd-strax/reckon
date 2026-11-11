@@ -2,6 +2,8 @@
 
 Issue: #322 · PR: #330 · Status: accepted
 
+The adapter is named `aws-security-lake` since adr/0331; the text below keeps the name it was decided under.
+
 ## Context
 
 adr/0320 gave cloud control-plane events typed identities and adr/0321 gave

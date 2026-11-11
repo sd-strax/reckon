@@ -1,8 +1,8 @@
 # Example tenant config enabling the AWS Security Lake adapter (design/11 §5;
 # adr/0322). Point the backend at it with
-#   capability: {config_path: examples/adapters/security-lake/tenant-config.yaml}
-# after `reckon adapter install security-lake` and `reckon adapter setup
-# security-lake` (which captures the access key to the keychain).
+#   capability: {config_path: examples/adapters/aws-security-lake/tenant-config.yaml}
+# after `reckon adapter install aws-security-lake` and `reckon adapter setup
+# aws-security-lake` (which captures the access key to the keychain).
 #
 # The subscriber is a Security Lake query-access subscriber: the lake's Glue
 # tables are shared into this account and queried with Athena in its
@@ -17,10 +17,10 @@
 tenant: demo
 
 adapters:
-  security-lake:
+  aws-security-lake:
     class: native_api
     enabled: true
-    adapter: security-lake
+    adapter: aws-security-lake
     # 03 §3.5 — the lake is organization-wide, so one instance per
     # organization, scoped to it; account_uids narrows every query to those
     # accounts (the accountid partition). An unscoped instance with no
@@ -31,8 +31,8 @@ adapters:
       athena_workgroup: YOUR_ATHENA_WORKGROUP
       output_location: "s3://YOUR-ATHENA-RESULTS-BUCKET/reckon/"
       account_uids: ["111122223333"]
-      access_key_id: "keychain://reckon/security-lake-access_key_id"
-      secret_access_key: "keychain://reckon/security-lake-secret_access_key"
+      access_key_id: "keychain://reckon/aws-security-lake-access_key_id"
+      secret_access_key: "keychain://reckon/aws-security-lake-secret_access_key"
       query_timeout: PT60S
       config_enabled: true
     reads: # per-op allowlist, NO wildcard (11 §5)
@@ -50,7 +50,7 @@ bindings:
   # its account, so a scoped question never broadens. Every call needs a window start: the adapter
   # refuses a windowless query rather than scan the lake.
   get_cloud_api_activity:
-    - adapter: security-lake
+    - adapter: aws-security-lake
       operation: cloudtrail.api_activity
       priority: 200
       params:
@@ -81,7 +81,7 @@ bindings:
   # The resource's change timeline: its Create, Update and Delete calls,
   # oldest first.
   get_cloud_resource_history:
-    - adapter: security-lake
+    - adapter: aws-security-lake
       operation: cloudtrail.resource_history
       priority: 200
       params:
@@ -104,7 +104,7 @@ bindings:
   # OCSF 5023 snapshot. Config keys by type and id: the type comes from the
   # entity, or from the ARN for the resource kinds the adapter maps.
   get_cloud_resource_context:
-    - adapter: security-lake
+    - adapter: aws-security-lake
       operation: config.resource_context
       priority: 200
       params:
