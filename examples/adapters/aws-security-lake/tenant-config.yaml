@@ -1,0 +1,125 @@
+# Example tenant config enabling the AWS Security Lake adapter (design/11 §5;
+# adr/0322). Point the backend at it with
+#   capability: {config_path: examples/adapters/aws-security-lake/tenant-config.yaml}
+# after `reckon adapter install aws-security-lake` and `reckon adapter setup
+# aws-security-lake` (which captures the access key to the keychain).
+#
+# The subscriber is a Security Lake query-access subscriber: the lake's Glue
+# tables are shared into this account and queried with Athena in its
+# workgroup, results written to output_location. AWS Config, in the same
+# account and region, answers get_cloud_resource_context; set
+# config_enabled: false to leave that verb to another source.
+#
+# access_key_id and secret_access_key are x-secret references (11 §4.3)
+# resolved to plaintext before configure; they are the only credentials the
+# adapter uses. Add role_arn to have it assume a role with them.
+
+tenant: demo
+
+adapters:
+  aws-security-lake:
+    class: native_api
+    enabled: true
+    adapter: aws-security-lake
+    # 03 §3.5 — the lake is organization-wide, so one instance per
+    # organization, scoped to it; account_uids narrows every query to those
+    # accounts (the accountid partition). An unscoped instance with no
+    # account_uids answers every scope and searches across all accounts.
+    scope: acme
+    config:
+      region: us-east-1
+      athena_workgroup: YOUR_ATHENA_WORKGROUP
+      output_location: "s3://YOUR-ATHENA-RESULTS-BUCKET/reckon/"
+      account_uids: ["111122223333"]
+      access_key_id: "keychain://reckon/aws-security-lake-access_key_id"
+      secret_access_key: "keychain://reckon/aws-security-lake-secret_access_key"
+      query_timeout: PT60S
+      config_enabled: true
+    reads: # per-op allowlist, NO wildcard (11 §5)
+      - cloudtrail.api_activity
+      - cloudtrail.resource_history
+      - config.resource_context
+
+bindings:
+  # The ${...} right side is the engine's read-call input, the left side the
+  # adapter operation's param name (03 §3.3); optional inputs are marked `?`
+  # so a missing one omits the param (§3.3.4). The resource carries every
+  # scope the entity may have. A resource with a uid is matched on the uid
+  # alone; one given by name must match one resource element carrying the
+  # name and every scope given (type, region, zone, group, namespace), under
+  # its account, so a scoped question never broadens. Every call needs a window start: the adapter
+  # refuses a windowless query rather than scan the lake.
+  get_cloud_api_activity:
+    - adapter: aws-security-lake
+      operation: cloudtrail.api_activity
+      priority: 200
+      params:
+        principal:
+          name: '${entity.user.name?}'
+          credential: '${entity.user.credential_uid?}'
+        resource:
+          uid: '${entity.cloud_resource.uid?}'
+          name: '${entity.cloud_resource.name?}'
+          provider: '${entity.cloud_resource.provider? | lower}'
+          type: '${entity.cloud_resource.type?}'
+          account_uid: '${entity.cloud_resource.account_uid?}'
+          region: '${entity.cloud_resource.region?}'
+          zone: '${entity.cloud_resource.zone?}'
+          group: '${entity.cloud_resource.group?}'
+          namespace: '${entity.cloud_resource.namespace?}'
+        account:
+          uid: '${entity.cloud_account.uid?}'
+          provider: '${entity.cloud_account.provider? | lower}'
+        operation: '${operation?}'
+        service: '${service?}'
+        outcome: '${outcome ?? "ALL"}'
+        limit: '${limit ?? 200}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  # The resource's change timeline: its Create, Update and Delete calls,
+  # oldest first.
+  get_cloud_resource_history:
+    - adapter: aws-security-lake
+      operation: cloudtrail.resource_history
+      priority: 200
+      params:
+        resource:
+          uid: '${entity.cloud_resource.uid?}'
+          name: '${entity.cloud_resource.name?}'
+          provider: '${entity.cloud_resource.provider? | lower}'
+          type: '${entity.cloud_resource.type?}'
+          account_uid: '${entity.cloud_resource.account_uid?}'
+          region: '${entity.cloud_resource.region?}'
+          zone: '${entity.cloud_resource.zone?}'
+          group: '${entity.cloud_resource.group?}'
+          namespace: '${entity.cloud_resource.namespace?}'
+        limit: '${limit ?? 200}'
+        window:
+          from: '${window.from | iso8601}'
+          to: '${window.to | iso8601}'
+
+  # What the resource is now: its latest AWS Config configuration item as an
+  # OCSF 5023 snapshot. Config keys by type and id: the type comes from the
+  # entity, or from the ARN for the resource kinds the adapter maps.
+  get_cloud_resource_context:
+    - adapter: aws-security-lake
+      operation: config.resource_context
+      priority: 200
+      params:
+        resource:
+          uid: '${entity.cloud_resource.uid?}'
+          name: '${entity.cloud_resource.name?}'
+          provider: '${entity.cloud_resource.provider? | lower}'
+          type: '${entity.cloud_resource.type?}'
+          account_uid: '${entity.cloud_resource.account_uid?}'
+          region: '${entity.cloud_resource.region?}'
+          zone: '${entity.cloud_resource.zone?}'
+          group: '${entity.cloud_resource.group?}'
+          namespace: '${entity.cloud_resource.namespace?}'
+
+policies:
+  default_window:
+    investigation: PT24H
+    hunt: PT30D

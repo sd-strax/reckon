@@ -69,7 +69,7 @@ func TestCloudInventory_Snapshot(t *testing.T) {
 	}
 
 	od := res.ObservedData[0]
-	if od.Provenance.Normalizer != "cloud_inventory" || od.Provenance.NormalizerVersion != 2 {
+	if od.Provenance.Normalizer != "cloud_inventory" || od.Provenance.NormalizerVersion != 3 {
 		t.Errorf("provenance = %+v", od.Provenance)
 	}
 	ext := od.Extensions
@@ -225,5 +225,40 @@ func TestCloudInventory_SchemaVersionRange(t *testing.T) {
 func TestCloudInventory_Registered(t *testing.T) {
 	if !slices.Contains(testRegistry().HandledClasses(), 5023) {
 		t.Fatal("5023 not in HandledClasses")
+	}
+}
+
+// TestCloudInventory_EpochTimes: a live source carries created_time and
+// modified_time as epoch milliseconds (OCSF timestamp_t); the extensions read
+// them as RFC 3339, the same form the fixture's strings already have.
+func TestCloudInventory_EpochTimes(t *testing.T) {
+	p := inventoryPayload()
+	r := p["resources"].([]any)[0].(map[string]any)
+	r["created_time"] = float64(1740916800000)  // 2025-03-02T12:00:00Z
+	r["modified_time"] = float64(1784021280000) // 2026-07-14T09:28:00Z
+	ext := normalizeOne(t, p).ObservedData[0].Extensions
+	if ext["created_time"] != "2025-03-02T12:00:00Z" || ext["modified_time"] != "2026-07-14T09:28:00Z" {
+		t.Errorf("times = %v, %v; want RFC 3339", ext["created_time"], ext["modified_time"])
+	}
+	r["created_time"] = float64(1.5) // not a timestamp: omitted
+	if _, ok := normalizeOne(t, p).ObservedData[0].Extensions["created_time"]; ok {
+		t.Error("a fractional time must be omitted")
+	}
+}
+
+// TestOcsfTimestamp is the timestamp rule capability/ocsfview copies; its
+// table is repeated there so the two stay one rule.
+func TestOcsfTimestamp(t *testing.T) {
+	for _, tc := range []struct {
+		in   any
+		want string
+	}{
+		{float64(1784021280000), "2026-07-14T09:28:00Z"}, {int64(1784021280000), "2026-07-14T09:28:00Z"},
+		{1784021280123, "2026-07-14T09:28:00.123Z"}, {" 2025-03-02T12:00:00Z ", "2025-03-02T12:00:00Z"},
+		{float64(1.5), ""}, {float64(1 << 53), ""}, {int64(1 << 53), ""}, {true, ""}, {nil, ""},
+	} {
+		if got := ocsfTimestamp(tc.in); got != tc.want {
+			t.Errorf("ocsfTimestamp(%v) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }

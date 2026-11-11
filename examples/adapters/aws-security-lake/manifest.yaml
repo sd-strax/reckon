@@ -1,0 +1,73 @@
+# Install manifest for the AWS Security Lake adapter (design/11 §3; adr/0322).
+#
+# NATIVE_API class: a static Go binary with no runtime block (no venv, no
+# vendor package, no child process) — the reckon plugin protocol on stdio and
+# the AWS SDK for Go v2. It reads the Security Lake CloudTrail management-event
+# table (OCSF API Activity, 6003) through an Athena query-access subscriber,
+# and a resource's latest configuration from AWS Config, shaped into OCSF Cloud
+# Resources Inventory Info (5023). It serves the cloud control-plane verbs
+# (03 §2.10).
+#
+# Bundled: `reckon adapter install aws-security-lake` places it, `reckon adapter
+# setup aws-security-lake` captures the access key to the keychain; then enable it
+# in the tenant config (see tenant-config.yaml).
+#
+# Credentials come only from configure (the x-secret fields below, resolved by
+# the host): the adapter never reads ~/.aws, the environment or the instance
+# metadata service. Every query carries the call's window as a time_dt range
+# and, with account_uids set, an accountid filter; a call with no window is
+# refused rather than scanning the lake.
+manifest_version: 1
+name: aws-security-lake
+version: 0.1.0
+protocol_versions: [1]
+class: NATIVE_API
+exec: ["./reckon-adapter-aws-security-lake"]
+# no runtime: — native static binary (12 §2)
+summary: # CLAIMED — the describe handshake is the authority (11 §3)
+  verbs: [get_cloud_api_activity, get_cloud_resource_history, get_cloud_resource_context]
+  action_types: []
+config_schema:
+  type: object
+  required: [region, athena_workgroup, output_location, access_key_id, secret_access_key]
+  properties:
+    region:
+      type: string
+      description: AWS region of the subscriber (Athena, Glue, Config)
+    glue_database:
+      type: string
+      description: default amazon_security_lake_glue_db_<region>
+    cloudtrail_table:
+      type: string
+      description: default amazon_security_lake_table_<region>_cloud_trail_mgmt_2_0
+    athena_workgroup:
+      type: string
+      description: Athena workgroup the queries run in
+    output_location:
+      type: string
+      description: s3://… for Athena results
+    account_uids:
+      type: array
+      items: {type: string}
+      description: restrict to these accounts; empty = every account in the lake
+    role_arn:
+      type: string
+      description: "optional: assume this role for the queries"
+    access_key_id:
+      type: string
+      x-secret: true # the host resolves the reference to plaintext before configure (11 §4.3)
+      description: AWS access key id, given as a secret reference (keychain:// / env:// / vault://)
+    secret_access_key:
+      type: string
+      x-secret: true
+      description: AWS secret access key, given as a secret reference
+    session_token:
+      type: string
+      x-secret: true
+      description: optional AWS session token, given as a secret reference
+    query_timeout:
+      type: string
+      description: ISO 8601 duration, default PT60S
+    config_enabled:
+      type: boolean
+      description: answer get_cloud_resource_context from AWS Config (default true)

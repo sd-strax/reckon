@@ -15,9 +15,11 @@ package ocsfview
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sd-strax/reckon/identity"
 )
@@ -1317,8 +1319,8 @@ func (r *renderer) cloudInventory() {
 	r.entityField("Account", account)
 	r.field("Region", region)
 	r.field("Owner", owner)
-	r.field("Created", toString(first["created_time"]))
-	r.field("Modified", toString(first["modified_time"]))
+	r.field("Created", ocsfTimestamp(first["created_time"]))
+	r.field("Modified", ocsfTimestamp(first["modified_time"]))
 	r.field("Criticality", crit).Tone = severityTone(crit)
 	r.field("Labels", strings.Join(stringList(pathList(first, "labels")), ", "))
 	if data, ok := first["data"].(map[string]any); ok {
@@ -1731,6 +1733,39 @@ func pathStr(m map[string]any, path string) string { return toString(pathAny(m, 
 func pathList(m map[string]any, path string) []any {
 	l, _ := pathAny(m, path).([]any)
 	return l
+}
+
+// ocsfTimestamp renders an OCSF timestamp for display as RFC 3339 UTC: a
+// number is epoch milliseconds (timestamp_t), converted when it is an exact
+// integer below 2^53 (beyond that a JSON number has already been rounded); a
+// string is shown as given; anything else is "". It is the same rule as the
+// 5023 normalizer's ocsfTimestamp in package capability, kept as a copy
+// because capability's own tests import this package, so this package
+// cannot import capability.
+func ocsfTimestamp(v any) string {
+	var f float64
+	switch x := v.(type) {
+	case string:
+		return strings.TrimSpace(x)
+	case float64:
+		f = x
+	case json.Number:
+		n, err := x.Float64()
+		if err != nil {
+			return ""
+		}
+		f = n
+	case int64:
+		f = float64(x)
+	case int:
+		f = float64(x)
+	default:
+		return ""
+	}
+	if f != math.Trunc(f) || math.Abs(f) >= 1<<53 {
+		return ""
+	}
+	return time.UnixMilli(int64(f)).UTC().Format(time.RFC3339Nano)
 }
 
 func toString(v any) string {

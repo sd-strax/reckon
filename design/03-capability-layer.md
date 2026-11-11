@@ -1242,7 +1242,8 @@ resource and the calls against it meet on one node:
   `resource_count`, and for the first resource `resource_uid`,
   `resource_name`, `type`, `configuration` (the resource's `data`, as
   decoded), `labels`, `tags`, `criticality`, `created_time`,
-  `modified_time`, `owner_name`. The configuration is data the model reads
+  `modified_time` (both written as RFC 3339, whether the source sends the
+  schema's epoch milliseconds or a string), `owner_name`. The configuration is data the model reads
   through the event view, never an entity: a policy document is a property
   of the resource at a moment, and the moment is the observation. The schema
   version is not copied (§4.16).

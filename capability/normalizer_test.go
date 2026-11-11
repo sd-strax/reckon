@@ -454,16 +454,17 @@ func TestHostAliasEmission(t *testing.T) {
 // count. Or it took over a class the opaque default handled (5001, 6003,
 // 5023, 5003): the ObservedData id carries the version but not the
 // normalizer's name, so version 1 would collide with the opaque observation.
-// The normalizers that mint an account from an OCSF user object moved to 3
-// under adr/0324 (1007, 3002, 1001, 1006, 3005, 4011, and 2004, whose
-// evidence recursion mints them); api_activity and the cloud inventory shape
-// a control-plane principal, unchanged, and stay at 2. The case normalizer
-// and the opaque default are at 1.
+// 5023 is at 3: its created and modified times became RFC 3339 in the
+// extensions whatever form the payload carries them in. The normalizers
+// that mint an account from an OCSF user object moved to 3 under adr/0324
+// (1007, 3002, 1001, 1006, 3005, 4011, and 2004, whose evidence recursion
+// mints them); api_activity shapes a control-plane principal, unchanged, and
+// stays at 2. The case normalizer and the opaque default are at 1.
 func TestHostNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
 		{1007, 3}, {3002, 3}, {4001, 2}, {4003, 2}, {1001, 3}, {1003, 2}, {1006, 3}, {1009, 2},
-		{3005, 3}, {4011, 3}, {2004, 3}, {5001, 2}, {4009, 2}, {6003, 2}, {5023, 2}, {5003, 2}, {2005, 1}, {0, 1},
+		{3005, 3}, {4011, 3}, {2004, 3}, {5001, 2}, {4009, 2}, {6003, 2}, {5023, 3}, {5003, 2}, {2005, 1}, {0, 1},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {
