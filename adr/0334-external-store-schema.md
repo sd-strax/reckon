@@ -1,6 +1,6 @@
 # 0334 — An adapter that queries a store it does not own discovers that store's schema, carries a recorded profile per source version, and reports what it cannot answer instead of failing
 
-Issue: #334 · PR: pending · Status: accepted
+Issue: #334 · PR: #336 · Status: accepted
 
 ## Context
 
