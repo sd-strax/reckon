@@ -640,7 +640,7 @@ EDGE TYPES (v0 vocabulary, open)
 | `x-supports`     | Sighting       | x-hypothesis   | Evidence supports (with weight: `STRONG` \| `MODERATE` \| `WEAK`).                                                                                     |
 | `x-refutes`      | Sighting       | x-hypothesis   | Evidence refutes (with weight: `STRONG` \| `MODERATE` \| `WEAK`).                                                                                      |
 | `aliases`        | Entity         | Entity         | Identity assertion (non-destructive — never a merge).                                                                                                  |
-| `distinct-from`  | Entity         | Entity         | Identity separation asserted by a person: the two are not one thing; reads do not join them through aliases (adr/0211).                               |
+| `distinct-from`  | Entity         | Entity         | Identity separation asserted by a person: the two are not one thing; reads do not join them through aliases (adr/0211). Between a `user-account` and a person (`identity`, individual), the one pair of unlike types it joins, it says the account is not that person's and cuts a `belongs-to` the directory recorded (adr/0324). |
 | `parent-of`      | x-hypothesis   | x-hypothesis   | Hypothesis refinement.                                                                                                                                 |
 | `reverses`       | x-action       | x-action       | A reversing action negates a previously-`SUCCEEDED` action. Also expressible via `x-action.reversal_of_ref`; the edge form supports graph queries (04-action-authorization.md §7). |
 | `parent-process-of` | process     | process        | Observed process parent/child relationship (emitted by the process_activity normalizer, 03-capability-layer.md §4.1). Distinct from `parent-of`, which is reserved for x-hypothesis refinement. |
@@ -648,7 +648,7 @@ EDGE TYPES (v0 vocabulary, open)
 | `loads`          | process        | file           | Observed module/DLL load (emitted by the module_activity normalizer, 03-capability-layer.md §4.8).                                                                                       |
 | `member-of-group`| user-account   | x-group        | Observed directory-group membership (emitted by the account_change normalizer, 03-capability-layer.md §4.9).                                                                             |
 | `clicked`        | user-account   | url            | Observed URL click from email (emitted by the email_url_activity normalizer, 03-capability-layer.md §4.11).                                                                              |
-| `belongs-to`     | x-cloud-resource, user-account | x-cloud-account | Observed membership of a resource identified under an account, or of a principal in its own account (STIX 2.1 vocabulary; emitted by the api_activity normalizer, 03-capability-layer.md §4.15). Never asserted for a resource named by a provider-unique id. |
+| `belongs-to`     | x-cloud-resource, user-account | x-cloud-account, identity (individual) | Observed membership of a resource identified under an account, or of a principal in its own account (STIX 2.1 vocabulary; emitted by the api_activity normalizer, 03-capability-layer.md §4.15). Never asserted for a resource named by a provider-unique id. From a `user-account` to the person (`identity`, `identity_class: individual`) that owns it: emitted by the user inventory normalizer from the directory record that names both, or asserted by a person with who, when and a note, and withdrawn by marking (adr/0324). An event never references the person; it is reached from the account through this edge. |
 
 Standard STIX relationship types (`indicates`, `uses`, `targets`, `communicates-with`, `resolves-to`, `located-at`, etc.) are also valid where applicable.
 
@@ -715,7 +715,7 @@ ADOPTED VS INVENTED
 
 ### Adopted unchanged
 
-- **From STIX 2.1** — all SCOs, `ObservedData`, `Sighting`, `Indicator`, `Report`, `Note`, `Opinion`, `Grouping`, `Relationship`, identity rules (deterministic UUIDv5), field naming conventions, custom-object naming convention (`x-` prefix).
+- **From STIX 2.1** — all SCOs, `ObservedData`, `Sighting`, `Indicator`, `Report`, `Note`, `Opinion`, `Grouping`, `Relationship`, identity rules (deterministic UUIDv5), field naming conventions, custom-object naming convention (`x-` prefix). `Identity` with `identity_class: individual` is the **person**: the human an account belongs to, keyed by the durable identifier a directory gives it and scoped by that directory, minted only from a directory record that names one or asserted by a person, never inferred from a shared address or name; events reference accounts, never the person, who is reached through `belongs-to` (adr/0324). The vendor identities the detection normalizer mints are the same object with another class.
 - **From OCSF** — event classes and payload shapes, class UID system.
 - **From working SOC tooling and IR methodology** (TheHive, NIST 800-61) — case lifecycle state machine, seed concept (precursor / indicator / question).
 - **From event-sourcing patterns** — reasoning thread as append-only ordered log.

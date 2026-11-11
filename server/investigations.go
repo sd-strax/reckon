@@ -108,8 +108,13 @@ type SeedBody struct {
 // "entity" | "question" | "case" (empty = infer entity/question); alerts carry
 // an explicit Seed. SourceScope applies to a case seed's read (14 §3).
 type SeedInputBody struct {
-	Value       string `json:"value"`
-	Kind        string `json:"kind,omitempty"`
+	Value string `json:"value"`
+	Kind  string `json:"kind,omitempty"`
+	// EntityKind is the kind of entity an entity seed names (adr/0324):
+	// "host", "account" or "person". Empty defaults it from the token's
+	// shape: a backslash or an "@" is an account, anything else a host,
+	// address or hash as before. A person is looked up in the record.
+	EntityKind  string `json:"entity_kind,omitempty"`
 	SourceScope string `json:"source_scope,omitempty"`
 	// AllowUnknown starts the investigation even though the tenant's host
 	// inventory has never seen the entity — the analyst knows better (#159).
@@ -280,15 +285,37 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 			cmd.Title = deriveSeedTitle(resolved.Display)
 		}
 	case req.SeedInput != nil && req.Seed == nil:
-		resolved, err := resolveSeedInput(b.identityResolver(), req.SeedInput.Value, req.SeedInput.Kind)
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, "resolve seed: "+err.Error())
-			return
+		var resolved seedResolution
+		entitySeed := req.SeedInput.Kind == aggregate.SeedEntity ||
+			(req.SeedInput.Kind == "" && classifySeedKind(req.SeedInput.Value) == aggregate.SeedEntity)
+		if entitySeed && strings.EqualFold(strings.TrimSpace(req.SeedInput.EntityKind), entityKindPerson) {
+			// A person is known only from a directory's record (adr/0324).
+			res, status, err := b.resolvePersonSeed(r, req.SeedInput.Value)
+			if err != nil {
+				writeJSONError(w, status, "resolve seed: "+err.Error())
+				return
+			}
+			resolved = res
+		} else {
+			res, err := resolveSeedInputAs(b.identityResolver(), req.SeedInput.Value, req.SeedInput.Kind, req.SeedInput.EntityKind)
+			if err != nil {
+				writeJSONError(w, http.StatusBadRequest, "resolve seed: "+err.Error())
+				return
+			}
+			resolved = b.preferSignInAccount(r, res)
 		}
 		// Report an entity nothing knows about rather than root on it (#159).
 		if resolved.Seed.Type == aggregate.SeedEntity && !req.SeedInput.AllowUnknown {
 			if unknown, msg := b.unknownHost(r, resolved); unknown {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": msg, "unknown_entity": true})
+				return
+			}
+			if unknown, msg, matches := b.unknownAccount(r, resolved); unknown {
+				known := make([]map[string]string, 0, len(matches))
+				for _, m := range matches {
+					known = append(known, map[string]string{"ref": m.Ref, "account_type": m.Type, "account_login": m.Login})
+				}
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": msg, "unknown_entity": true, "known_accounts": known})
 				return
 			}
 		}

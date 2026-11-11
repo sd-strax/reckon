@@ -91,10 +91,12 @@ func (b *Backend) routes() []route {
 		// 02 §2.8).
 		{"GET /entities/{ref}/appearances", read, b.listRefAppearances},
 		{"GET /evidence/{ref}", read, b.getEvidence},
-		// A host's identity (adr/0211): the analyst joins, splits and
-		// withdraws by explicit edge. Human acts: the handlers refuse a delegate.
+		// A host's, an account's or a person's identity (adr/0211, adr/0324):
+		// the analyst joins, splits, says whose an account is and withdraws,
+		// by explicit edge. Human acts: the handlers refuse a delegate.
 		{"POST /entities/{ref}/aliases", analyst, b.assertAlias},
 		{"POST /entities/{ref}/distinct", analyst, b.assertDistinct},
+		{"POST /entities/{ref}/owner", analyst, b.assertOwner},
 		{"POST /identity/{edge_id}/withdraw", analyst, b.withdrawIdentity},
 
 		// Comms acts (binding §4): inbound replies, and the analyst's acts on a

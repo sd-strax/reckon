@@ -54,19 +54,31 @@ property of the person that system describes, never the key of another.
 record is a directory's user object, normalized from the OCSF user inventory
 class. Nothing else mints a person: not a shared address, not a matching
 display name, not a sign-in. An analyst may assert that an account belongs to
-a person or that two persons are one, and may withdraw either; both are
-assertions with who, when, a note and a history, as `adr/0211` defines them.
+a person, that two persons are one, or that an account is not a person's,
+and may withdraw any of them; all are assertions with who, when, a note and a
+history, as `adr/0211` defines them. A directory's record of an owner cannot
+be withdrawn, as a source's alias cannot; the analyst cuts it by asserting
+that the account is not that person's, a `distinct-from` between the account
+and the person, the one pair of unlike types the edge joins, and the reads
+stop walking that ownership while the assertion is live. The cut has the
+scope an owner has: the account named and every account aliased to it,
+except an account the person owns by its own record that the analyst did not
+split as well, and it holds against any person the cut person is aliased to.
+While a split is live, an owner assertion over it is refused, as an alias
+over a split is; the split is withdrawn first.
 
 **Events attach to accounts, never to persons.** An observation's
-`object_refs` carry the `user-account` the source named. The person is
-reached from the account by `belongs-to` (the STIX relationship `adr/0320`
-adopted), emitted by the directory record that names both, DIRECT, with the
-record's provenance, or asserted by a human. The record therefore says that
-an account did something and that the account belongs to a person; it never
-says the person did it. Reading an investigation seeded on a person walks
-person, aliased persons, owned accounts, each account's alias set, and the
-walk is what the inspector shows. Reading an account seeded alone follows the
-account's alias set only.
+`object_refs` carry the `user-account` the source named. The one observation
+that references a person is the directory record that describes it. The
+person is reached from an account by `belongs-to` (the STIX relationship
+`adr/0320` adopted), emitted by the directory record that names both, DIRECT,
+with the record's provenance, or asserted by a human; one person holds a
+live owner assertion over an account and the accounts aliased to it at a
+time. The record therefore says that an account did something and that the
+account belongs to a person; it never says the person did it. Reading an
+investigation seeded on a person walks person, aliased persons, owned
+accounts, each account's alias set, and the walk is what the inspector shows.
+Reading an account seeded alone follows the account's alias set only.
 
 **Not every account has a person.** A local administrator, a service account,
 a shared mailbox, a break-glass account and a machine account are accounts
@@ -86,22 +98,38 @@ with no owner, shown as such. No rule attaches them to anyone; a person may.
 - `windows`: a Windows source that names a login with no domain and no SID
   mints a weak account on the bare login, `weak: true`, which joins a domain
   account only when a record names both.
+- `login`: a bare login from a source that names neither an operating system
+  nor a host, a network access record for instance, mints a weak account on
+  the login alone, `weak: true`, the account's counterpart of the host's
+  source-id tier; it joins nothing by itself, and the event keeps its actor.
+  With a host but no operating system the account is `local`, scoped by the
+  host.
 - `windows-local`: a login whose domain is the machine itself is scoped by
-  the host: identity `(host_ref, sam)`. Well-known principals (the system,
-  local service and network service SIDs, built-in groups) are per-host
-  identities under the same rule, never persons and never placeholders.
+  the host: identity `(host_ref, sam)`. Well-known principals are per-host
+  identities under the same rule, never persons and never placeholders: the
+  system, local service and network service accounts, the built-in groups,
+  the other fixed single-authority principals, service, application pool,
+  application package, window manager and font driver host identities, and
+  the mandatory labels, whose SIDs are computed the same on every machine, so
+  a global key would make one account of every machine's.
 - `unix`: scoped by the host, `(host_ref, name)`. `root` on two hosts is two
   accounts; a directory-backed Unix account joins its person through the
   directory record like any other.
 - `cloud`: the identity provider's sign-in account, keyed on the provider's
   user id when the record carries it, else the sign-in name lowercased, with
-  the provider as a property.
+  the provider as a property. A record is a sign-in record when its account
+  type says so or when its source is an identity provider by name and it
+  carries neither a SID nor a `domain\sam` login; a domain service run by a
+  cloud provider is a domain, not a sign-in.
 - Control-plane principals are unchanged (`adr/0320`): the provider's durable
   identifier as `user_id`, the provider slug as `account_type`.
 
 `user_id` is no longer part of the identity of an account whose type keys on
 the login; it is a property, and the SID account the same record mints is
-what carries it. `account_type` is still never folded.
+what carries it. Logins and SIDs fold to lowercase; a directory's or
+provider's user id folds only when it is a GUID, the same fold the person's
+identifier uses, so one identifier folds one way wherever it appears.
+`account_type` is still never folded.
 
 **Placeholders are refused, as for hosts.** The identity package's list
 (`adr/0211`) gains the account values that name no one: the anonymous and

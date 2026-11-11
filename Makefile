@@ -30,8 +30,8 @@ test: ## Fast tests: unit + httptest integration. Race detector on. Skips slow e
 test-all: ## All tests including slow embedded-deps lifecycle tests (embedded Pg, Temporal dev server). A few minutes; binaries are cached after the first run.
 	go test -race -count=1 ./...
 
-conformance: ## Host identity conformance (adr/0211): one machine as three tools report it normalizes to one host, weak hosts aliased to it
-	go test -race -count=1 -run TestHostIdentityConformance ./capability/
+conformance: ## Identity conformance: one machine as three tools report it is one host (adr/0211); one person as three sources name them is one person owning the accounts the rule yields (adr/0324)
+	go test -race -count=1 -run '^Test(Host|Account)IdentityConformance$$' ./capability/
 
 test-race: test ## Alias for `test` (race detector is always on now)
 

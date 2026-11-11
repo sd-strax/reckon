@@ -93,7 +93,8 @@ type EventRow struct {
 }
 
 // EventFilter narrows an investigation's events. Entity keeps events whose
-// observed-data names the ref or a member of its alias set (adr/0211); Category keeps one OCSF category (auth,
+// observed-data names the ref or a member of its alias set (adr/0211), a person
+// widened to the accounts it owns (adr/0324); Category keeps one OCSF category (auth,
 // process, network, detection); Around centres the list on one event: Limit
 // events before and after it on the same host, else on the same entities.
 // Without Around the list is a page in event time: oldest first, or newest
@@ -232,7 +233,9 @@ func (s *Store) InvestigationEvents(ctx context.Context, investigationID uuid.UU
 	if f.Entity != "" {
 		// The entity reads with its alias set (adr/0211): an event a source
 		// attributed only to a weak host is listed under the host it aliases.
-		set, err := s.aliasSets(ctx, []string{f.Entity})
+		// A person reads with the accounts it owns, each with its alias set
+		// (adr/0324).
+		set, err := s.entitySets(ctx, []string{f.Entity})
 		if err != nil {
 			return Events{}, err
 		}
@@ -313,9 +316,10 @@ func (s *Store) eventsAround(ctx context.Context, investigationID uuid.UUID, q *
 	if len(shared) == 0 {
 		return Events{Rows: []EventRow{}}, nil
 	}
-	// The anchor's own entities, each with its alias set (adr/0211): an event
-	// sharing any of them is "around" it.
-	shared, err = s.aliasSets(ctx, shared)
+	// The anchor's own entities, each with its alias set (adr/0211), a
+	// person with its accounts (adr/0324): an event sharing any of them is
+	// "around" it.
+	shared, err = s.entitySets(ctx, shared)
 	if err != nil {
 		return Events{}, err
 	}

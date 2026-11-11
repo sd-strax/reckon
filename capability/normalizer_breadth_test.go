@@ -73,16 +73,18 @@ func TestAccountChangeNormalizer(t *testing.T) {
 		"class_uid":     3005,
 		"time":          "2026-04-20T14:32:11Z",
 		"activity_name": "GROUP_ADD",
-		"user":          map[string]any{"name": "alice", "domain": "CONTOSO", "uid": "S-1-5-1"},
-		"actor":         map[string]any{"user": map[string]any{"name": "admin", "domain": "CONTOSO", "uid": "S-1-5-500"}},
+		"user":          map[string]any{"name": "alice", "domain": "CONTOSO", "uid": "S-1-5-21-7-1101"},
+		"actor":         map[string]any{"user": map[string]any{"name": "admin", "domain": "CONTOSO", "uid": "S-1-5-21-7-500"}},
 		"group":         map[string]any{"name": "Domain Admins", "domain": "contoso.com"},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	bt := countTypes(res.SCOs)
-	if bt[identity.TypeUserAccount] != 2 || bt[identity.TypeGroup] != 1 {
-		t.Errorf("want 2 users + 1 group; got %v", bt)
+	// Each user carries a SID beside its login: the SID account and the login
+	// account aliased to it (adr/0324).
+	if bt[identity.TypeUserAccount] != 4 || bt[identity.TypeGroup] != 1 {
+		t.Errorf("want 2 users and their 2 login accounts + 1 group; got %v", bt)
 	}
 	if !hasRel(res.Relationships, RelMemberOfGroup) {
 		t.Error("missing member-of-group relationship")
@@ -139,15 +141,15 @@ func TestEmailURLNormalizer(t *testing.T) {
 		"time":      "2026-04-20T14:32:11Z",
 		"url":       map[string]any{"url_string": "https://evil.example/pay"},
 		"email":     map[string]any{"message_uid": "<abc123@evil.example>"},
-		"actor":     map[string]any{"user": map[string]any{"name": "alice", "domain": "CORP", "uid": "S-1-5-1"}},
+		"actor":     map[string]any{"user": map[string]any{"name": "alice", "domain": "CORP", "uid": "S-1-5-21-7-1101"}},
 		"device":    map[string]any{"hostname": "WS1"},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	bt := countTypes(res.SCOs)
-	if bt[identity.TypeURL] != 1 || bt[identity.TypeUserAccount] != 1 || bt[identity.TypeEmailMessage] != 1 {
-		t.Errorf("want 1 url + 1 user + 1 email-message; got %v", bt)
+	if bt[identity.TypeURL] != 1 || bt[identity.TypeUserAccount] != 2 || bt[identity.TypeEmailMessage] != 1 {
+		t.Errorf("want 1 url + 1 user and its login account (adr/0324) + 1 email-message; got %v", bt)
 	}
 	if !hasRel(res.Relationships, RelClicked) || !hasRel(res.Relationships, RelContains) {
 		t.Error("missing clicked or contains relationship")

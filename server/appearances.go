@@ -33,7 +33,8 @@ type AppearanceView struct {
 // investigations", powered by deterministic identity (03 §7) — or, when the
 // evidence store is configured, any member of its alias set (adr/0211), so a
 // case that cited a host under the weak id one source gave it is listed under
-// the host. Any reader.
+// the host, and for a person any account it owns with that account's alias
+// set (adr/0324). Any reader.
 func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 	if b.cfg.Handler == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "aggregate handler not configured")
@@ -42,7 +43,7 @@ func (b *Backend) listRefAppearances(w http.ResponseWriter, r *http.Request) {
 	ref := r.PathValue("ref")
 	refs := []string{ref}
 	if b.cfg.Evidence != nil {
-		set, err := b.cfg.Evidence.AliasSet(r.Context(), ref)
+		set, err := b.cfg.Evidence.EntitySet(r.Context(), ref)
 		switch {
 		case errors.Is(err, evidence.ErrMalformedRef):
 			// Not a STIX ref the store can walk: the ref alone, as before.

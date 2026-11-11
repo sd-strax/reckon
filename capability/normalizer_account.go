@@ -10,15 +10,15 @@ import "github.com/sd-strax/reckon/identity"
 type accountChangeNormalizer struct{ r *identity.Resolver }
 
 func (*accountChangeNormalizer) ClassUID() int { return 3005 }
-func (*accountChangeNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
+func (*accountChangeNormalizer) Version() int  { return 3 } // 2: host identity, adr/0211; 3: account identity, adr/0324
 
 func (n *accountChangeNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
 	b := newBuilder(n.r, evt, "account_change", n.Version())
 
-	target := b.userAccount("user")
-	b.userAccount("actor.user") // initiator
-	b.host("device")
+	host := b.host("device")
+	target := b.userAccount("user", "device", host)
+	b.userAccount("actor.user", "device", host) // initiator
 
 	if group := pathStr(p, "group.name"); group != "" {
 		directory := pathStr(p, "group.domain")

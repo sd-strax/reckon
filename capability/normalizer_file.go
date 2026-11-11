@@ -8,7 +8,7 @@ import "github.com/sd-strax/reckon/identity"
 type fileActivityNormalizer struct{ r *identity.Resolver }
 
 func (*fileActivityNormalizer) ClassUID() int { return 1001 }
-func (*fileActivityNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
+func (*fileActivityNormalizer) Version() int  { return 3 } // 2: host identity, adr/0211; 3: account identity, adr/0324
 
 func (n *fileActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -20,17 +20,15 @@ func (n *fileActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, 
 		b.addRel(RelParentDirectoryOf, dirID, fileID)
 	}
 
+	host := b.host("device")
 	if pid := pathInt(p, "actor.process.pid"); pid != 0 {
-		host := b.host("device")
 		procID, _ := n.r.Process(host, pid, pathTime(p, "actor.process.created_time"))
 		b.addSCO(procID, identity.TypeProcess, map[string]any{
 			"pid":  pid,
 			"name": pathStr(p, "actor.process.name"),
 		})
-	} else {
-		b.host("device")
 	}
-	b.userAccount("actor.user")
+	b.userAccount("actor.user", "device", host)
 
 	return b.finish(activityExt(p)), nil
 }

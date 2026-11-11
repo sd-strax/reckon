@@ -146,7 +146,7 @@ func (b *resultBuilder) cloudUser(provider, userID string, user map[string]any, 
 	if a := pathScalar(user, "account.uid"); a != "" {
 		props["cloud_account_uid"] = a
 	}
-	return b.addSCO(b.r.UserAccount("", userID, provider), identity.TypeUserAccount, props)
+	return b.addSCO(b.r.Account(identity.AccountIdentity{Type: provider, UserID: userID}), identity.TypeUserAccount, props)
 }
 
 // credentialUID is the access key the call was made with: the

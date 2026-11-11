@@ -9,14 +9,15 @@ import "github.com/sd-strax/reckon/identity"
 type authNormalizer struct{ r *identity.Resolver }
 
 func (*authNormalizer) ClassUID() int { return 3002 }
-func (*authNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
+func (*authNormalizer) Version() int  { return 3 } // 2: host identity, adr/0211; 3: account identity, adr/0324
 
 func (n *authNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
 	b := newBuilder(n.r, evt, "authentication", n.Version())
 
-	user := b.userAccount("actor.user")
+	// The host first: a local account is scoped by the machine it logged on to.
 	host := b.host("dst_endpoint")
+	user := b.userAccount("actor.user", "dst_endpoint", host)
 	b.ipAddr("src_endpoint.ip")
 
 	b.addRel(RelAuthenticatedTo, user, host)

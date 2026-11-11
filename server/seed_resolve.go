@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/identity"
 )
 
@@ -53,12 +55,51 @@ func classifySeedKind(value string) string {
 // or sees one. Alerts do not flow through here — they carry an explicit
 // id+source seed built by the caller.
 func resolveSeedInput(res *identity.Resolver, value, kind string) (seedResolution, error) {
+	return resolveSeedInputAs(res, value, kind, "")
+}
+
+// The kinds of entity a seed may name (adr/0324). A person is resolved
+// against the record (resolvePersonSeed), not minted here.
+const (
+	entityKindHost    = "host"
+	entityKindAccount = "account"
+	entityKindPerson  = "person"
+)
+
+// seedEntityKind is the entity kind a token names when the analyst did not
+// choose one: a token with a backslash or an "@" is an account
+// ("DOMAIN\sam", "user@domain"); anything else, an address and a hash
+// included, is resolved as it always was (seedEntityKindHost covers the
+// three).
+func seedEntityKind(token string) string {
+	if strings.ContainsAny(token, `\@`) {
+		return entityKindAccount
+	}
+	return entityKindHost
+}
+
+// resolveSeedInputAs is resolveSeedInput with the entity kind the analyst
+// chose (host, account or person; empty to default it from the token,
+// seedEntityKind). A person seed is not resolved here: the caller looks it up
+// in the record (resolvePersonSeed).
+func resolveSeedInputAs(res *identity.Resolver, value, kind, entityKind string) (seedResolution, error) {
 	v := strings.TrimSpace(value)
 	if v == "" {
 		return seedResolution{}, fmt.Errorf("empty seed")
 	}
 	if kind == "" {
 		kind = classifySeedKind(v)
+	}
+	if kind == aggregate.SeedEntity {
+		switch ek := entityKindOf(v, entityKind); ek {
+		case entityKindAccount:
+			return resolveAccountSeed(res, v)
+		case entityKindPerson:
+			return seedResolution{}, fmt.Errorf("a person seed is resolved against the record")
+		case entityKindHost:
+		default:
+			return seedResolution{}, fmt.Errorf("unknown entity kind %q (host | account | person)", entityKind)
+		}
 	}
 
 	switch kind {
@@ -144,6 +185,145 @@ func resolveEntityToken(res *identity.Resolver, token string) (ref, label string
 		}
 	}
 	return string(res.Host(identity.HostIdentity{Hostname: token})), "host"
+}
+
+// entityKindOf is the entity kind a seed names: the analyst's choice, else
+// the token's shape (seedEntityKind).
+func entityKindOf(token, chosen string) string {
+	if c := strings.ToLower(strings.TrimSpace(chosen)); c != "" {
+		return c
+	}
+	return seedEntityKind(token)
+}
+
+// accountSeedAccount is the account an account seed's token names, by the
+// account rule (adr/0324) read from the token's shape: "DOMAIN\sam" and
+// "user@domain" are domain accounts keyed on that login (a principal name is
+// a domain account's, never a cloud sign-in's, unless the record says so);
+// a bare login is the weak windows account. A placeholder names none.
+func accountSeedAccount(res *identity.Resolver, token string) identity.STIXID {
+	typ := identity.AccountWindowsDomain
+	if !strings.ContainsAny(token, `\@`) {
+		typ = identity.AccountWindows
+	}
+	if d, n, ok := strings.Cut(token, `\`); ok && (identity.PlaceholderLogin(n) || strings.TrimSpace(d) == "") {
+		return ""
+	}
+	return res.Account(identity.AccountIdentity{Type: typ, Login: token})
+}
+
+// accountToken is what an account seed may look like: no whitespace, at most
+// one backslash, not starting or ending with a separator.
+var accountToken = regexp.MustCompile(`^[^\s\\@]+(?:\\[^\s\\@]+|@[^\s\\@]+)?$`)
+
+func resolveAccountSeed(res *identity.Resolver, v string) (seedResolution, error) {
+	if res == nil {
+		return seedResolution{}, fmt.Errorf("identity resolver unavailable")
+	}
+	if !accountToken.MatchString(v) {
+		return seedResolution{}, fmt.Errorf(`%q is not an account (DOMAIN\name, name@domain or a bare login) — check it for a typo`, v)
+	}
+	ref := accountSeedAccount(res, v)
+	if ref == "" {
+		return seedResolution{}, fmt.Errorf("%q is a placeholder value that names no account", v)
+	}
+	return seedResolution{
+		Seed:    aggregate.Seed{Type: aggregate.SeedEntity, EntityRef: string(ref), EntityIdentifier: v},
+		Display: "account " + v,
+	}, nil
+}
+
+// resolvePersonSeed resolves a person seed against the record (adr/0324): the
+// persisted person whose principal name, mail or directory id is the token,
+// or the owner of the account the token names. No person is a 404-style
+// error; several are a conflict the analyst settles by naming the person
+// more precisely. The seed's entity is the person's ref.
+func (b *Backend) resolvePersonSeed(r *http.Request, value string) (seedResolution, int, error) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return seedResolution{}, http.StatusBadRequest, fmt.Errorf("empty seed")
+	}
+	if b.cfg.Evidence == nil {
+		return seedResolution{}, http.StatusServiceUnavailable, fmt.Errorf("evidence store not configured: no person can be looked up")
+	}
+	persons, err := b.cfg.Evidence.FindPersons(r.Context(), v)
+	if err != nil {
+		return seedResolution{}, http.StatusInternalServerError, fmt.Errorf("look up persons: %w", err)
+	}
+	switch len(persons) {
+	case 0:
+		return seedResolution{}, http.StatusNotFound, fmt.Errorf("no person known as %q: a person is known from a directory's record of them", v)
+	case 1:
+	default:
+		return seedResolution{}, http.StatusConflict, fmt.Errorf("%q names %d persons; seed on one by a more precise name", v, len(persons))
+	}
+	return seedResolution{
+		Seed:    aggregate.Seed{Type: aggregate.SeedEntity, EntityRef: persons[0], EntityIdentifier: v},
+		Display: "person " + v,
+	}, http.StatusOK, nil
+}
+
+// preferSignInAccount settles an account seed on a principal name the record
+// holds only as an identity provider's sign-in (adr/0324): when the domain
+// account the token mints is not persisted and every account the record holds
+// under the name is a cloud one of one alias set, the seed roots on the
+// set's strong account, the one keyed on the provider's id. Two or more sets,
+// or another kind, leave the seed as it was, for unknownAccount to list.
+func (b *Backend) preferSignInAccount(r *http.Request, s seedResolution) seedResolution {
+	if b.cfg.Evidence == nil || !strings.HasPrefix(s.Seed.EntityRef, identity.TypeUserAccount+"--") || !strings.Contains(s.Seed.EntityIdentifier, "@") {
+		return s
+	}
+	if _, err := b.cfg.Evidence.Object(r.Context(), s.Seed.EntityRef); !errors.Is(err, evidence.ErrNotFound) {
+		return s
+	}
+	matches, err := b.cfg.Evidence.FindAccounts(r.Context(), s.Seed.EntityIdentifier, 10)
+	if err != nil || len(matches) == 0 {
+		return s
+	}
+	// The matches as accounts: one alias set is one account, the sign-in
+	// name's account aliased to the one keyed on the provider's id.
+	set, err := b.cfg.Evidence.AliasSet(r.Context(), matches[0].Ref)
+	if err != nil {
+		return s
+	}
+	strong := ""
+	for _, m := range matches {
+		if m.Type != identity.AccountCloud || !slices.Contains(set, m.Ref) {
+			return s // another kind, or a second account: unknownAccount lists them
+		}
+		if strong == "" && m.UserID != "" {
+			strong = m.Ref
+		}
+	}
+	if strong == "" {
+		strong = matches[0].Ref
+	}
+	s.Seed.EntityRef = strong
+	return s
+}
+
+// unknownAccount is unknownHost's sibling for an account seed (adr/0324): the
+// account the token mints is unknown when the record holds no object under
+// it. The report lists the persisted accounts the token does name (a
+// different type or spelling of the same login), so the analyst can seed on
+// one of them; with no evidence store nothing can vouch and the seed stands.
+func (b *Backend) unknownAccount(r *http.Request, s seedResolution) (bool, string, []evidence.AccountMatch) {
+	if !strings.HasPrefix(s.Seed.EntityRef, identity.TypeUserAccount+"--") || b.cfg.Evidence == nil {
+		return false, "", nil
+	}
+	_, err := b.cfg.Evidence.Object(r.Context(), s.Seed.EntityRef)
+	if err == nil || !errors.Is(err, evidence.ErrNotFound) {
+		return false, "", nil
+	}
+	matches, err := b.cfg.Evidence.FindAccounts(r.Context(), s.Seed.EntityIdentifier, 10)
+	if err != nil {
+		return false, "", nil
+	}
+	msg := fmt.Sprintf("no account %q in the record reckon holds — check the name, or start anyway", s.Seed.EntityIdentifier)
+	if len(matches) > 0 {
+		msg = fmt.Sprintf("no account %q of that kind in the record; the record has %d account(s) under that name — seed on one, or start anyway", s.Seed.EntityIdentifier, len(matches))
+	}
+	return true, msg, matches
 }
 
 // unknownHost asks the tenant's host inventory whether a host seed exists

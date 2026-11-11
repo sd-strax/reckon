@@ -35,7 +35,7 @@ func TestFormatAndVersion(t *testing.T) {
 		TypeIPv4Addr:     r.IPv4Addr("8.8.8.8"),
 		TypeDomainName:   r.DomainName("example.com"),
 		TypeEmailAddr:    r.EmailAddr("a@b.com"),
-		TypeUserAccount:  r.UserAccount("contoso\\jdoe", "S-1-5", "windows-domain"),
+		TypeUserAccount:  r.Account(AccountIdentity{Type: AccountWindowsDomain, Login: "contoso\\jdoe", UserID: "S-1-5-21-1"}),
 		TypeHost:         r.Host(HostIdentity{Hostname: "win-dc01"}),
 		TypeObservedData: r.ObservedData(1007, time.Now(), "fixture", 1, map[string]any{"a": 1}),
 	}
@@ -92,7 +92,8 @@ func TestCanonicalizationEquivalence(t *testing.T) {
 		{"url scheme/host/port/query", r.URL("HTTP://Example.com:80/p?b=2&a=1"), r.URL("http://example.com/p?a=1&b=2")},
 		{"url ipv6 host keeps brackets", r.URL("http://[2001:DB8::1]:80/x"), r.URL("http://[2001:db8::1]/x")},
 		{"email case", r.EmailAddr("Alice@Contoso.com"), r.EmailAddr("alice@contoso.com")},
-		{"user case", r.UserAccount("CONTOSO\\Alice", "S-1", "windows-domain"), r.UserAccount("contoso\\alice", "s-1", "windows-domain")},
+		{"user case", r.Account(AccountIdentity{Type: AccountWindowsDomain, Login: "CONTOSO\\Alice"}), r.Account(AccountIdentity{Type: AccountWindowsDomain, Login: "contoso\\alice"})},
+		{"sid case", r.Account(AccountIdentity{Type: AccountWindowsDomain, UserID: "S-1-5-21-7"}), r.Account(AccountIdentity{Type: AccountWindowsDomain, UserID: "s-1-5-21-7"})},
 		{"host hostname case", r.Host(HostIdentity{Hostname: "WS1"}), r.Host(HostIdentity{Hostname: "ws1"})},
 		{"host fqdn vs short", r.Host(HostIdentity{Hostname: "WS1.Corp.Example"}), r.Host(HostIdentity{Hostname: "ws1"})},
 		{"host trailing dot", r.Host(HostIdentity{Hostname: " ws1.corp.example. "}), r.Host(HostIdentity{Hostname: "ws1"})},
@@ -197,8 +198,8 @@ func TestProcessDeviation(t *testing.T) {
 // account_type is a deliberately distinct account (no implicit merge).
 func TestUserAccountTypeNotFolded(t *testing.T) {
 	r := NewResolver(nsA)
-	cloud := r.UserAccount("alice@corp.com", "", "cloud")
-	domain := r.UserAccount("alice@corp.com", "", "windows-domain")
+	cloud := r.Account(AccountIdentity{Type: AccountCloud, Login: "alice@corp.com"})
+	domain := r.Account(AccountIdentity{Type: AccountWindowsDomain, Login: "alice@corp.com"})
 	if cloud == domain {
 		t.Error("cloud and windows-domain accounts with same login collided; account_type must not fold")
 	}
