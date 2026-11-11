@@ -1,6 +1,6 @@
 # 0331 — An adapter's name carries its vendor: the product name alone when it is the vendor's name, `vendor-product` otherwise; the Security Lake adapter is `aws-security-lake`
 
-Issue: #331 · PR: pending · Status: accepted
+Issue: #331 · PR: #332 · Status: accepted
 
 ## Context
 
