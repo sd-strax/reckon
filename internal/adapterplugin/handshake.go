@@ -1,6 +1,9 @@
 package adapterplugin
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/sd-strax/reckon/action"
@@ -56,6 +59,41 @@ type DescribeResult struct {
 	DefaultReadBindings  []ReadBinding                     `json:"default_read_bindings"`
 	DefaultWriteBindings []action.ActionBinding            `json:"default_write_bindings"`
 	ConfigSchema         map[string]any                    `json:"config_schema"`
+	// SchemaSource says where the adapter's fields come from (§4.4). It is a
+	// pointer so an adapter that declares none is distinguishable from one that
+	// declares an empty kind: conformance fails both.
+	SchemaSource *SchemaSource `json:"schema_source,omitempty"`
+}
+
+// Schema source kinds (§4.4).
+const (
+	// SchemaSourceResponse: the adapter decodes a vendor API's response; its
+	// obligation is tolerant decoding (an absent field is absent, never an
+	// error).
+	SchemaSourceResponse = "response"
+	// SchemaSourceQuery: the adapter names fields in a query against a store
+	// whose schema it does not own. It discovers the schema, carries a recorded
+	// profile per source version, declines with FALLTHROUGH what the schema
+	// cannot express and reports degraded capabilities in health.
+	SchemaSourceQuery = "query"
+)
+
+// SchemaSource is describe's declaration of where the adapter's fields come
+// from (§4.4). Profiles is required for kind query and unused for response.
+type SchemaSource struct {
+	Kind     string          `json:"kind"`
+	Profiles []SchemaProfile `json:"profiles,omitempty"`
+}
+
+// SchemaProfile is one source version a query adapter supports (§4.4): the
+// store it reads, the source version, and the fields its projection and
+// predicates name. Its recording lives with the adapter's tests under
+// testdata/profiles/<name>/.
+type SchemaProfile struct {
+	Name    string   `json:"name"`
+	Store   string   `json:"store"`
+	Version string   `json:"version"`
+	Fields  []string `json:"fields"`
 }
 
 // ReadBinding is a default read-verb binding in describe output (§4.2), ready to
@@ -131,10 +169,55 @@ type DispatchParams struct {
 	IdempotencyKey string         `json:"idempotency_key"`
 }
 
-// healthResult is the wire shape of capability.HealthStatus.
-type healthResult struct {
-	Healthy bool   `json:"healthy"`
-	Message string `json:"message"`
+// HealthResult is the wire shape of the health method's result (§4.4), mapped
+// onto capability.HealthStatus. Healthy is the whole-instance signal; Degraded
+// lists what the instance cannot express while healthy, and is absent when
+// nothing is degraded. Adapters written in Go return this type.
+type HealthResult struct {
+	Healthy  bool                 `json:"healthy"`
+	Message  string               `json:"message"`
+	Degraded []DegradedCapability `json:"degraded,omitempty"`
+}
+
+// DegradedCapability is one capability of one operation the instance cannot
+// express, and why (§4.4): "credential filter: actor.session.credential_uid
+// absent".
+type DegradedCapability struct {
+	Operation  string `json:"operation"`
+	Capability string `json:"capability"`
+	Reason     string `json:"reason"`
+}
+
+// healthWire is how the host decodes a health result: degraded is kept raw so
+// a malformed list is dropped on its own rather than failing the whole probe
+// (§4.4).
+type healthWire struct {
+	Healthy  bool            `json:"healthy"`
+	Message  string          `json:"message"`
+	Degraded json.RawMessage `json:"degraded,omitempty"`
+}
+
+// toStatus maps the wire result onto the engine's health type. A degraded
+// value that is not a list of entries is dropped and reported as err; absent
+// or null is none.
+func (h healthWire) toStatus() (capability.HealthStatus, error) {
+	st := capability.HealthStatus{Healthy: h.Healthy, Message: h.Message}
+	raw := bytes.TrimSpace(h.Degraded)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return st, nil
+	}
+	var entries []DegradedCapability
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return st, fmt.Errorf("degraded is not a list of {operation, capability, reason}: %w", err)
+	}
+	for _, d := range entries {
+		st.Degraded = append(st.Degraded, capability.DegradedCapability{
+			Operation:  d.Operation,
+			Capability: d.Capability,
+			Reason:     d.Reason,
+		})
+	}
+	return st, nil
 }
 
 // errorData is the optional `data` on a JSON-RPC error from invoke/dispatch: the

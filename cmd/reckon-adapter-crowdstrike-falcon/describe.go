@@ -82,6 +82,8 @@ func describe() adapterplugin.DescribeResult {
 			{ActionType: "ioc.unblock", Adapter: "crowdstrike-falcon", Operation: "remove_iocs",
 				Params: map[string]any{"value": "${target.resolved_identifier}"}},
 		},
+		// It decodes a vendor API's response, tolerantly (11 §4.4).
+		SchemaSource: &adapterplugin.SchemaSource{Kind: adapterplugin.SchemaSourceResponse},
 		ConfigSchema: map[string]any{
 			"type":     "object",
 			"required": []any{"client_id", "client_secret"},

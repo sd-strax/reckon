@@ -15,7 +15,14 @@
         "output": "x"
       },
       "status": "x",
-      "bindings": 1
+      "bindings": 1,
+      "limitations": [
+        {
+          "adapter": "x",
+          "capability": "x",
+          "reason": "x"
+        }
+      ]
     }
   ],
   "case_queue": "x"

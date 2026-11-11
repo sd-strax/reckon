@@ -303,6 +303,7 @@ describe()
       operations:   [op name + param schema…], # what invoke/dispatch will accept
       default_bindings: [Binding…],            # 03 §3.2 / 08 §4 stanzas, ready to adopt
       config_schema: {…},                      # instance configuration schema (§4.3)
+      schema_source: {kind, profiles?},        # where the adapter's fields come from (§4.4)
     }
 ```
 
@@ -396,6 +397,45 @@ validation passes, in the manifest-for-enumeration / handshake-for-truth pattern
 **Drift** rides `§6.3`: an upgrade that adds a required config field the tenant hasn't set marks
 the instance unavailable with a diagnostic naming the field — config is never guessed. A new
 optional field with a default changes nothing.
+
+### 4.4 Where an adapter's fields come from (`schema_source`)
+
+Adapters fail in two ways when a vendor's data differs from what the author assumed, and the
+contract treats them differently (adr/0334). `describe` declares which applies:
+
+- **`kind: response`** — the adapter calls an API and decodes its response. A field the vendor
+  stops sending is absent, never an error: decoding is tolerant, and the OCSF shaping writes
+  only what arrived. Most adapters are this kind.
+- **`kind: query`** — the adapter names fields in a query against a store whose schema it does
+  not own (a vendor-managed table, a security lake, a hosted search index: SQL, SPL, KQL). A
+  missing field is rejected by the store before the query runs, so the adapter must not assume
+  its schema:
+  1. **Discover.** It reads the store's schema at `configure` and on every `health` probe and
+     builds its projection and predicates from the fields that exist, never from a fixed list.
+  2. **Profiles.** It carries one profile per source version it supports — `name`, `store`,
+     `version`, and the `fields` it reads — and lists them in `schema_source.profiles`. Each
+     profile is *recorded* from a real store (the store's schema as captured and a few real
+     result pages) and kept with the adapter's tests (`03 §9.1`), so offline tests run against
+     what a store returns, not against the author's expectation.
+  3. **Decline.** A call that needs a field the store lacks is declined with `FALLTHROUGH` and a
+     reason (`03 §6.2`), so the engine tries another binding or reports the capability
+     unavailable; it is never sent to fail at the store.
+  4. **Report.** The `health` result carries `degraded: [{operation, capability, reason}]` for
+     what the discovered schema cannot express ("credential filter:
+     `actor.session.credential_uid` absent"). `healthy` stays the whole-instance signal: a field
+     no call can do without (the event time) is unhealthy, a field some calls need is a
+     degradation.
+  5. **Live check.** A runbook beside the adapter's example configuration
+     (`examples/adapters/<name>/LIVE.md`) says how to stand up a real store, what to capture,
+     how to compare it with the committed profiles, and how to tear it down. It runs before a
+     release and when the vendor announces a new source version (`12 §7`); continuous
+     integration cannot reach a vendor's store, so this is where drift is caught.
+
+The engine shows a degradation as a limitation on the verb, not a change of status (`03 §2.8`):
+the verb still answers the calls it can express. The `health` result's shape, for every kind, is
+`{healthy, message, degraded?}`; `degraded` is absent when nothing is degraded. The host reads
+`degraded` leniently: a value that is not a list of entries is dropped with a warning and never
+makes the instance unhealthy; conformance (`§7`) is where a malformed list fails.
 
 ---
 
@@ -567,7 +607,12 @@ reckon adapter test <path-to-adapter-dir>
 
 which spawns the adapter, runs the handshake, validates `describe` output against the descriptor
 schemas, exercises declared operations against scenario fixtures, and asserts the `03 §6.2` error
-taxonomy on injected failures. Passing conformance is the definition of "speaks the protocol."
+taxonomy on injected failures. It fails an adapter whose `describe` declares no `schema_source`
+or an unknown kind; a `query` adapter that lists no profile, or a profile without its `store`,
+`version` and `fields`; and a `health` result whose `degraded` list does not parse (`§4.4`). A
+`query` adapter's recorded profiles and live-check runbook live in its source, which an
+installed artifact does not carry, so their presence is checked where the source is: in-tree by
+a repository test, and in an index by its acceptance gates (`12 §5.1`). Passing conformance is the definition of "speaks the protocol."
 The intended authoring loop — scaffold, implement, `reckon adapter test`, install — is what
 "streamlined" means in practice; a conformance suite is cheaper than a support burden.
 

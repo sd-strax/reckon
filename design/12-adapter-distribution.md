@@ -209,6 +209,8 @@ The canonical index's CI verifies, before any entry merges:
 4. **Conformance**: `reckon adapter test` (`11 §7`) runs against each artifact in a sandbox.
    Passing conformance is a listing requirement, not a courtesy — the suite is the gatekeeper,
    which is precisely what makes it worth maintaining.
+5. **Recorded profiles**: for a `query` adapter (`11 §4.4`), the entry's source carries a
+   recorded profile for every profile its `describe` lists, and a live-check runbook.
 
 Private indexes get the same CI as reusable tooling; whether they run it is their curation
 policy.
@@ -290,10 +292,13 @@ The distribution mechanism exists to make this loop short, for an author who has
 engine source:
 
 1. **Scaffold** — `reckon adapter scaffold` emits the JSON-RPC skeleton, a stub manifest, and a
-   fixture scenario in the author's language of choice.
+   fixture scenario in the author's language of choice; for a `query` adapter (`11 §4.4`), also
+   the profile directory, schema discovery, the degraded-health stub and a live-check runbook
+   skeleton.
 2. **Implement** — the vendor API calls and the OCSF shaping (`03 §5.2`); `describe` output
    including default bindings and the config schema (`11 §4`).
-3. **Conform** — `reckon adapter test` locally until green (`11 §7`).
+3. **Conform** — `reckon adapter test` locally until green (`11 §7`). A `query` adapter also
+   runs its live check against a real store and records what it captured as a profile.
 4. **Release** — CI builds the platform matrix with dependencies vendored (`§2`), signs each
    artifact (`§4`), publishes them as hosted release assets.
 5. **Publish** — one PR to an index adding the entry file (`§3.1`); index CI re-runs the gates

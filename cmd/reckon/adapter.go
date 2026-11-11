@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/action"
+	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/internal/adapterplugin"
 	"github.com/sd-strax/reckon/internal/branding"
 	"github.com/sd-strax/reckon/internal/mcpclient"
@@ -107,6 +108,12 @@ func runMcpProbe(args []string) error {
 //	reckon adapter test <dir> [--config f.json] [--invoke op --params '{...}']
 //	                          [--dispatch op --params '{...}' --idem key]
 func runAdapterTest(args []string) error {
+	return adapterTest(args, &confReport{})
+}
+
+// adapterTest is runAdapterTest reporting into rep, so a test can read which
+// checks failed.
+func adapterTest(args []string, rep *confReport) error {
 	// Accept the directory as a leading positional (`test <dir> --flags`, the
 	// natural form) as well as after the flags — Go's flag package stops at the
 	// first non-flag arg, so pop a leading positional before parsing.
@@ -129,8 +136,6 @@ func runAdapterTest(args []string) error {
 	if dir == "" {
 		return fmt.Errorf("usage: %s adapter test <path-to-adapter-dir> [flags]", branding.CLI)
 	}
-
-	rep := &confReport{}
 
 	installed, err := adapterplugin.Load(dir)
 	if err != nil {
@@ -163,13 +168,16 @@ func runAdapterTest(args []string) error {
 	}
 	rep.pass("handshake completed (initialize + describe + configure)")
 	validateDescribe(desc, rep)
+	validateSchemaSource(desc, rep)
 	printDescribe(desc)
 
-	if h := p.Health(); h.Healthy {
+	h, degradedErr := p.ProbeHealth()
+	if h.Healthy {
 		rep.pass("health: " + orDefault(h.Message, "healthy"))
 	} else {
 		rep.fail("health: " + orDefault(h.Message, "unhealthy"))
 	}
+	validateHealthDegraded(h, degradedErr, rep)
 
 	var params map[string]any
 	if err := json.Unmarshal([]byte(*paramsJSON), &params); err != nil {
@@ -255,6 +263,96 @@ func validateDescribe(desc *adapterplugin.DescribeResult, rep *confReport) {
 		len(desc.Verbs), len(desc.ActionTypes), len(desc.Operations)))
 }
 
+// validateSchemaSource checks describe's schema_source (§4.4): it is declared
+// with a known kind, and a query adapter lists at least one profile, each with
+// its name, store, version and fields. The recorded profiles and the
+// live-check runbook live in the adapter's source, which an install dir does
+// not carry; a repository test checks them in-tree.
+func validateSchemaSource(desc *adapterplugin.DescribeResult, rep *confReport) {
+	src := desc.SchemaSource
+	if src == nil {
+		rep.fail("describe: no schema_source — declare kind response or query (11 §4.4)")
+		return
+	}
+	switch src.Kind {
+	case adapterplugin.SchemaSourceResponse:
+		rep.pass("schema_source: kind response")
+		return
+	case adapterplugin.SchemaSourceQuery:
+	default:
+		rep.fail(fmt.Sprintf("describe: schema_source kind %q is not response or query (11 §4.4)", src.Kind))
+		return
+	}
+	if len(src.Profiles) == 0 {
+		rep.fail("describe: schema_source kind query lists no profile (11 §4.4)")
+		return
+	}
+	ok := true
+	for i, p := range src.Profiles {
+		var missing []string
+		if p.Name == "" {
+			missing = append(missing, "name")
+		}
+		if p.Store == "" {
+			missing = append(missing, "store")
+		}
+		if p.Version == "" {
+			missing = append(missing, "version")
+		}
+		if len(p.Fields) == 0 {
+			missing = append(missing, "fields")
+		}
+		if len(missing) > 0 {
+			ok = false
+			rep.fail(fmt.Sprintf("describe: schema_source profile %d (%q) lacks %s", i, p.Name, strings.Join(missing, ", ")))
+		}
+	}
+	if ok {
+		rep.pass(fmt.Sprintf("schema_source: kind query, %d profile(s)", len(src.Profiles)))
+	}
+}
+
+// validateHealthDegraded checks the health result's degraded list (§4.4): it
+// decodes as a list (decodeErr, from ProbeHealth — the engine drops such a
+// list, conformance fails it), and each entry names its operation, capability
+// and reason.
+func validateHealthDegraded(h capability.HealthStatus, decodeErr error, rep *confReport) {
+	if decodeErr != nil {
+		rep.fail("health: " + decodeErr.Error())
+		return
+	}
+	if len(h.Degraded) == 0 {
+		return
+	}
+	ok := true
+	for i, d := range h.Degraded {
+		var missing []string
+		if d.Operation == "" {
+			missing = append(missing, "operation")
+		}
+		if d.Capability == "" {
+			missing = append(missing, "capability")
+		}
+		if d.Reason == "" {
+			missing = append(missing, "reason")
+		}
+		if len(missing) > 0 {
+			ok = false
+			rep.fail(fmt.Sprintf("health: degraded entry %d lacks %s", i, strings.Join(missing, ", ")))
+		}
+	}
+	if ok {
+		entries := "entries"
+		if len(h.Degraded) == 1 {
+			entries = "entry"
+		}
+		rep.pass(fmt.Sprintf("health: degraded list well-formed (%d %s)", len(h.Degraded), entries))
+		for _, d := range h.Degraded {
+			fmt.Printf("    - %s: %s — %s\n", d.Operation, d.Capability, d.Reason)
+		}
+	}
+}
+
 func printDescribe(desc *adapterplugin.DescribeResult) {
 	if len(desc.Verbs) > 0 {
 		fmt.Println("  read verbs:")
@@ -266,6 +364,12 @@ func printDescribe(desc *adapterplugin.DescribeResult) {
 		fmt.Println("  action types (tier/reversibility are ENGINE-owned; adapter claims shown for reference):")
 		for _, a := range desc.ActionTypes {
 			fmt.Printf("    - %s [claims tier=%s reversibility=%s]\n", a.ActionType, orDefault(a.DefaultTier, "?"), orDefault(a.Reversibility, "?"))
+		}
+	}
+	if src := desc.SchemaSource; src != nil && len(src.Profiles) > 0 {
+		fmt.Printf("  schema profiles (kind %s):\n", src.Kind)
+		for _, p := range src.Profiles {
+			fmt.Printf("    - %s — store %s, version %s, %d field(s)\n", p.Name, p.Store, p.Version, len(p.Fields))
 		}
 	}
 }

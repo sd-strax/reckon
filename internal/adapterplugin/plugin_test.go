@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +21,10 @@ import (
 var echoBin string
 
 func TestMain(m *testing.M) {
+	if slices.Contains(os.Args[1:], fakeIgnoreEOF) {
+		runFakeIgnoringEOF()
+		return
+	}
 	dir, err := os.MkdirTemp("", "adapterplugin-echo")
 	if err != nil {
 		panic(err)
@@ -134,6 +140,117 @@ func TestHealthReady(t *testing.T) {
 	p := newEchoPlugin(t, nil)
 	if h := p.Health(); !h.Healthy {
 		t.Fatalf("health = %+v, want healthy", h)
+	}
+}
+
+// TestHealthDegraded: the health result's degraded list is mapped onto
+// capability.HealthStatus.Degraded; a healthy result without it maps to nil.
+func TestHealthDegraded(t *testing.T) {
+	p := newEchoPlugin(t, map[string]any{"degraded": true})
+	h := p.Health()
+	want := []capability.DegradedCapability{{Operation: "get_host_context", Capability: "host filter", Reason: "degraded by test config"}}
+	if !h.Healthy || len(h.Degraded) != 1 || h.Degraded[0] != want[0] {
+		t.Fatalf("health = %+v, want healthy with %+v", h, want)
+	}
+	if h := newEchoPlugin(t, nil).Health(); h.Degraded != nil {
+		t.Fatalf("health degraded = %+v, want nil", h.Degraded)
+	}
+}
+
+// TestHealthDegradedMalformed: a degraded value that is not a list of entries
+// is dropped — the instance stays healthy — and ProbeHealth reports it.
+func TestHealthDegradedMalformed(t *testing.T) {
+	for name, v := range map[string]any{"string": "none", "object": map[string]any{}} {
+		t.Run(name, func(t *testing.T) {
+			p := newEchoPlugin(t, map[string]any{"degraded_value": v})
+			if h := p.Health(); !h.Healthy || h.Degraded != nil {
+				t.Fatalf("health = %+v, want healthy with nothing degraded", h)
+			}
+			h, err := p.ProbeHealth()
+			if err == nil || !h.Healthy || h.Degraded != nil {
+				t.Fatalf("ProbeHealth = %+v, %v; want healthy, nothing degraded, and an error", h, err)
+			}
+		})
+	}
+}
+
+// warnCounter counts warn-level records.
+type warnCounter struct {
+	mu    sync.Mutex
+	warns []string
+}
+
+func (w *warnCounter) Enabled(context.Context, slog.Level) bool { return true }
+func (w *warnCounter) Handle(_ context.Context, r slog.Record) error {
+	if r.Level == slog.LevelWarn {
+		w.mu.Lock()
+		w.warns = append(w.warns, r.Message)
+		w.mu.Unlock()
+	}
+	return nil
+}
+func (w *warnCounter) WithAttrs([]slog.Attr) slog.Handler { return w }
+func (w *warnCounter) WithGroup(string) slog.Handler      { return w }
+
+func (w *warnCounter) count() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.warns)
+}
+
+// TestHealthDegradedWarnLatch: a persistent malformed degraded list is warned
+// about once, not on every probe; a probe the adapter did not answer (here an
+// instance latched unhealthy) leaves the latch, so the same problem after it
+// is not warned again; a different problem, or the same one after a clean
+// decode, is.
+func TestHealthDegradedWarnLatch(t *testing.T) {
+	w := &warnCounter{}
+	p := newEchoPlugin(t, map[string]any{"degraded_value": "none"}, WithLogger(slog.New(w)))
+	for range 3 {
+		p.Health()
+	}
+	if n := w.count(); n != 1 {
+		t.Fatalf("warns after three probes = %d; want 1", n)
+	}
+
+	// An unanswered probe: stop the process and latch the instance unhealthy.
+	p.Close()
+	p.mu.Lock()
+	p.unhealthy, p.unhealthyMsg = true, "test latch"
+	p.mu.Unlock()
+	if h := p.Health(); h.Healthy {
+		t.Fatalf("health with the latch = %+v; want unhealthy", h)
+	}
+	p.mu.Lock()
+	p.unhealthy, p.unhealthyMsg = false, ""
+	p.mu.Unlock()
+	if h := p.Health(); !h.Healthy {
+		t.Fatalf("health after the latch = %+v; want healthy (respawned)", h)
+	}
+	if n := w.count(); n != 1 {
+		t.Fatalf("warns after an unanswered probe and the same problem = %d; want 1", n)
+	}
+
+	p.noteDegradedErr(errors.New("another problem"))
+	p.noteDegradedErr(errors.New("another problem"))
+	if n := w.count(); n != 2 {
+		t.Fatalf("warns after a changed problem = %d; want 2", n)
+	}
+	p.noteDegradedErr(nil)
+	p.noteDegradedErr(errors.New("another problem"))
+	if n := w.count(); n != 3 {
+		t.Fatalf("warns after a clean decode and the problem again = %d; want 3", n)
+	}
+}
+
+// TestDescribeSchemaSource: describe's schema_source is decoded.
+func TestDescribeSchemaSource(t *testing.T) {
+	desc, err := newEchoPlugin(t, nil).Describe(context.Background())
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+	if desc.SchemaSource == nil || desc.SchemaSource.Kind != SchemaSourceResponse {
+		t.Fatalf("schema_source = %+v, want kind response", desc.SchemaSource)
 	}
 }
 

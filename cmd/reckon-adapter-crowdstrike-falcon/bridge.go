@@ -351,23 +351,18 @@ func iocIDs(text string) []any {
 	return out
 }
 
-type healthResult struct {
-	Healthy bool   `json:"healthy"`
-	Message string `json:"message"`
-}
-
 // health reports readiness (lazy spawn: configured-not-yet-connected is
 // healthy).
-func (b *bridge) health(_ context.Context) healthResult {
+func (b *bridge) health(_ context.Context) adapterplugin.HealthResult {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if !b.ready {
-		return healthResult{Healthy: false, Message: "not configured"}
+		return adapterplugin.HealthResult{Healthy: false, Message: "not configured"}
 	}
 	if b.client == nil {
-		return healthResult{Healthy: true, Message: "configured; falcon-mcp not yet connected"}
+		return adapterplugin.HealthResult{Healthy: true, Message: "configured; falcon-mcp not yet connected"}
 	}
-	return healthResult{Healthy: true, Message: "falcon-mcp connected: " + b.client.ServerInfo().Name}
+	return adapterplugin.HealthResult{Healthy: true, Message: "falcon-mcp connected: " + b.client.ServerInfo().Name}
 }
 
 // invokeResult is the reckon-plugin invoke result wire shape.

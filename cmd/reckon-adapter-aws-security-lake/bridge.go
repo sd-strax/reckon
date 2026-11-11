@@ -353,20 +353,15 @@ func errForeignProvider() error {
 	return withClass(capability.ErrFallthrough, "the lake holds AWS only; the call names another provider", nil)
 }
 
-type healthResult struct {
-	Healthy bool   `json:"healthy"`
-	Message string `json:"message"`
-}
-
 // health probes the table with the queries' own projection (probeQuery),
 // then checks the table exists and — when its schema is readable, through a
 // resource link if it is one — carries every column the queries read, which
 // names any missing column. A schema the adapter cannot query is reported
 // here rather than as a failed call.
-func (b *bridge) health(ctx context.Context) healthResult {
+func (b *bridge) health(ctx context.Context) adapterplugin.HealthResult {
 	s, cl := b.snapshot()
 	if s == nil {
-		return healthResult{Healthy: false, Message: "not configured"}
+		return adapterplugin.HealthResult{Healthy: false, Message: "not configured"}
 	}
 	// The probe runs the queries' projection against the table, so health
 	// proves the credentials, workgroup, output location, table access and
@@ -388,12 +383,12 @@ func (b *bridge) health(ctx context.Context) healthResult {
 	ok := fmt.Sprintf("Athena workgroup %s, table %s.%s (%s)", s.workgroup, s.database, s.table, s.region)
 	schema, skipped := readableSchema(gctx, cl.glue, out.Table)
 	if skipped != "" {
-		return healthResult{Healthy: true, Message: ok + "; column check skipped: " + skipped}
+		return adapterplugin.HealthResult{Healthy: true, Message: ok + "; column check skipped: " + skipped}
 	}
 	if missing := missingColumns(schema); len(missing) > 0 {
-		return healthResult{Healthy: false, Message: fmt.Sprintf("glue: table %s.%s lacks column(s) the queries read: %s", s.database, s.table, strings.Join(missing, ", "))}
+		return adapterplugin.HealthResult{Healthy: false, Message: fmt.Sprintf("glue: table %s.%s lacks column(s) the queries read: %s", s.database, s.table, strings.Join(missing, ", "))}
 	}
-	return healthResult{Healthy: true, Message: ok}
+	return adapterplugin.HealthResult{Healthy: true, Message: ok}
 }
 
 // readableSchema is the table whose columns the health check reads. A
@@ -423,12 +418,12 @@ func readableSchema(ctx context.Context, client glueAPI, t *gluetypes.Table) (*g
 	return t, ""
 }
 
-func unhealthy(service string, err error) healthResult {
+func unhealthy(service string, err error) adapterplugin.HealthResult {
 	msg := err.Error()
 	if code := errorCode(err); code != "" {
 		msg = code + ": " + msg
 	}
-	return healthResult{Healthy: false, Message: service + ": " + msg}
+	return adapterplugin.HealthResult{Healthy: false, Message: service + ": " + msg}
 }
 
 // invokeResult is the reckon-plugin invoke result wire shape (matches the

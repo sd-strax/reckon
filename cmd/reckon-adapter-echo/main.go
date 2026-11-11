@@ -17,6 +17,8 @@
 //	dispatch <any>            → SUCCEEDED WriteResult, one target OK
 //	dispatch boom_fatal       → error with data.class = FATAL_ERROR
 //	configure {reject:true}   → rejects (tests handshake → UNHEALTHY)
+//	configure {degraded:true} → health reports one degraded capability (11 §4.4)
+//	configure {degraded_value:v} → health sends v verbatim as degraded (malformed-list tests)
 package main
 
 import (
@@ -40,7 +42,11 @@ func main() {
 }
 
 type adapter struct {
-	out io.Writer
+	out      io.Writer
+	degraded bool // configure {degraded:true}: health reports a degraded capability
+	// degradedValue, from configure {degraded_value:v}, is sent verbatim as
+	// health's degraded field.
+	degradedValue any
 }
 
 // --- JSON-RPC envelope ---
@@ -102,12 +108,24 @@ func (a *adapter) handle(method string, params json.RawMessage) (any, *wireError
 		if v, ok := p.Config["reject"].(bool); ok && v {
 			return nil, &wireError{Code: -32000, Message: "configure rejected by test config"}
 		}
+		a.degraded, _ = p.Config["degraded"].(bool)
+		a.degradedValue = p.Config["degraded_value"]
 		return map[string]any{"ok": true}, nil
 	case "invoke":
 		return a.invoke(params)
 	case "dispatch":
 		return a.dispatch(params)
 	case "health":
+		if a.degradedValue != nil {
+			return map[string]any{"healthy": true, "message": "ok", "degraded": a.degradedValue}, nil
+		}
+		if a.degraded {
+			return map[string]any{"healthy": true, "message": "ok", "degraded": []map[string]any{{
+				"operation":  "get_host_context",
+				"capability": "host filter",
+				"reason":     "degraded by test config",
+			}}}, nil
+		}
 		return map[string]any{"healthy": true, "message": "ok"}, nil
 	default:
 		return nil, &wireError{Code: -32601, Message: "unknown method " + method}
@@ -181,6 +199,9 @@ func describeResult() map[string]any {
 			{"name": "host.isolate", "params": map[string]any{"type": "object"}},
 		},
 		"config_schema": map[string]any{"type": "object"},
+		// It decodes nothing it does not own: its fields are its own echo, the
+		// response kind (11 §4.4).
+		"schema_source": map[string]any{"kind": "response"},
 	}
 }
 
