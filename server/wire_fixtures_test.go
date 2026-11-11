@@ -2,9 +2,11 @@ package server
 
 import (
 	"testing"
+	"time"
 
 	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/evidence"
 	"github.com/sd-strax/reckon/internal/wirefixture"
 	"github.com/sd-strax/reckon/knowledge"
 )
@@ -70,7 +72,31 @@ func TestWireFixtures(t *testing.T) {
 		Ref         string           `json:"ref"`
 		Appearances []AppearanceView `json:"appearances"`
 	}](t, dir, "appearances")
-	wirefixture.Check[EvidenceView](t, dir, "evidence")
+	// The host's identity view as a host carries it (adr/0211): an observed
+	// alias, an asserted one with a note, a withdrawn assertion, a split, and
+	// a host seen under two domains. Its every key is held by identityAct,
+	// the identity acts' answer.
+	wirefixture.Check[EvidenceView](t, dir, "evidence", func(v *EvidenceView) {
+		at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+		v.Identity = &EvidenceIdentity{
+			Aliases: []IdentityEdgeView{
+				{EdgeID: "relationship--1", OtherRef: "x-host--2", Kind: evidence.IdentityObserved, Source: "edr", At: at},
+				{EdgeID: "relationship--3", OtherRef: "x-host--4", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Note: "same serial in the asset register"},
+				{EdgeID: "relationship--5", OtherRef: "x-host--6", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Withdrawn: true},
+			},
+			Distinct: []IdentityEdgeView{
+				{EdgeID: "relationship--7", OtherRef: "x-host--8", Kind: evidence.IdentityAsserted, By: "u-2", ByName: "Ben Analyst", At: at, Note: "two machines"},
+			},
+			SeenAs: SeenAsView{
+				Domains: []string{"corp", "corp.example"},
+				Agents:  []SourceIDView{{Tool: "edr", UID: "a-7"}},
+				IPs:     []string{"10.0.0.7"},
+			},
+		}
+	})
+	// The identity acts' answer: the view after the act, null when it could
+	// not be read.
+	wirefixture.Check[IdentityActResponse](t, dir, "identityAct")
 	wirefixture.Check[InvestigationEventsResponse](t, dir, "investigationEvents")
 	wirefixture.Check[InvestigationCallsResponse](t, dir, "investigationCalls")
 	wirefixture.Check[CapabilityCallView](t, dir, "capabilityCall")

@@ -26,6 +26,7 @@ import type {
   EventRepeats,
   EventRow,
   EvidenceDoc,
+  HostIdentity,
   Hypothesis,
   InvestigationDetail,
   InvestigationSummary,
@@ -217,6 +218,14 @@ export type RenderMessage =
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null; citations?: KnowledgeCitations }
   | { type: "inspector.error"; target: string; message: string }
+  // One identity act's outcome (adr/0211), by the request id the webview
+  // gave it: recorded, with the host's view after it (null when the view
+  // could not be read: the last view stands), or refused, for its form to say.
+  | { type: "inspector.identity"; ref: string; requestId: string; identity: HostIdentity | null }
+  | { type: "identity.error"; ref: string; requestId: string; message: string }
+  // An identity act on ref landed in another panel: every host this panel
+  // holds may read differently now (the alias closure), so each is stale.
+  | { type: "identity.changed"; ref: string }
   // The action types the analyst can request directly (#146): available ones only.
   | { type: "actionTypes"; types: ActionTypeView[] }
   // Drafting a procedure from a concluded case (adr/0156): where the draft is,
@@ -336,6 +345,12 @@ export type InboundMessage =
   // The webview opened an inspector pane (view state) and needs the record
   // behind it; the host answers with the matching inspector.* message.
   | { type: "inspector.open"; target: InspectorTarget }
+  // The analyst's acts on a host's identity (adr/0211): "same as another
+  // host" (aliases) or "not the same host" (distinct), the other host named
+  // by its name or its ref; and withdrawing an asserted edge. Human acts,
+  // each carrying the request id its outcome is answered under.
+  | { type: "identity.assert"; ref: string; requestId: string; relation: "aliases" | "distinct"; other: string; note?: string }
+  | { type: "identity.withdraw"; ref: string; requestId: string; edgeId: string; note?: string }
   | { type: "export.open" }
   | { type: "copy"; text: string }
   | { type: "investigation.open"; id: string; title?: string }

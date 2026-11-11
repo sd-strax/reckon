@@ -11,6 +11,7 @@ import (
 	"github.com/sd-strax/reckon/comms"
 	"github.com/sd-strax/reckon/dependency"
 	"github.com/sd-strax/reckon/evidence"
+	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/knowledge"
 )
 
@@ -58,6 +59,10 @@ type evidenceStore interface {
 	IndicatorNeighbourhood(ctx context.Context, indicator evidence.Object) (evidence.Neighbourhood, error)
 	AliasSet(ctx context.Context, ref string) ([]string, error)
 	HostIdentity(ctx context.Context, ref string) (evidence.HostIdentityView, error)
+	AssertAlias(ctx context.Context, ids *identity.Resolver, ref, otherRef string, by evidence.Asserter, note string) error
+	AssertDistinct(ctx context.Context, ids *identity.Resolver, ref, otherRef string, by evidence.Asserter, note string) error
+	WithdrawAssertion(ctx context.Context, edgeID uuid.UUID, by evidence.Asserter, note string) (lo, hi string, err error)
+	AssertionEnds(ctx context.Context, edgeID uuid.UUID) (lo, hi string, observed bool, err error)
 	InvestigationEvents(ctx context.Context, investigationID uuid.UUID, f evidence.EventFilter) (evidence.Events, error)
 	Calls(ctx context.Context, investigationID uuid.UUID) ([]evidence.CallRecord, error)
 	Call(ctx context.Context, investigationID, callID uuid.UUID) (evidence.CallRecord, error)

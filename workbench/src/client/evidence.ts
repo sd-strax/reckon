@@ -3,9 +3,37 @@
 // Answers are decoded through the wire shapes (adr/0244).
 import type { BackendHttp } from "./http";
 import * as shapes from "../wire/backendShapes";
-import type { RawEvidence, RawEventView } from "../wire/backendShapes";
+import type { RawEvidence, RawEventView, RawHostIdentity } from "../wire/backendShapes";
 import type { Decoded } from "../wire/decode";
-import type { Appearance, CapabilityCall, EventClassKeys, EventGroup, EventRow, EventView, EvidenceDoc } from "../viewTypes";
+import type { Appearance, CapabilityCall, EventClassKeys, EventGroup, EventRow, EventView, EvidenceDoc, HostIdentity } from "../viewTypes";
+
+/** A host's identity view as decoded (adr/0211); an unknown kind reads as a source's record. */
+export function mapIdentity(r: RawHostIdentity): HostIdentity {
+  const edge = (e: RawHostIdentity["aliases"][number]) => ({
+    edgeId: e.edge_id, otherRef: e.other_ref, kind: e.kind === "asserted" ? "asserted" as const : "observed" as const,
+    source: e.source, by: e.by, byName: e.by_name, at: e.at, note: e.note, withdrawn: e.withdrawn,
+  });
+  return {
+    aliases: r.aliases.map(edge),
+    distinct: r.distinct.map(edge),
+    seenAs: { domains: r.seen_as.domains, agents: r.seen_as.agents.map((a) => ({ tool: a.tool, uid: a.uid })), ips: r.seen_as.ips },
+  };
+}
+
+/** The two acts that join or split a host (adr/0211): "same as" and "not the same host". */
+export type IdentityRelation = "aliases" | "distinct";
+
+/**
+ * The other host of a join or a split, as the analyst typed it: a host ref
+ * (`x-host--…`) goes as `other_ref`, anything else as a hostname the server
+ * mints as the seed does (a hostname may itself hold "--", as punycode does).
+ */
+export function otherHostBody(other: string, note?: string): Record<string, string> {
+  const v = other.trim();
+  const body: Record<string, string> = v.toLowerCase().startsWith("x-host--") ? { other_ref: v } : { other_hostname: v };
+  if (note && note.trim()) body.note = note.trim();
+  return body;
+}
 
 /** The rendering as decoded, narrowed to the view's vocabulary (adr/0090). */
 function mapView(v: RawEventView): EventView {
@@ -40,6 +68,7 @@ function mapEvidence(r: RawEvidence): EvidenceDoc {
       evidence: (r.related.evidence ?? []).map((e) => mapEvidence(e)),
     };
   }
+  if (r.identity) doc.identity = mapIdentity(r.identity);
   return doc;
 }
 
@@ -163,5 +192,28 @@ export class EvidenceClient {
       lastSeen: a.last_seen,
       mentions: a.mentions,
     }));
+  }
+
+  /**
+   * POST /api/entities/{ref}/aliases | /distinct — the analyst's "same as
+   * another host" or "not the same host" (adr/0211). Resolving means the act
+   * is recorded; the answer is the host's identity view after it, or null
+   * when the view could not be read. Human only: the server refuses a delegate.
+   */
+  async assertIdentity(ref: string, relation: IdentityRelation, other: string, note?: string): Promise<HostIdentity | null> {
+    const r = await this.http.post(`/api/entities/${encodeURIComponent(ref)}/${relation}`, otherHostBody(other, note), shapes.identityAct);
+    return r.identity ? mapIdentity(r.identity) : null;
+  }
+
+  /**
+   * POST /api/identity/{edge_id}/withdraw — withdraw an asserted edge
+   * (adr/0211), answering the identity view of `ref`, the host in view, or
+   * null when it could not be read.
+   */
+  async withdrawIdentity(edgeId: string, ref: string, note?: string): Promise<HostIdentity | null> {
+    const body: Record<string, string> = { ref };
+    if (note && note.trim()) body.note = note.trim();
+    const r = await this.http.post(`/api/identity/${encodeURIComponent(edgeId)}/withdraw`, body, shapes.identityAct);
+    return r.identity ? mapIdentity(r.identity) : null;
   }
 }

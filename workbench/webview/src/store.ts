@@ -120,6 +120,51 @@ export interface State {
   me: { name: string; principal: string } | null;
   /** Actions with a decision sent and not yet settled by the host: every card for one disables. */
   actionsInFlight: Record<string, true>;
+  /**
+   * The identity acts (adr/0211), by the request id each was sent under, so
+   * an inline form is settled by its own act's outcome and no other.
+   */
+  identityActs: Record<string, IdentityActState>;
+  /**
+   * Hosts whose held doc predates an identity act (adr/0211): the alias
+   * closure may have changed, so a pane showing one asks for it again.
+   */
+  staleHosts: Record<string, true>;
+  /** Bumped on every applied snapshot (a load: open, refresh): a pane showing a host reads it again on each. */
+  reloadSeq: number;
+}
+
+/** One identity act: on which host, and where it stands. */
+export interface IdentityActState {
+  ref: string;
+  state: "pending" | "landed" | "failed";
+  /** A refusal, or, on a landed act whose view could not be read, that it was recorded all the same. */
+  message?: string;
+  /** Its form closed while it was in flight: dropped once it settles. */
+  forgotten?: boolean;
+}
+
+/** Every x-host the state holds a doc for marked stale, but `except`, which keeps its mark as it is. */
+function hostsStale(state: State, except?: string): Record<string, true> {
+  const out = { ...state.staleHosts };
+  for (const ref of Object.keys(state.docs)) {
+    if (ref !== except && ref.startsWith("x-host--") && state.docs[ref]) out[ref] = true;
+  }
+  return out;
+}
+
+/** Record an act's outcome, or drop it when the form that sent it has closed. */
+function settleIdentityAct(acts: Record<string, IdentityActState>, requestId: string, outcome: IdentityActState): Record<string, IdentityActState> {
+  if (acts[requestId]?.forgotten) return dropKey(acts, requestId);
+  return { ...acts, [requestId]: outcome };
+}
+
+/** Recorded, but the server could not read the view after it: the last view stands. */
+export const identityViewUnavailable = "recorded; the view could not be refreshed";
+
+/** Whether an identity act on this host is in flight: one at a time per host. */
+export function identityActPending(state: State, ref: string): boolean {
+  return Object.values(state.identityActs).some((a) => a.ref === ref && a.state === "pending");
 }
 
 export const initialState: State = {
@@ -158,6 +203,9 @@ export const initialState: State = {
   queue: null,
   me: null,
   actionsInFlight: {},
+  identityActs: {},
+  staleHosts: {},
+  reloadSeq: 0,
 };
 
 export type Action =
@@ -170,7 +218,11 @@ export type Action =
   | { type: "draft.submitting" }
   | { type: "draft.searching"; status: string }
   /** A decision on this action was sent to the host. */
-  | { type: "action.sent"; actionId: string };
+  | { type: "action.sent"; actionId: string }
+  /** An identity act on this host was sent to the host under requestId (adr/0211). */
+  | { type: "identity.sent"; ref: string; requestId: string }
+  /** The form that sent this act closed: its entry is no longer read. */
+  | { type: "identity.forget"; requestId: string };
 
 function currentTurn(live: LiveItem[]): LiveTurn | null {
   const last = live[live.length - 1];
@@ -209,6 +261,16 @@ export function reducer(state: State, action: Action): State {
       return { ...state, draft: { ...state.draft, status: action.status, cases: [] } };
     case "action.sent":
       return { ...state, actionsInFlight: { ...state.actionsInFlight, [action.actionId]: true } };
+    case "identity.sent":
+      return { ...state, identityActs: { ...state.identityActs, [action.requestId]: { ref: action.ref, state: "pending" } } };
+    case "identity.forget": {
+      // A closed form's act: gone once settled; still pending, it counts
+      // against the host until it settles, then goes.
+      const held = state.identityActs[action.requestId];
+      if (!held) return state;
+      if (held.state === "pending") return { ...state, identityActs: { ...state.identityActs, [action.requestId]: { ...held, forgotten: true } } };
+      return { ...state, identityActs: dropKey(state.identityActs, action.requestId) };
+    }
     case "msg":
       return onMessage(state, action.msg);
   }
@@ -276,6 +338,13 @@ function onMessage(state: State, msg: RenderMessage): State {
         // The committed thread now holds everything the live conversation
         // showed — unless a turn is streaming or a failed turn is preserved.
         live: state.streaming || state.preserveLive ? state.live : [],
+        // A load (the panel opened, or the analyst refreshed) reads every
+        // host afresh: a host's identity may have changed by anyone's act,
+        // so each held host is stale and a pane showing one re-asks.
+        staleHosts: hostsStale(state),
+        // An explicit reload always reads the shown host again, even one
+        // already stale: the stale flag alone cannot represent a retry.
+        reloadSeq: state.reloadSeq + 1,
       };
     }
     case "state.patch": {
@@ -302,15 +371,43 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "evidence.unresolved":
       return state; // the app's own request bookkeeping; nothing renders it
     case "inspector.evidence": {
+      // A host read the server answered without its identity view (it
+      // degrades when the view cannot be read) keeps the last view it had.
+      // It is marked stale then, whether it was or not: only a fresh view
+      // clears the mark.
+      const held = state.docs[msg.ref]?.identity;
+      const reused = msg.ref.startsWith("x-host--") && msg.doc.identity === undefined && !!held;
+      const doc = reused ? { ...msg.doc, identity: held } : msg.doc;
       return {
         ...state,
-        docs: { ...state.docs, [msg.ref]: msg.doc },
+        docs: { ...state.docs, [msg.ref]: doc },
+        staleHosts: reused ? { ...state.staleHosts, [msg.ref]: true } : dropKey(state.staleHosts, msg.ref),
         appearances: { ...state.appearances, [msg.ref]: msg.appearances },
         around: { ...state.around, [msg.ref]: msg.around ?? [] },
         repeats: msg.repeats ? { ...state.repeats, [msg.ref]: msg.repeats } : dropKey(state.repeats, msg.ref),
         inspectorErrors: dropKey(state.inspectorErrors, msg.ref),
       };
     }
+    case "inspector.identity": {
+      const doc = state.docs[msg.ref];
+      // The alias closure can change beyond the edge's ends: every other host
+      // held is stale until read again (a pane showing one re-asks).
+      const staleHosts = hostsStale(state, msg.ref);
+      return {
+        ...state,
+        // A view the server could not read keeps the last one: never an
+        // invented empty view.
+        docs: doc && msg.identity ? { ...state.docs, [msg.ref]: { ...doc, identity: msg.identity } } : state.docs,
+        staleHosts,
+        identityActs: settleIdentityAct(state.identityActs, msg.requestId, { ref: msg.ref, state: "landed", message: msg.identity ? undefined : identityViewUnavailable }),
+      };
+    }
+    case "identity.changed":
+      // An act landed in another panel: every host held here, the acted one
+      // included, may read differently now.
+      return { ...state, staleHosts: hostsStale(state) };
+    case "identity.error":
+      return { ...state, identityActs: settleIdentityAct(state.identityActs, msg.requestId, { ref: msg.ref, state: "failed", message: msg.message }) };
     case "inspector.call":
       // The pane is named by the verb (derive/inspect.ts targetName).
       return { ...state, calls: { ...state.calls, [msg.callId]: msg.call }, labels: { ...state.labels, ["call:" + msg.callId]: msg.call.verb }, inspectorErrors: dropKey(state.inspectorErrors, msg.callId) };

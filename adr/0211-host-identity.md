@@ -1,6 +1,6 @@
 # 0211 — A host is one entity across sources: its hostname is its identity, every other identifier is kept beside it, and joins or splits the record cannot derive are explicit edges an analyst sees and makes
 
-Issue: #211 · PR: #325 · Status: accepted
+Issue: #211 · PR: #325, #329 · Status: accepted
 
 ## Context
 
@@ -108,12 +108,16 @@ edge, a new relationship type added to the domain model's edge table and its
 invented list. Both are human acts: the endpoint refuses an AI-delegated
 token as approval does, and the agent may say in the thread that two hosts
 look like one but never records it. An assertion is a row in `stix_edges`
-with a deterministic id over the ordered pair, so one pair has one row, and
-its payload carries who asserted it, when, the note, and a thin history;
-withdrawing marks the row rather than deleting it (`design/02` §2.2, CRUD
-with history, supersession over deletion). The entity inspector shows every
-alias with its origin, a source's record or a person's assertion, and offers
-the withdraw on the asserted ones.
+with a deterministic id over the ordered pair and the fact that a person
+asserted it, so one pair has one asserted row per type, beside any edge a
+source's record produced and never in its place; its payload carries who
+asserted it, when, the note, and a thin history. Withdrawing marks the row
+rather than deleting it (`design/02` §2.2, CRUD with history, supersession
+over deletion); a source's edge cannot be withdrawn, only cut by a split. A
+join over a pair a person has split is refused until the split is withdrawn:
+one act at a time, nothing implicit. The entity inspector shows every alias
+with its origin, a source's record or a person's assertion, and offers the
+withdraw on the asserted ones.
 
 **Normalizers that mint hosts move to version 2.** The shaping change is a
 re-normalization under §4.13; observations minted at version 1 keep their

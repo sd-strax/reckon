@@ -18,6 +18,7 @@ import (
 	"github.com/sd-strax/reckon/comms"
 	"github.com/sd-strax/reckon/dependency"
 	"github.com/sd-strax/reckon/evidence"
+	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/knowledge"
 )
 
@@ -131,6 +132,51 @@ type fakeEvidence struct {
 	err      error
 	// identityErr, when set, fails HostIdentity alone.
 	identityErr error
+	// objects, when set, answers Object by ref (absent: not found).
+	objects map[string]evidence.Object
+	// The identity acts the store was asked for, and what they answer.
+	acts         []identityAct
+	actErr       error
+	withdrawEnds [2]string
+	observedEdge bool   // AssertionEnds answers a source's record
+	endsErr      error  // AssertionEnds fails
+	identityRef  string // the ref HostIdentity was last asked for
+}
+
+// identityAct is one assertion or withdrawal the fake recorded.
+type identityAct struct {
+	kind, ref, other string
+	edge             uuid.UUID
+	by               evidence.Asserter
+	note             string
+}
+
+func (f *fakeEvidence) AssertAlias(_ context.Context, _ *identity.Resolver, ref, other string, by evidence.Asserter, note string) error {
+	return f.assert("aliases", ref, other, by, note)
+}
+func (f *fakeEvidence) AssertDistinct(_ context.Context, _ *identity.Resolver, ref, other string, by evidence.Asserter, note string) error {
+	return f.assert("distinct-from", ref, other, by, note)
+}
+
+// assert answers a MissingHostError for an end objects does not hold, as the
+// store does, and otherwise records the act.
+func (f *fakeEvidence) assert(kind, ref, other string, by evidence.Asserter, note string) error {
+	for _, end := range []string{ref, other} {
+		if _, ok := f.objects[end]; f.objects != nil && !ok {
+			return &evidence.MissingHostError{Ref: end}
+		}
+	}
+	f.acts = append(f.acts, identityAct{kind: kind, ref: ref, other: other, by: by, note: note})
+	return f.actErr
+}
+func (f *fakeEvidence) WithdrawAssertion(_ context.Context, edge uuid.UUID, by evidence.Asserter, note string) (lo, hi string, err error) {
+	f.acts = append(f.acts, identityAct{kind: "withdraw", edge: edge, by: by, note: note})
+	return f.withdrawEnds[0], f.withdrawEnds[1], f.actErr
+}
+
+// AssertionEnds answers withdrawEnds, observedEdge and endsErr.
+func (f *fakeEvidence) AssertionEnds(context.Context, uuid.UUID) (lo, hi string, observed bool, err error) {
+	return f.withdrawEnds[0], f.withdrawEnds[1], f.observedEdge, f.endsErr
 }
 
 func (f *fakeEvidence) Persist(context.Context, evidence.Call, capability.CapabilityResult) error {
@@ -145,7 +191,14 @@ func (f *fakeEvidence) Calls(context.Context, uuid.UUID) ([]evidence.CallRecord,
 func (f *fakeEvidence) Call(context.Context, uuid.UUID, uuid.UUID) (evidence.CallRecord, error) {
 	return evidence.CallRecord{}, f.err
 }
-func (f *fakeEvidence) Object(context.Context, string) (evidence.Object, error) {
+func (f *fakeEvidence) Object(_ context.Context, ref string) (evidence.Object, error) {
+	if f.objects != nil {
+		o, ok := f.objects[ref]
+		if !ok {
+			return evidence.Object{}, evidence.ErrNotFound
+		}
+		return o, f.err
+	}
 	return f.object, f.err
 }
 func (f *fakeEvidence) Event(context.Context, uuid.UUID) (evidence.Event, error) {
@@ -166,7 +219,8 @@ func (f *fakeEvidence) AliasSet(_ context.Context, ref string) ([]string, error)
 	}
 	return f.aliases, f.err
 }
-func (f *fakeEvidence) HostIdentity(context.Context, string) (evidence.HostIdentityView, error) {
+func (f *fakeEvidence) HostIdentity(_ context.Context, ref string) (evidence.HostIdentityView, error) {
+	f.identityRef = ref
 	if f.identityErr != nil {
 		return evidence.HostIdentityView{}, f.identityErr
 	}

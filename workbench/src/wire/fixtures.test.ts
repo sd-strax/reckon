@@ -41,7 +41,12 @@ describe.each([
 
   it.each(decoders)("%s names no key the wire does not send", (name, decoder) => {
     // A sample of a recursive type stops at a depth: its deepest evidence has no identity.
-    const absent = namedButAbsent(decoder, samples.get(`${name}.filled`)).filter((key) => !key.endsWith(".related.identity"));
+    // The evidence sample carries a host's identity as a host has it (an
+    // observed edge has no asserter), so the identity's every key is held by
+    // the identityAct sample instead.
+    const absent = namedButAbsent(decoder, samples.get(`${name}.filled`))
+      .filter((key) => !key.endsWith(".related.identity"))
+      .filter((key) => !(name === "evidence" && key.startsWith("identity.")));
     expect(absent).toEqual([]);
   });
 });

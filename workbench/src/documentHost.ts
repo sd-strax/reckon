@@ -27,6 +27,8 @@ export interface DocumentHost {
   sameIdentity(): () => boolean;
   /** The handshake (adr/0244): why the backend must not be spoken to, or null. */
   incompatibleBackend(): Promise<string | null>;
+  /** Every open investigation document's panel. */
+  openPanels(): vscode.WebviewPanel[];
   /** Whether this panel is still the open document for the investigation. */
   isOpen(id: string, panel: vscode.WebviewPanel): boolean;
   /** The trees re-read: Investigations always, Cases too when a case changed hands. */

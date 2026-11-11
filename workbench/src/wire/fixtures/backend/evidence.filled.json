@@ -288,42 +288,58 @@
   "identity": {
     "aliases": [
       {
-        "edge_id": "x",
-        "other_ref": "x",
-        "kind": "x",
-        "source": "x",
-        "by": "x",
-        "by_name": "x",
+        "edge_id": "relationship--1",
+        "other_ref": "x-host--2",
+        "kind": "observed",
+        "source": "edr",
         "at": "2026-01-02T03:04:05Z",
-        "note": "x",
+        "withdrawn": false
+      },
+      {
+        "edge_id": "relationship--3",
+        "other_ref": "x-host--4",
+        "kind": "asserted",
+        "by": "u-1",
+        "by_name": "Ana Analyst",
+        "at": "2026-01-02T03:04:05Z",
+        "note": "same serial in the asset register",
+        "withdrawn": false
+      },
+      {
+        "edge_id": "relationship--5",
+        "other_ref": "x-host--6",
+        "kind": "asserted",
+        "by": "u-1",
+        "by_name": "Ana Analyst",
+        "at": "2026-01-02T03:04:05Z",
         "withdrawn": true
       }
     ],
     "distinct": [
       {
-        "edge_id": "x",
-        "other_ref": "x",
-        "kind": "x",
-        "source": "x",
-        "by": "x",
-        "by_name": "x",
+        "edge_id": "relationship--7",
+        "other_ref": "x-host--8",
+        "kind": "asserted",
+        "by": "u-2",
+        "by_name": "Ben Analyst",
         "at": "2026-01-02T03:04:05Z",
-        "note": "x",
-        "withdrawn": true
+        "note": "two machines",
+        "withdrawn": false
       }
     ],
     "seen_as": {
       "domains": [
-        "x"
+        "corp",
+        "corp.example"
       ],
       "agents": [
         {
-          "tool": "x",
-          "uid": "x"
+          "tool": "edr",
+          "uid": "a-7"
         }
       ],
       "ips": [
-        "x"
+        "10.0.0.7"
       ]
     }
   }
