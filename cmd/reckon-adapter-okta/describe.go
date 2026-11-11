@@ -59,6 +59,8 @@ func describe() adapterplugin.DescribeResult {
 		DefaultWriteBindings: []action.ActionBinding{
 			{ActionType: "account.disable", Adapter: "okta", Operation: "deactivate_user"},
 		},
+		// It decodes a vendor API's response, tolerantly (11 §4.4).
+		SchemaSource: &adapterplugin.SchemaSource{Kind: adapterplugin.SchemaSourceResponse},
 		ConfigSchema: map[string]any{
 			"type":     "object",
 			"required": []any{"org_url", "client_id"},

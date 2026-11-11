@@ -36,6 +36,8 @@ func describe() adapterplugin.DescribeResult {
 			// applicable binding and degrades honestly (§6.1).
 			{Verb: "get_indicator_context", Adapter: "greynoise", Operation: "lookup-ip-context", Priority: 100, Params: map[string]any{"ip": "${entity.value}"}},
 		},
+		// It decodes a vendor API's response, tolerantly (11 §4.4).
+		SchemaSource: &adapterplugin.SchemaSource{Kind: adapterplugin.SchemaSourceResponse},
 		ConfigSchema: map[string]any{
 			"type":     "object",
 			"required": []any{"api_key"},

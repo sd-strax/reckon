@@ -454,20 +454,15 @@ func unknownResult(target, idemKey string, err error) action.WriteResult {
 	}
 }
 
-type healthResult struct {
-	Healthy bool   `json:"healthy"`
-	Message string `json:"message"`
-}
-
 // health reports readiness: configured is healthy (Basic auth is validated
 // lazily at first dispatch, where a bad credential surfaces as a 401 FAIL).
-func (b *bridge) health() healthResult {
+func (b *bridge) health() adapterplugin.HealthResult {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.client == nil {
-		return healthResult{Healthy: false, Message: "not configured"}
+		return adapterplugin.HealthResult{Healthy: false, Message: "not configured"}
 	}
-	return healthResult{Healthy: true, Message: "configured (ServiceNow Table API, " + b.client.baseURL + ")"}
+	return adapterplugin.HealthResult{Healthy: true, Message: "configured (ServiceNow Table API, " + b.client.baseURL + ")"}
 }
 
 // recordKeys are the params that address the incident (not fields on it) plus
