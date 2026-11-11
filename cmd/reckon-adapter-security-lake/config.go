@@ -416,9 +416,10 @@ func timeOrZero(t *time.Time) time.Time {
 // configData is the resource's configuration as one object: the item's
 // configuration decoded, with each supplementary configuration entry (for S3
 // the bucket policy, ACL, public access block, encryption…) merged in at the
-// top level under its Config key, its value decoded. On a key clash the base
-// value stays and the supplementary one is filed by mergeClashes. A configuration that is not JSON is kept as
-// the string it is.
+// top level under its Config key, its value decoded by supplementaryValue
+// (wrapper layers and named embedded documents only). On a key clash the
+// base value stays and the supplementary one is filed by mergeClashes. A
+// configuration that is not JSON is kept as the string it is.
 func configData(item cstypes.ConfigurationItem) any {
 	var base any
 	if c := aws.ToString(item.Configuration); c != "" {
@@ -444,7 +445,7 @@ func configData(item cstypes.ConfigurationItem) any {
 	sort.Strings(keys)
 	clashes := map[string]any{}
 	for _, k := range keys {
-		v := decodeNested(item.SupplementaryConfiguration[k], 0)
+		v := supplementaryValue(k, item.SupplementaryConfiguration[k])
 		if _, taken := obj[k]; taken {
 			clashes[k] = v
 			continue
@@ -487,45 +488,60 @@ func mergeClashes(obj, clashes map[string]any) {
 	}
 }
 
-// maxDecodeDepth bounds decodeNested on a pathological value.
-const maxDecodeDepth = 8
+// maxUnwrap bounds unwrapJSON on a pathological value.
+const maxUnwrap = 8
 
-// decodeNested decodes a value AWS Config may have JSON-encoded more than
-// once: a string that parses as an object or an array is replaced by it, a
-// string that parses as a string is tried again, and objects and arrays are
-// walked. Anything else is kept as it is.
-func decodeNested(v any, depth int) any {
-	if depth > maxDecodeDepth {
+// embeddedJSONFields names, per supplementary configuration key, the fields
+// of its decoded document that hold a further JSON document as a string,
+// which are decoded one level each. Every other string, at any depth, is
+// kept verbatim: a policy's values (a condition on "s3:prefix" of "[1]")
+// are data, not encodings.
+//   - BucketPolicy: {"policyText": "<the bucket policy JSON>"}.
+//   - AccessControlList, PublicAccessBlockConfiguration,
+//     ServerSideEncryptionConfiguration and the other S3 entries are a JSON
+//     string of an object with no further string-encoded field; unwrapJSON
+//     alone decodes them.
+var embeddedJSONFields = map[string][]string{
+	"BucketPolicy": {"policyText"},
+}
+
+// supplementaryValue decodes one supplementary configuration entry: the
+// wrapper layers Config adds (unwrapJSON), then the entry's named embedded
+// documents (embeddedJSONFields), nothing else.
+func supplementaryValue(key, raw string) any {
+	v := unwrapJSON(raw)
+	obj, ok := v.(map[string]any)
+	if !ok {
 		return v
 	}
-	switch x := v.(type) {
-	case string:
-		s := x
-		for range maxDecodeDepth {
-			var parsed any
-			if err := json.Unmarshal([]byte(s), &parsed); err != nil {
-				return x
-			}
-			switch p := parsed.(type) {
-			case map[string]any, []any:
-				return decodeNested(p, depth+1)
-			case string:
-				s = p
-			default:
-				return x
-			}
+	for _, field := range embeddedJSONFields[key] {
+		if s, ok := obj[field].(string); ok {
+			obj[field] = unwrapJSON(s)
 		}
-		return x
-	case map[string]any:
-		for k, val := range x {
-			x[k] = decodeNested(val, depth+1)
-		}
-		return x
-	case []any:
-		for i, val := range x {
-			x[i] = decodeNested(val, depth+1)
-		}
-		return x
 	}
-	return v
+	return obj
+}
+
+// unwrapJSON removes JSON-string wrapping from s: while s parses as a JSON
+// string it is unwrapped, and the first object or array it parses as is
+// returned. A string that does not parse, or parses as a number, boolean or
+// null, is returned as given. The returned document's own strings are never
+// decoded.
+func unwrapJSON(s string) any {
+	cur := s
+	for range maxUnwrap {
+		var parsed any
+		if err := json.Unmarshal([]byte(cur), &parsed); err != nil {
+			return s
+		}
+		switch p := parsed.(type) {
+		case map[string]any, []any:
+			return p
+		case string:
+			cur = p
+		default:
+			return s
+		}
+	}
+	return s
 }

@@ -482,17 +482,46 @@ func TestResourceContext_SupplementaryConfiguration(t *testing.T) {
 	}
 }
 
-func TestDecodeNested(t *testing.T) {
-	twice, _ := json.Marshal(`{"a":[1,"{\"b\":true}"]}`)
-	got := decodeNested(string(twice), 0)
-	want := map[string]any{"a": []any{float64(1), map[string]any{"b": true}}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("decodeNested = %#v", got)
-	}
-	for _, keep := range []string{"plain", "42", `"just a string"`} {
-		if got := decodeNested(keep, 0); got != keep {
-			t.Errorf("decodeNested(%q) = %#v, want it kept", keep, got)
+func TestUnwrapJSON(t *testing.T) {
+	inner := `{"a":[1,"{\"b\":true}"],"c":"[1]"}`
+	twice, _ := json.Marshal(inner)
+	thrice, _ := json.Marshal(string(twice))
+	want := map[string]any{"a": []any{float64(1), `{"b":true}`}, "c": "[1]"}
+	for name, in := range map[string]string{"once": inner, "twice": string(twice), "thrice": string(thrice)} {
+		if got := unwrapJSON(in); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: unwrapJSON = %#v; want the object, its own strings verbatim", name, got)
 		}
+	}
+	for _, keep := range []string{"plain", "42", `"just a string"`, "true", "null"} {
+		if got := unwrapJSON(keep); got != keep {
+			t.Errorf("unwrapJSON(%q) = %#v, want it kept", keep, got)
+		}
+	}
+}
+
+// TestSupplementaryValue_PolicyStringsVerbatim: policyText becomes the
+// policy object, but the policy's own string values — a condition of "[1]",
+// a "{}" — stay strings.
+func TestSupplementaryValue_PolicyStringsVerbatim(t *testing.T) {
+	policy := `{"Version":"2012-10-17","Statement":[{"Sid":"S","Effect":"Allow","Principal":"*","Action":"s3:ListBucket","Resource":"arn:aws:s3:::b","Condition":{"StringEquals":{"s3:prefix":"[1]"}},"Note":"{}"}]}`
+	entry, _ := json.Marshal(map[string]string{"policyText": policy})
+	doubled, _ := json.Marshal(string(entry))
+	for name, raw := range map[string]string{"single": string(entry), "double-encoded": string(doubled)} {
+		got := supplementaryValue("BucketPolicy", raw).(map[string]any)
+		text, ok := got["policyText"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s: policyText = %#v, want the policy object", name, got["policyText"])
+		}
+		st := text["Statement"].([]any)[0].(map[string]any)
+		cond := st["Condition"].(map[string]any)["StringEquals"].(map[string]any)
+		if cond["s3:prefix"] != "[1]" || st["Note"] != "{}" {
+			t.Errorf("%s: policy strings changed: prefix=%#v note=%#v", name, cond["s3:prefix"], st["Note"])
+		}
+	}
+	// A field named policyText under another key is not decoded.
+	other := supplementaryValue("AccessControlList", string(entry)).(map[string]any)
+	if _, ok := other["policyText"].(string); !ok {
+		t.Errorf("AccessControlList policyText = %#v, want it verbatim", other["policyText"])
 	}
 }
 

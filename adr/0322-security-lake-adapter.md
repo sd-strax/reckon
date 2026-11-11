@@ -98,7 +98,10 @@ resource is shaped into one Cloud Resources Inventory Info event (5023) at
 OCSF 1.7.0, the version `03 §4.18` pins for the class: the resource's
 identifier, name, type, region, configuration — the base configuration
 with Config's supplementary configuration merged in, since for a bucket the
-policy, access control and public-access settings live there — tags,
+policy, access control and public-access settings live there; only the
+layers Config documents as encoded (the supplementary value itself, a
+policy's text) are decoded, and every other string is kept as written, so a
+policy condition that looks like JSON is not rewritten — tags,
 creation and capture times, under the account it belongs to. Only an item
 whose status says the resource is recorded and present is current context;
 a deleted or unrecorded item is declined, never shown as a snapshot. A
