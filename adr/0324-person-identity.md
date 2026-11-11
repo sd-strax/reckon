@@ -1,6 +1,6 @@
 # 0324 — A person is its own entity, minted only from a record that names one; an account is identified by what its source repeats, owns its events, and belongs to a person by a record or a human's word
 
-Issue: #324 · PR: #333 · Status: accepted
+Issue: #324 · PR: #333, #337 · Status: accepted
 
 ## Context
 
