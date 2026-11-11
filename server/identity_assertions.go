@@ -151,10 +151,16 @@ func (b *Backend) withdrawIdentity(w http.ResponseWriter, r *http.Request) {
 	b.serveHostIdentity(w, r, view)
 }
 
+// IdentityActResponse answers an identity act. A 200 always means the act is
+// recorded; Identity is the host's view after it, or null when the view could
+// not be read, which is never shown as a host with no aliases.
+type IdentityActResponse struct {
+	Identity *EvidenceIdentity `json:"identity"`
+}
+
 // serveHostIdentity answers a host's identity view after an act on it. The act
 // has committed, so a failed read is not a failed act: it is read once more,
-// and on a second failure the answer is 200 with an empty view, as
-// getEvidence degrades (the inspector re-reads the host).
+// and on a second failure the view is null (the inspector re-reads the host).
 func (b *Backend) serveHostIdentity(w http.ResponseWriter, r *http.Request, ref string) {
 	v, err := b.cfg.Evidence.HostIdentity(r.Context(), ref)
 	if err != nil {
@@ -162,9 +168,10 @@ func (b *Backend) serveHostIdentity(w http.ResponseWriter, r *http.Request, ref 
 	}
 	if err != nil {
 		slog.Warn("identity act recorded, view unavailable", "ref", ref, "error", err)
-		v = evidence.HostIdentityView{}
+		writeJSON(w, http.StatusOK, IdentityActResponse{})
+		return
 	}
-	writeJSON(w, http.StatusOK, identityView(v))
+	writeJSON(w, http.StatusOK, IdentityActResponse{Identity: identityView(v)})
 }
 
 // identityPrincipal reads the caller and refuses an AI delegate, as approval

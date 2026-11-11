@@ -37,26 +37,26 @@ describe("a host's identity view (adr/0211)", () => {
     });
   });
 
-  it("is absent on a ref that is not a host, and empty lists read as empty", async () => {
+  it("is absent on a ref that is not a host; an act whose view could not be read answers null, never an empty view", async () => {
     const zero = await client(fixture("evidence.zero")).e.get("ipv4-addr--1");
     expect(zero.identity).toBeUndefined();
-    const id = await client(fixture("hostIdentity.zero")).e.assertIdentity("x-host--1", "aliases", "ws1");
-    expect(id).toEqual({ aliases: [], distinct: [], seenAs: { domains: [], agents: [], ips: [] } });
+    expect(await client(fixture("identityAct.zero")).e.assertIdentity("x-host--1", "aliases", "ws1")).toBeNull();
+    expect(await client(fixture("identityAct.zero")).e.withdrawIdentity("relationship--5", "x-host--1")).toBeNull();
   });
 
   it("sends a join or a split to its route, the other host by name or by ref, and decodes the answer", async () => {
-    const { e, calls } = client(fixture("hostIdentity.filled"));
+    const { e, calls } = client(fixture("identityAct.filled"));
     const id = await e.assertIdentity("x-host--a", "aliases", " WIN-FILE01.corp.example ", " checked ");
     await e.assertIdentity("x-host--a", "distinct", "x-host--b");
     expect(calls).toEqual([
       { method: "POST", path: "/api/entities/x-host--a/aliases", body: { other_hostname: "WIN-FILE01.corp.example", note: "checked" } },
       { method: "POST", path: "/api/entities/x-host--a/distinct", body: { other_ref: "x-host--b" } },
     ]);
-    expect(id.aliases.map((a) => a.edgeId)).toEqual(["x"]);
+    expect(id?.aliases.map((a) => a.edgeId)).toEqual(["x"]);
   });
 
   it("withdraws by the edge id, asking for the view of the host in view", async () => {
-    const { e, calls } = client(fixture("hostIdentity.filled"));
+    const { e, calls } = client(fixture("identityAct.filled"));
     await e.withdrawIdentity("relationship--5", "x-host--a", "wrong link");
     await e.withdrawIdentity("relationship--5", "x-host--a");
     expect(calls).toEqual([

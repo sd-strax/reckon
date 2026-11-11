@@ -535,6 +535,11 @@ export class InvestigationDocuments implements DocumentHost {
     return this.client.incompatibilityReason(await this.client.status());
   }
 
+  /** Every open investigation document's panel (drafts included). */
+  openPanels(): vscode.WebviewPanel[] {
+    return [...this.open.values()];
+  }
+
   /** Whether this panel is still the open document for the investigation. */
   isOpen(id: string, panel: vscode.WebviewPanel): boolean {
     return this.open.get(id) === panel;

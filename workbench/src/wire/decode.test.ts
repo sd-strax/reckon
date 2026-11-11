@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { anything, bool, decode, DecodeError, lazy, list, namedButAbsent, num, object, optional, record, str, type Decoder } from "./decode";
+import { anything, bool, decode, DecodeError, lazy, list, namedButAbsent, nullable, num, object, optional, record, str, type Decoder } from "./decode";
+import * as backend from "./backendShapes";
 
 const shape = object({ title: str, n: optional(num), tags: list(str), nested: optional(object({ ok: bool })) });
 
@@ -20,6 +21,15 @@ describe("decode", () => {
   it("drops what it does not name, and leaves out what is absent", () => {
     expect(decode("x", shape, { title: "t", tags: null, extra: 1 })).toEqual({ title: "t", tags: [] });
     expect(Object.keys(decode("x", shape, { title: "t", tags: [] }))).toEqual(["title", "tags"]);
+  });
+
+  it("reads a nullable field as null or its value, and a missing one as an error", () => {
+    const answer = object({ identity: nullable(object({ ok: bool })) });
+    expect(decode("x", answer, { identity: null })).toEqual({ identity: null });
+    expect(decode("x", answer, { identity: { ok: true } })).toEqual({ identity: { ok: true } });
+    expect(() => decode("x", answer, {})).toThrow("identity missing");
+    expect(() => decode("x", backend.identityAct, {})).toThrow("identity missing");
+    expect(decode("x", backend.identityAct, { identity: null })).toEqual({ identity: null });
   });
 
   it("tells a null list from a missing one", () => {

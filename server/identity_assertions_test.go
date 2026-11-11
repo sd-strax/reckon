@@ -53,8 +53,9 @@ func TestAssertIdentity_Answers(t *testing.T) {
 		if a.kind != tc.kind || a.ref != other || a.other != host || a.by.ID != "test-subject" || a.by.Name != "alice" || a.note != "asset register" {
 			t.Errorf("%s: act = %+v", tc.path, a)
 		}
-		var got EvidenceIdentity
-		if err := json.Unmarshal([]byte(body), &got); err != nil || len(got.Aliases) != 1 || got.Aliases[0].EdgeID != "relationship--a" || got.Distinct == nil {
+		var got IdentityActResponse
+		if err := json.Unmarshal([]byte(body), &got); err != nil || got.Identity == nil || len(got.Identity.Aliases) != 1 ||
+			got.Identity.Aliases[0].EdgeID != "relationship--a" || got.Identity.Distinct == nil {
 			t.Errorf("%s: view = %s (%v)", tc.path, body, err)
 		}
 		if store.identityRef != other {
@@ -122,8 +123,9 @@ func TestAssertIdentity_Refusals(t *testing.T) {
 }
 
 // TestIdentityAct_ViewUnavailable: an act that committed is answered as done
-// though the view behind it cannot be read: 200 with an empty view. A store
-// refusing an act with no principal is a 500.
+// though the view behind it cannot be read: 200 with the identity null, never
+// an empty view that reads as a host with no aliases. A store refusing an act
+// with no principal is a 500.
 func TestIdentityAct_ViewUnavailable(t *testing.T) {
 	b, store, host, other := identityBackend(t)
 	store.identityErr = errStoreDown
@@ -134,10 +136,8 @@ func TestIdentityAct_ViewUnavailable(t *testing.T) {
 		if strings.HasSuffix(path, "/withdraw") {
 			code, body = send(t, b, "POST", path, mintToken(t, nil), ``)
 		}
-		var got EvidenceIdentity
-		if code != http.StatusOK || len(store.acts) == 0 || json.Unmarshal([]byte(body), &got) != nil ||
-			got.Aliases == nil || got.Distinct == nil || got.SeenAs.Domains == nil || got.SeenAs.Agents == nil || got.SeenAs.IPs == nil {
-			t.Errorf("%s: status %d, acts %+v, body %s; want 200, the act, an empty view", path, code, store.acts, body)
+		if code != http.StatusOK || len(store.acts) == 0 || strings.TrimSpace(body) != `{"identity":null}` {
+			t.Errorf("%s: status %d, acts %+v, body %s; want 200, the act, identity null", path, code, store.acts, body)
 		}
 	}
 

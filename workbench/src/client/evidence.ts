@@ -196,22 +196,24 @@ export class EvidenceClient {
 
   /**
    * POST /api/entities/{ref}/aliases | /distinct — the analyst's "same as
-   * another host" or "not the same host" (adr/0211), answering the host's
-   * refreshed identity view. Human only: the server refuses a delegate.
+   * another host" or "not the same host" (adr/0211). Resolving means the act
+   * is recorded; the answer is the host's identity view after it, or null
+   * when the view could not be read. Human only: the server refuses a delegate.
    */
-  async assertIdentity(ref: string, relation: IdentityRelation, other: string, note?: string): Promise<HostIdentity> {
-    const r = await this.http.post(`/api/entities/${encodeURIComponent(ref)}/${relation}`, otherHostBody(other, note), shapes.hostIdentity);
-    return mapIdentity(r);
+  async assertIdentity(ref: string, relation: IdentityRelation, other: string, note?: string): Promise<HostIdentity | null> {
+    const r = await this.http.post(`/api/entities/${encodeURIComponent(ref)}/${relation}`, otherHostBody(other, note), shapes.identityAct);
+    return r.identity ? mapIdentity(r.identity) : null;
   }
 
   /**
    * POST /api/identity/{edge_id}/withdraw — withdraw an asserted edge
-   * (adr/0211), answering the identity view of `ref`, the host in view.
+   * (adr/0211), answering the identity view of `ref`, the host in view, or
+   * null when it could not be read.
    */
-  async withdrawIdentity(edgeId: string, ref: string, note?: string): Promise<HostIdentity> {
+  async withdrawIdentity(edgeId: string, ref: string, note?: string): Promise<HostIdentity | null> {
     const body: Record<string, string> = { ref };
     if (note && note.trim()) body.note = note.trim();
-    const r = await this.http.post(`/api/identity/${encodeURIComponent(edgeId)}/withdraw`, body, shapes.hostIdentity);
-    return mapIdentity(r);
+    const r = await this.http.post(`/api/identity/${encodeURIComponent(edgeId)}/withdraw`, body, shapes.identityAct);
+    return r.identity ? mapIdentity(r.identity) : null;
   }
 }

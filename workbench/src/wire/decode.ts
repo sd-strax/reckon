@@ -44,6 +44,17 @@ export function optional<T>(decoder: Decoder<T>): Decoder<T | undefined> {
 }
 
 /**
+ * A field Go always sends that may be null (a pointer without omitempty): the
+ * key must be there, so a renamed field is an error, not a silent null.
+ */
+export function nullable<T>(decoder: Decoder<T>): Decoder<T | null> {
+  return (value, at) => {
+    if (value === undefined) throw wrong(value, at, "");
+    return value === null ? null : decoder(value, at);
+  };
+}
+
+/**
  * A slice Go always sends, as null when nil. The key must be there: a renamed
  * list is an error, not an empty one. `optional(list(…))` is one it may omit.
  */

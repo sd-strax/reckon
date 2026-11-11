@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialState, reducer, type State } from "./store";
+import { identityActPending, identityViewUnavailable, initialState, reducer, type State } from "./store";
 import type { InvestigationSnapshot, RenderMessage } from "../../src/protocol";
 
 function snap(seq: number, title = "T"): InvestigationSnapshot {
@@ -172,15 +172,77 @@ describe("reducer: rename", () => {
 describe("reducer: a host's identity acts (adr/0211)", () => {
   const ref = "x-host--1";
   const identity = { aliases: [], distinct: [], seenAs: { domains: [], agents: [], ips: [] } };
-  it("holds an act in flight until its answer or its refusal, and counts what landed", () => {
-    let s = reducer(initialState, { type: "identity.sent", ref });
-    expect(s.identityActs[ref]).toEqual({ pending: true, landed: 0 });
-    s = run([{ type: "identity.error", ref, message: "the signed-in person changed" }], s);
-    expect(s.identityActs[ref]).toEqual({ pending: false, error: "the signed-in person changed", landed: 0 });
-    s = reducer(s, { type: "identity.sent", ref });
-    expect(s.identityActs[ref]!.error).toBeUndefined();
-    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {} }, appearances: [] }, { type: "inspector.identity", ref, identity }], s);
-    expect(s.identityActs[ref]).toEqual({ pending: false, landed: 1 });
+  const prior = { ...identity, aliases: [{ edgeId: "relationship--1", otherRef: "x-host--2", kind: "observed" as const, source: "edr", at: "2026-01-02T03:04:05Z", withdrawn: false }] };
+  it("settles each act by its own request id: in flight, refused, landed", () => {
+    let s = reducer(initialState, { type: "identity.sent", ref, requestId: "r1" });
+    expect(s.identityActs.r1).toEqual({ ref, state: "pending" });
+    expect(identityActPending(s, ref)).toBe(true);
+    expect(identityActPending(s, "x-host--other")).toBe(false);
+    s = run([{ type: "identity.error", ref, requestId: "r1", message: "the signed-in person changed" }], s);
+    expect(s.identityActs.r1).toEqual({ ref, state: "failed", message: "the signed-in person changed" });
+    expect(identityActPending(s, ref)).toBe(false);
+    s = reducer(s, { type: "identity.sent", ref, requestId: "r2" });
+    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] }, { type: "inspector.identity", ref, requestId: "r2", identity }], s);
+    expect(s.identityActs.r2).toEqual({ ref, state: "landed", message: undefined });
+    expect(s.identityActs.r1!.state).toBe("failed"); // the other act is untouched
     expect(s.docs[ref]!.identity).toEqual(identity);
+  });
+  it("keeps a host's last view when a read answers it without one, marking it stale though it was not", () => {
+    let s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] }]);
+    expect(s.staleHosts[ref]).toBeUndefined();
+    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: { fresh: true } }, appearances: [] }], s);
+    expect(s.docs[ref]!.identity).toEqual(prior);
+    expect(s.docs[ref]!.payload).toEqual({ fresh: true });
+    expect(s.staleHosts[ref]).toBe(true);
+  });
+  it("marks every other host held stale after an act, until it is read again", () => {
+    const other = "x-host--2";
+    let s = run([
+      { type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] },
+      { type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "x-host", payload: {}, identity }, appearances: [] },
+      { type: "inspector.evidence", ref: "ipv4-addr--1", doc: { ref: "ipv4-addr--1", kind: "stix", type: "ipv4-addr", payload: {} }, appearances: [] },
+    ]);
+    s = reducer(s, { type: "identity.sent", ref, requestId: "r4" });
+    s = run([{ type: "inspector.identity", ref, requestId: "r4", identity }], s);
+    expect(s.staleHosts).toEqual({ [other]: true });
+    s = run([{ type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "x-host", payload: {}, identity }, appearances: [] }], s);
+    expect(s.staleHosts).toEqual({});
+  });
+  it("identity.changed marks all hosts stale, the acted one included", () => {
+    const other = "x-host--2";
+    let s = run([
+      { type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] },
+      { type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "x-host", payload: {}, identity }, appearances: [] },
+      { type: "inspector.evidence", ref: "ipv4-addr--1", doc: { ref: "ipv4-addr--1", kind: "stix", type: "ipv4-addr", payload: {} }, appearances: [] },
+    ]);
+    s = run([{ type: "identity.changed", ref }], s);
+    expect(s.staleHosts).toEqual({ [ref]: true, [other]: true });
+  });
+  it("keeps a stale host marked when its re-read reuses the held view, and clears it on a fresh view", () => {
+    let s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] }, { type: "identity.changed", ref }]);
+    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {} }, appearances: [] }], s);
+    expect(s.docs[ref]!.identity).toEqual(prior);
+    expect(s.staleHosts[ref]).toBe(true);
+    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity }, appearances: [] }], s);
+    expect(s.staleHosts[ref]).toBeUndefined();
+  });
+  it("forgets a closed form's act: at once when settled, once it settles when in flight", () => {
+    let s = reducer(initialState, { type: "identity.sent", ref, requestId: "r5" });
+    s = run([{ type: "identity.error", ref, requestId: "r5", message: "no" }], s);
+    s = reducer(s, { type: "identity.forget", requestId: "r5" });
+    expect(s.identityActs.r5).toBeUndefined();
+    s = reducer(s, { type: "identity.sent", ref, requestId: "r6" });
+    s = reducer(s, { type: "identity.forget", requestId: "r6" });
+    expect(identityActPending(s, ref)).toBe(true); // still counts against the host
+    s = run([{ type: "inspector.identity", ref, requestId: "r6", identity }], s);
+    expect(s.identityActs.r6).toBeUndefined();
+    expect(identityActPending(s, ref)).toBe(false);
+  });
+  it("keeps the last view when the act's view could not be read, and says the act was recorded", () => {
+    let s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] }]);
+    s = reducer(s, { type: "identity.sent", ref, requestId: "r3" });
+    s = run([{ type: "inspector.identity", ref, requestId: "r3", identity: null }], s);
+    expect(s.identityActs.r3).toEqual({ ref, state: "landed", message: identityViewUnavailable });
+    expect(s.docs[ref]!.identity).toEqual(prior);
   });
 });

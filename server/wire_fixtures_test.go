@@ -74,7 +74,7 @@ func TestWireFixtures(t *testing.T) {
 	}](t, dir, "appearances")
 	// The host's identity view as a host carries it (adr/0211): an observed
 	// alias, an asserted one with a note, a withdrawn assertion, a split, and
-	// a host seen under two domains. Its every key is held by hostIdentity,
+	// a host seen under two domains. Its every key is held by identityAct,
 	// the identity acts' answer.
 	wirefixture.Check[EvidenceView](t, dir, "evidence", func(v *EvidenceView) {
 		at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -94,7 +94,9 @@ func TestWireFixtures(t *testing.T) {
 			},
 		}
 	})
-	wirefixture.Check[EvidenceIdentity](t, dir, "hostIdentity")
+	// The identity acts' answer: the view after the act, null when it could
+	// not be read.
+	wirefixture.Check[IdentityActResponse](t, dir, "identityAct")
 	wirefixture.Check[InvestigationEventsResponse](t, dir, "investigationEvents")
 	wirefixture.Check[InvestigationCallsResponse](t, dir, "investigationCalls")
 	wirefixture.Check[CapabilityCallView](t, dir, "capabilityCall")

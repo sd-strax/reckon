@@ -1,7 +1,7 @@
 // The backend's responses, as the workbench reads them (adr/0244). Each mirrors
 // the Go view that serves it: a field is required where the Go tag has no
 // omitempty. Only the fields the workbench uses are named.
-import { anything, bool, lazy, list, num, object, optional, record, str, type Decoded, type Decoder } from "./decode";
+import { anything, bool, lazy, list, nullable, num, object, optional, record, str, type Decoded, type Decoder } from "./decode";
 
 const componentStatus = object({ ready: bool, message: str });
 
@@ -345,8 +345,8 @@ const eventView = object({
 export type RawEventView = Decoded<typeof eventView>;
 
 // A host's identity view (adr/0211): the aliases and distinct-from edges that
-// touch it, each with its origin, and what the record has seen under it. It is
-// the identity acts' answer and rides on a host's evidence read.
+// touch it, each with its origin, and what the record has seen under it. It
+// rides on a host's evidence read and in the identity acts' answer.
 const identityEdge = object({
   edge_id: str,
   other_ref: str,
@@ -359,7 +359,7 @@ const identityEdge = object({
   withdrawn: bool,
 });
 
-export const hostIdentity = object({
+const hostIdentity = object({
   aliases: list(identityEdge),
   distinct: list(identityEdge),
   seen_as: object({
@@ -369,6 +369,10 @@ export const hostIdentity = object({
   }),
 });
 export type RawHostIdentity = Decoded<typeof hostIdentity>;
+
+// An identity act's answer: a 200 means the act is recorded; the view after
+// it is null when it could not be read, never an empty view.
+export const identityAct = object({ identity: nullable(hostIdentity) });
 
 export interface RawEvidence {
   ref: string;
