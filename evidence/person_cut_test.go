@@ -251,6 +251,11 @@ func TestFindPersons_Representative(t *testing.T) {
 	}
 }
 
+// ends is a cut edge's id and ends, its origin left out.
+func ends(c CutEdge) CutEdge {
+	return CutEdge{EdgeID: c.EdgeID, AccountRef: c.AccountRef, PersonRef: c.PersonRef}
+}
+
 // TestCut_ViewNamesTheEdge (adr/0324): a cut row names the distinct-from that
 // cuts it and its two ends, so the row that shows the cut can withdraw it,
 // when the cut was asserted on an account aliased to the row's (the login's
@@ -296,7 +301,7 @@ func TestCut_ViewNamesTheEdge(t *testing.T) {
 		if o.AccountRef == string(sid2) {
 			want = CutEdge{EdgeID: recycled, AccountRef: string(sid2), PersonRef: string(john)}
 		}
-		if o.Cut != (want.EdgeID != "") || o.CutBy != want {
+		if o.Cut != (want.EdgeID != "") || ends(o.CutBy) != want {
 			t.Errorf("owner from %s: cut %v by %+v; want %+v", o.AccountRef, o.Cut, o.CutBy, want)
 		}
 	}
@@ -306,14 +311,70 @@ func TestCut_ViewNamesTheEdge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pv.Accounts) != 1 || !pv.Accounts[0].Cut || pv.Accounts[0].CutBy != want {
+	if len(pv.Accounts) != 1 || !pv.Accounts[0].Cut || ends(pv.Accounts[0].CutBy) != want {
 		t.Errorf("P2's accounts = %+v; want the account cut by %+v", pv.Accounts, want)
 	}
 	av, err := s.AccountIdentity(ctx, string(acct))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(av.Owners) != 1 || !av.Owners[0].Cut || av.Owners[0].CutBy != want {
+	if len(av.Owners) != 1 || !av.Owners[0].Cut || ends(av.Owners[0].CutBy) != want {
 		t.Errorf("account owners = %+v; want the edge to P2 cut by %+v", av.Owners, want)
+	}
+}
+
+// TestCut_ViewCarriesTheAssertion (adr/0324): a cut row reached through an
+// alias carries the cutting assertion's author, time and note.
+func TestCut_ViewCarriesTheAssertion(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	acct, p1, p2 := stixID(identity.TypeUserAccount), stixID(identity.TypeIdentity), stixID(identity.TypeIdentity)
+	persistObjects(t, s, []capability.SCO{accountSCO(acct), personSCO(p1, nil), personSCO(p2, nil)},
+		observedRel(capability.RelAliases, p1, p2), observedRel(capability.RelBelongsTo, acct, p2))
+	if err := s.AssertDistinct(ctx, testIDs, string(acct), string(p1), ana, "the badge photo is someone else"); err != nil {
+		t.Fatal(err)
+	}
+	pv, err := s.PersonIdentity(ctx, string(p2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pv.Accounts) != 1 {
+		t.Fatalf("P2's accounts = %+v", pv.Accounts)
+	}
+	c := pv.Accounts[0].CutBy
+	if c.By != ana.ID || c.ByName != ana.Name || c.Note != "the badge photo is someone else" || c.At.IsZero() {
+		t.Errorf("cut by = %+v; want Ana's assertion with its note and time", c)
+	}
+}
+
+// TestPersonIdentity_WalksAliasedPersons (adr/0324): a person aliased to the
+// owner lists the owner's account, as a read of it walks it, with the edge's
+// own person end and the account's alias set.
+func TestPersonIdentity_WalksAliasedPersons(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	a, login, p1, p2 := stixID(identity.TypeUserAccount), stixID(identity.TypeUserAccount), stixID(identity.TypeIdentity), stixID(identity.TypeIdentity)
+	persistObjects(t, s, []capability.SCO{accountSCO(a), accountSCO(login), personSCO(p1, nil), personSCO(p2, nil)},
+		observedRel(capability.RelAliases, p1, p2), observedRel(capability.RelBelongsTo, a, p2), observedRel(capability.RelAliases, login, a))
+	pv, err := s.PersonIdentity(ctx, string(p1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pv.Accounts) != 1 || pv.Accounts[0].AccountRef != string(a) || pv.Accounts[0].PersonRef != string(p2) {
+		t.Fatalf("P1's accounts = %+v; want A, attached to P2", pv.Accounts)
+	}
+	got := slices.Clone(pv.Accounts[0].AccountAliases)
+	slices.Sort(got)
+	want := []string{string(a), string(login)}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("A's alias set = %v; want %v", got, want)
+	}
+	set, err := s.PersonAccountSet(ctx, string(p1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(set, string(a)) {
+		t.Errorf("PersonAccountSet(P1) = %v; the view lists an account the read does not walk", set)
 	}
 }

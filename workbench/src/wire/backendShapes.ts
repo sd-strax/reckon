@@ -388,6 +388,10 @@ const belongsTo = {
   cut_edge_id: optional(str),
   cut_account_ref: optional(str),
   cut_person_ref: optional(str),
+  cut_by: optional(str),
+  cut_by_name: optional(str),
+  cut_at: optional(str),
+  cut_note: optional(str),
 };
 
 const accountIdentity = object({
@@ -405,7 +409,7 @@ export type RawAccountIdentity = Decoded<typeof accountIdentity>;
 const personIdentity = object({
   aliases: list(identityEdge),
   distinct: list(identityEdge),
-  accounts: list(object({ account_ref: str, ...belongsTo })),
+  accounts: list(object({ account_ref: str, person_ref: str, account_aliases: list(str), ...belongsTo })),
 });
 export type RawPersonIdentity = Decoded<typeof personIdentity>;
 

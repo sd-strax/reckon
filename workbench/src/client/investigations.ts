@@ -116,10 +116,11 @@ export class InvestigationsClient {
    * derives the title — the workbench never handles ids. Title is optional; the
    * server derives it from the seed's display line. `entityKind` is the
    * analyst's kind for an entity token, host, account or person (adr/0324);
-   * absent, the server defaults it from the token's shape.
+   * absent, the server defaults it from the token's shape. `accountRef`
+   * seeds on a persisted account the server listed, by its ref.
    */
-  async createFromInput(value: string, kind: string, title?: string, allowUnknown?: boolean, entityKind?: string): Promise<InvestigationDetail> {
-    const body: Record<string, unknown> = { seed_input: { value, kind, allow_unknown: allowUnknown || undefined, entity_kind: entityKind || undefined } };
+  async createFromInput(value: string, kind: string, title?: string, allowUnknown?: boolean, entityKind?: string, accountRef?: string): Promise<InvestigationDetail> {
+    const body: Record<string, unknown> = { seed_input: { value, kind, allow_unknown: allowUnknown || undefined, entity_kind: entityKind || undefined, account_ref: accountRef || undefined } };
     if (title) body.title = title;
     return mapCreated(await this.http.post("/api/investigations", body, shapes.created));
   }

@@ -134,6 +134,9 @@ type fakeEvidence struct {
 	identityErr error
 	// objects, when set, answers Object by ref (absent: not found).
 	objects map[string]evidence.Object
+	// objectsByUUID makes Object look a ref up by its uuid alone, whatever
+	// its type prefix, as the store does.
+	objectsByUUID bool
 	// The identity acts the store was asked for, and what they answer.
 	acts         []identityAct
 	actErr       error
@@ -148,6 +151,8 @@ type fakeEvidence struct {
 	accountsByName  map[string][]evidence.AccountMatch
 	personsByName   map[string][]string
 	entitySets      map[string][]string
+	// aliasSets, when it holds a ref, answers AliasSet for it (else aliases).
+	aliasSets map[string][]string
 }
 
 // identityAct is one assertion or withdrawal the fake recorded.
@@ -199,6 +204,15 @@ func (f *fakeEvidence) Call(context.Context, uuid.UUID, uuid.UUID) (evidence.Cal
 	return evidence.CallRecord{}, f.err
 }
 func (f *fakeEvidence) Object(_ context.Context, ref string) (evidence.Object, error) {
+	if f.objects != nil && f.objectsByUUID {
+		_, id, _ := strings.Cut(ref, "--")
+		for k, o := range f.objects {
+			if _, kid, _ := strings.Cut(k, "--"); kid == id {
+				return o, f.err
+			}
+		}
+		return evidence.Object{}, evidence.ErrNotFound
+	}
 	if f.objects != nil {
 		o, ok := f.objects[ref]
 		if !ok {
@@ -218,6 +232,9 @@ func (f *fakeEvidence) IndicatorNeighbourhood(context.Context, evidence.Object) 
 	return evidence.Neighbourhood{}, f.err
 }
 func (f *fakeEvidence) AliasSet(_ context.Context, ref string) ([]string, error) {
+	if set, ok := f.aliasSets[ref]; ok {
+		return set, f.err
+	}
 	if errors.Is(f.err, evidence.ErrNotFound) {
 		return []string{ref}, nil // the store never reports a ref unknown: it is its own set
 	}
@@ -252,8 +269,15 @@ func (f *fakeEvidence) PersonIdentity(_ context.Context, ref string) (evidence.P
 func (f *fakeEvidence) AssertOwner(_ context.Context, _ *identity.Resolver, account, person string, by evidence.Asserter, note string) error {
 	return f.assert("owner", account, person, by, note)
 }
-func (f *fakeEvidence) FindAccounts(_ context.Context, token string, _ int) ([]evidence.AccountMatch, error) {
-	return f.accountsByName[token], f.err
+
+// FindAccounts answers accountsByName[token], the first limit of them when
+// limit is positive, as the store bounds them.
+func (f *fakeEvidence) FindAccounts(_ context.Context, token string, limit int) ([]evidence.AccountMatch, error) {
+	all := f.accountsByName[token]
+	if limit > 0 && len(all) > limit {
+		all = all[:limit]
+	}
+	return all, f.err
 }
 func (f *fakeEvidence) FindPersons(_ context.Context, token string) ([]string, error) {
 	return f.personsByName[token], f.err

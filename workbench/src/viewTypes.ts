@@ -293,6 +293,11 @@ export interface CutEdge {
   edgeId: string;
   accountRef: string;
   personRef: string;
+  /** The assertion's origin: who made it, when, the note. */
+  by?: string;
+  byName?: string;
+  at?: string;
+  note?: string;
 }
 
 /** An account's identity as the record holds it (adr/0324). */
@@ -304,9 +309,17 @@ export interface AccountIdentity {
   owners: OwnerEdge[];
 }
 
-/** One account attached to a person, with the record or person that attached it (adr/0324). */
+/**
+ * One account attached to a person of the person's alias set, with the
+ * record or person that attached it (adr/0324): the accounts a read of the
+ * person walks. `personRef` is the edge's person end, the person in view or
+ * one aliased to it; `accountAliases` is the account's alias set, itself
+ * included.
+ */
 export interface PersonAccountEdge {
   accountRef: string;
+  personRef: string;
+  accountAliases: string[];
   edgeId: string;
   kind: "observed" | "asserted";
   source?: string;

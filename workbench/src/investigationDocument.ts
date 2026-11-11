@@ -264,7 +264,7 @@ export class InvestigationDocuments implements DocumentHost {
       ready: () => this.opened(ref, panel),
       refresh: () => this.opened(ref, panel),
       "seed.submit": (msg) => {
-        void this.draft.seedDraft(ref, panel, { value: msg.value, kind: msg.kind, allowUnknown: msg.allowUnknown, entityKind: msg.entityKind });
+        void this.draft.seedDraft(ref, panel, { value: msg.value, kind: msg.kind, allowUnknown: msg.allowUnknown, entityKind: msg.entityKind, accountRef: msg.accountRef });
       },
       "seed.alert": (msg) => {
         void this.draft.seedDraft(ref, panel, { alertId: msg.alertId, source: msg.source });

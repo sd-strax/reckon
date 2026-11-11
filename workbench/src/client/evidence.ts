@@ -31,9 +31,12 @@ export function mapIdentity(r: RawHostIdentity): HostIdentity {
 }
 
 /** The cutting edge a cut row names, when the wire carries all of it. */
-function cutBy(r: { cut: boolean; cut_edge_id?: string; cut_account_ref?: string; cut_person_ref?: string }): { cutBy?: CutEdge } {
+function cutBy(r: {
+  cut: boolean; cut_edge_id?: string; cut_account_ref?: string; cut_person_ref?: string;
+  cut_by?: string; cut_by_name?: string; cut_at?: string; cut_note?: string;
+}): { cutBy?: CutEdge } {
   return r.cut && r.cut_edge_id && r.cut_account_ref && r.cut_person_ref
-    ? { cutBy: { edgeId: r.cut_edge_id, accountRef: r.cut_account_ref, personRef: r.cut_person_ref } }
+    ? { cutBy: { edgeId: r.cut_edge_id, accountRef: r.cut_account_ref, personRef: r.cut_person_ref, by: r.cut_by, byName: r.cut_by_name, at: r.cut_at, note: r.cut_note } }
     : {};
 }
 
@@ -57,7 +60,7 @@ export function mapPersonIdentity(r: RawPersonIdentity): PersonIdentity {
     aliases: r.aliases.map(mapEdge),
     distinct: r.distinct.map(mapEdge),
     accounts: r.accounts.map((a) => ({
-      accountRef: a.account_ref, edgeId: a.edge_id, kind: originKind(a.kind),
+      accountRef: a.account_ref, personRef: a.person_ref, accountAliases: a.account_aliases.length ? a.account_aliases : [a.account_ref], edgeId: a.edge_id, kind: originKind(a.kind),
       source: a.source, by: a.by, byName: a.by_name, at: a.at, note: a.note, withdrawn: a.withdrawn, cut: a.cut,
       ...cutBy(a),
     })),

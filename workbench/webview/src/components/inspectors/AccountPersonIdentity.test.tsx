@@ -26,6 +26,10 @@ const personD = "identity--00000000-0000-4000-8000-0000000000d4";
 const personE = "identity--00000000-0000-4000-8000-0000000000e5";
 const personF = "identity--00000000-0000-4000-8000-0000000000f6";
 const personG = "identity--00000000-0000-4000-8000-0000000000a7";
+const personH = "identity--00000000-0000-4000-8000-0000000000a8";
+const acct3 = "user-account--00000000-0000-4000-8000-000000000013";
+const acct3login = "user-account--00000000-0000-4000-8000-000000000014";
+const hostY = "x-host--00000000-0000-4000-8000-0000000000f2";
 const at = "2026-01-02T03:04:05Z";
 
 function accountView(owners = true): AccountIdentity {
@@ -56,10 +60,12 @@ const personView: PersonIdentity = {
     { edgeId: "relationship--pcut", otherRef: acct2, kind: "asserted", by: "u-2", byName: "Ben Analyst", at, withdrawn: false },
   ],
   accounts: [
-    { accountRef: acct, edgeId: "relationship--o1", kind: "observed", source: "idp", at, withdrawn: false, cut: false },
-    { accountRef: acct2, edgeId: "relationship--p2", kind: "observed", source: "idp", at, withdrawn: false, cut: true, cutBy: { edgeId: "relationship--pcut", accountRef: acct2, personRef: personA } },
+    { accountRef: acct, personRef: personA, accountAliases: [acct], edgeId: "relationship--o1", kind: "observed", source: "idp", at, withdrawn: false, cut: false },
+    { accountRef: acct2, personRef: personA, accountAliases: [acct2], edgeId: "relationship--p2", kind: "observed", source: "idp", at, withdrawn: false, cut: true, cutBy: { edgeId: "relationship--pcut", accountRef: acct2, personRef: personA } },
     // Cut by an edge against a person aliased to this one, on an account aliased to the row's.
-    { accountRef: other, edgeId: "relationship--p3", kind: "observed", source: "idp", at, withdrawn: false, cut: true, cutBy: { edgeId: "relationship--pvia", accountRef: alias, personRef: personB } },
+    { accountRef: other, personRef: personA, accountAliases: [other], edgeId: "relationship--p3", kind: "observed", source: "idp", at, withdrawn: false, cut: true, cutBy: { edgeId: "relationship--pvia", accountRef: alias, personRef: personB, by: "u-2", byName: "Ben Analyst", at, note: "the login was recycled" } },
+    // Attached to a person aliased to this one: the account a read of this person walks, with an alias of its own.
+    { accountRef: acct3, personRef: personH, accountAliases: [acct3, acct3login], edgeId: "relationship--p4", kind: "observed", source: "idp", at, withdrawn: false, cut: false },
   ],
 };
 
@@ -72,7 +78,10 @@ function mount(view: AccountIdentity = accountView()) {
   const data: HarnessSnapshot = {
     ...base,
     // One retrieved event names the account and a host the person's section lists.
-    snapshot: { ...base.snapshot, events: [...base.snapshot.events!, { ...event, id: "2c3d4e5f-6071-4283-94a5-b6c7d8e9f0a1", entityRefs: [acct, hostX] }] },
+    snapshot: { ...base.snapshot, events: [...base.snapshot.events!,
+      { ...event, id: "2c3d4e5f-6071-4283-94a5-b6c7d8e9f0a1", entityRefs: [acct, hostX] },
+      // An event that names an alias of an account a person aliased to this one owns.
+      { ...event, id: "3d4e5f60-7182-4394-a5b6-c7d8e9f0a1b2", entityRefs: [acct3login, hostY] }] },
     docs: {
       ...base.docs,
       [acct]: { ref: acct, kind: "stix", type: "user-account", payload: { type: "user-account", properties: { account_login: "CONTOSO\\jdoe" } }, accountIdentity: view },
@@ -80,7 +89,7 @@ function mount(view: AccountIdentity = accountView()) {
       [personB]: personDoc(personB),
       [personC]: { ref: personC, kind: "stix", type: "identity", payload: { type: "identity", properties: { name: "a vendor" } } },
     },
-    labels: { ...base.labels, [personA]: "Jane Doe", [hostX]: "ws-jane" },
+    labels: { ...base.labels, [personA]: "Jane Doe", [personH]: "J. Doe (hr)", [hostX]: "ws-jane", [hostY]: "ws-jane-2" },
   };
   const transport = new HarnessTransport(data);
   render(<AppProvider transport={transport}><App /></AppProvider>);
@@ -282,6 +291,26 @@ describe("a person's identity in the inspector (adr/0324)", () => {
     const back = transport.intents.length;
     fireEvent.click(within(pane()).getByText("‹ back"));
     expect(transport.intents.slice(back)).toContainEqual({ type: "inspector.open", target: { kind: "ref", ref: acct } });
+  });
+
+  it("lists an account attached to an aliased person with a via chip, acts on the row's own ends, and counts hosts its aliases name", () => {
+    const transport = mount();
+    openPerson();
+    const row = edge("relationship--p4");
+    expect(within(row).getByText(/^via/).querySelector(`[data-ref="${personH}"]`)).toBeTruthy();
+    expect(within(edge("relationship--o1")).queryByText(/^via/)).toBeNull(); // the pane's own edge
+    fireEvent.click(within(row).getByText("Not this person's…"));
+    fireEvent.click(within(within(pane()).getByRole("form", { name: "Not this person's account" })).getByText("Cut"));
+    expect(lastAct(transport)).toEqual({ type: "identity.assert", ref: acct3, requestId: expect.any(String), relation: "distinct", other: { ref: personH } });
+    expect(within(pane()).getByText("ws-jane-2")).toBeTruthy();
+  });
+
+  it("shows who cut an account, when and why, on the row the cut reaches through an alias", () => {
+    mount();
+    openPerson();
+    const r = edge("relationship--p3");
+    expect(within(r).getByText(/^cut by Ben Analyst · /)).toBeTruthy();
+    expect(within(r).getByText("“the login was recycled”")).toBeTruthy();
   });
 
   it("reaches a cut asserted against an aliased person on an aliased account from the account's row", () => {

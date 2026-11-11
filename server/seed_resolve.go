@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -263,6 +264,56 @@ func (b *Backend) resolvePersonSeed(r *http.Request, value string) (seedResoluti
 	}, http.StatusOK, nil
 }
 
+// resolveAccountRefSeed seeds on a persisted user-account named by its ref
+// (adr/0324), the candidate an unknown-account report listed: the entity is
+// the ref, and the identifier and the display line are the record's login
+// and type, never the ref (the typed value when the record has neither a
+// login nor an identifier). A ref that is not a user-account is 400; one the
+// record does not hold as a user-account, unknown or another type's uuid, is
+// 404.
+func (b *Backend) resolveAccountRefSeed(r *http.Request, ref, typed string) (seedResolution, int, error) {
+	canon, typ, ok := evidence.CanonicalEntityRef(ref)
+	if !ok || typ != identity.TypeUserAccount {
+		return seedResolution{}, http.StatusBadRequest, fmt.Errorf("account_ref must be a user-account ref")
+	}
+	if b.cfg.Evidence == nil {
+		return seedResolution{}, http.StatusServiceUnavailable, fmt.Errorf("evidence store not configured: no account can be looked up")
+	}
+	// The record is read by uuid: the object under it must itself be an
+	// account, and any other is answered as an unknown ref is, so a probe
+	// learns nothing about what else the record holds.
+	obj, err := b.cfg.Evidence.Object(r.Context(), canon)
+	switch {
+	case errors.Is(err, evidence.ErrNotFound) || (err == nil && obj.Type != identity.TypeUserAccount):
+		return seedResolution{}, http.StatusNotFound, fmt.Errorf("no account known by that ref")
+	case err != nil:
+		return seedResolution{}, http.StatusInternalServerError, fmt.Errorf("read account: %w", err)
+	}
+	var p struct {
+		Properties struct {
+			Login  string `json:"account_login"`
+			Type   string `json:"account_type"`
+			UserID string `json:"user_id"`
+		} `json:"properties"`
+	}
+	_ = json.Unmarshal(obj.Payload, &p)
+	name := strings.TrimSpace(p.Properties.Login)
+	if name == "" {
+		name = strings.TrimSpace(p.Properties.UserID)
+	}
+	if name == "" {
+		name = strings.TrimSpace(typed) // what the analyst sees in the box
+	}
+	display := "account " + name
+	if t := strings.TrimSpace(p.Properties.Type); t != "" {
+		display += " (" + t + ")"
+	}
+	return seedResolution{
+		Seed:    aggregate.Seed{Type: aggregate.SeedEntity, EntityRef: canon, EntityIdentifier: name},
+		Display: display,
+	}, http.StatusOK, nil
+}
+
 // preferSignInAccount settles an account seed on a principal name the record
 // holds only as an identity provider's sign-in (adr/0324): when the domain
 // account the token mints is not persisted and every account the record holds
@@ -276,7 +327,8 @@ func (b *Backend) preferSignInAccount(r *http.Request, s seedResolution) seedRes
 	if _, err := b.cfg.Evidence.Object(r.Context(), s.Seed.EntityRef); !errors.Is(err, evidence.ErrNotFound) {
 		return s
 	}
-	matches, err := b.cfg.Evidence.FindAccounts(r.Context(), s.Seed.EntityIdentifier, 10)
+	// Every match: "one alias set" is decided over all of them.
+	matches, err := b.cfg.Evidence.FindAccounts(r.Context(), s.Seed.EntityIdentifier, 0)
 	if err != nil || len(matches) == 0 {
 		return s
 	}
@@ -315,7 +367,8 @@ func (b *Backend) unknownAccount(r *http.Request, s seedResolution) (bool, strin
 	if err == nil || !errors.Is(err, evidence.ErrNotFound) {
 		return false, "", nil
 	}
-	matches, err := b.cfg.Evidence.FindAccounts(r.Context(), s.Seed.EntityIdentifier, 10)
+	// Every match is counted; the list shown is bounded (candidateCap).
+	matches, err := b.cfg.Evidence.FindAccounts(r.Context(), s.Seed.EntityIdentifier, 0)
 	if err != nil {
 		return false, "", nil
 	}
@@ -323,7 +376,8 @@ func (b *Backend) unknownAccount(r *http.Request, s seedResolution) (bool, strin
 	if len(matches) > 0 {
 		msg = fmt.Sprintf("no account %q of that kind in the record; the record has %d account(s) under that name — seed on one, or start anyway", s.Seed.EntityIdentifier, len(matches))
 	}
-	return true, msg, matches
+	shown, _ := capped(matches)
+	return true, msg, shown
 }
 
 // unknownHost asks the tenant's host inventory whether a host seed exists

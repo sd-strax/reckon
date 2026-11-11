@@ -115,8 +115,8 @@ func TestWireFixtures(t *testing.T) {
 			Aliases:  []IdentityEdgeView{},
 			Distinct: []IdentityEdgeView{{EdgeID: "relationship--15", OtherRef: "identity--16", Kind: evidence.IdentityAsserted, By: "u-2", ByName: "Ben Analyst", At: at, Note: "namesakes"}},
 			Accounts: []PersonAccountView{
-				{AccountRef: "user-account--10", EdgeID: "relationship--12", Kind: evidence.IdentityObserved, Source: "idp", At: at},
-				{AccountRef: "user-account--17", EdgeID: "relationship--18", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Note: "same desk"},
+				{AccountRef: "user-account--10", PersonRef: "identity--11", AccountAliases: []string{"user-account--10", "user-account--9"}, EdgeID: "relationship--12", Kind: evidence.IdentityObserved, Source: "idp", At: at},
+				{AccountRef: "user-account--17", PersonRef: "identity--19", AccountAliases: []string{"user-account--17"}, EdgeID: "relationship--18", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Note: "same desk"},
 			},
 		}
 	})

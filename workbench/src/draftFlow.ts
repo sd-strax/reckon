@@ -72,7 +72,7 @@ export class DraftFlow {
   async seedDraft(
     ref: { id: string },
     panel: vscode.WebviewPanel,
-    seed: { value?: string; kind?: string; alertId?: string; source?: string; allowUnknown?: boolean; entityKind?: SeedEntityKind },
+    seed: { value?: string; kind?: string; alertId?: string; source?: string; allowUnknown?: boolean; entityKind?: SeedEntityKind; accountRef?: string },
   ): Promise<void> {
     // Second line of the double-submit defense (the webview also guards): once
     // this draft key has a create in flight, or has already been re-keyed to a
@@ -86,7 +86,7 @@ export class DraftFlow {
       await this.createOrOpen(
         () => seed.alertId !== undefined
           ? this.host.client.investigations.create("", { type: "alert", alertId: seed.alertId, source: seed.source })
-          : this.host.client.investigations.createFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown, seed.entityKind),
+          : this.host.client.investigations.createFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown, seed.entityKind, seed.accountRef),
         (created) => {
           // A panel closed meanwhile stays closed: the create cannot be recalled,
           // so the investigation surfaces through the trees and opens from there.

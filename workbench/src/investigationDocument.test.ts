@@ -921,7 +921,13 @@ describe("InvestigationDocuments: a seed's entity kind (adr/0324)", () => {
     docs.showDraft();
     createdPanels()[0]!.webview.receive({ type: "seed.submit", value: "jdoe", kind: "entity", entityKind: "account" });
     await vi.waitFor(() => expect(seen).toHaveLength(1));
-    expect(seen[0]).toEqual(["jdoe", "entity", undefined, undefined, "account"]);
+    expect(seen[0]).toEqual(["jdoe", "entity", undefined, undefined, "account", undefined]);
+    // A listed account is seeded by its ref.
+    const second = documents(client).docs;
+    second.showDraft();
+    createdPanels().at(-1)!.webview.receive({ type: "seed.submit", value: "root", kind: "entity", accountRef: "user-account--7" });
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1]).toEqual(["root", "entity", undefined, undefined, undefined, "user-account--7"]);
   });
 
   it("lists the accounts the record holds under an unknown account's name, and keeps start anyway", async () => {

@@ -93,11 +93,13 @@ describe("an account's and a person's identity views (adr/0324)", () => {
     const onAccount = await filled.assertIdentity("user-account--a", "aliases", { hint: "jdoe" });
     expect(Object.keys(onAccount!)).toEqual(["accountIdentity"]);
     expect(onAccount?.accountIdentity?.owners[0]?.cut).toBe(true);
-    expect(onAccount?.accountIdentity?.owners[0]?.cutBy).toEqual({ edgeId: "x", accountRef: "x", personRef: "x" });
+    expect(onAccount?.accountIdentity?.owners[0]?.cutBy).toEqual({ edgeId: "x", accountRef: "x", personRef: "x", by: "x", byName: "x", at: "2026-01-02T03:04:05Z", note: "x" });
     const onPerson = await filled.withdrawIdentity("relationship--5", "identity--p");
     expect(Object.keys(onPerson!)).toEqual(["personIdentity"]);
     expect(onPerson?.personIdentity?.accounts[0]?.cut).toBe(true);
-    expect(onPerson?.personIdentity?.accounts[0]?.cutBy).toEqual({ edgeId: "x", accountRef: "x", personRef: "x" });
+    expect(onPerson?.personIdentity?.accounts[0]?.personRef).toBe("x");
+    expect(onPerson?.personIdentity?.accounts[0]?.accountAliases).toEqual(["x"]);
+    expect(onPerson?.personIdentity?.accounts[0]?.cutBy).toEqual({ edgeId: "x", accountRef: "x", personRef: "x", by: "x", byName: "x", at: "2026-01-02T03:04:05Z", note: "x" });
     const zero = client(fixture("identityAct.zero")).e;
     expect(await zero.assertIdentity("user-account--a", "distinct", { ref: "identity--p" })).toBeNull();
     expect(await zero.assertOwner("user-account--a", { personHint: "jdoe@contoso.example" })).toBeNull();

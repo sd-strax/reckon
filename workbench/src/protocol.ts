@@ -311,7 +311,9 @@ export type InboundMessage =
   // The seed surface (design/ui/02 §2.7): the analyst's confirmed root.
   // entityKind is the analyst's kind for an entity token (adr/0324); absent
   // for a question, an address and a hash.
-  | { type: "seed.submit"; value: string; kind: string; allowUnknown?: boolean; entityKind?: SeedEntityKind }
+  // accountRef seeds on a persisted account the server listed (knownAccounts),
+  // by its ref: value is then only what the analyst sees.
+  | { type: "seed.submit"; value: string; kind: string; allowUnknown?: boolean; entityKind?: SeedEntityKind; accountRef?: string }
   | { type: "seed.alert"; alertId: string; source: string }
   | { type: "seed.caseSearch"; filter: string; queue?: string }
   | { type: "seed.case"; caseNumber: string }

@@ -41,7 +41,7 @@ describe("decode", () => {
     expect(() => decode("x", backend.identityAct, { account_identity: account })).toThrow("identity missing");
     expect(() => decode("x", backend.identityAct, { identity: null, account_identity: { ...account, owners: [{ person_ref: "identity--1" }] } }))
       .toThrow("account_identity.owners[0].account_ref missing");
-    expect(() => decode("x", backend.identityAct, { identity: null, person_identity: { aliases: [], distinct: [], accounts: [{ account_ref: "a", edge_id: "e", kind: "observed", at: "t", withdrawn: false }] } }))
+    expect(() => decode("x", backend.identityAct, { identity: null, person_identity: { aliases: [], distinct: [], accounts: [{ account_ref: "a", person_ref: "p", account_aliases: ["a"], edge_id: "e", kind: "observed", at: "t", withdrawn: false }] } }))
       .toThrow("person_identity.accounts[0].cut missing");
   });
 

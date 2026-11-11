@@ -16,7 +16,9 @@ import { Section } from "./primitives";
 
 type FormKind =
   | { act: "aliases" | "distinct" }
-  | { act: "cut"; accountRef: string; at: string }
+  // An act from a row is sent on the row's own ends: its account, and the
+  // person the edge is on (the one in view, or one aliased to it).
+  | { act: "cut"; accountRef: string; personRef: string; at: string }
   | { act: "withdraw"; edgeId: string; end: string; at: string };
 
 function personSpec(refId: string, kind: FormKind): ActSpec {
@@ -28,7 +30,7 @@ function personSpec(refId: string, kind: FormKind): ActSpec {
       // scope is the account's (adr/0324).
       return {
         title: "Not this person's account", confirm: "Cut", actRef: kind.accountRef,
-        message: (requestId, _other, note) => ({ type: "identity.assert", ref: kind.accountRef, requestId, relation: "distinct", other: { ref: refId }, note }),
+        message: (requestId, _other, note) => ({ type: "identity.assert", ref: kind.accountRef, requestId, relation: "distinct", other: { ref: kind.personRef }, note }),
       };
     default: {
       const relation = kind.act;
@@ -49,6 +51,8 @@ function personSpec(refId: string, kind: FormKind): ActSpec {
  * never a read of its own.
  */
 function hostsUsed(events: { entityRefs: string[] }[], accounts: Set<string>): string[] {
+  // accounts holds every account of each live row's alias set: an event that
+  // names an alias of an owned account is that account's.
   const out: string[] = [];
   for (const e of events) {
     if (!e.entityRefs.some((r) => accounts.has(r))) continue;
@@ -75,7 +79,7 @@ export function PersonIdentitySection({ refId, identity }: { refId: string; iden
   // attached here) are listed on their own, so none is hidden.
   const placed = new Set(accounts.flatMap((a) => (a.cut && a.cutBy ? [a.cutBy.edgeId] : [])));
   const unplaced = accountApart.filter((d) => !placed.has(d.edgeId));
-  const live = new Set(accounts.filter((a) => !a.withdrawn && !a.cut).map((a) => a.accountRef));
+  const live = new Set(accounts.filter((a) => !a.withdrawn && !a.cut).flatMap((a) => (a.accountAliases.length ? a.accountAliases : [a.accountRef])));
   // Over the events the webview holds, and says so when they are a page of more.
   const held = state.snap?.events ?? [];
   const total = state.snap?.eventsTotal ?? held.length;
@@ -103,10 +107,12 @@ export function PersonIdentitySection({ refId, identity }: { refId: string; iden
             const at = rowKey(a);
             return (
               <div key={at}>
-                <EdgeRow e={a} other={a.accountRef} onWithdraw={withdraw(a, at)}>
-                  {a.cut ? <CutMark cutBy={a.cutBy} accountRef={a.accountRef} personRef={refId} onWithdraw={(edgeId, end) => setForm({ act: "withdraw", edgeId, end, at })} /> : null}
+                {/* The edge's person end names the withdrawal: the person in view, or one aliased to it. */}
+                <EdgeRow e={a} other={a.accountRef} onWithdraw={() => setForm({ act: "withdraw", edgeId: a.edgeId, end: a.personRef || refId, at })}>
+                  {a.personRef && a.personRef !== refId ? <span className="imeta ivia">via <OtherEntity refId={a.personRef} /></span> : null}
+                  {a.cut ? <CutMark cutBy={a.cutBy} accountRef={a.accountRef} personRef={a.personRef || refId} onWithdraw={(edgeId, end) => setForm({ act: "withdraw", edgeId, end, at })} /> : null}
                   {a.kind === "observed" && !a.withdrawn && !a.cut
-                    ? <button className="iedgeact" title="A directory's record is not withdrawn: assert that this account is not this person's, a distinct-from on the record with your name and note" onClick={() => setForm({ act: "cut", accountRef: a.accountRef, at })}>Not this person's…</button>
+                    ? <button className="iedgeact" title="A directory's record is not withdrawn: assert that this account is not this person's, a distinct-from on the record with your name and note" onClick={() => setForm({ act: "cut", accountRef: a.accountRef, personRef: a.personRef || refId, at })}>Not this person's…</button>
                     : null}
                 </EdgeRow>
                 {formAt(at)}

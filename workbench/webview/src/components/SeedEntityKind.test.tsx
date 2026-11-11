@@ -71,7 +71,7 @@ describe("the seed's entity kind (adr/0324)", () => {
     expect(screen.queryByText("Start anyway")).toBeNull();
   });
 
-  it("lists the accounts an unknown account's name holds: a click puts the login in the box as an account, and the analyst starts", () => {
+  it("lists the accounts an unknown account's name holds: a click shows the login and seeds the listed account by its ref", () => {
     const transport = mount();
     type("jdoe");
     fireEvent.click(within(interp()).getByText("account"));
@@ -87,6 +87,22 @@ describe("the seed's entity kind (adr/0324)", () => {
     expect(interp().textContent).toContain("→ investigate account CONTOSO\\jdoe");
     expect(transport.intents.length).toBe(before);
     fireEvent.click(screen.getByText("Start investigation"));
-    expect(lastSeed(transport)).toEqual({ type: "seed.submit", value: "CONTOSO\\jdoe", kind: "entity", entityKind: "account" });
+    expect(lastSeed(transport)).toEqual({ type: "seed.submit", value: "CONTOSO\\jdoe", kind: "entity", accountRef: "user-account--1" });
+  });
+
+  it("drops the picked account's ref once the analyst edits the box", () => {
+    const transport = mount();
+    type("root");
+    fireEvent.click(screen.getByText("Start investigation"));
+    act(() => transport.emit({
+      type: "draft.error", message: "no account \"root\" of that kind in the record", unknownEntity: true,
+      knownAccounts: [{ ref: "user-account--7", accountType: "unix", accountLogin: "root" }],
+    }));
+    fireEvent.click(screen.getByText("root · unix"));
+    type("root2");
+    fireEvent.click(screen.getByText("Start investigation"));
+    const sent = lastSeed(transport) as Record<string, unknown>;
+    expect(sent.accountRef).toBeUndefined();
+    expect(sent).toEqual({ type: "seed.submit", value: "root2", kind: "entity", entityKind: "host" });
   });
 });

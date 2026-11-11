@@ -170,13 +170,18 @@ const withdrawCutTitle = "Withdraw the assertion that this account is not this p
 export function CutMark({ cutBy, accountRef, personRef, onWithdraw }: { cutBy?: CutEdge; accountRef: string; personRef: string; onWithdraw: (edgeId: string, end: string) => void }) {
   const viaAccount = cutBy && cutBy.accountRef !== accountRef ? cutBy.accountRef : undefined;
   const viaPerson = cutBy && cutBy.personRef !== personRef ? cutBy.personRef : undefined;
+  // Who said so, when, and why: the cutting assertion's origin, on the row
+  // that shows the cut, however the cut was reached.
+  const who = cutBy ? (cutBy.byName || cutBy.by ? `cut by ${cutBy.byName || cutBy.by}` : "cut by a source's record") + (cutBy.at ? ` · ${fmtDay(cutBy.at)}` : "") : "";
   return (
     <>
       <span className="icut" title={cutTitle}>cut · not this person's, by assertion</span>
+      {who ? <span className="imeta icutby">{who}</span> : null}
       {viaAccount || viaPerson ? (
         <span className="imeta icutvia">cut via {viaAccount ? <OtherEntity refId={viaAccount} /> : null}{viaAccount && viaPerson ? " / " : null}{viaPerson ? <OtherEntity refId={viaPerson} /> : null}</span>
       ) : null}
       {cutBy ? <button className="iedgeact" title={withdrawCutTitle} onClick={() => onWithdraw(cutBy.edgeId, cutBy.accountRef)}>Withdraw the cut…</button> : null}
+      {cutBy?.note ? <span className="inote icutnote">“{cutBy.note}”</span> : null}
     </>
   );
 }

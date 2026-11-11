@@ -19,9 +19,11 @@ describe("createFromInput", () => {
     const c = new InvestigationsClient(http);
     await c.createFromInput("CONTOSO\\jdoe", "entity", undefined, undefined, "person");
     await c.createFromInput("WIN-FILE01", "entity");
+    await c.createFromInput("root", "entity", undefined, undefined, undefined, "user-account--7");
     expect(JSON.parse(JSON.stringify(bodies))).toEqual([
       { seed_input: { value: "CONTOSO\\jdoe", kind: "entity", entity_kind: "person" } },
       { seed_input: { value: "WIN-FILE01", kind: "entity" } },
+      { seed_input: { value: "root", kind: "entity", account_ref: "user-account--7" } },
     ]);
   });
 });

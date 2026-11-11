@@ -182,9 +182,11 @@ func (b *Backend) otherByHint(w http.ResponseWriter, r *http.Request, typ, hint 
 		case 1:
 			return persons[0], true
 		}
+		shown, more := capped(persons)
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error":   fmt.Sprintf("%q names %d persons; name one by other_ref", hint, len(persons)),
-			"persons": persons,
+			"persons": shown,
+			"more":    more,
 		})
 		return "", false
 	}
@@ -200,21 +202,38 @@ func (b *Backend) otherByHint(w http.ResponseWriter, r *http.Request, typ, hint 
 	case 1:
 		return accounts[0].Ref, true
 	}
-	listed := make([]map[string]string, 0, len(accounts))
-	for _, a := range accounts {
+	shown, more := capped(accounts)
+	listed := make([]map[string]string, 0, len(shown))
+	for _, a := range shown {
 		listed = append(listed, map[string]string{"ref": a.Ref, "account_type": a.Type, "account_login": a.Login})
 	}
 	writeJSON(w, http.StatusConflict, map[string]any{
 		"error":    fmt.Sprintf("%q names %d accounts; name one by other_ref", hint, len(accounts)),
 		"accounts": listed,
+		"more":     more,
 	})
 	return "", false
+}
+
+// candidateCap bounds the candidates a 409 lists; the decision that there
+// are several is made over every match, and the count of the rest is sent
+// beside the list.
+const candidateCap = 10
+
+// capped is the first candidateCap of all, and how many more there are.
+func capped[T any](all []T) ([]T, int) {
+	if len(all) <= candidateCap {
+		return all, 0
+	}
+	return all[:candidateCap], len(all) - candidateCap
 }
 
 // accountsByHint is the persisted accounts a hint names, one per alias set
 // (oneBySet).
 func (b *Backend) accountsByHint(ctx context.Context, hint string) ([]evidence.AccountMatch, error) {
-	matches, err := b.cfg.Evidence.FindAccounts(ctx, hint, 10)
+	// Every match: uniqueness is decided over all of them; only the list a
+	// 409 shows is bounded (candidateCap).
+	matches, err := b.cfg.Evidence.FindAccounts(ctx, hint, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -306,9 +325,11 @@ func (b *Backend) assertOwner(w http.ResponseWriter, r *http.Request) {
 		case 1:
 			person = persons[0]
 		default:
+			shown, more := capped(persons)
 			writeJSON(w, http.StatusConflict, map[string]any{
 				"error":   fmt.Sprintf("%q names %d persons; name one by person_ref", hint, len(persons)),
-				"persons": persons,
+				"persons": shown,
+				"more":    more,
 			})
 			return
 		}

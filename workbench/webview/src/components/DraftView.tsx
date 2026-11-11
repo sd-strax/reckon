@@ -19,6 +19,9 @@ export function DraftView() {
   // The analyst's kind for an entity token (adr/0324); null is the default
   // from the token's shape, as the server derives it.
   const [entityKind, setEntityKind] = useState<SeedEntityKind | null>(null);
+  // A persisted account picked from the server's list (adr/0324): seeded by
+  // its ref, never re-resolved from the login the box shows. Typing drops it.
+  const [picked, setPicked] = useState<{ ref: string; type: string } | null>(null);
   const [path, setPath] = useState<SeedPath>(d.mode === "case" ? "case" : null);
   const [alertId, setAlertId] = useState("");
   const [alertSource, setAlertSource] = useState("");
@@ -46,26 +49,29 @@ export function DraftView() {
   }, [path]);
 
   const v = value.trim();
-  const kind = effectiveDraftKind(v, override);
+  const kind = picked ? "entity" : effectiveDraftKind(v, override);
   const singleToken = !/\s/.test(v) && !v.endsWith("?");
   // The kind an entity seed is sent with: host, account or person for a
   // name; none for a question, an address or a hash.
-  const ek = kind === "entity" ? effectiveEntityKind(v, entityKind) : undefined;
-  const seedMessage = (allowUnknown?: boolean) => ({
-    type: "seed.submit" as const, value: v, kind: classifyDraft(v) ? kind : "",
-    ...(allowUnknown ? { allowUnknown } : {}), ...(ek ? { entityKind: ek } : {}),
-  });
+  const ek = kind === "entity" && !picked ? effectiveEntityKind(v, entityKind) : undefined;
+  const seedMessage = (allowUnknown?: boolean) => picked
+    ? { type: "seed.submit" as const, value: v, kind: "entity", accountRef: picked.ref, ...(allowUnknown ? { allowUnknown } : {}) }
+    : {
+      type: "seed.submit" as const, value: v, kind: classifyDraft(v) ? kind : "",
+      ...(allowUnknown ? { allowUnknown } : {}), ...(ek ? { entityKind: ek } : {}),
+    };
   const submit = () => {
     if (!v || d.submitting) return;
     dispatch({ type: "draft.submitting" });
     send(seedMessage());
   };
-  // A known account picked from a refusal: its login in the box, as an
-  // account; the analyst presses Start.
-  const pickAccount = (login: string) => {
-    setValue(login);
+  // A known account picked from a refusal: its login in the box for the
+  // analyst to see, its ref kept to seed on; the analyst presses Start.
+  const pickAccount = (a: { ref: string; accountLogin: string; accountType: string }) => {
+    setValue(a.accountLogin || a.accountType || "account");
     setOverride(null);
-    setEntityKind("account");
+    setEntityKind(null);
+    setPicked({ ref: a.ref, type: a.accountType });
     input.current?.focus();
   };
   const toggle = (p: SeedPath) => setPath((cur) => (cur === p ? null : p));
@@ -82,11 +88,13 @@ export function DraftView() {
           rows={1}
           value={value}
           placeholder="WIN-FILE01   ·   185.220.101.5   ·   a file hash   —   or a question"
-          onChange={(e) => { setValue(e.target.value); setOverride(null); setEntityKind(null); }}
+          onChange={(e) => { setValue(e.target.value); setOverride(null); setEntityKind(null); setPicked(null); }}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
         />
         <div className="draftInterp">
-          {!v ? null : kind === "entity" ? (
+          {!v ? null : picked ? (
+            <>→ investigate account <b>{v}</b> <span className="imeta">the listed {picked.type ? picked.type + " " : ""}account</span></>
+          ) : kind === "entity" ? (
             <>→ investigate {ek ?? entitySubLabel(v)} <b>{v}</b>
               {ek ? (
                 <span className="draftKinds" role="group" aria-label="What the name is">
@@ -157,7 +165,7 @@ export function DraftView() {
           {d.error && d.knownAccounts?.length ? (
             <div className="draftKnown" aria-label="Accounts the record holds under this name">
               {d.knownAccounts.map((a) => (
-                <button key={a.ref} type="button" className="linklike draftKnownAccount" title="Put this account's login in the box; then start" onClick={() => pickAccount(a.accountLogin)}>{a.accountLogin} · {a.accountType}</button>
+                <button key={a.ref} type="button" className="linklike draftKnownAccount" title="Put this account's login in the box; then start" onClick={() => pickAccount(a)}>{a.accountLogin} · {a.accountType}</button>
               ))}
             </div>
           ) : null}

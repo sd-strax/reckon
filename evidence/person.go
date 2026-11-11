@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -131,6 +132,12 @@ type CutEdge struct {
 	EdgeID     string
 	AccountRef string
 	PersonRef  string
+	// The assertion's origin: who made it, when, and the note, so a row that
+	// shows the cut shows who said so and why.
+	By     string
+	ByName string
+	At     time.Time
+	Note   string
 }
 
 // directCutEdges reads the live distinct-from edges between an account and
@@ -141,7 +148,7 @@ func (s *Store) directCutEdges(ctx context.Context, persons []string) ([]CutEdge
 		return nil, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT e.id, o.id, CASE WHEN e.source_ref = ANY($1) THEN e.source_ref ELSE e.target_ref END
+		SELECT e.id, o.id, CASE WHEN e.source_ref = ANY($1) THEN e.source_ref ELSE e.target_ref END, e.payload, e.created
 		FROM stix_edges e
 		JOIN stix_objects o ON o.tenant_id = $2 AND o.type = $3
 		  AND o.id = CASE WHEN e.source_ref = ANY($1) THEN e.target_ref ELSE e.source_ref END
@@ -156,13 +163,17 @@ func (s *Store) directCutEdges(ctx context.Context, persons []string) ([]CutEdge
 	var out []CutEdge
 	for rows.Next() {
 		var edge, acct, person uuid.UUID
-		if err := rows.Scan(&edge, &acct, &person); err != nil {
+		var payload []byte
+		var created time.Time
+		if err := rows.Scan(&edge, &acct, &person, &payload, &created); err != nil {
 			return nil, fmt.Errorf("scan cut account: %w", err)
 		}
+		origin := identityEdge(payload, created)
 		out = append(out, CutEdge{
 			EdgeID:     "relationship--" + edge.String(),
 			AccountRef: identity.TypeUserAccount + "--" + acct.String(),
 			PersonRef:  identity.TypeIdentity + "--" + person.String(),
+			By:         origin.By, ByName: origin.ByName, At: origin.At, Note: origin.Note,
 		})
 	}
 	return out, rows.Err()
@@ -396,11 +407,18 @@ func (s *Store) AccountIdentity(ctx context.Context, ref string) (AccountIdentit
 	return out, nil
 }
 
-// PersonAccount is one belongs-to edge into a person, as the person's view
-// lists it: the account and the record or person that attached it.
+// PersonAccount is one belongs-to edge into a person of the asked-for
+// person's alias set, as the person's view lists it: the account and the
+// record or person that attached it, and the edge's person end, which is
+// the asked-for person or one aliased to it.
 type PersonAccount struct {
 	IdentityEdge
 	AccountRef string
+	// PersonRef is the person end of the edge.
+	PersonRef string
+	// AccountAliases is the account's live alias set, itself included: what
+	// a read of the person walks from this account.
+	AccountAliases []string
 	// Cut is set when a live distinct-from holds the account and the person
 	// apart (adr/0324): listed, as a cut alias is, but not read.
 	Cut bool
@@ -429,21 +447,66 @@ func (s *Store) PersonIdentity(ctx context.Context, ref string) (PersonIdentityV
 	if out.Aliases, out.Distinct, err = s.identityEdges(ctx, id); err != nil {
 		return PersonIdentityView{}, err
 	}
-	edges, err := s.edgesTouching(ctx, id, []string{relBelongsTo}, edgeTarget)
+	// The accounts are those a read of the person walks (PersonAccountSet):
+	// the belongs-to edges into any person of its alias set, each listed with
+	// its own two ends and origin.
+	self := identity.TypeIdentity + "--" + id.String()
+	persons, err := s.aliasSets(ctx, []string{self})
 	if err != nil {
 		return PersonIdentityView{}, err
 	}
-	cuts, err := s.cutsFrom(ctx, identity.TypeIdentity+"--"+id.String())
+	cuts, err := s.cutsFrom(ctx, self)
 	if err != nil {
 		return PersonIdentityView{}, err
 	}
-	for _, e := range edges {
-		if strings.HasPrefix(e.OtherRef, identity.TypeUserAccount+"--") {
+	sets := map[string][]string{}
+	for _, p := range personsFirst(self, persons) {
+		pid, ok := refUUID(p)
+		if !ok || !strings.HasPrefix(p, identity.TypeIdentity+"--") {
+			continue
+		}
+		edges, err := s.edgesTouching(ctx, pid, []string{relBelongsTo}, edgeTarget)
+		if err != nil {
+			return PersonIdentityView{}, err
+		}
+		for _, e := range edges {
+			if !strings.HasPrefix(e.OtherRef, identity.TypeUserAccount+"--") {
+				continue
+			}
+			aliases, ok := sets[e.OtherRef]
+			if !ok {
+				all, err := s.aliasSets(ctx, []string{e.OtherRef})
+				if err != nil {
+					return PersonIdentityView{}, err
+				}
+				aliases = []string{}
+				for _, r := range all {
+					if strings.HasPrefix(r, identity.TypeUserAccount+"--") {
+						aliases = append(aliases, r)
+					}
+				}
+				if !slices.Contains(aliases, e.OtherRef) {
+					aliases = append(aliases, e.OtherRef)
+				}
+				sets[e.OtherRef] = aliases
+			}
 			by, cut := cuts[e.OtherRef]
-			out.Accounts = append(out.Accounts, PersonAccount{IdentityEdge: e.IdentityEdge, AccountRef: e.OtherRef, Cut: cut, CutBy: by})
+			out.Accounts = append(out.Accounts, PersonAccount{IdentityEdge: e.IdentityEdge, AccountRef: e.OtherRef, PersonRef: p, AccountAliases: aliases, Cut: cut, CutBy: by})
 		}
 	}
 	return out, nil
+}
+
+// personsFirst orders an alias set with the asked-for person first and the
+// rest as the set holds them, so its own edges list first.
+func personsFirst(self string, set []string) []string {
+	out := []string{self}
+	for _, p := range set {
+		if p != self {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // accountKeySet is what the accounts of a set were minted on, folded: the
@@ -717,12 +780,17 @@ type AccountMatch struct {
 // principal name equal to the token, case folded, or its identifier equal to
 // it under the fold the account was minted on (a cloud or LDAP id by
 // identity.FoldCloudUID, any other lowercased). It answers
-// at most limit matches, oldest first; the seed check lists them when the
-// account it would mint is not among them.
+// at most limit matches, oldest first, every match when limit is zero or
+// less: a caller that decides whether the token names one account reads
+// them all, and only the list it shows is bounded.
 func (s *Store) FindAccounts(ctx context.Context, token string, limit int) ([]AccountMatch, error) {
 	t := strings.ToLower(strings.TrimSpace(token))
 	if t == "" {
 		return []AccountMatch{}, nil
+	}
+	var bound any // NULL: LIMIT ALL
+	if limit > 0 {
+		bound = limit
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, COALESCE(payload->'properties'->>'account_type', ''), COALESCE(payload->'properties'->>'account_login', ''),
@@ -733,8 +801,8 @@ func (s *Store) FindAccounts(ctx context.Context, token string, limit int) ([]Ac
 			OR CASE WHEN payload->'properties'->>'account_type' = ANY($6::text[])
 				THEN `+userIDFoldSQL+` = $5
 				ELSE lower(payload->'properties'->>'user_id') = $3 END)
-		ORDER BY created, id LIMIT $4
-	`, module.SingleTenantUUID, identity.TypeUserAccount, t, limit, identity.FoldCloudUID(token),
+		ORDER BY created, id LIMIT $4::bigint
+	`, module.SingleTenantUUID, identity.TypeUserAccount, t, bound, identity.FoldCloudUID(token),
 		textArray([]string{identity.AccountCloud, identity.AccountLDAP}))
 	if err != nil {
 		return nil, fmt.Errorf("query accounts by name: %w", err)
@@ -769,7 +837,9 @@ func (s *Store) FindPersons(ctx context.Context, token string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
-	accounts, err := s.FindAccounts(ctx, token, 50)
+	// Every account the token names: an owner past a bound would be a
+	// person the answer never weighed.
+	accounts, err := s.FindAccounts(ctx, token, 0)
 	if err != nil {
 		return nil, err
 	}
