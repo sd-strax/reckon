@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -103,8 +104,9 @@ func (f *fakeAthena) StopQueryExecution(_ context.Context, in *athena.StopQueryE
 type fakeGlue struct {
 	err   error
 	calls []*glue.GetTableInput
-	// columns, when set, is the table's schema; otherwise every required
-	// column, accountid and region as partition keys.
+	// columns, when set, names the table's columns, typed as in
+	// fullColumns; otherwise every fullColumns column. accountid, region
+	// and time_dt are partition keys.
 	columns []string
 	// link, when set, makes the configured table a resource link to it: a
 	// GetTable without a CatalogId returns the link (no schema), one with
@@ -113,10 +115,24 @@ type fakeGlue struct {
 	targetErr error
 	// noSchema returns the table without a StorageDescriptor.
 	noSchema bool
+	// emptySchema returns a StorageDescriptor with no columns, and
+	// partitionOnly as its partition keys.
+	emptySchema   bool
+	partitionOnly []string
+	// typed, when set, is the table's columns exactly as given.
+	typed []glueColumn
+	// regions records, per call, the Region a per-call option set ("" for
+	// none).
+	regions []string
 }
 
-func (g *fakeGlue) GetTable(_ context.Context, in *glue.GetTableInput, _ ...func(*glue.Options)) (*glue.GetTableOutput, error) {
+func (g *fakeGlue) GetTable(_ context.Context, in *glue.GetTableInput, optFns ...func(*glue.Options)) (*glue.GetTableOutput, error) {
 	g.calls = append(g.calls, in)
+	var o glue.Options
+	for _, fn := range optFns {
+		fn(&o)
+	}
+	g.regions = append(g.regions, o.Region)
 	if g.err != nil {
 		return nil, g.err
 	}
@@ -129,13 +145,29 @@ func (g *fakeGlue) GetTable(_ context.Context, in *glue.GetTableInput, _ ...func
 	if g.noSchema {
 		return &glue.GetTableOutput{Table: &gluetypes.Table{Name: in.Name}}, nil
 	}
+	if g.emptySchema {
+		t := &gluetypes.Table{Name: in.Name, StorageDescriptor: &gluetypes.StorageDescriptor{}}
+		for _, k := range g.partitionOnly {
+			t.PartitionKeys = append(t.PartitionKeys, gluetypes.Column{Name: aws.String(k), Type: aws.String("string")})
+		}
+		return &glue.GetTableOutput{Table: t}, nil
+	}
+	if g.typed != nil {
+		t := &gluetypes.Table{StorageDescriptor: &gluetypes.StorageDescriptor{}}
+		for _, c := range g.typed {
+			t.StorageDescriptor.Columns = append(t.StorageDescriptor.Columns, gluetypes.Column{Name: aws.String(c.Name), Type: aws.String(c.Type), Parameters: c.Parameters})
+		}
+		return &glue.GetTableOutput{Table: t}, nil
+	}
 	cols := g.columns
 	if cols == nil {
-		cols = requiredColumns()
+		for _, c := range fullColumns {
+			cols = append(cols, c.Name)
+		}
 	}
 	t := &gluetypes.Table{StorageDescriptor: &gluetypes.StorageDescriptor{}}
 	for _, c := range cols {
-		col := gluetypes.Column{Name: aws.String(c)}
+		col := gluetypes.Column{Name: aws.String(c), Type: aws.String(fullColumnType(c))}
 		if c == "accountid" || c == "region" || c == "time_dt" {
 			t.PartitionKeys = append(t.PartitionKeys, col)
 		} else {
@@ -143,6 +175,69 @@ func (g *fakeGlue) GetTable(_ context.Context, in *glue.GetTableInput, _ ...func
 		}
 	}
 	return &glue.GetTableOutput{Table: t}, nil
+}
+
+// fullColumns is a table carrying every field the adapter may read
+// (candidateFields), typed as Glue reports them.
+var fullColumns = []glueColumn{
+	{Name: "time", Type: "bigint"},
+	{Name: "time_dt", Type: "timestamp"},
+	{Name: "activity_id", Type: "int"},
+	{Name: "activity_name", Type: "string"},
+	{Name: "status", Type: "string"},
+	{Name: "status_id", Type: "int"},
+	{Name: "actor", Type: "struct<user:struct<uid:string,name:string,credential_uid:string>,session:struct<issuer:string,credential_uid:string>>"},
+	{Name: "api", Type: "struct<operation:string,service:struct<name:string>>"},
+	{Name: "cloud", Type: "struct<region:string,provider:string>"},
+	{Name: "resources", Type: "array<struct<uid:string,name:string,type:string,region:string,zone:string,group:struct<name:string,uid:string>,namespace:string>>"},
+	{Name: "src_endpoint", Type: "struct<ip:string>"},
+	{Name: "http_request", Type: "struct<user_agent:string>"},
+	{Name: "metadata", Type: "struct<version:string,product:struct<name:string>>"},
+	{Name: "unmapped", Type: "map<string,string>"},
+	{Name: "severity_id", Type: "int"},
+	{Name: "class_uid", Type: "int"},
+	{Name: "category_uid", Type: "int"},
+	{Name: "type_uid", Type: "bigint"},
+	{Name: "accountid", Type: "string"},
+	{Name: "region", Type: "string"},
+}
+
+// fullSchema is fullColumns parsed: every candidate present.
+var fullSchema = schemaFromColumns(fullColumns)
+
+// fullColumnType is the fullColumns type of name, string for any other.
+func fullColumnType(name string) string {
+	for _, c := range fullColumns {
+		if c.Name == name {
+			return c.Type
+		}
+	}
+	return "string"
+}
+
+// schemaWithout is fullColumns without the named columns, parsed.
+func schemaWithout(names ...string) *tableSchema {
+	var cols []glueColumn
+	for _, c := range fullColumns {
+		if !slices.Contains(names, c.Name) {
+			cols = append(cols, c)
+		}
+	}
+	return schemaFromColumns(cols)
+}
+
+// profile20 is the recorded cloudtrail-mgmt-2.0 schema.
+func profile20(t *testing.T) *tableSchema {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "profiles", profileName, "schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := parseRecordedSchema(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }
 
 type fakeConfig struct {

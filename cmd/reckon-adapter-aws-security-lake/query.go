@@ -23,11 +23,12 @@ const (
 // expression, and the name the result carries.
 type column struct{ source, expr, name string }
 
-// projection is the column list every CloudTrail query reads: the scalars as
-// stored, each struct cast to JSON (which Athena engine v3 renders as an
-// object keyed by field name), and the accountid partition under a name of
-// its own, which rowToEvent uses only to supply a missing cloud.account.
-// rowToEvent reverses it.
+// projection is every column a CloudTrail query may read, in order: the
+// scalars as stored, each struct cast to JSON (which Athena engine v3
+// renders as an object keyed by field name), and the accountid column under
+// a name of its own, which rowToEvent uses only to supply a missing
+// cloud.account. A query projects the ones the table carries
+// (tableSchema.projection); rowToEvent reverses it.
 var projection = []column{
 	{"time", `"time"`, "time"},
 	{"time_dt", "time_dt", "time_dt"},
@@ -50,10 +51,10 @@ var projection = []column{
 	{"accountid", "accountid AS " + lakeAccountColumn, lakeAccountColumn},
 }
 
-// lakeAccountColumn is the result name of the projected accountid partition.
+// lakeAccountColumn is the result name of the projected accountid column.
 const lakeAccountColumn = "lake_accountid"
 
-// predicateOnlyColumns are table columns the WHERE clause reads that the
+// predicateOnlyColumns are table columns the WHERE clause may read that the
 // projection does not.
 var predicateOnlyColumns = []string{"region"}
 
@@ -61,42 +62,25 @@ func jsonColumn(name string) column {
 	return column{name, "CAST(" + name + " AS JSON) AS " + name, name}
 }
 
-// selectList is the projection as SQL.
-func selectList() string {
-	exprs := make([]string, len(projection))
-	for i, c := range projection {
-		exprs[i] = c.expr
-	}
-	return strings.Join(exprs, ", ")
-}
-
-// projectedNames are the result column names, in order.
-func projectedNames() []string {
-	out := make([]string, len(projection))
-	for i, c := range projection {
-		out[i] = c.name
-	}
-	return out
-}
-
-// requiredColumns are the table columns (top-level names, partitions
-// included) the queries read; health checks the table has every one.
-func requiredColumns() []string {
-	seen := map[string]bool{}
-	var out []string
+// projection is the projection's columns the table carries, in order.
+func (s *tableSchema) projection() []column {
+	var out []column
 	for _, c := range projection {
-		if !seen[c.source] {
-			seen[c.source] = true
-			out = append(out, c.source)
-		}
-	}
-	for _, c := range predicateOnlyColumns {
-		if !seen[c] {
-			seen[c] = true
+		if s.has(c.source) {
 			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// selectList is the table's projection as SQL.
+func (s *tableSchema) selectList() string {
+	cols := s.projection()
+	exprs := make([]string, len(cols))
+	for i, c := range cols {
+		exprs[i] = c.expr
+	}
+	return strings.Join(exprs, ", ")
 }
 
 // resourceScope is the resource a call names, with every scope key the
@@ -266,21 +250,23 @@ func tableRef(db, table string) (string, error) {
 }
 
 // activityQuery renders cloudtrail.api_activity (history false) or
-// cloudtrail.resource_history (history true). Every value is a parameter;
-// only the validated table reference and fixed predicates are SQL text.
-// History selects the newest limit rows; the caller reverses them to oldest
-// first, so a long timeline keeps its latest changes.
-func activityQuery(db, table string, accounts []string, c cloudCall, history bool) (sqlQuery, error) {
+// cloudtrail.resource_history (history true) against the table's schema.
+// Every value is a parameter; only the validated table reference and fixed
+// predicates are SQL text. History selects the newest limit rows; the caller
+// reverses them to oldest first, so a long timeline keeps its latest
+// changes. A call needing a capability the table cannot express is declined
+// with FALLTHROUGH (activityWhere).
+func activityQuery(s *tableSchema, db, table string, accounts []string, c cloudCall, history bool) (sqlQuery, error) {
 	ref, err := tableRef(db, table)
 	if err != nil {
 		return sqlQuery{}, err
 	}
-	q, err := activityWhere(accounts, c, history)
+	q, err := activityWhere(s, accounts, c, history)
 	if err != nil {
 		return sqlQuery{}, err
 	}
 	var b strings.Builder
-	b.WriteString("SELECT " + selectList() + "\n")
+	b.WriteString("SELECT " + s.selectList() + "\n")
 	b.WriteString("FROM " + ref + "\n")
 	b.WriteString("WHERE " + q.clause() + "\n")
 	b.WriteString(`ORDER BY "time" DESC` + "\n")
@@ -289,18 +275,25 @@ func activityQuery(db, table string, accounts []string, c cloudCall, history boo
 }
 
 // activityWhere is the WHERE predicates of an activity (history false) or
-// history (history true) query and their parameters, in order. The queries
-// and health's probe both build from it.
-func activityWhere(accounts []string, c cloudCall, history bool) (*queryBuilder, error) {
+// history (history true) query and their parameters, in order, each filter
+// over the candidate fields the table carries (adr/0335). A filter with no
+// candidate present declines the call with FALLTHROUGH naming the absent
+// fields: a condition is never dropped, since a limited query without it
+// answers a page that may miss what was asked for. The queries and health's
+// probe both build from it.
+func activityWhere(s *tableSchema, accounts []string, c cloudCall, history bool) (*queryBuilder, error) {
 	if history && !c.resource.given() {
 		return nil, fatal("resource history needs a resource uid or name")
+	}
+	if history && len(s.present(historyFields)) == 0 {
+		return nil, declined(capHistory, historyFields)
 	}
 	q := &queryBuilder{}
 	q.add("time_dt BETWEEN from_iso8601_timestamp(?) AND from_iso8601_timestamp(?)",
 		strLit(c.from.Format(time.RFC3339)), strLit(c.to.Format(time.RFC3339)))
 	// The table is API Activity; the lake may file some IAM operations under
-	// another class (3001 Account Change), which this predicate leaves out —
-	// a check for the first live run (adr/0322).
+	// another class (3001 Account Change), which this predicate leaves out
+	// (adr/0322).
 	q.add("class_uid = 6003")
 	if len(accounts) > 0 {
 		marks := make([]string, len(accounts))
@@ -311,35 +304,92 @@ func activityWhere(accounts []string, c cloudCall, history bool) (*queryBuilder,
 		q.add("accountid IN ("+strings.Join(marks, ", ")+")", lits...)
 	}
 	if !history {
-		if c.principalName != "" {
-			n := strLit(c.principalName)
-			q.add("(actor.user.uid = ? OR actor.session.issuer = ? OR actor.user.name = ?)", n, n, n)
-		}
-		if c.credential != "" {
-			k := strLit(c.credential)
-			q.add("(actor.user.credential_uid = ? OR actor.session.credential_uid = ?)", k, k)
+		for _, f := range []struct {
+			capName    string
+			candidates []string
+			value      string
+		}{
+			{capPrincipal, principalFields, c.principalName},
+			{capCredential, credentialFields, c.credential},
+		} {
+			if f.value == "" {
+				continue
+			}
+			if err := q.anyOf(s, f.capName, f.candidates, f.value); err != nil {
+				return nil, err
+			}
 		}
 		if c.accountUID != "" {
 			addAccount(q, c.accountUID)
 		}
-		if c.operation != "" {
-			q.add("api.operation = ?", strLit(c.operation))
+		for _, f := range []struct {
+			capName    string
+			candidates []string
+			value      string
+		}{
+			{capOperation, operationFields, c.operation},
+			{capService, serviceFields, c.service},
+		} {
+			if f.value == "" {
+				continue
+			}
+			if err := q.anyOf(s, f.capName, f.candidates, f.value); err != nil {
+				return nil, err
+			}
 		}
-		if c.service != "" {
-			q.add("api.service.name = ?", strLit(c.service))
-		}
-		switch c.outcome {
-		case "SUCCESS":
-			q.add("status_id = 1")
-		case "FAILURE":
-			q.add("status_id = 2")
+		if err := addOutcome(q, s, c.outcome); err != nil {
+			return nil, err
 		}
 	}
-	addResource(q, c.resource)
+	if err := addResource(q, s, c.resource); err != nil {
+		return nil, err
+	}
 	if history {
 		q.add("activity_id IN (1, 3, 4)")
 	}
 	return q, nil
+}
+
+// anyOf adds `candidate = value` over the candidates the table carries,
+// joined with OR; with none present the call is declined.
+func (q *queryBuilder) anyOf(s *tableSchema, capName string, candidates []string, value string) error {
+	have := s.present(candidates)
+	if len(have) == 0 {
+		return declined(capName, candidates)
+	}
+	conds := make([]string, len(have))
+	args := make([]string, len(have))
+	for i, f := range have {
+		conds[i], args[i] = f+" = ?", strLit(value)
+	}
+	if len(conds) == 1 {
+		q.add(conds[0], args...)
+		return nil
+	}
+	q.add("("+strings.Join(conds, " OR ")+")", args...)
+	return nil
+}
+
+// addOutcome filters SUCCESS or FAILURE on status_id where the table has it,
+// else on the status string compared without case (the 2.0 table carries
+// only "Success"/"Failure").
+func addOutcome(q *queryBuilder, s *tableSchema, outcome string) error {
+	if outcome != "SUCCESS" && outcome != "FAILURE" {
+		return nil
+	}
+	switch {
+	case s.has("status_id"):
+		if outcome == "SUCCESS" {
+			q.add("status_id = 1")
+		} else {
+			q.add("status_id = 2")
+		}
+	case s.has("status"):
+		q.add("lower(status) = '" + strings.ToLower(outcome) + "'")
+	default:
+		return declined(capOutcome, outcomeFields)
+	}
+	return nil
 }
 
 // clause is the predicates joined as a WHERE clause body.
@@ -351,45 +401,93 @@ type probeCall struct {
 	history bool
 }
 
-// probeCalls are synthetic calls that between them exercise every predicate
-// activityWhere can emit: an activity call with every filter and a resource
-// named with its type, region and account; an activity call with a region
-// and no resource name (the event-region branch); and a history call on a
-// uid-identified resource (the uid branch and the activity filter). Values
-// are placeholders: the probe matches nothing.
-func probeCalls() []probeCall {
+// probeCalls are synthetic calls that between them send every predicate
+// activityWhere can emit against the table's schema, each at least once:
+// an activity call with every filter the table can express (outcome
+// SUCCESS) and a resource named with its type, region, zone, group,
+// namespace and account where those are expressible; an activity call with
+// a region and no resource name (the event-region branch); an activity call
+// on an unnamed resource scoped by every scope the table carries; an
+// activity call on a uid-identified
+// resource with outcome FAILURE; and history calls on a uid- and, where the
+// table carries names, a name-identified resource (the activity filter). A
+// capability the table cannot express is left out, so the probe plans only
+// what a call can send. Values are placeholders: the probe matches nothing.
+func probeCalls(s *tableSchema) []probeCall {
 	epoch := time.Unix(0, 0).UTC()
 	const v = "probe"
-	return []probeCall{
-		{cloudCall{
-			principalName: v, credential: v, accountUID: v, operation: v, service: v, outcome: "SUCCESS",
-			resource: resourceScope{name: v, typ: v, region: v, accountUID: v}, from: epoch, to: epoch,
-		}, false},
-		{cloudCall{resource: resourceScope{region: v}, from: epoch, to: epoch}, false},
-		{cloudCall{resource: resourceScope{uid: v}, from: epoch, to: epoch}, true},
+	expressible := func(candidates []string) bool { return len(s.present(candidates)) > 0 }
+	only := func(ok bool, value string) string {
+		if ok {
+			return value
+		}
+		return ""
 	}
+	// scoped is every element scope the table carries: type, zone, group
+	// (by whichever of its name and uid the table has) and namespace.
+	scoped := resourceScope{
+		typ:       only(s.has(resourceTypeField), v),
+		zone:      only(s.has(postScopeFields[0]), v),
+		group:     only(groupMissing(s) == nil, v),
+		namespace: only(s.has(postScopeFields[2]), v),
+	}
+	named := resourceScope{accountUID: v}
+	if s.has(resourceNameField) {
+		named = scoped
+		named.name, named.accountUID = v, v
+		named.region = only(s.has(resourceRegionField), v)
+	}
+	calls := []probeCall{{cloudCall{
+		principalName: only(expressible(principalFields), v),
+		credential:    only(expressible(credentialFields), v),
+		accountUID:    v,
+		operation:     only(expressible(operationFields), v),
+		service:       only(expressible(serviceFields), v),
+		outcome:       only(expressible(outcomeFields), "SUCCESS"),
+		resource:      named, from: epoch, to: epoch,
+	}, false}}
+	if expressible(eventRegionFields) {
+		calls = append(calls, probeCall{cloudCall{resource: resourceScope{region: v}, from: epoch, to: epoch}, false})
+	}
+	if scoped != (resourceScope{}) {
+		calls = append(calls, probeCall{cloudCall{resource: scoped, from: epoch, to: epoch}, false})
+	}
+	history := expressible(historyFields)
+	if s.has(resourceUIDFields[0]) {
+		calls = append(calls, probeCall{cloudCall{
+			outcome: only(expressible(outcomeFields), "FAILURE"), resource: resourceScope{uid: v}, from: epoch, to: epoch,
+		}, false})
+		if history {
+			calls = append(calls, probeCall{cloudCall{resource: resourceScope{uid: v}, from: epoch, to: epoch}, true})
+		}
+	}
+	if history && s.has(resourceNameField) {
+		calls = append(calls, probeCall{cloudCall{resource: named, from: epoch, to: epoch}, true})
+	}
+	return calls
 }
 
 // probeAccounts stands in for configured account_uids, so the probe plans
 // the accountid IN predicate.
 var probeAccounts = []string{"000000000000"}
 
-// probeQuery is health's probe: the queries' own projection and the WHERE
-// predicates of every query shape (probeCalls, built by activityWhere)
-// against the configured table, behind `false` so it matches nothing. Athena
-// resolves every column the queries read — projected or only filtered on —
-// and checks the caller may read the table, so a missing column, a type a
-// predicate or the projection cannot use, or a denied table fails here. It is
-// built from the same code as the queries, so it cannot drift from them.
-func probeQuery(db, table string) (sqlQuery, error) {
+// probeQuery is health's probe: the table's projection and the WHERE
+// predicates of every query shape the table can express (probeCalls, built
+// by activityWhere) against the configured table, behind `false` so it
+// matches nothing. Athena resolves every column the queries read —
+// projected or only filtered on — and checks the caller may read the table,
+// so a column the schema reported but the table lacks, a type a predicate or
+// the projection cannot use, or a denied table fails here. It is built from
+// the same code as the queries, so it cannot drift from them.
+func probeQuery(s *tableSchema, db, table string) (sqlQuery, error) {
 	ref, err := tableRef(db, table)
 	if err != nil {
 		return sqlQuery{}, err
 	}
 	where := []string{"false"}
 	var params []string
-	for _, p := range probeCalls() {
-		q, err := activityWhere(probeAccounts, p.call, p.history)
+	for _, p := range probeCalls(s) {
+		q, err := activityWhere(s, probeAccounts, p.call, p.history)
 		if err != nil {
 			return sqlQuery{}, err
 		}
@@ -397,57 +495,130 @@ func probeQuery(db, table string) (sqlQuery, error) {
 		params = append(params, q.params...)
 	}
 	return sqlQuery{
-		sql:    "SELECT " + selectList() + "\nFROM " + ref + "\nWHERE " + strings.Join(where, "\n  AND ") + "\nLIMIT 0",
+		sql:    "SELECT " + s.selectList() + "\nFROM " + ref + "\nWHERE " + strings.Join(where, "\n  AND ") + "\nLIMIT 0",
 		params: params,
 	}, nil
 }
 
 // addAccount filters on the account the call ran in through the accountid
-// partition: the lake partitions each event by its recording account, which
-// is that account, and the partition is present on every row, where
-// cloud.account may be absent (the OCSF 1.1 CloudTrail mapping can carry the
-// account only under actor.user.account). Filtering cloud.account.uid too
-// would drop such rows and answer a false empty.
+// column: the lake files each event under its recording account, which is
+// that account, and the column is present on every row, where
+// cloud.account may be absent (the 2.0 table's cloud carries no account).
+// Filtering cloud.account.uid too would drop such rows and answer a false
+// empty.
 func addAccount(q *queryBuilder, uid string) {
 	q.add("accountid = ?", strLit(uid))
 }
 
-// addResource adds the resource predicates the table can express, matched
-// on a resources[] entry with any_match (Athena engine v3 expands an UNNEST
-// of an array of rows into one column per field). A uid is the provider's
-// unique identifier and carries its own owner and place, so a resource given
-// by uid is matched on the uid alone: no name, account, region or other
-// scope narrows it. A resource given by name is matched on one element
-// carrying the name and, when given, the type and region — the element's own
-// region, which its identity uses, not the event's — under the account
-// given; the region partition is filtered too, since a call on a resource
-// is logged in the resource's region. Zone, group and namespace are checked
-// on the same element after the fetch (scope.go). A region given with
-// neither uid nor name filters the event's region.
-func addResource(q *queryBuilder, r resourceScope) {
+// addResource adds the resource predicates, matched on a resources[] entry
+// with any_match (Athena engine v3 expands an UNNEST of an array of rows
+// into one column per field). A uid is the provider's unique identifier and
+// carries its own owner and place, so a resource given by uid is matched on
+// the uid alone: no name, account, region or other scope narrows it, and a
+// table without resources[].uid declines it — a name given beside it is no
+// substitute for the identifier. Otherwise the resource's identity and
+// scope are conditions on ONE element (resourceElement): the name, the type,
+// the element's own region (beside a name, which its identity uses, not the
+// event's), the zone, the group and the namespace, so the query's limit
+// applies to rows that match and two elements cannot together satisfy it;
+// the account given filters the accountid column, and beside a name the
+// region column is filtered too where the table has it, since a call on a
+// resource is logged in the resource's region. A region given with neither
+// uid nor name filters the region the event was logged in: the region column
+// where the table has it, else cloud.region, never both. A field the table
+// lacks for any of these declines the call: dropping the condition would
+// widen the match.
+func addResource(q *queryBuilder, s *tableSchema, r resourceScope) error {
 	if r.uid != "" {
+		if !s.has(resourceUIDFields[0]) {
+			return declined(capResourceUID, resourceUIDFields)
+		}
 		q.add("any_match(resources, r -> r.uid = ?)", strLit(r.uid))
-		return
+		return nil
 	}
-	if r.name != "" {
-		conds, args := []string{"r.name = ?"}, []string{strLit(r.name)}
-		if r.typ != "" {
-			conds, args = append(conds, "r.type = ?"), append(args, strLit(r.typ))
-		}
-		if r.region != "" {
-			conds, args = append(conds, "r.region = ?"), append(args, strLit(r.region))
-		}
+	conds, args, capName, missing := resourceElement(s, r)
+	if len(missing) > 0 {
+		return declined(capName, missing)
+	}
+	if len(conds) > 0 {
 		q.add("any_match(resources, r -> "+strings.Join(conds, " AND ")+")", args...)
 	}
 	if r.accountUID != "" {
 		addAccount(q, r.accountUID)
 	}
-	if r.region != "" {
-		if r.name == "" {
-			q.add("cloud.region = ?", strLit(r.region))
+	if r.region == "" {
+		return nil
+	}
+	if r.name == "" {
+		have := s.present(eventRegionFields)
+		if len(have) == 0 {
+			return declined(capEventRegion, eventRegionFields)
 		}
+		q.add(have[0]+" = ?", strLit(r.region))
+		return nil
+	}
+	if s.has("region") {
 		q.add("region = ?", strLit(r.region))
 	}
+	return nil
+}
+
+// resourceElement is the conditions one resources[] element must meet for
+// the resource a call names without a uid — its name and every scope
+// given, each where the table carries the field — and their parameters. When
+// a field is absent, missing names the absent fields and capName the first
+// capability they belong to; the call is then declined.
+func resourceElement(s *tableSchema, r resourceScope) (conds, args []string, capName string, missing []string) {
+	need := func(cap string, fields ...string) bool {
+		absent := s.absent(fields)
+		if len(absent) > 0 && capName == "" {
+			capName = cap
+		}
+		missing = append(missing, absent...)
+		return len(absent) == 0
+	}
+	add := func(cond, value string, n int) {
+		conds = append(conds, cond)
+		for range n {
+			args = append(args, strLit(value))
+		}
+	}
+	if r.name != "" && need(capResourceName, resourceNameField) {
+		add("r.name = ?", r.name, 1)
+	}
+	if r.typ != "" && need(capResourceType, resourceTypeField) {
+		add("r.type = ?", r.typ, 1)
+	}
+	if r.name != "" && r.region != "" && need(capResourceRegion, resourceRegionField) {
+		add("r.region = ?", r.region, 1)
+	}
+	if r.zone != "" && need(capResourceScope, postScopeFields[0]) {
+		add("r.zone = ?", r.zone, 1)
+	}
+	if r.group != "" {
+		// The group matches by its name or its uid (scope.go). group is a
+		// reserved word in Athena, so it is quoted.
+		if gm := groupMissing(s); len(gm) > 0 {
+			if capName == "" {
+				capName = capResourceScope
+			}
+			missing = append(missing, gm...)
+		} else {
+			var conds []string
+			for _, f := range s.present(groupFields) {
+				conds = append(conds, `r."group".`+strings.TrimPrefix(f, "resources[].group.")+" = ?")
+			}
+			if len(conds) == 1 {
+				add(conds[0], r.group, 1)
+			} else {
+				add("("+strings.Join(conds, " OR ")+")", r.group, len(conds))
+			}
+		}
+	}
+	if r.namespace != "" && need(capResourceScope, postScopeFields[2]) {
+		add("r.namespace = ?", r.namespace, 1)
+	}
+	return conds, args, capName, missing
 }
 
 // strLit renders s as the SQL string literal Athena substitutes for a `?`:

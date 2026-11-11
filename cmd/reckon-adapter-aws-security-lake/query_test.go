@@ -86,12 +86,12 @@ func TestActivityQuery_EachFilter(t *testing.T) {
 		{"named resource's type on the same element", map[string]any{"resource": map[string]any{"name": "deploy", "type": "AWS::IAM::Role"}},
 			[]string{"any_match(resources, r -> r.name = ? AND r.type = ?)"}, []string{"'deploy'", "'AWS::IAM::Role'"}},
 		{"region without a resource", map[string]any{"operation": "RunInstances", "resource": map[string]any{"region": "eu-west-1"}},
-			[]string{"api.operation = ?", "cloud.region = ?", "region = ?"}, []string{"'RunInstances'", "'eu-west-1'", "'eu-west-1'"}},
+			[]string{"api.operation = ?", "region = ?"}, []string{"'RunInstances'", "'eu-west-1'"}},
 		{"quote escaped", map[string]any{"operation": "x' OR '1'='1"}, []string{"api.operation = ?"}, []string{"'x'' OR ''1''=''1'"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			q, err := activityQuery(testDB, testTable, nil, mustCall(t, tc.params), false)
+			q, err := activityQuery(fullSchema, testDB, testTable, nil, mustCall(t, tc.params), false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,7 +122,7 @@ func TestActivityQuery_Combined(t *testing.T) {
 		"outcome":   "SUCCESS",
 		"limit":     "50",
 	})
-	q, err := activityQuery(testDB, testTable, []string{"111122223333", "444455556666"}, c, false)
+	q, err := activityQuery(fullSchema, testDB, testTable, []string{"111122223333", "444455556666"}, c, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestHistoryQuery(t *testing.T) {
 		"operation": "ignored",
 		"limit":     float64(200),
 	})
-	q, err := activityQuery(testDB, testTable, []string{"111122223333"}, c, true)
+	q, err := activityQuery(fullSchema, testDB, testTable, []string{"111122223333"}, c, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ LIMIT ?`
 }
 
 func TestHistoryQuery_RequiresResource(t *testing.T) {
-	_, err := activityQuery(testDB, testTable, nil, mustCall(t, map[string]any{"resource": map[string]any{"type": "AWS::S3::Bucket"}}), true)
+	_, err := activityQuery(fullSchema, testDB, testTable, nil, mustCall(t, map[string]any{"resource": map[string]any{"type": "AWS::S3::Bucket"}}), true)
 	isClass(t, err, capability.ErrFatal, "resource uid or name")
 }
 
@@ -251,7 +251,7 @@ func TestTableRef_RejectsUnsafeNames(t *testing.T) {
 		{"db.other", testTable},
 		{"", testTable},
 	} {
-		_, err := activityQuery(tc[0], tc[1], nil, mustCall(t, map[string]any{}), false)
+		_, err := activityQuery(fullSchema, tc[0], tc[1], nil, mustCall(t, map[string]any{}), false)
 		if !errors.As(err, new(*classedError)) || classify(err) != capability.ErrFatal {
 			t.Errorf("%q.%q: err = %v, want FATAL", tc[0], tc[1], err)
 		}
@@ -291,7 +291,7 @@ func TestQuery_NeverFiltersCloudAccount(t *testing.T) {
 		"resource": map[string]any{"name": "b", "account_uid": "111122223333"},
 	})
 	for _, history := range []bool{false, true} {
-		q, err := activityQuery(testDB, testTable, []string{"111122223333"}, c, history)
+		q, err := activityQuery(fullSchema, testDB, testTable, []string{"111122223333"}, c, history)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -301,10 +301,22 @@ func TestQuery_NeverFiltersCloudAccount(t *testing.T) {
 	}
 }
 
-func TestRequiredColumns(t *testing.T) {
+// TestCandidateFields: describe's profile lists the projection's columns,
+// the predicate-only column, every candidate path and the resource scope
+// fields (conditions in the query where the table carries them, with
+// filterScope an agreeing check), each once.
+func TestCandidateFields(t *testing.T) {
 	want := []string{"time", "time_dt", "activity_id", "activity_name", "status", "status_id", "actor", "api", "cloud", "resources",
-		"src_endpoint", "http_request", "metadata", "unmapped", "severity_id", "class_uid", "category_uid", "type_uid", "accountid", "region"}
-	if got := requiredColumns(); !reflect.DeepEqual(got, want) {
-		t.Errorf("requiredColumns = %v", got)
+		"src_endpoint", "http_request", "metadata", "unmapped", "severity_id", "class_uid", "category_uid", "type_uid", "accountid", "region",
+		"actor.user.uid", "actor.session.issuer", "actor.user.name", "actor.user.credential_uid", "actor.session.credential_uid",
+		"api.operation", "api.service.name", "resources[].uid", "resources[].name", "resources[].type", "resources[].region",
+		"resources[].zone", "resources[].group", "resources[].namespace", "resources[].group.name", "resources[].group.uid", "cloud.region"}
+	if got := candidateFields(); !reflect.DeepEqual(got, want) {
+		t.Errorf("candidateFields = %v", got)
+	}
+	for _, f := range want {
+		if !fullSchema.has(f) {
+			t.Errorf("fullColumns lacks %q; the tests' full table must carry every candidate", f)
+		}
 	}
 }

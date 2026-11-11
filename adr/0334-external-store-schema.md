@@ -38,8 +38,8 @@ query against a store it does not own.
 
 **A `query` adapter discovers, declines and reports.**
 
-- It reads the store's schema when it is configured and on every health
-  probe, and builds its projection and predicates from the fields that
+- It reads the store's schema on every health probe, and before a call
+  when it holds none (refined by adr/0335), and builds its projection and predicates from the fields that
   exist, never from a fixed list.
 - It carries one profile per source version it supports — the store, the
   version, and the fields it reads — and names them in `describe`. A profile
@@ -79,9 +79,9 @@ result whose degraded list does not parse. A repository test fails an
 in-tree `query` adapter without a recorded profile (its schema and at least one
 result page) for every profile it describes, or without its live-check runbook. Exemptions are recorded here
 and nowhere else, so adding one is a decision on record, and an exemption
-fails once it no longer applies:
-
-Exempt: `aws-security-lake` (until #335 brings it to the rule).
+fails once it no longer applies. The one exemption this decision
+recorded, for the Security Lake adapter, ended when #335 brought that adapter
+to the rule (adr/0335).
 
 **The engine's version rule is corrected** (`03 §4.16`): a field the schema
 defines at the floor may still be absent from a given source, which maps a

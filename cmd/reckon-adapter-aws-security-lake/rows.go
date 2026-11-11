@@ -58,7 +58,7 @@ func rowsToEvents(rs resultSet, table string) ([]capability.OcsfPayload, error) 
 // each JSON column decoded into its object (a NULL field inside it dropped,
 // as the lake stores absence), the scalars typed as OCSF has them, and
 // metadata passed through untouched so the source's product and schema
-// version reach the engine; the accountid partition supplies cloud.account
+// version reach the engine; the accountid column supplies cloud.account
 // when the lake left it out. The other addition is metadata.log_name, set to
 // the table the row came from when the lake left it empty.
 func rowToEvent(cols []string, row []*string, table string) (capability.OcsfPayload, error) {
@@ -185,13 +185,13 @@ func eventTime(raw map[string]any) time.Time {
 	return time.Time{}
 }
 
-// fillAccount sets cloud.account.uid from the row's accountid partition when
-// the event names no account of its own: the partition is the account the
+// fillAccount sets cloud.account.uid from the row's accountid column when
+// the event names no account of its own: the column is the account the
 // call was recorded in, and without it the normalizer would fall back to the
 // caller's home account (or to none) and name the wrong one. A present
-// account is never overwritten, and the partition is not otherwise copied.
-func fillAccount(raw map[string]any, partition string) {
-	if partition == "" {
+// account is never overwritten, and the column is not otherwise copied.
+func fillAccount(raw map[string]any, accountID string) {
+	if accountID == "" {
 		return
 	}
 	cloud, _ := raw["cloud"].(map[string]any)
@@ -205,6 +205,6 @@ func fillAccount(raw map[string]any, partition string) {
 		cloud["account"] = account
 	}
 	if scalar(account["uid"]) == "" {
-		account["uid"] = partition
+		account["uid"] = accountID
 	}
 }

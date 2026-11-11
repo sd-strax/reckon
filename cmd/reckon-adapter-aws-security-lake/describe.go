@@ -1,10 +1,6 @@
 package main
 
 import (
-	"regexp"
-	"slices"
-	"strings"
-
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/internal/adapterplugin"
 )
@@ -45,9 +41,9 @@ func describe() adapterplugin.DescribeResult {
 		Verbs: verbs,
 		Operations: []adapterplugin.OperationSchema{
 			{Name: opActivity, Params: object(map[string]any{
-				"principal": object(map[string]any{"name": strSchema("principal ARN or name, matched against actor.user.uid, actor.session.issuer and actor.user.name"), "credential": strSchema("access key id, matched against actor.user.credential_uid")}),
+				"principal": object(map[string]any{"name": strSchema("principal ARN or name, matched against actor.user.uid, actor.session.issuer and actor.user.name where the table carries them"), "credential": strSchema("access key id, matched against actor.user.credential_uid and actor.session.credential_uid where the table carries them")}),
 				"resource":  resourceSchema(),
-				"account":   object(map[string]any{"uid": strSchema("account id the call ran in (also prunes the accountid partition)"), "provider": strSchema("provider slug; a provider other than aws is declined (FALLTHROUGH)")}),
+				"account":   object(map[string]any{"uid": strSchema("account id the call ran in (matched on the accountid column)"), "provider": strSchema("provider slug; a provider other than aws is declined (FALLTHROUGH)")}),
 				"operation": strSchema("API operation, e.g. PutBucketPolicy"),
 				"service":   strSchema("service, e.g. s3.amazonaws.com"),
 				"outcome":   map[string]any{"type": "string", "enum": []any{"SUCCESS", "FAILURE", "ALL"}},
@@ -103,50 +99,11 @@ const (
 	profileVersion = "2.0"
 )
 
-// Patterns that read field paths out of rendered SQL: a dotted path, and an
-// any_match lambda binding its variable to the array it walks.
-var (
-	fieldPathRE = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b`)
-	lambdaRE    = regexp.MustCompile(`any_match\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*->`)
-)
-
-// sqlFieldPaths lists, in order of first use, the nested field paths a
-// statement names: each dotted path, with a lambda variable replaced by the
-// array it walks (`r.name` in `any_match(resources, r -> …)` is
-// `resources[].name`).
-func sqlFieldPaths(sql string) []string {
-	arrays := map[string]string{}
-	for _, m := range lambdaRE.FindAllStringSubmatch(sql, -1) {
-		arrays[m[2]] = m[1]
-	}
-	var out []string
-	for _, p := range fieldPathRE.FindAllString(sql, -1) {
-		head, rest, _ := strings.Cut(p, ".")
-		if arr, ok := arrays[head]; ok {
-			p = arr + "[]." + rest
-		}
-		if !slices.Contains(out, p) {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-// predicateFields are the nested paths the WHERE clauses name, read from the
-// health probe, which plans every predicate shape the queries can emit
-// (probeCalls), so the profile is built from the queries' own code. The
-// projection reads whole top-level columns, which requiredColumns lists.
-var predicateFields = func() []string {
-	probe, err := probeQuery("db", "tbl")
-	if err != nil {
-		panic("aws-security-lake: probe query does not render: " + err.Error())
-	}
-	return sqlFieldPaths(probe.sql)
-}()
-
 // schemaSource declares the query kind (11 §4.4): the adapter names columns
-// in Athena SQL over a table the lake owns. Its one profile lists the fields
-// the current projection and predicates read.
+// in Athena SQL over a table the lake owns, discovering the table's schema
+// and reading the candidate fields it carries. Its one profile lists every
+// field the adapter may read (candidateFields); the recording under
+// testdata/profiles/cloudtrail-mgmt-2.0 is the table at that version.
 func schemaSource() *adapterplugin.SchemaSource {
 	return &adapterplugin.SchemaSource{
 		Kind: adapterplugin.SchemaSourceQuery,
@@ -154,7 +111,7 @@ func schemaSource() *adapterplugin.SchemaSource {
 			Name:    profileName,
 			Store:   profileStore,
 			Version: profileVersion,
-			Fields:  slices.Concat(requiredColumns(), predicateFields),
+			Fields:  candidateFields(),
 		}},
 	}
 }

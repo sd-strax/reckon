@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -83,6 +84,10 @@ type bridge struct {
 	newClients func(settings) clients
 	pollMin    time.Duration
 	pollMax    time.Duration
+	// schema is the configured table's schema as last read (on every health
+	// probe, or by a call that found none held); nil before the first read
+	// and after any failure.
+	schema *tableSchema
 }
 
 func newBridge() *bridge {
@@ -120,8 +125,10 @@ func (b *bridge) configure(params []byte) (any, *wireError) {
 		return nil, &wireError{Code: -32602, Message: "configure: " + err.Error()}
 	}
 	cl := b.newClients(s)
+	// The schema is not read here (11 §4.4): health reads it before the
+	// calls, and the one a previous configuration held is dropped.
 	b.mu.Lock()
-	b.set, b.cl = &s, cl
+	b.set, b.cl, b.schema = &s, cl, nil
 	b.mu.Unlock()
 	return map[string]any{"ok": true}, nil
 }
@@ -277,6 +284,55 @@ func (b *bridge) snapshot() (*settings, clients) {
 	return b.set, b.cl
 }
 
+// tableSchema is the cached schema, discovered first when none is cached
+// (an invoke before any health probe).
+func (b *bridge) tableSchema(ctx context.Context, s *settings, cl clients) (*tableSchema, error) {
+	b.mu.Lock()
+	cached := b.schema
+	b.mu.Unlock()
+	if cached != nil {
+		return cached, nil
+	}
+	return b.discover(ctx, s, cl)
+}
+
+// discover reads the table's schema (readSchema) and holds it. Any failure
+// drops the schema held — a failed read, transient or not, a missing core
+// field, a schema unreadable with no profile — so the next call reads again
+// and no call is built from a schema the store has disproved.
+func (b *bridge) discover(ctx context.Context, s *settings, cl clients) (*tableSchema, error) {
+	schema, err := readSchema(ctx, s, cl)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.set == s {
+		b.schema = schema // nil on failure
+	}
+	return schema, err
+}
+
+// dropSchema forgets the schema held for s, as after a probe the store
+// rejected.
+func (b *bridge) dropSchema(s *settings) {
+	b.mu.Lock()
+	if b.set == s {
+		b.schema = nil
+	}
+	b.mu.Unlock()
+}
+
+// readSchema reads the table's schema (discoverSchema) and requires the core
+// fields.
+func readSchema(ctx context.Context, s *settings, cl clients) (*tableSchema, error) {
+	schema, err := discoverSchema(ctx, s, cl.glue)
+	if err != nil {
+		return nil, err
+	}
+	if missing := schema.absent(coreFields); len(missing) > 0 {
+		return nil, withClass(capability.ErrUnhealthy, fmt.Sprintf("table %s.%s lacks the core field(s) every query reads: %s", s.database, s.table, strings.Join(missing, ", ")), nil)
+	}
+	return schema, nil
+}
+
 func (b *bridge) runner(s *settings, cl clients) *athenaRunner {
 	return &athenaRunner{
 		client: cl.athena, workgroup: s.workgroup, output: s.outputLocation,
@@ -317,9 +373,10 @@ func (b *bridge) invoke(ctx context.Context, params []byte) (any, *wireError) {
 }
 
 // cloudtrail answers cloudtrail.api_activity and cloudtrail.resource_history:
-// one bounded, parameterized Athena query, the rows reassembled into their
-// events, then the scope the table cannot express checked on each. History
-// is returned oldest first.
+// one bounded, parameterized Athena query whose resource scopes are
+// conditions on one resources[] element where the table carries the field,
+// the rows reassembled into their events, then the same scopes checked on
+// each (filterScope, an agreeing check). History is returned oldest first.
 func (b *bridge) cloudtrail(ctx context.Context, s *settings, cl clients, history bool, params map[string]any) ([]capability.OcsfPayload, error) {
 	c, err := parseCall(params)
 	if err != nil {
@@ -328,12 +385,19 @@ func (b *bridge) cloudtrail(ctx context.Context, s *settings, cl clients, histor
 	if c.foreignProvider() {
 		return nil, errForeignProvider()
 	}
-	q, err := activityQuery(s.database, s.table, s.accountUIDs, c, history)
+	schema, err := b.tableSchema(ctx, s, cl)
+	if err != nil {
+		return nil, err
+	}
+	q, err := activityQuery(schema, s.database, s.table, s.accountUIDs, c, history)
 	if err != nil {
 		return nil, err
 	}
 	rs, err := b.runner(s, cl).run(ctx, q, c.limit)
 	if err != nil {
+		// A query built from the schema failed: the next call reads the
+		// schema again rather than trust it.
+		b.dropSchema(s)
 		return nil, err
 	}
 	events, err := rowsToEvents(rs, s.table)
@@ -353,69 +417,103 @@ func errForeignProvider() error {
 	return withClass(capability.ErrFallthrough, "the lake holds AWS only; the call names another provider", nil)
 }
 
-// health probes the table with the queries' own projection (probeQuery),
-// then checks the table exists and — when its schema is readable, through a
-// resource link if it is one — carries every column the queries read, which
-// names any missing column. A schema the adapter cannot query is reported
-// here rather than as a failed call.
+// health discovers the table's schema (through a resource link if it is
+// one, else the recorded profile for its source version), caches it for the
+// calls that follow, then runs the probe built from it (probeQuery). The
+// result lists, per operation, what the schema cannot express (degraded);
+// a schema without a core field, or a failed discovery or probe, is
+// unhealthy.
 func (b *bridge) health(ctx context.Context) adapterplugin.HealthResult {
 	s, cl := b.snapshot()
 	if s == nil {
 		return adapterplugin.HealthResult{Healthy: false, Message: "not configured"}
 	}
-	// The probe runs the queries' projection against the table, so health
-	// proves the credentials, workgroup, output location, table access and
-	// every projected column at once. Any failure is unhealthy, whatever its
-	// class at invoke: health has no retry of its own.
-	probe, err := probeQuery(s.database, s.table)
-	if err != nil {
-		return unhealthy("athena", err)
-	}
-	if _, err := b.runner(s, cl).run(ctx, probe, 1); err != nil {
-		return unhealthy("athena", err)
-	}
-	gctx, cancel := context.WithTimeout(ctx, s.queryTimeout)
-	defer cancel()
-	out, err := cl.glue.GetTable(gctx, &glue.GetTableInput{DatabaseName: aws.String(s.database), Name: aws.String(s.table)})
+	schema, err := b.discover(ctx, s, cl)
 	if err != nil {
 		return unhealthy("glue", err)
 	}
-	ok := fmt.Sprintf("Athena workgroup %s, table %s.%s (%s)", s.workgroup, s.database, s.table, s.region)
-	schema, skipped := readableSchema(gctx, cl.glue, out.Table)
-	if skipped != "" {
-		return adapterplugin.HealthResult{Healthy: true, Message: ok + "; column check skipped: " + skipped}
+	// The probe runs the table's projection and every predicate the schema
+	// can express, so health proves the credentials, workgroup, output
+	// location, table access and every column a call can read at once. Any
+	// failure is unhealthy, whatever its class at invoke: health has no
+	// retry of its own.
+	probe, err := probeQuery(schema, s.database, s.table)
+	if err != nil {
+		b.dropSchema(s)
+		return unhealthy("athena", err)
 	}
-	if missing := missingColumns(schema); len(missing) > 0 {
-		return adapterplugin.HealthResult{Healthy: false, Message: fmt.Sprintf("glue: table %s.%s lacks column(s) the queries read: %s", s.database, s.table, strings.Join(missing, ", "))}
+	if _, err := b.runner(s, cl).run(ctx, probe, 1); err != nil {
+		// The store rejected what the schema said it could answer: the
+		// next call reads the schema again.
+		b.dropSchema(s)
+		return unhealthy("athena", err)
 	}
-	return adapterplugin.HealthResult{Healthy: true, Message: ok}
+	msg := fmt.Sprintf("Athena workgroup %s, table %s.%s (%s)", s.workgroup, s.database, s.table, s.region)
+	if schema.assumed != "" {
+		msg += "; " + schema.assumed
+	}
+	return adapterplugin.HealthResult{Healthy: true, Message: msg, Degraded: degraded(schema)}
 }
 
-// readableSchema is the table whose columns the health check reads. A
+// readableSchema is the table whose columns discovery reads. A
 // query-access subscriber usually names a Lake Formation resource link,
 // which GetTable returns with a TargetTable and no schema; the target is
-// read instead, one hop only. When no schema can be read — the target's
-// GetTable fails (commonly denied or not found to the subscriber) or the
-// table carries no StorageDescriptor — skipped says why, and health does not
-// fail on a check it could not make: the probe has already resolved every
-// projected column against the table, so the column check only adds names.
-func readableSchema(ctx context.Context, client glueAPI, t *gluetypes.Table) (*gluetypes.Table, string) {
+// read instead, one hop only. When the schema is not readable — the target
+// read is denied or not found (schemaUnreadable), or the table carries no
+// columns — skipped says why, and discovery falls back to the recorded
+// profile (discoverSchema). Any other failure reading the target is err: a
+// failed read, not an unreadable schema. A target in another Region than
+// the adapter's (region) is read in its own Region.
+func readableSchema(ctx context.Context, client glueAPI, t *gluetypes.Table, region string) (_ *gluetypes.Table, skipped string, _ error) {
 	if t != nil && t.TargetTable != nil {
 		tt := t.TargetTable
-		out, err := client.GetTable(ctx, &glue.GetTableInput{CatalogId: tt.CatalogId, DatabaseName: tt.DatabaseName, Name: tt.Name})
+		target := aws.ToString(tt.DatabaseName) + "." + aws.ToString(tt.Name)
+		var opts []func(*glue.Options)
+		if r := aws.ToString(tt.Region); r != "" && r != region {
+			opts = append(opts, func(o *glue.Options) { o.Region = r })
+		}
+		out, err := client.GetTable(ctx, &glue.GetTableInput{CatalogId: tt.CatalogId, DatabaseName: tt.DatabaseName, Name: tt.Name}, opts...)
 		if err != nil {
+			if !schemaUnreadable(err) {
+				return nil, "", fmt.Errorf("resource link target %s: %w", target, err)
+			}
 			reason := err.Error()
 			if code := errorCode(err); code != "" {
 				reason = code + ": " + reason
 			}
-			return nil, "resource link target " + aws.ToString(tt.DatabaseName) + "." + aws.ToString(tt.Name) + " is not readable (" + reason + ")"
+			return nil, "resource link target " + target + " is not readable (" + reason + ")", nil
 		}
 		t = out.Table
 	}
-	if t == nil || t.StorageDescriptor == nil {
-		return nil, "the table reports no schema"
+	// No StorageDescriptor, or one listing no columns, is no schema — as a
+	// recorded schema.json without columns is — whatever partition keys the
+	// table lists.
+	if t == nil || t.StorageDescriptor == nil || len(t.StorageDescriptor.Columns) == 0 {
+		return nil, "the table reports no schema", nil
 	}
-	return t, ""
+	return t, "", nil
+}
+
+// schemaUnreadable reports whether a failed GetTable says the subscriber may
+// not read the table, or cannot see it: an AccessDenied* or
+// EntityNotFoundException code, or an HTTP 401/403 carrying no error code:
+// none at all, or "UnknownError", which the SDK's JSON deserializer
+// (smithy-go awsjson) assigns a response that names none. A 401/403 that
+// carries a real code is a failure like any other.
+func schemaUnreadable(err error) bool {
+	code := errorCode(err)
+	if strings.HasPrefix(code, "AccessDenied") || code == "EntityNotFoundException" {
+		return true
+	}
+	if code != "" && code != "UnknownError" {
+		return false
+	}
+	var status interface{ HTTPStatusCode() int }
+	if errors.As(err, &status) {
+		s := status.HTTPStatusCode()
+		return s == 401 || s == 403
+	}
+	return false
 }
 
 func unhealthy(service string, err error) adapterplugin.HealthResult {
@@ -447,27 +545,4 @@ func result(source string, events []capability.OcsfPayload) invokeResult {
 		out.Events = append(out.Events, ocsfEvent{ClassUID: e.ClassUID, ClassName: e.ClassName, Time: e.Time, Raw: e.Raw})
 	}
 	return out
-}
-
-// missingColumns are the required columns (requiredColumns) the table's
-// schema — its columns and partition keys — does not carry.
-func missingColumns(t *gluetypes.Table) []string {
-	have := map[string]bool{}
-	if t != nil {
-		var cols []gluetypes.Column
-		if t.StorageDescriptor != nil {
-			cols = append(cols, t.StorageDescriptor.Columns...)
-		}
-		cols = append(cols, t.PartitionKeys...)
-		for _, c := range cols {
-			have[strings.ToLower(aws.ToString(c.Name))] = true
-		}
-	}
-	var missing []string
-	for _, c := range requiredColumns() {
-		if !have[c] {
-			missing = append(missing, c)
-		}
-	}
-	return missing
 }

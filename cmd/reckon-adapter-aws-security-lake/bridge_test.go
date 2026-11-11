@@ -390,37 +390,51 @@ func TestHandle_AccountRowWithoutCloudAccount(t *testing.T) {
 	}
 }
 
-// TestHealth_TableSchema: a table missing a column the queries read is
-// unhealthy, the column named; the complete schema is healthy.
+// TestHealth_TableSchema: a table missing a core field is unhealthy, the
+// field named; one missing a column only some reads use is healthy, the
+// column left out of the projection; the complete schema is healthy with
+// nothing degraded.
 func TestHealth_TableSchema(t *testing.T) {
 	ok := testBridge(t, nil, &fakeAthena{pages: []athena.GetQueryResultsOutput{page(true, "1")}}, &fakeGlue{}, &fakeConfig{})
-	if h := ok.health(context.Background()); !h.Healthy {
+	if h := ok.health(context.Background()); !h.Healthy || len(h.Degraded) != 0 {
 		t.Errorf("complete schema: %+v", h)
 	}
-	var cols []string
-	for _, c := range requiredColumns() {
-		if c != "unmapped" {
-			cols = append(cols, c)
+	without := func(drop string) []string {
+		var cols []string
+		for _, c := range fullColumns {
+			if c.Name != drop {
+				cols = append(cols, c.Name)
+			}
 		}
+		return cols
 	}
-	b := testBridge(t, nil, &fakeAthena{pages: []athena.GetQueryResultsOutput{page(true, "1")}}, &fakeGlue{columns: cols}, &fakeConfig{})
-	if h := b.health(context.Background()); h.Healthy || !strings.Contains(h.Message, "lacks column(s) the queries read: unmapped") {
+	b := testBridge(t, nil, &fakeAthena{pages: []athena.GetQueryResultsOutput{page(true, "1")}}, &fakeGlue{columns: without("class_uid")}, &fakeConfig{})
+	if h := b.health(context.Background()); h.Healthy || !strings.Contains(h.Message, "lacks the core field(s) every query reads: class_uid") {
+		t.Errorf("missing class_uid: %+v", h)
+	}
+	f := &fakeAthena{pages: []athena.GetQueryResultsOutput{page(true, "1")}}
+	b = testBridge(t, nil, f, &fakeGlue{columns: without("unmapped")}, &fakeConfig{})
+	if h := b.health(context.Background()); !h.Healthy || len(h.Degraded) != 0 {
 		t.Errorf("missing unmapped: %+v", h)
+	}
+	if sql := aws.ToString(f.started[0].QueryString); strings.Contains(sql, "unmapped") {
+		t.Errorf("probe projects a column the table lacks:\n%s", sql)
 	}
 }
 
 // TestHealth_ResourceLink: the configured table is a Lake Formation resource
-// link; its target's schema is the one checked, and an unreadable schema
-// skips the check rather than failing health.
+// link; its target's schema is the one read. An unreadable schema is the
+// recorded profile for the table's suffix, said in the message, with the
+// profile's degradations; with no matching profile it is unhealthy.
 func TestHealth_ResourceLink(t *testing.T) {
 	target := &gluetypes.TableIdentifier{CatalogId: aws.String("999988887777"), DatabaseName: aws.String("amazon_security_lake_glue_db_us_east_1"), Name: aws.String(testTable)}
-	health := func(g *fakeGlue) adapterplugin.HealthResult {
-		b := testBridge(t, nil, &fakeAthena{pages: []athena.GetQueryResultsOutput{page(true, "1")}}, g, &fakeConfig{})
+	health := func(g *fakeGlue, extra map[string]any) adapterplugin.HealthResult {
+		b := testBridge(t, extra, &fakeAthena{pages: []athena.GetQueryResultsOutput{page(true, "1")}}, g, &fakeConfig{})
 		return b.health(context.Background())
 	}
 
 	g := &fakeGlue{link: target}
-	if h := health(g); !h.Healthy || strings.Contains(h.Message, "skipped") {
+	if h := health(g, nil); !h.Healthy || strings.Contains(h.Message, "assumed") || len(h.Degraded) != 0 {
 		t.Errorf("link to a full schema: %+v", h)
 	}
 	if len(g.calls) != 2 || aws.ToString(g.calls[1].CatalogId) != "999988887777" ||
@@ -429,26 +443,36 @@ func TestHealth_ResourceLink(t *testing.T) {
 	}
 
 	var cols []string
-	for _, c := range requiredColumns() {
-		if c != "unmapped" {
-			cols = append(cols, c)
+	for _, c := range fullColumns {
+		if c.Name != "time" {
+			cols = append(cols, c.Name)
 		}
 	}
-	if h := health(&fakeGlue{link: target, columns: cols}); h.Healthy || !strings.Contains(h.Message, "lacks column(s) the queries read: unmapped") {
-		t.Errorf("link to a schema without unmapped: %+v", h)
+	if h := health(&fakeGlue{link: target, columns: cols}, nil); h.Healthy || !strings.Contains(h.Message, "core field(s) every query reads: time") {
+		t.Errorf("link to a schema without time: %+v", h)
 	}
 
 	denied := &fakeGlue{link: target, targetErr: &smithy.GenericAPIError{Code: "AccessDeniedException", Message: "no access to the producer's catalog"}}
-	if h := health(denied); !h.Healthy || !strings.Contains(h.Message, "column check skipped: resource link target") || !strings.Contains(h.Message, "AccessDeniedException") {
+	h := health(denied, nil)
+	if !h.Healthy || !strings.Contains(h.Message, "schema not readable (resource link target") || !strings.Contains(h.Message, "AccessDeniedException") ||
+		!strings.Contains(h.Message, "assumed recorded profile "+profileName) {
 		t.Errorf("link with a denied target: %+v", h)
 	}
-	if h := health(&fakeGlue{noSchema: true}); !h.Healthy || !strings.Contains(h.Message, "column check skipped: the table reports no schema") {
+	if !reflect.DeepEqual(h.Degraded, degraded(profile20(t))) || len(h.Degraded) == 0 {
+		t.Errorf("assumed profile degraded = %+v, want the profile's", h.Degraded)
+	}
+	if h := health(&fakeGlue{noSchema: true}, nil); !h.Healthy || !strings.Contains(h.Message, "schema not readable (the table reports no schema); assumed recorded profile "+profileName) {
 		t.Errorf("no schema: %+v", h)
+	}
+	if h := health(&fakeGlue{noSchema: true}, map[string]any{"cloudtrail_table": "custom_cloud_trail_3_0"}); h.Healthy || !strings.Contains(h.Message, "no recorded profile matches table custom_cloud_trail_3_0") {
+		t.Errorf("no schema, no profile: %+v", h)
 	}
 }
 
-// wantProbe is health's probe: the queries' projection and the predicates of
-// every query shape, behind false.
+// wantProbe is health's probe against the full schema: the projection and
+// the predicates of every query shape — activity with every filter and a
+// named, fully scoped resource, event region, an unnamed scoped resource,
+// activity by uid, history by uid and by name — behind false.
 const wantProbe = selectLine + `
 FROM "amazon_security_lake_glue_db_us_east_1"."amazon_security_lake_table_us_east_1_cloud_trail_mgmt_2_0"
 WHERE false
@@ -461,18 +485,33 @@ WHERE false
   AND api.operation = ?
   AND api.service.name = ?
   AND status_id = 1
-  AND any_match(resources, r -> r.name = ? AND r.type = ? AND r.region = ?)
+  AND any_match(resources, r -> r.name = ? AND r.type = ? AND r.region = ? AND r.zone = ? AND (r."group".name = ? OR r."group".uid = ?) AND r.namespace = ?)
   AND accountid = ?
   AND region = ?)
   AND (time_dt BETWEEN from_iso8601_timestamp(?) AND from_iso8601_timestamp(?)
   AND class_uid = 6003
   AND accountid IN (?)
-  AND cloud.region = ?
   AND region = ?)
   AND (time_dt BETWEEN from_iso8601_timestamp(?) AND from_iso8601_timestamp(?)
   AND class_uid = 6003
   AND accountid IN (?)
+  AND any_match(resources, r -> r.type = ? AND r.zone = ? AND (r."group".name = ? OR r."group".uid = ?) AND r.namespace = ?))
+  AND (time_dt BETWEEN from_iso8601_timestamp(?) AND from_iso8601_timestamp(?)
+  AND class_uid = 6003
+  AND accountid IN (?)
+  AND status_id = 2
+  AND any_match(resources, r -> r.uid = ?))
+  AND (time_dt BETWEEN from_iso8601_timestamp(?) AND from_iso8601_timestamp(?)
+  AND class_uid = 6003
+  AND accountid IN (?)
   AND any_match(resources, r -> r.uid = ?)
+  AND activity_id IN (1, 3, 4))
+  AND (time_dt BETWEEN from_iso8601_timestamp(?) AND from_iso8601_timestamp(?)
+  AND class_uid = 6003
+  AND accountid IN (?)
+  AND any_match(resources, r -> r.name = ? AND r.type = ? AND r.region = ? AND r.zone = ? AND (r."group".name = ? OR r."group".uid = ?) AND r.namespace = ?)
+  AND accountid = ?
+  AND region = ?
   AND activity_id IN (1, 3, 4))
 LIMIT 0`
 
@@ -492,11 +531,16 @@ func TestHealth_ProbeSQL(t *testing.T) {
 		t.Errorf("probe =\n%s\nwant\n%s", got, wantProbe)
 	}
 	epoch, acct, v := "'1970-01-01T00:00:00Z'", "'000000000000'", "'probe'"
-	want := []string{epoch, epoch, acct}
-	for range 13 {
-		want = append(want, v)
-	}
-	want = append(want, epoch, epoch, acct, v, v, epoch, epoch, acct, v)
+	vs := func(n int) []string { return slices.Repeat([]string{v}, n) }
+	window := []string{epoch, epoch, acct}
+	want := slices.Concat(
+		window, vs(17), // every filter; the named resource with all its scopes, account and region
+		window, vs(1), // event region
+		window, vs(5), // unnamed resource scoped by type, zone, group (name or uid) and namespace
+		window, vs(1), // activity by uid
+		window, vs(1), // history by uid
+		window, vs(9), // history by name with every scope, account and region
+	)
 	if !reflect.DeepEqual(in.ExecutionParameters, want) {
 		t.Errorf("probe params = %q\nwant %q", in.ExecutionParameters, want)
 	}
@@ -519,7 +563,7 @@ var predicateWords = map[string]bool{
 // history query shape filters on appears in the probe, so health plans every
 // column a call can read.
 func TestProbe_PlansEveryPredicateColumn(t *testing.T) {
-	probe, err := probeQuery(testDB, testTable)
+	probe, err := probeQuery(fullSchema, testDB, testTable)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +583,7 @@ func TestProbe_PlansEveryPredicateColumn(t *testing.T) {
 			if history && !c.resource.given() {
 				continue
 			}
-			q, err := activityWhere([]string{"1", "2"}, c, history)
+			q, err := activityWhere(fullSchema, []string{"1", "2"}, c, history)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -556,7 +600,7 @@ func TestProbe_PlansEveryPredicateColumn(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"region", "cloud.region", "actor.session.credential_uid", "r.uid", "r.type", "activity_id", "status_id"} {
+	for _, want := range []string{"region", "actor.session.credential_uid", "r.uid", "r.type", "activity_id", "status_id"} {
 		if !seen[want] {
 			t.Errorf("shapes never produced %q; the test does not cover it", want)
 		}
@@ -564,8 +608,8 @@ func TestProbe_PlansEveryPredicateColumn(t *testing.T) {
 }
 
 // TestHealth_ProbeCatchesColumnBehindUnreadableLink: the link's target
-// schema cannot be read, so the column check is skipped — but the probe has
-// already failed on the missing column, and health is unhealthy.
+// schema cannot be read, so the recorded profile is assumed — but the probe
+// built from it fails on a column the table lacks, and health is unhealthy.
 func TestHealth_ProbeCatchesColumnBehindUnreadableLink(t *testing.T) {
 	st := types.QueryExecutionStatus{StateChangeReason: aws.String("COLUMN_NOT_FOUND: line 1:250: Column 'unmapped' cannot be resolved")}
 	f := &fakeAthena{states: []types.QueryExecutionState{types.QueryExecutionStateFailed}, status: &st}
