@@ -119,6 +119,13 @@ type SeedInputBody struct {
 	// AllowUnknown starts the investigation even though the tenant's host
 	// inventory has never seen the entity — the analyst knows better (#159).
 	AllowUnknown bool `json:"allow_unknown,omitempty"`
+	// AccountRef seeds an entity seed on a persisted user-account by its ref
+	// (adr/0324): a candidate the server listed (known_accounts) is seeded
+	// as it was offered, never re-resolved from its login, which may mint a
+	// different account. The ref must name a persisted account (404
+	// otherwise); EntityKind is then ignored and the unknown-entity checks
+	// do not apply. Value stays what the analyst sees.
+	AccountRef string `json:"account_ref,omitempty"`
 }
 
 // CreateInvestigationRequest is the body of POST /api/investigations. Exactly
@@ -288,7 +295,18 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 		var resolved seedResolution
 		entitySeed := req.SeedInput.Kind == aggregate.SeedEntity ||
 			(req.SeedInput.Kind == "" && classifySeedKind(req.SeedInput.Value) == aggregate.SeedEntity)
-		if entitySeed && strings.EqualFold(strings.TrimSpace(req.SeedInput.EntityKind), entityKindPerson) {
+		if ref := strings.TrimSpace(req.SeedInput.AccountRef); ref != "" {
+			if !entitySeed {
+				writeJSONError(w, http.StatusBadRequest, "resolve seed: account_ref names the account an entity seed roots on")
+				return
+			}
+			res, status, err := b.resolveAccountRefSeed(r, ref, req.SeedInput.Value)
+			if err != nil {
+				writeJSONError(w, status, "resolve seed: "+err.Error())
+				return
+			}
+			resolved = res
+		} else if entitySeed && strings.EqualFold(strings.TrimSpace(req.SeedInput.EntityKind), entityKindPerson) {
 			// A person is known only from a directory's record (adr/0324).
 			res, status, err := b.resolvePersonSeed(r, req.SeedInput.Value)
 			if err != nil {
@@ -305,7 +323,8 @@ func (b *Backend) createInvestigation(w http.ResponseWriter, r *http.Request) {
 			resolved = b.preferSignInAccount(r, res)
 		}
 		// Report an entity nothing knows about rather than root on it (#159).
-		if resolved.Seed.Type == aggregate.SeedEntity && !req.SeedInput.AllowUnknown {
+		// An account seeded by its ref is persisted by definition.
+		if resolved.Seed.Type == aggregate.SeedEntity && !req.SeedInput.AllowUnknown && strings.TrimSpace(req.SeedInput.AccountRef) == "" {
 			if unknown, msg := b.unknownHost(r, resolved); unknown {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": msg, "unknown_entity": true})
 				return

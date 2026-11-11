@@ -169,7 +169,14 @@
               "at": "2026-01-02T03:04:05Z",
               "note": "x",
               "withdrawn": true,
-              "cut": true
+              "cut": true,
+              "cut_edge_id": "x",
+              "cut_account_ref": "x",
+              "cut_person_ref": "x",
+              "cut_by": "x",
+              "cut_by_name": "x",
+              "cut_at": "2026-01-02T03:04:05Z",
+              "cut_note": "x"
             }
           ]
         },
@@ -203,6 +210,10 @@
           "accounts": [
             {
               "account_ref": "x",
+              "person_ref": "x",
+              "account_aliases": [
+                "x"
+              ],
               "edge_id": "x",
               "kind": "x",
               "source": "x",
@@ -211,8 +222,18 @@
               "at": "2026-01-02T03:04:05Z",
               "note": "x",
               "withdrawn": true,
-              "cut": true
+              "cut": true,
+              "cut_edge_id": "x",
+              "cut_account_ref": "x",
+              "cut_person_ref": "x",
+              "cut_by": "x",
+              "cut_by_name": "x",
+              "cut_at": "2026-01-02T03:04:05Z",
+              "cut_note": "x"
             }
+          ],
+          "read_accounts": [
+            "x"
           ]
         }
       }
@@ -351,7 +372,14 @@
             "at": "2026-01-02T03:04:05Z",
             "note": "x",
             "withdrawn": true,
-            "cut": true
+            "cut": true,
+            "cut_edge_id": "x",
+            "cut_account_ref": "x",
+            "cut_person_ref": "x",
+            "cut_by": "x",
+            "cut_by_name": "x",
+            "cut_at": "2026-01-02T03:04:05Z",
+            "cut_note": "x"
           }
         ]
       },
@@ -385,6 +413,10 @@
         "accounts": [
           {
             "account_ref": "x",
+            "person_ref": "x",
+            "account_aliases": [
+              "x"
+            ],
             "edge_id": "x",
             "kind": "x",
             "source": "x",
@@ -393,8 +425,18 @@
             "at": "2026-01-02T03:04:05Z",
             "note": "x",
             "withdrawn": true,
-            "cut": true
+            "cut": true,
+            "cut_edge_id": "x",
+            "cut_account_ref": "x",
+            "cut_person_ref": "x",
+            "cut_by": "x",
+            "cut_by_name": "x",
+            "cut_at": "2026-01-02T03:04:05Z",
+            "cut_note": "x"
           }
+        ],
+        "read_accounts": [
+          "x"
         ]
       }
     },
@@ -533,7 +575,14 @@
               "at": "2026-01-02T03:04:05Z",
               "note": "x",
               "withdrawn": true,
-              "cut": true
+              "cut": true,
+              "cut_edge_id": "x",
+              "cut_account_ref": "x",
+              "cut_person_ref": "x",
+              "cut_by": "x",
+              "cut_by_name": "x",
+              "cut_at": "2026-01-02T03:04:05Z",
+              "cut_note": "x"
             }
           ]
         },
@@ -567,6 +616,10 @@
           "accounts": [
             {
               "account_ref": "x",
+              "person_ref": "x",
+              "account_aliases": [
+                "x"
+              ],
               "edge_id": "x",
               "kind": "x",
               "source": "x",
@@ -575,8 +628,18 @@
               "at": "2026-01-02T03:04:05Z",
               "note": "x",
               "withdrawn": true,
-              "cut": true
+              "cut": true,
+              "cut_edge_id": "x",
+              "cut_account_ref": "x",
+              "cut_person_ref": "x",
+              "cut_by": "x",
+              "cut_by_name": "x",
+              "cut_at": "2026-01-02T03:04:05Z",
+              "cut_note": "x"
             }
+          ],
+          "read_accounts": [
+            "x"
           ]
         }
       }
@@ -708,6 +771,11 @@
     "accounts": [
       {
         "account_ref": "user-account--10",
+        "person_ref": "identity--11",
+        "account_aliases": [
+          "user-account--10",
+          "user-account--9"
+        ],
         "edge_id": "relationship--12",
         "kind": "observed",
         "source": "idp",
@@ -717,6 +785,10 @@
       },
       {
         "account_ref": "user-account--17",
+        "person_ref": "identity--19",
+        "account_aliases": [
+          "user-account--17"
+        ],
         "edge_id": "relationship--18",
         "kind": "asserted",
         "by": "u-1",
@@ -726,6 +798,11 @@
         "withdrawn": false,
         "cut": false
       }
+    ],
+    "read_accounts": [
+      "user-account--10",
+      "user-account--9",
+      "user-account--17"
     ]
   }
 }

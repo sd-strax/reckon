@@ -388,6 +388,12 @@ body.loading #rail { opacity: 0.6; }
 .caseStatus { color: var(--text-2); margin-left: 8px; font-size: 0.85em; }
 .caseTitle { display: block; margin-top: 2px; color: var(--text-2); }
 .draftErr { margin-top: 12px; color: var(--error-fg); min-height: 18px; }
+/* The seed's entity kind (adr/0324): host, account or person, the default from the token's shape; and the accounts a refusal lists. */
+.draftKinds { margin-left: 8px; display: inline-flex; gap: 4px; }
+.draftKind { font-size: var(--fs-xs); padding: 0 5px; border: 1px solid transparent; border-radius: var(--r-sm); }
+.draftKind.on { border-color: var(--border); color: var(--text); font-weight: 600; }
+.draftKnown { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; }
+.draftKnownAccount { font-family: var(--mono, monospace); font-size: var(--fs-sm); }
 
 /* ---- the inspector (08 §8.6): overlays the conversation side; at most two panes ---- */
 #main { position: relative; }
@@ -469,6 +475,12 @@ body.loading #rail { opacity: 0.6; }
 .iform input:focus { outline: none; border-color: var(--he-primary); }
 .iform .iformerr { color: var(--bad); font-size: var(--fs-xs); }
 .iform .iformbtns { display: flex; gap: 6px; }
+/* An account's and a person's identity (adr/0324): a cut owner edge is listed with its mark, never hidden; a refusal's candidates to pick from; the hosts beside a person's accounts. */
+.iedge .icut { color: var(--warn); font-size: var(--fs-xs); font-weight: 600; }
+.iedge .icutvia { display: inline-flex; gap: 4px; align-items: baseline; }
+.iform .icands { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.iform .icand { font-size: var(--fs-xs); }
+.ihosts { display: flex; flex-wrap: wrap; gap: 4px; }
 .sopchip { cursor: pointer; }
 .pord { cursor: pointer; }
 .pord:hover { text-decoration: underline dotted; }

@@ -99,33 +99,65 @@ type OwnerView struct {
 	// Cut is set when a live distinct-from says the account is not the
 	// person's (adr/0324): the edge is listed, the reads do not follow it.
 	Cut bool `json:"cut"`
+	// CutEdgeID, CutAccountRef and CutPersonRef name the distinct-from that
+	// cuts it and its two ends, set when Cut is: the account and the person
+	// the analyst asserted it on, which may be aliased to this row's.
+	CutEdgeID     string `json:"cut_edge_id,omitempty"`
+	CutAccountRef string `json:"cut_account_ref,omitempty"`
+	CutPersonRef  string `json:"cut_person_ref,omitempty"`
+	// The cutting assertion's origin, set when Cut is: who, when, the note.
+	CutBy     string     `json:"cut_by,omitempty"`
+	CutByName string     `json:"cut_by_name,omitempty"`
+	CutAt     *time.Time `json:"cut_at,omitempty"`
+	CutNote   string     `json:"cut_note,omitempty"`
 }
 
 // EvidencePersonIdentity is a person's identity view:
 //
 //	{"aliases": [IdentityEdgeView], "distinct": [IdentityEdgeView],
-//	 "accounts": [{"account_ref", "edge_id", "kind", "source"?, "by"?, "by_name"?,
-//	               "at", "note"?, "withdrawn", "cut"}]}
+//	 "accounts": [{"account_ref", "person_ref", "account_aliases", "edge_id", "kind", "source"?, "by"?, "by_name"?,
+//	               "at", "note"?, "withdrawn", "cut", "cut_edge_id"?, "cut_account_ref"?,
+//	               "cut_person_ref"?, "cut_by"?, "cut_by_name"?, "cut_at"?, "cut_note"?}],
+//	 "read_accounts": [ref]}
 type EvidencePersonIdentity struct {
 	Aliases  []IdentityEdgeView  `json:"aliases"`
 	Distinct []IdentityEdgeView  `json:"distinct"`
 	Accounts []PersonAccountView `json:"accounts"`
+	// ReadAccounts is the accounts a read of the person walks, cuts applied
+	// (PersonAccountSet, accounts only): the set the inspector's lenses match
+	// on. The rows' account_aliases are for display.
+	ReadAccounts []string `json:"read_accounts"`
 }
 
-// PersonAccountView is one account attached to a person, with its origin.
+// PersonAccountView is one account attached to a person of the asked-for
+// person's alias set, with its origin: PersonRef is the edge's person end,
+// AccountAliases the account's live alias set, itself included, the
+// accounts a read of the person walks from it.
 type PersonAccountView struct {
-	AccountRef string    `json:"account_ref"`
-	EdgeID     string    `json:"edge_id"`
-	Kind       string    `json:"kind"`
-	Source     string    `json:"source,omitempty"`
-	By         string    `json:"by,omitempty"`
-	ByName     string    `json:"by_name,omitempty"`
-	At         time.Time `json:"at"`
-	Note       string    `json:"note,omitempty"`
-	Withdrawn  bool      `json:"withdrawn"`
+	AccountRef     string    `json:"account_ref"`
+	PersonRef      string    `json:"person_ref"`
+	AccountAliases []string  `json:"account_aliases"`
+	EdgeID         string    `json:"edge_id"`
+	Kind           string    `json:"kind"`
+	Source         string    `json:"source,omitempty"`
+	By             string    `json:"by,omitempty"`
+	ByName         string    `json:"by_name,omitempty"`
+	At             time.Time `json:"at"`
+	Note           string    `json:"note,omitempty"`
+	Withdrawn      bool      `json:"withdrawn"`
 	// Cut is set when a live distinct-from says the account is not the
 	// person's (adr/0324): listed, as a cut alias is, not read.
 	Cut bool `json:"cut"`
+	// CutEdgeID, CutAccountRef and CutPersonRef name the distinct-from that
+	// cuts it and its two ends, set when Cut is (OwnerView).
+	CutEdgeID     string `json:"cut_edge_id,omitempty"`
+	CutAccountRef string `json:"cut_account_ref,omitempty"`
+	CutPersonRef  string `json:"cut_person_ref,omitempty"`
+	// The cutting assertion's origin, set when Cut is: who, when, the note.
+	CutBy     string     `json:"cut_by,omitempty"`
+	CutByName string     `json:"cut_by_name,omitempty"`
+	CutAt     *time.Time `json:"cut_at,omitempty"`
+	CutNote   string     `json:"cut_note,omitempty"`
 }
 
 // EvidenceIdentity is a host's identity view.
@@ -303,6 +335,8 @@ func accountIdentityView(v evidence.AccountIdentityView) *EvidenceAccountIdentit
 		owners = append(owners, OwnerView{
 			PersonRef: o.PersonRef, AccountRef: o.AccountRef, EdgeID: o.EdgeID, Kind: o.Kind, Source: o.Source,
 			By: o.By, ByName: o.ByName, At: o.At, Note: o.Note, Withdrawn: o.Withdrawn, Cut: o.Cut,
+			CutEdgeID: o.CutBy.EdgeID, CutAccountRef: o.CutBy.AccountRef, CutPersonRef: o.CutBy.PersonRef,
+			CutBy: o.CutBy.By, CutByName: o.CutBy.ByName, CutAt: cutAt(o.CutBy), CutNote: o.CutBy.Note,
 		})
 	}
 	return &EvidenceAccountIdentity{Aliases: edgeViews(v.Aliases), Distinct: edgeViews(v.Distinct), SeenAs: seen, Owners: owners}
@@ -312,11 +346,23 @@ func personIdentityView(v evidence.PersonIdentityView) *EvidencePersonIdentity {
 	accounts := make([]PersonAccountView, 0, len(v.Accounts))
 	for _, a := range v.Accounts {
 		accounts = append(accounts, PersonAccountView{
-			AccountRef: a.AccountRef, EdgeID: a.EdgeID, Kind: a.Kind, Source: a.Source,
+			AccountRef: a.AccountRef, PersonRef: a.PersonRef, AccountAliases: nonNilStrings(a.AccountAliases),
+			EdgeID: a.EdgeID, Kind: a.Kind, Source: a.Source,
 			By: a.By, ByName: a.ByName, At: a.At, Note: a.Note, Withdrawn: a.Withdrawn, Cut: a.Cut,
+			CutEdgeID: a.CutBy.EdgeID, CutAccountRef: a.CutBy.AccountRef, CutPersonRef: a.CutBy.PersonRef,
+			CutBy: a.CutBy.By, CutByName: a.CutBy.ByName, CutAt: cutAt(a.CutBy), CutNote: a.CutBy.Note,
 		})
 	}
-	return &EvidencePersonIdentity{Aliases: edgeViews(v.Aliases), Distinct: edgeViews(v.Distinct), Accounts: accounts}
+	return &EvidencePersonIdentity{Aliases: edgeViews(v.Aliases), Distinct: edgeViews(v.Distinct), Accounts: accounts, ReadAccounts: nonNilStrings(v.ReadAccounts)}
+}
+
+// cutAt is a cut's time on the wire: absent when there is no cut.
+func cutAt(c evidence.CutEdge) *time.Time {
+	if c.EdgeID == "" {
+		return nil
+	}
+	at := c.At
+	return &at
 }
 
 func stixView(o evidence.Object) EvidenceView {

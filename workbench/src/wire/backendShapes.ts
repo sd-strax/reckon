@@ -370,9 +370,59 @@ const hostIdentity = object({
 });
 export type RawHostIdentity = Decoded<typeof hostIdentity>;
 
-// An identity act's answer: a 200 means the act is recorded; the view after
-// it is null when it could not be read, never an empty view.
-export const identityAct = object({ identity: nullable(hostIdentity) });
+// An account's and a person's identity views (adr/0324): the same edges, and
+// for an account what its alias set was seen as and the persons it belongs
+// to, for a person the accounts attached to it, each with its origin and
+// whether a live split cuts it.
+const belongsTo = {
+  edge_id: str,
+  kind: str,
+  source: optional(str),
+  by: optional(str),
+  by_name: optional(str),
+  at: str,
+  note: optional(str),
+  withdrawn: bool,
+  cut: bool,
+  // The cutting distinct-from and its two ends, set when cut is.
+  cut_edge_id: optional(str),
+  cut_account_ref: optional(str),
+  cut_person_ref: optional(str),
+  cut_by: optional(str),
+  cut_by_name: optional(str),
+  cut_at: optional(str),
+  cut_note: optional(str),
+};
+
+const accountIdentity = object({
+  aliases: list(identityEdge),
+  distinct: list(identityEdge),
+  seen_as: object({
+    logins: list(str),
+    ids: list(object({ tool: str, uid: str })),
+    principal_names: list(str),
+  }),
+  owners: list(object({ person_ref: str, account_ref: str, ...belongsTo })),
+});
+export type RawAccountIdentity = Decoded<typeof accountIdentity>;
+
+const personIdentity = object({
+  aliases: list(identityEdge),
+  distinct: list(identityEdge),
+  accounts: list(object({ account_ref: str, person_ref: str, account_aliases: list(str), ...belongsTo })),
+  read_accounts: list(str),
+});
+export type RawPersonIdentity = Decoded<typeof personIdentity>;
+
+// An identity act's answer: a 200 means the act is recorded. The view of the
+// entity acted on is the field of its kind; the host's is always sent, null
+// when the entity is no host or its view could not be read, and an account's
+// or a person's is absent then. Never an empty view.
+export const identityAct = object({
+  identity: nullable(hostIdentity),
+  account_identity: optional(accountIdentity),
+  person_identity: optional(personIdentity),
+});
 
 export interface RawEvidence {
   ref: string;
@@ -386,6 +436,8 @@ export interface RawEvidence {
   view?: RawEventView;
   related?: { sightings: RawEvidence[]; identity?: RawEvidence; evidence: RawEvidence[] };
   identity?: RawHostIdentity;
+  account_identity?: RawAccountIdentity;
+  person_identity?: RawPersonIdentity;
 }
 
 export const evidence: Decoder<RawEvidence> = object({
@@ -405,6 +457,9 @@ export const evidence: Decoder<RawEvidence> = object({
   })),
   // On an x-host only (adr/0211).
   identity: optional(hostIdentity),
+  // On a user-account, and on an identity that is a person (adr/0324).
+  account_identity: optional(accountIdentity),
+  person_identity: optional(personIdentity),
 });
 
 // The investigation's retrieved record (adr/0092): events by call, and the calls.

@@ -94,7 +94,14 @@
         "at": "2026-01-02T03:04:05Z",
         "note": "x",
         "withdrawn": true,
-        "cut": true
+        "cut": true,
+        "cut_edge_id": "x",
+        "cut_account_ref": "x",
+        "cut_person_ref": "x",
+        "cut_by": "x",
+        "cut_by_name": "x",
+        "cut_at": "2026-01-02T03:04:05Z",
+        "cut_note": "x"
       }
     ]
   },
@@ -128,6 +135,10 @@
     "accounts": [
       {
         "account_ref": "x",
+        "person_ref": "x",
+        "account_aliases": [
+          "x"
+        ],
         "edge_id": "x",
         "kind": "x",
         "source": "x",
@@ -136,8 +147,18 @@
         "at": "2026-01-02T03:04:05Z",
         "note": "x",
         "withdrawn": true,
-        "cut": true
+        "cut": true,
+        "cut_edge_id": "x",
+        "cut_account_ref": "x",
+        "cut_person_ref": "x",
+        "cut_by": "x",
+        "cut_by_name": "x",
+        "cut_at": "2026-01-02T03:04:05Z",
+        "cut_note": "x"
       }
+    ],
+    "read_accounts": [
+      "x"
     ]
   }
 }

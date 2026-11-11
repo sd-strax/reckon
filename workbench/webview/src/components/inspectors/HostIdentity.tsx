@@ -5,106 +5,28 @@
 // host…", "Not the same host as…", and Withdraw on an asserted edge. The acts
 // are a person's: the agent never records them, and the server refuses a
 // delegate.
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useApp } from "../../app";
-import { fmtDay } from "../../derive/events";
+import { useCallback, useState } from "react";
 import type { HostIdentity, IdentityEdge } from "../../../../src/viewTypes";
-import { identityActPending } from "../../store";
-import { Badge, EntityChip } from "../shared";
+import { BusyLine, EdgeRow, IdentityForm, StaleLine, withdrawSpec, type ActSpec } from "./IdentityParts";
 import { Section } from "./primitives";
 
 type FormKind = { act: "aliases" | "distinct" } | { act: "withdraw"; edgeId: string };
 
-/** The other host by what the store knows of it, else the tail of its ref. */
-function OtherHost({ refId }: { refId: string }) {
-  const { state, resolve } = useApp();
-  const label = state.labels[refId];
-  useEffect(() => { if (label === undefined) resolve(refId); }, [refId, label, resolve]);
-  const tail = refId.slice(refId.indexOf("--") + 2, refId.indexOf("--") + 10);
-  return <EntityChip refId={refId} text={label || tail + "…"} />;
-}
-
-function EdgeRow({ e, onWithdraw }: { e: IdentityEdge; onWithdraw?: () => void }) {
-  const origin = e.kind === "asserted"
-    ? `asserted by ${e.byName || e.by || "someone"} · ${fmtDay(e.at)}`
-    : `from ${e.source || "a source's record"}`;
-  return (
-    <div className={"irow iedge" + (e.withdrawn ? " withdrawn" : "")} data-edge={e.edgeId}>
-      <OtherHost refId={e.otherRef} />
-      <span className="imeta">{origin}</span>
-      {e.withdrawn ? <Badge>withdrawn</Badge> : null}
-      {e.kind === "asserted" && !e.withdrawn && onWithdraw
-        ? <button className="iedgeact" title="Withdraw this assertion: the reads follow the record again; the assertion stays on the record, marked" onClick={onWithdraw}>Withdraw…</button>
-        : null}
-      {e.note ? <span className="inote">“{e.note}”</span> : null}
-    </div>
-  );
-}
-
-let requestSeq = 0;
-
-/** A request id for one identity act, unique in this page. */
-function nextRequestId(): string {
-  requestSeq += 1;
-  return `identity-${Date.now().toString(36)}-${requestSeq}`;
-}
-
-function IdentityForm({ kind, refId, onClose }: { kind: FormKind; refId: string; onClose: () => void }) {
-  const { state, send, dispatch } = useApp();
-  const [other, setOther] = useState("");
-  const [note, setNote] = useState("");
-  // The act this form sent: only its own outcome settles the form.
-  const [requestId, setRequestId] = useState<string | null>(null);
-  const own = requestId ? state.identityActs[requestId] : undefined;
-  // Closing the form forgets its act's entry (once it settles, if in flight).
-  const sent = useRef<string | null>(null);
-  useEffect(() => () => { if (sent.current) dispatch({ type: "identity.forget", requestId: sent.current }); }, [dispatch]);
-  // One act at a time per host: while any is in flight, no form submits.
-  const busy = identityActPending(state, refId);
-  // The form closes once its own act landed with the view; a refusal, or a
-  // landed act whose view could not be read, keeps it open, saying so.
-  useEffect(() => { if (own?.state === "landed" && !own.message) onClose(); }, [own, onClose]);
-  const needsOther = kind.act !== "withdraw";
-  const title = kind.act === "aliases" ? "Same as another host" : kind.act === "distinct" ? "Not the same host as" : "Withdraw this assertion";
-  const confirm = kind.act === "withdraw" ? "Withdraw" : kind.act === "aliases" ? "Join" : "Split";
-  const landed = own?.state === "landed";
-  const submit = () => {
-    if (busy || landed || (needsOther && !other.trim())) return;
-    const id = nextRequestId();
-    dispatch({ type: "identity.sent", ref: refId, requestId: id });
-    sent.current = id;
-    setRequestId(id);
-    if (kind.act === "withdraw") send({ type: "identity.withdraw", ref: refId, requestId: id, edgeId: kind.edgeId, note: note.trim() || undefined });
-    else send({ type: "identity.assert", ref: refId, requestId: id, relation: kind.act, other: other.trim(), note: note.trim() || undefined });
+/** The act a host's form sends: the other host by its name or its ref, as typed. */
+function hostSpec(refId: string, kind: FormKind): ActSpec {
+  if (kind.act === "withdraw") return withdrawSpec(refId, kind.edgeId);
+  const relation = kind.act;
+  return {
+    title: relation === "aliases" ? "Same as another host" : "Not the same host as",
+    confirm: relation === "aliases" ? "Join" : "Split",
+    actRef: refId,
+    other: { label: "The other host: its name or its ref", placeholder: "WIN-FILE01 or x-host--…" },
+    message: (requestId, other, note) => ({ type: "identity.assert", ref: refId, requestId, relation, other, note }),
   };
-  const pending = own?.state === "pending";
-  return (
-    <form className="iform" aria-label={title} onSubmit={(ev) => { ev.preventDefault(); submit(); }}>
-      <span className="kicker">{title}</span>
-      {needsOther ? (
-        <label>The other host: its name or its ref
-          <input type="text" value={other} autoFocus placeholder="WIN-FILE01 or x-host--…" onChange={(ev) => setOther(ev.target.value)} />
-        </label>
-      ) : null}
-      <label>Note (optional)
-        <input type="text" value={note} autoFocus={!needsOther} placeholder={needsOther ? "what you checked" : "why"} onChange={(ev) => setNote(ev.target.value)} />
-      </label>
-      {own?.state === "failed" && own.message ? <div className="iformerr">{own.message}</div> : null}
-      {landed && own?.message ? <div className="imeta" role="status">{own.message}</div> : null}
-      <div className="iformbtns">
-        {landed ? null : <button type="submit" className="primary" disabled={busy || (needsOther && !other.trim())}>{pending ? "…" : confirm}</button>}
-        <button type="button" onClick={onClose}>{landed ? "Close" : "Cancel"}</button>
-      </div>
-    </form>
-  );
 }
 
 /** Mounted per host (keyed by its ref): a form opened on one host never carries to another. */
 export function HostIdentitySection({ refId, identity }: { refId: string; identity: HostIdentity | undefined }) {
-  const { state } = useApp();
-  const busy = identityActPending(state, refId);
-  // Held from before an identity act and not yet read fresh (adr/0211).
-  const stale = !!state.staleHosts[refId];
   const [form, setForm] = useState<FormKind | null>(null);
   const close = useCallback(() => setForm(null), []);
   const seen = identity?.seenAs;
@@ -115,19 +37,19 @@ export function HostIdentitySection({ refId, identity }: { refId: string; identi
   for (const a of seen?.agents ?? []) bySource.set(a.tool, [...(bySource.get(a.tool) ?? []), a.uid]);
   const withdraw = (e: IdentityEdge) => () => setForm({ act: "withdraw", edgeId: e.edgeId });
   const formFor = (edgeId: string) => form?.act === "withdraw" && form.edgeId === edgeId
-    ? <IdentityForm key={"w" + edgeId} kind={form} refId={refId} onClose={close} />
+    ? <IdentityForm key={"w" + edgeId} spec={hostSpec(refId, form)} paneRef={refId} onClose={close} />
     : null;
   return (
     <>
       <Section title="Also seen as">
-        {stale ? <div className="imeta" role="status">This view may be out of date.</div> : null}
+        <StaleLine refId={refId} />
         {identity === undefined ? <div className="empty">no identity view for this host</div>
           : !identity.aliases.length ? <div className="imeta">No other host is joined to this one.</div>
-          : identity.aliases.map((e) => <div key={e.edgeId}><EdgeRow e={e} onWithdraw={withdraw(e)} />{formFor(e.edgeId)}</div>)}
+          : identity.aliases.map((e) => <div key={e.edgeId}><EdgeRow e={e} other={e.otherRef} onWithdraw={withdraw(e)} />{formFor(e.edgeId)}</div>)}
       </Section>
       {identity?.distinct.length ? (
         <Section title="Not the same host as">
-          {identity.distinct.map((e) => <div key={e.edgeId}><EdgeRow e={e} onWithdraw={withdraw(e)} />{formFor(e.edgeId)}</div>)}
+          {identity.distinct.map((e) => <div key={e.edgeId}><EdgeRow e={e} other={e.otherRef} onWithdraw={withdraw(e)} />{formFor(e.edgeId)}</div>)}
         </Section>
       ) : null}
       {facts && seen ? (
@@ -145,8 +67,8 @@ export function HostIdentitySection({ refId, identity }: { refId: string; identi
         <button title="Join this host to one the record did not: writes an aliases edge, on the record with your name and note" onClick={() => setForm({ act: "aliases" })}>Same as another host…</button>
         <button title="Separate this host from one the record wrongly joined, or one you know apart: writes a distinct-from edge" onClick={() => setForm({ act: "distinct" })}>Not the same host as…</button>
       </div>
-      {busy ? <div className="imeta" role="status">An act on this host is in flight; the next can be sent once it settles.</div> : null}
-      {form && form.act !== "withdraw" ? <IdentityForm key={form.act} kind={form} refId={refId} onClose={close} /> : null}
+      <BusyLine refId={refId} word="host" />
+      {form && form.act !== "withdraw" ? <IdentityForm key={form.act} spec={hostSpec(refId, form)} paneRef={refId} onClose={close} /> : null}
     </>
   );
 }

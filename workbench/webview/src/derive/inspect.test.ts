@@ -22,6 +22,13 @@ describe("rendererFor", () => {
     expect(rendererFor({ kind: "case", investigationRef: "g" })).toBe("case");
     expect(rendererFor({ kind: "person", principalId: "p" })).toBe("person");
   });
+  it("opens an identity as an entity until its doc says it is a vendor's (adr/0324)", () => {
+    const t = { kind: "ref" as const, ref: "identity--1" };
+    expect(rendererFor(t)).toBe("entity");
+    expect(rendererFor(t, null)).toBe("entity");
+    expect(rendererFor(t, { ref: t.ref, kind: "stix", type: "identity", payload: { properties: { identity_class: "individual" } } })).toBe("entity");
+    expect(rendererFor(t, { ref: t.ref, kind: "stix", type: "identity", payload: { properties: { name: "edr vendor" } } })).toBe("evidence");
+  });
   it("treats a relationship as an alias only when the edge says so", () => {
     const t = { kind: "ref" as const, ref: "relationship--1" };
     expect(rendererFor(t)).toBe("evidence");

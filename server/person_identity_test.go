@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -304,5 +305,273 @@ func TestCreateInvestigation_UnknownAccount(t *testing.T) {
 	store.objects[known] = evidence.Object{Ref: known, Type: identity.TypeUserAccount}
 	if code, body := send(t, b, "POST", "/api/investigations", mintToken(t, nil), `{"seed_input":{"value":"CONTOSO\\jdoe"}}`); code != http.StatusCreated {
 		t.Errorf("known account: %d %s", code, body)
+	}
+}
+
+// TestAssertIdentity_OtherHint: an account's or a person's other end named by
+// a hint resolves through the record, one account per alias set; none is
+// 404, several 409 listing the candidates; a hint on a host path, or beside
+// another name, is 400.
+func TestAssertIdentity_OtherHint(t *testing.T) {
+	b, store, acct, other, person := accountBackend(t)
+	human := mintToken(t, nil)
+	nameAcct := "user-account--" + uuid.NewString()
+	store.objects[nameAcct] = evidence.Object{Ref: nameAcct, Type: identity.TypeUserAccount}
+	store.accountsByName = map[string][]evidence.AccountMatch{
+		"jdoe": {{Ref: other, Type: identity.AccountWindows, Login: "jdoe"}},
+		"j.doe": {
+			{Ref: other, Type: identity.AccountWindowsDomain, Login: `contoso\j.doe`},
+			{Ref: nameAcct, Type: identity.AccountCloud, Login: "j.doe@contoso.example"},
+		},
+	}
+	code, body := send(t, b, "POST", "/api/entities/"+acct+"/aliases", human, `{"other_hint":"jdoe","note":"same login"}`)
+	if code != http.StatusOK || len(store.acts) != 1 || store.acts[0].other != other || store.acts[0].kind != "aliases" {
+		t.Fatalf("account by hint: %d %s, acts %+v", code, body, store.acts)
+	}
+	// Two accounts under the hint in two alias sets: 409 with both listed.
+	store.acts = nil
+	code, body = send(t, b, "POST", "/api/entities/"+acct+"/distinct", human, `{"other_hint":"j.doe"}`)
+	var conflict struct {
+		Error    string              `json:"error"`
+		Accounts []map[string]string `json:"accounts"`
+	}
+	if code != http.StatusConflict || json.Unmarshal([]byte(body), &conflict) != nil || len(conflict.Accounts) != 2 || len(store.acts) != 0 ||
+		conflict.Accounts[0]["ref"] != other || conflict.Accounts[0]["account_type"] != identity.AccountWindowsDomain || conflict.Accounts[0]["account_login"] != `contoso\j.doe` {
+		t.Fatalf("ambiguous account hint: %d %s, acts %+v", code, body, store.acts)
+	}
+	// The two in one alias set are one account, answered as the least ref.
+	store.aliases = []string{other, nameAcct}
+	want := min(other, nameAcct)
+	code, body = send(t, b, "POST", "/api/entities/"+acct+"/distinct", human, `{"other_hint":"j.doe"}`)
+	if code != http.StatusOK || len(store.acts) != 1 || store.acts[0].other != want {
+		t.Fatalf("one alias set: %d %s, acts %+v; want the act against %s", code, body, store.acts, want)
+	}
+	store.aliases = nil
+	// A person by hint; several persons 409 with the refs.
+	person2 := "identity--" + uuid.NewString()
+	store.objects[person2] = evidence.Object{Ref: person2, Type: identity.TypeIdentity}
+	store.personsByName["jane"] = []string{person2}
+	store.acts = nil
+	code, body = send(t, b, "POST", "/api/entities/"+person+"/aliases", human, `{"other_hint":"jane"}`)
+	if code != http.StatusOK || len(store.acts) != 1 || store.acts[0].other != person2 {
+		t.Fatalf("person by hint: %d %s, acts %+v", code, body, store.acts)
+	}
+	store.acts = nil
+	code, body = send(t, b, "POST", "/api/entities/"+person+"/distinct", human, `{"other_hint":"j.doe"}`)
+	var persons struct {
+		Persons []string `json:"persons"`
+	}
+	if code != http.StatusConflict || json.Unmarshal([]byte(body), &persons) != nil || len(persons.Persons) != 2 || len(store.acts) != 0 {
+		t.Errorf("ambiguous person hint: %d %s", code, body)
+	}
+	host := "x-host--" + uuid.NewString()
+	for _, tc := range []struct {
+		name, path, body string
+		want             int
+		msg              string
+	}{
+		{"unknown account", "/api/entities/" + acct + "/aliases", `{"other_hint":"nobody"}`, http.StatusNotFound, `no account known as \"nobody\"`},
+		{"unknown person", "/api/entities/" + person + "/aliases", `{"other_hint":"nobody"}`, http.StatusNotFound, `no person known as \"nobody\"`},
+		{"hint on a host", "/api/entities/" + host + "/aliases", `{"other_hint":"ws1"}`, http.StatusBadRequest, "other_hostname"},
+		{"hint and ref", "/api/entities/" + acct + "/aliases", `{"other_hint":"jdoe","other_ref":"` + other + `"}`, http.StatusBadRequest, "exactly one"},
+	} {
+		store.acts = nil
+		if code, body := send(t, b, "POST", tc.path, human, tc.body); code != tc.want || !strings.Contains(body, tc.msg) || len(store.acts) != 0 {
+			t.Errorf("%s: %d %s; want %d naming %q and no act", tc.name, code, body, tc.want, tc.msg)
+		}
+	}
+}
+
+// TestPersonHint_OnePerAliasSet: two persons a record joined, both named by
+// one mail, are one candidate on the assert and the owner endpoints alike,
+// answered as the least ref; two persons apart stay a 409.
+func TestPersonHint_OnePerAliasSet(t *testing.T) {
+	b, store, acct, _, person := accountBackend(t)
+	human := mintToken(t, nil)
+	p1, p2 := "identity--00000000-0000-4000-8000-000000000001", "identity--00000000-0000-4000-8000-000000000002"
+	for _, p := range []string{p1, p2} {
+		store.objects[p] = evidence.Object{Ref: p, Type: identity.TypeIdentity}
+	}
+	store.personsByName["shared@contoso.example"] = []string{p2, p1}
+	store.aliases = []string{p1, p2}
+	code, body := send(t, b, "POST", "/api/entities/"+person+"/aliases", human, `{"other_hint":"shared@contoso.example"}`)
+	if code != http.StatusOK || len(store.acts) != 1 || store.acts[0].other != p1 {
+		t.Fatalf("assert by a joined pair's mail: %d %s, acts %+v; want one act against %s", code, body, store.acts, p1)
+	}
+	store.acts = nil
+	code, body = send(t, b, "POST", "/api/entities/"+acct+"/owner", human, `{"person_hint":"shared@contoso.example"}`)
+	if code != http.StatusOK || len(store.acts) != 1 || store.acts[0].other != p1 {
+		t.Fatalf("owner by a joined pair's mail: %d %s, acts %+v; want one act to %s", code, body, store.acts, p1)
+	}
+	store.aliases, store.acts = nil, nil
+	for _, path := range []string{"/api/entities/" + person + "/aliases", "/api/entities/" + acct + "/owner"} {
+		field := "other_hint"
+		if strings.HasSuffix(path, "/owner") {
+			field = "person_hint"
+		}
+		if code, body := send(t, b, "POST", path, human, `{"`+field+`":"shared@contoso.example"}`); code != http.StatusConflict || len(store.acts) != 0 {
+			t.Errorf("%s, two persons apart: %d %s; want 409", path, code, body)
+		}
+	}
+}
+
+// TestEvidence_CutNamesTheEdge: a cut owner and a cut account carry the
+// distinct-from that cuts them and its two ends on the wire; an uncut one
+// carries none.
+func TestEvidence_CutNamesTheEdge(t *testing.T) {
+	b, store, acct, other, person := accountBackend(t)
+	by := evidence.CutEdge{EdgeID: "relationship--cut", AccountRef: other, PersonRef: "identity--aliased"}
+	store.accountIdentity.Owners = append(store.accountIdentity.Owners,
+		evidence.Owner{IdentityEdge: evidence.IdentityEdge{EdgeID: "relationship--o2", Kind: evidence.IdentityObserved}, PersonRef: person, AccountRef: acct, Cut: true, CutBy: by})
+	store.personIdentity.Accounts = append(store.personIdentity.Accounts,
+		evidence.PersonAccount{IdentityEdge: evidence.IdentityEdge{EdgeID: "relationship--o2", Kind: evidence.IdentityObserved}, AccountRef: acct, Cut: true, CutBy: by})
+	_, body := send(t, b, "GET", "/api/evidence/"+acct, mintToken(t, nil), "")
+	var v EvidenceView
+	if json.Unmarshal([]byte(body), &v) != nil || v.AccountIdentity == nil || len(v.AccountIdentity.Owners) != 2 {
+		t.Fatalf("account read: %s", body)
+	}
+	if o := v.AccountIdentity.Owners[1]; o.CutEdgeID != by.EdgeID || o.CutAccountRef != by.AccountRef || o.CutPersonRef != by.PersonRef {
+		t.Errorf("cut owner = %+v; want the cut edge %+v", o, by)
+	}
+	if strings.Count(body, "cut_edge_id") != 1 {
+		t.Errorf("an uncut owner carries a cut edge: %s", body)
+	}
+	_, body = send(t, b, "GET", "/api/evidence/"+person, mintToken(t, nil), "")
+	v = EvidenceView{}
+	if json.Unmarshal([]byte(body), &v) != nil || v.PersonIdentity == nil || len(v.PersonIdentity.Accounts) != 2 {
+		t.Fatalf("person read: %s", body)
+	}
+	if a := v.PersonIdentity.Accounts[1]; a.CutEdgeID != by.EdgeID || a.CutAccountRef != by.AccountRef || a.CutPersonRef != by.PersonRef {
+		t.Errorf("cut account = %+v; want the cut edge %+v", a, by)
+	}
+}
+
+// TestAccountHint_UniqueOverEveryMatch: uniqueness is decided over every
+// account a hint names, not a bounded page: eleven accounts, ten in one alias
+// set and the eleventh in another, are two candidates and a 409, not a write
+// against the first set. The list a 409 shows is bounded, with the count of
+// the rest.
+func TestAccountHint_UniqueOverEveryMatch(t *testing.T) {
+	b, store, acct, _, _ := accountBackend(t)
+	human := mintToken(t, nil)
+	var first []string
+	matches := []evidence.AccountMatch{}
+	for i := 0; i < 11; i++ {
+		ref := fmt.Sprintf("user-account--00000000-0000-4000-8000-%012d", i+1)
+		store.objects[ref] = evidence.Object{Ref: ref, Type: identity.TypeUserAccount}
+		matches = append(matches, evidence.AccountMatch{Ref: ref, Type: identity.AccountWindows, Login: "svc"})
+		if i < 10 {
+			first = append(first, ref)
+		}
+	}
+	store.accountsByName = map[string][]evidence.AccountMatch{"svc": matches}
+	store.aliasSets = map[string][]string{}
+	for _, r := range first {
+		store.aliasSets[r] = first
+	}
+	code, body := send(t, b, "POST", "/api/entities/"+acct+"/aliases", human, `{"other_hint":"svc"}`)
+	var got struct {
+		Accounts []map[string]string `json:"accounts"`
+		More     int                 `json:"more"`
+	}
+	if code != http.StatusConflict || len(store.acts) != 0 || json.Unmarshal([]byte(body), &got) != nil || len(got.Accounts) != 2 || got.More != 0 {
+		t.Fatalf("eleven matches in two sets: %d %s, acts %+v; want 409 with two candidates", code, body, store.acts)
+	}
+	// Twelve accounts apart: ten listed, two more counted.
+	for i := 11; i < 12; i++ {
+		ref := fmt.Sprintf("user-account--00000000-0000-4000-8000-%012d", i+1)
+		store.accountsByName["svc"] = append(store.accountsByName["svc"], evidence.AccountMatch{Ref: ref, Type: identity.AccountWindows, Login: "svc"})
+	}
+	store.aliasSets = nil
+	code, body = send(t, b, "POST", "/api/entities/"+acct+"/aliases", human, `{"other_hint":"svc"}`)
+	got.Accounts, got.More = nil, 0
+	if code != http.StatusConflict || json.Unmarshal([]byte(body), &got) != nil || len(got.Accounts) != 10 || got.More != 2 || !strings.Contains(body, `names 12 accounts`) {
+		t.Errorf("twelve apart: %d %s; want 409 listing ten and two more", code, body)
+	}
+}
+
+// TestCreateInvestigation_AccountRef: a candidate the server listed is seeded
+// by its ref, its login and type on the display line and never the ref; an
+// unknown ref is 404, a ref of another type 400, and the entity kind is
+// ignored.
+func TestCreateInvestigation_AccountRef(t *testing.T) {
+	b, store, acct, _, _ := accountBackend(t)
+	cmds := &fakeCommands{}
+	b.cfg.Handler = cmds
+	store.objects[acct] = evidence.Object{Ref: acct, Type: identity.TypeUserAccount, Payload: []byte(`{"properties":{"account_login":"root","account_type":"unix"}}`)}
+	code, body := send(t, b, "POST", "/api/investigations", mintToken(t, nil),
+		`{"seed_input":{"value":"root","kind":"entity","entity_kind":"person","account_ref":"`+strings.ToUpper(acct[:12])+acct[12:]+`"}}`)
+	if code != http.StatusCreated {
+		t.Fatalf("seed by ref: %d %s", code, body)
+	}
+	cmd, ok := cmds.cmd.(aggregate.CreateInvestigation)
+	if !ok || cmd.Seed == nil || cmd.Seed.EntityRef != acct || cmd.Seed.EntityIdentifier != "root" || cmd.Title != "account root (unix)" || strings.Contains(cmd.Title, "--") {
+		t.Errorf("command = %+v", cmds.cmd)
+	}
+	for _, tc := range []struct {
+		body string
+		want int
+	}{
+		{`{"seed_input":{"value":"root","kind":"entity","account_ref":"user-account--` + uuid.NewString() + `"}}`, http.StatusNotFound},
+		{`{"seed_input":{"value":"root","kind":"entity","account_ref":"x-host--` + uuid.NewString() + `"}}`, http.StatusBadRequest},
+		{`{"seed_input":{"value":"who is root?","kind":"question","account_ref":"` + acct + `"}}`, http.StatusBadRequest},
+	} {
+		if code, body := send(t, b, "POST", "/api/investigations", mintToken(t, nil), tc.body); code != tc.want {
+			t.Errorf("%s: %d %s; want %d", tc.body, code, body, tc.want)
+		}
+	}
+	// The record is read by uuid: a host's uuid under an account prefix names
+	// no account, and is answered as an unknown ref is.
+	store.objectsByUUID = true
+	host := "x-host--" + uuid.NewString()
+	store.objects[host] = evidence.Object{Ref: host, Type: identity.TypeHost}
+	cmds.cmd = nil
+	code, body = send(t, b, "POST", "/api/investigations", mintToken(t, nil),
+		`{"seed_input":{"value":"root","kind":"entity","account_ref":"user-account--`+strings.TrimPrefix(host, "x-host--")+`"}}`)
+	if code != http.StatusNotFound || !strings.Contains(body, "no account known by that ref") || cmds.cmd != nil {
+		t.Errorf("a host's uuid as an account: %d %s, command %+v; want 404 and no command", code, body, cmds.cmd)
+	}
+	unknown := "user-account--" + uuid.NewString()
+	if _, body := send(t, b, "POST", "/api/investigations", mintToken(t, nil), `{"seed_input":{"value":"root","kind":"entity","account_ref":"`+unknown+`"}}`); !strings.Contains(body, "no account known by that ref") {
+		t.Errorf("an unknown ref: %s; want the same answer", body)
+	}
+	// The account itself still seeds under the uuid lookup.
+	if code, body := send(t, b, "POST", "/api/investigations", mintToken(t, nil), `{"seed_input":{"value":"root","kind":"entity","account_ref":"`+acct+`"}}`); code != http.StatusCreated {
+		t.Errorf("the account by uuid: %d %s", code, body)
+	}
+}
+
+// TestEvidence_PersonRowsWalkTheSet: a person's account rows carry the
+// edge's person end and the account's alias set, and a cut row the cutting
+// assertion's origin.
+func TestEvidence_PersonRowsWalkTheSet(t *testing.T) {
+	b, store, acct, other, person := accountBackend(t)
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	owner := "identity--aliased-owner"
+	by := evidence.CutEdge{EdgeID: "relationship--cut", AccountRef: other, PersonRef: owner, By: "u-1", ByName: "Ana Analyst", At: at, Note: "recycled login"}
+	store.personIdentity.Accounts = []evidence.PersonAccount{
+		{IdentityEdge: evidence.IdentityEdge{EdgeID: "relationship--o1", Kind: evidence.IdentityObserved}, AccountRef: acct, PersonRef: owner, AccountAliases: []string{acct, other}, Cut: true, CutBy: by},
+	}
+	store.accountIdentity.Owners = []evidence.Owner{{IdentityEdge: evidence.IdentityEdge{EdgeID: "relationship--o1", Kind: evidence.IdentityObserved}, PersonRef: owner, AccountRef: acct, Cut: true, CutBy: by}}
+	store.personIdentity.ReadAccounts = []string{other}
+	_, body := send(t, b, "GET", "/api/evidence/"+person, mintToken(t, nil), "")
+	if !strings.Contains(body, `"read_accounts":["`+other+`"]`) {
+		t.Errorf("person view without its read accounts: %s", body)
+	}
+	var v EvidenceView
+	if json.Unmarshal([]byte(body), &v) != nil || v.PersonIdentity == nil || len(v.PersonIdentity.Accounts) != 1 {
+		t.Fatalf("person read: %s", body)
+	}
+	a := v.PersonIdentity.Accounts[0]
+	if a.PersonRef != owner || len(a.AccountAliases) != 2 || a.CutByName != "Ana Analyst" || a.CutBy != "u-1" || a.CutNote != "recycled login" || a.CutAt == nil || !a.CutAt.Equal(at) {
+		t.Errorf("person row = %+v", a)
+	}
+	_, body = send(t, b, "GET", "/api/evidence/"+acct, mintToken(t, nil), "")
+	v = EvidenceView{}
+	if json.Unmarshal([]byte(body), &v) != nil || v.AccountIdentity == nil || len(v.AccountIdentity.Owners) != 1 {
+		t.Fatalf("account read: %s", body)
+	}
+	if o := v.AccountIdentity.Owners[0]; o.CutByName != "Ana Analyst" || o.CutNote != "recycled login" || o.CutAt == nil {
+		t.Errorf("owner row = %+v", o)
 	}
 }

@@ -23,3 +23,33 @@ export function effectiveDraftKind(v: string, override: DraftKind | null): Draft
   if (!inferred) return "";
   return override || inferred;
 }
+
+/** The kinds of entity a seed may name (adr/0324). */
+export type SeedEntityKind = "host" | "account" | "person";
+
+/**
+ * Whether the analyst chooses the entity's kind: not for an address or a
+ * hash, which are what they are.
+ */
+export function entityKindChoosable(v: string): boolean {
+  const sub = entitySubLabel(v);
+  return sub !== "IP" && sub !== "file";
+}
+
+/**
+ * The kind a token names when the analyst did not choose one, as the server
+ * defaults it: a backslash or an "@" is an account ("DOMAIN\sam",
+ * "user@domain"); anything else a host.
+ */
+export function defaultEntityKind(v: string): SeedEntityKind {
+  return /[\\@]/.test(v) ? "account" : "host";
+}
+
+/**
+ * The entity kind a seed is sent with: the analyst's choice, else the
+ * default; undefined for an address or a hash, which carry none.
+ */
+export function effectiveEntityKind(v: string, chosen: SeedEntityKind | null): SeedEntityKind | undefined {
+  if (!entityKindChoosable(v)) return undefined;
+  return chosen ?? defaultEntityKind(v);
+}

@@ -4,6 +4,7 @@
 import type { EvidenceDoc, ThreadEntry } from "../../../src/viewTypes";
 import type { InspectorTarget, InvestigationSnapshot } from "../../../src/protocol";
 import { refType, refTypeLabel } from "../refs";
+import { isPersonDoc } from "../../../src/identityKinds";
 
 export type Renderer =
   | "evidence" | "entity" | "absence" | "detection" | "attestation"
@@ -59,6 +60,11 @@ export function rendererFor(t: InspectorTarget, doc?: EvidenceDoc | null, entry?
       if (type === "x-prediction") return "prediction";
       if (type === "x-hypothesis") return "hypothesis";
       if (ENTITY_TYPES.has(type)) return "entity";
+      // An identity is a person (adr/0324) or a vendor; only its doc tells.
+      // Until it arrives, or when it cannot be read, it opens as an entity,
+      // so a person's pane is the one the open mounts; a vendor's turns to
+      // evidence once its doc says so.
+      if (type === "identity") return !doc || isPersonDoc(doc) ? "entity" : "evidence";
       if (type === "relationship") {
         const p = (doc?.payload ?? {}) as { relationship_type?: unknown };
         return p.relationship_type === "aliases" ? "alias" : "evidence";

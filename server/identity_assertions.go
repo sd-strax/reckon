@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -25,11 +26,17 @@ import (
 // it.
 
 // IdentityAssertBody names the other end of a join or a split: its ref, of
-// the same entity type as the path's, or, for a host, a hostname minted as
-// the seed mints one; exactly one of the two.
+// the same entity type as the path's (or, for a split, an account against a
+// person); for a host, a hostname minted as the seed mints one; or, for an
+// account or a person, a hint the persisted ones are looked up by: an
+// account's login, principal name or identifier (one per alias set), a
+// person's principal name, mail, directory id or an account its record
+// names. Exactly one of the three. A hint that names none is 404; one that
+// names several is 409 with the candidates, to be named by ref.
 type IdentityAssertBody struct {
 	OtherRef      string `json:"other_ref,omitempty"`
 	OtherHostname string `json:"other_hostname,omitempty"`
+	OtherHint     string `json:"other_hint,omitempty"`
 	Note          string `json:"note,omitempty"`
 }
 
@@ -104,15 +111,31 @@ func (b *Backend) assertIdentity(w http.ResponseWriter, r *http.Request, act ide
 	if !decodeBody(w, r, &body, maxBodyBytes) {
 		return
 	}
-	other, hostname := strings.TrimSpace(body.OtherRef), strings.TrimSpace(body.OtherHostname)
+	other, hostname, hint := strings.TrimSpace(body.OtherRef), strings.TrimSpace(body.OtherHostname), strings.TrimSpace(body.OtherHint)
 	word := entityWord(typ)
-	if (other == "") == (hostname == "") {
-		writeJSONError(w, http.StatusBadRequest, "name the other "+word+" by exactly one of other_ref and other_hostname")
+	named := 0
+	for _, v := range []string{other, hostname, hint} {
+		if v != "" {
+			named++
+		}
+	}
+	if named != 1 {
+		writeJSONError(w, http.StatusBadRequest, "name the other "+word+" by exactly one of other_ref, other_hostname and other_hint")
 		return
 	}
 	if hostname != "" && typ != identity.TypeHost {
-		writeJSONError(w, http.StatusBadRequest, "other_hostname names a host; name the other "+word+" by other_ref")
+		writeJSONError(w, http.StatusBadRequest, "other_hostname names a host; name the other "+word+" by other_ref or other_hint")
 		return
+	}
+	if hint != "" && typ == identity.TypeHost {
+		writeJSONError(w, http.StatusBadRequest, "other_hint names an account or a person; name the other host by other_hostname")
+		return
+	}
+	if hint != "" {
+		var ok bool
+		if other, ok = b.otherByHint(w, r, typ, hint); !ok {
+			return
+		}
 	}
 	ids := b.identityResolver()
 	if ids == nil {
@@ -140,6 +163,121 @@ func (b *Backend) assertIdentity(w http.ResponseWriter, r *http.Request, act ide
 		return
 	}
 	b.serveIdentity(w, r, ref, typ)
+}
+
+// otherByHint resolves an assert body's other_hint on an account or a
+// person path: an account through FindAccounts, one per alias set; a person
+// through FindPersons. None writes 404, several 409 with the candidates.
+func (b *Backend) otherByHint(w http.ResponseWriter, r *http.Request, typ, hint string) (string, bool) {
+	if typ == identity.TypeIdentity {
+		persons, err := b.personsByHint(r.Context(), hint)
+		if err != nil {
+			writeInternalError(w, "look up persons", err)
+			return "", false
+		}
+		switch len(persons) {
+		case 0:
+			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("no person known as %q", hint))
+			return "", false
+		case 1:
+			return persons[0], true
+		}
+		shown, more := capped(persons)
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":   fmt.Sprintf("%q names %d persons; name one by other_ref", hint, len(persons)),
+			"persons": shown,
+			"more":    more,
+		})
+		return "", false
+	}
+	accounts, err := b.accountsByHint(r.Context(), hint)
+	if err != nil {
+		writeInternalError(w, "look up accounts", err)
+		return "", false
+	}
+	switch len(accounts) {
+	case 0:
+		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("no account known as %q", hint))
+		return "", false
+	case 1:
+		return accounts[0].Ref, true
+	}
+	shown, more := capped(accounts)
+	listed := make([]map[string]string, 0, len(shown))
+	for _, a := range shown {
+		listed = append(listed, map[string]string{"ref": a.Ref, "account_type": a.Type, "account_login": a.Login})
+	}
+	writeJSON(w, http.StatusConflict, map[string]any{
+		"error":    fmt.Sprintf("%q names %d accounts; name one by other_ref", hint, len(accounts)),
+		"accounts": listed,
+		"more":     more,
+	})
+	return "", false
+}
+
+// candidateCap bounds the candidates a 409 lists; the decision that there
+// are several is made over every match, and the count of the rest is sent
+// beside the list.
+const candidateCap = 10
+
+// capped is the first candidateCap of all, and how many more there are.
+func capped[T any](all []T) ([]T, int) {
+	if len(all) <= candidateCap {
+		return all, 0
+	}
+	return all[:candidateCap], len(all) - candidateCap
+}
+
+// accountsByHint is the persisted accounts a hint names, one per alias set
+// (oneBySet).
+func (b *Backend) accountsByHint(ctx context.Context, hint string) ([]evidence.AccountMatch, error) {
+	// Every match: uniqueness is decided over all of them; only the list a
+	// 409 shows is bounded (candidateCap).
+	matches, err := b.cfg.Evidence.FindAccounts(ctx, hint, 0)
+	if err != nil {
+		return nil, err
+	}
+	return oneBySet(ctx, b.cfg.Evidence, matches, func(m evidence.AccountMatch) string { return m.Ref })
+}
+
+// personsByHint is the persons a hint names, one per alias set (oneBySet),
+// for both the assert and the owner endpoints.
+func (b *Backend) personsByHint(ctx context.Context, hint string) ([]string, error) {
+	persons, err := b.cfg.Evidence.FindPersons(ctx, hint)
+	if err != nil {
+		return nil, err
+	}
+	return oneBySet(ctx, b.cfg.Evidence, persons, func(p string) string { return p })
+}
+
+// oneBySet collapses the matches a hint named to one per alias set: entities
+// a record or an analyst joined are one and answer once, as the least ref
+// among the matches in the set, so the answer does not depend on which
+// member the hint happened to name. It runs before the 0/1/many decision.
+func oneBySet[T any](ctx context.Context, store evidenceStore, matches []T, ref func(T) string) ([]T, error) {
+	covered := map[string]bool{}
+	out := []T{}
+	for _, m := range matches {
+		if covered[ref(m)] {
+			continue
+		}
+		set, err := store.AliasSet(ctx, ref(m))
+		if err != nil {
+			return nil, err
+		}
+		covered[ref(m)] = true
+		for _, s := range set {
+			covered[s] = true
+		}
+		least := m
+		for _, o := range matches {
+			if ref(o) < ref(least) && slices.Contains(set, ref(o)) {
+				least = o
+			}
+		}
+		out = append(out, least)
+	}
+	return out, nil
 }
 
 // assertOwner serves POST /api/entities/{ref}/owner: the account at ref
@@ -175,7 +313,7 @@ func (b *Backend) assertOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if hint != "" {
-		persons, err := b.cfg.Evidence.FindPersons(r.Context(), hint)
+		persons, err := b.personsByHint(r.Context(), hint)
 		if err != nil {
 			writeInternalError(w, "look up persons", err)
 			return
@@ -187,9 +325,11 @@ func (b *Backend) assertOwner(w http.ResponseWriter, r *http.Request) {
 		case 1:
 			person = persons[0]
 		default:
+			shown, more := capped(persons)
 			writeJSON(w, http.StatusConflict, map[string]any{
 				"error":   fmt.Sprintf("%q names %d persons; name one by person_ref", hint, len(persons)),
-				"persons": persons,
+				"persons": shown,
+				"more":    more,
 			})
 			return
 		}

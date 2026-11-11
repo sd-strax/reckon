@@ -225,7 +225,18 @@ export interface EvidenceDoc {
   related?: { sightings: EvidenceDoc[]; identity: EvidenceDoc | null; evidence: EvidenceDoc[] };
   /** On an `x-host--` ref: its identity view (adr/0211). */
   identity?: HostIdentity;
+  /** On a `user-account--` ref: its identity view (adr/0324). */
+  accountIdentity?: AccountIdentity;
+  /** On an `identity--` ref that is a person (adr/0324); absent on a vendor identity. */
+  personIdentity?: PersonIdentity;
 }
+
+/**
+ * The identity views a doc may carry, one field per entity kind: what an
+ * identity act answers and what the inspector writes back into the held doc.
+ * A doc carries the one of its kind.
+ */
+export type IdentityViews = Pick<EvidenceDoc, "identity" | "accountIdentity" | "personIdentity">;
 
 /**
  * One aliases or distinct-from edge touching a host (adr/0211): "observed" is
@@ -249,6 +260,91 @@ export interface HostIdentity {
   aliases: IdentityEdge[];
   distinct: IdentityEdge[];
   seenAs: { domains: string[]; agents: { tool: string; uid: string }[]; ips: string[] };
+}
+
+/**
+ * One belongs-to edge from an account of the alias set (`accountRef`) to a
+ * person (adr/0324): "observed" is a directory's record, "asserted" a
+ * person's. `cut` says a live distinct-from holds the account and the person
+ * apart: the edge is listed, the reads do not follow it.
+ */
+export interface OwnerEdge {
+  personRef: string;
+  accountRef: string;
+  edgeId: string;
+  kind: "observed" | "asserted";
+  source?: string;
+  by?: string;
+  byName?: string;
+  at: string;
+  note?: string;
+  withdrawn: boolean;
+  cut: boolean;
+  /** The distinct-from that cuts it and its two ends, when cut: possibly an aliased account's or person's. */
+  cutBy?: CutEdge;
+}
+
+/**
+ * The live distinct-from that cuts an account from a person (adr/0324): its
+ * id and the account and person it was asserted on, which may be aliased to
+ * the row's own. Withdrawing it names `accountRef`, one of its ends.
+ */
+export interface CutEdge {
+  edgeId: string;
+  accountRef: string;
+  personRef: string;
+  /** The assertion's origin: who made it, when, the note. */
+  by?: string;
+  byName?: string;
+  at?: string;
+  note?: string;
+}
+
+/** An account's identity as the record holds it (adr/0324). */
+export interface AccountIdentity {
+  aliases: IdentityEdge[];
+  /** Accounts asserted apart, and persons asserted not to own it (the cut). */
+  distinct: IdentityEdge[];
+  seenAs: { logins: string[]; ids: { tool: string; uid: string }[]; principalNames: string[] };
+  owners: OwnerEdge[];
+}
+
+/**
+ * One account attached to a person of the person's alias set, with the
+ * record or person that attached it (adr/0324): the accounts a read of the
+ * person walks. `personRef` is the edge's person end, the person in view or
+ * one aliased to it; `accountAliases` is the account's alias set, itself
+ * included.
+ */
+export interface PersonAccountEdge {
+  accountRef: string;
+  personRef: string;
+  accountAliases: string[];
+  edgeId: string;
+  kind: "observed" | "asserted";
+  source?: string;
+  by?: string;
+  byName?: string;
+  at: string;
+  note?: string;
+  withdrawn: boolean;
+  cut: boolean;
+  /** The distinct-from that cuts it and its two ends, when cut: possibly an aliased account's or person's. */
+  cutBy?: CutEdge;
+}
+
+/** A person's identity as the record holds it (adr/0324). */
+export interface PersonIdentity {
+  aliases: IdentityEdge[];
+  /** Persons asserted apart, and accounts asserted not to be this person's (the cut). */
+  distinct: IdentityEdge[];
+  accounts: PersonAccountEdge[];
+  /**
+   * The accounts a read of the person walks, cuts applied, as the server's
+   * read answers them: the one set a lens matches on. A row's
+   * accountAliases are for display, never a substitute for it.
+   */
+  readAccounts: string[];
 }
 
 /** One action's record (mirrors server.ActionRecordView): the card is the
