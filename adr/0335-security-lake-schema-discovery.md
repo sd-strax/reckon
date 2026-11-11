@@ -1,6 +1,6 @@
 # 0335 — The Security Lake adapter reads the table's schema, builds each filter from the fields present, and declines what the table cannot express
 
-Issue: #335 · PR: — · Status: accepted
+Issue: #335 · PR: #338 · Status: accepted
 
 ## Context
 
