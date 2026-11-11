@@ -4,7 +4,7 @@
 // when a group repeats); a host's identity and the acts on it (adr/0211);
 // actions on it; other investigations; Pivot (stages,
 // never fires), Pin, Copy. The popover of ui/02 §2.4 folded in (impl §2.1).
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useApp } from "../../app";
 import { inThisCase } from "../../derive/citations";
 import { collapses, fmtDay, spanText } from "../../derive/events";
@@ -23,12 +23,24 @@ export function EntityInspector({ refId }: { refId: string }) {
   const typeLabel = refTypeLabel(refId);
   // A host's identity and the acts on it (adr/0211); hosts only for now.
   const isHost = refId.startsWith("x-host--");
-  // A host held from before an identity act is asked for again, wherever its
-  // pane is revealed (Back, a pinned pane): the identity view is mutable.
+  // A host's identity is mutable (adr/0211): it is read fresh whenever a pane
+  // reveals a host it already holds (Back, a pinned pane, a change of host),
+  // and again when the held view turns stale while shown (an act, a
+  // refresh). The held doc stays on screen until the answer lands. Once per
+  // reveal or per turn to stale: an answer that leaves it stale does not
+  // ask again. A host not held yet is being read by the open that showed it.
   const stale = isHost && !!state.staleHosts[refId];
+  const held = isHost && !!state.docs[refId];
+  const seen = useRef<{ ref: string; stale: boolean } | null>(null);
   useEffect(() => {
-    if (stale) send({ type: "inspector.open", target: { kind: "ref", ref: refId } });
-  }, [stale, refId, send]);
+    const before = seen.current;
+    seen.current = { ref: refId, stale };
+    if (!isHost) return;
+    const revealed = before?.ref !== refId;
+    if ((revealed && held) || (!revealed && stale && before !== null && !before.stale)) {
+      send({ type: "inspector.open", target: { kind: "ref", ref: refId } });
+    }
+  }, [isHost, held, stale, refId, send]);
   const seed = state.snap?.investigation.seed;
   const role = seed?.entityRef === refId ? "seed subject" : c.actions.some((x) => x.role === "target") ? "action target" : c.predictions.length || c.pins.length ? "cited" : "appears";
   const actionsOn = (state.snap?.actions || []).filter((a) => (a.targets || []).includes(label || "") || (a.targets || []).includes(refId));

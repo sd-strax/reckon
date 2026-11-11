@@ -142,6 +142,15 @@ export interface IdentityActState {
   forgotten?: boolean;
 }
 
+/** Every x-host the state holds a doc for marked stale, but `except`, which keeps its mark as it is. */
+function hostsStale(state: State, except?: string): Record<string, true> {
+  const out = { ...state.staleHosts };
+  for (const ref of Object.keys(state.docs)) {
+    if (ref !== except && ref.startsWith("x-host--") && state.docs[ref]) out[ref] = true;
+  }
+  return out;
+}
+
 /** Record an act's outcome, or drop it when the form that sent it has closed. */
 function settleIdentityAct(acts: Record<string, IdentityActState>, requestId: string, outcome: IdentityActState): Record<string, IdentityActState> {
   if (acts[requestId]?.forgotten) return dropKey(acts, requestId);
@@ -326,6 +335,10 @@ function onMessage(state: State, msg: RenderMessage): State {
         // The committed thread now holds everything the live conversation
         // showed — unless a turn is streaming or a failed turn is preserved.
         live: state.streaming || state.preserveLive ? state.live : [],
+        // A load (the panel opened, or the analyst refreshed) reads every
+        // host afresh: a host's identity may have changed by anyone's act,
+        // so each held host is stale and a pane showing one re-asks.
+        staleHosts: hostsStale(state),
       };
     }
     case "state.patch": {
@@ -373,10 +386,7 @@ function onMessage(state: State, msg: RenderMessage): State {
       const doc = state.docs[msg.ref];
       // The alias closure can change beyond the edge's ends: every other host
       // held is stale until read again (a pane showing one re-asks).
-      const staleHosts = { ...state.staleHosts };
-      for (const ref of Object.keys(state.docs)) {
-        if (ref !== msg.ref && ref.startsWith("x-host--") && state.docs[ref]) staleHosts[ref] = true;
-      }
+      const staleHosts = hostsStale(state, msg.ref);
       return {
         ...state,
         // A view the server could not read keeps the last one: never an
@@ -386,15 +396,10 @@ function onMessage(state: State, msg: RenderMessage): State {
         identityActs: settleIdentityAct(state.identityActs, msg.requestId, { ref: msg.ref, state: "landed", message: msg.identity ? undefined : identityViewUnavailable }),
       };
     }
-    case "identity.changed": {
+    case "identity.changed":
       // An act landed in another panel: every host held here, the acted one
       // included, may read differently now.
-      const staleHosts = { ...state.staleHosts };
-      for (const ref of Object.keys(state.docs)) {
-        if (ref.startsWith("x-host--") && state.docs[ref]) staleHosts[ref] = true;
-      }
-      return { ...state, staleHosts };
-    }
+      return { ...state, staleHosts: hostsStale(state) };
     case "identity.error":
       return { ...state, identityActs: settleIdentityAct(state.identityActs, msg.requestId, { ref: msg.ref, state: "failed", message: msg.message }) };
     case "inspector.call":

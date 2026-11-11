@@ -208,6 +208,16 @@ describe("reducer: a host's identity acts (adr/0211)", () => {
     s = run([{ type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "x-host", payload: {}, identity }, appearances: [] }], s);
     expect(s.staleHosts).toEqual({});
   });
+  it("a load marks every held host stale, so a pane showing one reads it afresh", () => {
+    let s = run([
+      { type: "state.snapshot", seq: 1, snapshot: snap(1) },
+      { type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] },
+      { type: "inspector.evidence", ref: "ipv4-addr--1", doc: { ref: "ipv4-addr--1", kind: "stix", type: "ipv4-addr", payload: {} }, appearances: [] },
+    ]);
+    expect(s.staleHosts).toEqual({});
+    s = run([{ type: "state.snapshot", seq: 1, snapshot: snap(1) }], s);
+    expect(s.staleHosts).toEqual({ [ref]: true });
+  });
   it("identity.changed marks all hosts stale, the acted one included", () => {
     const other = "x-host--2";
     let s = run([

@@ -177,6 +177,33 @@ describe("a host's identity in the inspector (adr/0211)", () => {
     expect(transport.intents.slice(before)).toContainEqual({ type: "inspector.open", target: { kind: "ref", ref: hostB } });
   });
 
+  it("reads a held host afresh when Back reveals it, with no act anywhere", () => {
+    const transport = mount(["corp"]);
+    open(host);
+    fireEvent.click(edge("relationship--3").querySelector(`[data-ref="${hostB}"]`) as HTMLElement);
+    const before = transport.intents.length;
+    fireEvent.click(within(pane()).getByText("‹ back"));
+    expect(within(pane()).getByRole("heading", { level: 2 }).textContent).toBe("host-a");
+    expect(transport.intents.slice(before).filter((i) => i.type === "inspector.open")).toEqual([{ type: "inspector.open", target: { kind: "ref", ref: host } }]);
+  });
+
+  it("reads the host a pane shows afresh on a refresh, and once: an answer without its view does not ask again", () => {
+    const transport = mount(["corp"]);
+    open(host);
+    // From here the host's answers are the test's, not the harness's.
+    transport.send = (i) => { transport.intents.push(i); };
+    const before = transport.intents.length;
+    emit(transport, { type: "state.snapshot", seq: base.snapshot.seq, snapshot: base.snapshot }); // the refresh's reload
+    const opens = () => transport.intents.slice(before).filter((i) => i.type === "inspector.open");
+    expect(opens()).toEqual([{ type: "inspector.open", target: { kind: "ref", ref: host } }]);
+    // The answer comes back degraded (no identity): the held view stays, marked, and nothing is asked again.
+    const { identity: _dropped, ...degraded } = { ...base.docs![host]!, identity: identity(["corp"]) };
+    emit(transport, { type: "inspector.evidence", ref: host, doc: degraded, appearances: [] });
+    expect(opens().length).toBe(1);
+    expect(within(pane()).getByText("This view may be out of date.")).toBeTruthy();
+    expect(within(edge("relationship--1")).getByText("from edr")).toBeTruthy();
+  });
+
   it("says a host's view may be out of date while it is stale, and asks for it again", () => {
     const transport = mount(["corp"]);
     open(host);
