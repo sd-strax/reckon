@@ -145,23 +145,18 @@ func (b *bridge) invoke(ctx context.Context, params []byte) (any, *wireError) {
 	return invokeResult{SourceTool: "greynoise:" + tool, Events: events}, nil
 }
 
-type healthResult struct {
-	Healthy bool   `json:"healthy"`
-	Message string `json:"message"`
-}
-
 // health reports readiness. Lazy spawn: "configured, awaiting first use" is
 // honest and healthy; once spawned, a dead client is unhealthy.
-func (b *bridge) health(_ context.Context) healthResult {
+func (b *bridge) health(_ context.Context) adapterplugin.HealthResult {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if !b.ready {
-		return healthResult{Healthy: false, Message: "not configured"}
+		return adapterplugin.HealthResult{Healthy: false, Message: "not configured"}
 	}
 	if b.client == nil {
-		return healthResult{Healthy: true, Message: "configured; greynoise-mcp not yet connected"}
+		return adapterplugin.HealthResult{Healthy: true, Message: "configured; greynoise-mcp not yet connected"}
 	}
-	return healthResult{Healthy: true, Message: "greynoise-mcp connected: " + b.client.ServerInfo().Name}
+	return adapterplugin.HealthResult{Healthy: true, Message: "greynoise-mcp connected: " + b.client.ServerInfo().Name}
 }
 
 // invokeResult is the reckon-plugin invoke result wire shape.

@@ -201,7 +201,11 @@ Detection findings/alerts touching an entity or matching criteria. OCSF class
 **`list_capabilities(tenant?: string) -> list<CapabilityDescriptor>`**
 Returns the capabilities resolvable in the current tenant, including which are
 degraded or unavailable. Used by the agent loop on session start to right-size
-the tool set advertised to the LLM.
+the tool set advertised to the LLM. A verb whose bound adapter reports a
+degraded capability for the bound operation (`11 §4.4`) stays available and
+carries `limitations: [{adapter, capability, reason}]` (§6.3): it still
+answers the other calls, and a call a binding cannot express is declined by that
+binding (`§6.2`), not sent.
 
 ### 2.9 External case lookup
 
@@ -1155,6 +1159,13 @@ deprecated in place, and none of §4.15's fields was removed or made required
 anywhere from 1.1.0 to 1.7.0 — which is what makes a range workable. The
 rules, which §4.15 follows and every class is held to:
 
+- **A version defines fields; a source fills a subset.** A source that
+  writes a version need not fill every field the version defines: AWS
+  Security Lake writes OCSF 1.1.0 API Activity without `status_id`
+  (adr/0334). A field defined at the floor is therefore read with the same
+  field detection as a field above it, and *requires* below means a field
+  without which the normalizer cannot produce its output at all, named per
+  class.
 - **Read the floor, benefit from the ceiling.** Every field a normalizer
   *requires* exists at the floor. A field that arrives above the floor is
   read when present, and its absence changes nothing: an empty property, an
@@ -1351,6 +1362,8 @@ Four artifacts:
 2. Adapter config schema (added to the YAML).
 3. Bindings in tenant config for whatever verbs the adapter can fulfill.
 4. New normalizers only if the adapter emits OCSF classes not yet handled.
+5. For an adapter that queries a store it does not own (`11 §4.4`): a recorded
+   profile per supported source version and a live-check runbook.
 
 The contract: an adapter's job ends at producing a well-formed OCSF event. It
 does not produce STIX. That separation is what lets normalizers be reused across
@@ -1366,7 +1379,7 @@ type Adapter interface {
     Class() AdapterClass // MCP | NATIVE_API | CUSTOM | SOAR_PLAYBOOK | FIXTURE
     SupportedOperations() []string
     Invoke(ctx context.Context, operation string, params map[string]any) (AdapterResponse, error)
-    Health() HealthStatus
+    Health() HealthStatus // {Healthy, Message, Degraded []{Operation, Capability, Reason}} (11 §4.4)
 }
 
 type CapabilityDescriptor interface {
@@ -1491,6 +1504,10 @@ network unreachable). This is recoverable. The agent loop may retry the
 verb later in the same session, or surface to the analyst that the relevant
 tool is offline.
 
+A call an adapter declines because its store cannot express it (`11 §4.4`)
+answers FALLTHROUGH, which the walk counts as a failed binding; its empty answer
+is therefore never `COMPLETE` and never a citeable absence (adr/0061).
+
 **`FAILED`** — Bindings exist, adapters were healthy at call time, but every
 attempt failed at the call site (vendor returned errors, schema mismatch,
 query timeout). Distinct from transient because the layer cannot tell
@@ -1541,7 +1558,15 @@ rare and represent bugs, not operational conditions.
 
 When the agent loop initializes, it calls `list_capabilities` and trims the
 LLM tool set to verbs whose tenant configuration would resolve to at least
-one currently-healthy binding. The LLM never sees verbs it cannot use.
+one currently-healthy binding. The LLM never sees verbs it cannot use. A verb
+with limitations (§2.8) is still advertised: it answers the calls its stores
+can express. Each limitation names the adapter that reports it. For a verb that
+walks its bindings in priority order, the listing reports the highest-priority
+healthy binding's limitations; a call that binding is not applicable to, or that
+it declines, may still be answered by a later one, and probing stops there, so a fallback
+adapter is not started just to be listed. For a fan-out verb (§3.4), which
+invokes every binding, the listing reports every healthy binding's limitations:
+a call one of them cannot express comes back `PARTIAL`.
 
 When `coverage = UNAVAILABLE_TRANSIENT` or `coverage = FAILED` arrives
 mid-session, the agent loop may re-call `list_capabilities` to refresh its
@@ -2033,7 +2058,15 @@ recorded raw vendor responses.
 
 For scenarios where adapter behavior matters (auth flow testing, error
 injection, rate-limit handling), a second fixture format stores raw tool
-responses (whether MCP or native API). These are scenario-tagged
+responses (whether MCP or native API). A `query` adapter's profiles
+(`11 §4.4`) are recordings of the same kind, kept with the adapter's tests under
+`testdata/profiles/<profile>/`: `schema.json`, the store's schema as captured,
+in JSON; and the directory `pages/`, holding one file per real result page, at
+least one. Each is a regular, non-empty file (a symlink does not count; a
+dotfile in `pages/` is not a page), and the repository test that enforces
+`11 §4.4` fails a profile missing either. A recording is committed scrubbed:
+account identifiers, principals and addresses replaced with placeholders that
+keep their shape; the raw capture stays out of the repository. These are scenario-tagged
 `raw_response` fixtures and used only by adapter-level tests, not by the agent
 loop.
 

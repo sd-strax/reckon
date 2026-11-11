@@ -90,9 +90,23 @@ type AdapterResponse struct {
 }
 
 // HealthStatus is an adapter's current health, surfaced in list_capabilities.
+//
+// Healthy is the whole-adapter signal. Degraded lists capabilities a healthy
+// adapter cannot express (11 §4.4), each scoped to the operation it limits;
+// list_capabilities surfaces them as limitations on the verbs bound to that
+// operation (§2.8). Nil means nothing is degraded.
 type HealthStatus struct {
-	Healthy bool
-	Message string
+	Healthy  bool
+	Message  string
+	Degraded []DegradedCapability
+}
+
+// DegradedCapability is one capability of one adapter operation the adapter
+// cannot express, and why (11 §4.4).
+type DegradedCapability struct {
+	Operation  string
+	Capability string
+	Reason     string
 }
 
 // Adapter is the transport-neutral contract every integration implements

@@ -414,7 +414,7 @@ func TestHealth_TableSchema(t *testing.T) {
 // skips the check rather than failing health.
 func TestHealth_ResourceLink(t *testing.T) {
 	target := &gluetypes.TableIdentifier{CatalogId: aws.String("999988887777"), DatabaseName: aws.String("amazon_security_lake_glue_db_us_east_1"), Name: aws.String(testTable)}
-	health := func(g *fakeGlue) healthResult {
+	health := func(g *fakeGlue) adapterplugin.HealthResult {
 		b := testBridge(t, nil, &fakeAthena{pages: []athena.GetQueryResultsOutput{page(true, "1")}}, g, &fakeConfig{})
 		return b.health(context.Background())
 	}

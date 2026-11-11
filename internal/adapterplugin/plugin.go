@@ -57,6 +57,10 @@ type Plugin struct {
 	// (03 §6.3). It clears only on a successful (re)spawn.
 	unhealthy    bool
 	unhealthyMsg string
+
+	// degradedErr is the last degraded-list decode problem warned about, so a
+	// persistent one is logged once, not on every probe.
+	degradedErr string
 }
 
 // process is one live child: its command, the JSON-RPC connection over its
@@ -186,7 +190,47 @@ func (p *Plugin) Dispatch(ctx context.Context, operation string, params map[stri
 // Health reports current readiness (capability.Adapter.Health). A health probe
 // is a valid first demand, so it spawns lazily (§2). A latched-unhealthy or
 // unspawnable adapter reports unhealthy with a diagnostic rather than failing.
+// A degraded value that does not decode is dropped with a warning: it never
+// makes the instance unhealthy (§4.4).
 func (p *Plugin) Health() capability.HealthStatus {
+	h, answered, err := p.probeHealth()
+	if answered {
+		p.noteDegradedErr(err)
+	}
+	return h
+}
+
+// noteDegradedErr warns about a dropped degraded list once per distinct
+// problem. It is called only for a probe the adapter answered, so the latch
+// clears only on an answer whose degraded value decoded: an unanswered probe
+// (spawn failure, timeout, a broken connection) leaves it as it was.
+func (p *Plugin) noteDegradedErr(err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	p.mu.Lock()
+	changed := msg != p.degradedErr
+	p.degradedErr = msg
+	p.mu.Unlock()
+	if changed && err != nil {
+		p.logger.Warn("adapter health: degraded list dropped", "adapter", p.instance, "err", err)
+	}
+}
+
+// ProbeHealth is Health with the decode problem of the result's degraded value
+// returned instead of logged: the status is the same (the malformed list
+// dropped), and err is non-nil only for that list. Conformance fails on it
+// (§7); the engine path, Health, only warns.
+func (p *Plugin) ProbeHealth() (capability.HealthStatus, error) {
+	h, _, err := p.probeHealth()
+	return h, err
+}
+
+// probeHealth runs one health probe. answered reports whether the adapter
+// returned a health result (as opposed to a spawn failure, a timeout or a
+// failed call), and err is that result's degraded-list decode problem.
+func (p *Plugin) probeHealth() (h capability.HealthStatus, answered bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), healthTimeout)
 	defer cancel()
 
@@ -197,21 +241,22 @@ func (p *Plugin) Health() capability.HealthStatus {
 			msg = err.Error()
 		}
 		p.mu.Unlock()
-		return capability.HealthStatus{Healthy: false, Message: msg}
+		return capability.HealthStatus{Healthy: false, Message: msg}, false, nil
 	}
 	proc := p.proc
 	p.mu.Unlock()
 
 	if err := acquire(ctx, proc.sem); err != nil {
-		return capability.HealthStatus{Healthy: false, Message: err.Error()}
+		return capability.HealthStatus{Healthy: false, Message: err.Error()}, false, nil
 	}
 	defer release(proc.sem)
 
-	var res healthResult
+	var res healthWire
 	if err := proc.conn.Call(ctx, methodHealth, struct{}{}, &res); err != nil {
-		return capability.HealthStatus{Healthy: false, Message: "health probe failed: " + err.Error()}
+		return capability.HealthStatus{Healthy: false, Message: "health probe failed: " + err.Error()}, false, nil
 	}
-	return capability.HealthStatus{Healthy: res.Healthy, Message: res.Message}
+	h, err = res.toStatus()
+	return h, true, err
 }
 
 // Close terminates the child process. It is safe to call more than once.

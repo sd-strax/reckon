@@ -148,21 +148,16 @@ func (b *bridge) dispatch(ctx context.Context, params []byte) (any, *wireError) 
 	}, nil
 }
 
-type healthResult struct {
-	Healthy bool   `json:"healthy"`
-	Message string `json:"message"`
-}
-
 // health reports readiness: configured is healthy (the OAuth token is minted
 // lazily at first dispatch; a bad credential surfaces there as a dispatch
 // failure, and here on subsequent probes once a token attempt has failed).
-func (b *bridge) health() healthResult {
+func (b *bridge) health() adapterplugin.HealthResult {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.client == nil {
-		return healthResult{Healthy: false, Message: "not configured"}
+		return adapterplugin.HealthResult{Healthy: false, Message: "not configured"}
 	}
-	return healthResult{Healthy: true, Message: "configured (native Falcon client, " + b.client.baseURL + ")"}
+	return adapterplugin.HealthResult{Healthy: true, Message: "configured (native Falcon client, " + b.client.baseURL + ")"}
 }
 
 // resolvedTarget extracts the frozen target identifier the engine resolved at
