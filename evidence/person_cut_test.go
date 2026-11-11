@@ -250,3 +250,70 @@ func TestFindPersons_Representative(t *testing.T) {
 		}
 	}
 }
+
+// TestCut_ViewNamesTheEdge (adr/0324): a cut row names the distinct-from that
+// cuts it and its two ends, so the row that shows the cut can withdraw it,
+// when the cut was asserted on an account aliased to the row's (the login's
+// view of a SID's owner) and when it was asserted against a person aliased
+// to the row's.
+func TestCut_ViewNamesTheEdge(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	sid1, sid2, sam, john := stixID(identity.TypeUserAccount), stixID(identity.TypeUserAccount), stixID(identity.TypeUserAccount), stixID(identity.TypeIdentity)
+	acct, p1, p2 := stixID(identity.TypeUserAccount), stixID(identity.TypeIdentity), stixID(identity.TypeIdentity)
+	persistObjects(t, s, []capability.SCO{accountSCO(sid1), accountSCO(sid2), accountSCO(sam), personSCO(john, nil), accountSCO(acct), personSCO(p1, nil), personSCO(p2, nil)},
+		observedRel(capability.RelAliases, sam, sid1), observedRel(capability.RelAliases, sam, sid2),
+		observedRel(capability.RelBelongsTo, sid1, john), observedRel(capability.RelBelongsTo, sid2, john),
+		observedRel(capability.RelAliases, p1, p2), observedRel(capability.RelBelongsTo, acct, p2))
+	if err := s.AssertDistinct(ctx, testIDs, string(sid2), string(john), ana, "the login was recycled"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssertDistinct(ctx, testIDs, string(acct), string(p1), ana, "not theirs"); err != nil {
+		t.Fatal(err)
+	}
+	edgeTo := func(ref, other identity.STIXID) string {
+		v, err := s.AccountIdentity(ctx, string(ref))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range v.Distinct {
+			if d.OtherRef == string(other) {
+				return d.EdgeID
+			}
+		}
+		t.Fatalf("no distinct-from from %s to %s", ref, other)
+		return ""
+	}
+	recycled, aliased := edgeTo(sid2, john), edgeTo(acct, p1)
+
+	// The login's view lists the SID's owner edge cut, by the edge on the SID.
+	v, err := s.AccountIdentity(ctx, string(sam))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range v.Owners {
+		want := CutEdge{}
+		if o.AccountRef == string(sid2) {
+			want = CutEdge{EdgeID: recycled, AccountRef: string(sid2), PersonRef: string(john)}
+		}
+		if o.Cut != (want.EdgeID != "") || o.CutBy != want {
+			t.Errorf("owner from %s: cut %v by %+v; want %+v", o.AccountRef, o.Cut, o.CutBy, want)
+		}
+	}
+	// A cut against P1 holds for P2: both views name the edge to P1.
+	want := CutEdge{EdgeID: aliased, AccountRef: string(acct), PersonRef: string(p1)}
+	pv, err := s.PersonIdentity(ctx, string(p2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pv.Accounts) != 1 || !pv.Accounts[0].Cut || pv.Accounts[0].CutBy != want {
+		t.Errorf("P2's accounts = %+v; want the account cut by %+v", pv.Accounts, want)
+	}
+	av, err := s.AccountIdentity(ctx, string(acct))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(av.Owners) != 1 || !av.Owners[0].Cut || av.Owners[0].CutBy != want {
+		t.Errorf("account owners = %+v; want the edge to P2 cut by %+v", av.Owners, want)
+	}
+}

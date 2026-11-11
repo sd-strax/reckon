@@ -169,7 +169,10 @@
               "at": "2026-01-02T03:04:05Z",
               "note": "x",
               "withdrawn": true,
-              "cut": true
+              "cut": true,
+              "cut_edge_id": "x",
+              "cut_account_ref": "x",
+              "cut_person_ref": "x"
             }
           ]
         },
@@ -211,7 +214,10 @@
               "at": "2026-01-02T03:04:05Z",
               "note": "x",
               "withdrawn": true,
-              "cut": true
+              "cut": true,
+              "cut_edge_id": "x",
+              "cut_account_ref": "x",
+              "cut_person_ref": "x"
             }
           ]
         }
@@ -351,7 +357,10 @@
             "at": "2026-01-02T03:04:05Z",
             "note": "x",
             "withdrawn": true,
-            "cut": true
+            "cut": true,
+            "cut_edge_id": "x",
+            "cut_account_ref": "x",
+            "cut_person_ref": "x"
           }
         ]
       },
@@ -393,7 +402,10 @@
             "at": "2026-01-02T03:04:05Z",
             "note": "x",
             "withdrawn": true,
-            "cut": true
+            "cut": true,
+            "cut_edge_id": "x",
+            "cut_account_ref": "x",
+            "cut_person_ref": "x"
           }
         ]
       }
@@ -533,7 +545,10 @@
               "at": "2026-01-02T03:04:05Z",
               "note": "x",
               "withdrawn": true,
-              "cut": true
+              "cut": true,
+              "cut_edge_id": "x",
+              "cut_account_ref": "x",
+              "cut_person_ref": "x"
             }
           ]
         },
@@ -575,7 +590,10 @@
               "at": "2026-01-02T03:04:05Z",
               "note": "x",
               "withdrawn": true,
-              "cut": true
+              "cut": true,
+              "cut_edge_id": "x",
+              "cut_account_ref": "x",
+              "cut_person_ref": "x"
             }
           ]
         }
