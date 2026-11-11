@@ -26,21 +26,28 @@ export function EntityInspector({ refId }: { refId: string }) {
   // A host's identity is mutable (adr/0211): it is read fresh whenever a pane
   // reveals a host it already holds (Back, a pinned pane, a change of host),
   // and again when the held view turns stale while shown (an act, a
-  // refresh). The held doc stays on screen until the answer lands. Once per
-  // reveal or per turn to stale: an answer that leaves it stale does not
-  // ask again. A host not held yet is being read by the open that showed it.
+  // refresh), and on every reload, stale or not, so a second Refresh retries
+  // a read the first could not complete. The held doc stays on screen until
+  // the answer lands. Once per reveal, reload or turn to stale: an answer
+  // that leaves it stale changes none of them, so nothing asks again on its
+  // own. A host not held yet is being read by the open that showed it.
   const stale = isHost && !!state.staleHosts[refId];
   const held = isHost && !!state.docs[refId];
-  const seen = useRef<{ ref: string; stale: boolean } | null>(null);
+  // Its first read failed (the pane shows the error): a reload retries it.
+  const failed = isHost && state.docs[refId] === null;
+  const reloadSeq = state.reloadSeq;
+  const seen = useRef<{ ref: string; stale: boolean; reloadSeq: number } | null>(null);
   useEffect(() => {
     const before = seen.current;
-    seen.current = { ref: refId, stale };
-    if (!isHost) return;
-    const revealed = before?.ref !== refId;
-    if ((revealed && held) || (!revealed && stale && before !== null && !before.stale)) {
+    seen.current = { ref: refId, stale, reloadSeq };
+    if (!isHost || (!held && !failed)) return;
+    const revealed = before === null || before.ref !== refId;
+    const reloaded = !revealed && before.reloadSeq !== reloadSeq;
+    const turnedStale = !revealed && stale && !before.stale;
+    if (reloaded || (held && (revealed || turnedStale))) {
       send({ type: "inspector.open", target: { kind: "ref", ref: refId } });
     }
-  }, [isHost, held, stale, refId, send]);
+  }, [isHost, held, failed, stale, reloadSeq, refId, send]);
   const seed = state.snap?.investigation.seed;
   const role = seed?.entityRef === refId ? "seed subject" : c.actions.some((x) => x.role === "target") ? "action target" : c.predictions.length || c.pins.length ? "cited" : "appears";
   const actionsOn = (state.snap?.actions || []).filter((a) => (a.targets || []).includes(label || "") || (a.targets || []).includes(refId));

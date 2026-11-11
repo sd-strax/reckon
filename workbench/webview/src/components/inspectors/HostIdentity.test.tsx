@@ -202,6 +202,22 @@ describe("a host's identity in the inspector (adr/0211)", () => {
     expect(opens().length).toBe(1);
     expect(within(pane()).getByText("This view may be out of date.")).toBeTruthy();
     expect(within(edge("relationship--1")).getByText("from edr")).toBeTruthy();
+    // A second refresh retries though the host is still stale: exactly one more read.
+    emit(transport, { type: "state.snapshot", seq: base.snapshot.seq, snapshot: base.snapshot });
+    expect(opens().length).toBe(2);
+    // Degraded again: nothing more on its own.
+    emit(transport, { type: "inspector.evidence", ref: host, doc: degraded, appearances: [] });
+    expect(opens().length).toBe(2);
+  });
+
+  it("retries a host whose first read failed on a reload", () => {
+    const transport = mount(["corp"]);
+    transport.send = (i) => { transport.intents.push(i); };
+    open(host);
+    emit(transport, { type: "inspector.error", target: host, message: "backend unreachable" });
+    const before = transport.intents.length;
+    emit(transport, { type: "state.snapshot", seq: base.snapshot.seq, snapshot: base.snapshot });
+    expect(transport.intents.slice(before).filter((i) => i.type === "inspector.open")).toEqual([{ type: "inspector.open", target: { kind: "ref", ref: host } }]);
   });
 
   it("says a host's view may be out of date while it is stale, and asks for it again", () => {

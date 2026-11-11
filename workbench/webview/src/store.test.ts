@@ -218,6 +218,14 @@ describe("reducer: a host's identity acts (adr/0211)", () => {
     s = run([{ type: "state.snapshot", seq: 1, snapshot: snap(1) }], s);
     expect(s.staleHosts).toEqual({ [ref]: true });
   });
+  it("counts every applied load in reloadSeq, and not a snapshot dropped as older", () => {
+    let s = run([{ type: "state.snapshot", seq: 5, snapshot: snap(5) }]);
+    expect(s.reloadSeq).toBe(1);
+    s = run([{ type: "state.snapshot", seq: 5, snapshot: snap(5) }], s);
+    expect(s.reloadSeq).toBe(2);
+    s = run([{ type: "state.snapshot", seq: 4, snapshot: snap(4) }], s);
+    expect(s.reloadSeq).toBe(2);
+  });
   it("identity.changed marks all hosts stale, the acted one included", () => {
     const other = "x-host--2";
     let s = run([

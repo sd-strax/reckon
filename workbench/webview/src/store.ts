@@ -130,6 +130,8 @@ export interface State {
    * closure may have changed, so a pane showing one asks for it again.
    */
   staleHosts: Record<string, true>;
+  /** Bumped on every applied snapshot (a load: open, refresh): a pane showing a host reads it again on each. */
+  reloadSeq: number;
 }
 
 /** One identity act: on which host, and where it stands. */
@@ -203,6 +205,7 @@ export const initialState: State = {
   actionsInFlight: {},
   identityActs: {},
   staleHosts: {},
+  reloadSeq: 0,
 };
 
 export type Action =
@@ -339,6 +342,9 @@ function onMessage(state: State, msg: RenderMessage): State {
         // host afresh: a host's identity may have changed by anyone's act,
         // so each held host is stale and a pane showing one re-asks.
         staleHosts: hostsStale(state),
+        // An explicit reload always reads the shown host again, even one
+        // already stale: the stale flag alone cannot represent a retry.
+        reloadSeq: state.reloadSeq + 1,
       };
     }
     case "state.patch": {
