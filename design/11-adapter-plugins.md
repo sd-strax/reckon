@@ -412,11 +412,13 @@ contract treats them differently (adr/0334). `describe` declares which applies:
   its schema:
   1. **Discover.** It reads the store's schema at `configure` and on every `health` probe and
      builds its projection and predicates from the fields that exist, never from a fixed list.
-  2. **Profiles.** It carries one profile per source version it supports — `name`, `store`,
+  2. **Profiles.** It carries one profile per source version it supports — `name` (one path
+     element, unique among its profiles, since it names the profile's directory), `store`,
      `version`, and the `fields` it reads — and lists them in `schema_source.profiles`. Each
-     profile is *recorded* from a real store (the store's schema as captured and a few real
-     result pages) and kept with the adapter's tests (`03 §9.1`), so offline tests run against
-     what a store returns, not against the author's expectation.
+     profile is *recorded* from a real store (`schema.json`, the store's schema as captured, in
+     JSON, and `pages/`, at least one real result page, scrubbed of account identifiers) and kept
+     with the adapter's tests (`03 §9.1`), so offline tests run against what a store returns,
+     not against the author's expectation.
   3. **Decline.** A call that needs a field the store lacks is declined with `FALLTHROUGH` and a
      reason (`03 §6.2`), so the engine tries another binding or reports the capability
      unavailable; it is never sent to fail at the store.
@@ -608,8 +610,8 @@ reckon adapter test <path-to-adapter-dir>
 which spawns the adapter, runs the handshake, validates `describe` output against the descriptor
 schemas, exercises declared operations against scenario fixtures, and asserts the `03 §6.2` error
 taxonomy on injected failures. It fails an adapter whose `describe` declares no `schema_source`
-or an unknown kind; a `query` adapter that lists no profile, or a profile without its `store`,
-`version` and `fields`; and a `health` result whose `degraded` list does not parse (`§4.4`). A
+or an unknown kind; a `query` adapter that lists no profile, a profile without its `store`,
+`version` and `fields`, or a profile name that is not one path element or repeats another; and a `health` result whose `degraded` list does not parse (`§4.4`). A
 `query` adapter's recorded profiles and live-check runbook live in its source, which an
 installed artifact does not carry, so their presence is checked where the source is: in-tree by
 a repository test, and in an index by its acceptance gates (`12 §5.1`). Passing conformance is the definition of "speaks the protocol."

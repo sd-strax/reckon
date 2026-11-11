@@ -43,8 +43,9 @@ query against a store it does not own.
   exist, never from a fixed list.
 - It carries one profile per source version it supports — the store, the
   version, and the fields it reads — and names them in `describe`. A profile
-  is recorded from a real store: the store's schema as captured and a few
-  real result pages, under the adapter's test data, so offline tests run
+  is recorded from a real store: the store's schema as captured
+  (`schema.json`) and a few real result pages (`pages/`), scrubbed of account
+  identifiers, under the adapter's test data, so offline tests run
   against what a live store returns, not against what the author expected.
 - A call that needs a field the store lacks is declined with FALLTHROUGH
   and a reason, so the engine tries another binding or reports the
@@ -72,10 +73,11 @@ adr/0061).
 
 **Conformance enforces it.** `reckon adapter test` fails an adapter whose
 `describe` has no `schema_source` or an unknown kind, a `query` adapter that
-names no profile or a profile without its store, version and fields, and a
-health result whose degraded list does not parse. A repository test fails an
-in-tree `query` adapter without a recorded profile for every profile it
-describes, or without its live-check runbook. Exemptions are recorded here
+names no profile, a profile without its store, version and fields, or a
+profile name that is not one path element or repeats another, and a health
+result whose degraded list does not parse. A repository test fails an
+in-tree `query` adapter without a recorded profile (its schema and at least one
+result page) for every profile it describes, or without its live-check runbook. Exemptions are recorded here
 and nowhere else, so adding one is a decision on record, and an exemption
 fails once it no longer applies:
 

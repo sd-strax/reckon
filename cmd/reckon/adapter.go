@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -265,7 +266,9 @@ func validateDescribe(desc *adapterplugin.DescribeResult, rep *confReport) {
 
 // validateSchemaSource checks describe's schema_source (§4.4): it is declared
 // with a known kind, and a query adapter lists at least one profile, each with
-// its name, store, version and fields. The recorded profiles and the
+// its name, store, version and fields, and a name that is one path element
+// (it names a directory under testdata/profiles/) and repeats no other
+// profile's. The recorded profiles and the
 // live-check runbook live in the adapter's source, which an install dir does
 // not carry; a repository test checks them in-tree.
 func validateSchemaSource(desc *adapterplugin.DescribeResult, rep *confReport) {
@@ -288,11 +291,20 @@ func validateSchemaSource(desc *adapterplugin.DescribeResult, rep *confReport) {
 		return
 	}
 	ok := true
+	seen := make(map[string]bool, len(src.Profiles))
 	for i, p := range src.Profiles {
 		var missing []string
-		if p.Name == "" {
+		switch {
+		case p.Name == "":
 			missing = append(missing, "name")
+		case !isPathElement(p.Name):
+			ok = false
+			rep.fail(fmt.Sprintf("describe: schema_source profile %d name %q is not a single path element (11 §4.4)", i, p.Name))
+		case seen[p.Name]:
+			ok = false
+			rep.fail(fmt.Sprintf("describe: schema_source profile %d name %q is a duplicate (11 §4.4)", i, p.Name))
 		}
+		seen[p.Name] = true
 		if p.Store == "" {
 			missing = append(missing, "store")
 		}
@@ -310,6 +322,12 @@ func validateSchemaSource(desc *adapterplugin.DescribeResult, rep *confReport) {
 	if ok {
 		rep.pass(fmt.Sprintf("schema_source: kind query, %d profile(s)", len(src.Profiles)))
 	}
+}
+
+// isPathElement reports whether name is one clean path element, so a profile
+// name maps to exactly one directory under testdata/profiles/.
+func isPathElement(name string) bool {
+	return name != "." && name != ".." && !strings.ContainsAny(name, `/\`) && filepath.Base(name) == name
 }
 
 // validateHealthDegraded checks the health result's degraded list (§4.4): it

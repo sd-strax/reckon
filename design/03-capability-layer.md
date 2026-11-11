@@ -2060,8 +2060,13 @@ For scenarios where adapter behavior matters (auth flow testing, error
 injection, rate-limit handling), a second fixture format stores raw tool
 responses (whether MCP or native API). A `query` adapter's profiles
 (`11 §4.4`) are recordings of the same kind, kept with the adapter's tests under
-`testdata/profiles/<profile>/`: the store's schema as captured, and a few real
-result pages. These are scenario-tagged
+`testdata/profiles/<profile>/`: `schema.json`, the store's schema as captured,
+in JSON; and the directory `pages/`, holding one file per real result page, at
+least one. Each is a regular, non-empty file (a symlink does not count; a
+dotfile in `pages/` is not a page), and the repository test that enforces
+`11 §4.4` fails a profile missing either. A recording is committed scrubbed:
+account identifiers, principals and addresses replaced with placeholders that
+keep their shape; the raw capture stays out of the repository. These are scenario-tagged
 `raw_response` fixtures and used only by adapter-level tests, not by the agent
 loop.
 

@@ -29,13 +29,13 @@ Scaffold a new in-tree adapter: a static Go binary under `cmd/reckon-adapter-<na
 The reference is `cmd/reckon-adapter-aws-security-lake` (until #335 lands, it predates discovery and is exempt from the repository test; follow §4.4, not its fixed projection).
 
 - **Schema discovery**: read the store's schema at `configure` and on every `health` probe, and build the projection and predicates from the fields that exist, never from a fixed column list.
-- **Profiles**: `testdata/profiles/<profile.name>/` for every profile `describe` lists, recorded from a real store: the store's schema as captured (e.g. `schema.json`) and a few real result pages. Offline tests read these, not hand-built pages.
+- **Profiles**: `testdata/profiles/<profile.name>/` for every profile `describe` lists, recorded from a real store: `schema.json`, the store's schema as captured, and `pages/`, one file per real result page, at least one. `schema.json` is valid JSON; `pages/` is a real directory; each is a regular, non-empty file (a symlink does not count, and a dotfile such as `.gitkeep` is not a page). The profile name is one path element (no `/`), unique within `describe`. The repository test fails a profile missing either part. Offline tests read these, not hand-built pages.
 - **Decline**: a call that needs a field the discovered schema lacks returns `FALLTHROUGH` with a reason naming the field; it is never sent to fail at the store. Test it against a profile missing that field.
 - **Degraded health**: `HealthResult.Degraded` lists `adapterplugin.DegradedCapability{Operation, Capability, Reason}` for each capability the schema cannot express ("credential filter: `actor.session.credential_uid` absent"). `Healthy` stays the whole-instance signal: a field no call can do without (the event time) is unhealthy.
 - **`examples/adapters/<name>/LIVE.md`**, the live-check runbook, with these sections:
   - *Stand up*: the store, the account or tenant, the subscriber or credentials, and what generates events.
-  - *Capture*: the commands that read the store's schema and a few result pages, and where they land (an ignored `data/` directory, never committed raw).
-  - *Compare*: diff the captured schema against `testdata/profiles/<profile>/`; a new or missing field is a profile update (and a new profile for a new source version).
+  - *Capture*: the commands that read the store's schema and a few result pages, and where they land (an ignored `data/` directory, never committed raw); then scrub a copy (account identifiers, principals and addresses replaced with same-shape placeholders) into `testdata/profiles/<profile>/`.
+  - *Compare*: diff the captured schema against `testdata/profiles/<profile>/schema.json`; a new or missing field is a profile update (and a new profile for a new source version).
   - *Tear down*: everything *Stand up* created.
   - *When*: before a release and when the vendor announces a new source version.
 

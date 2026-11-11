@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -106,6 +107,12 @@ func TestValidateSchemaSource(t *testing.T) {
 		{"profile without store", querySource(func(p *adapterplugin.SchemaProfile) { p.Store = "" }), "lacks store"},
 		{"profile without version", querySource(func(p *adapterplugin.SchemaProfile) { p.Version = "" }), "lacks version"},
 		{"profile without fields", querySource(func(p *adapterplugin.SchemaProfile) { p.Fields = nil }), "lacks fields"},
+		{"profile name with a slash", querySource(func(p *adapterplugin.SchemaProfile) { p.Name = "a/b" }), "single path element"},
+		{"profile name with a backslash", querySource(func(p *adapterplugin.SchemaProfile) { p.Name = `a\b` }), "single path element"},
+		{"profile name dot", querySource(func(p *adapterplugin.SchemaProfile) { p.Name = "." }), "single path element"},
+		{"profile name dot-dot", querySource(func(p *adapterplugin.SchemaProfile) { p.Name = ".." }), "single path element"},
+		{"duplicate profile names", &adapterplugin.SchemaSource{Kind: adapterplugin.SchemaSourceQuery, Profiles: []adapterplugin.SchemaProfile{profile, profile}}, "duplicate"},
+		{"two distinct profiles", &adapterplugin.SchemaSource{Kind: adapterplugin.SchemaSourceQuery, Profiles: []adapterplugin.SchemaProfile{profile, {Name: "q", Store: "s", Version: "1", Fields: []string{"f"}}}}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -163,10 +170,11 @@ func assertReport(t *testing.T, rep *confReport, fail string) {
 // builds every in-tree adapter under cmd/reckon-adapter-*, reads each one's
 // describe with adapterplugin.DescribeExecutable (initialize + describe;
 // configure would need the vendor's credentials), and requires that the
-// describe passes the conformance checks, and that a query adapter ships a
-// recorded profile at cmd/reckon-adapter-<name>/testdata/profiles/<profile>/
-// for every profile it lists and a live-check runbook at
-// examples/adapters/<name>/LIVE.md — unless exempted, and an exemption must
+// describe passes the conformance checks, and that a query adapter ships, for
+// every profile it lists, cmd/reckon-adapter-<name>/testdata/profiles/<profile>/
+// holding schema.json (valid JSON) and pages/ with at least one page, plus a
+// live-check runbook at examples/adapters/<name>/LIVE.md, each as
+// missingQueryArtifacts defines it — unless exempted, and an exemption must
 // still be needed. That each exemption is recorded in adr/0334 is checked by
 // TestExemptionsAreRecorded.
 func TestInTreeAdapters_SchemaSource(t *testing.T) {
@@ -372,23 +380,155 @@ func TestExemptionRecordProblems(t *testing.T) {
 	}
 }
 
-// missingQueryArtifacts lists what a query adapter's source lacks: a
-// non-empty recorded profile directory per described profile, and its
-// live-check runbook.
+// missingQueryArtifacts lists what a query adapter's source lacks, one entry
+// per missing artifact (03 §9.1, 11 §4.4): for each described profile, a
+// non-empty JSON testdata/profiles/<profile>/schema.json and a pages/
+// directory holding at least one page; and the adapter's non-empty live-check
+// runbook. Only regular files count, so a directory or symlink in their place
+// is missing, as is a symlinked pages/; a dotfile in pages/ is not a page.
 func missingQueryArtifacts(root, dir, name string, profiles []adapterplugin.SchemaProfile) []string {
 	var missing []string
 	for _, p := range profiles {
 		rel := filepath.Join("testdata", "profiles", p.Name)
-		entries, err := os.ReadDir(filepath.Join(dir, rel))
-		if err != nil || len(entries) == 0 {
-			missing = append(missing, filepath.Join("cmd", filepath.Base(dir), rel)+"/")
+		at := filepath.Join("cmd", filepath.Base(dir), rel)
+		schema := filepath.Join(dir, rel, "schema.json")
+		if !isNonEmptyRegular(schema) {
+			missing = append(missing, filepath.Join(at, "schema.json"))
+		} else if b, err := os.ReadFile(schema); err != nil || !json.Valid(b) {
+			missing = append(missing, filepath.Join(at, "schema.json")+" (not JSON)")
+		}
+		if !hasPage(filepath.Join(dir, rel, "pages")) {
+			missing = append(missing, filepath.Join(at, "pages")+"/")
 		}
 	}
 	live := filepath.Join("examples", "adapters", name, "LIVE.md")
-	if _, err := os.Stat(filepath.Join(root, live)); err != nil {
+	if !isNonEmptyRegular(filepath.Join(root, live)) {
 		missing = append(missing, live)
 	}
 	return missing
+}
+
+// isNonEmptyRegular reports whether path is itself a regular file (not a
+// symlink or directory) with content.
+func isNonEmptyRegular(path string) bool {
+	fi, err := os.Lstat(path)
+	return err == nil && fi.Mode().IsRegular() && fi.Size() > 0
+}
+
+// hasPage reports whether dir is a real directory (not a symlink) directly
+// holding a page: a non-dot, regular, non-empty file.
+func hasPage(dir string) bool {
+	if fi, err := os.Lstat(dir); err != nil || !fi.IsDir() {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ".") && isNonEmptyRegular(filepath.Join(dir, e.Name())) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMissingQueryArtifacts(t *testing.T) {
+	const (
+		schema = "cmd/x/testdata/profiles/p/schema.json"
+		pages  = "cmd/x/testdata/profiles/p/pages/"
+		live   = "examples/adapters/x/LIVE.md"
+		pSch   = "x/testdata/profiles/p/schema.json"
+		pPage  = "x/testdata/profiles/p/pages/1.json"
+		pPages = "x/testdata/profiles/p/pages"
+		pLive  = "examples/adapters/x/LIVE.md"
+	)
+	complete := map[string]string{
+		pSch:                                 "{}",
+		pPage:                                "{}",
+		"x/testdata/profiles/q/schema.json":  "{}",
+		"x/testdata/profiles/q/pages/1.json": "{}",
+		pLive:                                "run",
+	}
+	cases := []struct {
+		name     string
+		profiles []string    // nil = just p
+		edit     [][2]string // {path, content} in order; "" deletes, "/" makes a directory, "empty" an empty file, "->t" a symlink to t
+		want     []string
+	}{
+		{"complete", nil, nil, nil},
+		{"no schema.json", nil, [][2]string{{pSch, ""}}, []string{schema}},
+		{"empty schema.json", nil, [][2]string{{pSch, "empty"}}, []string{schema}},
+		{"schema.json is a directory", nil, [][2]string{{pSch, "/"}}, []string{schema}},
+		{"schema.json is a symlink", nil, [][2]string{{"x/elsewhere.json", "{}"}, {pSch, "->x/elsewhere.json"}}, []string{schema}},
+		{"schema.json not JSON", nil, [][2]string{{pSch, "not json"}}, []string{schema + " (not JSON)"}},
+		{"no pages/", nil, [][2]string{{pPage, ""}, {pPages, ""}}, []string{pages}},
+		{"pages/ empty", nil, [][2]string{{pPage, ""}}, []string{pages}},
+		{"pages/ holds an empty file", nil, [][2]string{{pPage, "empty"}}, []string{pages}},
+		{"pages/ holds a subdirectory", nil, [][2]string{{pPage, ""}, {pPages + "/sub", "/"}}, []string{pages}},
+		{"pages/ holds a dotfile", nil, [][2]string{{pPage, ""}, {pPages + "/.DS_Store", "junk"}}, []string{pages}},
+		{"pages/ is a symlink", nil, [][2]string{{"x/real/1.json", "{}"}, {pPage, ""}, {pPages, ""}, {pPages, "->x/real"}}, []string{pages}},
+		{"no LIVE.md", nil, [][2]string{{pLive, ""}}, []string{live}},
+		{"empty LIVE.md", nil, [][2]string{{pLive, "empty"}}, []string{live}},
+		{"LIVE.md is a directory", nil, [][2]string{{pLive, "/"}}, []string{live}},
+		{"bare profile directory", nil, [][2]string{{pSch, ""}, {pPage, ""}, {"x/testdata/profiles/p/README.md", "notes"}}, []string{schema, pages}},
+		{"only page is a symlink", nil, [][2]string{{"x/real.json", "{}"}, {pPage, "->x/real.json"}}, []string{pages}},
+		{"page plus dotfile", nil, [][2]string{{pPages + "/.gitkeep", "keep"}}, nil},
+		{"page plus junk", nil, [][2]string{{"x/testdata/profiles/p/README.md", "notes"}, {pPages + "/sub", "/"}}, nil},
+		{"second profile incomplete", []string{"p", "q"}, [][2]string{{"x/testdata/profiles/q/schema.json", ""}}, []string{"cmd/x/testdata/profiles/q/schema.json"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			for path, content := range complete {
+				writeTestFile(t, filepath.Join(root, path), content)
+			}
+			for _, e := range tc.edit {
+				full, content := filepath.Join(root, e[0]), e[1]
+				var err error
+				switch {
+				case content == "":
+					err = os.Remove(full)
+				case content == "/":
+					_ = os.Remove(full)
+					err = os.MkdirAll(full, 0o750)
+				case content == "empty":
+					writeTestFile(t, full, "")
+				case strings.HasPrefix(content, "->"):
+					_ = os.Remove(full)
+					err = os.Symlink(filepath.Join(root, strings.TrimPrefix(content, "->")), full)
+				default:
+					writeTestFile(t, full, content)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			names := tc.profiles
+			if names == nil {
+				names = []string{"p"}
+			}
+			var profiles []adapterplugin.SchemaProfile
+			for _, n := range names {
+				profiles = append(profiles, adapterplugin.SchemaProfile{Name: n})
+			}
+			got := missingQueryArtifacts(root, filepath.Join(root, "x"), "x", profiles)
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("missing = %q; want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// writeTestFile writes content at path, creating its parent directories.
+func writeTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // repoRoot is the module root, two levels above this package.
