@@ -29,8 +29,8 @@ var crowdstrikeResponseManifest []byte
 //go:embed manifests/servicenow.yaml
 var servicenowManifest []byte
 
-//go:embed manifests/security-lake.yaml
-var securityLakeManifest []byte
+//go:embed manifests/aws-security-lake.yaml
+var awsSecurityLakeManifest []byte
 
 // Bundled is one first-party adapter reckon can install.
 type Bundled struct {
@@ -48,7 +48,7 @@ var registry = map[string]Bundled{
 	"crowdstrike-falcon":   {Name: "crowdstrike-falcon", Manifest: crowdstrikeFalconManifest, Binary: "reckon-adapter-crowdstrike-falcon"},
 	"crowdstrike-response": {Name: "crowdstrike-response", Manifest: crowdstrikeResponseManifest, Binary: "reckon-adapter-crowdstrike-response"},
 	"servicenow":           {Name: "servicenow", Manifest: servicenowManifest, Binary: "reckon-adapter-servicenow"},
-	"security-lake":        {Name: "security-lake", Manifest: securityLakeManifest, Binary: "reckon-adapter-security-lake"},
+	"aws-security-lake":    {Name: "aws-security-lake", Manifest: awsSecurityLakeManifest, Binary: "reckon-adapter-aws-security-lake"},
 }
 
 // Get returns the bundled adapter for a name.

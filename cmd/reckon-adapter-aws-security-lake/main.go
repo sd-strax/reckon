@@ -1,4 +1,4 @@
-// Command reckon-adapter-security-lake is a NATIVE_API-class reckon adapter
+// Command reckon-adapter-aws-security-lake is a NATIVE_API-class reckon adapter
 // (design/11; adr/0322) that reads AWS Security Lake: the CloudTrail
 // management-event table (OCSF API Activity, class 6003) through an Athena
 // query-access subscriber, and the resource-context snapshot (OCSF Cloud
@@ -27,7 +27,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "reckon-adapter-security-lake:", err)
+		fmt.Fprintln(os.Stderr, "reckon-adapter-"+adapterName+":", err)
 		os.Exit(1)
 	}
 }

@@ -14,7 +14,7 @@ const (
 	verbHistory  = "get_cloud_resource_history"
 	verbContext  = "get_cloud_resource_context"
 
-	adapterName = "security-lake"
+	adapterName = "aws-security-lake"
 )
 
 // bindingPriority is the default priority of the bindings this adapter
