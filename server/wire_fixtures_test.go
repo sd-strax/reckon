@@ -93,6 +93,32 @@ func TestWireFixtures(t *testing.T) {
 				IPs:     []string{"10.0.0.7"},
 			},
 		}
+		// An account's view as an account carries it (adr/0324): the login
+		// aliased to it by the record, what it was seen as, an owner from a
+		// directory's record and one a person asserted and withdrew; and a
+		// person's, with the accounts attached to it. The wire carries one
+		// of the three identity views per ref; the sample fills all three.
+		v.AccountIdentity = &EvidenceAccountIdentity{
+			Aliases:  []IdentityEdgeView{{EdgeID: "relationship--9", OtherRef: "user-account--10", Kind: evidence.IdentityObserved, Source: "dc", At: at}},
+			Distinct: []IdentityEdgeView{},
+			SeenAs: AccountSeenAsView{
+				Logins:         []string{`CONTOSO\jdoe`},
+				IDs:            []SourceIDView{{Tool: "dc", UID: "S-1-5-21-1001"}},
+				PrincipalNames: []string{"jdoe@contoso.example"},
+			},
+			Owners: []OwnerView{
+				{PersonRef: "identity--11", AccountRef: "user-account--10", EdgeID: "relationship--12", Kind: evidence.IdentityObserved, Source: "idp", At: at},
+				{PersonRef: "identity--13", AccountRef: "user-account--10", EdgeID: "relationship--14", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Note: "the help desk ticket", Withdrawn: true},
+			},
+		}
+		v.PersonIdentity = &EvidencePersonIdentity{
+			Aliases:  []IdentityEdgeView{},
+			Distinct: []IdentityEdgeView{{EdgeID: "relationship--15", OtherRef: "identity--16", Kind: evidence.IdentityAsserted, By: "u-2", ByName: "Ben Analyst", At: at, Note: "namesakes"}},
+			Accounts: []PersonAccountView{
+				{AccountRef: "user-account--10", EdgeID: "relationship--12", Kind: evidence.IdentityObserved, Source: "idp", At: at},
+				{AccountRef: "user-account--17", EdgeID: "relationship--18", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Note: "same desk"},
+			},
+		}
 	})
 	// The identity acts' answer: the view after the act, null when it could
 	// not be read.

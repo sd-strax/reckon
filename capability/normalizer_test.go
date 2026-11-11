@@ -2,6 +2,7 @@ package capability
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,10 +68,12 @@ func TestProcessNormalizer(t *testing.T) {
 		byType[s.Type]++
 	}
 	want := map[string]int{
-		identity.TypeProcess:     2, // subject + parent
-		identity.TypeFile:        1,
-		identity.TypeHost:        1,
-		identity.TypeUserAccount: 1,
+		identity.TypeProcess: 2, // subject + parent
+		identity.TypeFile:    1,
+		identity.TypeHost:    1,
+		// The SID account, and the CONTOSO\jdoe account the same record
+		// aliases to it, outside object_refs (adr/0324).
+		identity.TypeUserAccount: 2,
 	}
 	for typ, n := range want {
 		if byType[typ] != n {
@@ -113,8 +116,8 @@ func TestProcessNormalizer(t *testing.T) {
 			derived++
 		}
 	}
-	if extracted != 5 || derived != 1 {
-		t.Errorf("edges: extracted=%d derived=%d; want 5 and 1", extracted, derived)
+	if extracted != 6 || derived != 1 {
+		t.Errorf("edges: extracted=%d derived=%d; want 6 and 1", extracted, derived)
 	}
 }
 
@@ -143,8 +146,9 @@ func TestAuthNormalizer(t *testing.T) {
 	for _, s := range res.SCOs {
 		byType[s.Type]++
 	}
-	if byType[identity.TypeUserAccount] != 1 || byType[identity.TypeHost] != 1 || byType[identity.TypeIPv4Addr] != 1 {
-		t.Errorf("auth SCO types = %v; want 1 user, 1 host, 1 ipv4", byType)
+	// The SID account and the login account aliased to it (adr/0324).
+	if byType[identity.TypeUserAccount] != 2 || byType[identity.TypeHost] != 1 || byType[identity.TypeIPv4Addr] != 1 {
+		t.Errorf("auth SCO types = %v; want 2 user accounts, 1 host, 1 ipv4", byType)
 	}
 
 	var authed int
@@ -358,8 +362,10 @@ func TestHostShaping(t *testing.T) {
 	if !ok || w.Properties["weak"] != true || w.Properties["source_tool"] != "edr" || w.Properties["device_uid"] != "agent-7" {
 		t.Errorf("uid-only record: weak host = %+v", w)
 	}
-	if len(res4.Relationships) != 1 { // parent-process-of only, no alias
-		t.Errorf("a weak-only record emits no alias: %+v", res4.Relationships)
+	for _, r := range res4.Relationships { // the account's alias aside, no host alias
+		if r.Type == RelAliases && strings.HasPrefix(string(r.SourceRef), identity.TypeHost+"--") {
+			t.Errorf("a weak-only record emits no host alias: %+v", r)
+		}
 	}
 
 	// An IP literal in the hostname field is the host whole: no FQDN, no
@@ -446,16 +452,19 @@ func TestHostAliasEmission(t *testing.T) {
 // re-normalization under §4.13): the ones that mint a host, and email, whose
 // attachment files are identified by hash and placeholder hashes no longer
 // count. Or it took over a class the opaque default handled (5001, 6003,
-// 5023): the ObservedData id carries the version but not the normalizer's
-// name, so version 1 would collide with the opaque observation. 5023 is at 3:
-// its created and modified times became RFC 3339 in the extensions whatever
-// form the payload carries them in. The case normalizer and the opaque
-// default are at 1.
+// 5023, 5003): the ObservedData id carries the version but not the
+// normalizer's name, so version 1 would collide with the opaque observation.
+// 5023 is at 3: its created and modified times became RFC 3339 in the
+// extensions whatever form the payload carries them in. The normalizers
+// that mint an account from an OCSF user object moved to 3 under adr/0324
+// (1007, 3002, 1001, 1006, 3005, 4011, and 2004, whose evidence recursion
+// mints them); api_activity shapes a control-plane principal, unchanged, and
+// stays at 2. The case normalizer and the opaque default are at 1.
 func TestHostNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 2}, {3002, 2}, {4001, 2}, {4003, 2}, {1001, 2}, {1003, 2}, {1006, 2}, {1009, 2},
-		{3005, 2}, {4011, 2}, {2004, 2}, {5001, 2}, {4009, 2}, {6003, 2}, {5023, 3}, {2005, 1}, {0, 1},
+		{1007, 3}, {3002, 3}, {4001, 2}, {4003, 2}, {1001, 3}, {1003, 2}, {1006, 3}, {1009, 2},
+		{3005, 3}, {4011, 3}, {2004, 3}, {5001, 2}, {4009, 2}, {6003, 2}, {5023, 3}, {5003, 2}, {2005, 1}, {0, 1},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {

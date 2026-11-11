@@ -47,6 +47,7 @@ func routeCases() []struct {
 		{"GET", "/evidence/indicator--" + id, authz.ReadRoles},
 		{"POST", "/entities/x-host--" + id + "/aliases", authz.AnalystRoles},
 		{"POST", "/entities/x-host--" + id + "/distinct", authz.AnalystRoles},
+		{"POST", "/entities/user-account--" + id + "/owner", authz.AnalystRoles},
 		{"POST", "/identity/relationship--" + id + "/withdraw", authz.AnalystRoles},
 		{"POST", "/comms/inbound", authz.AnalystRoles},
 		{"POST", "/knowledge/recall_sops", authz.ReadRoles},

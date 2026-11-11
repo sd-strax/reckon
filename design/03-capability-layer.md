@@ -682,7 +682,10 @@ Output:
 - One `process` SCO for the parent process if present.
 - One `file` SCO for the executable image, with hashes if present.
 - One `x-host` SCO for the device.
-- One `user-account` SCO for the executing user if present.
+- One `user-account` SCO for the executing user if present, shaped by the
+  account rule (§7.2): the record's strongest identifier is in
+  `object_refs`; each lesser identifier it carries mints its own account
+  outside them, with `aliases` to the strongest. Version 3 (adr/0324).
 - One `ObservedData` SDO with `object_refs` pointing to all of the above,
   `first_observed = last_observed = time`, `number_observed = 1`.
 - Edges: `extracted-from` from each SCO to the `OcsfEvent`; `derived-from` from
@@ -704,7 +707,11 @@ object (`adr/0208`).
 
 Output:
 
-- One `user-account` SCO for the actor.
+- One `user-account` SCO for the actor, shaped by the account rule (§7.2):
+  the record's strongest identifier is in `object_refs`; each lesser
+  identifier it carries mints its own account outside them, with `aliases`
+  to the strongest. A bare login from a source that names no OS and no host
+  is the weak `login` account, so the actor is kept. Version 3 (adr/0324).
 - One `x-host` SCO for the destination.
 - One `ipv4-addr` (or `ipv6-addr`) SCO for the source IP if present.
 - One `ObservedData` SDO referencing all three, plus a `description`-style note
@@ -764,7 +771,10 @@ Output:
 - `directory` SCO for the parent directory.
 - `process` SCO for the actor process if present.
 - `x-host` SCO for the device.
-- `user-account` SCO for the executing user if present in `actor`.
+- `user-account` SCO for the executing user if present in `actor`, shaped
+  by the account rule (§7.2): the record's strongest identifier is in
+  `object_refs`; each lesser identifier it carries mints its own account
+  outside them, with `aliases` to the strongest. Version 3 (adr/0324).
 - One `ObservedData` referencing all of the above. The `activity_id` is
   preserved in custom extension fields on the ObservedData (STIX has no
   first-class read/write/modify distinction at the ObservedData level).
@@ -801,7 +811,10 @@ Output:
 
 - `x-scheduled-task` custom SCO with fields `name`, `path`, `command_line`,
   `principal_user_ref`. Identity rule: `(host_ref.id, name, path)`.
-- `user-account` SCO for the principal user (the user the task runs as).
+- `user-account` SCO for the principal user (the user the task runs as),
+  shaped by the account rule (§7.2): the record's strongest identifier is in
+  `object_refs`; each lesser identifier it carries mints its own account
+  outside them, with `aliases` to the strongest. Version 3 (adr/0324).
 - `x-host` SCO for the device.
 - One `ObservedData` referencing all of the above.
 - Edges as in §4.1.
@@ -833,7 +846,11 @@ PRIVILEGE_GRANT, etc.), `group.*` (if applicable), `device.uuid`, `time`.
 Output:
 
 - `user-account` SCO for the target user.
-- `user-account` SCO for the initiator if present.
+- `user-account` SCO for the initiator if present. Both are shaped by the
+  account rule (§7.2): the record's strongest identifier is in
+  `object_refs`; each lesser identifier it carries mints its own account
+  outside them, with `aliases` to the strongest, and an alias the target and
+  the initiator share is recorded once. Version 3 (adr/0324).
 - `x-host` SCO for the device if present (often the IdP itself for cloud
   events).
 - For group-related activities: STIX `Relationship` of custom type
@@ -893,7 +910,10 @@ Output:
   identified deterministically; if the corresponding email-message is in the
   graph, the click stitches; if not, a stub email-message SCO is created
   with just the message_id for later stitching).
-- `user-account` SCO for the clicker.
+- `user-account` SCO for the clicker, shaped by the account rule (§7.2):
+  the record's strongest identifier is in `object_refs`; each lesser
+  identifier it carries mints its own account outside them, with `aliases`
+  to the strongest. Version 3 (adr/0324).
 - `x-host` SCO for the device if present.
 - STIX `Relationship` of custom type `clicked` from the user-account to the
   url.
@@ -1236,6 +1256,70 @@ fills only the typed objects is a row for the shaping table, not a new
 normalizer. Failure modes are §4.15's; a snapshot and an activity event that
 name the same resource by different identifiers (unique id in one, bare
 name in the other) are the same split, remedied by `aliases`.
+
+### 4.19 OCSF user_inventory_info (class_uid 5003) → STIX
+
+Input: an OCSF User Inventory Info event, a directory's record of one user,
+with `user.{uid, uid_alt, name, full_name, email_addr, domain, groups[].{name,
+uid, domain}, org.{name, ou_name}, ldap_person.{job_title, employee_uid,
+email_addrs, manager.uid}}`, `metadata.product.{vendor_name, name}`,
+`activity_id`, `activity_name`, `time`, and, under `unmapped` (OCSF carries no
+attribute for them), the on-premises identifiers a cloud directory holds for
+a synced user: `on_premises_security_identifier`,
+`on_premises_sam_account_name`, `on_premises_domain_name`, and
+`account_enabled`. `user.uid` is the directory's own id for the user (an
+object id, an object GUID, a user id, or a SID for an on-premises directory
+keyed by it). The domain family's SID is `user.uid` when it is one, else
+`user.uid_alt` when it has the SID form, else the unmapped field. Its
+version range (§4.16) is 1.1.0 to 1.7.0: the bundled fixture declares 1.1.0;
+every field identity reads (`user.uid`, `uid_alt`, `name`, `domain`,
+`email_addr`) and `unmapped` are present at the floor, and `ldap_person`, read
+only for properties, is read when present.
+
+Output. This is the only normalizer that mints a person (adr/0324); every
+other class names accounts only, and no other observation's `object_refs`
+holds a person.
+
+- One `identity` with `identity_class: individual`, the person, keyed
+  `(directory, directory_id)` (§7.2): the directory slug is derived from
+  `metadata.product`, the product name, or with none the vendor name, matched
+  whole against known directories (`entra` for Entra ID or Azure Active
+  Directory, `okta`, `google` for Google Workspace or Cloud Identity, `ad`
+  for an on-premises Active Directory, `workday`); any other product by its
+  full name, so a managed domain service that names a provider is its own
+  directory; with no product name and an unknown vendor, the vendor name,
+  else the source tool; lowercased, spaces as dashes. The id is `user.uid`.
+  Properties: `name` and `display_name` (`full_name`, else the
+  principal name), `mail` (`email_addr`, else the first
+  `ldap_person.email_addrs`), `principal_name`, `department`
+  (`org.ou_name`), `organization`, `title` (`ldap_person.job_title`),
+  `employee_id` (`ldap_person.employee_uid`), `manager_ref` (the person
+  `ldap_person.manager.uid` names in the same directory), `enabled`,
+  `directory`, `directory_id`. No uid or a placeholder uid mints no person.
+- The accounts the record names, each by the account rule (§7.2): the
+  domain account family, the SID when the record carries one, the principal
+  name, `domain\sam` when the sAMAccountName and its domain are present,
+  strongest first, the lesser aliased to the strongest outside `object_refs`;
+  and, for any directory but an on-premises one, the directory's sign-in
+  account, `cloud`, keyed on the directory's id, with the sign-in name's
+  account aliased to it. A personnel system (`workday`) names a person and no
+  account. The cloud and domain accounts are not aliased to each other: they
+  are two accounts of one person, joined by the person.
+- `belongs-to` from each account the record minted to the person, DIRECT,
+  with the record's provenance.
+- `member-of-group` from the sign-in account (the domain account's strongest
+  when there is none) to an `x-group` per `groups[]` entry, the directory
+  `group.domain` else the slug, as §4.9 records memberships.
+- One `ObservedData` referencing the person, the strongest account of each
+  family and the groups; the activity rides its extensions. The schema
+  version is not copied (§4.16).
+- Edges as in §4.1.
+
+Version 2, as §4.17: a record stored before the normalizer existed went
+through the opaque default at version 1. Failure modes: two directories that
+describe one human are two persons, linked by `aliases` from a record or a
+person; a directory record that omits the on-premises identifiers leaves the
+domain accounts unowned until one names them or a person asserts the owner.
 
 ---
 
@@ -1656,31 +1740,72 @@ normalizer level if a future deployment context requires it.
 Identity rule: `value` (full address with localpart and domain both
 lowercased, trailing whitespace stripped).
 
-**Deviation: `user-account`.** Identity is
-`(account_login, user_id, account_type)`. Both `account_login` and `user_id`
-are lowercased. `account_login` is normalized per type — Windows domain
-accounts as `"domain\\user"` lowercased, email-style accounts as the email
-address (subject to the email-addr lowercasing rule above), Unix accounts as
-the bare username. `account_type` values include `windows-domain`,
-`windows-local`, `unix`, `ldap`, `cloud`, etc.
+**Deviation: `user-account`.** An account is identified by what its source
+repeats, per `account_type` (adr/0324):
 
+- `windows-domain`: the SID when the record carries one; else the principal
+  name (`user@domain`, lowercased) when that is what the record carries;
+  else `domain\sam` lowercased. A record carrying the SID beside a login also
+  mints the login's account, outside the observation's `object_refs`, with
+  `aliases` from it to the SID's account: the source said in that record
+  that this login is this SID. A principal name from a directory source is a
+  directory account, not a cloud sign-in.
+- `windows`: a login with no domain and no SID from a Windows source is a
+  weak account keyed on the bare login; it joins a domain account only when
+  a record names both.
+- `windows-local`: scoped by the host, `(host_ref, sam)`; the well-known
+  principals are per-host identities by SID under this type, never persons
+  and never placeholders: the system, local service and network service
+  accounts, the built-in groups, the other fixed single-authority principals,
+  service, application pool, application package, window manager and font
+  driver host identities, and the mandatory labels, whose SIDs are computed
+  the same on every machine. Domain SIDs (`S-1-5-21-…`) are never among them.
+- `unix`: scoped by the host, `(host_ref, name)`. `root` on two hosts is two
+  accounts. An explicit Unix signal, the account type or the device's
+  operating system, outranks a domain name on the record; a SID outranks
+  both, since nothing but Windows issues one.
+- `local`: a bare login from a source that names no operating system, scoped
+  by the host like `unix`.
+- `login`: a bare login from a source that names neither an operating system
+  nor a host (a network access record, for instance) is a weak account keyed
+  on the login alone, the counterpart of the host's source-id tier; it joins
+  nothing by itself and the event keeps its actor. A global key for a
+  host-scoped login would make one account of every machine's same-named
+  local account, which is why `local` and `unix` need the host.
+- `cloud`: the identity provider's sign-in account, keyed on the provider's
+  user id when the record carries it, else the sign-in name lowercased. A
+  record is a sign-in record when its account type says so, or when its
+  source is an identity provider by product or vendor name and it carries
+  neither a SID nor a `domain\sam` login; a domain service a cloud provider
+  runs is a domain, and a provider's host agent that names an operating
+  system is a host's source, not a sign-in.
+- Control-plane principals: below, unchanged.
+
+`user_id` is a property, not part of the identity, of an account whose type
+keys on a login; the SID's account carries it and the login's account aliases
+to it from the record that named both. A placeholder login or identifier
+(§7.4) reads as absent and the account falls to its next key or mints nothing.
+`account_login`, principal names and SIDs are lowercased; a directory's or
+provider's user id is lowercased when it is a GUID and otherwise kept as
+given, the same fold the person's identifier uses, so one identifier folds
+one way wherever it appears (control-plane principals keep adr/0320's fold).
 The lowercasing is a deviation from strict STIX, which preserves case in
 account_login. Same rationale as email-addr: Windows is case-insensitive in
-account names, AD is case-insensitive, Entra is case-insensitive, and Unix —
-while case-sensitive in principle — overwhelmingly uses lowercase account
+account names, AD is case-insensitive, Entra is case-insensitive, and Unix,
+while case-sensitive in principle, overwhelmingly uses lowercase account
 names in enterprise practice. Treating `CONTOSO\Alice` and `contoso\alice` as
 different accounts fragments every authentication-touching investigation.
 
-Failure mode: a Unix system with two accounts differing only by case would
+Failure mode: a Unix host with two accounts differing only by case would
 have them collapse to one SCO. Operationally indistinguishable from a
 misconfiguration in most environments. Reversible at the normalizer level.
 
-Note that `account_type` does **not** lowercase-collapse: an Entra ID account
-(`account_type = cloud`) and an AD account (`account_type = windows-domain`)
-for the same human are deliberately distinct SCOs even when the
-`account_login` matches. They are, in fact, different accounts. Linking them
-is an explicit `aliases` edge created by the agent or analyst, never an
-implicit identity merge.
+Note that `account_type` does **not** lowercase-collapse: an identity
+provider's sign-in account (`cloud`) and a domain account (`windows-domain`)
+for the same human are deliberately distinct SCOs even when the login
+matches. They are, in fact, different accounts. What joins them is the
+person they belong to (§7.3), by the directory record that names both or by
+an analyst's assertion, never an implicit merge.
 
 Cloud control-plane principals (§4.15) use the provider as `account_type`
 (`aws`, `azure`, `gcp`), the provider's durable principal identifier as
@@ -1731,13 +1856,35 @@ analyst's `aliases`; two it wrongly joined or two the analyst knows apart are
 separated by `distinct-from` (01-domain-model.md edge table). Both are human
 acts, recorded with who and when, and withdrawn by marking, not deleting.
 
-For users: an Entra ID `user-account` (account_type `cloud`) and an AD
-`user-account` (account_type `windows-domain`) for the same human will *not*
-stitch automatically — they have different `account_type`. This is correct.
-They are different accounts. The relationship between them, if known, is
-expressed with an `aliases` edge created either by an `x-interpretation` of
-type `extraction` (when both are extracted from the same enrichment call) or a
-later analyst judgment.
+For users: an identity provider's `user-account` (account_type `cloud`) and
+a domain `user-account` (account_type `windows-domain`) for the same human
+will *not* stitch automatically: they have different `account_type`. This is
+correct. They are different accounts. What they share is the **person**, an
+`identity` with `identity_class: individual` (01-domain-model.md, adopted),
+keyed by the durable identifier its directory gives it and scoped by that
+directory. A person is minted only by the user inventory normalizer from a
+directory's user record, or asserted by an analyst, never inferred from a
+shared address or name. The record that names the person also names the
+accounts, so it emits `belongs-to` from each account to the person and the
+`aliases` among the accounts that §7.2's rule yields, DIRECT, with the
+record's provenance; an analyst asserts an owner, or that an account is not
+a person's (a `distinct-from` between the account and the person, the one
+pair of unlike types the edge joins, which cuts a directory's ownership the
+way a split cuts an alias), and withdraws either with who, when and a note.
+The cut and the owner assertion have one scope, the account and every
+account aliased to it, except an account the person owns by its own record
+that was not split as well; the cut holds against the persons the cut person
+is aliased to; one person holds a live owner assertion over that scope at a
+time, an owner assertion over a live split is refused until the split is
+withdrawn, and a split between two persons or the withdrawal of their join is
+refused while it would leave an account asserted to two persons. Events reference accounts, never the person: the record says
+an account acted and that the account belongs to a person, and the reads walk
+account to owner, visibly. An investigation seeded on a person reads its
+aliased persons, their owned accounts and each account's alias set; one
+seeded on an account reads that account's alias set alone. Two directories
+describing one human are two persons until a record or an analyst joins
+them; a local, service, shared or machine account has no person unless one
+says so (adr/0324).
 
 The same rule separates a control-plane principal from a sign-in account:
 an `aws` `user-account` (the role or user a call ran as, §4.15) and the
@@ -1764,10 +1911,13 @@ Division of labor within that rule: the `IdentityResolver` applies only the
 and refuses a *placeholder*: a value a source emits when it has none, which
 names nothing and would otherwise mint one entity for every record that
 carries it (an all-zero or all-one MAC, an unspecified, loopback or broadcast
-address, `localhost` or a dash as a hostname, the nil GUID as a device id, the
-hash of the empty file), and a value that does not parse as its type. The
-list is built in, short, and per type; a placeholder field is treated as
-absent, so a host falls to its next tier, an address mints nothing, and a
+address, `localhost` or a dash as a hostname, the nil GUID as a device,
+user or person id, the hash of the empty file, the anonymous and nobody SIDs
+and a login that names no one), and a value that does not parse as its type.
+The well-known per-host principals are not placeholders: they name an
+account, only never a person. The list is built in, short, and per type; a
+placeholder field is treated as absent, so a host or an account falls to its
+next key, an address mints nothing, and a
 hash is passed over for the next one or for the file's name and path
 (adr/0211). Per-type *shaping* of inputs (composing `account_login` as `domain\user`
 versus an email address versus a bare Unix username, choosing which host

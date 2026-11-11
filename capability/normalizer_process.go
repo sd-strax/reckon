@@ -8,14 +8,14 @@ import "github.com/sd-strax/reckon/identity"
 type processNormalizer struct{ r *identity.Resolver }
 
 func (*processNormalizer) ClassUID() int { return 1007 }
-func (*processNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
+func (*processNormalizer) Version() int  { return 3 } // 2: host identity, adr/0211; 3: account identity, adr/0324
 
 func (n *processNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
 	b := newBuilder(n.r, evt, "process_activity", n.Version())
 
 	host := b.host("device")
-	b.userAccount("actor.user")
+	b.userAccount("actor.user", "device", host)
 	b.file("process.file")
 
 	// The subject process. created_time drives deterministic identity; when

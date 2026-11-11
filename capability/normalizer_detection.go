@@ -22,7 +22,7 @@ type detectionNormalizer struct {
 }
 
 func (*detectionNormalizer) ClassUID() int { return 2004 }
-func (*detectionNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
+func (*detectionNormalizer) Version() int  { return 3 } // 2: host identity, adr/0211; 3: account identity of the evidence, adr/0324
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

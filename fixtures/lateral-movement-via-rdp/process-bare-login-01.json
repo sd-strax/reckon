@@ -1,0 +1,35 @@
+{
+  "fixture_meta": {
+    "scenario": "lateral-movement-via-rdp",
+    "matches": {
+      "verb": "get_process_descendants",
+      "params": {
+        "host.hostname": ["WIN-FILE01", null],
+        "subject.user": ["jdoe", null]
+      }
+    },
+    "time_scoped": true,
+    "delay_ms": 40
+  },
+  "ocsf": {
+    "class_uid": 1007,
+    "class_name": "Process Activity",
+    "time": "2026-04-20T14:32:40Z",
+    "activity_name": "LAUNCH",
+    "metadata": {
+      "product": {
+        "vendor_name": "fixture"
+      }
+    },
+    "process": {
+      "pid": 5000,
+      "name": "mstsc-hijack.exe",
+      "created_time": "2026-04-20T14:32:40Z"
+    },
+    "device": {
+      "hostname": "WIN-FILE01",
+      "os": { "name": "Windows Server 2022", "type": "Windows", "type_id": 100 }
+    },
+    "actor": { "user": { "name": "jdoe" } }
+  }
+}

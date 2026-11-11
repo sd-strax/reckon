@@ -136,7 +136,7 @@ func TestCloudInventory_Owner(t *testing.T) {
 	r["owner"] = map[string]any{"uid": ownerARN, "name": "data-platform"}
 	res := normalizeOne(t, p)
 	users := scosOf(res, identity.TypeUserAccount)
-	if len(users) != 1 || users[0].ID != ids.UserAccount("", ownerARN, "aws") {
+	if len(users) != 1 || users[0].ID != ids.Account(identity.AccountIdentity{Type: "aws", UserID: ownerARN}) {
 		t.Fatalf("owner = %+v; want the user-account keyed on its uid", users)
 	}
 	for k, want := range map[string]any{"account_login": "", "user_id": ownerARN, "account_type": "aws", "display_name": "data-platform"} {

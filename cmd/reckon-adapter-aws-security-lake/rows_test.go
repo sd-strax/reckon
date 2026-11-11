@@ -258,8 +258,8 @@ func TestEquivalence_FixtureVsLake(t *testing.T) {
 func TestEquivalence_AssumedRolePrincipalIsIssuer(t *testing.T) {
 	lake := normalizeWire(t, sourceLake, lakeEvents(t, "get-bucket-policy-assumed-role.json"))
 	r := identity.NewResolver(equivalenceNS)
-	issuer := r.UserAccount("", "arn:aws:iam::111122223333:role/deploy-role", "aws")
-	session := r.UserAccount("", "arn:aws:sts::111122223333:assumed-role/deploy-role/ci-session", "aws")
+	issuer := r.Account(identity.AccountIdentity{Type: "aws", UserID: "arn:aws:iam::111122223333:role/deploy-role"})
+	session := r.Account(identity.AccountIdentity{Type: "aws", UserID: "arn:aws:sts::111122223333:assumed-role/deploy-role/ci-session"})
 	ids := idsOf(lake[0])[identity.TypeUserAccount]
 	if !reflect.DeepEqual(ids, []string{string(issuer)}) {
 		t.Errorf("principal ids = %v, want the issuer %s (not the session %s)", ids, issuer, session)

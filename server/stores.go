@@ -58,7 +58,13 @@ type evidenceStore interface {
 	EventEntities(ctx context.Context, eventID uuid.UUID) ([]evidence.Object, error)
 	IndicatorNeighbourhood(ctx context.Context, indicator evidence.Object) (evidence.Neighbourhood, error)
 	AliasSet(ctx context.Context, ref string) ([]string, error)
+	EntitySet(ctx context.Context, ref string) ([]string, error)
 	HostIdentity(ctx context.Context, ref string) (evidence.HostIdentityView, error)
+	AccountIdentity(ctx context.Context, ref string) (evidence.AccountIdentityView, error)
+	PersonIdentity(ctx context.Context, ref string) (evidence.PersonIdentityView, error)
+	AssertOwner(ctx context.Context, ids *identity.Resolver, accountRef, personRef string, by evidence.Asserter, note string) error
+	FindAccounts(ctx context.Context, token string, limit int) ([]evidence.AccountMatch, error)
+	FindPersons(ctx context.Context, token string) ([]string, error)
 	AssertAlias(ctx context.Context, ids *identity.Resolver, ref, otherRef string, by evidence.Asserter, note string) error
 	AssertDistinct(ctx context.Context, ids *identity.Resolver, ref, otherRef string, by evidence.Asserter, note string) error
 	WithdrawAssertion(ctx context.Context, edgeID uuid.UUID, by evidence.Asserter, note string) (lo, hi string, err error)

@@ -115,6 +115,105 @@
               "x"
             ]
           }
+        },
+        "account_identity": {
+          "aliases": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "distinct": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "seen_as": {
+            "logins": [
+              "x"
+            ],
+            "ids": [
+              {
+                "tool": "x",
+                "uid": "x"
+              }
+            ],
+            "principal_names": [
+              "x"
+            ]
+          },
+          "owners": [
+            {
+              "person_ref": "x",
+              "account_ref": "x",
+              "edge_id": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true,
+              "cut": true
+            }
+          ]
+        },
+        "person_identity": {
+          "aliases": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "distinct": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "accounts": [
+            {
+              "account_ref": "x",
+              "edge_id": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true,
+              "cut": true
+            }
+          ]
         }
       }
     ],
@@ -198,6 +297,105 @@
             "x"
           ]
         }
+      },
+      "account_identity": {
+        "aliases": [
+          {
+            "edge_id": "x",
+            "other_ref": "x",
+            "kind": "x",
+            "source": "x",
+            "by": "x",
+            "by_name": "x",
+            "at": "2026-01-02T03:04:05Z",
+            "note": "x",
+            "withdrawn": true
+          }
+        ],
+        "distinct": [
+          {
+            "edge_id": "x",
+            "other_ref": "x",
+            "kind": "x",
+            "source": "x",
+            "by": "x",
+            "by_name": "x",
+            "at": "2026-01-02T03:04:05Z",
+            "note": "x",
+            "withdrawn": true
+          }
+        ],
+        "seen_as": {
+          "logins": [
+            "x"
+          ],
+          "ids": [
+            {
+              "tool": "x",
+              "uid": "x"
+            }
+          ],
+          "principal_names": [
+            "x"
+          ]
+        },
+        "owners": [
+          {
+            "person_ref": "x",
+            "account_ref": "x",
+            "edge_id": "x",
+            "kind": "x",
+            "source": "x",
+            "by": "x",
+            "by_name": "x",
+            "at": "2026-01-02T03:04:05Z",
+            "note": "x",
+            "withdrawn": true,
+            "cut": true
+          }
+        ]
+      },
+      "person_identity": {
+        "aliases": [
+          {
+            "edge_id": "x",
+            "other_ref": "x",
+            "kind": "x",
+            "source": "x",
+            "by": "x",
+            "by_name": "x",
+            "at": "2026-01-02T03:04:05Z",
+            "note": "x",
+            "withdrawn": true
+          }
+        ],
+        "distinct": [
+          {
+            "edge_id": "x",
+            "other_ref": "x",
+            "kind": "x",
+            "source": "x",
+            "by": "x",
+            "by_name": "x",
+            "at": "2026-01-02T03:04:05Z",
+            "note": "x",
+            "withdrawn": true
+          }
+        ],
+        "accounts": [
+          {
+            "account_ref": "x",
+            "edge_id": "x",
+            "kind": "x",
+            "source": "x",
+            "by": "x",
+            "by_name": "x",
+            "at": "2026-01-02T03:04:05Z",
+            "note": "x",
+            "withdrawn": true,
+            "cut": true
+          }
+        ]
       }
     },
     "evidence": [
@@ -281,6 +479,105 @@
               "x"
             ]
           }
+        },
+        "account_identity": {
+          "aliases": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "distinct": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "seen_as": {
+            "logins": [
+              "x"
+            ],
+            "ids": [
+              {
+                "tool": "x",
+                "uid": "x"
+              }
+            ],
+            "principal_names": [
+              "x"
+            ]
+          },
+          "owners": [
+            {
+              "person_ref": "x",
+              "account_ref": "x",
+              "edge_id": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true,
+              "cut": true
+            }
+          ]
+        },
+        "person_identity": {
+          "aliases": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "distinct": [
+            {
+              "edge_id": "x",
+              "other_ref": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true
+            }
+          ],
+          "accounts": [
+            {
+              "account_ref": "x",
+              "edge_id": "x",
+              "kind": "x",
+              "source": "x",
+              "by": "x",
+              "by_name": "x",
+              "at": "2026-01-02T03:04:05Z",
+              "note": "x",
+              "withdrawn": true,
+              "cut": true
+            }
+          ]
         }
       }
     ]
@@ -342,5 +639,93 @@
         "10.0.0.7"
       ]
     }
+  },
+  "account_identity": {
+    "aliases": [
+      {
+        "edge_id": "relationship--9",
+        "other_ref": "user-account--10",
+        "kind": "observed",
+        "source": "dc",
+        "at": "2026-01-02T03:04:05Z",
+        "withdrawn": false
+      }
+    ],
+    "distinct": [],
+    "seen_as": {
+      "logins": [
+        "CONTOSO\\jdoe"
+      ],
+      "ids": [
+        {
+          "tool": "dc",
+          "uid": "S-1-5-21-1001"
+        }
+      ],
+      "principal_names": [
+        "jdoe@contoso.example"
+      ]
+    },
+    "owners": [
+      {
+        "person_ref": "identity--11",
+        "account_ref": "user-account--10",
+        "edge_id": "relationship--12",
+        "kind": "observed",
+        "source": "idp",
+        "at": "2026-01-02T03:04:05Z",
+        "withdrawn": false,
+        "cut": false
+      },
+      {
+        "person_ref": "identity--13",
+        "account_ref": "user-account--10",
+        "edge_id": "relationship--14",
+        "kind": "asserted",
+        "by": "u-1",
+        "by_name": "Ana Analyst",
+        "at": "2026-01-02T03:04:05Z",
+        "note": "the help desk ticket",
+        "withdrawn": true,
+        "cut": false
+      }
+    ]
+  },
+  "person_identity": {
+    "aliases": [],
+    "distinct": [
+      {
+        "edge_id": "relationship--15",
+        "other_ref": "identity--16",
+        "kind": "asserted",
+        "by": "u-2",
+        "by_name": "Ben Analyst",
+        "at": "2026-01-02T03:04:05Z",
+        "note": "namesakes",
+        "withdrawn": false
+      }
+    ],
+    "accounts": [
+      {
+        "account_ref": "user-account--10",
+        "edge_id": "relationship--12",
+        "kind": "observed",
+        "source": "idp",
+        "at": "2026-01-02T03:04:05Z",
+        "withdrawn": false,
+        "cut": false
+      },
+      {
+        "account_ref": "user-account--17",
+        "edge_id": "relationship--18",
+        "kind": "asserted",
+        "by": "u-1",
+        "by_name": "Ana Analyst",
+        "at": "2026-01-02T03:04:05Z",
+        "note": "same desk",
+        "withdrawn": false,
+        "cut": false
+      }
+    ]
   }
 }

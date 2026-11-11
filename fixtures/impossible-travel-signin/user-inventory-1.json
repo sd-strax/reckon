@@ -1,0 +1,53 @@
+{
+  "fixture_meta": {
+    "scenario": "impossible-travel-signin",
+    "matches": {
+      "verb": "get_user_context",
+      "params": {
+        "user.name": ["m.reyes", "CONTOSO\\m.reyes", "m.reyes@contoso.example", null]
+      }
+    },
+    "delay_ms": 30
+  },
+  "ocsf": {
+    "class_uid": 5003,
+    "class_name": "User Inventory Info",
+    "category_uid": 5,
+    "activity_id": 2,
+    "activity_name": "Collect",
+    "type_uid": 500302,
+    "time": "2026-06-11T00:00:00Z",
+    "metadata": {
+      "product": {
+        "vendor_name": "fixture-idp",
+        "name": "fixture-directory"
+      },
+      "version": "1.1.0"
+    },
+    "user": {
+      "uid": "5b0d1c7e-2f4a-4c8e-9a63-0e1f2d3c4b5a",
+      "uid_alt": "S-1-5-21-3107",
+      "name": "m.reyes@contoso.example",
+      "full_name": "Marta Reyes",
+      "email_addr": "m.reyes@contoso.example",
+      "domain": "CONTOSO",
+      "type_id": 1,
+      "org": {
+        "name": "Contoso",
+        "ou_name": "Treasury Operations"
+      },
+      "ldap_person": {
+        "job_title": "Treasury Analyst",
+        "employee_uid": "E-40217"
+      },
+      "groups": [
+        { "name": "corp-sso-users" }
+      ]
+    },
+    "unmapped": {
+      "on_premises_sam_account_name": "m.reyes",
+      "on_premises_domain_name": "CONTOSO",
+      "account_enabled": true
+    }
+  }
+}

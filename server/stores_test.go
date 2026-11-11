@@ -140,7 +140,14 @@ type fakeEvidence struct {
 	withdrawEnds [2]string
 	observedEdge bool   // AssertionEnds answers a source's record
 	endsErr      error  // AssertionEnds fails
-	identityRef  string // the ref HostIdentity was last asked for
+	identityRef  string // the ref an identity view was last asked for
+	// The account and person views, and what FindAccounts and FindPersons
+	// answer by token (adr/0324).
+	accountIdentity evidence.AccountIdentityView
+	personIdentity  evidence.PersonIdentityView
+	accountsByName  map[string][]evidence.AccountMatch
+	personsByName   map[string][]string
+	entitySets      map[string][]string
 }
 
 // identityAct is one assertion or withdrawal the fake recorded.
@@ -218,6 +225,38 @@ func (f *fakeEvidence) AliasSet(_ context.Context, ref string) ([]string, error)
 		return []string{ref}, f.err
 	}
 	return f.aliases, f.err
+}
+
+// EntitySet answers entitySets[ref] when set (a person's accounts), else the
+// alias set as AliasSet answers it.
+func (f *fakeEvidence) EntitySet(ctx context.Context, ref string) ([]string, error) {
+	if set, ok := f.entitySets[ref]; ok {
+		return set, f.err
+	}
+	return f.AliasSet(ctx, ref)
+}
+func (f *fakeEvidence) AccountIdentity(_ context.Context, ref string) (evidence.AccountIdentityView, error) {
+	f.identityRef = ref
+	if f.identityErr != nil {
+		return evidence.AccountIdentityView{}, f.identityErr
+	}
+	return f.accountIdentity, f.err
+}
+func (f *fakeEvidence) PersonIdentity(_ context.Context, ref string) (evidence.PersonIdentityView, error) {
+	f.identityRef = ref
+	if f.identityErr != nil {
+		return evidence.PersonIdentityView{}, f.identityErr
+	}
+	return f.personIdentity, f.err
+}
+func (f *fakeEvidence) AssertOwner(_ context.Context, _ *identity.Resolver, account, person string, by evidence.Asserter, note string) error {
+	return f.assert("owner", account, person, by, note)
+}
+func (f *fakeEvidence) FindAccounts(_ context.Context, token string, _ int) ([]evidence.AccountMatch, error) {
+	return f.accountsByName[token], f.err
+}
+func (f *fakeEvidence) FindPersons(_ context.Context, token string) ([]string, error) {
+	return f.personsByName[token], f.err
 }
 func (f *fakeEvidence) HostIdentity(_ context.Context, ref string) (evidence.HostIdentityView, error) {
 	f.identityRef = ref

@@ -45,6 +45,7 @@ func NewRegistry(r *identity.Resolver) *Registry {
 	reg.Register(&emailURLNormalizer{r: r})
 	reg.Register(&caseNormalizer{r: r})
 	reg.Register(&deviceInventoryNormalizer{r: r})
+	reg.Register(&userInventoryNormalizer{r: r})
 
 	reg.Register(&apiActivityNormalizer{r: r})
 	reg.Register(&cloudInventoryNormalizer{r: r})
@@ -122,7 +123,7 @@ type resultBuilder struct {
 	evt  OcsfEvent
 	prov Provenance
 
-	seen   map[identity.STIXID]bool // SCOs recorded
+	seen   map[identity.STIXID]bool // SCOs and relationships recorded
 	inRefs map[identity.STIXID]bool // SCOs in object_refs
 	scos   []SCO
 	rels   []Relationship
@@ -180,12 +181,19 @@ func (b *resultBuilder) addLinkedSCO(id identity.STIXID, typ string, props map[s
 }
 
 // addRel records a STIX relationship between two already-extracted objects.
+// The same relationship named twice in one record (an account that is both
+// the actor and the target, aliasing its login twice) is recorded once.
 func (b *resultBuilder) addRel(relType string, src, tgt identity.STIXID) {
 	if src == "" || tgt == "" {
 		return
 	}
+	id := b.r.Relationship(relType, src, tgt)
+	if b.seen[id] {
+		return
+	}
+	b.seen[id] = true
 	b.rels = append(b.rels, Relationship{
-		ID:         b.r.Relationship(relType, src, tgt),
+		ID:         id,
 		Type:       relType,
 		SourceRef:  src,
 		TargetRef:  tgt,
@@ -381,36 +389,6 @@ func agentList(p map[string]any, path string) []any {
 		}
 	}
 	return out
-}
-
-// userAccount extracts a user-account SCO from an OCSF user object at prefix
-// (e.g. "actor.user"). It performs the §7.4 login shaping the resolver relies
-// on: Windows domain accounts as "domain\user", email-style as the address,
-// bare username otherwise.
-func (b *resultBuilder) userAccount(prefix string) identity.STIXID {
-	p := b.evt.Payload
-	name := pathStr(p, prefix+".name")
-	if name == "" {
-		return ""
-	}
-	domain := pathStr(p, prefix+".domain")
-	uid := pathStr(p, prefix+".uid")
-
-	login := name
-	accountType := "local"
-	switch {
-	case domain != "":
-		login = domain + "\\" + name
-		accountType = "windows-domain"
-	case strings.Contains(name, "@"):
-		accountType = "cloud"
-	}
-	id := b.r.UserAccount(login, uid, accountType)
-	return b.addSCO(id, identity.TypeUserAccount, map[string]any{
-		"account_login": login,
-		"user_id":       uid,
-		"account_type":  accountType,
-	})
 }
 
 // ipAddr extracts an ipv4-addr or ipv6-addr SCO from a string path (e.g.

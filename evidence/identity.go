@@ -304,8 +304,9 @@ func (s *Store) HostIdentity(ctx context.Context, ref string) (HostIdentityView,
 	if !ok {
 		return HostIdentityView{}, ErrMalformedRef
 	}
-	out := HostIdentityView{Aliases: []IdentityEdge{}, Distinct: []IdentityEdge{}, SeenAs: SeenAs{Domains: []string{}, Agents: []SourceID{}, IPs: []string{}}}
-	if err := s.identityEdges(ctx, id, &out); err != nil {
+	out := HostIdentityView{SeenAs: SeenAs{Domains: []string{}, Agents: []SourceID{}, IPs: []string{}}}
+	var err error
+	if out.Aliases, out.Distinct, err = s.identityEdges(ctx, id); err != nil {
 		return HostIdentityView{}, err
 	}
 	set, err := s.aliasSets(ctx, []string{ref})
@@ -326,29 +327,68 @@ func (s *Store) HostIdentity(ctx context.Context, ref string) (HostIdentityView,
 	return out, nil
 }
 
-// identityEdges fills the aliases and distinct-from edges with id at either
+// identityEdges answers the aliases and distinct-from edges with id at either
 // end, oldest first.
-func (s *Store) identityEdges(ctx context.Context, id uuid.UUID, out *HostIdentityView) error {
+func (s *Store) identityEdges(ctx context.Context, id uuid.UUID) (aliases, distinct []IdentityEdge, err error) {
+	aliases, distinct = []IdentityEdge{}, []IdentityEdge{}
+	edges, err := s.edgesTouching(ctx, id, []string{relAliases, relDistinctFrom}, edgeEither)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, e := range edges {
+		if e.relType == relAliases {
+			aliases = append(aliases, e.IdentityEdge)
+		} else {
+			distinct = append(distinct, e.IdentityEdge)
+		}
+	}
+	return aliases, distinct, nil
+}
+
+// Which end of an edge edgesTouching matches the asked-for id at.
+const (
+	edgeEither = iota
+	edgeSource
+	edgeTarget
+)
+
+// typedEdge is an IdentityEdge with its relationship type.
+type typedEdge struct {
+	IdentityEdge
+	relType string
+}
+
+// edgesTouching reads the edges of relTypes with id at the given end (either,
+// the source, the target), withdrawn ones included, oldest first. An edge
+// whose other end is not persisted is skipped: there is nothing to open.
+func (s *Store) edgesTouching(ctx context.Context, id uuid.UUID, relTypes []string, end int) ([]typedEdge, error) {
+	match := "(e.source_ref = $1 OR e.target_ref = $1)"
+	switch end {
+	case edgeSource:
+		match = "e.source_ref = $1"
+	case edgeTarget:
+		match = "e.target_ref = $1"
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT e.id, e.relationship_type, CASE WHEN e.source_ref = $1 THEN e.target_ref ELSE e.source_ref END AS other,
 		       COALESCE(o.type, ''), e.payload, e.created
 		FROM stix_edges e
 		LEFT JOIN stix_objects o ON o.tenant_id = $2 AND o.id = CASE WHEN e.source_ref = $1 THEN e.target_ref ELSE e.source_ref END
-		WHERE e.tenant_id = $2 AND e.relationship_type IN ('`+relAliases+`', '`+relDistinctFrom+`')
-		  AND (e.source_ref = $1 OR e.target_ref = $1)
+		WHERE e.tenant_id = $2 AND e.relationship_type = ANY($3::text[]) AND `+match+`
 		ORDER BY e.created, e.id
-	`, id, module.SingleTenantUUID)
+	`, id, module.SingleTenantUUID, textArray(relTypes))
 	if err != nil {
-		return fmt.Errorf("query identity edges: %w", err)
+		return nil, fmt.Errorf("query identity edges: %w", err)
 	}
 	defer rows.Close()
+	var out []typedEdge
 	for rows.Next() {
 		var edgeID, other uuid.UUID
 		var relType, otherType string
 		var payload []byte
 		var created time.Time
 		if err := rows.Scan(&edgeID, &relType, &other, &otherType, &payload, &created); err != nil {
-			return fmt.Errorf("scan identity edge: %w", err)
+			return nil, fmt.Errorf("scan identity edge: %w", err)
 		}
 		if otherType == "" {
 			continue // the other end is not persisted: nothing to open
@@ -356,13 +396,9 @@ func (s *Store) identityEdges(ctx context.Context, id uuid.UUID, out *HostIdenti
 		e := identityEdge(payload, created)
 		e.EdgeID = "relationship--" + edgeID.String()
 		e.OtherRef = otherType + "--" + other.String()
-		if relType == relAliases {
-			out.Aliases = append(out.Aliases, e)
-		} else {
-			out.Distinct = append(out.Distinct, e)
-		}
+		out = append(out, typedEdge{IdentityEdge: e, relType: relType})
 	}
-	return rows.Err()
+	return out, rows.Err()
 }
 
 // Assertion is the payload part of an aliases or distinct-from edge a person

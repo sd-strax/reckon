@@ -36,14 +36,14 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 type scheduledJobNormalizer struct{ r *identity.Resolver }
 
 func (*scheduledJobNormalizer) ClassUID() int { return 1006 }
-func (*scheduledJobNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
+func (*scheduledJobNormalizer) Version() int  { return 3 } // 2: host identity, adr/0211; 3: account identity, adr/0324
 
 func (n *scheduledJobNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
 	b := newBuilder(n.r, evt, "scheduled_job_activity", n.Version())
 
 	host := b.host("device")
-	principal := b.userAccount("job.user")
+	principal := b.userAccount("job.user", "device", host)
 	name := pathStr(p, "job.name")
 	path := pathStr(p, "job.path")
 	if name != "" || path != "" {

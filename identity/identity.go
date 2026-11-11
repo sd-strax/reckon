@@ -207,21 +207,142 @@ func (r *Resolver) EmailAddr(value string) STIXID {
 	})
 }
 
-// UserAccount resolves a user-account SCO. Deviation: account_login and user_id
-// are lowercased (Windows/AD/Entra are case-insensitive). account_type is NOT
-// case-folded — a cloud account and a domain account for the same human are
-// deliberately distinct SCOs, linked only by an explicit aliases edge.
+// Account types the shaping rule keys per type (03 §7.2, adr/0324). Any other
+// value (a cloud control-plane provider slug, "ldap") keys on the identifier
+// when there is one, else on the login (AccountIdentity).
+const (
+	AccountWindowsDomain = "windows-domain"
+	AccountWindows       = "windows"
+	AccountWindowsLocal  = "windows-local"
+	AccountUnix          = "unix"
+	AccountLocal         = "local"
+	// AccountLogin is the weak account a bare login mints when its source names
+	// no OS and no host: keyed on the login alone, it joins nothing by itself
+	// (the account analogue of the host's device-id tier, adr/0324).
+	AccountLogin = "login"
+	AccountLDAP  = "ldap"
+	AccountCloud = "cloud"
+)
+
+// AccountIdentity carries what a user-account is identified by (adr/0324):
+// its account_type, never folded; the login as the normalizer shaped it
+// ("domain\sam", a principal name "user@domain", a bare name); the
+// identifier the source gives it (a SID, an identity provider's user id, a
+// control-plane principal id); and, for an account scoped by its machine,
+// the host it lives on. Which of these is the key is the type's rule
+// (Resolver.Account); the rest are properties the normalizer keeps.
+type AccountIdentity struct {
+	Type    string
+	Login   string
+	UserID  string
+	HostRef STIXID
+}
+
+// Account resolves a user-account SCO by the rule of its type, what the
+// source repeats (03 §7.2, adr/0324). Deviation from strict STIX: the login
+// and the identifier are lowercased (Windows, AD and the identity providers
+// are case-insensitive); account_type is never folded, so a cloud account
+// and a domain account of one human are two accounts.
 //
-// Per-type login shaping (§7.2: Windows domain accounts as "domain\user",
-// email-style accounts as the address, Unix accounts as the bare username) is
-// the CALLER's contract: normalizers must shape account_login before calling
-// here, because only they see the vendor fields needed to do it. This resolver
-// applies the case/whitespace folding only.
-func (r *Resolver) UserAccount(accountLogin, userID, accountType string) STIXID {
-	return r.mint(TypeUserAccount, map[string]any{
-		"account_login": strings.ToLower(strings.TrimSpace(accountLogin)),
-		"user_id":       strings.ToLower(strings.TrimSpace(userID)),
-		"account_type":  strings.TrimSpace(accountType),
+//   - windows-domain: the SID when UserID is one and no placeholder; else the
+//     login (a principal name or "domain\sam"), lowercased. The identifier is
+//     no part of a login key.
+//   - windows: the bare login, lowercased: the weak account a Windows source
+//     mints when it names no domain and no SID. login: the same key, the weak
+//     account of a bare login whose source names no OS and no host.
+//   - windows-local: scoped by HostRef: a well-known principal by its SID
+//     (WellKnownLocalSID), any other by the login's sam (the part after a
+//     backslash), lowercased.
+//   - unix and local: scoped by HostRef, keyed on the login, lowercased.
+//   - cloud and ldap: the identifier when there is one, folded as a person's
+//     directory id is (a GUID lowercased, any other id kept), else the login.
+//   - any other type (a control-plane provider slug, adr/0320): the login
+//     and the identifier together, as before, so its ids do not move; its
+//     normalizer passes an empty login.
+//
+// A placeholder login (PlaceholderLogin) or identifier (PlaceholderUserID)
+// reads as absent. Account returns "" when the type's key is absent: no
+// login or identifier, or a host-scoped type with no HostRef.
+func (r *Resolver) Account(a AccountIdentity) STIXID {
+	typ := strings.TrimSpace(a.Type)
+	login := strings.ToLower(strings.TrimSpace(a.Login))
+	if PlaceholderLogin(login) {
+		login = ""
+	}
+	uid := strings.ToLower(strings.TrimSpace(a.UserID))
+	if PlaceholderUserID(uid) {
+		uid = ""
+	}
+	key := func(login, uid string) STIXID {
+		return r.mint(TypeUserAccount, map[string]any{"account_login": login, "user_id": uid, "account_type": typ})
+	}
+	scoped := func(field, value string) STIXID {
+		if a.HostRef == "" || value == "" {
+			return ""
+		}
+		return r.mint(TypeUserAccount, map[string]any{"account_type": typ, "host_ref": string(a.HostRef), field: value})
+	}
+	switch typ {
+	case AccountWindowsDomain:
+		if uid != "" && IsSID(uid) {
+			return key("", uid)
+		}
+		if login == "" {
+			return ""
+		}
+		return key(login, "")
+	case AccountWindowsLocal:
+		if uid != "" && WellKnownLocalSID(uid) {
+			return scoped("user_id", uid)
+		}
+		if i := strings.LastIndex(login, `\`); i >= 0 {
+			login = login[i+1:]
+		}
+		if PlaceholderLogin(login) {
+			return ""
+		}
+		return scoped("account_login", login)
+	case AccountUnix, AccountLocal:
+		return scoped("account_login", login)
+	case AccountWindows, AccountLogin:
+		if login == "" {
+			return ""
+		}
+		return key(login, "")
+	case AccountCloud, AccountLDAP:
+		switch {
+		case uid != "":
+			// The provider's id folds as a person's directory id does
+			// (canonicalCloudUID), so one identifier keys both alike.
+			return key("", canonicalCloudUID(a.UserID))
+		case login != "":
+			return key(login, "")
+		}
+		return ""
+	}
+	if login == "" && uid == "" {
+		return ""
+	}
+	return key(login, uid)
+}
+
+// Person resolves a person: a STIX identity with identity_class individual
+// (adr/0324), keyed by the directory that describes it and the durable id
+// the directory gives it (an object id, an object GUID, a user id, a worker
+// id). The directory slug is trimmed and lowercased; the id is trimmed and
+// keeps its case, a GUID lowercased (as a cloud uid is). The identity_class
+// and the directory are in the contributing fields, so a person never takes
+// a vendor identity's id (Identity). It returns "" with no directory or a
+// placeholder id (PlaceholderUserID): nothing names the person.
+func (r *Resolver) Person(directory, id string) STIXID {
+	d := strings.ToLower(strings.TrimSpace(directory))
+	if d == "" || PlaceholderUserID(id) {
+		return ""
+	}
+	return r.mint(TypeIdentity, map[string]any{
+		"identity_class": "individual",
+		"directory":      d,
+		"directory_id":   canonicalCloudUID(id),
 	})
 }
 
@@ -459,6 +580,12 @@ func canonicalCloudUID(uid string) string {
 	}
 	return uid
 }
+
+// FoldCloudUID is the fold a cloud or LDAP account's provider id, a person's
+// directory id, a cloud account's uid and a resource's uid are minted on
+// (canonicalCloudUID), for a caller that compares such an identifier with
+// one it reads: trimmed, a GUID lowercased, any other id kept exact.
+func FoldCloudUID(uid string) string { return canonicalCloudUID(uid) }
 
 // --- SDOs -------------------------------------------------------------------
 

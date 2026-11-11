@@ -10,7 +10,9 @@ package identity
 
 import (
 	"net"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -88,6 +90,108 @@ func PlaceholderDeviceUID(v string) bool {
 		s = strings.TrimSpace(s[1 : len(s)-1])
 	}
 	return slices.Contains(placeholderUIDs, s)
+}
+
+// --- accounts and persons (adr/0324) ----------------------------------------
+
+// sidForm is a Windows security identifier as text: "S-1-", the identifier
+// authority and one or more sub-authorities, decimal; case-insensitive.
+var sidForm = regexp.MustCompile(`^[sS]-1-[0-9]+(-[0-9]+)+$`)
+
+// IsSID reports whether v, trimmed, has the textual form of a Windows SID
+// (S-1-<authority>-<sub>...). It says nothing about whether the SID names a
+// principal; PlaceholderSID does.
+func IsSID(v string) bool { return sidForm.MatchString(strings.TrimSpace(v)) }
+
+// placeholderSIDs are the SIDs, uppercased, that name no principal: S-1-0-0
+// (Nobody, the null SID) and S-1-5-7 (Anonymous Logon). Every record that
+// carries one would otherwise make one account of every caller it describes.
+var placeholderSIDs = []string{"S-1-0-0", "S-1-5-7"}
+
+// PlaceholderSID reports whether v is no SID that names a principal: a value
+// that does not have the SID form (empty, a dash, "unknown"), the null SID
+// S-1-0-0 or the anonymous SID S-1-5-7. A well-known principal's SID (the
+// system, local and network service, a built-in group) is not a placeholder:
+// it names a principal per host (WellKnownLocalSID).
+func PlaceholderSID(v string) bool {
+	v = strings.TrimSpace(v)
+	if !IsSID(v) {
+		return true
+	}
+	return slices.Contains(placeholderSIDs, strings.ToUpper(v))
+}
+
+// wellKnownLocalPrefixes are the authorities and NT-authority sub-authorities
+// whose every SID names a principal of the machine itself: the local (2) and
+// creator (3) authorities, mandatory integrity labels (16), app containers
+// and capabilities (15-2), built-in groups (5-32), authentication packages
+// (5-64), service SIDs (5-80), IIS application pool identities (5-82),
+// virtual machine SIDs (5-83), user-mode drivers (5-84), Window Manager
+// (5-90) and font driver host (5-96).
+var wellKnownLocalPrefixes = []string{
+	"S-1-2-", "S-1-3-", "S-1-16-", "S-1-15-2-",
+	"S-1-5-32-", "S-1-5-64-", "S-1-5-80-", "S-1-5-82-", "S-1-5-83-", "S-1-5-84-", "S-1-5-90-", "S-1-5-96-",
+}
+
+// wellKnownLocalSIDs are single SIDs of the machine's own principals outside
+// those families: Everyone, and the local account groups (S-1-5-113 Local
+// account, S-1-5-114 Local account and member of Administrators).
+var wellKnownLocalSIDs = []string{"S-1-1-0", "S-1-5-113", "S-1-5-114"}
+
+// WellKnownLocalSID reports whether v is the SID of a principal every Windows
+// machine has for itself: Everyone (S-1-1-0), the local account groups
+// (S-1-5-113, S-1-5-114), the local, creator, integrity-label and
+// app-container families (S-1-2-*, S-1-3-*, S-1-16-*, S-1-15-2-*); an
+// NT-authority principal with a single sub-authority below 21 (S-1-5-18
+// Local System, S-1-5-19 Local Service, S-1-5-20 Network Service, S-1-5-4
+// Interactive, ...); a built-in group (S-1-5-32-*); an authentication
+// package, service, IIS application pool, virtual machine, user-mode driver,
+// Window Manager or font driver host identity (S-1-5-64-*, -80-*, -82-*,
+// -83-*, -84-*, -90-*, -96-*). Such an account is scoped by the host it runs
+// on (windows-local), never a person (adr/0324). A placeholder SID (S-1-5-7,
+// anonymous) is none: PlaceholderSID refuses it first.
+func WellKnownLocalSID(v string) bool {
+	s := strings.ToUpper(strings.TrimSpace(v))
+	if !IsSID(s) || PlaceholderSID(s) {
+		return false
+	}
+	if slices.Contains(wellKnownLocalSIDs, s) {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(s, "S-1-5-"); ok && !strings.Contains(rest, "-") {
+		n, err := strconv.Atoi(rest)
+		return err == nil && n < 21
+	}
+	for _, p := range wellKnownLocalPrefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// placeholderLogins are the folded logins, beside the hostname placeholders,
+// that a source writes when it names no one.
+var placeholderLogins = []string{"anonymous logon"}
+
+// PlaceholderLogin reports whether v, trimmed and lowercased, is a login a
+// source writes when it has none: empty, one of the hostname placeholders
+// ("-", "?", "unknown", "n/a", "none", "null", "localhost") or "anonymous
+// logon". A real but common login ("administrator", "root") is not one.
+func PlaceholderLogin(v string) bool {
+	s := strings.ToLower(strings.TrimSpace(v))
+	return slices.Contains(placeholderHostnames, s) || slices.Contains(placeholderLogins, s)
+}
+
+// PlaceholderUserID reports whether v names no user or person: the device id
+// placeholders (empty, the nil GUID, "0", "-1", a dash, "unknown", ...), or a
+// value of the SID form that PlaceholderSID refuses. A value that is neither
+// a SID nor a placeholder (a GUID, a provider id, an ARN) is an identifier.
+func PlaceholderUserID(v string) bool {
+	if PlaceholderDeviceUID(v) {
+		return true
+	}
+	return IsSID(v) && PlaceholderSID(v)
 }
 
 // emptyDigests are the digests of the empty input, keyed by the algorithm

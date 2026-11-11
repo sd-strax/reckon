@@ -90,8 +90,16 @@ func TestAPIActivity_IAMUser(t *testing.T) {
 		t.Fatalf("user-accounts = %d; want 1", len(users))
 	}
 	u := users[0]
-	if want := ids.UserAccount("", deployARN, "aws"); u.ID != want {
+	if want := ids.Account(identity.AccountIdentity{Type: "aws", UserID: deployARN}); u.ID != want {
 		t.Errorf("principal id = %s; want %s", u.ID, want)
+	}
+	// The control-plane principal's id by literal (adr/0320), computed with
+	// the resolver as it stood before adr/0324 changed account shaping. It
+	// must never move: every recorded observation of the principal keys on
+	// it.
+	const pinned = "user-account--b9d8d286-01a8-59d4-bab7-b4cbce67edf5"
+	if string(u.ID) != pinned {
+		t.Errorf("principal id = %s; want the pinned %s", u.ID, pinned)
 	}
 	for k, want := range map[string]any{
 		"account_login": "", "user_id": deployARN, "account_type": "aws", "user_type": "User",
@@ -173,7 +181,7 @@ func TestAPIActivity_AssumedRole(t *testing.T) {
 	if len(u1) != 1 || len(u2) != 1 || u1[0].ID != u2[0].ID {
 		t.Fatalf("two sessions of one role: %v vs %v; want one principal", u1, u2)
 	}
-	want := identity.NewResolver(testNS).UserAccount("", "arn:aws:iam::111122223333:role/Deploy", "aws")
+	want := identity.NewResolver(testNS).Account(identity.AccountIdentity{Type: "aws", UserID: "arn:aws:iam::111122223333:role/Deploy"})
 	if u1[0].ID != want || u1[0].Properties["is_service_account"] != true || u1[0].Properties["account_login"] != "" ||
 		u1[0].Properties["user_id"] != "arn:aws:iam::111122223333:role/Deploy" || u1[0].Properties["display_name"] != "Deploy" {
 		t.Errorf("role principal = %+v", u1[0])
@@ -207,7 +215,7 @@ func TestAPIActivity_AzureIssuerIgnored(t *testing.T) {
 	if len(u1) != 1 || len(u2) != 1 {
 		t.Fatalf("principals = %v, %v", u1, u2)
 	}
-	if u1[0].Properties["user_id"] != g1 || u1[0].ID != identity.NewResolver(testNS).UserAccount("", g1, "azure") {
+	if u1[0].Properties["user_id"] != g1 || u1[0].ID != identity.NewResolver(testNS).Account(identity.AccountIdentity{Type: "azure", UserID: g1}) {
 		t.Errorf("azure principal = %+v; want user_id %s", u1[0], g1)
 	}
 	if u1[0].ID == u2[0].ID {
@@ -223,7 +231,7 @@ func TestAPIActivity_Root(t *testing.T) {
 	p := apiPayload()
 	p["actor"] = map[string]any{"user": map[string]any{"uid": "arn:aws:iam::111122223333:root", "name": "Root"}}
 	u := scosOf(normalizeOne(t, p), identity.TypeUserAccount)
-	if len(u) != 1 || u[0].ID != identity.NewResolver(testNS).UserAccount("", "arn:aws:iam::111122223333:root", "aws") ||
+	if len(u) != 1 || u[0].ID != identity.NewResolver(testNS).Account(identity.AccountIdentity{Type: "aws", UserID: "arn:aws:iam::111122223333:root"}) ||
 		u[0].Properties["account_login"] != "" || u[0].Properties["user_id"] != "arn:aws:iam::111122223333:root" || u[0].Properties["display_name"] != "Root" {
 		t.Errorf("root principal = %+v", u)
 	}
@@ -488,7 +496,7 @@ func TestAPIActivity_NoProvider(t *testing.T) {
 func TestAPIActivity_CallerAccount(t *testing.T) {
 	ids := identity.NewResolver(testNS)
 	home, target := ids.CloudAccount("aws", "111122223333"), ids.CloudAccount("aws", "444455556666")
-	principal := ids.UserAccount("", deployARN, "aws")
+	principal := ids.Account(identity.AccountIdentity{Type: "aws", UserID: deployARN})
 
 	res := normalizeOne(t, apiPayload())
 	if n := len(scosOf(res, identity.TypeCloudAccount)); n != 1 || !hasEdge(res, RelBelongsTo, principal, home) {
@@ -587,7 +595,7 @@ func TestAPIActivity_Fallbacks(t *testing.T) {
 		t.Errorf("project_uid fallback: %+v", accts)
 	}
 	u := scosOf(res, identity.TypeUserAccount)
-	if len(u) != 1 || u[0].ID != ids.UserAccount("", "1234567890", "gcp") {
+	if len(u) != 1 || u[0].ID != ids.Account(identity.AccountIdentity{Type: "gcp", UserID: "1234567890"}) {
 		t.Fatalf("uid_alt principal = %+v", u)
 	}
 	if u[0].Properties["credential_uid"] != "key-new" || u[0].Properties["is_service_account"] != true || u[0].Properties["user_type"] != "Service" {
