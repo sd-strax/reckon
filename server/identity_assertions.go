@@ -335,7 +335,7 @@ func writeIdentityError(w http.ResponseWriter, err error, notFound string) {
 	switch {
 	case errors.Is(err, evidence.ErrNoAsserter):
 		writeJSONError(w, http.StatusInternalServerError, "no principal")
-	case evidence.IsDeadlock(err):
+	case evidence.IsDeadlock(err) || errors.Is(err, evidence.ErrIdentityRace):
 		// The store retried once; a second deadlock is another act racing
 		// this one, and the person repeats it.
 		writeJSONError(w, http.StatusConflict, "a concurrent identity change; try again")

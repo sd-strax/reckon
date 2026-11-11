@@ -144,6 +144,125 @@ func TestOwnersSeparated_OwnerInTheWindow(t *testing.T) {
 	}
 }
 
+// TestOwnersSeparated_JoinAndOwnerInTheWindow: a join P2~P3 and an owner
+// assertion A→P3, both committed after the withdrawal of P1~P2 first read
+// the person set and before it locked it (the beforeSeparationLock seam),
+// are seen: the set is read again under the lock, P3 joins it, and A, owned
+// by P1 and P3, would land in two persons, so the withdrawal is refused.
+func TestOwnersSeparated_JoinAndOwnerInTheWindow(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	acct, p1, p2, p3 := stixID(identity.TypeUserAccount), stixID(identity.TypeIdentity), stixID(identity.TypeIdentity), stixID(identity.TypeIdentity)
+	persistObjects(t, s, []capability.SCO{accountSCO(acct), personSCO(p1, nil), personSCO(p2, nil), personSCO(p3, nil)})
+	if err := s.AssertAlias(ctx, testIDs, string(p1), string(p2), ana, "one human"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssertOwner(ctx, testIDs, string(acct), string(p1), ana, ""); err != nil {
+		t.Fatal(err)
+	}
+	var joinErr, ownerErr error
+	beforeSeparationLock = func() {
+		beforeSeparationLock = nil
+		joinErr = s.AssertAlias(ctx, testIDs, string(p2), string(p3), ben, "the personnel record")
+		ownerErr = s.AssertOwner(ctx, testIDs, string(acct), string(p3), ben, "")
+	}
+	t.Cleanup(func() { beforeSeparationLock = nil })
+	_, _, err := s.WithdrawAssertion(ctx, edgeUUID(pairEdge(relAliases, p1, p2)), ben, "not one human")
+	if joinErr != nil || ownerErr != nil {
+		t.Fatalf("the acts in the window: join %v, owner %v", joinErr, ownerErr)
+	}
+	if !errors.Is(err, ErrOwnersSeparated) {
+		t.Errorf("withdrawal with a join and an owner landed in the window: %v; want ErrOwnersSeparated", err)
+	}
+}
+
+// TestOwnersSeparated_SetGrowsTwice: the person set grows in the window
+// before the first lock (a join P2~P3) and again after the second read (a
+// join P3~P4 and an owner A→P4, written straight to the edge table as a
+// writer that took no lock would): the reads continue until the set is
+// stable, so P4 and its owner are seen and the withdrawal of P1~P2 is
+// refused.
+func TestOwnersSeparated_SetGrowsTwice(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	acct := stixID(identity.TypeUserAccount)
+	p1, p2, p3, p4 := stixID(identity.TypeIdentity), stixID(identity.TypeIdentity), stixID(identity.TypeIdentity), stixID(identity.TypeIdentity)
+	persistObjects(t, s, []capability.SCO{accountSCO(acct), personSCO(p1, nil), personSCO(p2, nil), personSCO(p3, nil), personSCO(p4, nil)})
+	if err := s.AssertAlias(ctx, testIDs, string(p1), string(p2), ana, "one human"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssertOwner(ctx, testIDs, string(acct), string(p1), ana, ""); err != nil {
+		t.Fatal(err)
+	}
+	var joinErr error
+	beforeSeparationLock = func() {
+		beforeSeparationLock = nil
+		joinErr = s.AssertAlias(ctx, testIDs, string(p2), string(p3), ben, "")
+	}
+	afterEachSetRead = func(round int) {
+		if round == 1 {
+			afterEachSetRead = nil
+			assertEdge(t, relAliases, p3, p4, false)
+			assertEdge(t, relBelongsTo, acct, p4, false)
+		}
+	}
+	t.Cleanup(func() { beforeSeparationLock, afterEachSetRead = nil, nil })
+	_, _, err := s.WithdrawAssertion(ctx, edgeUUID(pairEdge(relAliases, p1, p2)), ben, "not one human")
+	if joinErr != nil {
+		t.Fatalf("the join in the window: %v", joinErr)
+	}
+	if !errors.Is(err, ErrOwnersSeparated) {
+		t.Errorf("withdrawal over a set that grew twice: %v; want ErrOwnersSeparated", err)
+	}
+}
+
+// TestLockAliasSets_Cap: a set that gains a member on every read is
+// ErrIdentityRace after lockRounds locks; an act that meets one is tried
+// once more, and a second one is returned.
+func TestLockAliasSets_Cap(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	last := stixID(identity.TypeIdentity)
+	start := last
+	persistObjects(t, s, []capability.SCO{personSCO(last, nil)})
+	reads := 0
+	afterEachSetRead = func(int) {
+		reads++
+		next := stixID(identity.TypeIdentity)
+		persistObjects(t, s, []capability.SCO{personSCO(next, nil)})
+		assertEdge(t, relAliases, last, next, false)
+		last = next
+	}
+	t.Cleanup(func() { afterEachSetRead = nil })
+	tx, err := testDB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.lockAliasSets(ctx, tx, []string{string(start)})
+	_ = tx.Rollback()
+	afterEachSetRead = nil
+	if !errors.Is(err, ErrIdentityRace) || reads != lockRounds+1 {
+		t.Errorf("an ever-growing set: %v after %d reads; want ErrIdentityRace after %d", err, reads, lockRounds+1)
+	}
+
+	acct, p := stixID(identity.TypeUserAccount), stixID(identity.TypeIdentity)
+	persistObjects(t, s, []capability.SCO{accountSCO(acct), personSCO(p, nil)})
+	t.Cleanup(func() { injectAttemptError = nil })
+	injectAttemptError = func(attempt int) error {
+		if attempt == 0 {
+			return ErrIdentityRace
+		}
+		return nil
+	}
+	if err := s.AssertOwner(ctx, testIDs, string(acct), string(p), ana, ""); err != nil {
+		t.Errorf("an owner after one race: %v", err)
+	}
+	injectAttemptError = func(int) error { return ErrIdentityRace }
+	if err := s.AssertOwner(ctx, testIDs, string(acct), string(p), ana, ""); !errors.Is(err, ErrIdentityRace) {
+		t.Errorf("two races: %v; want ErrIdentityRace", err)
+	}
+}
+
 // TestFindByIDFold: an identifier is compared under the fold it was minted
 // on: a non-GUID provider or directory id exact, a GUID in any case.
 func TestFindByIDFold(t *testing.T) {

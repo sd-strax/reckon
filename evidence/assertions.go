@@ -311,8 +311,10 @@ var injectAttemptError func(attempt int) error
 
 // withDeadlockRetry runs an identity act and, when Postgres aborted it as a
 // deadlock victim (isDeadlock), runs it once more: the second attempt reads
-// the alias sets afresh, so it succeeds or answers its typed refusal. A
-// deadlock on the second attempt is returned (the server answers 409).
+// the alias sets afresh, so it succeeds or answers its typed refusal. Alias
+// sets that kept growing while locked (ErrIdentityRace) are retried the same
+// way. A deadlock or a race on the second attempt is returned (the server
+// answers 409).
 func withDeadlockRetry(act func() error) error {
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -323,7 +325,7 @@ func withDeadlockRetry(act func() error) error {
 		if err == nil {
 			err = act()
 		}
-		if !IsDeadlock(err) {
+		if !IsDeadlock(err) && !errors.Is(err, ErrIdentityRace) {
 			return err
 		}
 	}
@@ -427,13 +429,35 @@ func lockObjects(ctx context.Context, tx *sql.Tx, ids []uuid.UUID) error {
 // of the alias sets and its lock: the window a concurrent join commits in.
 var afterAliasRead func()
 
+// lockRounds caps lockAliasSets' lock rounds: a set that still gains a
+// member on the read after this many locks is another act racing this one
+// (ErrIdentityRace).
+const lockRounds = 3
+
+// ErrIdentityRace reports alias sets that kept growing while an identity act
+// locked them: another act is changing them at the same time. It is
+// retryable as a deadlock is (withDeadlockRetry); a surviving one is
+// answered "try again".
+var ErrIdentityRace = errors.New("evidence: the alias sets changed while being locked; try again")
+
+// afterEachSetRead, when set by a test, runs after every read of
+// lockAliasSets' rounds, with the round, before that round's lock.
+var afterEachSetRead func(round int)
+
 // lockAliasSets reads the alias set of each of refs and locks every object
 // of them in tx, in id order. The sets are read outside the transaction, so
-// a join that commits between the read and the lock would leave a member
+// a join that commits between a read and its lock would leave a member
 // unlocked: they are read again once the lock is held, and any member they
-// gained is locked too (one retry; a join needs the locks held here to grow
-// them again). It answers each ref's set, as read the second time.
+// gained is locked too, until a read gains nothing; a set still gaining
+// after lockRounds locks is ErrIdentityRace. It answers each ref's
+// set as last read.
 func (s *Store) lockAliasSets(ctx context.Context, tx *sql.Tx, refs []string) ([][]uuid.UUID, error) {
+	return s.lockAliasSetsAfter(ctx, tx, refs, afterAliasRead)
+}
+
+// lockAliasSetsAfter is lockAliasSets with the test seam window to run
+// between the first read and its lock.
+func (s *Store) lockAliasSetsAfter(ctx context.Context, tx *sql.Tx, refs []string, window func()) ([][]uuid.UUID, error) {
 	read := func() ([][]uuid.UUID, error) {
 		out := make([][]uuid.UUID, 0, len(refs))
 		for _, r := range refs {
@@ -445,45 +469,37 @@ func (s *Store) lockAliasSets(ctx context.Context, tx *sql.Tx, refs []string) ([
 		}
 		return out, nil
 	}
-	first, err := read()
-	if err != nil {
-		return nil, err
-	}
-	if afterAliasRead != nil {
-		afterAliasRead()
-	}
 	locked := map[uuid.UUID]bool{}
-	var all []uuid.UUID
-	for _, set := range first {
-		for _, id := range set {
-			if !locked[id] {
-				locked[id] = true
-				all = append(all, id)
+	for round := 0; ; round++ {
+		sets, err := read()
+		if err != nil {
+			return nil, err
+		}
+		if round == 0 && window != nil {
+			window()
+		}
+		if afterEachSetRead != nil {
+			afterEachSetRead(round)
+		}
+		var gained []uuid.UUID
+		for _, set := range sets {
+			for _, id := range set {
+				if !locked[id] {
+					locked[id] = true
+					gained = append(gained, id)
+				}
 			}
 		}
-	}
-	if err := lockObjects(ctx, tx, all); err != nil {
-		return nil, err
-	}
-	again, err := read()
-	if err != nil {
-		return nil, err
-	}
-	var gained []uuid.UUID
-	for _, set := range again {
-		for _, id := range set {
-			if !locked[id] {
-				locked[id] = true
-				gained = append(gained, id)
-			}
+		if len(gained) == 0 {
+			return sets, nil // stable: every member is held
 		}
-	}
-	if len(gained) > 0 {
+		if round == lockRounds {
+			return nil, ErrIdentityRace // still growing after lockRounds locks
+		}
 		if err := lockObjects(ctx, tx, gained); err != nil {
 			return nil, err
 		}
 	}
-	return again, nil
 }
 
 // ownersDiffer reports whether two sets of asserted owners name different
@@ -733,32 +749,29 @@ func removeOnce(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
 }
 
 // beforeSeparationLock, when set by a test, runs in refuseOwnersSeparated
-// after the person set is read and before it is locked: the window an
-// owner assertion commits in.
+// after the person set is first read and before it is locked: the window an
+// owner assertion or a join commits in.
 var beforeSeparationLock func()
 
 // refuseOwnersSeparated keeps one live asserted owner per account alias set
 // when a person set separates (a split of two persons, or a withdrawn join
-// of two): it reads person's alias set, applies change to that
+// of two): it reads and locks person's alias set with lockAliasSets'
+// discipline (read, lock, read again, lock what grew), applies change to that
 // neighbourhood's alias graph, and refuses with ErrOwnersSeparated when an
 // account alias set has live asserted owners that would land in two
 // different resulting person sets. The persons and the accounts asserted to
 // them are locked in tx, as AssertOwner locks them, the persons before the
 // owners are read and the accounts after.
 func (s *Store) refuseOwnersSeparated(ctx context.Context, tx *sql.Tx, person string, change func(*aliasGraph)) error {
-	persons, err := s.aliasSets(ctx, []string{person})
+	// The person set first, read, locked and read again under the lock (a
+	// join that grew it in between is locked too): an owner assertion and a
+	// join lock persons as well, so once the refreshed set is held no owner
+	// or member can land unseen between the read below and the check.
+	sets, err := s.lockAliasSetsAfter(ctx, tx, []string{person}, beforeSeparationLock)
 	if err != nil {
 		return err
 	}
-	personIDs := refIDs(persons)
-	if beforeSeparationLock != nil {
-		beforeSeparationLock()
-	}
-	// The persons first: an owner assertion locks them too, so once they are
-	// held no owner can land unseen between the read below and the check.
-	if err := lockObjects(ctx, tx, personIDs); err != nil {
-		return err
-	}
+	personIDs := sets[0]
 	owners, err := assertedOwnerEdges(ctx, tx, personIDs)
 	if err != nil || len(owners) == 0 {
 		return err
