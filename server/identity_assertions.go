@@ -343,6 +343,8 @@ func writeIdentityError(w http.ResponseWriter, err error, notFound string) {
 		writeJSONError(w, http.StatusNotFound, strings.TrimPrefix(missing.Error(), "evidence: "))
 	case errors.Is(err, evidence.ErrSplitLive):
 		writeJSONError(w, http.StatusConflict, "the pair is asserted apart; withdraw that first")
+	case errors.Is(err, evidence.ErrOwnersSeparated):
+		writeJSONError(w, http.StatusConflict, "the split would leave an account asserted to two persons; withdraw one owner first")
 	case errors.Is(err, evidence.ErrOwnersDiffer):
 		writeJSONError(w, http.StatusConflict, "the two are asserted to different persons; withdraw one first")
 	case errors.Is(err, evidence.ErrOwnerAsserted):

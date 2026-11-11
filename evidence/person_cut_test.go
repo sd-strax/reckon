@@ -244,7 +244,7 @@ func TestFindPersons_Representative(t *testing.T) {
 		personSCO(p2, map[string]any{"directory_id": "W-1001"}),
 	}, observedRel(capability.RelAliases, p1, p2))
 	want := min(string(p1), string(p2))
-	for _, token := range []string{"jo@contoso.example", "w-1001"} {
+	for _, token := range []string{"jo@contoso.example", "W-1001"} {
 		if got, err := s.FindPersons(ctx, token); err != nil || len(got) != 1 || got[0] != want {
 			t.Errorf("FindPersons(%q) = %v, %v; want [%s]", token, got, err, want)
 		}

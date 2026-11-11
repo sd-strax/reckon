@@ -581,6 +581,12 @@ func canonicalCloudUID(uid string) string {
 	return uid
 }
 
+// FoldCloudUID is the fold a cloud or LDAP account's provider id, a person's
+// directory id, a cloud account's uid and a resource's uid are minted on
+// (canonicalCloudUID), for a caller that compares such an identifier with
+// one it reads: trimmed, a GUID lowercased, any other id kept exact.
+func FoldCloudUID(uid string) string { return canonicalCloudUID(uid) }
+
 // --- SDOs -------------------------------------------------------------------
 
 // ObservedData resolves an observed-data SDO id from (class_uid, time truncated

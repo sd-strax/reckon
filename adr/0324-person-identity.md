@@ -74,7 +74,10 @@ person is reached from an account by `belongs-to` (the STIX relationship
 `adr/0320` adopted), emitted by the directory record that names both, DIRECT,
 with the record's provenance, or asserted by a human; one person holds a
 live owner assertion over an account and the accounts aliased to it at a
-time. The record therefore says that an account did something and that the
+time, and that holds through every act: a split between two persons, or the
+withdrawal of their join, is refused while it would leave an account
+asserted to two persons, until one owner assertion is withdrawn. The record
+therefore says that an account did something and that the
 account belongs to a person; it never says the person did it. Reading an
 investigation seeded on a person walks person, aliased persons, owned
 accounts, each account's alias set, and the walk is what the inspector shows.

@@ -130,6 +130,12 @@ func TestAssertIdentity_AccountsAndPersons(t *testing.T) {
 		!strings.Contains(body, "a concurrent identity change; try again") {
 		t.Errorf("deadlock: %d %s; want 409", code, body)
 	}
+	// A person split that would leave an account with two owners: 409.
+	store.actErr = evidence.ErrOwnersSeparated
+	if code, body := send(t, b, "POST", "/api/entities/"+acct+"/aliases", human, `{"other_ref":"`+other+`"}`); code != http.StatusConflict ||
+		!strings.Contains(body, "the split would leave an account asserted to two persons; withdraw one owner first") {
+		t.Errorf("owners separated: %d %s; want 409", code, body)
+	}
 	// Two accounts asserted to different persons: 409.
 	store.actErr = evidence.ErrOwnersDiffer
 	if code, body := send(t, b, "POST", "/api/entities/"+acct+"/aliases", human, `{"other_ref":"`+other+`"}`); code != http.StatusConflict ||

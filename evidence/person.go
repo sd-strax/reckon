@@ -381,13 +381,19 @@ func (s *Store) PersonIdentity(ctx context.Context, ref string) (PersonIdentityV
 // of these (accountSeenAs).
 type accountKeySet struct {
 	ids, logins []string
+	// cloudIDs are the cloud and LDAP accounts' provider ids, folded as they
+	// are minted (identity.FoldCloudUID: a GUID lowercased, any other id
+	// exact), apart from ids, which are lowercased as SIDs and control-plane
+	// ids are minted.
+	cloudIDs []string
 }
 
 // accountKeys reads the identifier each user-account among refs was keyed on
 // (identity.Resolver.Account): a domain account's SID when its user_id is
-// one, else its login; a cloud or LDAP account's user_id, else its login; a
-// well-known local principal's SID; any other account's login (the sam part
-// of a local one). A placeholder reads as absent.
+// one, else its login; a cloud or LDAP account's user_id (folded as minted,
+// cloudIDs), else its login; a well-known local principal's SID; a windows,
+// unix, local or login account's login (the sam part of a local one); a
+// control-plane principal's id. A placeholder reads as absent.
 func (s *Store) accountKeys(ctx context.Context, refs []string) (accountKeySet, error) {
 	var k accountKeySet
 	ids := make([]uuid.UUID, 0, len(refs))
@@ -438,8 +444,10 @@ func (s *Store) accountKeys(ctx context.Context, refs []string) (accountKeySet, 
 				continue
 			}
 		case identity.AccountCloud, identity.AccountLDAP:
-			if uid != "" {
-				add(&k.ids, uid)
+			if f := identity.FoldCloudUID(uid); f != "" {
+				if !slices.Contains(k.cloudIDs, f) {
+					k.cloudIDs = append(k.cloudIDs, f)
+				}
 				continue
 			}
 		case identity.AccountWindowsLocal:
@@ -450,7 +458,7 @@ func (s *Store) accountKeys(ctx context.Context, refs []string) (accountKeySet, 
 			if i := strings.LastIndex(login, `\`); i >= 0 {
 				login = login[i+1:]
 			}
-		case identity.AccountWindows, identity.AccountUnix, identity.AccountLocal:
+		case identity.AccountWindows, identity.AccountUnix, identity.AccountLocal, identity.AccountLogin:
 		default: // a control-plane principal: keyed on its id
 			if uid != "" {
 				add(&k.ids, uid)
@@ -474,7 +482,7 @@ func (s *Store) accountKeys(ctx context.Context, refs []string) (accountKeySet, 
 // principal name; placeholders are left out.
 func (s *Store) accountSeenAs(ctx context.Context, refs []string, keys accountKeySet) (AccountSeenAs, error) {
 	out := AccountSeenAs{Logins: []string{}, IDs: []SourceID{}, PrincipalNames: []string{}}
-	if len(keys.ids) == 0 && len(keys.logins) == 0 {
+	if len(keys.ids) == 0 && len(keys.cloudIDs) == 0 && len(keys.logins) == 0 {
 		return out, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
@@ -600,7 +608,7 @@ func (o seenObject) matches(k accountKeySet) bool {
 		return false
 	}
 	if o.firstIsID {
-		if slices.Contains(k.ids, o.first) {
+		if slices.Contains(k.ids, o.first) || slices.Contains(k.cloudIDs, identity.FoldCloudUID(o.uid)) {
 			return true
 		}
 		// A uid that keys no account of the set (a non-SID id beside a
@@ -634,8 +642,10 @@ type AccountMatch struct {
 	UserID string
 }
 
-// FindAccounts reads the persisted user-accounts a token names: its login,
-// principal name or identifier equal to the token, case folded. It answers
+// FindAccounts reads the persisted user-accounts a token names: its login or
+// principal name equal to the token, case folded, or its identifier equal to
+// it under the fold the account was minted on (a cloud or LDAP id by
+// identity.FoldCloudUID, any other lowercased). It answers
 // at most limit matches, oldest first; the seed check lists them when the
 // account it would mint is not among them.
 func (s *Store) FindAccounts(ctx context.Context, token string, limit int) ([]AccountMatch, error) {
@@ -649,9 +659,12 @@ func (s *Store) FindAccounts(ctx context.Context, token string, limit int) ([]Ac
 		FROM stix_objects
 		WHERE tenant_id = $1 AND type = $2 AND (
 			lower(payload->'properties'->>'account_login') = $3 OR lower(payload->'properties'->>'principal_name') = $3
-			OR lower(payload->'properties'->>'user_id') = $3)
+			OR CASE WHEN payload->'properties'->>'account_type' = ANY($6::text[])
+				THEN `+userIDFoldSQL+` = $5
+				ELSE lower(payload->'properties'->>'user_id') = $3 END)
 		ORDER BY created, id LIMIT $4
-	`, module.SingleTenantUUID, identity.TypeUserAccount, t, limit)
+	`, module.SingleTenantUUID, identity.TypeUserAccount, t, limit, identity.FoldCloudUID(token),
+		textArray([]string{identity.AccountCloud, identity.AccountLDAP}))
 	if err != nil {
 		return nil, fmt.Errorf("query accounts by name: %w", err)
 	}
@@ -681,11 +694,11 @@ func (s *Store) FindPersons(ctx context.Context, token string) ([]string, error)
 	if t == "" {
 		return []string{}, nil
 	}
-	found, err := s.personsNamed(ctx, t)
+	found, err := s.personsNamed(ctx, token)
 	if err != nil {
 		return nil, err
 	}
-	accounts, err := s.FindAccounts(ctx, t, 50)
+	accounts, err := s.FindAccounts(ctx, token, 50)
 	if err != nil {
 		return nil, err
 	}
@@ -724,16 +737,31 @@ func (s *Store) FindPersons(ctx context.Context, token string) ([]string, error)
 	return out, nil
 }
 
-// personsNamed reads the persisted persons whose principal name, mail or
-// directory id is t, already folded.
-func (s *Store) personsNamed(ctx context.Context, t string) ([]string, error) {
+// guidForm is a GUID in its hyphenated form, the one form
+// identity.FoldCloudUID lowercases.
+const guidForm = `'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`
+
+// userIDFoldSQL and directoryIDFoldSQL are identity.FoldCloudUID in SQL over
+// an account's user_id and a person's directory_id: trimmed, a GUID
+// lowercased, any other value exact.
+const (
+	userIDFoldSQL = `(CASE WHEN btrim(payload->'properties'->>'user_id') ~* ` + guidForm +
+		` THEN lower(btrim(payload->'properties'->>'user_id')) ELSE btrim(payload->'properties'->>'user_id') END)`
+	directoryIDFoldSQL = `(CASE WHEN btrim(payload->'properties'->>'directory_id') ~* ` + guidForm +
+		` THEN lower(btrim(payload->'properties'->>'directory_id')) ELSE btrim(payload->'properties'->>'directory_id') END)`
+)
+
+// personsNamed reads the persisted persons whose principal name or mail is
+// token, case folded, or whose directory id is token under the fold the
+// person was minted on (identity.FoldCloudUID).
+func (s *Store) personsNamed(ctx context.Context, token string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id FROM stix_objects
 		WHERE tenant_id = $1 AND type = $2 AND payload->'properties'->>'identity_class' = $4 AND (
 			lower(payload->'properties'->>'principal_name') = $3 OR lower(payload->'properties'->>'mail') = $3
-			OR lower(payload->'properties'->>'directory_id') = $3)
+			OR `+directoryIDFoldSQL+` = $5)
 		ORDER BY created, id
-	`, module.SingleTenantUUID, identity.TypeIdentity, t, identityClassIndividual)
+	`, module.SingleTenantUUID, identity.TypeIdentity, strings.ToLower(strings.TrimSpace(token)), identityClassIndividual, identity.FoldCloudUID(token))
 	if err != nil {
 		return nil, fmt.Errorf("query persons by name: %w", err)
 	}

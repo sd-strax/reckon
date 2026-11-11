@@ -173,6 +173,11 @@ func TestAccountIdentityConformance(t *testing.T) {
 	if _, ok := owned[bareAcct]; ok {
 		t.Error("the bare windows account is owned, though nothing named it")
 	}
+	// The SID account the directory mints carries its key as user_id, so a
+	// lookup or a seen-as match by the SID finds it before any logon does.
+	if s, _ := scoByID(dir.SCOs, sidAcct); s.Properties["user_id"] != sid {
+		t.Errorf("the directory's SID account = %+v; want user_id %s", s, sid)
+	}
 	wantAliases := [][2]identity.STIXID{{upnAcct, sidAcct}, {samAcct, sidAcct}, {cloudName, cloudAcct}}
 	if got := relsOf(dir, RelAliases); !sameRels(got, wantAliases) {
 		t.Errorf("directory aliases = %v; want %v", got, wantAliases)
@@ -364,6 +369,40 @@ func TestAccountShapingTypes(t *testing.T) {
 			"device": map[string]any{"os": map[string]any{"type_id": 200}}}
 		if identityProviderSource(vendorOnly) || directorySlug(vendorOnly, "t") != "okta" {
 			t.Errorf("vendor with a device OS: idp %v, slug %q", identityProviderSource(vendorOnly), directorySlug(vendorOnly, "t"))
+		}
+	})
+	t.Run("an explicit Unix signal outweighs the domain", func(t *testing.T) {
+		ws2 := ids.Host(identity.HostIdentity{Hostname: "ws2"})
+		linux := map[string]any{"type": "Linux"}
+		var got []identity.STIXID
+		for _, h := range []string{"WS1", "WS2"} {
+			_, s := one(t, map[string]any{"device": map[string]any{"hostname": h, "os": linux},
+				"actor": map[string]any{"user": map[string]any{"name": "svc", "domain": "CORP", "account": map[string]any{"type_id": 9}}}})
+			if s.Properties["account_type"] != identity.AccountUnix {
+				t.Errorf("%s: account = %+v; want unix", h, s)
+			}
+			got = append(got, s.ID)
+		}
+		if got[0] == got[1] || got[1] != ids.Account(identity.AccountIdentity{Type: identity.AccountUnix, Login: "svc", HostRef: ws2}) {
+			t.Errorf("accounts = %v; want one per host", got)
+		}
+		_, s := one(t, map[string]any{"device": map[string]any{"hostname": "WS1", "os": linux},
+			"actor": map[string]any{"user": map[string]any{"name": "svc", "account": map[string]any{"type_id": 9}}}})
+		if s.ID != got[0] {
+			t.Errorf("omitting the domain moved the account: %s, want %s", s.ID, got[0])
+		}
+	})
+	t.Run("a SID outranks a Unix signal", func(t *testing.T) {
+		linux := map[string]any{"type": "Linux"}
+		_, s := one(t, map[string]any{"device": map[string]any{"hostname": "WS1", "os": linux},
+			"actor": map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21-7-1101", "account": map[string]any{"type_id": 9}}}})
+		if s.Properties["account_type"] != identity.AccountWindowsDomain || s.ID != ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, UserID: "S-1-5-21-7-1101"}) {
+			t.Errorf("domain SID on a Unix-flagged record = %+v; want the domain SID account", s)
+		}
+		_, s = one(t, map[string]any{"device": map[string]any{"hostname": "WS1", "os": linux},
+			"actor": map[string]any{"user": map[string]any{"name": "SYSTEM", "domain": "NT AUTHORITY", "uid": "S-1-5-18"}}})
+		if s.Properties["account_type"] != identity.AccountWindowsLocal || s.ID != ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsLocal, UserID: "S-1-5-18", HostRef: ws1}) {
+			t.Errorf("well-known SID on a Unix device = %+v; want windows-local", s)
 		}
 	})
 	t.Run("machine pseudo-domains are per host", func(t *testing.T) {

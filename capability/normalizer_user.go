@@ -121,18 +121,19 @@ func osFamily(p map[string]any, device string) string {
 //     Nothing else makes a login cloud: an "@" alone is a principal
 //     name (adr/0324).
 //  2. ldap: account.type_id 1 (LDAP Account).
-//  3. a machine's own principal, a well-known SID
+//  3. unix: account.type_id 7 or 9 (macOS, Linux Account), or a Unix-family
+//     device OS, on a record with no SID: scoped by the host, whatever
+//     domain the record names. An explicit Unix signal outweighs every
+//     Windows heuristic below but a SID.
+//  4. windows-local: a machine's own principal, a well-known SID
 //     (identity.WellKnownLocalSID), a machine pseudo-domain (NT AUTHORITY,
 //     BUILTIN, NT SERVICE, IIS APPPOOL, ...), or a domain that is the machine
-//     itself (a dotless domain that mints the event's host): unix on a
-//     Unix-family device, else windows-local.
-//  4. windows-domain: a Windows source, which is a record whose uid is a SID,
+//     itself (a dotless domain that mints the event's host).
+//  5. windows-domain: a Windows source, which is a record whose uid is a SID,
 //     whose account.type_id is 2 (Windows Account), that names a domain, or
 //     whose device OS is Windows, naming a domain, a SID or a principal name.
-//  5. windows: a Windows source naming a bare login, no domain and no SID:
+//  6. windows: a Windows source naming a bare login, no domain and no SID:
 //     the weak account.
-//  6. unix: account.type_id 7 or 9 (macOS, Linux Account), or a Unix-family
-//     device OS: scoped by the host.
 //  7. windows-domain again for a principal name from a source that names no
 //     OS: the reading the seed gives "user@domain" (server seed resolution),
 //     so the two meet.
@@ -152,10 +153,14 @@ func (b *resultBuilder) accountType(u userObject, device string, host identity.S
 		return identity.AccountLDAP
 	}
 	os := osFamily(p, device)
+	// An explicit Unix signal, the account type or the device's OS family,
+	// outweighs the domain heuristic: a Linux host's account that names a
+	// domain is still that host's account. A SID outranks it: a Windows
+	// principal on a mis-typed record, or a well-known one, stays Windows.
+	if u.sid == "" && (u.accountTypeID == ocsfAccountMacOS || u.accountTypeID == ocsfAccountLinux || os == "unix") {
+		return identity.AccountUnix
+	}
 	if b.machineLocal(u, host) {
-		if os == "unix" {
-			return identity.AccountUnix
-		}
 		return identity.AccountWindowsLocal
 	}
 	windows := u.sid != "" || u.accountTypeID == ocsfAccountWindows || u.domain != "" || os == "windows"
@@ -164,8 +169,6 @@ func (b *resultBuilder) accountType(u userObject, device string, host identity.S
 		return identity.AccountWindowsDomain
 	case windows:
 		return identity.AccountWindows
-	case u.accountTypeID == ocsfAccountMacOS || u.accountTypeID == ocsfAccountLinux || os == "unix":
-		return identity.AccountUnix
 	case u.principalName() != "":
 		return identity.AccountWindowsDomain
 	case host == "":
@@ -386,7 +389,11 @@ func (b *resultBuilder) accountKeys(u userObject, typ string, host identity.STIX
 // uid_alt). A cloud account also carries its provider, the directory slug
 // (directorySlug).
 func (b *resultBuilder) accountProps(u userObject, typ, login string) map[string]any {
-	props := map[string]any{"account_login": login, "user_id": u.uid, "account_type": typ}
+	// The identifier the record gives, or the SID the account is keyed on when
+	// the record carries it apart from uid (a directory's on-premises SID), so
+	// a lookup or a seen-as match by the key finds the account.
+	uid := firstNonEmpty(u.uid, u.sid)
+	props := map[string]any{"account_login": login, "user_id": uid, "account_type": typ}
 	put := func(k, v string) {
 		if v != "" {
 			props[k] = v
@@ -397,8 +404,8 @@ func (b *resultBuilder) accountProps(u userObject, typ, login string) map[string
 	put("display_name", u.fullName)
 	put("domain", u.domain)
 	put("uid_alt", u.uidAlt)
-	if u.uid != "" && b.evt.SourceTool != "" {
-		props["source_ids"] = map[string]any{b.evt.SourceTool: u.uid}
+	if uid != "" && b.evt.SourceTool != "" {
+		props["source_ids"] = map[string]any{b.evt.SourceTool: uid}
 	}
 	if typ == identity.AccountCloud {
 		put("provider", directorySlug(b.evt.Payload, b.evt.SourceTool))

@@ -55,6 +55,10 @@ var (
 	// set a person has already asserted belongs to another person: the live
 	// one is withdrawn first (adr/0324).
 	ErrOwnerAsserted = errors.New("evidence: the account is asserted to belong to another person; withdraw that first")
+	// ErrOwnersSeparated reports a split of two persons, or the withdrawal of
+	// their join, that would leave an account asserted to two persons: one
+	// owner assertion is withdrawn first (adr/0324). It is ErrOwnerAsserted.
+	ErrOwnersSeparated = fmt.Errorf("evidence: the split would leave an account asserted to two persons; withdraw one owner first: %w", ErrOwnerAsserted)
 	// ErrOwnersDiffer reports a join of two accounts whose alias sets are
 	// asserted to belong to different persons (adr/0324). It is
 	// ErrOwnerAsserted.
@@ -249,6 +253,14 @@ func (s *Store) assertOnce(ctx context.Context, ids *identity.Resolver, relType,
 		}
 	}
 
+	if relType == relDistinctFrom && typ == identity.TypeIdentity && otherTyp == identity.TypeIdentity {
+		// Splitting two persons must not leave an account asserted to both.
+		if err := s.refuseOwnersSeparated(ctx, tx, ref, func(g *aliasGraph) {
+			g.apart[[2]uuid.UUID{a, b}], g.apart[[2]uuid.UUID{b, a}] = true, true
+		}); err != nil {
+			return err
+		}
+	}
 	if relType == relAliases {
 		// A live split of the pair is withdrawn first, never implicitly;
 		// found by pair and type, never by id. A source's record joining the
@@ -644,11 +656,23 @@ func (s *Store) AssertionEnds(ctx context.Context, edgeID uuid.UUID) (lo, hi str
 }
 
 // WithdrawAssertion withdraws an asserted aliases, distinct-from or belongs-to
-// (owner, adr/0324) edge by its id: the row is marked withdrawn, with a history event by by with note, and
-// the reads split (or join) again. It answers the edge's two ends, lo then
-// hi. An edge already withdrawn is left as it is; an observed edge is
-// ErrObservedEdge; no such identity edge is ErrNotFound.
+// (owner, adr/0324) edge by its id: the row is marked withdrawn, with a
+// history event by by with note, and the reads split (or join) again. It
+// answers the edge's two ends, lo then hi. An edge already withdrawn is left
+// as it is; an observed edge is ErrObservedEdge; no such identity edge is
+// ErrNotFound; withdrawing a join of two persons that would leave an account
+// asserted to both is ErrOwnersSeparated. One that loses a deadlock is tried
+// once more (withDeadlockRetry).
 func (s *Store) WithdrawAssertion(ctx context.Context, edgeID uuid.UUID, by Asserter, note string) (lo, hi string, err error) {
+	err = withDeadlockRetry(func() error {
+		var e error
+		lo, hi, e = s.withdrawOnce(ctx, edgeID, by, note)
+		return e
+	})
+	return lo, hi, err
+}
+
+func (s *Store) withdrawOnce(ctx context.Context, edgeID uuid.UUID, by Asserter, note string) (lo, hi string, err error) {
 	if by.ID == "" {
 		return "", "", ErrNoAsserter
 	}
@@ -675,6 +699,18 @@ func (s *Store) WithdrawAssertion(ctx context.Context, edgeID uuid.UUID, by Asse
 	if held.WithdrawnAt != nil {
 		return lo, hi, nil
 	}
+	if held.Type == relAliases && strings.HasPrefix(lo, identity.TypeIdentity+"--") && strings.HasPrefix(hi, identity.TypeIdentity+"--") {
+		// Withdrawing a join of two persons must not leave an account
+		// asserted to both.
+		loID, _ := refUUID(lo)
+		hiID, _ := refUUID(hi)
+		if err := s.refuseOwnersSeparated(ctx, tx, lo, func(g *aliasGraph) {
+			g.joined[loID] = removeOnce(g.joined[loID], hiID)
+			g.joined[hiID] = removeOnce(g.joined[hiID], loID)
+		}); err != nil {
+			return "", "", err
+		}
+	}
 	at := now()
 	held.WithdrawnAt = &at
 	held.History = append(held.History, AssertionEvent{Act: actWithdrawn, By: by.ID, ByName: by.Name, At: at, Note: note})
@@ -685,6 +721,117 @@ func (s *Store) WithdrawAssertion(ctx context.Context, edgeID uuid.UUID, by Asse
 		return "", "", fmt.Errorf("commit withdrawal: %w", err)
 	}
 	return lo, hi, nil
+}
+
+// removeOnce answers list less one occurrence of id: one edge of a pair that
+// may be joined by several.
+func removeOnce(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
+	if i := slices.Index(list, id); i >= 0 {
+		return slices.Delete(slices.Clone(list), i, i+1)
+	}
+	return list
+}
+
+// beforeSeparationLock, when set by a test, runs in refuseOwnersSeparated
+// after the person set is read and before it is locked: the window an
+// owner assertion commits in.
+var beforeSeparationLock func()
+
+// refuseOwnersSeparated keeps one live asserted owner per account alias set
+// when a person set separates (a split of two persons, or a withdrawn join
+// of two): it reads person's alias set, applies change to that
+// neighbourhood's alias graph, and refuses with ErrOwnersSeparated when an
+// account alias set has live asserted owners that would land in two
+// different resulting person sets. The persons and the accounts asserted to
+// them are locked in tx, as AssertOwner locks them, the persons before the
+// owners are read and the accounts after.
+func (s *Store) refuseOwnersSeparated(ctx context.Context, tx *sql.Tx, person string, change func(*aliasGraph)) error {
+	persons, err := s.aliasSets(ctx, []string{person})
+	if err != nil {
+		return err
+	}
+	personIDs := refIDs(persons)
+	if beforeSeparationLock != nil {
+		beforeSeparationLock()
+	}
+	// The persons first: an owner assertion locks them too, so once they are
+	// held no owner can land unseen between the read below and the check.
+	if err := lockObjects(ctx, tx, personIDs); err != nil {
+		return err
+	}
+	owners, err := assertedOwnerEdges(ctx, tx, personIDs)
+	if err != nil || len(owners) == 0 {
+		return err
+	}
+	accounts := make([]uuid.UUID, 0, len(owners))
+	for _, o := range owners {
+		accounts = append(accounts, o[0])
+	}
+	if err := lockObjects(ctx, tx, accounts); err != nil {
+		return err
+	}
+	// The resulting person sets, each named by its least member.
+	g, err := s.aliasGraph(ctx, personIDs)
+	if err != nil {
+		return err
+	}
+	change(&g)
+	contested := g.contested()
+	setOf := map[uuid.UUID]string{}
+	rep := func(p uuid.UUID) string {
+		if r, ok := setOf[p]; ok {
+			return r
+		}
+		r := p.String()
+		for _, m := range g.walk(p, contested) {
+			if m.String() < r {
+				r = m.String()
+			}
+		}
+		setOf[p] = r
+		return r
+	}
+	// The owners of each account alias set, by resulting person set.
+	byAccountSet := map[string]map[string]bool{}
+	for _, o := range owners {
+		set, err := s.aliasSets(ctx, []string{identity.TypeUserAccount + "--" + o[0].String()})
+		if err != nil {
+			return err
+		}
+		key := slices.Min(set)
+		if byAccountSet[key] == nil {
+			byAccountSet[key] = map[string]bool{}
+		}
+		byAccountSet[key][rep(o[1])] = true
+		if len(byAccountSet[key]) > 1 {
+			return ErrOwnersSeparated
+		}
+	}
+	return nil
+}
+
+// assertedOwnerEdges reads the live asserted belongs-to edges into persons,
+// as (account, person) pairs.
+func assertedOwnerEdges(ctx context.Context, tx *sql.Tx, persons []uuid.UUID) ([][2]uuid.UUID, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT source_ref, target_ref FROM stix_edges
+		WHERE tenant_id = $1 AND relationship_type = '`+relBelongsTo+`' AND target_ref = ANY($2)
+		  AND payload->>'withdrawn_at' IS NULL AND COALESCE(payload->>'asserted_by', '') <> ''
+		ORDER BY source_ref, target_ref
+	`, module.SingleTenantUUID, uuidArray(persons))
+	if err != nil {
+		return nil, fmt.Errorf("query owner assertions of the persons: %w", err)
+	}
+	defer rows.Close()
+	var out [][2]uuid.UUID
+	for rows.Next() {
+		var a, p uuid.UUID
+		if err := rows.Scan(&a, &p); err != nil {
+			return nil, fmt.Errorf("scan owner assertion: %w", err)
+		}
+		out = append(out, [2]uuid.UUID{a, p})
+	}
+	return out, rows.Err()
 }
 
 // lockedEdge reads an identity edge's payload under a row lock.

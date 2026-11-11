@@ -1761,7 +1761,9 @@ repeats, per `account_type` (adr/0324):
   driver host identities, and the mandatory labels, whose SIDs are computed
   the same on every machine. Domain SIDs (`S-1-5-21-…`) are never among them.
 - `unix`: scoped by the host, `(host_ref, name)`. `root` on two hosts is two
-  accounts.
+  accounts. An explicit Unix signal, the account type or the device's
+  operating system, outranks a domain name on the record; a SID outranks
+  both, since nothing but Windows issues one.
 - `local`: a bare login from a source that names no operating system, scoped
   by the host like `unix`.
 - `login`: a bare login from a source that names neither an operating system
@@ -1873,8 +1875,9 @@ The cut and the owner assertion have one scope, the account and every
 account aliased to it, except an account the person owns by its own record
 that was not split as well; the cut holds against the persons the cut person
 is aliased to; one person holds a live owner assertion over that scope at a
-time, and an owner assertion over a live split is refused until the split is
-withdrawn. Events reference accounts, never the person: the record says
+time, an owner assertion over a live split is refused until the split is
+withdrawn, and a split between two persons or the withdrawal of their join is
+refused while it would leave an account asserted to two persons. Events reference accounts, never the person: the record says
 an account acted and that the account belongs to a person, and the reads walk
 account to owner, visibly. An investigation seeded on a person reads its
 aliased persons, their owned accounts and each account's alias set; one
