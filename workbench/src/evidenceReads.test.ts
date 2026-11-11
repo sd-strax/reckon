@@ -98,8 +98,8 @@ describe("a host's identity in the inspector reads (adr/0211)", () => {
     act.resolve(null);
     await Promise.all([open, acting]);
     expect(posted.find((m) => m.type === "inspector.identity")).toEqual({ type: "inspector.identity", ref: hostA, requestId: "r1", identity: null });
-    expect(answers(hostA)).not.toContain("relationship--before");
-    expect(answers(hostA).length).toBeGreaterThan(0);
+    // Only the act's own read posts: the overtaken open is superseded by it, not read again.
+    expect(answers(hostA)).toEqual(["relationship--after"]);
   });
 
   it("frees the host the moment its act lands: a next act sent on the outcome is accepted", async () => {
@@ -162,5 +162,60 @@ describe("a host's identity in the inspector reads (adr/0211)", () => {
     first.resolve(null);
     await acting;
     expect(posted.filter((m) => m.type === "inspector.identity").map((m) => (m as { requestId: string }).requestId)).toEqual(["r3", "r1"]);
+  });
+});
+
+describe("overlapping inspector reads: the latest issued for a target wins", () => {
+  const cached = (reads: EvidenceReads, ref: string) => (reads as unknown as { docCache: Map<string, EvidenceDoc> }).docCache.get(ref);
+  const rejecting = () => {
+    let reject!: (e: Error) => void;
+    const promise = new Promise<EvidenceDoc>((_r, j) => { reject = j; });
+    return { promise, reject };
+  };
+
+  it("posts only the newer of two reads of one host, and lets the older write no cache", async () => {
+    const slow = deferred<EvidenceDoc>();
+    const { reads, answers } = harness({ [hostA]: [slow.promise, doc(hostA, view("relationship--new"))] });
+    const r1 = reads.answerInspector("inv-1", panel, { kind: "ref", ref: hostA });
+    await reads.answerInspector("inv-1", panel, { kind: "ref", ref: hostA });
+    expect(answers(hostA)).toEqual(["relationship--new"]);
+    const r1Doc = { ...doc(hostA, view("relationship--old")), payload: { properties: { hostname: "old" } } };
+    slow.resolve(r1Doc);
+    await r1;
+    expect(answers(hostA)).toEqual(["relationship--new"]);
+    expect(cached(reads, hostA)?.payload).toEqual({ properties: { hostname: "ws1" } });
+  });
+
+  it("drops an older read's late error after the newer read's answer", async () => {
+    const slow = rejecting();
+    const { reads, posted, answers } = harness({ [hostA]: [slow.promise, doc(hostA, view("relationship--new"))] });
+    const r1 = reads.answerInspector("inv-1", panel, { kind: "ref", ref: hostA });
+    await reads.answerInspector("inv-1", panel, { kind: "ref", ref: hostA });
+    slow.reject(new Error("backend unreachable"));
+    await r1;
+    expect(answers(hostA)).toEqual(["relationship--new"]);
+    expect(posted.filter((m) => m.type === "inspector.error")).toEqual([]);
+  });
+
+  it("does not let reads of two hosts supersede each other", async () => {
+    const slowA = deferred<EvidenceDoc>();
+    const { reads, answers } = harness({ [hostA]: [slowA.promise], [hostB]: [doc(hostB, view("relationship--b"))] });
+    const a = reads.answerInspector("inv-1", panel, { kind: "ref", ref: hostA });
+    await reads.answerInspector("inv-1", panel, { kind: "ref", ref: hostB });
+    slowA.resolve(doc(hostA, view("relationship--a")));
+    await a;
+    expect(answers(hostA)).toEqual(["relationship--a"]);
+    expect(answers(hostB)).toEqual(["relationship--b"]);
+  });
+
+  it("orders reads per panel: one host read in two panels answers each panel", async () => {
+    const slow = deferred<EvidenceDoc>();
+    const { reads, answers, elsewhere } = harness({ [hostA]: [slow.promise, doc(hostA, view("relationship--other-panel"))] });
+    const mine = reads.answerInspector("inv-1", panel, { kind: "ref", ref: hostA });
+    await reads.answerInspector("inv-2", otherPanel, { kind: "ref", ref: hostA });
+    slow.resolve(doc(hostA, view("relationship--mine")));
+    await mine;
+    expect(answers(hostA)).toEqual(["relationship--mine"]);
+    expect(elsewhere.filter((m) => m.type === "inspector.evidence")).toHaveLength(1);
   });
 });

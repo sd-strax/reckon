@@ -18,6 +18,12 @@ import { errText } from "./util";
 const eventsShown = 500;
 const aroundEachSide = 5;
 
+/** The id an inspector target is answered (and its error posted) under. */
+function targetKey(target: InspectorTarget): string {
+  return "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
+    : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "callId" in target ? target.callId : "";
+}
+
 export class EvidenceReads {
   constructor(private readonly host: DocumentHost) {}
 
@@ -58,6 +64,9 @@ export class EvidenceReads {
   // The hosts with an identity act in flight, from any panel: one at a time.
   private readonly actsInFlight = new Set<string>();
 
+  // The last inspector read issued per panel and target: only it may post.
+  private readonly readSeqs = new WeakMap<vscode.WebviewPanel, Map<string, number>>();
+
   /** The immutable part of an evidence doc: everything but a host's identity view. */
   private static immutable(doc: EvidenceDoc): EvidenceDoc {
     const held = { ...doc };
@@ -94,7 +103,7 @@ export class EvidenceReads {
    * cannot be read, and "stale" when an identity act began while it was in
    * flight: then nothing is cached and nothing is to be posted.
    */
-  private async hostDoc(ref: string): Promise<EvidenceDoc | null | "stale"> {
+  private async hostDoc(ref: string, latest: () => boolean): Promise<EvidenceDoc | null | "stale"> {
     const current = this.host.sameIdentity();
     const generation = this.identityGeneration;
     let doc: EvidenceDoc;
@@ -106,7 +115,8 @@ export class EvidenceReads {
     if (generation !== this.identityGeneration) {
       return "stale";
     }
-    if (current()) {
+    // A newer read of this target writes, not this one.
+    if (current() && latest()) {
       this.docCache.set(ref, EvidenceReads.immutable(doc));
     }
     return doc;
@@ -255,17 +265,40 @@ export class EvidenceReads {
    * excluded: "also seen in" means OTHERS), a procedure, a committed
    * transcript, an action's record, a case summary. A failed fetch posts an
    * honest error for that target; nothing else in the document is affected.
+   *
+   * For one target in one panel the latest read issued wins: each read takes
+   * the next sequence number for (panel, target), and an older one's
+   * completion, an answer or an error, is dropped without a cache write (the
+   * newer read is in flight and will post). The webview's store is per
+   * panel, so the order is too.
    */
   async answerInspector(id: string, panel: vscode.WebviewPanel, target: InspectorTarget): Promise<void> {
+    let seqs = this.readSeqs.get(panel);
+    if (!seqs) {
+      seqs = new Map();
+      this.readSeqs.set(panel, seqs);
+    }
+    const key = target.kind + ":" + targetKey(target).toLowerCase();
+    const seq = (seqs.get(key) ?? 0) + 1;
+    seqs.set(key, seq);
+    const order = seqs;
+    await this.answer(id, panel, target, () => order.get(key) === seq);
+  }
+
+  private async answer(id: string, panel: vscode.WebviewPanel, target: InspectorTarget, latest: () => boolean): Promise<void> {
     try {
       switch (target.kind) {
         case "ref": {
-          // A host's identity is read fresh on every open (adr/0211); a read
-          // an identity act overtook is dropped and read again (acts are
-          // human-paced, so this settles).
+          // A host's identity is read fresh on every open (adr/0211). A read
+          // an identity act overtook is read again: the act may have changed
+          // this host's view though the act was on another host or in
+          // another panel, where no newer read of this target was issued.
           const isHost = target.ref.startsWith("x-host--");
           const generation = this.identityGeneration;
-          const read = isHost ? await this.hostDoc(target.ref) : await this.getDoc(target.ref);
+          const read = isHost ? await this.hostDoc(target.ref, latest) : await this.getDoc(target.ref);
+          if (!latest()) {
+            return;
+          }
           if (read === "stale") {
             return this.answerInspector(id, panel, target);
           }
@@ -282,43 +315,49 @@ export class EvidenceReads {
           }
           const around = doc.kind === "ocsf" ? await this.around(id, target.ref) : [];
           const repeats = doc.kind === "ocsf" ? undefined : await this.repeats(id, target.ref);
+          if (!latest()) {
+            return;
+          }
           if (isHost && generation !== this.identityGeneration) {
             return this.answerInspector(id, panel, target); // an act moved the identity while the rest was read
           }
           void this.host.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps, around, repeats });
           return;
         }
-        case "call":
-          void this.host.post(panel, { type: "inspector.call", callId: target.callId, call: await this.host.client.evidence.call(id, target.callId) });
+        case "call": {
+          const call = await this.host.client.evidence.call(id, target.callId);
+          if (latest()) void this.host.post(panel, { type: "inspector.call", callId: target.callId, call });
           return;
+        }
         case "sop": {
           // The reads start from the committed thread, not from anything the
           // webview holds (adr/0097).
-          void this.host.post(panel, await procedureAnswer(this.host, target.sopId, () => this.host.client.investigations.thread(id)));
+          const answer = await procedureAnswer(this.host, target.sopId, () => this.host.client.investigations.thread(id));
+          if (latest()) void this.host.post(panel, answer);
           return;
         }
         case "turn": {
           const body = await this.host.cache.transcript(target.interpretationId);
-          void this.host.post(panel, { type: "inspector.turn", interpretationId: target.interpretationId, body });
+          if (latest()) void this.host.post(panel, { type: "inspector.turn", interpretationId: target.interpretationId, body });
           return;
         }
         case "action": {
           const record = await this.host.client.actions.record(target.actionId);
+          if (!latest()) return;
           this.host.cache.servedRecord(id, target.actionId, this.host.cache.watermark(id));
           void this.host.post(panel, { type: "inspector.action", actionId: target.actionId, record });
           return;
         }
         case "case": {
-          void this.host.post(panel, await caseAnswer(this.host, target.investigationRef));
+          const answer = await caseAnswer(this.host, target.investigationRef);
+          if (latest()) void this.host.post(panel, answer);
           return;
         }
         default:
           return; // thread, person: rendered from the snapshot alone
       }
     } catch (err) {
-      const key = "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
-        : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "callId" in target ? target.callId : "";
-      void this.host.post(panel, { type: "inspector.error", target: key, message: errText(err) });
+      if (latest()) void this.host.post(panel, { type: "inspector.error", target: targetKey(target), message: errText(err) });
     }
   }
 
