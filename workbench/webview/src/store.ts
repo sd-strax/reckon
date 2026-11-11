@@ -4,7 +4,8 @@
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
 import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, PastCaseFacets, PastCaseFilter, PastCaseRow, ProcedureReads, SOPDoc, SOPOutlineView } from "../../src/viewTypes";
-import type { ActionTypeView, InvestigationSnapshot, LibraryItem, RenderMessage, SopDraftState } from "../../src/protocol";
+import type { ActionTypeView, InvestigationSnapshot, KnownAccount, LibraryItem, RenderMessage, SopDraftState } from "../../src/protocol";
+import { docBearsIdentity, identityViewKeys } from "../../src/identityKinds";
 
 export interface LiveToolResult {
   isError: boolean;
@@ -53,6 +54,8 @@ export interface DraftState {
   error: string;
   /** The error is "nothing knows this entity" (#159): the analyst may start anyway. */
   unknownEntity?: boolean;
+  /** On an unknown account seed, the accounts the record holds under the name (adr/0324). */
+  knownAccounts?: KnownAccount[];
   /** One submit per draft (both the Enter path and the buttons). */
   submitting: boolean;
 }
@@ -121,34 +124,51 @@ export interface State {
   /** Actions with a decision sent and not yet settled by the host: every card for one disables. */
   actionsInFlight: Record<string, true>;
   /**
-   * The identity acts (adr/0211), by the request id each was sent under, so
-   * an inline form is settled by its own act's outcome and no other.
+   * The identity acts (adr/0211, adr/0324), by the request id each was sent
+   * under, so an inline form is settled by its own act's outcome and no other.
    */
   identityActs: Record<string, IdentityActState>;
   /**
-   * Hosts whose held doc predates an identity act (adr/0211): the alias
-   * closure may have changed, so a pane showing one asks for it again.
+   * Hosts, accounts and persons whose held doc predates an identity act
+   * (adr/0211, adr/0324): the alias closure may have changed. Read for the
+   * "may be out of date" line only; what re-reads a shown entity is
+   * identityChange, as reloadSeq is for a load.
    */
-  staleHosts: Record<string, true>;
-  /** Bumped on every applied snapshot (a load: open, refresh): a pane showing a host reads it again on each. */
+  staleEntities: Record<string, true>;
+  /**
+   * Bumped on every identity change that landed (identity.changed, in the
+   * acting panel and every other): a pane showing a held host, account or
+   * person reads it again once on each, as on a reload. `except` is the
+   * entity the acting panel's act was on, whose view the act's answer just
+   * brought: that pane does not read it a second time.
+   */
+  identityChange: { seq: number; except?: string };
+  /** Bumped on every applied snapshot (a load: open, refresh): a pane showing an identity-bearing entity reads it again on each. */
   reloadSeq: number;
 }
 
-/** One identity act: on which host, and where it stands. */
+/** One identity act: on which entity, and where it stands. */
 export interface IdentityActState {
   ref: string;
   state: "pending" | "landed" | "failed";
   /** A refusal, or, on a landed act whose view could not be read, that it was recorded all the same. */
   message?: string;
+  /** A refusal over a hint that named several: the candidates, for the analyst to pick one. */
+  accounts?: KnownAccount[];
+  persons?: string[];
   /** Its form closed while it was in flight: dropped once it settles. */
   forgotten?: boolean;
 }
 
-/** Every x-host the state holds a doc for marked stale, but `except`, which keeps its mark as it is. */
-function hostsStale(state: State, except?: string): Record<string, true> {
-  const out = { ...state.staleHosts };
-  for (const ref of Object.keys(state.docs)) {
-    if (ref !== except && ref.startsWith("x-host--") && state.docs[ref]) out[ref] = true;
+/**
+ * Every host, account and person the state holds a doc for marked stale, but
+ * `except`, which keeps its mark as it is. A vendor identity holds no view
+ * and is never stale.
+ */
+function entitiesStale(state: State, except?: string): Record<string, true> {
+  const out = { ...state.staleEntities };
+  for (const [ref, doc] of Object.entries(state.docs)) {
+    if (ref !== except && doc && docBearsIdentity(ref, doc)) out[ref] = true;
   }
   return out;
 }
@@ -162,7 +182,7 @@ function settleIdentityAct(acts: Record<string, IdentityActState>, requestId: st
 /** Recorded, but the server could not read the view after it: the last view stands. */
 export const identityViewUnavailable = "recorded; the view could not be refreshed";
 
-/** Whether an identity act on this host is in flight: one at a time per host. */
+/** Whether an identity act on this entity is in flight: one at a time per entity. */
 export function identityActPending(state: State, ref: string): boolean {
   return Object.values(state.identityActs).some((a) => a.ref === ref && a.state === "pending");
 }
@@ -204,8 +224,9 @@ export const initialState: State = {
   me: null,
   actionsInFlight: {},
   identityActs: {},
-  staleHosts: {},
+  staleEntities: {},
   reloadSeq: 0,
+  identityChange: { seq: 0 },
 };
 
 export type Action =
@@ -320,7 +341,7 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "pastCases.facets":
       return { ...state, caseFacets: msg.facets };
     case "draft.error":
-      return { ...state, draft: { ...state.draft, submitting: false, error: msg.message, unknownEntity: !!msg.unknownEntity } };
+      return { ...state, draft: { ...state.draft, submitting: false, error: msg.message, unknownEntity: !!msg.unknownEntity, knownAccounts: msg.knownAccounts } };
     case "state.snapshot": {
       const snap = msg.snapshot;
       // A snapshot older than what the webview holds for the same
@@ -339,9 +360,10 @@ function onMessage(state: State, msg: RenderMessage): State {
         // showed — unless a turn is streaming or a failed turn is preserved.
         live: state.streaming || state.preserveLive ? state.live : [],
         // A load (the panel opened, or the analyst refreshed) reads every
-        // host afresh: a host's identity may have changed by anyone's act,
-        // so each held host is stale and a pane showing one re-asks.
-        staleHosts: hostsStale(state),
+        // identity-bearing entity afresh: its identity may have changed by
+        // anyone's act, so each held one is stale and a pane showing one
+        // re-asks.
+        staleEntities: entitiesStale(state),
         // An explicit reload always reads the shown host again, even one
         // already stale: the stale flag alone cannot represent a retry.
         reloadSeq: state.reloadSeq + 1,
@@ -371,17 +393,23 @@ function onMessage(state: State, msg: RenderMessage): State {
     case "evidence.unresolved":
       return state; // the app's own request bookkeeping; nothing renders it
     case "inspector.evidence": {
-      // A host read the server answered without its identity view (it
-      // degrades when the view cannot be read) keeps the last view it had.
-      // It is marked stale then, whether it was or not: only a fresh view
-      // clears the mark.
-      const held = state.docs[msg.ref]?.identity;
-      const reused = msg.ref.startsWith("x-host--") && msg.doc.identity === undefined && !!held;
-      const doc = reused ? { ...msg.doc, identity: held } : msg.doc;
+      // A read the server answered without the identity view it had (it
+      // degrades when the view cannot be read) keeps the last view held, of
+      // whichever kind. It is marked stale then, whether it was or not: only
+      // a fresh view clears the mark.
+      const held = state.docs[msg.ref];
+      const doc = { ...msg.doc };
+      let reused = false;
+      for (const key of identityViewKeys) {
+        if (doc[key] === undefined && held?.[key] !== undefined) {
+          Object.assign(doc, { [key]: held[key] });
+          reused = true;
+        }
+      }
       return {
         ...state,
         docs: { ...state.docs, [msg.ref]: doc },
-        staleHosts: reused ? { ...state.staleHosts, [msg.ref]: true } : dropKey(state.staleHosts, msg.ref),
+        staleEntities: reused ? { ...state.staleEntities, [msg.ref]: true } : dropKey(state.staleEntities, msg.ref),
         appearances: { ...state.appearances, [msg.ref]: msg.appearances },
         around: { ...state.around, [msg.ref]: msg.around ?? [] },
         repeats: msg.repeats ? { ...state.repeats, [msg.ref]: msg.repeats } : dropKey(state.repeats, msg.ref),
@@ -390,24 +418,31 @@ function onMessage(state: State, msg: RenderMessage): State {
     }
     case "inspector.identity": {
       const doc = state.docs[msg.ref];
-      // The alias closure can change beyond the edge's ends: every other host
-      // held is stale until read again (a pane showing one re-asks).
-      const staleHosts = hostsStale(state, msg.ref);
+      // The alias closure can change beyond the edge's ends: every other
+      // host, account and person held is stale until read again (a pane
+      // showing one re-asks).
+      const staleEntities = entitiesStale(state, msg.ref);
       return {
         ...state,
-        // A view the server could not read keeps the last one: never an
-        // invented empty view.
-        docs: doc && msg.identity ? { ...state.docs, [msg.ref]: { ...doc, identity: msg.identity } } : state.docs,
-        staleHosts,
-        identityActs: settleIdentityAct(state.identityActs, msg.requestId, { ref: msg.ref, state: "landed", message: msg.identity ? undefined : identityViewUnavailable }),
+        // A view the server could not read keeps the last one, and marks it
+        // stale: never an invented empty view.
+        docs: doc && msg.views ? { ...state.docs, [msg.ref]: { ...doc, ...msg.views } } : state.docs,
+        staleEntities: msg.views || !doc ? staleEntities : { ...staleEntities, [msg.ref]: true },
+        identityActs: settleIdentityAct(state.identityActs, msg.requestId, { ref: msg.ref, state: "landed", message: msg.views ? undefined : identityViewUnavailable }),
       };
     }
     case "identity.changed":
-      // An act landed in another panel: every host held here, the acted one
-      // included, may read differently now.
-      return { ...state, staleHosts: hostsStale(state) };
+      // An act landed: every host, account and person held here may read
+      // differently now, the acted one included unless this panel acted
+      // (its view came with the act's answer). A pane showing one reads it
+      // again once.
+      return {
+        ...state,
+        staleEntities: entitiesStale(state, msg.acted ? msg.ref : undefined),
+        identityChange: { seq: state.identityChange.seq + 1, except: msg.acted ? msg.ref : undefined },
+      };
     case "identity.error":
-      return { ...state, identityActs: settleIdentityAct(state.identityActs, msg.requestId, { ref: msg.ref, state: "failed", message: msg.message }) };
+      return { ...state, identityActs: settleIdentityAct(state.identityActs, msg.requestId, { ref: msg.ref, state: "failed", message: msg.message, accounts: msg.accounts, persons: msg.persons }) };
     case "inspector.call":
       // The pane is named by the verb (derive/inspect.ts targetName).
       return { ...state, calls: { ...state.calls, [msg.callId]: msg.call }, labels: { ...state.labels, ["call:" + msg.callId]: msg.call.verb }, inspectorErrors: dropKey(state.inspectorErrors, msg.callId) };

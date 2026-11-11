@@ -5,7 +5,9 @@
 // filter is a field here, never the top-of-window quick input).
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../app";
-import { classifyDraft, effectiveDraftKind, entitySubLabel, type DraftKind } from "../derive/draft";
+import { classifyDraft, effectiveDraftKind, effectiveEntityKind, entitySubLabel, type DraftKind, type SeedEntityKind } from "../derive/draft";
+
+const entityKinds: SeedEntityKind[] = ["host", "account", "person"];
 
 type SeedPath = "alert" | "case" | null;
 
@@ -14,6 +16,9 @@ export function DraftView() {
   const d = state.draft;
   const [value, setValue] = useState("");
   const [override, setOverride] = useState<DraftKind | null>(null);
+  // The analyst's kind for an entity token (adr/0324); null is the default
+  // from the token's shape, as the server derives it.
+  const [entityKind, setEntityKind] = useState<SeedEntityKind | null>(null);
   const [path, setPath] = useState<SeedPath>(d.mode === "case" ? "case" : null);
   const [alertId, setAlertId] = useState("");
   const [alertSource, setAlertSource] = useState("");
@@ -43,10 +48,25 @@ export function DraftView() {
   const v = value.trim();
   const kind = effectiveDraftKind(v, override);
   const singleToken = !/\s/.test(v) && !v.endsWith("?");
+  // The kind an entity seed is sent with: host, account or person for a
+  // name; none for a question, an address or a hash.
+  const ek = kind === "entity" ? effectiveEntityKind(v, entityKind) : undefined;
+  const seedMessage = (allowUnknown?: boolean) => ({
+    type: "seed.submit" as const, value: v, kind: classifyDraft(v) ? kind : "",
+    ...(allowUnknown ? { allowUnknown } : {}), ...(ek ? { entityKind: ek } : {}),
+  });
   const submit = () => {
     if (!v || d.submitting) return;
     dispatch({ type: "draft.submitting" });
-    send({ type: "seed.submit", value: v, kind: classifyDraft(v) ? kind : "" });
+    send(seedMessage());
+  };
+  // A known account picked from a refusal: its login in the box, as an
+  // account; the analyst presses Start.
+  const pickAccount = (login: string) => {
+    setValue(login);
+    setOverride(null);
+    setEntityKind("account");
+    input.current?.focus();
   };
   const toggle = (p: SeedPath) => setPath((cur) => (cur === p ? null : p));
   const where = d.caseQueue ? " in the " + d.caseQueue + " queue" : " in the system of record";
@@ -55,19 +75,27 @@ export function DraftView() {
     <div id="draftView">
       <div className="draftCard">
         <h2>What are you investigating?</h2>
-        <p className="draftLead">A host, an IP, or a file hash — or a question to hunt.</p>
+        <p className="draftLead">A host, an account, a person, an IP, or a file hash — or a question to hunt.</p>
         <textarea
           ref={input}
           id="draftInput"
           rows={1}
           value={value}
           placeholder="WIN-FILE01   ·   185.220.101.5   ·   a file hash   —   or a question"
-          onChange={(e) => { setValue(e.target.value); setOverride(null); }}
+          onChange={(e) => { setValue(e.target.value); setOverride(null); setEntityKind(null); }}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
         />
         <div className="draftInterp">
           {!v ? null : kind === "entity" ? (
-            <>→ investigate {entitySubLabel(v)} <b>{v}</b><span className="toggle" onClick={() => setOverride("question")}>hunt this as a question instead</span></>
+            <>→ investigate {ek ?? entitySubLabel(v)} <b>{v}</b>
+              {ek ? (
+                <span className="draftKinds" role="group" aria-label="What the name is">
+                  {entityKinds.map((k) => (
+                    <button key={k} type="button" className={"linklike draftKind" + (k === ek ? " on" : "")} aria-pressed={k === ek} onClick={() => setEntityKind(k)}>{k}</button>
+                  ))}
+                </span>
+              ) : null}
+              <span className="toggle" onClick={() => setOverride("question")}>hunt this as a question instead</span></>
           ) : (
             <>→ a hunt (open question){singleToken ? <span className="toggle" onClick={() => setOverride("entity")}>investigate a specific host/IP instead</span> : null}</>
           )}
@@ -125,7 +153,14 @@ export function DraftView() {
           </div>
         ) : null}
         <div className="draftErr">{d.error}
-          {d.error && d.unknownEntity && v ? <button className="linklike" disabled={d.submitting} onClick={() => { dispatch({ type: "draft.submitting" }); send({ type: "seed.submit", value: v, kind: classifyDraft(v) ? kind : "", allowUnknown: true }); }}>Start anyway</button> : null}
+          {d.error && d.unknownEntity && v ? <button className="linklike" disabled={d.submitting} onClick={() => { dispatch({ type: "draft.submitting" }); send(seedMessage(true)); }}>Start anyway</button> : null}
+          {d.error && d.knownAccounts?.length ? (
+            <div className="draftKnown" aria-label="Accounts the record holds under this name">
+              {d.knownAccounts.map((a) => (
+                <button key={a.ref} type="button" className="linklike draftKnownAccount" title="Put this account's login in the box; then start" onClick={() => pickAccount(a.accountLogin)}>{a.accountLogin} · {a.accountType}</button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

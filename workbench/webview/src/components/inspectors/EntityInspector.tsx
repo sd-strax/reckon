@@ -1,7 +1,8 @@
 // Entity (account, host, IP, domain, process …): type, value, deterministic
 // id on hover; role and counts in this case; repeated observations (the
 // entity's retrieved events folded by the default key, adr/0095, shown only
-// when a group repeats); a host's identity and the acts on it (adr/0211);
+// when a group repeats); a host's, an account's or a person's identity and
+// the acts on it (adr/0211, adr/0324);
 // actions on it; other investigations; Pivot (stages,
 // never fires), Pin, Copy. The popover of ui/02 §2.4 folded in (impl §2.1).
 import { useEffect, useRef } from "react";
@@ -13,6 +14,9 @@ import { Badge, Sentence } from "../shared";
 import { pinSpec } from "../PromptCard";
 import { Fields, Json, Loading, Section } from "./primitives";
 import { HostIdentitySection } from "./HostIdentity";
+import { AccountIdentitySection } from "./AccountIdentity";
+import { PersonIdentitySection } from "./PersonIdentity";
+import { identityKindOf, isPersonDoc } from "../../../../src/identityKinds";
 
 export function EntityInspector({ refId }: { refId: string }) {
   const { state, send, openPrompt, openInspector, stage } = useApp();
@@ -20,34 +24,40 @@ export function EntityInspector({ refId }: { refId: string }) {
   const label = state.labels[refId];
   const apps = state.appearances[refId];
   const c = inThisCase(refId, state.snap);
-  const typeLabel = refTypeLabel(refId);
-  // A host's identity and the acts on it (adr/0211); hosts only for now.
-  const isHost = refId.startsWith("x-host--");
-  // A host's identity is mutable (adr/0211): it is read fresh whenever a pane
-  // reveals a host it already holds (Back, a pinned pane, a change of host),
-  // and again when the held view turns stale while shown (an act, a
-  // refresh), and on every reload, stale or not, so a second Refresh retries
-  // a read the first could not complete. The held doc stays on screen until
-  // the answer lands. Once per reveal, reload or turn to stale: an answer
-  // that leaves it stale changes none of them, so nothing asks again on its
-  // own. A host not held yet is being read by the open that showed it.
-  const stale = isHost && !!state.staleHosts[refId];
-  const held = isHost && !!state.docs[refId];
-  // Its first read failed (the pane shows the error): a reload retries it.
-  const failed = isHost && state.docs[refId] === null;
+  // A host's, an account's or a person's identity and the acts on it
+  // (adr/0211, adr/0324). An `identity--` ref is a person only when its doc
+  // says so; the type chip calls every identity a vendor, the kicker here
+  // tells the two apart.
+  const kind = identityKindOf(refId);
+  const typeLabel = kind === "person" && isPersonDoc(doc) ? "person" : refTypeLabel(refId);
+  const bears = kind !== null;
+  // An identity view is mutable (adr/0211): it is read fresh whenever a pane
+  // reveals an entity it already holds (Back, a pinned pane, a change of
+  // entity), on every reload, and on every identity change that landed
+  // anywhere (an act in this panel or another), stale or not: a reload and a
+  // change are the same rule, so a pane already stale still reads again.
+  // The held doc stays on screen until the answer lands. Once per reveal,
+  // reload or change: an answer, stale or not, changes none of them, so
+  // nothing asks again on its own. The acting panel does not read the acted
+  // entity a second time: its view came with the act's answer. An entity not
+  // held yet is being read by the open that showed it.
+  const held = bears && !!state.docs[refId];
+  // Its first read failed (the pane shows the error): a reload or a change retries it.
+  const failed = bears && state.docs[refId] === null;
   const reloadSeq = state.reloadSeq;
-  const seen = useRef<{ ref: string; stale: boolean; reloadSeq: number } | null>(null);
+  const change = state.identityChange;
+  const seen = useRef<{ ref: string; reloadSeq: number; changeSeq: number } | null>(null);
   useEffect(() => {
     const before = seen.current;
-    seen.current = { ref: refId, stale, reloadSeq };
-    if (!isHost || (!held && !failed)) return;
+    seen.current = { ref: refId, reloadSeq, changeSeq: change.seq };
+    if (!bears || (!held && !failed)) return;
     const revealed = before === null || before.ref !== refId;
     const reloaded = !revealed && before.reloadSeq !== reloadSeq;
-    const turnedStale = !revealed && stale && !before.stale;
-    if (reloaded || (held && (revealed || turnedStale))) {
+    const changed = !revealed && before.changeSeq !== change.seq && change.except !== refId;
+    if (reloaded || changed || (held && revealed)) {
       send({ type: "inspector.open", target: { kind: "ref", ref: refId } });
     }
-  }, [isHost, held, failed, stale, reloadSeq, refId, send]);
+  }, [bears, held, failed, reloadSeq, change, refId, send]);
   const seed = state.snap?.investigation.seed;
   const role = seed?.entityRef === refId ? "seed subject" : c.actions.some((x) => x.role === "target") ? "action target" : c.predictions.length || c.pins.length ? "cited" : "appears";
   const actionsOn = (state.snap?.actions || []).filter((a) => (a.targets || []).includes(label || "") || (a.targets || []).includes(refId));
@@ -82,7 +92,9 @@ export function EntityInspector({ refId }: { refId: string }) {
       <Section title="Role in this case">
         <div>{role} · {c.acts.length} act{c.acts.length === 1 ? "" : "s"} cite it · {actionsOn.length} action{actionsOn.length === 1 ? "" : "s"} on it</div>
       </Section>
-      {isHost && doc ? <HostIdentitySection key={refId} refId={refId} identity={doc.identity} /> : null}
+      {kind === "host" && doc ? <HostIdentitySection key={refId} refId={refId} identity={doc.identity} /> : null}
+      {kind === "account" && doc ? <AccountIdentitySection key={refId} refId={refId} identity={doc.accountIdentity} /> : null}
+      {kind === "person" && isPersonDoc(doc) && doc ? <PersonIdentitySection key={refId} refId={refId} identity={doc.personIdentity} /> : null}
       {repeated.length && rep ? (
         <Section title="Repeated observations">
           {truncated ? <div className="imeta">{plural(rep.total, "retrieved event")} on this entity · folded over {covered}</div> : null}

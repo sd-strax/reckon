@@ -3,25 +3,101 @@
 // Answers are decoded through the wire shapes (adr/0244).
 import type { BackendHttp } from "./http";
 import * as shapes from "../wire/backendShapes";
-import type { RawEvidence, RawEventView, RawHostIdentity } from "../wire/backendShapes";
+import type { RawAccountIdentity, RawEvidence, RawEventView, RawHostIdentity, RawPersonIdentity } from "../wire/backendShapes";
 import type { Decoded } from "../wire/decode";
-import type { Appearance, CapabilityCall, EventClassKeys, EventGroup, EventRow, EventView, EvidenceDoc, HostIdentity } from "../viewTypes";
+import type { AccountIdentity, Appearance, CutEdge, CapabilityCall, EventClassKeys, EventGroup, EventRow, EventView, EvidenceDoc, HostIdentity, IdentityEdge, IdentityViews, PersonIdentity } from "../viewTypes";
+import { identityKindOf } from "../identityKinds";
+import type { IdentityOther } from "../protocol";
 
-/** A host's identity view as decoded (adr/0211); an unknown kind reads as a source's record. */
-export function mapIdentity(r: RawHostIdentity): HostIdentity {
-  const edge = (e: RawHostIdentity["aliases"][number]) => ({
-    edgeId: e.edge_id, otherRef: e.other_ref, kind: e.kind === "asserted" ? "asserted" as const : "observed" as const,
-    source: e.source, by: e.by, byName: e.by_name, at: e.at, note: e.note, withdrawn: e.withdrawn,
-  });
+type RawEdge = RawHostIdentity["aliases"][number];
+
+/** An edge's origin as decoded; an unknown kind reads as a source's record. */
+const originKind = (k: string) => (k === "asserted" ? "asserted" as const : "observed" as const);
+
+function mapEdge(e: RawEdge): IdentityEdge {
   return {
-    aliases: r.aliases.map(edge),
-    distinct: r.distinct.map(edge),
+    edgeId: e.edge_id, otherRef: e.other_ref, kind: originKind(e.kind),
+    source: e.source, by: e.by, byName: e.by_name, at: e.at, note: e.note, withdrawn: e.withdrawn,
+  };
+}
+
+/** A host's identity view as decoded (adr/0211). */
+export function mapIdentity(r: RawHostIdentity): HostIdentity {
+  return {
+    aliases: r.aliases.map(mapEdge),
+    distinct: r.distinct.map(mapEdge),
     seenAs: { domains: r.seen_as.domains, agents: r.seen_as.agents.map((a) => ({ tool: a.tool, uid: a.uid })), ips: r.seen_as.ips },
   };
 }
 
-/** The two acts that join or split a host (adr/0211): "same as" and "not the same host". */
+/** The cutting edge a cut row names, when the wire carries all of it. */
+function cutBy(r: { cut: boolean; cut_edge_id?: string; cut_account_ref?: string; cut_person_ref?: string }): { cutBy?: CutEdge } {
+  return r.cut && r.cut_edge_id && r.cut_account_ref && r.cut_person_ref
+    ? { cutBy: { edgeId: r.cut_edge_id, accountRef: r.cut_account_ref, personRef: r.cut_person_ref } }
+    : {};
+}
+
+/** An account's identity view as decoded (adr/0324). */
+export function mapAccountIdentity(r: RawAccountIdentity): AccountIdentity {
+  return {
+    aliases: r.aliases.map(mapEdge),
+    distinct: r.distinct.map(mapEdge),
+    seenAs: { logins: r.seen_as.logins, ids: r.seen_as.ids.map((i) => ({ tool: i.tool, uid: i.uid })), principalNames: r.seen_as.principal_names },
+    owners: r.owners.map((o) => ({
+      personRef: o.person_ref, accountRef: o.account_ref, edgeId: o.edge_id, kind: originKind(o.kind),
+      source: o.source, by: o.by, byName: o.by_name, at: o.at, note: o.note, withdrawn: o.withdrawn, cut: o.cut,
+      ...cutBy(o),
+    })),
+  };
+}
+
+/** A person's identity view as decoded (adr/0324). */
+export function mapPersonIdentity(r: RawPersonIdentity): PersonIdentity {
+  return {
+    aliases: r.aliases.map(mapEdge),
+    distinct: r.distinct.map(mapEdge),
+    accounts: r.accounts.map((a) => ({
+      accountRef: a.account_ref, edgeId: a.edge_id, kind: originKind(a.kind),
+      source: a.source, by: a.by, byName: a.by_name, at: a.at, note: a.note, withdrawn: a.withdrawn, cut: a.cut,
+      ...cutBy(a),
+    })),
+  };
+}
+
+/**
+ * An identity act's answer as the view of `ref`, the entity whose view was
+ * asked for, in the field of its kind; null when the server could not read
+ * it (the act is recorded all the same).
+ */
+function actViews(r: Decoded<typeof shapes.identityAct>, ref: string): IdentityViews | null {
+  switch (identityKindOf(ref)) {
+    case "account": return r.account_identity ? { accountIdentity: mapAccountIdentity(r.account_identity) } : null;
+    case "person": return r.person_identity ? { personIdentity: mapPersonIdentity(r.person_identity) } : null;
+    default: return r.identity ? { identity: mapIdentity(r.identity) } : null;
+  }
+}
+
+/** The two acts that join or split two entities (adr/0211, adr/0324): "same as" and "not the same". */
 export type IdentityRelation = "aliases" | "distinct";
+
+/**
+ * The other end of a join or a split (protocol's IdentityOther): by ref, by a
+ * hostname (a host), or by a hint the server looks the account or the person
+ * up by (a login, a principal name, a mail address, a directory id).
+ */
+export type { IdentityOther };
+
+/** The person an account is asserted to belong to: by ref, or by a hint. */
+export type OwnerPerson = { personRef: string } | { personHint: string };
+
+/** The assert body for the other end; a bare string is a host's, as otherHostBody reads it. */
+export function otherBody(other: IdentityOther | string, note?: string): Record<string, string> {
+  if (typeof other === "string") return otherHostBody(other, note);
+  const body: Record<string, string> = "ref" in other ? { other_ref: other.ref.trim() }
+    : "hostname" in other ? { other_hostname: other.hostname.trim() } : { other_hint: other.hint.trim() };
+  if (note && note.trim()) body.note = note.trim();
+  return body;
+}
 
 /**
  * The other host of a join or a split, as the analyst typed it: a host ref
@@ -69,6 +145,8 @@ function mapEvidence(r: RawEvidence): EvidenceDoc {
     };
   }
   if (r.identity) doc.identity = mapIdentity(r.identity);
+  if (r.account_identity) doc.accountIdentity = mapAccountIdentity(r.account_identity);
+  if (r.person_identity) doc.personIdentity = mapPersonIdentity(r.person_identity);
   return doc;
 }
 
@@ -195,25 +273,40 @@ export class EvidenceClient {
   }
 
   /**
-   * POST /api/entities/{ref}/aliases | /distinct — the analyst's "same as
-   * another host" or "not the same host" (adr/0211). Resolving means the act
-   * is recorded; the answer is the host's identity view after it, or null
-   * when the view could not be read. Human only: the server refuses a delegate.
+   * POST /api/entities/{ref}/aliases | /distinct — the analyst's "same as"
+   * or "not the same" on a host, an account or a person (adr/0211,
+   * adr/0324), and "this account is not this person's", the one split of an
+   * account and a person. Resolving means the act is recorded; the answer is
+   * the view of `ref` after it, in the field of its kind, or null when the
+   * view could not be read. Human only: the server refuses a delegate. A
+   * string `other` is a host's name or ref (otherHostBody).
    */
-  async assertIdentity(ref: string, relation: IdentityRelation, other: string, note?: string): Promise<HostIdentity | null> {
-    const r = await this.http.post(`/api/entities/${encodeURIComponent(ref)}/${relation}`, otherHostBody(other, note), shapes.identityAct);
-    return r.identity ? mapIdentity(r.identity) : null;
+  async assertIdentity(ref: string, relation: IdentityRelation, other: IdentityOther | string, note?: string): Promise<IdentityViews | null> {
+    const r = await this.http.post(`/api/entities/${encodeURIComponent(ref)}/${relation}`, otherBody(other, note), shapes.identityAct);
+    return actViews(r, ref);
+  }
+
+  /**
+   * POST /api/entities/{ref}/owner — the account at ref belongs to the
+   * person named (adr/0324), by ref or by a hint. Answers the account's view
+   * after it, or null when it could not be read.
+   */
+  async assertOwner(accountRef: string, person: OwnerPerson, note?: string): Promise<IdentityViews | null> {
+    const body: Record<string, string> = "personRef" in person ? { person_ref: person.personRef.trim() } : { person_hint: person.personHint.trim() };
+    if (note && note.trim()) body.note = note.trim();
+    const r = await this.http.post(`/api/entities/${encodeURIComponent(accountRef)}/owner`, body, shapes.identityAct);
+    return actViews(r, accountRef);
   }
 
   /**
    * POST /api/identity/{edge_id}/withdraw — withdraw an asserted edge
-   * (adr/0211), answering the identity view of `ref`, the host in view, or
-   * null when it could not be read.
+   * (adr/0211), answering the identity view of `ref`, one of the edge's
+   * ends, or null when it could not be read.
    */
-  async withdrawIdentity(edgeId: string, ref: string, note?: string): Promise<HostIdentity | null> {
+  async withdrawIdentity(edgeId: string, ref: string, note?: string): Promise<IdentityViews | null> {
     const body: Record<string, string> = { ref };
     if (note && note.trim()) body.note = note.trim();
     const r = await this.http.post(`/api/identity/${encodeURIComponent(edgeId)}/withdraw`, body, shapes.identityAct);
-    return r.identity ? mapIdentity(r.identity) : null;
+    return actViews(r, ref);
   }
 }

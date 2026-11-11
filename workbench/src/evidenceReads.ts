@@ -4,12 +4,13 @@
 // answers (impl §2.4, §4.1). Failures are not cached; a change of person
 // clears everything (adr/0241).
 import type * as vscode from "vscode";
-import type { Appearance, EventRepeats, EventRow, EvidenceDoc, HostIdentity, ThreadEntry } from "./backend";
+import type { Appearance, EventRepeats, EventRow, EvidenceDoc, IdentityViews, ThreadEntry } from "./backend";
 import { BackendRequestError } from "./client/http";
 import { buildDerivedViews, type CitingRecords } from "./derivedViews";
 import type { DocumentHost } from "./documentHost";
 import { deriveEvidenceLabel } from "./evidenceLabel";
-import type { InspectorTarget } from "./protocol";
+import { bearsIdentity, identityKindOf, identityViewKeys, identityWord, isPersonDoc } from "./identityKinds";
+import type { IdentityOther, InspectorTarget, KnownAccount, RenderMessage } from "./protocol";
 import { SingleFlight } from "./singleFlight";
 import { caseAnswer, procedureAnswer } from "./knowledgeAnswers";
 import { errText } from "./util";
@@ -22,6 +23,28 @@ const aroundEachSide = 5;
 function targetKey(target: InspectorTarget): string {
   return "ref" in target ? target.ref : "sopId" in target ? target.sopId : "interpretationId" in target ? target.interpretationId
     : "actionId" in target ? target.actionId : "investigationRef" in target ? target.investigationRef : "callId" in target ? target.callId : "";
+}
+
+/**
+ * An identity act's refusal for its form: the server's own message, verbatim,
+ * and, when a hint named several accounts or persons (409), the candidates,
+ * for the analyst to pick one.
+ */
+function refusal(ref: string, requestId: string, err: unknown): Extract<RenderMessage, { type: "identity.error" }> {
+  const out: Extract<RenderMessage, { type: "identity.error" }> = { type: "identity.error", ref, requestId, message: errText(err) };
+  if (!(err instanceof BackendRequestError) || !err.body) return out;
+  const body = err.body;
+  if (typeof body.error === "string" && body.error) out.message = body.error;
+  if (err.status === 409 && Array.isArray(body.accounts)) {
+    out.accounts = body.accounts.flatMap((a): KnownAccount[] => {
+      const r = a as Record<string, unknown>;
+      return typeof r.ref === "string" ? [{ ref: r.ref, accountType: String(r.account_type ?? ""), accountLogin: String(r.account_login ?? "") }] : [];
+    });
+  }
+  if (err.status === 409 && Array.isArray(body.persons)) {
+    out.persons = body.persons.filter((p): p is string => typeof p === "string");
+  }
+  return out;
 }
 
 export class EvidenceReads {
@@ -56,28 +79,40 @@ export class EvidenceReads {
     return () => this.generation.get(id) === g;
   }
 
-  // A host's identity view is mutable (adr/0211): it is never cached, and
-  // every act bumps this, so a host read that began before an act moved the
-  // identity is dropped rather than posted.
+  // An identity view, a host's, an account's or a person's, is mutable
+  // (adr/0211, adr/0324): it is never cached, and every act bumps this, so a
+  // read that began before an act moved an identity is dropped rather than
+  // posted.
   private identityGeneration = 0;
 
-  // The hosts with an identity act in flight, from any panel: one at a time.
+  // The entities with an identity act in flight, from any panel: one at a time.
   private readonly actsInFlight = new Set<string>();
 
   // The last inspector read issued per panel and target: only it may post.
   private readonly readSeqs = new WeakMap<vscode.WebviewPanel, Map<string, number>>();
 
-  /** The immutable part of an evidence doc: everything but a host's identity view. */
+  /** The immutable part of an evidence doc: everything but its identity view, of any kind. */
   private static immutable(doc: EvidenceDoc): EvidenceDoc {
     const held = { ...doc };
-    delete held.identity;
+    for (const key of identityViewKeys) delete held[key];
     return held;
   }
 
   /**
+   * Whether an inspector open of ref reads its doc fresh: a host, an account
+   * or a person, whose identity view is mutable. An `identity--` ref is read
+   * fresh until a held doc says it is a vendor's, which carries no view.
+   */
+  private readsFresh(ref: string): boolean {
+    if (!bearsIdentity(ref)) return false;
+    const held = this.docCache.get(ref);
+    return !(identityKindOf(ref) === "person" && held && !isPersonDoc(held));
+  }
+
+  /**
    * Fetch one evidence doc through the cache (null = unfetchable, this time).
-   * The cache holds the immutable doc only: a host's identity is read by
-   * hostDoc, fresh.
+   * The cache holds the immutable doc only: an identity view is read by
+   * identityDoc, fresh.
    */
   private async getDoc(ref: string): Promise<EvidenceDoc | null> {
     const hit = this.docCache.get(ref);
@@ -99,11 +134,11 @@ export class EvidenceReads {
   }
 
   /**
-   * A host's evidence doc read fresh, its identity view current. Null when it
-   * cannot be read, and "stale" when an identity act began while it was in
-   * flight: then nothing is cached and nothing is to be posted.
+   * An identity-bearing evidence doc read fresh, its identity view current.
+   * Null when it cannot be read, and "stale" when an identity act began while
+   * it was in flight: then nothing is cached and nothing is to be posted.
    */
-  private async hostDoc(ref: string, latest: () => boolean): Promise<EvidenceDoc | null | "stale"> {
+  private async identityDoc(ref: string, latest: () => boolean): Promise<EvidenceDoc | null | "stale"> {
     const current = this.host.sameIdentity();
     const generation = this.identityGeneration;
     let doc: EvidenceDoc;
@@ -289,13 +324,14 @@ export class EvidenceReads {
     try {
       switch (target.kind) {
         case "ref": {
-          // A host's identity is read fresh on every open (adr/0211). A read
-          // an identity act overtook is read again: the act may have changed
-          // this host's view though the act was on another host or in
-          // another panel, where no newer read of this target was issued.
-          const isHost = target.ref.startsWith("x-host--");
+          // An identity view is read fresh on every open (adr/0211,
+          // adr/0324). A read an identity act overtook is read again: the act
+          // may have changed this entity's view though the act was on another
+          // entity or in another panel, where no newer read of this target
+          // was issued.
+          const fresh = this.readsFresh(target.ref);
           const generation = this.identityGeneration;
-          const read = isHost ? await this.hostDoc(target.ref, latest) : await this.getDoc(target.ref);
+          const read = fresh ? await this.identityDoc(target.ref, latest) : await this.getDoc(target.ref);
           if (!latest()) {
             return;
           }
@@ -318,7 +354,7 @@ export class EvidenceReads {
           if (!latest()) {
             return;
           }
-          if (isHost && generation !== this.identityGeneration) {
+          if (fresh && generation !== this.identityGeneration) {
             return this.answerInspector(id, panel, target); // an act moved the identity while the rest was read
           }
           void this.host.post(panel, { type: "inspector.evidence", ref: target.ref, doc, appearances: apps, around, repeats });
@@ -362,27 +398,34 @@ export class EvidenceReads {
   }
 
   /**
-   * The analyst's "same as another host" / "not the same host" on the host in
-   * view (adr/0211). The outcome is posted under the act's request id: the
-   * host's view after it (null when the server could not read it: the last
-   * view stands), or a refusal for the inline form to say. The pane is then
-   * answered again from a fresh read, since other investigations and repeated
-   * observations follow the alias set too.
+   * The analyst's "same as" / "not the same" on the host, account or person
+   * at ref (adr/0211, adr/0324), or "this account is not this person's".
+   * The outcome is posted under the act's request id: ref's view after it
+   * (null when the server could not read it: the last view stands), or a
+   * refusal for the inline form to say. The pane is then answered again
+   * from a fresh read, since other investigations and repeated observations
+   * follow the alias set too.
    */
-  async assertIdentity(id: string, panel: vscode.WebviewPanel, msg: { ref: string; requestId: string; relation: "aliases" | "distinct"; other: string; note?: string }): Promise<void> {
+  async assertIdentity(id: string, panel: vscode.WebviewPanel, msg: { ref: string; requestId: string; relation: "aliases" | "distinct"; other: string | IdentityOther; note?: string }): Promise<void> {
     await this.identityAct(id, panel, msg.ref, msg.requestId, () => this.host.client.evidence.assertIdentity(msg.ref, msg.relation, msg.other, msg.note));
   }
 
-  /** Withdraw an asserted identity edge (adr/0211), answering the view of the host in view. */
+  /** The account at ref belongs to the person named (adr/0324), answering the account's view. */
+  async assertOwner(id: string, panel: vscode.WebviewPanel, msg: { ref: string; requestId: string; person: { ref: string } | { hint: string }; note?: string }): Promise<void> {
+    const person = "ref" in msg.person ? { personRef: msg.person.ref } : { personHint: msg.person.hint };
+    await this.identityAct(id, panel, msg.ref, msg.requestId, () => this.host.client.evidence.assertOwner(msg.ref, person, msg.note));
+  }
+
+  /** Withdraw an asserted identity edge (adr/0211), answering the view of ref, one of its ends. */
   async withdrawIdentity(id: string, panel: vscode.WebviewPanel, msg: { ref: string; requestId: string; edgeId: string; note?: string }): Promise<void> {
     await this.identityAct(id, panel, msg.ref, msg.requestId, () => this.host.client.evidence.withdrawIdentity(msg.edgeId, msg.ref, msg.note));
   }
 
-  private async identityAct(id: string, panel: vscode.WebviewPanel, ref: string, requestId: string, act: () => Promise<HostIdentity | null>): Promise<void> {
-    // One act in flight per host across every panel: a second is refused.
+  private async identityAct(id: string, panel: vscode.WebviewPanel, ref: string, requestId: string, act: () => Promise<IdentityViews | null>): Promise<void> {
+    // One act in flight per entity across every panel: a second is refused.
     const key = ref.toLowerCase();
     if (this.actsInFlight.has(key)) {
-      void this.host.post(panel, { type: "identity.error", ref, requestId, message: "an act on this host is in flight" });
+      void this.host.post(panel, { type: "identity.error", ref, requestId, message: `an act on this ${identityWord(ref)} is in flight` });
       return;
     }
     this.actsInFlight.add(key);
@@ -405,30 +448,33 @@ export class EvidenceReads {
     }
   }
 
-  private async runIdentityAct(id: string, panel: vscode.WebviewPanel, ref: string, requestId: string, act: () => Promise<HostIdentity | null>, release: () => void): Promise<void> {
+  private async runIdentityAct(id: string, panel: vscode.WebviewPanel, ref: string, requestId: string, act: () => Promise<IdentityViews | null>, release: () => void): Promise<void> {
     const current = this.host.sameIdentity();
     // Reads in flight now, or begun while the act is, may hold the view from
     // before it: the generation moves at both ends of the act.
     this.identityGeneration++;
-    let identity: HostIdentity | null;
+    let views: IdentityViews | null;
     try {
-      identity = await act();
+      views = await act();
     } catch (err) {
       this.identityGeneration++;
       release();
-      void this.host.post(panel, { type: "identity.error", ref, requestId, message: errText(err) });
+      void this.host.post(panel, refusal(ref, requestId, err));
       return;
     }
     this.identityGeneration++;
     release();
     if (!current()) {
       // The answer was the previous person's: drop it, but settle the form.
-      void this.host.post(panel, { type: "identity.error", ref, requestId, message: "the signed-in person changed while this was in flight; open the host again to see where it stands" });
+      void this.host.post(panel, { type: "identity.error", ref, requestId, message: `the signed-in person changed while this was in flight; open the ${identityWord(ref)} again to see where it stands` });
       return;
     }
-    void this.host.post(panel, { type: "inspector.identity", ref, requestId, identity });
-    // Every other open investigation may hold hosts whose view this act
-    // changed (the alias closure reaches beyond the edge): they re-read.
+    void this.host.post(panel, { type: "inspector.identity", ref, requestId, views });
+    // Every open investigation, this one too, may hold entities whose view
+    // this act changed (the alias closure reaches beyond the edge): each
+    // re-reads the one it shows. This panel's view of ref came with the
+    // answer, and the read below refreshes the rest of its pane.
+    void this.host.post(panel, { type: "identity.changed", ref, acted: true });
     for (const other of this.host.openPanels()) {
       if (other !== panel) void this.host.post(other, { type: "identity.changed", ref });
     }

@@ -264,7 +264,7 @@ export class InvestigationDocuments implements DocumentHost {
       ready: () => this.opened(ref, panel),
       refresh: () => this.opened(ref, panel),
       "seed.submit": (msg) => {
-        void this.draft.seedDraft(ref, panel, { value: msg.value, kind: msg.kind, allowUnknown: msg.allowUnknown });
+        void this.draft.seedDraft(ref, panel, { value: msg.value, kind: msg.kind, allowUnknown: msg.allowUnknown, entityKind: msg.entityKind });
       },
       "seed.alert": (msg) => {
         void this.draft.seedDraft(ref, panel, { alertId: msg.alertId, source: msg.source });
@@ -391,6 +391,9 @@ export class InvestigationDocuments implements DocumentHost {
       },
       "identity.assert": (msg) => {
         void this.evidence.assertIdentity(id, panel, msg);
+      },
+      "identity.owner": (msg) => {
+        void this.evidence.assertOwner(id, panel, msg);
       },
       "identity.withdraw": (msg) => {
         void this.evidence.withdrawIdentity(id, panel, msg);

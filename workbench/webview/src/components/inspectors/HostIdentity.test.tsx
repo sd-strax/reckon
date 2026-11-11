@@ -54,7 +54,7 @@ const emit = (t: HarnessTransport, m: RenderMessage) => act(() => { (t as unknow
 /** Answer the last identity act as recorded, with the view after it (null: unreadable). */
 const settle = (t: HarnessTransport, view: HostIdentity | null) => {
   const i = lastIdentityIntent(t)!;
-  emit(t, { type: "inspector.identity", ref: i.ref, requestId: i.requestId, identity: view });
+  emit(t, { type: "inspector.identity", ref: i.ref, requestId: i.requestId, views: view ? { identity: view } : null });
 };
 const open = (ref: string) => fireEvent.click(document.querySelector(`.refchip[data-ref="${ref}"]`) as HTMLElement);
 const edge = (id: string) => pane().querySelector(`[data-edge="${id}"]`) as HTMLElement;
@@ -154,7 +154,7 @@ describe("a host's identity in the inspector (adr/0211)", () => {
     expect(transport.intents.filter((i) => i.type === "identity.assert").length).toBe(1);
 
     // The join's answer settles the join alone: the split form stays open, now free to submit.
-    emit(transport, { type: "inspector.identity", ref: host, requestId: joinIntent.requestId, identity: identity(["corp"]) });
+    emit(transport, { type: "inspector.identity", ref: host, requestId: joinIntent.requestId, views: { identity: identity(["corp"]) } });
     const still = within(p).getByRole("form", { name: "Not the same host as" });
     expect((within(still).getByText("Split") as HTMLButtonElement).disabled).toBe(false);
   });

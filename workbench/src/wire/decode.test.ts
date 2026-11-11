@@ -32,6 +32,19 @@ describe("decode", () => {
     expect(decode("x", backend.identityAct, { identity: null })).toEqual({ identity: null });
   });
 
+  it("reads an act's answer with the account's or the person's view beside the host's, which it always requires", () => {
+    expect(decode("x", backend.identityAct, { identity: null })).toEqual({ identity: null });
+    const account = { aliases: null, distinct: null, seen_as: { logins: null, ids: null, principal_names: null }, owners: [] };
+    expect(decode("x", backend.identityAct, { identity: null, account_identity: account })).toEqual({
+      identity: null, account_identity: { aliases: [], distinct: [], seen_as: { logins: [], ids: [], principal_names: [] }, owners: [] },
+    });
+    expect(() => decode("x", backend.identityAct, { account_identity: account })).toThrow("identity missing");
+    expect(() => decode("x", backend.identityAct, { identity: null, account_identity: { ...account, owners: [{ person_ref: "identity--1" }] } }))
+      .toThrow("account_identity.owners[0].account_ref missing");
+    expect(() => decode("x", backend.identityAct, { identity: null, person_identity: { aliases: [], distinct: [], accounts: [{ account_ref: "a", edge_id: "e", kind: "observed", at: "t", withdrawn: false }] } }))
+      .toThrow("person_identity.accounts[0].cut missing");
+  });
+
   it("tells a null list from a missing one", () => {
     expect(() => decode("x", shape, { title: "t" })).toThrow("tags missing");
     expect(decode("x", optional(list(str)), undefined)).toBeUndefined();

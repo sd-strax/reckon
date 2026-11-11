@@ -5,7 +5,22 @@
 import * as vscode from "vscode";
 import { BackendRequestError, InvestigationDetail, existingInvestigation } from "./backend";
 import type { DocumentHost } from "./documentHost";
+import type { KnownAccount, SeedEntityKind } from "./protocol";
 import { errText, panelTitle } from "./util";
+
+/**
+ * The accounts a 422 on an account seed lists (adr/0324): the persisted
+ * accounts the record holds under the name, well-formed entries only.
+ */
+export function knownAccountsOf(body: Record<string, unknown> | undefined): KnownAccount[] | undefined {
+  if (!body || !Array.isArray(body.known_accounts)) return undefined;
+  return body.known_accounts.flatMap((a): KnownAccount[] => {
+    const r = a as Record<string, unknown>;
+    return r && typeof r.ref === "string" && typeof r.account_login === "string"
+      ? [{ ref: r.ref, accountType: typeof r.account_type === "string" ? r.account_type : "", accountLogin: r.account_login }]
+      : [];
+  });
+}
 
 /** A not-yet-seeded draft's synthetic key: no aggregate id until the seed persists. */
 export function isDraftKey(key: string): boolean {
@@ -57,7 +72,7 @@ export class DraftFlow {
   async seedDraft(
     ref: { id: string },
     panel: vscode.WebviewPanel,
-    seed: { value?: string; kind?: string; alertId?: string; source?: string; allowUnknown?: boolean },
+    seed: { value?: string; kind?: string; alertId?: string; source?: string; allowUnknown?: boolean; entityKind?: SeedEntityKind },
   ): Promise<void> {
     // Second line of the double-submit defense (the webview also guards): once
     // this draft key has a create in flight, or has already been re-keyed to a
@@ -71,7 +86,7 @@ export class DraftFlow {
       await this.createOrOpen(
         () => seed.alertId !== undefined
           ? this.host.client.investigations.create("", { type: "alert", alertId: seed.alertId, source: seed.source })
-          : this.host.client.investigations.createFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown),
+          : this.host.client.investigations.createFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown, seed.entityKind),
         (created) => {
           // A panel closed meanwhile stays closed: the create cannot be recalled,
           // so the investigation surfaces through the trees and opens from there.
@@ -95,11 +110,15 @@ export class DraftFlow {
           this.host.show(existing);
         },
         (err) => {
-          // An entity the host inventory has never seen (#159): say so, and let
-          // the analyst start anyway.
+          // An entity the host inventory or the record has never seen (#159,
+          // adr/0324): say so, list the accounts the record holds under the
+          // name, and let the analyst start anyway. A person seed the record
+          // does not know is a 404 or a 409, never this: no start anyway.
           const unknownEntity = err instanceof BackendRequestError && err.status === 422 && err.body?.unknown_entity === true;
-          const message = unknownEntity && typeof err.body?.error === "string" ? err.body.error : errText(err);
-          void this.host.post(panel, { type: "draft.error", message, unknownEntity });
+          const said = err instanceof BackendRequestError && typeof err.body?.error === "string" ? err.body.error : undefined;
+          const message = (unknownEntity || seed.entityKind === "person") && said ? said : errText(err);
+          const knownAccounts = unknownEntity ? knownAccountsOf(err.body) : undefined;
+          void this.host.post(panel, { type: "draft.error", message, unknownEntity, ...(knownAccounts?.length ? { knownAccounts } : {}) });
         },
       );
     } finally {

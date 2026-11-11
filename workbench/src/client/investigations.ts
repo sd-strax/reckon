@@ -114,10 +114,12 @@ export class InvestigationsClient {
    * the value the analyst rooted on plus their confirmed kind ("entity" |
    * "question"). The server classifies, mints the STIX id for an entity, and
    * derives the title — the workbench never handles ids. Title is optional; the
-   * server derives it from the seed's display line.
+   * server derives it from the seed's display line. `entityKind` is the
+   * analyst's kind for an entity token, host, account or person (adr/0324);
+   * absent, the server defaults it from the token's shape.
    */
-  async createFromInput(value: string, kind: string, title?: string, allowUnknown?: boolean): Promise<InvestigationDetail> {
-    const body: Record<string, unknown> = { seed_input: { value, kind, allow_unknown: allowUnknown || undefined } };
+  async createFromInput(value: string, kind: string, title?: string, allowUnknown?: boolean, entityKind?: string): Promise<InvestigationDetail> {
+    const body: Record<string, unknown> = { seed_input: { value, kind, allow_unknown: allowUnknown || undefined, entity_kind: entityKind || undefined } };
     if (title) body.title = title;
     return mapCreated(await this.http.post("/api/investigations", body, shapes.created));
   }

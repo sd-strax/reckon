@@ -26,8 +26,8 @@ import type {
   EventRepeats,
   EventRow,
   EvidenceDoc,
-  HostIdentity,
   Hypothesis,
+  IdentityViews,
   InvestigationDetail,
   InvestigationSummary,
   KnowledgeCitations,
@@ -173,6 +173,19 @@ export interface RivalBrief {
   untestedDiscriminators: number;
 }
 
+/** An account the record holds under a name (adr/0324), as a refusal lists it. */
+export interface KnownAccount {
+  ref: string;
+  accountType: string;
+  accountLogin: string;
+}
+
+/** The kind of entity a seed names (adr/0324). */
+export type SeedEntityKind = "host" | "account" | "person";
+
+/** The other end of a join or a split: by ref, by hostname (a host), or by a hint (an account, a person). */
+export type IdentityOther = { ref: string } | { hostname: string } | { hint: string };
+
 /** What the extension host posts to the webview to render. */
 export type RenderMessage =
   | { type: "loading" }
@@ -181,7 +194,9 @@ export type RenderMessage =
   // "draft.error" reports a failed create without leaving the draft.
   | { type: "draft"; mode?: "case"; caseQueue?: string }
   | { type: "seeded" }
-  | { type: "draft.error"; message: string; unknownEntity?: boolean }
+  // knownAccounts: on an account seed the record does not hold, the accounts
+  // it does hold under the name (adr/0324), for the analyst to seed on one.
+  | { type: "draft.error"; message: string; unknownEntity?: boolean; knownAccounts?: KnownAccount[] }
   // The "from a case" seed surface (13 §3): the SoR search results, and a
   // search failure rendered inline in the case sub-form.
   | { type: "draft.cases"; cases: { number: string; title: string; status: string }[] }
@@ -218,14 +233,18 @@ export type RenderMessage =
   // summary is null when the corpus holds none for the ref (an honest gap).
   | { type: "inspector.case"; investigationRef: string; summary: CaseSummaryView | null; citations?: KnowledgeCitations }
   | { type: "inspector.error"; target: string; message: string }
-  // One identity act's outcome (adr/0211), by the request id the webview
-  // gave it: recorded, with the host's view after it (null when the view
-  // could not be read: the last view stands), or refused, for its form to say.
-  | { type: "inspector.identity"; ref: string; requestId: string; identity: HostIdentity | null }
-  | { type: "identity.error"; ref: string; requestId: string; message: string }
-  // An identity act on ref landed in another panel: every host this panel
-  // holds may read differently now (the alias closure), so each is stale.
-  | { type: "identity.changed"; ref: string }
+  // One identity act's outcome (adr/0211, adr/0324), by the request id the
+  // webview gave it: recorded, with the view of ref after it in the field of
+  // its kind (null when the view could not be read: the last view stands),
+  // or refused, for its form to say. A refusal over a hint that named
+  // several accounts or persons lists them, for the analyst to pick one.
+  | { type: "inspector.identity"; ref: string; requestId: string; views: IdentityViews | null }
+  | { type: "identity.error"; ref: string; requestId: string; message: string; accounts?: KnownAccount[]; persons?: string[] }
+  // An identity act on ref landed: every host, account and person a panel
+  // holds may read differently now (the alias closure), so each is stale and
+  // a shown one is read again once. Posted to every open panel; `acted` on
+  // the one that sent the act, whose view of ref came with the act's answer.
+  | { type: "identity.changed"; ref: string; acted?: true }
   // The action types the analyst can request directly (#146): available ones only.
   | { type: "actionTypes"; types: ActionTypeView[] }
   // Drafting a procedure from a concluded case (adr/0156): where the draft is,
@@ -290,7 +309,9 @@ export type InboundMessage =
   // the tree can deep-link (view state, never investigation state).
   | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }
   // The seed surface (design/ui/02 §2.7): the analyst's confirmed root.
-  | { type: "seed.submit"; value: string; kind: string; allowUnknown?: boolean }
+  // entityKind is the analyst's kind for an entity token (adr/0324); absent
+  // for a question, an address and a hash.
+  | { type: "seed.submit"; value: string; kind: string; allowUnknown?: boolean; entityKind?: SeedEntityKind }
   | { type: "seed.alert"; alertId: string; source: string }
   | { type: "seed.caseSearch"; filter: string; queue?: string }
   | { type: "seed.case"; caseNumber: string }
@@ -345,11 +366,15 @@ export type InboundMessage =
   // The webview opened an inspector pane (view state) and needs the record
   // behind it; the host answers with the matching inspector.* message.
   | { type: "inspector.open"; target: InspectorTarget }
-  // The analyst's acts on a host's identity (adr/0211): "same as another
-  // host" (aliases) or "not the same host" (distinct), the other host named
-  // by its name or its ref; and withdrawing an asserted edge. Human acts,
-  // each carrying the request id its outcome is answered under.
-  | { type: "identity.assert"; ref: string; requestId: string; relation: "aliases" | "distinct"; other: string; note?: string }
+  // The analyst's acts on an entity's identity (adr/0211, adr/0324): "same
+  // as" (aliases) or "not the same" (distinct) on a host, an account or a
+  // person, the other end named by ref, by a hostname, or by a hint the
+  // server looks an account or a person up by (a bare string is a host's
+  // name or ref, as before); an account's owner, by ref or by hint; and
+  // withdrawing an asserted edge. Human acts, each carrying the request id
+  // its outcome is answered under.
+  | { type: "identity.assert"; ref: string; requestId: string; relation: "aliases" | "distinct"; other: string | IdentityOther; note?: string }
+  | { type: "identity.owner"; ref: string; requestId: string; person: { ref: string } | { hint: string }; note?: string }
   | { type: "identity.withdraw"; ref: string; requestId: string; edgeId: string; note?: string }
   | { type: "export.open" }
   | { type: "copy"; text: string }

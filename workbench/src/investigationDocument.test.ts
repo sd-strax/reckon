@@ -912,3 +912,44 @@ describe("InvestigationDocuments: the wire boundary", () => {
     expect(() => createdPanels()[0]!.webview.receive({ type: "no.such.message" })).not.toThrow();
   });
 });
+
+describe("InvestigationDocuments: a seed's entity kind (adr/0324)", () => {
+  it("passes the analyst's kind to the create", async () => {
+    const seen: unknown[][] = [];
+    const { client } = backend({ "investigations.createFromInput": ((...args: unknown[]) => { seen.push(args); return new Promise(() => {}); }) as never });
+    const { docs } = documents(client);
+    docs.showDraft();
+    createdPanels()[0]!.webview.receive({ type: "seed.submit", value: "jdoe", kind: "entity", entityKind: "account" });
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toEqual(["jdoe", "entity", undefined, undefined, "account"]);
+  });
+
+  it("lists the accounts the record holds under an unknown account's name, and keeps start anyway", async () => {
+    const refused = new BackendRequestError("POST /api/investigations → 422", 422, {
+      error: "no account \"jdoe\" of that kind in the record; the record has 1 account(s) under that name — seed on one, or start anyway",
+      unknown_entity: true,
+      known_accounts: [{ ref: "user-account--1", account_type: "windows-domain", account_login: "CONTOSO\\jdoe" }, { bad: true }],
+    });
+    const { client } = backend({ "investigations.createFromInput": async () => { throw refused; } });
+    const { docs } = documents(client);
+    docs.showDraft();
+    createdPanels()[0]!.webview.receive({ type: "seed.submit", value: "jdoe", kind: "entity", entityKind: "account" });
+    await vi.waitFor(() => expect(types()).toContain("draft.error"));
+    expect(posted().find((m) => m.type === "draft.error")).toEqual({
+      type: "draft.error", message: refused.body!.error, unknownEntity: true,
+      knownAccounts: [{ ref: "user-account--1", accountType: "windows-domain", accountLogin: "CONTOSO\\jdoe" }],
+    });
+  });
+
+  it("says a person seed the record does not know in the server's words, with no start anyway", async () => {
+    const refused = new BackendRequestError("POST /api/investigations → 404: resolve seed: no person known as \"jane\"", 404, {
+      error: "resolve seed: no person known as \"jane\": a person is known from a directory's record of them",
+    });
+    const { client } = backend({ "investigations.createFromInput": async () => { throw refused; } });
+    const { docs } = documents(client);
+    docs.showDraft();
+    createdPanels()[0]!.webview.receive({ type: "seed.submit", value: "jane", kind: "entity", entityKind: "person" });
+    await vi.waitFor(() => expect(types()).toContain("draft.error"));
+    expect(posted().find((m) => m.type === "draft.error")).toEqual({ type: "draft.error", message: refused.body!.error, unknownEntity: false });
+  });
+});
