@@ -1,0 +1,367 @@
+{
+  "scenario": "exposed-bucket-via-access-key",
+  "operation": "AttachUserPolicy",
+  "fixture": "api-escalate-1.json",
+  "note": "A GetQueryResults page in the shape Athena returns for the cloudtrail.api_activity projection (every datum a VarCharValue; structs as CAST(... AS JSON), field names lowercase, NULL fields present), carrying the scenario's account, principal, credential and resources (03 §9.1 raw_response). Not yet captured from a live lake: adr/0322 records the first live run.",
+  "pages": [
+    {
+      "UpdateCount": 0,
+      "ResultSet": {
+        "Rows": [
+          {
+            "Data": [
+              {
+                "VarCharValue": "time"
+              },
+              {
+                "VarCharValue": "time_dt"
+              },
+              {
+                "VarCharValue": "activity_id"
+              },
+              {
+                "VarCharValue": "activity_name"
+              },
+              {
+                "VarCharValue": "status"
+              },
+              {
+                "VarCharValue": "status_id"
+              },
+              {
+                "VarCharValue": "actor"
+              },
+              {
+                "VarCharValue": "api"
+              },
+              {
+                "VarCharValue": "cloud"
+              },
+              {
+                "VarCharValue": "resources"
+              },
+              {
+                "VarCharValue": "src_endpoint"
+              },
+              {
+                "VarCharValue": "http_request"
+              },
+              {
+                "VarCharValue": "metadata"
+              },
+              {
+                "VarCharValue": "unmapped"
+              },
+              {
+                "VarCharValue": "severity_id"
+              },
+              {
+                "VarCharValue": "class_uid"
+              },
+              {
+                "VarCharValue": "category_uid"
+              },
+              {
+                "VarCharValue": "type_uid"
+              },
+              {
+                "VarCharValue": "lake_accountid"
+              }
+            ]
+          },
+          {
+            "Data": [
+              {
+                "VarCharValue": "1784021760000"
+              },
+              {
+                "VarCharValue": "2026-07-14 09:36:00.000"
+              },
+              {
+                "VarCharValue": "3"
+              },
+              {
+                "VarCharValue": "Update"
+              },
+              {
+                "VarCharValue": "Success"
+              },
+              {
+                "VarCharValue": "1"
+              },
+              {
+                "VarCharValue": "{\"app_name\":null,\"authorizations\":null,\"idp\":null,\"invoked_by\":null,\"process\":null,\"session\":null,\"user\":{\"type\":\"IAMUser\",\"type_id\":1,\"uid\":\"arn:aws:iam::111122223333:user/deploy-ci\",\"uid_alt\":\"AIDAEXAMPLEDEPLOYCI01\",\"name\":\"deploy-ci\",\"credential_uid\":\"AKIAIOSFODNN7EXAMPLE\",\"account\":{\"name\":null,\"type\":\"AWS Account\",\"type_id\":10,\"uid\":\"111122223333\",\"uid_alt\":null,\"labels\":null},\"email_addr\":null,\"domain\":null,\"full_name\":null,\"groups\":null,\"org\":null}}"
+              },
+              {
+                "VarCharValue": "{\"operation\":\"AttachUserPolicy\",\"request\":{\"flags\":null,\"uid\":\"c41d8e2a-7b3f-4f1e-a6d2-3e9b5f0a1107\"},\"response\":null,\"service\":{\"labels\":null,\"name\":\"iam.amazonaws.com\",\"uid\":null,\"version\":null},\"version\":null}"
+              },
+              {
+                "VarCharValue": "{\"account\":{\"name\":null,\"type\":null,\"type_id\":null,\"uid\":\"111122223333\",\"uid_alt\":null,\"labels\":null},\"org\":null,\"provider\":\"AWS\",\"region\":\"us-east-1\",\"zone\":null}"
+              },
+              {
+                "VarCharValue": "[{\"account_uid\":\"111122223333\",\"cloud_partition\":null,\"criticality\":null,\"data\":null,\"group\":null,\"labels\":null,\"name\":\"svc-backup\",\"namespace\":null,\"owner\":null,\"region\":null,\"type\":\"AWS::IAM::User\",\"uid\":\"arn:aws:iam::111122223333:user/svc-backup\",\"version\":null},{\"account_uid\":\"111122223333\",\"cloud_partition\":null,\"criticality\":null,\"data\":null,\"group\":null,\"labels\":null,\"name\":\"AdministratorAccess\",\"namespace\":null,\"owner\":null,\"region\":null,\"type\":\"AWS::IAM::ManagedPolicy\",\"uid\":\"arn:aws:iam::aws:policy/AdministratorAccess\",\"version\":null}]"
+              },
+              {
+                "VarCharValue": "{\"domain\":null,\"hostname\":null,\"ip\":\"203.0.113.77\",\"port\":null,\"uid\":null,\"svc_name\":null}"
+              },
+              {
+                "VarCharValue": "{\"http_headers\":null,\"user_agent\":\"aws-cli/2.17.20 Python/3.11.9 Darwin/23.5.0 exe/x86_64\",\"url\":null,\"version\":null}"
+              },
+              {
+                "VarCharValue": "{\"correlation_uid\":null,\"event_code\":null,\"labels\":null,\"log_level\":null,\"log_name\":null,\"log_provider\":null,\"log_version\":null,\"logged_time\":null,\"modified_time\":null,\"original_time\":null,\"processed_time\":null,\"uid\":\"5f0a1107-0000-4000-8000-000000000003\",\"product\":{\"feature\":null,\"lang\":null,\"name\":\"Security Lake\",\"path\":null,\"uid\":null,\"url_string\":null,\"vendor_name\":\"AWS\",\"version\":null},\"profiles\":[\"cloud\",\"datetime\"],\"version\":\"1.1.0\"}"
+              },
+              {},
+              {
+                "VarCharValue": "1"
+              },
+              {
+                "VarCharValue": "6003"
+              },
+              {
+                "VarCharValue": "6"
+              },
+              {
+                "VarCharValue": "600303"
+              },
+              {
+                "VarCharValue": "111122223333"
+              }
+            ]
+          }
+        ],
+        "ResultSetMetadata": {
+          "ColumnInfo": [
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "time",
+              "Label": "time",
+              "Type": "bigint",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": false
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "time_dt",
+              "Label": "time_dt",
+              "Type": "timestamp",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": false
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "activity_id",
+              "Label": "activity_id",
+              "Type": "integer",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": false
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "activity_name",
+              "Label": "activity_name",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "status",
+              "Label": "status",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "status_id",
+              "Label": "status_id",
+              "Type": "integer",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": false
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "actor",
+              "Label": "actor",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "api",
+              "Label": "api",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "cloud",
+              "Label": "cloud",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "resources",
+              "Label": "resources",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "src_endpoint",
+              "Label": "src_endpoint",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "http_request",
+              "Label": "http_request",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "metadata",
+              "Label": "metadata",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "unmapped",
+              "Label": "unmapped",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "severity_id",
+              "Label": "severity_id",
+              "Type": "integer",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": false
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "class_uid",
+              "Label": "class_uid",
+              "Type": "integer",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": false
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "category_uid",
+              "Label": "category_uid",
+              "Type": "integer",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": false
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "type_uid",
+              "Label": "type_uid",
+              "Type": "integer",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": false
+            },
+            {
+              "CatalogName": "hive",
+              "SchemaName": "",
+              "TableName": "",
+              "Name": "lake_accountid",
+              "Label": "lake_accountid",
+              "Type": "varchar",
+              "Precision": 0,
+              "Scale": 0,
+              "Nullable": "UNKNOWN",
+              "CaseSensitive": true
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
