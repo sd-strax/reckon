@@ -1,6 +1,6 @@
 # 0322 — The first cloud audit-log adapter reads AWS Security Lake through an Athena query-access subscriber, answers resource context from AWS Config, and is held to the fixture's identities by an offline equivalence test
 
-Issue: #322 · PR: pending · Status: accepted
+Issue: #322 · PR: #330 · Status: accepted
 
 ## Context
 
