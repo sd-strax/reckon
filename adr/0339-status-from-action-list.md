@@ -1,6 +1,6 @@
 # 0339 — An action's state comes from the engine's record on the turn it is stated, never from the request's answer
 
-Issue: #339 · PR: #MMMM · Status: accepted
+Issue: #339 · PR: #340 · Status: accepted
 
 ## Context
 
