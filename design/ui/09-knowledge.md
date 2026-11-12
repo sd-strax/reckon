@@ -22,7 +22,7 @@ names its source, and an element with no source is a gap in `00 §6`.
 
 | Surface | Where | Job |
 |---|---|---|
-| **Knowledge view** | Its own document in the main area, opened from the sidebar's **Knowledge** view (its rows, **Search** and **Open the Knowledge view**) or the `reckon.openKnowledge` command | Add, browse, edit, retire and query knowledge, outside any investigation |
+| **Knowledge view** | A top-level tab of its own in the main area, opened from the sidebar's **Knowledge** view (a row, **Search** or **Open the Knowledge view**) or the `reckon.openKnowledge` command (`adr/0346`) | Read one procedure or past case, or search and filter knowledge, outside any investigation |
 | **Knowledge sidebar view** | The editor's sidebar, between Cases and Capabilities (`ui/08 §8.3`, `adr/0344`) | List procedures and past cases, import, and point the open investigation's agent at an item |
 
 **The two surfaces stay separate.** The Knowledge view shows knowledge only: no
@@ -32,11 +32,20 @@ the agent may read (§9.6) and what it cited (`ui/08 §8.5`, `§8.6`). Where a p
 knowledge came from an investigation, the Knowledge view names that investigation as a
 link and nothing more.
 
-The Knowledge view has a query bar (§9.2) above its content. Its sections — **Procedures**
-(§9.3), **Past cases** (§9.4), **Import** (§9.5) and **Candidates** (§9.7, superseded by `adr/0156`), each with its
-count — are listed once, in the view's own section list down its left side. There is no second row of the same items
-above the content. Running a query replaces the content with its results under a header
-naming the query, with a way back to the section that was open.
+**The sidebar is the Knowledge view's only navigation** (`adr/0346`). The sidebar lists the
+procedures and past cases. The tab has no section list and no item lists of its own, and it
+shows one of two pages:
+
+- **An item.** A procedure (§9.3) or a past case (§9.4) fills the tab, with its outline and
+  sections, where it was cited and its revisions. Links inside it move within the tab, with a
+  way back.
+- **Search**, the page that **Search** and **Open the Knowledge view** open. It has the
+  query bar (§9.2), the results as two lists (procedures, past cases) with relevance in
+  words, and the past-case filters (§9.4). With no query, the filters alone list past cases.
+  A result opens as the item page.
+
+Import (§9.5) is the **Import SOPs…** command and its panel, on the sidebar's Knowledge title
+bar, not a section of the tab.
 
 ## 9.2 Query bar: search and ask
 

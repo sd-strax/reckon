@@ -79,9 +79,9 @@ Capabilities, which starts collapsed:
   `GET /api/cases`, which marks each case's in-flight investigation.
 - **Knowledge** — the organization's library (`ui/09 §9.1`): **Procedures (N)** and **Past
   cases (N)**, the latter reading *N of M* when the corpus holds more than the page. A row
-  opens its item in the Knowledge view. **Ask reckon to use this** stages a request in the
-  active investigation's composer. The title bar carries **Search** (the Knowledge view's
-  query bar), **Import SOPs…**, **Open the Knowledge view** and refresh. Source: `GET
+  opens its item as the page of the Knowledge tab (`adr/0346`). **Ask reckon to use this**
+  stages a request in the composer of the investigation last active. The title bar carries
+  **Search** (the Knowledge tab's search page), **Import SOPs…**, **Open the Knowledge view** and refresh. Source: `GET
   /api/sops`, `GET /api/knowledge/case_summaries`.
 - **Capabilities** — one row per verb, available, then degraded, then unavailable, with the
   view's description *N/M available*. An unavailable verb that an installed, disabled
