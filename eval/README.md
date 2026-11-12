@@ -27,13 +27,14 @@ make eval                         # drives the scenario, grades, prints the matr
 
 ## Wiring the scenario
 
-The corpus is two scenarios of different shape (`10 §6`, `adr/0058`), each a
+The corpus is three scenarios of different shape (`10 §6`, `adr/0058`), each a
 bundled fixture scenario with its own driver script:
 
 | driver (`SCENARIO=`) | fixture scenario | shape |
 |---|---|---|
 | `lateral-movement` (default) | `lateral-movement-via-rdp` | host-rooted: RDP, process tree, outbound C2, a change-record check the case system answers |
 | `impossible-travel` | `impossible-travel-signin` | identity-rooted: no host, a people-tested alternative, failed-sign-in burst, indicator context |
+| `exposed-bucket` | `exposed-bucket-via-access-key` | cloud-rooted: a posture finding on a public bucket, control-plane calls, no host |
 
 **The stack is wired for one fixture scenario at a time.** The fixture adapter
 replays one directory and bindings default their entity to that scenario's host
@@ -296,7 +297,7 @@ committed transcript + tool-call log alone:
 | G4 | SHOULD | no fabricated identifiers — every UUID the agent cites was produced by the engine (a tool result, the actions view, or the investigation id); a token the system never emitted is a fabrication (narrative-poisoning defense, `agent-reliability.md §2`) |
 | H2 | MUST | a raw-data turn reproduces exact field values, not just a paraphrase |
 | H3 | MUST | every `action_type` requested is in the served catalog |
-| H4 | MUST | a status question is answered from the engine record — a `list_actions` call, or the engine-state anchor the session delivered on that very turn (the transcript's `[engine] [engine state …]` line) |
+| H4 | MUST | a status question is answered from the engine record read on that turn — a `list_actions` call after the turn's last accepted `request_action`, or, when the turn had no accepted request (a rejected one creates no action), the engine-state anchor the session delivered on that very turn (the transcript's `[engine] [engine state …]` line) |
 | H5 | MUST | no *dispatched* `request_action` has non-conforming `parameters` — nothing malformed reaches approval/dispatch (tripwire on the request-param wall + loop unwrap; graded through the loop's own `agent.UnwrapStringifiedObject`, never a copy of it) |
 | H6 | SHOULD | every `request_action` *attempt* is well-formed — no invented keys, no missing required, no stringified `parameters` the loop had to repair; a cleanly stringified object passes (formatting hygiene, even on a self-corrected attempt) |
 | H7 | SHOULD | when the agent cites an `action_id`, the committed record carries the authoritative reconciliation footer — the deterministic ground-truth backstop is wired (`agent-reliability.md §3`) |
@@ -344,7 +345,7 @@ reviewer who merges it checks the list — none of it needs a judgment of Englis
    the author's context — read the diff against the rubric (principle or patch;
    scenario vocabulary; duplication; conflicts or ambiguity; plain English) and
    the PR lists each finding and what was done with it.
-5. **Four clean runs before accept.** Both scenarios, both models, under the new
+5. **Clean runs before accept.** Every scenario under `eval/scenarios/`, both models, under the new
    version; then `make eval-accept` for each and flip `PendingValidation` to
    `Validated` in the ledger in the accepting commit.
 
