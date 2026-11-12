@@ -1,0 +1,278 @@
+{
+  "Name": "amazon_security_lake_table_ap_south_1_cloud_trail_mgmt_2_0",
+  "StorageDescriptor": {
+    "Columns": [
+      {
+        "Name": "metadata",
+        "Type": "struct<product:struct<version:string,name:string,vendor_name:string,feature:struct<name:string>>,event_code:string,uid:string,profiles:array<string>,version:string>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "1",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "time",
+        "Type": "bigint",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "2",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "time_dt",
+        "Type": "timestamp",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "3",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "cloud",
+        "Type": "struct<region:string,provider:string>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "4",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "api",
+        "Type": "struct<response:struct<error:string,message:string,data:string>,operation:string,version:string,service:struct<name:string>,request:struct<data:string,uid:string>>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "5",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "dst_endpoint",
+        "Type": "struct<svc_name:string>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "6",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "actor",
+        "Type": "struct<user:struct<type:string,name:string,uid_alt:string,uid:string,account:struct<uid:string>,credential_uid:string>,session:struct<created_time_dt:timestamp,is_mfa:boolean,issuer:string>,invoked_by:string,idp:struct<name:string>>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "7",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "http_request",
+        "Type": "struct<user_agent:string>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "8",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "src_endpoint",
+        "Type": "struct<uid:string,ip:string,domain:string>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "9",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "session",
+        "Type": "struct<uid:string,uid_alt:string,credential_uid:string,issuer:string>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "10",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "policy",
+        "Type": "struct<uid:string>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "11",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "resources",
+        "Type": "array<struct<uid:string,owner:struct<account:struct<uid:string>>,type:string>>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "12",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "class_name",
+        "Type": "string",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "13",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "class_uid",
+        "Type": "int",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "14",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "category_name",
+        "Type": "string",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "15",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "category_uid",
+        "Type": "int",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "16",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "severity_id",
+        "Type": "int",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "17",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "severity",
+        "Type": "string",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "18",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "user",
+        "Type": "struct<uid_alt:string,uid:string,name:string>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "19",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "activity_name",
+        "Type": "string",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "20",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "activity_id",
+        "Type": "int",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "21",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "type_uid",
+        "Type": "bigint",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "22",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "type_name",
+        "Type": "string",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "23",
+          "iceberg.field.optional": "false"
+        }
+      },
+      {
+        "Name": "status",
+        "Type": "string",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "24",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "is_mfa",
+        "Type": "boolean",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "25",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "unmapped",
+        "Type": "map<string,string>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "26",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "accountid",
+        "Type": "string",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "27",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "region",
+        "Type": "string",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "28",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "asl_version",
+        "Type": "string",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "29",
+          "iceberg.field.optional": "true"
+        }
+      },
+      {
+        "Name": "observables",
+        "Type": "array<struct<name:string,value:string,type:string,type_id:int>>",
+        "Parameters": {
+          "iceberg.field.current": "true",
+          "iceberg.field.id": "30",
+          "iceberg.field.optional": "true"
+        }
+      }
+    ]
+  },
+  "PartitionKeys": []
+}

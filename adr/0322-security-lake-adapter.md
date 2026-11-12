@@ -198,3 +198,26 @@ answer; a name-only resource is the split it already names.
   shaping change that moves that normalizer to version 3 (`03 §4.13`).
 - The S3 data-event table, which answers "was anything read from the
   bucket", is a later child; this one reads the management table.
+
+## Live answers
+
+A live lake (#335) settled the two open facts and found what the decision
+above assumed wrongly; adr/0335 records the change that followed.
+
+- **The actor.** For an assumed-role call, `actor.user.uid` holds the
+  session's ARN (`arn:aws:sts::<account>:assumed-role/<role>/<session>`) and
+  `actor.session.issuer` the role's ARN.
+- **The resource.** A management event's resource carries its ARN as `uid`,
+  with its owner's account and its type; it carries no name and no region.
+- **The table is a subset of OCSF 1.1.0.** It has no `status_id` (the outcome
+  is the `status` string, "Success" or "Failure"), no session credential or
+  id, and no account under `cloud`; the account is the `accountid` column.
+  The fixed column list above failed against it, and every query would have.
+- **The lake records only what a trail delivers.** Security Lake reads
+  CloudTrail management events from a multi-Region organization trail with
+  read and write management events; a source added before the trail exists
+  stays empty until it is added again, nothing is backfilled, and events
+  arrive in the table minutes after the call.
+- **Not yet answered:** whether the lake files some IAM operations under
+  Account Change (3001) rather than API Activity; IAM is logged in one
+  Region, which the live run did not collect.

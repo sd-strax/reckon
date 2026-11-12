@@ -410,8 +410,9 @@ contract treats them differently (adr/0334). `describe` declares which applies:
   not own (a vendor-managed table, a security lake, a hosted search index: SQL, SPL, KQL). A
   missing field is rejected by the store before the query runs, so the adapter must not assume
   its schema:
-  1. **Discover.** It reads the store's schema at `configure` and on every `health` probe and
-     builds its projection and predicates from the fields that exist, never from a fixed list.
+  1. **Discover.** It reads the store's schema on every `health` probe, and before a call
+     when it holds none; it drops what it holds on any failed read, probe or query; and it builds its
+     projection and predicates from the fields that exist, never from a fixed list.
   2. **Profiles.** It carries one profile per source version it supports — `name` (one path
      element, unique among its profiles, since it names the profile's directory), `store`,
      `version`, and the `fields` it reads — and lists them in `schema_source.profiles`. Each

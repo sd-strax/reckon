@@ -1,0 +1,84 @@
+{
+  "actor": {
+    "user": {
+      "type": "AssumedRole",
+      "name": null,
+      "uid_alt": "00000000-0000-0000-0000-000000000000",
+      "uid": "arn:aws:sts::123456789012:assumed-role/AWSReservedSSO_AdministratorAccess_0123456789abcdef/analyst@example.com",
+      "account": {
+        "uid": "123456789012"
+      },
+      "credential_uid": "ASIAIOSFODNN7EXAMPLE"
+    },
+    "session": {
+      "created_time_dt": "2024-01-15 06:22:44.000",
+      "is_mfa": false,
+      "issuer": "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/ap-south-1/AWSReservedSSO_AdministratorAccess_0123456789abcdef"
+    },
+    "invoked_by": null,
+    "idp": null
+  },
+  "resources": [
+    {
+      "uid": "arn:aws:s3:::example-bucket",
+      "owner": {
+        "account": {
+          "uid": "123456789012"
+        }
+      },
+      "type": "AWS::S3::Bucket"
+    }
+  ],
+  "cloud": {
+    "region": "ap-south-1",
+    "provider": "AWS"
+  },
+  "unmapped": {
+    "managementEvent": "true",
+    "readOnly": "false",
+    "recipientAccountId": "123456789012",
+    "userIdentity.sessionContext.sessionIssuer.accountId": "123456789012",
+    "userIdentity.sessionContext.sessionIssuer.type": "Role",
+    "userIdentity.sessionContext.sessionIssuer.userName": "AWSReservedSSO_AdministratorAccess_0123456789abcdef"
+  },
+  "api": {
+    "response": null,
+    "operation": "PutBucketPolicy",
+    "version": null,
+    "service": {
+      "name": "s3.amazonaws.com"
+    },
+    "request": {
+      "data": "{\"bucketPolicy\":{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"OwnAccountRead\",\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"arn:aws:iam::123456789012:root\"},\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::example-bucket/*\"}]},\"bucketName\":\"example-bucket\"}",
+      "uid": "EXAMPLEREQUEST01"
+    }
+  },
+  "metadata": {
+    "product": {
+      "version": "1.11",
+      "name": "CloudTrail",
+      "vendor_name": "AWS",
+      "feature": {
+        "name": "Management"
+      }
+    },
+    "event_code": "AwsApiCall",
+    "uid": "00000000-0000-4000-8000-000000000001",
+    "profiles": [
+      "cloud",
+      "datetime"
+    ],
+    "version": "1.1.0"
+  },
+  "session": null,
+  "src_endpoint": {
+    "uid": null,
+    "ip": "203.0.113.10",
+    "domain": null
+  },
+  "status": "Success",
+  "severity_id": 1,
+  "class_uid": 6003,
+  "activity_id": 3,
+  "time_dt": "2024-01-15 07:13:25.000"
+}

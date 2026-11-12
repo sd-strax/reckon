@@ -26,9 +26,7 @@ import (
 // (TestExemptionsAreRecorded). The list only shrinks: an entry whose adapter already satisfies
 // the rule, or is no longer an in-tree query adapter, fails
 // TestInTreeAdapters_SchemaSource.
-var queryRuleExemptions = map[string]string{
-	"aws-security-lake": "brought to the rule by #335",
-}
+var queryRuleExemptions = map[string]string{}
 
 // exemptionADR is the decision record that must name every exemption.
 const exemptionADR = "adr/0334-external-store-schema.md"

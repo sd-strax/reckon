@@ -12,13 +12,13 @@ import (
 // scope value given — type, region (the element's own; an element with no
 // region does not match a given one), zone, group and namespace — so a
 // scoped question never broadens to an unscoped answer, and two elements
-// cannot together satisfy it. Zone, group and namespace exist only here; the
-// rest repeat the query's any_match so the two agree. With neither uid nor
-// name, the type and zone, group and namespace are checked on one element
-// (a region then filters the event, in the query). The check can leave
-// fewer rows than the limit (adr/0322). It applies only to a resource given
-// without a uid: a uid is the provider's unique identifier, and no scope
-// narrows it.
+// cannot together satisfy it. The query already matches each of these on
+// one element where the table carries the field (resourceElement) and
+// declines the call where it does not; this check agrees with it. With
+// neither uid nor name, the type and zone, group and namespace are checked
+// on one element (a region then filters the event, in the query). It
+// applies only to a resource given without a uid: a uid is the provider's
+// unique identifier, and no scope narrows it.
 type postScope struct {
 	name, typ, region      string
 	zone, group, namespace string

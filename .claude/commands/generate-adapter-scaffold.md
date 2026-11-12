@@ -26,9 +26,9 @@ Scaffold a new in-tree adapter: a static Go binary under `cmd/reckon-adapter-<na
 
 ## A `query` adapter, additionally (`11 §4.4`, adr/0334)
 
-The reference is `cmd/reckon-adapter-aws-security-lake` (until #335 lands, it predates discovery and is exempt from the repository test; follow §4.4, not its fixed projection).
+The reference is `cmd/reckon-adapter-aws-security-lake`: it discovers its table's schema, carries the `cloudtrail-mgmt-2.0` profile and a live-check runbook (adr/0335).
 
-- **Schema discovery**: read the store's schema at `configure` and on every `health` probe, and build the projection and predicates from the fields that exist, never from a fixed column list.
+- **Schema discovery**: read the store's schema on every `health` probe and before a call when none is held, drop it on any failed read, probe or query, and build the projection and predicates from the fields that exist, never from a fixed column list.
 - **Profiles**: `testdata/profiles/<profile.name>/` for every profile `describe` lists, recorded from a real store: `schema.json`, the store's schema as captured, and `pages/`, one file per real result page, at least one. `schema.json` is valid JSON; `pages/` is a real directory; each is a regular, non-empty file (a symlink does not count, and a dotfile such as `.gitkeep` is not a page). The profile name is one path element (no `/`), unique within `describe`. The repository test fails a profile missing either part. Offline tests read these, not hand-built pages.
 - **Decline**: a call that needs a field the discovered schema lacks returns `FALLTHROUGH` with a reason naming the field; it is never sent to fail at the store. Test it against a profile missing that field.
 - **Degraded health**: `HealthResult.Degraded` lists `adapterplugin.DegradedCapability{Operation, Capability, Reason}` for each capability the schema cannot express ("credential filter: `actor.session.credential_uid` absent"). `Healthy` stays the whole-instance signal: a field no call can do without (the event time) is unhealthy.
