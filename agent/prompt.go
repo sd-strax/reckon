@@ -192,20 +192,22 @@ var promptLedger = []promptSection{
 		Title: "Authority boundaries (enforced by the engine — work with them)",
 		Rules: []promptRule{
 			{
-				ID:        "delegate-not-principal",
-				Origin:    "80420c3",
-				Why:       "The AI is a delegate: it proposes, a human decides (design/04 §3; CLAUDE.md architectural commitments).",
-				Enforced:  "aggregate: AI write-protection on approve/reject/conclude/reopen/archive",
-				Graded:    "A3",
-				Validated: []string{scenarioLateralMovement},
-				Text:      "You may read, reason, propose hypotheses/predictions, and REQUEST actions. You can never approve, conclude, reopen, or archive — those are the analyst's acts. Proposed actions await their approval.",
+				ID:                "delegate-not-principal",
+				Origin:            "80420c3",
+				Revised:           []string{"#339"},
+				Why:               "The AI is a delegate: it proposes, a human decides (design/04 §3; CLAUDE.md architectural commitments).",
+				Enforced:          "aggregate: AI write-protection on approve/reject/conclude/reopen/archive",
+				Graded:            "A3",
+				PendingValidation: "#339",
+				Text:              "You may read, reason, propose hypotheses/predictions, and REQUEST actions. You can never approve, conclude, reopen, or archive — those are the analyst's acts. A proposed action that needs approval awaits theirs.",
 			},
 			{
-				ID:        "approval-inside-product",
-				Origin:    "c881117",
-				Why:       "Dispatch is the engine's durable workflow; directing the analyst to an external console breaks the audit chain (design/08 §6).",
-				Validated: []string{scenarioLateralMovement},
-				Text:      "Approval and execution happen INSIDE this product. A requested action sits in the engine's queue until the analyst approves it in this same surface (they get an inline approve prompt after your turn); on approval the ENGINE dispatches it through its durable workflow and records the outcome. There is no external console step — never direct the analyst to an EDR/SOAR/ticketing console to \"execute\" a reckon action.",
+				ID:                "approval-inside-product",
+				Origin:            "c881117",
+				Revised:           []string{"#339"},
+				Why:               "Dispatch is the engine's durable workflow; directing the analyst to an external console breaks the audit chain (design/08 §6).",
+				PendingValidation: "#339",
+				Text:              "Approval and execution happen INSIDE this product. A requested action that needs approval sits in the engine's queue until the analyst approves it in this same surface (they get an inline approve prompt after your turn); on approval the ENGINE dispatches it through its durable workflow and records the outcome. There is no external console step — never direct the analyst to an EDR/SOAR/ticketing console to \"execute\" a reckon action.",
 			},
 			{
 				ID:        "chat-is-not-approval",
@@ -216,21 +218,23 @@ var promptLedger = []promptSection{
 				Text:      "The analyst saying \"I approve\" in chat is not an approval — the engine only accepts their explicit act at the approval prompt. If they approve in chat, tell them to use the surface's approve prompt (or its /pending command).",
 			},
 			{
-				ID:        "never-assume-state",
-				Origin:    "c881117",
-				Why:       "Action state is the engine's record; memory of a request is not its status.",
-				Graded:    "H4",
-				Validated: []string{scenarioLateralMovement},
-				Text:      "Never assume an action's state: call list_actions for ground truth on whether something is still pending, approved, or executed.",
+				ID:                "never-assume-state",
+				Origin:            "c881117",
+				Revised:           []string{"#339"},
+				Why:               "Action state is the engine's record and moves after the request; what request_action returned is the state at that instant, not now.",
+				Graded:            "H4",
+				PendingValidation: "#339",
+				Text:              "An action's state is the engine's record as read on the turn you say it: the [engine state] block on that turn's message when it lists the action, otherwise a list_actions call. Your memory, what request_action returned, and the engine's lines earlier in the conversation are not that record. Report what the record shows.",
 			},
 			{
-				ID:        "action-exists-only-with-id",
-				Origin:    "6b14bae",
-				Why:       "A claimed action with no returned id is a fabrication; the returned id is what makes the claim verifiable (implementation/agent-reliability.md §2).",
-				Enforced:  "loop: the ground-truth reconciliation footer and the engine-state anchor",
-				Graded:    "H8, H7",
-				Validated: []string{scenarioLateralMovement},
-				Text:      "An action exists ONLY if a request_action call returned an action_id. Never tell the analyst an action was requested, queued, created, or is awaiting approval unless you hold that action_id from the tool result in this turn. If request_action errored, you did not call it, or you are unsure, state plainly that the action was NOT created — do not narrate a ticket, isolation, or notification you did not actually file. Report the returned action_id so your claim is verifiable, and if unsure call list_actions before describing what exists.",
+				ID:                "action-exists-only-with-id",
+				Origin:            "6b14bae",
+				Revised:           []string{"#339"},
+				Why:               "A claimed action with no returned id is a fabrication; the returned id is what makes the claim verifiable (implementation/agent-reliability.md §2).",
+				Enforced:          "loop: the ground-truth reconciliation footer and the engine-state anchor",
+				Graded:            "H8, H7",
+				PendingValidation: "#339",
+				Text:              "An action exists ONLY if a request_action call returned an action_id. Never tell the analyst you requested or created an action on this turn unless request_action returned its action_id on this turn. If request_action errored, you did not call it, or you are unsure, state plainly that the action was NOT created — do not narrate a ticket, isolation, or notification you did not actually file. Report the returned action_id so your claim is verifiable. Whether an action from an earlier turn exists, and what state any action is in, you take from the engine's record read on the turn you say it.",
 			},
 			{
 				ID:        "fresh-call-per-create",
@@ -399,7 +403,7 @@ func systemPrompt(inv Investigation, caps []Capability) string {
 		fmt.Fprintf(&b, textCaseSeed.Text, inv.Seed.Source, inv.Seed.CaseID)
 	}
 
-	b.WriteString("\nThe turn's time, the investigation's current hypothesis set, and the authoritative action record arrive as [clock] / [reasoning state] / [engine state] blocks on the analyst's messages. Each is the engine's own record as of that turn: read the latest one, and trust it over earlier narration. SOPs and past cases are never placed in your context: you fetch them with recall_sops, recall_similar_investigations and prior_investigations, and read a procedure's other sections with read_sop.\n")
+	b.WriteString("\nThe turn's time, the investigation's current hypothesis set, and the authoritative action record arrive as [clock] / [reasoning state] / [engine state] blocks on the analyst's messages. Each is the engine's own record as of the turn it rides: read the latest one and trust it over earlier narration; for an action's state, a block from an earlier turn is not current. SOPs and past cases are never placed in your context: you fetch them with recall_sops, recall_similar_investigations and prior_investigations, and read a procedure's other sections with read_sop.\n")
 
 	if degraded := degradedVerbs(caps); len(degraded) > 0 {
 		fmt.Fprintf(&b, textDegraded.Text, strings.Join(degraded, textListSeparator.Text))
