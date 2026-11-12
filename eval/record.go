@@ -95,8 +95,11 @@ type TrialRecord struct {
 	ActionInputs map[string][]ParamSpec `json:"action_inputs,omitempty"`
 	// Actions is the investigation's x-actions as the product API served them at
 	// trial end — the EVENT-LOG layer read back through the durable view
-	// (10 §1.1b), not the transcript. Event graders (G1) grade these.
-	Actions []ActionRow `json:"actions,omitempty"`
+	// (10 §1.1b), not the transcript. Event graders (G1) grade these. No
+	// omitempty: a captured empty record writes [] and a missing one null, so
+	// "captured, nothing in it" survives a reload and H4 regrades as it graded
+	// live; an older artifact without the key still reads as not captured.
+	Actions []ActionRow `json:"actions"`
 	// Hypotheses is the investigation's reasoning set as the product API served
 	// it at trial end (handles, statuses, predictions with their discriminates
 	// links) — the state R3 grades a decide turn against. nil when the fetch
