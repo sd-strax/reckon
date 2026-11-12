@@ -35,16 +35,17 @@ requested after it.
 
 ## Decision
 
-- **Four rules revised, none added** (adr/0060). `never-assume-state` states
-  where an action's state comes from: the engine's record read on the turn the
-  state is stated, the `[engine state]` block on that turn's message when it
-  lists the action, otherwise a `list_actions` call. Memory, the request's
+- **Four rules revised, none added** (adr/0060). `never-assume-state` is one
+  instruction with its reason: after requesting an action, call `list_actions`
+  before stating its state, because the request's result is the state at the
+  moment of the request and it can change after.
+  `action-exists-only-with-id` licenses a claim to have requested an action on
+  this turn only by the id returned on this turn, drops "queued" and "awaiting
+  approval" from what that id licenses, and says any action's state comes from
+  the engine's record read on the turn it is stated: the `[engine state]` block
+  when it lists the action, otherwise `list_actions`. Memory, the request's
   answer, and the engine's lines earlier in the conversation (a past block, a
-  past footer) are not that record. `action-exists-only-with-id` licenses a
-  claim to have requested an action on this turn only by the id returned on
-  this turn, drops "queued" and "awaiting approval" from what that id
-  licenses, and sends an earlier turn's actions and any action's state to the
-  record read on the turn.
+  past footer) are not that record.
   `approval-inside-product` says an action that needs approval waits in the
   queue, not every requested action, and `delegate-not-principal` says the
   same of a proposed one.
@@ -140,6 +141,26 @@ is memory), the existence rule's scope, the block's expiry, H4's order. Also:
   unconfirmed, which stays true; H8 is asserted only on turns that ask for a
   creation.
 
+## The first wording did not hold
+
+The first revision stated where the state comes from as a definition (the
+record read on the turn; memory, the request's answer and past engine lines
+are not it), with no reason given to the model; the reason lived in the
+ledger's Why, which the model never reads. On the cloud scenario at ten trials
+the stronger model failed H4 on five, each time reporting the status field of
+the request results it held, one reply saying so ("from the request records
+just returned"). The states it reported were accurate and the footer showed
+the record. The rule now gives the instruction and its reason in one sentence,
+naming the field the model relied on; a second independent review of that
+sentence restored the `list_actions` fallback to the existence rule, which
+the shorter rule had dropped, and its proposal to spell out the states
+("awaits approval, was approved, or ran") was declined as length the
+instruction does not need.
+
+If the reason does not move the model either, the next step is a mechanism,
+not wording: the agent reads the action back from the record after each
+request and returns that state in place of the request-time label.
+
 ## Alternatives rejected
 
 - **Split the cloud script's turn** so status is asked on its own turn. H4
@@ -163,8 +184,7 @@ is memory), the existence rule's scope, the block's expiry, H4's order. Also:
   three scenarios, two models, under the new version, then `make eval-accept`
   for each and the flip from `PendingValidation` to `Validated` in the
   accepting commit.
-- Before those, one run of the cloud scenario on the stronger model at ten
-  trials, not accepted: at the old one-in-three failure rate, ten clean trials
-  would arise by chance less than twice in a hundred, where three would arise
-  about three times in ten.
+- Before those, one run of the cloud scenario on the stronger model at five
+  trials, not accepted: at the observed one-in-two failure rate of the first
+  wording, five clean trials would arise by chance about once in thirty.
 - A status reply on a request turn costs one more tool call.

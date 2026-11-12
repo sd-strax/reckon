@@ -224,7 +224,7 @@ var promptLedger = []promptSection{
 				Why:               "Action state is the engine's record and moves after the request; what request_action returned is the state at that instant, not now.",
 				Graded:            "H4",
 				PendingValidation: "#339",
-				Text:              "An action's state is the engine's record as read on the turn you say it: the [engine state] block on that turn's message when it lists the action, otherwise a list_actions call. Your memory, what request_action returned, and the engine's lines earlier in the conversation are not that record. Report what the record shows.",
+				Text:              "After you request an action, call list_actions before you tell the analyst its state: request_action's result shows the state at the moment of the request, and it can change after.",
 			},
 			{
 				ID:                "action-exists-only-with-id",
@@ -234,7 +234,7 @@ var promptLedger = []promptSection{
 				Enforced:          "loop: the ground-truth reconciliation footer and the engine-state anchor",
 				Graded:            "H8, H7",
 				PendingValidation: "#339",
-				Text:              "An action exists ONLY if a request_action call returned an action_id. Never tell the analyst you requested or created an action on this turn unless request_action returned its action_id on this turn. If request_action errored, you did not call it, or you are unsure, state plainly that the action was NOT created — do not narrate a ticket, isolation, or notification you did not actually file. Report the returned action_id so your claim is verifiable. Whether an action from an earlier turn exists, and what state any action is in, you take from the engine's record read on the turn you say it.",
+				Text:              "An action exists ONLY if a request_action call returned an action_id. Never tell the analyst you requested or created an action on this turn unless request_action returned its action_id on this turn. If request_action errored, you did not call it, or you are unsure, state plainly that the action was NOT created — do not narrate a ticket, isolation, or notification you did not actually file. Report the returned action_id so your claim is verifiable. Whether an action from an earlier turn exists, and what state any action is in, you take from the engine's record read on the turn you say it: the [engine state] block when it lists the action, otherwise list_actions.",
 			},
 			{
 				ID:        "fresh-call-per-create",
