@@ -786,15 +786,25 @@ Output:
 
 ### 4.6 OCSF registry_key_activity (class_uid 1003) → STIX
 
-Input: OCSF registry_key_activity with `reg_key.hive`, `reg_key.path`,
-`reg_value.name`, `reg_value.data`, `activity_id`, `actor.process.*`,
-`device.uuid`, `time`.
+Input: OCSF registry_key_activity with `reg_key.path` (the full key path,
+as OCSF defines it, or the path below `reg_key.hive` when a source splits
+the two), `reg_value.{name,data,type,type_id,path}`, `activity_id`,
+`actor.process.*`, `device.*`, `time`.
 
 Output:
 
-- `x-registry-key` custom SCO with fields `hive`, `key_path`, `value_name`,
-  `value_data`. Identity rule: `(host_ref.id, hive, key_path, value_name)`,
-  all components lowercased except `value_data`.
+- `windows-registry-key` SCO (STIX 2.1 native). `key` is the full key with
+  its hive expanded: `reg_key.hive` and `reg_key.path` joined when the
+  source splits them, else `reg_key.path`, else `reg_value.path`; a leading
+  `HKLM`, `HKU`, `HKCU`, `HKCR`, `HKCC`, `\REGISTRY\MACHINE` or
+  `\REGISTRY\USER` (any case) becomes the full upper-case hive name, the
+  rest of the path keeps the source's case, and a path with no known root is
+  kept as written. When the event names a value, `values` holds that one
+  value as `{name, data, data_type}`: the name as written (empty for the
+  key's default value), the data as a string (non-string JSON as its JSON
+  text), and `data_type` when the source's type is one of STIX's `REG_*`
+  names; an event naming only a key has no `values`. No key, no object.
+  Identity per §7.2.
 - `process` SCO for the actor process.
 - `x-host` SCO for the device.
 - One `ObservedData` referencing the registry key, actor, and host. The
@@ -802,9 +812,10 @@ Output:
   fields.
 - Edges as in §4.1.
 
-`x-registry-key` is a custom STIX SCO because Windows registry isn't covered
-by STIX 2.1 native types. Identity is host-scoped — registry keys with the
-same path on different hosts are different entities.
+One object stands for one host, key and value, because the persistence
+artifact an analyst pivots on is the value (the `Run` key's one autorun), not
+the key. Identity is host-scoped — registry keys with the same path on
+different hosts are different entities (§7.2, adr/0341).
 
 ### 4.7 OCSF scheduled_job_activity (class_uid 1006) → STIX
 
@@ -1623,7 +1634,7 @@ not a project-wide custom-object namespace.
 Each tenant is assigned a fresh namespace UUIDv4 at tenant creation, stored
 in the tenant CRUD record (02-persistence.md §1), and immutable thereafter.
 Both standard SCOs (`ipv4-addr`, `domain-name`, `file`, etc.) and custom
-SCOs (`x-host`, `x-registry-key`, `x-scheduled-task`, `x-group`) use the
+SCOs (`x-host`, `x-scheduled-task`, `x-group`) use the
 same per-tenant namespace; there is no separate custom-object namespace.
 
 This makes same-value-different-tenant collision impossible: `8.8.8.8` in
@@ -1657,9 +1668,9 @@ the storage layer.
 ### 7.2 Per-type identity-contributing fields
 
 These follow STIX 2.1 spec for native SCOs and are documented here for the
-custom and composite cases. Three of them — `process`, `email-addr`, and
-`user-account` — involve deliberate deviations from strict spec, called out
-explicitly below. All identity tuples below describe what enters the
+custom and composite cases. Four of them — `process`, `email-addr`,
+`user-account` and `windows-registry-key` — involve deliberate deviations
+from strict spec, called out explicitly below. All identity tuples below describe what enters the
 canonical-form JSON; the JSON is then hashed against the per-tenant
 namespace UUID per §7.1.
 
@@ -1689,8 +1700,6 @@ namespace UUID per §7.1.
   kept keyed by the source that reported them. Two machines with one short
   name in two domains share an id, which the record shows rather than guesses
   (§7.3).
-- **`x-registry-key`** (custom): `(host_ref.id, hive, key_path, value_name)`,
-  hive and key_path lowercased.
 - **`x-scheduled-task`** (custom): `(host_ref.id, name, path)`, name and path
   lowercased.
 - **`x-group`** (custom): `(directory_ref.value, group_name)` lowercased.
@@ -1841,6 +1850,26 @@ identifier is the principal and the name is a label. An event with no
 identifier mints no principal. The identity provider's sign-in account for
 the same human stays `cloud`; the two are different accounts and, when
 known to be one person, are linked by `aliases`.
+
+**Deviation: `windows-registry-key`.** STIX 2.1's id-contributing
+properties are `key` and `values`, under no host. Identity here is
+`(host_ref.id, key, value_name)` (adr/0341):
+
+- **Host-scoped.** A registry key is a host's state; one path on two hosts is
+  two entities. The host rides the identity tuple and the observation's
+  `object_refs`, as for `process`, never a property of the object.
+- **`key` is the expanded key (§4.6) folded to lower case**, because
+  registry key names are not case sensitive; `HKLM\Software\Run` and
+  `HKEY_LOCAL_MACHINE\SOFTWARE\Run` are one key.
+- **The value's name, not its data.** `value_name` keeps its case; it is
+  absent from the canonical JSON when the event names no value, and the
+  empty string for the key's default value, so a key and its default value
+  are two entities. The value's data and type are out of identity: a value
+  whose data changes is the same value, and the change is what the
+  observation records.
+
+Failure mode: a source that names a key by a root outside the expanded set
+(§4.6) mints a key that does not join the same key named by its hive.
 
 ### 7.3 Cross-tool stitching: practical implications
 
