@@ -22,8 +22,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "cfe55df04f5200e2d2d99043518b126e6017c0347ada5520affffdd7ebfa8fdf",
-		framingLeadingOnly: "20f75b2525ae16b45648c9156bfab0c246d6e0177cf93f2b1468a84c4dba8e99",
+		framingLeadingNull: "08fdc5fe7269cae5f79da477488ac140b710040bb39754752d30799f17f8d02e",
+		framingLeadingOnly: "335a0bdce1b9744b5abfff6f9b70ab7c51105bcebf0dfd53f17089952e6c18b8",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -70,8 +70,8 @@ func TestSideInstructions_Frozen(t *testing.T) {
 // moved version says what moved: the prompt, a tool, an engine text, or a side
 // instruction.
 var componentGolden = map[string]string{
-	"prompt":                                           "7ba7d77c1ba5b94dbb28a9eff9bd949ac6559b9a9789e23f6f69599590806cc0",
-	"prompt/leading_only":                              "fa7a504531324a86c4960f517e5a4a62e32f7a0e99b69218a9f2a23c071cdda6",
+	"prompt":                                           "c2e24727f5e9a3bc22f137131c145a5512f31fa27db377b86c251fe194e16426",
+	"prompt/leading_only":                              "d5d702615c6fe127a1f892954fd6190d5aca9a09bf25e26e49a1cb81f0c78ce7",
 	"tools/recall_sops":                                "8c6809eb0dd1c94cbeb3a8e14fcae26eb627b2ca29785cc9b4fddfdcb347861c",
 	"tools/read_sop":                                   "d2a3d735e2d12528e5f651c56b8403778179d882ddb5a9405f88326d358a1b28",
 	"tools/recall_similar_investigations":              "013a01bbff06558a7d972be60d2e93248f23e54e71e1f5ce87196e800d45d711",
@@ -108,6 +108,7 @@ var componentGolden = map[string]string{
 	"engine-text/reasoning-state-end":                  "cfae0d4248f7142f7b17f826cd7a519280e312577690e957830d23dcf35a3fff",
 	"engine-text/engine-state":                         "326ac218467fa6502216367f229114106afac3f0ba7cbe6a11ad1dbd5baacccc",
 	"engine-text/engine-state-row":                     "ed344954243d0f1c410b348c2518dfa3b60f0f942d6edf46b7fb63c2f864c731",
+	"engine-text/engine-state-row-expired":             "578187a420d31823affb60bb532feb2b805a8619755358251f6d5671cc84fe49",
 	"engine-text/engine-record":                        "bed3db1eb1d51a388f65181f4e2e8369f3981dfc7b5024ca48667166e4e187b6",
 	"engine-text/engine-record-entry":                  "5d8b71dc61ad9b0da47dac263ed6486ea54bc3936c1fef95856ac5b39ddb5446",
 	"engine-text/engine-record-not-on-record":          "8b260cce172581e12983ba7974fbe61ee7a63496358cd60b4226bdbd66813326",

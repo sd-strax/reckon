@@ -240,6 +240,14 @@ func (a ActionStatus) Expired(now time.Time) bool {
 	return a.ExpiresAt != nil && now.After(*a.ExpiresAt)
 }
 
+// ApprovalLapsed is the one definition of an expired action (adr/0339): an
+// action is expired when it still awaits approval and its approval deadline
+// has passed; a decided action is not, whatever its deadline. The
+// engine-state block and list_actions both read it, so they never disagree.
+func (a ActionStatus) ApprovalLapsed(now time.Time) bool {
+	return a.Pending() && a.Expired(now)
+}
+
 // Pending reports whether the action still awaits a human approval.
 func (a ActionStatus) Pending() bool {
 	switch a.Status {

@@ -852,7 +852,10 @@ func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, erro
 	// The model has no clock: it cannot compare expires_at to "now", so a
 	// lazily-expired action (status still REQUESTED, 04) would read as
 	// live. The engine answers the question instead — a computed expired
-	// flag per action, plus now for grounding.
+	// flag per action, plus now for grounding. Expired is ApprovalLapsed: an
+	// action still awaiting approval whose deadline has passed; a decided
+	// action is never flagged, and the engine-state block marks the same set
+	// (adr/0339).
 	now := s.now().UTC()
 	type actionView struct {
 		ActionStatus
@@ -860,7 +863,7 @@ func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, erro
 	}
 	views := make([]actionView, 0, len(acts))
 	for _, a := range acts {
-		views = append(views, actionView{ActionStatus: a, Expired: a.Expired(now)})
+		views = append(views, actionView{ActionStatus: a, Expired: a.ApprovalLapsed(now)})
 	}
 	return contentOf(json.Marshal(map[string]any{
 		"now":     now.Format(time.RFC3339),

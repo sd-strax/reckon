@@ -95,8 +95,11 @@ type TrialRecord struct {
 	ActionInputs map[string][]ParamSpec `json:"action_inputs,omitempty"`
 	// Actions is the investigation's x-actions as the product API served them at
 	// trial end — the EVENT-LOG layer read back through the durable view
-	// (10 §1.1b), not the transcript. Event graders (G1) grade these.
-	Actions []ActionRow `json:"actions,omitempty"`
+	// (10 §1.1b), not the transcript. Event graders (G1) grade these. No
+	// omitempty: a captured empty record writes [] and a missing one null, so
+	// "captured, nothing in it" survives a reload and H4 regrades as it graded
+	// live; an older artifact without the key still reads as not captured.
+	Actions []ActionRow `json:"actions"`
 	// Hypotheses is the investigation's reasoning set as the product API served
 	// it at trial end (handles, statuses, predictions with their discriminates
 	// links) — the state R3 grades a decide turn against. nil when the fetch
@@ -154,6 +157,7 @@ type AttestationRecord struct {
 type transcriptEvent struct {
 	Kind    string // "user" | "assistant" | "tool_use" | "tool_result" | "loop"
 	Tool    string // tool name, for tool_use / tool_result
+	ID      string // the tool call's id, for tool_use / tool_result (pairs a call with its result)
 	IsError bool   // tool_result only
 	Content string // the payload after the frame
 }
@@ -220,6 +224,9 @@ func parseToolFrame(line, prefix string) (transcriptEvent, bool) {
 	for _, f := range fields[1:] {
 		if f == "error=true" {
 			ev.IsError = true
+		}
+		if id, ok := strings.CutPrefix(f, "id="); ok {
+			ev.ID = id
 		}
 	}
 	return ev, true
