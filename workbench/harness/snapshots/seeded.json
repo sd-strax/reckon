@@ -340,9 +340,5 @@
     }
   },
   "labels": {},
-  "appearances": {},
-  "library": {
-    "sops": [],
-    "cases": []
-  }
+  "appearances": {}
 }

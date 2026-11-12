@@ -147,17 +147,13 @@ describe("the investigation document", () => {
     expect(within(lens()).getByText(/^3 events over 3 days/)).toBeTruthy(); // the nightly group folded
   });
 
-  it("Companion: the library to browse and search; turn records as links; the activity disclosure; Thread mode", () => {
+  it("Companion: opens on the conversation with no library; turn records as links; the activity disclosure; Thread mode", () => {
     const { transport } = mount();
     const comp = document.querySelector("#companion") as HTMLElement;
-    expect(within(comp).getByText("1 procedure · 1 past case")).toBeTruthy();
-    expect(comp.querySelector("#knowledgeSection input[type=checkbox]")).toBeNull(); // nothing to include: the agent recalls
-    fireEvent.change(comp.querySelector(".ksearch input")!, { target: { value: "procedure" } });
-    fireEvent.keyDown(comp.querySelector(".ksearch input")!, { key: "Enter" });
-    expect(transport.intents.find((i) => i.type === "library.search")).toEqual({ type: "library.search", text: "procedure" });
-    expect(within(comp).getByText(/Results for “procedure”/)).toBeTruthy();
-    fireEvent.click(within(comp).getByText("Clear"));
-    expect(within(comp).queryByText(/Results for/)).toBeNull();
+    // The library is the sidebar's (adr/0344): nothing of it here, and nothing asked for.
+    expect(comp.querySelector(".libgroup, .ksearch")).toBeNull();
+    expect(within(comp).queryByText("Ask reckon to use this")).toBeNull();
+    expect(transport.intents.some((i) => i.type.startsWith("library."))).toBe(false);
     // The first turn's records and activity.
     expect(within(comp).getByText(/Activity · 2 tool calls/)).toBeTruthy(); // including the recall_sops call
     expect(within(comp).getByText("cited: Procedure one")).toBeTruthy();
@@ -171,7 +167,36 @@ describe("the investigation document", () => {
     expect(screen.getByRole("dialog", { name: "Pin as evidence" })).toBeTruthy();
   });
 
-  it("sends a turn and parks the composer during the turn; Ask reckon to use this stages a request", () => {
+  it("stages the sidebar's Ask reckon to use this in the conversation's composer, once, never sent (adr/0344)", () => {
+    const { transport } = mount();
+    const input = () => document.querySelector("#input") as HTMLTextAreaElement;
+    fireEvent.click(within(document.querySelector("#companion") as HTMLElement).getByRole("tab", { name: "Thread" }));
+    act(() => transport.emit({ type: "composer.stage", text: "Use the procedure “Procedure one” (SOP sop-1) for this investigation: recall it and apply what fits." }));
+    expect(input().value).toMatch(/^Use the procedure “Procedure one”/);
+    expect(within(document.querySelector("#companion") as HTMLElement).getByRole("tab", { name: "Conversation" }).getAttribute("aria-selected")).toBe("true");
+    expect(transport.intents.some((i) => i.type === "send")).toBe(false);
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(input().value).toBe("");
+    act(() => transport.emit({ type: "turn.end" }));
+    expect(input().value).toBe(""); // staged once: it does not come back after the turn
+  });
+
+  it("takes no staged request while a turn runs or on a closed record, so none appears later (adr/0344)", () => {
+    const { transport } = mount();
+    const input = () => document.querySelector("#input") as HTMLTextAreaElement;
+    fireEvent.change(input(), { target: { value: "continue" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    act(() => transport.emit({ type: "turn.start" }));
+    act(() => transport.emit({ type: "composer.stage", text: "stale request" }));
+    act(() => transport.emit({ type: "turn.end" }));
+    expect(input().value).toBe(""); // the request staged mid-turn did not wait to appear
+    const concluded = { ...data.snapshot, investigation: { ...data.snapshot.investigation, state: "CONCLUDED" } };
+    act(() => transport.emit({ type: "state.snapshot", seq: data.snapshot.seq + 1, snapshot: concluded as typeof data.snapshot }));
+    act(() => transport.emit({ type: "composer.stage", text: "closed request" }));
+    expect(input().value).toBe("");
+  });
+
+  it("sends a turn and parks the composer during the turn", () => {
     const { transport } = mount();
     const input = document.querySelector("#input") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "continue" } });

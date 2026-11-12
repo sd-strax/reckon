@@ -9,6 +9,7 @@ import * as vscode from "vscode";
 import { BackendClient, BackendRequestError, Capability, Enablement } from "./backend";
 import { Session } from "./auth";
 import { setUpAdapter } from "./enablement";
+import { actionItem, gateItem, infoItem } from "./treeItems";
 import { errText } from "./util";
 
 const STATUS_ORDER: Record<string, number> = { available: 0, degraded: 1, unavailable: 2 };
@@ -68,18 +69,9 @@ export class CapabilitiesProvider implements vscode.TreeDataProvider<vscode.Tree
     }
     const generation = ++this.generation;
     this.describe(generation, undefined);
-    const status = await this.client.status();
-    const reason = this.client.incompatibilityReason(status);
-    if (reason) {
-      return [actionItem(
-        status.reachable ? "Backend incompatible" : "Backend not connected",
-        reason,
-        status.reachable ? "warning" : "debug-disconnect",
-        "reckon.checkBackend",
-      )];
-    }
-    if (!this.session.signedIn) {
-      return [actionItem("Sign in to reckon", "opens Keycloak in your browser", "sign-in", "reckon.signIn")];
+    const gate = await gateItem(this.client, this.session);
+    if (gate) {
+      return [gate];
     }
     let caps: Capability[];
     let enablement: Enablement | null;
@@ -121,19 +113,5 @@ function verbItem(c: Capability, adapter: string | null): vscode.TreeItem {
     item.contextValue = "reckon.capability";
   }
   item.tooltip = lines.join("\n");
-  return item;
-}
-
-function actionItem(label: string, description: string, icon: string, command: string): vscode.TreeItem {
-  const item = infoItem(label, description, icon);
-  item.command = { command, title: label };
-  return item;
-}
-
-function infoItem(label: string, description: string, icon: string): vscode.TreeItem {
-  const item = new vscode.TreeItem(label);
-  item.description = description;
-  item.tooltip = description || label;
-  item.iconPath = new vscode.ThemeIcon(icon);
   return item;
 }

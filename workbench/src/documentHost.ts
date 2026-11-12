@@ -34,6 +34,8 @@ export interface DocumentHost {
   openPanels(): vscode.WebviewPanel[];
   /** Whether this panel is still the open document for the investigation. */
   isOpen(id: string, panel: vscode.WebviewPanel): boolean;
+  /** The library changed (a procedure added, a case concluded): what lists it re-reads (adr/0344). */
+  libraryChanged(): void;
   /** The trees re-read: Investigations always, Cases too when a case changed hands. */
   refreshTrees(opts?: { cases?: boolean }): void;
   /** End the agent session of an investigation no panel holds (adr/0237). */

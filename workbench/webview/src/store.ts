@@ -322,6 +322,9 @@ function onMessage(state: State, msg: RenderMessage): State {
       if (msg.state === "saved") return { ...state, narrativeStatus: null, narrativeSaves: state.narrativeSaves + 1 };
       if (msg.state === "written") return { ...state, narrativeStatus: null };
       return { ...state, narrativeStatus: { state: msg.state, message: msg.message } };
+    // The provider stages it in the composer: view state, not the record's.
+    case "composer.stage":
+      return state;
     case "library":
       return {
         ...state,

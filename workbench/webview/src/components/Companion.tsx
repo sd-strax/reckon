@@ -1,6 +1,7 @@
-// The companion column (08 §8.5; impl §2.5): Conversation | Thread modes, the
-// Knowledge section at the top, the composer at the bottom. Thread is the
-// audit lens (the interleaved chronicle with act lines, sequence numbers on
+// The companion column (08 §8.5; impl §2.5): Conversation | Thread modes and
+// the composer at the bottom. It opens on the conversation: the knowledge
+// library is the sidebar's (adr/0344), and what the agent consulted here is
+// on the record, as chips in the conversation. Thread is the audit lens (the interleaved chronicle with act lines, sequence numbers on
 // hover, the context-reset boundary); Conversation is the reading path.
 // Its left edge is a grip: drag (or arrow keys) to resize, double-click to
 // return to the default width.
@@ -9,7 +10,6 @@ import { useApp } from "../app";
 import { Chronicle } from "./Chronicle";
 import { Composer } from "./Composer";
 import { Conversation } from "./Conversation";
-import { Library } from "./Library";
 import { LiveConversation } from "./LiveConversation";
 
 /** The narrowest the companion goes, and the share of the regions it may take. */
@@ -64,7 +64,6 @@ export function Companion() {
         {state.snap ? <span className="imeta">scoped to {state.snap.investigation.id.slice(0, 8)}</span> : null}
       </div>
       <div className="companionscroll">
-        <Library />
         {companionMode === "conversation" ? <Conversation /> : <><Chronicle /><LiveConversation /></>}
       </div>
       <Composer />

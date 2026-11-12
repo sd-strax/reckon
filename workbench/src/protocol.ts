@@ -278,7 +278,10 @@ export type RenderMessage =
   | { type: "turn.toolResult"; name: string; isError: boolean; coverage?: string; events?: number; refs?: string[]; callId?: string }
   | { type: "turn.committed"; interpretationId: string }
   | { type: "turn.error"; message: string }
-  | { type: "turn.end"; usage?: { input: number; output: number; cacheRead: number }; rounds?: number };
+  | { type: "turn.end"; usage?: { input: number; output: number; cacheRead: number }; rounds?: number }
+  // Stage a request in the composer, never sent (adr/0344): "Ask reckon to
+  // use this" from the sidebar's Knowledge view.
+  | { type: "composer.stage"; text: string };
 
 /** What the webview posts back to the extension host. */
 export type InboundMessage =
@@ -291,14 +294,13 @@ export type InboundMessage =
   // record the analyst's own revision.
   | { type: "narrative.draft" }
   | { type: "narrative.edit"; body: string }
-  // The knowledge library (adr/0129): load it, search it, import into it.
+  // The Knowledge view's (adr/0107): load the library, search it, import into
+  // it, and its past cases under a filter. An investigation document sends
+  // none of these (adr/0344): its host has no handler for them.
   | { type: "library.get" }
   | { type: "library.search"; text: string }
   | { type: "library.import" }
-  // The Knowledge view (adr/0107): its past cases under a filter, and opening
-  // the view from the Library.
   | { type: "pastCases.get"; filter: PastCaseFilter }
-  | { type: "knowledge.open" }
   // The lens and companion mode the analyst chose, mirrored to globalState so
   // the tree can deep-link (view state, never investigation state).
   | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }
@@ -398,7 +400,24 @@ export type Surface = "investigation" | "case" | "import" | "knowledge";
  */
 export type KnowledgeRenderMessage = Extract<RenderMessage, {
   type: "library" | "library.results" | "pastCases" | "pastCases.facets" | "inspector.procedure" | "inspector.case" | "inspector.error" | "error";
-}>;
+}> | KnowledgeCue;
+
+/** A procedure or a past case: what the Knowledge view's inspector opens on. */
+export type KnowledgeTarget = Extract<InspectorTarget, { kind: "sop" | "case" }>;
+
+/**
+ * What the sidebar asks of the Knowledge view (adr/0344): open on one item,
+ * or focus the query bar. The view's own, never the store's.
+ */
+export type KnowledgeCue =
+  | { type: "knowledge.show"; target: KnowledgeTarget }
+  | { type: "knowledge.search" };
+
+/** The intents only the Knowledge view sends (adr/0344). */
+export type KnowledgeOnlyIntent = "library.get" | "library.search" | "library.import" | "pastCases.get";
+
+/** What an investigation document's host answers: every intent but the Knowledge view's own. */
+export type InvestigationInboundMessage = Exclude<InboundMessage, { type: KnowledgeOnlyIntent }>;
 
 export type KnowledgeInboundMessage = Extract<InboundMessage, {
   type: "ready" | "refresh" | "library.get" | "library.search" | "library.import" | "pastCases.get" | "inspector.open" | "investigation.open" | "copy";

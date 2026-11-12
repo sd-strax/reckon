@@ -23,6 +23,8 @@ import * as vscode from "vscode";
 import { BackendClient, InvestigationDetail } from "./backend";
 import { AgentTransport } from "./agentTransport";
 import type { InboundMessage, InvestigationSnapshot, RenderMessage } from "./protocol";
+import type { ThreadEntry } from "./viewTypes";
+import { recordClosed } from "./stage";
 import { InvestigationCache } from "./investigationCache";
 import { errText, panelTitle } from "./util";
 import { panelHtml, panelOptions } from "./panelHtml";
@@ -86,6 +88,8 @@ export class InvestigationDocuments implements DocumentHost {
     private readonly onViewState?: (id: string, lens?: string, companion?: string) => void,
     /** The one start from a case, shared with the case page (adr/0342). */
     readonly caseStarts: CaseStarts = new CaseStarts(),
+    /** The library changed (a procedure added, a case concluded): what lists it re-reads (adr/0344). */
+    private readonly onLibraryChanged: () => void = () => {},
   ) {
     this.cache = new InvestigationCache(client, log);
     this.turns = new TurnDriver(transport, (panel, msg) => this.post(panel, msg), (id, panel) => this.refresh(id, panel));
@@ -116,6 +120,89 @@ export class InvestigationDocuments implements DocumentHost {
   rekey(from: string, to: string, panel: vscode.WebviewPanel): void {
     this.open.delete(from);
     this.open.set(to, panel);
+    this.syncActive();
+  }
+
+  /** The library changed: the sidebar's Knowledge view and the open Knowledge view re-read (adr/0344). */
+  libraryChanged(): void {
+    this.onLibraryChanged();
+  }
+
+  /**
+   * The investigation whose document is the active editor, if any. A draft
+   * not yet seeded is not one: it has no investigation to ask about.
+   */
+  private activeInvestigation(): { id: string; panel: vscode.WebviewPanel } | undefined {
+    for (const [id, panel] of this.open) {
+      if (panel.active && !isDraftKey(id)) return { id, panel };
+    }
+    return undefined;
+  }
+
+  // The record's lifecycle state per open investigation, as last posted to its panel.
+  private readonly recordStates = new Map<string, string>();
+
+  private noteState(id: string, state: string): void {
+    this.recordStates.set(id, state === LOAD_FAILED ? state : String(state).toUpperCase());
+    this.syncActive();
+  }
+
+  /** The column of the investigation that is the active editor, if any: the Knowledge view opens clear of it. */
+  activeColumn(): vscode.ViewColumn | undefined {
+    return this.activeInvestigation()?.panel.viewColumn;
+  }
+
+  /**
+   * Why the investigation's composer cannot take a staged request now, or
+   * null when it can: a closed record parks the composer, and a running turn
+   * holds it (adr/0344).
+   */
+  private stageRefusal(id: string): string | null {
+    const state = this.recordStates.get(id);
+    if (state === undefined) return "the investigation is still loading";
+    if (state === LOAD_FAILED) return "the investigation could not be loaded";
+    if (recordClosed(state)) return `this investigation is ${state.toLowerCase()}, so its composer takes no request`;
+    if (this.transport.turnRunning(id)) return "a turn is running on this investigation; ask again when it ends";
+    return null;
+  }
+
+  // The context key's last value, so it is set only when it changes.
+  private activeContext: boolean | undefined;
+
+  /**
+   * The `reckon.investigationActive` context key (adr/0344): true while the
+   * active editor is an investigation whose composer can take a request.
+   */
+  private syncActive(): void {
+    const target = this.activeInvestigation();
+    const active = !!target && this.stageRefusal(target.id) === null;
+    if (active === this.activeContext) return;
+    this.activeContext = active;
+    void vscode.commands.executeCommand("setContext", "reckon.investigationActive", active);
+  }
+
+  /**
+   * Stage a request in the active investigation's composer (adr/0344), never
+   * sent: "Ask reckon to use this" from the sidebar. Null when staged;
+   * otherwise why not, and nothing is staged.
+   */
+  stageInActive(text: string): string | null {
+    const target = this.activeInvestigation();
+    if (!target) return "open an investigation to ask reckon to use this";
+    const refusal = this.stageRefusal(target.id);
+    if (refusal) return refusal;
+    void this.post(target.panel, { type: "composer.stage", text });
+    return null;
+  }
+
+  /** One turn on the record; the context key follows it starting and ending. */
+  private runTurn(id: string, panel: vscode.WebviewPanel, text: string, aside?: { label: string }): Promise<void> {
+    const run = this.turns.run(id, panel, text, aside);
+    this.syncActive();
+    return run.finally(() => {
+      this.releaseSession(id);
+      this.syncActive();
+    });
   }
 
   /** Open (or reveal) the document for one investigation. */
@@ -138,6 +225,8 @@ export class InvestigationDocuments implements DocumentHost {
     panel.webview.html = panelHtml(panel.webview, this.extensionUri, "investigation", "Investigation");
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
     panel.onDidDispose(() => this.forget(ref.id));
+    panel.onDidChangeViewState(() => this.syncActive());
+    this.syncActive();
   }
 
   /**
@@ -165,6 +254,8 @@ export class InvestigationDocuments implements DocumentHost {
     // with the unseeded render instead of a load().
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
     panel.onDidDispose(() => this.forget(ref.id));
+    panel.onDidChangeViewState(() => this.syncActive());
+    this.syncActive();
   }
 
   /** The page may load only the bundle and the vendored fonts (impl §5.1). */
@@ -297,7 +388,7 @@ export class InvestigationDocuments implements DocumentHost {
         });
       },
       send: (msg) => {
-        void this.turns.run(id, panel, msg.text).finally(() => this.releaseSession(id));
+        void this.runTurn(id, panel, msg.text);
       },
       "action.approve": (msg) => {
         void this.actions.approve(id, panel, msg);
@@ -426,22 +517,6 @@ export class InvestigationDocuments implements DocumentHost {
       "sop.discard": () => {
         void this.knowledge.discardSOP(id, panel);
       },
-      "library.get": () => {
-        void this.knowledge.postLibrary(id, panel);
-      },
-      "library.search": (msg) => {
-        void this.knowledge.searchLibrary(panel, msg.text);
-      },
-      "library.import": () => {
-        void vscode.commands.executeCommand("reckon.importSOP");
-      },
-      // The Library opens the Knowledge view (adr/0107).
-      "knowledge.open": () => {
-        void vscode.commands.executeCommand("reckon.openKnowledge");
-      },
-      // The filtered past-case listing is the Knowledge view's; the Library
-      // here lists every case and never sends it.
-      "pastCases.get": () => {},
       "view.state": (msg) => {
         this.onViewState?.(id, msg.lens, msg.companion);
       },
@@ -540,7 +615,9 @@ export class InvestigationDocuments implements DocumentHost {
     this.actions.forget(id);
     this.pendingRename.delete(id);
     this.draftMode.delete(id);
+    this.recordStates.delete(id);
     this.releaseSession(id);
+    this.syncActive();
   }
 
   /**
@@ -575,7 +652,7 @@ export class InvestigationDocuments implements DocumentHost {
   /**
    * Build the investigation's snapshot (impl §3.1) and post it whole; the
    * optional layers' failures become null slices, never a broken panel. The
-   * bulkier lenses (the derived views, the knowledge rail, enablement) follow
+   * bulkier lenses (the derived views, the retrieved record, enablement) follow
    * as slice patches so the document renders as soon as the core is in.
    */
   load(id: string, panel: vscode.WebviewPanel): Promise<void> {
@@ -585,6 +662,7 @@ export class InvestigationDocuments implements DocumentHost {
       if (incompatible) {
         this.log.error(`load investigation ${id}: ${incompatible}`);
         void this.post(panel, { type: "error", message: incompatible });
+        if (this.isOpen(id, panel)) this.noteState(id, LOAD_FAILED);
         return;
       }
       let snapshot: InvestigationSnapshot;
@@ -594,6 +672,7 @@ export class InvestigationDocuments implements DocumentHost {
         const message = errText(err);
         this.log.error(`load investigation ${id}: ${message}`);
         void this.post(panel, { type: "error", message });
+        if (this.isOpen(id, panel)) this.noteState(id, LOAD_FAILED);
         return;
       }
       if (!this.isOpen(id, panel)) {
@@ -601,6 +680,7 @@ export class InvestigationDocuments implements DocumentHost {
       }
       panel.title = panelTitle(snapshot.investigation.title);
       void this.post(panel, { type: "state.snapshot", seq: snapshot.seq, snapshot });
+      this.noteState(id, snapshot.investigation.state);
       this.onLoaded?.(id, snapshot.seq);
       void this.me().then((m) => { if (m) void this.post(panel, { type: "me", name: m.name, principal: m.principal }); }).catch(() => undefined);
       // Dispatch is asynchronous (a Temporal workflow) and its result events are
@@ -622,7 +702,6 @@ export class InvestigationDocuments implements DocumentHost {
       await this.actions.resendActionRecords(id, panel, snapshot.seq);
       // The enablement view (gap hints + form schemas). Absence is honest.
       void this.postCapabilityLayer([[id, panel]]);
-      void this.knowledge.postLibrary(id, panel);
       void this.actions.postActionTypes(panel);
       if (String(snapshot.investigation.state).toUpperCase() === "CONCLUDED") {
         void this.knowledge.postSummaryStatus(id, panel);
@@ -667,6 +746,8 @@ export class InvestigationDocuments implements DocumentHost {
   refresh(id: string, panel: vscode.WebviewPanel): Promise<void> {
     return this.cache.exclusive(id, async () => {
       let read: Awaited<ReturnType<InvestigationCache["refresh"]>>;
+      const before = this.cache.watermark(id);
+      const current = this.sameIdentity();
       try {
         read = await this.cache.refresh(id);
       } catch (err) {
@@ -679,6 +760,7 @@ export class InvestigationDocuments implements DocumentHost {
       const { seq, patch } = read;
       if (patch.investigation) {
         panel.title = panelTitle(patch.investigation.title);
+        this.noteState(id, patch.investigation.state);
       }
       void this.post(panel, { type: "state.patch", seq, patch });
       this.onLoaded?.(id, seq);
@@ -690,9 +772,9 @@ export class InvestigationDocuments implements DocumentHost {
           hypotheses: patch.hypotheses, pins: patch.pins, actions: patch.actions ?? undefined, seed: patch.investigation?.seed,
         });
         void this.evidence.postEvents(id, panel, seq);
-        // A committed act may have consulted knowledge: the Library's
-        // "cited in N investigations" follows the record (adr/0109).
-        void this.knowledge.postLibrary(id, panel);
+        // A committed act consulted knowledge: the sidebar's cited-in
+        // readings follow the record (adr/0109, adr/0344).
+        if (current() && consultedSince(patch.thread, before)) this.libraryChanged();
       }
       // Unsequenced follow-ups finish inside this operation (see load).
       await this.actions.resendActionRecords(id, panel, seq);
@@ -750,6 +832,9 @@ export class InvestigationDocuments implements DocumentHost {
         // way; a narrative failure must never look like a conclude failure.
         // The summary's outcome is shown beside the report (adr/0156), not only
         // in a status bar message that fades.
+        // The conclusion wrote the case's baseline summary: a new past case
+        // (adr/0344). The narrative rewrites it once it settles.
+        this.libraryChanged();
         this.summarizing.add(id);
         void this.transport.summarizeConcluded(id).then(
           () => this.post(panel, { type: "summary.status", state: "written" }),
@@ -757,6 +842,7 @@ export class InvestigationDocuments implements DocumentHost {
         ).finally(() => {
           this.summarizing.delete(id);
           this.releaseSession(id);
+          if (current()) this.libraryChanged();
         });
         // Drafting a procedure from the case is the analyst's step now
         // (adr/0156): Draft SOP from this case, in the Summary lens.
@@ -766,7 +852,7 @@ export class InvestigationDocuments implements DocumentHost {
 
   /** Run a ⚡ scoped turn: rendered collapsed under its label. */
   private runScoped(id: string, panel: vscode.WebviewPanel, t: ScopedTurn): Promise<void> {
-    return this.turns.run(id, panel, t.instruction, { label: t.label }).finally(() => this.releaseSession(id));
+    return this.runTurn(id, panel, t.instruction, { label: t.label });
   }
 
   post(panel: vscode.WebviewPanel, msg: RenderMessage): Thenable<boolean> {
@@ -776,4 +862,12 @@ export class InvestigationDocuments implements DocumentHost {
       return Promise.resolve(false); // the panel was disposed while a read was in flight
     }
   }
+}
+
+/** The state noted for a record whose load failed: not a lifecycle word. */
+const LOAD_FAILED = "\u0000load-failed";
+
+/** Whether an entry recorded after `seq` consulted a procedure or a past case. */
+function consultedSince(thread: ThreadEntry[], seq: number): boolean {
+  return thread.some((e) => e.sequenceNo > seq && ((e.consultedSops?.length ?? 0) > 0 || (e.consultedSimilar?.length ?? 0) > 0));
 }
