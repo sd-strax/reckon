@@ -1,7 +1,9 @@
 // The inspector dock and the frame every type shares (08 §8.6, impl §2.4):
 // type label · pin · close, back + breadcrumb when reached from another
 // object, a human name, "In this case", then the typed tabs. At most two
-// panes: the pinned one and the active one. Esc closes the active one.
+// panes: the pinned one and the active one. Esc closes the active one. The
+// Knowledge tab shows the same frame as its whole page (adr/0346), with the
+// back stack but no pin or close.
 import { useEffect } from "react";
 import { useApp, type InspectorPane as Pane } from "../../app";
 import { rendererFor, rendererLabel, targetKey, targetName } from "../../derive/inspect";
@@ -49,7 +51,7 @@ function Body({ target }: { target: InspectorTarget }) {
   }
 }
 
-function PaneView({ pane, which }: { pane: Pane; which: "active" | "pinned" }) {
+function PaneView({ pane, which, page = false }: { pane: Pane; which: "active" | "pinned"; page?: boolean }) {
   const { state, inspectorBack, closeInspector, pinInspector } = useApp();
   const target = pane.stack[pane.stack.length - 1];
   if (!target) return null;
@@ -65,10 +67,12 @@ function PaneView({ pane, which }: { pane: Pane; which: "active" | "pinned" }) {
     <section className={"inspector " + which} data-key={key} aria-label={rendererLabel(renderer)}>
       <header className="ihead">
         <span className="kicker">{rendererLabel(renderer)}</span>
-        <span className="ihead-actions">
-          {which === "active" ? <button className="iconbtn" title="Pin this pane — the next citation opens beside it" onClick={pinInspector}>📌</button> : null}
-          <button className="iconbtn" title="Close (Esc)" onClick={() => closeInspector(which)}>✕</button>
-        </span>
+        {page ? null : (
+          <span className="ihead-actions">
+            {which === "active" ? <button className="iconbtn" title="Pin this pane — the next citation opens beside it" onClick={pinInspector}>📌</button> : null}
+            <button className="iconbtn" title="Close (Esc)" onClick={() => closeInspector(which)}>✕</button>
+          </span>
+        )}
       </header>
       {crumbs.length && which === "active" ? (
         <div className="icrumbs">
@@ -111,4 +115,10 @@ export function InspectorDock() {
       {inspector.active ? <PaneView pane={inspector.active} which="active" /> : null}
     </div>
   );
+}
+
+/** The active pane as a whole page (adr/0346): the Knowledge tab's item, links moving within it with a way back. */
+export function InspectorPage() {
+  const { inspector } = useApp();
+  return inspector.active ? <PaneView pane={inspector.active} which="active" page /> : null;
 }

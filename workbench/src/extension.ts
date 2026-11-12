@@ -235,38 +235,37 @@ export function activate(context: vscode.ExtensionContext): void {
     // choosing what becomes institutional knowledge is operational input, so it
     // lives on a reckon surface (open-editor documents with checkboxes, add
     // from disk, per-document outcome) — never the top-of-window quick input.
-    // The Knowledge view (adr/0107, ui/09 §9.1): browse, search and filter
-    // the procedures and past cases outside any investigation; opened from
-    // the sidebar's Knowledge view (adr/0344): its title bar, Search, and a row.
+    // The Knowledge tab (adr/0107, adr/0346): one procedure or past case, or
+    // the search page, outside any investigation; opened from the sidebar's
+    // Knowledge view (adr/0344): its title bar and Search open the search
+    // page, a row its item.
     vscode.commands.registerCommand("reckon.openKnowledge", () => {
       if (!session.signedIn) {
         void vscode.window.showWarningMessage("reckon: sign in before opening the Knowledge view");
         return;
       }
-      knowledgeView.open();
+      knowledgeView.open({ type: "knowledge.search" });
     }),
     vscode.commands.registerCommand("reckon.searchKnowledge", () => {
       if (!session.signedIn) {
         void vscode.window.showWarningMessage("reckon: sign in before searching the knowledge library");
         return;
       }
-      // Search takes the keyboard to the query bar, clear of an active investigation.
-      knowledgeView.open({ type: "knowledge.search" }, { beside: documents.activeColumn(), focus: true });
+      knowledgeView.open({ type: "knowledge.search" });
     }),
-    // A row opens its item in the Knowledge view's inspector.
-    // With an investigation the active editor, the view opens beside it and
-    // the investigation keeps the focus, so Ask reckon to use this stays offered.
+    // A row opens its item as the Knowledge tab's page (adr/0346).
     vscode.commands.registerCommand(OPEN_ITEM_COMMAND, (arg?: unknown) => {
       if (!session.signedIn) {
         void vscode.window.showWarningMessage("reckon: sign in before opening the Knowledge view");
         return;
       }
       if (arg instanceof KnowledgeItem) {
-        knowledgeView.open(knowledgeShow(arg.item), { beside: documents.activeColumn(), focus: false });
+        knowledgeView.open(knowledgeShow(arg.item));
       }
     }),
-    // Ask reckon to use this (adr/0344): offered while an investigation
-    // document is the active editor; staged in its composer, never sent.
+    // Ask reckon to use this (adr/0344, adr/0346): offered while the
+    // investigation last active can take a request; staged in its composer,
+    // which is revealed; never sent.
     vscode.commands.registerCommand("reckon.askToUseKnowledge", (arg?: unknown) => {
       if (!session.signedIn) {
         void vscode.window.showWarningMessage("reckon: sign in before asking reckon to use this");
@@ -275,7 +274,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!(arg instanceof KnowledgeItem)) {
         return;
       }
-      const refusal = documents.stageInActive(askToUseText(arg.item));
+      const refusal = documents.stageInRecent(askToUseText(arg.item));
       if (refusal) {
         void vscode.window.showInformationMessage(`reckon: ${refusal}`);
       }

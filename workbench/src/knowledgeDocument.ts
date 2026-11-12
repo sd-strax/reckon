@@ -1,20 +1,20 @@
-// The Knowledge view (adr/0107, ui/09 §9.1): one document outside any
-// investigation, to browse and search the procedures and past cases, filter
-// the past cases, read either in the inspector, and import. It shows
-// knowledge only and records nothing in any investigation; a past case
-// names the investigation it came from as a link, which opens that
+// The Knowledge tab (adr/0107, adr/0346, ui/09 §9.1): one document outside
+// any investigation, a top-level tab whose page is one procedure or past case,
+// or the search page (the query bar, its results, and the filtered past
+// cases). It shows knowledge only and records nothing in any investigation; a
+// past case names the investigation it came from as a link, which opens that
 // investigation's own document.
 //
 // The page is the bundle's `knowledge` surface (webview/src/surfaces/
 // KnowledgeApp.tsx); this host answers its subset of the messages. The
-// sidebar's Knowledge view (adr/0344) opens it on one item or with its query
-// bar focused.
+// sidebar's Knowledge view (adr/0344) is its only navigation: it opens the tab
+// on one item or on the search page.
 
 import * as vscode from "vscode";
 import type { BackendClient } from "./backend";
 import { caseAnswer, procedureAnswer } from "./knowledgeAnswers";
 import { panelHtml, panelOptions } from "./panelHtml";
-import type { InspectorTarget, KnowledgeCue, KnowledgeInboundMessage, KnowledgeRenderMessage } from "./protocol";
+import type { InspectorTarget, KnowledgeCue, KnowledgeInboundMessage, KnowledgeRenderMessage, KnowledgeTarget } from "./protocol";
 import type { PastCaseFilter } from "./viewTypes";
 import { errText } from "./util";
 
@@ -28,6 +28,18 @@ export class KnowledgeDocument {
   private generation = 0;
   // The filter the page last asked for, so a refresh re-reads what is on screen.
   private lastFilter: PastCaseFilter | undefined;
+  // The listing the page asked for before a handshake succeeded: only the
+  // latest ask is kept, and it is read once one does (adr/0244).
+  private heldFilter: PastCaseFilter | undefined;
+  // Whether the open panel's handshake has succeeded: until then nothing is read.
+  private handshakeOk = false;
+  // The page the open panel shows (adr/0346): its item, or the search page.
+  // Only what the shown page uses is read.
+  private showing: KnowledgeTarget | "search" | undefined;
+  // The search page's corpus total and facets, and its listing, need reading
+  // when it is next shown: set on a load and a refresh, cleared once read.
+  private searchStale = true;
+  private listingStale = true;
   // What the sidebar asked of a view not yet ready to hear it: posted on its ready.
   private pendingCue: KnowledgeCue | undefined;
   // Whether the open panel's page has said ready: until then a cue is held, the latest one kept.
@@ -46,38 +58,53 @@ export class KnowledgeDocument {
     this.panel?.dispose();
   }
 
-  /** The library changed (an import, a procedure added, a case concluded): re-read what the open view lists. */
+  /**
+   * The library changed (an import, a procedure added, a case concluded), or
+   * the tab came back into view: re-read what the shown page uses; the search
+   * page, if not shown, is read when it next is.
+   */
   refresh(): void {
     const panel = this.panel;
-    if (!panel) return;
-    void this.postLibrary(panel);
-    void this.postFacets(panel);
-    if (this.lastFilter) void this.postPastCases(panel, this.lastFilter);
+    if (!panel || !this.handshakeOk) return;
+    this.searchStale = true;
+    this.listingStale = true;
+    if (this.showing && this.showing !== "search") void this.answerInspector(panel, this.showing);
+    else this.readShown(panel);
+  }
+
+  /** Read what of the search page's corpus total, facets and listing is stale, if it is the page shown. */
+  private readShown(panel: vscode.WebviewPanel): void {
+    if (panel !== this.panel || !this.handshakeOk || this.showing !== "search") return;
+    if (this.searchStale) {
+      this.searchStale = false;
+      void this.postCorpus(panel);
+      void this.postFacets(panel);
+    }
+    if (this.listingStale && this.lastFilter) void this.postPastCases(panel, this.lastFilter);
   }
 
   /**
-   * Open (or reveal) the one Knowledge view; with a cue, on one item or with
-   * its query bar focused. A view just created hears the cue once it is ready.
-   *
-   * `beside` is the column of the investigation that is the active editor
-   * (adr/0344): the view never covers it. An open view in another group is
-   * revealed where it is; otherwise it goes Beside. `focus` says whether the
-   * view takes the keyboard (Search) or the investigation keeps it (a row).
+   * Open (or reveal) the one Knowledge tab on one item or on the search page
+   * (adr/0346). It opens in the active editor group and takes the focus; an
+   * open tab is revealed where it is. A tab just created hears the cue once
+   * it is ready.
    */
-  open(cue?: KnowledgeCue, opts: { beside?: vscode.ViewColumn; focus?: boolean } = {}): void {
-    const { beside, focus = false } = opts;
+  open(cue: KnowledgeCue): void {
     if (this.panel) {
-      if (beside === undefined) this.panel.reveal();
-      else if (this.panel.viewColumn !== undefined && this.panel.viewColumn !== beside) this.panel.reveal(this.panel.viewColumn, !focus);
-      else this.panel.reveal(vscode.ViewColumn.Beside, !focus);
-      if (cue && this.pageReady) this.post(this.panel, cue);
-      else if (cue) this.pendingCue = cue;
+      this.panel.reveal(this.panel.viewColumn);
+      if (this.pageReady) this.post(this.panel, cue);
+      else this.pendingCue = cue;
       return;
     }
     this.pageReady = false;
     this.pendingCue = cue;
-    const column = beside !== undefined ? { viewColumn: vscode.ViewColumn.Beside, preserveFocus: !focus } : vscode.ViewColumn.Active;
-    const panel = vscode.window.createWebviewPanel("reckon.knowledge", "Knowledge", column, panelOptions(this.extensionUri));
+    this.handshakeOk = false;
+    this.showing = undefined;
+    this.searchStale = true;
+    this.listingStale = true;
+    this.heldFilter = undefined;
+    this.lastFilter = undefined;
+    const panel = vscode.window.createWebviewPanel("reckon.knowledge", "Knowledge", vscode.ViewColumn.Active, panelOptions(this.extensionUri));
     this.panel = panel;
     panel.webview.html = panelHtml(panel.webview, this.extensionUri, "knowledge", "Knowledge");
     panel.webview.onDidReceiveMessage((msg: KnowledgeInboundMessage) => this.route(panel, msg));
@@ -85,6 +112,7 @@ export class KnowledgeDocument {
       if (this.panel === panel) {
         this.panel = undefined;
         this.pendingCue = undefined;
+        this.heldFilter = undefined;
       }
     });
     // The corpus moves while the view is hidden (an investigation concludes,
@@ -105,18 +133,20 @@ export class KnowledgeDocument {
         if (cue) this.post(panel, cue);
         return;
       }
-      case "library.get":
-        void this.postLibrary(panel);
-        void this.postFacets(panel);
-        return;
       case "library.search":
         void this.search(panel, msg.text);
         return;
-      case "library.import":
-        void vscode.commands.executeCommand("reckon.importSOP");
-        return;
       case "pastCases.get":
-        void this.postPastCases(panel, msg.filter);
+        // The search page asks for its listing as it mounts, before its
+        // ready: an ask before a handshake succeeded is held, the latest
+        // replacing any before it, and read by load.
+        if (panel === this.panel && !this.handshakeOk) this.heldFilter = msg.filter;
+        else void this.postPastCases(panel, msg.filter);
+        return;
+      case "knowledge.showing":
+        if (panel !== this.panel) return;
+        this.showing = msg.target ?? "search";
+        this.readShown(panel);
         return;
       case "inspector.open":
         void this.answerInspector(panel, msg.target);
@@ -144,15 +174,24 @@ export class KnowledgeDocument {
       const incompatible = this.client.incompatibilityReason(await this.client.status());
       if (generation !== this.generation) return;
       if (incompatible) {
+        if (panel === this.panel) this.handshakeOk = false;
         this.post(panel, { type: "error", message: incompatible });
         return;
       }
     } catch (err) {
-      if (generation === this.generation) this.post(panel, { type: "error", message: errText(err) });
+      if (generation !== this.generation) return;
+      if (panel === this.panel) this.handshakeOk = false;
+      this.post(panel, { type: "error", message: errText(err) });
       return;
     }
-    void this.postLibrary(panel);
-    void this.postFacets(panel);
+    if (panel !== this.panel) return;
+    this.handshakeOk = true;
+    // A held ask is the latest one: it is what the page shows.
+    if (this.heldFilter) this.lastFilter = this.heldFilter;
+    this.heldFilter = undefined;
+    this.searchStale = true;
+    this.listingStale = true;
+    this.readShown(panel);
   }
 
   /** A guard for one list: true while this request is still the latest of its kind and the identity has not changed. */
@@ -163,15 +202,15 @@ export class KnowledgeDocument {
     return () => this.requests.get(kind) === n && this.generation === generation;
   }
 
-  private async postLibrary(panel: vscode.WebviewPanel): Promise<void> {
-    const latest = this.begin("library");
-    let sopsError: string | undefined;
-    const [sops, cases] = await Promise.all([
-      this.client.knowledge.procedures().catch((err: unknown) => { sopsError = errText(err); this.log.debug(`knowledge view procedures: ${sopsError}`); return []; }),
-      this.client.knowledge.caseList().catch((err: unknown) => { this.log.debug(`knowledge view cases: ${errText(err)}`); return undefined; }),
-    ]);
-    // A failed case read sends no total: the view then claims no corpus size.
-    if (latest()) this.post(panel, { type: "library", sops, cases: cases?.items ?? [], casesTotal: cases?.total, sopsError });
+  /** How many past cases there are in all, for "n of m match"; a failed read sends nothing, so the page claims no corpus size. */
+  private async postCorpus(panel: vscode.WebviewPanel): Promise<void> {
+    const latest = this.begin("corpus");
+    try {
+      const { total } = await this.client.knowledge.caseList();
+      if (latest()) this.post(panel, { type: "pastCases.corpus", total });
+    } catch (err) {
+      this.log.debug(`knowledge view cases: ${errText(err)}`);
+    }
   }
 
   private async postFacets(panel: vscode.WebviewPanel): Promise<void> {
@@ -187,6 +226,7 @@ export class KnowledgeDocument {
 
   private async postPastCases(panel: vscode.WebviewPanel, filter: PastCaseFilter): Promise<void> {
     this.lastFilter = filter;
+    this.listingStale = false;
     const latest = this.begin("pastCases");
     try {
       const { rows, total } = await this.client.knowledge.pastCases(filter);

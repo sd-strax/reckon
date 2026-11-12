@@ -128,15 +128,32 @@ export class InvestigationDocuments implements DocumentHost {
     this.onLibraryChanged();
   }
 
+  // When each investigation panel was last the active editor, as a rising
+  // count: "Ask reckon to use this" goes to the most recent (adr/0346).
+  private activeSeq = 0;
+  private readonly lastActive = new WeakMap<vscode.WebviewPanel, number>();
+
+  /** A panel's view state changed: note it if it became the active editor, then re-derive the context key. */
+  private viewStateChanged(panel: vscode.WebviewPanel): void {
+    if (panel.active) this.lastActive.set(panel, ++this.activeSeq);
+    this.syncActive();
+  }
+
   /**
-   * The investigation whose document is the active editor, if any. A draft
-   * not yet seeded is not one: it has no investigation to ask about.
+   * Where a staged request goes (adr/0346): the open investigation the
+   * analyst was last in, and only that one; if it cannot take a request, why
+   * not. A draft not yet seeded is not one: it has no investigation to ask
+   * about. The context key and the stage itself both read this.
    */
-  private activeInvestigation(): { id: string; panel: vscode.WebviewPanel } | undefined {
+  private stageTarget(): { id: string; panel: vscode.WebviewPanel } | { refusal: string } {
+    let latest: { id: string; panel: vscode.WebviewPanel } | undefined;
     for (const [id, panel] of this.open) {
-      if (panel.active && !isDraftKey(id)) return { id, panel };
+      if (isDraftKey(id)) continue;
+      if (!latest || (this.lastActive.get(panel) ?? 0) > (this.lastActive.get(latest.panel) ?? 0)) latest = { id, panel };
     }
-    return undefined;
+    if (!latest) return { refusal: "open an investigation to ask reckon to use this" };
+    const refusal = this.stageRefusal(latest.id);
+    return refusal ? { refusal } : latest;
   }
 
   // The record's lifecycle state per open investigation, as last posted to its panel.
@@ -145,11 +162,6 @@ export class InvestigationDocuments implements DocumentHost {
   private noteState(id: string, state: string): void {
     this.recordStates.set(id, state === LOAD_FAILED ? state : String(state).toUpperCase());
     this.syncActive();
-  }
-
-  /** The column of the investigation that is the active editor, if any: the Knowledge view opens clear of it. */
-  activeColumn(): vscode.ViewColumn | undefined {
-    return this.activeInvestigation()?.panel.viewColumn;
   }
 
   /**
@@ -167,30 +179,30 @@ export class InvestigationDocuments implements DocumentHost {
   }
 
   // The context key's last value, so it is set only when it changes.
-  private activeContext: boolean | undefined;
+  private stageableContext: boolean | undefined;
 
   /**
-   * The `reckon.investigationActive` context key (adr/0344): true while the
-   * active editor is an investigation whose composer can take a request.
+   * The `reckon.investigationStageable` context key (adr/0346): true while
+   * the investigation last active can take a request, whichever editor is
+   * active now (the Knowledge tab takes the focus).
    */
   private syncActive(): void {
-    const target = this.activeInvestigation();
-    const active = !!target && this.stageRefusal(target.id) === null;
-    if (active === this.activeContext) return;
-    this.activeContext = active;
-    void vscode.commands.executeCommand("setContext", "reckon.investigationActive", active);
+    const stageable = !("refusal" in this.stageTarget());
+    if (stageable === this.stageableContext) return;
+    this.stageableContext = stageable;
+    void vscode.commands.executeCommand("setContext", "reckon.investigationStageable", stageable);
   }
 
   /**
-   * Stage a request in the active investigation's composer (adr/0344), never
-   * sent: "Ask reckon to use this" from the sidebar. Null when staged;
-   * otherwise why not, and nothing is staged.
+   * Stage a request in the composer of the investigation last active, and
+   * reveal it (adr/0346): "Ask reckon to use this" from
+   * the sidebar, never sent. Null when staged; otherwise why not, and nothing
+   * is staged.
    */
-  stageInActive(text: string): string | null {
-    const target = this.activeInvestigation();
-    if (!target) return "open an investigation to ask reckon to use this";
-    const refusal = this.stageRefusal(target.id);
-    if (refusal) return refusal;
+  stageInRecent(text: string): string | null {
+    const target = this.stageTarget();
+    if ("refusal" in target) return target.refusal;
+    target.panel.reveal(target.panel.viewColumn);
     void this.post(target.panel, { type: "composer.stage", text });
     return null;
   }
@@ -225,7 +237,8 @@ export class InvestigationDocuments implements DocumentHost {
     panel.webview.html = panelHtml(panel.webview, this.extensionUri, "investigation", "Investigation");
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
     panel.onDidDispose(() => this.forget(ref.id));
-    panel.onDidChangeViewState(() => this.syncActive());
+    panel.onDidChangeViewState(() => this.viewStateChanged(panel));
+    this.lastActive.set(panel, ++this.activeSeq);
     this.syncActive();
   }
 
@@ -254,7 +267,8 @@ export class InvestigationDocuments implements DocumentHost {
     // with the unseeded render instead of a load().
     panel.webview.onDidReceiveMessage((msg: InboundMessage) => this.route(ref, panel, msg));
     panel.onDidDispose(() => this.forget(ref.id));
-    panel.onDidChangeViewState(() => this.syncActive());
+    panel.onDidChangeViewState(() => this.viewStateChanged(panel));
+    this.lastActive.set(panel, ++this.activeSeq);
     this.syncActive();
   }
 

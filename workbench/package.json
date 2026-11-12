@@ -273,7 +273,7 @@
         },
         {
           "command": "reckon.askToUseKnowledge",
-          "when": "view == reckon.knowledge && viewItem == reckon.knowledgeItem && reckon.signedIn && reckon.investigationActive",
+          "when": "view == reckon.knowledge && viewItem == reckon.knowledgeItem && reckon.signedIn && reckon.investigationStageable",
           "group": "inline@1"
         },
         {
