@@ -76,14 +76,39 @@ cases are embedded at seed time so similarity recall can rank them.
   into the corpus; you import one **live** on stage (Act 2), as part of the story.
 
 Then in the **workbench**: reload the window, sign in (`dev-auth` prints the
-login), and run **Set Anthropic API Key (BYOK)**. If the agent's first turn
-reports that it could not start the reckon sidecar, `reckon` is not on PATH:
-set `reckon.sidecarPath` to the binary. Before going on stage, open
-`~/.reckon/sops/lateral-movement-rdp-containment.md` in a tab; Act 2 imports it.
+login), and run **Set Anthropic API Key (BYOK)**. The fixtures are live and the
+prior cases are consultable.
 
 > If you seeded onto a dirty install it will refuse and tell you the counts —
 > run `reckon demo reset` first (it wipes everything back to a clean install),
 > then re-seed.
+
+## Pre-flight (the afternoon before)
+
+1. **One build, both halves.** The workbench and the `reckon` binary it spawns
+   as its agent sidecar must come from the same commit. From a repo checkout:
+   `make build`, then `make workbench-package` and
+   `code --install-extension workbench/reckon-workbench-*.vsix --force`. The
+   sidecar is `reckon` on PATH, or the binary `reckon.sidecarPath` names — point
+   that setting at the fresh `bin/reckon`. A stale workbench shows labels this
+   walkthrough does not; a stale sidecar runs an older agent prompt.
+2. **Reseed onto the scenario.** In a shell where the embeddings key is exported,
+   run `scripts/demo-reseed.sh` (`RECKON=bin/reckon scripts/demo-reseed.sh` for a
+   repo build). Check that `capability.config_path` in `~/.reckon/config.yaml`
+   names `lateral-movement.yaml` — a stack left on another scenario shows that
+   scenario's queue.
+3. **Sign in.** Reload the window, sign in with the login `dev-auth` printed,
+   and set the BYOK key.
+4. **Sanity check.** The Cases view lists three cases in SOC Tier 2. The
+   Library's past cases list the `FINANCE-07` → `DC-02` pivot and
+   `WORKSTATION-22`; its procedures are empty.
+5. **Rehearse once, end to end.** Note the handles and prediction numbers the
+   agent picks; they will differ on stage, but you will know their shape.
+6. **Reseed again**, then repeat step 3. The rehearsal left an investigation and
+   SOPs behind, so the seed would refuse and the audience would not see an
+   empty library.
+7. **Stage the SOP.** Open `~/.reckon/sops/lateral-movement-rdp-containment.md`
+   in a tab and leave it there; Act 2 imports it.
 
 ---
 
@@ -341,6 +366,28 @@ reckon stop && reckon demo scenario impossible-travel-signin && reckon start --d
 
 (A third, `exposed-bucket-via-access-key`, is a cloud control-plane story and
 swaps in the same way.)
+
+## When something goes wrong on stage
+
+- **The agent's first turn says it could not start the reckon sidecar.** The
+  workbench cannot find `reckon`: fix `reckon.sidecarPath` (or PATH) and run
+  **Developer: Reload Window**.
+- **The baseline test comes back empty.** The window was counted back from
+  today; the fixtures sit around 2026-04-20. Ask: *"Run the svc_backup logon
+  baseline over the 30 days before 2026-04-20."*
+- **The agent goes long on `jdoe`, the session hijack or `WIN-APP02`.** Steer:
+  *"Keep to the svc_backup hypothesis for now."* — and come back to it as the
+  "it found more than the ticket said" beat.
+- **The Cases view shows the wrong queue.** The stack is wired to another
+  scenario: `reckon stop && reckon demo scenario lateral-movement-via-rdp &&
+  reckon start --detach`, then reload.
+- **`demo seed` refuses with counts.** The install is not empty: run
+  `scripts/demo-reseed.sh`, which resets first.
+- **Sign-in fails after a reset or reseed.** The realm went with the Postgres
+  cluster: `reckon dev-auth` recreates the login (the reseed script already
+  runs it), then sign in again.
+- **Isolation is refused or finds no target.** The fixture write adapter
+  answers the host by its exact name: ask for `WIN-FILE01`.
 
 ## Reset (graduate to real work)
 
