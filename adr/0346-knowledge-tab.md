@@ -1,6 +1,6 @@
 # 0346 — Knowledge is a top-level tab whose only navigation is the sidebar
 
-Issue: #346 · PR: #TBD · Status: accepted · Supersedes: `0344`'s "a row opens its item beside
+Issue: #346 · PR: #347 · Status: accepted · Supersedes: `0344`'s "a row opens its item beside
 the investigation" and its Ask rule, and the section list and Import section of `0107`
 
 ## Context
