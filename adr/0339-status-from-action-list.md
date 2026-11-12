@@ -63,8 +63,14 @@ requested after it.
   turn when no request on the turn was accepted; a read before the last
   accepted request, or the block on a turn that had one, does not pass. Each
   call is paired with its result by id from the committed transcript: a read
-  counts only when `list_actions` answered without error, and a request with
-  no result counts as accepted. The catalogue version moves.
+  counts only when `list_actions` answered without error. A request that
+  did not succeed is set aside only when the record shows it created nothing:
+  every action in the trial's durable action record is accounted for by a
+  request that succeeded. When the record holds an action no successful
+  request returned, or was not captured, a failed or unanswered request may
+  be the one that created it, and each counts as accepted. The read must also come before
+  the answer: the agent's own text has to follow the read it relies on. The
+  catalogue version moves.
 - **Pending validation.** The four rules carry `PendingValidation: "#339"` until
   every scenario's runs on both models are accepted under the new version.
   Only the cloud scenario has a request-and-status turn, so on acceptance the
@@ -140,6 +146,30 @@ is memory), the existence rule's scope, the block's expiry, H4's order. Also:
   says no action was requested this turn and that any claim of a new one is
   unconfirmed, which stays true; H8 is asserted only on turns that ask for a
   creation.
+
+## External review
+
+Two findings on H4, both taken:
+
+- An error result does not prove no action was recorded. The engine records
+  the request before it answers, so an answer lost on the way back reaches the
+  agent as a failed call while the action exists. H4 now asks the record, not
+  the error: the trial keeps the engine's action record as served at its end,
+  and a failed request is set aside only when every action in it was returned
+  by a request that succeeded. Telling a rejection from a lost answer by the
+  error's wording was tried first and dropped: an error status sent after the
+  record was written, and a call the loop never sent, both read wrongly.
+  Counting every attempt, the reviewer's other option, would bring back the
+  rejected-request case the code review closed.
+- Order of calls alone let an answer given before the read pass: text sent
+  with the `list_actions` call, then nothing after its result. H4 now requires
+  the agent's own text after the read. Known limit: a grader that reads no
+  prose cannot tell which sentence states the status, so a status stated
+  before the read and unrelated text after it still passes; that is a judge's
+  question.
+
+Replayed over the eighteen trials of the six accepted runs, neither rule
+changes a verdict.
 
 ## The first wording did not hold
 
