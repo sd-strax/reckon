@@ -14,7 +14,7 @@ describe("recorded stages", () => {
       expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(s.snapshot.investigation.title);
       expect(document.querySelectorAll(".stage .step").length).toBe(5);
       expect(document.querySelectorAll(".lenstab").length).toBe(4);
-      expect(document.querySelector("#leftRegion")).toBeTruthy();
+      expect(document.querySelector("#leftRegion")).toBeNull(); // the work queue is the sidebar (adr/0342)
       expect(document.querySelector("#companion #composer")).toBeTruthy();
       const seed = s.snapshot.investigation.seed;
       if (seed?.type === "case") expect(screen.getAllByText(new RegExp(seed.caseId!)).length).toBeGreaterThan(0);

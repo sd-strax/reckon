@@ -29,7 +29,6 @@ import type {
   Hypothesis,
   IdentityViews,
   InvestigationDetail,
-  InvestigationSummary,
   KnowledgeCitations,
   PastCaseFacets,
   PastCaseFilter,
@@ -40,6 +39,7 @@ import type {
   SOPOutlineView,
   ThreadEntry,
 } from "./viewTypes";
+import type { EnablementField } from "./enablement";
 
 /** The four lenses (08 §8.4). */
 export type Lens = "summary" | "story" | "reasoning" | "response";
@@ -204,9 +204,6 @@ export type RenderMessage =
   // The whole cache, and whole re-posts of the slices an act touched (§3.1).
   | { type: "state.snapshot"; seq: number; snapshot: InvestigationSnapshot }
   | { type: "state.patch"; seq: number; patch: Partial<InvestigationSnapshot> }
-  // The work queue (08 §8.3): the analyst's investigations and the case
-  // system's queue, posted on load and on refresh; `queue.get` re-asks.
-  | { type: "queue"; investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string }
   // Who the signed-in principal is, for "edited by you" and attestations.
   | { type: "me"; name: string; principal: string }
   | { type: "error"; message: string }
@@ -286,9 +283,6 @@ export type RenderMessage =
 /** What the webview posts back to the extension host. */
 export type InboundMessage =
   | { type: "refresh" | "ready" }
-  | { type: "queue.get" }
-  // Start an investigation from a case row in the work queue (08 §8.3).
-  | { type: "queue.start"; caseNumber: string }
   // Draft a procedure from this concluded case, then add or discard it (adr/0156).
   | { type: "sop.draft"; force?: boolean }
   | { type: "sop.accept" }
@@ -302,7 +296,7 @@ export type InboundMessage =
   | { type: "library.search"; text: string }
   | { type: "library.import" }
   // The Knowledge view (adr/0107): its past cases under a filter, and opening
-  // the view from the investigation's left region.
+  // the view from the Library.
   | { type: "pastCases.get"; filter: PastCaseFilter }
   | { type: "knowledge.open" }
   // The lens and companion mode the analyst chose, mirrored to globalState so
@@ -348,7 +342,9 @@ export type InboundMessage =
   // One prediction's test, run as a scoped turn from its row (the ⚡ family).
   | { type: "pred.test"; predictionRef: string; predictionName: string; statement: string; queryText?: string; tool?: string; hypothesisRef: string; hypStatement: string; handle?: string; rivals?: RivalBrief[] }
   | { type: "hyp.decide"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
-  | { type: "enablement.apply"; adapter: string; enabled: boolean; config: Record<string, string>; secretFields: string[] }
+  // `ask`: the fields the native flow still asks for — every secret, and any
+  // required field the form left empty — with the schema's rules (adr/0342).
+  | { type: "enablement.apply"; adapter: string; enabled: boolean; config: Record<string, string>; ask: EnablementField[] }
   | { type: "comms.act"; threadId: string; verb: "ack" | "done" }
   | { type: "comms.snooze"; threadId: string; hours: number }
   | { type: "comms.followup"; threadId: string; actionType: string; target: string; subject: string; message: string; followUpHours: number }
@@ -381,8 +377,6 @@ export type InboundMessage =
   | { type: "export.open" }
   | { type: "copy"; text: string }
   | { type: "investigation.open"; id: string; title?: string }
-  // Start a new investigation: the seed surface, as the command opens it (#162).
-  | { type: "investigation.new" }
   | { type: "rename"; title: string };
 
 // ---- the other surfaces -------------------------------------------------------

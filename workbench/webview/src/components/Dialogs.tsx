@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { useApp } from "../app";
 import { verdictChecklist, verdictRefs, verdictResidual } from "../derive/verdict";
+import { nativeFields } from "../../../src/enablement";
 
 export function VerdictDialog() {
   const { state, send, setVerdictOpen } = useApp();
@@ -57,7 +58,6 @@ export function EnableForm({ adapter }: { adapter: string }) {
     return out;
   });
   if (!a || !a.supportable) return null; // no affordance for classes this form does not enable
-  const secretFields = Object.entries(a.configFields || {}).filter(([, f]) => f.secret).map(([n]) => n);
   return (
     <div className="dialog" id="enableDialog" onKeyDown={(e) => { if (e.key === "Escape") closeEnableForm(); }}>
       <div className="dlg" role="dialog" aria-label={(a.enabled ? "Configure " : "Enable ") + a.name}>
@@ -81,7 +81,8 @@ export function EnableForm({ adapter }: { adapter: string }) {
           <button className="primary" onClick={() => {
             const config: Record<string, string> = {};
             for (const [name, raw] of Object.entries(values)) { const v = raw.trim(); if (v !== "") config[name] = v; }
-            send({ type: "enablement.apply", adapter: a.name, enabled: true, config, secretFields });
+            // Secrets, and any required field left empty, are asked natively with the schema's rules.
+            send({ type: "enablement.apply", adapter: a.name, enabled: true, config, ask: nativeFields(a, config) });
             closeEnableForm();
           }}>{a.enabled ? "Apply changes" : "Enable " + a.name}</button>
           <button onClick={closeEnableForm}>Cancel</button>

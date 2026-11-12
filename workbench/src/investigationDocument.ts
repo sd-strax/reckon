@@ -37,6 +37,8 @@ import { EvidenceReads } from "./evidenceReads";
 import { KnowledgeFlow } from "./knowledgeFlow";
 import { NarrativeFlow } from "./narrativeFlow";
 import { ReportExport } from "./reportExport";
+import { applyEnablement, confirmEnablement, type EnablementChange } from "./enablementFlow";
+import { CaseStarts } from "./caseStarts";
 
 export class InvestigationDocuments implements DocumentHost {
   private readonly open = new Map<string, vscode.WebviewPanel>();
@@ -82,6 +84,8 @@ export class InvestigationDocuments implements DocumentHost {
     private readonly onLoaded?: (id: string, lastEventSequence: number) => void,
     /** The lens / companion mode the analyst chose (view state the tree may deep-link). */
     private readonly onViewState?: (id: string, lens?: string, companion?: string) => void,
+    /** The one start from a case, shared with the case page (adr/0342). */
+    readonly caseStarts: CaseStarts = new CaseStarts(),
   ) {
     this.cache = new InvestigationCache(client, log);
     this.turns = new TurnDriver(transport, (panel, msg) => this.post(panel, msg), (id, panel) => this.refresh(id, panel));
@@ -97,6 +101,15 @@ export class InvestigationDocuments implements DocumentHost {
   /** Apply the tenant's case write-back posture to a just-created investigation (adr/0032). */
   offerCaseNote(created: InvestigationDetail): void {
     this.draft.offerCaseNote(created);
+  }
+
+  /**
+   * Start an investigation from a case: the seed path, then open it — or the
+   * investigation the case already has. The sidebar's Cases rows run it
+   * (adr/0342), the one start from a case.
+   */
+  startFromCase(caseNumber: string): Promise<void> {
+    return this.draft.startFromCase(caseNumber);
   }
 
   /** A draft panel became the live investigation: it is held under the real id now. */
@@ -350,7 +363,7 @@ export class InvestigationDocuments implements DocumentHost {
         void this.runScoped(id, panel, decideTurn(msg.hypothesisRef, msg.statement, msg.handle, msg.rivals));
       },
       "enablement.apply": (msg) => {
-        void this.applyEnablement(id, panel, msg);
+        void this.applyEnablement(msg);
       },
       "comms.act": (msg) => {
         void this.actions.commsAct(id, panel, msg.threadId, msg.verb);
@@ -398,12 +411,6 @@ export class InvestigationDocuments implements DocumentHost {
       "identity.withdraw": (msg) => {
         void this.evidence.withdrawIdentity(id, panel, msg);
       },
-      "queue.get": () => {
-        void this.cache.exclusive(id, () => this.postQueue(panel));
-      },
-      "queue.start": (msg) => {
-        void this.draft.startFromCase(msg.caseNumber);
-      },
       "sop.draft": (msg) => {
         void this.knowledge.draftSOP(id, panel, msg.force);
       },
@@ -428,7 +435,7 @@ export class InvestigationDocuments implements DocumentHost {
       "library.import": () => {
         void vscode.commands.executeCommand("reckon.importSOP");
       },
-      // The left region's header opens the Knowledge view (ui/08 §8.3, adr/0107).
+      // The Library opens the Knowledge view (adr/0107).
       "knowledge.open": () => {
         void vscode.commands.executeCommand("reckon.openKnowledge");
       },
@@ -444,9 +451,6 @@ export class InvestigationDocuments implements DocumentHost {
       copy: (msg) => {
         void vscode.env.clipboard.writeText(msg.text);
       },
-      "investigation.new": () => {
-        void vscode.commands.executeCommand("reckon.newInvestigation");
-      },
       "investigation.open": (msg) => {
         void vscode.commands.executeCommand("reckon.openInvestigation", msg.id, msg.title);
       },
@@ -459,6 +463,26 @@ export class InvestigationDocuments implements DocumentHost {
         }
       },
     };
+  }
+
+  /**
+   * Apply an enablement change, the one apply for both paths (adr/0342): the
+   * document form's and the sidebar's Set up…. A refused apply is said. Either
+   * way — a failed apply may still have changed what the server holds (the
+   * config written, the rebuild failed) — while the same person is signed in
+   * it re-reads the capability layer once for every open investigation and
+   * then the sidebar's Capabilities view.
+   */
+  async applyEnablementChange(change: Pick<EnablementChange, "adapter" | "enabled">, config: Record<string, string>): Promise<void> {
+    const current = this.sameIdentity();
+    try {
+      await applyEnablement(this.client, change, config);
+    } catch (err) {
+      if (current()) void vscode.window.showErrorMessage(`reckon: enablement failed — ${errText(err)}`);
+    }
+    if (!current()) return;
+    await this.postCapabilityLayer([...this.open].filter(([id]) => !isDraftKey(id)));
+    if (current()) void vscode.commands.executeCommand("reckon.refreshCapabilities");
   }
 
   /** Refresh every open document (e.g. after sign-out flips to sign-in). */
@@ -591,21 +615,37 @@ export class InvestigationDocuments implements DocumentHost {
       });
       // The retrieved record (adr/0092), sequenced like the derived views.
       void this.evidence.postEvents(id, panel, snapshot.seq);
-      // The queue and the inspector's action records carry no sequence: they
-      // finish inside this operation, so a later read cannot be overtaken. A
-      // reload keeps the inspector open with its records, so a record with
-      // newer events is re-sent like after any other read.
-      await Promise.all([this.postQueue(panel), this.actions.resendActionRecords(id, panel, snapshot.seq)]);
+      // The inspector's action records carry no sequence: they finish inside
+      // this operation, so a later read cannot be overtaken. A reload keeps the
+      // inspector open with its records, so a record with newer events is
+      // re-sent like after any other read.
+      await this.actions.resendActionRecords(id, panel, snapshot.seq);
       // The enablement view (gap hints + form schemas). Absence is honest.
-      const latestEnablement = this.cache.beginRequest(id, "enablement");
-      void this.client.capabilities.enablement()
-        .then((data) => data, () => null)
-        .then((data) => { if (latestEnablement()) void this.patch(id, panel, { enablement: data }); });
+      void this.postCapabilityLayer([[id, panel]]);
       void this.knowledge.postLibrary(id, panel);
       void this.actions.postActionTypes(panel);
       if (String(snapshot.investigation.state).toUpperCase() === "CONCLUDED") {
         void this.knowledge.postSummaryStatus(id, panel);
       }
+    });
+  }
+
+  /**
+   * Read the capability layer once — the enablement view and the verb list,
+   * always both, so no post of one can retire a newer post of the other — and
+   * patch it into each panel given; per panel the latest request wins. A
+   * failed read is honest absence: null, as the load reads the verb list when
+   * the capability layer is off.
+   */
+  private async postCapabilityLayer(targets: [string, vscode.WebviewPanel][]): Promise<void> {
+    if (targets.length === 0) return; // no panel to patch: read nothing
+    const latest = targets.map(([id]) => this.cache.beginRequest(id, "enablement"));
+    const [enablement, capabilities] = await Promise.all([
+      this.client.capabilities.enablement().catch(() => null),
+      this.client.capabilities.list().catch(() => null),
+    ]);
+    targets.forEach(([id, panel], i) => {
+      if (latest[i]!() && this.isOpen(id, panel)) void this.patch(id, panel, { enablement, capabilities });
     });
   }
 
@@ -621,8 +661,8 @@ export class InvestigationDocuments implements DocumentHost {
    * Re-read the event-sourced slices after a write (the analyst's, the
    * agent's, or a dispatch landing) and post them as one patch with the
    * investigation's sequence — no loading state, no re-read of the layers a
-   * write cannot change. The work queue, the derived views and any action
-   * record the inspector holds follow when they changed.
+   * write cannot change. The derived views and any action record the
+   * inspector holds follow when they changed.
    */
   refresh(id: string, panel: vscode.WebviewPanel): Promise<void> {
     return this.cache.exclusive(id, async () => {
@@ -655,75 +695,21 @@ export class InvestigationDocuments implements DocumentHost {
         void this.knowledge.postLibrary(id, panel);
       }
       // Unsequenced follow-ups finish inside this operation (see load).
-      await Promise.all([this.postQueue(panel), this.actions.resendActionRecords(id, panel, seq)]);
+      await this.actions.resendActionRecords(id, panel, seq);
     });
   }
 
   /**
-   * The work queue (08 §8.3): the analyst's investigations, needs-me-first,
-   * and the case system's queue filtered to cases with no investigation. Both
-   * reads are best-effort: a missing case layer leaves the Cases section
-   * absent, never a broken document.
+   * Apply an enablement change (11 §5.1) from the document's form, which
+   * collected the non-secret fields and names what is left to ask with the
+   * schema's rules; the confirm, the native capture and the apply are the
+   * shared flow (enablementFlow.ts, applyEnablementChange; adr/0342).
    */
-  private async postQueue(panel: vscode.WebviewPanel): Promise<void> {
-    try {
-      const [investigations, queue] = await Promise.all([
-        this.client.investigations.list(),
-        this.client.cases.queue().catch(() => null),
-      ]);
-      const cases = (queue?.cases ?? []).filter((c) => !c.investigation);
-      void this.post(panel, { type: "queue", investigations, cases, caseSource: queue?.queue });
-    } catch (err) {
-      this.log.debug(`queue: ${errText(err)}`);
-    }
-  }
-
-  /**
-   * Apply an enablement change (11 §5.1). The webview form collected the
-   * non-secret fields; here the flow becomes NATIVE: a modal confirm bound to
-   * the human's identity, and secret fields captured through a secure input —
-   * out-of-band of the webview and the conversation, so a secret value never
-   * touches chat content or the transcript store. What is captured for an
-   * x-secret field is a secret REFERENCE (keychain:// env:// vault://), per
-   * 11 §4.3 — the engine refuses literals at config load.
-   */
-  private async applyEnablement(
-    id: string,
-    panel: vscode.WebviewPanel,
-    msg: { adapter: string; enabled: boolean; config: Record<string, string>; secretFields: string[] },
-  ): Promise<void> {
-    const verb = msg.enabled ? "Enable" : "Disable";
-    const current = this.sameIdentity();
-    const pick = await vscode.window.showWarningMessage(
-      `reckon: ${verb} adapter "${msg.adapter}"? This edits the tenant config file (the source of truth) and records an attributed config-plane audit entry.`,
-      { modal: true },
-      verb,
-    );
-    if (pick !== verb) {
-      return;
-    }
-    const config = { ...msg.config };
-    for (const field of msg.secretFields ?? []) {
-      const v = await vscode.window.showInputBox({
-        title: `reckon — ${msg.adapter}.${field} (secret reference)`,
-        prompt: "A secret REFERENCE (keychain://…, env://NAME, vault://…) — never the literal value; the engine refuses literals at config load.",
-        password: true,
-        ignoreFocusOut: true,
-      });
-      if (v === undefined) {
-        return; // cancelled — nothing applied
-      }
-      if (v.trim() !== "") {
-        config[field] = v.trim();
-      }
-    }
-    if (!current()) return;
-    await this.mutate(id, panel, "enablement", async () => {
-      await this.client.capabilities.applyEnablement(msg.adapter, msg.enabled, config);
-      void vscode.window.showInformationMessage(
-        `reckon: ${msg.adapter} ${msg.enabled ? "enabled" : "disabled"} — capability surface rebuilt`,
-      );
-    }, { reload: true });
+  private async applyEnablement(msg: { adapter: string; enabled: boolean; config: Record<string, string>; ask: EnablementChange["ask"] }): Promise<void> {
+    const change = { adapter: msg.adapter, enabled: msg.enabled, config: msg.config, ask: msg.ask ?? [] };
+    const config = await confirmEnablement(change, this.sameIdentity());
+    if (!config) return;
+    await this.applyEnablementChange(change, config);
   }
 
   /**

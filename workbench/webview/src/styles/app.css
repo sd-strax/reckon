@@ -244,13 +244,9 @@ button.ghost:hover { color: var(--text); border-color: var(--border); }
 .decide:empty { display: none; }
 .decide button { font-size: var(--fs-sm); padding: 3px 10px; }
 .empty { color: var(--text-3); font-style: italic; font-size: var(--fs-sm); }
-.caprow { display: flex; align-items: baseline; gap: 7px; font-size: var(--fs-sm); margin: 2px 0; min-height: 20px; }
 .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; }
 .dot.degraded { background: var(--warn); }
 .dot.unavailable { background: var(--bad); opacity: 0.7; }
-.caprow .verb { font-family: var(--mono); }
-.caprow.unavailable .verb { opacity: 0.5; }
-.caprow .setup { font-size: var(--fs-xs); padding: 0 7px; margin-left: auto; }
 body.loading #rail { opacity: 0.6; }
 
 /* ---- verdict + pins + citations ---- */
@@ -487,13 +483,13 @@ body.loading #rail { opacity: 0.6; }
 
 
 /* =====================================================================
-   The lens layout (08 §8.1): header · work queue | lens area | companion
+   The lens layout (08 §8.1): header · lens area | companion (the work queue is the sidebar, adr/0342)
    ===================================================================== */
 #root { display: block; height: 100vh; container-type: inline-size; }
 #document { display: flex; flex-direction: column; height: 100vh; }
 /* One row bounded by the window: each region scrolls inside it, so nothing
    (a long conversation, a focused composer) can scroll the document itself. */
-#regions { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: 250px minmax(0, 1fr) min(var(--companion-w, 380px), 60%); }
+#regions { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) min(var(--companion-w, 380px), 60%); }
 #lensWrap { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
 #lensArea { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .lensscroll { flex: 1; overflow-y: auto; padding: var(--sp-3) var(--sp-5) var(--sp-8); }
@@ -523,34 +519,13 @@ body.loading #rail { opacity: 0.6; }
 .primaryaction .expiry { font-size: var(--fs-xs); color: var(--warn); }
 .countdown.inline { display: inline; }
 
-/* left region: the work queue */
-#leftRegion { border-right: 1px solid var(--border); background: var(--sidebar-bg); overflow-y: auto; padding: var(--sp-2) var(--sp-3) var(--sp-4); min-width: 0; }
-#leftRegion.collapsed { width: 36px; padding: var(--sp-2) 4px; overflow: hidden; }
+/* region headers and mode toggles (the companion, the reasoning lens) */
 .regionhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px; }
 .modetoggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
 .modetoggle button { border: none; border-radius: 0; background: transparent; padding: 2px 9px; font-size: var(--fs-xs); color: var(--text-2); }
 .modetoggle button.on { background: var(--fill-2); color: var(--text); font-weight: 600; }
 .modetoggle button:disabled { opacity: 0.5; }
-.queue h2 .addbtn { margin-left: auto; font-size: var(--fs-sm); line-height: 1; padding: 0 4px; }
-.queue h2 { margin: 10px 0 6px; display: flex; align-items: baseline; gap: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); }
 .count { font-weight: 700; font-size: 10px; background: var(--fill-2); border-radius: var(--r-pill); padding: 0 6px; margin-left: 6px; color: var(--text-2); }
-.qsource { text-transform: none; letter-spacing: normal; font-weight: 400; color: var(--text-3); }
-.qrow { padding: 6px 8px; border-radius: var(--r-sm); margin: 2px 0; cursor: pointer; border: 1px solid transparent; }
-.concludedfold summary { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-3); cursor: pointer; margin: 8px 0 4px; }
-.qrow.concluded .qtitle { color: var(--text-2); }
-.qrow:hover { background: var(--hover); }
-.qrow.current { background: var(--selected); border-color: var(--selected-border); cursor: default; }
-.qtop { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: var(--fs-xs); }
-.qstep { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); }
-.qstep.contain, .qstep.notify { color: var(--warn); }
-.qstep.close { color: var(--ok); }
-.qexpiry { font-size: var(--fs-xs); color: var(--text-3); }
-.qtitle { font-size: var(--fs-sm); line-height: 1.35; margin-top: 2px; }
-.qcase { font-size: var(--fs-xs); color: var(--text-3); margin-top: 1px; }
-.qrow.case { cursor: default; }
-.qstart { font-size: var(--fs-xs); padding: 1px 8px; margin-top: 5px; }
-#leftRegion .railfold { margin-top: 12px; }
-#leftRegion .railfold > summary { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); cursor: pointer; }
 
 /* lens tabs */
 .lenstabs { display: flex; gap: 2px; padding: 4px var(--sp-5) 0; border-bottom: 1px solid var(--border); flex: none; }
@@ -690,12 +665,10 @@ body.gripDragging { cursor: col-resize; user-select: none; }
 
 /* responsive floors (08 §8.1) */
 @container (max-width: 1279px) {
-  #regions { grid-template-columns: 44px minmax(0, 1fr) min(var(--companion-w, 340px), 60%); }
-  #leftRegion { padding: var(--sp-2) 4px; }
-  #leftRegion .queue, #leftRegion .railfold, #leftRegion .modetoggle { display: none; }
+  #regions { grid-template-columns: minmax(0, 1fr) min(var(--companion-w, 340px), 60%); }
 }
 @container (max-width: 1023px) {
-  #regions { grid-template-columns: 44px minmax(0, 1fr); }
+  #regions { grid-template-columns: minmax(0, 1fr); }
   #companion { position: absolute; right: 0; top: 0; bottom: 0; width: min(420px, 92vw); border-left: 1px solid var(--border); box-shadow: var(--shadow-panel); transform: translateX(100%); transition: transform var(--dur) var(--ease); z-index: 9; }
   #document.drawer-open #companion { transform: none; }
   .companiongrip { display: none; }
@@ -751,7 +724,6 @@ pre.decoded { white-space: pre-wrap; word-break: break-all; margin: 0 0 4px; fon
 .verdictpill.benign { color: var(--ok); }
 .kimport { max-width: 60ch; }
 .ioutline { margin: 4px 0 8px 1.2em; padding: 0; font-size: var(--fs-xs); }
-.regionknowledge { font-size: var(--fs-xs); padding: 1px 6px; }
 .kerror { color: var(--error-fg); margin: 0 0 8px; }
 /* The narrative (adr/0103): the account and the editor on the Summary lens. */
 .narrative { font-size: var(--fs-sm); }

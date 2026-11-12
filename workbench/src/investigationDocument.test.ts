@@ -3,6 +3,8 @@ import * as vscode from "vscode";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTransport } from "./agentTransport";
 import { BackendRequestError, type ActionRow, type BackendClient, type InvestigationDetail } from "./backend";
+import { CaseDocuments } from "./caseDocument";
+import { CaseStarts } from "./caseStarts";
 import { InvestigationDocuments } from "./investigationDocument";
 import type { RenderMessage } from "./protocol";
 import { createdPanels, fakeLog, resetVscodeFake } from "./test/vscode";
@@ -20,7 +22,6 @@ function backend(over: Record<string, (...args: never[]) => unknown> = {}) {
     incompatibilityReason: () => null,
     "investigations.get": async () => detail(),
     "capabilities.enablement": async () => null,
-    "cases.queue": async () => null,
     "evidence.events": async () => ({ events: [], total: 0 }),
     ...over,
   };
@@ -609,8 +610,9 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const created = gate<InvestigationDetail>();
     const { client, calls } = backend({ "investigations.createFromInput": () => created.opened });
     const { docs } = documents(client);
+    // The sidebar's Cases row starts it (adr/0342); a draft panel is open beside it.
     docs.showDraft();
-    createdPanels()[0]!.webview.receive({ type: "queue.start", caseNumber: "C-1" });
+    void docs.startFromCase("C-1");
     await vi.waitFor(() => expect(calls).toContain("investigations.createFromInput"));
 
     docs.identityChanged();
@@ -728,7 +730,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const applyEnablement = vi.fn(async () => undefined);
     const { docs } = documents(backend({ "capabilities.applyEnablement": applyEnablement }).client);
     docs.show("inv-1");
-    createdPanels()[0]!.webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, secretFields: [] });
+    createdPanels()[0]!.webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, ask: [] });
 
     docs.identityChanged();
     answer.open("Enable");
@@ -957,5 +959,150 @@ describe("InvestigationDocuments: a seed's entity kind (adr/0324)", () => {
     createdPanels()[0]!.webview.receive({ type: "seed.submit", value: "jane", kind: "entity", entityKind: "person" });
     await vi.waitFor(() => expect(types()).toContain("draft.error"));
     expect(posted().find((m) => m.type === "draft.error")).toEqual({ type: "draft.error", message: refused.body!.error, unknownEntity: false });
+  });
+});
+
+describe("InvestigationDocuments: the capability layer after an apply (adr/0342)", () => {
+  const enablement = { adapters: [], verbs: [] };
+  const verb = (status: string) => [{ verb: "query_dns", status, intent: "", inputs: [], output: "" }];
+  const patches = (i: number) => posted(i).filter((m): m is Extract<RenderMessage, { type: "state.patch" }> => m.type === "state.patch");
+  const lastLayer = (i: number) => patches(i).filter((m) => "capabilities" in m.patch).pop()?.patch;
+  const gate = <T>() => {
+    let open!: (v: T) => void;
+    const opened = new Promise<T>((r) => { open = r; });
+    return { opened, open };
+  };
+
+  async function twoOpen(over: Record<string, (...args: never[]) => unknown> = {}) {
+    const apply = vi.fn(async () => undefined);
+    const b = backend({ "capabilities.enablement": async () => enablement, "capabilities.list": async () => verb("available"), "capabilities.applyEnablement": apply, ...over });
+    const { docs } = documents(b.client);
+    docs.show("inv-1");
+    docs.show("inv-2");
+    docs.showDraft();
+    createdPanels()[0]!.webview.receive({ type: "ready" });
+    createdPanels()[1]!.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect([lastLayer(0), lastLayer(1)].every(Boolean)).toBe(true));
+    b.calls.length = 0;
+    return { docs, apply, calls: b.calls };
+  }
+
+  it("an apply from one panel's form reads the layer once and patches every open investigation, then the sidebar view", async () => {
+    const { calls } = await twoOpen();
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValueOnce("Enable" as never);
+    createdPanels()[0]!.webview.receive({ type: "enablement.apply", adapter: "dns-adapter", enabled: true, config: { base_url: "x" }, ask: [] });
+
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshCapabilities"));
+    expect(calls.sort()).toEqual(["capabilities.applyEnablement", "capabilities.enablement", "capabilities.list"]);
+    expect(lastLayer(0)).toEqual({ enablement, capabilities: verb("available") });
+    expect(lastLayer(1)).toEqual({ enablement, capabilities: verb("available") });
+    expect(posted(2)).toEqual([]); // the draft reads nothing
+  });
+
+  it("a failed apply still re-reads the layer once for every open panel, and the sidebar view", async () => {
+    const { docs, calls } = await twoOpen({ "capabilities.applyEnablement": async () => { throw new Error("500 rebuild failed"); } });
+    const before = [patches(0).length, patches(1).length];
+    await docs.applyEnablementChange({ adapter: "dns-adapter", enabled: true }, {});
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith("reckon: enablement failed — 500 rebuild failed");
+    expect(calls.sort()).toEqual(["capabilities.applyEnablement", "capabilities.enablement", "capabilities.list"]);
+    expect([patches(0).length, patches(1).length]).toEqual([before[0]! + 1, before[1]! + 1]);
+    expect(lastLayer(1)).toEqual({ enablement, capabilities: verb("available") });
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshCapabilities");
+  });
+
+  it("with no investigation open, an apply reads nothing document-side and still refreshes the sidebar view", async () => {
+    const { client, calls } = backend({ "capabilities.applyEnablement": async () => undefined });
+    const { docs } = documents(client);
+    docs.showDraft(); // a draft is not an investigation: nothing to patch
+    await docs.applyEnablementChange({ adapter: "dns-adapter", enabled: true }, {});
+    expect(calls).toEqual(["capabilities.applyEnablement"]);
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshCapabilities");
+  });
+
+  it("a load overlapping an apply ends with the fresh verb list posted", async () => {
+    let fresh = false;
+    let gateEnablement: ReturnType<typeof gate<typeof enablement>> | null = null;
+    let gateGet: ReturnType<typeof gate<InvestigationDetail>> | null = null;
+    const { docs } = documents(backend({
+      "capabilities.list": async () => verb(fresh ? "available" : "unavailable"),
+      "capabilities.enablement": () => (gateEnablement ? gateEnablement.opened : Promise.resolve(enablement)),
+      "investigations.get": () => (gateGet ? gateGet.opened : Promise.resolve(detail())),
+      "capabilities.applyEnablement": async () => undefined,
+    }).client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(lastLayer(0)).toBeDefined());
+
+    gateGet = gate();
+    panel.webview.receive({ type: "refresh" }); // a reload: its snapshot reads the verb list before the change
+    await settle();
+    fresh = true; // the adapter is enabled server-side
+    const enablementGate = gate<typeof enablement>();
+    gateEnablement = enablementGate;
+    const applied = docs.applyEnablementChange({ adapter: "dns-adapter", enabled: true }, {});
+    await settle();
+    gateEnablement = null;
+    gateGet.open(detail()); // the reload lands after the apply's read began, and retires it
+    await vi.waitFor(() => expect(posted().filter((m) => m.type === "state.snapshot").length).toBe(2));
+    enablementGate.open(enablement);
+    await applied;
+    await settle();
+
+    // What the page holds last, whichever message carried it: the snapshot or a patch.
+    const carried = posted().flatMap((m) => m.type === "state.snapshot" ? [m.snapshot.capabilities] : m.type === "state.patch" && "capabilities" in m.patch ? [m.patch.capabilities] : []);
+    expect(carried.pop()).toEqual(verb("available"));
+  });
+
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+});
+
+describe("InvestigationDocuments: the one start from a case (adr/0342)", () => {
+  it("sends one POST for a double start of the same case", async () => {
+    let land!: (d: InvestigationDetail) => void;
+    const { client, calls } = backend({ "investigations.createFromInput": () => new Promise<InvestigationDetail>((r) => { land = r; }) });
+    const { docs } = documents(client);
+    const first = docs.startFromCase("C-1");
+    void docs.startFromCase("C-1");
+    land({ id: "inv-2", title: "T" } as InvestigationDetail);
+    await first;
+    expect(calls.filter((c) => c === "investigations.createFromInput")).toHaveLength(1);
+  });
+
+  it("guards a start from the case page and from the sidebar together, and re-reads an open case page after a sidebar start", async () => {
+    let land!: (d: InvestigationDetail) => void;
+    const { client, calls } = backend({ "investigations.createFromInput": () => new Promise<InvestigationDetail>((r) => { land = r; }), "cases.get": async () => ({ number: "C-1" }) });
+    const starts = new CaseStarts();
+    const docs = new InvestigationDocuments(vscode.Uri.file("/ext"), client, fakeLog(), transport, async () => null, undefined, undefined, starts);
+    const cases = new CaseDocuments(vscode.Uri.file("/ext"), client, fakeLog(), vi.fn(), starts);
+    cases.open("C-1");
+    const page = createdPanels()[0]!;
+    page.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(calls.filter((c) => c === "cases.get")).toHaveLength(1));
+
+    const started = docs.startFromCase("C-1");
+    page.webview.receive({ type: "start" }); // the page's own start while the sidebar's is in flight
+    land({ id: "inv-2", title: "T" } as InvestigationDetail);
+    await started;
+
+    expect(calls.filter((c) => c === "investigations.createFromInput")).toHaveLength(1);
+    await vi.waitFor(() => expect(calls.filter((c) => c === "cases.get")).toHaveLength(2));
+  });
+});
+
+describe("InvestigationDocuments: the document form's field rules (adr/0342)", () => {
+  it("refuses a blank required secret, so nothing is applied", async () => {
+    const apply = vi.fn(async () => undefined);
+    const { docs } = documents(backend({ "capabilities.applyEnablement": apply }).client);
+    docs.show("inv-1");
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValueOnce("Enable" as never);
+    vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce("");
+    createdPanels()[0]!.webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, ask: [{ name: "api_key", secret: true, required: true }] });
+    await vi.waitFor(() => expect(vscode.window.showInputBox).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = vi.mocked(vscode.window.showInputBox).mock.calls[0]![0] as { password?: boolean; validateInput?: (v: string) => string | undefined };
+    expect(opts.password).toBe(true);
+    expect(opts.validateInput!("")).toBe("api_key is required");
+    expect(apply).not.toHaveBeenCalled();
   });
 });

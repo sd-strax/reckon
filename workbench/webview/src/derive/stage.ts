@@ -1,11 +1,9 @@
 // The stage indicator and the primary action (08 §8.2, impl §7.1): five steps
 // over the derived lifecycle — no new aggregate state. Open dependencies
-// (adr/0101) hold the Notify step. Pure.
-import type { ActionRow, CommsThread, InvestigationSummary, Verdict } from "../../../src/viewTypes";
-
-export type Step = "investigate" | "verdict" | "contain" | "notify" | "close";
-export const STEPS: Step[] = ["investigate", "verdict", "contain", "notify", "close"];
-export const STEP_LABELS: Record<Step, string> = { investigate: "Investigate", verdict: "Verdict", contain: "Contain", notify: "Notify", close: "Close" };
+// (adr/0101) hold the Notify step. Pure. The step names themselves are shared
+// with the sidebar (src/stage.ts, adr/0342).
+import type { ActionRow, CommsThread, Verdict } from "../../../src/viewTypes";
+import type { Step } from "../../../src/stage";
 
 const TERMINAL = new Set(["SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT", "REJECTED", "EXPIRED", "REVERSED"]);
 export const terminal = (a: ActionRow): boolean => TERMINAL.has(a.status);
@@ -78,16 +76,6 @@ export function stageOf(i: StageInputs): Stage {
   else if (!notifyDone && !notNeeded.notify) current = "notify";
   else current = "close";
   return { done, notNeeded, current };
-}
-
-/** The work queue's one-word step for a list row (08 §8.3), from the list view's stage inputs. */
-export function rowStep(r: InvestigationSummary): Step | null {
-  const status = String(r.state).toUpperCase();
-  if (status === "CONCLUDED" || status === "ARCHIVED" || status === "DISCARDED") return null;
-  if (!r.hasVerdict) return "investigate";
-  if (r.openActions > 0) return "contain";
-  if (r.openNotifications > 0) return "notify";
-  return "close";
 }
 
 export type PrimaryAction =

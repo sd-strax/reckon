@@ -12,13 +12,13 @@
 
 import * as vscode from "vscode";
 import { BackendClient, InvestigationDetail, existingInvestigation } from "./backend";
+import { CaseStarts } from "./caseStarts";
 import { panelHtml, panelOptions } from "./panelHtml";
 import type { CaseInboundMessage, CaseRenderMessage } from "./protocol";
 import { errText } from "./util";
 
 export class CaseDocuments {
   private readonly panels = new Map<string, vscode.WebviewPanel>();
-  private readonly starting = new Set<string>();
   // Bumped when the identity changes: a start begun before it opens nothing.
   private generation = 0;
 
@@ -29,7 +29,21 @@ export class CaseDocuments {
     // Called with the created investigation: the extension opens it, applies
     // the case write-back posture (adr/0032) and refreshes the trees.
     private readonly onInvestigationCreated: (created: InvestigationDetail) => void,
-  ) {}
+    // The one start from a case (adr/0342): its in-flight guard is shared with
+    // the sidebar's and the draft's starts, and any start of a case shown here
+    // re-reads it, so the page says Under investigation wherever it began.
+    private readonly starts: CaseStarts = new CaseStarts(),
+  ) {
+    starts.onDidStart((number) => this.reloadIfOpen(number));
+  }
+
+  /** Re-read the case's document if it is open. */
+  reloadIfOpen(number: string): void {
+    const panel = this.panels.get(number);
+    if (panel) {
+      void this.load(number, panel);
+    }
+  }
 
   /** The person behind the session changed: a case on screen was read as someone else (adr/0241). */
   closeAll(): void {
@@ -97,22 +111,21 @@ export class CaseDocuments {
   /**
    * Root a new investigation on the case — the same server flow the picker
    * uses (seed_input kind "case"), which fails closed on anything short of
-   * exactly one case. Guarded against a double click; on success the
-   * investigation opens and this document reloads, now pointing at it.
+   * exactly one case. Guarded against a double start from any surface (the
+   * shared CaseStarts); on success the investigation opens and this document
+   * reloads (through the start's notice), now pointing at it.
    */
   private async start(number: string, panel: vscode.WebviewPanel): Promise<void> {
-    if (this.starting.has(number)) {
+    if (this.starts.inFlight(number)) {
       return;
     }
-    this.starting.add(number);
     const generation = this.generation;
     this.post(panel, { type: "starting" });
     try {
-      const created = await this.client.investigations.createFromInput(number, "case");
-      if (generation !== this.generation) return;
+      const created = await this.starts.run(number, () => this.client.investigations.createFromInput(number, "case"));
+      if (!created || generation !== this.generation) return;
       this.log.info(`case ${number}: investigation ${created.id} started`);
       this.onInvestigationCreated(created);
-      void this.load(number, panel);
     } catch (err) {
       if (generation !== this.generation) return;
       // Already investigated (#158): open that investigation instead.
@@ -122,8 +135,6 @@ export class CaseDocuments {
         return;
       }
       this.post(panel, { type: "error", message: errText(err) });
-    } finally {
-      this.starting.delete(number);
     }
   }
 }

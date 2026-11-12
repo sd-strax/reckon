@@ -100,10 +100,24 @@ describe("InvestigationsProvider (ui/06)", () => {
     const [group] = await provider.getChildren();
     const ordered = await provider.getChildren(group);
     expect(ordered.map((i) => (i as InvestigationRowItem).invId)).toEqual(["soon", "later", "pending", "unseen", "recent"]);
-    expect(ordered[0]!.description).toMatch(/^⏳ \dm · 1 pending$/);
-    expect(ordered[3]!.description).toBe("● new");
+    expect(ordered[0]!.description).toMatch(/^Investigate · ⏳ \dm · 1 pending$/);
+    expect(ordered[3]!.description).toBe("Investigate · ● new");
     expect((ordered[0]!.iconPath as vscode.ThemeIcon).id).toBe("bell-dot");
     expect((ordered[4]!.iconPath as vscode.ThemeIcon).id).toBe("circle-filled");
     expect(ordered[4]!.command).toEqual({ command: "reckon.openInvestigation", title: "Open Investigation", arguments: ["recent", "recent"] });
+  });
+
+  it("leads an open row's description with its stage step, and gives a concluded row none (adr/0342)", async () => {
+    const rows = [
+      row({ id: "contain", title: "contain", hasVerdict: true, openActions: 1, openNotifications: 0 }),
+      row({ id: "notify", title: "notify", hasVerdict: true, openActions: 0, openNotifications: 2 }),
+      row({ id: "done", title: "done", state: "CONCLUDED", hasVerdict: true, openActions: 0, openNotifications: 0, seedSummary: "case C-1" }),
+    ];
+    const { provider } = tree(client({ investigations: async () => rows }));
+    const [active, concluded] = await provider.getChildren();
+    const open = await provider.getChildren(active);
+    expect(open.map((i) => i.description)).toEqual(["Contain", "Notify"]);
+    const [closed] = await provider.getChildren(concluded);
+    expect(closed!.description).toBe("case C-1");
   });
 });

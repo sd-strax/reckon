@@ -42,24 +42,11 @@ describe("the investigation document", () => {
     expect(transport.getState<{ lens: Record<string, string> }>()?.lens[data.snapshot.investigation.id]).toBe("story");
   });
 
-  it("renders the work queue needs-me-first with stage steps, and starts an investigation from a case", () => {
-    const { transport } = mount();
-    const nav = document.querySelector("#leftRegion") as HTMLElement;
-    const rows = Array.from(nav.querySelectorAll(".qrow:not(.case):not(.concluded)"));
-    expect(rows.length).toBe(2); // the concluded one is not in the open queue…
-    expect(nav.querySelectorAll(".concludedfold .qrow").length).toBe(1); // …but stays findable under Concluded (#158)
-    expect(rows[0]!.classList.contains("current")).toBe(true);
-    expect(rows[0]!.querySelector(".qstep")?.textContent).toBe("Investigate");
-    expect(rows[1]!.querySelector(".qstep")?.textContent).toBe("Close");
-    expect(within(nav).getByText("from CASE-1002")).toBeTruthy();
-    fireEvent.click(rows[1]!);
-    expect(transport.intents.find((i) => i.type === "investigation.open")).toMatchObject({ id: "grouping--2c3b8d6f-6b0f-4c8f-a02b-7e4f3b2c1d02" });
-    expect(within(nav).getByText("CASE-1003")).toBeTruthy();
-    fireEvent.click(within(nav).getByText("Start investigation"));
-    expect(transport.intents.find((i) => i.type === "queue.start")).toEqual({ type: "queue.start", caseNumber: "CASE-1003" });
-    expect(within(nav).getByText("Capabilities · 1/3 available")).toBeTruthy();
-    fireEvent.click(within(nav).getByText("set up"));
-    expect(screen.getByRole("dialog", { name: "Enable dns-adapter" })).toBeTruthy();
+  it("has no work-queue column: the regions are the lens area and the companion (adr/0342)", () => {
+    mount();
+    expect(document.querySelector("#leftRegion")).toBeNull();
+    const regions = Array.from((document.querySelector("#regions") as HTMLElement).children).map((c) => c.id);
+    expect(regions).toEqual(["lensWrap", "companion", "drawerToggle"]);
   });
 
   it("Reasoning: verdict basis, one-line prediction rows that expand, the matrix, the pinned fold", () => {

@@ -18,14 +18,12 @@ describe("asking the agent to use a library item (adr/0129)", () => {
     void screen;
   });
 
-  it("opens the Knowledge view from the Library and from the left region's header (adr/0107)", () => {
+  it("opens the Knowledge view from the Library (adr/0107)", () => {
     const transport = new HarnessTransport(synthetic as unknown as HarnessSnapshot);
     render(<AppProvider transport={transport}><App /></AppProvider>);
     const lib = document.querySelector("#knowledgeSection") as HTMLElement;
     fireEvent.click(within(lib).getByText("Open the Knowledge view"));
     expect(transport.intents.filter((i) => i.type === "knowledge.open").length).toBe(1);
-    fireEvent.click(within(document.querySelector("#leftRegion") as HTMLElement).getByRole("button", { name: "Knowledge" }));
-    expect(transport.intents.filter((i) => i.type === "knowledge.open").length).toBe(2);
   });
 
   it("stages the text once: it does not return after the analyst sends and the turn ends", () => {
