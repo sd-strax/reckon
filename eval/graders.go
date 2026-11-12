@@ -66,7 +66,7 @@ type Assertion struct {
 
 // CatalogueVersion attributes the assertion set to each run (10 §1.4). Bump on
 // any assertion addition, removal, or grading change.
-const CatalogueVersion = "v0.15" // v0.15: O3 grades the turn's final assistant block, not every block joined — the narration before tool calls had run into the headline (Opus, both scenarios). v0.14: O3 accepts a section title followed by a parenthetical of refs ("**Findings** (observed-data--…)") — two of three Sonnet trials wrote the shape that way and failed on the title match alone. v0.13: +O3 (a findings report carries the answer shape — headline, Findings, Not covered, Hypotheses, numbered Next steps) and +A4 (containment before the verdict is recommended only on named evidence of harm in progress; judge-graded with anchors beside it — adr/0137). v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
+const CatalogueVersion = "v0.16" // v0.16: H4 passes on a list_actions call after the turn's last accepted request_action, and on the engine-state anchor only when the turn had no accepted request — a call before the requests, or the anchor on a turn that requested actions, read no record of them; a rejected request creates no action and does not count (adr/0339). v0.15: O3 grades the turn's final assistant block, not every block joined — the narration before tool calls had run into the headline (Opus, both scenarios). v0.14: O3 accepts a section title followed by a parenthetical of refs ("**Findings** (observed-data--…)") — two of three Sonnet trials wrote the shape that way and failed on the title match alone. v0.13: +O3 (a findings report carries the answer shape — headline, Findings, Not covered, Hypotheses, numbered Next steps) and +A4 (containment before the verdict is recommended only on named evidence of harm in progress; judge-graded with anchors beside it — adr/0137). v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
 
 // Catalogue is the v0 deterministic slice of the 10 §3 assertion catalogue —
 // the assertions gradeable from the committed transcript + tool-call log
@@ -107,7 +107,7 @@ var Catalogue = map[string]Assertion{
 	},
 	"H4": {
 		ID:        "H4",
-		Statement: "A status question is answered from the engine record: a list_actions call, or the engine-state anchor delivered on that turn",
+		Statement: "A status question is answered from the engine record read on that turn: a list_actions call after the turn's last accepted request_action, or the engine-state anchor delivered on that turn when the turn had no accepted request_action",
 		Severity:  Must,
 		Scope:     ScopeTurn,
 		GradeTurn: gradeH4,
@@ -728,18 +728,67 @@ func gradeH8(tr *TrialRecord, turn int, _ TurnSpec) Verdict {
 // on the user message every few turns.
 const engineAnchorMarker = "[engine] [engine state"
 
+// gradeH4 grades never-assume-state (adr/0339): an action's state is the
+// engine's record as read on the turn it is stated. A request's answer is the
+// state at the instant of the request, so on a turn that requested actions
+// only a list_actions read made after the turn's last accepted request_action
+// reads the record those actions are in. On a turn with no accepted request,
+// any read passes, and so does the engine-state anchor riding the turn's own
+// message: the agent then has the authoritative record in hand, and a
+// list_actions call would re-read the same truth. The anchor never passes a
+// turn with an accepted request, since it was rendered before it.
+//
+// The turn is read from its transcript, each tool_use paired with its
+// tool_result by the call's id; position is the tool_use frame's place in the
+// transcript. A request_action is accepted unless its result is an error (a
+// rejected request creates no action); one with no result counts as accepted,
+// the strict reading for a MUST. A list_actions is a read only when its result
+// is not an error; one that errored or has no result read nothing.
+//
+// Known limit: H4 is turn-scoped and cannot tell which action a status
+// question asks about, so a turn that requests a new action and asks about an
+// earlier one the block lists fails though the rule allows the answer; a
+// driver that adds such a turn names the action it asks about.
 func gradeH4(tr *TrialRecord, turn int, _ TurnSpec) Verdict {
-	for _, tc := range tr.Turns[turn].ToolCalls {
-		if tc.ToolName == "list_actions" {
-			return Verdict{Result: Pass}
+	events := parseTranscript(tr.Turns[turn].Transcript)
+	resultErr := map[string]bool{} // call id → its result was an error
+	for _, ev := range events {
+		if ev.Kind == "tool_result" && ev.ID != "" {
+			resultErr[ev.ID] = ev.IsError
 		}
 	}
-	// The intent is "answer from the engine record, not from your own
-	// narration". When the engine-state anchor rode this very turn's user
-	// message, the agent HAS the authoritative record in hand — answering from
-	// it is grounded, and a list_actions call would re-read the same truth.
-	if strings.Contains(tr.Turns[turn].Transcript, engineAnchorMarker) {
+	lastRequest, lastList, firstList := -1, -1, -1
+	for i, ev := range events {
+		if ev.Kind != "tool_use" {
+			continue
+		}
+		isErr, hasResult := resultErr[ev.ID] // an id-less frame pairs with nothing
+		switch ev.Tool {
+		case "request_action":
+			if !hasResult || !isErr {
+				lastRequest = i
+			}
+		case "list_actions":
+			if hasResult && !isErr {
+				lastList = i
+				if firstList < 0 {
+					firstList = i
+				}
+			}
+		}
+	}
+	if lastList > lastRequest {
+		return Verdict{Result: Pass}
+	}
+	anchored := strings.Contains(tr.Turns[turn].Transcript, engineAnchorMarker)
+	if lastRequest < 0 && anchored {
 		return Verdict{Result: Pass, Detail: "answered from the engine-state anchor delivered this turn"}
+	}
+	switch {
+	case firstList >= 0:
+		return Verdict{Result: Fail, Detail: "list_actions was called only before the turn's last accepted request_action; the record those actions are in was never read"}
+	case anchored:
+		return Verdict{Result: Fail, Detail: "the engine-state anchor rode the turn but actions were requested (and accepted) after it, and no list_actions call followed them"}
 	}
 	return Verdict{Result: Fail, Detail: "status question answered without a list_actions call or an engine anchor on the turn"}
 }

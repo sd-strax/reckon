@@ -154,6 +154,7 @@ type AttestationRecord struct {
 type transcriptEvent struct {
 	Kind    string // "user" | "assistant" | "tool_use" | "tool_result" | "loop"
 	Tool    string // tool name, for tool_use / tool_result
+	ID      string // the tool call's id, for tool_use / tool_result (pairs a call with its result)
 	IsError bool   // tool_result only
 	Content string // the payload after the frame
 }
@@ -220,6 +221,9 @@ func parseToolFrame(line, prefix string) (transcriptEvent, bool) {
 	for _, f := range fields[1:] {
 		if f == "error=true" {
 			ev.IsError = true
+		}
+		if id, ok := strings.CutPrefix(f, "id="); ok {
+			ev.ID = id
 		}
 	}
 	return ev, true
