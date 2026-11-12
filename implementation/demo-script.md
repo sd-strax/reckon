@@ -100,8 +100,8 @@ prior cases are consultable.
 3. **Sign in.** Reload the window, sign in with the login `dev-auth` printed,
    and set the BYOK key.
 4. **Sanity check.** The Cases view lists three cases in SOC Tier 2. The
-   Library's past cases list the `FINANCE-07` → `DC-02` pivot and
-   `WORKSTATION-22`; its procedures are empty.
+   sidebar's **Knowledge** view lists two past cases, the `FINANCE-07` →
+   `DC-02` pivot and `WORKSTATION-22`, and **Procedures (0)**.
 5. **Rehearse once, end to end.** Note the handles and prediction numbers the
    agent picks; they will differ on stage, but you will know their shape.
 6. **Reseed again**, then repeat step 3. The rehearsal left an investigation and
@@ -191,7 +191,8 @@ institutional knowledge, the kind every SOC has.
 Bring it into reckon **live**: run **Import SOPs…**. The Import SOPs panel opens
 beside the document with the tab you're reading already listed and ticked —
 press **Import 1 document**. The row turns green: *Added to the SOP library as
-"Lateral Movement via RDP — Containment"*. No library to manage, no
+"Lateral Movement via RDP — Containment"*, and the sidebar's **Knowledge** view
+now reads **Procedures (1)**. No library to manage, no
 re-navigating to the file, no ceremony. *The import capability, shown, not
 seeded behind the curtain.* (**Add files…** on the same panel is the route for
 documents you haven't opened.) Now ask again:
@@ -222,16 +223,18 @@ later. If it surfaces them, that is the moment: *it found more than the ticket
 said.* If it wanders, steer it back to the `svc_backup` question; Act 3 is about
 that claim.
 
-**The compounding payoff.** Open the **Library** on the knowledge rail and
-search *RDP lateral movement*. Procedures and past cases are separate lists: the
-SOP you just imported and the `FINANCE-07` case both come back, each labelled by
-relevance (*close match*, *related*, *loosely related*) — the vector backend at
-work, the reason we configured embeddings up front. Each row also says where it
-has been cited. Nobody wired either one to this investigation; the agent reached
-them through its own tools, in the turn, where you watched it, and the record
-keeps what it consulted and what it cited. **Ask reckon to use this** on a row
-stages that request in the composer: the analyst points, the agent reads, and
-the record shows both.
+**The compounding payoff.** In the sidebar's **Knowledge** view press
+**Search** and search *RDP lateral movement* in the Knowledge view. Procedures
+and past cases come back as separate lists: the SOP you just imported and the
+`FINANCE-07` case, each labelled by relevance (*close match*, *related*,
+*loosely related*) — the vector backend at work, the reason we configured
+embeddings up front. Each row also says where it has been cited. Nobody wired
+either one to this investigation: the library lives beside the investigations,
+not inside them, and the agent reached both through its own tools, in the turn,
+where you watched it. The record keeps what it consulted and what it cited, as
+the chips under its turns. Back in the investigation, **Ask reckon to use this**
+on a sidebar row stages that request in the composer: the analyst points, the
+agent reads, and the record shows both.
 
 ## Act 3 — Decide (disprove the innocent explanation)
 

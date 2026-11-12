@@ -24,7 +24,7 @@ binding wins.
 | `14-knowledge-results.html` | Knowledge view: Search and Ask results for a query | `ui/09 §9.2` |
 | `15-knowledge-candidates.html` | Knowledge view: candidate procedures drafted from concluded investigations | `ui/09 §9.7` |
 | `16-knowledge-import.html` | Knowledge view: markdown import with per-document outcomes | `ui/09 §9.5` |
-| `17-investigation-knowledge.html` | Inside an investigation: the Knowledge section and a nudge beside Decide | `ui/09 §9.6` |
+| `17-investigation-knowledge.html` | Inside an investigation: the Knowledge section and a nudge beside Decide (historical: removed by `adr/0129` and `adr/0344`, no section remains) | `ui/09 §9.6` |
 
 Data: events, times, process ids, the decoded command, the case ids and the procedure text
 come from the fixture scenario and `demo/knowledge/`. Tenant labels on the queue
