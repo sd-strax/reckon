@@ -22,35 +22,41 @@ const creds: PastCaseRow = {
 };
 
 function library(t: FakeTransport<KnowledgeInboundMessage, KnowledgeRenderMessage>) {
-  act(() => t.emit({
-    type: "library",
-    sops: [{ kind: "sop", ref: "sop-1", title: "Containment", detail: "rdp", citedIn: 2 }],
-    cases: [{ kind: "case", ref: rdp.ref, title: rdp.title, citedIn: 1 }, { kind: "case", ref: creds.ref, title: creds.title, citedIn: 0 }],
-    casesTotal: 150, // the corpus, beyond the listing's page
-  }));
+  act(() => t.emit({ type: "pastCases.corpus", total: 150 })); // the corpus, beyond the listing's page
   act(() => t.emit({ type: "pastCases.facets", facets: { techniques: [{ value: "T1078", count: 1 }, { value: "T1003", count: 1 }], dispositions: [{ value: "MALICIOUS", count: 1 }, { value: "SUSPICIOUS", count: 1 }] } }));
 }
 
 const lastCasesAsk = (t: FakeTransport<KnowledgeInboundMessage, KnowledgeRenderMessage>) =>
   [...t.intents].reverse().find((i) => i.type === "pastCases.get");
 
-describe("the Knowledge view (adr/0107)", () => {
-  it("asks for the library on mount and lists procedures with their counts, never offering to act on an investigation", () => {
+const search = (t: FakeTransport<KnowledgeInboundMessage, KnowledgeRenderMessage>, text: string) => {
+  fireEvent.change(screen.getByLabelText("Search procedures and past cases"), { target: { value: text } });
+  fireEvent.click(screen.getByText("Search"));
+  expect(t.intents).toContainEqual({ type: "library.search", text });
+};
+
+const procedure = {
+  type: "inspector.procedure" as const, sopId: "sop-1",
+  sop: { id: "sop-1", title: "Containment", body: "# Containment\n\nIsolate.", tags: ["rdp"], status: "published" },
+  outline: { revision: 3, cut: "1/16000", sections: [{ idx: 1, location: "Containment", headingPath: ["Containment"] }, { idx: 2, location: "Containment > Triage", headingPath: ["Containment", "Triage"] }] },
+};
+
+describe("the Knowledge tab (adr/0107, adr/0346)", () => {
+  it("opens on the search page with no navigation of its own: no section list, no procedure list, no Import", () => {
     const t = open();
-    expect(t.intents).toEqual([{ type: "ready" }]);
+    expect(t.intents).toEqual([{ type: "pastCases.get", filter: { techniques: [] } }, { type: "knowledge.showing" }, { type: "ready" }]); // the listing with no filter, on the search page
     library(t);
-    const nav = screen.getByRole("navigation", { name: "Knowledge sections" });
-    expect(within(nav).getByText("Procedures").textContent).toContain("1");
-    expect(within(nav).getByText("Past cases").textContent).toContain("150"); // the corpus total, not the page
-    expect(screen.getByText("Containment")).toBeTruthy();
-    expect(screen.getByText(/cited in 2 investigations/)).toBeTruthy();
-    expect(screen.queryByText("Ask reckon to use this")).toBeNull(); // the view acts on no investigation (ui/09 §9.1)
+    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(screen.getByLabelText("Search procedures and past cases")).toBeTruthy();
+    expect(screen.queryByText("Import procedures…")).toBeNull();
+    expect(screen.queryByText("Containment")).toBeNull();
+    expect(t.intents.some((i) => (i.type as string) === "library.import" || (i.type as string) === "library.get")).toBe(false);
+    expect(screen.queryByText("Ask reckon to use this")).toBeNull(); // the tab acts on no investigation (ui/09 §9.1)
   });
 
-  it("lists past cases through the API's filter, says how many match, and every filter change asks again", () => {
+  it("lists past cases through the API's filter with no query, says how many match, and every filter change asks again", () => {
     const t = open();
     library(t);
-    fireEvent.click(screen.getByRole("button", { name: /^Past cases/ }));
     expect(lastCasesAsk(t)).toEqual({ type: "pastCases.get", filter: { techniques: [] } });
     act(() => t.emit({ type: "pastCases", filter: { techniques: [] }, rows: [creds, rdp], total: 2 }));
     expect(screen.getByText("2 past cases")).toBeTruthy();
@@ -88,13 +94,13 @@ describe("the Knowledge view (adr/0107)", () => {
     expect(screen.getByText(/could not be read: backend down/)).toBeTruthy();
   });
 
-  it("opens a past case beside the list without investigation parts, and names the investigation it came from as a link", () => {
+  it("opens a past case as the page, without investigation parts, and names the investigation it came from as a link", () => {
     const t = open();
     library(t);
-    fireEvent.click(screen.getByRole("button", { name: /^Past cases/ }));
     act(() => t.emit({ type: "pastCases", filter: { techniques: [] }, rows: [rdp], total: 1 }));
     fireEvent.click(screen.getByText("RDP lateral movement"));
     expect(t.intents).toContainEqual({ type: "inspector.open", target: { kind: "case", investigationRef: rdp.ref } });
+    expect(screen.queryByLabelText("Search procedures and past cases")).toBeNull(); // the item is the page
     act(() => t.emit({
       type: "inspector.case", investigationRef: rdp.ref,
       summary: { investigationRef: rdp.ref, title: rdp.title, body: "What happened.", techniques: rdp.techniques, primaryEntities: rdp.entities, actionsTaken: [], tags: [], revision: 1, learnedProcedures: [] },
@@ -106,24 +112,29 @@ describe("the Knowledge view (adr/0107)", () => {
     const pane = screen.getByRole("region", { name: "Similar past case" });
     expect(within(pane).getByRole("heading", { level: 2 }).textContent).toBe("RDP lateral movement"); // named from the answer, with no thread to name it
     expect(within(pane).queryByText(/In this case/)).toBeNull();
-    expect(within(pane).queryByRole("tab", { name: "What the agent read" })).toBeNull();
+    expect(within(pane).queryByTitle("Close (Esc)")).toBeNull(); // a page, not a pane: no close, no pin
+    expect(within(pane).queryByTitle(/Pin this pane/)).toBeNull();
     fireEvent.click(within(pane).getByRole("tab", { name: "Where cited · 1 of 2" }));
     expect(within(pane).getByText("Later case")).toBeTruthy();
     expect(within(pane).getByText("Another")).toBeTruthy(); // nothing is "elsewhere" here: every investigation is listed
     fireEvent.click(within(pane).getByText("Open that investigation"));
     expect(t.intents).toContainEqual({ type: "investigation.open", id: "a", title: rdp.title });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("region", { name: "Similar past case" })).toBeTruthy(); // Esc does not close the page
   });
 
-  it("opens a procedure with its outline, and no investigation parts", () => {
+  it("searches both corpora and opens a result as the page with its outline, and no investigation parts", () => {
     const t = open();
     library(t);
+    search(t, "rdp");
+    act(() => t.emit({ type: "library.results", query: "rdp", sops: [{ kind: "sop", ref: "sop-1", title: "Containment", relevance: "close match" }], cases: [] }));
+    expect(screen.getByText("Results for “rdp”")).toBeTruthy();
+    expect(screen.getByText("close match")).toBeTruthy(); // relevance in words
+    expect(screen.getByText("no past case matches")).toBeTruthy();
+    expect(screen.queryByText("Technique")).toBeNull(); // results replace the filtered listing while shown
     fireEvent.click(screen.getByText("Containment"));
     expect(t.intents).toContainEqual({ type: "inspector.open", target: { kind: "sop", sopId: "sop-1" } });
-    act(() => t.emit({
-      type: "inspector.procedure", sopId: "sop-1",
-      sop: { id: "sop-1", title: "Containment", body: "# Containment\n\nIsolate.", tags: ["rdp"], status: "published" },
-      outline: { revision: 3, cut: "1/16000", sections: [{ idx: 1, location: "Containment", headingPath: ["Containment"] }, { idx: 2, location: "Containment > Triage", headingPath: ["Containment", "Triage"] }] },
-    }));
+    act(() => t.emit(procedure));
     const pane = screen.getByRole("region", { name: "Procedure" });
     expect(within(pane).queryByText(/In this case/)).toBeNull();
     expect(within(pane).queryByRole("tab", { name: "What the agent read" })).toBeNull();
@@ -132,22 +143,15 @@ describe("the Knowledge view (adr/0107)", () => {
     expect(within(pane).getByText("3")).toBeTruthy(); // the revision the outline is of
   });
 
-  it("searches both corpora, shows the results under the query with a way back, and imports", () => {
+  it("goes back to the filtered listing when the search is cleared", () => {
     const t = open();
     library(t);
-    fireEvent.change(screen.getByLabelText("Search procedures and past cases"), { target: { value: "rdp" } });
-    fireEvent.click(screen.getByText("Search"));
-    expect(t.intents).toContainEqual({ type: "library.search", text: "rdp" });
-    act(() => t.emit({ type: "library.results", query: "rdp", sops: [{ kind: "sop", ref: "sop-1", title: "Containment", relevance: "close match" }], cases: [] }));
-    expect(screen.getByText("Results for “rdp”")).toBeTruthy();
-    expect(screen.getByText("no past case matches")).toBeTruthy();
-    fireEvent.click(screen.getByText("‹ back to Procedures"));
+    search(t, "rdp");
+    act(() => t.emit({ type: "library.results", query: "rdp", sops: [], cases: [] }));
+    fireEvent.click(screen.getByText("Clear"));
     expect(screen.queryByText("Results for “rdp”")).toBeNull();
-    expect((screen.getByLabelText("Search procedures and past cases") as HTMLInputElement).value).toBe(""); // the text goes with the results
-
-    fireEvent.click(screen.getByRole("button", { name: "Import" }));
-    fireEvent.click(screen.getByText("Import procedures…"));
-    expect(t.intents).toContainEqual({ type: "library.import" });
+    expect(screen.getByText("Technique")).toBeTruthy();
+    expect((screen.getByLabelText("Search procedures and past cases") as HTMLInputElement).value).toBe("");
   });
 
   it("shows a failed load with Retry, which clears it and asks again", () => {
@@ -159,12 +163,8 @@ describe("the Knowledge view (adr/0107)", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("copies a record's JSON, opens the case title from the keyboard, and says nothing waits for the count when it was not read", () => {
+  it("copies a record's JSON, opens the case title from the keyboard, and claims no corpus size when it was not read", () => {
     const t = open();
-    act(() => t.emit({ type: "library", sops: [], cases: [] })); // the case read failed: no total
-    const nav = screen.getByRole("navigation", { name: "Knowledge sections" });
-    expect(within(nav).getByText("Past cases").textContent).toBe("Past cases");
-    fireEvent.click(screen.getByRole("button", { name: /^Past cases/ }));
     act(() => t.emit({ type: "pastCases", filter: { techniques: [] }, rows: [rdp], total: 1 }));
     expect(screen.getByText("1 past case")).toBeTruthy();
     const title = screen.getByRole("button", { name: "RDP lateral movement" }); // a button: reachable by keyboard
@@ -176,50 +176,84 @@ describe("the Knowledge view (adr/0107)", () => {
     expect(t.intents.some((i) => i.type === "copy")).toBe(true);
   });
 
-  it("says the procedures could not be read, with Retry, rather than calling the library empty", () => {
-    const t = open();
-    act(() => t.emit({ type: "library", sops: [], cases: [], sopsError: "HTTP 500" }));
-    expect(screen.getByRole("alert").textContent).toContain("The procedures could not be read: HTTP 500");
-    expect(screen.queryByText("no procedures yet — import some")).toBeNull();
-    const nav = screen.getByRole("navigation", { name: "Knowledge sections" });
-    expect(within(nav).getByText("Procedures").textContent).toBe("Procedures"); // no count claimed
-    fireEvent.click(screen.getByText("Retry"));
-    expect(t.intents).toContainEqual({ type: "library.get" });
-  });
-
-  it("does not let a search dismissed by changing section come back", () => {
+  it("opens on the item the sidebar names as a page of its own, and Search puts it away for the search page (adr/0346)", () => {
     const t = open();
     library(t);
-    fireEvent.change(screen.getByLabelText("Search procedures and past cases"), { target: { value: "rdp" } });
-    fireEvent.click(screen.getByText("Search"));
-    fireEvent.click(screen.getByRole("button", { name: "Import" })); // left before the answer came
-    act(() => t.emit({ type: "library.results", query: "rdp", sops: [], cases: [] }));
-    expect(screen.queryByText("Results for “rdp”")).toBeNull();
-    expect(screen.getByText("Import procedures…")).toBeTruthy();
-  });
-
-  it("opens on the item the sidebar names: its section, the inspector, any search put away (adr/0344)", () => {
-    const t = open();
-    library(t);
-    fireEvent.change(screen.getByLabelText("Search procedures and past cases"), { target: { value: "rdp" } });
-    fireEvent.click(screen.getByText("Search"));
-    act(() => t.emit({ type: "library.results", query: "rdp", sops: [], cases: [] }));
-    expect(screen.getByText("Results for “rdp”")).toBeTruthy();
-    act(() => t.emit({ type: "knowledge.show", target: { kind: "case", investigationRef: rdp.ref } }));
-    expect(screen.queryByText("Results for “rdp”")).toBeNull();
-    expect(screen.getByRole("button", { name: /^Past cases/ }).getAttribute("aria-current")).toBe("page");
-    expect(t.intents).toContainEqual({ type: "inspector.open", target: { kind: "case", investigationRef: rdp.ref } });
     act(() => t.emit({ type: "knowledge.show", target: { kind: "sop", sopId: "sop-1" } }));
-    expect(screen.getByRole("button", { name: /^Procedures/ }).getAttribute("aria-current")).toBe("page");
     expect(t.intents).toContainEqual({ type: "inspector.open", target: { kind: "sop", sopId: "sop-1" } });
+    act(() => t.emit(procedure));
+    expect(screen.getByRole("region", { name: "Procedure" })).toBeTruthy();
+    act(() => t.emit({ type: "knowledge.show", target: { kind: "case", investigationRef: rdp.ref } }));
+    expect(t.intents).toContainEqual({ type: "inspector.open", target: { kind: "case", investigationRef: rdp.ref } });
+    expect(screen.getByRole("region", { name: "Similar past case" })).toBeTruthy();
+    expect(screen.queryByText("‹ back")).toBeNull(); // a sidebar row is not a link from the page before
+    act(() => t.emit({ type: "knowledge.search" }));
+    expect(screen.queryByRole("region", { name: "Similar past case" })).toBeNull();
+    const box = screen.getByLabelText("Search procedures and past cases");
+    expect(document.activeElement).toBe(box);
   });
 
-  it("puts the focus in the query bar on the sidebar's Search (adr/0344)", () => {
+  it("moves within the tab on a link inside the page, with a way back (adr/0346)", () => {
     const t = open();
     library(t);
-    const box = screen.getByLabelText("Search procedures and past cases");
-    expect(document.activeElement).not.toBe(box);
+    act(() => t.emit({ type: "knowledge.show", target: { kind: "case", investigationRef: rdp.ref } }));
+    act(() => t.emit({ type: "inspector.case", investigationRef: rdp.ref, summary: { investigationRef: rdp.ref, title: rdp.title, body: "b", techniques: [], primaryEntities: [], actionsTaken: [], tags: [], revision: 1, learnedProcedures: [{ id: "sop-1", title: "Containment" }] } }));
+    fireEvent.click(screen.getByText("Containment"));
+    expect(t.intents).toContainEqual({ type: "inspector.open", target: { kind: "sop", sopId: "sop-1" } });
+    act(() => t.emit(procedure));
+    expect(screen.getByRole("region", { name: "Procedure" })).toBeTruthy();
+    fireEvent.click(screen.getByText("‹ back"));
+    expect(screen.getByRole("region", { name: "Similar past case" })).toBeTruthy();
+  });
+
+  it("keeps the filters across an item opened from the listing (adr/0346)", () => {
+    const t = open();
+    library(t);
+    fireEvent.click(screen.getByRole("button", { name: /T1078/ }));
+    act(() => t.emit({ type: "pastCases", filter: { techniques: ["T1078"] }, rows: [rdp], total: 1 }));
+    fireEvent.click(screen.getByText("RDP lateral movement"));
     act(() => t.emit({ type: "knowledge.search" }));
-    expect(document.activeElement).toBe(box);
+    expect(screen.getByRole("button", { name: /T1078/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(lastCasesAsk(t)).toEqual({ type: "pastCases.get", filter: { techniques: ["T1078"] } });
+  });
+
+  it("keeps the query in the box when an item is opened from the results and put away (adr/0346)", () => {
+    const t = open();
+    library(t);
+    search(t, "rdp");
+    act(() => t.emit({ type: "library.results", query: "rdp", sops: [{ kind: "sop", ref: "sop-1", title: "Containment" }], cases: [] }));
+    fireEvent.click(screen.getByText("Containment"));
+    fireEvent.click(screen.getByText("‹ Back to results"));
+    expect(screen.getByText("Results for “rdp”")).toBeTruthy();
+    expect((screen.getByLabelText("Search procedures and past cases") as HTMLInputElement).value).toBe("rdp");
+    expect((screen.getByText("Search") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("leads back from a listed item to the same filtered listing, asking nothing again; a sidebar item has no way back (adr/0346)", () => {
+    const t = open();
+    library(t);
+    fireEvent.click(screen.getByRole("button", { name: /T1078/ }));
+    act(() => t.emit({ type: "pastCases", filter: { techniques: ["T1078"] }, rows: [rdp], total: 1 }));
+    const asks = t.intents.filter((i) => i.type === "pastCases.get").length;
+    fireEvent.click(screen.getByText("RDP lateral movement"));
+    expect(t.intents.at(-1)).toEqual({ type: "knowledge.showing", target: { kind: "case", investigationRef: rdp.ref } });
+    fireEvent.click(screen.getByText("‹ Back to past cases"));
+    expect(screen.getByText("1 of 150 match")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /T1078/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(t.intents.filter((i) => i.type === "pastCases.get").length).toBe(asks); // the listing held is the one shown
+    expect(t.intents.at(-1)).toEqual({ type: "knowledge.showing" });
+    act(() => t.emit({ type: "knowledge.show", target: { kind: "case", investigationRef: rdp.ref } }));
+    expect(screen.queryByText(/‹ Back to/)).toBeNull();
+  });
+
+  it("lists past cases after a Retry of a failed load under the filter chosen meanwhile, not stuck loading (adr/0244)", () => {
+    const t = open();
+    act(() => t.emit({ type: "error", message: "backend down" }));
+    library(t);
+    fireEvent.click(screen.getByRole("button", { name: /T1078/ }));
+    fireEvent.click(screen.getByText("Retry"));
+    act(() => t.emit({ type: "pastCases", filter: { techniques: ["T1078"] }, rows: [rdp], total: 1 }));
+    expect(screen.queryByText("loading…")).toBeNull();
+    expect(screen.getByText("RDP lateral movement")).toBeTruthy();
   });
 });

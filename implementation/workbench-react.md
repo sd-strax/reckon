@@ -301,12 +301,17 @@ singleton panel, Procedures · Past cases · Import with the query bar and the i
 the view's own section list.* Since `adr/0344` it opens from the sidebar's Knowledge view: its
 title bar (`reckon.openKnowledge`), its **Search** (`reckon.searchKnowledge`, the `knowledge.search`
 cue focuses the query bar) and a row (`reckon.openKnowledgeItem`, the `knowledge.show` cue opens
-that item's inspector). A cue for a view not yet ready is held until its `ready`. It shares the inspector dock, the dialogs, the primitives and the tokens with the
+that item's inspector). A cue for a view not yet ready is held until its `ready`. *Since `adr/0346`
+it is a top-level tab: it opens in the active editor group and takes the focus, one panel reused
+and revealed where it is; the section list, the procedure and past-case lists and Import are
+gone. Its page is the item (the inspector pane full-width, with its back stack, no pin or close)
+or the search page (the query bar, results as two lists, and with no search showing the past
+cases under their filters); `reckon.openKnowledge` opens the search page.* It shares the inspector dock, the dialogs, the primitives and the tokens with the
 investigation document; it shares no state with any investigation, and nothing in it posts an
 investigation intent.
 
 **Opening the Knowledge view is a navigation act, not a content swap.** The host reveals the
-Knowledge document (at the last section, or the one named); each document's main area is fixed.
+Knowledge document (on the item named, or the search page, `adr/0346`); each document's main area is fixed.
 The work queue is the editor's sidebar (`adr/0342`), where a row opens its investigation; a
 sidebar Knowledge row opens the Knowledge view on its item (`adr/0344`).
 

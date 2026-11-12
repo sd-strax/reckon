@@ -1,7 +1,7 @@
 # 0344 — The knowledge library is a sidebar view; the companion column carries none
 
 Issue: #344 · PR: #345 · Status: accepted · Supersedes: the rail bullet of `0129`, and the
-Knowledge entry point of `0342` (the Investigations title bar)
+Knowledge entry point of `0342` (the Investigations title bar) · row-open and Ask rules superseded by 0346
 
 ## Context
 

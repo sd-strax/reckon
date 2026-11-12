@@ -224,17 +224,18 @@ said.* If it wanders, steer it back to the `svc_backup` question; Act 3 is about
 that claim.
 
 **The compounding payoff.** In the sidebar's **Knowledge** view press
-**Search** and search *RDP lateral movement* in the Knowledge view. Procedures
-and past cases come back as separate lists: the SOP you just imported and the
+**Search**: the Knowledge tab opens on its search page. Search *RDP lateral
+movement*. Procedures and past cases come back as separate lists: the SOP you just imported and the
 `FINANCE-07` case, each labelled by relevance (*close match*, *related*,
 *loosely related*) — the vector backend at work, the reason we configured
 embeddings up front. Each row also says where it has been cited. Nobody wired
 either one to this investigation: the library lives beside the investigations,
 not inside them, and the agent reached both through its own tools, in the turn,
 where you watched it. The record keeps what it consulted and what it cited, as
-the chips under its turns. Back in the investigation, **Ask reckon to use this**
-on a sidebar row stages that request in the composer: the analyst points, the
-agent reads, and the record shows both.
+the chips under its turns. Open the SOP from the result: it fills the tab, with
+its sections and where it has been cited. Then **Ask reckon to use this** on its
+sidebar row takes you back to the investigation with that request staged in the
+composer: the analyst points, the agent reads, and the record shows both.
 
 ## Act 3 — Decide (disprove the innocent explanation)
 

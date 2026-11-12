@@ -5,25 +5,19 @@
 // nothing is recorded in any investigation. Enter searches, Escape clears.
 import { useEffect, useRef, useState } from "react";
 
-export function QueryBar({ onSearch, onClear, showing, focus = 0 }: {
+export function QueryBar({ onSearch, onClear, showing, query, focus = 0 }: {
   onSearch: (text: string) => void;
   onClear: () => void;
   /** Results are on screen: the bar offers Clear. */
   showing: boolean;
+  /** The query whose results are on screen: the box reads it when it mounts again. */
+  query?: string;
   /** Each new value puts the focus in the box. */
   focus?: number;
 }) {
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(query ?? "");
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { if (focus) input.current?.focus(); }, [focus]);
-  // Results dismissed from outside the bar (a "back" link) take the text with
-  // them: the change is seen during render, React's pattern for state that
-  // follows a prop.
-  const [wasShowing, setWasShowing] = useState(showing);
-  if (wasShowing !== showing) {
-    setWasShowing(showing);
-    if (!showing) setQ("");
-  }
   const search = () => { const text = q.trim(); if (text) onSearch(text); };
   const clear = () => { setQ(""); onClear(); };
   return (

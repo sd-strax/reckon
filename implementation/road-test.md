@@ -42,7 +42,8 @@ One investigation panel, three regions, beside the sidebar's work queue:
   with no investigation — a case already investigated leads to its case page
   and **Open investigation**), **Knowledge** (procedures and past cases, with
   **Search**, **Import SOPs…** and **Open the Knowledge view** on the title bar,
-  and **Ask reckon to use this** on a row while an investigation is open), and
+  and **Ask reckon to use this** on a row, staging into the investigation last
+  active; a row opens the item as the Knowledge tab's page), and
   **Capabilities**, collapsed (per-verb health, with **Set up…** where a
   disabled adapter could serve a verb).
 - **Lenses** — four views over the same record:
@@ -248,7 +249,8 @@ sidebar's **Investigations** view, under their own group.
   flagged.
 - **Response:** decisions first, then every action by category, newest first.
 - **Knowledge** (sidebar): procedures and past cases as separate groups;
-  **Search** opens the Knowledge view's query bar (relevance in words) with
+  **Search** opens the Knowledge tab's search page (relevance in words, the
+  past-case filters) with
   **Clear**; **Import SOPs…**; a procedure's inspector shows only what the
   agent actually read here.
 - **Capabilities** (sidebar, collapsed): an unavailable integration → **Enable…** → a form

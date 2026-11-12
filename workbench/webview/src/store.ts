@@ -103,12 +103,9 @@ export interface State {
   narrativeStatus: { state: "drafting" | "failed" | "saving" | "save-failed"; message?: string } | null;
   /** How many edits the record has taken in this session, so the editor closes once its own landed. */
   narrativeSaves: number;
-  /** The knowledge library (adr/0129): what there is, and the last search's hits. */
+  /** The knowledge library (adr/0129): the last search's hits, and every past case there is (adr/0107). */
   library: {
-    sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number;
-    /** The last procedures read failed; the list is the one read before it. */
-    sopsError?: string;
-    loaded: boolean;
+    casesTotal?: number;
     results: { query: string; sops: LibraryItem[]; cases: LibraryItem[] } | null;
     /** The search asked last; an answer for any other, or after it was dismissed, is not shown. */
     pending?: string;
@@ -209,7 +206,7 @@ export const initialState: State = {
   around: {},
   repeats: {},
   inspectorErrors: {},
-  library: { sops: [], cases: [], loaded: false, results: null },
+  library: { results: null },
   actionTypes: [],
   sopDraft: null,
   summaryStatus: null,
@@ -325,14 +322,8 @@ function onMessage(state: State, msg: RenderMessage): State {
     // The provider stages it in the composer: view state, not the record's.
     case "composer.stage":
       return state;
-    case "library":
-      return {
-        ...state,
-        library: msg.sopsError
-          // A failed read keeps what was read before and says it failed.
-          ? { ...state.library, cases: msg.cases, casesTotal: msg.casesTotal, sopsError: msg.sopsError, loaded: true }
-          : { ...state.library, sops: msg.sops, cases: msg.cases, casesTotal: msg.casesTotal, sopsError: undefined, loaded: true },
-      };
+    case "pastCases.corpus":
+      return { ...state, library: { ...state.library, casesTotal: msg.total } };
     case "library.results":
       if (state.library.pending !== msg.query) return state;
       return { ...state, library: { ...state.library, pending: undefined, results: { query: msg.query, sops: msg.sops, cases: msg.cases } } };
