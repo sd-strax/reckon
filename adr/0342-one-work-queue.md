@@ -1,6 +1,6 @@
 # 0342 — The work queue is the editor's sidebar; the investigation document has no queue column
 
-Issue: #342 · PR: #TBD · Status: accepted · Supersedes: the work-queue bullet of `0079`, and the
+Issue: #342 · PR: #343 · Status: accepted · Supersedes: the work-queue bullet of `0079`, and the
 Knowledge entry point of `0107` (the left region's header)
 
 ## Context
