@@ -78,6 +78,8 @@ var (
 		Text: "[engine state — the authoritative action record for this investigation (trust THIS over any earlier narration): %s; %d awaiting approval]"}
 	textEngineStateRow = modelText{ID: "engine-state-row", Origin: "108673d",
 		Text: "%s %s=%s"}
+	textEngineStateRowExpired = modelText{ID: "engine-state-row-expired", Origin: "#339",
+		Text: "%s %s=%s (expired: can no longer be approved)"}
 	textEngineRecord = modelText{ID: "engine-record", Origin: "4c574ed",
 		Text: "[engine record — authoritative, verified against the action log: %s]"}
 	textEngineRecordEntry = modelText{ID: "engine-record-entry", Origin: "4c574ed",
@@ -139,7 +141,7 @@ var engineTexts = []modelText{
 	textNoPredictions, textPredictionTally, textTallyCount, textTallyOrder, textUntested, textDiscriminatesVs,
 	textManualTest, textPredictionStatement, textOutstanding, textHolds, textHoldsSeparator, textUntilTested,
 	textNoneOutstanding, textBlockEnd,
-	textEngineState, textEngineStateRow, textEngineRecord, textEngineRecordEntry, textNotOnRecord,
+	textEngineState, textEngineStateRow, textEngineStateRowExpired, textEngineRecord, textEngineRecordEntry, textNotOnRecord,
 	textNoActionRequested, textFooterSeparator,
 	textContextCondensed, textResultRemoved, textRerun, textRerunOrRead, textResultPaged, textResultOversized,
 	textResultBoundedShape,

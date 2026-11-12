@@ -878,7 +878,7 @@ func (s *Session) narrativeRecord(ctx context.Context) (narrativeRecord, error) 
 		rec.blocks = append(rec.blocks, TextBlock(hb))
 		rec.hasActs = true
 	}
-	if ab := actionStateBlock(acts); ab != "" {
+	if ab := actionStateBlock(acts, s.now()); ab != "" {
 		rec.blocks = append(rec.blocks, TextBlock(ab))
 		rec.hasActs = true
 	}

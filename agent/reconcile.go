@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // actionIDRe matches a full UUID as the model prints it when "confirming" an
@@ -129,27 +130,37 @@ func (s *Session) engineStateAnchor(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	return actionStateBlock(acts)
+	return actionStateBlock(acts, s.now())
 }
 
 // actionStateBlock renders the action record as the anchor states it: one
 // row per action with its status, and the count awaiting approval. Empty when
-// there are no actions.
-func actionStateBlock(acts []ActionStatus) string {
+// there are no actions. An action awaiting approval whose window has elapsed at now
+// (the session's clock, the one list_actions judges expiry by) says so on its
+// row and is not counted as awaiting approval, so the block and list_actions
+// never disagree about the same action (adr/0339).
+func actionStateBlock(acts []ActionStatus, now time.Time) string {
 	if len(acts) == 0 {
 		return ""
 	}
 	rows := make([]string, 0, len(acts))
 	pending := 0
 	for _, a := range acts {
-		if a.Pending() {
+		// The approval deadline only means something while the action awaits
+		// approval: a finished action past it renders its plain row.
+		expired := a.ApprovalLapsed(now)
+		if a.Pending() && !expired {
 			pending++
 		}
 		id := a.ActionID
 		if len(id) > 8 {
 			id = id[:8]
 		}
-		rows = append(rows, fmt.Sprintf(textEngineStateRow.Text, id, a.ActionType, a.Status))
+		row := textEngineStateRow
+		if expired {
+			row = textEngineStateRowExpired
+		}
+		rows = append(rows, fmt.Sprintf(row.Text, id, a.ActionType, a.Status))
 	}
 	return fmt.Sprintf(textEngineState.Text, strings.Join(rows, textListSeparator.Text), pending)
 }

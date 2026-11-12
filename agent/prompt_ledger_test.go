@@ -22,8 +22,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "cfe55df04f5200e2d2d99043518b126e6017c0347ada5520affffdd7ebfa8fdf",
-		framingLeadingOnly: "20f75b2525ae16b45648c9156bfab0c246d6e0177cf93f2b1468a84c4dba8e99",
+		framingLeadingNull: "1db4ae80b1c3f9e3f7c5b525c4cbfd7889ba127c846c59cbac44189576d81c7b",
+		framingLeadingOnly: "6615291da0f3e4e5cd4e1a45f4d4401cbb4cef31a8778ac386dd55c189360ab7",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -108,6 +108,7 @@ var componentGolden = map[string]string{
 	"engine-text/reasoning-state-end":                  "cfae0d4248f7142f7b17f826cd7a519280e312577690e957830d23dcf35a3fff",
 	"engine-text/engine-state":                         "326ac218467fa6502216367f229114106afac3f0ba7cbe6a11ad1dbd5baacccc",
 	"engine-text/engine-state-row":                     "ed344954243d0f1c410b348c2518dfa3b60f0f942d6edf46b7fb63c2f864c731",
+	"engine-text/engine-state-row-expired":             "578187a420d31823affb60bb532feb2b805a8619755358251f6d5671cc84fe49",
 	"engine-text/engine-record":                        "bed3db1eb1d51a388f65181f4e2e8369f3981dfc7b5024ca48667166e4e187b6",
 	"engine-text/engine-record-entry":                  "5d8b71dc61ad9b0da47dac263ed6486ea54bc3936c1fef95856ac5b39ddb5446",
 	"engine-text/engine-record-not-on-record":          "8b260cce172581e12983ba7974fbe61ee7a63496358cd60b4226bdbd66813326",
