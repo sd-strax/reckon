@@ -4,8 +4,9 @@ This sheet defines how the investigation document is organized: the regions of t
 investigation view, the four lenses, the conversation as a companion column, and the
 inspector every citation opens. It supersedes `02 §2.2` (panel), `02 §2.8` (evidence in
 reach) and the row anatomy of `02 §2.9`, and extends `03 §3.4` and `03 §3.7`. The decision
-and its alternatives are `adr/0079-investigation-layout.md`. Reference screens for the
-reference scenario are in `mockups/`.
+and its alternatives are `adr/0079-investigation-layout.md`; the work queue moved out of the
+document into the editor's sidebar in `adr/0342-one-work-queue.md` (§8.3). Reference screens
+for the reference scenario are in `mockups/`; they still draw `0079`'s queue column.
 
 Binding rules apply unchanged (`00`): the engine is the record, engine words render
 verbatim, every element names its source, and an element with no source is a gap in
@@ -16,22 +17,20 @@ verbatim, every element names its source, and an element with no source is a gap
 ## 8.1 Regions
 
 ```
-┌ header: title · verdict · stage indicator · primary action ────────────────┐
-├ work queue ┬ lens tabs: Summary │ Story │ Reasoning │ Response ┬ companion ┤
-│            │ the active lens                                  │ column    │
-│            │                                    [inspector] ◀─┤           │
-└────────────┴──────────────────────────────────────────────────┴───────────┘
+┌ header: title · verdict · stage indicator · primary action ──┐
+├ lens tabs: Summary │ Story │ Reasoning │ Response ┬ companion ┤
+│ the active lens                                  │ column    │
+│                                    [inspector] ◀─┤           │
+└──────────────────────────────────────────────────┴───────────┘
 ```
 
 | Region | Width | Notes |
 |---|---|---|
-| Work queue | 220–270px | §8.3. Collapsible. |
 | Lens area | fluid, content max 900px | §8.4. One lens at a time. |
 | Companion column | 340–420px | §8.5. |
 | Inspector | 440–480px | §8.6. Overlays the companion column's side of the lens area; never replaces the lens. |
 
-Below 1280px the work queue collapses to an icon rail; below 1024px the companion column
-becomes a toggled drawer. The inspector always overlays. (The remaining layout-floor
+Below 1024px the companion column becomes a toggled drawer. The inspector always overlays. (The remaining layout-floor
 question in `00 §7` is the minimum width at which the lens area stays readable with the
 inspector open.)
 
@@ -64,16 +63,25 @@ only notification remains; **Conclude** when the conclude preflight passes (`02 
 
 ## 8.3 Work queue
 
-Two sections, in this order. The region's header also opens the Knowledge view (`ui/09 §9.1`).
+The work queue is not part of the investigation document. It is the editor's sidebar, the
+reckon view container, which is there before any investigation opens (`adr/0342`). Three
+views, in this order:
 
-- **Investigations** — the analyst's open investigations as a triage queue (`13 §4`):
-  ordered needs-me-first (`ui/06` tree rules). A row shows the tenant
-  label when tenancy is enabled, the title, the current stage step, and the case reference
-  when seeded from a case. Source: `GET /api/investigations`.
-- **Cases** — the case system of record's queue, read-only (`14 §4.2`, `adr/0030`), listing
-  **only cases with no investigation**. Each row has **Start investigation**. A case that
-  already has an investigation is not listed here: it appears once, as its investigation.
-  Source: `query_external_cases` filtered against the seeds of existing investigations.
+- **Investigations** — the analyst's investigations as a triage queue (`13 §4`), grouped by
+  lifecycle and ordered needs-me-first within a group (`ui/06` tree rules). A row shows the
+  title, the expiry, pending and unseen cues, the current stage step of an open
+  investigation, and the seed (the case reference when seeded from a case). The view's title
+  bar carries **＋** (new investigation), **Knowledge** (the Knowledge view, `ui/09 §9.1`) and
+  refresh. Source: `GET /api/investigations`.
+- **Cases** — the case system of record's queue, read-only (`14 §4.2`, `adr/0030`). A case
+  with no investigation offers **Start investigation**; a case under investigation is
+  marked and leads to its case page, which offers **Open investigation**. Source:
+  `GET /api/cases`, which marks each case's in-flight investigation.
+- **Capabilities** — one row per verb, available, then degraded, then unavailable, with the
+  view's description *N/M available*. An unavailable verb that an installed, disabled
+  adapter could serve offers **Set up…**, the enablement flow (`11 §5.1`) run natively:
+  a confirm, one input per field of the adapter's schema (a secret field takes a secret
+  reference), apply. Source: `GET /api/capabilities` and the enablement view.
 
 ## 8.4 Lenses
 

@@ -28,17 +28,20 @@ change needs only **Developer: Reload Window**.
 
 ## The layout
 
-One investigation panel, four regions:
+One investigation panel, three regions, beside the sidebar's work queue:
 
 - **Header** — the title (double-click to rename), the **Progress** strip
   (Investigate · Verdict · Contain · Notify · Close) with the next step's
   action beside it, **Verdict…**, and the lifecycle buttons (**Discard
   draft…** on a draft, **Pause** / **Resume**, **Conclude…**, **Reopen…**,
   **Archive…**).
-- **Left region** — **Investigations** (yours, in progress, with **＋** to start
-  one; concluded ones under a **Concluded** fold), **Cases** (the case
-  system's queue, with **Start investigation** — a case already investigated
-  opens its investigation), and the **Capabilities** fold.
+- **Sidebar** (not part of the panel, `adr/0342`) — **Investigations** (yours,
+  grouped by lifecycle with concluded ones in their own group, each open row
+  showing its stage step; **＋**, **Knowledge** and refresh on the title bar),
+  **Cases** (the case system's queue, with **Start investigation** on a case
+  with no investigation — a case already investigated leads to its case page
+  and **Open investigation**), and **Capabilities** (per-verb health, with
+  **Set up…** where a disabled adapter could serve a verb).
 - **Lenses** — four views over the same record:
   - **Summary** — verdict, containment, notification, what happened, key
     entities, still to do, procedures followed; **Copy handoff note**,
@@ -222,8 +225,8 @@ panel, editable, with **Add to SOP library** / **Discard** on the panel.
 it would be.
 
 **Reopen…** a concluded investigation with a reason → ACTIVE again; the earlier
-conclusion stays in the Thread. Concluded investigations stay findable under
-**Concluded** in the left region.
+conclusion stays in the Thread. Concluded investigations stay findable in the
+sidebar's **Investigations** view, under their own group.
 
 ---
 

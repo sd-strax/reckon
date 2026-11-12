@@ -1,11 +1,14 @@
 // The Investigations view (ui/06): a triage queue, not a file listing. Rows
 // are the backend's investigations grouped by status and ordered
 // needs-me-first; the unseen cue compares each row against what this person
-// last had open (SeenTracker). Read-only: a click opens the document.
+// last had open (SeenTracker). Read-only: a click opens the document. With
+// Cases and Capabilities beside it, this is the work queue (adr/0342): an open
+// row carries its stage step, the cue the document's column used to carry.
 import * as vscode from "vscode";
 import { BackendClient, InvestigationSummary } from "./backend";
 import { Session } from "./auth";
 import { SeenTracker } from "./seenTracker";
+import { STEP_LABELS, rowStep } from "./stage";
 import { errText } from "./util";
 
 /** Display order + collapsed defaults for the status groups (ui/06). */
@@ -145,6 +148,11 @@ export class InvestigationsProvider implements vscode.TreeDataProvider<vscode.Tr
     item.invTitle = r.title;
     item.contextValue = "reckon.investigation";
     const cues: string[] = [];
+    // The stage step leads, named as the document's progress strip names it.
+    const step = rowStep(r);
+    if (step) {
+      cues.push(STEP_LABELS[step]);
+    }
     if (r.nearestExpiry) {
       const left = Date.parse(r.nearestExpiry) - Date.now();
       cues.push(left <= 0 ? "⏳ expired" : `⏳ ${fmtShort(left)}`);

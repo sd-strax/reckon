@@ -56,11 +56,11 @@ export interface InvestigationSummary {
   pendingActions: number;
   /** Soonest approval-window deadline among them (ISO) — the countdown cue. */
   nearestExpiry?: string;
-  /** Stage inputs for the work queue (08 §8.3): list rows only. */
+  /** Stage inputs for the sidebar row's stage step (src/stage.ts, adr/0342): list rows only. */
   hasVerdict: boolean;
   openActions: number;
   openNotifications: number;
-  /** The seed, when the row carries one (the case reference in the queue). */
+  /** The seed, when the row carries one. */
   seed?: Seed;
 }
 

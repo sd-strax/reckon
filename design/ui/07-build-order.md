@@ -122,7 +122,8 @@ activity disclosure; proposed actions as cards in the conversation.
 more than one place, and no sequence number or principal id is in the reading path.
 
 **L3 — Layout.** Header with stage indicator and primary action; lens tabs with the
-lifecycle default; the companion column; the two-section work queue.
+lifecycle default; the companion column; the two-section work queue (since moved out of
+the document into the sidebar, `adr/0342`).
 *Done when:* the default lens changes with the derived lifecycle, and a case with an
 investigation appears once, as its investigation.
 

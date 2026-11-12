@@ -38,10 +38,11 @@ export class DraftFlow {
    * server refuses because the case is already investigated (#158) opens that
    * investigation instead. On success `opened` places the record (a new panel,
    * or the draft re-keyed), then the write-back posture applies and both trees
-   * re-read. Nothing opens or writes after a change of person.
+   * re-read. Nothing opens or writes after a change of person. A create that
+   * answers undefined was not sent (a start of the same case is in flight).
    */
   private async createOrOpen(
-    create: () => Promise<InvestigationDetail>,
+    create: () => Promise<InvestigationDetail | undefined>,
     opened: (created: InvestigationDetail) => void,
     existing: (id: string) => void,
     failed: (err: unknown) => void,
@@ -49,7 +50,7 @@ export class DraftFlow {
     const current = this.host.sameIdentity();
     try {
       const created = await create();
-      if (!current()) return;
+      if (!created || !current()) return;
       opened(created);
       this.offerCaseNote(created);
       this.host.refreshTrees({ cases: true });
@@ -84,9 +85,22 @@ export class DraftFlow {
     const draftKey = ref.id;
     try {
       await this.createOrOpen(
-        () => seed.alertId !== undefined
-          ? this.host.client.investigations.create("", { type: "alert", alertId: seed.alertId, source: seed.source })
-          : this.host.client.investigations.createFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown, seed.entityKind, seed.accountRef),
+        async () => {
+          if (seed.alertId !== undefined) {
+            return this.host.client.investigations.create("", { type: "alert", alertId: seed.alertId, source: seed.source });
+          }
+          const fromInput = () => this.host.client.investigations.createFromInput(seed.value ?? "", seed.kind ?? "", undefined, seed.allowUnknown, seed.entityKind, seed.accountRef);
+          if (seed.kind !== "case") {
+            return fromInput();
+          }
+          // From a case: the one guarded start (adr/0342). A start of the same
+          // case already in flight elsewhere sends nothing; the draft says so.
+          const created = await this.host.caseStarts.run(seed.value ?? "", fromInput);
+          if (!created) {
+            void this.host.post(panel, { type: "draft.error", message: `${seed.value ?? "this case"} is already being started` });
+          }
+          return created;
+        },
         (created) => {
           // A panel closed meanwhile stays closed: the create cannot be recalled,
           // so the investigation surfaces through the trees and opens from there.
@@ -194,10 +208,10 @@ export class DraftFlow {
     void this.host.post(panel, { type: "draft", mode, caseQueue });
   }
 
-  /** Start an investigation from a case row: the seed path, then open it. */
+  /** Start an investigation from a case row: the one guarded start, then open it. */
   startFromCase(caseNumber: string): Promise<void> {
     return this.createOrOpen(
-      () => this.host.client.investigations.createFromInput(caseNumber, "case"),
+      () => this.host.caseStarts.run(caseNumber, () => this.host.client.investigations.createFromInput(caseNumber, "case")),
       (created) => this.host.show(created.id, created.title),
       (existing) => {
         void vscode.window.showInformationMessage(`reckon: ${caseNumber} already has an investigation — opening it`);

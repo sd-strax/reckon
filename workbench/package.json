@@ -37,6 +37,10 @@
         {
           "id": "reckon.cases",
           "name": "Cases"
+        },
+        {
+          "id": "reckon.capabilities",
+          "name": "Capabilities"
         }
       ]
     },
@@ -114,7 +118,26 @@
       {
         "command": "reckon.openKnowledge",
         "category": "reckon",
-        "title": "Open Knowledge"
+        "title": "Open Knowledge",
+        "icon": "$(book)"
+      },
+      {
+        "command": "reckon.startInvestigationFromCase",
+        "category": "reckon",
+        "title": "Start Investigation",
+        "icon": "$(play)"
+      },
+      {
+        "command": "reckon.refreshCapabilities",
+        "category": "reckon",
+        "title": "Refresh Capabilities",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "reckon.setUpCapability",
+        "category": "reckon",
+        "title": "Set Up…",
+        "icon": "$(gear)"
       },
       {
         "command": "reckon.openInvestigation",
@@ -158,9 +181,14 @@
           "group": "navigation@1"
         },
         {
+          "command": "reckon.openKnowledge",
+          "when": "view == reckon.investigations && reckon.signedIn",
+          "group": "navigation@2"
+        },
+        {
           "command": "reckon.refreshInvestigations",
           "when": "view == reckon.investigations",
-          "group": "navigation@2"
+          "group": "navigation@3"
         },
         {
           "command": "reckon.cases.sortByAge",
@@ -176,6 +204,11 @@
           "command": "reckon.refreshCases",
           "when": "view == reckon.cases",
           "group": "navigation@2"
+        },
+        {
+          "command": "reckon.refreshCapabilities",
+          "when": "view == reckon.capabilities",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -188,6 +221,16 @@
           "command": "reckon.resetAgentContext",
           "when": "view == reckon.investigations && viewItem == reckon.investigation && reckon.signedIn",
           "group": "context@1"
+        },
+        {
+          "command": "reckon.startInvestigationFromCase",
+          "when": "view == reckon.cases && viewItem == reckon.case && reckon.signedIn",
+          "group": "inline@1"
+        },
+        {
+          "command": "reckon.setUpCapability",
+          "when": "view == reckon.capabilities && viewItem == reckon.capability.setup && reckon.signedIn",
+          "group": "inline@1"
         }
       ],
       "commandPalette": [
@@ -213,6 +256,14 @@
         },
         {
           "command": "reckon.resetAgentContext",
+          "when": "false"
+        },
+        {
+          "command": "reckon.startInvestigationFromCase",
+          "when": "false"
+        },
+        {
+          "command": "reckon.setUpCapability",
           "when": "false"
         },
         {

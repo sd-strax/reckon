@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a snapshot or patch older than
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, PastCaseFacets, PastCaseFilter, PastCaseRow, ProcedureReads, SOPDoc, SOPOutlineView } from "../../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, KnowledgeCitations, PastCaseFacets, PastCaseFilter, PastCaseRow, ProcedureReads, SOPDoc, SOPOutlineView } from "../../src/viewTypes";
 import type { ActionTypeView, InvestigationSnapshot, KnownAccount, LibraryItem, RenderMessage, SopDraftState } from "../../src/protocol";
 import { docBearsIdentity, identityViewKeys } from "../../src/identityKinds";
 
@@ -117,8 +117,6 @@ export interface State {
   streaming: boolean;
   /** A failed turn's live copy is the only record of it: keep it until a new turn. */
   preserveLive: boolean;
-  /** The work queue (08 §8.3); null until the host posts it. */
-  queue: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string } | null;
   /** The signed-in principal, for "edited by you" and attestations. */
   me: { name: string; principal: string } | null;
   /** Actions with a decision sent and not yet settled by the host: every card for one disables. */
@@ -220,7 +218,6 @@ export const initialState: State = {
   live: [],
   streaming: false,
   preserveLive: false,
-  queue: null,
   me: null,
   actionsInFlight: {},
   identityActs: {},
@@ -380,8 +377,6 @@ function onMessage(state: State, msg: RenderMessage): State {
       if (msg.patch.thread !== undefined && !state.streaming && !state.preserveLive) next.live = [];
       return next;
     }
-    case "queue":
-      return { ...state, queue: { investigations: msg.investigations, cases: msg.cases, caseSource: msg.caseSource } };
     case "me":
       return { ...state, me: { name: msg.name, principal: msg.principal } };
     case "rename.begin":

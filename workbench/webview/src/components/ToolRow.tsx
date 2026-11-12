@@ -6,6 +6,7 @@ import { useApp } from "../app";
 import { RefChip } from "./shared";
 import { pinSpec } from "./PromptCard";
 import type { PinRow } from "../../../src/viewTypes";
+import { setUpAdapter } from "../../../src/enablement";
 
 export interface ToolRowResult {
   isError: boolean;
@@ -32,13 +33,10 @@ export function ToolRow({ name, argsHint, argsPretty, result }: { name: string; 
   const pinned = refsAlreadyPinned(pins, refs);
   const enablement = state.snap?.enablement;
   // The gap hint (11 §5.1): the verb came back unavailable AND an installed-
-  // but-disabled adapter could serve it. Actionable only through the form.
-  let gapAdapter: string | null = null;
-  if (result && !result.isError && typeof result.coverage === "string" && result.coverage.indexOf("UNAVAILABLE") === 0 && enablement) {
-    const v = (enablement.verbs || []).find((x) => x.verb === name);
-    const adapter = v?.closableBy?.[0];
-    if (v && !v.enabled && adapter) gapAdapter = adapter;
-  }
+  // but-disabled adapter the form supports could serve it — the same rule as
+  // the sidebar's Capabilities rows (src/enablement.ts, adr/0342).
+  const unavailable = !!result && !result.isError && typeof result.coverage === "string" && result.coverage.indexOf("UNAVAILABLE") === 0;
+  const gapAdapter = setUpAdapter(name, unavailable ? "unavailable" : undefined, enablement);
   return (
     <details className="tool">
       <summary>

@@ -7,7 +7,8 @@ import { useApp } from "../app";
 import { caseNoteStatus } from "../derive/actions";
 import { openDependencies } from "../derive/dependencies";
 import { concludeAllowed, concludePreflight, preflightClean } from "../derive/preflight";
-import { STEPS, STEP_LABELS, nearestExpiry, primaryAction, stageOf } from "../derive/stage";
+import { nearestExpiry, primaryAction, stageOf } from "../derive/stage";
+import { STEPS, STEP_LABELS } from "../../../src/stage";
 import { Countdown } from "./shared";
 
 export function Header() {

@@ -6,6 +6,7 @@
 import type * as vscode from "vscode";
 import type { AgentTransport } from "./agentTransport";
 import type { BackendClient, InvestigationDetail } from "./backend";
+import type { CaseStarts } from "./caseStarts";
 import type { InvestigationCache } from "./investigationCache";
 import type { RenderMessage } from "./protocol";
 
@@ -15,6 +16,8 @@ export interface DocumentHost {
   readonly transport: AgentTransport;
   /** The projection reads, their watermark and the per-investigation ordering (impl §3.1). */
   readonly cache: InvestigationCache;
+  /** The one start from a case and its in-flight guard (adr/0342). */
+  readonly caseStarts: CaseStarts;
   /** Post one render message; false when the panel is gone. */
   post(panel: vscode.WebviewPanel, msg: RenderMessage): Thenable<boolean>;
   /** Re-read the event-sourced slices after a write and post them as a patch. */
