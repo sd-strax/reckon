@@ -120,4 +120,16 @@ describe("InvestigationsProvider (ui/06)", () => {
     const [closed] = await provider.getChildren(concluded);
     expect(closed!.description).toBe("case C-1");
   });
+
+  it("gives each status group a stable id, so its collapse state survives a count change (adr/0344)", async () => {
+    let rows = [row({ title: "a" })];
+    const { provider } = tree(client({ investigations: async () => rows }));
+    const first = await provider.getChildren();
+    rows = [row({ title: "a" }), row({ title: "b" }), row({ title: "c", state: "CONCLUDED" })];
+    const second = await provider.getChildren();
+    expect(first.map((g) => g.label)).toEqual(["Active (1)"]);
+    expect(second.map((g) => g.label)).toEqual(["Active (2)", "Concluded (1)"]);
+    expect(first[0]!.id).toBe("investigations.ACTIVE");
+    expect(second.map((g) => g.id)).toEqual(["investigations.ACTIVE", "investigations.CONCLUDED"]);
+  });
 });

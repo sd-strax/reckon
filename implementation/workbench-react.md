@@ -3,9 +3,9 @@
 Status: **proposed** (for review before implementation). Decision records:
 `adr/0079-investigation-layout.md` and `adr/0084-knowledge-view.md`. Specifications:
 `design/ui/08-investigation-layout.md` (including `§8.6.1`, the inspector for every citable
-type) and `design/ui/09-knowledge.md` (the Knowledge view and the Knowledge section inside an
-investigation), bound by `design/ui/00-backend-binding.md` (the authority layer; gaps
-`§6.12`–`§6.24`) and the workbench discipline (`design/13 §3`). Mockups:
+type) and `design/ui/09-knowledge.md` (the Knowledge view and its sidebar entry, `adr/0344`),
+bound by `design/ui/00-backend-binding.md` (the authority layer; gaps `§6.12`–`§6.24`) and
+the workbench discipline (`design/13 §3`). Mockups:
 `design/ui/mockups/01`–`17`. Parity inventory of the current webview and the Import SOPs panel:
 `implementation/workbench-parity.md`.
 
@@ -106,9 +106,10 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
 ```
 <App>                                  regions grid (lens area · companion); inspector overlay; dialogs; draft mode
                                        no work-queue column (adr/0342): the queue is the editor's sidebar —
-                                       investigationsTree.ts (rows with their stage step, src/stage.ts; Knowledge in
-                                       the title bar), casesTree.ts (inline Start investigation), capabilitiesTree.ts
-                                       (per-verb health, native Set up…)
+                                       investigationsTree.ts (rows with their stage step, src/stage.ts), casesTree.ts
+                                       (inline Start investigation), knowledgeTree.ts (Procedures · Past cases, a row
+                                       opens the Knowledge view, inline Ask reckon to use this — adr/0344),
+                                       capabilitiesTree.ts (per-verb health, native Set up…; collapsed)
 ├─ <DraftSeed>                         unseeded state (seed picker, alert, case search) — parity §A
 ├─ <Header>                            08 §8.2
 │   ├─ <Title>                         inline rename (dblclick / pencil); case reference "from INC…" + <CaseNoteControl>
@@ -151,11 +152,8 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
 │       └─ <CommsThreads>              Phase F threads: ack / follow up / snooze / done (parity §H)
 ├─ <Companion>                         08 §8.5; drawer below 1024px
 │   ├─ <CompanionModeToggle>           Conversation | Thread (§2.5)
-│   ├─ <KnowledgeSection>              09 §9.6, heads the column; replaces the rail (parity §C)
-│   │   ├─ <KnowledgeSummaryLine>      collapsed: "4 retrieved · 1 included"; "The agent reads only what is included."
-│   │   ├─ <KnowledgeItemRow>*         kind · band · title · rationale · include toggle; opens Procedure / Similar-case inspector
-│   │   ├─ <KnowledgeSearch>           scoped search; results join the list with their toggle off (§8.0, sidecar searchKnowledge)
-│   │   └─ <OpenKnowledgeView>         link → knowledge.open
+│   │                                  no knowledge section (adr/0344): the library is the sidebar's Knowledge view;
+│   │                                  the sidebar's Ask reckon to use this arrives as composer.stage
 │   ├─ <Conversation>
 │   │   ├─ <AnalystTurn>               the analyst's text; ⚡ scoped turns render as collapsed asides
 │   │   ├─ <AgentTurn>                 prose (<Markdown>), <TurnRecords> links, <KnowledgeChips>, <Activity>
@@ -219,7 +217,7 @@ syntax-tinted, copy), `Disclosure`.
 | Seed chip + Note the case | `<Title>` case reference + `<CaseNoteControl>` |
 | Needs your approval (interrupt) | `<PrimaryAction>` "Review N proposed actions" → Response; compact cards in the companion turn |
 | Hypotheses (tracker) | `<ReasoningLens>` |
-| Institutional knowledge rail | `<KnowledgeSection>` at the top of the companion (`09 §9.6`) |
+| Institutional knowledge rail | the sidebar's Knowledge view (`knowledgeTree.ts`, `adr/0344`); the companion carries none |
 | Import SOPs panel (`importView.ts`, `reckon.importSOP`) | `<Import>` section of the Knowledge document; the command opens it |
 | Conclude-time candidate SOP (editor tab, Add to library / Discard) | `<Candidates>` section of the Knowledge document, once §6.24 stores the draft |
 | Pinned evidence | `<PinnedEvidence>` under the hypotheses in Reasoning; "Pinned" marker on prediction rows |
@@ -293,23 +291,24 @@ This is a decision this document makes; it is flagged in §11.
 
 ### 2.6 The Knowledge document
 
-`09 §9.1` gives knowledge two surfaces. The **Knowledge section** is part of the investigation
-webview (above). The **Knowledge view** is its own document in the main area: one webview
+`09 §9.1` gave knowledge two surfaces; since `adr/0344` the investigation webview carries no
+**Knowledge section**, and the sidebar's **Knowledge** tree is the library's entry point. The
+**Knowledge view** is its own document in the main area: one webview
 panel, created by `knowledgeDocument.ts` the way `caseDocument.ts` creates a case document,
 kept as a singleton (`retainContextWhenHidden`, revealed rather than re-created), rendering
 `<KnowledgeApp>` from the same bundle with `data-surface="knowledge"`. *Built (`adr/0107`): the
-singleton panel, `knowledge.open` from the investigation's Library, Procedures · Past cases ·
-Import with the query bar and the inspector dock, and the view's own section list.* Since
-`adr/0342` the view also opens from the **Knowledge** button in the sidebar Investigations view's
-title bar (`reckon.openKnowledge`); the investigation document has no work-queue region to open it
-from. It shares the inspector dock, the dialogs, the primitives and the tokens with the
+singleton panel, Procedures · Past cases · Import with the query bar and the inspector dock, and
+the view's own section list.* Since `adr/0344` it opens from the sidebar's Knowledge view: its
+title bar (`reckon.openKnowledge`), its **Search** (`reckon.searchKnowledge`, the `knowledge.search`
+cue focuses the query bar) and a row (`reckon.openKnowledgeItem`, the `knowledge.show` cue opens
+that item's inspector). A cue for a view not yet ready is held until its `ready`. It shares the inspector dock, the dialogs, the primitives and the tokens with the
 investigation document; it shares no state with any investigation, and nothing in it posts an
 investigation intent.
 
 **Opening the Knowledge view is a navigation act, not a content swap.** The host reveals the
 Knowledge document (at the last section, or the one named); each document's main area is fixed.
-The work queue is the editor's sidebar (`adr/0342`), where a row opens its investigation. The
-investigation's `<KnowledgeSection>` links "Open the Knowledge view" with the item's section and id.
+The work queue is the editor's sidebar (`adr/0342`), where a row opens its investigation; a
+sidebar Knowledge row opens the Knowledge view on its item (`adr/0344`).
 
 **Separation is enforced by type.** `<KnowledgeApp>` receives a `KnowledgeState` (§3.1) that
 holds no investigation slice; the only investigation facts it can show are the links the
@@ -473,7 +472,7 @@ then drops the old ones).
       | { kind: "person"; principalId: string } }
 // Absence "Re-run with a wider window" stages the text in the composer webview-side; no host message
 | { type: "knowledge.search"; text: string }                              // 09 §9.6: sidecar searchKnowledge; the merged set comes back as `knowledge`
-| { type: "knowledge.open"; section?: "procedures" | "cases" | "import" | "candidates"; id?: string } // reveal the Knowledge document
+| { type: "knowledge.open"; section?: "procedures" | "cases" | "import" | "candidates"; id?: string } // reveal the Knowledge document — removed by adr/0344: the sidebar opens it (knowledge.show / knowledge.search cues)
 | { type: "events.get"; entity?: string }
 | { type: "summary.get" }
 | { type: "narrative.draft" }                                            // sidecar BYOK draft (§6.18)
@@ -1144,7 +1143,8 @@ PRs in dependency order, each green on `make ci` and `make workbench-ci`, each r
 4. **Density + layout (L2, L3, L6 first half)** — header with stage and primary action, the
    left region with its mode toggle and the work queue, lens tabs with the lifecycle default,
    companion column with the Knowledge section (replacing the rail: toggles, collapsed summary,
-   scoped search via the sidecar, nudges, Open the Knowledge view), turn records and the
+   scoped search via the sidecar, nudges, Open the Knowledge view; the section is removed by
+   `adr/0344`, the library moving to the sidebar), turn records and the
    activity disclosure, one-line prediction rows and the matrix, Response lens from the existing
    action data, §8.0 view additions.
    The left region's Work | Knowledge toggle is present but inert in this PR (it names the

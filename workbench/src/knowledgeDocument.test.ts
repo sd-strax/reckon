@@ -103,6 +103,43 @@ describe("KnowledgeDocument (adr/0107)", () => {
     await vi.waitFor(() => expect(failed.posted().find((m) => m.type === "library")).toMatchObject({ cases: [], casesTotal: undefined }));
   });
 
+  it("opens on the item the sidebar named: once the new view is ready, and at once on the open one (adr/0344)", async () => {
+    const client = { status: async () => ({}), incompatibilityReason: () => null, knowledge: knowledge({}) } as unknown as BackendClient;
+    const view = new KnowledgeDocument(vscode.Uri.file("/ext"), client, fakeLog());
+    view.open({ type: "knowledge.show", target: { kind: "sop", sopId: "sop-1" } });
+    const panel = createdPanels().at(-1)!;
+    const cues = () => (panel.webview.posted as { type: string }[]).filter((m) => m.type.startsWith("knowledge."));
+    expect(cues()).toEqual([]); // the page cannot hear it yet
+    panel.webview.receive({ type: "ready" });
+    expect(cues()).toEqual([{ type: "knowledge.show", target: { kind: "sop", sopId: "sop-1" } }]);
+    panel.webview.receive({ type: "refresh" });
+    expect(cues().length).toBe(1); // heard once, not on every reload
+    view.open({ type: "knowledge.search" });
+    expect(createdPanels().length).toBe(1);
+    expect(panel.revealed).toBe(1);
+    expect(cues().at(-1)).toEqual({ type: "knowledge.search" });
+  });
+
+  it("posts only the latest cue when two arrive before the page is ready (adr/0344)", () => {
+    const client = { status: async () => ({}), incompatibilityReason: () => null, knowledge: knowledge({}) } as unknown as BackendClient;
+    const view = new KnowledgeDocument(vscode.Uri.file("/ext"), client, fakeLog());
+    view.open({ type: "knowledge.show", target: { kind: "sop", sopId: "sop-1" } });
+    view.open({ type: "knowledge.show", target: { kind: "case", investigationRef: "grouping--a" } });
+    const panel = createdPanels().at(-1)!;
+    const cues = () => (panel.webview.posted as { type: string }[]).filter((m) => m.type.startsWith("knowledge."));
+    expect(cues()).toEqual([]); // nothing posted to a page that cannot hear it
+    panel.webview.receive({ type: "ready" });
+    expect(cues()).toEqual([{ type: "knowledge.show", target: { kind: "case", investigationRef: "grouping--a" } }]);
+  });
+
+  it("reads nothing on a library change while no view is open", async () => {
+    const procedures = vi.fn(async () => []);
+    const client = { status: async () => ({}), incompatibilityReason: () => null, knowledge: knowledge({ procedures }) } as unknown as BackendClient;
+    new KnowledgeDocument(vscode.Uri.file("/ext"), client, fakeLog()).refresh();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(procedures).not.toHaveBeenCalled();
+  });
+
   it("opens an investigation a case names, and imports through the command", () => {
     const { panel } = opened({});
     panel.webview.receive({ type: "investigation.open", id: "inv-1", title: "T" });

@@ -137,7 +137,8 @@ owner action items, notification draft (needs `00 §6.16`–`§6.18`).
 left from the Summary lens alone.
 
 **L6 — Knowledge** (`ui/09`). The Knowledge section in the companion column first (it
-replaces the rail, so it lands with L3), then the Knowledge view: procedures, import, search;
+replaces the rail, so it lands with L3; since removed, the library being the sidebar's
+Knowledge view, `adr/0344`), then the Knowledge view: procedures, import, search;
 past cases, Ask and Candidates follow their gaps (`00 §6.21`–`§6.24`).
 *Done when:* under the `opt_in` posture an analyst can see, search and include knowledge
 from inside an investigation without leaving it, and can import, find, read, revise and

@@ -12,6 +12,7 @@
 import * as vscode from "vscode";
 import { BackendClient, CaseRow } from "./backend";
 import { Session } from "./auth";
+import { actionItem, infoItem, signInItem } from "./treeItems";
 import { errText } from "./util";
 
 /**
@@ -63,7 +64,7 @@ export class CasesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       return [];
     }
     if (!this.session.signedIn) {
-      return [actionItem("Sign in to reckon", "opens Keycloak in your browser", "sign-in", "reckon.signIn")];
+      return [signInItem()];
     }
     let queue: string;
     let rows: CaseRow[];
@@ -178,18 +179,4 @@ function age(iso: string): string {
   const h = Math.floor(m / 60);
   if (h < 48) return `${h}h`;
   return `${Math.floor(h / 24)}d`;
-}
-
-function actionItem(label: string, description: string, icon: string, command: string): vscode.TreeItem {
-  const item = infoItem(label, description, icon);
-  item.command = { command, title: label };
-  return item;
-}
-
-function infoItem(label: string, description: string, icon: string): vscode.TreeItem {
-  const item = new vscode.TreeItem(label);
-  item.description = description;
-  item.tooltip = description || label;
-  item.iconPath = new vscode.ThemeIcon(icon);
-  return item;
 }

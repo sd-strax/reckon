@@ -37,14 +37,14 @@ export function ImportApp({ transport }: { transport: ImportTransport }) {
   const note = state.done
     ? (state.done.failed
         ? `${state.done.ok} imported, ${state.done.failed} failed — see each row.`
-        : `${state.done.ok} imported — consultable now on the knowledge rail.`)
+        : `${state.done.ok} imported — in the Knowledge view now, for the agent to recall.`)
     : (!state.busy && selected === 0 ? "Select the documents to import." : "");
 
   return (
     <div className="panel import">
       <div className="kicker">Knowledge · institutional SOPs</div>
       <h1>Import SOPs</h1>
-      <p className="sub">Markdown or text, with optional YAML frontmatter (title, author, tags, source). Imported documents are consultable immediately on the knowledge rail. Re-importing a document with the same source revises it rather than duplicating it.</p>
+      <p className="sub">Markdown or text, with optional YAML frontmatter (title, author, tags, source). Imported documents are in the Knowledge view at once, for the agent to recall. Re-importing a document with the same source revises it rather than duplicating it.</p>
 
       <section>
         <span className="kicker">Open in the editor{open.length ? ` · ${open.length}` : ""}</span>

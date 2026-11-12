@@ -197,4 +197,29 @@ describe("the Knowledge view (adr/0107)", () => {
     expect(screen.queryByText("Results for “rdp”")).toBeNull();
     expect(screen.getByText("Import procedures…")).toBeTruthy();
   });
+
+  it("opens on the item the sidebar names: its section, the inspector, any search put away (adr/0344)", () => {
+    const t = open();
+    library(t);
+    fireEvent.change(screen.getByLabelText("Search procedures and past cases"), { target: { value: "rdp" } });
+    fireEvent.click(screen.getByText("Search"));
+    act(() => t.emit({ type: "library.results", query: "rdp", sops: [], cases: [] }));
+    expect(screen.getByText("Results for “rdp”")).toBeTruthy();
+    act(() => t.emit({ type: "knowledge.show", target: { kind: "case", investigationRef: rdp.ref } }));
+    expect(screen.queryByText("Results for “rdp”")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Past cases/ }).getAttribute("aria-current")).toBe("page");
+    expect(t.intents).toContainEqual({ type: "inspector.open", target: { kind: "case", investigationRef: rdp.ref } });
+    act(() => t.emit({ type: "knowledge.show", target: { kind: "sop", sopId: "sop-1" } }));
+    expect(screen.getByRole("button", { name: /^Procedures/ }).getAttribute("aria-current")).toBe("page");
+    expect(t.intents).toContainEqual({ type: "inspector.open", target: { kind: "sop", sopId: "sop-1" } });
+  });
+
+  it("puts the focus in the query bar on the sidebar's Search (adr/0344)", () => {
+    const t = open();
+    library(t);
+    const box = screen.getByLabelText("Search procedures and past cases");
+    expect(document.activeElement).not.toBe(box);
+    act(() => t.emit({ type: "knowledge.search" }));
+    expect(document.activeElement).toBe(box);
+  });
 });

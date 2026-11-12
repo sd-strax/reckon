@@ -43,7 +43,9 @@ Legend: `[ ]` not yet · `[h]` harness · `[l]` live · `[x]` both.
 ## C. Knowledge section (`06 §5.1`, `09 §9.6`)
 
 The rail becomes the Knowledge section at the top of the companion column; C1–C3 are the rail's
-behaviors kept, C4–C7 the section's additions from `09`.
+behaviors kept, C4–C7 the section's additions from `09`. *Superseded by `adr/0344`: the companion
+column carries no knowledge section; the library is the sidebar's Knowledge view (L11), and what
+the agent consulted is on the record as chips in the conversation.*
 
 | # | Behavior | New home | Status |
 |---|---|---|---|
@@ -52,7 +54,7 @@ behaviors kept, C4–C7 the section's additions from `09`.
 | C3 | Loads only for workable states (DRAFT/ACTIVE/PAUSED) | host `load` unchanged (the section renders for workable states) | [h] |
 | C4 | Collapsed summary "N retrieved · M included" once reviewed | `<KnowledgeSummaryLine>` | [h] |
 | C5 | Search within the investigation; results join the list with their toggle off | `<KnowledgeSearch>` → `knowledge.search` → sidecar `searchKnowledge` (`workbench-react.md §8.0`) | [h] |
-| C6 | Each item opens in the inspector (Procedure / Similar case); "Open the Knowledge view" | `inspector.open` / `knowledge.open` | [h] |
+| C6 | Each item opens in the inspector (Procedure / Similar case); "Open the Knowledge view" | *superseded* (`adr/0344`): a sidebar Knowledge row opens its item in the Knowledge view (L11); a knowledge chip in the conversation opens it in the investigation's inspector | [h] |
 | C7 | Nudge beside ⚡ Propose tests, ⚡ Decide and the response plan when auto-posture items are not included; links to the section, includes nothing | `<LensArea>` nudge above Reasoning and Response (`derive/knowledgeNudge.ts`) | [h] |
 
 ## D. Conversation and streaming
@@ -150,10 +152,11 @@ behaviors kept, C4–C7 the section's additions from `09`.
 | L4 | Attestation (`note`) and null observation (`x-null-observation`) titled as human statement / "Nothing observed: … (coverage complete)" | `<AttestationInspector>` (the statement, who said it, who recorded it, the question it answers) and `<AbsenceInspector>` (Search · Provenance · Raw, re-run wider) | [h] |
 | L5 | Transcript opens for a thread step | *superseded*: `<TurnInspector>` Answer · Tool calls · Consulted · Transcript | [h] |
 | L6 | Every ref type the current chips can carry opens something: event, observed-data, null observation, indicator / sighting, note, prediction, hypothesis, entity types | every ref type resolves to a renderer (`derive/inspect.ts`): evidence, entity, absence, detection (with `related`), attestation, prediction, hypothesis, alias; action, thread, case, turn, person, procedure by target kind | [h] |
-| L7 | Procedure and case inspectors: "Cited elsewhere" (one row per other investigation, "cited" / "recalled, not cited", opens it); "Procedures learned from this case" on the case Summary; "cited in N investigations" on Library rows (`adr/0109`) | `<CitedElsewhere>` tab in `ProvenanceInspectors.tsx`; `citations` on `inspector.procedure` / `inspector.case`; `citedIn` on `LibraryItem` | [h] |
+| L7 | Procedure and case inspectors: "Cited elsewhere" (one row per other investigation, "cited" / "recalled, not cited", opens it); "Procedures learned from this case" on the case Summary; "cited in N investigations" on the Knowledge view's rows and in the sidebar Knowledge rows' tooltips (`adr/0109`, `adr/0344`) | `<CitedElsewhere>` tab in `ProvenanceInspectors.tsx`; `citations` on `inspector.procedure` / `inspector.case`; `citedIn` on `LibraryItem`, worded once by `src/knowledgeWords.ts` | [h] |
 | L8 | Procedure inspector "What the agent read": each turn's recorded sections read back under the revision and cut it saw, "revision N, exactly as retrieved" / "revised since this case consulted it: revision N then, M now", As retrieved · Current · Changes, "Recall showed" beneath (`adr/0097`) | `<WhatTheAgentRead>` in `ProvenanceInspectors.tsx`; `reads` on `inspector.procedure` composed by `src/procedureReads.ts` over `GET /api/sops/{id}/revisions[/{r}/sections[/{n}]]`; `derive/diff.ts` | [h] |
-| L9 | The Knowledge view: Procedures · Past cases · Import outside any investigation, one query bar, the inspector beside; past cases filtered by technique, disposition and conclusion day through the API with "n of m match"; opened from the sidebar Investigations view's title bar (`adr/0342`), the Library and the command (`adr/0107`) | `knowledgeDocument.ts`, `surfaces/KnowledgeApp.tsx`, `components/QueryBar.tsx`, `knowledgeAnswers.ts`; `pastCases` / `pastCases.facets` messages | [h] |
+| L9 | The Knowledge view: Procedures · Past cases · Import outside any investigation, one query bar, the inspector beside; past cases filtered by technique, disposition and conclusion day through the API with "n of m match"; opened from the sidebar Knowledge view (L11) and the command (`adr/0107`, `adr/0344`) | `knowledgeDocument.ts`, `surfaces/KnowledgeApp.tsx`, `components/QueryBar.tsx`, `knowledgeAnswers.ts`; `pastCases` / `pastCases.facets` messages | [h] |
 | L10 | Summary lens "What happened": the narrative with "drafted by reckon · edited by <name> · revision N", how far the record moved since, Draft narrative / Draft again and Edit (saved as the analyst's revision); the conclude prompt prefilled; the handoff note led by it (`adr/0103`) | `<WhatHappened>` in `SummaryLens.tsx`; `narrative` on `InvestigationDetail`; `narrative.draft` / `narrative.edit` intents, `narrative.status`; `src/narrativeFlow.ts` | [h] |
+| L11 | The sidebar's Knowledge view, third after Investigations and Cases, Capabilities collapsed below it: Procedures (N) and Past cases (N, or "N of M" past the page); a row opens its item in the Knowledge view; inline "Ask reckon to use this" while an open investigation not mid-turn is the active editor stages the request in its composer (a row click opens the Knowledge view beside it, the investigation keeping the focus); title bar Search (query bar focused), Import SOPs…, Open the Knowledge view, Refresh; re-read on import, a procedure added from Draft SOP, a committed turn that consulted knowledge, a conclusion and when its narrative settles, sign-in/out and a backend check (`adr/0344`) | `knowledgeTree.ts`; `reckon.openKnowledgeItem` / `reckon.searchKnowledge` / `reckon.askToUseKnowledge` / `reckon.refreshKnowledge`; `knowledge.show` / `knowledge.search` cues to the Knowledge view; `composer.stage` to the investigation; context key `reckon.investigationActive` | [h] |
 
 ## M. Infrastructure
 
@@ -183,5 +186,5 @@ document (`09 §9.5`, `workbench-react.md §2.6`); `importView.ts` is deleted wh
 | N4 | Import the checked rows; each `POST /api/sops/import_markdown` with the raw markdown | host `import.run` → `importSOPMarkdown` unchanged | [ ] |
 | N5 | Per-document outcome: created ("Added to the SOP library as …"), revised ("Revised existing SOP …"), unchanged ("Already in the SOP library as …, nothing changed"), failed with the server's message | `<Import>` outcome badges: added · revised (with version) · unchanged · failed | [ ] |
 | N6 | Refresh re-reads the chosen documents from disk | `import.refresh` | [ ] |
-| N7 | "Imported — consultable now on the knowledge rail" line | reworded to name the Knowledge section | [ ] |
+| N7 | "Imported — consultable now on the knowledge rail" line | reworded to name the Knowledge view (`adr/0344`) | [ ] |
 | N8 | Parsed frontmatter shown before import; missing recommended fields flagged | *new* (`09 §9.5`): dry run, `workbench-react.md §8.0` | [ ] |

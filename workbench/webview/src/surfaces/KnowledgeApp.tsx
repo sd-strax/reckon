@@ -11,12 +11,16 @@
 // loaded, so those panes render unchanged; it shows no investigation state
 // and nothing in it acts on one. A past case names the investigation it came
 // from as a link.
+//
+// The sidebar's Knowledge view (adr/0344) opens it on one item, or with the
+// query bar focused for a search: cues the host posts, which this view acts
+// on and the store never sees.
 import { useEffect, useMemo, useState } from "react";
 import { AppProvider, useApp } from "../app";
-import { Items } from "../components/Library";
 import { QueryBar } from "../components/QueryBar";
 import { InspectorDock } from "../components/inspectors/Inspector";
-import type { InboundMessage, KnowledgeInboundMessage, KnowledgeRenderMessage, RenderMessage } from "../../../src/protocol";
+import type { InboundMessage, KnowledgeCue, KnowledgeInboundMessage, KnowledgeRenderMessage, LibraryItem, RenderMessage } from "../../../src/protocol";
+import { citedInWords } from "../../../src/knowledgeWords";
 import type { PastCaseFilter, PastCaseRow } from "../../../src/viewTypes";
 import type { WebviewTransport } from "../transport";
 
@@ -34,10 +38,14 @@ type Section = "procedures" | "cases" | "import";
  */
 const KNOWLEDGE_INTENTS = new Set<InboundMessage["type"]>(["ready", "refresh", "library.get", "library.search", "library.import", "pastCases.get", "inspector.open", "investigation.open", "copy"]);
 
+function isCue(m: KnowledgeRenderMessage): m is KnowledgeCue {
+  return m.type === "knowledge.show" || m.type === "knowledge.search";
+}
+
 function storeTransport(t: KnowledgeTransport): WebviewTransport {
   return {
     send: (m: InboundMessage) => { if (KNOWLEDGE_INTENTS.has(m.type)) t.send(m as KnowledgeInboundMessage); },
-    onMessage: (h: (m: RenderMessage) => void) => t.onMessage(h),
+    onMessage: (h: (m: RenderMessage) => void) => t.onMessage((m) => { if (!isCue(m)) h(m); }),
     getState: <T,>() => t.getState<T>(),
     setState: (s: unknown) => t.setState(s),
   };
@@ -47,16 +55,50 @@ export function KnowledgeApp({ transport }: { transport: KnowledgeTransport }) {
   const store = useMemo(() => storeTransport(transport), [transport]);
   return (
     <AppProvider transport={store}>
-      <KnowledgeView />
+      <KnowledgeView transport={transport} />
     </AppProvider>
   );
 }
 
 const SECTION_LABELS: Record<Section, string> = { procedures: "Procedures", cases: "Past cases", import: "Import" };
 
-function KnowledgeView() {
+/** One group of library rows: a title opens the item in the inspector. */
+function Items({ title, items, empty }: { title: string; items: LibraryItem[]; empty: string }) {
+  const { openInspector } = useApp();
+  return (
+    <div className="libgroup">
+      <div className="libhead">{title}<span className="count">{items.length}</span></div>
+      {items.length ? items.map((k) => (
+        <div key={k.kind + k.ref} className={"libitem " + k.kind}>
+          <a className="libtitle" onClick={() => openInspector(k.kind === "sop" ? { kind: "sop", sopId: k.ref } : { kind: "case", investigationRef: k.ref })}>{k.title}</a>
+          {k.relevance ? <span className={"librel " + k.relevance.replace(/ /g, "-")}>{k.relevance}</span> : null}
+          {k.detail || k.citedIn !== undefined ? (
+            <div className="imeta">
+              {[k.detail, k.citedIn !== undefined ? citedInWords(k.citedIn) : ""].filter(Boolean).join(" · ")}
+            </div>
+          ) : null}
+        </div>
+      )) : <div className="empty">{empty}</div>}
+    </div>
+  );
+}
+
+function KnowledgeView({ transport }: { transport: KnowledgeTransport }) {
   const { state, send, dispatch, openInspector } = useApp();
   const [section, setSection] = useState<Section>("procedures");
+  // Bumped by the sidebar's Search: the query bar takes the focus.
+  const [focusSearch, setFocusSearch] = useState(0);
+  // Subscribed before the store says ready, so a cue the host holds for the
+  // ready is heard.
+  useEffect(() => transport.onMessage((m) => {
+    if (m.type === "knowledge.show") {
+      dispatch({ type: "library.clear" });
+      setSection(m.target.kind === "sop" ? "procedures" : "cases");
+      openInspector(m.target);
+    } else if (m.type === "knowledge.search") {
+      setFocusSearch((n) => n + 1);
+    }
+  }), [transport, dispatch, openInspector]);
   const lib = state.library;
   const r = lib.results;
   const counts: Record<Section, number | undefined> = { procedures: lib.loaded && !lib.sopsError ? lib.sops.length : undefined, cases: lib.loaded ? lib.casesTotal : undefined, import: undefined };
@@ -77,15 +119,15 @@ function KnowledgeView() {
             {state.error} <button onClick={() => { dispatch({ type: "error.clear" }); send({ type: "refresh" }); }}>Retry</button>
           </div>
         ) : null}
-        <QueryBar showing={!!r} onSearch={(text) => { dispatch({ type: "library.searching", query: text }); send({ type: "library.search", text }); }} onClear={() => dispatch({ type: "library.clear" })} />
+        <QueryBar focus={focusSearch} showing={!!r} onSearch={(text) => { dispatch({ type: "library.searching", query: text }); send({ type: "library.search", text }); }} onClear={() => dispatch({ type: "library.clear" })} />
         {r ? (
           <div className="kresults">
             <div className="kresultshead">
               <span>Results for “{r.query}”</span>
               <button className="linklike" onClick={() => dispatch({ type: "library.clear" })}>‹ back to {SECTION_LABELS[section]}</button>
             </div>
-            <Items title="Procedures" items={r.sops} empty="no procedure matches" ask={false} />
-            <Items title="Past cases" items={r.cases} empty="no past case matches" ask={false} />
+            <Items title="Procedures" items={r.sops} empty="no procedure matches" />
+            <Items title="Past cases" items={r.cases} empty="no past case matches" />
           </div>
         ) : section === "procedures" ? (
           <>
@@ -95,7 +137,7 @@ function KnowledgeView() {
               </div>
             ) : null}
             {!lib.sopsError || lib.sops.length
-              ? <Items title="Procedures" items={lib.sops} empty={lib.loaded ? "no procedures yet — import some" : "loading…"} ask={false} />
+              ? <Items title="Procedures" items={lib.sops} empty={lib.loaded ? "no procedures yet — import some" : "loading…"} />
               : null}
           </>
         ) : section === "cases" ? (

@@ -64,19 +64,25 @@ only notification remains; **Conclude** when the conclude preflight passes (`02 
 ## 8.3 Work queue
 
 The work queue is not part of the investigation document. It is the editor's sidebar, the
-reckon view container, which is there before any investigation opens (`adr/0342`). Three
-views, in this order:
+reckon view container, which is there before any investigation opens (`adr/0342`). Four
+views, in this order: Investigations, Cases, Knowledge (`ui/09 §9.1`, `adr/0344`), and
+Capabilities, which starts collapsed:
 
 - **Investigations** — the analyst's investigations as a triage queue (`13 §4`), grouped by
   lifecycle and ordered needs-me-first within a group (`ui/06` tree rules). A row shows the
   title, the expiry, pending and unseen cues, the current stage step of an open
   investigation, and the seed (the case reference when seeded from a case). The view's title
-  bar carries **＋** (new investigation), **Knowledge** (the Knowledge view, `ui/09 §9.1`) and
-  refresh. Source: `GET /api/investigations`.
+  bar carries **＋** (new investigation) and refresh. Source: `GET /api/investigations`.
 - **Cases** — the case system of record's queue, read-only (`14 §4.2`, `adr/0030`). A case
   with no investigation offers **Start investigation**; a case under investigation is
   marked and leads to its case page, which offers **Open investigation**. Source:
   `GET /api/cases`, which marks each case's in-flight investigation.
+- **Knowledge** — the organization's library (`ui/09 §9.1`): **Procedures (N)** and **Past
+  cases (N)**, the latter reading *N of M* when the corpus holds more than the page. A row
+  opens its item in the Knowledge view. **Ask reckon to use this** stages a request in the
+  active investigation's composer. The title bar carries **Search** (the Knowledge view's
+  query bar), **Import SOPs…**, **Open the Knowledge view** and refresh. Source: `GET
+  /api/sops`, `GET /api/knowledge/case_summaries`.
 - **Capabilities** — one row per verb, available, then degraded, then unavailable, with the
   view's description *N/M available*. An unavailable verb that an installed, disabled
   adapter could serve offers **Set up…**, the enablement flow (`11 §5.1`) run natively:
@@ -156,8 +162,9 @@ The tracker of `02 §2.9` (`adr/0047`) with these changes:
 - **What a turn records renders as a link**, one line each: "H1·P5 confirmed by
   attestation", "Proposed 3 actions + 1 owner item". Clicking scrolls the lens to the
   object (switching lens if needed) — the object itself is never restated.
-- A **Knowledge section** heads the column: what the agent may read in this investigation,
-  with include toggles (`ui/09 §9.6`). It replaces the knowledge rail.
+- The column carries **no knowledge library**. The library is the sidebar's Knowledge view
+  (`ui/09 §9.1`, `adr/0344`). Inside an investigation, knowledge shows only as what the agent
+  recalled and cited (`ui/09 §9.6`).
 - **Consulted knowledge** renders as chips under the turn (`02 §2.11`).
 - **Activity disclosure**, collapsed: "Activity · 3 tool calls, 2 records". Expanding shows
   the tool-call blocks (`02 §2.3`) and the records written. No sequence numbers, no

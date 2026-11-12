@@ -103,9 +103,7 @@ details.tool[open] .summaryPin { opacity: 0.9; }
 .sopchip.consulted { border-style: dashed; opacity: 0.6; background: none; }
 .error { color: var(--bad); margin: 6px 0; }
 
-/* Knowledge rail (design/06 §5.1) */
-#knowledgeSection h2 .posture { font-size: var(--fs-xs); font-weight: 400; color: var(--text-3); margin-left: 6px; text-transform: none; letter-spacing: normal; }
-/* The knowledge library (adr/0129): procedures and past cases as separate lists. */
+/* The knowledge library (adr/0129) in the Knowledge view: procedures and past cases as separate lists. */
 .libgroup { margin: 8px 0; }
 .libhead { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); display: flex; gap: 6px; align-items: baseline; }
 .libitem { padding: 5px 2px; border-top: 1px solid var(--border); font-size: var(--fs-sm); }
@@ -114,10 +112,6 @@ details.tool[open] .summaryPin { opacity: 0.9; }
 .libitem.case .libtitle::before { content: "◷ "; color: var(--text-3); }
 .libitem .librel { margin-left: 6px; font-size: var(--fs-xs); color: var(--text-3); }
 .libitem .librel.close-match { color: var(--ok); }
-.libitem .libask { display: inline-block; margin-top: 2px; font-size: var(--fs-xs); color: var(--link); cursor: pointer; }
-.libresults { margin-top: 4px; }
-.libfoot { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-.kitem.excluded .kbody { opacity: 0.55; }
 
 /* micro-label eyebrow (01 §Scale): 10px, 700, tracked, uppercase */
 #rail h2, .railfold > summary, #stripWrap > summary, #graphWrap > summary, .dlglabel, .residual .rtitle {
@@ -640,13 +634,6 @@ body.loading #rail { opacity: 0.6; }
 body.gripDragging { cursor: col-resize; user-select: none; }
 #companion .regionhead { padding: 6px var(--sp-3) 0; margin: 0; }
 .companionscroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px var(--sp-3) var(--sp-4); }
-.ksection { border: 1px solid var(--border); border-radius: var(--r); padding: 7px 10px; margin: 6px 0 10px; background: var(--fill); }
-.khead { display: flex; align-items: baseline; gap: 8px; cursor: pointer; }
-.khead .kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); }
-.khead .pchev { margin-left: auto; }
-.ksection .kitem .ktitle a { color: var(--link); cursor: pointer; }
-.ksection .kkind { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-right: 5px; }
-.ksection .ktitle .badge { margin: 0 5px 0 0; }
 .ksearch { display: flex; gap: 6px; margin-top: 6px; }
 .ksearch input { flex: 1; min-width: 0; font: inherit; font-size: var(--fs-xs); color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--r-sm); padding: 3px 8px; }
 .ksearch button { font-size: var(--fs-xs); padding: 1px 8px; }

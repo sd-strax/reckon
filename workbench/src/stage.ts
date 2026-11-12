@@ -8,10 +8,16 @@ export type Step = "investigate" | "verdict" | "contain" | "notify" | "close";
 export const STEPS: Step[] = ["investigate", "verdict", "contain", "notify", "close"];
 export const STEP_LABELS: Record<Step, string> = { investigate: "Investigate", verdict: "Verdict", contain: "Contain", notify: "Notify", close: "Close" };
 
+/** A closed record: concluded, archived or discarded. Its composer takes no turn. */
+export function recordClosed(state: string): boolean {
+  const s = String(state).toUpperCase();
+  return s === "CONCLUDED" || s === "ARCHIVED" || s === "DISCARDED";
+}
+
 /** A list row's one-word step, from the list view's stage inputs; null once closed. */
 export function rowStep(r: InvestigationSummary): Step | null {
   const status = String(r.state).toUpperCase();
-  if (status === "CONCLUDED" || status === "ARCHIVED" || status === "DISCARDED") return null;
+  if (recordClosed(status)) return null;
   if (!r.hasVerdict) return "investigate";
   if (r.openActions > 0) return "contain";
   if (r.openNotifications > 0) return "notify";

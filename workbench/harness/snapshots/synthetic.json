@@ -1619,24 +1619,6 @@
       ]
     }
   },
-  "library": {
-    "sops": [
-      {
-        "kind": "sop",
-        "ref": "sop-1",
-        "title": "Procedure one",
-        "citedIn": 1
-      }
-    ],
-    "cases": [
-      {
-        "kind": "case",
-        "ref": "grouping--prior-1",
-        "title": "Prior case A",
-        "citedIn": 0
-      }
-    ]
-  },
   "calls": {
     "0192f3a0-0000-7000-8000-0000000000c1": {
       "callId": "0192f3a0-0000-7000-8000-0000000000c1",

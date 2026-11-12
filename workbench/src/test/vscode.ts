@@ -139,7 +139,8 @@ export class FakeWebviewPanel implements vscode.WebviewPanel {
   readonly webview: FakeWebview;
   readonly options: vscode.WebviewPanelOptions;
   iconPath?: vscode.Uri;
-  readonly viewColumn: vscode.ViewColumn | undefined;
+  /** The group the panel sits in; a test may move it, as dragging a tab would. */
+  viewColumn: vscode.ViewColumn | undefined;
   active = true;
   visible = true;
   disposed = false;
@@ -162,9 +163,18 @@ export class FakeWebviewPanel implements vscode.WebviewPanel {
     this.assertLive();
     this.currentTitle = value;
   }
-  reveal(): void {
+  /** The arguments of each reveal, in order. */
+  readonly reveals: { column?: number; preserveFocus?: boolean }[] = [];
+  reveal(column?: number, preserveFocus?: boolean): void {
     this.assertLive();
     this.revealed++;
+    this.reveals.push({ column, preserveFocus });
+    if (!preserveFocus) takeFocus(this);
+  }
+  /** Make the panel the active editor, or not, as the user would: fires onDidChangeViewState. */
+  setActive(active: boolean): void {
+    this.active = active;
+    this.viewState.fire({ webviewPanel: this });
   }
   // The real panel throws on either once it is gone; the host must not reach it.
   private assertLive(): void {
@@ -219,6 +229,14 @@ export function fakeLog(): vscode.LogOutputChannel & { lines: string[] } {
 // --- namespaces ---------------------------------------------------------------
 
 const panels: FakeWebviewPanel[] = [];
+
+/** The panel becomes the active editor; whichever was active stops being it. */
+function takeFocus(p: FakeWebviewPanel): void {
+  for (const other of panels) {
+    if (other !== p && other.active && !other.disposed) other.setActive(false);
+  }
+  p.active = true;
+}
 const settings = new Map<string, unknown>();
 const registered = new Map<string, (...args: unknown[]) => unknown>();
 
@@ -230,6 +248,9 @@ type Members<T> = Partial<Record<keyof T, unknown>>;
 export const window = {
   createWebviewPanel: vi.fn((viewType: string, title: string, column: number | { viewColumn: number }, options?: vscode.WebviewPanelOptions & vscode.WebviewOptions) => {
     const p = new FakeWebviewPanel(viewType, title, typeof column === "number" ? column : column.viewColumn, options ?? {});
+    // A panel opened without preserveFocus becomes the active editor, as in the editor.
+    if (typeof column === "number" || !(column as { preserveFocus?: boolean }).preserveFocus) takeFocus(p);
+    else p.active = false;
     panels.push(p);
     return p;
   }),

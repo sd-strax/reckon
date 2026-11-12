@@ -22,8 +22,8 @@ names its source, and an element with no source is a gap in `00 §6`.
 
 | Surface | Where | Job |
 |---|---|---|
-| **Knowledge view** | Its own document in the main area, opened from the **Knowledge** button on the sidebar's Investigations view (`ui/08 §8.3`, `adr/0342`) or the `reckon.openKnowledge` command | Add, browse, edit, retire and query knowledge, outside any investigation |
-| **Knowledge section** | Top of the companion column inside an investigation (`ui/08 §8.5`) | Decide what knowledge the agent reasons over in this investigation |
+| **Knowledge view** | Its own document in the main area, opened from the sidebar's **Knowledge** view (its rows, **Search** and **Open the Knowledge view**) or the `reckon.openKnowledge` command | Add, browse, edit, retire and query knowledge, outside any investigation |
+| **Knowledge sidebar view** | The editor's sidebar, between Cases and Capabilities (`ui/08 §8.3`, `adr/0344`) | List procedures and past cases, import, and point the open investigation's agent at an item |
 
 **The two surfaces stay separate.** The Knowledge view shows knowledge only: no
 hypotheses, actions, verdicts, investigation status or investigation controls render in it,
@@ -113,26 +113,15 @@ by converting to markdown before import. The Import section is the existing Impo
 
 ## 9.6 Knowledge inside an investigation
 
-The **Knowledge section** at the top of the companion column replaces the knowledge rail
-(`ui/08 §8.5`). It is how the analyst decides what the agent reasons over: under the
-default `opt_in` posture nothing reaches the agent until it is included here.
+An investigation shows knowledge only as what the agent read and cited in it. The agent reaches
+knowledge through its recall tools, in the turn (`adr/0129`). Each recall renders as consulted
+chips under the turn (`ui/08 §8.5`), and each chip opens the item's inspector (`ui/08 §8.6`),
+which shows what that recall gave the agent here. There is no knowledge section in the
+investigation, and nothing is included or injected (`adr/0129`, `adr/0344`).
 
-| Element | Source |
-|---|---|
-| Retrieved procedures and past cases, each with band, `match_rationale` and an include toggle | `createSession.knowledge` (`06 §5.1`) |
-| Initial state of each toggle | The injection posture (`config.Knowledge.Injection`: `opt_in` all off; `auto` strong matches on) |
-| Collapsed summary once reviewed: "3 retrieved · 1 included" | Same |
-| Search within the investigation: results join the list with their toggle off | §9.2 Search, scoped to the investigation's seed context |
-| Each item opens in the inspector | `ui/08 §8.6` / `§8.6.1` |
-| Open in the Knowledge view | §9.3 / §9.4 |
-
-The included set rides the next turn (`06 §5.1`); toggling never rewrites past turns.
-
-**Nudges.** Beside ⚡ Propose tests, ⚡ Decide and the response plan, a one-line note when
-retrieved items that the `auto` posture would include (procedures; past cases banded
-`NEAR_DUPLICATE` or `RELATED`) are not included: "1 procedure and 1 past case the auto
-posture would include are not included · Review". It links to the Knowledge section; it never includes
-anything by itself.
+To point the agent at a specific item, use **Ask reckon to use this** on a row of the sidebar's
+Knowledge view, offered while an investigation is the active editor. It stages that request in
+the investigation's composer, and the analyst sends it.
 
 ## 9.7 Candidates
 

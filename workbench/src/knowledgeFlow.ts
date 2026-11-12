@@ -1,7 +1,8 @@
-// The knowledge library in the document (adr/0129) and the procedure drafted
-// from a concluded case (adr/0156): browse, search, the summary's status, and
-// the draft's life from proposal to the library or the bin. The drafts reckon
-// opens as editors are closed when the person changes (adr/0241).
+// The knowledge a concluded case leaves (adr/0156): the summary's status, and
+// the procedure drafted from the case, from proposal to the library or the
+// bin. The library itself is the sidebar's and the Knowledge view's, not the
+// document's (adr/0344). The drafts reckon opens as editors are closed when
+// the person changes (adr/0241).
 import * as vscode from "vscode";
 import type { SOPCandidate } from "./agentTransport";
 import type { DocumentHost } from "./documentHost";
@@ -56,25 +57,6 @@ export class KnowledgeFlow {
     }
   }
 
-  /**
-   * The knowledge library (adr/0129): every procedure and past case, to
-   * browse. Unsequenced, so the latest request wins (adr/0109): a load, a
-   * refresh after a committed turn and a `library.get` may overlap, and an
-   * older answer landing after a newer one would put a stale count back.
-   */
-  async postLibrary(id: string, panel: vscode.WebviewPanel): Promise<void> {
-    const latest = this.host.cache.beginRequest(id, "library");
-    try {
-      const [sops, cases] = await Promise.all([
-        this.host.client.knowledge.procedures().catch(() => []),
-        this.host.client.knowledge.cases().catch(() => []),
-      ]);
-      if (latest()) void this.host.post(panel, { type: "library", sops, cases });
-    } catch (err) {
-      this.host.log.debug(`library: ${errText(err)}`);
-    }
-  }
-
   /** Whether a concluded case's knowledge summary carries a narrative (adr/0156). */
   async postSummaryStatus(id: string, panel: vscode.WebviewPanel): Promise<void> {
     try {
@@ -84,16 +66,6 @@ export class KnowledgeFlow {
         : { type: "summary.status", state: "baseline" });
     } catch (err) {
       this.host.log.debug(`summary status: ${errText(err)}`);
-    }
-  }
-
-  /** One library search over both corpora; the hits come back as their own list. */
-  async searchLibrary(panel: vscode.WebviewPanel, text: string): Promise<void> {
-    try {
-      const found = await this.host.client.knowledge.search(text);
-      void this.host.post(panel, { type: "library.results", query: text, ...found });
-    } catch (err) {
-      void vscode.window.showWarningMessage(`reckon: library search failed — ${errText(err)}`);
     }
   }
 
@@ -141,13 +113,17 @@ export class KnowledgeFlow {
   async acceptSOP(id: string, panel: vscode.WebviewPanel): Promise<void> {
     const draft = this.sopDrafts.get(id);
     if (!draft) return;
+    const current = this.host.sameIdentity();
     try {
       const res = await this.host.client.knowledge.importMarkdown(slugifyTitle(draft.title) + ".md", draft.doc.getText());
       const message = acceptedLine(res.outcome);
+      if (!current()) return;
       this.sopDrafts.delete(id);
       void this.host.post(panel, { type: "sop.status", state: "added", title: res.title, message });
+      // A procedure added or revised: what lists the library re-reads (adr/0344).
+      if (res.outcome !== "unchanged") this.host.libraryChanged();
     } catch (err) {
-      void this.host.post(panel, { type: "sop.status", state: "ready", title: draft.title, message: "adding it failed — " + errText(err) });
+      if (current()) void this.host.post(panel, { type: "sop.status", state: "ready", title: draft.title, message: "adding it failed — " + errText(err) });
     }
   }
 
