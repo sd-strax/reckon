@@ -22,7 +22,7 @@ names its source, and an element with no source is a gap in `00 §6`.
 
 | Surface | Where | Job |
 |---|---|---|
-| **Knowledge view** | Its own document in the main area, opened from the left region's header (`ui/08 §8.3`) alongside the work queue | Add, browse, edit, retire and query knowledge, outside any investigation |
+| **Knowledge view** | Its own document in the main area, opened from the **Knowledge** button on the sidebar's Investigations view (`ui/08 §8.3`, `adr/0342`) or the `reckon.openKnowledge` command | Add, browse, edit, retire and query knowledge, outside any investigation |
 | **Knowledge section** | Top of the companion column inside an investigation (`ui/08 §8.5`) | Decide what knowledge the agent reasons over in this investigation |
 
 **The two surfaces stay separate.** The Knowledge view shows knowledge only: no
@@ -34,8 +34,7 @@ link and nothing more.
 
 The Knowledge view has a query bar (§9.2) above its content. Its sections — **Procedures**
 (§9.3), **Past cases** (§9.4), **Import** (§9.5) and **Candidates** (§9.7, superseded by `adr/0156`), each with its
-count — are listed once, in the left region, which holds the work queue in Work mode and
-these sections in Knowledge mode (`ui/08 §8.3`). There is no second row of the same items
+count — are listed once, in the view's own section list down its left side. There is no second row of the same items
 above the content. Running a query replaces the content with its results under a header
 naming the query, with a way back to the section that was open.
 

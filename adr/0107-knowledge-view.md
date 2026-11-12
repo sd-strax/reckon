@@ -1,6 +1,6 @@
 # 0107 — The Knowledge view is built: past cases listed with filters, procedures and cases read outside any investigation
 
-Issue: #107 · PR: #314 · Status: accepted
+Issue: #107 · PR: #314 · Status: accepted · entry point superseded by 0342 (the sidebar's Investigations title bar)
 
 ## Context
 
