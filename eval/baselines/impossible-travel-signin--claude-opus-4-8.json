@@ -7,7 +7,7 @@
     "action_catalog_hash": "a6a4bdae7a1f8916d7ba36c87068dce7bd7775232959528227a6f6b0384d8f1b",
     "scenario_id": "impossible-travel-signin",
     "driver_hash": "5b6fa2a85250531f34151b0dfde2720a6ccb3b4d6d754d8fb3852ae16ab667be",
-    "catalogue_version": "v0.16",
+    "catalogue_version": "v0.17",
     "trials": 3,
     "judge_model": "claude-sonnet-4-6",
     "judge_rubric": "caa20d15db77",

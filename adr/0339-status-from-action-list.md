@@ -71,11 +71,11 @@ requested after it.
   be the one that created it, and each counts as accepted. The read must also come before
   the answer: the agent's own text has to follow the read it relies on. The
   catalogue version moves.
-- **Pending validation.** The four rules carry `PendingValidation: "#339"` until
-  every scenario's runs on both models are accepted under the new version.
-  Only the cloud scenario has a request-and-status turn, so on acceptance the
-  new behaviour is validated on one shape; a further scenario with such a turn
-  is what makes it two.
+- **Validation.** The four rules carried `PendingValidation: "#339"` until
+  every scenario's runs on both models were accepted under the new version;
+  they are now `Validated` on all three scenarios. Only the cloud scenario has
+  a request-and-status turn, so the new behaviour is exercised on one shape; a
+  further scenario with such a turn is what makes it two.
 - **The eval README's checklist** names every scenario rather than "both", now
   that the corpus has three.
 

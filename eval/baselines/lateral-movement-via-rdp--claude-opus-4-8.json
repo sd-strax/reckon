@@ -7,7 +7,7 @@
     "action_catalog_hash": "a9f4c82acc9e631b0064dd07f916f52ab65f8ab44faa921372d023c29035dce9",
     "scenario_id": "lateral-movement-via-rdp",
     "driver_hash": "396054b2a4c4812fee3261b99dc0b27c24d03af6150114973d352bc02c1df3df",
-    "catalogue_version": "v0.16",
+    "catalogue_version": "v0.17",
     "trials": 3,
     "judge_model": "claude-sonnet-4-6",
     "judge_rubric": "caa20d15db77",
