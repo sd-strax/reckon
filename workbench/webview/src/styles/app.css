@@ -689,10 +689,15 @@ pre.decoded { white-space: pre-wrap; word-break: break-all; margin: 0 0 4px; fon
 /* The Knowledge tab (adr/0107, adr/0346, ui/09 §9.1): one page, the item or the search. */
 .kview { height: 100vh; overflow-y: auto; box-sizing: border-box; padding: var(--sp-3) var(--sp-4) var(--sp-6); }
 .kview .inspector { width: 100%; max-width: none; height: auto; overflow: visible; padding: 0; background: none; border: none; box-shadow: none; animation: none; }
-.kfilters { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; margin: 8px 0 6px; }
+.kfilters { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 8px 0 6px; }
 .kfacet { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .kfacet .chip { font-size: var(--fs-xs); padding: 1px 6px; border-radius: var(--r-sm); border: 1px solid var(--border); background: none; color: inherit; cursor: pointer; }
 .kfacet .chip.on { background: var(--fill); border-color: var(--he-primary); }
+.kfacet select, .kfacet input[type="date"] { font: inherit; font-size: var(--fs-xs); line-height: 1.4; color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--r-sm); padding: 1px 6px; height: 22px; box-sizing: border-box; }
+.kfacet select:focus, .kfacet input[type="date"]:focus { outline: none; border-color: var(--he-primary); }
+/* The date fields' calendar glyph and picker follow the editor's theme, not the browser's light default. */
+body.vscode-dark .kfacet input[type="date"], body.vscode-high-contrast:not(.vscode-high-contrast-light) .kfacet input[type="date"] { color-scheme: dark; }
+body.vscode-light .kfacet input[type="date"], body.vscode-high-contrast-light .kfacet input[type="date"] { color-scheme: light; }
 .kmatch { margin: 4px 0 8px; }
 .ktable { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .ktable th { text-align: left; font-weight: 600; color: var(--text-3); font-size: var(--fs-xs); border-bottom: 1px solid var(--border); padding: 4px 6px; }
