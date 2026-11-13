@@ -1,7 +1,9 @@
 package capability
 
 import (
+	"encoding/json"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/sd-strax/reckon/identity"
@@ -57,8 +59,8 @@ func TestDetectionNormalizer(t *testing.T) {
 	if ind.Name != "Suspicious PowerShell" || !reflect.DeepEqual(ind.IndicatorTypes, []string{"T1059.001", "T1086"}) {
 		t.Errorf("indicator name %q, types %v", ind.Name, ind.IndicatorTypes)
 	}
-	if ind.Confidence != 85 {
-		t.Errorf("confidence = %d; want 85 (confidence_id 3, High)", ind.Confidence)
+	if !confidenceIs(ind.Confidence, 85) {
+		t.Errorf("confidence = %s; want 85 (confidence_id 3, High)", confidenceText(ind.Confidence))
 	}
 	if ind.ID != identity.NewResolver(testNS).Indicator("det-123", "") || ind.Pattern != "" || ind.PatternType != "" {
 		t.Errorf("indicator %s pattern %q/%q; want the id of the finding uid and no pattern", ind.ID, ind.Pattern, ind.PatternType)
@@ -94,16 +96,18 @@ func TestDetectionNormalizer(t *testing.T) {
 		}
 	}
 
-	// Sighting references the indicator, the observation and its entities.
+	// Sighting references the indicator and the observation. The entities
+	// are the observation's object_refs, not where_sighted_refs, where STIX
+	// allows only identity and location objects (adr/0356).
 	if len(res.Sightings) != 1 {
 		t.Fatalf("sightings = %d; want 1", len(res.Sightings))
 	}
 	s := res.Sightings[0]
-	if s.SightingOfRef != ind.ID || s.Confidence != 85 {
-		t.Errorf("sighting_of_ref = %q, confidence %d; want indicator %q at 85", s.SightingOfRef, s.Confidence, ind.ID)
+	if s.SightingOfRef != ind.ID || !confidenceIs(s.Confidence, 85) {
+		t.Errorf("sighting_of_ref = %q, confidence %s; want indicator %q at 85", s.SightingOfRef, confidenceText(s.Confidence), ind.ID)
 	}
-	if !reflect.DeepEqual(s.WhereSighted, od.ObjectRefs) || !reflect.DeepEqual(s.ObservedDataRefs, []identity.STIXID{od.ID}) {
-		t.Errorf("sighting where %v, observed-data %v; want the observation and its object_refs", s.WhereSighted, s.ObservedDataRefs)
+	if len(s.WhereSighted) != 0 || !reflect.DeepEqual(s.ObservedDataRefs, []identity.STIXID{od.ID}) {
+		t.Errorf("sighting where %v, observed-data %v; want the observation alone", s.WhereSighted, s.ObservedDataRefs)
 	}
 	// The login account the record aliases to the SID account is linked, not
 	// sighted (adr/0324).
@@ -112,8 +116,9 @@ func TestDetectionNormalizer(t *testing.T) {
 	}
 }
 
-// TestDetectionNormalizerNoEvidence: a detection with no evidence still
-// yields an Indicator + Sighting + vendor Identity (just no DIRECT entities).
+// TestDetectionNormalizerNoEvidence: a detection with no evidences[] still
+// yields an Indicator + Sighting + vendor Identity, and its own device still
+// names the host it fired on (adr/0356).
 func TestDetectionNormalizerNoEvidence(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid":        2004,
@@ -130,13 +135,16 @@ func TestDetectionNormalizerNoEvidence(t *testing.T) {
 		t.Fatalf("want 1 indicator/sighting/identity; got %d/%d/%d",
 			len(res.Indicators), len(res.Sightings), len(res.Identities))
 	}
-	if res.Indicators[0].Confidence != 42 {
-		t.Errorf("confidence = %d; want 42 (confidence_score)", res.Indicators[0].Confidence)
+	if !confidenceIs(res.Indicators[0].Confidence, 42) {
+		t.Errorf("confidence = %s; want 42 (confidence_score)", confidenceText(res.Indicators[0].Confidence))
 	}
-	// The finding's device is the fallback host of an artifact. With no
-	// artifact, nothing is named.
-	if len(res.SCOs) != 0 {
-		t.Errorf("no evidence should yield no SCOs; got %d", len(res.SCOs))
+	// The finding's own device names the host, with no artifact to name it.
+	host := identity.NewResolver(testNS).Host(identity.HostIdentity{Hostname: "WS1"})
+	if len(res.SCOs) != 1 || res.SCOs[0].ID != host || res.SCOs[0].Provenance.DerivationMode != DerivationDirect {
+		t.Errorf("SCOs = %+v; want the host WS1 alone, DIRECT", res.SCOs)
+	}
+	if refs := res.ObservedData[0].ObjectRefs; len(refs) != 1 || refs[0] != host {
+		t.Errorf("object_refs = %v; want the host %s", refs, host)
 	}
 	// §4.12: the raw "this was seen" signal must survive even without evidence —
 	// one ObservedData, referenced by the Sighting.
@@ -149,28 +157,56 @@ func TestDetectionNormalizerNoEvidence(t *testing.T) {
 	if len(res.Sightings[0].WhereSighted) != 0 {
 		t.Errorf("where_sighted = %v; want none", res.Sightings[0].WhereSighted)
 	}
+
+	// With neither a device nor evidences[], nothing is named.
+	res, err = testRegistry().Normalize(makeEvent(map[string]any{
+		"class_uid": 2004, "time": ms("2026-04-20T14:32:11Z"), "finding_info": map[string]any{"uid": "d-1"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.SCOs) != 0 || len(res.ObservedData) != 1 || len(res.ObservedData[0].ObjectRefs) != 0 {
+		t.Errorf("no device and no evidence: SCOs %+v, observations %+v; want one empty observation", res.SCOs, res.ObservedData)
+	}
 }
 
-// TestDetectionConfidence (§4.12, adr/0356): confidence_score is used as it
-// is, else confidence_id maps to the Low/Medium/High values. A score outside
-// 1–100 reads as absent. The confidence caption is not read.
+// confidenceIs reports whether a confidence is known and equals want.
+func confidenceIs(c *int, want int) bool { return c != nil && *c == want }
+
+// confidenceText prints a confidence, "unknown" for nil.
+func confidenceText(c *int) string {
+	if c == nil {
+		return "unknown"
+	}
+	return strconv.Itoa(*c)
+}
+
+// TestDetectionConfidence (§4.12, adr/0356): confidence_score is capped to
+// 0–100, and a score of 0 is kept. Without a score, confidence_id maps to the
+// Low/Medium/High values. Otherwise the confidence is unknown: it is nil and
+// left out of the JSON, never written as 0. The confidence caption is not
+// read.
 func TestDetectionConfidence(t *testing.T) {
+	const unknown = -1
 	for _, tc := range []struct {
 		name   string
 		fields map[string]any
 		want   int
 	}{
 		{"score", map[string]any{"confidence_score": 73}, 73},
+		{"score as JSON decodes it", map[string]any{"confidence_score": float64(73)}, 73},
 		{"score outranks id", map[string]any{"confidence_score": 73, "confidence_id": 1}, 73},
 		{"id low", map[string]any{"confidence_id": 1}, 15},
 		{"id medium", map[string]any{"confidence_id": 2}, 50},
 		{"id high", map[string]any{"confidence_id": 3}, 85},
-		{"id unknown", map[string]any{"confidence_id": 0}, 0},
-		{"id other", map[string]any{"confidence_id": 99}, 0},
-		{"zero score falls back to the id", map[string]any{"confidence_score": 0, "confidence_id": 2}, 50},
-		{"score out of range falls back to the id", map[string]any{"confidence_score": 250, "confidence_id": 3}, 85},
-		{"caption alone", map[string]any{"confidence": "High"}, 0},
-		{"nothing", map[string]any{}, 0},
+		{"id unknown", map[string]any{"confidence_id": 0}, unknown},
+		{"id other", map[string]any{"confidence_id": 99}, unknown},
+		{"a zero score is kept", map[string]any{"confidence_score": 0, "confidence_id": 2}, 0},
+		{"a score above 100 is capped", map[string]any{"confidence_score": 250, "confidence_id": 3}, 100},
+		{"a score below 0 is capped", map[string]any{"confidence_score": -5}, 0},
+		{"a score that is not a whole number falls back to the id", map[string]any{"confidence_score": "high", "confidence_id": 3}, 85},
+		{"caption alone", map[string]any{"confidence": "High"}, unknown},
+		{"nothing", map[string]any{}, unknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := map[string]any{"class_uid": 2004, "time": ms("2026-04-20T14:32:11Z"), "finding_info": map[string]any{"uid": "d-1"}}
@@ -181,8 +217,27 @@ func TestDetectionConfidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := res.Indicators[0].Confidence; got != tc.want || res.Sightings[0].Confidence != tc.want {
-				t.Errorf("confidence = %d (sighting %d); want %d", got, res.Sightings[0].Confidence, tc.want)
+			ind, sighting := res.Indicators[0], res.Sightings[0]
+			for name, got := range map[string]*int{"indicator": ind.Confidence, "sighting": sighting.Confidence} {
+				if tc.want == unknown && got != nil || tc.want != unknown && !confidenceIs(got, tc.want) {
+					t.Errorf("%s confidence = %s; want %d (-1 is unknown)", name, confidenceText(got), tc.want)
+				}
+			}
+			// An unknown confidence is left out of the stored object, and a
+			// known one, 0 included, is written.
+			for name, obj := range map[string]any{"indicator": ind, "sighting": sighting} {
+				raw, err := json.Marshal(obj)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var stored map[string]any
+				if err := json.Unmarshal(raw, &stored); err != nil {
+					t.Fatal(err)
+				}
+				got, written := stored["confidence"]
+				if written != (tc.want != unknown) || written && got != float64(tc.want) {
+					t.Errorf("%s JSON confidence = %v (written %v); want %d (-1 is left out)", name, got, written, tc.want)
+				}
 			}
 		})
 	}
@@ -283,8 +338,8 @@ func TestDetectionEvidenceExtractors(t *testing.T) {
 	if len(od.ObjectRefs) != len(want) {
 		t.Errorf("object_refs = %d entities; want %d: %v", len(od.ObjectRefs), len(want), countTypes(res.SCOs))
 	}
-	if !reflect.DeepEqual(res.Sightings[0].WhereSighted, od.ObjectRefs) {
-		t.Error("the sighting is not against the observation's entities")
+	if s := res.Sightings[0]; len(s.WhereSighted) != 0 || !reflect.DeepEqual(s.ObservedDataRefs, []identity.STIXID{od.ID}) {
+		t.Errorf("sighting where %v, observed-data %v; want the observation alone", s.WhereSighted, s.ObservedDataRefs)
 	}
 	// The artifact's device is a device object: its uid_alt is kept, and its
 	// device id's weak host is aliased to it, outside object_refs (adr/0211).
@@ -327,8 +382,9 @@ func TestDetectionEvidenceIsNotDispatched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.SCOs) != 0 {
-		t.Errorf("the embedded-event evidence was read: %v", countTypes(res.SCOs))
+	// Only the finding's own device is named.
+	if got := countTypes(res.SCOs); len(res.SCOs) != 1 || got[identity.TypeHost] != 1 {
+		t.Errorf("the embedded-event evidence was read: %v", got)
 	}
 }
 

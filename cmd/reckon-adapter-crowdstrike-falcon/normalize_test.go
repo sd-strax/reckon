@@ -91,16 +91,11 @@ func TestNormalizeDetectionsToFindings(t *testing.T) {
 	assertOCSF(t, evs)
 }
 
-// TestEngineReadsTheFinding (adr/0356): the engine's detection normalizer
-// reads what the adapter writes. The finding becomes an Indicator attributed
-// to CrowdStrike. The adapter writes no evidences[], and the engine reads the
-// finding's device only as the host of an artifact, so no host is named.
-func TestEngineReadsTheFinding(t *testing.T) {
-	evs, err := normalize("search_detections", detection)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire, err := json.Marshal(evs[0].Raw)
+// engineReads sends one emitted event through the engine's registry the way
+// the plugin host does: as JSON.
+func engineReads(t *testing.T, e ocsfEvent, sourceTool string) (capability.NormalizationResult, *identity.Resolver) {
+	t.Helper()
+	wire, err := json.Marshal(e.Raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,11 +105,24 @@ func TestEngineReadsTheFinding(t *testing.T) {
 	}
 	ids := identity.NewResolver(uuid.MustParse("33333333-3333-4333-8333-333333333333"))
 	res, err := capability.NewRegistry(ids).Normalize(capability.OcsfEvent{
-		ID: uuid.Must(uuid.NewV7()), ClassUID: evs[0].ClassUID, Time: evs[0].Time, SourceTool: "crowdstrike-falcon:search_detections", Payload: payload,
+		ID: uuid.Must(uuid.NewV7()), ClassUID: e.ClassUID, Time: e.Time, SourceTool: sourceTool, Payload: payload,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return res, ids
+}
+
+// TestEngineReadsTheFinding (adr/0356): the engine's detection normalizer
+// reads what the adapter writes. The finding becomes an Indicator attributed
+// to CrowdStrike. The adapter writes no evidences[], and the finding's own
+// device still names the host the detection fired on.
+func TestEngineReadsTheFinding(t *testing.T) {
+	evs, err := normalize("search_detections", detection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, ids := engineReads(t, evs[0], "crowdstrike-falcon:search_detections")
 	if len(res.Indicators) != 1 || len(res.Sightings) != 1 {
 		t.Fatalf("%d indicators, %d sightings; want one of each", len(res.Indicators), len(res.Sightings))
 	}
@@ -122,9 +130,40 @@ func TestEngineReadsTheFinding(t *testing.T) {
 	if ind.Name != "Credential theft via LSASS access" || ind.Provenance.Tool != "CrowdStrike" || !slices.Equal(ind.IndicatorTypes, []string{"Credential Access", "OS Credential Dumping"}) {
 		t.Errorf("indicator = %+v", ind)
 	}
-	if len(res.SCOs) != 0 || len(res.Sightings[0].WhereSighted) != 0 {
-		t.Errorf("%d objects named, sighted against %v; want none without evidences[]", len(res.SCOs), res.Sightings[0].WhereSighted)
+	// Falcon gives no confidence, so none is written: not 0.
+	if ind.Confidence != nil || res.Sightings[0].Confidence != nil {
+		t.Errorf("confidence = %v / %v; want none", ind.Confidence, res.Sightings[0].Confidence)
 	}
+	host := ids.Host(identity.HostIdentity{Hostname: "WIN-FILE01"})
+	if refs := res.ObservedData[0].ObjectRefs; len(res.SCOs) != 1 || len(refs) != 1 || refs[0] != host {
+		t.Errorf("%d objects named, object_refs %v; want the host %s alone", len(res.SCOs), refs, host)
+	}
+	if s := res.Sightings[0]; len(s.WhereSighted) != 0 || len(s.ObservedDataRefs) != 1 || s.ObservedDataRefs[0] != res.ObservedData[0].ID {
+		t.Errorf("sighting where %v, observed-data %v; want the observation alone", s.WhereSighted, s.ObservedDataRefs)
+	}
+}
+
+// TestEventTimes (adr/0356): an event's time is OCSF's epoch milliseconds,
+// with the datetime profile's time_dt beside it as the same instant in RFC
+// 3339. An event with no time carries neither.
+func TestEventTimes(t *testing.T) {
+	evs, err := normalize("search_detections", detection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evs[0].Raw["time"] != int64(1785585600000) || evs[0].Raw["time_dt"] != "2026-08-01T12:00:00Z" {
+		t.Errorf("time = %v, time_dt = %v; want 1785585600000 and 2026-08-01T12:00:00Z", evs[0].Raw["time"], evs[0].Raw["time_dt"])
+	}
+	if !evs[0].Time.Equal(time.UnixMilli(1785585600000)) {
+		t.Errorf("the wire time %s is not the event's", evs[0].Time)
+	}
+	evs, _ = normalize("search_detections", `{"resources":[{"id":"x"}]}`)
+	for _, k := range []string{"time", "time_dt"} {
+		if _, has := evs[0].Raw[k]; has {
+			t.Errorf("an event with no time carries %s = %v", k, evs[0].Raw[k])
+		}
+	}
+	assertOCSF(t, evs)
 }
 
 func TestNormalizeHostsAreOpaque(t *testing.T) {
@@ -152,29 +191,6 @@ func TestNormalizeHostsAreOpaque(t *testing.T) {
 		}
 		assertOCSF(t, evs)
 	}
-}
-
-// TestEventTimes (adr/0356): an event's time is OCSF's epoch milliseconds,
-// with the datetime profile's time_dt beside it as the same instant in RFC
-// 3339. An event with no time carries neither.
-func TestEventTimes(t *testing.T) {
-	evs, err := normalize("search_detections", detection)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if evs[0].Raw["time"] != int64(1785585600000) || evs[0].Raw["time_dt"] != "2026-08-01T12:00:00Z" {
-		t.Errorf("time = %v, time_dt = %v; want 1785585600000 and 2026-08-01T12:00:00Z", evs[0].Raw["time"], evs[0].Raw["time_dt"])
-	}
-	if !evs[0].Time.Equal(time.UnixMilli(1785585600000)) {
-		t.Errorf("the wire time %s is not the event's", evs[0].Time)
-	}
-	evs, _ = normalize("search_detections", `{"resources":[{"id":"x"}]}`)
-	for _, k := range []string{"time", "time_dt"} {
-		if _, has := evs[0].Raw[k]; has {
-			t.Errorf("an event with no time carries %s = %v", k, evs[0].Raw[k])
-		}
-	}
-	assertOCSF(t, evs)
 }
 
 func TestInferIOCType(t *testing.T) {

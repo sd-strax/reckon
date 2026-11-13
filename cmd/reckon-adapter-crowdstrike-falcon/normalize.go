@@ -84,8 +84,8 @@ var severityIDs = map[string]int{"informational": 1, "low": 2, "medium": 3, "hig
 //   - device is the host the detection fired on, by its hostname.
 //
 // The adapter reads no process, file or user from a detection yet, so it
-// writes no evidences[]. The engine reads the finding's device as the host
-// of an artifact, so until the adapter writes one it names no host.
+// writes no evidences[]. The engine reads the finding's own device as the
+// host the detection fired on, so the finding still names its host.
 func normalizeDetections(items []map[string]any) []ocsfEvent {
 	out := make([]ocsfEvent, 0, len(items))
 	for _, d := range items {

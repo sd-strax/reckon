@@ -1305,6 +1305,28 @@ var (
 	confidenceCaptions = map[int]string{1: "Low", 2: "Medium", 3: "High"}
 )
 
+// wholeNumber reads a JSON number that has no fraction.
+func wholeNumber(v any) (int, bool) {
+	switch x := v.(type) {
+	case float64:
+		if x != math.Trunc(x) || math.IsInf(x, 0) {
+			return 0, false
+		}
+		return int(min(max(x, -1e9), 1e9)), true
+	case json.Number:
+		n, err := x.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(min(max(n, -1e9), 1e9)), true
+	case int:
+		return x, true
+	case int64:
+		return int(min(max(x, -1e9), 1e9)), true
+	}
+	return 0, false
+}
+
 // detection renders a detection finding (03 §4.12). The host is the first
 // evidence artifact's device, else the finding's own. The user is the first
 // artifact's actor.user, else its user.
@@ -1318,9 +1340,11 @@ func (r *renderer) detection() {
 	uid := r.str("finding_info.uid")
 	vendor := firstNonEmpty(r.str("metadata.product.vendor_name"), r.str("metadata.product.name"))
 	severity := firstNonEmpty(severityCaptions[r.int("severity_id")], r.str("severity"))
+	// A score is capped to 0–100, and a score of 0 is shown: the vendor said
+	// it has no confidence, which is not the same as giving none (adr/0356).
 	confidence := ""
-	if score := r.int("confidence_score"); score > 0 {
-		confidence = strconv.Itoa(score)
+	if score, ok := wholeNumber(pathAny(r.p, "confidence_score")); ok {
+		confidence = strconv.Itoa(min(max(score, 0), 100))
 	}
 	confidence = firstNonEmpty(confidence, confidenceCaptions[r.int("confidence_id")], r.str("confidence"))
 

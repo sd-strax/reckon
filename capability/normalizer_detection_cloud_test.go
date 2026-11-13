@@ -51,8 +51,8 @@ func refsOf(res NormalizationResult, typ string) []identity.STIXID {
 
 // TestDetectionCloud (§4.12, adr/0356): a finding that names a cloud provider
 // yields the account and the resource from the finding itself and the cloud
-// principal from the artifact's actor.user, by the API-activity rules, and
-// the sighting is against all of them.
+// principal from the artifact's actor.user, by the API-activity rules. All
+// three are in the observation the sighting names.
 func TestDetectionCloud(t *testing.T) {
 	res := normalizeOne(t, cloudDetection())
 	ids := identity.NewResolver(testNS)
@@ -64,9 +64,6 @@ func TestDetectionCloud(t *testing.T) {
 	for name, id := range map[string]identity.STIXID{"account": account, "bucket": bucket, "principal": principal} {
 		if !refsContain(od.ObjectRefs, id) {
 			t.Errorf("object_refs lack the %s %s: %v", name, id, od.ObjectRefs)
-		}
-		if !refsContain(res.Sightings[0].WhereSighted, id) {
-			t.Errorf("the sighting is not against the %s %s", name, id)
 		}
 	}
 

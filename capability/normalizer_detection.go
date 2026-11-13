@@ -1,11 +1,17 @@
 package capability
 
-import "github.com/sd-strax/reckon/identity"
+import (
+	"math"
+
+	"github.com/sd-strax/reckon/identity"
+)
 
 // detectionNormalizer handles OCSF detection_finding (class_uid 2004) → STIX
 // (§4.12) — the single INFERRED path in the capability layer. A vendor detection
 // is a claim, not a passive observation, so this normalizer:
 //
+//   - reads the finding's own device as the host, whether or not the finding
+//     has evidences[] (adr/0356);
 //   - reads each artifact in evidences[] with the extractors the activity
 //     normalizers use, producing the DIRECT entities under one ObservedData.
 //     An artifact is not an event and has no class, so none is sent through
@@ -24,7 +30,8 @@ func (*detectionNormalizer) ClassUID() int { return 2004 }
 // 2: host identity, adr/0211; 3: account identity of the evidence, adr/0324
 // 4: OCSF classes and fields, adr/0356
 // 5: a cloud finding's account, resources and cloud principal, adr/0356
-func (*detectionNormalizer) Version() int { return 5 }
+// 6: the finding's own host, and an unknown confidence left out, adr/0356
+func (*detectionNormalizer) Version() int { return 6 }
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -32,8 +39,11 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 	// 1. The evidence: DIRECT entities under the detection event's own
 	// ObservedData. §4.12 requires an ObservedData preserving the raw "this
 	// was seen" signal separate from the Sighting, so a finding with no
-	// evidence still gets one, with no entities.
+	// evidence still gets one. The finding's own device names the host the
+	// detection fired on, with or without evidences[].
 	b := newBuilder(n.r, evt, "detection_finding", n.Version())
+	b.deviceObjects("device")
+	b.host("device")
 	// A cloud finding names its account and resources on the finding itself.
 	// They are read as an API call's are (§4.15). With no provider there is
 	// no namespace for a cloud identity, so none is minted.
@@ -47,12 +57,12 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 		b.evidence(artifact, provider, account)
 	}
 	result := b.finish(nil)
-	// The sighting is against the entities the evidence observed, its
-	// object_refs; an SCO the record names only through a relationship (a
-	// weak host an alias joins, adr/0211) is not where it was sighted.
-	var entityRefs, odRefs []identity.STIXID
+	// The sighting names the observation. The entities the alert is about
+	// are that observation's object_refs. They do not go in
+	// where_sighted_refs, where STIX allows only identity and location
+	// objects (adr/0356).
+	var odRefs []identity.STIXID
 	for _, od := range result.ObservedData {
-		entityRefs = append(entityRefs, od.ObjectRefs...)
 		odRefs = append(odRefs, od.ID)
 	}
 
@@ -98,12 +108,11 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 		Provenance:     prov,
 	})
 
-	// 4. Sighting — the indicator seen against the evidence entities.
+	// 4. Sighting — the indicator seen in the observation above.
 	result.Sightings = append(result.Sightings, Sighting{
 		ID:               n.r.Sighting(indID, evt.Time, vendor),
 		SightingOfRef:    indID,
 		ObservedDataRefs: odRefs,
-		WhereSighted:     entityRefs,
 		Confidence:       conf,
 		Description:      title,
 		CreatedByRef:     vendorID,
@@ -167,23 +176,50 @@ func detectionVendor(p map[string]any, sourceTool string) string {
 }
 
 // detectionConfidence reads a finding's confidence as a 0–100 STIX
-// confidence: confidence_score, which is already 0–100, else confidence_id
-// (1 Low, 2 Medium, 3 High). Anything else is 0, unknown.
-func detectionConfidence(p map[string]any) int {
+// confidence (adr/0356):
+//
+//   - confidence_score, capped to 0–100. A score of 0 is kept: the vendor
+//     said it has no confidence.
+//   - else confidence_id: 1 Low, 2 Medium and 3 High become 15, 50 and 85.
+//   - else nil. The confidence is unknown and is left out, never written
+//     as 0.
+func detectionConfidence(p map[string]any) *int {
 	if v, ok := lookupPath(p, "confidence_score"); ok {
-		if score := toInt(v); score > 0 && score <= 100 {
-			return score
+		if score, ok := wholeNumber(v); ok {
+			score = min(max(score, 0), 100)
+			return &score
 		}
 	}
+	var level int
 	switch pathInt(p, "confidence_id") {
 	case 1:
-		return 15
+		level = 15
 	case 2:
-		return 50
+		level = 50
 	case 3:
-		return 85
+		level = 85
+	default:
+		return nil
 	}
-	return 0
+	return &level
+}
+
+// wholeNumber reads a JSON or Go number that has no fraction.
+func wholeNumber(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		if n != math.Trunc(n) || math.IsInf(n, 0) {
+			return 0, false
+		}
+		// Clamp before converting: a float beyond int's range does not
+		// convert to a defined value.
+		return int(min(max(n, -1e9), 1e9)), true
+	case int:
+		return n, true
+	case int64:
+		return int(min(max(n, -1e9), 1e9)), true
+	}
+	return 0, false
 }
 
 // stringSlice coerces a value to a []string, tolerating an []any of strings.

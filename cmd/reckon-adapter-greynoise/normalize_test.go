@@ -133,14 +133,20 @@ func TestEngineReadsTheFinding(t *testing.T) {
 		t.Fatalf("%d indicators, %d sightings; want one of each", len(res.Indicators), len(res.Sightings))
 	}
 	ind := res.Indicators[0]
-	if ind.Name != "GreyNoise: malicious (Mirai)" || ind.Pattern != "[ipv4-addr:value = '45.83.64.1']" || ind.Confidence != 85 || ind.Provenance.Tool != "GreyNoise" {
+	if ind.Name != "GreyNoise: malicious (Mirai)" || ind.Pattern != "[ipv4-addr:value = '45.83.64.1']" || ind.Confidence == nil || *ind.Confidence != 85 || ind.Provenance.Tool != "GreyNoise" {
 		t.Errorf("indicator = %+v", ind)
 	}
 	if len(ind.IndicatorTypes) != 1 || ind.IndicatorTypes[0] != "Mirai" {
 		t.Errorf("indicator types = %v", ind.IndicatorTypes)
 	}
-	if want := ids.IPv4Addr("45.83.64.1"); len(res.Sightings[0].WhereSighted) != 1 || res.Sightings[0].WhereSighted[0] != want {
-		t.Errorf("sighted against %v; want the address %s", res.Sightings[0].WhereSighted, want)
+	// The address is in the observation the sighting names. It is not in
+	// where_sighted_refs, where STIX allows only identity and location objects.
+	od := res.ObservedData[0]
+	if want := ids.IPv4Addr("45.83.64.1"); len(od.ObjectRefs) != 1 || od.ObjectRefs[0] != want {
+		t.Errorf("observed %v; want the address %s", od.ObjectRefs, want)
+	}
+	if s := res.Sightings[0]; len(s.WhereSighted) != 0 || len(s.ObservedDataRefs) != 1 || s.ObservedDataRefs[0] != od.ID {
+		t.Errorf("sighting where %v, observed-data %v; want the observation alone", s.WhereSighted, s.ObservedDataRefs)
 	}
 }
 

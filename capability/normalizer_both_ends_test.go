@@ -397,8 +397,8 @@ func TestRelaxedRequirements(t *testing.T) {
 			"evidences": []any{map[string]any{"actor": map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO"}}}},
 		}))
 		ind := res.Indicators[0]
-		if ind.Name != "" || ind.ID != ids.Indicator("det-123", "") || res.Sightings[0].Description != "" || len(res.Sightings[0].WhereSighted) != 2 {
-			t.Errorf("indicator %+v, sighting %+v; want an unnamed indicator on the uid, sighted on the host and account", ind, res.Sightings[0])
+		if ind.Name != "" || ind.ID != ids.Indicator("det-123", "") || res.Sightings[0].Description != "" || len(res.ObservedData[0].ObjectRefs) != 2 {
+			t.Errorf("indicator %+v, observation %+v; want an unnamed indicator on the uid, observed on the host and account", ind, res.ObservedData[0])
 		}
 	})
 	t.Run("job.name", func(t *testing.T) {
