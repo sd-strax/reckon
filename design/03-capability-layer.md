@@ -1361,7 +1361,7 @@ normalizer. Failure modes are §4.15's; a snapshot and an activity event that
 name the same resource by different identifiers (unique id in one, bare
 name in the other) are the same split, remedied by `aliases`.
 
-### 4.19 OCSF user_inventory_info (class_uid 5003) → STIX
+### 4.19 OCSF user_inventory (class_uid 5003) → STIX
 
 Input: an OCSF User Inventory Info event, a directory's record of one user,
 with `user.{uid, uid_alt, name, full_name, email_addr, domain, groups[].{name,
