@@ -1,6 +1,6 @@
 # 0350 — The Story timeline's grouping controls are one line: an event count, a switch, and one Grouping panel
 
-Issue: #350 · PR: #TBD · Status: accepted · Amends: the controls of `0095`, and the count after `0348`
+Issue: #350 · PR: #351 · Status: accepted · Amends: the controls of `0095`, and the count after `0348`
 
 ## Context
 
