@@ -80,6 +80,9 @@ func (reg *Registry) Register(n Normalizer) { reg.byClass[n.ClassUID()] = n }
 // Normalize dispatches to the class's normalizer, or the opaque default when no
 // normalizer is registered for the event's class.
 func (reg *Registry) Normalize(evt OcsfEvent) (NormalizationResult, error) {
+	if normalizeHook != nil {
+		defer normalizeHook(evt)()
+	}
 	if n, ok := reg.byClass[evt.ClassUID]; ok {
 		return n.Normalize(evt)
 	}
@@ -380,7 +383,7 @@ func agentList(p map[string]any, path string) []any {
 		}
 		agent := map[string]any{}
 		for _, k := range []string{"uid", "name", "vendor_name"} {
-			if s := strings.TrimSpace(toString(m[k])); s != "" {
+			if s := strings.TrimSpace(toString(fieldOf(m, k))); s != "" {
 				agent[k] = s
 			}
 		}
@@ -458,9 +461,9 @@ func (b *resultBuilder) url(v string) identity.STIXID {
 // addFileFromMap adds a file SCO from an OCSF file object (used for array items
 // like email attachments, where the object isn't at a fixed payload path).
 func (b *resultBuilder) addFileFromMap(m map[string]any) identity.STIXID {
-	name := toString(m["name"])
-	filePath := toString(m["path"])
-	hashes := hashesFromValue(m["hashes"])
+	name := toString(fieldOf(m, "name"))
+	filePath := toString(fieldOf(m, "path"))
+	hashes := hashesFromValue(fieldOf(m, "hashes"))
 	if name == "" && filePath == "" && len(hashes) == 0 {
 		return ""
 	}
@@ -468,7 +471,7 @@ func (b *resultBuilder) addFileFromMap(m map[string]any) identity.STIXID {
 		Hashes:          hashes,
 		Name:            name,
 		ParentDirectory: parentDir(filePath),
-		Size:            int64(toInt(m["size"])),
+		Size:            int64(toInt(fieldOf(m, "size"))),
 	})
 	props := map[string]any{"name": name}
 	if len(hashes) > 0 {
@@ -566,7 +569,7 @@ func hashesFromValue(v any) map[string]string {
 			if !ok {
 				continue
 			}
-			if algo, val := toString(im["algorithm"]), toString(im["value"]); algo != "" && val != "" {
+			if algo, val := toString(fieldOf(im, "algorithm")), toString(fieldOf(im, "value")); algo != "" && val != "" {
 				out[algo] = val
 			}
 		}

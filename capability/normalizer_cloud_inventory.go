@@ -52,7 +52,7 @@ func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult
 		}
 	}
 	for _, item := range inventoryResources(p) {
-		owner, _ := item["owner"].(map[string]any)
+		owner, _ := fieldOf(item, "owner").(map[string]any)
 		if id := ownerID(owner); id != "" {
 			b.cloudUser(provider, id, owner, false, "")
 		}
@@ -78,7 +78,7 @@ func ownerID(owner map[string]any) string {
 	if owner == nil {
 		return ""
 	}
-	return firstNonEmpty(scalarString(owner["uid"]), scalarString(owner["uid_alt"]))
+	return firstNonEmpty(scalarString(fieldOf(owner, "uid")), scalarString(fieldOf(owner, "uid_alt")))
 }
 
 // inventoryActivities are the OCSF 5023 activity captions.
@@ -129,17 +129,17 @@ func inventoryExt(p map[string]any) map[string]any {
 		return ext
 	}
 	first := resources[0]
-	put("resource_uid", scalarString(first["uid"]))
-	put("resource_name", strings.TrimSpace(toString(first["name"])))
-	put("type", toString(first["type"]))
-	putAny("configuration", first["data"])
-	putAny("labels", first["labels"])
-	putAny("tags", first["tags"])
-	put("criticality", toString(first["criticality"]))
-	put("created_time", ocsfTimestamp(first["created_time"]))
-	put("modified_time", ocsfTimestamp(first["modified_time"]))
-	if owner, _ := first["owner"].(map[string]any); owner != nil {
-		put("owner_name", firstNonEmpty(strings.TrimSpace(toString(owner["name"])), strings.TrimSpace(toString(owner["full_name"]))))
+	put("resource_uid", scalarString(fieldOf(first, "uid")))
+	put("resource_name", strings.TrimSpace(toString(fieldOf(first, "name"))))
+	put("type", toString(fieldOf(first, "type")))
+	putAny("configuration", fieldOf(first, "data"))
+	putAny("labels", fieldOf(first, "labels"))
+	putAny("tags", fieldOf(first, "tags"))
+	put("criticality", toString(fieldOf(first, "criticality")))
+	put("created_time", ocsfTimestamp(fieldOf(first, "created_time")))
+	put("modified_time", ocsfTimestamp(fieldOf(first, "modified_time")))
+	if owner, _ := fieldOf(first, "owner").(map[string]any); owner != nil {
+		put("owner_name", firstNonEmpty(strings.TrimSpace(toString(fieldOf(owner, "name"))), strings.TrimSpace(toString(fieldOf(owner, "full_name")))))
 	}
 	return ext
 }

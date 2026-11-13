@@ -107,7 +107,7 @@ func Category(classUID int, payload map[string]any) string {
 	if classUID == classCase {
 		return CategoryCase
 	}
-	cat := toInt(payload["category_uid"])
+	cat := toInt(fieldOf(payload, "category_uid"))
 	if cat == 0 {
 		cat = classUID / 1000
 	}
@@ -162,6 +162,9 @@ func Classes() []int {
 
 // Render renders one event with the entities the record derived from it.
 func Render(e Event, entities []Entity) View {
+	if renderHook != nil {
+		defer renderHook(e)()
+	}
 	r := &renderer{p: e.Payload, ents: entities}
 	if r.p == nil {
 		r.p = map[string]any{}
@@ -835,7 +838,7 @@ func (r *renderer) dnsAnswers() []slot {
 	var out []slot
 	for _, a := range pathList(r.p, "answers") {
 		m, _ := a.(map[string]any)
-		rdata := toString(m["rdata"])
+		rdata := toString(fieldOf(m, "rdata"))
 		if rdata == "" {
 			continue
 		}
@@ -1267,7 +1270,7 @@ func (r *renderer) deviceInventory() {
 	var agents []string
 	for _, a := range pathList(r.p, "device.agent_list") {
 		m, _ := a.(map[string]any)
-		if n := toString(m["name"]); n != "" {
+		if n := toString(fieldOf(m, "name")); n != "" {
 			agents = append(agents, n)
 		}
 	}
@@ -1291,11 +1294,11 @@ func (r *renderer) cloudInventory() {
 		res = resources[0]
 	}
 	first, _ := firstOf(pathList(r.p, "resources")).(map[string]any)
-	typ := toString(first["type"])
+	typ := toString(fieldOf(first, "type"))
 	account, _ := r.cloudAccount()
-	region := firstNonEmpty(r.str("cloud.region"), strings.TrimSpace(toString(first["region"])))
+	region := firstNonEmpty(r.str("cloud.region"), strings.TrimSpace(toString(fieldOf(first, "region"))))
 	owner := firstNonEmpty(pathStr(first, "owner.name"), pathStr(first, "owner.full_name"), pathStr(first, "owner.uid"))
-	crit := toString(first["criticality"])
+	crit := toString(fieldOf(first, "criticality"))
 
 	if res.empty() {
 		r.text("Cloud resource")
@@ -1319,11 +1322,11 @@ func (r *renderer) cloudInventory() {
 	r.entityField("Account", account)
 	r.field("Region", region)
 	r.field("Owner", owner)
-	r.field("Created", ocsfTimestamp(first["created_time"]))
-	r.field("Modified", ocsfTimestamp(first["modified_time"]))
+	r.field("Created", ocsfTimestamp(fieldOf(first, "created_time")))
+	r.field("Modified", ocsfTimestamp(fieldOf(first, "modified_time")))
 	r.field("Criticality", crit).Tone = severityTone(crit)
 	r.field("Labels", strings.Join(stringList(pathList(first, "labels")), ", "))
-	if data, ok := first["data"].(map[string]any); ok {
+	if data, ok := fieldOf(first, "data").(map[string]any); ok {
 		keys := make([]string, 0, len(data))
 		for k := range data {
 			keys = append(keys, k)
@@ -1496,11 +1499,11 @@ func (r *renderer) cloudResources() []slot {
 	var out []slot
 	for _, item := range pathList(r.p, "resources") {
 		m, _ := item.(map[string]any)
-		uid, name, typ := toString(m["uid"]), toString(m["name"]), toString(m["type"])
-		region := strings.TrimSpace(toString(m["region"]))
-		zone := strings.TrimSpace(toString(m["zone"]))
+		uid, name, typ := toString(fieldOf(m, "uid")), toString(fieldOf(m, "name")), toString(fieldOf(m, "type"))
+		region := strings.TrimSpace(toString(fieldOf(m, "region")))
+		zone := strings.TrimSpace(toString(fieldOf(m, "zone")))
 		group := strings.TrimSpace(firstNonEmpty(pathStr(m, "group.name"), pathStr(m, "group.uid")))
-		namespace := strings.TrimSpace(toString(m["namespace"]))
+		namespace := strings.TrimSpace(toString(fieldOf(m, "namespace")))
 		text := firstNonEmpty(name, uid)
 		if text == "" {
 			continue
@@ -1530,7 +1533,7 @@ func (r *renderer) cloudResources() []slot {
 func (r *renderer) credential() string {
 	if list := pathList(r.p, "actor.user.programmatic_credentials"); len(list) > 0 {
 		m, _ := list[0].(map[string]any)
-		if c := toString(m["uid"]); c != "" {
+		if c := toString(fieldOf(m, "uid")); c != "" {
 			return c
 		}
 	}
@@ -1704,7 +1707,7 @@ func hashesOf(v any) map[string]string {
 		// OCSF 1.x fingerprint list: [{algorithm, value}].
 		for _, item := range hv {
 			m, _ := item.(map[string]any)
-			if alg, val := toString(m["algorithm"]), toString(m["value"]); alg != "" && val != "" {
+			if alg, val := toString(fieldOf(m, "algorithm")), toString(fieldOf(m, "value")); alg != "" && val != "" {
 				out[alg] = val
 			}
 		}
@@ -1712,8 +1715,39 @@ func hashesOf(v any) map[string]string {
 	return out
 }
 
-// pathAny walks a dotted path through nested maps.
+// lookupHook, when set, is told of every field read through pathAny and
+// fieldOf: the object read from, the path read within it, and the value found
+// (nil when absent). renderHook, when set, is called as Render starts on an
+// event, and the function it returns is called when Render returns. Both are
+// nil outside tests. The package's tests set them to record which OCSF fields
+// the templates read (adr/0356).
+var (
+	lookupHook func(obj map[string]any, path string, found any)
+	renderHook func(e Event) (done func())
+)
+
+// pathAny walks a dotted path through nested maps. Every read of an OCSF
+// event goes through it or through fieldOf, so the tests can record it.
 func pathAny(m map[string]any, path string) any {
+	v := walkPath(m, path)
+	if lookupHook != nil {
+		lookupHook(m, path, v)
+	}
+	return v
+}
+
+// fieldOf reads one key of an object inside an OCSF event, such as an entry
+// of a list. It is obj[key], recorded like a pathAny read.
+func fieldOf(obj map[string]any, key string) any {
+	v := obj[key]
+	if lookupHook != nil {
+		lookupHook(obj, key, v)
+	}
+	return v
+}
+
+// walkPath is the walk behind pathAny.
+func walkPath(m map[string]any, path string) any {
 	var cur any = m
 	for _, seg := range strings.Split(path, ".") {
 		mm, ok := cur.(map[string]any)

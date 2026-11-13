@@ -180,7 +180,7 @@ type inventoryGroup struct{ name, domain string }
 // groupList reads user.groups[] as named groups: an entry with neither a
 // name nor a uid is dropped, and a uid stands in for a missing name.
 func groupList(user map[string]any) []inventoryGroup {
-	v, ok := user["groups"].([]any)
+	v, ok := fieldOf(user, "groups").([]any)
 	if !ok {
 		return nil
 	}
@@ -190,11 +190,11 @@ func groupList(user map[string]any) []inventoryGroup {
 		if !ok {
 			continue
 		}
-		name := firstNonEmpty(strings.TrimSpace(toString(g["name"])), strings.TrimSpace(toString(g["uid"])))
+		name := firstNonEmpty(strings.TrimSpace(toString(fieldOf(g, "name"))), strings.TrimSpace(toString(fieldOf(g, "uid"))))
 		if name == "" {
 			continue
 		}
-		out = append(out, inventoryGroup{name: name, domain: strings.TrimSpace(toString(g["domain"]))})
+		out = append(out, inventoryGroup{name: name, domain: strings.TrimSpace(toString(fieldOf(g, "domain")))})
 	}
 	return out
 }

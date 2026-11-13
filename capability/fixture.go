@@ -303,9 +303,40 @@ func anyValueEqual(got any, alternatives []any) bool {
 	return false
 }
 
+// lookupHook, when set, is told of every field read through lookupPath and
+// fieldOf: the object read from, the path read within it, and the value found
+// (nil when absent). normalizeHook, when set, is called as Registry.Normalize
+// starts on an event, and the function it returns is called when Normalize
+// returns. Both are nil outside tests. The package's tests set them to record
+// which OCSF fields the normalizers read (adr/0356).
+var (
+	lookupHook    func(obj map[string]any, path string, found any)
+	normalizeHook func(evt OcsfEvent) (done func())
+)
+
 // lookupPath resolves a dotted path ("target.hostname") into a nested params
-// map, falling back to a direct flat key of the same name.
+// map, falling back to a direct flat key of the same name. Every read of an
+// OCSF event goes through it or through fieldOf, so the tests can record it.
 func lookupPath(params map[string]any, path string) (any, bool) {
+	v, ok := walkPath(params, path)
+	if lookupHook != nil {
+		lookupHook(params, path, v)
+	}
+	return v, ok
+}
+
+// fieldOf reads one key of an object inside an OCSF event, such as an entry
+// of a list. It is obj[key], recorded like a lookupPath read.
+func fieldOf(obj map[string]any, key string) any {
+	v := obj[key]
+	if lookupHook != nil {
+		lookupHook(obj, key, v)
+	}
+	return v
+}
+
+// walkPath is the walk behind lookupPath.
+func walkPath(params map[string]any, path string) (any, bool) {
 	if v, ok := params[path]; ok {
 		return v, true
 	}

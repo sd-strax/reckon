@@ -27,8 +27,8 @@ func (n *dnsNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 				if !ok {
 					continue
 				}
-				rdata := toString(am["rdata"])
-				switch strings.ToUpper(toString(am["type"])) {
+				rdata := toString(fieldOf(am, "rdata"))
+				switch strings.ToUpper(toString(fieldOf(am, "type"))) {
 				case "A", "AAAA":
 					if ip := b.addIPValue(rdata); ip != "" {
 						b.addRel(RelResolvesTo, query, ip)

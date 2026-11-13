@@ -31,11 +31,11 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 	// 1. Recursively normalize nested evidence (DIRECT entities + ObservedData).
 	var entityRefs, odRefs []identity.STIXID
 	if ev, ok := lookupPath(p, "evidence"); ok {
-		if evMap, ok := ev.(map[string]any); ok && toInt(evMap["class_uid"]) != 0 {
+		if evMap, ok := ev.(map[string]any); ok && toInt(fieldOf(evMap, "class_uid")) != 0 {
 			sub, err := n.reg.Normalize(OcsfEvent{
 				ID:         evt.ID, // same telemetry record — edges point at the detection event
-				ClassUID:   toInt(evMap["class_uid"]),
-				ClassName:  toString(evMap["class_name"]),
+				ClassUID:   toInt(fieldOf(evMap, "class_uid")),
+				ClassName:  toString(fieldOf(evMap, "class_name")),
 				Time:       evt.Time,
 				RecordedAt: evt.RecordedAt,
 				SourceTool: evt.SourceTool,

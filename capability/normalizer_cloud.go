@@ -156,7 +156,7 @@ func credentialUID(p map[string]any) string {
 	if v, ok := lookupPath(p, "actor.user.programmatic_credentials"); ok {
 		if list, ok := v.([]any); ok && len(list) > 0 {
 			if m, ok := list[0].(map[string]any); ok {
-				if c := toString(m["uid"]); c != "" {
+				if c := toString(fieldOf(m, "uid")); c != "" {
 					return c
 				}
 			}
@@ -249,8 +249,8 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 		if !ok {
 			continue
 		}
-		uid, name, typ, region := scalarString(m["uid"]), toString(m["name"]), toString(m["type"]), scalarString(m["region"])
-		zone, group, namespace := scalarString(m["zone"]), resourceGroup(m), scalarString(m["namespace"])
+		uid, name, typ, region := scalarString(fieldOf(m, "uid")), toString(fieldOf(m, "name")), toString(fieldOf(m, "type")), scalarString(fieldOf(m, "region"))
+		zone, group, namespace := scalarString(fieldOf(m, "zone")), resourceGroup(m), scalarString(fieldOf(m, "namespace"))
 		id, rule := b.r.CloudResource(identity.CloudResourceIdentity{
 			Provider: provider, UID: uid, AccountRef: account, Type: typ,
 			Region: region, Zone: zone, Group: group, Namespace: namespace, Name: name,
@@ -263,7 +263,7 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 		fields := map[string]string{
 			"uid": uid, "name": name, "type": typ,
 			"region": region, "zone": zone, "group": group, "namespace": namespace,
-			"cloud_partition": toString(m["cloud_partition"]),
+			"cloud_partition": toString(fieldOf(m, "cloud_partition")),
 		}
 		// Only a scoped resource names the account it lives in; a uid
 		// carries its own owner.
@@ -283,8 +283,8 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 // resourceGroup reads an OCSF resource's group (a Group object): its name,
 // else its uid.
 func resourceGroup(m map[string]any) string {
-	g, _ := m["group"].(map[string]any)
-	return firstNonEmpty(toString(g["name"]), scalarString(g["uid"]))
+	g, _ := fieldOf(m, "group").(map[string]any)
+	return firstNonEmpty(toString(fieldOf(g, "name")), scalarString(fieldOf(g, "uid")))
 }
 
 // pathScalar reads a scalar at path as a string, an identifier given as a
