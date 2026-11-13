@@ -24,7 +24,7 @@ func bigEnvelope(t *testing.T, n int) []byte {
 			"id": id, "class_uid": 3002, "class_name": "Authentication",
 			"time": base.Add(time.Duration(i) * time.Minute).Format(time.RFC3339),
 			"payload": map[string]any{
-				"actor":        map[string]any{"user": map[string]any{"name": fmt.Sprintf("u%d", i%2)}},
+				"user":         map[string]any{"name": fmt.Sprintf("u%d", i%2)},
 				"dst_endpoint": map[string]any{"hostname": fmt.Sprintf("H%d", i%3)},
 				"pad":          strings.Repeat("x", 600),
 			},

@@ -115,11 +115,11 @@ func TestBothEnds(t *testing.T) {
 		{
 			name: "authentication", entities: 3,
 			floor: []map[string]any{versioned(3002, "1.1.0", map[string]any{
-				"actor": map[string]any{"user": user}, "dst_endpoint": map[string]any{"hostname": "WS1", "domain": "CONTOSO", "uid": "dev-1"},
+				"user": user, "dst_endpoint": map[string]any{"hostname": "WS1", "domain": "CONTOSO", "uid": "dev-1"},
 				"src_endpoint": map[string]any{"ip": "10.0.4.55"}, "logon_type": "Remote Interactive", "status": "Success",
 			})},
 			ceiling: []map[string]any{versioned(3002, "1.9.0", map[string]any{
-				"actor": map[string]any{"user": user},
+				"user": user,
 				"dst_endpoint": map[string]any{
 					"hostname": "WS1", "domain": "CONTOSO", "uid": "dev-1",
 					"agent_list": []any{map[string]any{"uid": "agent-1", "name": "edr-sensor", "type_id": 1}},

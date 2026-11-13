@@ -43,8 +43,13 @@ func TestNormalizeAuthEvent(t *testing.T) {
 	if evs[0].Raw["time"] != int64(1785837600000) || evs[0].Raw["time_dt"] != "2026-08-04T10:00:00Z" {
 		t.Errorf("time = %v, time_dt = %v; want 1785837600000 and 2026-08-04T10:00:00Z", evs[0].Raw["time"], evs[0].Raw["time_dt"])
 	}
-	if got := mapAt(t, evs[0].Raw, "actor", "user")["name"]; got != "alice@acme.com" {
-		t.Errorf("actor.user.name = %v", got)
+	// The account signing in is OCSF's user, and a sign-in names no separate
+	// initiator (adr/0356).
+	if got := mapAt(t, evs[0].Raw, "user")["name"]; got != "alice@acme.com" {
+		t.Errorf("user.name = %v", got)
+	}
+	if actor, has := evs[0].Raw["actor"]; has {
+		t.Errorf("a sign-in carries an actor: %v", actor)
 	}
 	if got := mapAt(t, evs[0].Raw, "src_endpoint")["ip"]; got != "1.2.3.4" {
 		t.Errorf("src_endpoint.ip = %v", got)
@@ -389,6 +394,16 @@ func TestEngineReadsWhatTheAdapterWrites(t *testing.T) {
 		if s.Type == identity.TypeIdentity && (s.Properties["directory"] != "okta" || s.Properties["directory_id"] != "00uX" || s.Properties["name"] != "Carol Diaz") {
 			t.Errorf("person = %v", s.Properties)
 		}
+	}
+
+	signin, _ := normalize("get_logs", `{"items":[{"eventType":"user.session.start","published":"2026-08-03T16:29:00Z",`+
+		`"actor":{"id":"00uABC","alternateId":"alice@acme.com","type":"User"},"client":{"ipAddress":"1.2.3.4"},"outcome":{"result":"SUCCESS"}}]}`)
+	res = engineNormalize(t, signin)[0]
+	if got := res.ObservedData[0].Provenance.Normalizer; got != "authentication" {
+		t.Fatalf("a sign-in went to %s", got)
+	}
+	if count(res, identity.TypeUserAccount) == 0 || len(res.ObservedData[0].ObjectRefs) == 0 {
+		t.Errorf("a sign-in names %d accounts, object_refs %v; want the account that signed in", count(res, identity.TypeUserAccount), res.ObservedData[0].ObjectRefs)
 	}
 
 	logs, _ := normalize("get_logs", `{"items":[`+

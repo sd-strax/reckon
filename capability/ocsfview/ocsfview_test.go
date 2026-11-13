@@ -47,7 +47,7 @@ func ent(ref string, props map[string]any) Entity {
 // who reported it (adr/0208); a place with no source address is not said in
 // the sentence, since it would read as the host's.
 func TestRender_Authentication_Location(t *testing.T) {
-	p := payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"dst_endpoint":{"hostname":"corp-sso"},
+	p := payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"dst_endpoint":{"hostname":"corp-sso"},
 		"src_endpoint":{"ip":"203.0.113.5","location":{"city":"Toronto","region":"Ontario","country":"CA","provider":"okta"}},
 		"logon_type":"Interactive","status":"SUCCESS"}`)
 	v := Render(Event{ClassUID: 3002, Payload: p}, nil)
@@ -59,7 +59,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	}
 
 	// The fixture's shape: city and country, no provider.
-	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"dst_endpoint":{"hostname":"corp-sso"},
+	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"dst_endpoint":{"hostname":"corp-sso"},
 		"src_endpoint":{"ip":"10.0.12.40","location":{"country":"CA","city":"Toronto"}},"status":"FAILURE"}`)
 	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
 	if got := sentenceText(v); got != "m.reyes logon to corp-sso from 10.0.12.40 in Toronto, CA failed" {
@@ -70,11 +70,11 @@ func TestRender_Authentication_Location(t *testing.T) {
 	}
 
 	// A region stands in for a missing city; a country alone stands.
-	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"region":"Ontario","country":"CA"}}}`)
+	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"10.0.12.40","location":{"region":"Ontario","country":"CA"}}}`)
 	if got := sentenceText(Render(Event{ClassUID: 3002, Payload: p}, nil)); got != "m.reyes logon from 10.0.12.40 in Ontario, CA" {
 		t.Errorf("sentence = %q", got)
 	}
-	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"country":"CA"}}}`)
+	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"10.0.12.40","location":{"country":"CA"}}}`)
 	if got := sentenceText(Render(Event{ClassUID: 3002, Payload: p}, nil)); got != "m.reyes logon from 10.0.12.40 in CA" {
 		t.Errorf("sentence = %q", got)
 	}
@@ -82,7 +82,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	// The location's description is shown as what it is, never as the country:
 	// a country name the adapter could not code (adr/0208) and a producer's
 	// own description read the same way, after the place.
-	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Atlantis City","desc":"Atlantis","provider":"okta"}}}`)
+	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Atlantis City","desc":"Atlantis","provider":"okta"}}}`)
 	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
 	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Atlantis City (located by okta)" {
 		t.Errorf("sentence = %q", got)
@@ -93,7 +93,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	// A country-only location from a source that names countries (the Okta
 	// adapter's shape): the sentence reads the description, so the timeline
 	// and the export carry the place and who located it.
-	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"198.51.100.7","location":{"desc":"Türkiye","provider":"okta"}}}`)
+	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"198.51.100.7","location":{"desc":"Türkiye","provider":"okta"}}}`)
 	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
 	if got := sentenceText(v); got != "m.reyes logon from 198.51.100.7 in Türkiye (located by okta)" {
 		t.Errorf("sentence = %q", got)
@@ -101,7 +101,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	if f, _ := fieldValue(v, "Location"); f.Value != "Türkiye · reported by okta" {
 		t.Errorf("Location field = %+v", f)
 	}
-	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Toronto","country":"CA","desc":"corporate office"}}}`)
+	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"src_endpoint":{"ip":"10.0.12.40","location":{"city":"Toronto","country":"CA","desc":"corporate office"}}}`)
 	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
 	if got := sentenceText(v); got != "m.reyes logon from 10.0.12.40 in Toronto, CA" {
 		t.Errorf("sentence = %q", got)
@@ -111,7 +111,7 @@ func TestRender_Authentication_Location(t *testing.T) {
 	}
 
 	// No source address: the place is not in the sentence, but the field has it.
-	p = payload(`{"class_uid":3002,"actor":{"user":{"name":"m.reyes"}},"dst_endpoint":{"hostname":"corp-sso"},
+	p = payload(`{"class_uid":3002,"user":{"name":"m.reyes"},"dst_endpoint":{"hostname":"corp-sso"},
 		"src_endpoint":{"location":{"city":"Toronto","country":"CA"}}}`)
 	v = Render(Event{ClassUID: 3002, Payload: p}, nil)
 	if got := sentenceText(v); got != "m.reyes logon to corp-sso" {
@@ -122,8 +122,49 @@ func TestRender_Authentication_Location(t *testing.T) {
 	}
 }
 
+// TestRender_AuthenticationInitiator (adr/0356): the account that logged on
+// is the event's user. actor.user is whoever started the logon, shown as its
+// own field when it is another account, and never as the one that logged on.
+func TestRender_AuthenticationInitiator(t *testing.T) {
+	ents := []Entity{
+		ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "account_type": "windows-domain"}),
+		ent("user-account--sys", map[string]any{"account_login": `NT AUTHORITY\SYSTEM`, "account_type": "windows-local"}),
+	}
+	p := payload(`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"SYSTEM","domain":"NT AUTHORITY"}},
+		"dst_endpoint":{"hostname":"WIN-FILE01"},"logon_type":"Interactive","status":"Success"}`)
+	v := Render(Event{ClassUID: 3002, Payload: p}, ents)
+	if got := sentenceText(v); got != "jdoe interactive logon to WIN-FILE01" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, _ := fieldValue(v, "User"); f.Value != `CONTOSO\jdoe` || f.Ref != "user-account--u1" {
+		t.Errorf("User field = %+v; want the account that logged on", f)
+	}
+	if f, ok := fieldValue(v, "Started by"); !ok || f.Value != `NT AUTHORITY\SYSTEM` || f.Ref != "user-account--sys" {
+		t.Errorf("Started by field = %+v; want the initiator", f)
+	}
+
+	// The same account in both places, or no initiator, shows no extra field.
+	for _, js := range []string{
+		`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}`,
+		`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"}}`,
+	} {
+		if f, ok := fieldValue(Render(Event{ClassUID: 3002, Payload: payload(js)}, ents), "Started by"); ok {
+			t.Errorf("%s: Started by field = %+v; want none", js, f)
+		}
+	}
+
+	// An event that names only an initiator does not say who logged on.
+	v = Render(Event{ClassUID: 3002, Payload: payload(`{"class_uid":3002,"actor":{"user":{"name":"SYSTEM","domain":"NT AUTHORITY"}},"dst_endpoint":{"hostname":"WIN-FILE01"}}`)}, ents)
+	if got := sentenceText(v); got != "Logon to WIN-FILE01" {
+		t.Errorf("sentence with only an initiator = %q", got)
+	}
+	if f, ok := fieldValue(v, "User"); ok {
+		t.Errorf("User field = %+v; want none", f)
+	}
+}
+
 func TestRender_Authentication(t *testing.T) {
-	p := payload(`{"class_uid":3002,"actor":{"user":{"name":"svc_backup","domain":"CONTOSO","uid":"S-1"}},
+	p := payload(`{"class_uid":3002,"user":{"name":"svc_backup","domain":"CONTOSO","uid":"S-1"},
 		"dst_endpoint":{"hostname":"WIN-FILE01","domain":"CONTOSO"},"src_endpoint":{"ip":"10.0.4.20"},
 		"logon_type":"RemoteInteractive","status":"SUCCESS"}`)
 	ents := []Entity{
@@ -351,7 +392,7 @@ func TestRender_BindsByValue(t *testing.T) {
 		t.Errorf("network slots = %+v", v.Sentence)
 	}
 	// A user whose record holds the bare login still binds.
-	v = Render(Event{ClassUID: 3002, Payload: payload(`{"actor":{"user":{"name":"root"}},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
+	v = Render(Event{ClassUID: 3002, Payload: payload(`{"user":{"name":"root"},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
 		ent("user-account--r", map[string]any{"account_login": "root", "account_type": "local"}),
 	})
 	if v.Sentence[0].Ref != "user-account--r" {
@@ -371,7 +412,7 @@ func TestRender_BindsByDomain(t *testing.T) {
 		t.Errorf("account change slots = %v", refs)
 	}
 	// No domain on the payload, two qualified candidates: neither is chosen.
-	v = Render(Event{ClassUID: 3002, Payload: payload(`{"actor":{"user":{"name":"admin"}},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
+	v = Render(Event{ClassUID: 3002, Payload: payload(`{"user":{"name":"admin"},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
 		ent("user-account--1", map[string]any{"account_login": `A\admin`}),
 		ent("user-account--2", map[string]any{"account_login": `B\admin`}),
 	})
@@ -379,7 +420,7 @@ func TestRender_BindsByDomain(t *testing.T) {
 		t.Errorf("ambiguous login bound: %v", refs)
 	}
 	// One qualified candidate for a bare payload name still binds.
-	v = Render(Event{ClassUID: 3002, Payload: payload(`{"actor":{"user":{"name":"admin"}},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
+	v = Render(Event{ClassUID: 3002, Payload: payload(`{"user":{"name":"admin"},"dst_endpoint":{"hostname":"srv"}}`)}, []Entity{
 		ent("user-account--1", map[string]any{"account_login": `A\admin`}),
 	})
 	if refs := entityRefs(v); !slices.Equal(refs, []string{"user-account--1"}) {

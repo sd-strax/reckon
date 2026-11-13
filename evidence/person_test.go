@@ -42,7 +42,7 @@ func persistPersonWorld(t *testing.T, s *Store) personWorld {
 	}
 	evts := []capability.OcsfEvent{
 		mk("dc", 3002, 1, map[string]any{
-			"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": sid}},
+			"user":         map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": sid},
 			"dst_endpoint": map[string]any{"hostname": "WIN-DC01", "os": windows},
 		}),
 		mk("edr", 1007, 2, map[string]any{
@@ -52,7 +52,7 @@ func persistPersonWorld(t *testing.T, s *Store) personWorld {
 		}),
 		mk("idp", 3002, 3, map[string]any{
 			"metadata": idpMeta,
-			"actor":    map[string]any{"user": map[string]any{"name": upn, "uid": oid, "account": map[string]any{"type_id": float64(6)}}},
+			"user":     map[string]any{"name": upn, "uid": oid, "account": map[string]any{"type_id": float64(6)}},
 		}),
 		mk("idp", 5003, 4, map[string]any{
 			"metadata": idpMeta,

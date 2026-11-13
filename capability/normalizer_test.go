@@ -2,12 +2,12 @@ package capability
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-
 	"github.com/sd-strax/reckon/identity"
 )
 
@@ -134,7 +134,7 @@ func authPayload(host string) map[string]any {
 	return map[string]any{
 		"class_uid":    3002,
 		"time":         ms("2026-04-20T14:35:02Z"),
-		"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21"}},
+		"user":         map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21"},
 		"dst_endpoint": map[string]any{"hostname": host, "domain": "CONTOSO"},
 		"src_endpoint": map[string]any{"ip": "10.0.4.55"},
 		"logon_type":   "RemoteInteractive",
@@ -173,6 +173,74 @@ func TestAuthNormalizer(t *testing.T) {
 	od := res.ObservedData[0]
 	if od.Extensions["logon_type"] != "RemoteInteractive" || od.Extensions["status"] != "SUCCESS" {
 		t.Errorf("ObservedData extensions = %v; want logon_type/status", od.Extensions)
+	}
+}
+
+// TestAuthNormalizer_UserAndInitiator (adr/0356): the account that
+// authenticated is the event's user. actor.user is whoever started the logon:
+// a separate account, with no x-authenticated-to of its own.
+func TestAuthNormalizer_UserAndInitiator(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	host := ids.Host(identity.HostIdentity{Hostname: "WIN-FILE01"})
+	jdoe := ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, UserID: "S-1-5-21"})
+	system := ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsLocal, UserID: "S-1-5-18", HostRef: host})
+
+	authed := func(res NormalizationResult) []identity.STIXID {
+		var out []identity.STIXID
+		for _, r := range res.Relationships {
+			if r.Type == RelAuthenticatedTo {
+				if r.TargetRef != host {
+					t.Errorf("x-authenticated-to targets %s; want the destination host", r.TargetRef)
+				}
+				out = append(out, r.SourceRef)
+			}
+		}
+		return out
+	}
+
+	// Both: the user authenticated, the initiator did not.
+	p := authPayload("WIN-FILE01")
+	p["actor"] = map[string]any{"user": map[string]any{"name": "SYSTEM", "domain": "NT AUTHORITY", "uid": "S-1-5-18"}}
+	res, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := res.ObservedData[0].ObjectRefs
+	if !slices.Contains(refs, jdoe) || !slices.Contains(refs, system) {
+		t.Errorf("object_refs = %v; want the user %s and the initiator %s", refs, jdoe, system)
+	}
+	if got := authed(res); !slices.Equal(got, []identity.STIXID{jdoe}) {
+		t.Errorf("x-authenticated-to from %v; want only the user %s", got, jdoe)
+	}
+
+	// The initiator is the user: one account, one relationship.
+	p = authPayload("WIN-FILE01")
+	p["actor"] = map[string]any{"user": p["user"]}
+	same, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	alone, err := testRegistry().Normalize(makeEvent(authPayload("WIN-FILE01")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(same.SCOs) != len(alone.SCOs) || !slices.Equal(authed(same), []identity.STIXID{jdoe}) {
+		t.Errorf("the user named again as the initiator: %d objects (want %d), x-authenticated-to from %v", len(same.SCOs), len(alone.SCOs), authed(same))
+	}
+
+	// Only an initiator: the event does not say who authenticated.
+	p = authPayload("WIN-FILE01")
+	p["actor"] = map[string]any{"user": p["user"]}
+	delete(p, "user")
+	res, err = testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := authed(res); len(got) != 0 {
+		t.Errorf("an event with no user: x-authenticated-to from %v; want none", got)
+	}
+	if !slices.Contains(res.ObservedData[0].ObjectRefs, jdoe) {
+		t.Errorf("object_refs = %v; want the initiator %s kept", res.ObservedData[0].ObjectRefs, jdoe)
 	}
 }
 
@@ -470,7 +538,7 @@ func TestHostAliasEmission(t *testing.T) {
 func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 4}, {3002, 4}, {4001, 3}, {4003, 2}, {1001, 4}, {201001, 3}, {201002, 3}, {1006, 4}, {1005, 3},
+		{1007, 4}, {3002, 5}, {4001, 3}, {4003, 2}, {1001, 4}, {201001, 3}, {201002, 3}, {1006, 4}, {1005, 3},
 		{3001, 4}, {3005, 4}, {3006, 4}, {4009, 3}, {4011, 4}, {4012, 4}, {2004, 6}, {2005, 2},
 		{5001, 3}, {6003, 3}, {5023, 4}, {5003, 2}, {0, 1},
 	} {
@@ -536,10 +604,10 @@ func TestDeviceOSIsReadWhereTheClassHasADevice(t *testing.T) {
 		payload map[string]any
 		idp     bool
 	}{
-		{"authentication, no OS", map[string]any{"class_uid": 3002, "actor": map[string]any{"user": user}}, true},
-		{"authentication, OS on the source", map[string]any{"class_uid": 3002, "actor": map[string]any{"user": user}, "src_endpoint": map[string]any{"os": linux}}, false},
-		{"authentication, OS on the destination", map[string]any{"class_uid": 3002, "actor": map[string]any{"user": user}, "dst_endpoint": map[string]any{"os": map[string]any{"name": "Ubuntu"}}}, false},
-		{"authentication, OS on the device", map[string]any{"class_uid": 3002, "actor": map[string]any{"user": user}, "device": map[string]any{"hostname": "WS1", "os": map[string]any{"type": "Linux"}}}, false},
+		{"authentication, no OS", map[string]any{"class_uid": 3002, "user": user}, true},
+		{"authentication, OS on the source", map[string]any{"class_uid": 3002, "user": user, "src_endpoint": map[string]any{"os": linux}}, false},
+		{"authentication, OS on the destination", map[string]any{"class_uid": 3002, "user": user, "dst_endpoint": map[string]any{"os": map[string]any{"name": "Ubuntu"}}}, false},
+		{"authentication, OS on the device", map[string]any{"class_uid": 3002, "user": user, "device": map[string]any{"hostname": "WS1", "os": map[string]any{"type": "Linux"}}}, false},
 		{"process, no OS", map[string]any{"class_uid": 1007, "actor": map[string]any{"user": user}}, true},
 		{"process, OS on the device", map[string]any{"class_uid": 1007, "actor": map[string]any{"user": user}, "device": onLinux}, false},
 		{"file, OS on the device", map[string]any{"class_uid": 1001, "actor": map[string]any{"user": user}, "device": onLinux}, false},

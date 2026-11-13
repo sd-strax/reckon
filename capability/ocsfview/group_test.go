@@ -54,14 +54,14 @@ func scenarioLogons() []GroupItem {
 		ent("ipv4-addr--ws20", map[string]any{"value": "10.0.4.20"}),
 		ent("ipv4-addr--ws55", map[string]any{"value": "10.0.4.55"}),
 	}
-	nightly := `{"actor":{"user":{"name":"svc_backup","domain":"CONTOSO"}},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.9.10"},"logon_type":"Network","status":"SUCCESS"}`
+	nightly := `{"user":{"name":"svc_backup","domain":"CONTOSO"},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.9.10"},"logon_type":"Network","status":"SUCCESS"}`
 	var items []GroupItem
 	for d := 13; d <= 19; d++ {
 		items = append(items, authItem(fmt.Sprintf("n%d", d), fmt.Sprintf("2026-04-%02dT02:00:10Z", d), nightly, ents))
 	}
 	items = append(items,
-		authItem("jdoe", "2026-04-20T14:32:11Z", `{"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.4.55"},"logon_type":"RemoteInteractive","status":"SUCCESS"}`, ents),
-		authItem("rdp", "2026-04-20T14:32:47Z", `{"actor":{"user":{"name":"svc_backup","domain":"CONTOSO"}},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.4.20"},"logon_type":"RemoteInteractive","status":"SUCCESS"}`, ents),
+		authItem("jdoe", "2026-04-20T14:32:11Z", `{"user":{"name":"jdoe","domain":"CONTOSO"},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.4.55"},"logon_type":"RemoteInteractive","status":"SUCCESS"}`, ents),
+		authItem("rdp", "2026-04-20T14:32:47Z", `{"user":{"name":"svc_backup","domain":"CONTOSO"},"dst_endpoint":{"hostname":"WIN-FILE01"},"src_endpoint":{"ip":"10.0.4.20"},"logon_type":"RemoteInteractive","status":"SUCCESS"}`, ents),
 	)
 	return items
 }

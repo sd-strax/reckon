@@ -191,15 +191,18 @@ func initiator(e map[string]any) map[string]any {
 }
 
 // authPayload maps an Okta auth LogEvent onto the OCSF 3002 paths the engine's
-// auth normalizer reads: actor.user.{name,uid}, src_endpoint.ip, status. The
-// client's reported place rides src_endpoint.location (adr/0208).
+// auth normalizer reads: user.{name,uid}, src_endpoint.ip, status. In a
+// sign-in event Okta's actor is the account signing in, which OCSF calls the
+// event's user (adr/0356). The client's reported place rides
+// src_endpoint.location (adr/0208).
 func authPayload(e map[string]any) map[string]any {
 	src := map[string]any{"ip": digStr(e, "client", "ipAddress")}
 	if loc := geoLocation(e); loc != nil {
 		src["location"] = loc
 	}
 	p := logFields(e)
-	p["actor"] = initiator(e)
+	actor, _ := e["actor"].(map[string]any)
+	p["user"] = oktaUser(actor)
 	p["src_endpoint"] = src
 	p["logon_type"] = str(e["eventType"])
 	return p

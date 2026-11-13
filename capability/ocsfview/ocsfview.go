@@ -591,8 +591,12 @@ func logonKey(logonType string) string {
 	return strings.ReplaceAll(strings.ToLower(logonType), " ", "")
 }
 
+// authentication renders a logon (03 §4.2). The account that logged on is the
+// event's user. actor.user is whoever started the logon, shown as a field
+// when the event names one that is not the same account (adr/0356).
 func (r *renderer) authentication() {
-	user := r.user("actor.user")
+	user := r.user("user")
+	initiator := r.user("actor.user")
 	host := r.host("dst_endpoint")
 	src := r.ip("src_endpoint.ip")
 	logon := r.str("logon_type")
@@ -633,7 +637,10 @@ func (r *renderer) authentication() {
 		r.text(" failed")
 	}
 
-	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
+	r.entityField("User", slot{text: r.qualifiedUser("user"), ref: user.ref})
+	if by := r.qualifiedUser("actor.user"); by != "" && by != r.qualifiedUser("user") {
+		r.entityField("Started by", slot{text: by, ref: initiator.ref})
+	}
 	r.field("Logon type", logon)
 	r.entityField("Source", src)
 	r.field("Location", r.locationText("src_endpoint.location"))

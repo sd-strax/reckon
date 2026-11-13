@@ -705,9 +705,11 @@ Output:
 
 ### 4.2 OCSF authentication (class_uid 3002) → STIX
 
-Input: OCSF authentication event with `actor.user.name`, `actor.user.domain`,
-`dst_endpoint.hostname`, `src_endpoint.ip`, `auth_protocol`, `logon_type`,
-`status` (SUCCESS/FAILURE), `time`; optionally `src_endpoint.location`, the
+Input: OCSF authentication event with `user.name`, `user.domain` (the account
+being authenticated, as OCSF defines it), `dst_endpoint.hostname`,
+`src_endpoint.ip`, `auth_protocol`, `logon_type`, `status` (SUCCESS/FAILURE),
+`time`; optionally `actor.user.*`, whoever started the logon (the initiator,
+adr/0356); optionally `src_endpoint.location`, the
 source's reported place as an OCSF Geo Location (`city`, `region`, `country`
 or the country as the source named it in `desc`, `lat`/`long`, `provider`),
 carried on the event and read by the event view, not extracted into a STIX
@@ -715,11 +717,15 @@ object (`adr/0208`).
 
 Output:
 
-- One `user-account` SCO for the actor, shaped by the account rule (§7.2):
-  the record's strongest identifier is in `object_refs`; each lesser
+- One `user-account` SCO for the event's `user`, shaped by the account rule
+  (§7.2): the record's strongest identifier is in `object_refs`; each lesser
   identifier it carries mints its own account outside them, with `aliases`
   to the strongest. A bare login from a source that names no OS and no host
-  is the weak `login` account, so the actor is kept. Version 3 (adr/0324).
+  is the weak `login` account, so the account is kept. Version 3 (adr/0324).
+- When the event carries `actor.user`, a second `user-account` SCO for the
+  initiator, shaped the same way. It is a separate account with no
+  `x-authenticated-to` of its own; when it names the same account as `user`,
+  it is that one object. Version 5 (adr/0356).
 - One `x-host` SCO for the destination.
 - One `ipv4-addr` (or `ipv6-addr`) SCO for the source IP if present.
 - One `ObservedData` SDO referencing all three, plus a `description`-style note
@@ -2189,7 +2195,7 @@ it. Fixtures are stored as JSON files under `fixtures/<scenario>/<event-N>.json`
     "time": 1776695531000,
     "time_dt": "2026-04-20T14:32:11Z",
     "metadata": { "version": "1.1.0" },
-    "actor": { "user": { "name": "jdoe", "domain": "CONTOSO" } },
+    "user": { "name": "jdoe", "domain": "CONTOSO" },
     "dst_endpoint": { "hostname": "WIN-FILE01" },
     "src_endpoint": { "ip": "10.0.4.55" },
     "logon_type": "RemoteInteractive",

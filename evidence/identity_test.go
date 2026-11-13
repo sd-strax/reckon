@@ -380,7 +380,7 @@ func TestHostIdentity_MatchesByFirstTier(t *testing.T) {
 		event(5001, 2, map[string]any{"device": map[string]any{"hostname": "hostc", "uid": "007", "ip": "10.0.0.19"}}),
 		// A logon to hosta from hostc: the source endpoint is hostc's fact,
 		// whatever uid it carries.
-		event(3002, 3, map[string]any{"actor": map[string]any{"user": user},
+		event(3002, 3, map[string]any{"user": user,
 			"dst_endpoint": map[string]any{"hostname": "hosta", "uid": "007"},
 			"src_endpoint": map[string]any{"hostname": "hostc", "uid": "007", "domain": "other.example", "ip": "10.0.0.9"}}),
 		// The device id alone: the weak host's own record.
@@ -390,7 +390,7 @@ func TestHostIdentity_MatchesByFirstTier(t *testing.T) {
 		// own: a record with a MAC and a uid aliases the uid's weak host to
 		// the MAC host, so a shared 007 here would join the MAC host to the
 		// set by the record's own word.
-		event(3002, 5, map[string]any{"actor": map[string]any{"user": user},
+		event(3002, 5, map[string]any{"user": user,
 			"dst_endpoint": map[string]any{"hostname": "hosta"},
 			"src_endpoint": map[string]any{"mac": "02:00:00:00:00:02", "uid": "m-2", "ip": "10.0.0.8"}}),
 		// The MAC host's own inventory.
