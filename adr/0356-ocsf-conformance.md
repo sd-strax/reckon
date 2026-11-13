@@ -110,8 +110,12 @@ the event view's sentence templates use the same number:
   - `privileges[]` for 3005 and 3006, kept as a list in the observation's
     extensions as `privileges`.
   - The `x-group` and `member-of-group` output for 3006 is unchanged.
-- **Email URL Activity (4012).** 4011, Email File Activity, is not handled and
-  stays opaque.
+- **Email URL Activity (4012).**
+- **Email File Activity (4011) is handled, new.** It is how an attachment
+  arrives below 1.4.0. The event's `file` gives the attachment's `file`,
+  `email_uid` gives the weak `email-message` (as for a click), and a
+  `contains` relationship joins them, so an attachment hash stays a pivot at
+  the floor.
 
 **Field paths are OCSF's, class by class:**
 
@@ -121,8 +125,9 @@ the event view's sentence templates use the same number:
 - **Email activity:**
   - Attachments are `email.files[]`, read when present (1.4.0+).
   - `email.urls[]` is read the same way.
-  - `email.bcc` is gone. OCSF carries no blind copy, so there is no
-    `bcc_refs`.
+  - Blind copy is read from `unmapped.bcc[]`, where an adapter whose
+    vendor reports it puts it. OCSF defines no blind copy, and `unmapped` is
+    OCSF's place for a source's own fields. `bcc_refs` stays.
 - **Email URL activity: the click names the message by `email_uid`.** The
   `email-message` identity follows the rule hosts and accounts already
   follow (adr/0211, adr/0324): strongest identifier first; a lesser one

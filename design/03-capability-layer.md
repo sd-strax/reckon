@@ -887,15 +887,16 @@ downstream consumers filter on the extension field.
 Input: OCSF email_activity with `email.from`, `email.to[]`, `email.cc[]`,
 `email.subject`, `email.message_uid`, `email.uid`, and from 1.4.0
 `email.files[]` (each a file object) and `email.urls[]`, read when present;
-`time`. OCSF carries no blind copy. Below 1.4.0 an attachment is its own
-email_file_activity event (4011), which is not normalized.
+`time`. OCSF defines no blind copy; a source that reports one carries it in
+`unmapped.bcc[]`. Below 1.4.0 an attachment is its own email_file_activity
+event (4011, §4.11a).
 
 Output:
 
 - `email-message` SCO (STIX 2.1 native) with `from_ref`, `to_refs`, `cc_refs`,
-  `subject`, `body_multipart` (if available), `is_multipart`,
+  `bcc_refs` (from `unmapped.bcc[]`), `subject`, `body_multipart` (if available), `is_multipart`,
   and a `message_id` field populated from `email.message_uid`.
-- `email-addr` SCO for each address (sender, recipients, cc).
+- `email-addr` SCO for each address (sender, recipients, cc, bcc).
 - `file` SCO for each attachment in `email.files[]`, with hashes if present.
 - `url` SCO for each URL in `email.urls[]`.
 - STIX `Relationship` of native type `contains` from the email-message to
@@ -922,7 +923,7 @@ for emails is more reliable than for processes because `message_id` is unique.
 Input: OCSF email_url_activity with `url.url_string`, `email_uid` (the
 source's id of the message, OCSF's correlation key to `email.uid`),
 `actor.user.*` (the clicker), `time`, optional `device.*`. Class 4011 is
-email_file_activity, not this class (adr/0356).
+email_file_activity (§4.11a), not this class (adr/0356).
 
 Output:
 
@@ -941,6 +942,26 @@ Output:
 - STIX `Relationship` of native type `contains` from the email-message to
   the url, if the message context is available.
 - One `ObservedData` referencing all of the above.
+- Edges as in §4.1.
+
+### 4.11a OCSF email_file_activity (class_uid 4011) → STIX
+
+Input: OCSF email_file_activity with `file.*` (the attachment), `email_uid`
+(the source's id of the message), `actor.user.*`, `activity_id`, `time`,
+optional `device.*`. Below 1.4.0 this is the only place an attachment
+appears (adr/0356).
+
+Output:
+
+- `file` SCO for the attachment, with hashes if present.
+- `email-message` SCO for `email_uid` when present: the weak message on
+  `(source_tool, uid)` (§4.10), as for a click (§4.11).
+- `user-account` SCO for the actor, shaped by the account rule (§7.2).
+- `x-host` SCO for the device if present.
+- STIX `Relationship` of native type `contains` from the email-message to the
+  file.
+- One `ObservedData` referencing all of the above, the `activity_id`
+  preserved in extension fields.
 - Edges as in §4.1.
 
 ### 4.12 OCSF detection_finding (class_uid 2004) → STIX
