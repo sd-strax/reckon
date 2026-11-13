@@ -191,7 +191,8 @@ func (b *resultBuilder) cloudAccount(provider string, actor at) identity.STIXID 
 	}
 	if home := callerAccountAt(actor); home.path != "" {
 		if uid := pathScalar(home.obj, home.path+".uid"); uid != "" {
-			return b.addAccount(provider, uid, home, true)
+			// The caller's own account: cloud.org does not describe it.
+			return b.addAccount(provider, uid, home, false)
 		}
 	}
 	if uid := pathScalar(b.evt.Payload, "cloud.project_uid"); uid != "" {

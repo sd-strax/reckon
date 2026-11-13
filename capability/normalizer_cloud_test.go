@@ -534,6 +534,46 @@ func TestAPIActivity_CallerAccount(t *testing.T) {
 	}
 }
 
+// TestAPIActivity_CallerAccountFallback: with no cloud.account, the event's
+// account is the caller's own actor.user.account. cloud.org describes
+// cloud.account, so that account does not take org_uid; an account read from
+// cloud.account or cloud.project_uid does.
+func TestAPIActivity_CallerAccountFallback(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	home := ids.CloudAccount("aws", "111122223333")
+	principal := ids.Account(identity.AccountIdentity{Type: "aws", UserID: deployARN})
+
+	p := apiPayload()
+	p["cloud"] = map[string]any{"provider": "AWS", "org": map[string]any{"uid": "o-exampleorg1"}}
+	res := normalizeOne(t, p)
+	accts := scosOf(res, identity.TypeCloudAccount)
+	if len(accts) != 1 || accts[0].ID != home {
+		t.Fatalf("accounts = %+v; want the caller's account only", accts)
+	}
+	if accts[0].Properties["name"] != "acme-prod" || accts[0].Properties["account_type"] != "AWS Account" {
+		t.Errorf("account props = %v; want the caller account's own name and type", accts[0].Properties)
+	}
+	if org, ok := accts[0].Properties["org_uid"]; ok {
+		t.Errorf("caller's account carries cloud.org.uid %v; want no org_uid", org)
+	}
+	if !hasEdge(res, RelBelongsTo, principal, home) {
+		t.Errorf("relationships = %+v; want the principal belongs-to its account", res.Relationships)
+	}
+
+	for name, cloud := range map[string]map[string]any{
+		"cloud.account":     {"provider": "AWS", "org": map[string]any{"uid": "o-exampleorg1"}, "account": map[string]any{"uid": "444455556666"}},
+		"cloud.project_uid": {"provider": "AWS", "org": map[string]any{"uid": "o-exampleorg1"}, "project_uid": "444455556666"},
+	} {
+		p := apiPayload()
+		p["cloud"] = cloud
+		delete(p["actor"].(map[string]any)["user"].(map[string]any), "account")
+		accts := scosOf(normalizeOne(t, p), identity.TypeCloudAccount)
+		if len(accts) != 1 || accts[0].Properties["org_uid"] != "o-exampleorg1" {
+			t.Errorf("%s: accounts = %+v; want one carrying the event's org", name, accts)
+		}
+	}
+}
+
 // TestAPIActivity_NumericIDs: an account or resource uid given as a JSON
 // number is read, formatted without an exponent.
 func TestAPIActivity_NumericIDs(t *testing.T) {
