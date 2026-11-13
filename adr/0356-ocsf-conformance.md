@@ -369,6 +369,5 @@ class numbers.
 - Each schema file is one long line, as the server returns it. A
   `.gitattributes` entry marks them as not diffable, so `git show` and
   `git log -p` stay readable.
-- The repository's pre-commit keyword check skips `third_party/`. Copied
-  third-party text is not ours to reword. The OCSF schema names a product
-  that matches one of the check's keywords.
+- One of the pre-commit check's keywords now matches as a whole word only.
+  As a substring, it also matched a product name inside the OCSF schema.
