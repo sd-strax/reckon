@@ -9,9 +9,9 @@
 // record holds no row for reads as its class. The record is read folded by
 // default (adr/0095): events of one class sharing a key are one group, and a
 // group that repeats (3 events on 3 days) is one row that opens to its
-// members; the analyst changes the key per class or turns the fold off. The
-// attack path is gap §6.12.
-import { useMemo, useState } from "react";
+// members; the analyst turns grouping off, or changes per kind which fields
+// must match in one Grouping panel (adr/0350). The attack path is gap §6.12.
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../app";
 import { collapses, fmtDay, keySpec, spanText } from "../../derive/events";
 import { hypName } from "../../derive/hyps";
@@ -96,12 +96,20 @@ export function timelineItems(events: EventRow[] | null | undefined, strip: { re
   return [...out.values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
 }
 
-/** "N retrieved events in the record", and how many of them the page or the fold covers when the record holds more. */
-export function retrievedCount(shown: number, total: number | undefined, foldedOver?: number): string {
-  const n = total ?? shown;
-  const head = `${n} retrieved event${n === 1 ? "" : "s"} in the record`;
-  if (foldedOver) return n > foldedOver ? `${head} · folded over the newest ${foldedOver}` : head;
-  return n > shown ? `${head} · showing the newest ${shown}` : head;
+/**
+ * The count above the timeline (adr/0350): "N events · M retrievals", the
+ * events the timeline shows (after adr/0348's merge, before grouping) and the
+ * records behind them, the retrievals part only when it differs. When the
+ * record holds more than the page read, or than the grouping covered, it says
+ * so in the same line.
+ */
+export function eventCount(events: number, retrievals: number, total: number | undefined, foldedOver?: number): string {
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const head = plural(events, "event") + (retrievals !== events ? ` · ${plural(retrievals, "retrieval")}` : "");
+  const n = total ?? retrievals;
+  const read = foldedOver ?? retrievals;
+  if (n <= read) return head;
+  return `${head} · ${foldedOver ? "grouped over" : "from"} the newest ${read} of the record's ${plural(n, "retrieval")}`;
 }
 
 /**
@@ -133,21 +141,53 @@ export function ViaCalls({ calls, openCall }: { calls: EventCall[]; openCall: (c
 // A stable empty, so the memo below does not recompute on every render.
 const NO_HYPOTHESES: Hypothesis[] = [];
 
-/** One class's key chooser: the slots it can key on, the key in use ticked. */
-function KeyChooser({ keys, k, onChange }: { keys: EventClassKeys[]; k: EventClassKeys; onChange: (spec: string) => void }) {
+const sameKey = (a: string[], b: string[]) => a.join(",") === b.join(",");
+
+/**
+ * Grouping… (adr/0350): one panel, one row per event kind present, each with
+ * the fields it can group on, the key in use ticked, how many groups the key
+ * makes now, and Reset once the key is not the default. Closes on Escape or a
+ * click outside it.
+ */
+export function GroupingPanel({ keys, groupsOf, onChange }: { keys: EventClassKeys[]; groupsOf: (classUid: number) => number; onChange: (spec: string) => void }) {
   const [open, setOpen] = useState(false);
-  const labels = k.key.map((n) => k.slots.find((s) => s.name === n)?.label ?? n);
+  const wrap = useRef<HTMLSpanElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    panel.current?.querySelector<HTMLElement>("input, button")?.focus();
+    const outside = (e: MouseEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, [open]);
+  const close = () => { setOpen(false); button.current?.focus(); };
   return (
-    <span className="keychooser">
-      <button className="linklike" aria-expanded={open} title={`What ${k.className} events fold on`} onClick={() => setOpen(!open)}>{k.className}: {labels.length ? labels.join(" · ") : "nothing"} {open ? "▴" : "▾"}</button>
+    <span className="grouping" ref={wrap}>
+      <button ref={button} className="groupingbtn" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}>Grouping…</button>
       {open ? (
-        <div className="keymenu" role="group" aria-label={`${k.className} key`}>
-          {k.slots.map((s) => (
-            <label key={s.name}>
-              <input type="checkbox" checked={k.key.includes(s.name)} onChange={(e) => onChange(keySpec(keys, k.classUid, e.target.checked ? [...k.key, s.name] : k.key.filter((n) => n !== s.name)))} /> {s.label}
-            </label>
-          ))}
-          {k.key.join(",") !== k.default.join(",") ? <button className="linklike" onClick={() => onChange(keySpec(keys, k.classUid, k.default))}>Reset to default</button> : null}
+        <div ref={panel} className="groupingpanel" role="dialog" aria-label="Grouping" onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}>
+          <p className="groupingintro">Events of one kind are grouped when every ticked field matches.</p>
+          {keys.filter((k) => k.slots.length > 0).map((k) => {
+            const n = groupsOf(k.classUid);
+            return (
+              <div key={k.classUid} className="groupingrow" role="group" aria-label={k.className}>
+                <div className="groupinghead">
+                  <span className="groupingkind">{k.className}</span>
+                  <span className="imeta">{n} group{n === 1 ? "" : "s"}</span>
+                  {!sameKey(k.key, k.default) ? <button className="linklike" title={`Group ${k.className} events by the default fields`} onClick={() => onChange(keySpec(keys, k.classUid, k.default))}>Reset</button> : null}
+                </div>
+                <div className="groupingfields">
+                  <span className="imeta">group when these match:</span>
+                  {k.slots.map((s) => (
+                    <label key={s.name}>
+                      <input type="checkbox" checked={k.key.includes(s.name)} onChange={(e) => onChange(keySpec(keys, k.classUid, e.target.checked ? [...k.key, s.name] : k.key.filter((x) => x !== s.name)))} /> {s.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : null}
     </span>
@@ -170,7 +210,10 @@ export function StoryLens() {
       return { ...it, citing, emphasis };
     });
   }, [snap?.events, snap?.eventGroups, snap?.derived?.strip, hs]);
+  const eventN = useMemo(() => mergeSameEvents(snap?.events).length, [snap?.events]);
   if (!snap) return null;
+  // A kind present that can group: one with no fields has nothing to group on.
+  const foldable = (snap.eventKeys ?? []).some((k) => k.slots.length > 0);
   const techniques = Array.from(new Set(hs.flatMap((h) => h.labels || []).filter((l) => /^T\d{4}/.test(l))));
   const open = hs.flatMap((h) => h.status === "ABANDONED" ? [] : h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
   const created = snap.investigation.createdAt ? Date.parse(snap.investigation.createdAt) : NaN;
@@ -199,9 +242,9 @@ export function StoryLens() {
         {snap.eventsError ? <div className="error">{snap.events ? "The next page of the retrieved record could not be read" : "The retrieved record could not be read"}: {snap.eventsError}.{snap.events ? "" : " Only the cited events are shown."}</div> : null}
         {snap.events?.length || snap.eventGroups ? (
           <div className="foldbar imeta">
-            {snap.events?.length ? <span>{retrievedCount(snap.events.length, snap.eventsTotal, folded ? snap.eventsFoldedOver : undefined)}</span> : null}
-            <label title="Fold the events of one class that share a key into one row when they repeat on 3 or more days (adr/0095)"><input type="checkbox" checked={folded} onChange={() => send({ type: "events.fold", keys: folded ? null : "default" })} /> Fold repeated events</label>
-            {folded ? (snap.eventKeys ?? []).map((k) => <KeyChooser key={k.classUid} keys={snap.eventKeys ?? []} k={k} onChange={(spec) => send({ type: "events.fold", keys: spec })} />) : null}
+            {snap.events?.length ? <span>{eventCount(eventN, snap.events.length, snap.eventsTotal, folded ? snap.eventsFoldedOver : undefined)}</span> : null}
+            <label className="switch" title="Group the events of one kind that match into one row when they repeat on 3 or more days (adr/0095)"><input type="checkbox" role="switch" checked={folded} aria-checked={folded} onChange={() => send({ type: "events.fold", keys: folded ? null : "default" })} /> Group repeats</label>
+            {folded && foldable ? <GroupingPanel keys={snap.eventKeys ?? []} groupsOf={(c) => rows.filter((r) => r.group?.classUid === c).length} onChange={(spec) => send({ type: "events.fold", keys: spec })} /> : null}
           </div>
         ) : null}
         {!shown.length ? <Empty>{snap.events?.length ? "No retrieved or cited event in this category." : "No cited events carry an event time yet."}</Empty> : (
