@@ -42,7 +42,7 @@ func processPayload() map[string]any {
 			"file": map[string]any{
 				"path":   `C:\Windows\System32\powershell.exe`,
 				"name":   "powershell.exe",
-				"hashes": map[string]any{"SHA-256": "ABC123"},
+				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "ABC123"}},
 			},
 			"parent_process": map[string]any{
 				"pid":          1000,
@@ -447,24 +447,23 @@ func TestHostAliasEmission(t *testing.T) {
 	}
 }
 
-// TestHostNormalizerVersions: a normalizer sits at version 2 for one of two
-// reasons. Its shaping changed under adr/0211 (a shaping change is a
-// re-normalization under §4.13): the ones that mint a host, and email, whose
-// attachment files are identified by hash and placeholder hashes no longer
-// count. Or it took over a class the opaque default handled (5001, 6003,
-// 5023, 5003): the ObservedData id carries the version but not the
-// normalizer's name, so version 1 would collide with the opaque observation.
-// 5023 is at 3: its created and modified times became RFC 3339 in the
-// extensions whatever form the payload carries them in. The normalizers
-// that mint an account from an OCSF user object moved to 3 under adr/0324
-// (1007, 3002, 1001, 1006, 3005, 4011, and 2004, whose evidence recursion
-// mints them); api_activity shapes a control-plane principal, unchanged, and
-// stays at 2. The case normalizer and the opaque default are at 1.
-func TestHostNormalizerVersions(t *testing.T) {
+// TestNormalizerVersions pins every normalizer's version. The ObservedData id
+// carries the version but not the normalizer's name, so a normalizer that
+// takes over a class number starts above every version that number has had:
+// the inventory classes (5001, 5003, 5023) and api_activity started at 2
+// above the opaque default, and email_file_activity starts at 4 above the
+// link-click normalizer that held 4011 before adr/0356.
+//
+// adr/0356 moved every normalizer whose input changed to its next version:
+// the classes and fields are OCSF's, and file hashes are read in OCSF's list
+// form only. dns_activity, user_inventory and cloud_resources_inventory_info
+// read the same input as before and did not move.
+func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 3}, {3002, 3}, {4001, 2}, {4003, 2}, {1001, 3}, {1003, 2}, {1006, 3}, {1009, 2},
-		{3005, 3}, {4011, 3}, {2004, 3}, {5001, 2}, {4009, 2}, {6003, 2}, {5023, 3}, {5003, 2}, {2005, 1}, {0, 1},
+		{1007, 4}, {3002, 4}, {4001, 3}, {4003, 2}, {1001, 4}, {201001, 3}, {201002, 3}, {1006, 4}, {1005, 3},
+		{3001, 4}, {3005, 4}, {3006, 4}, {4009, 3}, {4011, 4}, {4012, 4}, {2004, 4}, {2005, 2},
+		{5001, 3}, {6003, 3}, {5023, 3}, {5003, 2}, {0, 1},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {
@@ -477,5 +476,92 @@ func TestHostNormalizerVersions(t *testing.T) {
 		if n.Version() != c.version {
 			t.Errorf("class %d version = %d; want %d", c.class, n.Version(), c.version)
 		}
+	}
+}
+
+// TestEndpointHostReadsNoUIDAlt (adr/0356): a network endpoint has no
+// uid_alt in OCSF, so the host an authentication mints from dst_endpoint
+// keeps none, while a device's is kept.
+func TestEndpointHostReadsNoUIDAlt(t *testing.T) {
+	object := map[string]any{"hostname": "WS1", "uid": "dev-1", "uid_alt": "asset-1"}
+	auth := authPayload("WS1")
+	auth["dst_endpoint"] = object
+	proc := processPayload()
+	proc["device"] = object
+	for name, tc := range map[string]struct {
+		payload map[string]any
+		want    any
+	}{
+		"endpoint": {auth, nil},
+		"device":   {proc, "asset-1"},
+	} {
+		res, err := testRegistry().Normalize(makeEvent(tc.payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		host := scosOf(res, identity.TypeHost)[0]
+		if got := host.Properties["device_uid_alt"]; got != tc.want {
+			t.Errorf("%s: device_uid_alt = %v; want %v", name, got, tc.want)
+		}
+		// Everything else the object says is kept either way.
+		if host.Properties["hostname"] != "WS1" || len(relsOf(res, RelAliases)) == 0 {
+			t.Errorf("%s: host = %v, aliases %v", name, host.Properties, relsOf(res, RelAliases))
+		}
+	}
+}
+
+// TestDeviceOSIsReadWhereTheClassHasADevice (adr/0356): a vendor name alone
+// marks an identity provider only when no device object of the record names
+// an OS. Each normalizer names the device objects its class has, and only
+// those are read.
+func TestDeviceOSIsReadWhereTheClassHasADevice(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	okta := map[string]any{"product": map[string]any{"vendor_name": "Okta"}}
+	user := map[string]any{"name": "jdoe@contoso.example", "uid": "00u1AbCd"}
+	linux := map[string]any{"type_id": 200}
+	onLinux := map[string]any{"hostname": "WS1", "os": linux}
+	cloud := ids.Account(identity.AccountIdentity{Type: identity.AccountCloud, UserID: "00u1AbCd"})
+
+	for _, tc := range []struct {
+		name    string
+		payload map[string]any
+		idp     bool
+	}{
+		{"authentication, no OS", map[string]any{"class_uid": 3002, "actor": map[string]any{"user": user}}, true},
+		{"authentication, OS on the source", map[string]any{"class_uid": 3002, "actor": map[string]any{"user": user}, "src_endpoint": map[string]any{"os": linux}}, false},
+		{"authentication, OS on the destination", map[string]any{"class_uid": 3002, "actor": map[string]any{"user": user}, "dst_endpoint": map[string]any{"os": map[string]any{"name": "Ubuntu"}}}, false},
+		{"authentication, OS on the device", map[string]any{"class_uid": 3002, "actor": map[string]any{"user": user}, "device": map[string]any{"hostname": "WS1", "os": map[string]any{"type": "Linux"}}}, false},
+		{"process, no OS", map[string]any{"class_uid": 1007, "actor": map[string]any{"user": user}}, true},
+		{"process, OS on the device", map[string]any{"class_uid": 1007, "actor": map[string]any{"user": user}, "device": onLinux}, false},
+		{"file, OS on the device", map[string]any{"class_uid": 1001, "actor": map[string]any{"user": user}, "device": onLinux}, false},
+		{"scheduled job, OS on the device", map[string]any{"class_uid": 1006, "job": map[string]any{"name": "j", "user": user}, "device": onLinux}, false},
+		{"account change, no OS", map[string]any{"class_uid": 3001, "user": user}, true},
+		{"account change, OS on the source", map[string]any{"class_uid": 3001, "user": user, "src_endpoint": map[string]any{"os": linux}}, false},
+		{"user access, OS on the device", map[string]any{"class_uid": 3005, "user": user, "device": onLinux}, false},
+		{"user access, OS on the source", map[string]any{"class_uid": 3005, "user": user, "src_endpoint": map[string]any{"os": map[string]any{"name": "Ubuntu"}}}, false},
+		{"group management, OS on the source", map[string]any{"class_uid": 3006, "user": user, "src_endpoint": map[string]any{"os": map[string]any{"type": "Linux"}}}, false},
+		{"group management, OS on the device", map[string]any{"class_uid": 3006, "user": user, "device": onLinux}, false},
+		{"email click, OS on the device", map[string]any{"class_uid": 4012, "actor": map[string]any{"user": user}, "device": onLinux}, false},
+		{"email attachment, OS on the device", map[string]any{"class_uid": 4011, "actor": map[string]any{"user": user}, "device": onLinux}, false},
+		{"detection evidence, no OS", map[string]any{"class_uid": 2004, "evidences": []any{map[string]any{"actor": map[string]any{"user": user}}}}, true},
+		{"detection evidence, OS on the finding's device", map[string]any{"class_uid": 2004, "device": onLinux, "evidences": []any{map[string]any{"actor": map[string]any{"user": user}}}}, false},
+		{"detection evidence, OS on the artifact's device", map[string]any{"class_uid": 2004, "evidences": []any{map[string]any{"user": user, "device": onLinux}}}, false},
+		{"detection evidence, OS on the artifact's endpoint", map[string]any{"class_uid": 2004, "evidences": []any{map[string]any{"user": user, "dst_endpoint": map[string]any{"os": linux}}}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.payload["metadata"] = okta
+			tc.payload["time"] = "2026-04-20T14:32:11Z"
+			res, err := testRegistry().Normalize(makeEvent(tc.payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			accounts := accountsIn(res)
+			if len(accounts) != 1 {
+				t.Fatalf("accounts = %v; want one", accounts)
+			}
+			if got := accounts[0] == cloud; got != tc.idp {
+				t.Errorf("read as the identity provider's cloud account = %v; want %v", got, tc.idp)
+			}
+		})
 	}
 }

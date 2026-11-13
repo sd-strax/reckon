@@ -34,7 +34,7 @@ func (*cloudInventoryNormalizer) Version() int { return 3 }
 
 func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
-	b := newBuilder(n.r, evt, "cloud_inventory", n.Version())
+	b := newBuilder(n.r, evt, "cloud_resources_inventory_info", n.Version())
 	provider := providerSlug(pathStr(p, "cloud.provider"))
 	if provider == "" {
 		return b.finish(inventoryExt(p)), nil

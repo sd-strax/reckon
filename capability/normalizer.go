@@ -37,21 +37,25 @@ func NewRegistry(r *identity.Resolver) *Registry {
 	reg.Register(&networkNormalizer{r: r})
 	reg.Register(&dnsNormalizer{r: r})
 	reg.Register(&fileActivityNormalizer{r: r})
-	reg.Register(&registryNormalizer{r: r})
+	// One registry normalizer handles both Windows registry classes, and one
+	// account normalizer the three account classes (adr/0356).
+	reg.Register(&registryNormalizer{r: r, class: classRegistryKey})
+	reg.Register(&registryNormalizer{r: r, class: classRegistryValue})
 	reg.Register(&scheduledJobNormalizer{r: r})
 	reg.Register(&moduleNormalizer{r: r})
-	reg.Register(&accountChangeNormalizer{r: r})
+	reg.Register(&accountNormalizer{r: r, class: classAccountChange})
+	reg.Register(&accountNormalizer{r: r, class: classUserAccess})
+	reg.Register(&accountNormalizer{r: r, class: classGroupManagement})
 	reg.Register(&emailNormalizer{r: r})
 	reg.Register(&emailURLNormalizer{r: r})
-	reg.Register(&caseNormalizer{r: r})
+	reg.Register(&emailFileNormalizer{r: r})
+	reg.Register(&incidentNormalizer{r: r})
 	reg.Register(&deviceInventoryNormalizer{r: r})
 	reg.Register(&userInventoryNormalizer{r: r})
 
 	reg.Register(&apiActivityNormalizer{r: r})
 	reg.Register(&cloudInventoryNormalizer{r: r})
-	// detection_finding recurses into the registry to normalize nested
-	// evidence, so it takes a back-reference to reg.
-	reg.Register(&detectionNormalizer{r: r, reg: reg})
+	reg.Register(&detectionNormalizer{r: r})
 	return reg
 }
 
@@ -125,6 +129,11 @@ type resultBuilder struct {
 	r    *identity.Resolver
 	evt  OcsfEvent
 	prov Provenance
+
+	// devices are the device objects the event's class carries, set by the
+	// normalizer: the only places the shared helpers look for an OS
+	// (adr/0356).
+	devices []at
 
 	seen   map[identity.STIXID]bool // SCOs and relationships recorded
 	inRefs map[identity.STIXID]bool // SCOs in object_refs
@@ -230,8 +239,42 @@ func (b *resultBuilder) finish(extensions map[string]any) NormalizationResult {
 // These read the builder's event payload, mint identity via the resolver, add
 // the SCO, and return its id (or "" when the source fields are absent).
 
-// host extracts an x-host SCO from an OCSF endpoint/device object at prefix
-// (e.g. "device", "dst_endpoint"), shaped per adr/0211 (03 §7.2, §7.4).
+// at names one object of an event: the object it is read from (the event
+// itself, or an object inside it such as an entry of evidences[]) and its
+// path there. The zero value names nothing.
+type at struct {
+	obj  map[string]any
+	path string
+}
+
+// top names an object at the top of the event.
+func (b *resultBuilder) top(path string) at { return at{obj: b.evt.Payload, path: path} }
+
+// deviceObjects records the device objects the event's class carries, by
+// their paths from the top of the event.
+func (b *resultBuilder) deviceObjects(paths ...string) {
+	b.devices = b.devices[:0]
+	for _, p := range paths {
+		b.devices = append(b.devices, b.top(p))
+	}
+}
+
+// host extracts an x-host SCO from the OCSF device object at prefix of the
+// event ("device"). See hostAt.
+func (b *resultBuilder) host(prefix string) identity.STIXID {
+	return b.hostAt(b.top(prefix), true)
+}
+
+// endpointHost extracts an x-host SCO from the OCSF network endpoint at
+// prefix of the event ("dst_endpoint"). An endpoint has no uid_alt, so none
+// is read (adr/0356).
+func (b *resultBuilder) endpointHost(prefix string) identity.STIXID {
+	return b.hostAt(b.top(prefix), false)
+}
+
+// hostAt extracts an x-host SCO from an OCSF device or endpoint object,
+// shaped per adr/0211 (03 §7.2, §7.4). device says the object is a device,
+// which carries uid_alt; a network endpoint does not.
 //
 // The hostname is the identity: a record that carries one mints the strong
 // host on its short name, and keeps everything else the device object says as
@@ -254,8 +297,11 @@ func (b *resultBuilder) finish(extensions map[string]any) NormalizationResult {
 // A placeholder hostname, MAC or device id (identity.Placeholder*) reads as
 // absent: it mints no host, no weak host and no alias, and is not kept as a
 // property.
-func (b *resultBuilder) host(prefix string) identity.STIXID {
-	p := b.evt.Payload
+func (b *resultBuilder) hostAt(loc at, device bool) identity.STIXID {
+	if loc.path == "" {
+		return ""
+	}
+	p, prefix := loc.obj, loc.path
 	hostname := strings.TrimRight(strings.TrimSpace(pathStr(p, prefix+".hostname")), ".")
 	mac := strings.TrimSpace(pathStr(p, prefix+".mac"))
 	uid := strings.TrimSpace(pathStr(p, prefix+".uid"))
@@ -263,7 +309,7 @@ func (b *resultBuilder) host(prefix string) identity.STIXID {
 	// A placeholder MAC or device id names nothing (adr/0211): it is neither
 	// a property nor an alias.
 	hasMAC, hasUID := !identity.PlaceholderMAC(mac), !identity.PlaceholderDeviceUID(uid)
-	props := b.deviceFacts(prefix, mac, uid, hasMAC, hasUID)
+	props := b.deviceFacts(loc, device, mac, uid, hasMAC, hasUID)
 
 	strong := b.r.Host(identity.HostIdentity{Hostname: hostname})
 	if strong == "" {
@@ -316,13 +362,13 @@ func (b *resultBuilder) host(prefix string) identity.STIXID {
 	return strong
 }
 
-// deviceFacts is what a device object at prefix says about the machine besides
-// its hostname, kept as properties on the host the record mints, strong or
-// weak: device.domain, the MAC, the device id keyed by the source that gave
-// it, device.uid_alt and the agent list. A placeholder MAC or device id
-// (hasMAC, hasUID false) is left out.
-func (b *resultBuilder) deviceFacts(prefix, mac, uid string, hasMAC, hasUID bool) map[string]any {
-	p := b.evt.Payload
+// deviceFacts is what a device or endpoint object says about the machine
+// besides its hostname, kept as properties on the host the record mints,
+// strong or weak: its domain, the MAC, the device id keyed by the source that
+// gave it, the agent list and, on a device, uid_alt. A placeholder MAC or
+// device id (hasMAC, hasUID false) is left out.
+func (b *resultBuilder) deviceFacts(loc at, device bool, mac, uid string, hasMAC, hasUID bool) map[string]any {
+	p, prefix := loc.obj, loc.path
 	props := map[string]any{}
 	// A placeholder domain ("-", "unknown"), judged whole, names none.
 	if domain := strings.TrimSpace(pathStr(p, prefix+".domain")); !identity.PlaceholderDomain(domain) {
@@ -337,8 +383,10 @@ func (b *resultBuilder) deviceFacts(prefix, mac, uid string, hasMAC, hasUID bool
 	case hasUID:
 		props["device_uid"] = uid // no source to key it by
 	}
-	if alt := strings.TrimSpace(pathStr(p, prefix+".uid_alt")); alt != "" {
-		props["device_uid_alt"] = alt
+	if device {
+		if alt := strings.TrimSpace(pathStr(p, prefix+".uid_alt")); alt != "" {
+			props["device_uid_alt"] = alt
+		}
 	}
 	if agents := agentList(p, prefix+".agent_list"); len(agents) > 0 {
 		props["agents"] = agents
@@ -430,10 +478,10 @@ func (b *resultBuilder) emailAddr(v string) identity.STIXID {
 	return b.addSCO(b.r.EmailAddr(v), identity.TypeEmailAddr, map[string]any{"value": v})
 }
 
-// emailAddrs adds an email-addr SCO for each string in the array at path,
-// returning their ids.
-func (b *resultBuilder) emailAddrs(path string) []identity.STIXID {
-	v, ok := lookupPath(b.evt.Payload, path)
+// emailAddrs adds an email-addr SCO for each string in the array at path of
+// m, returning their ids.
+func (b *resultBuilder) emailAddrs(m map[string]any, path string) []identity.STIXID {
+	v, ok := lookupPath(m, path)
 	if !ok {
 		return nil
 	}
@@ -458,9 +506,9 @@ func (b *resultBuilder) url(v string) identity.STIXID {
 	return b.addSCO(b.r.URL(v), identity.TypeURL, map[string]any{"value": v})
 }
 
-// addFileFromMap adds a file SCO from an OCSF file object (used for array items
-// like email attachments, where the object isn't at a fixed payload path).
-func (b *resultBuilder) addFileFromMap(m map[string]any) identity.STIXID {
+// fileFrom adds a file SCO from an OCSF file object: one the caller reached
+// through lookupPath or fieldOf, such as an entry of email.files[].
+func (b *resultBuilder) fileFrom(m map[string]any) identity.STIXID {
 	name := toString(fieldOf(m, "name"))
 	filePath := toString(fieldOf(m, "path"))
 	hashes := hashesFromValue(fieldOf(m, "hashes"))
@@ -474,10 +522,39 @@ func (b *resultBuilder) addFileFromMap(m map[string]any) identity.STIXID {
 		Size:            int64(toInt(fieldOf(m, "size"))),
 	})
 	props := map[string]any{"name": name}
+	if filePath != "" {
+		props["path"] = filePath
+	}
 	if len(hashes) > 0 {
 		props["hashes"] = hashes
 	}
 	return b.addSCO(id, identity.TypeFile, props)
+}
+
+// objectAt reads the object at path of m, or nil when there is none.
+func objectAt(m map[string]any, path string) map[string]any {
+	v, ok := lookupPath(m, path)
+	if !ok {
+		return nil
+	}
+	obj, _ := v.(map[string]any)
+	return obj
+}
+
+// objectsAt reads the list at path of m as its object entries.
+func objectsAt(m map[string]any, path string) []map[string]any {
+	v, ok := lookupPath(m, path)
+	if !ok {
+		return nil
+	}
+	list, _ := v.([]any)
+	var out []map[string]any
+	for _, item := range list {
+		if obj, ok := item.(map[string]any); ok {
+			out = append(out, obj)
+		}
+	}
+	return out
 }
 
 // activityExt captures the OCSF activity (create/modify/disable/…) as an
@@ -493,31 +570,71 @@ func activityExt(p map[string]any) map[string]any {
 	return nil
 }
 
-// file extracts a file SCO from an OCSF file object at prefix (e.g.
-// "process.file").
+// file extracts a file SCO from the OCSF file object at prefix of the event
+// (e.g. "process.file").
 func (b *resultBuilder) file(prefix string) identity.STIXID {
-	p := b.evt.Payload
-	name := pathStr(p, prefix+".name")
-	filePath := pathStr(p, prefix+".path")
-	hashes := pathHashes(p, prefix+".hashes")
-	size := pathInt(p, prefix+".size")
-	if name == "" && filePath == "" && len(hashes) == 0 {
+	return b.fileAt(b.evt.Payload, prefix)
+}
+
+// fileAt extracts a file SCO from the OCSF file object at prefix of m.
+func (b *resultBuilder) fileAt(m map[string]any, prefix string) identity.STIXID {
+	obj := objectAt(m, prefix)
+	if obj == nil {
 		return ""
 	}
-	id := b.r.File(identity.FileIdentity{
-		Hashes:          hashes,
-		Name:            name,
-		ParentDirectory: parentDir(filePath),
-		Size:            int64(size),
+	return b.fileFrom(obj)
+}
+
+// process extracts the process an OCSF process object at prefix of m
+// describes, on host: the process with its command line, its image file, and
+// its parent with a parent-process-of edge. created_time drives the
+// deterministic identity; when absent the resolver returns an anonymous SCO
+// (§7.2), which is still a valid node, just not stitchable.
+func (b *resultBuilder) process(m map[string]any, prefix string, host identity.STIXID) identity.STIXID {
+	b.fileAt(m, prefix+".file")
+	pid := pathInt(m, prefix+".pid")
+	procID, _ := b.r.Process(host, pid, pathTime(m, prefix+".created_time"))
+	b.addSCO(procID, identity.TypeProcess, map[string]any{
+		"pid":          pid,
+		"name":         pathStr(m, prefix+".name"),
+		"command_line": pathStr(m, prefix+".cmd_line"),
 	})
-	props := map[string]any{"name": name}
-	if filePath != "" {
-		props["path"] = filePath
+	if ppid := pathInt(m, prefix+".parent_process.pid"); ppid != 0 {
+		parentID, _ := b.r.Process(host, ppid, pathTime(m, prefix+".parent_process.created_time"))
+		b.addSCO(parentID, identity.TypeProcess, map[string]any{
+			"pid":  ppid,
+			"name": pathStr(m, prefix+".parent_process.name"),
+		})
+		b.addRel(RelParentProcessOf, parentID, procID)
 	}
-	if len(hashes) > 0 {
-		props["hashes"] = hashes
+	return procID
+}
+
+// actorProcess extracts the actor.process of m (if a pid is present) on
+// host, returning its id. Shared by the classes that carry an acting process
+// and by a detection's evidence.
+func (b *resultBuilder) actorProcess(m map[string]any, host identity.STIXID) identity.STIXID {
+	pid := pathInt(m, "actor.process.pid")
+	if pid == 0 {
+		return ""
 	}
-	return b.addSCO(id, identity.TypeFile, props)
+	procID, _ := b.r.Process(host, pid, pathTime(m, "actor.process.created_time"))
+	return b.addSCO(procID, identity.TypeProcess, map[string]any{
+		"pid":  pid,
+		"name": pathStr(m, "actor.process.name"),
+	})
+}
+
+// endpoints extracts the addresses of m's src_endpoint and dst_endpoint, and
+// the destination's domain with a resolves-to edge to its address. It returns
+// the two address ids.
+func (b *resultBuilder) endpoints(m map[string]any) (src, dst identity.STIXID) {
+	src = b.addIPValue(pathStr(m, "src_endpoint.ip"))
+	dst = b.addIPValue(pathStr(m, "dst_endpoint.ip"))
+	if dom := b.addDomain(pathStr(m, "dst_endpoint.domain")); dom != "" && dst != "" {
+		b.addRel(RelResolvesTo, dom, dst)
+	}
+	return src, dst
 }
 
 // --- payload accessors ------------------------------------------------------
@@ -543,35 +660,19 @@ func pathTime(m map[string]any, path string) time.Time {
 	return time.Time{}
 }
 
-// pathHashes reads an OCSF hashes value at path.
-func pathHashes(m map[string]any, path string) map[string]string {
-	if v, ok := lookupPath(m, path); ok {
-		return hashesFromValue(v)
-	}
-	return nil
-}
-
-// hashesFromValue coerces an OCSF hashes value to a map, accepting both the
-// object form ({"SHA-256": "..."}) and the array form
-// ([{"algorithm": "...", "value": "..."}]).
+// hashesFromValue reads an OCSF hashes value, a list of fingerprints
+// ([{"algorithm": "...", "value": "..."}]), as algorithm → digest. OCSF has
+// no other form, so nothing else is read (adr/0356).
 func hashesFromValue(v any) map[string]string {
+	list, _ := v.([]any)
 	out := map[string]string{}
-	switch hv := v.(type) {
-	case map[string]any:
-		for k, val := range hv {
-			if s := toString(val); s != "" {
-				out[k] = s
-			}
+	for _, item := range list {
+		im, ok := item.(map[string]any)
+		if !ok {
+			continue
 		}
-	case []any:
-		for _, item := range hv {
-			im, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			if algo, val := toString(fieldOf(im, "algorithm")), toString(fieldOf(im, "value")); algo != "" && val != "" {
-				out[algo] = val
-			}
+		if algo, val := toString(fieldOf(im, "algorithm")), toString(fieldOf(im, "value")); algo != "" && val != "" {
+			out[algo] = val
 		}
 	}
 	if len(out) == 0 {

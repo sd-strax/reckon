@@ -343,8 +343,8 @@ func TestAccountShapingTypes(t *testing.T) {
 			t.Errorf("slug = %q; want okta", got)
 		}
 		aadds := map[string]any{"metadata": map[string]any{"product": map[string]any{"vendor_name": "Microsoft", "name": "Microsoft Entra Domain Services"}}}
-		if identityProviderSource(aadds) || directorySlug(aadds, "t") != "microsoft-entra-domain-services" {
-			t.Errorf("Entra Domain Services: idp %v, slug %q; want no idp, its own slug", identityProviderSource(aadds), directorySlug(aadds, "t"))
+		if identityProviderSource(aadds, nil) || directorySlug(aadds, "t") != "microsoft-entra-domain-services" {
+			t.Errorf("Entra Domain Services: idp %v, slug %q; want no idp, its own slug", identityProviderSource(aadds, nil), directorySlug(aadds, "t"))
 		}
 	})
 	t.Run("a provider's agent on a machine is no identity provider", func(t *testing.T) {
@@ -367,8 +367,13 @@ func TestAccountShapingTypes(t *testing.T) {
 		// The vendor alone, with a device OS: the slug, not the provider mark.
 		vendorOnly := map[string]any{"metadata": map[string]any{"product": map[string]any{"vendor_name": "Okta"}},
 			"device": map[string]any{"os": map[string]any{"type_id": 200}}}
-		if identityProviderSource(vendorOnly) || directorySlug(vendorOnly, "t") != "okta" {
-			t.Errorf("vendor with a device OS: idp %v, slug %q", identityProviderSource(vendorOnly), directorySlug(vendorOnly, "t"))
+		devices := []at{{obj: vendorOnly, path: "device"}}
+		if identityProviderSource(vendorOnly, devices) || directorySlug(vendorOnly, "t") != "okta" {
+			t.Errorf("vendor with a device OS: idp %v, slug %q", identityProviderSource(vendorOnly, devices), directorySlug(vendorOnly, "t"))
+		}
+		// The caller names the device objects: one it does not name is not read.
+		if !identityProviderSource(vendorOnly, nil) {
+			t.Error("vendor alone, no device object named: want the provider mark")
 		}
 	})
 	t.Run("an explicit Unix signal outweighs the domain", func(t *testing.T) {

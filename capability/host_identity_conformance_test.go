@@ -327,7 +327,7 @@ func TestDeviceInventoryFixture(t *testing.T) {
 	if !ok || h.Properties["hostname"] != "WIN-FILE01" || h.Properties["domain"] != "CONTOSO" {
 		t.Fatalf("inventory host = %+v (found %v); want WIN-FILE01 in CONTOSO", h, ok)
 	}
-	if res.ObservedData[0].Provenance.Normalizer != "device_inventory_info" || !refsContain(res.ObservedData[0].ObjectRefs, host) {
+	if res.ObservedData[0].Provenance.Normalizer != "inventory_info" || !refsContain(res.ObservedData[0].ObjectRefs, host) {
 		t.Errorf("observed-data = %+v", res.ObservedData[0])
 	}
 	ext := res.ObservedData[0].Extensions

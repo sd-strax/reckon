@@ -77,7 +77,7 @@ func TestFileNormalizer(t *testing.T) {
 		"file": map[string]any{
 			"name":   "evil.dll",
 			"path":   `C:\Windows\Temp\evil.dll`,
-			"hashes": map[string]any{"SHA-256": "deadbeef"},
+			"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "deadbeef"}},
 		},
 		"actor":  map[string]any{"process": map[string]any{"pid": 1234, "created_time": "2026-04-20T14:00:00Z"}},
 		"device": map[string]any{"hostname": "WS1"},

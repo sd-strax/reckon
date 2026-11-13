@@ -34,7 +34,7 @@ var onPremisesDirectories = []string{"ad"}
 
 func (n *userInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
-	b := newBuilder(n.r, evt, "user_inventory_info", n.Version())
+	b := newBuilder(n.r, evt, "user_inventory", n.Version())
 	raw, _ := lookupPath(p, "user")
 	m, ok := raw.(map[string]any)
 	if !ok {

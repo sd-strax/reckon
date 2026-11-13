@@ -1,74 +1,46 @@
 package capability
 
-import (
-	"strings"
-
-	"github.com/sd-strax/reckon/identity"
-)
+import "github.com/sd-strax/reckon/identity"
 
 // detectionNormalizer handles OCSF detection_finding (class_uid 2004) → STIX
 // (§4.12) — the single INFERRED path in the capability layer. A vendor detection
 // is a claim, not a passive observation, so this normalizer:
 //
-//   - recursively normalizes the nested evidence event through the registry,
-//     producing the DIRECT entities + ObservedData the underlying class would;
+//   - reads each artifact in evidences[] with the extractors the activity
+//     normalizers use, producing the DIRECT entities under one ObservedData.
+//     An artifact is not an event and has no class, so none is sent through
+//     the registry (adr/0356);
 //   - emits an Indicator and a Sighting with derivation_mode = INFERRED,
 //     attributed to a per-tenant vendor Identity via created_by_ref;
 //   - does NOT wrap them in an x-interpretation (capability §1 / persistence
 //     §2.1 forbid it — the agent loop does that on engagement).
-type detectionNormalizer struct {
-	r   *identity.Resolver
-	reg *Registry // for recursive evidence normalization
-}
+type detectionNormalizer struct{ r *identity.Resolver }
 
 func (*detectionNormalizer) ClassUID() int { return 2004 }
-func (*detectionNormalizer) Version() int  { return 3 } // 2: host identity, adr/0211; 3: account identity of the evidence, adr/0324
+
+// 2: host identity, adr/0211; 3: account identity of the evidence, adr/0324
+// 4: OCSF classes and fields, adr/0356
+func (*detectionNormalizer) Version() int { return 4 }
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
-	var result NormalizationResult
 
-	// 1. Recursively normalize nested evidence (DIRECT entities + ObservedData).
-	var entityRefs, odRefs []identity.STIXID
-	if ev, ok := lookupPath(p, "evidence"); ok {
-		if evMap, ok := ev.(map[string]any); ok && toInt(fieldOf(evMap, "class_uid")) != 0 {
-			sub, err := n.reg.Normalize(OcsfEvent{
-				ID:         evt.ID, // same telemetry record — edges point at the detection event
-				ClassUID:   toInt(fieldOf(evMap, "class_uid")),
-				ClassName:  toString(fieldOf(evMap, "class_name")),
-				Time:       evt.Time,
-				RecordedAt: evt.RecordedAt,
-				SourceTool: evt.SourceTool,
-				Payload:    evMap,
-			})
-			if err != nil {
-				return NormalizationResult{}, err
-			}
-			result.SCOs = append(result.SCOs, sub.SCOs...)
-			result.ObservedData = append(result.ObservedData, sub.ObservedData...)
-			result.Relationships = append(result.Relationships, sub.Relationships...)
-			result.Edges = append(result.Edges, sub.Edges...)
-			// The sighting is against the entities the evidence observed, its
-			// object_refs; an SCO the record names only through a relationship
-			// (a weak host an alias joins, adr/0211) is not where it was sighted.
-			for _, od := range sub.ObservedData {
-				entityRefs = append(entityRefs, od.ObjectRefs...)
-				odRefs = append(odRefs, od.ID)
-			}
-		}
+	// 1. The evidence: DIRECT entities under the detection event's own
+	// ObservedData. §4.12 requires an ObservedData preserving the raw "this
+	// was seen" signal separate from the Sighting, so a finding with no
+	// evidence still gets one, with no entities.
+	b := newBuilder(n.r, evt, "detection_finding", n.Version())
+	for _, artifact := range objectsAt(p, "evidences") {
+		b.evidence(artifact)
 	}
-
-	// 1b. §4.12 requires an ObservedData preserving the raw "this was seen"
-	// signal separate from the Sighting. With evidence, the recursion produced
-	// it; without, emit the detection event's own (DIRECT) ObservedData so the
-	// raw signal is never lost and the Sighting has evidence to reference.
-	if len(odRefs) == 0 {
-		raw := newBuilder(n.r, evt, "detection_finding", n.Version()).finish(nil)
-		result.ObservedData = append(result.ObservedData, raw.ObservedData...)
-		result.Edges = append(result.Edges, raw.Edges...)
-		for _, od := range raw.ObservedData {
-			odRefs = append(odRefs, od.ID)
-		}
+	result := b.finish(nil)
+	// The sighting is against the entities the evidence observed, its
+	// object_refs; an SCO the record names only through a relationship (a
+	// weak host an alias joins, adr/0211) is not where it was sighted.
+	var entityRefs, odRefs []identity.STIXID
+	for _, od := range result.ObservedData {
+		entityRefs = append(entityRefs, od.ObjectRefs...)
+		odRefs = append(odRefs, od.ID)
 	}
 
 	// 2. Vendor Identity (created_by_ref target), auto-created per tenant.
@@ -84,12 +56,17 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 		ObservedAt:        evt.Time,
 	}
 
-	// 3. Indicator — the vendor's claim.
-	uid := firstNonEmpty(pathStr(p, "finding.uid"), pathStr(p, "finding_info.uid"))
-	title := firstNonEmpty(pathStr(p, "finding.title"), pathStr(p, "finding_info.title"))
-	pattern := pathStr(p, "finding.pattern")
-	conf := mapConfidence(firstPath(p, "finding.confidence", "confidence"))
-	types := stringSlice(firstPath(p, "finding.types", "finding_info.types"))
+	// 3. Indicator — the vendor's claim. OCSF has no field for a detection's
+	// pattern, so a vendor's pattern is its own field, unmapped.pattern.
+	// Without one the Indicator carries no pattern.
+	uid := pathStr(p, "finding_info.uid")
+	title := pathStr(p, "finding_info.title")
+	pattern := pathStr(p, "unmapped.pattern")
+	conf := detectionConfidence(p)
+	var types []string
+	if v, ok := lookupPath(p, "finding_info.types"); ok {
+		types = stringSlice(v)
+	}
 
 	indID := n.r.Indicator(uid, pattern)
 	patternType := "vendor"
@@ -123,6 +100,39 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 	return result, nil
 }
 
+// evidence reads one artifact of a detection's evidences[] with the shared
+// extractors (§4.12, adr/0356):
+//
+//   - the host from the artifact's device, else from the finding's own device
+//   - a process from process and from actor.process
+//   - a file from file
+//   - addresses and the destination's domain from the endpoints
+//   - accounts from actor.user and from user
+//   - a domain from query
+//   - a URL from url
+//
+// At OCSF 1.1.0 an artifact has no device, user or url. They are read when
+// present (03 §4.16).
+func (b *resultBuilder) evidence(artifact map[string]any) {
+	device := at{obj: artifact, path: "device"}
+	if objectAt(artifact, "device") == nil {
+		device = b.top("device")
+	}
+	b.devices = []at{device, {obj: artifact, path: "src_endpoint"}, {obj: artifact, path: "dst_endpoint"}}
+	host := b.hostAt(device, true)
+
+	if objectAt(artifact, "process") != nil {
+		b.process(artifact, "process", host)
+	}
+	b.actorProcess(artifact, host)
+	b.fileAt(artifact, "file")
+	b.endpoints(artifact)
+	b.userAccountAt(at{obj: artifact, path: "actor.user"}, device, host)
+	b.userAccountAt(at{obj: artifact, path: "user"}, device, host)
+	b.addDomain(pathStr(artifact, "query.hostname"))
+	b.url(pathStr(artifact, "url.url_string"))
+}
+
 // detectionVendor picks the vendor name for attribution, preferring OCSF
 // metadata.product over the source tool.
 func detectionVendor(p map[string]any, sourceTool string) string {
@@ -133,23 +143,22 @@ func detectionVendor(p map[string]any, sourceTool string) string {
 	)
 }
 
-// mapConfidence maps an OCSF confidence value to a 0–100 STIX confidence,
-// accepting numeric values and the High/Medium/Low vocabulary.
-func mapConfidence(v any) int {
-	switch c := v.(type) {
-	case float64:
-		return int(c)
-	case int:
-		return c
-	case string:
-		switch strings.ToLower(strings.TrimSpace(c)) {
-		case "high":
-			return 85
-		case "medium":
-			return 50
-		case "low":
-			return 15
+// detectionConfidence reads a finding's confidence as a 0–100 STIX
+// confidence: confidence_score, which is already 0–100, else confidence_id
+// (1 Low, 2 Medium, 3 High). Anything else is 0, unknown.
+func detectionConfidence(p map[string]any) int {
+	if v, ok := lookupPath(p, "confidence_score"); ok {
+		if score := toInt(v); score > 0 && score <= 100 {
+			return score
 		}
+	}
+	switch pathInt(p, "confidence_id") {
+	case 1:
+		return 15
+	case 2:
+		return 50
+	case 3:
+		return 85
 	}
 	return 0
 }
@@ -170,16 +179,6 @@ func stringSlice(v any) []string {
 		return nil
 	}
 	return out
-}
-
-// firstPath returns the value at the first present dotted path.
-func firstPath(m map[string]any, paths ...string) any {
-	for _, p := range paths {
-		if v, ok := lookupPath(m, p); ok {
-			return v
-		}
-	}
-	return nil
 }
 
 // firstNonEmpty returns the first non-empty string.

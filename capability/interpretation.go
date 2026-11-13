@@ -44,7 +44,8 @@ const (
 	RelClicked           = "clicked"
 	// RelAliases joins a weak x-host (MAC or source device id) to the strong
 	// host the same record names by hostname (adr/0211): an identity assertion
-	// from the source, never a merge (01 edge table).
+	// from the source, never a merge (01 edge table). Accounts (adr/0324) and
+	// email messages (adr/0356) follow the same rule.
 	RelAliases = "aliases"
 
 	// RelBelongsTo is STIX 2.1's SCO relationship, adopted for a cloud

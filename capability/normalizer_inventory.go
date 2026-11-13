@@ -2,8 +2,8 @@ package capability
 
 import "github.com/sd-strax/reckon/identity"
 
-// deviceInventoryNormalizer handles OCSF device_inventory_info (class_uid 5001)
-// → STIX (§4.15): the x-host the inventory names, shaped by the shared host
+// deviceInventoryNormalizer handles OCSF inventory_info (class_uid 5001, Device
+// Inventory Info) → STIX (§4.17): the x-host the inventory names, shaped by the shared host
 // extractor, under one ObservedData that carries the os, owner and criticality
 // in its extensions. An inventory record naming the hostname beside the
 // source's device id is the record that aliases the source's weak host to the
@@ -16,11 +16,12 @@ func (*deviceInventoryNormalizer) ClassUID() int { return 5001 }
 // existed went through the opaque default at version 1, and the
 // ObservedData id carries the version but not the normalizer's name, so a
 // version 1 here would mint the same id and keep the entity-less observation.
-func (*deviceInventoryNormalizer) Version() int { return 2 }
+// 3: OCSF classes and fields, adr/0356
+func (*deviceInventoryNormalizer) Version() int { return 3 }
 
 func (n *deviceInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
-	b := newBuilder(n.r, evt, "device_inventory_info", n.Version())
+	b := newBuilder(n.r, evt, "inventory_info", n.Version())
 	b.host("device")
 	b.ipAddr("device.ip")
 
@@ -32,7 +33,9 @@ func (n *deviceInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResul
 	}
 	put("os_name", pathStr(p, "device.os.name"))
 	put("owner_name", pathStr(p, "device.owner.name"))
-	put("criticality", pathStr(p, "device.criticality"))
+	// OCSF defines no criticality on a device, so it is the source's own
+	// field (adr/0356).
+	put("criticality", pathStr(p, "unmapped.criticality"))
 	if len(ext) == 0 {
 		ext = nil
 	}

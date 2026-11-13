@@ -140,7 +140,7 @@ func TestAPIActivity_IAMUser(t *testing.T) {
 	}
 
 	od := res.ObservedData[0]
-	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 2 || od.Provenance.DerivationMode != DerivationDirect {
+	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 3 || od.Provenance.DerivationMode != DerivationDirect {
 		t.Errorf("provenance = %+v", od.Provenance)
 	}
 	if len(od.ObjectRefs) != 4 {
@@ -697,5 +697,31 @@ func TestAPIActivity_RegisteredAndStable(t *testing.T) {
 	}
 	if !slices.Equal(collect(a), collect(b)) {
 		t.Errorf("ids differ across runs:\n%v\n%v", collect(a), collect(b))
+	}
+}
+
+// TestAPIActivity_CallingApplication (§4.15, §4.16, adr/0356): the calling
+// application is actor.application.name from OCSF 1.9.0, which deprecates
+// actor.app_name. The replacement is read first and the old field is the
+// fallback, so both ends give the same app_name.
+func TestAPIActivity_CallingApplication(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		actor map[string]any
+		want  any
+	}{
+		{"the floor's actor.app_name", map[string]any{"app_name": "backup.example.internal"}, "backup.example.internal"},
+		{"the ceiling's actor.application.name", map[string]any{"application": map[string]any{"name": "backup.example.internal"}}, "backup.example.internal"},
+		{"the replacement outranks the deprecated field", map[string]any{"application": map[string]any{"name": "new"}, "app_name": "old"}, "new"},
+		{"an application with no name falls back", map[string]any{"application": map[string]any{"uid": "app-1"}, "app_name": "old"}, "old"},
+		{"neither", map[string]any{}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := apiPayload()
+			p["actor"] = tc.actor
+			if got := normalizeOne(t, p).ObservedData[0].Extensions["app_name"]; got != tc.want {
+				t.Errorf("app_name = %v; want %v", got, tc.want)
+			}
+		})
 	}
 }

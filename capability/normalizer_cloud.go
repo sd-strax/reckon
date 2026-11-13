@@ -25,7 +25,8 @@ func (*apiActivityNormalizer) ClassUID() int { return 6003 }
 // existed went through the opaque default at version 1, and the
 // ObservedData id carries the version but not the normalizer's name, so a
 // version 1 here would mint the same id and keep the entity-less observation.
-func (*apiActivityNormalizer) Version() int { return 2 }
+// 3: OCSF classes and fields, adr/0356
+func (*apiActivityNormalizer) Version() int { return 3 }
 
 func (n *apiActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -365,7 +366,9 @@ func apiExt(p map[string]any) map[string]any {
 	}
 	put("credential_uid", credentialUID(p))
 	put("user_agent", pathStr(p, "http_request.user_agent"))
-	put("app_name", pathStr(p, "actor.app_name"))
+	// The calling application: actor.application.name (OCSF 1.9.0), else
+	// the deprecated actor.app_name (03 §4.16).
+	put("app_name", firstNonEmpty(pathStr(p, "actor.application.name"), pathStr(p, "actor.app_name")))
 	if v, ok := lookupPath(p, "resources"); ok {
 		list, _ := v.([]any)
 		ext["resource_count"] = len(list)
