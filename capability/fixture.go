@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // fixtureOperation is the single operation fixture bindings name; the verb being
@@ -402,7 +403,7 @@ func toTime(v any) time.Time {
 		}
 		return time.Time{}
 	}
-	t, _ := epochMillis(v)
+	t, _ := ocsf.EpochMillis(v)
 	return t
 }
 
@@ -414,7 +415,7 @@ func toTime(v any) time.Time {
 // Returns the zero time when neither gives a time.
 func ocsfTime(obj map[string]any, path string) time.Time {
 	if v, ok := lookupPath(obj, path); ok {
-		if t, ok := epochMillis(v); ok {
+		if t, ok := ocsf.EpochMillis(v); ok {
 			return t
 		}
 	}
@@ -424,31 +425,4 @@ func ocsfTime(obj map[string]any, path string) time.Time {
 		}
 	}
 	return time.Time{}
-}
-
-// epochMillis reads a whole number of milliseconds since the epoch as a
-// time. A number with a fraction, or one too large for a JSON number to hold
-// exactly (2^53 and up), is not a timestamp.
-func epochMillis(v any) (time.Time, bool) {
-	var ms int64
-	switch n := v.(type) {
-	case float64:
-		if n != math.Trunc(n) || math.Abs(n) >= 1<<53 {
-			return time.Time{}, false
-		}
-		ms = int64(n)
-	case int:
-		ms = int64(n)
-	case int64:
-		ms = n
-	case json.Number:
-		i, err := n.Int64()
-		if err != nil {
-			return time.Time{}, false
-		}
-		ms = i
-	default:
-		return time.Time{}, false
-	}
-	return time.UnixMilli(ms).UTC(), true
 }

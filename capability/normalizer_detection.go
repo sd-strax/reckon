@@ -1,9 +1,8 @@
 package capability
 
 import (
-	"math"
-
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // detectionNormalizer handles OCSF detection_finding (class_uid 2004) → STIX
@@ -185,7 +184,7 @@ func detectionVendor(p map[string]any, sourceTool string) string {
 //     as 0.
 func detectionConfidence(p map[string]any) *int {
 	if v, ok := lookupPath(p, "confidence_score"); ok {
-		if score, ok := wholeNumber(v); ok {
+		if score, ok := ocsf.WholeNumber(v); ok {
 			score = min(max(score, 0), 100)
 			return &score
 		}
@@ -202,24 +201,6 @@ func detectionConfidence(p map[string]any) *int {
 		return nil
 	}
 	return &level
-}
-
-// wholeNumber reads a JSON or Go number that has no fraction.
-func wholeNumber(v any) (int, bool) {
-	switch n := v.(type) {
-	case float64:
-		if n != math.Trunc(n) || math.IsInf(n, 0) {
-			return 0, false
-		}
-		// Clamp before converting: a float beyond int's range does not
-		// convert to a defined value.
-		return int(min(max(n, -1e9), 1e9)), true
-	case int:
-		return n, true
-	case int64:
-		return int(min(max(n, -1e9), 1e9)), true
-	}
-	return 0, false
 }
 
 // stringSlice coerces a value to a []string, tolerating an []any of strings.

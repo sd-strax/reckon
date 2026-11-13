@@ -12,6 +12,7 @@ import (
 	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/internal/adapterplugin"
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 const version = "0.1.0"
@@ -226,15 +227,11 @@ func (b *bridge) caseToOcsf(rec map[string]any) capability.OcsfPayload {
 	put(finding, "desc", s("description"))
 	unmapped := map[string]any{"sor": "servicenow"}
 	put(unmapped, "sys_id", s("sys_id"))
-	raw := map[string]any{
-		"class_uid": 2005,
-		"metadata": map[string]any{
-			"version": ocsfVersion,
-			"product": map[string]any{"vendor_name": "ServiceNow", "name": "ServiceNow"},
-		},
-		"finding_info_list": []any{finding},
-		"unmapped":          unmapped,
-	}
+	// A record with no opened_at carries no time (ocsf.SetTime).
+	opened := parseSnowTime(s("opened_at"))
+	raw := ocsf.Event(2005, ocsfVersion, ocsf.Product("ServiceNow", "ServiceNow"), opened)
+	raw["finding_info_list"] = []any{finding}
+	raw["unmapped"] = unmapped
 	put(raw, "status", s("state"))
 	put(raw, "priority", s("priority"))
 	if group := s("assignment_group"); group != "" {
@@ -242,15 +239,6 @@ func (b *bridge) caseToOcsf(rec map[string]any) capability.OcsfPayload {
 	}
 	if b.client != nil && s("sys_id") != "" {
 		raw["src_url"] = b.client.baseURL + "/nav_to.do?uri=incident.do?sys_id=" + s("sys_id")
-	}
-	// OCSF's time is epoch milliseconds, and time_dt, from the datetime
-	// profile, is the same instant as an RFC 3339 string (adr/0356). A record
-	// with no opened_at carries neither.
-	opened := parseSnowTime(s("opened_at"))
-	if !opened.IsZero() {
-		ms := opened.UnixMilli()
-		raw["time"] = ms
-		raw["time_dt"] = time.UnixMilli(ms).UTC().Format(time.RFC3339Nano)
 	}
 	return capability.OcsfPayload{ClassUID: 2005, ClassName: "Incident Finding", Time: opened, Raw: raw}
 }

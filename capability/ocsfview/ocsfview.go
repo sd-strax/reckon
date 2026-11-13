@@ -15,13 +15,13 @@ package ocsfview
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // Event is what the renderer reads: the class and the raw OCSF payload.
@@ -1305,28 +1305,6 @@ var (
 	confidenceCaptions = map[int]string{1: "Low", 2: "Medium", 3: "High"}
 )
 
-// wholeNumber reads a JSON number that has no fraction.
-func wholeNumber(v any) (int, bool) {
-	switch x := v.(type) {
-	case float64:
-		if x != math.Trunc(x) || math.IsInf(x, 0) {
-			return 0, false
-		}
-		return int(min(max(x, -1e9), 1e9)), true
-	case json.Number:
-		n, err := x.Int64()
-		if err != nil {
-			return 0, false
-		}
-		return int(min(max(n, -1e9), 1e9)), true
-	case int:
-		return x, true
-	case int64:
-		return int(min(max(x, -1e9), 1e9)), true
-	}
-	return 0, false
-}
-
 // detection renders a detection finding (03 §4.12). The host is the first
 // evidence artifact's device, else the finding's own. The user is the first
 // artifact's actor.user, else its user.
@@ -1343,7 +1321,7 @@ func (r *renderer) detection() {
 	// A score is capped to 0–100, and a score of 0 is shown: the vendor said
 	// it has no confidence, which is not the same as giving none (adr/0356).
 	confidence := ""
-	if score, ok := wholeNumber(pathAny(r.p, "confidence_score")); ok {
+	if score, ok := ocsf.WholeNumber(pathAny(r.p, "confidence_score")); ok {
 		confidence = strconv.Itoa(min(max(score, 0), 100))
 	}
 	confidence = firstNonEmpty(confidence, confidenceCaptions[r.int("confidence_id")], r.str("confidence"))
@@ -2062,38 +2040,13 @@ func pathList(m map[string]any, path string) []any {
 // package capability, kept as a copy because capability's own tests import
 // this package, so this package cannot import capability.
 func ocsfTimestamp(m map[string]any, path string) string {
-	if t, ok := epochMillis(pathAny(m, path)); ok {
+	if t, ok := ocsf.EpochMillis(pathAny(m, path)); ok {
 		return t.Format(time.RFC3339Nano)
 	}
 	if t, err := time.Parse(time.RFC3339, strings.TrimSpace(pathStr(m, path+"_dt"))); err == nil {
 		return t.UTC().Format(time.RFC3339Nano)
 	}
 	return ""
-}
-
-// epochMillis reads a whole number of milliseconds since the epoch as a time.
-func epochMillis(v any) (time.Time, bool) {
-	var ms int64
-	switch x := v.(type) {
-	case float64:
-		if x != math.Trunc(x) || math.Abs(x) >= 1<<53 {
-			return time.Time{}, false
-		}
-		ms = int64(x)
-	case json.Number:
-		n, err := x.Int64()
-		if err != nil {
-			return time.Time{}, false
-		}
-		ms = n
-	case int64:
-		ms = x
-	case int:
-		ms = int64(x)
-	default:
-		return time.Time{}, false
-	}
-	return time.UnixMilli(ms).UTC(), true
 }
 
 func toString(v any) string {

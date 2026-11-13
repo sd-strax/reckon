@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
@@ -69,26 +72,11 @@ func normalize(operation, text string) ([]ocsfEvent, error) {
 // OCSF version, the product and the event's time, and keeps the Okta object
 // the fields were read from under unmapped.okta.
 //
-// OCSF's time is epoch milliseconds, and time_dt, from the datetime profile,
-// is the same instant as an RFC 3339 string (adr/0356). An event with no
-// time carries neither.
+// The time is written as ocsf.SetTime describes.
 func event(class int, name, product string, t time.Time, fields, okta map[string]any) ocsfEvent {
-	raw := map[string]any{
-		"class_uid": class,
-		"metadata": map[string]any{
-			"version": ocsfVersion,
-			"product": map[string]any{"vendor_name": "Okta", "name": product},
-		},
-		"unmapped": map[string]any{"okta": okta},
-	}
-	if !t.IsZero() {
-		ms := t.UnixMilli()
-		raw["time"] = ms
-		raw["time_dt"] = time.UnixMilli(ms).UTC().Format(time.RFC3339Nano)
-	}
-	for k, v := range fields {
-		raw[k] = v
-	}
+	raw := ocsf.Event(class, ocsfVersion, ocsf.Product("Okta", product), t)
+	raw["unmapped"] = map[string]any{"okta": okta}
+	maps.Copy(raw, fields)
 	return ocsfEvent{ClassUID: class, ClassName: name, Time: t, Raw: raw}
 }
 

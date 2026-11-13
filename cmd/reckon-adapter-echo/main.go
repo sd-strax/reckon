@@ -31,6 +31,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 func main() {
@@ -149,22 +151,16 @@ func (a *adapter) invoke(params json.RawMessage) (any, *wireError) {
 	// echoed operation and params, which OCSF has no field for, ride under
 	// unmapped, where OCSF puts a source's own fields. Its time is OCSF's
 	// epoch milliseconds, with time_dt as the same instant in RFC 3339.
+	epoch := time.Unix(0, 0).UTC()
+	raw := ocsf.Event(3002, ocsfVersion, ocsf.Product("reckon", "echo"), epoch)
+	raw["unmapped"] = map[string]any{"operation": p.Operation, "echo": p.Params}
 	return map[string]any{
 		"source_tool": "echo:" + p.Operation,
 		"events": []map[string]any{{
 			"class_uid":  3002,
 			"class_name": "Authentication",
-			"time":       time.Unix(0, 0).UTC(),
-			"raw": map[string]any{
-				"class_uid": 3002,
-				"time":      int64(0),
-				"time_dt":   "1970-01-01T00:00:00Z",
-				"metadata": map[string]any{
-					"version": ocsfVersion,
-					"product": map[string]any{"vendor_name": "reckon", "name": "echo"},
-				},
-				"unmapped": map[string]any{"operation": p.Operation, "echo": p.Params},
-			},
+			"time":       epoch,
+			"raw":        raw,
 		}},
 	}, nil
 }
