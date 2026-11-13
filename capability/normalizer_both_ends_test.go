@@ -146,11 +146,11 @@ func TestBothEnds(t *testing.T) {
 		{
 			name: "registry_value_activity", entities: 3,
 			floor: []map[string]any{versioned(201002, "1.1.0", map[string]any{
-				"reg_value": map[string]any{"path": runKey, "name": "Updater", "data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 1},
+				"reg_value": map[string]any{"path": runKey, "name": "Updater", "data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 10},
 				"actor":     map[string]any{"process": actorProcess}, "device": device,
 			})},
 			ceiling: []map[string]any{versioned(201002, "1.9.0", map[string]any{
-				"reg_value": map[string]any{"path": runKey, "name": "Updater", "data": `C:\Temp\evil.exe`, "reg_string_data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 1},
+				"reg_value": map[string]any{"path": runKey, "name": "Updater", "data": `C:\Temp\evil.exe`, "reg_string_data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 10},
 				"actor":     map[string]any{"process": actorProcess}, "device": deviceCeiling,
 			})},
 		},
@@ -269,7 +269,7 @@ func TestBothEnds(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, e := range append(append([]map[string]any{}, tc.floor...), tc.ceiling...) {
-				if bad := ocsfschema.ValidateEvent(e); len(bad) > 0 {
+				if bad := ocsfschema.ValidateFields(e); len(bad) > 0 {
 					t.Errorf("OCSF %s class %d: %v", pathStr(e, "metadata.version"), toInt(e["class_uid"]), bad)
 				}
 			}
@@ -309,7 +309,7 @@ func TestBothEndsEmailAttachment(t *testing.T) {
 	ceilingMail["urls"] = []any{map[string]any{"url_string": "https://evil.example/pay"}}
 	ceiling := versioned(4009, "1.9.0", map[string]any{"email": ceilingMail})
 	for _, e := range []map[string]any{floorMail, floorFile, ceiling} {
-		if bad := ocsfschema.ValidateEvent(e); len(bad) > 0 {
+		if bad := ocsfschema.ValidateFields(e); len(bad) > 0 {
 			t.Fatalf("OCSF %s class %d: %v", pathStr(e, "metadata.version"), toInt(e["class_uid"]), bad)
 		}
 	}

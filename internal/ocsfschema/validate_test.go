@@ -3,6 +3,7 @@ package ocsfschema
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,11 +33,11 @@ func TestValidateEventUndefinedFields(t *testing.T) {
 		"email":{"from":"a@b.example","to":["c@d.example"],"files":[{"name":"x"}],"attachments":[]},
 		"unmapped":{"bcc":["e@f.example"],"anything":{"at":["all"]}},
 		"process":{"pid":1}}`)
-	if got, want := paths(ValidateEvent(event)), []string{"email.attachments", "email.files", "process"}; !reflect.DeepEqual(got, want) {
+	if got, want := paths(ValidateFields(event)), []string{"email.attachments", "email.files", "process"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("problems at 1.1.0 = %v; want %v", got, want)
 	}
 	event["metadata"] = map[string]any{"version": "1.9.0"}
-	if got, want := paths(ValidateEvent(event)), []string{"email.attachments", "process"}; !reflect.DeepEqual(got, want) {
+	if got, want := paths(ValidateFields(event)), []string{"email.attachments", "process"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("problems at 1.9.0 = %v; want %v", got, want)
 	}
 }
@@ -67,7 +68,7 @@ func TestValidateShapes(t *testing.T) {
 		{"null is an absent field", 3002, `{"user":null,"unmapped":null,"time":null}`, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := s.Validate(tc.class, decode(t, tc.js))
+			got := s.ValidateFields(tc.class, decode(t, tc.js))
 			if len(got) != len(tc.want) {
 				t.Fatalf("problems = %v; want %v", got, tc.want)
 			}
@@ -114,7 +115,7 @@ func TestValidateScalarTypes(t *testing.T) {
 		{"unmapped accepts any scalar", 3002, `{"unmapped":{"time":"yesterday","n":"1"}}`, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := s.Validate(tc.class, decode(t, tc.js))
+			got := s.ValidateFields(tc.class, decode(t, tc.js))
 			if len(got) != len(tc.want) {
 				t.Fatalf("problems = %v; want %v", got, tc.want)
 			}
@@ -171,13 +172,13 @@ func TestValidateTypedGoScalars(t *testing.T) {
 		"src_endpoint": map[string]any{"port": uint16(3389), "location": map[string]any{"coordinates": []float64{1.5, 2}}},
 		"count":        json.Number("2"),
 	}
-	if got := s.Validate(3002, ok); len(got) != 0 {
+	if got := s.ValidateFields(3002, ok); len(got) != 0 {
 		t.Errorf("well-typed Go values: %v", got)
 	}
 	bad := map[string]any{
 		"time": time.Unix(0, 0), "time_dt": time.Unix(0, 0), "severity_id": 3.5, "message": json.Number("1"), "count": json.Number("2.5"),
 	}
-	if got, want := paths(s.Validate(3002, bad)), []string{"count", "message", "severity_id", "time", "time_dt"}; !reflect.DeepEqual(got, want) {
+	if got, want := paths(s.ValidateFields(3002, bad)), []string{"count", "message", "severity_id", "time", "time_dt"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("problems = %v; want %v", got, want)
 	}
 }
@@ -197,7 +198,7 @@ func TestValidateEventNeedsVersionAndClass(t *testing.T) {
 			t.Errorf("%s: problems = %v; want one at %q", name, got, tc.path)
 		}
 	}
-	if got := ValidateEvent(decode(t, `{"class_uid":5023,"metadata":{"version":"1.4.0"}}`)); len(got) != 0 {
+	if got := ValidateFields(decode(t, `{"class_uid":5023,"metadata":{"version":"1.4.0"}}`)); len(got) != 0 {
 		t.Errorf("a 1.4.0 Cloud Resources Inventory event: %v", got)
 	}
 }
@@ -212,7 +213,7 @@ func TestValidateTypedGoValues(t *testing.T) {
 		"resource":   []map[string]any{{"name": "x"}},
 		"actor":      map[string]any{"user": map[string]any{"groups": []map[string]any{{"name": "g", "nope": 1}}}},
 	}
-	got := ValidateEvent(event)
+	got := ValidateFields(event)
 	if want := []string{"actor.user.groups[].nope", "resource"}; !reflect.DeepEqual(paths(got), want) {
 		t.Errorf("problems = %v; want %v", got, want)
 	}
@@ -224,7 +225,7 @@ func TestValidateAgreesWithResolve(t *testing.T) {
 	s := mustLoad(t, Ceiling)
 	event := decode(t, `{"device":{"hostname":"h","agent_list":[{"uid":"a"}],"nope":1},"resources":[{"zone":"z","group":{"name":"g"}}],"cloud":{"account":{"uid":"1"}},"nope":{"x":1}}`)
 	bad := map[string]bool{}
-	for _, p := range s.Validate(6003, event) {
+	for _, p := range s.ValidateFields(6003, event) {
 		bad[p.Path] = true
 	}
 	for path, defined := range map[string]bool{
@@ -234,5 +235,36 @@ func TestValidateAgreesWithResolve(t *testing.T) {
 		if s.HasPath(6003, path) != defined || bad[path] == defined {
 			t.Errorf("%s: Resolve says defined=%v, Validate reported=%v; want defined=%v", path, s.HasPath(6003, path), bad[path], defined)
 		}
+	}
+}
+
+// A whole event is also checked for the fields its class requires and for
+// its enum values and their captions (adr/0356).
+func TestValidateRequiredAndEnums(t *testing.T) {
+	const head = `"class_uid":3006,"category_uid":3,"type_uid":300603,"severity_id":1,"time":1,"metadata":{"version":"1.1.0"`
+	for name, tc := range map[string]struct {
+		js   string
+		want []string
+	}{
+		"a whole event":                    {`{` + head + `},"activity_id":3,"activity_name":"add user","group":{"name":"g"}}`, nil},
+		"required fields missing":          {`{"class_uid":3006,"metadata":{"version":"1.1.0"}}`, []string{"activity_id", "category_uid", "group", "severity_id", "time", "type_uid"}},
+		"a profile the event does not use": {`{` + head + `},"activity_id":3,"group":{"name":"g"}}`, nil},
+		"a profile the event uses":         {`{` + head + `,"profiles":["cloud"]},"activity_id":3,"group":{"name":"g"}}`, []string{"cloud"}},
+		"a value the enum lacks":           {`{` + head + `},"activity_id":42,"group":{"name":"g"}}`, []string{"activity_id"}},
+		"a caption of another value":       {`{` + head + `},"activity_id":3,"activity_name":"GROUP_ADD","group":{"name":"g"}}`, []string{"activity_name"}},
+		"Other takes the source's word":    {`{` + head + `},"activity_id":99,"activity_name":"GROUP_ADD","type_uid":300699,"group":{"name":"g"}}`, nil},
+		"a caption with no value":          {`{` + head + `},"activity_id":3,"status":"Succeeded","group":{"name":"g"}}`, []string{"status"}},
+		"an enum inside an object":         {`{` + head + `},"activity_id":3,"group":{"name":"g"},"user":{"type_id":1,"type":"Admin"}}`, []string{"user.type"}},
+	} {
+		if got := paths(ValidateEvent(decode(t, tc.js))); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: problems = %v; want %v", name, got, tc.want)
+		}
+	}
+
+	// A field the source cannot fill is passed over by name, and only when
+	// the problem is that it is missing.
+	bad := ValidateEvent(decode(t, `{`+head+`},"activity_id":42}`))
+	if got, want := paths(WithoutRequired(bad, "group", "activity_id")), []string{"activity_id"}; !slices.Equal(got, want) {
+		t.Errorf("WithoutRequired = %v; want %v", got, want)
 	}
 }

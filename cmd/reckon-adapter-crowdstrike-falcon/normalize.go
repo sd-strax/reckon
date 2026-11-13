@@ -60,16 +60,14 @@ func event(class int, name string, t time.Time, fields, unmapped map[string]any)
 	return ocsfEvent{ClassUID: class, ClassName: name, Time: t, Raw: raw}
 }
 
-// severityIDs are OCSF's severity_id values for Falcon's severity names.
-var severityIDs = map[string]int{"informational": 1, "low": 2, "medium": 3, "high": 4, "critical": 5}
-
 // normalizeDetections maps Falcon detections onto the OCSF Detection Finding
 // fields the engine's §4.12 normalizer reads (adr/0356):
 //
 //   - finding_info names the finding: its uid, its title, and the tactic and
 //     technique as types.
 //   - severity is Falcon's severity name, and severity_id OCSF's number for
-//     it. Falcon's severity is not a confidence, so none is written.
+//     it, or Other (99) for a name OCSF does not have. Falcon's severity is
+//     not a confidence, so none is written.
 //   - device is the host the detection fired on, by its hostname.
 //
 // The adapter reads no process, file or user from a detection yet, so it
@@ -96,9 +94,7 @@ func normalizeDetections(items []map[string]any) []ocsfEvent {
 		fields := map[string]any{"finding_info": finding}
 		if sev := str(d["severity_name"]); sev != "" {
 			fields["severity"] = sev
-			if id, ok := severityIDs[strings.ToLower(sev)]; ok {
-				fields["severity_id"] = id
-			}
+			fields["severity_id"] = ocsf.CaptionID(ocsf.Severities, sev)
 		}
 		if h := digStr(d, "device", "hostname"); h != "" {
 			fields["device"] = map[string]any{"hostname": h}

@@ -159,7 +159,8 @@ func opaque(objs []map[string]any) []ocsfEvent {
 
 // logFields are the OCSF fields every System Log event fills, whatever its
 // class: Okta's displayMessage as the message and outcome.result as the
-// status. An empty one is left out.
+// status. An empty one is left out. status_id is OCSF's number for the
+// result, or Other (99) for a result OCSF does not have, such as SKIPPED.
 func logFields(e map[string]any) map[string]any {
 	p := map[string]any{}
 	if m := str(e["displayMessage"]); m != "" {
@@ -167,6 +168,7 @@ func logFields(e map[string]any) map[string]any {
 	}
 	if s := digStr(e, "outcome", "result"); s != "" {
 		p["status"] = s
+		p["status_id"] = ocsf.CaptionID(ocsf.Statuses, s)
 	}
 	return p
 }
@@ -204,7 +206,10 @@ func authPayload(e map[string]any) map[string]any {
 	actor, _ := e["actor"].(map[string]any)
 	p["user"] = oktaUser(actor)
 	p["src_endpoint"] = src
+	// Okta's event type is not one of OCSF's logon types, so the id is Other
+	// and the event type is the caption.
 	p["logon_type"] = str(e["eventType"])
+	p["logon_type_id"] = ocsf.Other
 	return p
 }
 

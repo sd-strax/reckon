@@ -203,7 +203,10 @@ const ocsfVersion = "1.2.0"
 //
 //   - finding_info_list[], one entry: the number as uid, the short
 //     description as title, the description as desc
-//   - status and priority, ServiceNow's display labels
+//   - status and priority, ServiceNow's display labels. status_id is
+//     OCSF's number for the state, or Other (99) for a state OCSF does not
+//     have, and Unknown (0) when the record has none: OCSF requires it.
+//     priority_id is Other, as ServiceNow's label ("2 - High") is its own.
 //   - assignee_group.name, the assignment group's display name. The read
 //     asks for display values, so the group's sys_id is not returned and no
 //     uid is written.
@@ -232,8 +235,15 @@ func (b *bridge) caseToOcsf(rec map[string]any) capability.OcsfPayload {
 	raw := ocsf.Event(2005, ocsfVersion, ocsf.Product("ServiceNow", "ServiceNow"), opened)
 	raw["finding_info_list"] = []any{finding}
 	raw["unmapped"] = unmapped
-	put(raw, "status", s("state"))
-	put(raw, "priority", s("priority"))
+	raw["status_id"] = 0
+	if state := s("state"); state != "" {
+		raw["status"] = state
+		raw["status_id"] = ocsf.CaptionID(ocsf.IncidentStatuses, state)
+	}
+	if priority := s("priority"); priority != "" {
+		raw["priority"] = priority
+		raw["priority_id"] = ocsf.Other
+	}
 	if group := s("assignment_group"); group != "" {
 		raw["assignee_group"] = map[string]any{"name": group}
 	}

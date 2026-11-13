@@ -1,5 +1,7 @@
 package ocsf
 
+import "strings"
+
 // The tables below are OCSF enum captions by value, for an event that
 // carries the value without its caption. A test checks each against the
 // schema checked in, in every release (adr/0356). The values 0 (Unknown)
@@ -19,7 +21,26 @@ var (
 	Confidences = map[int]string{1: "Low", 2: "Medium", 3: "High"}
 	// Statuses is status_id.
 	Statuses = map[int]string{1: "Success", 2: "Failure"}
+	// IncidentStatuses is an incident finding's status_id.
+	IncidentStatuses = map[int]string{1: "New", 2: "In Progress", 3: "On Hold", 4: "Resolved", 5: "Closed"}
 )
+
+// Other is the value every OCSF enum has for a source's word that is none of
+// its own. The caption field beside it holds that word.
+const Other = 99
+
+// CaptionID returns the enum value a source's word stands for: the value in
+// the table whose caption is the word, letter case aside, and Other when
+// the table has none. The caller writes the word itself to the caption
+// field.
+func CaptionID(table map[int]string, word string) int {
+	for id, caption := range table {
+		if strings.EqualFold(caption, word) {
+			return id
+		}
+	}
+	return Other
+}
 
 // Hashes reads an OCSF hashes value, a list of fingerprints, as algorithm →
 // digest. OCSF has no other form, so nothing else is read (adr/0356).

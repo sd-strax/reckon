@@ -141,7 +141,7 @@ func TestDetectionCloudBothEnds(t *testing.T) {
 	})
 	floor := cloudDetection()
 	for _, e := range []map[string]any{floor, ceiling} {
-		if bad := ocsfschema.ValidateEvent(e); len(bad) != 0 {
+		if bad := ocsfschema.ValidateFields(e); len(bad) != 0 {
 			t.Errorf("OCSF %s: %v", pathStr(e, "metadata.version"), bad)
 		}
 	}

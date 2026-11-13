@@ -24,6 +24,7 @@ func TestEnumsMatchSchema(t *testing.T) {
 		{"Confidences", 2004, "confidence_id", Confidences},
 		{"Statuses", 6003, "status_id", Statuses},
 		{"Statuses on a logon", 3002, "status_id", Statuses},
+		{"IncidentStatuses", 2005, "status_id", IncidentStatuses},
 	}
 	for _, tt := range tests {
 		for _, problem := range ocsfschema.CheckCaptions(tt.class, tt.path, tt.table) {
@@ -107,7 +108,7 @@ func TestHashesReadsThroughTheCaller(t *testing.T) {
 // a schema check.
 var numberTables = map[string]struct{ checked, exempt []string }{
 	"internal/ocsf": {
-		checked: []string{"HashAlgorithms", "Severities", "Confidences", "Statuses"}, // TestEnumsMatchSchema
+		checked: []string{"HashAlgorithms", "Severities", "Confidences", "Statuses", "IncidentStatuses"}, // TestEnumsMatchSchema
 	},
 	"capability": {
 		// capability.TestEnumTablesMatchSchema
@@ -117,9 +118,6 @@ var numberTables = map[string]struct{ checked, exempt []string }{
 		checked: []string{"networkActivities"}, // ocsfview.TestEnumTablesMatchSchema
 		// Keyed by class number, which the registration check covers.
 		exempt: []string{"classSlots", "defaultKeys"},
-	},
-	"cmd/reckon-adapter-crowdstrike-falcon": {
-		checked: []string{"severityIDs"}, // TestSeverityIDsAreOCSF
 	},
 	"cmd/reckon-adapter-aws-security-lake": {
 		checked: []string{"classNames"}, // TestClassNamesAreOCSF

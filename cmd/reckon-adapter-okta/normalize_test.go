@@ -140,7 +140,19 @@ func assertOCSF(t *testing.T, evs []ocsfEvent) {
 		if got := mapAt(t, e.Raw, "metadata")["version"]; got != ocsfVersion {
 			t.Errorf("event %d: metadata.version = %v; want %s", i, got, ocsfVersion)
 		}
-		for _, p := range ocsfschema.ValidateEvent(e.Raw) {
+		problems := ocsfschema.ValidateEvent(e.Raw)
+		if e.Time.IsZero() {
+			// OCSF requires a time. The vendor's record gave none, and the
+			// adapter does not make one up (ocsf.SetTime).
+			problems = ocsfschema.WithoutRequired(problems, "time")
+		}
+		if e.ClassUID == classUserAccess {
+			// OCSF requires privileges on this class until 1.9.0. Okta
+			// names no field for the privilege granted or revoked, so the
+			// adapter writes none (accessPayload, adr/0356).
+			problems = ocsfschema.WithoutRequired(problems, "privileges")
+		}
+		for _, p := range problems {
 			t.Errorf("event %d, class %d: %s", i, e.ClassUID, p)
 		}
 	}

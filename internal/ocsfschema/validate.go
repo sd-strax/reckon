@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Problem is one field of an event that does not match the OCSF schema.
@@ -16,6 +18,9 @@ type Problem struct {
 	Path string
 	// Reason says what is wrong, in words.
 	Reason string
+	// Required is set when the problem is a field the class requires and
+	// the event lacks.
+	Required bool
 }
 
 func (p Problem) String() string {
@@ -31,6 +36,32 @@ func (p Problem) String() string {
 // not checked in, or a class that version does not define is itself a
 // problem. See Schema.Validate for what is checked.
 func ValidateEvent(payload map[string]any) []Problem {
+	return validateEvent(payload, true)
+}
+
+// ValidateFields is ValidateEvent without the check for required fields: it
+// checks the fields an event has and not the ones it lacks. It is for a
+// test's hand-written event that holds only what the test is about. A
+// fixture and an adapter's output get ValidateEvent.
+func ValidateFields(payload map[string]any) []Problem {
+	return validateEvent(payload, false)
+}
+
+// WithoutRequired returns the problems without those that say one of the
+// named fields is required and missing. An adapter's test uses it for a
+// required field its source does not report, and says why at the call.
+func WithoutRequired(problems []Problem, fields ...string) []Problem {
+	var out []Problem
+	for _, p := range problems {
+		if p.Required && slices.Contains(fields, p.Path) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func validateEvent(payload map[string]any, required bool) []Problem {
 	meta, _ := payload["metadata"].(map[string]any)
 	version, _ := meta["version"].(string)
 	if version == "" {
@@ -44,7 +75,7 @@ func ValidateEvent(payload map[string]any) []Problem {
 	if !ok {
 		return []Problem{{Path: "class_uid", Reason: "the event does not say which class it is"}}
 	}
-	return schema.Validate(class, payload)
+	return schema.validate(class, payload, required)
 }
 
 // Validate walks an event of the given class field by field and reports
@@ -59,6 +90,22 @@ func ValidateEvent(payload map[string]any) []Problem {
 //     export's own type list: timestamp_t is a long, so a time must be a
 //     whole number, and datetime_t, username_t and ip_t are strings. A
 //     string's format (an address, a date) is not checked.
+//   - An enum value the release does not list, at any depth. Only enums of
+//     whole numbers are checked (activity_id, severity_id, type_id, and the
+//     class, category and type uids). The field that holds the value's
+//     caption (activity_name for activity_id) must hold that caption; letter
+//     case is not compared. The schema names the caption field as the
+//     enum's sibling. Where a release leaves that out, it is the enum's name
+//     without "_id". The value Other (99) passes any caption, because OCSF
+//     puts the source's own word there. A caption with no value beside it
+//     must be one of the enum's captions.
+//   - A field the class requires that the event lacks. Only the class's own
+//     fields are checked, not the required fields of the objects inside it.
+//     A field a profile adds is required only when the event lists that
+//     profile in metadata.profiles. That is where OCSF says an event
+//     declares its profiles, and it is the conservative reading: an event
+//     that lists no profile owes no profile's fields, whatever else it
+//     carries.
 //
 // A json_t field, and a field whose object defines no fields of its own (the
 // generic "object", which "unmapped" is), accept any value. A null value is
@@ -67,12 +114,25 @@ func ValidateEvent(payload map[string]any) []Problem {
 // The payload is JSON as encoding/json decodes it. Typed Go maps and slices
 // are read the same way, so an adapter can pass the event it built.
 func (s *Schema) Validate(classUID int, payload map[string]any) []Problem {
+	return s.validate(classUID, payload, true)
+}
+
+// ValidateFields is Validate without the check for required fields. See the
+// package function of the same name.
+func (s *Schema) ValidateFields(classUID int, payload map[string]any) []Problem {
+	return s.validate(classUID, payload, false)
+}
+
+func (s *Schema) validate(classUID int, payload map[string]any, required bool) []Problem {
 	c, ok := s.classes[classUID]
 	if !ok {
 		return []Problem{{Reason: fmt.Sprintf("OCSF %s has no class %d", s.version, classUID)}}
 	}
 	v := validator{schema: s}
 	v.object("", c, reflect.ValueOf(payload))
+	if required {
+		v.required(c, payload)
+	}
 	sort.SliceStable(v.problems, func(i, j int) bool { return v.problems[i].Path < v.problems[j].Path })
 	return v.problems
 }
@@ -103,6 +163,104 @@ func (v *validator) object(prefix string, def *entity, obj reflect.Value) {
 		}
 		v.value(path, attr, iter.Value())
 	}
+	v.enums(prefix, def, obj)
+}
+
+// required reports each field the class requires that the event lacks. See
+// Validate for which fields count.
+func (v *validator) required(c *entity, payload map[string]any) {
+	uses := map[string]bool{}
+	if meta, ok := payload["metadata"].(map[string]any); ok {
+		list := concrete(reflect.ValueOf(meta["profiles"]))
+		if list.IsValid() && kindOf(list) == kindList {
+			for i := 0; i < list.Len(); i++ {
+				if p := concrete(list.Index(i)); p.IsValid() && p.Kind() == reflect.String {
+					uses[p.String()] = true
+				}
+			}
+		}
+	}
+	for name, attr := range c.Attributes {
+		if attr.Requirement != "required" || (attr.Profile != "" && !uses[attr.Profile]) {
+			continue
+		}
+		if val, ok := payload[name]; !ok || !concrete(reflect.ValueOf(val)).IsValid() {
+			v.problems = append(v.problems, Problem{
+				Path: name, Required: true,
+				Reason: fmt.Sprintf("OCSF %s requires this field on %s", v.schema.version, c.key),
+			})
+		}
+	}
+}
+
+// enums checks the enum values of one object and their captions. See
+// Validate for the rule.
+func (v *validator) enums(prefix string, def *entity, obj reflect.Value) {
+	at := func(name string) string {
+		if prefix == "" {
+			return name
+		}
+		return prefix + "." + name
+	}
+	field := func(name string) reflect.Value {
+		return concrete(obj.MapIndex(reflect.ValueOf(name)))
+	}
+	for name, attr := range def.Attributes {
+		if attr.IsArray || len(attr.Enum) == 0 {
+			continue
+		}
+		enum, ok := attr.intEnum()
+		if !ok {
+			continue
+		}
+		sibling := attr.Sibling
+		if sibling == "" {
+			sibling = strings.TrimSuffix(name, "_id")
+		}
+		if _, defined := def.Attributes[sibling]; !defined || sibling == name {
+			sibling = ""
+		}
+		var caption reflect.Value
+		if sibling != "" {
+			caption = field(sibling)
+		}
+		hasCaption := caption.IsValid() && caption.Kind() == reflect.String
+
+		val := field(name)
+		if !val.IsValid() {
+			if hasCaption && !hasCaptionFold(enum, caption.String()) {
+				v.fail(at(sibling), "%q is not one of OCSF %s's captions for %s, and the event gives no %s", caption.String(), v.schema.version, name, name)
+			}
+			continue
+		}
+		n, isNumber := numberOf(val)
+		if !isNumber || n != math.Trunc(n) {
+			continue // the type check has reported it
+		}
+		want, ok := enum[int(n)]
+		if !ok {
+			v.fail(at(name), "OCSF %s has no value %d in this enum", v.schema.version, int(n))
+			continue
+		}
+		if hasCaption && !isOther(want) && !strings.EqualFold(caption.String(), want) {
+			v.fail(at(sibling), "%s %d is %q in OCSF %s, and the event calls it %q", name, int(n), want, v.schema.version, caption.String())
+		}
+	}
+}
+
+// isOther reports whether a caption is the enum's Other value, whose caption
+// field holds the source's own word.
+func isOther(caption string) bool {
+	return caption == "Other" || strings.HasSuffix(caption, ": Other")
+}
+
+func hasCaptionFold(enum map[int]string, caption string) bool {
+	for _, c := range enum {
+		if strings.EqualFold(c, caption) {
+			return true
+		}
+	}
+	return false
 }
 
 // value checks one field's value against its attribute.

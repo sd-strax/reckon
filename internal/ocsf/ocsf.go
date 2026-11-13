@@ -13,9 +13,23 @@ import (
 // Event returns the fields every OCSF event of a class starts with: the
 // class, the OCSF version it is written in, the product that reported it,
 // and its time (see SetTime). The caller adds the class's own fields.
+//
+// It also writes the other fields OCSF requires of every event. The category
+// is the class's own. The activity and the severity are 0, which is OCSF's
+// Unknown, and the type, which OCSF derives as the class number times 100
+// plus the activity, follows. No adapter in tree maps its vendor's events to
+// OCSF's activities yet. One whose source says how severe the event is sets
+// severity_id.
 func Event(class int, version string, product map[string]any, t time.Time) map[string]any {
 	raw := map[string]any{
 		"class_uid": class,
+		// A class number is its category times 1000 plus its own number. An
+		// extension's class adds the extension's number times 100000 in
+		// front (201001 is the Windows extension's 1001).
+		"category_uid": class % 100000 / 1000,
+		"activity_id":  0,
+		"type_uid":     class * 100,
+		"severity_id":  0,
 		"metadata": map[string]any{
 			"version": version,
 			"product": product,

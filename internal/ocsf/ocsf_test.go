@@ -12,7 +12,7 @@ func TestEvent(t *testing.T) {
 	at := time.Date(2026, 7, 14, 9, 28, 0, 123456789, time.FixedZone("x", 3600))
 	got := Event(3002, "1.1.0", Product("Acme", "Log"), at)
 	want := map[string]any{
-		"class_uid": 3002,
+		"class_uid": 3002, "category_uid": 3, "activity_id": 0, "type_uid": 300200, "severity_id": 0,
 		"metadata": map[string]any{
 			"version": "1.1.0",
 			"product": map[string]any{"vendor_name": "Acme", "name": "Log"},

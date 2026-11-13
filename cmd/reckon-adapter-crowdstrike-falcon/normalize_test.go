@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/identity"
-	"github.com/sd-strax/reckon/internal/ocsf"
 	"github.com/sd-strax/reckon/internal/ocsfschema"
 )
 
@@ -27,7 +26,13 @@ func assertOCSF(t *testing.T, evs []ocsfEvent) {
 		if meta, _ := e.Raw["metadata"].(map[string]any); meta["version"] != ocsfVersion {
 			t.Errorf("event %d: metadata.version = %v; want %s", i, meta["version"], ocsfVersion)
 		}
-		for _, p := range ocsfschema.ValidateEvent(e.Raw) {
+		problems := ocsfschema.ValidateEvent(e.Raw)
+		if e.Time.IsZero() {
+			// OCSF requires a time. The vendor's record gave none, and the
+			// adapter does not make one up (ocsf.SetTime).
+			problems = ocsfschema.WithoutRequired(problems, "time")
+		}
+		for _, p := range problems {
 			t.Errorf("event %d, class %d: %s", i, e.ClassUID, p)
 		}
 	}
@@ -79,11 +84,11 @@ func TestNormalizeDetectionsToFindings(t *testing.T) {
 	}
 	assertOCSF(t, evs)
 
-	// A severity name OCSF has no number for is kept as the caption alone,
-	// and a detection with no tactic writes no empty types list.
+	// A severity name OCSF has no number for is kept as the caption, with
+	// the id Other, and a detection with no tactic writes no empty types list.
 	evs, _ = normalize("search_detections", `{"resources":[{"id":"x","severity_name":"Elevated"}]}`)
-	if evs[0].Raw["severity"] != "Elevated" || evs[0].Raw["severity_id"] != nil {
-		t.Errorf("severity = %v / %v; want the caption and no id", evs[0].Raw["severity"], evs[0].Raw["severity_id"])
+	if evs[0].Raw["severity"] != "Elevated" || evs[0].Raw["severity_id"] != 99 {
+		t.Errorf("severity = %v / %v; want the caption and the id 99", evs[0].Raw["severity"], evs[0].Raw["severity_id"])
 	}
 	if f, _ := evs[0].Raw["finding_info"].(map[string]any); f["types"] != nil || f["title"] != "Falcon detection" {
 		t.Errorf("finding_info = %v", f)
@@ -263,15 +268,5 @@ func TestIOCIDsExtraction(t *testing.T) {
 	}
 	if ids := iocIDs(`{"resources":[]}`); len(ids) != 0 {
 		t.Errorf("empty = %v", ids)
-	}
-}
-
-// Each Falcon severity name maps to the OCSF severity_id whose caption is
-// that name (adr/0356). ocsf.Severities is itself checked against the schema.
-func TestSeverityIDsAreOCSF(t *testing.T) {
-	for name, id := range severityIDs {
-		if caption := ocsf.Severities[id]; !strings.EqualFold(caption, name) {
-			t.Errorf("severityIDs[%q] = %d, which OCSF calls %q", name, id, caption)
-		}
 	}
 }

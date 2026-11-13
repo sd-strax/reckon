@@ -394,6 +394,7 @@ func inventoryEvent(item cstypes.ConfigurationItem) capability.OcsfPayload {
 		"type_uid":      502302,
 		"activity_id":   2,
 		"activity_name": "Collect",
+		"severity_id":   1, // Informational: a snapshot reports no fault
 		"metadata": map[string]any{
 			"product": map[string]any{"vendor_name": "AWS", "name": "AWS Config"},
 			"version": inventoryVersion,

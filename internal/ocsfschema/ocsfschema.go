@@ -2,7 +2,8 @@
 // checked in under third_party/ocsf-schema/ (adr/0356): does a class exist at
 // a version, what is it called, does a field path exist on it, and does an
 // event hold only fields its class defines, each in the shape and the scalar
-// type the schema gives it (Validate).
+// type the schema gives it, with its enum values and the fields the class
+// requires (Validate).
 //
 // It is used by tests. The schema files are found by walking up from the
 // working directory to the module root, so the package works from any
@@ -71,6 +72,14 @@ type attribute struct {
 	// Enum is the field's allowed values, keyed by the value as text ("3"),
 	// or nil when the field is not an enum.
 	Enum map[string]enumValue `json:"enum"`
+	// Sibling is the field that holds an enum value's caption:
+	// "activity_name" for activity_id. Some releases leave it out.
+	Sibling string `json:"sibling"`
+	// Requirement is "required", "recommended" or "optional".
+	Requirement string `json:"requirement"`
+	// Profile is the profile that adds the field to the class, or "" for a
+	// field the class has by itself.
+	Profile string `json:"profile"`
 }
 
 type enumValue struct {

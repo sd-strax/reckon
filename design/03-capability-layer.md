@@ -1286,6 +1286,15 @@ them, as it is OCSF's place for a source's own fields.
      schema's own type list gives. So a `timestamp_t` must be a whole
      number, and a `username_t` or an `ip_t` must be a string. A `json_t`
      field accepts anything. The format of a string is not checked.
+   - **Required fields.** Every field the class itself requires must be
+     present. Required fields inside objects are not checked. A field that
+     belongs to a profile is required only when the event lists that profile
+     in `metadata.profiles`.
+   - **Enums.** An `_id` must be one of the schema's values, and its caption
+     sibling (such as `activity_name`) must match that value's caption,
+     letter case aside. The value Other (99) passes any caption, as that is
+     where OCSF puts the source's own word. A caption with no `_id` beside
+     it must be one of the enum's captions.
    - **The fixture walk.** A test walks every event under `fixtures/` this
      way. The `fixture_meta` block is the replay's own and is not walked.
    - **The adapter walk.** Each in-tree adapter's tests walk the events the
@@ -2192,13 +2201,18 @@ it. Fixtures are stored as JSON files under `fixtures/<scenario>/<event-N>.json`
   "ocsf": {
     "class_uid": 3002,
     "class_name": "Authentication",
+    "category_uid": 3,
+    "activity_id": 1,
+    "type_uid": 300201,
+    "severity_id": 1,
     "time": 1776695531000,
     "time_dt": "2026-04-20T14:32:11Z",
     "metadata": { "version": "1.1.0" },
     "user": { "name": "jdoe", "domain": "CONTOSO" },
     "dst_endpoint": { "hostname": "WIN-FILE01" },
     "src_endpoint": { "ip": "10.0.4.55" },
-    "logon_type": "RemoteInteractive",
+    "logon_type": "Remote Interactive",
+    "logon_type_id": 10,
     "status": "SUCCESS"
   }
 }
