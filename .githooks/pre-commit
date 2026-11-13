@@ -46,6 +46,9 @@ SKIP_PATHSPECS=(
     ':!AGENTS.md'
     ':!.claude/**'
     ':!.githooks/**'
+    # Third-party files copied in verbatim (adr/0356). They are not ours to
+    # reword, and a product name in the OCSF schema matches a keyword below.
+    ':!third_party/**'
 )
 
 # Forbidden keywords. Case-insensitive substring match against added lines only
