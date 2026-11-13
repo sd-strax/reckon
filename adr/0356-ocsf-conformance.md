@@ -234,6 +234,17 @@ event view's sentence templates use the same numbers.
     observation's refs, as before.
   - Pieces are no longer sent through the registry by class number. OCSF
     gives them no class number.
+- **A cloud detection finding names its cloud account and resources.**
+  OCSF puts them on the finding itself: `cloud` (from the cloud profile) and
+  `resources[]` (part of Detection Finding from 1.1.0).
+  - The normalizer reads them with the same rules API activity uses
+    (`03 §4.15`). So an alert and the API calls about the same resource land
+    on the same `x-cloud-account` and `x-cloud-resource`.
+  - When the finding names a cloud provider, an evidence piece's
+    `actor.user` is shaped as that provider's cloud principal (`03 §4.15`),
+    not as a directory login.
+  - Without this, a cloud alert names only a login and an IP, and nothing
+    links it to the resource or principal it is about.
 - **Incident finding:**
   - The case title, uid and description come from `finding_info_list[]`. The
     first entry names the case. Every entry's uid is kept.

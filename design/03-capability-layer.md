@@ -1026,6 +1026,11 @@ Output:
 
   An artifact is not an event and has no class, so none is sent through the
   registry (adr/0356).
+- The finding's own `cloud` and `resources[]` give the cloud account and
+  resources, by §4.15's rules. When the finding names a cloud provider, an
+  artifact's `actor.user` is shaped as that provider's cloud principal
+  (§4.15). An alert and the API calls about one resource then meet on the
+  same objects.
 - One `ObservedData` referencing the entities named in the detection,
   separate from the Sighting. This preserves the raw "this entity was seen"
   signal independent of the vendor's interpretation.
