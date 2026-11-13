@@ -82,3 +82,11 @@ func TestEveryEventIsOCSF(t *testing.T) {
 		assertOCSF(t, []capability.OcsfPayload{e})
 	})
 }
+
+// The class captions the adapter sends are OCSF's, in every release checked
+// in (adr/0356).
+func TestClassNamesAreOCSF(t *testing.T) {
+	for _, problem := range ocsfschema.CheckClassCaptions(classNames) {
+		t.Errorf("classNames: %s", problem)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // Normalizer turns one OCSF event into interpretation-layer objects. It is a
@@ -657,25 +658,11 @@ func pathInt(m map[string]any, path string) int {
 // the field's _dt twin (see ocsfTime).
 func pathTime(m map[string]any, path string) time.Time { return ocsfTime(m, path) }
 
-// hashesFromValue reads an OCSF hashes value, a list of fingerprints
-// ([{"algorithm": "...", "value": "..."}]), as algorithm → digest. OCSF has
-// no other form, so nothing else is read (adr/0356).
+// hashesFromValue reads an OCSF hashes value, a list of fingerprints, as
+// algorithm → digest (see ocsf.Hashes): the algorithm is the fingerprint's
+// caption, else the caption of its algorithm_id.
 func hashesFromValue(v any) map[string]string {
-	list, _ := v.([]any)
-	out := map[string]string{}
-	for _, item := range list {
-		im, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if algo, val := toString(fieldOf(im, "algorithm")), toString(fieldOf(im, "value")); algo != "" && val != "" {
-			out[algo] = val
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return ocsf.Hashes(v, fieldOf)
 }
 
 // parentDir returns the directory portion of an OCSF file path, tolerating both

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // apiActivityNormalizer handles OCSF api_activity (class_uid 6003) → STIX
@@ -354,12 +355,9 @@ func scalarString(v any) string {
 	return ""
 }
 
-// apiActivities and apiStatuses are the OCSF captions for a payload that
-// carries the id without the name.
-var (
-	apiActivities = map[int]string{1: "Create", 2: "Read", 3: "Update", 4: "Delete", 99: "Other"}
-	apiStatuses   = map[int]string{1: "Success", 2: "Failure"}
-)
+// apiActivities are the OCSF activity captions for a payload that carries the
+// id without the name. The status captions are ocsf.Statuses.
+var apiActivities = map[int]string{1: "Create", 2: "Read", 3: "Update", 4: "Delete", 99: "Other"}
 
 // apiExt is the ObservedData's extensions for an API call: the operation, its
 // outcome and the call's context, flat, absent keys omitted (§4.15). These are
@@ -383,7 +381,7 @@ func apiExt(p map[string]any) map[string]any {
 	if statusID != 0 {
 		ext["status_id"] = statusID
 	}
-	put("status", firstNonEmpty(pathStr(p, "status"), apiStatuses[statusID]))
+	put("status", firstNonEmpty(pathStr(p, "status"), ocsf.Statuses[statusID]))
 	put("error", pathStr(p, "api.response.error"))
 	put("error_message", firstNonEmpty(pathStr(p, "api.response.error_message"), pathStr(p, "api.response.message")))
 	if code := pathInt(p, "api.response.code"); code != 0 {

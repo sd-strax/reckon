@@ -70,6 +70,7 @@ func (u userObject) principalName() string {
 }
 
 // OCSF account.type_id values the shaping reads (the OCSF Account object).
+// accountTypeIDs holds their captions for the schema check.
 const (
 	ocsfAccountLDAP      = 1
 	ocsfAccountWindows   = 2
@@ -79,12 +80,21 @@ const (
 	ocsfAccountGoogleWks = 15
 )
 
+var accountTypeIDs = map[int]string{
+	ocsfAccountLDAP: "LDAP Account", ocsfAccountWindows: "Windows Account", ocsfAccountAzureAD: "Azure AD Account",
+	ocsfAccountMacOS: "Mac OS Account", ocsfAccountLinux: "Linux Account", ocsfAccountGoogleWks: "Google Workspace",
+}
+
 // machineDomains are the "domains" a Windows source names for principals that
 // are the machine's own: the account is windows-local, scoped by the host.
 var machineDomains = []string{
 	"nt authority", "builtin", "nt service", "window manager", "font driver host", "iis apppool",
 	"application package authority", "mandatory label",
 }
+
+// osTypes are the OCSF os.type_id captions of the systems the shaping tells
+// apart. A phone or tablet OS (101, 201, 301, 302) decides nothing.
+var osTypes = map[int]string{100: "Windows", 200: "Linux", 300: "macOS", 400: "Solaris", 401: "AIX", 402: "HP-UX"}
 
 // osFamily reads the OCSF device object the caller names: "windows", "unix"
 // or "". The type_id is the OCSF OS enum (100 Windows, 200 Linux, 300 macOS,
@@ -95,13 +105,12 @@ func osFamily(loc at) string {
 	if device == "" {
 		return ""
 	}
-	switch id := pathInt(p, device+".os.type_id"); {
-	case id == 100:
-		return "windows"
-	case id == 200 || id == 300 || (id >= 400 && id <= 402):
-		return "unix"
+	// The id's caption is read the way the event's own caption is.
+	t := strings.ToLower(osTypes[pathInt(p, device+".os.type_id")])
+	if t == "" {
+		t = strings.ToLower(strings.TrimSpace(pathStr(p, device+".os.type")))
 	}
-	switch t := strings.ToLower(strings.TrimSpace(pathStr(p, device+".os.type"))); {
+	switch {
 	case strings.HasPrefix(t, "windows"):
 		return "windows"
 	case t == "linux" || t == "macos" || t == "solaris" || t == "aix" || t == "hp-ux":

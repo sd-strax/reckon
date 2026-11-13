@@ -254,6 +254,36 @@ func TestFileHashesListFormOnly(t *testing.T) {
 	}
 }
 
+// TestFileHashesByAlgorithmID (adr/0356): a fingerprint's algorithm caption
+// is optional in OCSF and its algorithm_id is required. A hash that carries
+// only the id is kept under the id's caption, and gives the file the same
+// identity as the same hash written with the caption.
+func TestFileHashesByAlgorithmID(t *testing.T) {
+	file := func(hashes ...any) SCO {
+		t.Helper()
+		res, err := testRegistry().Normalize(makeEvent(map[string]any{
+			"class_uid": 1001, "time": ms("2026-04-20T14:32:11Z"),
+			"file":   map[string]any{"name": "evil.dll", "hashes": hashes},
+			"device": map[string]any{"hostname": "WS1"},
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return scosOf(res, identity.TypeFile)[0]
+	}
+	byID := file(map[string]any{"algorithm_id": float64(3), "value": "deadbeef"}, map[string]any{"algorithm_id": float64(1), "value": "0123"})
+	if want := map[string]string{"SHA-256": "deadbeef", "MD5": "0123"}; !reflect.DeepEqual(byID.Properties["hashes"], want) {
+		t.Errorf("hashes = %v; want %v", byID.Properties["hashes"], want)
+	}
+	byCaption := file(map[string]any{"algorithm": "SHA-256", "algorithm_id": float64(3), "value": "deadbeef"})
+	if byID.ID != byCaption.ID {
+		t.Errorf("the same SHA-256 gives %s by id and %s by caption", byID.ID, byCaption.ID)
+	}
+	if unnamed := file(map[string]any{"algorithm_id": float64(99), "value": "deadbeef"}); unnamed.Properties["hashes"] != nil {
+		t.Errorf("a hash whose algorithm is not named was kept: %v", unnamed.Properties["hashes"])
+	}
+}
+
 // accountEvent is an account event of class naming alice as the target and
 // admin as the initiator, with a group and privileges on it whatever the
 // class.

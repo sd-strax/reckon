@@ -570,11 +570,14 @@ func (r *renderer) hashField(prefix string) {
 	}
 }
 
+// logonWords is how a sentence names each OCSF logon type. The key is the
+// logon_type caption in lower case with its spaces removed, so "Remote
+// Interactive" and a source's "RemoteInteractive" both find it (logonKey).
 var logonWords = map[string]string{
 	"interactive":       "interactive",
 	"network":           "network",
 	"batch":             "batch",
-	"service":           "service",
+	"osservice":         "service",
 	"unlock":            "unlock",
 	"networkcleartext":  "network cleartext",
 	"newcredentials":    "new-credentials",
@@ -583,12 +586,17 @@ var logonWords = map[string]string{
 	"system":            "system",
 }
 
+// logonKey is a logon type as logonWords keys it.
+func logonKey(logonType string) string {
+	return strings.ReplaceAll(strings.ToLower(logonType), " ", "")
+}
+
 func (r *renderer) authentication() {
 	user := r.user("actor.user")
 	host := r.host("dst_endpoint")
 	src := r.ip("src_endpoint.ip")
 	logon := r.str("logon_type")
-	word := logonWords[strings.ToLower(logon)]
+	word := logonWords[logonKey(logon)]
 	if word == "" {
 		word = strings.ToLower(logon)
 	}
@@ -696,10 +704,10 @@ func (r *renderer) process() {
 	r.keyText("activity", r.str("activity_name"))
 }
 
-// networkActivities are the OCSF network_activity activity ids, for a payload
-// that carries the id without the name.
+// networkActivities are the OCSF network_activity activity captions, for a
+// payload that carries the id without the name.
 var networkActivities = map[int]string{
-	1: "open", 2: "close", 3: "reset", 4: "fail", 5: "refuse", 6: "traffic", 7: "listen",
+	1: "Open", 2: "Close", 3: "Reset", 4: "Fail", 5: "Refuse", 6: "Traffic", 7: "Listen",
 }
 
 // networkVerbs reads the activity as what happened to the connection; an
@@ -727,7 +735,7 @@ func (r *renderer) network() {
 
 	key := strings.ToLower(r.str("activity_name"))
 	if key == "" {
-		key = networkActivities[r.int("activity_id")]
+		key = strings.ToLower(networkActivities[r.int("activity_id")])
 	}
 	// An activity the table does not know (absent, Unknown, Other) reads as a
 	// connection, or as a failed one when the status says so.
@@ -735,7 +743,7 @@ func (r *renderer) network() {
 	if !ok {
 		verb = networkVerbs["open"]
 	}
-	if (!ok || key == "open") && (statusTone(status) == "bad" || r.int("status_id") == 2) {
+	if (!ok || key == "open") && (statusTone(status) == "bad" || ocsf.Statuses[r.int("status_id")] == "Failure") {
 		verb = networkVerbs["fail"]
 	}
 
@@ -1298,13 +1306,6 @@ func (r *renderer) emailFile() {
 	r.keyText("activity", r.str("activity_name"))
 }
 
-// OCSF's captions for severity_id and confidence_id. An id outside the table
-// (0 Unknown, 99 Other) falls back to the event's own caption.
-var (
-	severityCaptions   = map[int]string{1: "Informational", 2: "Low", 3: "Medium", 4: "High", 5: "Critical", 6: "Fatal"}
-	confidenceCaptions = map[int]string{1: "Low", 2: "Medium", 3: "High"}
-)
-
 // detection renders a detection finding (03 §4.12). The host is the first
 // evidence artifact's device, else the finding's own. The user is the first
 // artifact's actor.user, else its user.
@@ -1317,14 +1318,16 @@ func (r *renderer) detection() {
 	title := r.str("finding_info.title")
 	uid := r.str("finding_info.uid")
 	vendor := firstNonEmpty(r.str("metadata.product.vendor_name"), r.str("metadata.product.name"))
-	severity := firstNonEmpty(severityCaptions[r.int("severity_id")], r.str("severity"))
+	// An id outside OCSF's captions (0 Unknown, 99 Other) falls back to the
+	// event's own caption.
+	severity := firstNonEmpty(ocsf.Severities[r.int("severity_id")], r.str("severity"))
 	// A score is capped to 0–100, and a score of 0 is shown: the vendor said
 	// it has no confidence, which is not the same as giving none (adr/0356).
 	confidence := ""
 	if score, ok := ocsf.WholeNumber(pathAny(r.p, "confidence_score")); ok {
 		confidence = strconv.Itoa(min(max(score, 0), 100))
 	}
-	confidence = firstNonEmpty(confidence, confidenceCaptions[r.int("confidence_id")], r.str("confidence"))
+	confidence = firstNonEmpty(confidence, ocsf.Confidences[r.int("confidence_id")], r.str("confidence"))
 
 	cloud := r.str("cloud.provider") != ""
 	resources := r.cloudResources()
@@ -1546,10 +1549,6 @@ func firstOf(l []any) any {
 	return l[0]
 }
 
-// apiStatuses are the OCSF status_id captions, for a payload that carries the
-// id without the name.
-var apiStatuses = map[int]string{1: "Success", 2: "Failure"}
-
 // apiActivity renders a cloud control-plane call (03 §4.15): who called which
 // operation on what, in which account, and how it ended. The principal binds
 // to its user-account by the durable id the record keyed it on, the account
@@ -1564,7 +1563,7 @@ func (r *renderer) apiActivity() {
 	resources := r.cloudResources()
 	account, accountUID := r.cloudAccount()
 	src := r.ip("src_endpoint.ip")
-	status := firstNonEmpty(r.str("status"), apiStatuses[r.int("status_id")])
+	status := firstNonEmpty(r.str("status"), ocsf.Statuses[r.int("status_id")])
 	errCode := r.str("api.response.error")
 	outcome, tone := status, statusTone(status)
 	if errCode != "" {
@@ -1965,15 +1964,7 @@ func stringList(vs []any) []string {
 // [{algorithm, value}], as algorithm → digest. OCSF has no other form
 // (adr/0356).
 func hashesOf(v any) map[string]string {
-	out := map[string]string{}
-	list, _ := v.([]any)
-	for _, item := range list {
-		m, _ := item.(map[string]any)
-		if alg, val := toString(fieldOf(m, "algorithm")), toString(fieldOf(m, "value")); alg != "" && val != "" {
-			out[alg] = val
-		}
-	}
-	return out
+	return ocsf.Hashes(v, fieldOf)
 }
 
 // lookupHook, when set, is told of every field read through pathAny and

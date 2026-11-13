@@ -68,6 +68,13 @@ type attribute struct {
 	Type       string `json:"type"`        // "string_t", "object_t", "json_t", ...
 	ObjectType string `json:"object_type"` // the key in objects, for an object_t
 	IsArray    bool   `json:"is_array"`
+	// Enum is the field's allowed values, keyed by the value as text ("3"),
+	// or nil when the field is not an enum.
+	Enum map[string]enumValue `json:"enum"`
+}
+
+type enumValue struct {
+	Caption string `json:"caption"`
 }
 
 // export is the top level of a schema.json file.
@@ -241,12 +248,20 @@ func (s *Schema) HasPath(classUID int, path string) bool {
 //     of its own (the generic "object", which "unmapped" is), accept any
 //     deeper path.
 func (s *Schema) Resolve(classUID int, path string) error {
+	_, err := s.attributeAt(classUID, path)
+	return err
+}
+
+// attributeAt is the walk behind Resolve. It returns the attribute the path
+// ends on. For a path that ends below a free-form field (a json_t, or the
+// generic object), it returns that free-form field.
+func (s *Schema) attributeAt(classUID int, path string) (attribute, error) {
 	c, ok := s.classes[classUID]
 	if !ok {
-		return fmt.Errorf("OCSF %s has no class %d", s.version, classUID)
+		return attribute{}, fmt.Errorf("OCSF %s has no class %d", s.version, classUID)
 	}
 	if path == "" {
-		return errors.New("empty path")
+		return attribute{}, errors.New("empty path")
 	}
 	cur := c
 	segs := strings.Split(path, ".")
@@ -256,33 +271,33 @@ func (s *Schema) Resolve(classUID int, path string) error {
 		at := strings.Join(segs[:i+1], ".")
 		attr, ok := cur.Attributes[name]
 		if !ok || name == "" {
-			return fmt.Errorf("OCSF %s class %d (%s): no field %q", s.version, classUID, c.key, at)
+			return attribute{}, fmt.Errorf("OCSF %s class %d (%s): no field %q", s.version, classUID, c.key, at)
 		}
 		if attr.Type == "json_t" {
-			return nil // free-form: anything below it is the source's own
+			return attr, nil // free-form: anything below it is the source's own
 		}
 		if list && !attr.IsArray {
-			return fmt.Errorf("OCSF %s class %d (%s): %q is not a list", s.version, classUID, c.key, strings.TrimSuffix(at, "[]"))
+			return attribute{}, fmt.Errorf("OCSF %s class %d (%s): %q is not a list", s.version, classUID, c.key, strings.TrimSuffix(at, "[]"))
 		}
 		if last {
-			return nil
+			return attr, nil
 		}
 		if attr.IsArray && !list {
-			return fmt.Errorf("OCSF %s class %d (%s): %q is a list, write it %q", s.version, classUID, c.key, at, at+"[]")
+			return attribute{}, fmt.Errorf("OCSF %s class %d (%s): %q is a list, write it %q", s.version, classUID, c.key, at, at+"[]")
 		}
 		if attr.Type != "object_t" {
-			return fmt.Errorf("OCSF %s class %d (%s): %q is a %s, it has no fields", s.version, classUID, c.key, at, attr.Type)
+			return attribute{}, fmt.Errorf("OCSF %s class %d (%s): %q is a %s, it has no fields", s.version, classUID, c.key, at, attr.Type)
 		}
 		obj, ok := s.objects[attr.ObjectType]
 		if !ok {
-			return fmt.Errorf("OCSF %s class %d (%s): %q names object %q, which the export does not define", s.version, classUID, c.key, at, attr.ObjectType)
+			return attribute{}, fmt.Errorf("OCSF %s class %d (%s): %q names object %q, which the export does not define", s.version, classUID, c.key, at, attr.ObjectType)
 		}
 		if len(obj.Attributes) == 0 {
-			return nil // the generic object: anything below it is the source's own
+			return attr, nil // the generic object: anything below it is the source's own
 		}
 		cur = obj
 	}
-	return nil
+	return attribute{}, errors.New("empty path")
 }
 
 // versionLess orders release numbers numerically, so 1.10.0 sorts after 1.9.0.

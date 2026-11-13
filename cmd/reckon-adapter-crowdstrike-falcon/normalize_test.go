@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 	"github.com/sd-strax/reckon/internal/ocsfschema"
 )
 
@@ -263,5 +263,15 @@ func TestIOCIDsExtraction(t *testing.T) {
 	}
 	if ids := iocIDs(`{"resources":[]}`); len(ids) != 0 {
 		t.Errorf("empty = %v", ids)
+	}
+}
+
+// Each Falcon severity name maps to the OCSF severity_id whose caption is
+// that name (adr/0356). ocsf.Severities is itself checked against the schema.
+func TestSeverityIDsAreOCSF(t *testing.T) {
+	for name, id := range severityIDs {
+		if caption := ocsf.Severities[id]; !strings.EqualFold(caption, name) {
+			t.Errorf("severityIDs[%q] = %d, which OCSF calls %q", name, id, caption)
+		}
 	}
 }

@@ -189,19 +189,16 @@ func detectionConfidence(p map[string]any) *int {
 			return &score
 		}
 	}
-	var level int
-	switch pathInt(p, "confidence_id") {
-	case 1:
-		level = 15
-	case 2:
-		level = 50
-	case 3:
-		level = 85
-	default:
+	level, ok := confidenceLevels[ocsf.Confidences[pathInt(p, "confidence_id")]]
+	if !ok {
 		return nil
 	}
 	return &level
 }
+
+// confidenceLevels is the STIX confidence for each OCSF confidence level, by
+// the level's caption.
+var confidenceLevels = map[string]int{"Low": 15, "Medium": 50, "High": 85}
 
 // stringSlice coerces a value to a []string, tolerating an []any of strings.
 func stringSlice(v any) []string {

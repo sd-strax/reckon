@@ -275,6 +275,23 @@ func TestRender_Sentences(t *testing.T) {
 	}
 }
 
+// TestRender_HashByAlgorithmID: a fingerprint that carries OCSF's required
+// algorithm_id and no caption still shows its hash and binds its file
+// (adr/0356).
+func TestRender_HashByAlgorithmID(t *testing.T) {
+	p := payload(`{"process":{"pid":6120,"name":"tool.exe","file":{"hashes":[{"algorithm_id":3,"value":"9f1c"}]}},"device":{"hostname":"WIN-FILE01"}}`)
+	v := Render(Event{ClassUID: 1007, Payload: p}, []Entity{ent("file--f1", map[string]any{"hashes": map[string]any{"SHA-256": "9f1c"}})})
+	var hash *Field
+	for i := range v.Fields {
+		if v.Fields[i].Label == "SHA-256" {
+			hash = &v.Fields[i]
+		}
+	}
+	if hash == nil || hash.Value != "9f1c" {
+		t.Errorf("fields = %+v; want the SHA-256 shown", v.Fields)
+	}
+}
+
 // TestRender_ProcessFields: the curated process fields, the command line shown
 // as it is, the parent with its pid, the image bound to the file object.
 func TestRender_ProcessFields(t *testing.T) {
