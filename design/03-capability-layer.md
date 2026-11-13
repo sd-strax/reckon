@@ -1099,6 +1099,10 @@ unrecognized classes by emitting an opaque `ObservedData` with `object_refs`
 empty and the OcsfEvent attached via `derived-from` — the LLM can still see the
 raw payload, just without typed entities.
 
+An adapter that sends a record OCSF has no class for sends it as a Base
+Event (class 0). The vendor's fields go under `unmapped.<vendor>`, and the
+event view shows the scalars there (adr/0356).
+
 **Absence.** When every applicable binding answered (coverage COMPLETE) and
 no event came back, the resolver mints an `x-null-observation`
 (01-domain-model.md §NullObservation, adr/0061) over the question that was

@@ -273,6 +273,7 @@ event view's sentence templates use the same numbers.
   `created_time`, holds epoch milliseconds. OCSF's datetime profile adds a
   readable `_dt` twin, such as `time_dt`, as an RFC 3339 string.
   - Normalizers read the integer first and the `_dt` string as a fallback.
+    A string in a `timestamp_t` field is not OCSF and is not read.
   - Fixtures carry both, so the demo data stays readable.
 - **Events with no OCSF class** are Base Events (class 0), with the vendor's
   fields under `unmapped.<vendor>`. The event view shows the scalars there,
@@ -284,6 +285,10 @@ event view's sentence templates use the same numbers.
   - Lifecycle and account events become 3001.
   - `group.user_membership.*` events become 3006.
   - Privilege grants and revocations become 3005.
+  - Okta's System Log documentation names no field for the privilege granted
+    or revoked. An Okta support article says the revoke event lists the
+    roles that remain, not the one removed. So these events carry no
+    `privileges`. The Okta record stays under `unmapped.okta`.
   - User records become 5003 User Inventory.
 - **ServiceNow:** the bridge writes `finding_info_list`, `assignee_group` and
   `src_url`.
@@ -343,6 +348,43 @@ event view's sentence templates use the same numbers.
 **Every normalizer whose input changes moves to its next version.** There is
 no back-compat to keep. So there is no backfill and nothing reads the old
 class numbers.
+
+**The observation's extension fields after this change.** Each normalizer
+writes these keys into the observation's extensions map:
+
+- **None:** process activity (1007), network activity (4001), DNS activity
+  (4003), module activity (1005), email activity (4009), email URL activity
+  (4012), detection finding (2004), and the opaque default.
+- **Authentication (3002):** `logon_type` and `status`, both strings.
+- **The activity pair:** `activity` (string, from `activity_name`), or
+  `activity_id` (integer) only when `activity_name` is absent. Written by
+  file activity (1001), registry key and value (201001, 201002), scheduled
+  job (1006), email file activity (4011), user inventory (5003) and account
+  change (3001).
+- **User access (3005) and group management (3006):** the activity pair, plus
+  `privileges` (list of strings).
+- **Incident finding (2005):**
+  - strings: `case_number`, `title`, `summary`, `status`, `priority` (a
+    number is written as text), `assignment_group`, `link`, `sor`.
+  - `finding_uids` (list of strings), only when the case lists more than one
+    finding.
+- **Device inventory (5001):** `os_name`, `owner_name` and `criticality`, all
+  strings.
+- **API activity (6003):**
+  - strings: `operation`, `service`, `principal_name`, `activity`, `status`,
+    `error`, `error_message`, `request_uid`, `region`, `credential_uid`,
+    `user_agent`, `app_name`.
+  - integers: `activity_id`, `status_id`, `response_code`, `resource_count`.
+  - `session`: an object with `uid`, `issuer`, `credential_uid` and `is_mfa`,
+    as the event gives them.
+- **Cloud resources inventory (5023):**
+  - strings: `activity`, `region`, `resource_uid`, `resource_name`, `type`,
+    `criticality`, `owner_name`.
+  - integers: `activity_id`, `resource_count`.
+  - `created_time` and `modified_time`, as RFC 3339 strings.
+  - `configuration`: the resource's `data` as decoded (an object, a list or a
+    string).
+  - `labels` and `tags`: lists, as given.
 
 ## Alternatives rejected
 
