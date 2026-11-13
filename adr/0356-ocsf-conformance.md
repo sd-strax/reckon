@@ -184,6 +184,10 @@ event view's sentence templates use the same numbers.
   - When a task has several actions, `command_line` holds the first one.
     `command_lines` holds the list of all of them.
 - **Network activity:** the process is `actor.process`.
+- **Authentication:** the account being authenticated is `user`, as OCSF
+  defines it. `actor.user` is whoever started the logon, and is minted as a
+  separate initiator account when present. Fixtures and the Okta adapter put
+  the signing-in account in `user`.
 - **API activity:** the calling application comes from
   `actor.application.name` (1.9.0 and later), else from `actor.app_name`.
 - **Email activity:**
@@ -313,7 +317,7 @@ event view's sentence templates use the same numbers.
   - OCSF's `LICENSE` (Apache-2.0) and `NOTICE` are copied verbatim into
     `third_party/ocsf-schema/`, as Apache-2.0 requires.
   - A `README.md` there records the provenance: the source, the export URL
-    with its parameters, the profiles left out and why, the download date,
+    with its parameters, the profiles left out and why,
     and that the files are unmodified.
   - A script, `scripts/fetch-ocsf-schema`, downloads a release the same way.
     It is run by hand when a new release is added.
@@ -340,6 +344,13 @@ event view's sentence templates use the same numbers.
        list, an object field an object, and a scalar field a scalar. That
        catches a field read in the wrong shape, such as `privileges` as one
        string instead of a list.
+     - It checks that every required field is present, for the class and for
+       each object the event carries, at the declared version. A field that
+       belongs to a profile is required only when the event uses that
+       profile.
+     - It checks enum fields. An `_id` must be one of the schema's values,
+       and its caption sibling (such as `activity_name`) must match that
+       value's caption.
      - It checks a scalar's type too. A `timestamp_t` must be an integer, a
        string type a string, a boolean a boolean, and so on.
      - Each in-tree adapter's tests check its output events the same way.
