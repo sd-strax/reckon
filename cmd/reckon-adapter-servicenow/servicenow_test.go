@@ -11,8 +11,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/sd-strax/reckon/action"
+	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/adapterplugin"
+	"github.com/sd-strax/reckon/internal/ocsfschema"
 )
 
 // snowMock is a stateful ServiceNow Table API double: it stores incidents by
@@ -382,8 +387,38 @@ func TestQueryIncidents(t *testing.T) {
 	}
 }
 
-// TestCaseToOcsf: a Table API record shapes into a class-2005 payload the
-// caseNormalizer reads, with the SoR deep-link built from the sys_id.
+// assertOCSF is check 3 of adr/0356 for this adapter: the event holds only
+// fields OCSF defines for its class at the version it declares, each in the
+// shape the schema gives it.
+func assertOCSF(t *testing.T, classUID int, raw map[string]any) {
+	t.Helper()
+	if got := raw["class_uid"]; got != classUID {
+		t.Errorf("sent as class %d, and the event says %v", classUID, got)
+	}
+	if meta, _ := raw["metadata"].(map[string]any); meta["version"] != ocsfVersion {
+		t.Errorf("metadata.version = %v; want %s", meta["version"], ocsfVersion)
+	}
+	for _, p := range ocsfschema.ValidateEvent(raw) {
+		t.Errorf("class %d: %s", classUID, p)
+	}
+}
+
+// firstFinding is the first entry of an event's finding_info_list[].
+func firstFinding(t *testing.T, raw map[string]any) map[string]any {
+	t.Helper()
+	list, _ := raw["finding_info_list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("finding_info_list = %v; want one entry", raw["finding_info_list"])
+	}
+	fi, _ := list[0].(map[string]any)
+	return fi
+}
+
+// TestCaseToOcsf: a Table API record shapes into an OCSF Incident Finding
+// (2005) with the fields the engine's incident normalizer reads (adr/0356):
+// the case in finding_info_list[], the group in assignee_group, the link
+// back in src_url, built from the sys_id, and the system of record's name in
+// unmapped.sor.
 func TestCaseToOcsf(t *testing.T) {
 	b := configuredBridge(t, "https://acme.service-now.com")
 	p := b.caseToOcsf(map[string]any{
@@ -394,17 +429,57 @@ func TestCaseToOcsf(t *testing.T) {
 	if p.ClassUID != 2005 {
 		t.Errorf("class_uid = %d, want 2005", p.ClassUID)
 	}
-	fi, _ := p.Raw["finding_info"].(map[string]any)
-	if fi["title"] != "Suspicious RDP" || fi["uid"] != "INC0010042" {
-		t.Errorf("finding_info = %+v, want title/uid set", fi)
+	fi := firstFinding(t, p.Raw)
+	if fi["title"] != "Suspicious RDP" || fi["uid"] != "INC0010042" || fi["desc"] != "full body" {
+		t.Errorf("finding_info_list[0] = %+v, want uid/title/desc set", fi)
 	}
 	if p.Time.IsZero() {
 		t.Error("opened_at did not parse into Time")
 	}
-	um, _ := p.Raw["unmapped"].(map[string]any)
-	if link, _ := um["link"].(string); !strings.Contains(link, "sys_id=sys123") {
-		t.Errorf("unmapped.link = %v, want the sys_id deep-link", um["link"])
+	if group, _ := p.Raw["assignee_group"].(map[string]any); group["name"] != "SOC-Tier3" || len(group) != 1 {
+		t.Errorf("assignee_group = %v; want the group by name", p.Raw["assignee_group"])
 	}
+	if link, _ := p.Raw["src_url"].(string); link != "https://acme.service-now.com/nav_to.do?uri=incident.do?sys_id=sys123" {
+		t.Errorf("src_url = %v, want the sys_id deep-link", p.Raw["src_url"])
+	}
+	if p.Raw["status"] != "In Progress" || p.Raw["priority"] != "2 - High" {
+		t.Errorf("status %v, priority %v", p.Raw["status"], p.Raw["priority"])
+	}
+	um, _ := p.Raw["unmapped"].(map[string]any)
+	if um["sor"] != "servicenow" || um["sys_id"] != "sys123" || len(um) != 2 {
+		t.Errorf("unmapped = %v; want the system of record and the sys_id", um)
+	}
+	for _, k := range []string{"finding_info", "assignment_group"} {
+		if _, has := p.Raw[k]; has {
+			t.Errorf("the event carries %s, which OCSF does not define", k)
+		}
+	}
+	assertOCSF(t, p.ClassUID, p.Raw)
+
+	// The engine's incident normalizer reads every field.
+	res, err := capability.NewRegistry(identity.NewResolver(uuid.MustParse("33333333-3333-4333-8333-333333333333"))).
+		Normalize(capability.OcsfEvent{ID: uuid.Must(uuid.NewV7()), ClassUID: p.ClassUID, Time: p.Time, SourceTool: "servicenow", Payload: p.Raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ext := res.ObservedData[0].Extensions
+	for k, want := range map[string]any{
+		"case_number": "INC0010042", "title": "Suspicious RDP", "summary": "full body", "status": "In Progress", "priority": "2 - High",
+		"assignment_group": "SOC-Tier3", "link": "https://acme.service-now.com/nav_to.do?uri=incident.do?sys_id=sys123", "sor": "servicenow",
+	} {
+		if ext[k] != want {
+			t.Errorf("the engine reads %s = %v; want %v", k, ext[k], want)
+		}
+	}
+
+	// A record with only a number leaves the empty fields out.
+	p = b.caseToOcsf(map[string]any{"number": "INC1"})
+	for _, k := range []string{"status", "priority", "assignee_group", "src_url"} {
+		if _, has := p.Raw[k]; has {
+			t.Errorf("an empty %s was written: %v", k, p.Raw[k])
+		}
+	}
+	assertOCSF(t, p.ClassUID, p.Raw)
 }
 
 // TestInvokeGetIncident: the invoke routing shapes one case into a class-2005
@@ -429,6 +504,7 @@ func TestInvokeGetIncident(t *testing.T) {
 	if ir.Events[0].ClassUID != 2005 {
 		t.Errorf("event class_uid = %d, want 2005", ir.Events[0].ClassUID)
 	}
+	assertOCSF(t, ir.Events[0].ClassUID, ir.Events[0].Raw)
 }
 
 // TestInvokeQueryIncidents: the query path returns all matching cases as events.
@@ -445,6 +521,9 @@ func TestInvokeQueryIncidents(t *testing.T) {
 	ir := res.(invokeResult)
 	if len(ir.Events) != 2 {
 		t.Fatalf("got %d events, want 2", len(ir.Events))
+	}
+	for _, e := range ir.Events {
+		assertOCSF(t, e.ClassUID, e.Raw)
 	}
 }
 
@@ -497,7 +576,7 @@ func TestInvokeQueryIncidentsStatusFilter(t *testing.T) {
 	if len(ir.Events) != 1 {
 		t.Fatalf("status filter kept %d events, want 1 (the New case)", len(ir.Events))
 	}
-	fi, _ := ir.Events[0].Raw["finding_info"].(map[string]any)
+	fi := firstFinding(t, ir.Events[0].Raw)
 	if fi["uid"] != "INC2" {
 		t.Errorf("kept case uid = %v, want INC2 (the one whose label matched 'new')", fi["uid"])
 	}
