@@ -213,7 +213,11 @@ event view's sentence templates use the same numbers.
 - **Detection finding fields:**
   - The finding comes from `finding_info.{uid,title,types}`.
   - Severity comes from `severity_id`, else from the `severity` text.
-  - Confidence comes from `confidence_score`, else from `confidence_id`.
+  - Confidence comes from `confidence_score`, capped to 0–100. Without a
+    score, it comes from `confidence_id` (Low, Medium, High become 15, 50,
+    85).
+  - When neither is present or the level is unknown, confidence is left
+    out. It is never written as 0, because 0 means "no confidence" in STIX.
   - OCSF has no field for a detection's pattern. An adapter whose vendor
     gives one puts it in `unmapped.pattern`, and the Indicator's `pattern`
     is read from there. Without it, the Indicator keeps today's
@@ -230,8 +234,14 @@ event view's sentence templates use the same numbers.
     - `device` gives the host, in the versions that have it.
   - A piece with no `device` uses the finding's own `device`. A detection
     finding always has one.
-  - Everything a piece names goes into the Sighting's `where_sighted` and the
-    observation's refs, as before.
+  - The finding's own `device` always names a host, even when the finding
+    has no `evidences[]`.
+  - Everything a piece names goes into the observation's
+    `observed_data_refs` only. STIX allows only identity and location
+    objects in a Sighting's `where_sighted_refs`, which names who saw it.
+    So the alert's entities no longer go there.
+  - ATT&CK technique ids from `finding_info.types` are still written to the
+    Indicator's `indicator_types`, as today.
   - Pieces are no longer sent through the registry by class number. OCSF
     gives them no class number.
 - **A cloud detection finding names its cloud account and resources.**
@@ -259,6 +269,15 @@ event view's sentence templates use the same numbers.
   and the host helper read only the endpoints and objects the calling class
   passes in. So every lookup names a field that class actually has.
 
+- **Times are OCSF's.** A `timestamp_t` field, such as `time` or
+  `created_time`, holds epoch milliseconds. OCSF's datetime profile adds a
+  readable `_dt` twin, such as `time_dt`, as an RFC 3339 string.
+  - Normalizers read the integer first and the `_dt` string as a fallback.
+  - Fixtures carry both, so the demo data stays readable.
+- **Events with no OCSF class** are Base Events (class 0), with the vendor's
+  fields under `unmapped.<vendor>`. The event view shows the scalars there,
+  as it did when they sat at the top level.
+
 **Adapters and fixtures produce what the normalizers read.**
 
 - **Okta:**
@@ -269,7 +288,10 @@ event view's sentence templates use the same numbers.
 - **ServiceNow:** the bridge writes `finding_info_list`, `assignee_group` and
   `src_url`.
 - **CrowdStrike Falcon and GreyNoise:** write `finding_info` and
-  `evidences[]`.
+  `evidences[]`. Falcon writes evidence only for the vendor fields the adapter
+  actually reads.
+- **Falcon hosts** become Device Inventory Info (5001) events, from the host
+  fields the adapter already reads.
 - **Every fixture** is written at its class's floor and states that version
   in `metadata.version`. This completes the "Test both ends" rule in
   `03 §4.16` for the two older scenarios. A fixture that needs a newer field
@@ -313,6 +335,8 @@ event view's sentence templates use the same numbers.
        list, an object field an object, and a scalar field a scalar. That
        catches a field read in the wrong shape, such as `privileges` as one
        string instead of a list.
+     - It checks a scalar's type too. A `timestamp_t` must be an integer, a
+       string type a string, a boolean a boolean, and so on.
      - Each in-tree adapter's tests check its output events the same way.
 - **To move the ceiling later,** fetch the new release and fix whatever fails.
 
