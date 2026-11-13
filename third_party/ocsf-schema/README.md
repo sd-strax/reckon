@@ -48,8 +48,6 @@ The profiles in each file are:
 | 1.8.0 | the 1.7.0 list and `ai_operation` |
 | 1.9.0 | the 1.8.0 list and `record_integrity` |
 
-All nine files were downloaded on 2026-11-13.
-
 ## The files are not modified
 
 Each `schema.json` is the server's response, saved byte for byte. It is not
