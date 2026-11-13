@@ -10,9 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
 	"github.com/sd-strax/reckon/aggregate"
-	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/capability/ocsfview"
 )
 
@@ -435,7 +433,7 @@ func (rl *refLabeler) resolve(ref string) string {
 	if len(v.Sentence) > 0 {
 		label = sentenceText(v)
 	}
-	label += decodedSuffix(v, e.Payload)
+	label += decodedSuffix(v)
 	return fmt.Sprintf("%s @ %s", label, e.Time.UTC().Format("15:04:05Z"))
 }
 
@@ -455,17 +453,17 @@ const (
 // larger bound, so a long blob identifies itself without filling the page;
 // the inspector shows the whole of both. The label the suffix joins is made
 // span-safe as a whole where it is put in a code span.
-func decodedSuffix(v ocsfview.View, payload []byte) string {
+//
+// The view names the field the command line came from and carries its value
+// as stored, so the suffix shows exactly what was decoded: an entry of a
+// list (a scheduled job's action) reads the same as a plain field.
+func decodedSuffix(v ocsfview.View) string {
 	if v.Decoded == nil {
 		return ""
 	}
 	var out strings.Builder
-	var p map[string]any
-	_ = json.Unmarshal(payload, &p)
-	if stored, ok := capability.LookupPath(p, v.Decoded.Field); ok {
-		if s, _ := stored.(string); s != "" {
-			out.WriteString(" · " + v.Decoded.Field + ": " + clipRunes(s, exportStoredMax))
-		}
+	if v.Decoded.Stored != "" {
+		out.WriteString(" · " + v.Decoded.Field + ": " + clipRunes(v.Decoded.Stored, exportStoredMax))
 	}
 	out.WriteString(" · decoded (" + v.Decoded.Encoding + "): " + clipRunes(v.Decoded.Text, exportDecodedMax))
 	return out.String()

@@ -3,8 +3,10 @@ package ocsfview
 import (
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 
+	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/internal/ocsfschema"
 )
 
@@ -23,11 +25,87 @@ var lookups = ocsfschema.NewRecorder()
 
 func TestMain(m *testing.M) {
 	record(lookups)
+	viewHook = checkNamedFields
 	code := m.Run()
 	if code == 0 {
 		code = checkLookups(lookups)
 	}
+	if code == 0 {
+		code = reportNamedFields()
+	}
 	os.Exit(code)
+}
+
+// namedFieldFailures collects, over the whole test run, each view that names
+// a field of its event wrongly (see checkNamedFields).
+var (
+	namedFieldMu       sync.Mutex
+	namedFieldFailures []string
+)
+
+// checkNamedFields is the rule for a field path a view names: the path must
+// lead, in the view's own event, to the value the view says it read there.
+// It runs on every view any test renders, so a template that names a field
+// is checked by whichever test exercises it.
+//
+// Today the one such path is Decoded.Field. It is resolved the way a reader
+// of the view would, with capability.LookupPath (through ResolveField for an
+// entry of a list), and must give Decoded.Stored.
+func checkNamedFields(e Event, v View) {
+	if msg := namedFieldProblem(e, v); msg != "" {
+		namedFieldMu.Lock()
+		namedFieldFailures = append(namedFieldFailures, msg)
+		namedFieldMu.Unlock()
+	}
+}
+
+func namedFieldProblem(e Event, v View) string {
+	if v.Decoded == nil {
+		return ""
+	}
+	got, ok := ResolveField(e.Payload, v.Decoded.Field, capability.LookupPath)
+	switch {
+	case !ok:
+		return fmt.Sprintf("class %d: the view names %q as the decoded field, and the event has no such field", e.ClassUID, v.Decoded.Field)
+	case got != any(v.Decoded.Stored) || v.Decoded.Stored == "":
+		return fmt.Sprintf("class %d: the view names %q as the decoded field and %q as its stored value, and the event holds %v there", e.ClassUID, v.Decoded.Field, v.Decoded.Stored, got)
+	}
+	return ""
+}
+
+func reportNamedFields() int {
+	namedFieldMu.Lock()
+	defer namedFieldMu.Unlock()
+	if len(namedFieldFailures) == 0 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, "--- FAIL: fields a view names (adr/0356)")
+	for _, f := range namedFieldFailures {
+		fmt.Fprintln(os.Stderr, "    "+f)
+	}
+	fmt.Fprintln(os.Stderr, "FAIL")
+	return 1
+}
+
+// The rule catches a view that names a field the event does not have, or a
+// stored value the field does not hold.
+func TestNamedFieldRule(t *testing.T) {
+	e := Event{ClassUID: classScheduledJob, Payload: payload(`{"job":{"cmd_line":"old.exe","job_actions":[{"desc":"no command"},{"cmd_line":"pwsh -enc ZQBjAGgAbwA="}]}}`)}
+	good := View{Decoded: &Decoded{Field: "job.job_actions[1].cmd_line", Stored: "pwsh -enc ZQBjAGgAbwA="}}
+	if msg := namedFieldProblem(e, good); msg != "" {
+		t.Errorf("a correct view: %s", msg)
+	}
+	for name, d := range map[string]Decoded{
+		"the first action, which has no command": {Field: "job.job_actions[0].cmd_line", Stored: "pwsh -enc ZQBjAGgAbwA="},
+		"the fallback field, not the one read":   {Field: "job.cmd_line", Stored: "pwsh -enc ZQBjAGgAbwA="},
+		"past the end of the list":               {Field: "job.job_actions[2].cmd_line", Stored: "pwsh -enc ZQBjAGgAbwA="},
+		"a field the event lacks":                {Field: "process.cmd_line", Stored: "pwsh -enc ZQBjAGgAbwA="},
+		"no stored value":                        {Field: "job.job_actions[1].cmd_line"},
+	} {
+		if msg := namedFieldProblem(e, View{Decoded: &d}); msg == "" {
+			t.Errorf("%s: the rule passed %+v", name, d)
+		}
+	}
 }
 
 // record points the package's lookup hooks at rec.

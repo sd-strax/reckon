@@ -217,7 +217,11 @@ func Render(e Event, entities []Entity) View {
 	if r.fields == nil {
 		r.fields = []Field{}
 	}
-	return View{Sentence: r.sentence, Fields: r.fields, Category: Category(e.ClassUID, e.Payload), Decoded: r.decoded, Slots: r.slots}
+	v := View{Sentence: r.sentence, Fields: r.fields, Category: Category(e.ClassUID, e.Payload), Decoded: r.decoded, Slots: r.slots}
+	if viewHook != nil {
+		viewHook(e, v)
+	}
+	return v
 }
 
 // renderer accumulates one view. The sentence helpers add nothing for an
@@ -1021,10 +1025,6 @@ func (r *renderer) scheduledJob() {
 	runAs := r.user("job.user")
 	name, path := r.str("job.name"), r.str("job.file.path")
 	cmds := r.jobCommandLines()
-	cmd := ""
-	if len(cmds) > 0 {
-		cmd = cmds[0]
-	}
 	job := slot{text: firstNonEmpty(name, path), ref: r.bind(identity.TypeScheduledTask, func(p map[string]any) bool {
 		return (name != "" && propEquals(p, "name", name)) || (path != "" && propEquals(p, "path", path))
 	})}
@@ -1045,10 +1045,14 @@ func (r *renderer) scheduledJob() {
 	r.entityField("Job", job)
 	r.mono("Path", path)
 	// One line per action. The first is the one read back when encoded.
+	lines := make([]string, 0, len(cmds))
 	for _, c := range cmds {
-		r.mono("Command line", c)
+		r.mono("Command line", c.text)
+		lines = append(lines, c.text)
 	}
-	r.decodeText(r.jobCommandField(), cmd)
+	if len(cmds) > 0 {
+		r.decodeText(cmds[0].field, cmds[0].text)
+	}
 	r.entityField("Runs as", slot{text: r.qualifiedUser("job.user"), ref: runAs.ref})
 	r.activityField()
 	r.entityField("Actor", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
@@ -1058,36 +1062,37 @@ func (r *renderer) scheduledJob() {
 	r.keySlot("host", host)
 	r.keySlot("job", job)
 	r.keySlot("run_as", runAs)
-	r.keyExact("cmd_line", slot{text: strings.Join(cmds, "\n")})
+	r.keyExact("cmd_line", slot{text: strings.Join(lines, "\n")})
 	r.keyText("activity", r.str("activity_name"))
+}
+
+// jobCommand is one command line of a job and the field it was read from,
+// as Decoded.Field names a field.
+type jobCommand struct {
+	field string
+	text  string
 }
 
 // jobCommandLines reads a job's command lines as the normalizer does (03
 // §4.7): one per action in job.job_actions[] (OCSF 1.9.0), else the
-// deprecated job.cmd_line.
-func (r *renderer) jobCommandLines() []string {
-	var out []string
-	for _, a := range pathList(r.p, "job.job_actions") {
+// deprecated job.cmd_line. Each carries the field it came from: an action
+// with no command line is passed over, so the first command line may be a
+// later action's.
+func (r *renderer) jobCommandLines() []jobCommand {
+	var out []jobCommand
+	for i, a := range pathList(r.p, "job.job_actions") {
 		m, _ := a.(map[string]any)
 		if c := toString(fieldOf(m, "cmd_line")); c != "" {
-			out = append(out, c)
+			out = append(out, jobCommand{field: "job.job_actions[" + strconv.Itoa(i) + "].cmd_line", text: c})
 		}
 	}
 	if len(out) > 0 {
 		return out
 	}
 	if c := r.str("job.cmd_line"); c != "" {
-		return []string{c}
+		return []jobCommand{{field: "job.cmd_line", text: c}}
 	}
 	return nil
-}
-
-// jobCommandField names the field the first command line came from.
-func (r *renderer) jobCommandField() string {
-	if len(pathList(r.p, "job.job_actions")) > 0 {
-		return "job.job_actions[0].cmd_line"
-	}
-	return "job.cmd_line"
 }
 
 func (r *renderer) module() {
@@ -1980,9 +1985,13 @@ func hashesOf(v any) map[string]string {
 // event, and the function it returns is called when Render returns. Both are
 // nil outside tests. The package's tests set them to record which OCSF fields
 // the templates read (adr/0356).
+//
+// viewHook, when set, is given every view Render returns, with its event.
+// The tests use it to check that a field the view names is where it says.
 var (
 	lookupHook func(obj map[string]any, path string, found any)
 	renderHook func(e Event) (done func())
+	viewHook   func(e Event, v View)
 )
 
 // pathAny walks a dotted path through nested maps. Every read of an OCSF
