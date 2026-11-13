@@ -909,8 +909,9 @@ from strict STIX 2.1, which uses `(message_id, from_ref.value)`: `message_id` is
 RFC-mandated unique, and identity on it alone lets two sources' records of
 one message stitch without agreeing on its sender. A message that also
 carries the source's `email.uid` yields a weak `email-message` on
-`(source_tool, uid)` outside `object_refs`, with an `aliases` edge from the
-strong one (the account pattern, adr/0324): `email.uid` is what an
+`(source_tool, uid)`, `weak: true`, outside `object_refs`, with an
+`aliases` edge from the strong one — the rule hosts and accounts follow
+(adr/0211, adr/0324): a weak object never joins another on its own: `email.uid` is what an
 `email_url_activity` click (§4.11) names the message by, so the click
 stitches to the delivered message through that edge (adr/0356). Same stitching-precedence rationale as the
 `process`/`email-addr`/`user-account` deviations (§7.2). Cross-tool stitching

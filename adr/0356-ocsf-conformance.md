@@ -124,14 +124,17 @@ the event view's sentence templates use the same number:
   - `email.bcc` is gone. OCSF carries no blind copy, so there is no
     `bcc_refs`.
 - **Email URL activity: the click names the message by `email_uid`.** The
-  `email-message` identity follows the account pattern (adr/0324): strongest
-  identifier first, a lesser one minting its own object with `aliases` to the
-  strongest.
+  `email-message` identity follows the rule hosts and accounts already
+  follow (adr/0211, adr/0324): strongest identifier first; a lesser one
+  mints its own weak object (`weak: true`), which never joins another on
+  its own and is joined only by an `aliases` edge from a record that names
+  both.
   - An email that carries `email.message_uid` (the RFC 5322 Message-ID) is
     identified by it, as today.
   - An email that carries only the source's `email.uid` mints a weak
-    `email-message` on `(source_tool, uid)`. That is the only identity a click
-    can name.
+    `email-message` on `(source_tool, uid)`, `weak: true`, the counterpart
+    of the host's `(source_tool, device_uid)`. That is the only identity a
+    click can name.
   - An email activity event carrying both mints the strong message and the
     weak one, with an `aliases` edge, so the click stitches to the delivered
     message through it.
