@@ -1,4 +1,4 @@
-# 0356 — Every normalizer reads the OCSF class and fields the schema defines, from a floor of 1.1.0 (or the version that introduced the class) to a ceiling of 1.7.0; a recorded schema and a lookup recorder fail a test on any class number or field path OCSF does not define
+# 0356 — Every normalizer reads the OCSF class and fields the schema defines, from a floor of 1.1.0 (or the version that introduced the class) to a ceiling of 1.9.0; a recorded schema and a lookup recorder fail a test on any class number or field path OCSF does not define
 
 Issue: #356 · PR: #358 · Status: proposed
 
@@ -17,8 +17,8 @@ agree with each other and every test passes, but nothing compares them with
 OCSF.
 
 A check of every path each normalizer and the event view (`capability/ocsfview`)
-reads, against the schema exports for 1.1.0 and 1.7.0 from schema.ocsf.io
-(Windows extension included), found:
+reads, against the schema exports for 1.1.0, 1.7.0 and 1.9.0 from
+schema.ocsf.io (Windows extension included), found:
 
 - **Four classes registered under numbers OCSF gives to other classes:**
 
@@ -49,7 +49,7 @@ reads, against the schema exports for 1.1.0 and 1.7.0 from schema.ocsf.io
   | Scheduled job | `job.path`, `job.command_line` | `job.file.path`, `job.cmd_line` |
   | Network activity | `process.*` | `actor.process.*` |
   | Email | `email.attachments[]` | `email.files[]`, from 1.4.0. Below that an attachment is its own Email File Activity event (4011). |
-  | Email | `email.bcc[]` | Nothing |
+  | Email | `email.bcc[]` | Nothing up to 1.8.0; `email.bcc[]` from 1.9.0 |
   | Email URL | `email.message_uid` | `email_uid` at the top of the event, "used to correlate related email alert and activity events", which matches `email.uid`, not `email.message_uid` |
   | Detection finding | `finding.*` (`uid`, `title`, `types`, `severity`, `confidence`) | `finding_info.*`, top-level `severity`/`severity_id` and `confidence`/`confidence_id`/`confidence_score` |
   | Detection finding | `evidence`: one embedded event with its own `class_uid`, normalized through the registry | `evidences[]`: a list of evidence artifacts (`actor`, `process`, `file`, `src_endpoint`, `dst_endpoint`, `connection_info`, `query`, `api`, `data` at 1.1.0; `device`, `user`, `url`, `email`, `reg_key`, `reg_value`, `job` and more by 1.7.0), none of them an event |
@@ -77,17 +77,41 @@ Every other registered class, and every other path, resolves at both ends.
 The floor is 1.1.0 because Security Lake writes it: AWS's page on OCSF in
 Security Lake gives `metadata.version` `1.1.0` for every version-2 native
 source (version 1 wrote `1.0.0-rc.2`). Custom sources may write up to 1.3.
-Exports of 1.8.0 and 1.9.0 fail on schema.ocsf.io ("Cannot export in the
-legacy format"), so the ceiling stays at 1.7.0, the newest exportable release.
+The ceiling is the newest release, 1.9.0. Its bulk export fails with the
+default profile set, because two optional profiles (`linux_users`,
+`macos_users`) both define `process.euid`; an export that names its profiles
+and leaves those two out succeeds, and neither adds a field reckon reads.
+From 1.7.0 to 1.9.0 no field reckon reads is removed or made required, and
+three change:
+
+- `email.bcc[]` arrives at 1.9.0.
+- `job.cmd_line` is deprecated since 1.9.0 for the job's list of actions,
+  `job.job_actions[].cmd_line`. The deprecation note names the object type
+  `job_action`; the attribute is `job_actions`.
+- `actor.app_name` is deprecated since 1.9.0 for `actor.application.name`.
+
+Some fields required at the floor become recommended later:
+`email.from`, `email.to` and `finding_info.title` at 1.4.0, and `job.name` and
+`privileges` at 1.9.0. Every one of them is already read by detection
+(`03 §4.16`: a version defines fields, a source fills a subset), so the
+change asks nothing new of the normalizers. Their tests cover an event
+without each.
+
+`03 §4.18` gave Cloud Resources Inventory a range of 1.7.0 at both ends,
+because its only source is an adapter the engine ships shaped to 1.7.0. A
+test already holds that a 1.4.0-shaped snapshot normalizes to the same ids.
 
 The OCSF schema is Apache-2.0.
 
 ## Decision
 
 **Each class's floor is 1.1.0, or the version that introduced the class if
-later. The ceiling is 1.7.0 for all.** `03 §4.16` applies to every normalizer,
-not only §4.15's. Cloud Resources Inventory's floor is 1.4.0. A field above a
-class's floor is read only when present, as today.
+later. The ceiling is 1.9.0 for all.** `03 §4.16` applies to every normalizer,
+not only §4.15's. Cloud Resources Inventory's range becomes 1.4.0 to 1.9.0;
+its fixture still declares 1.7.0, the version it is shaped at. A field above
+a class's floor is read only when present, as today. A field deprecated
+inside the range is read behind its replacement (`03 §4.16`'s dual-read
+rule); the pairs this adds are below.
 
 **Class numbers are OCSF's.** Each normalizer registers the OCSF number, and
 the event view's sentence templates use the same number:
@@ -119,15 +143,20 @@ the event view's sentence templates use the same number:
 
 **Field paths are OCSF's, class by class:**
 
-- **Scheduled job:** the task path is `job.file.path`, the command line
-  `job.cmd_line`.
+- **Scheduled job:** the task path is `job.file.path`. The command line
+  is read from `job.job_actions[].cmd_line` (1.9.0+), else `job.cmd_line`.
+  A task with several actions keeps the first action's command line as
+  `command_line` and every action's as the list `command_lines`.
 - **Network activity:** the process is `actor.process`.
+- **API activity:** the calling application is read from
+  `actor.application.name` (1.9.0+), else `actor.app_name`.
 - **Email activity:**
   - Attachments are `email.files[]`, read when present (1.4.0+).
   - `email.urls[]` is read the same way.
-  - Blind copy is read from `unmapped.bcc[]`, where an adapter whose
-    vendor reports it puts it. OCSF defines no blind copy, and `unmapped` is
-    OCSF's place for a source's own fields. `bcc_refs` stays.
+  - Blind copy is read from `email.bcc[]` (1.9.0+), else from
+    `unmapped.bcc[]`, where an adapter whose vendor reports it puts it below
+    1.9.0 (`unmapped` is OCSF's place for a source's own fields).
+    `bcc_refs` stays.
 - **Email URL activity: the click names the message by `email_uid`.** The
   `email-message` identity follows the rule hosts and accounts already
   follow (adr/0211, adr/0324): strongest identifier first; a lesser one
@@ -196,9 +225,10 @@ the event view's sentence templates use the same number:
 **A test fails on a class or field OCSF does not define.**
 
 - **A recorded schema:**
-  - A generator (`scripts/ocsf-snapshot`, run by hand) writes, for each of
-    1.1.0, 1.4.0 and 1.7.0, the attribute tree of every class reckon
-    registers, from schema.ocsf.io's export.
+  - A generator (`scripts/ocsf-snapshot`, run by hand) writes the attribute
+    tree of every class reckon registers, from schema.ocsf.io's export, for
+    every version a fixture declares and for the ceiling: 1.1.0, 1.4.0,
+    1.7.0 and 1.9.0. It names its profiles, all but the two that conflict.
   - The output goes under `capability/testdata/ocsf/<version>.json`, with the
     OCSF Apache-2.0 notice beside it.
 - **Three checks against the snapshots:**

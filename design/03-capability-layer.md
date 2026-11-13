@@ -814,13 +814,15 @@ same path on different hosts are different entities.
 
 ### 4.7 OCSF scheduled_job_activity (class_uid 1006) → STIX
 
-Input: OCSF scheduled_job_activity with `job.name`, `job.file.path`,
+Input: OCSF scheduled_job_activity with `job.name`, `job.file.path`, the
+command line from `job.job_actions[].cmd_line` (1.9.0) else the deprecated
 `job.cmd_line`, `job.user.*`, `activity_id`, `device.*`, `time`.
 
 Output:
 
-- `x-scheduled-task` custom SCO with fields `name`, `path`, `command_line`,
-  `principal_user_ref`. Identity rule: `(host_ref.id, name, path)`.
+- `x-scheduled-task` custom SCO with fields `name`, `path`, `command_line`
+  (the first action's), `command_lines` (every action's, when there are
+  several), `principal_user_ref`. Identity rule: `(host_ref.id, name, path)`.
 - `user-account` SCO for the principal user (the user the task runs as),
   shaped by the account rule (§7.2): the record's strongest identifier is in
   `object_refs`; each lesser identifier it carries mints its own account
@@ -887,14 +889,14 @@ downstream consumers filter on the extension field.
 Input: OCSF email_activity with `email.from`, `email.to[]`, `email.cc[]`,
 `email.subject`, `email.message_uid`, `email.uid`, and from 1.4.0
 `email.files[]` (each a file object) and `email.urls[]`, read when present;
-`time`. OCSF defines no blind copy; a source that reports one carries it in
-`unmapped.bcc[]`. Below 1.4.0 an attachment is its own email_file_activity
+`time`. Blind copy is `email.bcc[]` from 1.9.0; below it a source that
+reports one carries it in `unmapped.bcc[]`. Below 1.4.0 an attachment is its own email_file_activity
 event (4011, §4.11a).
 
 Output:
 
 - `email-message` SCO (STIX 2.1 native) with `from_ref`, `to_refs`, `cc_refs`,
-  `bcc_refs` (from `unmapped.bcc[]`), `subject`, `body_multipart` (if available), `is_multipart`,
+  `bcc_refs` (from `email.bcc[]`, else `unmapped.bcc[]`), `subject`, `body_multipart` (if available), `is_multipart`,
   and a `message_id` field populated from `email.message_uid`.
 - `email-addr` SCO for each address (sender, recipients, cc, bcc).
 - `file` SCO for each attachment in `email.files[]`, with hashes if present.
@@ -1096,13 +1098,14 @@ Input: an OCSF API Activity event — a control-plane call against a cloud
 account — with `actor.user.*` (the principal: `uid`, `uid_alt`, `name`,
 `full_name`, `type_id`, `type`, `account.{uid,name,type_id}`,
 `programmatic_credentials[].uid`, `credential_uid`), `actor.session.*`
-(`uid`, `issuer`, `credential_uid`, `is_mfa`), `actor.app_name`, `api.operation`,
+(`uid`, `issuer`, `credential_uid`, `is_mfa`), `actor.application.name`
+(1.9.0) else the deprecated `actor.app_name`, `api.operation`,
 `api.service.name`, `api.request.uid`, `api.response.{code,error,error_message,message}`,
 `cloud.provider`, `cloud.account.{uid,name,type_id}`, `cloud.org.uid`,
 `cloud.region`, `resources[].{uid,name,type,region,zone,group.{name,uid},namespace,cloud_partition}`,
 `src_endpoint.ip`, `activity_id`, `activity_name`, `status_id`, `status`,
 `http_request.user_agent`, `time`. The class's version range (§4.16) is
-1.1.0, the floor, through 1.7.0, the ceiling: every field the normalizer
+1.1.0, the floor, through 1.9.0, the ceiling: every field the normalizer
 needs exists at 1.1.0; `resources[].zone` (from 1.5.0) and
 `programmatic_credentials[].uid` (from 1.6.0) arrive above the floor and
 are read when present, contributing nothing when absent; the two fields
@@ -1198,14 +1201,14 @@ the version AWS Security Lake's native sources write — or the version that
 introduced the class when it is later (1.4.0 for cloud_resources_inventory_info,
 §4.18); each class's fixture declares it in `metadata.version`. The
 **ceiling** is the newest published schema the normalizers were checked
-against, 1.7.0 (adr/0356). Class numbers are OCSF's, and a recorded schema
+against, 1.9.0 (adr/0356). Class numbers are OCSF's, and a recorded schema
 at the floors and the ceiling (`capability/testdata/ocsf/`) fails a test on
 a registered class, a normalizer or event-view lookup, or a fixture field
 that OCSF does not define (`unmapped.*`, OCSF's place for a source's own
 fields, excepted). OCSF reserves breaking changes for a
 major version; within a major line an attribute is added as optional or
 deprecated in place, and none of §4.15's fields was removed or made required
-anywhere from 1.1.0 to 1.7.0 — which is what makes a range workable. The
+anywhere from 1.1.0 to 1.9.0 — which is what makes a range workable. The
 rules, which §4.15 follows and every class is held to:
 
 - **A version defines fields; a source fills a subset.** A source that
@@ -1233,7 +1236,8 @@ rules, which §4.15 follows and every class is held to:
   replacement first and the deprecated field as the fallback, for as long
   as the floor is below the deprecating version. The class's ADR names each pair (§4.15:
   `programmatic_credentials[].uid` over `user.credential_uid`,
-  `cloud.account.uid` over `cloud.project_uid`).
+  `cloud.account.uid` over `cloud.project_uid`, `actor.application.name` over
+  `actor.app_name`; §4.7: `job.job_actions[].cmd_line` over `job.cmd_line`).
 - **Identity may admit an above-floor field, empty when absent.** A field
   that exists only above the floor may be identity-contributing (§7.2) when
   leaving it out would merge distinct entities. Its absence contributes an
@@ -1276,10 +1280,11 @@ name,type_id},region,project_uid}`, `resources[].{uid,name,type,region,zone,
 group,namespace,data,labels,tags,criticality,owner,created_time,
 modified_time}`, `activity_id`, `activity_name`, `time`. The class first
 exists at OCSF 1.4.0; `created_time` and `modified_time` arrive at 1.7.0.
-Its version range (§4.16) is 1.7.0 at both ends: the first source for the
-class is a configuration adapter the engine ships, shaped to 1.7.0, and the
-bundled fixture declares 1.7.0; a 1.4.0-shaped snapshot still normalizes to
-the same ids by field detection, which a test holds.
+Its version range (§4.16) is 1.4.0, the version that introduced it, to
+1.9.0: the first source for the class is a configuration adapter the engine
+ships, shaped to 1.7.0, and the bundled fixture declares 1.7.0; a
+1.4.0-shaped snapshot normalizes to the same ids by field detection, which a
+test holds (adr/0356).
 
 Output. The identity rules are §4.15's, unchanged, so a snapshot of a
 resource and the calls against it meet on one node:
@@ -1332,7 +1337,7 @@ a synced user: `on_premises_security_identifier`,
 object id, an object GUID, a user id, or a SID for an on-premises directory
 keyed by it). The domain family's SID is `user.uid` when it is one, else
 `user.uid_alt` when it has the SID form, else the unmapped field. Its
-version range (§4.16) is 1.1.0 to 1.7.0: the bundled fixture declares 1.1.0;
+version range (§4.16) is 1.1.0 to 1.9.0: the bundled fixture declares 1.1.0;
 every field identity reads (`user.uid`, `uid_alt`, `name`, `domain`,
 `email_addr`) and `unmapped` are present at the floor, and `ldap_person`, read
 only for properties, is read when present.
