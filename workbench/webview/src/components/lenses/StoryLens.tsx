@@ -18,7 +18,7 @@ import { hypName } from "../../derive/hyps";
 import { eventOfRecord, groupOverEvents, mergeSameEvents, viaVerbs, type EventCall, type SameEvent } from "../../derive/sameEvent";
 import type { EventClassKeys, EventGroup, EventRow, SentenceToken } from "../../../../src/viewTypes";
 import { EventStrip, EvidenceGraph } from "../DerivedViews";
-import { Empty, RefChip, Sentence, fmtDateTime } from "../shared";
+import { Empty, EventSentence, RefChip, fmtDateTime } from "../shared";
 import type { Hypothesis } from "../../../../src/viewTypes";
 
 const CATEGORY: Record<string, string> = { Authentication: "auth", "Process Activity": "process", "Network Activity": "network", "DNS Activity": "network", "Detection Finding": "detection", "Security Finding": "detection", "observed-data": "observed" };
@@ -222,7 +222,7 @@ export function StoryLens() {
   const dividerAt = Number.isFinite(created) ? shown.findIndex((r) => Date.parse(r.time) >= created) : -1;
   const openCall = (callId: string) => openInspector({ kind: "call", callId });
   const toggle = (ref: string) => setExpanded((x) => { const next = { ...x }; if (next[ref]) delete next[ref]; else next[ref] = true; return next; });
-  const sentenceOf = (r: { ref: string; sentence?: SentenceToken[]; label: string }) => r.sentence ? <Sentence tokens={r.sentence} /> : <span className="imeta">{r.label}</span>;
+  const sentenceOf = (r: { ref: string; sentence?: SentenceToken[]; label: string }) => <EventSentence sentence={r.sentence} label={r.label} />;
   return (
     <div className="lens story">
       <section className="lsection">

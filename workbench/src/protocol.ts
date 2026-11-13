@@ -118,6 +118,18 @@ export interface DerivedViews {
   graph: GraphView;
   /** The entities the cited evidence observed, most cited first (Summary key entities). */
   entities?: { ref: string; citations: number }[];
+  /** The pinned user accounts the record joins by an alias (adr/0352); absent when none. */
+  accountAliases?: AccountAlias[];
+}
+
+/**
+ * A set of user accounts one pin cites that a live aliases edge joins
+ * (adr/0324): `ref` the login's account, the card's one chip; `also` the
+ * others (the SID's), read beside it.
+ */
+export interface AccountAlias {
+  ref: string;
+  also: string[];
 }
 
 /**

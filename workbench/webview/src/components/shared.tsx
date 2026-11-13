@@ -41,12 +41,33 @@ export function EntityChip({ refId: r, text }: { refId: string; text: string }) 
   );
 }
 
-/** An event's sentence (adr/0090): the server's tokens, entities as chips. */
-export function Sentence({ tokens, className }: { tokens: SentenceToken[]; className?: string }) {
+/** An event's sentence (adr/0090): the server's tokens, entities as chips.
+ * `beside` names, per entity ref, the aliased accounts whose identifiers read
+ * after its chip (adr/0352). */
+export function Sentence({ tokens, className, beside }: { tokens: SentenceToken[]; className?: string; beside?: Map<string, string[]> }) {
   return (
     <span className={"sentence" + (className ? " " + className : "")}>
-      {tokens.map((t, i) => t.t === "entity" && t.ref ? <EntityChip key={i} refId={t.ref} text={t.text} /> : <span key={i}>{t.text}</span>)}
+      {tokens.map((t, i) => t.t === "entity" && t.ref
+        ? <span key={i}><EntityChip refId={t.ref} text={t.text} />{(beside?.get(t.ref) ?? []).map((o) => <AliasOf key={o} refId={o} />)}</span>
+        : <span key={i}>{t.text}</span>)}
     </span>
+  );
+}
+
+/** An event as one line (adr/0090): its sentence, or its class name when the class has no template. */
+export function EventSentence({ sentence, label, beside }: { sentence?: SentenceToken[]; label: string; beside?: Map<string, string[]> }) {
+  return sentence?.length ? <Sentence tokens={sentence} beside={beside} /> : <span className="imeta">{label}</span>;
+}
+
+/** An aliased account's other identifier (adr/0352), read beside the chip
+ * of the account it is joined to; it opens the inspector on its own object. */
+export function AliasOf({ refId: r }: { refId: string }) {
+  const { state, resolve, openInspector } = useApp();
+  const resolved = state.labels[r];
+  useEffect(() => { if (resolved === undefined) resolve(r); }, [r, resolved, resolve]);
+  return (
+    <span className="aliasof mono" data-ref={r} title={"Also this account: open in the inspector: " + r}
+      onClick={(e) => { e.stopPropagation(); openInspector({ kind: "ref", ref: r }); }}>{resolved || chipText(r, undefined)}</span>
   );
 }
 

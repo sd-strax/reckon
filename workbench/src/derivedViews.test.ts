@@ -24,3 +24,27 @@ describe("derived views over every citing record (#141)", () => {
     expect(v.strip).toEqual([]);
   });
 });
+
+describe("pinned accounts the record joins by an alias (adr/0352)", () => {
+  const sid = "user-account--sid", login = "user-account--login", other = "user-account--other";
+  const acct: Record<string, EvidenceDoc> = {
+    [sid]: { ref: sid, kind: "stix", type: "user-account", payload: { account_login: "CONTOSO\\svc_backup", user_id: "S-1-5-21-1004" } } as unknown as EvidenceDoc,
+    [login]: { ref: login, kind: "stix", type: "user-account", payload: { account_login: "CONTOSO\\svc_backup" } } as unknown as EvidenceDoc,
+    [other]: { ref: other, kind: "stix", type: "user-account", payload: { account_login: "CONTOSO\\svc_backup2" } } as unknown as EvidenceDoc,
+  };
+  const get = async (ref: string) => acct[ref] ?? null;
+  const pins = [{ interpretationId: "pin", finding: "", inputRefs: [sid, login, other], actor: "HUMAN", pinnedAt: "", superseded: false }];
+  it("joins a live aliases edge, the login's account first; a withdrawn edge or a name joins nothing", async () => {
+    const reader = async (ref: string) => ref === login ? [sid] : ref === other ? [] : null;
+    const v = await buildDerivedViews([], get, { pins }, reader);
+    expect(v.accountAliases).toEqual([{ ref: login, also: [sid] }]);
+    const none = await buildDerivedViews([], get, { pins }, async () => []);
+    expect(none.accountAliases).toBeUndefined();
+  });
+  it("reads the edges from the account's identity view by default, live ones only", async () => {
+    const withView = (ref: string, others: { otherRef: string; withdrawn: boolean }[]) => ({ ...acct[ref]!, accountIdentity: { aliases: others, distinct: [], seenAs: { logins: [], ids: [], principalNames: [] }, owners: [] } }) as unknown as EvidenceDoc;
+    const docsOf: Record<string, EvidenceDoc> = { [sid]: withView(sid, [{ otherRef: login, withdrawn: false }]), [login]: withView(login, []), [other]: withView(other, [{ otherRef: sid, withdrawn: true }]) };
+    const v = await buildDerivedViews([], async (r) => docsOf[r] ?? null, { pins });
+    expect(v.accountAliases).toEqual([{ ref: login, also: [sid] }]);
+  });
+});

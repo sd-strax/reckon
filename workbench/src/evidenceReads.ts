@@ -6,7 +6,7 @@
 import type * as vscode from "vscode";
 import type { Appearance, EventRepeats, EventRow, EvidenceDoc, IdentityViews, ThreadEntry } from "./backend";
 import { BackendRequestError } from "./client/http";
-import { buildDerivedViews, type CitingRecords } from "./derivedViews";
+import { buildDerivedViews, liveAliases, type CitingRecords } from "./derivedViews";
 import type { DocumentHost } from "./documentHost";
 import { deriveEvidenceLabel } from "./evidenceLabel";
 import { bearsIdentity, identityKindOf, identityViewKeys, identityWord, isPersonDoc } from "./identityKinds";
@@ -84,6 +84,9 @@ export class EvidenceReads {
   // read that began before an act moved an identity is dropped rather than
   // posted.
   private identityGeneration = 0;
+
+  // What each panel last derived its views from (adr/0352), for an identity act to derive them again.
+  private derivedInputs = new WeakMap<vscode.WebviewPanel, { thread: ThreadEntry[]; seq: number; citing: CitingRecords }>();
 
   // The entities with an identity act in flight, from any panel: one at a time.
   private readonly actsInFlight = new Set<string>();
@@ -189,8 +192,27 @@ export class EvidenceReads {
    * never load-bearing). Posted as a slice patch.
    */
   async postDerivedViews(panel: vscode.WebviewPanel, thread: ThreadEntry[], seq: number, citing: CitingRecords): Promise<void> {
-    const derived = await buildDerivedViews(thread, (ref) => this.getDoc(ref), citing);
+    this.derivedInputs.set(panel, { thread, seq, citing });
+    const current = this.host.sameIdentity();
+    const generation = this.identityGeneration;
+    // An account's aliases are read fresh: the held doc keeps no identity view (adr/0352).
+    const derived = await buildDerivedViews(thread, (ref) => this.getDoc(ref), citing, async (ref) => liveAliases(await this.host.client.evidence.get(ref).catch(() => null)));
+    // An identity act landed meanwhile: the aliases may be from before it, and
+    // the act's own re-derive posts instead.
+    if (!current() || generation !== this.identityGeneration) return;
     void this.host.post(panel, { type: "state.patch", seq, patch: { derived } });
+  }
+
+  /**
+   * After an identity act, every open investigation derives its views again
+   * from the record it last derived them from (adr/0352): which pinned
+   * accounts the record joins can have changed with no thread change.
+   */
+  private rederiveOpen(): Promise<void[]> {
+    return Promise.all(this.host.openPanels().flatMap((p) => {
+      const last = this.derivedInputs.get(p);
+      return last ? [this.postDerivedViews(p, last.thread, last.seq, last.citing)] : [];
+    }));
   }
 
   /**
@@ -478,7 +500,7 @@ export class EvidenceReads {
     for (const other of this.host.openPanels()) {
       if (other !== panel) void this.host.post(other, { type: "identity.changed", ref });
     }
-    await this.answerInspector(id, panel, { kind: "ref", ref });
+    await Promise.all([this.answerInspector(id, panel, { kind: "ref", ref }), this.rederiveOpen()]);
   }
 
   /** The person changed: nothing read as the previous one stays. */
@@ -488,5 +510,6 @@ export class EvidenceReads {
     this.docCache.clear();
     this.docReads.clear();
     this.labelCache.clear();
+    this.derivedInputs = new WeakMap();
   }
 }
