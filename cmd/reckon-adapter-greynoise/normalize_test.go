@@ -1,9 +1,44 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsfschema"
 )
+
+// assertOCSF is check 3 of adr/0356 for this adapter: every event it emits
+// holds only fields OCSF defines for its class at the version it declares,
+// each in the shape the schema gives it, and names the class it is sent as.
+func assertOCSF(t *testing.T, evs []ocsfEvent) {
+	t.Helper()
+	for i, e := range evs {
+		if got := e.Raw["class_uid"]; got != e.ClassUID {
+			t.Errorf("event %d: sent as class %d, and the event says %v", i, e.ClassUID, got)
+		}
+		if meta, _ := e.Raw["metadata"].(map[string]any); meta["version"] != ocsfVersion {
+			t.Errorf("event %d: metadata.version = %v; want %s", i, meta["version"], ocsfVersion)
+		}
+		for _, p := range ocsfschema.ValidateEvent(e.Raw) {
+			t.Errorf("event %d, class %d: %s", i, e.ClassUID, p)
+		}
+	}
+}
+
+// unmapped is the event's own fields, where OCSF has none for them.
+func unmapped(t *testing.T, e ocsfEvent) map[string]any {
+	t.Helper()
+	um, ok := e.Raw["unmapped"].(map[string]any)
+	if !ok {
+		t.Fatalf("no unmapped object in %v", e.Raw)
+	}
+	return um
+}
 
 // Fixtures follow the vendor's shipped v3 response schema (0.5.4):
 // classification/actor/last_seen/tags nested under
@@ -22,25 +57,99 @@ func TestNormalizeMaliciousToDetectionFinding(t *testing.T) {
 	if e.ClassUID != 2004 {
 		t.Fatalf("class_uid = %d, want 2004 (detection_finding)", e.ClassUID)
 	}
-	finding, _ := e.Raw["finding"].(map[string]any)
+	finding, _ := e.Raw["finding_info"].(map[string]any)
 	if finding["uid"] != "greynoise:45.83.64.1" {
-		t.Errorf("finding.uid = %v", finding["uid"])
+		t.Errorf("finding_info.uid = %v", finding["uid"])
 	}
 	if title, _ := finding["title"].(string); !strings.Contains(title, "Mirai") {
-		t.Errorf("finding.title = %q, want it to name the actor", title)
+		t.Errorf("finding_info.title = %q, want it to name the actor", title)
 	}
 	if types, _ := finding["types"].([]string); len(types) != 2 || types[0] != "Mirai" {
-		t.Errorf("finding.types = %v, want the tag NAMES", finding["types"])
+		t.Errorf("finding_info.types = %v, want the tag NAMES", finding["types"])
 	}
 	if e.Time.IsZero() {
 		t.Error("date-only last_seen must parse")
 	}
-	// The nested evidence must carry the IP so the engine mints an ipv4-addr SCO.
-	ev, _ := e.Raw["evidence"].(map[string]any)
-	se, _ := ev["src_endpoint"].(map[string]any)
-	if se["ip"] != "45.83.64.1" {
-		t.Errorf("evidence src_endpoint.ip = %v, want the IP", se["ip"])
+	if e.Raw["confidence_id"] != 3 || e.Raw["confidence"] != "High" {
+		t.Errorf("confidence = %v / %v; want 3 / High", e.Raw["confidence_id"], e.Raw["confidence"])
 	}
+	// The one evidence artifact carries the IP so the engine mints an
+	// ipv4-addr SCO.
+	artifacts, _ := e.Raw["evidences"].([]any)
+	if len(artifacts) != 1 {
+		t.Fatalf("evidences = %v; want one artifact", e.Raw["evidences"])
+	}
+	se, _ := artifacts[0].(map[string]any)["src_endpoint"].(map[string]any)
+	if se["ip"] != "45.83.64.1" {
+		t.Errorf("evidences[0].src_endpoint.ip = %v, want the IP", se["ip"])
+	}
+	// OCSF has no field for a pattern or for the GreyNoise record.
+	um := unmapped(t, e)
+	if um["pattern"] != "[ipv4-addr:value = '45.83.64.1']" {
+		t.Errorf("unmapped.pattern = %v", um["pattern"])
+	}
+	if raw, _ := um["greynoise"].(map[string]any); raw["ip"] != "45.83.64.1" {
+		t.Errorf("unmapped.greynoise = %v; want the GreyNoise record", um["greynoise"])
+	}
+	for _, k := range []string{"finding", "evidence", "greynoise"} {
+		if _, has := e.Raw[k]; has {
+			t.Errorf("the event carries %s, which OCSF does not define", k)
+		}
+	}
+	assertOCSF(t, evs)
+}
+
+// TestEngineReadsTheFinding (adr/0356): the engine's detection normalizer
+// reads what the adapter writes. The finding becomes an Indicator with the
+// pattern and confidence, attributed to GreyNoise, sighted against the
+// address.
+func TestEngineReadsTheFinding(t *testing.T) {
+	evs, err := normalize("lookup-ip-context", `{"ip":"45.83.64.1","internet_scanner_intelligence":{"classification":"malicious","actor":"Mirai","last_seen":"2026-08-01","tags":[{"name":"Mirai"}]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := json.Marshal(evs[0].Raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(wire, &payload); err != nil {
+		t.Fatal(err)
+	}
+	ids := identity.NewResolver(uuid.MustParse("33333333-3333-4333-8333-333333333333"))
+	res, err := capability.NewRegistry(ids).Normalize(capability.OcsfEvent{
+		ID: uuid.Must(uuid.NewV7()), ClassUID: evs[0].ClassUID, Time: evs[0].Time, SourceTool: "greynoise:lookup-ip-context", Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Indicators) != 1 || len(res.Sightings) != 1 {
+		t.Fatalf("%d indicators, %d sightings; want one of each", len(res.Indicators), len(res.Sightings))
+	}
+	ind := res.Indicators[0]
+	if ind.Name != "GreyNoise: malicious (Mirai)" || ind.Pattern != "[ipv4-addr:value = '45.83.64.1']" || ind.Confidence != 85 || ind.Provenance.Tool != "GreyNoise" {
+		t.Errorf("indicator = %+v", ind)
+	}
+	if len(ind.IndicatorTypes) != 1 || ind.IndicatorTypes[0] != "Mirai" {
+		t.Errorf("indicator types = %v", ind.IndicatorTypes)
+	}
+	if want := ids.IPv4Addr("45.83.64.1"); len(res.Sightings[0].WhereSighted) != 1 || res.Sightings[0].WhereSighted[0] != want {
+		t.Errorf("sighted against %v; want the address %s", res.Sightings[0].WhereSighted, want)
+	}
+}
+
+// TestFindingPatternNamesTheAddressType: an IPv6 address is an ipv6-addr in
+// the pattern.
+func TestFindingPatternNamesTheAddressType(t *testing.T) {
+	evs, _ := normalize("lookup-ip-context", `{"ip":"2001:db8::1","internet_scanner_intelligence":{"classification":"malicious"}}`)
+	if got := unmapped(t, evs[0])["pattern"]; got != "[ipv6-addr:value = '2001:db8::1']" {
+		t.Errorf("pattern = %v", got)
+	}
+	// With no tags, no empty types list is written.
+	if fi, _ := evs[0].Raw["finding_info"].(map[string]any); fi["types"] != nil {
+		t.Errorf("finding_info.types = %v; want it left out", fi["types"])
+	}
+	assertOCSF(t, evs)
 }
 
 func TestNormalizeBenignToOpaqueNoIndicator(t *testing.T) {
@@ -52,9 +161,11 @@ func TestNormalizeBenignToOpaqueNoIndicator(t *testing.T) {
 	if len(evs) != 1 || evs[0].ClassUID != 0 {
 		t.Fatalf("benign must be opaque (class 0), got %+v", evs)
 	}
-	if evs[0].Raw["reputation"] != "benign" {
-		t.Errorf("reputation = %v, want benign", evs[0].Raw["reputation"])
+	um := unmapped(t, evs[0])
+	if um["reputation"] != "benign" || um["ip"] != "8.8.8.8" {
+		t.Errorf("unmapped reputation %v, ip %v; want benign, 8.8.8.8", um["reputation"], um["ip"])
 	}
+	assertOCSF(t, evs)
 }
 
 func TestNormalizeGnqlWrapperUnwraps(t *testing.T) {
@@ -66,6 +177,7 @@ func TestNormalizeGnqlWrapperUnwraps(t *testing.T) {
 	if len(evs) != 1 || evs[0].ClassUID != 2004 {
 		t.Fatalf("gnql data wrapper must unwrap to a finding, got %+v", evs)
 	}
+	assertOCSF(t, evs)
 }
 
 func TestNormalizeBSIIsBenignEnrichment(t *testing.T) {
@@ -77,7 +189,8 @@ func TestNormalizeBSIIsBenignEnrichment(t *testing.T) {
 	if len(evs) != 1 || evs[0].ClassUID != 0 {
 		t.Fatalf("BSI must be opaque enrichment, got %+v", evs)
 	}
-	if evs[0].Raw["reputation"] != "benign" {
-		t.Errorf("BSI reputation = %v, want benign", evs[0].Raw["reputation"])
+	if got := unmapped(t, evs[0])["reputation"]; got != "benign" {
+		t.Errorf("BSI reputation = %v, want benign", got)
 	}
+	assertOCSF(t, evs)
 }
