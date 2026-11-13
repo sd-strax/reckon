@@ -18,7 +18,8 @@ const (
 // registry key, the actor process, and the host, with activity_id preserved
 // on the ObservedData. It is registered once per class and reads only that
 // class's fields: a key event names the key in reg_key.path, a value event in
-// reg_value.path, so both yield the same key object.
+// reg_value.path, so both yield the same type of object. Their ids differ:
+// the value name is part of the id.
 type registryNormalizer struct {
 	r     *identity.Resolver
 	class int
