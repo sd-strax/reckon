@@ -144,8 +144,8 @@ Convenience verb returning failed auth bursts above threshold. Same telemetry as
 supports it.
 
 **`get_privilege_changes(target: Entity, window: TimeWindow) -> list<ObservedData>`**
-Group membership and privilege grants/revocations. OCSF class 3005
-(account_change).
+Group membership and privilege grants/revocations. OCSF classes 3006
+(group_management) and 3005 (user_access), §4.9.
 
 ### 2.4 Network and lateral movement
 
@@ -1290,9 +1290,9 @@ rules, which §4.15 follows and every class is held to:
   Moving a floor — dropping the oldest source — is an ADR, because it
   changes which fallback reads may go.
 
-### 4.17 OCSF device_inventory_info (class_uid 5001) → STIX
+### 4.17 OCSF inventory_info (class_uid 5001) → STIX
 
-Input: OCSF device_inventory_info with `time` and `device.*`: hostname,
+Input: an OCSF Device Inventory Info event with `time` and `device.*`: hostname,
 domain, uid, uid_alt, mac, ip and os, plus agent_list and owner from 1.2.0.
 OCSF defines no criticality on a device, so the source's criticality is read
 from `unmapped.criticality`.
@@ -2131,6 +2131,7 @@ it. Fixtures are stored as JSON files under `fixtures/<scenario>/<event-N>.json`
     "class_uid": 3002,
     "class_name": "Authentication",
     "time": "2026-04-20T14:32:11Z",
+    "metadata": { "version": "1.1.0" },
     "actor": { "user": { "name": "jdoe", "domain": "CONTOSO" } },
     "dst_endpoint": { "hostname": "WIN-FILE01" },
     "src_endpoint": { "ip": "10.0.4.55" },

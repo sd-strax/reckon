@@ -12,7 +12,7 @@ import (
 	"github.com/sd-strax/reckon/identity"
 )
 
-// inventoryEvent is a device_inventory_info record (class 5001) from tool.
+// inventoryEvent is an inventory_info record (class 5001) from tool.
 func inventoryEvent(tool string, dev map[string]any) OcsfEvent {
 	return OcsfEvent{
 		ID: uuid.Must(uuid.NewV7()), ClassUID: 5001, ClassName: "Device Inventory Info",

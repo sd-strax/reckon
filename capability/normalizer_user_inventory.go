@@ -6,7 +6,7 @@ import (
 	"github.com/sd-strax/reckon/identity"
 )
 
-// userInventoryNormalizer handles OCSF user_inventory_info (class_uid 5003) →
+// userInventoryNormalizer handles OCSF user_inventory (class_uid 5003) →
 // STIX (03 §4.19, adr/0324): a directory's user object, the one record that
 // names a person. It mints the person, a STIX identity with identity_class
 // individual keyed by (directory, the directory's id), the accounts the
