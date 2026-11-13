@@ -129,7 +129,7 @@ Search for process executions matching a filter
 1007 maps directly.
 
 **`get_module_loads(process: Entity, window: TimeWindow) -> list<ObservedData>`**
-DLLs/modules loaded by a process. OCSF class 1009 (module_activity) where
+DLLs/modules loaded by a process. OCSF class 1005 (module_activity) where
 vendors expose it.
 
 ### 2.3 Authentication and access
@@ -167,8 +167,9 @@ Reads/writes/deletes touching a file or hash. OCSF class 1001.
 
 **`get_persistence_artifacts(host: Entity, window: TimeWindow) -> list<ObservedData>`**
 Registry run keys, scheduled tasks, services, autoruns, WMI subscriptions.
-Vendor-specific OCSF classes (1003 registry_key_activity, 1006
-scheduled_job_activity, etc.).
+OCSF classes 201001 registry_key_activity and 201002
+registry_value_activity (Windows extension), 1006 scheduled_job_activity,
+1005 module_activity.
 
 ### 2.6 Email and identity
 
@@ -177,7 +178,8 @@ Email metadata (sender, recipient, subject, attachments, urls, verdict). OCSF
 class 4009 (email_activity).
 
 **`get_email_clicks(user: Entity, window: TimeWindow) -> list<ObservedData>`**
-URL clicks from email. OCSF class 4011 where exposed; otherwise vendor-specific.
+URL clicks from email. OCSF class 4012 (email_url_activity) where exposed;
+otherwise vendor-specific.
 
 ### 2.7 Generic queries and pivots
 
@@ -227,9 +229,10 @@ attachments metadata, and linked entity references. Used as a follow-up
 after `query_external_cases` returns hits worth deep-diving.
 
 **Implemented (v0):** ServiceNow, via the native adapter's read surface —
-each incident is shaped as an OCSF Incident Finding (class_uid 2005) and
-normalized to an `ObservedData` carrying the case metadata in its
-extensions; entity extraction from case bodies is deferred (SNOW incidents
+each incident is shaped as an OCSF Incident Finding (class_uid 2005:
+`finding_info_list[]`, `assignee_group`, `src_url`; the system of record's
+name in `unmapped.sor`, adr/0356) and normalized to an `ObservedData`
+carrying the case metadata in its extensions; entity extraction from case bodies is deferred (SNOW incidents
 carry no structured entity fields).
 
 These verbs are the read-side of the "have we seen this before in our
@@ -730,7 +733,7 @@ Output:
 Input: OCSF network_activity with `src_endpoint.ip`, `src_endpoint.port`,
 `dst_endpoint.ip`, `dst_endpoint.port`, `dst_endpoint.domain` (optional),
 `connection_info.protocol_name`, `traffic.bytes_in/out`, `time`, optional
-`process.pid` and `device.uuid`.
+`actor.process.*` and `device.*`.
 
 Output:
 
@@ -784,16 +787,19 @@ Output:
   first-class read/write/modify distinction at the ObservedData level).
 - Edges as in §4.1.
 
-### 4.6 OCSF registry_key_activity (class_uid 1003) → STIX
+### 4.6 OCSF registry_key_activity (class_uid 201001) and registry_value_activity (class_uid 201002) → STIX
 
-Input: OCSF registry_key_activity with `reg_key.hive`, `reg_key.path`,
-`reg_value.name`, `reg_value.data`, `activity_id`, `actor.process.*`,
-`device.uuid`, `time`.
+Input: OCSF Windows-extension registry_key_activity with `reg_key.path` (the
+full key path, hive first), or registry_value_activity with
+`reg_value.{path,name,data,type,type_id}` (`path` is the key the value lives
+under); `activity_id`, `actor.process.*`, `device.*`, `time`. One normalizer
+handles both classes. Class 1003 is OCSF's Kernel Activity and is not a
+registry class (adr/0356).
 
 Output:
 
-- `x-registry-key` custom SCO with fields `hive`, `key_path`, `value_name`,
-  `value_data`. Identity rule: `(host_ref.id, hive, key_path, value_name)`,
+- `x-registry-key` custom SCO with fields `hive` (the path's first
+  segment), `key_path` (the rest), `value_name`, `value_data`. Identity rule: `(host_ref.id, hive, key_path, value_name)`,
   all components lowercased except `value_data`.
 - `process` SCO for the actor process.
 - `x-host` SCO for the device.
@@ -808,8 +814,8 @@ same path on different hosts are different entities.
 
 ### 4.7 OCSF scheduled_job_activity (class_uid 1006) → STIX
 
-Input: OCSF scheduled_job_activity with `job.name`, `job.path`,
-`job.command_line`, `job.user.name`, `activity_id`, `device.uuid`, `time`.
+Input: OCSF scheduled_job_activity with `job.name`, `job.file.path`,
+`job.cmd_line`, `job.user.*`, `activity_id`, `device.*`, `time`.
 
 Output:
 
@@ -827,7 +833,7 @@ Output:
 entries, systemd timers, launchd jobs, and similar persistence mechanisms.
 Identity is host-scoped.
 
-### 4.8 OCSF module_activity (class_uid 1009) → STIX
+### 4.8 OCSF module_activity (class_uid 1005) → STIX
 
 Input: OCSF module_activity with `module.file.path`, `module.file.hashes`,
 `actor.process.*`, `device.uuid`, `time`.
@@ -841,11 +847,15 @@ Output:
 - One `ObservedData` referencing all of the above.
 - Edges as in §4.1.
 
-### 4.9 OCSF account_change (class_uid 3005) → STIX
+### 4.9 OCSF account_change (3001), user_access (3005) and group_management (3006) → STIX
 
-Input: OCSF account_change with `user.*` (target), `actor.user.*` (initiator),
-`activity_id` (PASSWORD_RESET, ENABLE, DISABLE, GROUP_ADD, GROUP_REMOVE,
-PRIVILEGE_GRANT, etc.), `group.*` (if applicable), `device.uuid`, `time`.
+Input: three OCSF classes shaped by one function, each read only for its own
+fields (adr/0356): account_change (3001: `user.*` the target, `user_result`,
+`actor.user.*` the initiator — create, enable, disable, password change and
+the like), user_access (3005, User Access Management: `user.*`,
+`privileges[]` — assign and revoke privileges) and group_management (3006:
+`user.*`, `group.{name,domain,uid}`, `privileges[]` — add and remove a
+member); `activity_id`, `device.*`, `time` on all three.
 
 Output:
 
@@ -857,13 +867,14 @@ Output:
   the initiator share is recorded once. Version 3 (adr/0324).
 - `x-host` SCO for the device if present (often the IdP itself for cloud
   events).
-- For group-related activities: STIX `Relationship` of custom type
+- For group_management (3006): STIX `Relationship` of custom type
   `member-of-group` from target user to a `x-group` custom SCO. Identity for
   `x-group`: `(directory_ref.value, group_name)` where `directory_ref` is
   the AD/Entra/Okta tenant identifier.
 - One `ObservedData` referencing all of the above. The `activity_id` is
-  preserved in custom extension fields. For privilege grants and revocations,
-  the privilege name is preserved in extension fields.
+  preserved in custom extension fields. For user_access and
+  group_management, the privileges are preserved as the list `privileges`
+  in extension fields.
 - Edges as in §4.1.
 
 The `activity_id` is the high-information field for this class — the agent
@@ -874,18 +885,19 @@ downstream consumers filter on the extension field.
 ### 4.10 OCSF email_activity (class_uid 4009) → STIX
 
 Input: OCSF email_activity with `email.from`, `email.to[]`, `email.cc[]`,
-`email.bcc[]`, `email.subject`, `email.message_uid`,
-`email.attachments[]` (each with file fields), `email.urls[]`,
-`smtp.delivery.status`, `time`.
+`email.subject`, `email.message_uid`, `email.uid`, and from 1.4.0
+`email.files[]` (each a file object) and `email.urls[]`, read when present;
+`time`. OCSF carries no blind copy. Below 1.4.0 an attachment is its own
+email_file_activity event (4011), which is not normalized.
 
 Output:
 
 - `email-message` SCO (STIX 2.1 native) with `from_ref`, `to_refs`, `cc_refs`,
-  `bcc_refs`, `subject`, `body_multipart` (if available), `is_multipart`,
+  `subject`, `body_multipart` (if available), `is_multipart`,
   and a `message_id` field populated from `email.message_uid`.
-- `email-addr` SCO for each address (sender, recipients, cc, bcc).
-- `file` SCO for each attachment, with hashes if present.
-- `url` SCO for each URL extracted from the message body.
+- `email-addr` SCO for each address (sender, recipients, cc).
+- `file` SCO for each attachment in `email.files[]`, with hashes if present.
+- `url` SCO for each URL in `email.urls[]`.
 - STIX `Relationship` of native type `contains` from the email-message to
   each attachment file and url.
 - One `ObservedData` referencing the email-message and all of its parts.
@@ -894,26 +906,30 @@ Output:
 `email-message` identity is the `message_id` **alone** when present, else
 `(from_ref.value, subject, date)` as a fallback. This is a deliberate deviation
 from strict STIX 2.1, which uses `(message_id, from_ref.value)`: `message_id` is
-RFC-mandated unique, and identity on it alone is what lets an
-`email_url_activity` click (§4.11) — which carries the message id but not the
-sender — stitch to the full `email-message` produced by `email_activity`
-(§4.10). Requiring `from_ref` in the identity would fragment that stitch, since
-the click event has no sender. Same stitching-precedence rationale as the
+RFC-mandated unique, and identity on it alone lets two sources' records of
+one message stitch without agreeing on its sender. A message that also
+carries the source's `email.uid` yields a weak `email-message` on
+`(source_tool, uid)` outside `object_refs`, with an `aliases` edge from the
+strong one (the account pattern, adr/0324): `email.uid` is what an
+`email_url_activity` click (§4.11) names the message by, so the click
+stitches to the delivered message through that edge (adr/0356). Same stitching-precedence rationale as the
 `process`/`email-addr`/`user-account` deviations (§7.2). Cross-tool stitching
 for emails is more reliable than for processes because `message_id` is unique.
 
-### 4.11 OCSF email_url_activity (class_uid 4011) → STIX
+### 4.11 OCSF email_url_activity (class_uid 4012) → STIX
 
-Input: OCSF email_url_activity with `url.url_string`, `email.message_uid`,
-`actor.user.*` (the clicker), `time`, optional `device.uuid`.
+Input: OCSF email_url_activity with `url.url_string`, `email_uid` (the
+source's id of the message, OCSF's correlation key to `email.uid`),
+`actor.user.*` (the clicker), `time`, optional `device.*`. Class 4011 is
+email_file_activity, not this class (adr/0356).
 
 Output:
 
 - `url` SCO for the clicked URL.
-- `email-message` SCO referenced by `message_uid` if available (the SCO is
-  identified deterministically; if the corresponding email-message is in the
-  graph, the click stitches; if not, a stub email-message SCO is created
-  with just the message_id for later stitching).
+- `email-message` SCO for `email_uid` when present: the weak message on
+  `(source_tool, uid)` (§4.10), which joins the delivered message through
+  the `aliases` edge its email_activity record carries; when no such record
+  is in the graph, the weak message stands alone until one arrives.
 - `user-account` SCO for the clicker, shaped by the account rule (§7.2):
   the record's strongest identifier is in `object_refs`; each lesser
   identifier it carries mints its own account outside them, with `aliases`
@@ -933,27 +949,33 @@ section: they are not passive observations, they are vendor *interpretations*.
 A vendor's detection is a claim that something is bad. The normalizer
 respects this.
 
-Input: OCSF detection_finding with `finding.title`, `finding.uid`,
-`finding.severity`, `finding.confidence`, `finding.types[]` (e.g., MITRE
-ATT&CK technique IDs), `evidence.*` (the underlying telemetry the detection
-fired on, often as a nested OCSF event of another class), `time`.
+Input: OCSF detection_finding with `finding_info.title`, `finding_info.uid`,
+`finding_info.types[]` (e.g., MITRE ATT&CK technique IDs), `severity_id`
+(else the `severity` caption), `confidence_score` (else `confidence_id`),
+`device`, `evidences[]` (the artifacts the detection fired on: `actor`,
+`process`, `file`, `src_endpoint`, `dst_endpoint`, `query`, `api`,
+`connection_info` at the floor; `device`, `user`, `url` and others above
+it), `time`.
 
 Output:
 
 - STIX `Indicator` SCO with `pattern` (vendor-specific or a STIX pattern if
   the detection exposes one), `pattern_type`, `valid_from`, `confidence`
-  mapped from `finding.confidence`, `name` from `finding.title`, and
-  `indicator_types` from `finding.types[]` — by convention, MITRE ATT&CK
+  mapped from `confidence_score` (else `confidence_id`), `name` from
+  `finding_info.title`, and `indicator_types` from `finding_info.types[]` — by convention, MITRE ATT&CK
   technique IDs (e.g., `T1486`, `T1078.004`) where vendors emit them. This
   is the canonical path for technique data into the interpretation layer;
   hypotheses produced by the agent loop also carry technique IDs as labels
   per 01-domain-model.md.
 - STIX `Sighting` SDO linking the indicator to the entities named in the
   detection. `Sighting.confidence` mirrors the detection's confidence.
-- If `evidence.*` is a nested OCSF event, it is recursively normalized
-  through the appropriate normalizer (e.g., a detection backed by
-  process_activity produces all the entities §4.1 would produce, plus the
-  Indicator and Sighting on top).
+- Each artifact in `evidences[]` is read through the same extractors the
+  activity normalizers use — a process from `process`/`actor.process`, a
+  file from `file`, addresses and domains from the endpoints and `query`,
+  accounts from `actor.user` (and `user` when present), a URL from `url`,
+  the host from `device`, else the finding's own `device`. An artifact is
+  not an event and has no class, so none is dispatched through the
+  registry (adr/0356).
 - One `ObservedData` referencing the entities named in the detection,
   separate from the Sighting. This preserves the raw "this entity was seen"
   signal independent of the vendor's interpretation.
@@ -1149,11 +1171,16 @@ that goes.
 ### 4.16 OCSF schema versions: a floor, a ceiling, and feature detection
 
 The engine pins no single OCSF version. Each normalizer is written against a
-**version range** for its class. The **floor** is the oldest schema version a
-supported source emits for that class, declared by the class's fixture in
-`metadata.version` (for §4.15 it is 1.1.0, the version the first cloud
-audit-log source writes). The **ceiling** is the newest published schema the
-normalizer was checked against, 1.7.0. OCSF reserves breaking changes for a
+**version range** for its class. The **floor** is 1.1.0 for every class —
+the version AWS Security Lake's native sources write — or the version that
+introduced the class when it is later (1.4.0 for cloud_resources_inventory_info,
+§4.18); each class's fixture declares it in `metadata.version`. The
+**ceiling** is the newest published schema the normalizers were checked
+against, 1.7.0 (adr/0356). Class numbers are OCSF's, and a recorded schema
+at the floors and the ceiling (`capability/testdata/ocsf/`) fails a test on
+a registered class, a normalizer or event-view lookup, or a fixture field
+that OCSF does not define (`unmapped.*`, OCSF's place for a source's own
+fields, excepted). OCSF reserves breaking changes for a
 major version; within a major line an attribute is added as optional or
 deprecated in place, and none of §4.15's fields was removed or made required
 anywhere from 1.1.0 to 1.7.0 — which is what makes a range workable. The
@@ -1194,8 +1221,7 @@ rules, which §4.15 follows and every class is held to:
   `aliases`. The alternative — identity over floor fields only — is a merge
   no edge can undo once data is recorded against the shared id.
 - **Test both ends.** A class's fixture is written at the floor and declares
-  it in `metadata.version` (the cloud scenario does; the two earlier
-  scenarios predate the rule and declare none); the normalizer's tests carry
+  it in `metadata.version` (every scenario does, adr/0356); the normalizer's tests carry
   one ceiling-shaped event of the same entities and assert the same ids.
   Moving a floor — dropping the oldest source — is an ADR, because it
   changes which fallback reads may go.
@@ -1203,7 +1229,9 @@ rules, which §4.15 follows and every class is held to:
 ### 4.17 OCSF device_inventory_info (class_uid 5001) → STIX
 
 Input: OCSF device_inventory_info with `device.*` (hostname, domain, uid,
-uid_alt, mac, ip, agent_list, os, owner, criticality), `time`.
+uid_alt, mac, ip, os; agent_list and owner from 1.2.0), `time`, and the
+source's criticality in `unmapped.criticality` (OCSF defines none on a
+device).
 
 Output:
 
