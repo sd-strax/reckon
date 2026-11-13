@@ -171,6 +171,11 @@ event view's sentence templates use the same numbers.
 
 **Field paths are OCSF's.**
 
+- **File hashes are OCSF's list form only.** OCSF writes `hashes` as a list
+  of fingerprints, each with `algorithm`, `algorithm_id` and `value`. reckon
+  also accepts an object form, `{"SHA-256": "…"}`, which is not OCSF. The
+  object form is dropped, and the fixtures that use it move to the list.
+
 - **Scheduled job:**
   - The task path is `job.file.path`.
   - The command line comes from `job.job_actions[].cmd_line` (1.9.0 and
@@ -207,7 +212,10 @@ event view's sentence templates use the same numbers.
   - The finding comes from `finding_info.{uid,title,types}`.
   - Severity comes from `severity_id`, else from the `severity` text.
   - Confidence comes from `confidence_score`, else from `confidence_id`.
-  - The Indicator's `pattern` keeps its vendor-specific fallback.
+  - OCSF has no field for a detection's pattern. An adapter whose vendor
+    gives one puts it in `unmapped.pattern`, and the Indicator's `pattern`
+    is read from there. Without it, the Indicator keeps today's
+    vendor-specific fallback pattern.
 - **Detection finding evidence is `evidences[]`.** It is a list of evidence
   pieces, not an event.
   - Each piece is read with the same helpers the activity normalizers use:
@@ -273,13 +281,25 @@ event view's sentence templates use the same numbers.
   1. **Registration.** Every registered class number exists in the ceiling
      copy, under the OCSF name the normalizer uses (`"account_change"`,
      `"registry_value_activity"`, and so on).
+     - Three normalizers use their own names today. They take OCSF's:
+       `case` becomes `incident_finding`, `cloud_inventory` becomes
+       `cloud_resources_inventory_info`, and `device_inventory_info` becomes
+       `inventory_info`.
+     - The name appears in each observation's provenance, so provenance
+       changes too. It is not part of any id.
   2. **Lookups.** Each package already has one function for looking up a
      field path. During tests, a hook records every path looked up through
      it. Each recorded path must exist in the ceiling copy for its class.
      `unmapped.*` is exempt.
+     - The check only sees lookups the tests make. So the tests must cover
+       every helper and every fallback a normalizer has.
   3. **Fixtures and adapters.**
      - Every fixture is walked field by field. Each field must exist for its
        class at the version the fixture declares.
+     - The walk also checks each value's shape. A list field must hold a
+       list, an object field an object, and a scalar field a scalar. That
+       catches a field read in the wrong shape, such as `privileges` as one
+       string instead of a list.
      - Each in-tree adapter's tests check its output events the same way.
 - **To move the ceiling later,** fetch the new release and fix whatever fails.
 
@@ -344,5 +364,11 @@ class numbers.
   match.
 - The schema files are third-party material (Apache-2.0). They are committed
   with OCSF's licence and notice, and with a record of where they came from.
-- The nine files are 24 MB of JSON. Git stores them compressed, so the
+- The nine files are 25 MB of JSON. Git stores them compressed, so the
   repository grows by about 3 MB.
+- Each schema file is one long line, as the server returns it. A
+  `.gitattributes` entry marks them as not diffable, so `git show` and
+  `git log -p` stay readable.
+- The repository's pre-commit keyword check skips `third_party/`. Copied
+  third-party text is not ours to reword. The OCSF schema names a product
+  that matches one of the check's keywords.
