@@ -1,7 +1,8 @@
 // Story — event time (08 §8.4): everything here is in event time;
 // investigation time appears once, as the divider where it started. The
 // timeline rows are the events retrieved for the investigation (adr/0092),
-// each naming the call that retrieved it, with the cited refs that carry an
+// one row per event however many queries returned it (adr/0348), each naming
+// the calls that retrieved it, with the cited refs that carry an
 // event time joined in; on a record without membership (events persisted
 // before it) the cited events alone remain. A retrieved row reads as the
 // server's sentence with its entities as chips (adr/0090); a cited ref the
@@ -14,6 +15,7 @@ import { useMemo, useState } from "react";
 import { useApp } from "../../app";
 import { collapses, fmtDay, keySpec, spanText } from "../../derive/events";
 import { hypName } from "../../derive/hyps";
+import { eventOfRecord, groupOverEvents, mergeSameEvents, viaVerbs, type EventCall, type SameEvent } from "../../derive/sameEvent";
 import type { EventClassKeys, EventGroup, EventRow, SentenceToken } from "../../../../src/viewTypes";
 import { EventStrip, EvidenceGraph } from "../DerivedViews";
 import { Empty, RefChip, Sentence, fmtDateTime } from "../shared";
@@ -37,45 +39,59 @@ interface TimelineItem {
   time: string;
   label: string;
   category: string;
-  /** The call that retrieved the event (adr/0092); absent on a cited ref the record holds no membership for. */
+  /** The first call that retrieved the event (adr/0092); absent on a cited ref the record holds no membership for. */
   callId?: string;
   verb?: string;
+  /** Every call that returned the event, in retrieval order (adr/0348). */
+  calls?: EventCall[];
+  /** Every record the row stands for: the event's records, or every member's for a group. A citation of any one marks the row. */
+  ids: string[];
   /** The server's sentence (adr/0090); absent when the class has no template or the row is a cited ref alone. */
   sentence?: SentenceToken[];
-  /** A collapsed group (adr/0095): the members newest first, `ref` being the newest. The row sits at the group's first event. */
+  /** A collapsed group (adr/0095) over the merged rows: the members newest first, `ref` being the newest. The row sits at the group's first event. */
   group?: EventGroup;
+  /** The group's events, in the group's order. */
+  members?: SameEvent[];
 }
 
-function rowItem(e: EventRow): TimelineItem {
-  const it: TimelineItem = { ref: e.id, time: e.time, label: e.className, category: e.view.category, callId: e.callId, verb: e.verb };
+function rowItem(s: SameEvent): TimelineItem {
+  const e = s.row;
+  const it: TimelineItem = { ref: e.id, time: e.time, label: e.className, category: e.view.category, callId: e.callId, verb: e.verb, calls: s.calls, ids: s.ids };
   if (e.view.sentence?.length) it.sentence = e.view.sentence;
   return it;
 }
 
 /**
  * The retrieved events joined with the cited refs that carry an event time, in
- * event time, each ref once. With groups, a group that repeats is one item at
- * its first event, its members folded under it.
+ * event time, each event once (adr/0348). With groups, a group that repeats is
+ * one item at its first event, its members folded under it; the groups are
+ * taken over the merged rows, so a group counts events, not retrievals.
  */
 export function timelineItems(events: EventRow[] | null | undefined, strip: { ref: string; time: string; label: string }[], groups?: EventGroup[] | null): TimelineItem[] {
   const out = new Map<string, TimelineItem>();
-  const byId = new Map((events ?? []).map((e) => [e.id, e] as const));
+  const merged = mergeSameEvents(events);
+  const of = eventOfRecord(merged);
   const folded = new Set<string>();
-  for (const g of groups ?? []) {
+  for (const raw of groups ?? []) {
+    const g = groupOverEvents(raw, of);
     if (!collapses(g)) continue;
-    const newest = g.eventIds.map((id) => byId.get(id)).find((e): e is EventRow => !!e);
+    const members = g.eventIds.map((id) => of.get(id)).filter((s): s is SameEvent => !!s);
+    const newest = members[0];
     if (!newest) continue;
     const it = rowItem(newest);
     it.time = g.first;
     it.group = g;
-    out.set(newest.id, it);
-    for (const id of g.eventIds) folded.add(id);
+    it.members = members;
+    it.ids = members.flatMap((s) => s.ids);
+    out.set(newest.row.id, it);
+    for (const id of raw.eventIds) folded.add(id);
+    for (const id of it.ids) folded.add(id);
   }
-  for (const e of events ?? []) {
-    if (!folded.has(e.id)) out.set(e.id, rowItem(e));
+  for (const s of merged) {
+    if (!folded.has(s.row.id)) out.set(s.row.id, rowItem(s));
   }
   for (const it of strip) {
-    if (!out.has(it.ref) && !folded.has(it.ref)) out.set(it.ref, { ref: it.ref, time: it.time, label: it.label, category: CATEGORY[it.label] || "other" });
+    if (!out.has(it.ref) && !folded.has(it.ref) && !of.has(it.ref)) out.set(it.ref, { ref: it.ref, time: it.time, label: it.label, category: CATEGORY[it.label] || "other", ids: [it.ref] });
   }
   return [...out.values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
 }
@@ -86,6 +102,32 @@ export function retrievedCount(shown: number, total: number | undefined, foldedO
   const head = `${n} retrieved event${n === 1 ? "" : "s"} in the record`;
   if (foldedOver) return n > foldedOver ? `${head} · folded over the newest ${foldedOver}` : head;
   return n > shown ? `${head} · showing the newest ${shown}` : head;
+}
+
+/**
+ * "via a, b ×2" (adr/0348): each verb opens the first call of it that returned
+ * the event; a repeated verb's "×n" opens the list of its calls, one link each.
+ */
+export function ViaCalls({ calls, openCall }: { calls: EventCall[]; openCall: (callId: string) => void }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const verbs = viaVerbs(calls);
+  return (
+    <span className="imeta tvias">
+      via{" "}
+      {verbs.map((v, i) => (
+        <span key={v.verb}>
+          {i ? ", " : null}
+          <a className="tvia" role="link" tabIndex={0} title={`Open the capability call (${v.verb}) that retrieved this event`} onClick={() => openCall(v.calls[0]!.callId)} onKeyDown={(e) => { if (e.key === "Enter") openCall(v.calls[0]!.callId); }}>{v.verb}</a>
+          {v.calls.length > 1 ? (
+            <>
+              {" "}<button className="linklike tviamore" aria-expanded={open === v.verb} title={`The ${v.calls.length} ${v.verb} calls that returned this event`} onClick={() => setOpen(open === v.verb ? null : v.verb)}>×{v.calls.length}</button>
+              {open === v.verb ? <span className="tviacalls" role="group" aria-label={`${v.verb} calls`}>{" ("}{v.calls.map((c, n) => <span key={c.callId}>{n ? " · " : null}<a className="tviacall" role="link" tabIndex={0} title={`Open ${v.verb} call ${n + 1} of ${v.calls.length}`} onClick={() => openCall(c.callId)} onKeyDown={(e) => { if (e.key === "Enter") openCall(c.callId); }}>{n + 1}</a></span>)}{")"}</span> : null}
+            </>
+          ) : null}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 // A stable empty, so the memo below does not recompute on every render.
@@ -120,22 +162,22 @@ export function StoryLens() {
   const hs = snap?.hypotheses ?? NO_HYPOTHESES;
   const folded = (snap?.eventGroups ?? null) !== null;
   const rows = useMemo(() => {
-    // Citing predictions: whose test results include the ref, or any member of a group.
+    // Citing predictions: whose test results include any record the row stands for (adr/0348), or any member of a group.
     return timelineItems(snap?.events, snap?.derived?.strip || [], snap?.eventGroups).map((it) => {
-      const refs = it.group ? it.group.eventIds : [it.ref];
+      const refs = it.ids;
       const citing = hs.flatMap((h) => h.predictions.filter((p) => (p.testResultRefs || []).some((r) => refs.includes(r))).map((p) => ({ h, p })));
       const emphasis = citing.some(({ h, p }) => p.status === "CONFIRMED" && h.status === "SUPPORTED") ? "emphasized" : citing.some(({ p }) => p.status === "DISCONFIRMED") ? "against" : "plain";
       return { ...it, citing, emphasis };
     });
   }, [snap?.events, snap?.eventGroups, snap?.derived?.strip, hs]);
   if (!snap) return null;
-  const byId = new Map((snap.events ?? []).map((e) => [e.id, e] as const));
   const techniques = Array.from(new Set(hs.flatMap((h) => h.labels || []).filter((l) => /^T\d{4}/.test(l))));
   const open = hs.flatMap((h) => h.status === "ABANDONED" ? [] : h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
   const created = snap.investigation.createdAt ? Date.parse(snap.investigation.createdAt) : NaN;
   const shown = rows.filter((r) => filter === "all" || r.category === filter);
   // The "investigation starts" divider sits above the first event at or after creation.
   const dividerAt = Number.isFinite(created) ? shown.findIndex((r) => Date.parse(r.time) >= created) : -1;
+  const openCall = (callId: string) => openInspector({ kind: "call", callId });
   const toggle = (ref: string) => setExpanded((x) => { const next = { ...x }; if (next[ref]) delete next[ref]; else next[ref] = true; return next; });
   const sentenceOf = (r: { ref: string; sentence?: SentenceToken[]; label: string }) => r.sentence ? <Sentence tokens={r.sentence} /> : <span className="imeta">{r.label}</span>;
   return (
@@ -176,15 +218,15 @@ export function StoryLens() {
                     {r.group ? null : <><RefChip refId={r.ref} /> </>}
                     {sentenceOf(r)}
                     {r.group ? <button className="linklike tfold" aria-expanded={isOpen} onClick={() => toggle(r.ref)}>{spanText(r.group)} · {fmtDay(r.group.first)} – {fmtDay(r.group.last)} {isOpen ? "▴" : "▾"}</button> : null}
-                    {!r.group && r.callId ? <> <a className="imeta tvia" title="Open the capability call that retrieved this event" onClick={() => openInspector({ kind: "call", callId: r.callId! })}>via {r.verb}</a></> : null}
+                    {!r.group && r.calls?.length ? <> <ViaCalls calls={r.calls} openCall={openCall} /></> : null}
                   </span>
                   <span className="tciting">{r.citing.map(({ h, p }) => <a key={p.id} className={"pcite " + (p.status === "CONFIRMED" ? "ok" : p.status === "DISCONFIRMED" ? "bad" : "")} title={`${p.status} under ${hypName(h, hs)}`} onClick={() => openInspector({ kind: "ref", ref: p.id })}>P{p.ordinal ?? "?"}</a>)}</span>
                   {isOpen && r.group ? (
                     <ol className="members">
-                      {r.group.eventIds.map((id) => byId.get(id)).filter((e): e is EventRow => !!e).map((e) => (
+                      {(r.members ?? []).map(({ row: e, calls }) => (
                         <li key={e.id} className="trow member">
                           <span className="ttime mono">{fmtDay(e.time)} {new Date(e.time).toLocaleTimeString()}</span>
-                          <span className="tsentence"><RefChip refId={e.id} /> {sentenceOf({ ref: e.id, sentence: e.view.sentence?.length ? e.view.sentence : undefined, label: e.className })} <a className="imeta tvia" title="Open the capability call that retrieved this event" onClick={() => openInspector({ kind: "call", callId: e.callId })}>via {e.verb}</a></span>
+                          <span className="tsentence"><RefChip refId={e.id} /> {sentenceOf({ ref: e.id, sentence: e.view.sentence?.length ? e.view.sentence : undefined, label: e.className })} <ViaCalls calls={calls} openCall={openCall} /></span>
                         </li>
                       ))}
                     </ol>

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { AppProvider } from "../app";
 import { App } from "./App";
 import { retrievedCount, timelineItems } from "./lenses/StoryLens";
-import { keySpec } from "../derive/events";
+import { keySpec, spanText } from "../derive/events";
 import { bindingRows } from "./inspectors/CallInspector";
 import { HarnessTransport, type HarnessSnapshot } from "../../../harness/transport";
 import synthetic from "../../../harness/snapshots/synthetic.json";
@@ -69,7 +69,51 @@ describe("timelineItems", () => {
   });
   it("falls back to the cited events alone when the record holds no membership", () => {
     const items = timelineItems(null, [{ ref: "e1", time: "2026-10-20T09:00:00Z", label: "Authentication" }]);
-    expect(items).toEqual([{ ref: "e1", time: "2026-10-20T09:00:00Z", label: "Authentication", category: "auth" }]);
+    expect(items).toEqual([{ ref: "e1", time: "2026-10-20T09:00:00Z", label: "Authentication", category: "auth", ids: ["e1"] }]);
+  });
+});
+
+// One row per event (adr/0348): an event overlapping queries returned is one
+// row naming every call; a citation of any of its records marks the row.
+describe("the Story timeline, one row per event", () => {
+  const od = "observed-data--19fc20e7-0000-4000-8000-000000000001";
+  const ps = (id: string, cid: string, verb: string, recordedAt: string): EventRow => row({ id, callId: cid, verb, recordedAt, time: "2026-10-20T09:00:00Z", observedDataRefs: [od] });
+  const four = [
+    ps("0192f3a0-0000-7000-8000-00000000f001", "c-exec-1", "get_process_executions", "2026-10-20T09:01:00Z"),
+    ps("0192f3a0-0000-7000-8000-00000000f002", "c-anc-1", "get_process_ancestry", "2026-10-20T09:02:00Z"),
+    ps("0192f3a0-0000-7000-8000-00000000f003", "c-exec-2", "get_process_executions", "2026-10-20T09:03:00Z"),
+    ps(cited, "c-exec-3", "get_process_executions", "2026-10-20T09:04:00Z"), // the cited record, not the first retrieved
+  ];
+
+  it("shows one PowerShell launch four queries returned as one row naming each query, every call reachable", () => {
+    const items = timelineItems(four, [{ ref: cited, time: "2026-10-20T09:00:00Z", label: "Authentication" }]);
+    expect(items.length).toBe(1);
+    expect(items[0]!.ref).toBe(four[0]!.id);
+    // A prediction cites the last-retrieved record only.
+    const [h0, ...hRest] = data.snapshot.hypotheses;
+    const hypotheses = [{ ...h0!, predictions: h0!.predictions.map((p, i) => i ? p : { ...p, testResultRefs: [cited] }) }, ...hRest];
+    const transport = mount({ ...data, snapshot: { ...data.snapshot, hypotheses, events: four } });
+    tab("Story");
+    const l = lens();
+    expect(l.querySelectorAll(".trow .tvias").length).toBe(1);
+    expect((l.querySelector(".tvias") as HTMLElement).textContent).toBe("via get_process_executions ×3, get_process_ancestry");
+    fireEvent.click(within(l).getByText("get_process_ancestry"));
+    expect(transport.intents).toContainEqual({ type: "inspector.open", target: { kind: "call", callId: "c-anc-1" } });
+    fireEvent.click(within(l).getByRole("button", { name: "×3" }));
+    fireEvent.click(within(l).getByTitle("Open get_process_executions call 3 of 3"));
+    expect(transport.intents).toContainEqual({ type: "inspector.open", target: { kind: "call", callId: "c-exec-3" } });
+    // The cited record is the last retrieved, and the row still carries its citations.
+    expect(l.querySelector(".tvias")!.closest(".trow")!.querySelectorAll(".pcite").length).toBeGreaterThan(0);
+  });
+
+  it("counts a repeat group's events, not its retrievals", () => {
+    const night = (id: string, day: string, cid: string) => row({ id, time: `2026-10-${day}T02:00:00Z`, callId: cid, observedDataRefs: [`observed-data--${day}`] });
+    const recs = [night("n3", "19", "c1"), night("n2", "18", "c1"), night("n2b", "18", "c2"), night("n1", "17", "c1")];
+    const g = { ...nightlyGroup, count: 4, eventIds: recs.map((e) => e.id) };
+    const items = timelineItems(recs, [], [g]);
+    expect(items.length).toBe(1);
+    expect(spanText(items[0]!.group!)).toBe("3 events over 3 days");
+    expect(items[0]!.members!.map((m) => m.ids)).toEqual([["n3"], ["n2", "n2b"], ["n1"]]);
   });
 });
 
