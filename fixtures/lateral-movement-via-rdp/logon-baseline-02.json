@@ -15,6 +15,7 @@
     "class_uid": 3002,
     "class_name": "Authentication",
     "time": "2026-04-14T02:00:13Z",
+    "metadata": { "version": "1.1.0" },
     "actor": {
       "user": {
         "name": "svc_backup",
@@ -31,7 +32,7 @@
       "hostname": "BKP-01"
     },
     "logon_type": "Network",
-    "logon_process": "Kerberos",
+    "auth_protocol": "Kerberos",
     "status": "SUCCESS",
     "message": "Scheduled backup job authenticated to the file share (nightly 02:00 window)"
   }

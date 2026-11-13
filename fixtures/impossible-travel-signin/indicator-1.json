@@ -16,7 +16,8 @@
     "metadata": {
       "product": {
         "vendor_name": "fixture-ti"
-      }
+      },
+      "version": "1.5.0"
     },
     "osint": [
       {
@@ -38,7 +39,7 @@
           "country": "NL",
           "city": "Amsterdam"
         },
-        "categories": [
+        "labels": [
           "hosting",
           "VPN exit",
           "anonymizer"

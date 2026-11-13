@@ -18,6 +18,9 @@
     "class_uid": 3002,
     "class_name": "Authentication",
     "time": "2026-06-08T13:03:19Z",
+    "metadata": {
+      "version": "1.1.0"
+    },
     "actor": {
       "user": {
         "name": "m.reyes",

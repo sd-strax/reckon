@@ -19,7 +19,8 @@
     "metadata": {
       "product": {
         "vendor_name": "fixture"
-      }
+      },
+      "version": "1.1.0"
     },
     "process": {
       "pid": 5000,

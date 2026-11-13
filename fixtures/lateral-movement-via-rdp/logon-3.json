@@ -12,6 +12,7 @@
     "class_uid": 3002,
     "class_name": "Authentication",
     "time": "2026-04-20T14:38:35Z",
+    "metadata": { "version": "1.1.0" },
     "actor": { "user": { "name": "svc_backup", "domain": "CONTOSO", "uid": "S-1-5-21-2002" } },
     "dst_endpoint": { "hostname": "WIN-APP02", "domain": "CONTOSO" },
     "src_endpoint": { "ip": "10.0.4.20" },
