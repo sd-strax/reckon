@@ -388,10 +388,10 @@ func (r *Resolver) NetworkTraffic(srcRef, dstRef STIXID, srcPort, dstPort int, p
 // EmailMessage resolves an email-message SCO. When a message id is present,
 // identity is the message_id ALONE — a deliberate deviation from STIX 2.1's
 // (message_id, from_ref): message_id is RFC-mandated unique, and identity on it
-// alone lets an email_url_activity click (§4.11), which carries the message id
-// but not the sender, stitch to the full message from email_activity (§4.10).
-// Requiring `from` would fragment that stitch. Falls back to (from, subject,
-// date) when no message id is available.
+// alone lets two sources' records of one message join even when they disagree
+// on its sender. Falls back to (from, subject, date) when no message id is
+// available. A click names its message by the source's own id instead, the
+// weak message (WeakEmailMessage).
 func (r *Resolver) EmailMessage(messageID, from, subject string, date time.Time) STIXID {
 	if strings.TrimSpace(messageID) != "" {
 		return r.mint(TypeEmailMessage, map[string]any{
@@ -402,6 +402,24 @@ func (r *Resolver) EmailMessage(messageID, from, subject string, date time.Time)
 		"from":    strings.ToLower(strings.TrimSpace(from)),
 		"subject": strings.TrimSpace(subject),
 		"date":    date.UTC().Truncate(time.Second).Format(time.RFC3339),
+	})
+}
+
+// WeakEmailMessage resolves the weak email-message a source's own message id
+// names (adr/0356): keyed on (source tool, uid), as a weak host is keyed on
+// (source tool, device uid). OCSF's email.uid and the email_uid of a click or
+// an attachment event carry this id. A weak message never joins another by
+// itself: only an aliases edge from a record that names both ids joins it to
+// the message keyed on the RFC 5322 Message-ID. It returns "" for an empty
+// uid.
+func (r *Resolver) WeakEmailMessage(sourceTool, uid string) STIXID {
+	uid = strings.TrimSpace(uid)
+	if uid == "" {
+		return ""
+	}
+	return r.mint(TypeEmailMessage, map[string]any{
+		"source_tool": strings.ToLower(strings.TrimSpace(sourceTool)),
+		"email_uid":   uid,
 	})
 }
 

@@ -563,3 +563,34 @@ func TestCloudScoped(t *testing.T) {
 		t.Error("an account must not stitch across tenants")
 	}
 }
+
+// TestWeakEmailMessage covers adr/0356: a source's own message id mints a
+// weak email-message on (source tool, uid), apart from the message the
+// Message-ID mints, per tool, and nothing for an empty uid.
+func TestWeakEmailMessage(t *testing.T) {
+	r := NewResolver(nsA)
+	weak := r.WeakEmailMessage("MailGW ", " m-42 ")
+	if typ, _ := splitID(t, weak); typ != TypeEmailMessage {
+		t.Fatalf("type = %q, want %q", typ, TypeEmailMessage)
+	}
+	if weak != r.WeakEmailMessage("mailgw", "m-42") {
+		t.Error("the tool name must fold and the uid must be trimmed")
+	}
+	if weak == r.WeakEmailMessage("other", "m-42") {
+		t.Error("the same uid from two tools must be two weak messages")
+	}
+	if weak == r.WeakEmailMessage("mailgw", "M-42") {
+		t.Error("the uid is the source's own and must not be folded for case")
+	}
+	if weak == r.EmailMessage("m-42", "", "", time.Time{}) {
+		t.Error("a weak message must not be the message its uid would mint as a Message-ID")
+	}
+	if weak == NewResolver(nsB).WeakEmailMessage("mailgw", "m-42") {
+		t.Error("a weak message is tenant-scoped")
+	}
+	for _, uid := range []string{"", "   "} {
+		if got := r.WeakEmailMessage("mailgw", uid); got != "" {
+			t.Errorf("WeakEmailMessage(%q) = %q, want none", uid, got)
+		}
+	}
+}
