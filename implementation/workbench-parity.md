@@ -97,7 +97,7 @@ the agent consulted is on the record as chips in the conversation.*
 | # | Behavior | New home | Status |
 |---|---|---|---|
 | F1 | Pin dialog (finding, refs shown, up to 12 + "more"), from tool results, predictions, entity, inspector | `<PromptCard>` | [h] |
-| F2 | Pinned list with count; actor word; time; chips with amber inset; superseded struck; un-pin with reason | `<ReasoningLens>` pinned-evidence fold (the canonical place; un-pin there) | [h] |
+| F2 | Pinned list with count; actor word; time; chips with amber inset; superseded struck; un-pin with reason | `<ReasoningLens>` pinned-evidence fold (the canonical place; un-pin there); a pinned event leads with its sentence, the chips behind "What this is made of · N", an aliased account pair one chip (adr/0352) | [h] |
 | F3 | Pin state refreshes every pin affordance both ways | store-derived | [ ] |
 
 ## G. Approvals and the action ledger (`03 §3.3`, binding §2.3)

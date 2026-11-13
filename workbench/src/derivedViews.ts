@@ -5,7 +5,7 @@
 // — the two-layer join, acts collapsed into grounding edges). Pure over the
 // fetcher; shared by the document host and the harness recorder.
 import type { ActionRow, EvidenceDoc, Hypothesis, PinRow, Seed, ThreadEntry } from "./viewTypes";
-import type { DerivedViews, GraphView, StripItem } from "./protocol";
+import type { AccountAlias, DerivedViews, GraphView, StripItem } from "./protocol";
 
 /**
  * The records that cite evidence beside the thread (#141): a prediction's test
@@ -19,10 +19,23 @@ export interface CitingRecords {
   seed?: Seed;
 }
 
+/**
+ * An account's live aliases as the record holds them (adr/0324): the refs a
+ * live aliases edge joins it to, observed or asserted. Null when unread.
+ */
+export type AliasReader = (ref: string) => Promise<string[] | null>;
+
+/** The live aliases a doc's account identity view lists (adr/0324). */
+export function liveAliases(doc: EvidenceDoc | null): string[] | null {
+  const v = doc?.accountIdentity;
+  return v ? v.aliases.filter((e) => !e.withdrawn).map((e) => e.otherRef) : null;
+}
+
 export async function buildDerivedViews(
   thread: ThreadEntry[],
   getDoc: (ref: string) => Promise<EvidenceDoc | null>,
   citing: CitingRecords = {},
+  readAliases: AliasReader = async (ref) => liveAliases(await getDoc(ref)),
 ): Promise<DerivedViews> {
   const refs: string[] = [];
   const add = (r: string | undefined) => { if (r && !refs.includes(r)) refs.push(r); };
@@ -120,5 +133,44 @@ export async function buildDerivedViews(
       type: doc?.type ?? (r.includes("--") ? r.slice(0, r.indexOf("--")) : "event"),
     });
   }
-  return { strip: items, graph: { refs: graphRefs, edges: [...edgeByPair.values()] }, entities };
+  const accountAliases = await pinnedAccountAliases(citing.pins ?? [], async (r) => docs.get(r) ?? getDoc(r), readAliases);
+  return { strip: items, graph: { refs: graphRefs, edges: [...edgeByPair.values()] }, entities, ...(accountAliases.length ? { accountAliases } : {}) };
+}
+
+/**
+ * The user accounts one pin cites that the record joins by an alias
+ * (adr/0324, adr/0352), one entry per joined set: `ref` the login's account
+ * (the one with no source identifier), `also` the others in pin order. Only a
+ * live aliases edge joins; a name never does.
+ */
+async function pinnedAccountAliases(pins: PinRow[], docOf: (ref: string) => Promise<EvidenceDoc | null>, readAliases: AliasReader): Promise<AccountAlias[]> {
+  const accounts = [...new Set(pins.filter((p) => !p.superseded).flatMap((p) => (p.inputRefs ?? []).filter((r) => r.startsWith("user-account--"))))];
+  if (accounts.length < 2) return [];
+  const aliases = new Map(await Promise.all(accounts.map(async (r) => [r, await readAliases(r).catch(() => null)] as const)));
+  const joined = (a: string, b: string) => !!aliases.get(a)?.includes(b) || !!aliases.get(b)?.includes(a);
+  const out: AccountAlias[] = [];
+  const seen = new Set<string>();
+  for (const p of pins) {
+    if (p.superseded) continue;
+    const mine = [...new Set((p.inputRefs ?? []).filter((r) => r.startsWith("user-account--")))];
+    for (const start of mine) {
+      if (seen.has(start)) continue;
+      // The set start reaches through live aliases edges among this pin's accounts.
+      const set = [start];
+      for (let i = 0; i < set.length; i++) for (const r of mine) if (!set.includes(r) && joined(set[i]!, r)) set.push(r);
+      if (set.length < 2) continue;
+      for (const r of set) seen.add(r);
+      const ids = await Promise.all(set.map(async (r) => sourceId(await docOf(r).catch(() => null))));
+      const login = set[ids.findIndex((id) => !id)] ?? set[0]!;
+      out.push({ ref: login, also: set.filter((r) => r !== login) });
+    }
+  }
+  return out;
+}
+
+/** The source's identifier an account carries (the SID, a directory id), when it carries one. */
+function sourceId(doc: EvidenceDoc | null): string {
+  const p = (doc?.payload ?? {}) as Record<string, unknown>;
+  const props = (typeof p.properties === "object" && p.properties ? p.properties : p) as Record<string, unknown>;
+  return typeof props.user_id === "string" ? props.user_id : "";
 }

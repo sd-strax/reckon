@@ -293,6 +293,13 @@ body.loading #rail { opacity: 0.6; }
 .pinrow .pinact { display: inline-block; margin-top: 4px; font-size: var(--fs-xs); color: var(--link); cursor: pointer; }
 .pinrow.superseded .finding { text-decoration: line-through; color: var(--text-3); }
 .pinrow .unpin { float: right; font-size: var(--fs-xs); padding: 0 6px; }
+.pinrow .pinevent { margin-top: 4px; font-size: var(--fs-sm); }
+.pinrow .pinclass { font-size: var(--fs-xs); color: var(--text-3); }
+.pinrow .pinmade { margin-top: 4px; }
+.pinrow .pinmade > summary { font-size: var(--fs-xs); color: var(--text-2); cursor: pointer; }
+.pinrow .pinpart { display: inline-block; }
+.aliasof { margin: 0 4px 0 2px; font-size: var(--fs-xs); color: var(--text-3); cursor: pointer; }
+.aliasof:hover { color: var(--link); text-decoration: underline; }
 .countdown.warn { color: var(--warn); font-weight: 600; }
 .countdown.due { color: var(--bad); font-weight: 600; }
 
