@@ -252,12 +252,14 @@ func TestNormalizeGroupMembership(t *testing.T) {
 }
 
 // TestNormalizePrivilegeGrant: a privilege grant or revocation is User Access
-// Management (3005). privileges is a list of the roles Okta names, never the
-// display message.
+// Management (3005), with Okta's display message as the message. Okta's
+// System Log documentation names no field for the privilege granted or
+// revoked, and says debugData's list on a revoke event is not what was
+// revoked, so no privileges are written. The Okta record keeps debugData.
 func TestNormalizePrivilegeGrant(t *testing.T) {
 	for eventType, debug := range map[string]string{
 		"user.account.privilege.grant":  `{"privilegeGranted":"Organization administrator, Application administrator (all)"}`,
-		"user.account.privilege.revoke": `{"privilegeRevoked":"Organization administrator, Application administrator (all)"}`,
+		"user.account.privilege.revoke": `{"privilegeRevoked":"Super administrator, Organization administrator"}`,
 	} {
 		in := `{"items":[{"eventType":"` + eventType + `","published":"2026-08-03T16:00:00Z",` +
 			`"actor":{"id":"00uADMIN","alternateId":"admin@acme.com"},"displayMessage":"Grant user privilege",` +
@@ -267,19 +269,19 @@ func TestNormalizePrivilegeGrant(t *testing.T) {
 		if len(evs) != 1 || evs[0].ClassUID != 3005 {
 			t.Fatalf("%s: want class-3005, got %+v", eventType, evs)
 		}
-		want := []any{"Organization administrator", "Application administrator (all)"}
-		if got, _ := evs[0].Raw["privileges"].([]any); !slices.Equal(got, want) {
-			t.Errorf("%s: privileges = %v; want %v", eventType, evs[0].Raw["privileges"], want)
+		if _, has := evs[0].Raw["privileges"]; has {
+			t.Errorf("%s: privileges = %v; want none", eventType, evs[0].Raw["privileges"])
 		}
 		if got := evs[0].Raw["message"]; got != "Grant user privilege" {
 			t.Errorf("%s: message = %v", eventType, got)
 		}
+		if user := mapAt(t, evs[0].Raw, "user"); user["name"] != "eve@acme.com" || user["uid"] != "00uT" {
+			t.Errorf("%s: user = %v; want the target", eventType, user)
+		}
+		if data := mapAt(t, evs[0].Raw, "unmapped", "okta", "debugContext", "debugData"); len(data) != 1 {
+			t.Errorf("%s: unmapped.okta lost debugData: %v", eventType, data)
+		}
 		assertOCSF(t, evs)
-	}
-	// An event that names no role carries no privileges.
-	evs, _ := normalize("get_logs", `{"items":[{"eventType":"user.account.privilege.grant","displayMessage":"Grant user privilege","actor":{"id":"a"}}]}`)
-	if _, has := evs[0].Raw["privileges"]; has || evs[0].ClassUID != 3005 {
-		t.Errorf("no role named: class %d, privileges %v", evs[0].ClassUID, evs[0].Raw["privileges"])
 	}
 }
 
@@ -362,7 +364,8 @@ func engineNormalize(t *testing.T, evs []ocsfEvent) []capability.NormalizationRe
 // TestEngineReadsWhatTheAdapterWrites (adr/0356): the engine's normalizers
 // read each class the adapter emits. A user record names a person and the
 // Okta sign-in account, a group event names the group and the membership,
-// and a privilege event keeps its privileges as a list.
+// and a privilege event is read as a user access event that names the
+// account and no privileges.
 func TestEngineReadsWhatTheAdapterWrites(t *testing.T) {
 	count := func(res capability.NormalizationResult, typ string) int {
 		n := 0
@@ -408,7 +411,8 @@ func TestEngineReadsWhatTheAdapterWrites(t *testing.T) {
 	if access.ObservedData[0].Provenance.Normalizer != "user_access" {
 		t.Errorf("privilege event went to %s", access.ObservedData[0].Provenance.Normalizer)
 	}
-	if privs, _ := access.ObservedData[0].Extensions["privileges"].([]string); !slices.Equal(privs, []string{"Super administrator"}) {
-		t.Errorf("privileges = %v", access.ObservedData[0].Extensions["privileges"])
+	if _, has := access.ObservedData[0].Extensions["privileges"]; has || count(access, identity.TypeUserAccount) == 0 {
+		t.Errorf("privilege event: privileges %v, %d accounts; want the account and no privileges",
+			access.ObservedData[0].Extensions["privileges"], count(access, identity.TypeUserAccount))
 	}
 }

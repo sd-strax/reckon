@@ -43,7 +43,8 @@ const (
 //   - a sign-in becomes Authentication (3002)
 //   - a lifecycle or account event becomes Account Change (3001)
 //   - a group.user_membership.* event becomes Group Management (3006)
-//   - a privilege grant or revocation becomes User Access Management (3005)
+//   - a privilege grant or revocation becomes User Access Management (3005),
+//     with no privileges[] (see accessPayload)
 //   - everything else is a Base Event (class 0 → the engine's default
 //     normalizer, 03 §4.13) rather than force-fit: an admin config change is
 //     not an authentication and must not be labeled one.
@@ -311,24 +312,32 @@ func groupPayload(e map[string]any) map[string]any {
 }
 
 // accessPayload maps a privilege grant or revocation onto OCSF User Access
-// Management (3005): the account fields, plus privileges[], the admin roles
-// Okta names in debugContext.debugData (privilegeGranted on a grant,
-// privilegeRevoked on a revocation, comma-separated). An event that names no
-// role carries no privileges: the display message is a sentence, not a
-// privilege, and stays the message.
+// Management (3005): the account fields, with Okta's display message as the
+// message. It writes no privileges[].
+//
+// Okta's System Log documentation names no field that holds the privilege
+// granted or revoked:
+//
+//   - The event-type catalog describes user.account.privilege.grant as
+//     carrying "the type of admin privileges the user currently has", roles
+//     inherited through groups included, and names no field for them.
+//     https://developer.okta.com/docs/reference/api/event-types/
+//   - The System Log API reference lists no debugContext.debugData keys for
+//     these events, and says of debugData: "Both key names and values may
+//     change from release to release and aren't guaranteed to be stable."
+//     https://developer.okta.com/docs/api/openapi/okta-management/management/tags/systemlog/other/listlogevents
+//   - Okta's support article on the revoke event says its PrivilegeRevoked
+//     field is "a general message" that does "not represent the actual
+//     privileges that the user account had before revocation": it lists the
+//     roles that remain, or every standard role when none remain.
+//     https://support.okta.com/help/s/article/why-the-revoke-admin-right-system-logs-event-shows-more-admin-roles
+//
+// So debugData's privilegeGranted and privilegeRevoked are not read as the
+// event's privileges: a list of the roles a user holds, or of every standard
+// role, is not the privilege this event granted or revoked. The Okta record,
+// debugData included, is still kept whole under unmapped.okta.
 func accessPayload(e map[string]any) map[string]any {
-	p := accountPayload(e)
-	named := firstNonEmpty(digStr(e, "debugContext", "debugData", "privilegeGranted"), digStr(e, "debugContext", "debugData", "privilegeRevoked"))
-	var privileges []any
-	for _, role := range strings.Split(named, ",") {
-		if role = strings.TrimSpace(role); role != "" {
-			privileges = append(privileges, role)
-		}
-	}
-	if len(privileges) > 0 {
-		p["privileges"] = privileges
-	}
-	return p
+	return accountPayload(e)
 }
 
 // classify maps an Okta eventType to the OCSF class it is written as.
