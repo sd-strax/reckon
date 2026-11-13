@@ -1,6 +1,6 @@
 # 0356 — Every normalizer reads the OCSF class and fields the schema defines, from a floor of 1.1.0 (or the version that introduced the class) to a ceiling of 1.7.0; a recorded schema and a lookup recorder fail a test on any class number or field path OCSF does not define
 
-Issue: #356 · PR: — · Status: proposed
+Issue: #356 · PR: #358 · Status: proposed
 
 ## Context
 
