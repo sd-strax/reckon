@@ -121,6 +121,7 @@ investigation time appears once, as a divider where the investigation started.
 | Timeline rows: time, source class, a generated sentence with entity chips, citing predictions | Cited OCSF events + an entity-scoped event query (gap `00 §6.13`); sentences per class (gap `00 §6.12`) |
 | One row per event: an event that several queries returned is one row naming every query ("via get_process_executions ×2, get_process_ancestry") | Records of different calls with the same class, event time and observed-data refs (`adr/0348`); identical records within one call stay separate |
 | Folded row (a repeated group, e.g. a nightly logon, collapsed; opens to its members) | `group_by` on the events read (`adr/0095`); the analyst changes the key per class or turns the fold off |
+| Above the rows, one line: **N events · M retrievals**, a **Group repeats** switch, and **Grouping…**, a panel with one row per event kind present ("group when these match:" and its fields, the groups it makes, Reset) | The merged rows (`adr/0348`); the fold key per class (`adr/0095`), set as `adr/0350` describes |
 | Row emphasis: expected / unusual / cited-against | Cited by a `CONFIRMED` prediction of a `SUPPORTED` hypothesis → emphasized; attested-benign context → "expected" |
 | Divider: investigation start | Seed timestamp |
 | "Not yet known" note | `INCONCLUSIVE` / `UNTESTED` predictions |
