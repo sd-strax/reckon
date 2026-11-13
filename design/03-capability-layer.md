@@ -928,8 +928,8 @@ records of one message join even when they disagree on its sender.
 
 A message may also carry the source's own id, `email.uid`. That id yields a
 second, weak `email-message` on `(source_tool, uid)`, marked `weak: true`
-and kept outside `object_refs`. The strong message gets an `aliases` edge to
-it. This is the rule hosts and accounts already follow (adr/0211, adr/0324):
+and kept outside `object_refs`. The weak message gets an `aliases` edge to
+the strong one. This is the rule hosts and accounts already follow (adr/0211, adr/0324):
 a weak object never joins another on its own.
 
 The weak message matters because `email.uid` is how an `email_url_activity`

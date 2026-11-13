@@ -145,8 +145,9 @@ event view's sentence templates use the same numbers.
 - **Registry Value Activity (201002)** reads
   `reg_value.{path,name,data,type,type_id}`.
   - One normalizer handles both registry classes, so a key event and a value
-    event produce the same registry object.
-  - Until adr/0341 lands, that object is today's `x-registry-key`. `hive` is
+    event produce the same type of registry object. Their ids differ,
+    because a value's id includes the value name (§4.6).
+  - Until adr/0341 lands, that type is today's `x-registry-key`. `hive` is
     the first segment of the path and `key_path` is the rest.
   - 1003 is left unregistered. A Kernel Activity event then goes to the
     opaque default instead of being read as a registry change.
@@ -206,8 +207,9 @@ event view's sentence templates use the same numbers.
       weak key, `(source_tool, device_uid)`. A click can only name this weak
       object.
     - An email activity event with both ids creates the strong message and
-      the weak one, plus an `aliases` link between them. That link is how a
-      click reaches the delivered message.
+      the weak one, plus an `aliases` link from the weak message to the
+      strong one, as for hosts and accounts. That link is how a click
+      reaches the delivered message.
 - **Detection finding fields:**
   - The finding comes from `finding_info.{uid,title,types}`.
   - Severity comes from `severity_id`, else from the `severity` text.
