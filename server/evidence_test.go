@@ -145,7 +145,7 @@ func TestEvidence_NullObservationOpens(t *testing.T) {
 
 // TestEvidence_IndicatorRelated: opening an `indicator--` ref (a detection
 // finding, 03 §4.12) carries its neighbourhood — the sightings that cite it,
-// the vendor identity, and the observed-data the finding recursed — so the
+// the vendor identity, and the observed-data of the finding's evidence — so the
 // Detection inspector is one fetch (design/ui 08 §8.6.1). Missing neighbours
 // are gaps, not errors.
 func TestEvidence_IndicatorRelated(t *testing.T) {

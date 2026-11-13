@@ -564,7 +564,7 @@ func (s *Store) hostMatchers(ctx context.Context, refs []string) (hostMatch, err
 // seenAs collects what the device objects of the events referencing any of
 // refs report, for the objects that name the host set. The extraction is SQL:
 // each device object (device, src_endpoint, dst_endpoint, at the top level
-// and under a detection's evidence, 03 §4.12) is matched on its own first
+// and in each artifact of a detection's evidences[], 03 §4.12) is matched on its own first
 // tier only, the tier identity.Host would mint it on. An object with a
 // hostname matches only when the hostname folds to one of the names (an
 // address in the hostname field compared whole, as identity.SplitHostname
@@ -585,13 +585,18 @@ func (s *Store) seenAs(ctx context.Context, refs []string, match hostMatch) (See
 				SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id AND o.tenant_id = $8
 				WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ?| $1::text[])
 		),
+		-- The artifacts of a detection's evidences[] (adr/0356).
+		art AS (
+			SELECT ev.source_tool, a FROM ev,
+				jsonb_array_elements(CASE WHEN jsonb_typeof(ev.payload->'evidences') = 'array' THEN ev.payload->'evidences' ELSE '[]'::jsonb END) AS t(a)
+		),
 		dev AS (
 			SELECT source_tool, payload->'device' AS d FROM ev
 			UNION ALL SELECT source_tool, payload->'src_endpoint' FROM ev
 			UNION ALL SELECT source_tool, payload->'dst_endpoint' FROM ev
-			UNION ALL SELECT source_tool, payload->'evidence'->'device' FROM ev
-			UNION ALL SELECT source_tool, payload->'evidence'->'src_endpoint' FROM ev
-			UNION ALL SELECT source_tool, payload->'evidence'->'dst_endpoint' FROM ev
+			UNION ALL SELECT source_tool, a->'device' FROM art
+			UNION ALL SELECT source_tool, a->'src_endpoint' FROM art
+			UNION ALL SELECT source_tool, a->'dst_endpoint' FROM art
 		),
 		-- literal: an address in the hostname field, compared whole. The rule
 		-- must agree with identity.SplitHostname: only digits and dots, or a

@@ -618,3 +618,56 @@ func TestMACFormAgreesWithFoldMAC(t *testing.T) {
 		}
 	}
 }
+
+// TestHostIdentity_DetectionEvidence (adr/0356): a detection's evidence is the
+// list evidences[]. The device objects of its artifacts are read for seen-as
+// like the finding's own device, and an entry that is not an artifact is
+// passed over.
+func TestHostIdentity_DetectionEvidence(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry(identity.NewResolver(uuid.MustParse("44444444-4444-4444-8444-444444444444")))
+	ids := reg.Identity()
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	evt := capability.OcsfEvent{
+		ID: uuid.Must(uuid.NewV7()), ClassUID: 2004, ClassName: "Detection Finding", Time: base, RecordedAt: base, SourceTool: "edr",
+		Payload: map[string]any{
+			"class_uid":    2004,
+			"finding_info": map[string]any{"uid": "det-1", "title": "Beacon"},
+			"device":       map[string]any{"hostname": "hosta", "ip": "10.0.0.1"},
+			"evidences": []any{
+				// An artifact with its own device object.
+				map[string]any{"device": map[string]any{"hostname": "hosta.corp.example", "uid": "a-1", "ip": "10.0.0.2"}},
+				// An artifact with no device: the host is the finding's, and its
+				// endpoint names the same machine.
+				map[string]any{
+					"actor":        map[string]any{"user": map[string]any{"name": "alice"}},
+					"src_endpoint": map[string]any{"hostname": "hosta", "ip": "10.0.0.3"},
+				},
+				"not an artifact",
+			},
+		},
+	}
+	nr, err := reg.Normalize(evt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nr.EventID = evt.ID
+	inv := uuid.New()
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "v", StartedAt: base},
+		capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: []capability.OcsfEvent{evt}, Normalized: []capability.NormalizationResult{nr}})
+
+	v, err := s.HostIdentity(ctx, string(ids.Host(identity.HostIdentity{Hostname: "hosta"})))
+	if err != nil {
+		t.Fatalf("HostIdentity: %v", err)
+	}
+	want := SeenAs{
+		Domains: []string{"corp.example"},
+		Agents:  []SourceID{{"edr", "a-1"}},
+		IPs:     []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"},
+	}
+	if !slices.Equal(v.SeenAs.Domains, want.Domains) || !slices.Equal(v.SeenAs.Agents, want.Agents) || !slices.Equal(v.SeenAs.IPs, want.IPs) {
+		t.Errorf("seen as = %+v; want %+v", v.SeenAs, want)
+	}
+}

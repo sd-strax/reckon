@@ -154,7 +154,7 @@ func (b *Backend) readCases(r *http.Request, resolver *capability.Resolver, verb
 	}
 }
 
-// casesFromResult flattens the class-2005 ObservedData the caseNormalizer
+// casesFromResult flattens the class-2005 ObservedData the incident normalizer
 // produced (03 §2.9) into CaseViews, in result order.
 func casesFromResult(res capability.CapabilityResult) []CaseView {
 	out := []CaseView{}

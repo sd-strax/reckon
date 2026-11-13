@@ -27,9 +27,9 @@ func buildCaseCapability(t *testing.T, bind bool) (*capability.Resolver, *capabi
 	fixture := `{
 	  "fixture_meta":{"scenario":"s","matches":{"verb":"get_external_case_details","params":{}},"delay_ms":0},
 	  "ocsf":{"class_uid":2005,"class_name":"Incident Finding","time":"2026-08-08T12:46:40Z",
-	          "status":"New","priority":"4 - Low","assignment_group":"",
-	          "finding_info":{"uid":"INC0010001","title":"Reimage request: WIN-FILE01","desc":"Reimage WIN-FILE01"},
-	          "unmapped":{"link":"https://x/nav_to.do","sor":"servicenow"}}
+	          "status":"New","priority":"4 - Low",
+	          "finding_info_list":[{"uid":"INC0010001","title":"Reimage request: WIN-FILE01","desc":"Reimage WIN-FILE01"}],
+	          "src_url":"https://x/nav_to.do","unmapped":{"sor":"servicenow"}}
 	}`
 	if err := os.WriteFile(filepath.Join(dir, "case.json"), []byte(fixture), 0o644); err != nil {
 		t.Fatal(err)
