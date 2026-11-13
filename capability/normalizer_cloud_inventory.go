@@ -82,8 +82,8 @@ var inventoryActivities = map[int]string{1: "Log", 2: "Collect"}
 // inventoryExt is the ObservedData's extensions for a snapshot: the activity,
 // region and resource count, and the first resource's configuration as the
 // snapshot reports it, absent keys omitted (§4.18). created_time and
-// modified_time arrive at 1.7.0 and are read when present, as RFC 3339; the schema version
-// itself is never copied (§4.16).
+// modified_time arrive at 1.5.0 and are read when present, as RFC 3339; the
+// schema version itself is never copied (§4.16).
 func inventoryExt(p map[string]any) map[string]any {
 	ext := map[string]any{}
 	put := func(k, v string) {

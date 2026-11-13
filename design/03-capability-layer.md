@@ -997,7 +997,7 @@ Input: OCSF detection_finding with these fields:
   example, MITRE ATT&CK technique IDs).
 - `severity_id`, else the `severity` caption.
 - `confidence_score`, else `confidence_id`.
-- `device` and `time`.
+- `device`, the host the detection fired on, and `time`.
 - `evidences[]`, the artifacts the detection fired on. At the floor an
   artifact may carry `actor`, `process`, `file`, `src_endpoint`,
   `dst_endpoint`, `query`, `api` and `connection_info`. Later versions add
@@ -1007,14 +1007,27 @@ Output:
 
 - STIX `Indicator` SCO with `pattern` (vendor-specific or a STIX pattern if
   the detection exposes one), `pattern_type`, `valid_from`, `confidence`
-  mapped from `confidence_score` (else `confidence_id`), `name` from
+  (see below), `name` from
   `finding_info.title`, and `indicator_types` from `finding_info.types[]` — by convention, MITRE ATT&CK
   technique IDs (e.g., `T1486`, `T1078.004`) where vendors emit them. This
   is the canonical path for technique data into the interpretation layer;
   hypotheses produced by the agent loop also carry technique IDs as labels
   per 01-domain-model.md.
-- STIX `Sighting` SDO linking the indicator to the entities named in the
-  detection. `Sighting.confidence` mirrors the detection's confidence.
+- Confidence is a number from 0 to 100, as STIX defines it.
+  - It comes from `confidence_score`, capped to 0–100. A score of 0 is kept.
+  - Without a score, it comes from `confidence_id`. Low, Medium and High
+    become 15, 50 and 85.
+  - When the finding has neither, or the level is unknown, the confidence is
+    left out. It is never written as 0, because 0 means "no confidence" in
+    STIX.
+- STIX `Sighting` SDO linking the indicator to the observation below, through
+  `observed_data_refs`. `Sighting.confidence` mirrors the Indicator's.
+  - The entities the detection names are that observation's `object_refs`.
+  - They are not written to `where_sighted_refs`. STIX allows only identity
+    and location objects there, as it names who saw the indicator. Nothing
+    fills `where_sighted_refs` today (adr/0356).
+- The finding's own `device` gives the host. It does so whether or not the
+  finding has `evidences[]`.
 - Each artifact in `evidences[]` is read with the same extractors the
   activity normalizers use:
   - a process from `process` or `actor.process`
@@ -1238,10 +1251,49 @@ The engine pins no single OCSF version. Each normalizer is written against a
   checked against, 1.9.0.
 - Class numbers are OCSF's.
 - The full OCSF schema for every release from 1.1.0 to 1.9.0 is checked in
-  at `third_party/ocsf-schema/`, with OCSF's licence and notice. A test fails on any registered class,
-  normalizer or event-view lookup, or fixture field that OCSF does not
-  define. `unmapped.*` is exempt, as it is OCSF's place for a source's own
-  fields.
+  at `third_party/ocsf-schema/`, with OCSF's licence and notice.
+
+Three checks run against these copies (adr/0356). `unmapped.*` passes all of
+them, as it is OCSF's place for a source's own fields.
+
+1. **Registration.** Every registered class number must exist in the ceiling
+   copy, under the OCSF name the normalizer uses.
+2. **Lookups.** The tests record every field path that a normalizer or an
+   event-view template reads. Each recorded path must exist in the ceiling
+   copy for its class. The check only sees the reads the tests make, so each
+   normalizer's tests cover its fallbacks.
+3. **Events.** An event is walked field by field against the copy for the
+   version it declares in `metadata.version`. An event that declares no
+   version fails.
+   - **Fields.** Each field must be one that OCSF defines for the event's
+     class at that version.
+   - **Shape.** A list field must hold a list, an object field an object,
+     and a scalar field a scalar. This catches a field written in the wrong
+     shape, such as `privileges` as one string instead of a list.
+   - **Scalar type.** A string field must hold a string, a boolean field a
+     boolean, an integer or long field a whole number, and a float field a
+     number. A derived type is checked as the type it is built on, which the
+     schema's own type list gives. So a `timestamp_t` must be a whole
+     number, and a `username_t` or an `ip_t` must be a string. A `json_t`
+     field accepts anything. The format of a string is not checked.
+   - **The fixture walk.** A test walks every event under `fixtures/` this
+     way. The `fixture_meta` block is the replay's own and is not walked.
+   - **The adapter walk.** Each in-tree adapter's tests walk the events the
+     adapter emits the same way. So an adapter cannot write a field, a shape
+     or a type that OCSF does not define.
+
+**Times.** An OCSF `timestamp_t` field, such as `time` or
+`process.created_time`, holds epoch milliseconds as a whole number. OCSF's
+datetime profile adds a twin with the same name and `_dt`, such as `time_dt`.
+The twin holds the same instant as an RFC 3339 string.
+
+- A normalizer, and the event view, reads the number first and the twin as a
+  fallback.
+- A string in the number's field is not OCSF, and is not read.
+- Fixtures carry both, so the data stays readable. Where a version defines
+  no twin for a field, the fixture carries the number alone.
+- Adapters write the number. An adapter whose source gives the time as text
+  writes the twin too.
 
 OCSF reserves breaking changes for a
 major version; within a major line an attribute is added as optional or
@@ -1317,7 +1369,7 @@ more cloud resources as they are now — with `cloud.{provider,account.{uid,
 name,type_id},region,project_uid}`, `resources[].{uid,name,type,region,zone,
 group,namespace,data,labels,tags,criticality,owner,created_time,
 modified_time}`, `activity_id`, `activity_name`, `time`. The class first
-exists at OCSF 1.4.0; `created_time` and `modified_time` arrive at 1.7.0.
+exists at OCSF 1.4.0; `created_time` and `modified_time` arrive at 1.5.0.
 Its version range (§4.16) runs from 1.4.0, the version that introduced it,
 to 1.9.0 (adr/0356). The first source for the class is a configuration
 adapter the engine ships, shaped to 1.7.0, and the bundled fixture declares
@@ -1346,8 +1398,8 @@ resource and the calls against it meet on one node:
   `resource_count`, and for the first resource `resource_uid`,
   `resource_name`, `type`, `configuration` (the resource's `data`, as
   decoded), `labels`, `tags`, `criticality`, `created_time`,
-  `modified_time` (both written as RFC 3339, whether the source sends the
-  schema's epoch milliseconds or a string), `owner_name`. The configuration is data the model reads
+  `modified_time` (both written as RFC 3339, read from the field's epoch
+  milliseconds, else from its `_dt` twin, §4.16), `owner_name`. The configuration is data the model reads
   through the event view, never an entity: a policy document is a property
   of the resource at a moment, and the moment is the observation. The schema
   version is not copied (§4.16).
@@ -2130,7 +2182,8 @@ it. Fixtures are stored as JSON files under `fixtures/<scenario>/<event-N>.json`
   "ocsf": {
     "class_uid": 3002,
     "class_name": "Authentication",
-    "time": "2026-04-20T14:32:11Z",
+    "time": 1776695531000,
+    "time_dt": "2026-04-20T14:32:11Z",
     "metadata": { "version": "1.1.0" },
     "actor": { "user": { "name": "jdoe", "domain": "CONTOSO" } },
     "dst_endpoint": { "hostname": "WIN-FILE01" },

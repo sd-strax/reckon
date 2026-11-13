@@ -25,8 +25,9 @@ type configAPI interface {
 const (
 	classInventory     = 5023
 	classNameInventory = "Cloud Resources Inventory Info"
-	// inventoryVersion is the OCSF version 03 §4.18 pins for class 5023: the
-	// class exists from 1.4.0 and created_time/modified_time from 1.7.0.
+	// inventoryVersion is the OCSF version this adapter writes class 5023 in
+	// (03 §4.18). The class exists from 1.4.0, and a resource's created_time
+	// and modified_time from 1.5.0.
 	inventoryVersion = "1.7.0"
 )
 
