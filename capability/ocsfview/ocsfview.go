@@ -1308,6 +1308,11 @@ var (
 // detection renders a detection finding (03 §4.12). The host is the first
 // evidence artifact's device, else the finding's own. The user is the first
 // artifact's actor.user, else its user.
+//
+// A cloud finding names its account and resources on the finding itself
+// (adr/0356). They bind as on a control-plane call. When the finding names a
+// cloud provider, an artifact's actor.user is that provider's principal, and
+// binds by its durable id the way the normalizer keyed it.
 func (r *renderer) detection() {
 	title := r.str("finding_info.title")
 	uid := r.str("finding_info.uid")
@@ -1319,6 +1324,10 @@ func (r *renderer) detection() {
 	}
 	confidence = firstNonEmpty(confidence, confidenceCaptions[r.int("confidence_id")], r.str("confidence"))
 
+	cloud := r.str("cloud.provider") != ""
+	resources := r.cloudResources()
+	account := r.findingAccount()
+
 	var host, user slot
 	qualified := ""
 	for _, a := range pathList(r.p, "evidences") {
@@ -1326,7 +1335,14 @@ func (r *renderer) detection() {
 		if host.empty() {
 			host = r.hostIn(m, "device")
 		}
+		if cloud && user.empty() {
+			user = r.cloudPrincipalIn(m)
+			qualified = user.text
+		}
 		for _, prefix := range []string{"actor.user", "user"} {
+			if cloud && prefix == "actor.user" {
+				continue
+			}
 			if user.empty() {
 				user, qualified = r.userIn(m, prefix), qualifiedUserIn(m, prefix)
 			}
@@ -1348,6 +1364,13 @@ func (r *renderer) detection() {
 		r.text(" (" + strings.ToLower(severity) + ")")
 	}
 	r.clause(" on ", host)
+	if host.empty() && len(resources) > 0 {
+		r.clause(" on ", resources[0])
+		if n := len(resources) - 1; n > 0 {
+			r.text(fmt.Sprintf(", +%d more", n))
+		}
+	}
+	r.clause(" in ", account)
 
 	r.field("Finding", title)
 	r.field("Severity", severity).Tone = severityTone(severity)
@@ -1357,6 +1380,10 @@ func (r *renderer) detection() {
 	r.mono("Finding id", uid)
 	r.field("Status", r.str("status"))
 	r.entityField("Host", host)
+	for _, res := range resources {
+		r.entityField("Resource", res)
+	}
+	r.entityField("Account", account)
 	r.entityField("User", slot{text: qualified, ref: user.ref})
 
 	r.keyText("vendor", vendor)
@@ -1364,6 +1391,8 @@ func (r *renderer) detection() {
 	r.keyText("severity", severity)
 	r.keySlot("host", host)
 	r.keySlot("user", user)
+	r.keyRefList("resource", resources)
+	r.keySlot("account", account)
 }
 
 func (r *renderer) caseFinding() {
@@ -1608,10 +1637,14 @@ func (r *renderer) apiActivity() {
 // normalizer's provider rows, safe because the entities a view receives are
 // the ones derived from that event. The chip reads the name, else the full
 // name, else the id.
-func (r *renderer) cloudPrincipal() slot {
-	name := r.str("actor.user.name")
-	ids := []string{r.str("actor.session.issuer"), r.str("actor.user.uid"), r.str("actor.user.uid_alt")}
-	text := firstNonEmpty(name, r.str("actor.user.full_name"), ids[1], ids[2], ids[0])
+func (r *renderer) cloudPrincipal() slot { return r.cloudPrincipalIn(r.p) }
+
+// cloudPrincipalIn binds the caller named by the actor of m: the event, or an
+// evidence artifact of a cloud detection finding.
+func (r *renderer) cloudPrincipalIn(m map[string]any) slot {
+	name := pathStr(m, "actor.user.name")
+	ids := []string{pathStr(m, "actor.session.issuer"), pathStr(m, "actor.user.uid"), pathStr(m, "actor.user.uid_alt")}
+	text := firstNonEmpty(name, pathStr(m, "actor.user.full_name"), ids[1], ids[2], ids[0])
 	if text == "" {
 		return slot{}
 	}
@@ -1641,6 +1674,20 @@ func (r *renderer) cloudAccount() (slot, string) {
 		return slot{}, ""
 	}
 	return slot{text: uid, ref: r.bindAccount(uid)}, uid
+}
+
+// findingAccount binds the account a detection finding is about:
+// cloud.account, else the deprecated project_uid. A finding has no caller of
+// its own, so no caller's account stands in (03 §4.12).
+func (r *renderer) findingAccount() slot {
+	if s := r.accountAt("cloud.account"); !s.empty() {
+		return s
+	}
+	uid := strings.TrimSpace(r.str("cloud.project_uid"))
+	if uid == "" {
+		return slot{}
+	}
+	return slot{text: uid, ref: r.bindAccount(uid)}
 }
 
 // callerAccount binds the principal's own account, actor.user.account.

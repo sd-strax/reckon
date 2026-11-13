@@ -42,15 +42,11 @@ func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult
 
 	var account identity.STIXID
 	if uid := pathScalar(p, "cloud.account.uid"); uid != "" {
-		account = b.addAccount(provider, uid, "cloud.account")
+		account = b.addAccount(provider, uid, b.top("cloud.account"), true)
 	} else if uid := pathScalar(p, "cloud.project_uid"); uid != "" {
-		account = b.addAccount(provider, uid, "")
+		account = b.addAccount(provider, uid, at{}, true)
 	}
-	for _, res := range b.cloudResources(provider, account) {
-		if res.rule == identity.CloudResourceByName {
-			b.addRel(RelBelongsTo, res.id, account)
-		}
-	}
+	b.cloudResourcesOf(provider, account)
 	for _, item := range inventoryResources(p) {
 		owner, _ := fieldOf(item, "owner").(map[string]any)
 		if id := ownerID(owner); id != "" {

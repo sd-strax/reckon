@@ -86,7 +86,7 @@ var classSlots = map[int][]SlotSpec{
 	classEmail:           {{"from", "From"}, {"to", "To"}, {"subject", "Subject"}},
 	classEmailURL:        {{"user", "Account"}, {"host", "Host"}, {"url", "URL"}, {"activity", "Activity"}},
 	classEmailFile:       {{"user", "Account"}, {"host", "Host"}, {"file", "File"}, {"activity", "Activity"}},
-	classDetection:       {{"vendor", "Vendor"}, {"title", "Finding"}, {"severity", "Severity"}, {"host", "Host"}, {"user", "Account"}},
+	classDetection:       {{"vendor", "Vendor"}, {"title", "Finding"}, {"severity", "Severity"}, {"host", "Host"}, {"user", "Account"}, {"resource", "Resource"}, {"account", "Cloud account"}},
 	classCase:            {{"status", "Status"}, {"priority", "Priority"}, {"assigned", "Assigned to"}},
 	classDeviceInventory: {{"host", "Host"}, {"os", "OS"}, {"owner", "Owner"}, {"criticality", "Criticality"}},
 	classCloudInventory:  {{"resource", "Resource"}, {"type", "Type"}, {"account", "Account"}, {"region", "Region"}, {"owner", "Owner"}},

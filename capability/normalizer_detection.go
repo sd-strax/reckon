@@ -10,6 +10,9 @@ import "github.com/sd-strax/reckon/identity"
 //     normalizers use, producing the DIRECT entities under one ObservedData.
 //     An artifact is not an event and has no class, so none is sent through
 //     the registry (adr/0356);
+//   - reads the finding's own cloud and resources[] by the API-activity rules
+//     (§4.15), so a cloud alert and the API calls about one resource meet on
+//     the same x-cloud-account and x-cloud-resource (adr/0356);
 //   - emits an Indicator and a Sighting with derivation_mode = INFERRED,
 //     attributed to a per-tenant vendor Identity via created_by_ref;
 //   - does NOT wrap them in an x-interpretation (capability §1 / persistence
@@ -20,7 +23,8 @@ func (*detectionNormalizer) ClassUID() int { return 2004 }
 
 // 2: host identity, adr/0211; 3: account identity of the evidence, adr/0324
 // 4: OCSF classes and fields, adr/0356
-func (*detectionNormalizer) Version() int { return 4 }
+// 5: a cloud finding's account, resources and cloud principal, adr/0356
+func (*detectionNormalizer) Version() int { return 5 }
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -30,8 +34,17 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 	// was seen" signal separate from the Sighting, so a finding with no
 	// evidence still gets one, with no entities.
 	b := newBuilder(n.r, evt, "detection_finding", n.Version())
+	// A cloud finding names its account and resources on the finding itself.
+	// They are read as an API call's are (§4.15). With no provider there is
+	// no namespace for a cloud identity, so none is minted.
+	provider := providerSlug(pathStr(p, "cloud.provider"))
+	var account identity.STIXID
+	if provider != "" {
+		account = b.cloudAccount(provider, at{})
+		b.cloudResourcesOf(provider, account)
+	}
 	for _, artifact := range objectsAt(p, "evidences") {
-		b.evidence(artifact)
+		b.evidence(artifact, provider, account)
 	}
 	result := b.finish(nil)
 	// The sighting is against the entities the evidence observed, its
@@ -113,7 +126,12 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 //
 // At OCSF 1.1.0 an artifact has no device, user or url. They are read when
 // present (03 §4.16).
-func (b *resultBuilder) evidence(artifact map[string]any) {
+//
+// provider is the cloud provider the finding names, "" for none, and account
+// the x-cloud-account the finding is about. With a provider, actor.user is
+// that provider's cloud principal (§4.15), not a directory login: the alert
+// then names the same user-account the provider's API calls do (adr/0356).
+func (b *resultBuilder) evidence(artifact map[string]any, provider string, account identity.STIXID) {
 	device := at{obj: artifact, path: "device"}
 	if objectAt(artifact, "device") == nil {
 		device = b.top("device")
@@ -127,7 +145,12 @@ func (b *resultBuilder) evidence(artifact map[string]any) {
 	b.actorProcess(artifact, host)
 	b.fileAt(artifact, "file")
 	b.endpoints(artifact)
-	b.userAccountAt(at{obj: artifact, path: "actor.user"}, device, host)
+	if provider != "" {
+		actor := at{obj: artifact, path: "actor"}
+		b.cloudHome(provider, b.cloudPrincipal(provider, actor), account, actor)
+	} else {
+		b.userAccountAt(at{obj: artifact, path: "actor.user"}, device, host)
+	}
 	b.userAccountAt(at{obj: artifact, path: "user"}, device, host)
 	b.addDomain(pathStr(artifact, "query.hostname"))
 	b.url(pathStr(artifact, "url.url_string"))

@@ -605,11 +605,11 @@ func TestAPIActivity_Fallbacks(t *testing.T) {
 	// Without the list, the user's key beats the session's; without both, the session's.
 	actor := p["actor"].(map[string]any)["user"].(map[string]any)
 	delete(actor, "programmatic_credentials")
-	if got := credentialUID(p); got != "key-old" {
+	if got := credentialUID(at{obj: p, path: "actor"}); got != "key-old" {
 		t.Errorf("credential = %q; want key-old", got)
 	}
 	delete(actor, "credential_uid")
-	if got := credentialUID(p); got != "key-session" {
+	if got := credentialUID(at{obj: p, path: "actor"}); got != "key-session" {
 		t.Errorf("credential = %q; want key-session", got)
 	}
 

@@ -40,21 +40,11 @@ func (n *apiActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, e
 		return b.finish(apiExt(p)), nil
 	}
 
-	principal := b.cloudPrincipal(provider)
-	account := b.cloudAccount(provider)
-	for _, res := range b.cloudResources(provider, account) {
-		// A uid carries its own owner, which may not be the account the call
-		// ran in (cross-account access); only a resource scoped under the
-		// account is asserted to belong to it.
-		if res.rule == identity.CloudResourceByName {
-			b.addRel(RelBelongsTo, res.id, account)
-		}
-	}
-	if principal != "" {
-		if home := b.callerAccount(provider, account); home != "" {
-			b.addRel(RelBelongsTo, principal, home)
-		}
-	}
+	actor := b.top("actor")
+	principal := b.cloudPrincipal(provider, actor)
+	account := b.cloudAccount(provider, actor)
+	b.cloudResourcesOf(provider, account)
+	b.cloudHome(provider, principal, account, actor)
 	b.ipAddr("src_endpoint.ip")
 
 	return b.finish(apiExt(p)), nil
@@ -84,19 +74,21 @@ func providerSlug(provider string) string {
 // session-scoped (an AWS assumed-role ARN names the session, the session's
 // issuer names the role), so another such provider is a row, not a branch.
 var sessionScopedActors = map[string]string{
-	"aws": "actor.session.issuer",
+	"aws": "session.issuer",
 }
 
 // durablePrincipalID returns the provider's durable id for the caller and
 // whether it came from the session-scoped row: that row's field when the
 // provider has one and it is present, else actor.user.uid, else uid_alt.
-func durablePrincipalID(slug string, p map[string]any) (id string, fromSession bool) {
+// actor is the OCSF actor object the caller is read from.
+func durablePrincipalID(slug string, actor at) (id string, fromSession bool) {
+	p, pre := actor.obj, actor.path
 	if path, ok := sessionScopedActors[slug]; ok {
-		if v := pathScalar(p, path); v != "" {
+		if v := pathScalar(p, pre+"."+path); v != "" {
 			return v, true
 		}
 	}
-	return firstNonEmpty(pathScalar(p, "actor.user.uid"), pathScalar(p, "actor.user.uid_alt")), false
+	return firstNonEmpty(pathScalar(p, pre+".user.uid"), pathScalar(p, pre+".user.uid_alt")), false
 }
 
 // userTypes are the OCSF user.type_id captions.
@@ -107,12 +99,23 @@ var userTypes = map[int]string{1: "User", 2: "Admin", 3: "System", 4: "Service",
 // slug as account_type, and no login, since a principal name is neither
 // unique nor stable across accounts. The name is the display name. With no
 // durable id no principal is minted; the name still rides the ObservedData.
-func (b *resultBuilder) cloudPrincipal(provider string) identity.STIXID {
-	p := b.evt.Payload
-	userID, fromSession := durablePrincipalID(provider, p)
-	user, _ := lookupPath(p, "actor.user")
-	m, _ := user.(map[string]any)
-	return b.cloudUser(provider, userID, m, fromSession, credentialUID(p))
+//
+// actor is the OCSF actor object the caller is read from: the event's own on
+// an API call, an artifact's on a cloud detection finding (§4.12, adr/0356).
+func (b *resultBuilder) cloudPrincipal(provider string, actor at) identity.STIXID {
+	userID, fromSession := durablePrincipalID(provider, actor)
+	return b.cloudUser(provider, userID, objectAt(actor.obj, actor.path+".user"), fromSession, credentialUID(actor))
+}
+
+// cloudHome links a cloud principal to its own account, the one
+// actor.user.account names, never the account the event is about (§4.15).
+func (b *resultBuilder) cloudHome(provider string, principal, eventAccount identity.STIXID, actor at) {
+	if principal == "" {
+		return
+	}
+	if home := b.callerAccount(provider, eventAccount, actor); home != "" {
+		b.addRel(RelBelongsTo, principal, home)
+	}
 }
 
 // cloudUser adds the user-account for a cloud principal from its OCSF User
@@ -153,8 +156,9 @@ func (b *resultBuilder) cloudUser(provider, userID string, user map[string]any, 
 // credentialUID is the access key the call was made with: the
 // programmatic_credentials list (1.6.0 and later) first, then the deprecated
 // user and session fields.
-func credentialUID(p map[string]any) string {
-	if v, ok := lookupPath(p, "actor.user.programmatic_credentials"); ok {
+func credentialUID(actor at) string {
+	p, pre := actor.obj, actor.path
+	if v, ok := lookupPath(p, pre+".user.programmatic_credentials"); ok {
 		if list, ok := v.([]any); ok && len(list) > 0 {
 			if m, ok := list[0].(map[string]any); ok {
 				if c := toString(fieldOf(m, "uid")); c != "" {
@@ -163,7 +167,7 @@ func credentialUID(p map[string]any) string {
 			}
 		}
 	}
-	return firstNonEmpty(pathStr(p, "actor.user.credential_uid"), pathStr(p, "actor.session.credential_uid"))
+	return firstNonEmpty(pathStr(p, pre+".user.credential_uid"), pathStr(p, pre+".session.credential_uid"))
 }
 
 // accountTypes are the OCSF account.type_id captions for the cloud account
@@ -173,59 +177,90 @@ var accountTypes = map[int]string{
 	11: "GCP Project", 13: "Azure Subscription", 17: "M365 Tenant",
 }
 
-// cloudAccount extracts the x-cloud-account the call ran in: cloud.account
-// first, then the caller's own account, then the deprecated cloud.project_uid
-// as a last fallback. Returns "" when the event names no account.
-func (b *resultBuilder) cloudAccount(provider string) identity.STIXID {
-	p := b.evt.Payload
-	for _, pre := range []string{"cloud.account", "actor.user.account"} {
-		if uid := pathScalar(p, pre+".uid"); uid != "" {
-			return b.addAccount(provider, uid, pre)
+// cloudAccount extracts the x-cloud-account the event is about (the account
+// an API call ran in): cloud.account first, then the caller's own account,
+// then the deprecated cloud.project_uid as a last fallback. Returns "" when
+// the event names no account.
+//
+// actor is the OCSF actor object of the caller. A detection finding has no
+// caller of its own, so it passes none and only the finding's cloud is read
+// (§4.12, adr/0356).
+func (b *resultBuilder) cloudAccount(provider string, actor at) identity.STIXID {
+	if uid := pathScalar(b.evt.Payload, "cloud.account.uid"); uid != "" {
+		return b.addAccount(provider, uid, b.top("cloud.account"), true)
+	}
+	if home := callerAccountAt(actor); home.path != "" {
+		if uid := pathScalar(home.obj, home.path+".uid"); uid != "" {
+			return b.addAccount(provider, uid, home, true)
 		}
 	}
-	if uid := pathScalar(p, "cloud.project_uid"); uid != "" {
-		return b.addAccount(provider, uid, "")
+	if uid := pathScalar(b.evt.Payload, "cloud.project_uid"); uid != "" {
+		return b.addAccount(provider, uid, at{}, true)
 	}
 	return ""
+}
+
+// callerAccountAt names the account object of an actor's user, or nothing
+// when there is no actor.
+func callerAccountAt(actor at) at {
+	if actor.path == "" {
+		return at{}
+	}
+	return at{obj: actor.obj, path: actor.path + ".user.account"}
 }
 
 // callerAccount returns the principal's own account from actor.user.account:
 // the event's account when it is the same one, else a second x-cloud-account
 // (a cross-account call). Returns "" when the payload does not name it; the
 // event's account is never assumed to be the caller's.
-func (b *resultBuilder) callerAccount(provider string, eventAccount identity.STIXID) identity.STIXID {
-	uid := pathScalar(b.evt.Payload, "actor.user.account.uid")
+func (b *resultBuilder) callerAccount(provider string, eventAccount identity.STIXID, actor at) identity.STIXID {
+	home := callerAccountAt(actor)
+	if home.path == "" {
+		return ""
+	}
+	uid := pathScalar(home.obj, home.path+".uid")
 	if uid == "" {
 		return ""
 	}
 	if id := b.r.CloudAccount(provider, uid); id == eventAccount {
 		return id
 	}
-	return b.addAccount(provider, uid, "actor.user.account")
+	return b.addAccount(provider, uid, home, false)
 }
 
 // addAccount adds an x-cloud-account, its descriptive properties read from the
-// OCSF account object at prefix (none when prefix is empty). cloud.org
-// describes the account the call ran in, so org_uid attaches only to an
-// account read from cloud.account or cloud.project_uid, never to one read
-// from the caller's actor.user.account.
-func (b *resultBuilder) addAccount(provider, uid, prefix string) identity.STIXID {
-	p := b.evt.Payload
+// OCSF account object at loc (none when loc names nothing). cloud.org
+// describes the account the event is about, so org_uid attaches only to an
+// account read from cloud.account or cloud.project_uid (inCloud), never to
+// one read from the caller's actor.user.account.
+func (b *resultBuilder) addAccount(provider, uid string, loc at, inCloud bool) identity.STIXID {
 	props := map[string]any{"provider": provider, "account_uid": uid}
-	if prefix != "" {
-		if name := pathStr(p, prefix+".name"); name != "" {
+	if loc.path != "" {
+		if name := pathStr(loc.obj, loc.path+".name"); name != "" {
 			props["name"] = name
 		}
-		if t := firstNonEmpty(accountTypes[pathInt(p, prefix+".type_id")], pathStr(p, prefix+".type")); t != "" {
+		if t := firstNonEmpty(accountTypes[pathInt(loc.obj, loc.path+".type_id")], pathStr(loc.obj, loc.path+".type")); t != "" {
 			props["account_type"] = t
 		}
 	}
-	if prefix != "actor.user.account" {
-		if org := pathScalar(p, "cloud.org.uid"); org != "" {
+	if inCloud {
+		if org := pathScalar(b.evt.Payload, "cloud.org.uid"); org != "" {
 			props["org_uid"] = org
 		}
 	}
 	return b.addSCO(b.r.CloudAccount(provider, uid), identity.TypeCloudAccount, props)
+}
+
+// cloudResourcesOf extracts the event's resources and links each one that
+// was identified under the event's account to it. A uid carries its own
+// owner, which may not be that account (cross-account access), so a resource
+// identified by uid is not asserted to belong to it (§4.15).
+func (b *resultBuilder) cloudResourcesOf(provider string, account identity.STIXID) {
+	for _, res := range b.cloudResources(provider, account) {
+		if res.rule == identity.CloudResourceByName {
+			b.addRel(RelBelongsTo, res.id, account)
+		}
+	}
 }
 
 // cloudResource is a resource the event named and the rule that identified it.
@@ -364,7 +399,7 @@ func apiExt(p map[string]any) map[string]any {
 	if len(session) > 0 {
 		ext["session"] = session
 	}
-	put("credential_uid", credentialUID(p))
+	put("credential_uid", credentialUID(at{obj: p, path: "actor"}))
 	put("user_agent", pathStr(p, "http_request.user_agent"))
 	// The calling application: actor.application.name (OCSF 1.9.0), else
 	// the deprecated actor.app_name (03 §4.16).

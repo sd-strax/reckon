@@ -1024,3 +1024,60 @@ func TestCategory_ExtensionClass(t *testing.T) {
 		}
 	}
 }
+
+// TestRender_CloudDetection (03 §4.12, adr/0356): a cloud finding reads on
+// its resource and in its account, bound as on an API call, and the
+// artifact's actor.user binds to the provider's principal by its id.
+func TestRender_CloudDetection(t *testing.T) {
+	const finding = `{"class_uid":2004,"metadata":{"product":{"vendor_name":"cspm"}},"finding_info":{"uid":"det-1","title":"Bucket made public"},"severity_id":4,
+		"cloud":{"provider":"AWS","account":{"uid":"111122223333","name":"acme-prod"}},
+		"resources":[{"uid":"arn:aws:s3:::acme-internal-exports","name":"acme-internal-exports","type":"AWS::S3::Bucket"},{"name":"second"}],
+		"evidences":[{"src_endpoint":{"ip":"203.0.113.77"}},{"actor":{"user":{"uid":"arn:aws:iam::111122223333:user/deploy-ci","name":"deploy-ci"}}}]}`
+	v := Render(Event{ClassUID: 2004, Payload: payload(finding)}, apiEntities())
+	if got := sentenceText(v); got != "cspm detected “Bucket made public” (high) on acme-internal-exports, +1 more in acme-prod" {
+		t.Errorf("sentence = %q", got)
+	}
+	for label, want := range map[string]Field{
+		"Resource": {Label: "Resource", Value: "acme-internal-exports", Ref: "x-cloud-resource--r", Mono: true},
+		"Account":  {Label: "Account", Value: "acme-prod", Ref: "x-cloud-account--a", Mono: true},
+		"User":     {Label: "User", Value: "deploy-ci", Ref: "user-account--p", Mono: true},
+	} {
+		if f, ok := fieldValue(v, label); !ok || f != want {
+			t.Errorf("%s field = %+v; want %+v", label, f, want)
+		}
+	}
+	slots := map[string]SlotValue{}
+	for _, s := range v.Slots {
+		slots[s.Name] = s
+	}
+	if slots["user"].Ref != "user-account--p" || slots["account"].Ref != "x-cloud-account--a" || slots["resource"].Text != "acme-internal-exports, second" {
+		t.Errorf("slots = %+v", v.Slots)
+	}
+
+	// The account by the deprecated project_uid; a host still leads the
+	// sentence when the finding has one.
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"device":{"hostname":"WS1"},
+		"cloud":{"provider":"AWS","project_uid":"111122223333"},"resources":[{"name":"r1"}]}`)}, apiEntities())
+	if got := sentenceText(v); got != "Detected “T” on WS1 in 111122223333" {
+		t.Errorf("sentence = %q", got)
+	}
+	if f, _ := fieldValue(v, "Account"); f.Ref != "x-cloud-account--a" {
+		t.Errorf("Account = %+v; want it bound by project_uid", f)
+	}
+
+	// With no cloud provider, actor.user is a directory login, bound by its
+	// login, never by an id.
+	ents := []Entity{
+		ent("user-account--login", map[string]any{"account_login": `CONTOSO\jdoe`}),
+		ent("user-account--id", map[string]any{"account_login": "", "user_id": "u-1"}),
+	}
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"evidences":[{"actor":{"user":{"uid":"u-1","name":"jdoe","domain":"CONTOSO"}}}]}`)}, ents)
+	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
+		t.Errorf("User = %+v; want the directory login", f)
+	}
+	// With one, the artifact's own user is still a directory login.
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},"evidences":[{"user":{"name":"jdoe","domain":"CONTOSO"}}]}`)}, ents)
+	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" {
+		t.Errorf("User = %+v; want the directory login", f)
+	}
+}
