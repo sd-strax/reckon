@@ -1,6 +1,8 @@
 // Package ocsfschema answers questions about the OCSF schema from the copies
 // checked in under third_party/ocsf-schema/ (adr/0356): does a class exist at
-// a version, what is it called, and does a field path exist on it.
+// a version, what is it called, does a field path exist on it, and does an
+// event hold only fields its class defines, each in the shape the schema
+// gives it (Validate).
 //
 // It is used by tests. The schema files are found by walking up from the
 // working directory to the module root, so the package works from any

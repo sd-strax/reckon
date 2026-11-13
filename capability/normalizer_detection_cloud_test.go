@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsfschema"
 )
 
 // cloudDetection is a cloud detection finding at the OCSF floor: the account
@@ -143,8 +144,8 @@ func TestDetectionCloudBothEnds(t *testing.T) {
 	})
 	floor := cloudDetection()
 	for _, e := range []map[string]any{floor, ceiling} {
-		if bad := undefinedFields(t, e); len(bad) != 0 {
-			t.Errorf("fields OCSF %s does not define: %v", pathStr(e, "metadata.version"), bad)
+		if bad := ocsfschema.ValidateEvent(e); len(bad) != 0 {
+			t.Errorf("OCSF %s: %v", pathStr(e, "metadata.version"), bad)
 		}
 	}
 	floorRefs, floorRels := entityIDs(t, floor)

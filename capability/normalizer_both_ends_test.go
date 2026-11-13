@@ -12,73 +12,9 @@ import (
 // This file is "Test both ends" (03 §4.16, adr/0356) for the normalizers
 // adr/0356 changed: an event shaped to the OCSF floor (1.1.0) and one shaped
 // to the ceiling (1.9.0), naming the same entities, mint the same ids. Each
-// event is first checked against the schema of the version it declares, so a
+// event is first checked against the schema of the version it declares
+// (ocsfschema.ValidateEvent, the check the fixtures and adapters get), so a
 // test event cannot drift away from OCSF.
-
-// undefinedFields lists the fields of an OCSF event that the schema of the
-// version it declares in metadata.version does not define for its class.
-// Fields under unmapped pass, as OCSF puts a source's own fields there.
-func undefinedFields(t *testing.T, event map[string]any) []string {
-	t.Helper()
-	version := pathStr(event, "metadata.version")
-	schema, err := ocsfschema.Load(version)
-	if err != nil {
-		t.Fatalf("event declares OCSF %q: %v", version, err)
-	}
-	class := toInt(event["class_uid"])
-	var bad []string
-	var walk func(prefix string, obj map[string]any)
-	walk = func(prefix string, obj map[string]any) {
-		for key, v := range obj {
-			path := prefix + key
-			switch x := v.(type) {
-			case map[string]any:
-				if err := schema.Resolve(class, path); err != nil {
-					bad = append(bad, path)
-					continue
-				}
-				walk(path+".", x)
-			case []any:
-				if err := schema.Resolve(class, path+"[]"); err != nil {
-					bad = append(bad, path+"[]")
-					continue
-				}
-				for _, item := range x {
-					if m, ok := item.(map[string]any); ok {
-						walk(path+"[].", m)
-					}
-				}
-			default:
-				if err := schema.Resolve(class, path); err != nil {
-					bad = append(bad, path)
-				}
-			}
-		}
-	}
-	walk("", event)
-	sort.Strings(bad)
-	return bad
-}
-
-// The checker itself: a field OCSF lacks at the declared version is listed,
-// and one it has, or one under unmapped, is not.
-func TestUndefinedFields(t *testing.T) {
-	event := map[string]any{
-		"class_uid": 4009, "metadata": map[string]any{"version": "1.1.0"},
-		"email":    map[string]any{"from": "a@b.example", "to": []any{"c@d.example"}, "files": []any{map[string]any{"name": "x"}}, "attachments": []any{}},
-		"unmapped": map[string]any{"bcc": []any{"e@f.example"}},
-		"process":  map[string]any{"pid": 1},
-	}
-	got := undefinedFields(t, event)
-	want := []string{"email.attachments[]", "email.files[]", "process"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("undefined at 1.1.0 = %v; want %v", got, want)
-	}
-	event["metadata"] = map[string]any{"version": "1.9.0"}
-	if got := undefinedFields(t, event); strings.Join(got, ",") != "email.attachments[],process" {
-		t.Errorf("undefined at 1.9.0 = %v; want email.attachments[] and process", got)
-	}
-}
 
 // entityIDs is what a set of events names: the ids of the SCOs in their
 // observations' object_refs, and their relationships as "type src tgt", both
@@ -333,8 +269,8 @@ func TestBothEnds(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, e := range append(append([]map[string]any{}, tc.floor...), tc.ceiling...) {
-				if bad := undefinedFields(t, e); len(bad) > 0 {
-					t.Errorf("OCSF %s class %d does not define %v", pathStr(e, "metadata.version"), toInt(e["class_uid"]), bad)
+				if bad := ocsfschema.ValidateEvent(e); len(bad) > 0 {
+					t.Errorf("OCSF %s class %d: %v", pathStr(e, "metadata.version"), toInt(e["class_uid"]), bad)
 				}
 			}
 			floorRefs, floorRels := entityIDs(t, tc.floor...)
@@ -373,8 +309,8 @@ func TestBothEndsEmailAttachment(t *testing.T) {
 	ceilingMail["urls"] = []any{map[string]any{"url_string": "https://evil.example/pay"}}
 	ceiling := versioned(4009, "1.9.0", map[string]any{"email": ceilingMail})
 	for _, e := range []map[string]any{floorMail, floorFile, ceiling} {
-		if bad := undefinedFields(t, e); len(bad) > 0 {
-			t.Fatalf("OCSF %s class %d does not define %v", pathStr(e, "metadata.version"), toInt(e["class_uid"]), bad)
+		if bad := ocsfschema.ValidateEvent(e); len(bad) > 0 {
+			t.Fatalf("OCSF %s class %d: %v", pathStr(e, "metadata.version"), toInt(e["class_uid"]), bad)
 		}
 	}
 
@@ -419,8 +355,8 @@ func TestBothEndsEmailAttachment(t *testing.T) {
 func TestRelaxedRequirements(t *testing.T) {
 	norm := func(t *testing.T, e map[string]any) NormalizationResult {
 		t.Helper()
-		if bad := undefinedFields(t, e); len(bad) > 0 {
-			t.Fatalf("OCSF does not define %v", bad)
+		if bad := ocsfschema.ValidateEvent(e); len(bad) > 0 {
+			t.Fatalf("not OCSF: %v", bad)
 		}
 		res, err := testRegistry().Normalize(makeEvent(e))
 		if err != nil {
