@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -38,8 +39,9 @@ func assertOCSF(t *testing.T, events []capability.OcsfPayload) {
 
 // TestEveryEventIsOCSF runs every recorded response through the row decoding
 // and checks each event against the OCSF schema of the version the lake
-// declared (adr/0356): the pages recorded for the scenario, and the page
-// recorded with the table's profile.
+// declared (adr/0356): the pages recorded for the scenario, the page
+// recorded with the table's profile, and the configuration snapshot the
+// adapter shapes from AWS Config.
 func TestEveryEventIsOCSF(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "raw_response", "*.json"))
 	if err != nil || len(files) == 0 {
@@ -55,6 +57,22 @@ func TestEveryEventIsOCSF(t *testing.T) {
 			assertOCSF(t, events)
 		})
 	}
+	// The configuration snapshot the adapter shapes itself from AWS Config
+	// (class 5023), with tags, times and the supplementary configuration.
+	t.Run("config snapshot", func(t *testing.T) {
+		c := bucketConfig()
+		c.history.ConfigurationItems[0].SupplementaryConfiguration = map[string]string{
+			"PublicAccessBlockConfiguration": `{"blockPublicAcls":false}`,
+		}
+		events, err := resourceContext(context.Background(), c, bucketParams())
+		if err != nil || len(events) != 1 {
+			t.Fatalf("snapshot: %v, %d events", err, len(events))
+		}
+		if got := events[0].Raw["metadata"].(map[string]any)["version"]; got != inventoryVersion {
+			t.Errorf("metadata.version = %v; want %s", got, inventoryVersion)
+		}
+		assertOCSF(t, events)
+	})
 	t.Run("profile page", func(t *testing.T) {
 		cols, row := recordedPage(t, nil)
 		e, err := rowToEvent(cols, row, testTable)
