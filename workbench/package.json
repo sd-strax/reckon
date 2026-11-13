@@ -33,27 +33,32 @@
         {
           "id": "reckon.investigations",
           "name": "Investigations",
-          "when": "reckon.signedIn"
+          "when": "reckon.signedIn",
+          "initialSize": 5
         },
         {
           "id": "reckon.cases",
           "name": "Cases",
-          "when": "reckon.signedIn"
+          "when": "reckon.signedIn",
+          "initialSize": 4
         },
         {
           "id": "reckon.knowledge",
           "name": "Knowledge",
-          "when": "reckon.signedIn"
+          "when": "reckon.signedIn",
+          "initialSize": 4
         },
         {
           "id": "reckon.capabilities",
           "name": "Capabilities",
           "visibility": "collapsed",
-          "when": "reckon.signedIn"
+          "when": "reckon.signedIn",
+          "initialSize": 2
         },
         {
           "id": "reckon.account",
-          "name": "Account"
+          "name": "Account",
+          "initialSize": 1
         }
       ]
     },
