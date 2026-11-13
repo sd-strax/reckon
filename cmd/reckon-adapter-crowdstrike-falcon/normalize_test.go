@@ -166,30 +166,73 @@ func TestEventTimes(t *testing.T) {
 	assertOCSF(t, evs)
 }
 
-func TestNormalizeHostsAreOpaque(t *testing.T) {
+// TestNormalizeHostsToDeviceInventory (adr/0356): a Falcon host is an OCSF
+// Device Inventory Info event (5001) whose device is the hostname the adapter
+// reads, with the Falcon record under unmapped. The engine's inventory
+// normalizer mints the host from it.
+func TestNormalizeHostsToDeviceInventory(t *testing.T) {
 	text := `{"resources":[{"device_id":"d1","hostname":"WIN-FILE01","platform_name":"Windows"}]}`
 	evs, err := normalize("search_hosts", text)
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
-	if len(evs) != 1 || evs[0].ClassUID != 0 {
-		t.Fatalf("hosts must be opaque (class 0), got %+v", evs)
+	if len(evs) != 1 || evs[0].ClassUID != 5001 || evs[0].ClassName != "Device Inventory Info" {
+		t.Fatalf("want one Device Inventory Info event, got %+v", evs)
+	}
+	if device, _ := evs[0].Raw["device"].(map[string]any); len(device) != 1 || device["hostname"] != "WIN-FILE01" {
+		t.Errorf("device = %v; want the hostname alone", evs[0].Raw["device"])
 	}
 	um, _ := evs[0].Raw["unmapped"].(map[string]any)
-	if um["hostname"] != "WIN-FILE01" {
-		t.Errorf("hostname not surfaced: %v", evs[0].Raw)
-	}
-	if raw, _ := um["falcon"].(map[string]any); raw["device_id"] != "d1" {
-		t.Errorf("unmapped.falcon = %v; want the Falcon record", um["falcon"])
+	if raw, _ := um["falcon"].(map[string]any); len(um) != 1 || raw["device_id"] != "d1" {
+		t.Errorf("unmapped = %v; want the Falcon record alone", um)
 	}
 	assertOCSF(t, evs)
 
+	res, ids := engineReads(t, evs[0], "crowdstrike-falcon:search_hosts")
+	host := ids.Host(identity.HostIdentity{Hostname: "WIN-FILE01"})
+	if len(res.ObservedData) != 1 || res.ObservedData[0].Provenance.Normalizer != "inventory_info" {
+		t.Fatalf("observations = %+v; want one from the inventory normalizer", res.ObservedData)
+	}
+	if refs := res.ObservedData[0].ObjectRefs; len(refs) != 1 || refs[0] != host {
+		t.Errorf("object_refs = %v; want the host %s", refs, host)
+	}
+
+	// The details operation is read the same way.
+	evs, err = normalize("get_host_details", text)
+	if err != nil || len(evs) != 1 || evs[0].ClassUID != 5001 {
+		t.Fatalf("get_host_details: %v, %+v", err, evs)
+	}
+	assertOCSF(t, evs)
+
+	// A record with no hostname names no device. It is kept as a Base Event.
+	evs, err = normalize("search_hosts", `{"resources":[{"device_id":"d2"}]}`)
+	if err != nil || len(evs) != 1 || evs[0].ClassUID != 0 {
+		t.Fatalf("a host with no hostname: %v, %+v", err, evs)
+	}
+	um, _ = evs[0].Raw["unmapped"].(map[string]any)
+	if raw, _ := um["falcon"].(map[string]any); raw["device_id"] != "d2" {
+		t.Errorf("unmapped.falcon = %v; want the Falcon record", um["falcon"])
+	}
+	assertOCSF(t, evs)
+}
+
+// TestNormalizeOtherObjectsAreBaseEvents: an intel indicator, and the output
+// of any other operation, is a Base Event with the record under unmapped.
+func TestNormalizeOtherObjectsAreBaseEvents(t *testing.T) {
 	for _, op := range []string{"search_indicators", "anything_else"} {
 		evs, err := normalize(op, `{"resources":[{"id":"i1","indicator":"evil.example.com"}]}`)
 		if err != nil || len(evs) != 1 || evs[0].ClassUID != 0 {
 			t.Fatalf("%s: %v, %+v", op, err, evs)
 		}
+		um, _ := evs[0].Raw["unmapped"].(map[string]any)
+		if raw, _ := um["falcon"].(map[string]any); raw["id"] != "i1" {
+			t.Errorf("%s: unmapped.falcon = %v; want the Falcon record", op, um["falcon"])
+		}
 		assertOCSF(t, evs)
+	}
+	evs, _ := normalize("search_indicators", `{"resources":[{"id":"i1","indicator":"evil.example.com"}]}`)
+	if um, _ := evs[0].Raw["unmapped"].(map[string]any); um["indicator"] != "evil.example.com" {
+		t.Errorf("indicator not surfaced: %v", evs[0].Raw)
 	}
 }
 

@@ -22,11 +22,12 @@ const ocsfVersion = "1.1.0"
 //     paths are defensive first-guesses against the Falcon alerts shape
 //     (composite_id, device.hostname, tactic/technique, severity_name) —
 //     LIVE-TUNE against real output.
-//   - hosts → Base Events (class 0 → the engine's default normalizer,
-//     03 §4.13): the record is preserved whole with the hostname surfaced.
-//     The engine reads a device inventory record (class 5001, 03 §4.17);
-//     this adapter does not write one yet.
-//   - intel indicators → Base Events, preserved whole the same way.
+//   - hosts → OCSF Device Inventory Info (class 5001): the engine's §4.17
+//     normalizer reads the device and mints its x-host. A host record with
+//     no hostname has nothing OCSF's device can name, and is a Base Event.
+//   - intel indicators → Base Events (class 0 → the engine's default
+//     normalizer, 03 §4.13): the record is preserved whole with the
+//     indicator surfaced.
 func normalize(operation, text string) ([]ocsfEvent, error) {
 	objs, err := extractObjects(text)
 	if err != nil {
@@ -36,7 +37,7 @@ func normalize(operation, text string) ([]ocsfEvent, error) {
 	case "search_detections", "get_detection_details":
 		return normalizeDetections(objs), nil
 	case "search_hosts", "get_host_details":
-		return opaqueEvents("hostname", objs), nil
+		return normalizeHosts(objs), nil
 	case "search_indicators":
 		return opaqueEvents("indicator", objs), nil
 	default:
@@ -115,6 +116,27 @@ func normalizeDetections(items []map[string]any) []ocsfEvent {
 			fields["device"] = map[string]any{"hostname": h}
 		}
 		out = append(out, event(2004, "Detection Finding", eventTime(d, "created_timestamp"), fields, map[string]any{"falcon": d}))
+	}
+	return out
+}
+
+// normalizeHosts maps Falcon host records onto OCSF Device Inventory Info
+// (class 5001), which the engine's §4.17 normalizer reads (adr/0356). The
+// adapter reads one field of a host record, its hostname, and that is the
+// device. The record itself rides whole under unmapped.falcon.
+//
+// A record with no hostname gives OCSF's device nothing to name. It stays a
+// Base Event, so the record is still kept.
+func normalizeHosts(objs []map[string]any) []ocsfEvent {
+	out := make([]ocsfEvent, 0, len(objs))
+	for _, o := range objs {
+		hostname := str(o["hostname"])
+		if hostname == "" {
+			out = append(out, opaqueEvents("", []map[string]any{o})...)
+			continue
+		}
+		fields := map[string]any{"device": map[string]any{"hostname": hostname}}
+		out = append(out, event(5001, "Device Inventory Info", time.Time{}, fields, map[string]any{"falcon": o}))
 	}
 	return out
 }
