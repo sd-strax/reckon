@@ -1,4 +1,4 @@
-# 0341 — A registry key is STIX's `windows-registry-key`, one object per host, key and value; the key carries its hive expanded; identity is host-scoped over the folded key and the value name, and leaves the value's data out; `x-registry-key` is no longer minted
+# 0341 — A registry key is STIX's `windows-registry-key`, one object per host, key and value; the key carries its hive expanded; identity is host-scoped over the folded key and the value name, and leaves the value's data out; `x-registry-key` is removed
 
 Issue: #341 · PR: — · Status: proposed
 
@@ -48,7 +48,8 @@ value names.
 ## Decision
 
 **The type is `windows-registry-key`.** `identity.TypeWindowsRegistryKey`
-replaces `identity.TypeRegistryKey`, and no code path mints `x-registry-key`.
+replaces `identity.TypeRegistryKey`, and `x-registry-key` is removed from the
+code, the workbench and the specs; nothing mints or reads it.
 The type leaves the list of custom SCOs in `01` and `03 §7.1`, and the
 `CLAUDE.md` list of `x-` objects.
 
@@ -111,12 +112,10 @@ Three deviations from STIX's `key` + `values` rule are documented in
 The host stays where `process` keeps it, in the identity tuple and in the
 observation's `object_refs`, not as a property of the object.
 
-**The normalizer moves to version 3, with no backfill**, as adr/0324 did for
-accounts. Objects already recorded keep their `x-registry-key` ids, and the
-investigation event log still cites them. The workbench's inspector keeps
-`x-registry-key` in the set of entity types so such a citation still opens as
-an entity. That is the one place the old type remains, and it only reads the
-type; nothing mints it.
+**The normalizer moves to version 3, and nothing reads the old type.** No
+recorded data has to stay readable, so there is no backfill and no legacy
+reader: the workbench's inspector drops `x-registry-key` from its entity
+types.
 
 **The event view and the labels read the native shape.**
 
@@ -143,9 +142,9 @@ type; nothing mints it.
 - **Carry the host as a custom property (`x_host_ref`).** `process` already
   keeps its host in identity and in `object_refs`, and no SCO here carries a
   host property; a second way to say the same thing is not needed.
-- **Rewrite recorded `x-registry-key` objects to the new ids.** The event log
-  is immutable and cites them. The accounts' re-identification (adr/0324)
-  set the precedent: new version, no backfill.
+- **Keep `x-registry-key` readable for objects already recorded.** There
+  are none that have to survive the change, and a reader for a type nothing
+  mints is a second shape every consumer would carry.
 
 ## Consequences
 
@@ -158,8 +157,6 @@ type; nothing mints it.
   reads changes; no prompt text, tool definition or engine-text template does,
   so `PromptVersion` is unchanged. The scenario is re-run against both
   models before merge.
-- Records made before version 3 keep `x-registry-key` objects that are not
-  joined to the new ones.
 - OCSF puts registry key activity at class 201001 in its Windows extension.
   The normalizer registers class 1003, as `03 §2.5` and the fixtures do. That
   is unchanged here.
