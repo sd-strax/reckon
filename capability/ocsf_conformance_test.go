@@ -97,7 +97,7 @@ func TestLookupsAreRecorded(t *testing.T) {
 	reg := testRegistry()
 
 	if _, err := reg.Normalize(makeEvent(map[string]any{
-		"class_uid": 1007, "time": "2026-05-06T03:14:00Z",
+		"class_uid": 1007, "time": ms("2026-05-06T03:14:00Z"),
 		"device": map[string]any{"hostname": "WIN-FILE01", "agent_list": []any{map[string]any{"uid": "a1"}}},
 		"process": map[string]any{
 			"pid":  4242,
@@ -107,7 +107,7 @@ func TestLookupsAreRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := reg.Normalize(makeEvent(map[string]any{
-		"class_uid": 6003, "time": "2026-05-06T03:14:00Z",
+		"class_uid": 6003, "time": ms("2026-05-06T03:14:00Z"),
 		"cloud": map[string]any{"provider": "AWS", "account": map[string]any{"uid": "111122223333"}},
 		"actor": map[string]any{"user": map[string]any{
 			"uid":                      "AIDAEXAMPLE",
@@ -190,7 +190,7 @@ func TestRegisteredClassesAreOCSF(t *testing.T) {
 			t.Errorf("class %d is registered, and OCSF %s has no such class", uid, schema.Version())
 			continue
 		}
-		res, err := reg.Normalize(makeEvent(map[string]any{"class_uid": uid, "time": "2026-05-06T03:14:00Z"}))
+		res, err := reg.Normalize(makeEvent(map[string]any{"class_uid": uid, "time": ms("2026-05-06T03:14:00Z")}))
 		if err != nil || len(res.ObservedData) == 0 {
 			t.Errorf("class %d: an empty event did not normalize: %v", uid, err)
 			continue

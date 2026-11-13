@@ -168,7 +168,7 @@ func TestHostIdentityPlaceholders(t *testing.T) {
 	}
 
 	evt := makeEvent(map[string]any{
-		"class_uid": 4001, "time": "2026-04-20T14:32:11Z",
+		"class_uid": 4001, "time": ms("2026-04-20T14:32:11Z"),
 		"src_endpoint": map[string]any{"ip": "0.0.0.0"},
 		"dst_endpoint": map[string]any{"ip": "10.0.0.7", "port": 445},
 	})

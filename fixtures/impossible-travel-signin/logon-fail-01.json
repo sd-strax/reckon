@@ -16,7 +16,8 @@
   "ocsf": {
     "class_uid": 3002,
     "class_name": "Authentication",
-    "time": "2026-06-11T03:14:02Z",
+    "time": 1781147642000,
+    "time_dt": "2026-06-11T03:14:02Z",
     "metadata": {
       "version": "1.1.0"
     },

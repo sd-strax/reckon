@@ -11,7 +11,7 @@ import (
 func apiPayload() map[string]any {
 	return map[string]any{
 		"class_uid":     6003,
-		"time":          "2026-07-14T09:28:00Z",
+		"time":          ms("2026-07-14T09:28:00Z"),
 		"activity_id":   3,
 		"activity_name": "Update",
 		"actor": map[string]any{

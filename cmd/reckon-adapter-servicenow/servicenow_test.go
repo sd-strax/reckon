@@ -389,7 +389,7 @@ func TestQueryIncidents(t *testing.T) {
 
 // assertOCSF is check 3 of adr/0356 for this adapter: the event holds only
 // fields OCSF defines for its class at the version it declares, each in the
-// shape the schema gives it.
+// shape and scalar type the schema gives it.
 func assertOCSF(t *testing.T, classUID int, raw map[string]any) {
 	t.Helper()
 	if got := raw["class_uid"]; got != classUID {
@@ -436,6 +436,11 @@ func TestCaseToOcsf(t *testing.T) {
 	if p.Time.IsZero() {
 		t.Error("opened_at did not parse into Time")
 	}
+	// The event's own time is OCSF's epoch milliseconds, with the same
+	// instant as an RFC 3339 string beside it (adr/0356).
+	if p.Raw["time"] != int64(1776695531000) || p.Raw["time_dt"] != "2026-04-20T14:32:11Z" {
+		t.Errorf("time = %v, time_dt = %v; want 1776695531000 and 2026-04-20T14:32:11Z", p.Raw["time"], p.Raw["time_dt"])
+	}
 	if group, _ := p.Raw["assignee_group"].(map[string]any); group["name"] != "SOC-Tier3" || len(group) != 1 {
 		t.Errorf("assignee_group = %v; want the group by name", p.Raw["assignee_group"])
 	}
@@ -474,7 +479,7 @@ func TestCaseToOcsf(t *testing.T) {
 
 	// A record with only a number leaves the empty fields out.
 	p = b.caseToOcsf(map[string]any{"number": "INC1"})
-	for _, k := range []string{"status", "priority", "assignee_group", "src_url"} {
+	for _, k := range []string{"status", "priority", "assignee_group", "src_url", "time", "time_dt"} {
 		if _, has := p.Raw[k]; has {
 			t.Errorf("an empty %s was written: %v", k, p.Raw[k])
 		}

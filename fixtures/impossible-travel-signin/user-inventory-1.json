@@ -16,7 +16,8 @@
     "activity_id": 2,
     "activity_name": "Collect",
     "type_uid": 500302,
-    "time": "2026-06-11T00:00:00Z",
+    "time": 1781136000000,
+    "time_dt": "2026-06-11T00:00:00Z",
     "metadata": {
       "product": {
         "vendor_name": "fixture-idp",

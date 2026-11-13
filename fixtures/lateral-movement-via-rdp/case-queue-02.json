@@ -13,7 +13,8 @@
     "class_uid": 2005,
     "class_name": "Incident Finding",
     "category_uid": 2,
-    "time": "2026-04-20T14:05:00Z",
+    "time": 1776693900000,
+    "time_dt": "2026-04-20T14:05:00Z",
     "metadata": {
       "product": {
         "vendor_name": "ServiceNow"

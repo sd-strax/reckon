@@ -10,7 +10,7 @@ import (
 func casePayload() map[string]any {
 	return map[string]any{
 		"class_uid":      2005,
-		"time":           "2026-04-20T14:32:11Z",
+		"time":           ms("2026-04-20T14:32:11Z"),
 		"status":         "In Progress",
 		"priority":       "2 - High",
 		"assignee_group": map[string]any{"name": "SOC-Tier3", "uid": "grp-77"},
@@ -115,7 +115,7 @@ func TestIncidentFields(t *testing.T) {
 	}
 
 	// An event with none of the fields carries no extensions.
-	res, err := testRegistry().Normalize(makeEvent(map[string]any{"class_uid": 2005, "time": "2026-04-20T14:32:11Z"}))
+	res, err := testRegistry().Normalize(makeEvent(map[string]any{"class_uid": 2005, "time": ms("2026-04-20T14:32:11Z")}))
 	if err != nil {
 		t.Fatal(err)
 	}

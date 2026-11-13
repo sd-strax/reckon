@@ -38,6 +38,11 @@ func TestNormalizeAuthEvent(t *testing.T) {
 	if len(evs) != 1 || evs[0].ClassUID != 3002 {
 		t.Fatalf("want one class-3002 event, got %+v", evs)
 	}
+	// The event's own time is OCSF's epoch milliseconds, with the same
+	// instant as an RFC 3339 string beside it (adr/0356).
+	if evs[0].Raw["time"] != int64(1785837600000) || evs[0].Raw["time_dt"] != "2026-08-04T10:00:00Z" {
+		t.Errorf("time = %v, time_dt = %v; want 1785837600000 and 2026-08-04T10:00:00Z", evs[0].Raw["time"], evs[0].Raw["time_dt"])
+	}
 	if got := mapAt(t, evs[0].Raw, "actor", "user")["name"]; got != "alice@acme.com" {
 		t.Errorf("actor.user.name = %v", got)
 	}
@@ -119,7 +124,8 @@ func TestGeoLocation_Edges(t *testing.T) {
 
 // assertOCSF is check 3 of adr/0356 for this adapter: every event it emits
 // holds only fields OCSF defines for its class at the version it declares,
-// each in the shape the schema gives it, and names the class it is sent as.
+// each in the shape and scalar type the schema gives it, and names the class
+// it is sent as.
 func assertOCSF(t *testing.T, evs []ocsfEvent) {
 	t.Helper()
 	for i, e := range evs {

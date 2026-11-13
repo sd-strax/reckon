@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func paths(problems []Problem) []string {
@@ -77,6 +78,107 @@ func TestValidateShapes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A scalar's type is checked against the schema's type. A derived type is
+// checked as the base type the export's type list gives it.
+func TestValidateScalarTypes(t *testing.T) {
+	s := mustLoad(t, "1.1.0")
+	for _, tc := range []struct {
+		name  string
+		class int
+		js    string
+		want  []string // "path: fragment of the reason"
+	}{
+		{"every type well-formed", 3002, `{"time":1776695531000,"time_dt":"2026-04-20T14:32:11Z","is_mfa":true,"severity_id":3,"message":"m",
+			"user":{"name":"jdoe","uid":"S-1"},"src_endpoint":{"ip":"10.0.0.1","port":3389,"hostname":"h","mac":"aa:bb","location":{"coordinates":[1.5,-2]}},
+			"duration":12,"count":2}`, nil},
+		{"timestamp_t holding a string", 3002, `{"time":"2026-04-20T14:32:11Z"}`, []string{"time: timestamp_t"}},
+		{"timestamp_t holding a fraction", 3002, `{"time":1776695531000.5}`, []string{"time: a whole number"}},
+		{"timestamp_t inside an object", 1007, `{"process":{"created_time":"2026-04-20T14:32:11Z","parent_process":{"created_time":1}}}`, []string{"process.created_time: timestamp_t"}},
+		{"datetime_t holding a number", 3002, `{"time_dt":1776695531000}`, []string{"time_dt: datetime_t"}},
+		{"string_t holding a number", 3002, `{"message":42}`, []string{"message: a string"}},
+		{"string_t holding a boolean", 3002, `{"message":true}`, []string{"message: a string"}},
+		{"username_t holding a number", 3002, `{"user":{"name":7}}`, []string{"user.name: username_t"}},
+		{"ip_t holding a number", 3002, `{"src_endpoint":{"ip":167772161}}`, []string{"src_endpoint.ip: ip_t"}},
+		{"port_t holding a string", 3002, `{"src_endpoint":{"port":"3389"}}`, []string{"src_endpoint.port: port_t"}},
+		{"integer_t holding a string", 3002, `{"severity_id":"3"}`, []string{"severity_id: integer_t"}},
+		{"integer_t holding a fraction", 3002, `{"severity_id":3.5}`, []string{"severity_id: a whole number"}},
+		{"boolean_t holding a string", 3002, `{"is_mfa":"true"}`, []string{"is_mfa: boolean_t"}},
+		{"boolean_t holding a number", 3002, `{"is_mfa":1}`, []string{"is_mfa: boolean_t"}},
+		{"float_t holding a whole number", 3002, `{"src_endpoint":{"location":{"coordinates":[1,2]}}}`, nil},
+		{"float_t holding a string", 3002, `{"src_endpoint":{"location":{"coordinates":["1.5",2]}}}`, []string{"src_endpoint.location.coordinates[]: float_t"}},
+		{"a list of strings holding a number", 3005, `{"privileges":["a",1]}`, []string{"privileges[]: string_t"}},
+		{"json_t accepts any scalar", 2004, `{"evidences":[{"data":1},{"data":true},{"data":"x"}]}`, nil},
+		{"unmapped accepts any scalar", 3002, `{"unmapped":{"time":"yesterday","n":"1"}}`, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := s.Validate(tc.class, decode(t, tc.js))
+			if len(got) != len(tc.want) {
+				t.Fatalf("problems = %v; want %v", got, tc.want)
+			}
+			for i, w := range tc.want {
+				path, frag, _ := strings.Cut(w, ": ")
+				if got[i].Path != path || !strings.Contains(got[i].Reason, frag) {
+					t.Errorf("problem %d = %q; want %s with %q", i, got[i], path, frag)
+				}
+			}
+		})
+	}
+}
+
+// Every scalar type an attribute uses, at every release checked in, leads to
+// a base type the check knows, or to json_t. A release that adds a base type
+// fails here, not silently.
+func TestEveryScalarTypeHasABase(t *testing.T) {
+	versions, err := Versions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range versions {
+		s := mustLoad(t, v)
+		seen := map[string]bool{}
+		check := func(e *entity) {
+			for name, attr := range e.Attributes {
+				if attr.Type == "object_t" || attr.Type == "json_t" || seen[attr.Type] {
+					continue
+				}
+				seen[attr.Type] = true
+				if base := s.baseType(attr.Type); scalarWant[base] == "" {
+					t.Errorf("OCSF %s: %s.%s is a %s, whose base type %s is not checked", v, e.key, name, attr.Type, base)
+				}
+			}
+		}
+		for _, c := range s.classes {
+			check(c)
+		}
+		for _, o := range s.objects {
+			check(o)
+		}
+		if s.baseType("timestamp_t") != "long_t" || s.baseType("username_t") != "string_t" || s.baseType("ip_t") != "string_t" {
+			t.Errorf("OCSF %s: timestamp_t, username_t, ip_t resolve to %s, %s, %s", v, s.baseType("timestamp_t"), s.baseType("username_t"), s.baseType("ip_t"))
+		}
+	}
+}
+
+// Go's own numbers are read as JSON's are: an adapter may write an int64 of
+// epoch milliseconds, and a time.Time or a string in a timestamp is caught.
+func TestValidateTypedGoScalars(t *testing.T) {
+	s := mustLoad(t, "1.1.0")
+	ok := map[string]any{
+		"time": int64(1776695531000), "severity_id": 3, "is_mfa": true, "message": "m",
+		"src_endpoint": map[string]any{"port": uint16(3389), "location": map[string]any{"coordinates": []float64{1.5, 2}}},
+		"count":        json.Number("2"),
+	}
+	if got := s.Validate(3002, ok); len(got) != 0 {
+		t.Errorf("well-typed Go values: %v", got)
+	}
+	bad := map[string]any{
+		"time": time.Unix(0, 0), "time_dt": time.Unix(0, 0), "severity_id": 3.5, "message": json.Number("1"), "count": json.Number("2.5"),
+	}
+	if got, want := paths(s.Validate(3002, bad)), []string{"count", "message", "severity_id", "time", "time_dt"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("problems = %v; want %v", got, want)
 	}
 }
 

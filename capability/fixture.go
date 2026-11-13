@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -193,7 +194,8 @@ func (a *FixtureAdapter) load() error {
 // fixtureOrder keys fixtures by event time then verb for a stable, meaningful
 // ordering (chronological within a verb).
 func fixtureOrder(f fixtureFile) string {
-	t, _ := f.OCSF["time"].(string)
+	// A fixed-width UTC form sorts as the instants do.
+	t := ocsfTime(f.OCSF, "time").Format("2006-01-02T15:04:05.000Z")
 	return t + "|" + strings.Join(f.FixtureMeta.Matches.Verb, ",")
 }
 
@@ -217,7 +219,7 @@ func (a *FixtureAdapter) Invoke(ctx context.Context, operation string, params ma
 			continue
 		}
 		if f.FixtureMeta.TimeScoped {
-			t := toTime(f.OCSF["time"])
+			t := ocsfTime(f.OCSF, "time")
 			if (!from.IsZero() && t.Before(from)) || (!to.IsZero() && t.After(to)) {
 				continue
 			}
@@ -367,7 +369,7 @@ func toOcsfPayload(ocsf map[string]any) OcsfPayload {
 	return OcsfPayload{
 		ClassUID:  toInt(ocsf["class_uid"]),
 		ClassName: toString(ocsf["class_name"]),
-		Time:      toTime(ocsf["time"]),
+		Time:      ocsfTime(ocsf, "time"),
 		Raw:       ocsf,
 	}
 }
@@ -390,16 +392,63 @@ func toString(v any) string {
 	return s
 }
 
-// toTime parses an OCSF time value, accepting RFC3339 strings and epoch
-// milliseconds (OCSF's numeric time form). Returns the zero time on failure.
+// toTime parses a time a binding passes in its params, such as a window
+// bound: an RFC 3339 string, or epoch milliseconds. Returns the zero time on
+// failure. A time inside an OCSF event is read with ocsfTime.
 func toTime(v any) time.Time {
-	switch t := v.(type) {
-	case string:
-		if parsed, err := time.Parse(time.RFC3339, t); err == nil {
+	if s, ok := v.(string); ok {
+		if parsed, err := time.Parse(time.RFC3339, s); err == nil {
 			return parsed.UTC()
 		}
-	case float64:
-		return time.UnixMilli(int64(t)).UTC()
+		return time.Time{}
+	}
+	t, _ := epochMillis(v)
+	return t
+}
+
+// ocsfTime reads an OCSF timestamp at path of obj (adr/0356). A timestamp_t
+// field such as "time" or "process.created_time" holds epoch milliseconds as
+// a whole number. OCSF's datetime profile adds a twin with the same name and
+// "_dt", an RFC 3339 string. The number is read first and the twin as a
+// fallback. A string in the number's field is not OCSF and is not read.
+// Returns the zero time when neither gives a time.
+func ocsfTime(obj map[string]any, path string) time.Time {
+	if v, ok := lookupPath(obj, path); ok {
+		if t, ok := epochMillis(v); ok {
+			return t
+		}
+	}
+	if v, ok := lookupPath(obj, path+"_dt"); ok {
+		if parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(toString(v))); err == nil {
+			return parsed.UTC()
+		}
 	}
 	return time.Time{}
+}
+
+// epochMillis reads a whole number of milliseconds since the epoch as a
+// time. A number with a fraction, or one too large for a JSON number to hold
+// exactly (2^53 and up), is not a timestamp.
+func epochMillis(v any) (time.Time, bool) {
+	var ms int64
+	switch n := v.(type) {
+	case float64:
+		if n != math.Trunc(n) || math.Abs(n) >= 1<<53 {
+			return time.Time{}, false
+		}
+		ms = int64(n)
+	case int:
+		ms = int64(n)
+	case int64:
+		ms = n
+	case json.Number:
+		i, err := n.Int64()
+		if err != nil {
+			return time.Time{}, false
+		}
+		ms = i
+	default:
+		return time.Time{}, false
+	}
+	return time.UnixMilli(ms).UTC(), true
 }

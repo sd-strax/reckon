@@ -16,10 +16,10 @@ const registryKeyPath = `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
 func TestRegistryNormalizer(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid":     201001,
-		"time":          "2026-04-20T14:32:11Z",
+		"time":          ms("2026-04-20T14:32:11Z"),
 		"activity_name": "Create",
 		"reg_key":       map[string]any{"path": registryKeyPath},
-		"actor":         map[string]any{"process": map[string]any{"pid": 1234, "created_time": "2026-04-20T14:00:00Z"}},
+		"actor":         map[string]any{"process": map[string]any{"pid": 1234, "created_time": ms("2026-04-20T14:00:00Z")}},
 		"device":        map[string]any{"hostname": "WS1"},
 	}))
 	if err != nil {
@@ -51,7 +51,7 @@ func TestRegistryValueNormalizer(t *testing.T) {
 	value := func(v map[string]any) NormalizationResult {
 		t.Helper()
 		res, err := testRegistry().Normalize(makeEvent(map[string]any{
-			"class_uid": 201002, "time": "2026-04-20T14:32:11Z", "activity_id": 2,
+			"class_uid": 201002, "time": ms("2026-04-20T14:32:11Z"), "activity_id": 2,
 			"reg_value": v, "device": map[string]any{"hostname": "WS1"},
 		}))
 		if err != nil {
@@ -104,7 +104,7 @@ func TestRegistryClassesReadTheirOwnFields(t *testing.T) {
 	reg := testRegistry()
 	both := func(class int) map[string]any {
 		return map[string]any{
-			"class_uid": class, "time": "2026-04-20T14:32:11Z",
+			"class_uid": class, "time": ms("2026-04-20T14:32:11Z"),
 			"reg_key":   map[string]any{"path": `HKLM\FromKey`},
 			"reg_value": map[string]any{"path": `HKLM\FromValue`, "name": "v"},
 			"device":    map[string]any{"hostname": "WS1"},
@@ -134,7 +134,7 @@ func TestRegistryClassesReadTheirOwnFields(t *testing.T) {
 func TestScheduledJobNormalizer(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid": 1006,
-		"time":      "2026-04-20T14:32:11Z",
+		"time":      ms("2026-04-20T14:32:11Z"),
 		"job": map[string]any{
 			"name": "EvilTask", "file": map[string]any{"path": `\Microsoft\Windows\EvilTask`},
 			"cmd_line": "evil.exe", "user": map[string]any{"name": "SYSTEM"},
@@ -178,7 +178,7 @@ func TestScheduledJobCommandLines(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.job["name"] = "Task"
 			res, err := testRegistry().Normalize(makeEvent(map[string]any{
-				"class_uid": 1006, "time": "2026-04-20T14:32:11Z", "job": tc.job, "device": map[string]any{"hostname": "WS1"},
+				"class_uid": 1006, "time": ms("2026-04-20T14:32:11Z"), "job": tc.job, "device": map[string]any{"hostname": "WS1"},
 			}))
 			if err != nil {
 				t.Fatal(err)
@@ -201,12 +201,12 @@ func TestModuleNormalizer(t *testing.T) {
 	payload := func(class int) map[string]any {
 		return map[string]any{
 			"class_uid": class,
-			"time":      "2026-04-20T14:32:11Z",
+			"time":      ms("2026-04-20T14:32:11Z"),
 			"module": map[string]any{"file": map[string]any{
 				"name": "evil.dll", "path": `C:\Temp\evil.dll`,
 				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "abcd"}},
 			}},
-			"actor":  map[string]any{"process": map[string]any{"pid": 999, "created_time": "2026-04-20T14:00:00Z"}},
+			"actor":  map[string]any{"process": map[string]any{"pid": 999, "created_time": ms("2026-04-20T14:00:00Z")}},
 			"device": map[string]any{"hostname": "WS1"},
 		}
 	}
@@ -235,7 +235,7 @@ func TestFileHashesListFormOnly(t *testing.T) {
 	file := func(hashes any) SCO {
 		t.Helper()
 		res, err := testRegistry().Normalize(makeEvent(map[string]any{
-			"class_uid": 1001, "time": "2026-04-20T14:32:11Z",
+			"class_uid": 1001, "time": ms("2026-04-20T14:32:11Z"),
 			"file":   map[string]any{"name": "evil.dll", "hashes": hashes},
 			"device": map[string]any{"hostname": "WS1"},
 		}))
@@ -260,7 +260,7 @@ func TestFileHashesListFormOnly(t *testing.T) {
 func accountEvent(class int, activity string) map[string]any {
 	return map[string]any{
 		"class_uid":     class,
-		"time":          "2026-04-20T14:32:11Z",
+		"time":          ms("2026-04-20T14:32:11Z"),
 		"activity_name": activity,
 		"user":          map[string]any{"name": "alice", "domain": "CONTOSO", "uid": "S-1-5-21-7-1101"},
 		"actor":         map[string]any{"user": map[string]any{"name": "admin", "domain": "CONTOSO", "uid": "S-1-5-21-7-500"}},
@@ -359,7 +359,7 @@ func TestGroupManagementGroup(t *testing.T) {
 func emailEvent() map[string]any {
 	return map[string]any{
 		"class_uid": 4009,
-		"time":      "2026-04-20T14:32:11Z",
+		"time":      ms("2026-04-20T14:32:11Z"),
 		"email": map[string]any{
 			"from":        "attacker@evil.example",
 			"to":          []any{"alice@corp.com", "bob@corp.com"},
@@ -537,7 +537,7 @@ func TestEmailMessageIdentity(t *testing.T) {
 func clickEvent() map[string]any {
 	return map[string]any{
 		"class_uid": 4012,
-		"time":      "2026-04-20T14:40:00Z",
+		"time":      ms("2026-04-20T14:40:00Z"),
 		"url":       map[string]any{"url_string": "https://evil.example/pay"},
 		"email_uid": "gw-0001",
 		"actor":     map[string]any{"user": map[string]any{"name": "alice", "domain": "CORP", "uid": "S-1-5-21-7-1101"}},
@@ -633,7 +633,7 @@ func TestEmailClickReachesMessageThroughAlias(t *testing.T) {
 func TestEmailFileNormalizer(t *testing.T) {
 	payload := map[string]any{
 		"class_uid":   4011,
-		"time":        "2026-04-20T14:32:11Z",
+		"time":        ms("2026-04-20T14:32:11Z"),
 		"activity_id": 2,
 		"email_uid":   "gw-0001",
 		"file": map[string]any{

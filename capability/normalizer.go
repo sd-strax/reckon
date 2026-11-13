@@ -653,12 +653,9 @@ func pathInt(m map[string]any, path string) int {
 	return 0
 }
 
-func pathTime(m map[string]any, path string) time.Time {
-	if v, ok := lookupPath(m, path); ok {
-		return toTime(v)
-	}
-	return time.Time{}
-}
+// pathTime reads the OCSF timestamp at path of m: epoch milliseconds, else
+// the field's _dt twin (see ocsfTime).
+func pathTime(m map[string]any, path string) time.Time { return ocsfTime(m, path) }
 
 // hashesFromValue reads an OCSF hashes value, a list of fingerprints
 // ([{"algorithm": "...", "value": "..."}]), as algorithm → digest. OCSF has

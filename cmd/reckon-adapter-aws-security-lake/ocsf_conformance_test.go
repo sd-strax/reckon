@@ -13,7 +13,7 @@ import (
 // assertOCSF is check 3 of adr/0356 for this adapter: every event it emits,
 // read as the engine receives it over the invoke wire, holds only fields
 // OCSF defines for its class at the version it declares, each in the shape
-// the schema gives it.
+// and scalar type the schema gives it.
 //
 // The adapter passes the lake's metadata through, so the version is the one
 // the lake's source wrote. An event with none fails.

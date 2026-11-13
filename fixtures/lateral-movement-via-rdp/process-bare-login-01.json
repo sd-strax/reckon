@@ -14,7 +14,8 @@
   "ocsf": {
     "class_uid": 1007,
     "class_name": "Process Activity",
-    "time": "2026-04-20T14:32:40Z",
+    "time": 1776695560000,
+    "time_dt": "2026-04-20T14:32:40Z",
     "activity_name": "LAUNCH",
     "metadata": {
       "product": {
@@ -25,7 +26,8 @@
     "process": {
       "pid": 5000,
       "name": "mstsc-hijack.exe",
-      "created_time": "2026-04-20T14:32:40Z"
+      "created_time": 1776695560000,
+      "created_time_dt": "2026-04-20T14:32:40Z"
     },
     "device": {
       "hostname": "WIN-FILE01",

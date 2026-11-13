@@ -28,12 +28,12 @@ func buildInvokeCapability(t *testing.T) (*capability.Resolver, *capability.Cata
 	files := map[string]string{
 		"logon.json": `{
 	      "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{}},"delay_ms":0},
-	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:32:11Z",
+	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":1776695531000,"time_dt":"2026-04-20T14:32:11Z",
 	              "actor":{"user":{"name":"jdoe"}},"dst_endpoint":{"hostname":"H1"},"status":"SUCCESS"}
 	    }`,
 		"conn.json": `{
 	      "fixture_meta":{"scenario":"s","matches":{"verb":"get_network_connections","params":{"endpoint.hostname":"H1"}},"delay_ms":0},
-	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:40:00Z",
+	      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":1776696000000,"time_dt":"2026-04-20T14:40:00Z",
 	              "actor":{"user":{"name":"jdoe"}},"dst_endpoint":{"hostname":"H1"},"status":"SUCCESS"}
 	    }`,
 	}

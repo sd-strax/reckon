@@ -23,22 +23,31 @@ func makeEvent(payload map[string]any) OcsfEvent {
 	return OcsfEvent{
 		ID:         uuid.Must(uuid.NewV7()),
 		ClassUID:   toInt(payload["class_uid"]),
-		Time:       toTime(payload["time"]),
+		Time:       ocsfTime(payload, "time"),
 		RecordedAt: time.Now(),
 		SourceTool: "fixture:s",
 		Payload:    payload,
 	}
 }
 
+// ms is an RFC 3339 time as OCSF writes a timestamp_t: epoch milliseconds.
+func ms(rfc3339 string) int64 {
+	t, err := time.Parse(time.RFC3339, rfc3339)
+	if err != nil {
+		panic(err)
+	}
+	return t.UnixMilli()
+}
+
 func processPayload() map[string]any {
 	return map[string]any{
 		"class_uid": 1007,
-		"time":      "2026-04-20T14:32:11Z",
+		"time":      ms("2026-04-20T14:32:11Z"),
 		"process": map[string]any{
 			"pid":          4242,
 			"name":         "powershell.exe",
 			"cmd_line":     "powershell -enc ZQBjAGgAbwA=",
-			"created_time": "2026-04-20T14:32:11Z",
+			"created_time": ms("2026-04-20T14:32:11Z"),
 			"file": map[string]any{
 				"path":   `C:\Windows\System32\powershell.exe`,
 				"name":   "powershell.exe",
@@ -47,7 +56,7 @@ func processPayload() map[string]any {
 			"parent_process": map[string]any{
 				"pid":          1000,
 				"name":         "explorer.exe",
-				"created_time": "2026-04-20T14:00:00Z",
+				"created_time": ms("2026-04-20T14:00:00Z"),
 			},
 		},
 		"device": map[string]any{"hostname": "WIN-DC01", "domain": "CONTOSO"},
@@ -124,7 +133,7 @@ func TestProcessNormalizer(t *testing.T) {
 func authPayload(host string) map[string]any {
 	return map[string]any{
 		"class_uid":    3002,
-		"time":         "2026-04-20T14:35:02Z",
+		"time":         ms("2026-04-20T14:35:02Z"),
 		"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21"}},
 		"dst_endpoint": map[string]any{"hostname": host, "domain": "CONTOSO"},
 		"src_endpoint": map[string]any{"ip": "10.0.4.55"},
@@ -172,7 +181,7 @@ func TestAuthNormalizer(t *testing.T) {
 func TestOpaqueFallback(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid": 9999,
-		"time":      "2026-04-20T14:32:11Z",
+		"time":      ms("2026-04-20T14:32:11Z"),
 		"weird":     "vendor payload",
 	}))
 	if err != nil {
@@ -463,7 +472,7 @@ func TestNormalizerVersions(t *testing.T) {
 	for _, c := range []struct{ class, version int }{
 		{1007, 4}, {3002, 4}, {4001, 3}, {4003, 2}, {1001, 4}, {201001, 3}, {201002, 3}, {1006, 4}, {1005, 3},
 		{3001, 4}, {3005, 4}, {3006, 4}, {4009, 3}, {4011, 4}, {4012, 4}, {2004, 5}, {2005, 2},
-		{5001, 3}, {6003, 3}, {5023, 3}, {5003, 2}, {0, 1},
+		{5001, 3}, {6003, 3}, {5023, 4}, {5003, 2}, {0, 1},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {
@@ -550,7 +559,7 @@ func TestDeviceOSIsReadWhereTheClassHasADevice(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.payload["metadata"] = okta
-			tc.payload["time"] = "2026-04-20T14:32:11Z"
+			tc.payload["time"] = ms("2026-04-20T14:32:11Z")
 			res, err := testRegistry().Normalize(makeEvent(tc.payload))
 			if err != nil {
 				t.Fatal(err)
@@ -563,5 +572,65 @@ func TestDeviceOSIsReadWhereTheClassHasADevice(t *testing.T) {
 				t.Errorf("read as the identity provider's cloud account = %v; want %v", got, tc.idp)
 			}
 		})
+	}
+}
+
+// TestOcsfTimes (adr/0356): an OCSF timestamp is epoch milliseconds, and the
+// datetime profile's _dt twin is an RFC 3339 string. The number is read
+// first and the twin as a fallback, so an event that carries either one, or
+// both, gets the same event time and the same process id.
+func TestOcsfTimes(t *testing.T) {
+	const when = "2026-04-20T14:32:11Z"
+	want, _ := time.Parse(time.RFC3339, when)
+	event := func(timeFields, processFields map[string]any) OcsfEvent {
+		p := map[string]any{
+			"class_uid": 1007,
+			"device":    map[string]any{"hostname": "WS1"},
+			"process":   map[string]any{"pid": 4242, "name": "a.exe"},
+		}
+		for k, v := range timeFields {
+			p[k] = v
+		}
+		for k, v := range processFields {
+			p["process"].(map[string]any)[k] = v
+		}
+		payload := toOcsfPayload(p)
+		return OcsfEvent{ID: uuid.Must(uuid.NewV7()), ClassUID: payload.ClassUID, Time: payload.Time, SourceTool: "fixture:s", Payload: p}
+	}
+	ids := identity.NewResolver(testNS)
+	proc, _ := ids.Process(ids.Host(identity.HostIdentity{Hostname: "WS1"}), 4242, want)
+
+	for name, tc := range map[string]struct{ time, process map[string]any }{
+		"the number":               {map[string]any{"time": ms(when)}, map[string]any{"created_time": ms(when)}},
+		"the number as JSON":       {map[string]any{"time": float64(ms(when))}, map[string]any{"created_time": float64(ms(when))}},
+		"the _dt twin alone":       {map[string]any{"time_dt": when}, map[string]any{"created_time_dt": when}},
+		"both":                     {map[string]any{"time": ms(when), "time_dt": when}, map[string]any{"created_time": ms(when), "created_time_dt": when}},
+		"the number outranks":      {map[string]any{"time": ms(when), "time_dt": "2001-01-01T00:00:00Z"}, map[string]any{"created_time": ms(when), "created_time_dt": "2001-01-01T00:00:00Z"}},
+		"the twin in another zone": {map[string]any{"time_dt": "2026-04-20T16:32:11+02:00"}, map[string]any{"created_time_dt": "2026-04-20T16:32:11+02:00"}},
+	} {
+		evt := event(tc.time, tc.process)
+		if !evt.Time.Equal(want) {
+			t.Errorf("%s: event time = %s; want %s", name, evt.Time, want)
+		}
+		res, err := testRegistry().Normalize(evt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := scoByID(res.SCOs, proc); !ok {
+			t.Errorf("%s: the process is not %s: %v", name, proc, scosOf(res, identity.TypeProcess))
+		}
+	}
+
+	// A string in the number's field is not OCSF and is not read.
+	evt := event(map[string]any{"time": when}, map[string]any{"created_time": when})
+	if !evt.Time.IsZero() {
+		t.Errorf("a string in time was read as %s", evt.Time)
+	}
+	res, err := testRegistry().Normalize(evt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := scoByID(res.SCOs, proc); ok {
+		t.Error("a string in created_time was read as the process's start")
 	}
 }

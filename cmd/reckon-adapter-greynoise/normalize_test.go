@@ -14,7 +14,8 @@ import (
 
 // assertOCSF is check 3 of adr/0356 for this adapter: every event it emits
 // holds only fields OCSF defines for its class at the version it declares,
-// each in the shape the schema gives it, and names the class it is sent as.
+// each in the shape and scalar type the schema gives it, and names the class
+// it is sent as.
 func assertOCSF(t *testing.T, evs []ocsfEvent) {
 	t.Helper()
 	for i, e := range evs {
@@ -69,6 +70,11 @@ func TestNormalizeMaliciousToDetectionFinding(t *testing.T) {
 	}
 	if e.Time.IsZero() {
 		t.Error("date-only last_seen must parse")
+	}
+	// The event's own time is OCSF's epoch milliseconds, with the same
+	// instant as an RFC 3339 string beside it (adr/0356).
+	if e.Raw["time"] != int64(1785542400000) || e.Raw["time_dt"] != "2026-08-01T00:00:00Z" {
+		t.Errorf("time = %v, time_dt = %v; want 1785542400000 and 2026-08-01T00:00:00Z", e.Raw["time"], e.Raw["time_dt"])
 	}
 	if e.Raw["confidence_id"] != 3 || e.Raw["confidence"] != "High" {
 		t.Errorf("confidence = %v / %v; want 3 / High", e.Raw["confidence_id"], e.Raw["confidence"])

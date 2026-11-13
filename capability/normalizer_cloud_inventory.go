@@ -1,7 +1,6 @@
 package capability
 
 import (
-	"math"
 	"strings"
 	"time"
 
@@ -27,10 +26,10 @@ func (*cloudInventoryNormalizer) ClassUID() int { return 5023 }
 // ObservedData id carries the version but not the normalizer's name, so a
 // version 1 here would mint the same id and keep the entity-less observation.
 // Version 3: created_time and modified_time reach the extensions as RFC 3339
-// strings whether the payload carries epoch milliseconds (OCSF timestamp_t,
-// what a live source emits) or a string; a shaping change is a
-// re-normalization (§4.13).
-func (*cloudInventoryNormalizer) Version() int { return 3 }
+// strings; a shaping change is a re-normalization (§4.13).
+// Version 4: they are read as OCSF writes them, epoch milliseconds, else the
+// _dt twin (adr/0356).
+func (*cloudInventoryNormalizer) Version() int { return 4 }
 
 func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -132,35 +131,23 @@ func inventoryExt(p map[string]any) map[string]any {
 	putAny("labels", fieldOf(first, "labels"))
 	putAny("tags", fieldOf(first, "tags"))
 	put("criticality", toString(fieldOf(first, "criticality")))
-	put("created_time", ocsfTimestamp(fieldOf(first, "created_time")))
-	put("modified_time", ocsfTimestamp(fieldOf(first, "modified_time")))
+	put("created_time", ocsfTimestamp(first, "created_time"))
+	put("modified_time", ocsfTimestamp(first, "modified_time"))
 	if owner, _ := fieldOf(first, "owner").(map[string]any); owner != nil {
 		put("owner_name", firstNonEmpty(strings.TrimSpace(toString(fieldOf(owner, "name"))), strings.TrimSpace(toString(fieldOf(owner, "full_name")))))
 	}
 	return ext
 }
 
-// ocsfTimestamp renders an OCSF timestamp as RFC 3339 UTC: a number is epoch
-// milliseconds (timestamp_t), converted when it is an exact integer below
-// 2^53 (beyond that a JSON number has already been rounded); a string is
-// kept as given; anything else is "". capability/ocsfview holds a copy of
-// this rule for the event view (it cannot import this package).
-func ocsfTimestamp(v any) string {
-	var f float64
-	switch x := v.(type) {
-	case string:
-		return strings.TrimSpace(x)
-	case float64:
-		f = x
-	case int64:
-		f = float64(x)
-	case int:
-		f = float64(x)
-	default:
+// ocsfTimestamp renders the OCSF timestamp at key of obj as RFC 3339 UTC, or
+// "" when there is none. The field holds epoch milliseconds, and its _dt twin
+// an RFC 3339 string; the number is read first (see ocsfTime).
+// capability/ocsfview holds a copy of this rule for the event view (it cannot
+// import this package).
+func ocsfTimestamp(obj map[string]any, key string) string {
+	t := ocsfTime(obj, key)
+	if t.IsZero() {
 		return ""
 	}
-	if f != math.Trunc(f) || math.Abs(f) >= 1<<53 {
-		return ""
-	}
-	return time.UnixMilli(int64(f)).UTC().Format(time.RFC3339Nano)
+	return t.Format(time.RFC3339Nano)
 }

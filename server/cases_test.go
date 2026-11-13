@@ -25,7 +25,7 @@ func buildQueueCapability(t *testing.T) (*capability.Resolver, *capability.Catal
 	}
 	const tmpl = `{
 	  "fixture_meta":{"scenario":"s","matches":{"verb":%q,"params":%s},"delay_ms":0},
-	  "ocsf":{"class_uid":2005,"class_name":"Incident Finding","time":"2026-04-20T14:41:00Z",
+	  "ocsf":{"class_uid":2005,"class_name":"Incident Finding","time":1776696060000,"time_dt":"2026-04-20T14:41:00Z",
 	          "status":"New","priority":"2 - High","assignee_group":{"name":"SOC Tier 2"},
 	          "finding_info_list":[{"uid":%q,"title":%q,"desc":"body"}],
 	          "src_url":"https://x/nav_to.do","unmapped":{"sor":"servicenow"}}

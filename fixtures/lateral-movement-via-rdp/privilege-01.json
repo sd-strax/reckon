@@ -21,7 +21,8 @@
   "ocsf": {
     "class_uid": 3006,
     "class_name": "Group Management",
-    "time": "2026-04-20T14:33:45Z",
+    "time": 1776695625000,
+    "time_dt": "2026-04-20T14:33:45Z",
     "metadata": {
       "version": "1.1.0"
     },
@@ -35,7 +36,8 @@
       "process": {
         "pid": 6120,
         "name": "powershell.exe",
-        "created_time": "2026-04-20T14:33:05Z"
+        "created_time": 1776695585000,
+        "created_time_dt": "2026-04-20T14:33:05Z"
       },
       "user": {
         "name": "svc_backup",

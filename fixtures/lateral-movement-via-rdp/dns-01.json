@@ -18,7 +18,8 @@
   "ocsf": {
     "class_uid": 4003,
     "class_name": "DNS Activity",
-    "time": "2026-04-20T14:33:15Z",
+    "time": 1776695595000,
+    "time_dt": "2026-04-20T14:33:15Z",
     "metadata": { "version": "1.1.0" },
     "activity_name": "RESPONSE",
     "query": { "hostname": "exfil.example.net", "type": "A" },

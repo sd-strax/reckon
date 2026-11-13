@@ -829,7 +829,7 @@ const inventorySnapshot = `{"class_uid":5023,"category_uid":5,"activity_id":2,"a
 	"resources":[{"uid":"arn:aws:s3:::acme-internal-exports","name":"acme-internal-exports","type":"AWS::S3::Bucket","region":"us-east-1",
 		"data":{"versioning":"Suspended","policy":{"Version":"2012-10-17"},"encryption":"AES256"},
 		"labels":["env:prod","data-class:internal"],"criticality":"High","owner":{"name":"data-platform"},
-		"created_time":"2025-03-02T12:00:00Z","modified_time":"2026-07-14T09:28:00Z"}]}`
+		"created_time":1740916800000,"created_time_dt":"2025-03-02T12:00:00Z","modified_time":1784021280000,"modified_time_dt":"2026-07-14T09:28:00Z"}]}`
 
 // TestRender_CloudInventory: the resource and its account as chips bound to
 // the record, the type and region in the sentence, the configuration as its
@@ -876,15 +876,25 @@ func TestRender_CloudInventory(t *testing.T) {
 		t.Errorf("slots = %+v", v.Slots)
 	}
 
-	// A live source's epoch milliseconds (OCSF timestamp_t) read as RFC 3339.
-	ms := payload(inventorySnapshot)
-	first := ms["resources"].([]any)[0].(map[string]any)
-	first["created_time"] = float64(1740916800000)
-	first["modified_time"] = float64(1784021280000)
-	ev := Render(Event{ClassUID: 5023, Payload: ms}, ents)
-	for label, want := range map[string]string{"Created": "2025-03-02T12:00:00Z", "Modified": "2026-07-14T09:28:00Z"} {
-		if f, ok := fieldValue(ev, label); !ok || f.Value != want {
-			t.Errorf("epoch %s field = %+v; want %s", label, f, want)
+	// The times are read from the epoch milliseconds (OCSF timestamp_t)
+	// first, and from the _dt twin when a source writes only that.
+	for name, edit := range map[string]func(first map[string]any){
+		"the number alone": func(first map[string]any) {
+			delete(first, "created_time_dt")
+			delete(first, "modified_time_dt")
+		},
+		"the _dt twin alone": func(first map[string]any) {
+			delete(first, "created_time")
+			delete(first, "modified_time")
+		},
+	} {
+		ms := payload(inventorySnapshot)
+		edit(ms["resources"].([]any)[0].(map[string]any))
+		ev := Render(Event{ClassUID: 5023, Payload: ms}, ents)
+		for label, want := range map[string]string{"Created": "2025-03-02T12:00:00Z", "Modified": "2026-07-14T09:28:00Z"} {
+			if f, ok := fieldValue(ev, label); !ok || f.Value != want {
+				t.Errorf("%s: %s field = %+v; want %s", name, label, f, want)
+			}
 		}
 	}
 
@@ -900,19 +910,35 @@ func TestRender_CloudInventory(t *testing.T) {
 }
 
 // TestOcsfTimestamp repeats capability's TestOcsfTimestamp table: the view
-// and the 5023 normalizer read a timestamp by one rule.
+// and the normalizers read a timestamp by one rule. The field holds epoch
+// milliseconds, and its _dt twin an RFC 3339 string. The number is read
+// first, and a string in the number's field is not read (adr/0356).
 func TestOcsfTimestamp(t *testing.T) {
 	for _, tc := range []struct {
-		in   any
-		want string
+		in, dt any
+		want   string
 	}{
-		{float64(1784021280000), "2026-07-14T09:28:00Z"}, {int64(1784021280000), "2026-07-14T09:28:00Z"},
-		{1784021280123, "2026-07-14T09:28:00.123Z"}, {" 2025-03-02T12:00:00Z ", "2025-03-02T12:00:00Z"},
-		{float64(1.5), ""}, {float64(1 << 53), ""}, {int64(1 << 53), ""}, {true, ""}, {nil, ""},
-		{json.Number("1784021280000"), "2026-07-14T09:28:00Z"},
+		{float64(1784021280000), nil, "2026-07-14T09:28:00Z"},
+		{int64(1784021280000), nil, "2026-07-14T09:28:00Z"},
+		{1784021280123, nil, "2026-07-14T09:28:00.123Z"},
+		{json.Number("1784021280000"), nil, "2026-07-14T09:28:00Z"},
+		{nil, " 2025-03-02T12:00:00Z ", "2025-03-02T12:00:00Z"},
+		{nil, "2025-03-02T13:00:00+01:00", "2025-03-02T12:00:00Z"},
+		{float64(1784021280000), "2025-03-02T12:00:00Z", "2026-07-14T09:28:00Z"}, // the number first
+		{float64(1.5), "2025-03-02T12:00:00Z", "2025-03-02T12:00:00Z"},           // not a timestamp: the twin
+		{"2025-03-02T12:00:00Z", nil, ""},                                        // a string is not a timestamp_t
+		{nil, "yesterday", ""},
+		{float64(1.5), nil, ""}, {float64(1 << 53), nil, ""}, {true, nil, ""}, {nil, nil, ""},
 	} {
-		if got := ocsfTimestamp(tc.in); got != tc.want {
-			t.Errorf("ocsfTimestamp(%v) = %q, want %q", tc.in, got, tc.want)
+		obj := map[string]any{}
+		if tc.in != nil {
+			obj["created_time"] = tc.in
+		}
+		if tc.dt != nil {
+			obj["created_time_dt"] = tc.dt
+		}
+		if got := ocsfTimestamp(obj, "created_time"); got != tc.want {
+			t.Errorf("ocsfTimestamp(%v, %v) = %q, want %q", tc.in, tc.dt, got, tc.want)
 		}
 	}
 }
@@ -953,6 +979,10 @@ func TestRender_OCSFFields(t *testing.T) {
 			map[string]string{"Finding": "Beacon", "Finding id": "det-1", "Severity": "Critical", "Confidence": "Medium", "Techniques": "T1071, T1105", "User": `CONTOSO\jdoe`}},
 		{"detection by score and captions", 2004, `{"finding_info":{"uid":"det-1"},"severity":"Elevated","confidence_score":73,"confidence_id":1,"evidences":[{"user":{"name":"target"}}]}`,
 			map[string]string{"Severity": "Elevated", "Confidence": "73", "User": "target"}},
+		{"device last seen, the number", 5001, `{"device":{"hostname":"H","last_seen_time":1784021280000,"last_seen_time_dt":"2001-01-01T00:00:00Z"}}`,
+			map[string]string{"Last seen": "2026-07-14T09:28:00Z"}},
+		{"device last seen, the _dt twin", 5001, `{"device":{"hostname":"H","last_seen_time_dt":"2026-07-14T09:28:00Z"}}`,
+			map[string]string{"Last seen": "2026-07-14T09:28:00Z"}},
 		{"detection by confidence caption", 2004, `{"finding_info":{"uid":"det-1"},"confidence_id":99,"confidence":"Certain"}`,
 			map[string]string{"Confidence": "Certain", "Severity": "", "User": ""}},
 		{"case", 2005, `{"finding_info_list":[{"uid":"INC1","title":"T"}],"assignee_group":{"name":"SOC","uid":"g"},"src_url":"https://sor.example/INC1","unmapped":{"sor":"servicenow","link":"https://old.example"}}`,

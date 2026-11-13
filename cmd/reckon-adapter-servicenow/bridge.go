@@ -243,7 +243,16 @@ func (b *bridge) caseToOcsf(rec map[string]any) capability.OcsfPayload {
 	if b.client != nil && s("sys_id") != "" {
 		raw["src_url"] = b.client.baseURL + "/nav_to.do?uri=incident.do?sys_id=" + s("sys_id")
 	}
-	return capability.OcsfPayload{ClassUID: 2005, ClassName: "Incident Finding", Time: parseSnowTime(s("opened_at")), Raw: raw}
+	// OCSF's time is epoch milliseconds, and time_dt, from the datetime
+	// profile, is the same instant as an RFC 3339 string (adr/0356). A record
+	// with no opened_at carries neither.
+	opened := parseSnowTime(s("opened_at"))
+	if !opened.IsZero() {
+		ms := opened.UnixMilli()
+		raw["time"] = ms
+		raw["time_dt"] = time.UnixMilli(ms).UTC().Format(time.RFC3339Nano)
+	}
+	return capability.OcsfPayload{ClassUID: 2005, ClassName: "Incident Finding", Time: opened, Raw: raw}
 }
 
 // readClass maps an HTTP status from a read call onto the 03 §6.2 taxonomy: a

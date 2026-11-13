@@ -10,7 +10,8 @@
   "ocsf": {
     "class_uid": 2004,
     "class_name": "Detection Finding",
-    "time": "2026-06-11T03:21:30Z",
+    "time": 1781148090000,
+    "time_dt": "2026-06-11T03:21:30Z",
     "metadata": {
       "product": {
         "vendor_name": "fixture-idp"

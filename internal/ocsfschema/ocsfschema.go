@@ -1,8 +1,8 @@
 // Package ocsfschema answers questions about the OCSF schema from the copies
 // checked in under third_party/ocsf-schema/ (adr/0356): does a class exist at
 // a version, what is it called, does a field path exist on it, and does an
-// event hold only fields its class defines, each in the shape the schema
-// gives it (Validate).
+// event hold only fields its class defines, each in the shape and the scalar
+// type the schema gives it (Validate).
 //
 // It is used by tests. The schema files are found by walking up from the
 // working directory to the module root, so the package works from any
@@ -50,6 +50,7 @@ type Schema struct {
 	version string
 	classes map[int]*entity    // by class uid
 	objects map[string]*entity // by export key, e.g. "file", "win/reg_value"
+	types   map[string]string  // a derived type's parent: "username_t" → "string_t"
 }
 
 // entity is a class or an object as the export describes it. Only the fields
@@ -74,6 +75,9 @@ type export struct {
 	Version string             `json:"version"`
 	Classes map[string]*entity `json:"classes"`
 	Objects map[string]*entity `json:"objects"`
+	Types   map[string]struct {
+		Type string `json:"type"` // the parent type, "" for a base type
+	} `json:"types"`
 }
 
 var (
@@ -140,7 +144,15 @@ func loadFile(path, version string) (*Schema, error) {
 	if ex.Version != version {
 		return nil, fmt.Errorf("ocsfschema: %s declares version %q, want %q", path, ex.Version, version)
 	}
-	s := &Schema{version: version, classes: make(map[int]*entity, len(ex.Classes)), objects: ex.Objects}
+	s := &Schema{
+		version: version,
+		classes: make(map[int]*entity, len(ex.Classes)),
+		objects: ex.Objects,
+		types:   make(map[string]string, len(ex.Types)),
+	}
+	for name, t := range ex.Types {
+		s.types[name] = t.Type
+	}
 	for key, obj := range ex.Objects {
 		obj.key = key
 	}

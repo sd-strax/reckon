@@ -12,7 +12,8 @@
   "ocsf": {
     "class_uid": 5001,
     "class_name": "Device Inventory Info",
-    "time": "2026-04-20T14:00:00Z",
+    "time": 1776693600000,
+    "time_dt": "2026-04-20T14:00:00Z",
     "metadata": {
       "version": "1.2.0"
     },
@@ -26,7 +27,8 @@
       "owner": {
         "name": "File Services"
       },
-      "last_seen_time": "2026-04-20T14:00:00Z",
+      "last_seen_time": 1776693600000,
+      "last_seen_time_dt": "2026-04-20T14:00:00Z",
       "agent_list": [
         {
           "name": "edr-sensor",

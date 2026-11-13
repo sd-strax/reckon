@@ -10,7 +10,8 @@
   "ocsf": {
     "class_uid": 2004,
     "class_name": "Detection Finding",
-    "time": "2026-04-20T14:33:10Z",
+    "time": 1776695590000,
+    "time_dt": "2026-04-20T14:33:10Z",
     "metadata": {
       "product": {
         "vendor_name": "CrowdStrike"
@@ -38,7 +39,8 @@
         "process": {
           "pid": 6120,
           "name": "powershell.exe",
-          "created_time": "2026-04-20T14:33:05Z"
+          "created_time": 1776695585000,
+          "created_time_dt": "2026-04-20T14:33:05Z"
         },
         "actor": {
           "user": {

@@ -49,7 +49,12 @@ func normalize(operation, text string) ([]ocsfEvent, error) {
 }
 
 // event wraps OCSF fields as one event of a class: it adds the class, the
-// OCSF version and the product. unmapped holds the source's own fields.
+// OCSF version, the product and the event's time. unmapped holds the source's
+// own fields.
+//
+// OCSF's time is epoch milliseconds, and time_dt, from the datetime profile,
+// is the same instant as an RFC 3339 string (adr/0356). An event with no
+// time carries neither.
 func event(class int, name string, t time.Time, fields, unmapped map[string]any) ocsfEvent {
 	raw := map[string]any{
 		"class_uid": class,
@@ -58,6 +63,11 @@ func event(class int, name string, t time.Time, fields, unmapped map[string]any)
 			"product": map[string]any{"vendor_name": "GreyNoise", "name": "GreyNoise"},
 		},
 		"unmapped": unmapped,
+	}
+	if !t.IsZero() {
+		ms := t.UnixMilli()
+		raw["time"] = ms
+		raw["time_dt"] = time.UnixMilli(ms).UTC().Format(time.RFC3339Nano)
 	}
 	for k, v := range fields {
 		raw[k] = v

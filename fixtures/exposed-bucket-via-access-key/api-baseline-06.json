@@ -77,7 +77,8 @@
     "activity_id": 2,
     "activity_name": "Read",
     "type_uid": 600302,
-    "time": "2026-06-29T02:16:42Z",
+    "time": 1782699402000,
+    "time_dt": "2026-06-29T02:16:42Z",
     "severity_id": 1,
     "metadata": {
       "product": {

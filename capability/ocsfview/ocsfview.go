@@ -1460,7 +1460,7 @@ func (r *renderer) deviceInventory() {
 	r.entityField("IP", r.ip("device.ip"))
 	r.field("Owner", owner)
 	r.field("Criticality", crit).Tone = severityTone(crit)
-	r.field("Last seen", r.str("device.last_seen_time"))
+	r.field("Last seen", ocsfTimestamp(r.p, "device.last_seen_time"))
 	var agents []string
 	for _, a := range pathList(r.p, "device.agent_list") {
 		m, _ := a.(map[string]any)
@@ -1516,8 +1516,8 @@ func (r *renderer) cloudInventory() {
 	r.entityField("Account", account)
 	r.field("Region", region)
 	r.field("Owner", owner)
-	r.field("Created", ocsfTimestamp(fieldOf(first, "created_time")))
-	r.field("Modified", ocsfTimestamp(fieldOf(first, "modified_time")))
+	r.field("Created", ocsfTimestamp(first, "created_time"))
+	r.field("Modified", ocsfTimestamp(first, "modified_time"))
 	r.field("Criticality", crit).Tone = severityTone(crit)
 	r.field("Labels", strings.Join(stringList(pathList(first, "labels")), ", "))
 	if data, ok := fieldOf(first, "data").(map[string]any); ok {
@@ -1976,37 +1976,48 @@ func pathList(m map[string]any, path string) []any {
 	return l
 }
 
-// ocsfTimestamp renders an OCSF timestamp for display as RFC 3339 UTC: a
-// number is epoch milliseconds (timestamp_t), converted when it is an exact
-// integer below 2^53 (beyond that a JSON number has already been rounded); a
-// string is shown as given; anything else is "". It is the same rule as the
-// 5023 normalizer's ocsfTimestamp in package capability, kept as a copy
-// because capability's own tests import this package, so this package
-// cannot import capability.
-func ocsfTimestamp(v any) string {
-	var f float64
+// ocsfTimestamp renders the OCSF timestamp at path of m for display as RFC
+// 3339 UTC, or "" when there is none (adr/0356). The field holds epoch
+// milliseconds (timestamp_t), converted when it is a whole number below 2^53
+// (beyond that a JSON number has already been rounded). The datetime
+// profile's twin, the same name with "_dt", holds an RFC 3339 string. The
+// number is read first and the twin as a fallback. A string in the number's
+// field is not OCSF and is not shown. It is the same rule as ocsfTime in
+// package capability, kept as a copy because capability's own tests import
+// this package, so this package cannot import capability.
+func ocsfTimestamp(m map[string]any, path string) string {
+	if t, ok := epochMillis(pathAny(m, path)); ok {
+		return t.Format(time.RFC3339Nano)
+	}
+	if t, err := time.Parse(time.RFC3339, strings.TrimSpace(pathStr(m, path+"_dt"))); err == nil {
+		return t.UTC().Format(time.RFC3339Nano)
+	}
+	return ""
+}
+
+// epochMillis reads a whole number of milliseconds since the epoch as a time.
+func epochMillis(v any) (time.Time, bool) {
+	var ms int64
 	switch x := v.(type) {
-	case string:
-		return strings.TrimSpace(x)
 	case float64:
-		f = x
-	case json.Number:
-		n, err := x.Float64()
-		if err != nil {
-			return ""
+		if x != math.Trunc(x) || math.Abs(x) >= 1<<53 {
+			return time.Time{}, false
 		}
-		f = n
+		ms = int64(x)
+	case json.Number:
+		n, err := x.Int64()
+		if err != nil {
+			return time.Time{}, false
+		}
+		ms = n
 	case int64:
-		f = float64(x)
+		ms = x
 	case int:
-		f = float64(x)
+		ms = int64(x)
 	default:
-		return ""
+		return time.Time{}, false
 	}
-	if f != math.Trunc(f) || math.Abs(f) >= 1<<53 {
-		return ""
-	}
-	return time.UnixMilli(int64(f)).UTC().Format(time.RFC3339Nano)
+	return time.UnixMilli(ms).UTC(), true
 }
 
 func toString(v any) string {

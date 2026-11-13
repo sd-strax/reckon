@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 
@@ -17,7 +18,7 @@ func inventoryPayload() map[string]any {
 		"category_uid":  5,
 		"activity_id":   2,
 		"activity_name": "Collect",
-		"time":          "2026-07-14T10:00:00Z",
+		"time":          ms("2026-07-14T10:00:00Z"),
 		"metadata":      map[string]any{"version": "1.7.0", "product": map[string]any{"name": "fixture-cloud-config"}},
 		"cloud": map[string]any{
 			"provider": "AWS",
@@ -31,8 +32,8 @@ func inventoryPayload() map[string]any {
 				"labels":        []any{"env:prod"},
 				"tags":          []any{map[string]any{"name": "env", "value": "prod"}},
 				"criticality":   "High",
-				"created_time":  "2025-03-02T12:00:00Z",
-				"modified_time": "2026-07-14T09:28:00Z",
+				"created_time":  ms("2025-03-02T12:00:00Z"),
+				"modified_time": ms("2026-07-14T09:28:00Z"),
 			},
 		},
 	}
@@ -69,7 +70,7 @@ func TestCloudInventory_Snapshot(t *testing.T) {
 	}
 
 	od := res.ObservedData[0]
-	if od.Provenance.Normalizer != "cloud_resources_inventory_info" || od.Provenance.NormalizerVersion != 3 {
+	if od.Provenance.Normalizer != "cloud_resources_inventory_info" || od.Provenance.NormalizerVersion != 4 {
 		t.Errorf("provenance = %+v", od.Provenance)
 	}
 	ext := od.Extensions
@@ -230,7 +231,7 @@ func TestCloudInventory_Registered(t *testing.T) {
 
 // TestCloudInventory_EpochTimes: a live source carries created_time and
 // modified_time as epoch milliseconds (OCSF timestamp_t); the extensions read
-// them as RFC 3339, the same form the fixture's strings already have.
+// them as RFC 3339.
 func TestCloudInventory_EpochTimes(t *testing.T) {
 	p := inventoryPayload()
 	r := p["resources"].([]any)[0].(map[string]any)
@@ -244,21 +245,44 @@ func TestCloudInventory_EpochTimes(t *testing.T) {
 	if _, ok := normalizeOne(t, p).ObservedData[0].Extensions["created_time"]; ok {
 		t.Error("a fractional time must be omitted")
 	}
+	// A source that writes only the datetime profile's twin is read from it.
+	delete(r, "created_time")
+	r["created_time_dt"] = "2025-03-02T12:00:00Z"
+	if got := normalizeOne(t, p).ObservedData[0].Extensions["created_time"]; got != "2025-03-02T12:00:00Z" {
+		t.Errorf("created_time from the _dt twin = %v", got)
+	}
 }
 
 // TestOcsfTimestamp is the timestamp rule capability/ocsfview copies; its
-// table is repeated there so the two stay one rule.
+// table is repeated there so the two stay one rule. The field holds epoch
+// milliseconds, and its _dt twin an RFC 3339 string. The number is read
+// first, and a string in the number's field is not read (adr/0356).
 func TestOcsfTimestamp(t *testing.T) {
 	for _, tc := range []struct {
-		in   any
-		want string
+		in, dt any
+		want   string
 	}{
-		{float64(1784021280000), "2026-07-14T09:28:00Z"}, {int64(1784021280000), "2026-07-14T09:28:00Z"},
-		{1784021280123, "2026-07-14T09:28:00.123Z"}, {" 2025-03-02T12:00:00Z ", "2025-03-02T12:00:00Z"},
-		{float64(1.5), ""}, {float64(1 << 53), ""}, {int64(1 << 53), ""}, {true, ""}, {nil, ""},
+		{float64(1784021280000), nil, "2026-07-14T09:28:00Z"},
+		{int64(1784021280000), nil, "2026-07-14T09:28:00Z"},
+		{1784021280123, nil, "2026-07-14T09:28:00.123Z"},
+		{json.Number("1784021280000"), nil, "2026-07-14T09:28:00Z"},
+		{nil, " 2025-03-02T12:00:00Z ", "2025-03-02T12:00:00Z"},
+		{nil, "2025-03-02T13:00:00+01:00", "2025-03-02T12:00:00Z"},
+		{float64(1784021280000), "2025-03-02T12:00:00Z", "2026-07-14T09:28:00Z"}, // the number first
+		{float64(1.5), "2025-03-02T12:00:00Z", "2025-03-02T12:00:00Z"},           // not a timestamp: the twin
+		{"2025-03-02T12:00:00Z", nil, ""},                                        // a string is not a timestamp_t
+		{nil, "yesterday", ""},
+		{float64(1.5), nil, ""}, {float64(1 << 53), nil, ""}, {true, nil, ""}, {nil, nil, ""},
 	} {
-		if got := ocsfTimestamp(tc.in); got != tc.want {
-			t.Errorf("ocsfTimestamp(%v) = %q, want %q", tc.in, got, tc.want)
+		obj := map[string]any{}
+		if tc.in != nil {
+			obj["created_time"] = tc.in
+		}
+		if tc.dt != nil {
+			obj["created_time_dt"] = tc.dt
+		}
+		if got := ocsfTimestamp(obj, "created_time"); got != tc.want {
+			t.Errorf("ocsfTimestamp(%v, %v) = %q, want %q", tc.in, tc.dt, got, tc.want)
 		}
 	}
 }

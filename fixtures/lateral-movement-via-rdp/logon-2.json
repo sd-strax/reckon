@@ -11,7 +11,8 @@
   "ocsf": {
     "class_uid": 3002,
     "class_name": "Authentication",
-    "time": "2026-04-20T14:32:47Z",
+    "time": 1776695567000,
+    "time_dt": "2026-04-20T14:32:47Z",
     "metadata": { "version": "1.1.0" },
     "actor": { "user": { "name": "svc_backup", "domain": "CONTOSO", "uid": "S-1-5-21-2002" } },
     "dst_endpoint": { "hostname": "WIN-FILE01", "domain": "CONTOSO" },

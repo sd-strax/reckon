@@ -52,7 +52,7 @@ func entityIDs(t *testing.T, events ...map[string]any) (refs, rels []string) {
 // versioned is an OCSF event of class at version: fields plus class_uid, time
 // and metadata.version.
 func versioned(class int, version string, fields map[string]any) map[string]any {
-	e := map[string]any{"class_uid": class, "time": "2026-04-20T14:32:11Z", "metadata": map[string]any{"version": version}}
+	e := map[string]any{"class_uid": class, "time": ms("2026-04-20T14:32:11Z"), "metadata": map[string]any{"version": version}}
 	for k, v := range fields {
 		e[k] = v
 	}
@@ -60,7 +60,7 @@ func versioned(class int, version string, fields map[string]any) map[string]any 
 }
 
 func TestBothEnds(t *testing.T) {
-	const when = "2026-04-20T14:32:11Z"
+	when := ms("2026-04-20T14:32:11Z")
 	sha := func(v string) []any {
 		return []any{map[string]any{"algorithm": "SHA-256", "algorithm_id": 3, "value": v}}
 	}

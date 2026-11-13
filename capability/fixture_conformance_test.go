@@ -17,7 +17,9 @@ var nonEventFixtures = map[string]bool{"asset-criticality.json": true}
 // TestFixturesAreOCSF is check 3 of adr/0356 for the fixtures. It walks every
 // event under fixtures/ field by field. Each field must exist for the event's
 // class at the OCSF version the fixture declares in metadata.version, and
-// hold the shape the schema gives it: a list, an object or a scalar.
+// hold the shape the schema gives it (a list, an object or a scalar) and, for
+// a scalar, the schema's type: a time is a whole number of epoch
+// milliseconds, a string type a string, and so on.
 // unmapped.* passes, as OCSF puts a source's own fields there.
 //
 // Write fixtures (*.action.json) hold no event and are skipped. So is the

@@ -13,7 +13,7 @@ import (
 func detectionPayload() map[string]any {
 	return map[string]any{
 		"class_uid":     2004,
-		"time":          "2026-04-20T14:32:11Z",
+		"time":          ms("2026-04-20T14:32:11Z"),
 		"metadata":      map[string]any{"product": map[string]any{"vendor_name": "CrowdStrike"}},
 		"severity_id":   4,
 		"confidence_id": 3,
@@ -27,7 +27,7 @@ func detectionPayload() map[string]any {
 			"process": map[string]any{
 				"pid":          4242,
 				"name":         "powershell.exe",
-				"created_time": "2026-04-20T14:32:11Z",
+				"created_time": ms("2026-04-20T14:32:11Z"),
 			},
 			"actor": map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21-7-1101"}},
 		}},
@@ -117,7 +117,7 @@ func TestDetectionNormalizer(t *testing.T) {
 func TestDetectionNormalizerNoEvidence(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid":        2004,
-		"time":             "2026-04-20T14:32:11Z",
+		"time":             ms("2026-04-20T14:32:11Z"),
 		"metadata":         map[string]any{"product": map[string]any{"vendor_name": "Defender"}},
 		"finding_info":     map[string]any{"uid": "d-1", "title": "Malware"},
 		"confidence_score": 42,
@@ -173,7 +173,7 @@ func TestDetectionConfidence(t *testing.T) {
 		{"nothing", map[string]any{}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := map[string]any{"class_uid": 2004, "time": "2026-04-20T14:32:11Z", "finding_info": map[string]any{"uid": "d-1"}}
+			p := map[string]any{"class_uid": 2004, "time": ms("2026-04-20T14:32:11Z"), "finding_info": map[string]any{"uid": "d-1"}}
 			for k, v := range tc.fields {
 				p[k] = v
 			}
@@ -212,7 +212,7 @@ func TestDetectionPattern(t *testing.T) {
 // everything it names is in the observation and the sighting.
 func TestDetectionEvidenceExtractors(t *testing.T) {
 	ids := identity.NewResolver(testNS)
-	when := "2026-04-20T14:32:11Z"
+	when := ms("2026-04-20T14:32:11Z")
 	p := map[string]any{
 		"class_uid":    2004,
 		"time":         when,

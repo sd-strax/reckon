@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -15,7 +16,8 @@ import (
 
 // assertOCSF is check 3 of adr/0356 for this adapter: every event it emits
 // holds only fields OCSF defines for its class at the version it declares,
-// each in the shape the schema gives it, and names the class it is sent as.
+// each in the shape and scalar type the schema gives it, and names the class
+// it is sent as.
 func assertOCSF(t *testing.T, evs []ocsfEvent) {
 	t.Helper()
 	for i, e := range evs {
@@ -150,6 +152,29 @@ func TestNormalizeHostsAreOpaque(t *testing.T) {
 		}
 		assertOCSF(t, evs)
 	}
+}
+
+// TestEventTimes (adr/0356): an event's time is OCSF's epoch milliseconds,
+// with the datetime profile's time_dt beside it as the same instant in RFC
+// 3339. An event with no time carries neither.
+func TestEventTimes(t *testing.T) {
+	evs, err := normalize("search_detections", detection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evs[0].Raw["time"] != int64(1785585600000) || evs[0].Raw["time_dt"] != "2026-08-01T12:00:00Z" {
+		t.Errorf("time = %v, time_dt = %v; want 1785585600000 and 2026-08-01T12:00:00Z", evs[0].Raw["time"], evs[0].Raw["time_dt"])
+	}
+	if !evs[0].Time.Equal(time.UnixMilli(1785585600000)) {
+		t.Errorf("the wire time %s is not the event's", evs[0].Time)
+	}
+	evs, _ = normalize("search_detections", `{"resources":[{"id":"x"}]}`)
+	for _, k := range []string{"time", "time_dt"} {
+		if _, has := evs[0].Raw[k]; has {
+			t.Errorf("an event with no time carries %s = %v", k, evs[0].Raw[k])
+		}
+	}
+	assertOCSF(t, evs)
 }
 
 func TestInferIOCType(t *testing.T) {

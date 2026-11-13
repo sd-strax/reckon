@@ -3,6 +3,7 @@ package ocsfschema
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -52,10 +53,16 @@ func ValidateEvent(payload map[string]any) []Problem {
 //   - A field the class, or the object it sits in, does not define.
 //   - A list field that does not hold a list, an object field that does not
 //     hold an object, and a scalar field that holds a list or an object.
+//   - A scalar of the wrong type. A string type must hold a string, a
+//     boolean a boolean, an integer or a long a whole number, and a float a
+//     number. A derived type is checked as the type it derives from in the
+//     export's own type list: timestamp_t is a long, so a time must be a
+//     whole number, and datetime_t, username_t and ip_t are strings. A
+//     string's format (an address, a date) is not checked.
 //
 // A json_t field, and a field whose object defines no fields of its own (the
 // generic "object", which "unmapped" is), accept any value. A null value is
-// an absent field. A scalar's own type (string or number) is not checked.
+// an absent field.
 //
 // The payload is JSON as encoding/json decodes it. Typed Go maps and slices
 // are read the same way, so an adapter can pass the event it built.
@@ -146,7 +153,87 @@ func (v *validator) single(path string, attr attribute, def *entity, val reflect
 	}
 	if kind != kindScalar {
 		v.fail(path, "OCSF defines a %s here, and the event has %s", attr.Type, describe(val))
+		return
 	}
+	base := v.schema.baseType(attr.Type)
+	if want := scalarWant[base]; want != "" && !scalarIs(base, val) {
+		v.fail(path, "OCSF defines a %s here, which holds %s, and the event has %s", attr.Type, want, describeScalar(val))
+	}
+}
+
+// scalarWant says in words what each base scalar type holds. A type that is
+// not listed (json_t, or one a later release adds) is not checked.
+var scalarWant = map[string]string{
+	"string_t":  "a string",
+	"boolean_t": "a boolean",
+	"integer_t": "a whole number",
+	"long_t":    "a whole number",
+	"float_t":   "a number",
+}
+
+// baseType follows a derived type to the base type it is built on, by the
+// export's type list: "timestamp_t" → "long_t", "username_t" → "string_t".
+// A base type, and a type the export does not list, is returned as it is.
+func (s *Schema) baseType(name string) string {
+	for range len(s.types) + 1 {
+		parent := s.types[name]
+		if parent == "" {
+			return name
+		}
+		name = parent
+	}
+	return name
+}
+
+// scalarIs reports whether a scalar value is of the base type. A number is
+// JSON's float64, a json.Number, or any Go integer or float.
+func scalarIs(base string, val reflect.Value) bool {
+	switch base {
+	case "string_t":
+		if _, isNumber := val.Interface().(json.Number); isNumber {
+			return false
+		}
+		return val.Kind() == reflect.String
+	case "boolean_t":
+		return val.Kind() == reflect.Bool
+	case "integer_t", "long_t":
+		f, ok := numberOf(val)
+		return ok && f == math.Trunc(f)
+	case "float_t":
+		_, ok := numberOf(val)
+		return ok
+	}
+	return true
+}
+
+// numberOf reads a scalar as a number, when it is one.
+func numberOf(val reflect.Value) (float64, bool) {
+	if n, ok := val.Interface().(json.Number); ok {
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	switch {
+	case val.CanInt():
+		return float64(val.Int()), true
+	case val.CanUint():
+		return float64(val.Uint()), true
+	case val.CanFloat():
+		return val.Float(), true
+	}
+	return 0, false
+}
+
+func describeScalar(val reflect.Value) string {
+	if _, ok := numberOf(val); ok {
+		return fmt.Sprintf("the number %v", val.Interface())
+	}
+	switch val.Kind() {
+	case reflect.String:
+		return fmt.Sprintf("the string %q", val.String())
+	case reflect.Bool:
+		return "a boolean"
+	}
+	return "a " + val.Kind().String()
 }
 
 const (

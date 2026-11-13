@@ -12,7 +12,8 @@
   "ocsf": {
     "class_uid": 5021,
     "class_name": "OSINT Inventory Info",
-    "time": "2026-06-11T03:30:00Z",
+    "time": 1781148600000,
+    "time_dt": "2026-06-11T03:30:00Z",
     "metadata": {
       "product": {
         "vendor_name": "fixture-ti"

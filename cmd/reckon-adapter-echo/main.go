@@ -147,7 +147,8 @@ func (a *adapter) invoke(params json.RawMessage) (any, *wireError) {
 	// Echo the params into one synthetic OCSF Authentication (3002) event.
 	// The event is OCSF (adr/0356): it says its class and version, and the
 	// echoed operation and params, which OCSF has no field for, ride under
-	// unmapped, where OCSF puts a source's own fields.
+	// unmapped, where OCSF puts a source's own fields. Its time is OCSF's
+	// epoch milliseconds, with time_dt as the same instant in RFC 3339.
 	return map[string]any{
 		"source_tool": "echo:" + p.Operation,
 		"events": []map[string]any{{
@@ -156,6 +157,8 @@ func (a *adapter) invoke(params json.RawMessage) (any, *wireError) {
 			"time":       time.Unix(0, 0).UTC(),
 			"raw": map[string]any{
 				"class_uid": 3002,
+				"time":      int64(0),
+				"time_dt":   "1970-01-01T00:00:00Z",
 				"metadata": map[string]any{
 					"version": ocsfVersion,
 					"product": map[string]any{"vendor_name": "reckon", "name": "echo"},
