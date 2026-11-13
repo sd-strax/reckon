@@ -1777,24 +1777,76 @@ func (r *renderer) credential() string {
 	return firstNonEmpty(r.str("actor.user.credential_uid"), r.str("actor.session.credential_uid"))
 }
 
-// scalars is the view of a class without a template: the payload's top-level
-// scalars as fields, the class and clock keys left out, no sentence.
+// scalars is the view of a class without a template, the Base Event (class
+// 0) among them: the payload's scalars as fields, the class and clock keys
+// left out, no sentence.
+//
+// The scalars come from three places, each field labelled by its own key:
+//
+//   - the top of the event;
+//   - unmapped, where OCSF puts a source's own fields;
+//   - each object directly under unmapped, such as unmapped.<vendor>, which
+//     holds the vendor's record.
+//
+// An event with no OCSF class carries everything the source said under
+// unmapped (adr/0356), so without the last two its view would be empty. A
+// key found in more than one place is shown once, from the first place in
+// that order.
+//
+// A timestamp that has its readable _dt twin beside it is shown once, as the
+// twin's text under the timestamp's own key.
 func (r *renderer) scalars() {
-	skip := map[string]bool{"class_uid": true, "class_name": true, "category_uid": true, "category_name": true, "type_uid": true, "type_name": true, "time": true}
-	keys := make([]string, 0, len(r.p))
-	for k, v := range r.p {
-		if skip[k] {
-			continue
+	skip := map[string]bool{
+		"class_uid": true, "class_name": true, "category_uid": true, "category_name": true,
+		"type_uid": true, "type_name": true, "time": true, "time_dt": true,
+	}
+	shown := map[string]string{}
+	add := func(obj map[string]any) {
+		for k, v := range obj {
+			if _, dup := shown[k]; dup || skip[k] || !isScalar(v) {
+				continue
+			}
+			if base, isTwin := strings.CutSuffix(k, "_dt"); isTwin && isScalar(obj[base]) {
+				continue // shown under the timestamp's key
+			}
+			if twin, ok := obj[k+"_dt"].(string); ok && twin != "" {
+				shown[k] = twin
+				continue
+			}
+			shown[k] = toString(v)
 		}
-		switch v.(type) {
-		case string, float64, bool, json.Number, int, int64:
-			keys = append(keys, k)
+	}
+	add(r.p)
+	unmapped, _ := r.p["unmapped"].(map[string]any)
+	add(unmapped)
+	vendors := make([]string, 0, len(unmapped))
+	for k := range unmapped {
+		vendors = append(vendors, k)
+	}
+	sort.Strings(vendors)
+	for _, k := range vendors {
+		if record, ok := unmapped[k].(map[string]any); ok {
+			add(record)
 		}
+	}
+
+	keys := make([]string, 0, len(shown))
+	for k := range shown {
+		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		r.field(k, toString(r.p[k]))
+		r.field(k, shown[k])
 	}
+}
+
+// isScalar reports whether a JSON value is a string, a number or a boolean.
+func isScalar(v any) bool {
+	switch v.(type) {
+	case string, float64, bool, json.Number, int, int64:
+		return true
+	}
+	return false
 }
 
 // --- small helpers --------------------------------------------------------------------

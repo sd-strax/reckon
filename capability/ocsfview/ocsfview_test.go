@@ -461,9 +461,10 @@ func entityRefs(v View) []string {
 }
 
 // TestRender_UnknownClass: the top-level scalars as fields, no sentence, the
-// category from category_uid.
+// category from category_uid. The clock keys are left out, and a timestamp
+// with its _dt twin is shown once, as the twin's text.
 func TestRender_UnknownClass(t *testing.T) {
-	v := Render(Event{ClassUID: 8001, Payload: payload(`{"class_uid":8001,"category_uid":8,"time":"2026-01-01T00:00:00Z","api":{"operation":"GetObject"},"severity":"Informational","count":2,"ok":true}`)}, nil)
+	v := Render(Event{ClassUID: 8001, Payload: payload(`{"class_uid":8001,"category_uid":8,"time":1767225600000,"time_dt":"2026-01-01T00:00:00Z","start_time":1767225600000,"start_time_dt":"2026-01-01T00:00:00Z","end_time":1767225660000,"api":{"operation":"GetObject"},"severity":"Informational","count":2,"ok":true}`)}, nil)
 	if v.Sentence != nil {
 		t.Errorf("sentence for an unknown class: %+v", v.Sentence)
 	}
@@ -471,7 +472,7 @@ func TestRender_UnknownClass(t *testing.T) {
 	for _, f := range v.Fields {
 		labels = append(labels, f.Label+"="+f.Value)
 	}
-	if want := []string{"count=2", "ok=true", "severity=Informational"}; !slices.Equal(labels, want) {
+	if want := []string{"count=2", "end_time=1767225660000", "ok=true", "severity=Informational", "start_time=2026-01-01T00:00:00Z"}; !slices.Equal(labels, want) {
 		t.Errorf("fields = %v; want %v", labels, want)
 	}
 	if v.Category != CategoryOther {
@@ -485,6 +486,48 @@ func TestRender_UnknownClass(t *testing.T) {
 	js, _ := json.Marshal(v)
 	if string(js) != `{"fields":[],"category":"asset"}` {
 		t.Errorf("json = %s", js)
+	}
+}
+
+// TestRender_BaseEvent (adr/0356): an event with no OCSF class is a Base
+// Event (class 0), and everything its source said is under unmapped. The view
+// shows the scalars there, and the scalars of each object directly under it
+// (the vendor's record), each under its own key. A key is shown once, from
+// the top of the event first, then unmapped, then the records in name order.
+func TestRender_BaseEvent(t *testing.T) {
+	fields := func(js string) []string {
+		v := Render(Event{ClassUID: 0, Payload: payload(js)}, nil)
+		if v.Sentence != nil {
+			t.Errorf("sentence for a base event: %+v", v.Sentence)
+		}
+		out := make([]string, 0, len(v.Fields))
+		for _, f := range v.Fields {
+			out = append(out, f.Label+"="+f.Value)
+		}
+		return out
+	}
+	for name, tc := range map[string]struct {
+		js   string
+		want []string
+	}{
+		"a reputation lookup": {
+			`{"class_uid":0,"time":1767225600000,"metadata":{"version":"1.1.0","product":{"name":"GreyNoise"}},
+			  "unmapped":{"ip":"198.51.100.7","reputation":"benign","greynoise":{"ip":"198.51.100.7","business_service_intelligence":{"found":true,"name":"Example CDN"}}}}`,
+			[]string{"ip=198.51.100.7", "reputation=benign"},
+		},
+		"a vendor record's own scalars": {
+			`{"class_uid":0,"unmapped":{"indicator":"evil.example","falcon":{"indicator":"evil.example","type":"domain","malicious_confidence":"high","labels":[{"name":"x"}],"published_date":1767225600}}}`,
+			[]string{"indicator=evil.example", "malicious_confidence=high", "published_date=1767225600", "type=domain"},
+		},
+		"the first place wins": {
+			`{"class_uid":0,"severity":"Low","unmapped":{"severity":"vendor-high","b":{"severity":"b","name":"from b"},"a":{"name":"from a"}}}`,
+			[]string{"name=from a", "severity=Low"},
+		},
+		"unmapped that is not an object": {`{"class_uid":0,"count":1,"unmapped":"text"}`, []string{"count=1", "unmapped=text"}},
+	} {
+		if got := fields(tc.js); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: fields = %v; want %v", name, got, tc.want)
+		}
 	}
 }
 
