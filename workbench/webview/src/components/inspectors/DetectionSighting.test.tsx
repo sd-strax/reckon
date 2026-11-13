@@ -50,7 +50,7 @@ describe("a detection finding's sighting", () => {
     const data = snapshot();
     const docs = (data as unknown as { docs: Record<string, { related: { sightings: { payload: Record<string, unknown> }[]; evidence: unknown[] } }> }).docs;
     const related = docs[INDICATOR]!.related;
-    related.sightings[0]!.payload.where_sighted_refs = [HOST]; // retired: where_sighted_refs
+    related.sightings[0]!.payload.where_sighted_refs = [HOST];
     related.evidence = [];
     mountWith(data);
     const section = await sightingSection();

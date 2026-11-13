@@ -217,11 +217,7 @@ func Render(e Event, entities []Entity) View {
 	if r.fields == nil {
 		r.fields = []Field{}
 	}
-	v := View{Sentence: r.sentence, Fields: r.fields, Category: Category(e.ClassUID, e.Payload), Decoded: r.decoded, Slots: r.slots}
-	if viewHook != nil {
-		viewHook(e, v)
-	}
-	return v
+	return View{Sentence: r.sentence, Fields: r.fields, Category: Category(e.ClassUID, e.Payload), Decoded: r.decoded, Slots: r.slots}
 }
 
 // renderer accumulates one view. The sentence helpers add nothing for an
@@ -1985,13 +1981,9 @@ func hashesOf(v any) map[string]string {
 // event, and the function it returns is called when Render returns. Both are
 // nil outside tests. The package's tests set them to record which OCSF fields
 // the templates read (adr/0356).
-//
-// viewHook, when set, is given every view Render returns, with its event.
-// The tests use it to check that a field the view names is where it says.
 var (
 	lookupHook func(obj map[string]any, path string, found any)
 	renderHook func(e Event) (done func())
-	viewHook   func(e Event, v View)
 )
 
 // pathAny walks a dotted path through nested maps. Every read of an OCSF

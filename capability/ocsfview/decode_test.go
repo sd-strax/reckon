@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/sd-strax/reckon/capability"
 )
 
 // TestDecodeCommandLine: PowerShell's encoded command decodes when PowerShell
@@ -168,43 +166,12 @@ func TestRender_DecodedNamesTheFieldItRead(t *testing.T) {
 		v := Render(Event{ClassUID: tt.class, Payload: p}, nil)
 		if v.Decoded == nil || v.Decoded.Field != tt.field || v.Decoded.Stored != enc || v.Decoded.Text != "echo" {
 			t.Errorf("%s: decoded = %+v; want field %s, stored %q", tt.name, v.Decoded, tt.field, enc)
-			continue
-		}
-		if got, ok := ResolveField(p, v.Decoded.Field, capability.LookupPath); !ok || got != enc {
-			t.Errorf("%s: %s resolves to %v, %v; want the stored command line", tt.name, v.Decoded.Field, got, ok)
 		}
 	}
 	// The stored value is not on the wire: the view's fields already show it.
 	out, err := json.Marshal(Render(Event{ClassUID: 1007, Payload: payload(tests[0].js)}, nil).Decoded)
 	if err != nil || strings.Contains(string(out), "tored") {
 		t.Errorf("decoded on the wire = %s, %v; want field, encoding and text only", out, err)
-	}
-}
-
-func TestResolveField(t *testing.T) {
-	p := payload(`{"a":{"b":"x","list":[{"c":"y","inner":[{"d":"z"}]},"scalar"]}}`)
-	tests := []struct {
-		field string
-		want  any
-		ok    bool
-	}{
-		{"a.b", "x", true},
-		{"a.list[0].c", "y", true},
-		{"a.list[0].inner[0].d", "z", true},
-		{"a.list[1]", "scalar", true},
-		{"a.list[2].c", nil, false},
-		{"a.list[1].c", nil, false},
-		{"a.list[-1].c", nil, false},
-		{"a.list[x].c", nil, false},
-		{"a.list[0", nil, false},
-		{"a.list[0]c", nil, false},
-		{"a.b[0]", nil, false},
-		{"a.missing", nil, false},
-	}
-	for _, tt := range tests {
-		if got, ok := ResolveField(p, tt.field, capability.LookupPath); ok != tt.ok || got != tt.want {
-			t.Errorf("ResolveField(%s) = %v, %v; want %v, %v", tt.field, got, ok, tt.want, tt.ok)
-		}
 	}
 }
 

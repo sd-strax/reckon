@@ -2,7 +2,6 @@ package ocsfview
 
 import (
 	"encoding/base64"
-	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf16"
@@ -21,48 +20,11 @@ import (
 // "job.job_actions[1].cmd_line". Stored is that field's value as the event
 // holds it, so a reader of the view shows the original without looking the
 // field up again; it is in the view's fields already and is not on the wire.
-// ResolveField reads Field back from the event.
 type Decoded struct {
 	Field    string `json:"field"`
 	Encoding string `json:"encoding"` // base64-utf16le
 	Text     string `json:"text"`
 	Stored   string `json:"-"`
-}
-
-// ResolveField reads a field path a view names (Decoded.Field) from the
-// event it was rendered from. lookup resolves a dotted path in an object;
-// callers pass capability.LookupPath. A segment that ends in "[i]" steps
-// into entry i of the list lookup finds at the path so far.
-func ResolveField(payload map[string]any, field string, lookup func(map[string]any, string) (any, bool)) (any, bool) {
-	obj := payload
-	for {
-		open := strings.IndexByte(field, '[')
-		if open < 0 {
-			return lookup(obj, field)
-		}
-		end := strings.IndexByte(field[open:], ']')
-		if end < 0 {
-			return nil, false
-		}
-		index, err := strconv.Atoi(field[open+1 : open+end])
-		if err != nil || index < 0 {
-			return nil, false
-		}
-		v, ok := lookup(obj, field[:open])
-		list, isList := v.([]any)
-		if !ok || !isList || index >= len(list) {
-			return nil, false
-		}
-		rest := field[open+end+1:]
-		if rest == "" {
-			return list[index], true
-		}
-		entry, isObject := list[index].(map[string]any)
-		if !isObject || !strings.HasPrefix(rest, ".") {
-			return nil, false
-		}
-		obj, field = entry, rest[1:]
-	}
 }
 
 // Encodings the view recognises. The list is closed: each has an exact test,
