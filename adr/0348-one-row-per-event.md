@@ -1,6 +1,6 @@
 # 0348 — The Story timeline shows an event once, however many queries returned it
 
-Issue: #348 · PR: #TBD · Status: accepted
+Issue: #348 · PR: #349 · Status: accepted
 
 ## Context
 
