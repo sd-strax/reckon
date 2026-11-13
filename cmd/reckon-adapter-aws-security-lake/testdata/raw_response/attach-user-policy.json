@@ -99,7 +99,7 @@
                 "VarCharValue": "{\"account\":{\"name\":null,\"type\":null,\"type_id\":null,\"uid\":\"111122223333\",\"uid_alt\":null,\"labels\":null},\"org\":null,\"provider\":\"AWS\",\"region\":\"us-east-1\",\"zone\":null}"
               },
               {
-                "VarCharValue": "[{\"account_uid\":\"111122223333\",\"cloud_partition\":null,\"criticality\":null,\"data\":null,\"group\":null,\"labels\":null,\"name\":\"svc-backup\",\"namespace\":null,\"owner\":null,\"region\":null,\"type\":\"AWS::IAM::User\",\"uid\":\"arn:aws:iam::111122223333:user/svc-backup\",\"version\":null},{\"account_uid\":\"111122223333\",\"cloud_partition\":null,\"criticality\":null,\"data\":null,\"group\":null,\"labels\":null,\"name\":\"AdministratorAccess\",\"namespace\":null,\"owner\":null,\"region\":null,\"type\":\"AWS::IAM::ManagedPolicy\",\"uid\":\"arn:aws:iam::aws:policy/AdministratorAccess\",\"version\":null}]"
+                "VarCharValue": "[{\"cloud_partition\":null,\"criticality\":null,\"data\":null,\"group\":null,\"labels\":null,\"name\":\"svc-backup\",\"namespace\":null,\"owner\":{\"account\":{\"uid\":\"111122223333\"}},\"region\":null,\"type\":\"AWS::IAM::User\",\"uid\":\"arn:aws:iam::111122223333:user/svc-backup\",\"version\":null},{\"cloud_partition\":null,\"criticality\":null,\"data\":null,\"group\":null,\"labels\":null,\"name\":\"AdministratorAccess\",\"namespace\":null,\"owner\":{\"account\":{\"uid\":\"111122223333\"}},\"region\":null,\"type\":\"AWS::IAM::ManagedPolicy\",\"uid\":\"arn:aws:iam::aws:policy/AdministratorAccess\",\"version\":null}]"
               },
               {
                 "VarCharValue": "{\"domain\":null,\"hostname\":null,\"ip\":\"203.0.113.77\",\"port\":null,\"uid\":null,\"svc_name\":null}"

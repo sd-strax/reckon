@@ -144,17 +144,31 @@ func (a *adapter) invoke(params json.RawMessage) (any, *wireError) {
 	case "crash":
 		os.Exit(1)
 	}
-	// Echo the params into one synthetic OCSF authentication (3002) event.
+	// Echo the params into one synthetic OCSF Authentication (3002) event.
+	// The event is OCSF (adr/0356): it says its class and version, and the
+	// echoed operation and params, which OCSF has no field for, ride under
+	// unmapped, where OCSF puts a source's own fields.
 	return map[string]any{
 		"source_tool": "echo:" + p.Operation,
 		"events": []map[string]any{{
 			"class_uid":  3002,
 			"class_name": "Authentication",
 			"time":       time.Unix(0, 0).UTC(),
-			"raw":        map[string]any{"operation": p.Operation, "echo": p.Params},
+			"raw": map[string]any{
+				"class_uid": 3002,
+				"metadata": map[string]any{
+					"version": ocsfVersion,
+					"product": map[string]any{"vendor_name": "reckon", "name": "echo"},
+				},
+				"unmapped": map[string]any{"operation": p.Operation, "echo": p.Params},
+			},
 		}},
 	}, nil
 }
+
+// ocsfVersion is the OCSF release the echoed event is written in: the oldest
+// one the engine reads.
+const ocsfVersion = "1.1.0"
 
 func (a *adapter) dispatch(params json.RawMessage) (any, *wireError) {
 	var p struct {
