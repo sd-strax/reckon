@@ -1347,11 +1347,6 @@
               "type": "sighting",
               "id": "sighting--c062a394-f3b4-46d7-9293-ae1f2a3b4c09",
               "sighting_of_ref": "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08",
-              "count": 1,
-              "first_seen": "2026-10-20T09:01:00Z",
-              "where_sighted_refs": [
-                "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
-              ],
               "observed_data_refs": [
                 "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
               ]
@@ -1377,6 +1372,8 @@
             "payload": {
               "type": "observed-data",
               "id": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+              "first_observed": "2026-10-20T09:01:00Z",
+              "last_observed": "2026-10-20T09:01:00Z",
               "number_observed": 1,
               "object_refs": [
                 "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
