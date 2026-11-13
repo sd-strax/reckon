@@ -676,9 +676,25 @@ body.gripDragging { cursor: col-resize; user-select: none; }
 /* The folded record (adr/0095): the fold bar over the timeline, a collapsed group row and its members. */
 .foldbar { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin: 4px 0; }
 .foldbar label { cursor: pointer; }
-.keychooser { position: relative; }
-.keymenu { position: absolute; z-index: 5; top: 100%; left: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; background: var(--bg-1, var(--bg)); border: 1px solid var(--border); border-radius: var(--r-sm, 4px); white-space: nowrap; }
-.keymenu label { cursor: pointer; }
+/* The grouping controls (adr/0350): the Group repeats switch and the Grouping panel. */
+.foldbar .switch { display: inline-flex; align-items: center; gap: 6px; }
+.foldbar .switch input[role="switch"] { appearance: none; -webkit-appearance: none; position: relative; width: 26px; height: 14px; margin: 0; border-radius: 7px; background: var(--input-bg); border: 1px solid var(--input-border); cursor: pointer; flex: none; }
+.foldbar .switch input[role="switch"]::after { content: ""; position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; border-radius: 50%; background: var(--input-fg); opacity: .6; transition: left .12s; }
+.foldbar .switch input[role="switch"]:checked { background: var(--he-primary); border-color: var(--he-primary); }
+.foldbar .switch input[role="switch"]:checked::after { left: 13px; opacity: 1; background: #fff; }
+.foldbar .switch input[role="switch"]:focus-visible { outline: 1px solid var(--focus); outline-offset: 2px; }
+.grouping { position: relative; }
+.groupingbtn { font: inherit; font-size: var(--fs-xs); color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--r-sm); padding: 1px 8px; cursor: pointer; }
+.groupingbtn:hover, .groupingbtn[aria-expanded="true"] { background: var(--fill); }
+.groupingbtn:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
+.groupingpanel { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; min-width: 300px; max-width: min(480px, 90vw); display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; color: var(--input-fg); background: var(--overlay-bg); border: 1px solid var(--widget-border); border-radius: var(--r-sm); box-shadow: var(--shadow-panel); font-size: var(--fs-xs); }
+.groupingintro { margin: 0; }
+.groupingrow { display: flex; flex-direction: column; gap: 3px; padding-top: 6px; border-top: 1px solid var(--border); }
+.groupinghead { display: flex; gap: 8px; align-items: baseline; }
+.groupingkind { font-weight: 600; }
+.groupingfields { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.groupingfields label { cursor: pointer; white-space: nowrap; }
+.groupingfields input { accent-color: var(--he-primary); }
 .trow.group { background: color-mix(in srgb, var(--text-3) 6%, transparent); }
 .trow.group > .tsentence .tfold { margin-left: 6px; font-size: var(--fs-xs); }
 .members { list-style: none; grid-column: 1 / -1; margin: 2px 0 0; padding: 0 0 0 12px; border-left: 1px dashed var(--border); }

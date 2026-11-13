@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { describe, expect, it } from "vitest";
 import { AppProvider } from "../app";
 import { App } from "./App";
-import { retrievedCount, timelineItems } from "./lenses/StoryLens";
+import { eventCount, timelineItems } from "./lenses/StoryLens";
 import { keySpec, spanText } from "../derive/events";
 import { bindingRows } from "./inspectors/CallInspector";
 import { HarnessTransport, type HarnessSnapshot } from "../../../harness/transport";
@@ -102,6 +102,8 @@ describe("the Story timeline, one row per event", () => {
     fireEvent.click(within(l).getByRole("button", { name: "×3" }));
     fireEvent.click(within(l).getByTitle("Open get_process_executions call 3 of 3"));
     expect(transport.intents).toContainEqual({ type: "inspector.open", target: { kind: "call", callId: "c-exec-3" } });
+    // The count above the timeline counts the one event, and the four retrievals behind it (adr/0350).
+    expect(within(l).getByText("1 event · 4 retrievals")).toBeTruthy();
     // The cited record is the last retrieved, and the row still carries its citations.
     expect(l.querySelector(".tvias")!.closest(".trow")!.querySelectorAll(".pcite").length).toBeGreaterThan(0);
   });
@@ -131,12 +133,14 @@ describe("bindingRows", () => {
   });
 });
 
-describe("retrievedCount", () => {
-  it("says how many of the record's events are shown when the record holds more than the page", () => {
-    expect(retrievedCount(3, undefined)).toBe("3 retrieved events in the record");
-    expect(retrievedCount(3, 3)).toBe("3 retrieved events in the record");
-    expect(retrievedCount(1, 1)).toBe("1 retrieved event in the record");
-    expect(retrievedCount(500, 1200)).toBe("1200 retrieved events in the record · showing the newest 500");
+describe("eventCount", () => {
+  it("counts the events and, when they differ, the retrievals, and says how much of the record the page read", () => {
+    expect(eventCount(3, 3, undefined)).toBe("3 events");
+    expect(eventCount(3, 3, 3)).toBe("3 events");
+    expect(eventCount(1, 1, 1)).toBe("1 event");
+    expect(eventCount(1, 4, 4)).toBe("1 event · 4 retrievals");
+    expect(eventCount(500, 500, 1200)).toBe("500 events · from the newest 500 of the record's 1200 retrievals");
+    expect(eventCount(450, 500, 1200)).toBe("450 events · 500 retrievals · from the newest 500 of the record's 1200 retrievals");
   });
 });
 
@@ -144,7 +148,7 @@ describe("the Story timeline over the retrieved record", () => {
   it("names the unpaged total and says the record could not be read when it could not", () => {
     mount({ ...data, snapshot: { ...data.snapshot, events, eventsTotal: 12 } });
     tab("Story");
-    expect(within(lens()).getByText("12 retrieved events in the record · showing the newest 3")).toBeTruthy();
+    expect(within(lens()).getByText("3 events · from the newest 3 of the record's 12 retrievals")).toBeTruthy();
     cleanup();
     mount({ ...base, snapshot: { ...base.snapshot, eventsError: "503 from the backend" } });
     tab("Story");
@@ -172,7 +176,7 @@ describe("the Story timeline over the retrieved record", () => {
   it("shows every retrieved event, filters by the class's category, and opens the call that retrieved a row", () => {
     const transport = mount();
     tab("Story");
-    expect(within(lens()).getByText("3 retrieved events in the record")).toBeTruthy();
+    expect(within(lens()).getByText("3 events")).toBeTruthy();
     const rows = lens().querySelectorAll(".trow .tvia");
     expect(rows.length).toBe(3);
     fireEvent.click(within(lens()).getByRole("tab", { name: "Process" }));
@@ -248,14 +252,15 @@ describe("the Story timeline over the retrieved record", () => {
   it("shows the cited events alone on a record without membership", () => {
     mount({ ...base });
     tab("Story");
-    expect(screen.queryByText(/retrieved event/)).toBeNull();
+    expect(screen.queryByText(/^\d+ events?( ·|$)/)).toBeNull();
     expect(lens().querySelectorAll(".trow").length).toBeGreaterThan(2);
     expect(lens().querySelectorAll(".tvia").length).toBe(0);
   });
 });
 
 // The folded record (adr/0095): a group that repeats is one row that opens to
-// its members; the analyst changes the key per class or turns the fold off;
+// its members; the analyst changes the key per kind in the Grouping panel
+// (adr/0350) or turns grouping off;
 // the Entity inspector names what repeats on the entity.
 const nightly = [
   row({ id: "0192f3a0-0000-7000-8000-00000000a003", time: "2026-10-19T02:00:00Z" }),
@@ -279,9 +284,9 @@ describe("timelineItems over groups", () => {
     expect(items[0]!.ref).toBe(nightly[0]!.id); // the newest member stands for the group
   });
 
-  it("says how many of the record the fold covered", () => {
-    expect(retrievedCount(6, 6, 6)).toBe("6 retrieved events in the record");
-    expect(retrievedCount(1000, 1400, 1000)).toBe("1400 retrieved events in the record · folded over the newest 1000");
+  it("says how many of the record the grouping covered", () => {
+    expect(eventCount(6, 6, 6, 6)).toBe("6 events");
+    expect(eventCount(900, 1000, 1400, 1000)).toBe("900 events · 1000 retrievals · grouped over the newest 1000 of the record's 1400 retrievals");
   });
 });
 
@@ -290,8 +295,8 @@ describe("the Story timeline folded", () => {
     mount(foldedData);
     tab("Story");
     const l = lens();
-    expect(within(l).getByText("6 retrieved events in the record")).toBeTruthy();
-    expect((within(l).getByLabelText("Fold repeated events") as HTMLInputElement).checked).toBe(true);
+    expect(within(l).getByText("6 events")).toBeTruthy();
+    expect((within(l).getByRole("switch", { name: "Group repeats" }) as HTMLInputElement).checked).toBe(true);
     expect(l.querySelectorAll(".trow.group").length).toBe(1); // the nightly group as one row
     expect(l.querySelectorAll(".trow .tvia").length).toBe(3); // the three unfolded retrieved rows; the group row names no single call
     const fold = within(l).getByText(/^3 events over 3 days/);
@@ -302,21 +307,70 @@ describe("the Story timeline folded", () => {
     expect(l.querySelectorAll(".trow.member").length).toBe(0);
   });
 
-  it("asks the host for a different key, or for the flat page when the fold is turned off", () => {
+  it("asks the host for a different key from the Grouping panel, or for the flat page when the switch is turned off", () => {
     const transport = mount(foldedData);
     tab("Story");
     const l = lens();
-    fireEvent.click(within(l).getByText(/^Authentication: Account · Logon type · Source · Destination/));
-    fireEvent.click(within(l).getByLabelText("Logon type"));
+    // One line: the count, the switch, Grouping…; the per-class links are gone (adr/0350).
+    expect(within(l).queryByText(/^Authentication:/)).toBeNull();
+    expect(within(l).queryByLabelText("Fold repeated events")).toBeNull();
+    fireEvent.click(within(l).getByRole("button", { name: "Grouping…" }));
+    const panel = within(l).getByRole("dialog", { name: "Grouping" });
+    fireEvent.click(within(panel).getByLabelText("Logon type"));
     expect(transport.intents).toContainEqual({ type: "events.fold", keys: "3002:user,src,dst" });
-    fireEvent.click(within(l).getByLabelText("Fold repeated events"));
+    fireEvent.click(within(l).getByRole("switch", { name: "Group repeats" }));
     expect(transport.intents).toContainEqual({ type: "events.fold", keys: null });
     cleanup();
-    const flat = mount(); // a flat record: the control is off and turns the fold on with the default key
+    const flat = mount(); // a flat record: the switch is off, offers no Grouping…, and turns grouping on with the default key
     tab("Story");
-    expect((within(lens()).getByLabelText("Fold repeated events") as HTMLInputElement).checked).toBe(false);
-    fireEvent.click(within(lens()).getByLabelText("Fold repeated events"));
+    const sw = within(lens()).getByRole("switch", { name: "Group repeats" }) as HTMLInputElement;
+    expect(sw.checked).toBe(false);
+    expect(within(lens()).queryByRole("button", { name: "Grouping…" })).toBeNull();
+    fireEvent.click(sw);
     expect(flat.intents).toContainEqual({ type: "events.fold", keys: "default" });
+  });
+
+  it("opens one Grouping panel with a row per kind that can group, each with its groups count, closing on Escape or a click outside", () => {
+    const procKeys = { classUid: 1007, className: "Process Activity", slots: [{ name: "pid", label: "Process" }], default: ["pid"], key: ["pid"] };
+    const opaque = { classUid: 6003, className: "API Activity", slots: [], default: [], key: [] };
+    mount({ ...foldedData, snapshot: { ...foldedData.snapshot, eventKeys: [authKeys, procKeys, opaque] } });
+    tab("Story");
+    const l = lens();
+    const button = within(l).getByRole("button", { name: "Grouping…" });
+    fireEvent.click(button);
+    const panel = within(l).getByRole("dialog", { name: "Grouping" });
+    expect(within(panel).getByText("Events of one kind are grouped when every ticked field matches.")).toBeTruthy();
+    const kinds = within(panel).getAllByRole("group");
+    expect(kinds.map((k) => k.getAttribute("aria-label"))).toEqual(["Authentication", "Process Activity"]);
+    expect(within(kinds[0]!).getByText("group when these match:")).toBeTruthy();
+    expect(within(kinds[0]!).getAllByRole("checkbox").map((c) => (c as HTMLInputElement).checked)).toEqual([true, true, true, true, false]);
+    expect(within(kinds[0]!).getByText("1 group")).toBeTruthy(); // the nightly group; the burst does not repeat
+    expect(within(kinds[1]!).getByText("0 groups")).toBeTruthy();
+    expect(within(panel).queryByRole("button", { name: "Reset" })).toBeNull(); // every key is the default
+    expect(document.activeElement).toBe(within(kinds[0]!).getAllByRole("checkbox")[0]);
+    fireEvent.keyDown(panel, { key: "Escape" });
+    expect(within(l).queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    expect(within(l).getByRole("dialog")).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(within(l).queryByRole("dialog")).toBeNull();
+  });
+
+  it("offers Reset on a kind only while its key differs from the default, sending the default key", () => {
+    const transport = mount({ ...foldedData, snapshot: { ...foldedData.snapshot, eventKeys: [{ ...authKeys, key: ["user"] }] } });
+    tab("Story");
+    fireEvent.click(within(lens()).getByRole("button", { name: "Grouping…" }));
+    fireEvent.click(within(within(lens()).getByRole("dialog")).getByRole("button", { name: "Reset" }));
+    expect(transport.intents).toContainEqual({ type: "events.fold", keys: "3002:user,logon_type,src,dst" });
+  });
+
+  it("offers no Grouping… when no kind present can group", () => {
+    const opaque = { classUid: 6003, className: "API Activity", slots: [], default: [], key: [] };
+    mount({ ...foldedData, snapshot: { ...foldedData.snapshot, eventKeys: [opaque] } });
+    tab("Story");
+    expect(within(lens()).getByRole("switch", { name: "Group repeats" })).toBeTruthy();
+    expect(within(lens()).queryByRole("button", { name: "Grouping…" })).toBeNull();
   });
 
   it("names what repeats on an opened entity, and nothing when nothing does", () => {
