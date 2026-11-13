@@ -1,6 +1,6 @@
 # 0352 — A pinned evidence card says what happened in one line; its parts sit behind one disclosure
 
-Issue: #352 · PR: #TBD · Status: accepted
+Issue: #352 · PR: #353 · Status: accepted
 
 ## Context
 
