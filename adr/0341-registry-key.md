@@ -1,4 +1,4 @@
-# 0341 — A registry key is STIX's `windows-registry-key`, one object per host, key and value; the key carries its hive expanded; identity is host-scoped over the folded key and the folded value name, and leaves the value's data out; `x-registry-key` is removed
+# 0341 — A registry key is STIX's native `windows-registry-key`, and `x-registry-key` is removed
 
 Issue: #341 · PR: — · Status: proposed
 
@@ -6,159 +6,178 @@ Issue: #341 · PR: — · Status: proposed
 
 The registry-key activity normalizer (`design/03-capability-layer.md §4.6`)
 minted a custom `x-registry-key` SCO with `hive`, `key_path`, `value_name`
-and `value_data`. The spec gave the reason as "Windows registry isn't covered
-by STIX 2.1 native types". STIX 2.1 does cover it. `windows-registry-key`
-(§6.17) has `key`, "the full registry key including the hive", whose hive the
-JSON schema refuses in abbreviated form (`HKLM`, `HKCU`, `HKCR`, `HKU`,
-`HKCC`). It also has `values`, a list of `windows-registry-value-type`
-(`name`, empty for the key's default value; `data`; `data_type`, one of the
-fourteen `REG_*` names), plus `modified_time`, `creator_user_ref` and
-`number_of_subkeys`. STIX derives the id from `key` and `values` under the
-STIX namespace. The STIX JSON schema and the reference library's
-`_id_contributing_properties` were both read for this record.
+and `value_data`. The spec said this was because "Windows registry isn't
+covered by STIX 2.1 native types". That is wrong: STIX 2.1 defines
+`windows-registry-key` (§6.17).
 
-The invented type had three consequences:
+What the STIX type looks like:
 
-- The workbench's citation table listed `windows-registry-key` as an entity
-  type, so it covered a type nothing minted and gave the minted one no label.
-- Identity hashed the hive as the source wrote it. The in-tree fixture writes
-  `HKEY_LOCAL_MACHINE`, while the tests and most sources write `HKLM`, so one
-  key minted two ids.
-- An event naming only a key and an event naming the key's default value both
-  hashed an empty `value_name`, so the two minted one id.
+- `key` is "the full registry key including the hive". The JSON schema
+  rejects the abbreviated hives `HKLM`, `HKCU`, `HKCR`, `HKU` and `HKCC`.
+- `values` is a list of `windows-registry-value-type`. Each has `name`
+  (empty for the key's default value), `data` and `data_type` (one of
+  fourteen `REG_*` names).
+- It also has `modified_time`, `creator_user_ref` and `number_of_subkeys`.
+- STIX derives the id from `key` and `values`, under the STIX namespace.
 
-OCSF (1.3.0, Windows extension) defines `reg_key.path` as "the full path to
-the registry key", with no hive attribute. `reg_value` carries `name`, `data`
-(JSON), `type` and `type_id` (the `REG_*` names), and `path`, the key the
-value lives under. The in-tree fixture and tests split the key into
-`reg_key.hive` and `reg_key.path`.
+These facts come from the STIX JSON schema and the reference library's
+`_id_contributing_properties`.
 
-The constraints that bind the answer:
+The custom type caused three problems:
 
-- STIX is the vocabulary, adopted rather than invented
-  (`design/01-domain-model.md`, Adopted vs invented). A deviation from STIX's
-  identity rule is documented in `03 §7.2`, as the one for `process` is.
-- Identity is a one-way door once data is recorded against it (`03 §7.1`).
-- The normalizer shapes inputs and the resolver only folds (`03 §7.4`).
+- The workbench's citation table lists `windows-registry-key` as an entity
+  type. Nothing mints that type, and the type that is minted gets no label.
+- Identity hashed the hive as the source wrote it. The in-tree fixture
+  writes `HKEY_LOCAL_MACHINE` and the tests and most sources write `HKLM`,
+  so one key minted two ids.
+- An event naming only a key and an event naming the key's default value
+  both hashed an empty `value_name`. So the two minted one id.
 
-Registry key names and value names are not case sensitive (Microsoft
-documents it for key names in "Structure of the Registry"; the registry
-treats value names the same way). The custom type folded the key but kept
-the value name's case, so `Updater` and `updater` under one key minted two
-ids.
+What OCSF says (1.3.0, Windows extension):
+
+- `reg_key.path` is "the full path to the registry key". There is no hive
+  attribute.
+- `reg_value` carries `name`, `data` (JSON), `type` and `type_id` (the
+  `REG_*` names), and `path`, the key the value lives under.
+- The in-tree fixture and tests split the key into `reg_key.hive` and
+  `reg_key.path`.
+
+The rules this decision has to follow:
+
+- STIX is the vocabulary we adopt, not invent (`design/01-domain-model.md`,
+  Adopted vs invented). Any deviation from STIX's identity rule is
+  documented in `03 §7.2`, the way the `process` one is.
+- Identity cannot change cheaply once data is recorded against it
+  (`03 §7.1`).
+- The normalizer shapes inputs, and the resolver only folds (`03 §7.4`).
+
+Registry key names and value names are not case sensitive. Microsoft
+documents this for key names in "Structure of the Registry", and the
+registry treats value names the same way. The custom type folded the key
+but kept the value name's case. So `Updater` and `updater` under one key
+minted two ids.
 
 ## Decision
 
-**The type is `windows-registry-key`.** `identity.TypeWindowsRegistryKey`
-replaces `identity.TypeRegistryKey`, and `x-registry-key` is removed from the
-code, the workbench and the specs; nothing mints or reads it.
-The type leaves the list of custom SCOs in `01` and `03 §7.1`, and the
-`CLAUDE.md` list of `x-` objects.
+**The type is `windows-registry-key`.**
 
-**One object per host, key and value, as before.** An event that names a value
-mints one `windows-registry-key` whose `values` holds that one value as
-`{name, data, data_type}`. An event that names only a key mints one with no
-`values`. The persistence artifact an analyst pivots on is the value: the
-`Run` key's `SyncHost` value, not the `Run` key. One object per key with the
-values accumulated would merge every autorun under `Run` into one entity.
+- `identity.TypeWindowsRegistryKey` replaces `identity.TypeRegistryKey`.
+- `x-registry-key` is removed from the code, the workbench and the specs.
+  Nothing mints or reads it.
+- The type leaves the list of custom SCOs in `01` and `03 §7.1`, and the
+  `CLAUDE.md` list of `x-` objects.
+
+**One object per host, key and value, as before.**
+
+- An event that names a value mints one `windows-registry-key`. Its
+  `values` holds that one value as `{name, data, data_type}`.
+- An event that names only a key mints one with no `values`.
+- The analyst pivots on the value, such as the `Run` key's `SyncHost`
+  value, not on the `Run` key. One object per key with all its values would
+  merge every autorun under `Run` into one entity.
 
 **The key carries its hive expanded.** One identity function,
-`identity.RegistryKeyPath(hive, path)`, builds the key string. The normalizer
-and the event view (`capability/ocsfview`) both call it.
+`identity.RegistryKeyPath(hive, path)`, builds the key string. The
+normalizer and the event view (`capability/ocsfview`) both call it.
 
-- When the source splits the key into `reg_key.hive` and `reg_key.path`, it
-  joins them with a backslash. When it does not, it reads `reg_key.path` as
-  OCSF defines it (the full path), else `reg_value.path`.
-- The leading root is rewritten to the full hive name in upper case:
-  - `HKLM`, `\REGISTRY\MACHINE` and `HKEY_LOCAL_MACHINE` in any case become
-    `HKEY_LOCAL_MACHINE`;
-  - `HKU`, `\REGISTRY\USER` and `HKEY_USERS` become `HKEY_USERS`;
+- When the source splits the key into `reg_key.hive` and `reg_key.path`,
+  the function joins them with a backslash.
+- Otherwise it reads `reg_key.path` as OCSF defines it (the full path),
+  else `reg_value.path`.
+- The leading root becomes the full hive name in upper case:
+  - `HKLM`, `\REGISTRY\MACHINE` and `HKEY_LOCAL_MACHINE`, in any case,
+    become `HKEY_LOCAL_MACHINE`.
+  - `HKU`, `\REGISTRY\USER` and `HKEY_USERS` become `HKEY_USERS`.
   - `HKCU`, `HKCR` and `HKCC` become `HKEY_CURRENT_USER`,
     `HKEY_CLASSES_ROOT` and `HKEY_CURRENT_CONFIG`.
-- The rest of the path keeps the source's case, trimmed of surrounding
-  whitespace and of a leading or trailing backslash.
-- A path whose root is none of these is kept as written, since dropping the
-  evidence would be worse than a key STIX would call malformed.
-- No key, no object: an event with neither a key nor a value path mints no
-  registry key, as before.
+- The rest of the path keeps the source's case. Surrounding whitespace and
+  a leading or trailing backslash are trimmed.
+- A path whose root is none of these is kept as written. Dropping the
+  evidence would be worse than keeping a key STIX would call malformed.
+- An event with neither a key nor a value path mints no registry key, as
+  before.
 
 **The value is what the source wrote.**
 
-- `name` is `reg_value.name`, with an empty name for the default value.
-- `data` is `reg_value.data` as a string; OCSF types it JSON, so a
-  non-string value is rendered as its JSON text.
-- `data_type` is `reg_value.type` when it is one of STIX's `REG_*` names,
-  else the name of `reg_value.type_id`. It is left out when neither is
-  present or the value is not a STIX `REG_*` name.
-- `modified_time`, `creator_user_ref` and `number_of_subkeys` are not mapped.
+- `name` is `reg_value.name`. It is empty for the default value.
+- `data` is `reg_value.data` as a string. OCSF types it as JSON, so a
+  non-string value is written as its JSON text.
+- `data_type` is `reg_value.type` when that is one of STIX's `REG_*`
+  names, else the name of `reg_value.type_id`. It is left out when neither
+  is present or the value is not a STIX `REG_*` name.
+- `modified_time`, `creator_user_ref` and `number_of_subkeys` are not
+  mapped.
 
 **Identity is `(host_ref.id, key, value_name)`.**
 
-- `key` is the expanded key, folded to lower case, because key names are case
+- `key` is the expanded key in lower case, because key names are case
   insensitive.
-- `value_name` is folded to lower case, because value names are case
-  insensitive too.
-- `value_name` is absent from the canonical JSON when the event names no
-  value, and is the empty string for the default value. A key and its default
-  value are two entities.
+- `value_name` is in lower case too, because value names are also case
+  insensitive.
+- `value_name` is left out of the canonical JSON when the event names no
+  value. It is the empty string for the default value. So a key and its
+  default value are two entities.
 
-Three deviations from STIX's `key` + `values` rule are documented in
-`03 §7.2`:
+This deviates from STIX's `key` + `values` rule in three ways, all
+documented in `03 §7.2`:
 
-- The id is host-scoped, for the reason the custom type was: a registry key
-  is a host's state, and one path on two hosts is two entities.
-- The value's data and type are out of identity. A value whose data changes is
-  the same value, and the change is what the observation records.
-- The key and the value name are case-folded.
+- The id is host-scoped, as the custom type's was. A registry key is part
+  of a host's state, so one path on two hosts is two entities.
+- The value's data and type are not part of identity. A value whose data
+  changes is still the same value, and the observation records the change.
+- The key and the value name are lower-cased.
 
-The host stays where `process` keeps it, in the identity tuple and in the
-observation's `object_refs`, not as a property of the object.
+The host is kept the way `process` keeps it: in the identity tuple and in
+the observation's `object_refs`. It is not a property of the object.
 
 **The normalizer moves to version 3, and nothing reads the old type.** No
-recorded data has to stay readable, so there is no backfill and no legacy
-reader: the workbench's inspector drops `x-registry-key` from its entity
-types.
+recorded data has to stay readable. So there is no backfill and no reader
+for the old type, and the workbench's inspector drops `x-registry-key`
+from its entity types.
 
-**The event view and the labels read the native shape.**
+**The event view and the labels use the native shape.**
 
-- The registry sentence in `capability/ocsfview` binds the
-  `windows-registry-key` whose folded key and value name match the event's.
-- The workbench's evidence label and the markdown export's `stixLabel` label
-  the object as its key followed by the value name in parentheses, with
-  `(default)` for the default value. They have no branch for it today, so
-  the chip read only "registry".
-- The citation table's existing `windows-registry-key` entries ("registry",
-  popover) now apply to what is minted.
+- The registry sentence in `capability/ocsfview` links to the
+  `windows-registry-key` whose lower-cased key and value name match the
+  event's.
+- The workbench's evidence label and the markdown export's `stixLabel`
+  show the key, then the value name in parentheses. The default value
+  shows as `(default)`. Neither has a branch for registry keys today, so
+  the chip shows only "registry".
+- The citation table's existing `windows-registry-key` entries
+  ("registry", popover) now apply to what is minted.
 
 ## Alternatives rejected
 
-- **Keep `x-registry-key` and fix the hive and default-value defects.** STIX
-  adopts the type, and inventing one it already defines is what `01`'s
+- **Keep `x-registry-key` and fix the hive and default-value defects.**
+  STIX already defines the type. Inventing a type STIX has is what `01`'s
   Adopted vs invented rule forbids.
-- **One object per key, with every value seen accumulated in `values`
-  (STIX's shape taken literally).** Each event sees one value, so the stored
-  list would be whatever the last writer saw, and the per-value pivot would be
-  lost.
-- **STIX's identity rule unchanged (`key` + `values`, no host).** One path on
-  every host becomes one entity, and every change to a value's data a new one.
-- **Carry the host as a custom property (`x_host_ref`).** `process` already
-  keeps its host in identity and in `object_refs`, and no SCO here carries a
-  host property; a second way to say the same thing is not needed.
-- **Keep `x-registry-key` readable for objects already recorded.** There
-  are none that have to survive the change, and a reader for a type nothing
-  mints is a second shape every consumer would carry.
+- **One object per key, with every value seen collected in `values`
+  (STIX's shape taken literally).** Each event sees only one value. So the
+  stored list would be whatever the last writer saw, and the per-value
+  pivot would be lost.
+- **Use STIX's identity rule unchanged (`key` + `values`, no host).** One
+  path on every host would become one entity. Every change to a value's
+  data would become a new entity.
+- **Store the host as a custom property (`x_host_ref`).** `process`
+  already keeps its host in identity and in `object_refs`. No SCO here has
+  a host property, and a second way to record the same fact is not needed.
+- **Keep `x-registry-key` readable for objects already recorded.** No such
+  objects have to survive the change. A reader for a type nothing mints
+  would be a second shape every consumer has to handle.
 
 ## Consequences
 
-- A registry key from `HKLM` and from `HKEY_LOCAL_MACHINE` is one entity, and
-  a key is distinct from its default value.
+- A registry key from `HKLM` and the same key from `HKEY_LOCAL_MACHINE` are
+  one entity.
+- A key and its default value are two entities.
 - A source that writes OCSF's full `reg_key.path` with no hive now yields a
-  STIX key, where it yielded an empty hive before.
-- The lateral-movement scenario's persistence answer reads
-  `windows-registry-key` with a `key` and a `values` list. The data the model
-  reads changes; no prompt text, tool definition or engine-text template does,
-  so `PromptVersion` is unchanged. The scenario is re-run against both
+  STIX key. Before, it yielded an empty hive.
+- The lateral-movement scenario's persistence answer now shows a
+  `windows-registry-key` with a `key` and a `values` list. This changes the
+  data the model reads, but no prompt text, tool definition or engine-text
+  template. So `PromptVersion` is unchanged. The scenario is re-run on both
   models before merge.
 - OCSF puts registry key activity at class 201001 in its Windows extension.
-  The normalizer registers class 1003, as `03 §2.5` and the fixtures do. That
-  is unchanged here.
+  The normalizer registers class 1003, as `03 §2.5` and the fixtures do.
+  This record does not change that.

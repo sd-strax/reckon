@@ -786,25 +786,30 @@ Output:
 
 ### 4.6 OCSF registry_key_activity (class_uid 1003) → STIX
 
-Input: OCSF registry_key_activity with `reg_key.path` (the full key path,
-as OCSF defines it, or the path below `reg_key.hive` when a source splits
-the two), `reg_value.{name,data,type,type_id,path}`, `activity_id`,
-`actor.process.*`, `device.*`, `time`.
+Input: OCSF registry_key_activity with `reg_key.path`,
+`reg_value.{name,data,type,type_id,path}`, `activity_id`, `actor.process.*`,
+`device.*` and `time`. As OCSF defines it, `reg_key.path` is the full key
+path. Some sources split it, putting the hive in `reg_key.hive` and the rest
+in `reg_key.path`.
 
 Output:
 
-- `windows-registry-key` SCO (STIX 2.1 native). `key` is the full key with
-  its hive expanded: `reg_key.hive` and `reg_key.path` joined when the
-  source splits them, else `reg_key.path`, else `reg_value.path`; a leading
-  `HKLM`, `HKU`, `HKCU`, `HKCR`, `HKCC`, `\REGISTRY\MACHINE` or
-  `\REGISTRY\USER` (any case) becomes the full upper-case hive name, the
-  rest of the path keeps the source's case, and a path with no known root is
-  kept as written. When the event names a value, `values` holds that one
-  value as `{name, data, data_type}`: the name as written (empty for the
-  key's default value), the data as a string (non-string JSON as its JSON
-  text), and `data_type` when the source's type is one of STIX's `REG_*`
-  names; an event naming only a key has no `values`. No key, no object.
-  Identity per §7.2.
+- `windows-registry-key` SCO (STIX 2.1 native).
+  - `key` is the full key with its hive spelled out. It comes from
+    `reg_key.hive` and `reg_key.path` joined when the source splits them,
+    else `reg_key.path`, else `reg_value.path`.
+  - A leading `HKLM`, `HKU`, `HKCU`, `HKCR`, `HKCC`, `\REGISTRY\MACHINE` or
+    `\REGISTRY\USER`, in any case, becomes the full hive name in upper
+    case. The rest of the path keeps the source's case.
+  - A path with no known root is kept as written.
+  - When the event names a value, `values` holds that one value as
+    `{name, data, data_type}`. The name is as written, and empty for the
+    key's default value. The data is a string, with non-string JSON written
+    as its JSON text. `data_type` is set when the source's type is one of
+    STIX's `REG_*` names.
+  - An event naming only a key has no `values`.
+  - An event with no key mints no object.
+  - Identity is in §7.2.
 - `process` SCO for the actor process.
 - `x-host` SCO for the device.
 - One `ObservedData` referencing the registry key, actor, and host. The
@@ -812,10 +817,10 @@ Output:
   fields.
 - Edges as in §4.1.
 
-One object stands for one host, key and value, because the persistence
-artifact an analyst pivots on is the value (the `Run` key's one autorun), not
-the key. Identity is host-scoped — registry keys with the same path on
-different hosts are different entities (§7.2, adr/0341).
+One object stands for one host, key and value. This is because the analyst
+pivots on the value (one autorun under the `Run` key), not on the key.
+Identity is host-scoped, so registry keys with the same path on different
+hosts are different entities (§7.2, adr/0341).
 
 ### 4.7 OCSF scheduled_job_activity (class_uid 1006) → STIX
 
@@ -1668,9 +1673,9 @@ the storage layer.
 ### 7.2 Per-type identity-contributing fields
 
 These follow STIX 2.1 spec for native SCOs and are documented here for the
-custom and composite cases. Four of them — `process`, `email-addr`,
-`user-account` and `windows-registry-key` — involve deliberate deviations
-from strict spec, called out explicitly below. All identity tuples below describe what enters the
+custom and composite cases. Four of them deliberately deviate from strict
+spec, and each is described below: `process`, `email-addr`, `user-account`
+and `windows-registry-key`. All identity tuples below describe what enters the
 canonical-form JSON; the JSON is then hashed against the per-tenant
 namespace UUID per §7.1.
 
@@ -1851,25 +1856,28 @@ identifier mints no principal. The identity provider's sign-in account for
 the same human stays `cloud`; the two are different accounts and, when
 known to be one person, are linked by `aliases`.
 
-**Deviation: `windows-registry-key`.** STIX 2.1's id-contributing
-properties are `key` and `values`, under no host. Identity here is
-`(host_ref.id, key, value_name)` (adr/0341):
+**Deviation: `windows-registry-key`.** STIX 2.1 builds the id from `key`
+and `values`, with no host. Here identity is
+`(host_ref.id, key, value_name)` (adr/0341).
 
-- **Host-scoped.** A registry key is a host's state; one path on two hosts is
-  two entities. The host rides the identity tuple and the observation's
-  `object_refs`, as for `process`, never a property of the object.
-- **`key` is the expanded key (§4.6) folded to lower case**, because
-  registry key names are not case sensitive; `HKLM\Software\Run` and
+- **Host-scoped.** A registry key is part of a host's state, so one path on
+  two hosts is two entities. The host is kept in the identity tuple and in
+  the observation's `object_refs`, as for `process`. It is never a property
+  of the object.
+- **`key` is the expanded key (§4.6) in lower case**, because registry key
+  names are not case sensitive. So `HKLM\Software\Run` and
   `HKEY_LOCAL_MACHINE\SOFTWARE\Run` are one key.
-- **The value's name, not its data.** `value_name` is folded to lower
-  case, because value names are not case sensitive either; it is absent from the canonical JSON when the event names no value, and the
-  empty string for the key's default value, so a key and its default value
-  are two entities. The value's data and type are out of identity: a value
-  whose data changes is the same value, and the change is what the
-  observation records.
+- **`value_name` is in lower case**, because value names are not case
+  sensitive either.
+- **`value_name` is left out when the event names no value.** It is the
+  empty string for the key's default value. So a key and its default value
+  are two entities.
+- **The value's data and type are not part of identity.** A value whose
+  data changes is still the same value, and the observation records the
+  change.
 
-Failure mode: a source that names a key by a root outside the expanded set
-(§4.6) mints a key that does not join the same key named by its hive.
+Failure mode: a source might name a key by a root outside the expanded set
+(§4.6). That key does not join the same key named by its hive.
 
 ### 7.3 Cross-tool stitching: practical implications
 
