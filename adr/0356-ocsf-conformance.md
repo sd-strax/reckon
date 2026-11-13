@@ -294,10 +294,10 @@ event view's sentence templates use the same numbers.
   1. **Registration.** Every registered class number exists in the ceiling
      copy, under the OCSF name the normalizer uses (`"account_change"`,
      `"registry_value_activity"`, and so on).
-     - Three normalizers use their own names today. They take OCSF's:
+     - Four normalizers use their own names today. They take OCSF's:
        `case` becomes `incident_finding`, `cloud_inventory` becomes
-       `cloud_resources_inventory_info`, and `device_inventory_info` becomes
-       `inventory_info`.
+       `cloud_resources_inventory_info`, `device_inventory_info` becomes
+       `inventory_info`, and `user_inventory_info` becomes `user_inventory`.
      - The name appears in each observation's provenance, so provenance
        changes too. It is not part of any id.
   2. **Lookups.** Each package already has one function for looking up a
