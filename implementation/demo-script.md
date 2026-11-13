@@ -154,7 +154,7 @@ Ask it:
 > *"What does the case claim, and what have we actually confirmed?"*
 
 The agent calls `get_external_case_details`, restates Tier 1's narrative — the
-14:32 UTC RemoteInteractive logon from `10.0.4.20`, the encoded PowerShell about
+14:32 UTC Remote Interactive logon from `10.0.4.20`, the encoded PowerShell about
 thirty seconds later, the backup on-call who never answered, so legitimate
 maintenance is **unconfirmed either way** — and separates it from what we have
 observed ourselves: nothing yet. *(That unconfirmed line is Act 3's second
@@ -216,7 +216,7 @@ logon, the encoded PowerShell, a DNS lookup, a dropped `synchost.exe`,
 entry, and the beacon to `185.220.101.5:443`.
 
 The fixtures hold more than Tier 1 wrote down, and the agent often finds it: a
-second RemoteInteractive logon to `WIN-FILE01` by `jdoe` from `10.0.4.55`
+second Remote Interactive logon to `WIN-FILE01` by `jdoe` from `10.0.4.55`
 seconds before `svc_backup`'s, the PowerShell's parent `mstsc-hijack.exe` running
 as `jdoe`, and a second host, `WIN-APP02`, reached from `10.0.4.20` minutes
 later. If it surfaces them, that is the moment: *it found more than the ticket
@@ -262,7 +262,7 @@ Adopt H2 too — it is the one we intend to kill.
 **⚡ Propose tests** on H1. The agent reads *both* hypotheses and records
 predictions, at least one of which **discriminates**: *"svc_backup's 30-day
 logon baseline shows only Network logons from BKP-01 at 02:00 — never
-RemoteInteractive, never from 10.0.4.20"* — H1 predicts it, H2 predicts the
+Remote Interactive, never from 10.0.4.20"* — H1 predicts it, H2 predicts the
 opposite (the row carries a **splits H2** chip; expanded, it reads *Decides
 against H2*). Then add the analyst's own test with **+ prediction** on H2: *"a
 change ticket or maintenance window covers WIN-FILE01 for 2026-04-20"* —
@@ -280,7 +280,7 @@ answer. Only a person can.* Expect **⚡ Run tests** to skip that row and say so
 
 **⚡ Run tests.** The baseline query (user-rooted, the 30 days before the
 incident) returns seven nights of `Network` logons from `BKP-01` at 02:00, the
-single `RemoteInteractive` from `10.0.4.20`, and the later Network logon to
+single `Remote Interactive` from `10.0.4.20`, and the later Network logon to
 `WIN-APP02` from the same address — **CONFIRMED** for H1, and it cuts against
 H2. *(The fixtures are dated around the incident, 2026-04-20; a window counted
 back from today finds nothing. If the agent's first window comes back empty, ask

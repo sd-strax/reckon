@@ -115,8 +115,8 @@ Some fields that are required at 1.1.0 become optional later:
 - `job.name` and `privileges` become recommended in 1.9.0.
 
 The normalizers already handle a missing field (`03 §4.16`: a version defines
-fields, and a source fills only some of them). So this needs no new code.
-Each normalizer's tests cover an event without each of these fields.
+fields, and a source fills only some of them). So this needs no new code
+and no new tests.
 
 `03 §4.18` gave Cloud Resources Inventory the range 1.7.0 to 1.7.0. That was
 because its only source is an adapter reckon ships, which writes 1.7.0. A test
@@ -355,6 +355,18 @@ event view's sentence templates use the same numbers.
      - It checks a scalar's type too. A `timestamp_t` must be an integer, a
        string type a string, a boolean a boolean, and so on.
      - Each in-tree adapter's tests check its output events the same way.
+       A required field the vendor cannot supply is listed by name in that
+       adapter's test, with the reason. Today these are:
+       - `time`, when the vendor record has none. Stamping the time of
+         collection would give every fetch a new observation id.
+       - `privileges` on Okta's privilege events, as Okta does not report
+         them.
+       - `user` on the echo adapter's event, which only echoes its
+         parameters.
+       - Fields Security Lake's own rows lack or fill with non-OCSF values.
+         reckon does not rewrite a source's data.
+     - Adapters write activity and severity as Unknown (0) for now. Mapping
+       each vendor's events to OCSF activities and severities is later work.
 - **To move the ceiling later,** fetch the new release and fix whatever fails.
 
 **Every normalizer whose input changes moves to its next version.** There is

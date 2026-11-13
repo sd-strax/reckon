@@ -783,7 +783,7 @@ inspector and the baseline fold must agree, and the fixtures already exercise th
 // EventView — on GET /api/evidence/{ref} (ocsf kind) as "view", and on every EventRow
 {
   "sentence": [ {"t":"entity","ref":"user-account--…","text":"svc_backup"}, {"t":"text","text":" interactive RDP logon to "}, {"t":"entity","ref":"x-host--…","text":"WIN-FILE01"}, {"t":"text","text":" from "}, {"t":"entity","ref":"ipv4-addr--…","text":"10.0.4.20"} ],
-  "fields": [ {"label":"User","value":"svc_backup","ref":"user-account--…","mono":true}, {"label":"Logon type","value":"RemoteInteractive (type 10)"}, {"label":"Result","value":"Success","tone":"ok"} ],
+  "fields": [ {"label":"User","value":"svc_backup","ref":"user-account--…","mono":true}, {"label":"Logon type","value":"Remote Interactive (type 10)"}, {"label":"Result","value":"Success","tone":"ok"} ],
   "category": "auth",             // auth | process | network | detection | asset | case | other (from category_uid)
   "decoded": { "field": "process.cmd_line", "encoding": "base64-utf16le", "text": "echo" }  // only when a known encoding decodes cleanly; the original is always shown
 }
