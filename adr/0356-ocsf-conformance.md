@@ -344,10 +344,11 @@ event view's sentence templates use the same numbers.
        list, an object field an object, and a scalar field a scalar. That
        catches a field read in the wrong shape, such as `privileges` as one
        string instead of a list.
-     - It checks that every required field is present, for the class and for
-       each object the event carries, at the declared version. A field that
-       belongs to a profile is required only when the event uses that
-       profile.
+     - It checks that every field the class itself requires is present, at
+       the declared version. Required fields inside objects are not checked.
+       That would add fields such as `metadata.product.vendor_name` to every
+       fixture for little gain. A field that belongs to a profile is required
+       only when the event uses that profile.
      - It checks enum fields. An `_id` must be one of the schema's values,
        and its caption sibling (such as `activity_name`) must match that
        value's caption.
