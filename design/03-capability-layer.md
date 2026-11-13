@@ -229,11 +229,12 @@ attachments metadata, and linked entity references. Used as a follow-up
 after `query_external_cases` returns hits worth deep-diving.
 
 **Implemented (v0):** ServiceNow, via the native adapter's read surface —
-each incident is shaped as an OCSF Incident Finding (class_uid 2005:
-`finding_info_list[]`, `assignee_group`, `src_url`; the system of record's
-name in `unmapped.sor`, adr/0356) and normalized to an `ObservedData`
-carrying the case metadata in its extensions; entity extraction from case bodies is deferred (SNOW incidents
-carry no structured entity fields).
+each incident is shaped as an OCSF Incident Finding (class_uid 2005) and
+normalized to an `ObservedData` that carries the case metadata in its
+extensions. The case fields are `finding_info_list[]`, `assignee_group` and
+`src_url`, and the system of record's name is in `unmapped.sor` (adr/0356).
+Entity extraction from case bodies is deferred, since SNOW incidents carry no
+structured entity fields.
 
 These verbs are the read-side of the "have we seen this before in our
 SoR?" question; the internal-similarity counterpart lives in the knowledge
@@ -789,12 +790,16 @@ Output:
 
 ### 4.6 OCSF registry_key_activity (class_uid 201001) and registry_value_activity (class_uid 201002) → STIX
 
-Input: OCSF Windows-extension registry_key_activity with `reg_key.path` (the
-full key path, hive first), or registry_value_activity with
-`reg_value.{path,name,data,type,type_id}` (`path` is the key the value lives
-under); `activity_id`, `actor.process.*`, `device.*`, `time`. One normalizer
-handles both classes. Class 1003 is OCSF's Kernel Activity and is not a
-registry class (adr/0356).
+Input: one of two OCSF Windows-extension classes, both handled by one
+normalizer.
+
+- registry_key_activity carries `reg_key.path`, the full key path with the
+  hive first.
+- registry_value_activity carries `reg_value.{path,name,data,type,type_id}`.
+  Here `path` is the key the value lives under.
+
+Both carry `activity_id`, `actor.process.*`, `device.*` and `time`. Class
+1003 is OCSF's Kernel Activity, not a registry class (adr/0356).
 
 Output:
 
@@ -814,9 +819,10 @@ same path on different hosts are different entities.
 
 ### 4.7 OCSF scheduled_job_activity (class_uid 1006) → STIX
 
-Input: OCSF scheduled_job_activity with `job.name`, `job.file.path`, the
-command line from `job.job_actions[].cmd_line` (1.9.0) else the deprecated
-`job.cmd_line`, `job.user.*`, `activity_id`, `device.*`, `time`.
+Input: OCSF scheduled_job_activity with `job.name`, `job.file.path`,
+`job.user.*`, `activity_id`, `device.*` and `time`. The command line is read
+from `job.job_actions[].cmd_line` (1.9.0), else from the deprecated
+`job.cmd_line`.
 
 Output:
 
@@ -851,13 +857,18 @@ Output:
 
 ### 4.9 OCSF account_change (3001), user_access (3005) and group_management (3006) → STIX
 
-Input: three OCSF classes shaped by one function, each read only for its own
-fields (adr/0356): account_change (3001: `user.*` the target, `user_result`,
-`actor.user.*` the initiator — create, enable, disable, password change and
-the like), user_access (3005, User Access Management: `user.*`,
-`privileges[]` — assign and revoke privileges) and group_management (3006:
-`user.*`, `group.{name,domain,uid}`, `privileges[]` — add and remove a
-member); `activity_id`, `device.*`, `time` on all three.
+Input: three OCSF classes, shaped by one function. Each class is read only
+for its own fields (adr/0356).
+
+- account_change (3001) covers create, enable, disable, password change and
+  the like. It carries `user.*` (the target), `user_result` and
+  `actor.user.*` (the initiator).
+- user_access (3005, User Access Management) covers assigning and revoking
+  privileges. It carries `user.*` and `privileges[]`.
+- group_management (3006) covers adding and removing a member. It carries
+  `user.*`, `group.{name,domain,uid}` and `privileges[]`.
+
+All three carry `activity_id`, `device.*` and `time`.
 
 Output:
 
@@ -875,8 +886,8 @@ Output:
   the AD/Entra/Okta tenant identifier.
 - One `ObservedData` referencing all of the above. The `activity_id` is
   preserved in custom extension fields. For user_access and
-  group_management, the privileges are preserved as the list `privileges`
-  in extension fields.
+  group_management, the privileges are kept in extension fields as the list
+  `privileges`.
 - Edges as in §4.1.
 
 The `activity_id` is the high-information field for this class — the agent
@@ -887,11 +898,14 @@ downstream consumers filter on the extension field.
 ### 4.10 OCSF email_activity (class_uid 4009) → STIX
 
 Input: OCSF email_activity with `email.from`, `email.to[]`, `email.cc[]`,
-`email.subject`, `email.message_uid`, `email.uid`, and from 1.4.0
-`email.files[]` (each a file object) and `email.urls[]`, read when present;
-`time`. Blind copy is `email.bcc[]` from 1.9.0; below it a source that
-reports one carries it in `unmapped.bcc[]`. Below 1.4.0 an attachment is its own email_file_activity
-event (4011, §4.11a).
+`email.subject`, `email.message_uid`, `email.uid` and `time`.
+
+- From 1.4.0, `email.files[]` (each a file object) and `email.urls[]` are
+  read when present.
+- Below 1.4.0, an attachment is its own email_file_activity event (4011,
+  §4.11a).
+- Blind copy is `email.bcc[]` from 1.9.0. Below that, a source that reports
+  one puts it in `unmapped.bcc[]`.
 
 Output:
 
@@ -908,32 +922,36 @@ Output:
 
 `email-message` identity is the `message_id` **alone** when present, else
 `(from_ref.value, subject, date)` as a fallback. This is a deliberate deviation
-from strict STIX 2.1, which uses `(message_id, from_ref.value)`: `message_id` is
-RFC-mandated unique, and identity on it alone lets two sources' records of
-one message stitch without agreeing on its sender. A message that also
-carries the source's `email.uid` yields a weak `email-message` on
-`(source_tool, uid)`, `weak: true`, outside `object_refs`, with an
-`aliases` edge from the strong one — the rule hosts and accounts follow
-(adr/0211, adr/0324): a weak object never joins another on its own: `email.uid` is what an
-`email_url_activity` click (§4.11) names the message by, so the click
-stitches to the delivered message through that edge (adr/0356). Same stitching-precedence rationale as the
+from strict STIX 2.1, which uses `(message_id, from_ref.value)`. The RFC
+requires `message_id` to be unique. Identity on it alone lets two sources'
+records of one message join even when they disagree on its sender.
+
+A message may also carry the source's own id, `email.uid`. That id yields a
+second, weak `email-message` on `(source_tool, uid)`, marked `weak: true`
+and kept outside `object_refs`. The strong message gets an `aliases` edge to
+it. This is the rule hosts and accounts already follow (adr/0211, adr/0324):
+a weak object never joins another on its own.
+
+The weak message matters because `email.uid` is how an `email_url_activity`
+click (§4.11) names the message. The click joins the delivered message
+through the `aliases` edge (adr/0356). Same stitching-precedence rationale as the
 `process`/`email-addr`/`user-account` deviations (§7.2). Cross-tool stitching
 for emails is more reliable than for processes because `message_id` is unique.
 
 ### 4.11 OCSF email_url_activity (class_uid 4012) → STIX
 
-Input: OCSF email_url_activity with `url.url_string`, `email_uid` (the
-source's id of the message, OCSF's correlation key to `email.uid`),
-`actor.user.*` (the clicker), `time`, optional `device.*`. Class 4011 is
-email_file_activity (§4.11a), not this class (adr/0356).
+Input: OCSF email_url_activity with `url.url_string`, `email_uid`,
+`actor.user.*` (the clicker), `time` and optional `device.*`. `email_uid` is
+the source's id for the message, which OCSF matches to `email.uid`. Class
+4011 is email_file_activity (§4.11a), not this class (adr/0356).
 
 Output:
 
 - `url` SCO for the clicked URL.
-- `email-message` SCO for `email_uid` when present: the weak message on
-  `(source_tool, uid)` (§4.10), which joins the delivered message through
-  the `aliases` edge its email_activity record carries; when no such record
-  is in the graph, the weak message stands alone until one arrives.
+- `email-message` SCO for `email_uid` when present. This is the weak
+  message on `(source_tool, uid)` (§4.10). It joins the delivered message
+  through the `aliases` edge from that message's email_activity record.
+  Until such a record arrives, the weak message stands alone.
 - `user-account` SCO for the clicker, shaped by the account rule (§7.2):
   the record's strongest identifier is in `object_refs`; each lesser
   identifier it carries mints its own account outside them, with `aliases`
@@ -949,21 +967,21 @@ Output:
 ### 4.11a OCSF email_file_activity (class_uid 4011) → STIX
 
 Input: OCSF email_file_activity with `file.*` (the attachment), `email_uid`
-(the source's id of the message), `actor.user.*`, `activity_id`, `time`,
-optional `device.*`. Below 1.4.0 this is the only place an attachment
+(the source's id for the message), `actor.user.*`, `activity_id`, `time`
+and optional `device.*`. Below 1.4.0, this is the only place an attachment
 appears (adr/0356).
 
 Output:
 
 - `file` SCO for the attachment, with hashes if present.
-- `email-message` SCO for `email_uid` when present: the weak message on
-  `(source_tool, uid)` (§4.10), as for a click (§4.11).
+- `email-message` SCO for `email_uid` when present. This is the weak
+  message on `(source_tool, uid)` (§4.10), as for a click (§4.11).
 - `user-account` SCO for the actor, shaped by the account rule (§7.2).
 - `x-host` SCO for the device if present.
 - STIX `Relationship` of native type `contains` from the email-message to the
   file.
-- One `ObservedData` referencing all of the above, the `activity_id`
-  preserved in extension fields.
+- One `ObservedData` referencing all of the above, with the `activity_id`
+  kept in extension fields.
 - Edges as in §4.1.
 
 ### 4.12 OCSF detection_finding (class_uid 2004) → STIX
@@ -973,13 +991,17 @@ section: they are not passive observations, they are vendor *interpretations*.
 A vendor's detection is a claim that something is bad. The normalizer
 respects this.
 
-Input: OCSF detection_finding with `finding_info.title`, `finding_info.uid`,
-`finding_info.types[]` (e.g., MITRE ATT&CK technique IDs), `severity_id`
-(else the `severity` caption), `confidence_score` (else `confidence_id`),
-`device`, `evidences[]` (the artifacts the detection fired on: `actor`,
-`process`, `file`, `src_endpoint`, `dst_endpoint`, `query`, `api`,
-`connection_info` at the floor; `device`, `user`, `url` and others above
-it), `time`.
+Input: OCSF detection_finding with these fields:
+
+- `finding_info.title`, `finding_info.uid` and `finding_info.types[]` (for
+  example, MITRE ATT&CK technique IDs).
+- `severity_id`, else the `severity` caption.
+- `confidence_score`, else `confidence_id`.
+- `device` and `time`.
+- `evidences[]`, the artifacts the detection fired on. At the floor an
+  artifact may carry `actor`, `process`, `file`, `src_endpoint`,
+  `dst_endpoint`, `query`, `api` and `connection_info`. Later versions add
+  `device`, `user`, `url` and others.
 
 Output:
 
@@ -993,12 +1015,16 @@ Output:
   per 01-domain-model.md.
 - STIX `Sighting` SDO linking the indicator to the entities named in the
   detection. `Sighting.confidence` mirrors the detection's confidence.
-- Each artifact in `evidences[]` is read through the same extractors the
-  activity normalizers use — a process from `process`/`actor.process`, a
-  file from `file`, addresses and domains from the endpoints and `query`,
-  accounts from `actor.user` (and `user` when present), a URL from `url`,
-  the host from `device`, else the finding's own `device`. An artifact is
-  not an event and has no class, so none is dispatched through the
+- Each artifact in `evidences[]` is read with the same extractors the
+  activity normalizers use:
+  - a process from `process` or `actor.process`
+  - a file from `file`
+  - addresses and domains from the endpoints and `query`
+  - accounts from `actor.user`, and from `user` when present
+  - a URL from `url`
+  - the host from `device`, else from the finding's own `device`
+
+  An artifact is not an event and has no class, so none is sent through the
   registry (adr/0356).
 - One `ObservedData` referencing the entities named in the detection,
   separate from the Sighting. This preserves the raw "this entity was seen"
@@ -1196,16 +1222,23 @@ that goes.
 ### 4.16 OCSF schema versions: a floor, a ceiling, and feature detection
 
 The engine pins no single OCSF version. Each normalizer is written against a
-**version range** for its class. The **floor** is 1.1.0 for every class —
-the version AWS Security Lake's native sources write — or the version that
-introduced the class when it is later (1.4.0 for cloud_resources_inventory_info,
-§4.18); each class's fixture declares it in `metadata.version`. The
-**ceiling** is the newest published schema the normalizers were checked
-against, 1.9.0 (adr/0356). Class numbers are OCSF's, and a recorded schema
-at the floors and the ceiling (`capability/testdata/ocsf/`) fails a test on
-a registered class, a normalizer or event-view lookup, or a fixture field
-that OCSF does not define (`unmapped.*`, OCSF's place for a source's own
-fields, excepted). OCSF reserves breaking changes for a
+**version range** for its class (adr/0356).
+
+- The **floor** is 1.1.0 for every class, since that is the version AWS
+  Security Lake's native sources write. A class introduced later has its
+  introducing version as its floor (1.4.0 for
+  cloud_resources_inventory_info, §4.18). Each class's fixture declares its
+  version in `metadata.version`.
+- The **ceiling** is the newest published schema the normalizers were
+  checked against, 1.9.0.
+- Class numbers are OCSF's.
+- The full OCSF schema for every release from 1.1.0 to 1.9.0 is checked in
+  at `third_party/ocsf-schema/`, with OCSF's licence and notice. A test fails on any registered class,
+  normalizer or event-view lookup, or fixture field that OCSF does not
+  define. `unmapped.*` is exempt, as it is OCSF's place for a source's own
+  fields.
+
+OCSF reserves breaking changes for a
 major version; within a major line an attribute is added as optional or
 deprecated in place, and none of §4.15's fields was removed or made required
 anywhere from 1.1.0 to 1.9.0 — which is what makes a range workable. The
@@ -1254,10 +1287,10 @@ rules, which §4.15 follows and every class is held to:
 
 ### 4.17 OCSF device_inventory_info (class_uid 5001) → STIX
 
-Input: OCSF device_inventory_info with `device.*` (hostname, domain, uid,
-uid_alt, mac, ip, os; agent_list and owner from 1.2.0), `time`, and the
-source's criticality in `unmapped.criticality` (OCSF defines none on a
-device).
+Input: OCSF device_inventory_info with `time` and `device.*`: hostname,
+domain, uid, uid_alt, mac, ip and os, plus agent_list and owner from 1.2.0.
+OCSF defines no criticality on a device, so the source's criticality is read
+from `unmapped.criticality`.
 
 Output:
 
@@ -1280,11 +1313,11 @@ name,type_id},region,project_uid}`, `resources[].{uid,name,type,region,zone,
 group,namespace,data,labels,tags,criticality,owner,created_time,
 modified_time}`, `activity_id`, `activity_name`, `time`. The class first
 exists at OCSF 1.4.0; `created_time` and `modified_time` arrive at 1.7.0.
-Its version range (§4.16) is 1.4.0, the version that introduced it, to
-1.9.0: the first source for the class is a configuration adapter the engine
-ships, shaped to 1.7.0, and the bundled fixture declares 1.7.0; a
-1.4.0-shaped snapshot normalizes to the same ids by field detection, which a
-test holds (adr/0356).
+Its version range (§4.16) runs from 1.4.0, the version that introduced it,
+to 1.9.0 (adr/0356). The first source for the class is a configuration
+adapter the engine ships, shaped to 1.7.0, and the bundled fixture declares
+1.7.0. A test holds that a 1.4.0-shaped snapshot normalizes to the same ids
+by field detection.
 
 Output. The identity rules are §4.15's, unchanged, so a snapshot of a
 resource and the calls against it meet on one node:
