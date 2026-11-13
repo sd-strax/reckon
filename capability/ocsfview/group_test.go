@@ -131,9 +131,9 @@ func TestFold_ImageKeysByHash(t *testing.T) {
 	}
 	same := []Entity{ent("file--abc", map[string]any{"name": "", "hashes": map[string]any{"SHA-256": "abc"}})}
 	items := []GroupItem{
-		item("a", `{"process":{"pid":1,"name":"tool.exe","file":{"name":"tool.exe","hashes":{"SHA-256":"abc"}},"parent_process":{"name":"cmd.exe"}}}`, same),
-		item("b", `{"process":{"pid":2,"name":"renamed.exe","file":{"name":"renamed.exe","hashes":{"SHA-256":"abc"}},"parent_process":{"name":"cmd.exe"}}}`, same),
-		item("c", `{"process":{"pid":3,"name":"tool.exe","file":{"name":"tool.exe","hashes":{"SHA-256":"zzz"}},"parent_process":{"name":"cmd.exe"}}}`,
+		item("a", `{"process":{"pid":1,"name":"tool.exe","file":{"name":"tool.exe","hashes":[{"algorithm":"SHA-256","value":"abc"}]},"parent_process":{"name":"cmd.exe"}}}`, same),
+		item("b", `{"process":{"pid":2,"name":"renamed.exe","file":{"name":"renamed.exe","hashes":[{"algorithm":"SHA-256","value":"abc"}]},"parent_process":{"name":"cmd.exe"}}}`, same),
+		item("c", `{"process":{"pid":3,"name":"tool.exe","file":{"name":"tool.exe","hashes":[{"algorithm":"SHA-256","value":"zzz"}]},"parent_process":{"name":"cmd.exe"}}}`,
 			[]Entity{ent("file--zzz", map[string]any{"name": "tool.exe", "hashes": map[string]any{"SHA-256": "zzz"}})}),
 		item("d", `{"process":{"pid":4,"name":"tool.exe"}}`, nil),
 		item("e", `{"process":{"pid":5,"name":"tool.exe"}}`, nil),
@@ -205,12 +205,12 @@ func TestFold_ChangedObservationsStayApart(t *testing.T) {
 			item("c", classDNS, `{"query":{"hostname":"x.example"},"answers":[{"rdata":"9.9.9.9"}]}`),
 		}, nil, 2},
 		{"registry data", []GroupItem{
-			item("a", classRegistryKey, `{"reg_key":{"hive":"HKLM","path":"Run"},"reg_value":{"name":"U","data":"C:\\a.exe"}}`),
-			item("b", classRegistryKey, `{"reg_key":{"hive":"HKLM","path":"Run"},"reg_value":{"name":"U","data":"C:\\b.exe"}}`),
+			item("a", classRegistryValue, `{"reg_value":{"path":"HKLM\\Run","name":"U","data":"C:\\a.exe"}}`),
+			item("b", classRegistryValue, `{"reg_value":{"path":"HKLM\\Run","name":"U","data":"C:\\b.exe"}}`),
 		}, nil, 2},
 		{"job command line", []GroupItem{
-			item("a", classScheduledJob, `{"job":{"name":"Updater","command_line":"u.exe -q"}}`),
-			item("b", classScheduledJob, `{"job":{"name":"Updater","command_line":"u.exe -q -x"}}`),
+			item("a", classScheduledJob, `{"job":{"name":"Updater","cmd_line":"u.exe -q"}}`),
+			item("b", classScheduledJob, `{"job":{"name":"Updater","cmd_line":"u.exe -q -x"}}`),
 		}, nil, 2},
 		{"txt answer boundaries", []GroupItem{
 			item("a", classDNS, `{"query":{"hostname":"t.example"},"answers":[{"rdata":"a,b"}]}`),
@@ -218,17 +218,17 @@ func TestFold_ChangedObservationsStayApart(t *testing.T) {
 			item("c", classDNS, `{"query":{"hostname":"t.example"},"answers":[{"rdata":"b"},{"rdata":"a"}]}`),
 		}, nil, 2},
 		{"command line case", []GroupItem{
-			item("a", classScheduledJob, `{"job":{"name":"Probe","command_line":"curl.exe -I https://example.com"}}`),
-			item("b", classScheduledJob, `{"job":{"name":"Probe","command_line":"curl.exe -i https://example.com"}}`),
-			item("c", classScheduledJob, `{"job":{"name":"probe","command_line":"curl.exe -I https://example.com"}}`),
+			item("a", classScheduledJob, `{"job":{"name":"Probe","cmd_line":"curl.exe -I https://example.com"}}`),
+			item("b", classScheduledJob, `{"job":{"name":"Probe","cmd_line":"curl.exe -i https://example.com"}}`),
+			item("c", classScheduledJob, `{"job":{"name":"probe","cmd_line":"curl.exe -I https://example.com"}}`),
 		}, nil, 2},
 		{"process command line case, keyed on it", []GroupItem{
 			item("a", classProcess, `{"process":{"name":"curl.exe","cmd_line":"curl.exe -I https://example.com"},"actor":{"process":{"name":"cmd.exe"}}}`),
 			item("b", classProcess, `{"process":{"name":"curl.exe","cmd_line":"curl.exe -i https://example.com"},"actor":{"process":{"name":"cmd.exe"}}}`),
 		}, Keys{classProcess: {"image", "cmd_line"}}, 2},
 		{"registry data case", []GroupItem{
-			item("a", classRegistryKey, `{"reg_key":{"hive":"HKLM","path":"Run"},"reg_value":{"name":"U","data":"C:\\a.exe -Q"}}`),
-			item("b", classRegistryKey, `{"reg_key":{"hive":"hklm","path":"run"},"reg_value":{"name":"u","data":"C:\\a.exe -q"}}`),
+			item("a", classRegistryValue, `{"reg_value":{"path":"HKLM\\Run","name":"U","data":"C:\\a.exe -Q"}}`),
+			item("b", classRegistryValue, `{"reg_value":{"path":"hklm\\run","name":"u","data":"C:\\a.exe -q"}}`),
 		}, nil, 2},
 		{"domain-only destinations", []GroupItem{
 			item("a", classNetwork, `{"dst_endpoint":{"domain":"a.example","port":443}}`),

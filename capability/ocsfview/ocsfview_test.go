@@ -208,27 +208,55 @@ func TestRender_Sentences(t *testing.T) {
 			"WIN-FILE01 queried exfil.example.net → 185.220.101.5", CategoryNetwork},
 		{"file", 1001, `{"activity_name":"Create","file":{"name":"payload.dll","path":"C:\\Temp\\payload.dll"},"actor":{"user":{"name":"jdoe"},"process":{"pid":4,"name":"explorer.exe"}},"device":{"hostname":"WS1"}}`,
 			"jdoe created payload.dll on WS1 via explorer.exe", CategoryProcess},
-		{"registry", 1003, `{"activity_name":"Modify","reg_key":{"hive":"HKLM","path":"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"},"reg_value":{"name":"Updater","data":"C:\\u.exe"},
+		{"registry key", 201001, `{"activity_name":"Modify","reg_key":{"path":"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"},
 			"actor":{"process":{"pid":9,"name":"reg.exe"}},"device":{"hostname":"WS1"}}`,
 			`reg.exe modified HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run on WS1`, CategoryProcess},
-		{"scheduled job", 1006, `{"activity_name":"Create","job":{"name":"Updater","path":"\\Microsoft\\Updater","user":{"name":"SYSTEM"}},"actor":{"user":{"name":"jdoe"}},"device":{"hostname":"WS1"}}`,
+		{"registry key without actor", 201001, `{"activity_name":"Delete","reg_key":{"path":"HKLM\\SOFTWARE\\Run"},"device":{"hostname":"WS1"}}`,
+			`HKLM\SOFTWARE\Run was deleted on WS1`, CategoryProcess},
+		{"registry value", 201002, `{"activity_name":"Set","reg_value":{"path":"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run","name":"Updater","data":"C:\\u.exe","type":"REG_SZ"},
+			"actor":{"process":{"pid":9,"name":"reg.exe"}},"device":{"hostname":"WS1"}}`,
+			`reg.exe set value Updater of HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run on WS1`, CategoryProcess},
+		{"registry value by user", 201002, `{"activity_name":"Delete","reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater"},"actor":{"user":{"name":"jdoe"}}}`,
+			`jdoe deleted value Updater of HKLM\SOFTWARE\Run`, CategoryProcess},
+		{"scheduled job", 1006, `{"activity_name":"Create","job":{"name":"Updater","file":{"path":"\\Microsoft\\Updater"},"user":{"name":"SYSTEM"}},"actor":{"user":{"name":"jdoe"}},"device":{"hostname":"WS1"}}`,
 			"jdoe created scheduled job Updater on WS1 running as SYSTEM", CategoryProcess},
-		{"module", 1009, `{"module":{"file":{"name":"evil.dll","path":"C:\\Temp\\evil.dll"}},"actor":{"process":{"pid":7,"name":"svchost.exe"}},"device":{"hostname":"WS1"}}`,
+		{"scheduled job named by its path", 1006, `{"activity_name":"Create","job":{"file":{"path":"\\Microsoft\\Updater"},"job_actions":[{"cmd_line":"u.exe"}]},"device":{"hostname":"WS1"}}`,
+			`Scheduled job \Microsoft\Updater was created on WS1`, CategoryProcess},
+		{"module", 1005, `{"module":{"file":{"name":"evil.dll","path":"C:\\Temp\\evil.dll"}},"actor":{"process":{"pid":7,"name":"svchost.exe"}},"device":{"hostname":"WS1"}}`,
 			"svchost.exe loaded evil.dll on WS1", CategoryProcess},
-		{"account change", 3005, `{"activity_name":"Password Reset","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}},"device":{"hostname":"DC1"}}`,
+		{"account change", 3001, `{"activity_name":"Password Reset","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}},"device":{"hostname":"DC1"}}`,
 			"admin reset the password of jdoe on DC1", CategoryAuth},
-		{"account change without actor", 3005, `{"activity_name":"Create","user":{"name":"jdoe"},"group":{"name":"Domain Admins"}}`,
-			"Account jdoe was created in Domain Admins", CategoryAuth},
+		{"account change without actor", 3001, `{"activity_name":"Create","user":{"name":"jdoe"}}`,
+			"Account jdoe was created", CategoryAuth},
+		{"user access", 3005, `{"activity_name":"Assign Privileges","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}},"privileges":["SeDebugPrivilege"],"device":{"hostname":"DC1"}}`,
+			"admin assigned privileges to jdoe on DC1", CategoryAuth},
+		{"group management", 3006, `{"activity_name":"Add User","user":{"name":"jdoe"},"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},"device":{"hostname":"DC1"}}`,
+			"admin added jdoe to Domain Admins on DC1", CategoryAuth},
+		{"group management remove", 3006, `{"activity_name":"Remove User","user":{"name":"jdoe"},"group":{"uid":"g-512"}}`,
+			"Account jdoe was removed from g-512", CategoryAuth},
+		{"group management privileges", 3006, `{"activity_name":"Assign Privileges","user":{"name":"jdoe"},"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"}}`,
+			"admin assigned privileges to jdoe in Domain Admins", CategoryAuth},
 		{"email", 4009, `{"email":{"from":"billing@evil.example","to":["ap@corp.example","cfo@corp.example"],"subject":"Overdue invoice 44817","message_uid":"<m1>"}}`,
 			"billing@evil.example sent “Overdue invoice 44817” to ap@corp.example, cfo@corp.example", CategoryNetwork},
-		{"email url", 4011, `{"activity_name":"Receive","url":{"url_string":"https://login.evil.example/x"},"actor":{"user":{"name":"jdoe"}},"device":{"hostname":"WS1"}}`,
+		{"email url", 4012, `{"activity_name":"Receive","email_uid":"gw-1","url":{"url_string":"https://login.evil.example/x"},"actor":{"user":{"name":"jdoe"}},"device":{"hostname":"WS1"}}`,
 			"jdoe received https://login.evil.example/x on WS1", CategoryNetwork},
-		{"detection", 2004, `{"metadata":{"product":{"vendor_name":"CrowdStrike"}},"finding":{"uid":"det-1","title":"Suspicious lateral movement","severity":"High","types":["T1021.001"]},
-			"evidence":{"device":{"hostname":"WIN-FILE01"}}}`,
+		{"email url without actor", 4012, `{"url":{"url_string":"https://login.evil.example/x"}}`,
+			"Link https://login.evil.example/x was opened", CategoryNetwork},
+		{"email file", 4011, `{"activity_name":"Receive","email_uid":"gw-1","file":{"name":"invoice.pdf.exe"},"actor":{"user":{"name":"jdoe"}},"device":{"hostname":"WS1"}}`,
+			"jdoe received attachment invoice.pdf.exe on WS1", CategoryNetwork},
+		{"email file without actor", 4011, `{"activity_name":"Scan","email_uid":"gw-1","file":{"name":"invoice.pdf.exe"}}`,
+			"Attachment invoice.pdf.exe was scanned", CategoryNetwork},
+		{"detection", 2004, `{"metadata":{"product":{"vendor_name":"CrowdStrike"}},"finding_info":{"uid":"det-1","title":"Suspicious lateral movement","types":["T1021.001"]},"severity_id":4,
+			"device":{"hostname":"WIN-FILE01"},"evidences":[{"actor":{"user":{"name":"svc_backup"}}}]}`,
 			"CrowdStrike detected “Suspicious lateral movement” (high) on WIN-FILE01", CategoryDetection},
-		{"case", 2005, `{"category_uid":2,"finding_info":{"uid":"INC0010039","title":"Phishing report"},"status":"New","priority":"3 - Moderate","assignment_group":"SOC Tier 2"}`,
+		{"detection on the artifact's device", 2004, `{"finding_info":{"uid":"det-1","title":"Beacon"},"severity_id":99,"severity":"Urgent",
+			"device":{"hostname":"SENSOR"},"evidences":[{"process":{"pid":1}},{"device":{"hostname":"WS7"},"user":{"name":"jdoe"}}]}`,
+			"Detected “Beacon” (urgent) on WS7", CategoryDetection},
+		{"case", 2005, `{"category_uid":2,"finding_info_list":[{"uid":"INC0010039","title":"Phishing report"}],"status":"New","priority":"3 - Moderate","assignee_group":{"name":"SOC Tier 2"}}`,
 			"Case INC0010039 “Phishing report”, New, priority 3 - Moderate, assigned to SOC Tier 2", CategoryCase},
-		{"device inventory", 5001, `{"device":{"hostname":"WIN-FILE01","os":{"name":"Windows Server 2022"},"owner":{"name":"File Services"},"criticality":"high"}}`,
+		{"case assigned by group id", 2005, `{"finding_info_list":[{"uid":"INC1"},{"uid":"det-1","title":"second"}],"priority":2,"assignee_group":{"uid":"grp-7"}}`,
+			"Case INC1, priority 2, assigned to grp-7", CategoryCase},
+		{"device inventory", 5001, `{"device":{"hostname":"WIN-FILE01","os":{"name":"Windows Server 2022"},"owner":{"name":"File Services"}},"unmapped":{"criticality":"high"}}`,
 			"WIN-FILE01 runs Windows Server 2022, owned by File Services, criticality high", CategoryAsset},
 	}
 	for _, tc := range cases {
@@ -251,7 +279,7 @@ func TestRender_Sentences(t *testing.T) {
 // as it is, the parent with its pid, the image bound to the file object.
 func TestRender_ProcessFields(t *testing.T) {
 	p := payload(`{"process":{"pid":6120,"name":"powershell.exe","cmd_line":"powershell.exe -NoProfile -EncodedCommand ZQBjAGgAbwA=",
-		"file":{"path":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","name":"powershell.exe","hashes":{"SHA-256":"9f1c"}},
+		"file":{"path":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","name":"powershell.exe","hashes":[{"algorithm":"SHA-256","value":"9f1c"}]},
 		"parent_process":{"pid":5000,"name":"mstsc-hijack.exe"}},"device":{"hostname":"WIN-FILE01","domain":"CONTOSO"},"actor":{"user":{"name":"svc_backup","domain":"CONTOSO"}}}`)
 	ents := []Entity{
 		ent("process--p1", map[string]any{"pid": float64(6120), "name": "powershell.exe"}),
@@ -292,7 +320,7 @@ func TestRender_ProcessFields(t *testing.T) {
 // its value, never to the type alone — two users on an account change, two
 // addresses on a connection.
 func TestRender_BindsByValue(t *testing.T) {
-	v := Render(Event{ClassUID: 3005, Payload: payload(`{"activity_name":"Disable","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}}}`)}, []Entity{
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Disable","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin","domain":"CONTOSO"}}}`)}, []Entity{
 		ent("user-account--target", map[string]any{"account_login": `CONTOSO\jdoe`}),
 		ent("user-account--actor", map[string]any{"account_login": `CONTOSO\admin`}),
 	})
@@ -318,7 +346,7 @@ func TestRender_BindsByValue(t *testing.T) {
 // apart, whatever order the record holds them in; a payload naming no domain
 // binds a qualified login only when the record holds exactly one ending in it.
 func TestRender_BindsByDomain(t *testing.T) {
-	v := Render(Event{ClassUID: 3005, Payload: payload(`{"activity_name":"Disable","user":{"name":"admin","domain":"B"},"actor":{"user":{"name":"admin","domain":"A"}}}`)}, []Entity{
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Disable","user":{"name":"admin","domain":"B"},"actor":{"user":{"name":"admin","domain":"A"}}}`)}, []Entity{
 		ent("user-account--target", map[string]any{"account_login": `B\admin`}),
 		ent("user-account--actor", map[string]any{"account_login": `A\admin`}),
 	})
@@ -346,13 +374,13 @@ func TestRender_BindsByDomain(t *testing.T) {
 // normalizers persist — a process held by pid alone, a file held by its path,
 // a group held as group_name and directory.
 func TestRender_BindsStoredShapes(t *testing.T) {
-	v := Render(Event{ClassUID: 4001, Payload: payload(`{"process":{"pid":77,"name":"curl.exe"},"src_endpoint":{"ip":"10.0.0.1"},"dst_endpoint":{"ip":"10.0.0.2"}}`)}, []Entity{
+	v := Render(Event{ClassUID: 4001, Payload: payload(`{"actor":{"process":{"pid":77,"name":"curl.exe"}},"src_endpoint":{"ip":"10.0.0.1"},"dst_endpoint":{"ip":"10.0.0.2"}}`)}, []Entity{
 		ent("process--p", map[string]any{"pid": float64(77)}),
 	})
 	if f, _ := fieldValue(v, "Process"); f.Ref != "process--p" {
 		t.Errorf("pid-only process did not bind: %+v", f)
 	}
-	v = Render(Event{ClassUID: 4001, Payload: payload(`{"process":{"pid":77,"name":"curl.exe"},"src_endpoint":{"ip":"10.0.0.1"}}`)}, []Entity{
+	v = Render(Event{ClassUID: 4001, Payload: payload(`{"actor":{"process":{"pid":77,"name":"curl.exe"}},"src_endpoint":{"ip":"10.0.0.1"}}`)}, []Entity{
 		ent("process--q", map[string]any{"pid": float64(77), "name": "other.exe"}),
 	})
 	if f, _ := fieldValue(v, "Process"); f.Ref != "" {
@@ -366,7 +394,7 @@ func TestRender_BindsStoredShapes(t *testing.T) {
 		t.Errorf("path-only file did not bind: %v", refs)
 	}
 
-	v = Render(Event{ClassUID: 3005, Payload: payload(`{"activity_name":"Create","user":{"name":"jdoe"},"group":{"name":"Domain Admins","domain":"CONTOSO"}}`)}, []Entity{
+	v = Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","user":{"name":"jdoe"},"group":{"name":"Domain Admins","domain":"CONTOSO"}}`)}, []Entity{
 		ent("x-group--other", map[string]any{"group_name": "Domain Admins", "directory": "FABRIKAM"}),
 		ent("x-group--g", map[string]any{"group_name": "Domain Admins", "directory": "CONTOSO"}),
 	})
@@ -405,11 +433,20 @@ func TestRender_BindsHostByShortName(t *testing.T) {
 	}
 }
 
-// TestRender_EmailAttachments counts the attachments the normalizer reads.
+// TestRender_EmailAttachments counts the attachments and links the normalizer
+// reads: email.files[] and email.urls[] (OCSF 1.4.0). The pre-OCSF
+// email.attachments is not read (adr/0356).
 func TestRender_EmailAttachments(t *testing.T) {
-	v := Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":"a@x.example","subject":"s","attachments":[{"name":"invoice.zip"},{"name":"a.pdf"}]}}`)}, nil)
+	v := Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":"a@x.example","subject":"s","files":[{"name":"invoice.zip"},{"name":"a.pdf"}],"urls":[{"url_string":"https://x.example/"}]}}`)}, nil)
 	if f, ok := fieldValue(v, "Attachments"); !ok || f.Value != "2" {
 		t.Errorf("Attachments = %+v, %v", f, ok)
+	}
+	if f, ok := fieldValue(v, "Links"); !ok || f.Value != "1" {
+		t.Errorf("Links = %+v, %v", f, ok)
+	}
+	v = Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":"a@x.example","subject":"s","attachments":[{"name":"invoice.zip"}]}}`)}, nil)
+	if f, ok := fieldValue(v, "Attachments"); ok {
+		t.Errorf("email.attachments was read: %+v", f)
 	}
 }
 
@@ -876,6 +913,114 @@ func TestOcsfTimestamp(t *testing.T) {
 	} {
 		if got := ocsfTimestamp(tc.in); got != tc.want {
 			t.Errorf("ocsfTimestamp(%v) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestRender_OCSFFields (adr/0356): the curated fields of the classes whose
+// paths moved to OCSF's, read from the OCSF field and from each fallback.
+func TestRender_OCSFFields(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		class   int
+		payload string
+		want    map[string]string // label → value; "" means the field is absent
+	}{
+		{"registry value", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","data":"C:\\u.exe","type":"REG_SZ"}}`,
+			map[string]string{"Key": `HKLM\SOFTWARE\Run`, "Value": "Updater", "Data": `C:\u.exe`, "Type": "REG_SZ"}},
+		{"registry key reads no value", 201001, `{"reg_key":{"path":"HKLM\\SOFTWARE\\Run"},"reg_value":{"name":"Updater","data":"x"}}`,
+			map[string]string{"Key": `HKLM\SOFTWARE\Run`, "Value": "", "Data": ""}},
+		{"job at the floor", 1006, `{"job":{"name":"Updater","file":{"path":"\\Microsoft\\Updater"},"cmd_line":"u.exe -q"}}`,
+			map[string]string{"Job": "Updater", "Path": `\Microsoft\Updater`, "Command line": "u.exe -q"}},
+		{"job at the ceiling", 1006, `{"job":{"name":"Updater","job_actions":[{"cmd_line":"u.exe -q"}],"cmd_line":"old.exe"}}`,
+			map[string]string{"Command line": "u.exe -q"}},
+		{"job action without a command", 1006, `{"job":{"name":"Updater","job_actions":[{"type_id":2}],"cmd_line":"old.exe"}}`,
+			map[string]string{"Command line": "old.exe"}},
+		{"account change reads no group or privileges", 3001, `{"user":{"name":"jdoe"},"group":{"name":"Domain Admins"},"privileges":["SeDebugPrivilege"]}`,
+			map[string]string{"Account": "jdoe", "Group": "", "Privileges": ""}},
+		{"user access", 3005, `{"user":{"name":"jdoe"},"group":{"name":"Domain Admins"},"privileges":["SeDebugPrivilege","SeBackupPrivilege"]}`,
+			map[string]string{"Group": "", "Privileges": "SeDebugPrivilege, SeBackupPrivilege"}},
+		{"group management", 3006, `{"user":{"name":"jdoe"},"group":{"name":"Domain Admins"},"privileges":["SeDebugPrivilege"]}`,
+			map[string]string{"Group": "Domain Admins", "Privileges": "SeDebugPrivilege"}},
+		{"email click", 4012, `{"email_uid":"gw-1","url":{"url_string":"https://x.example/"}}`,
+			map[string]string{"URL": "https://x.example/", "Email id": "gw-1"}},
+		{"email attachment", 4011, `{"email_uid":"gw-1","file":{"name":"a.exe","path":"C:\\a.exe","size":12,"hashes":[{"algorithm":"SHA-256","value":"beef"}]}}`,
+			map[string]string{"File": `C:\a.exe`, "SHA-256": "beef", "Size": "12 bytes", "Email id": "gw-1"}},
+		{"hashes in the object form are not read", 1001, `{"file":{"name":"a.exe","hashes":{"SHA-256":"beef"}}}`,
+			map[string]string{"File": "a.exe", "SHA-256": ""}},
+		{"detection by ids", 2004, `{"finding_info":{"uid":"det-1","title":"Beacon","types":["T1071","T1105"]},"severity_id":5,"severity":"ignored","confidence_id":2,"confidence":"ignored",
+			"evidences":[{"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}]}`,
+			map[string]string{"Finding": "Beacon", "Finding id": "det-1", "Severity": "Critical", "Confidence": "Medium", "Techniques": "T1071, T1105", "User": `CONTOSO\jdoe`}},
+		{"detection by score and captions", 2004, `{"finding_info":{"uid":"det-1"},"severity":"Elevated","confidence_score":73,"confidence_id":1,"evidences":[{"user":{"name":"target"}}]}`,
+			map[string]string{"Severity": "Elevated", "Confidence": "73", "User": "target"}},
+		{"detection by confidence caption", 2004, `{"finding_info":{"uid":"det-1"},"confidence_id":99,"confidence":"Certain"}`,
+			map[string]string{"Confidence": "Certain", "Severity": "", "User": ""}},
+		{"case", 2005, `{"finding_info_list":[{"uid":"INC1","title":"T"}],"assignee_group":{"name":"SOC","uid":"g"},"src_url":"https://sor.example/INC1","unmapped":{"sor":"servicenow","link":"https://old.example"}}`,
+			map[string]string{"Case": "INC1", "Title": "T", "Assigned to": "SOC", "System": "servicenow", "Link": "https://sor.example/INC1"}},
+		{"device inventory", 5001, `{"device":{"hostname":"H","criticality":"low"},"unmapped":{"criticality":"high"}}`,
+			map[string]string{"Criticality": "high"}},
+		{"network process", 4001, `{"actor":{"process":{"pid":7,"name":"curl.exe"}},"process":{"pid":9,"name":"old.exe"},"dst_endpoint":{"ip":"10.0.0.2"}}`,
+			map[string]string{"Process": "curl.exe"}},
+		{"api application at the ceiling", 6003, `{"cloud":{"provider":"AWS"},"actor":{"application":{"name":"backup"},"app_name":"old"},"api":{"operation":"Get"}}`,
+			map[string]string{"Principal": "backup"}},
+		{"api application at the floor", 6003, `{"cloud":{"provider":"AWS"},"actor":{"app_name":"old"},"api":{"operation":"Get"}}`,
+			map[string]string{"Principal": "old"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := Render(Event{ClassUID: tc.class, Payload: payload(tc.payload)}, nil)
+			for label, want := range tc.want {
+				f, ok := fieldValue(v, label)
+				if want == "" {
+					if ok {
+						t.Errorf("%s = %q; want the field absent", label, f.Value)
+					}
+					continue
+				}
+				if !ok || f.Value != want {
+					t.Errorf("%s = %q (present %v); want %q", label, f.Value, ok, want)
+				}
+			}
+		})
+	}
+
+	// Every command line of a job with several actions is shown.
+	v := Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","job_actions":[{"cmd_line":"a.exe"},{"cmd_line":"b.exe"}]}}`)}, nil)
+	var cmds []string
+	for _, f := range v.Fields {
+		if f.Label == "Command line" {
+			cmds = append(cmds, f.Value)
+		}
+	}
+	if !slices.Equal(cmds, []string{"a.exe", "b.exe"}) {
+		t.Errorf("command lines = %v; want both", cmds)
+	}
+}
+
+// TestRender_RegistryBindsTheSplitKey: the record's x-registry-key holds the
+// hive apart from the key path. Both registry classes give the full path, and
+// bind to the key it splits into.
+func TestRender_RegistryBindsTheSplitKey(t *testing.T) {
+	ents := []Entity{
+		ent("x-registry-key--run", map[string]any{"hive": "HKLM", "key_path": `SOFTWARE\Run`}),
+		ent("x-registry-key--other", map[string]any{"hive": "HKCU", "key_path": `SOFTWARE\Run`}),
+	}
+	for class, js := range map[int]string{
+		201001: `{"reg_key":{"path":"hklm\\software\\run"}}`,
+		201002: `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater"}}`,
+	} {
+		v := Render(Event{ClassUID: class, Payload: payload(js)}, ents)
+		if f, _ := fieldValue(v, "Key"); f.Ref != "x-registry-key--run" {
+			t.Errorf("class %d: Key = %+v; want it bound to the HKLM key", class, f)
+		}
+	}
+}
+
+// TestCategory_ExtensionClass: a Windows-extension class number carries the
+// extension above the category, so 201001 is a category-1 class.
+func TestCategory_ExtensionClass(t *testing.T) {
+	for class, want := range map[int]string{201001: CategoryProcess, 201002: CategoryProcess, 1005: CategoryProcess, 4012: CategoryNetwork, 2005: CategoryCase, 3006: CategoryAuth} {
+		if got := Category(class, nil); got != want {
+			t.Errorf("Category(%d) = %s; want %s", class, got, want)
 		}
 	}
 }

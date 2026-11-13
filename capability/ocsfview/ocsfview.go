@@ -109,7 +109,9 @@ func Category(classUID int, payload map[string]any) string {
 	}
 	cat := toInt(fieldOf(payload, "category_uid"))
 	if cat == 0 {
-		cat = classUID / 1000
+		// An extension's class number carries the extension above the
+		// category: 201001 is extension 2, category 1, class 001.
+		cat = classUID % 100000 / 1000
 	}
 	switch cat {
 	case 1:
@@ -130,33 +132,38 @@ func Category(classUID int, payload map[string]any) string {
 }
 
 // The classes with a template: every class a normalizer handles (03 §4.1–§4.12,
-// §4.15) and device inventory.
+// §4.15) and device inventory. The numbers are OCSF's (adr/0356).
 const (
 	classFileActivity    = 1001
-	classRegistryKey     = 1003
+	classModule          = 1005
 	classScheduledJob    = 1006
 	classProcess         = 1007
-	classModule          = 1009
 	classDetection       = 2004
 	classCase            = 2005
+	classAccountChange   = 3001
 	classAuthentication  = 3002
-	classAccountChange   = 3005
+	classUserAccess      = 3005
+	classGroupManagement = 3006
 	classNetwork         = 4001
 	classDNS             = 4003
 	classEmail           = 4009
-	classEmailURL        = 4011
+	classEmailFile       = 4011
+	classEmailURL        = 4012
 	classDeviceInventory = 5001
 	classCloudInventory  = 5023
 	classAPIActivity     = 6003
+	classRegistryKey     = 201001
+	classRegistryValue   = 201002
 )
 
 // Classes lists the class_uids with a sentence template, sorted.
 func Classes() []int {
 	return []int{
-		classFileActivity, classRegistryKey, classScheduledJob, classProcess, classModule,
-		classDetection, classCase, classAuthentication, classAccountChange,
-		classNetwork, classDNS, classEmail, classEmailURL, classDeviceInventory,
-		classCloudInventory, classAPIActivity,
+		classFileActivity, classModule, classScheduledJob, classProcess,
+		classDetection, classCase, classAccountChange, classAuthentication,
+		classUserAccess, classGroupManagement, classNetwork, classDNS, classEmail,
+		classEmailFile, classEmailURL, classDeviceInventory, classCloudInventory,
+		classAPIActivity, classRegistryKey, classRegistryValue,
 	}
 }
 
@@ -165,7 +172,7 @@ func Render(e Event, entities []Entity) View {
 	if renderHook != nil {
 		defer renderHook(e)()
 	}
-	r := &renderer{p: e.Payload, ents: entities}
+	r := &renderer{class: e.ClassUID, p: e.Payload, ents: entities}
 	if r.p == nil {
 		r.p = map[string]any{}
 	}
@@ -180,18 +187,20 @@ func Render(e Event, entities []Entity) View {
 		r.dns()
 	case classFileActivity:
 		r.fileActivity()
-	case classRegistryKey:
-		r.registryKey()
+	case classRegistryKey, classRegistryValue:
+		r.registry()
 	case classScheduledJob:
 		r.scheduledJob()
 	case classModule:
 		r.module()
-	case classAccountChange:
-		r.accountChange()
+	case classAccountChange, classUserAccess, classGroupManagement:
+		r.account()
 	case classEmail:
 		r.email()
 	case classEmailURL:
 		r.emailURL()
+	case classEmailFile:
+		r.emailFile()
 	case classDetection:
 		r.detection()
 	case classCase:
@@ -214,6 +223,7 @@ func Render(e Event, entities []Entity) View {
 // renderer accumulates one view. The sentence helpers add nothing for an
 // empty value, so a template reads as a sequence of optional clauses.
 type renderer struct {
+	class    int
 	p        map[string]any
 	ents     []Entity
 	sentence []Token
@@ -392,8 +402,12 @@ func propEquals(props map[string]any, key, want string) bool {
 // in the record binds the host whose hostname is its first label, and a host
 // minted before the FQDN split, whose hostname property is the full name, still
 // binds. The slot's text stays the name as reported.
-func (r *renderer) host(prefix string) slot {
-	name := r.str(prefix + ".hostname")
+func (r *renderer) host(prefix string) slot { return r.hostIn(r.p, prefix) }
+
+// hostIn is host for a device object at prefix of m, an object of the event
+// such as an entry of evidences[].
+func (r *renderer) hostIn(m map[string]any, prefix string) slot {
+	name := pathStr(m, prefix+".hostname")
 	short, _ := identity.SplitHostname(name)
 	if short == "" {
 		return slot{}
@@ -410,12 +424,16 @@ func (r *renderer) host(prefix string) slot {
 // matches, so two same-named accounts of different domains bind apart; without
 // one the bare name matches, or a qualified login ending in it when the record
 // holds exactly one such account.
-func (r *renderer) user(prefix string) slot {
-	name := r.str(prefix + ".name")
+func (r *renderer) user(prefix string) slot { return r.userIn(r.p, prefix) }
+
+// userIn is user for a user object at prefix of m, an object of the event
+// such as an entry of evidences[].
+func (r *renderer) userIn(m map[string]any, prefix string) slot {
+	name := pathStr(m, prefix+".name")
 	if name == "" {
 		return slot{}
 	}
-	domain := r.str(prefix + ".domain")
+	domain := pathStr(m, prefix+".domain")
 	ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool {
 		login := toString(p["account_login"])
 		if domain != "" {
@@ -427,9 +445,11 @@ func (r *renderer) user(prefix string) slot {
 	return slot{text: name, ref: ref}
 }
 
-func (r *renderer) qualifiedUser(prefix string) string {
-	name := r.str(prefix + ".name")
-	if d := r.str(prefix + ".domain"); d != "" && name != "" {
+func (r *renderer) qualifiedUser(prefix string) string { return qualifiedUserIn(r.p, prefix) }
+
+func qualifiedUserIn(m map[string]any, prefix string) string {
+	name := pathStr(m, prefix+".name")
+	if d := pathStr(m, prefix+".domain"); d != "" && name != "" {
 		return d + `\` + name
 	}
 	return name
@@ -500,7 +520,7 @@ func (r *renderer) file(prefix string) slot {
 
 // proc binds an OCSF process object at prefix to its process by pid. A stored
 // name must agree with the payload's; a process the record holds by pid alone
-// (the network normalizer stores no name) still binds.
+// (one stored before the network normalizer kept the name) still binds.
 func (r *renderer) proc(prefix string) slot {
 	name := r.str(prefix + ".name")
 	pid := r.int(prefix + ".pid")
@@ -701,7 +721,7 @@ func (r *renderer) network() {
 	dst := r.ip("dst_endpoint.ip")
 	domain := r.domain(r.str("dst_endpoint.domain"))
 	proto := r.str("connection_info.protocol_name")
-	proc := r.proc("process")
+	proc := r.proc("actor.process")
 	dport := r.int("dst_endpoint.port")
 	status := r.str("status")
 
@@ -909,37 +929,59 @@ func (r *renderer) fileActivity() {
 var registryVerbs = map[string]string{
 	"create": "created", "read": "read", "modify": "modified", "delete": "deleted", "rename": "renamed",
 	"set security": "set security on", "restore": "restored", "import": "imported", "export": "exported",
+	"get": "read", "set": "set",
 }
 
-func (r *renderer) registryKey() {
+// registry renders both Windows registry classes (03 §4.6). A key event
+// names the key in reg_key.path. A value event names it in reg_value.path and
+// carries the value's name, data and type. The path is the full key path with
+// the hive first, which is how the record's x-registry-key splits it.
+func (r *renderer) registry() {
 	host := r.host("device")
 	proc := r.proc("actor.process")
 	user := r.user("actor.user")
-	hive, keyPath := r.str("reg_key.hive"), r.str("reg_key.path")
-	keyText := strings.Trim(hive+`\`+keyPath, `\`)
+	var full, valueName, valueData, valueType string
+	if r.class == classRegistryValue {
+		full = r.str("reg_value.path")
+		valueName, valueData, valueType = r.str("reg_value.name"), r.str("reg_value.data"), r.str("reg_value.type")
+	} else {
+		full = r.str("reg_key.path")
+	}
+	keyText := strings.Trim(full, `\`)
+	hive, keyPath, _ := strings.Cut(keyText, `\`)
 	key := slot{text: keyText, ref: r.bind(identity.TypeRegistryKey, func(p map[string]any) bool {
 		return propEquals(p, "key_path", keyPath) && strings.EqualFold(toString(p["hive"]), hive)
 	})}
 	verb := r.activity(registryVerbs, "changed")
+	// A value event is about the value: "set value Updater of HKLM\…\Run".
+	object := func() {
+		if valueName != "" {
+			r.text("value " + valueName)
+			r.clause(" of ", key)
+			return
+		}
+		r.entity(key)
+	}
 
 	switch {
 	case !proc.empty():
 		r.entity(proc)
 		r.text(" " + verb + " ")
-		r.entity(key)
+		object()
 	case !user.empty():
 		r.entity(user)
 		r.text(" " + verb + " ")
-		r.entity(key)
+		object()
 	default:
-		r.entity(key)
+		object()
 		r.text(" " + pastToPassive(verb))
 	}
 	r.clause(" on ", host)
 
 	r.entityField("Key", key)
-	r.mono("Value", r.str("reg_value.name"))
-	r.mono("Data", r.str("reg_value.data"))
+	r.mono("Value", valueName)
+	r.mono("Data", valueData)
+	r.field("Type", valueType)
 	r.activityField()
 	r.entityField("Process", proc)
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
@@ -949,8 +991,8 @@ func (r *renderer) registryKey() {
 	r.keyText("process", proc.text)
 	r.keySlot("user", user)
 	r.keySlot("key", key)
-	r.keyText("value", r.str("reg_value.name"))
-	r.keyExact("data", slot{text: r.str("reg_value.data")})
+	r.keyText("value", valueName)
+	r.keyExact("data", slot{text: valueData})
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -962,7 +1004,12 @@ func (r *renderer) scheduledJob() {
 	host := r.host("device")
 	actor := r.user("actor.user")
 	runAs := r.user("job.user")
-	name, path := r.str("job.name"), r.str("job.path")
+	name, path := r.str("job.name"), r.str("job.file.path")
+	cmds := r.jobCommandLines()
+	cmd := ""
+	if len(cmds) > 0 {
+		cmd = cmds[0]
+	}
 	job := slot{text: firstNonEmpty(name, path), ref: r.bind(identity.TypeScheduledTask, func(p map[string]any) bool {
 		return (name != "" && propEquals(p, "name", name)) || (path != "" && propEquals(p, "path", path))
 	})}
@@ -982,8 +1029,11 @@ func (r *renderer) scheduledJob() {
 
 	r.entityField("Job", job)
 	r.mono("Path", path)
-	r.mono("Command line", r.str("job.command_line"))
-	r.decode("job.command_line")
+	// One line per action. The first is the one read back when encoded.
+	for _, c := range cmds {
+		r.mono("Command line", c)
+	}
+	r.decodeText(r.jobCommandField(), cmd)
 	r.entityField("Runs as", slot{text: r.qualifiedUser("job.user"), ref: runAs.ref})
 	r.activityField()
 	r.entityField("Actor", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
@@ -993,8 +1043,36 @@ func (r *renderer) scheduledJob() {
 	r.keySlot("host", host)
 	r.keySlot("job", job)
 	r.keySlot("run_as", runAs)
-	r.keyExact("cmd_line", slot{text: r.str("job.command_line")})
+	r.keyExact("cmd_line", slot{text: strings.Join(cmds, "\n")})
 	r.keyText("activity", r.str("activity_name"))
+}
+
+// jobCommandLines reads a job's command lines as the normalizer does (03
+// §4.7): one per action in job.job_actions[] (OCSF 1.9.0), else the
+// deprecated job.cmd_line.
+func (r *renderer) jobCommandLines() []string {
+	var out []string
+	for _, a := range pathList(r.p, "job.job_actions") {
+		m, _ := a.(map[string]any)
+		if c := toString(fieldOf(m, "cmd_line")); c != "" {
+			out = append(out, c)
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	if c := r.str("job.cmd_line"); c != "" {
+		return []string{c}
+	}
+	return nil
+}
+
+// jobCommandField names the field the first command line came from.
+func (r *renderer) jobCommandField() string {
+	if len(pathList(r.p, "job.job_actions")) > 0 {
+		return "job.job_actions[0].cmd_line"
+	}
+	return "job.cmd_line"
 }
 
 func (r *renderer) module() {
@@ -1028,17 +1106,36 @@ var accountVerbs = map[string]string{
 	"create": "created", "enable": "enabled", "password change": "changed the password of", "password reset": "reset the password of",
 	"disable": "disabled", "delete": "deleted", "attach policy": "attached a policy to", "detach policy": "detached a policy from",
 	"lock": "locked", "unlock": "unlocked", "mfa factor enable": "enabled an MFA factor for", "mfa factor disable": "disabled an MFA factor for",
+	"assign privileges": "assigned privileges to", "revoke privileges": "revoked privileges from",
+	"add user": "added", "remove user": "removed",
 }
 
-func (r *renderer) accountChange() {
+// groupLeads is how a group_management sentence joins the account to the
+// group, by activity: "added jdoe to Domain Admins".
+var groupLeads = map[string]string{"add user": " to ", "remove user": " from "}
+
+// account renders the three OCSF account classes (03 §4.9): account_change
+// (3001), user_access (3005) and group_management (3006). Each class is read
+// only for its own fields: the group on 3006, the privileges on 3005 and 3006.
+func (r *renderer) account() {
 	target := r.user("user")
 	actor := r.user("actor.user")
 	host := r.host("device")
-	// The account-change normalizer stores an x-group as group_name and directory.
-	groupName, groupDir := r.str("group.name"), r.str("group.domain")
-	group := slot{text: groupName, ref: r.bind(identity.TypeGroup, func(p map[string]any) bool {
-		return propEquals(p, "group_name", groupName) && (groupDir == "" || propEquals(p, "directory", groupDir))
-	})}
+	hasGroup := r.class == classGroupManagement
+	hasPrivileges := r.class == classUserAccess || r.class == classGroupManagement
+	var group slot
+	if hasGroup {
+		// The normalizer stores an x-group as group_name and directory, the
+		// name falling back to the group's uid.
+		groupName, groupDir := firstNonEmpty(r.str("group.name"), r.str("group.uid")), r.str("group.domain")
+		group = slot{text: groupName, ref: r.bind(identity.TypeGroup, func(p map[string]any) bool {
+			return propEquals(p, "group_name", groupName) && (groupDir == "" || propEquals(p, "directory", groupDir))
+		})}
+	}
+	privileges := ""
+	if hasPrivileges {
+		privileges = strings.Join(stringList(pathList(r.p, "privileges")), ", ")
+	}
 	verb := r.activity(accountVerbs, "changed")
 
 	if actor.empty() {
@@ -1050,21 +1147,29 @@ func (r *renderer) accountChange() {
 		r.text(" " + verb + " ")
 		r.entity(target)
 	}
-	r.clause(" in ", group)
+	lead, ok := groupLeads[strings.ToLower(r.str("activity_name"))]
+	if !ok {
+		lead = " in "
+	}
+	r.clause(lead, group)
 	r.clause(" on ", host)
 
 	r.entityField("Account", slot{text: r.qualifiedUser("user"), ref: target.ref})
 	r.entityField("By", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
 	r.activityField()
 	r.entityField("Group", group)
-	r.field("Privileges", r.str("privileges"))
+	r.field("Privileges", privileges)
 	r.entityField("Host", host)
 
 	r.keySlot("actor", actor)
 	r.keySlot("target", target)
-	r.keySlot("group", group)
+	if hasGroup {
+		r.keySlot("group", group)
+	}
 	r.keySlot("host", host)
-	r.keyText("privileges", r.str("privileges"))
+	if hasPrivileges {
+		r.keyText("privileges", privileges)
+	}
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -1103,12 +1208,7 @@ func (r *renderer) email() {
 	r.mono("Message id", r.str("email.message_uid"))
 	r.activityField()
 	r.field("Disposition", r.str("disposition"))
-	// The email normalizer reads attachments from email.attachments.
-	attachments := pathList(r.p, "email.attachments")
-	if len(attachments) == 0 {
-		attachments = pathList(r.p, "email.files")
-	}
-	if n := len(attachments); n > 0 {
+	if n := len(pathList(r.p, "email.files")); n > 0 {
 		r.field("Attachments", strconv.Itoa(n))
 	}
 	if n := len(pathList(r.p, "email.urls")); n > 0 {
@@ -1153,7 +1253,7 @@ func (r *renderer) emailURL() {
 	r.activityField()
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.entityField("Host", host)
-	r.mono("Message id", r.str("email.message_uid"))
+	r.mono("Email id", r.str("email_uid"))
 
 	r.keySlot("user", user)
 	r.keySlot("host", host)
@@ -1161,19 +1261,80 @@ func (r *renderer) emailURL() {
 	r.keyText("activity", r.str("activity_name"))
 }
 
-func (r *renderer) detection() {
-	title := firstNonEmpty(r.str("finding.title"), r.str("finding_info.title"))
-	uid := firstNonEmpty(r.str("finding.uid"), r.str("finding_info.uid"))
-	vendor := firstNonEmpty(r.str("metadata.product.vendor_name"), r.str("metadata.product.name"))
-	severity := r.str("severity")
-	if severity == "" {
-		severity = r.str("finding.severity")
+var emailFileVerbs = map[string]string{"send": "sent", "receive": "received", "scan": "scanned"}
+
+// emailFile renders an attachment event (03 §4.11a): the file, the email it
+// came with by the source's id, and who and where.
+func (r *renderer) emailFile() {
+	user := r.user("actor.user")
+	host := r.host("device")
+	file := r.file("file")
+	verb := r.activity(emailFileVerbs, "handled")
+
+	if user.empty() {
+		r.text("Attachment ")
+		r.entity(file)
+		r.text(" " + pastToPassive(verb))
+	} else {
+		r.entity(user)
+		r.text(" " + verb + " attachment ")
+		r.entity(file)
 	}
-	host := r.host("evidence.device")
+	r.clause(" on ", host)
+
+	r.entityField("File", slot{text: firstNonEmpty(r.str("file.path"), file.text), ref: file.ref})
+	r.activityField()
+	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
+	r.entityField("Host", host)
+	r.hashField("file")
+	if size := r.int("file.size"); size != 0 {
+		r.mono("Size", strconv.Itoa(size)+" bytes")
+	}
+	r.mono("Email id", r.str("email_uid"))
+
+	r.keySlot("user", user)
+	r.keySlot("host", host)
+	r.keySlot("file", file)
+	r.keyText("activity", r.str("activity_name"))
+}
+
+// OCSF's captions for severity_id and confidence_id. An id outside the table
+// (0 Unknown, 99 Other) falls back to the event's own caption.
+var (
+	severityCaptions   = map[int]string{1: "Informational", 2: "Low", 3: "Medium", 4: "High", 5: "Critical", 6: "Fatal"}
+	confidenceCaptions = map[int]string{1: "Low", 2: "Medium", 3: "High"}
+)
+
+// detection renders a detection finding (03 §4.12). The host is the first
+// evidence artifact's device, else the finding's own. The user is the first
+// artifact's actor.user, else its user.
+func (r *renderer) detection() {
+	title := r.str("finding_info.title")
+	uid := r.str("finding_info.uid")
+	vendor := firstNonEmpty(r.str("metadata.product.vendor_name"), r.str("metadata.product.name"))
+	severity := firstNonEmpty(severityCaptions[r.int("severity_id")], r.str("severity"))
+	confidence := ""
+	if score := r.int("confidence_score"); score > 0 {
+		confidence = strconv.Itoa(score)
+	}
+	confidence = firstNonEmpty(confidence, confidenceCaptions[r.int("confidence_id")], r.str("confidence"))
+
+	var host, user slot
+	qualified := ""
+	for _, a := range pathList(r.p, "evidences") {
+		m, _ := a.(map[string]any)
+		if host.empty() {
+			host = r.hostIn(m, "device")
+		}
+		for _, prefix := range []string{"actor.user", "user"} {
+			if user.empty() {
+				user, qualified = r.userIn(m, prefix), qualifiedUserIn(m, prefix)
+			}
+		}
+	}
 	if host.empty() {
 		host = r.host("device")
 	}
-	user := r.user("evidence.actor.user")
 
 	if vendor == "" {
 		r.text("Detected")
@@ -1190,13 +1351,13 @@ func (r *renderer) detection() {
 
 	r.field("Finding", title)
 	r.field("Severity", severity).Tone = severityTone(severity)
-	r.field("Confidence", firstNonEmpty(r.str("confidence"), r.str("finding.confidence")))
-	r.mono("Techniques", strings.Join(stringList(pathList(r.p, "finding.types")), ", "))
+	r.field("Confidence", confidence)
+	r.mono("Techniques", strings.Join(stringList(pathList(r.p, "finding_info.types")), ", "))
 	r.field("Vendor", vendor)
 	r.mono("Finding id", uid)
 	r.field("Status", r.str("status"))
 	r.entityField("Host", host)
-	r.entityField("User", slot{text: r.qualifiedUser("evidence.actor.user"), ref: user.ref})
+	r.entityField("User", slot{text: qualified, ref: user.ref})
 
 	r.keyText("vendor", vendor)
 	r.keyExact("title", slot{text: title})
@@ -1206,9 +1367,12 @@ func (r *renderer) detection() {
 }
 
 func (r *renderer) caseFinding() {
-	uid := r.str("finding_info.uid")
-	title := r.str("finding_info.title")
-	status, priority, group := r.str("status"), r.str("priority"), r.str("assignment_group")
+	// The first entry of finding_info_list[] names the case (03 §2.9).
+	first, _ := firstOf(pathList(r.p, "finding_info_list")).(map[string]any)
+	uid := toString(fieldOf(first, "uid"))
+	title := toString(fieldOf(first, "title"))
+	status, priority := r.str("status"), r.str("priority")
+	group := firstNonEmpty(r.str("assignee_group.name"), r.str("assignee_group.uid"))
 
 	r.text("Case")
 	if uid != "" {
@@ -1233,7 +1397,7 @@ func (r *renderer) caseFinding() {
 	r.field("Priority", priority)
 	r.field("Assigned to", group)
 	r.field("System", firstNonEmpty(r.str("unmapped.sor"), r.str("metadata.product.vendor_name")))
-	r.mono("Link", r.str("unmapped.link"))
+	r.mono("Link", r.str("src_url"))
 
 	r.keyText("status", status)
 	r.keyText("priority", priority)
@@ -1244,7 +1408,8 @@ func (r *renderer) deviceInventory() {
 	host := r.host("device")
 	os := r.str("device.os.name")
 	owner := r.str("device.owner.name")
-	crit := r.str("device.criticality")
+	// OCSF defines no criticality on a device: it is the source's own field.
+	crit := r.str("unmapped.criticality")
 
 	if host.empty() {
 		r.text("Device")
@@ -1361,7 +1526,8 @@ var apiStatuses = map[int]string{1: "Success", 2: "Failure"}
 // or by type and name.
 func (r *renderer) apiActivity() {
 	principal := r.cloudPrincipal()
-	app := r.str("actor.app_name")
+	// actor.application.name (OCSF 1.9.0), else the deprecated actor.app_name.
+	app := firstNonEmpty(r.str("actor.application.name"), r.str("actor.app_name"))
 	op := r.str("api.operation")
 	service := r.str("api.service.name")
 	resources := r.cloudResources()
@@ -1694,22 +1860,16 @@ func stringList(vs []any) []string {
 	return out
 }
 
+// hashesOf reads an OCSF hashes value, a list of fingerprints
+// [{algorithm, value}], as algorithm → digest. OCSF has no other form
+// (adr/0356).
 func hashesOf(v any) map[string]string {
 	out := map[string]string{}
-	switch hv := v.(type) {
-	case map[string]any:
-		for k, val := range hv {
-			if s := toString(val); s != "" {
-				out[k] = s
-			}
-		}
-	case []any:
-		// OCSF 1.x fingerprint list: [{algorithm, value}].
-		for _, item := range hv {
-			m, _ := item.(map[string]any)
-			if alg, val := toString(fieldOf(m, "algorithm")), toString(fieldOf(m, "value")); alg != "" && val != "" {
-				out[alg] = val
-			}
+	list, _ := v.([]any)
+	for _, item := range list {
+		m, _ := item.(map[string]any)
+		if alg, val := toString(fieldOf(m, "algorithm")), toString(fieldOf(m, "value")); alg != "" && val != "" {
+			out[alg] = val
 		}
 	}
 	return out

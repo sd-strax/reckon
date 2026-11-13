@@ -126,9 +126,15 @@ func TestRender_DecodedBesideTheOriginal(t *testing.T) {
 	if plain.Decoded != nil {
 		t.Errorf("plain command line decoded: %+v", plain.Decoded)
 	}
-	job := Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","command_line":"pwsh -enc ZQBjAGgAbwA="}}`)}, nil)
-	if job.Decoded == nil || job.Decoded.Field != "job.command_line" || job.Decoded.Text != "echo" {
-		t.Errorf("job decoded = %+v; want job.command_line echo", job.Decoded)
+	job := Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","cmd_line":"pwsh -enc ZQBjAGgAbwA="}}`)}, nil)
+	if job.Decoded == nil || job.Decoded.Field != "job.cmd_line" || job.Decoded.Text != "echo" {
+		t.Errorf("job decoded = %+v; want job.cmd_line echo", job.Decoded)
+	}
+	// From OCSF 1.9.0 the command line is the job's action. The first one is
+	// the one read back.
+	job = Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","job_actions":[{"cmd_line":"pwsh -enc ZQBjAGgAbwA="},{"cmd_line":"b.exe"}]}}`)}, nil)
+	if job.Decoded == nil || job.Decoded.Field != "job.job_actions[0].cmd_line" || job.Decoded.Text != "echo" {
+		t.Errorf("job decoded = %+v; want job.job_actions[0].cmd_line echo", job.Decoded)
 	}
 }
 

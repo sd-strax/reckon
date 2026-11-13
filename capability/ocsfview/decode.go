@@ -453,15 +453,15 @@ func printable(text string) bool {
 // decode records the command line's decoded argument on the view, when the
 // field carries one that decodes cleanly. One per view; the first template to
 // find one wins.
-func (r *renderer) decode(path string) {
-	if r.decoded != nil {
-		return
-	}
-	cmd := r.str(path)
-	if cmd == "" {
+func (r *renderer) decode(path string) { r.decodeText(path, r.str(path)) }
+
+// decodeText is decode for a command line the caller already read, such as
+// one entry of a list: field names where it came from.
+func (r *renderer) decodeText(field, cmd string) {
+	if r.decoded != nil || cmd == "" {
 		return
 	}
 	if encoding, text, ok := decodeCommandLine(cmd); ok {
-		r.decoded = &Decoded{Field: path, Encoding: encoding, Text: text}
+		r.decoded = &Decoded{Field: field, Encoding: encoding, Text: text}
 	}
 }
