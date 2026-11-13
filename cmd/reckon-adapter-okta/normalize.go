@@ -9,19 +9,46 @@ import (
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 
+// ocsfVersion is the OCSF release this adapter writes (adr/0356). It is the
+// oldest release that has every field the adapter fills: the latitude and
+// longitude of a sign-in's place arrive in 1.2.0.
+const ocsfVersion = "1.2.0"
+
+// The OCSF classes this adapter writes (adr/0356).
+const (
+	classBase            = 0    // Base Event: a record no class describes
+	classAuthentication  = 3002 // a sign-in
+	classAccountChange   = 3001 // a lifecycle or account event
+	classUserAccess      = 3005 // a privilege granted or revoked
+	classGroupManagement = 3006 // a member added to or removed from a group
+	classUserInventory   = 5003 // a directory's record of one user
+)
+
+// Okta's products, as metadata.product names them. The engine reads the
+// product to tell an identity provider's records from a host's (03 §7.4).
+const (
+	productSystemLog = "Okta System Log"
+	productDirectory = "Okta"
+)
+
 // normalize shapes an okta-mcp tool's JSON text output into OCSF events (11 §0
 // — by the time data crosses the adapter boundary it is OCSF; the engine's
-// normalizer then maps OCSF → STIX). It RESHAPES Okta's native fields into the
-// exact OCSF paths the engine's normalizers read (capability/normalizer_auth.go
-// class 3002, normalizer_account.go class 3005), and preserves the original Okta
-// object under `okta` for provenance.
+// normalizer then maps OCSF → STIX). It reshapes Okta's native fields into
+// OCSF's own classes and fields (adr/0356), and keeps the original Okta
+// object under unmapped.okta, which is where OCSF puts a source's own fields.
 //
 // Okta's System Log is heterogeneous (auth, account lifecycle, admin/config —
-// all event types), so get_logs events are CLASSIFIED by eventType: only genuine
-// authentications become 3002, lifecycle/privilege/group events become 3005, and
-// everything else is emitted opaque (class 0 → the engine's default normalizer,
-// 03 §4.13) rather than force-fit — an admin config change is not an
-// authentication and must not be labeled one.
+// all event types), so get_logs events are classified by eventType:
+//
+//   - a sign-in becomes Authentication (3002)
+//   - a lifecycle or account event becomes Account Change (3001)
+//   - a group.user_membership.* event becomes Group Management (3006)
+//   - a privilege grant or revocation becomes User Access Management (3005)
+//   - everything else is a Base Event (class 0 → the engine's default
+//     normalizer, 03 §4.13) rather than force-fit: an admin config change is
+//     not an authentication and must not be labeled one.
+//
+// A user record becomes User Inventory Info (5003, 03 §4.19).
 func normalize(operation, text string) ([]ocsfEvent, error) {
 	objs, err := extractObjects(text)
 	if err != nil {
@@ -37,46 +64,132 @@ func normalize(operation, text string) ([]ocsfEvent, error) {
 	}
 }
 
+// event wraps OCSF fields as one event of a class: it adds the class, the
+// OCSF version and the product, and keeps the Okta object the fields were
+// read from under unmapped.okta.
+func event(class int, name, product string, t time.Time, fields, okta map[string]any) ocsfEvent {
+	raw := map[string]any{
+		"class_uid": class,
+		"metadata": map[string]any{
+			"version": ocsfVersion,
+			"product": map[string]any{"vendor_name": "Okta", "name": product},
+		},
+		"unmapped": map[string]any{"okta": okta},
+	}
+	for k, v := range fields {
+		raw[k] = v
+	}
+	return ocsfEvent{ClassUID: class, ClassName: name, Time: t, Raw: raw}
+}
+
 // normalizeLogs classifies each Okta System Log event and reshapes it.
 func normalizeLogs(items []map[string]any) []ocsfEvent {
 	out := make([]ocsfEvent, 0, len(items))
 	for _, e := range items {
 		t := eventTime(e, "published")
 		switch classify(str(e["eventType"])) {
-		case classAuth:
-			out = append(out, ocsfEvent{ClassUID: 3002, ClassName: "Authentication", Time: t, Raw: authPayload(e)})
-		case classAccount:
-			out = append(out, ocsfEvent{ClassUID: 3005, ClassName: "Account Change", Time: t, Raw: accountPayload(e)})
+		case classAuthentication:
+			out = append(out, event(classAuthentication, "Authentication", productSystemLog, t, authPayload(e), e))
+		case classAccountChange:
+			out = append(out, event(classAccountChange, "Account Change", productSystemLog, t, accountPayload(e), e))
+		case classGroupManagement:
+			out = append(out, event(classGroupManagement, "Group Management", productSystemLog, t, groupPayload(e), e))
+		case classUserAccess:
+			out = append(out, event(classUserAccess, "User Access Management", productSystemLog, t, accessPayload(e), e))
 		default:
-			out = append(out, ocsfEvent{ClassUID: 0, ClassName: "Okta System Log", Time: t, Raw: e})
+			out = append(out, event(classBase, "Base Event", productSystemLog, t, logFields(e), e))
 		}
 	}
 	return out
 }
 
-// normalizeUsers reshapes an Okta user object into an OCSF account event whose
-// `user` the engine extracts into a user-account SCO — the entity-extraction
-// path get_entity_context needs (the engine has no standalone user-inventory
-// normalizer in v0; the account normalizer is the user-extraction route).
+// normalizeUsers reshapes each Okta user object into an OCSF User Inventory
+// Info event (5003), the record the engine's user-inventory normalizer reads
+// (03 §4.19): the directory's id for the user, the sign-in name, and what the
+// profile says about the person.
 func normalizeUsers(users []map[string]any) []ocsfEvent {
 	out := make([]ocsfEvent, 0, len(users))
 	for _, u := range users {
-		login := firstNonEmpty(digStr(u, "profile", "login"), digStr(u, "profile", "email"))
-		p := map[string]any{
-			"user": map[string]any{"name": login, "uid": str(u["id"])},
-			"okta": u,
-		}
-		out = append(out, ocsfEvent{ClassUID: 3005, ClassName: "Account Change", Time: eventTime(u, "created"), Raw: p})
+		p := map[string]any{"user": inventoryUser(u)}
+		out = append(out, event(classUserInventory, "User Inventory Info", productDirectory, eventTime(u, "created"), p, u))
 	}
 	return out
 }
 
+// inventoryUser maps an Okta user object onto an OCSF User: id to uid, the
+// profile's login to name, email to email_addr, the display name (else the
+// first and last name) to full_name, department and organization to org, and
+// title and employeeNumber to ldap_person. A field the profile leaves empty
+// is left out. Okta's managerId is free text, not a user id, so no manager is
+// named.
+func inventoryUser(u map[string]any) map[string]any {
+	profile := func(k string) string { return strings.TrimSpace(digStr(u, "profile", k)) }
+	user := map[string]any{}
+	put := func(m map[string]any, k, v string) {
+		if v != "" {
+			m[k] = v
+		}
+	}
+	put(user, "uid", str(u["id"]))
+	put(user, "name", firstNonEmpty(profile("login"), profile("email")))
+	put(user, "email_addr", profile("email"))
+	put(user, "full_name", firstNonEmpty(profile("displayName"), strings.TrimSpace(profile("firstName")+" "+profile("lastName"))))
+	org := map[string]any{}
+	put(org, "name", profile("organization"))
+	put(org, "ou_name", profile("department"))
+	if len(org) > 0 {
+		user["org"] = org
+	}
+	person := map[string]any{}
+	put(person, "job_title", profile("title"))
+	put(person, "employee_uid", profile("employeeNumber"))
+	if len(person) > 0 {
+		user["ldap_person"] = person
+	}
+	return user
+}
+
+// opaque keeps an Okta object no OCSF class describes (a group) as a Base
+// Event: the object rides under unmapped.okta.
 func opaque(objs []map[string]any) []ocsfEvent {
 	out := make([]ocsfEvent, 0, len(objs))
 	for _, o := range objs {
-		out = append(out, ocsfEvent{ClassUID: 0, ClassName: "Okta Object", Raw: o})
+		out = append(out, event(classBase, "Base Event", productDirectory, time.Time{}, nil, o))
 	}
 	return out
+}
+
+// logFields are the OCSF fields every System Log event fills, whatever its
+// class: Okta's displayMessage as the message and outcome.result as the
+// status. An empty one is left out.
+func logFields(e map[string]any) map[string]any {
+	p := map[string]any{}
+	if m := str(e["displayMessage"]); m != "" {
+		p["message"] = m
+	}
+	if s := digStr(e, "outcome", "result"); s != "" {
+		p["status"] = s
+	}
+	return p
+}
+
+// oktaUser maps an Okta actor or target onto an OCSF User: alternateId (the
+// login), else displayName, as the name, and id as the uid. An empty one is left out.
+func oktaUser(o map[string]any) map[string]any {
+	user := map[string]any{}
+	if name := firstNonEmpty(str(o["alternateId"]), str(o["displayName"])); name != "" {
+		user["name"] = name
+	}
+	if uid := str(o["id"]); uid != "" {
+		user["uid"] = uid
+	}
+	return user
+}
+
+// initiator is the System Log event's actor as an OCSF actor.
+func initiator(e map[string]any) map[string]any {
+	actor, _ := e["actor"].(map[string]any)
+	return map[string]any{"user": oktaUser(actor)}
 }
 
 // authPayload maps an Okta auth LogEvent onto the OCSF 3002 paths the engine's
@@ -87,16 +200,11 @@ func authPayload(e map[string]any) map[string]any {
 	if loc := geoLocation(e); loc != nil {
 		src["location"] = loc
 	}
-	return map[string]any{
-		"actor": map[string]any{"user": map[string]any{
-			"name": digStr(e, "actor", "alternateId"),
-			"uid":  digStr(e, "actor", "id"),
-		}},
-		"src_endpoint": src,
-		"status":       digStr(e, "outcome", "result"),
-		"logon_type":   str(e["eventType"]),
-		"okta":         e,
-	}
+	p := logFields(e)
+	p["actor"] = initiator(e)
+	p["src_endpoint"] = src
+	p["logon_type"] = str(e["eventType"])
+	return p
 }
 
 // geoProvider attributes the place: it is Okta's IP geolocation of the client,
@@ -163,55 +271,76 @@ func toFloat(v any) (float64, bool) {
 	return f, ok
 }
 
-// accountPayload maps an Okta lifecycle/privilege/group LogEvent onto the OCSF
-// 3005 paths the engine's account-change normalizer reads: user.{name,uid}
-// (target), actor.user (initiator), group.name, privileges.
+// accountPayload maps an Okta lifecycle or account LogEvent onto OCSF Account
+// Change (3001): user (the target), actor.user (the initiator), and the
+// message and status every log event carries.
 func accountPayload(e map[string]any) map[string]any {
-	p := map[string]any{
-		"actor": map[string]any{"user": map[string]any{
-			"name": digStr(e, "actor", "alternateId"),
-			"uid":  digStr(e, "actor", "id"),
-		}},
-		"status": digStr(e, "outcome", "result"),
-		"okta":   e,
-	}
+	p := logFields(e)
+	p["actor"] = initiator(e)
 	if tu := firstTarget(e, "User"); tu != nil {
-		p["user"] = map[string]any{
-			"name": firstNonEmpty(str(tu["alternateId"]), str(tu["displayName"])),
-			"uid":  str(tu["id"]),
-		}
-	}
-	if tg := firstTarget(e, "UserGroup"); tg != nil {
-		p["group"] = map[string]any{"name": str(tg["displayName"])}
-	}
-	if strings.Contains(str(e["eventType"]), "privilege") {
-		p["privileges"] = str(e["displayMessage"])
+		p["user"] = oktaUser(tu)
 	}
 	return p
 }
 
-// event classes for get_logs.
-const (
-	classAuth = iota
-	classAccount
-	classOther
-)
+// groupPayload maps a group.user_membership.* LogEvent onto OCSF Group
+// Management (3006): the account fields, plus the UserGroup target as the
+// group, by its displayName and its id.
+func groupPayload(e map[string]any) map[string]any {
+	p := accountPayload(e)
+	if tg := firstTarget(e, "UserGroup"); tg != nil {
+		group := map[string]any{}
+		if n := str(tg["displayName"]); n != "" {
+			group["name"] = n
+		}
+		if id := str(tg["id"]); id != "" {
+			group["uid"] = id
+		}
+		p["group"] = group
+	}
+	return p
+}
 
-// classify maps an Okta eventType to an OCSF class bucket. Prefixes follow
-// Okta's System Log event-type taxonomy.
+// accessPayload maps a privilege grant or revocation onto OCSF User Access
+// Management (3005): the account fields, plus privileges[], the admin roles
+// Okta names in debugContext.debugData (privilegeGranted on a grant,
+// privilegeRevoked on a revocation, comma-separated). An event that names no
+// role carries no privileges: the display message is a sentence, not a
+// privilege, and stays the message.
+func accessPayload(e map[string]any) map[string]any {
+	p := accountPayload(e)
+	named := firstNonEmpty(digStr(e, "debugContext", "debugData", "privilegeGranted"), digStr(e, "debugContext", "debugData", "privilegeRevoked"))
+	var privileges []any
+	for _, role := range strings.Split(named, ",") {
+		if role = strings.TrimSpace(role); role != "" {
+			privileges = append(privileges, role)
+		}
+	}
+	if len(privileges) > 0 {
+		p["privileges"] = privileges
+	}
+	return p
+}
+
+// classify maps an Okta eventType to the OCSF class it is written as.
+// Prefixes follow Okta's System Log event-type taxonomy.
 func classify(eventType string) int {
 	switch {
 	case hasAnyPrefix(eventType, "user.authentication", "user.session"),
 		strings.Contains(eventType, ".signon"),
 		strings.Contains(eventType, "mfa.factor.verify"):
-		return classAuth
-	case hasAnyPrefix(eventType, "user.lifecycle", "user.account", "group.user_membership"),
+		return classAuthentication
+	case strings.HasPrefix(eventType, "group.user_membership"):
+		return classGroupManagement
+	case strings.HasPrefix(eventType, "user.account.privilege"):
+		return classUserAccess
+	case hasAnyPrefix(eventType, "user.lifecycle", "user.account"),
 		strings.Contains(eventType, "user_membership"),
 		strings.Contains(eventType, "mfa.factor.activate"),
 		strings.Contains(eventType, "mfa.factor.reset"):
-		return classAccount
+		return classAccountChange
 	default:
-		return classOther
+		return classBase
 	}
 }
 
