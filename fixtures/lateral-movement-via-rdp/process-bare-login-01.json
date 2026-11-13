@@ -14,9 +14,13 @@
   "ocsf": {
     "class_uid": 1007,
     "class_name": "Process Activity",
+    "category_uid": 1,
+    "type_uid": 100701,
+    "severity_id": 1,
     "time": 1776695560000,
     "time_dt": "2026-04-20T14:32:40Z",
-    "activity_name": "LAUNCH",
+    "activity_id": 1,
+    "activity_name": "Launch",
     "metadata": {
       "product": {
         "vendor_name": "fixture"

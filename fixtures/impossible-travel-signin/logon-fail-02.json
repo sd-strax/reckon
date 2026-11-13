@@ -16,6 +16,10 @@
   "ocsf": {
     "class_uid": 3002,
     "class_name": "Authentication",
+    "category_uid": 3,
+    "activity_id": 1,
+    "type_uid": 300201,
+    "severity_id": 1,
     "time": 1781147737000,
     "time_dt": "2026-06-11T03:15:37Z",
     "metadata": {
@@ -37,6 +41,7 @@
       }
     },
     "auth_protocol": "IMAP (basic)",
+    "auth_protocol_id": 99,
     "logon_type": "Network",
     "is_mfa": false,
     "status": "FAILURE",

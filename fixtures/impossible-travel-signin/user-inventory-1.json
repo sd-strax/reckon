@@ -13,6 +13,7 @@
     "class_uid": 5003,
     "class_name": "User Inventory Info",
     "category_uid": 5,
+    "severity_id": 1,
     "activity_id": 2,
     "activity_name": "Collect",
     "type_uid": 500302,

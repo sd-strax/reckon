@@ -12,6 +12,10 @@
   "ocsf": {
     "class_uid": 5001,
     "class_name": "Device Inventory Info",
+    "category_uid": 5,
+    "activity_id": 2,
+    "type_uid": 500102,
+    "severity_id": 1,
     "time": 1776693600000,
     "time_dt": "2026-04-20T14:00:00Z",
     "metadata": {

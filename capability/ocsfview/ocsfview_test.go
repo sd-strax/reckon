@@ -1216,3 +1216,29 @@ func TestRender_CloudDetection(t *testing.T) {
 		t.Errorf("User = %+v; want the directory login", f)
 	}
 }
+
+// TestRender_FixtureActivities: the shipped events whose activity is an OCSF
+// caption read as that activity, not as the caption in lower case. A fixture
+// that goes back to a source's own word ("GROUP_ADD") fails here.
+func TestRender_FixtureActivities(t *testing.T) {
+	for file, want := range map[string]string{
+		"privilege-01.json":          "svc_backup added svc_backup to Administrators on WIN-FILE01",
+		"persistence-runkey-01.json": `powershell.exe set value SyncHost of HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run on WIN-FILE01`,
+		"logon-1.json":               "jdoe RDP logon to WIN-FILE01 from 10.0.4.55",
+	} {
+		raw, err := os.ReadFile(filepath.Join("../../fixtures/lateral-movement-via-rdp", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Ocsf map[string]any `json:"ocsf"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatal(err)
+		}
+		v := Render(Event{ClassUID: toInt(doc.Ocsf["class_uid"]), Payload: doc.Ocsf}, nil)
+		if got := sentenceText(v); got != want {
+			t.Errorf("%s reads %q; want %q", file, got, want)
+		}
+	}
+}

@@ -13,6 +13,9 @@
     "class_uid": 2005,
     "class_name": "Incident Finding",
     "category_uid": 2,
+    "activity_id": 0,
+    "type_uid": 200500,
+    "severity_id": 0,
     "time": 1776693900000,
     "time_dt": "2026-04-20T14:05:00Z",
     "metadata": {
@@ -22,7 +25,9 @@
       "version": "1.2.0"
     },
     "status": "New",
+    "status_id": 1,
     "priority": "3 - Moderate",
+    "priority_id": 99,
     "assignee_group": {
       "name": "SOC Tier 2"
     },

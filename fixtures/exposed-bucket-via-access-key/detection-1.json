@@ -10,6 +10,9 @@
   "ocsf": {
     "class_uid": 2004,
     "class_name": "Detection Finding",
+    "category_uid": 2,
+    "activity_id": 1,
+    "type_uid": 200401,
     "time": 1784022000000,
     "time_dt": "2026-07-14T09:40:00Z",
     "metadata": {

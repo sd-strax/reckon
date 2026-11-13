@@ -21,12 +21,16 @@
   "ocsf": {
     "class_uid": 3006,
     "class_name": "Group Management",
+    "category_uid": 3,
+    "type_uid": 300603,
+    "severity_id": 1,
     "time": 1776695625000,
     "time_dt": "2026-04-20T14:33:45Z",
     "metadata": {
       "version": "1.1.0"
     },
-    "activity_name": "GROUP_ADD",
+    "activity_id": 3,
+    "activity_name": "Add User",
     "user": {
       "name": "svc_backup",
       "domain": "CONTOSO",

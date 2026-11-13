@@ -59,7 +59,7 @@ func TestRegistryValueNormalizer(t *testing.T) {
 		}
 		return res
 	}
-	res := value(map[string]any{"path": registryKeyPath, "name": "Updater", "data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 1})
+	res := value(map[string]any{"path": registryKeyPath, "name": "Updater", "data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 10})
 	key := scosOf(res, identity.TypeRegistryKey)[0]
 	want := map[string]any{
 		"hive": "HKLM", "key_path": `Software\Microsoft\Windows\CurrentVersion\Run`,

@@ -17,6 +17,10 @@
   "ocsf": {
     "class_uid": 3002,
     "class_name": "Authentication",
+    "category_uid": 3,
+    "activity_id": 1,
+    "type_uid": 300201,
+    "severity_id": 1,
     "time": 1780923799000,
     "time_dt": "2026-06-08T13:03:19Z",
     "metadata": {
@@ -38,7 +42,8 @@
         "city": "Toronto"
       }
     },
-    "auth_protocol": "OIDC",
+    "auth_protocol": "OpenID",
+    "auth_protocol_id": 4,
     "logon_type": "Interactive",
     "is_mfa": true,
     "status": "SUCCESS",

@@ -16,12 +16,16 @@
   "ocsf": {
     "class_uid": 201002,
     "class_name": "Registry Value Activity",
+    "category_uid": 1,
+    "type_uid": 20100202,
+    "severity_id": 1,
     "time": 1776695942000,
     "time_dt": "2026-04-20T14:39:02Z",
     "metadata": {
       "version": "1.1.0"
     },
-    "activity_name": "CREATE",
+    "activity_id": 2,
+    "activity_name": "Set",
     "reg_value": {
       "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
       "name": "SyncHost",

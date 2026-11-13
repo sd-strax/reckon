@@ -11,6 +11,10 @@
   "ocsf": {
     "class_uid": 3002,
     "class_name": "Authentication",
+    "category_uid": 3,
+    "activity_id": 1,
+    "type_uid": 300201,
+    "severity_id": 1,
     "time": 1776695915000,
     "time_dt": "2026-04-20T14:38:35Z",
     "metadata": { "version": "1.1.0" },

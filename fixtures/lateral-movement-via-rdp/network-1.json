@@ -34,6 +34,10 @@
   "ocsf": {
     "class_uid": 4001,
     "class_name": "Network Activity",
+    "category_uid": 4,
+    "activity_id": 1,
+    "type_uid": 400101,
+    "severity_id": 1,
     "time": 1776695600000,
     "time_dt": "2026-04-20T14:33:20Z",
     "metadata": {
