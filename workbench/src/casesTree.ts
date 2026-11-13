@@ -12,7 +12,7 @@
 import * as vscode from "vscode";
 import { BackendClient, CaseRow } from "./backend";
 import { Session } from "./auth";
-import { actionItem, infoItem, signInItem } from "./treeItems";
+import { actionItem, infoItem } from "./treeItems";
 import { errText } from "./util";
 
 /**
@@ -64,7 +64,7 @@ export class CasesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       return [];
     }
     if (!this.session.signedIn) {
-      return [signInItem()];
+      return []; // the view is hidden signed out; the container's header carries Sign In
     }
     let queue: string;
     let rows: CaseRow[];

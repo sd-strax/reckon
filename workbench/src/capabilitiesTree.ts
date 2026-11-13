@@ -71,7 +71,7 @@ export class CapabilitiesProvider implements vscode.TreeDataProvider<vscode.Tree
     this.describe(generation, undefined);
     const gate = await gateItem(this.client, this.session);
     if (gate) {
-      return [gate];
+      return gate;
     }
     let caps: Capability[];
     let enablement: Enablement | null;

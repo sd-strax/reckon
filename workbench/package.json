@@ -32,20 +32,28 @@
       "reckon": [
         {
           "id": "reckon.investigations",
-          "name": "Investigations"
+          "name": "Investigations",
+          "when": "reckon.signedIn"
         },
         {
           "id": "reckon.cases",
-          "name": "Cases"
+          "name": "Cases",
+          "when": "reckon.signedIn"
         },
         {
           "id": "reckon.knowledge",
-          "name": "Knowledge"
+          "name": "Knowledge",
+          "when": "reckon.signedIn"
         },
         {
           "id": "reckon.capabilities",
           "name": "Capabilities",
-          "visibility": "collapsed"
+          "visibility": "collapsed",
+          "when": "reckon.signedIn"
+        },
+        {
+          "id": "reckon.account",
+          "name": "Account"
         }
       ]
     },
@@ -390,7 +398,19 @@
           "description": "Path to the reckon binary the workbench spawns as the agent-loop sidecar (`reckon investigate --stdio`). Empty resolves `reckon` on PATH."
         }
       }
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "reckon.account",
+        "contents": "Sign in to see your investigations, the case queue and the knowledge library.\n[Sign In](command:reckon.signIn)",
+        "when": "!reckon.signedIn"
+      },
+      {
+        "view": "reckon.account",
+        "contents": "[Sign Out](command:reckon.signOut)",
+        "when": "reckon.signedIn"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./ && tsc -p webview && node esbuild.mjs",

@@ -65,7 +65,7 @@ export class InvestigationsProvider implements vscode.TreeDataProvider<vscode.Tr
 
     const gate = await gateItem(this.client, this.session);
     if (gate) {
-      return [gate];
+      return gate;
     }
 
     try {

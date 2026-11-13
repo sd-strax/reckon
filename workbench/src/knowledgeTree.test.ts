@@ -34,9 +34,7 @@ describe("KnowledgeProvider (adr/0344)", () => {
     const [d] = await tree(client({ status: { ...ok, reachable: false }, reason: "backend not reachable", ...counting })).getChildren();
     expect(d!.label).toBe("Backend not connected");
     expect(d!.command?.command).toBe("reckon.checkBackend");
-    const [s] = await tree(client(counting), false).getChildren();
-    expect(s!.label).toBe("Sign in to reckon");
-    expect(s!.command?.command).toBe("reckon.signIn");
+    expect(await tree(client(counting), false).getChildren()).toEqual([]);
     expect(reads).toBe(0);
   });
 

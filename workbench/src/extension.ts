@@ -105,6 +105,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("reckon.cases", cases),
     vscode.window.registerTreeDataProvider("reckon.knowledge", knowledgeTree),
+    // The Account view holds nothing: its welcome content is the one Sign In /
+    // Sign Out button at the bottom of the container, in place of a sign-in row
+    // per view. Signed out it is the only view, so it folds into the header.
+    vscode.window.registerTreeDataProvider("reckon.account", { getTreeItem: (e: vscode.TreeItem) => e, getChildren: () => [] }),
     capabilitiesView,
     // A case row with no investigation starts one inline (adr/0342): the same
     // start from a case the document's seed path runs.

@@ -80,7 +80,7 @@ export class KnowledgeProvider implements vscode.TreeDataProvider<vscode.TreeIte
   private async readGroups(): Promise<vscode.TreeItem[]> {
     const gate = await gateItem(this.client, this.session);
     if (gate) {
-      return [gate];
+      return gate;
     }
     const [sops, cases] = await Promise.all([
       this.client.knowledge.procedures().then((rows) => ({ rows }), (err: unknown) => ({ error: errText(err) })),

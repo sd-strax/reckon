@@ -53,11 +53,9 @@ describe("InvestigationsProvider (ui/06)", () => {
     expect(labels(await old.provider.getChildren())).toEqual(["Backend incompatible"]);
   });
 
-  it("offers sign-in when signed out, and says so when the list cannot be read", async () => {
+  it("shows nothing signed out (the Account view's button signs in), and says so when the list cannot be read", async () => {
     const out = tree(client(), false);
-    const [item] = await out.provider.getChildren();
-    expect(item!.label).toBe("Sign in to reckon");
-    expect(item!.command?.command).toBe("reckon.signIn");
+    expect(await out.provider.getChildren()).toEqual([]);
 
     const failing = tree(client({ investigations: async () => { throw new Error("401 token expired"); } }));
     const [err] = await failing.provider.getChildren();

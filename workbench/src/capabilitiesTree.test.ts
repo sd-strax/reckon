@@ -50,9 +50,7 @@ describe("CapabilitiesProvider (adr/0342)", () => {
     expect(d!.command?.command).toBe("reckon.checkBackend");
 
     const out = tree(client(), false);
-    const [s] = await out.provider.getChildren();
-    expect(s!.label).toBe("Sign in to reckon");
-    expect(s!.command?.command).toBe("reckon.signIn");
+    expect(await out.provider.getChildren()).toEqual([]);
   });
 
   it("says so in one row when the layer is off, when nothing is configured, and when the read fails", async () => {

@@ -66,7 +66,9 @@ only notification remains; **Conclude** when the conclude preflight passes (`02 
 The work queue is not part of the investigation document. It is the editor's sidebar, the
 reckon view container, which is there before any investigation opens (`adr/0342`). Four
 views, in this order: Investigations, Cases, Knowledge (`ui/09 §9.1`, `adr/0344`), and
-Capabilities, which starts collapsed:
+Capabilities, which starts collapsed; then **Account** at the bottom, which holds one
+full-width **Sign In** or **Sign Out** button and nothing else. Signed out, Account is the only
+view, so it folds into the container's header and no view carries a sign-in row of its own:
 
 - **Investigations** — the analyst's investigations as a triage queue (`13 §4`), grouped by
   lifecycle and ordered needs-me-first within a group (`ui/06` tree rules). A row shows the
