@@ -15,9 +15,8 @@ import (
 // checks the record afterwards.
 
 // lookupGuardEnabled turns on the check that every recorded field exists in
-// OCSF. It is off until the templates read OCSF's own fields, the second
-// stage of #356.
-const lookupGuardEnabled = false
+// OCSF. It is on: the templates read OCSF's own fields (adr/0356).
+const lookupGuardEnabled = true
 
 // lookups is the record for the whole test run.
 var lookups = ocsfschema.NewRecorder()

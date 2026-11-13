@@ -18,9 +18,8 @@ import (
 // cover its fallbacks.
 
 // lookupGuardEnabled turns on the check that every recorded field exists in
-// OCSF. It is off until the normalizers read OCSF's own fields, the second
-// stage of #356.
-const lookupGuardEnabled = false
+// OCSF. It is on: the normalizers read OCSF's own fields (adr/0356).
+const lookupGuardEnabled = true
 
 // lookups is the record for the whole test run.
 var lookups = ocsfschema.NewRecorder()
@@ -180,8 +179,6 @@ func TestFieldOf(t *testing.T) {
 // Check 1 of adr/0356: every registered class exists in the ceiling schema,
 // under the OCSF name its normalizer records in provenance.
 func TestRegisteredClassesAreOCSF(t *testing.T) {
-	t.Skip("enabled in stage 2 of #356, once the normalizers register OCSF's class numbers")
-
 	schema, err := ocsfschema.Load(ocsfschema.Ceiling)
 	if err != nil {
 		t.Fatal(err)
