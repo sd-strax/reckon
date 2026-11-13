@@ -1,4 +1,4 @@
-# 0341 — A registry key is STIX's `windows-registry-key`, one object per host, key and value; the key carries its hive expanded; identity is host-scoped over the folded key and the value name, and leaves the value's data out; `x-registry-key` is removed
+# 0341 — A registry key is STIX's `windows-registry-key`, one object per host, key and value; the key carries its hive expanded; identity is host-scoped over the folded key and the folded value name, and leaves the value's data out; `x-registry-key` is removed
 
 Issue: #341 · PR: — · Status: proposed
 
@@ -41,9 +41,11 @@ The constraints that bind the answer:
 - Identity is a one-way door once data is recorded against it (`03 §7.1`).
 - The normalizer shapes inputs and the resolver only folds (`03 §7.4`).
 
-Microsoft documents registry key names as not case sensitive ("Structure of
-the Registry"); the pages read for this record say nothing about the case of
-value names.
+Registry key names and value names are not case sensitive (Microsoft
+documents it for key names in "Structure of the Registry"; the registry
+treats value names the same way). The custom type folded the key but kept
+the value name's case, so `Updater` and `updater` under one key minted two
+ids.
 
 ## Decision
 
@@ -94,8 +96,8 @@ and the event view (`capability/ocsfview`) both call it.
 
 - `key` is the expanded key, folded to lower case, because key names are case
   insensitive.
-- `value_name` keeps its case, as before; no source read for this record
-  documents otherwise.
+- `value_name` is folded to lower case, because value names are case
+  insensitive too.
 - `value_name` is absent from the canonical JSON when the event names no
   value, and is the empty string for the default value. A key and its default
   value are two entities.
@@ -107,7 +109,7 @@ Three deviations from STIX's `key` + `values` rule are documented in
   is a host's state, and one path on two hosts is two entities.
 - The value's data and type are out of identity. A value whose data changes is
   the same value, and the change is what the observation records.
-- The key is case-folded.
+- The key and the value name are case-folded.
 
 The host stays where `process` keeps it, in the identity tuple and in the
 observation's `object_refs`, not as a property of the object.

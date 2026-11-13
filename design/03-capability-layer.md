@@ -1861,8 +1861,8 @@ properties are `key` and `values`, under no host. Identity here is
 - **`key` is the expanded key (§4.6) folded to lower case**, because
   registry key names are not case sensitive; `HKLM\Software\Run` and
   `HKEY_LOCAL_MACHINE\SOFTWARE\Run` are one key.
-- **The value's name, not its data.** `value_name` keeps its case; it is
-  absent from the canonical JSON when the event names no value, and the
+- **The value's name, not its data.** `value_name` is folded to lower
+  case, because value names are not case sensitive either; it is absent from the canonical JSON when the event names no value, and the
   empty string for the key's default value, so a key and its default value
   are two entities. The value's data and type are out of identity: a value
   whose data changes is the same value, and the change is what the
