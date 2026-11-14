@@ -1,6 +1,6 @@
 # 0361 — The Response lens puts pending decisions on top and everything decided on one timeline, with detail on demand
 
-Issue: #361 · PR: — · Status: accepted
+Issue: #361 · PR: #363 · Status: accepted
 
 ## Context
 
