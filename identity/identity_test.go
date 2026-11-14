@@ -615,33 +615,47 @@ func TestCloudScoped(t *testing.T) {
 	}
 }
 
-// TestWeakEmailMessage covers adr/0356: a source's own message id mints a
-// weak email-message on (source tool, uid), apart from the message the
-// Message-ID mints, per tool, and nothing for an empty uid.
-func TestWeakEmailMessage(t *testing.T) {
+// TestEmailMessage covers 03 §4.10 and adr/0359. A Message-ID alone is the
+// key. Without one, the key is from, subject, the second, the recipients and
+// the thread uid. The resolver folds the recipients: case, spaces, repeats
+// and order never matter. An empty thread uid hashes as an absent one.
+func TestEmailMessage(t *testing.T) {
 	r := NewResolver(nsA)
-	weak := r.WeakEmailMessage("MailGW ", " m-42 ")
-	if typ, _ := splitID(t, weak); typ != TypeEmailMessage {
-		t.Fatalf("type = %q, want %q", typ, TypeEmailMessage)
+	at := time.Date(2026, 4, 20, 14, 32, 11, 0, time.UTC)
+	to := []string{"alice@corp.example", "bob@corp.example"}
+	base := r.EmailMessage("", "attacker@evil.example", "Invoice", at, to, "")
+
+	if r.EmailMessage(" <M1@x> ", "a", "s", at, to, "t") != r.EmailMessage("<m1@x>", "b", "other", at.Add(time.Hour), nil, "") {
+		t.Error("a Message-ID must be the key alone, folded for case and spaces")
 	}
-	if weak != r.WeakEmailMessage("mailgw", "m-42") {
-		t.Error("the tool name must fold and the uid must be trimmed")
+	if got := r.EmailMessage("", " Attacker@Evil.example ", "Invoice", at.Add(500*time.Millisecond),
+		[]string{" BOB@corp.example", "alice@corp.example", "bob@corp.example", " "}, "  "); got != base {
+		t.Error("recipients must fold for case, spaces, repeats and order; an empty thread uid is no thread uid")
 	}
-	if weak == r.WeakEmailMessage("other", "m-42") {
-		t.Error("the same uid from two tools must be two weak messages")
-	}
-	if weak == r.WeakEmailMessage("mailgw", "M-42") {
-		t.Error("the uid is the source's own and must not be folded for case")
-	}
-	if weak == r.EmailMessage("m-42", "", "", time.Time{}) {
-		t.Error("a weak message must not be the message its uid would mint as a Message-ID")
-	}
-	if weak == NewResolver(nsB).WeakEmailMessage("mailgw", "m-42") {
-		t.Error("a weak message is tenant-scoped")
-	}
-	for _, uid := range []string{"", "   "} {
-		if got := r.WeakEmailMessage("mailgw", uid); got != "" {
-			t.Errorf("WeakEmailMessage(%q) = %q, want none", uid, got)
+	for name, other := range map[string]STIXID{
+		"other recipients": r.EmailMessage("", "attacker@evil.example", "Invoice", at, []string{"carol@corp.example"}, ""),
+		"no recipients":    r.EmailMessage("", "attacker@evil.example", "Invoice", at, nil, ""),
+		"a thread uid":     r.EmailMessage("", "attacker@evil.example", "Invoice", at, to, "t-1"),
+		"another second":   r.EmailMessage("", "attacker@evil.example", "Invoice", at.Add(time.Second), to, ""),
+	} {
+		if other == base {
+			t.Errorf("%s: same key as the base message", name)
 		}
+	}
+	if r.EmailMessage("", "a", "s", at, to, "t-1") == r.EmailMessage("", "a", "s", at, to, "t-2") {
+		t.Error("two thread uids must be two messages")
+	}
+	if r.EmailMessage("", "a", "s", at, to, "T-1") == r.EmailMessage("", "a", "s", at, to, "t-1") {
+		t.Error("the thread uid is the source's own and must not be folded for case")
+	}
+	// No thread uid is no field at all: the key is the four fields alone.
+	if want := r.mint(TypeEmailMessage, map[string]any{
+		"from": "attacker@evil.example", "subject": "Invoice", "date": "2026-04-20T14:32:11Z",
+		"recipients": []string{"alice@corp.example", "bob@corp.example"},
+	}); base != want {
+		t.Errorf("a message with no thread uid = %s; want the key without the field, %s", base, want)
+	}
+	if NewResolver(nsB).EmailMessage("", "attacker@evil.example", "Invoice", at, to, "") == base {
+		t.Error("a message is tenant-scoped")
 	}
 }

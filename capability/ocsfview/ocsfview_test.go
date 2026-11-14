@@ -2,6 +2,7 @@ package ocsfview
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -285,6 +286,8 @@ func TestRender_Sentences(t *testing.T) {
 			"admin assigned privileges to jdoe on DC1", CategoryAuth},
 		{"group management", 3006, `{"activity_name":"Add User","user":{"name":"jdoe"},"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},"device":{"hostname":"DC1"}}`,
 			"admin added jdoe to Domain Admins on DC1", CategoryAuth},
+		{"group management users[]", 3006, `{"activity_name":"Add User","users":[{"name":"jdoe"},{"name":"asmith"}],"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},"device":{"hostname":"DC1"}}`,
+			"admin added jdoe, asmith to Domain Admins on DC1", CategoryAuth},
 		{"group management remove", 3006, `{"activity_name":"Remove User","user":{"name":"jdoe"},"group":{"uid":"g-512"}}`,
 			"Account jdoe was removed from g-512", CategoryAuth},
 		{"group management privileges", 3006, `{"activity_name":"Assign Privileges","user":{"name":"jdoe"},"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"}}`,
@@ -1094,6 +1097,12 @@ func TestRender_OCSFFields(t *testing.T) {
 	}{
 		{"registry value", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","data":"C:\\u.exe","type":"REG_SZ"}}`,
 			map[string]string{"Key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "Value": "Updater", "Data": `C:\u.exe`, "Type": "REG_SZ"}},
+		{"registry value, typed data only", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","reg_string_data":"C:\\u.exe","type":"REG_SZ"}}`,
+			map[string]string{"Data": `C:\u.exe`}},
+		{"registry value, integer data", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Start","reg_string_data":"","reg_integer_data":4}}`,
+			map[string]string{"Data": "4"}},
+		{"registry value, a typed list as JSON", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Libs","reg_string_list_data":["a.dll","b.dll"]}}`,
+			map[string]string{"Data": `["a.dll","b.dll"]`}},
 		{"registry key reads no value", 201001, `{"reg_key":{"path":"HKLM\\SOFTWARE\\Run"},"reg_value":{"name":"Updater","data":"x"}}`,
 			map[string]string{"Key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "Value": "", "Data": ""}},
 		{"job at the floor", 1006, `{"job":{"name":"Updater","file":{"path":"\\Microsoft\\Updater"},"cmd_line":"u.exe -q"}}`,
@@ -1108,10 +1117,14 @@ func TestRender_OCSFFields(t *testing.T) {
 			map[string]string{"Group": "", "Privileges": "SeDebugPrivilege, SeBackupPrivilege"}},
 		{"group management", 3006, `{"user":{"name":"jdoe"},"group":{"name":"Domain Admins"},"privileges":["SeDebugPrivilege"]}`,
 			map[string]string{"Group": "Domain Admins", "Privileges": "SeDebugPrivilege"}},
+		{"group management users[]", 3006, `{"users":[{"name":"jdoe","domain":"CONTOSO"},{"name":"asmith"}],"user":{"name":"old"},"group":{"name":"Domain Admins"}}`,
+			map[string]string{"Account": `CONTOSO\jdoe`}},
+		{"group management empty users[]", 3006, `{"users":[],"user":{"name":"jdoe"},"group":{"name":"Domain Admins"}}`,
+			map[string]string{"Account": "jdoe"}},
 		{"email click", 4012, `{"email_uid":"gw-1","url":{"url_string":"https://x.example/"}}`,
-			map[string]string{"URL": "https://x.example/", "Email id": "gw-1"}},
+			map[string]string{"URL": "https://x.example/", "Thread id": "gw-1", "Email id": ""}},
 		{"email attachment", 4011, `{"email_uid":"gw-1","file":{"name":"a.exe","path":"C:\\a.exe","size":12,"hashes":[{"algorithm":"SHA-256","value":"beef"}]}}`,
-			map[string]string{"File": `C:\a.exe`, "SHA-256": "beef", "Size": "12 bytes", "Email id": "gw-1"}},
+			map[string]string{"File": `C:\a.exe`, "SHA-256": "beef", "Size": "12 bytes", "Thread id": "gw-1", "Email id": ""}},
 		{"hashes in the object form are not read", 1001, `{"file":{"name":"a.exe","hashes":{"SHA-256":"beef"}}}`,
 			map[string]string{"File": "a.exe", "SHA-256": ""}},
 		{"detection by ids", 2004, `{"finding_info":{"uid":"det-1","title":"Beacon","types":["T1071","T1105"]},"severity_id":5,"severity":"ignored","confidence_id":2,"confidence":"ignored",
@@ -1256,6 +1269,23 @@ func TestRender_CloudDetection(t *testing.T) {
 	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
 		t.Errorf("User = %+v; want the directory login", f)
 	}
+	// With one, an actor.user the normalizer read as a login on the host
+	// (no provider signal, adr/0359) binds by its login.
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},"evidences":[{"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}]}`)}, ents)
+	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
+		t.Errorf("User = %+v; want the host login", f)
+	}
+	// A Windows account type on a cloud finding is a login on the host,
+	// shown qualified and bound by its login, never by its id.
+	sidEnts := []Entity{
+		ent("user-account--login", map[string]any{"account_login": `CONTOSO\jdoe`}),
+		ent("user-account--id", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101"}),
+	}
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},
+		"evidences":[{"actor":{"user":{"name":"jdoe","domain":"CONTOSO","uid":"S-1-5-21-7-1101","account":{"type_id":2}}}}]}`)}, sidEnts)
+	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
+		t.Errorf("User = %+v; want the Windows login bound by its login", f)
+	}
 	// With one, the artifact's own user is still a directory login.
 	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},"evidences":[{"user":{"name":"jdoe","domain":"CONTOSO"}}]}`)}, ents)
 	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" {
@@ -1286,5 +1316,285 @@ func TestRender_FixtureActivities(t *testing.T) {
 		if got := sentenceText(v); got != want {
 			t.Errorf("%s reads %q; want %q", file, got, want)
 		}
+	}
+}
+
+// TestRender_GroupMembers (03 §4.9, adr/0359): each entry of a group
+// change's users[] binds to its own account, and the target slot holds them
+// all, so two changes of different members never fold together.
+func TestRender_GroupMembers(t *testing.T) {
+	ents := []Entity{
+		ent("user-account--jdoe", map[string]any{"account_login": `CONTOSO\jdoe`}),
+		ent("user-account--asmith", map[string]any{"account_login": `CONTOSO\asmith`}),
+	}
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","users":` + users + `,"group":{"name":"Domain Admins"}}`)}, ents)
+	}
+	v := render(`[{"name":"jdoe","domain":"CONTOSO"},{"name":"asmith","domain":"CONTOSO"}]`)
+	var refs []string
+	for _, tok := range v.Sentence {
+		if tok.T == "entity" {
+			refs = append(refs, tok.Ref)
+		}
+	}
+	if !slices.Equal(refs, []string{"user-account--jdoe", "user-account--asmith"}) {
+		t.Errorf("sentence entities = %v; want both members bound", refs)
+	}
+	// Each member has its own Account row, linked to its account.
+	var rows []Field
+	for _, f := range v.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f)
+		}
+	}
+	if len(rows) != 2 || rows[0].Value != `CONTOSO\jdoe` || rows[0].Ref != "user-account--jdoe" ||
+		rows[1].Value != `CONTOSO\asmith` || rows[1].Ref != "user-account--asmith" {
+		t.Errorf("Account rows = %+v; want one linked row per member", rows)
+	}
+	target := func(v View) SlotValue {
+		for _, s := range v.Slots {
+			if s.Name == "target" {
+				return s
+			}
+		}
+		return SlotValue{}
+	}
+	one := render(`[{"name":"jdoe","domain":"CONTOSO"}]`)
+	if target(v).Identity == "" || target(v).Identity == target(one).Identity {
+		t.Errorf("target slots %+v and %+v; want two members apart from one", target(v), target(one))
+	}
+}
+
+// TestRender_GroupMembersFoldByAccount (adr/0359): with several members the
+// target slot keys on each member's account, so the same names in two
+// domains never fold, whether or not the record bound them.
+func TestRender_GroupMembersFoldByAccount(t *testing.T) {
+	ents := []Entity{
+		ent("user-account--corp-alice", map[string]any{"account_login": `CORP\alice`}),
+		ent("user-account--corp-bob", map[string]any{"account_login": `CORP\bob`}),
+		ent("user-account--lab-alice", map[string]any{"account_login": `LAB\alice`}),
+		ent("user-account--lab-bob", map[string]any{"account_login": `LAB\bob`}),
+	}
+	target := func(domain string, ents []Entity) SlotValue {
+		js := `{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},` +
+			`"users":[{"name":"alice","domain":"` + domain + `"},{"name":"bob","domain":"` + domain + `"}]}`
+		for _, s := range Render(Event{ClassUID: 3006, Payload: payload(js)}, ents).Slots {
+			if s.Name == "target" {
+				return s
+			}
+		}
+		return SlotValue{}
+	}
+	for name, e := range map[string][]Entity{"bound": ents, "unbound": nil} {
+		corp, lab := target("CORP", e), target("LAB", e)
+		if corp.Identity == "" || corp.Identity == lab.Identity {
+			t.Errorf("%s: target slots %+v and %+v fold; want them apart", name, corp, lab)
+		}
+	}
+	if got := target("CORP", ents).Identity; !strings.Contains(got, "ref:user-account--corp-alice") || !strings.Contains(got, "ref:user-account--corp-bob") {
+		t.Errorf("bound target identity = %s; want each member's ref", got)
+	}
+}
+
+// TestRender_GroupMembersNotTheDeprecatedUser (adr/0359): with users[]
+// present, its members are the accounts shown, and the deprecated user is
+// not shown.
+func TestRender_GroupMembersNotTheDeprecatedUser(t *testing.T) {
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"users":[{"name":"jdoe","domain":"CONTOSO"},{"name":"asmith"}],"user":{"name":"old"},"group":{"name":"Domain Admins"}}`)}, nil)
+	var accounts []string
+	for _, f := range v.Fields {
+		if f.Label == "Account" {
+			accounts = append(accounts, f.Value)
+		}
+	}
+	if !slices.Equal(accounts, []string{`CONTOSO\jdoe`, "asmith"}) {
+		t.Errorf("Account rows = %v; want the users[] members", accounts)
+	}
+	if strings.Contains(sentenceText(v), "old") {
+		t.Errorf("sentence %q names the deprecated user", sentenceText(v))
+	}
+}
+
+// TestRender_GroupMembersNameNobody (adr/0359): when no entry of users[]
+// names a user, the deprecated user is the target, as the normalizer reads
+// it.
+func TestRender_GroupMembersNameNobody(t *testing.T) {
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","users":[{"uid":""}],"user":{"name":"jdoe"},"group":{"name":"Domain Admins"}}`)}, nil)
+	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "jdoe" {
+		t.Errorf("Account = %+v (present %v); want jdoe from user", f, ok)
+	}
+	if got := sentenceText(v); got != "Account jdoe was added to Domain Admins" {
+		t.Errorf("sentence = %q", got)
+	}
+}
+
+// TestRender_GroupTargetFoldsAlike (adr/0359): one member and many fold by
+// the same rule: the ref, else the qualified login folded for case.
+func TestRender_GroupTargetFoldsAlike(t *testing.T) {
+	target := func(users string) string {
+		js := `{"activity_name":"Add User","group":{"name":"Domain Admins"},"users":` + users + `}`
+		for _, s := range Render(Event{ClassUID: 3006, Payload: payload(js)}, nil).Slots {
+			if s.Name == "target" {
+				return s.Identity
+			}
+		}
+		return ""
+	}
+	corp, lab := target(`[{"name":"alice","domain":"CORP"}]`), target(`[{"name":"alice","domain":"LAB"}]`)
+	if corp == "" || corp == lab {
+		t.Errorf("CORP and LAB alice fold: %q, %q", corp, lab)
+	}
+	if a, b := target(`[{"name":"Alice","domain":"CORP"}]`), target(`[{"name":"alice","domain":"corp"}]`); a == "" || a != b {
+		t.Errorf("CORP\\Alice and corp\\alice do not fold: %q, %q", a, b)
+	}
+	if a, b := target(`[{"name":"Alice","domain":"CORP"},{"name":"bob","domain":"CORP"}]`), target(`[{"name":"bob","domain":"corp"},{"name":"alice","domain":"corp"}]`); a == "" || a != b {
+		t.Errorf("two members in another case and order do not fold: %q, %q", a, b)
+	}
+}
+
+// TestRender_GroupMembersCapped (adr/0359): a long member list reads as a
+// message's recipients do: two named, then "+N more", in the sentence and in
+// the field rows.
+func TestRender_GroupMembersCapped(t *testing.T) {
+	var members []string
+	for i := range 300 {
+		members = append(members, fmt.Sprintf(`{"name":"user%03d"}`, i))
+	}
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[` + strings.Join(members, ",") + `]}`)}, nil)
+	if got := sentenceText(v); got != "admin added user000, user001 +298 more to G" {
+		t.Errorf("sentence = %q", got)
+	}
+	var rows []string
+	for _, f := range v.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f.Value)
+		}
+	}
+	if !slices.Equal(rows, []string{"user000", "user001", "+298 more"}) {
+		t.Errorf("Account rows = %v", rows)
+	}
+}
+
+// TestRender_GroupMembersDeduplicated (adr/0359): a member listed twice is
+// one account, as the normalizer mints it once. The change reads and folds
+// as the same change sent without the repeat.
+func TestRender_GroupMembersDeduplicated(t *testing.T) {
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+	}
+	twice := render(`[{"name":"jdoe"},{"name":"JDOE"},{"name":"asmith"}]`)
+	once := render(`[{"name":"jdoe"},{"name":"asmith"}]`)
+	if got := sentenceText(twice); got != "admin added jdoe, asmith to G" {
+		t.Errorf("sentence = %q", got)
+	}
+	var rows []string
+	for _, f := range twice.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f.Value)
+		}
+	}
+	if !slices.Equal(rows, []string{"jdoe", "asmith"}) {
+		t.Errorf("Account rows = %v; want two", rows)
+	}
+	target := func(v View) string {
+		for _, s := range v.Slots {
+			if s.Name == "target" {
+				return s.Identity
+			}
+		}
+		return ""
+	}
+	if target(twice) == "" || target(twice) != target(once) {
+		t.Errorf("target slots %q and %q; want them to fold", target(twice), target(once))
+	}
+}
+
+// TestRender_GroupMemberByID: a users[] entry that names an account by its
+// uid alone shows the uid as the Account, and binds the user-account whose
+// user_id it is when the record holds one.
+func TestRender_GroupMemberByID(t *testing.T) {
+	const sid = "S-1-5-21-7-1101"
+	js := `{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid":"` + sid + `"}]}`
+	for name, tc := range map[string]struct {
+		ents []Entity
+		ref  string
+	}{
+		"bound":   {[]Entity{ent("user-account--sid", map[string]any{"user_id": sid})}, "user-account--sid"},
+		"unbound": {nil, ""},
+	} {
+		v := Render(Event{ClassUID: 3006, Payload: payload(js)}, tc.ents)
+		if f, ok := fieldValue(v, "Account"); !ok || f.Value != sid || f.Ref != tc.ref {
+			t.Errorf("%s: Account = %+v (present %v); want %s linked to %q", name, f, ok, sid, tc.ref)
+		}
+		if got := sentenceText(v); got != "admin added "+sid+" to G" {
+			t.Errorf("%s: sentence = %q", name, got)
+		}
+	}
+}
+
+// TestRender_GroupMemberByIDKeys: a member named by id alone keys the target
+// slot, so two changes of different such members, or of Alice with and
+// without one, never fold; one listed twice is one account.
+func TestRender_GroupMemberByIDKeys(t *testing.T) {
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+	}
+	target := func(v View) string {
+		for _, s := range v.Slots {
+			if s.Name == "target" {
+				return s.Identity
+			}
+		}
+		return ""
+	}
+	a, b := target(render(`[{"uid":"S-1-5-21-7-1101"}]`)), target(render(`[{"uid":"S-1-5-21-7-1102"}]`))
+	if a == "" || a == b {
+		t.Errorf("two id-only members fold: %q, %q", a, b)
+	}
+	alone, with := target(render(`[{"name":"alice"}]`)), target(render(`[{"name":"alice"},{"uid":"S-1-5-21-7-1101"}]`))
+	if alone == "" || alone == with {
+		t.Errorf("alice alone and alice with an id-only member fold: %q, %q", alone, with)
+	}
+	twice := render(`[{"uid":"S-1-5-21-7-1101"},{"uid":" S-1-5-21-7-1101 "}]`)
+	var rows []string
+	for _, f := range twice.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f.Value)
+		}
+	}
+	if !slices.Equal(rows, []string{"S-1-5-21-7-1101"}) {
+		t.Errorf("Account rows = %v; want one", rows)
+	}
+	if target(twice) != a {
+		t.Errorf("target slots %q and %q; want the repeat to fold", target(twice), a)
+	}
+}
+
+// TestRender_AccountChangeUserByID: an account change whose user carries
+// only a uid shows the uid as the Account, read by the same rule as a group
+// member.
+func TestRender_AccountChangeUserByID(t *testing.T) {
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"uid":"S-1-5-21-7-1101"}}`)}, nil)
+	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "S-1-5-21-7-1101" {
+		t.Errorf("Account = %+v (present %v); want the uid", f, ok)
+	}
+}
+
+// TestRender_RegistryTypedDataSlot (adr/0359): the data slot reads the typed
+// field, so two different writes to one value do not fold together.
+func TestRender_RegistryTypedDataSlot(t *testing.T) {
+	data := func(js string) string {
+		v := Render(Event{ClassUID: 201002, Payload: payload(js)}, nil)
+		for _, s := range v.Slots {
+			if s.Name == "data" {
+				return s.Identity
+			}
+		}
+		return ""
+	}
+	a := data(`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","reg_string_data":"C:\\a.exe"}}`)
+	b := data(`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","reg_string_data":"C:\\b.exe"}}`)
+	if a == "" || a == b {
+		t.Errorf("data slots %q and %q; want two values", a, b)
 	}
 }

@@ -258,3 +258,37 @@ func TestFold_ExplicitEmptyKey(t *testing.T) {
 		t.Error("a slot on a class without slots accepted")
 	}
 }
+
+// TestFold_PivotDropsTheAccountTarget (adr/0359): an account event's one
+// bound target carries its ref, so a timeline pivoted on that account leaves
+// the target out of the key, for every account class.
+func TestFold_PivotDropsTheAccountTarget(t *testing.T) {
+	ents := []Entity{ent("user-account--jdoe", map[string]any{"account_login": `CONTOSO\jdoe`})}
+	for _, tc := range []struct {
+		name string
+		uid  int
+		js   string
+	}{
+		{"account change", 3001, `{"activity_name":"Create","user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"admin"}}}`},
+		{"user access", 3005, `{"activity_name":"Assign Privileges","user":{"name":"jdoe","domain":"CONTOSO"},"privileges":["SeDebugPrivilege"]}`},
+		{"group management, user", 3006, `{"activity_name":"Add User","user":{"name":"jdoe","domain":"CONTOSO"},"group":{"name":"Domain Admins"}}`},
+		{"group management, one users[] member", 3006, `{"activity_name":"Add User","users":[{"name":"jdoe","domain":"CONTOSO"}],"group":{"name":"Domain Admins"}}`},
+	} {
+		uid, js, class := tc.uid, tc.js, tc.name
+		v := Render(Event{ClassUID: uid, Payload: payload(js)}, ents)
+		item := GroupItem{ID: "e", ClassUID: uid, Time: time.Now(), Slots: v.Slots}
+		groups := Fold([]GroupItem{item}, Keys{uid: {"target", "activity"}}, "user-account--jdoe")
+		if len(groups) != 1 {
+			t.Fatalf("%s: %d groups", class, len(groups))
+		}
+		for _, p := range groups[0].Key {
+			if p.Slot == "target" {
+				t.Errorf("%s: the pivoted account is a key part: %+v", class, p)
+			}
+		}
+		unpivoted := Fold([]GroupItem{item}, Keys{uid: {"target", "activity"}}, "")
+		if p := unpivoted[0].Key[0]; p.Slot != "target" || p.Ref != "user-account--jdoe" {
+			t.Errorf("%s: target key part = %+v; want it bound", class, p)
+		}
+	}
+}

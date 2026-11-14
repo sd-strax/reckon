@@ -292,7 +292,13 @@ func (b *resultBuilder) userAccount(prefix, device string, host identity.STIXID)
 // said in this record that the login is that account, as the host rule does
 // for an agent id (adr/0211). It returns "" when the object names nothing.
 func (b *resultBuilder) userAccountAt(user, device at, host identity.STIXID) identity.STIXID {
-	m := objectAt(user.obj, user.path)
+	return b.userAccountOf(objectAt(user.obj, user.path), device, host)
+}
+
+// userAccountOf is userAccountAt for a user object already in hand, such as
+// an entry of a list. m must have been reached through lookupPath or
+// fieldOf, so the schema check sees the fields read from it.
+func (b *resultBuilder) userAccountOf(m map[string]any, device at, host identity.STIXID) identity.STIXID {
 	if m == nil {
 		return ""
 	}

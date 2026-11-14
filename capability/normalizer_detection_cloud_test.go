@@ -183,8 +183,11 @@ func TestDetectionCloudFallbacks(t *testing.T) {
 				},
 				"session": map[string]any{"issuer": role, "credential_uid": "ASIAEXAMPLE"},
 			}},
-			map[string]any{"actor": map[string]any{"user": map[string]any{"uid_alt": "AIDAALT"}}},
-			// A name alone is no identifier: no principal.
+			// The account type says this is an IAM user. Without a signal the
+			// actor would be a login on the host (adr/0359).
+			map[string]any{"actor": map[string]any{"user": map[string]any{"uid_alt": "AIDAALT", "account": map[string]any{"type_id": 3}}}},
+			// A name alone is no identifier and no signal: no principal. The
+			// actor is a login on the host instead (adr/0359).
 			map[string]any{"actor": map[string]any{"user": map[string]any{"name": "nameless"}}},
 		},
 	})
@@ -197,8 +200,14 @@ func TestDetectionCloudFallbacks(t *testing.T) {
 	if got := refsOf(res, identity.TypeCloudAccount); !slices.Contains(got, account) || !slices.Contains(got, home) || len(got) != 2 {
 		t.Errorf("accounts = %v; want the finding's %s and the caller's %s", got, account, home)
 	}
-	if got := refsOf(res, identity.TypeUserAccount); !slices.Contains(got, principal) || !slices.Contains(got, alt) || len(got) != 2 {
-		t.Errorf("principals = %v; want the role %s and the uid_alt one %s", got, principal, alt)
+	var principals []identity.STIXID
+	for _, s := range scosOf(res, identity.TypeUserAccount) {
+		if s.Properties["account_type"] == "aws" {
+			principals = append(principals, s.ID)
+		}
+	}
+	if !slices.Contains(principals, principal) || !slices.Contains(principals, alt) || len(principals) != 2 {
+		t.Errorf("principals = %v; want the role %s and the uid_alt one %s", principals, principal, alt)
 	}
 	if !hasEdge(res, RelBelongsTo, principal, home) || hasEdge(res, RelBelongsTo, principal, account) {
 		t.Error("the principal belongs to its own account, not the finding's")
@@ -299,5 +308,227 @@ func TestScenario_ExposedBucket_AlertMeetsAPICalls(t *testing.T) {
 		if !fromAPI[got[0]] {
 			t.Errorf("the alert's %s %s is not one the API calls mint", typ, got[0])
 		}
+	}
+}
+
+// TestDetectionCloudHostLogin (§4.12, adr/0359): a cloud finding always
+// names a provider, but its evidence actor can be a login on a VM. A Linux
+// account type says so. The same uid on two VMs is then two host-scoped
+// accounts, not one provider user. An actor with no signal either way is a
+// login on the host too.
+func TestDetectionCloudHostLogin(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	finding := func(host string, actor map[string]any) map[string]any {
+		return versioned(2004, "1.9.0", map[string]any{
+			"finding_info": map[string]any{"uid": "det-vm-" + host, "title": "Reverse shell"},
+			"cloud":        map[string]any{"provider": "AWS", "account": map[string]any{"uid": "111122223333"}},
+			"evidences": []any{map[string]any{
+				"actor":  actor,
+				"device": map[string]any{"hostname": host, "type_id": 6},
+			}},
+		})
+	}
+	for _, tc := range []struct {
+		name    string
+		user    map[string]any
+		session map[string]any
+		typ     string // the host-scoped account type the login gets
+	}{
+		{"a Linux account", map[string]any{"uid": "1000", "name": "app", "account": map[string]any{"type_id": 9}}, nil, identity.AccountUnix},
+		{"no signal", map[string]any{"uid": "1000", "name": "app"}, nil, identity.AccountLocal},
+		// The key would be uid 1000. The ARN in uid_alt is not the key, so it
+		// is no signal.
+		{"an ARN beside the uid", map[string]any{"uid": "1000", "uid_alt": "arn:aws:iam::111122223333:user/alice", "name": "app"}, nil, identity.AccountLocal},
+		// The session issuer would be the key, and "sshd" is no principal.
+		{"a session issuer that is no principal", map[string]any{"name": "app"}, map[string]any{"issuer": "sshd"}, identity.AccountLocal},
+		// An AWS Account type names the container the VM runs in, not the
+		// user, so it is no signal.
+		{"a container type", map[string]any{"uid": "1000", "name": "app", "account": map[string]any{"uid": "111122223333", "type_id": 10}}, nil, identity.AccountLocal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []identity.STIXID
+			for _, host := range []string{"vm-a", "vm-b"} {
+				actor := map[string]any{"user": tc.user}
+				if tc.session != nil {
+					actor["session"] = tc.session
+				}
+				e := finding(host, actor)
+				if bad := ocsfschema.ValidateFields(e); len(bad) > 0 {
+					t.Fatalf("OCSF 1.9.0: %v", bad)
+				}
+				res := normalizeOne(t, e)
+				hostID := ids.Host(identity.HostIdentity{Hostname: host})
+				accounts := refsOf(res, identity.TypeUserAccount)
+				if len(accounts) != 1 {
+					t.Fatalf("%s: user-accounts in object_refs = %v; want one", host, accounts)
+				}
+				if want := ids.Account(identity.AccountIdentity{Type: tc.typ, Login: "app", HostRef: hostID}); accounts[0] != want {
+					sco, _ := scoByID(res.SCOs, accounts[0])
+					t.Errorf("%s: account %s %v; want the %s login on the host, %s", host, accounts[0], sco.Properties, tc.typ, want)
+				}
+				got = append(got, accounts[0])
+			}
+			if got[0] == got[1] {
+				t.Errorf("the same login on two VMs is one account %s", got[0])
+			}
+		})
+	}
+}
+
+// TestDetectionCloudOtherProvidersType (adr/0359): an Azure AD account type
+// is a principal of another provider than an AWS finding's, so it is no
+// signal for the aws path. The actor takes the host path, where the account
+// rule (§7.2) reads the type as a directory sign-in account, keyed on its
+// id. It is never an aws principal.
+func TestDetectionCloudOtherProvidersType(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	res := normalizeOne(t, versioned(2004, "1.9.0", map[string]any{
+		"finding_info": map[string]any{"uid": "det-az"},
+		"cloud":        map[string]any{"provider": "AWS", "account": map[string]any{"uid": "111122223333"}},
+		"evidences": []any{map[string]any{
+			"actor":  map[string]any{"user": map[string]any{"uid": "1000", "name": "app", "account": map[string]any{"type_id": 6}}},
+			"device": map[string]any{"hostname": "vm-a"},
+		}},
+	}))
+	accounts := refsOf(res, identity.TypeUserAccount)
+	if aws := ids.Account(identity.AccountIdentity{Type: "aws", UserID: "1000"}); len(accounts) != 1 || accounts[0] == aws {
+		t.Fatalf("user-accounts = %v; want one, not the aws principal %s", accounts, aws)
+	}
+	if sco, _ := scoByID(res.SCOs, accounts[0]); sco.Properties["account_type"] != identity.AccountCloud {
+		t.Errorf("account = %v; want the directory sign-in account the host path gives", sco.Properties)
+	}
+}
+
+// TestIsCloudPrincipal (adr/0359): a host or directory account type is a
+// host login whatever else the actor carries. A principal type of the
+// finding's own provider, the key's id (uid, else uid_alt) in AWS's
+// principal form (an ARN or an AIDA or AROA unique id), or AWS's session
+// issuer each make a provider user. A
+// container type, a SaaS type and another provider's principal type are no
+// signal.
+func TestIsCloudPrincipal(t *testing.T) {
+	user := func(fields ...any) map[string]any {
+		u := map[string]any{}
+		for i := 0; i < len(fields); i += 2 {
+			u[fields[i].(string)] = fields[i+1]
+		}
+		return map[string]any{"user": u}
+	}
+	typed := func(id int) map[string]any { return map[string]any{"type_id": id} }
+	for _, tc := range []struct {
+		name     string
+		provider string
+		actor    map[string]any
+		want     bool
+	}{
+		{"Linux type with an ARN", "aws", user("uid", deployARN, "account", typed(9)), false},
+		{"Windows type with a session", "aws", map[string]any{"user": map[string]any{"uid": "u", "account": typed(2)}, "session": map[string]any{"issuer": deployARN}}, false},
+		{"IAM User type", "aws", user("uid", "x", "account", typed(3)), true},
+		{"IAM Role type", "aws", user("uid", "x", "account", typed(4)), true},
+		{"Azure AD type on Azure", "azure", user("uid", "x", "account", typed(6)), true},
+		{"GCP Account type on GCP", "gcp", user("uid", "x", "account", typed(5)), true},
+		{"Azure AD type on AWS", "aws", user("uid", "1000", "account", typed(6)), false},
+		{"GCP Account type on AWS", "aws", user("uid", "1000", "account", typed(5)), false},
+		{"AWS Account type", "aws", user("uid", "1000", "account", typed(10)), false},
+		{"GCP Project type", "gcp", user("uid", "1000", "account", typed(11)), false},
+		{"Azure Subscription type", "azure", user("uid", "1000", "account", typed(13)), false},
+		{"M365 Tenant type", "azure", user("uid", "1000", "account", typed(17)), false},
+		{"Salesforce type", "aws", user("uid", "1000", "account", typed(14)), false},
+		{"Other type", "aws", user("uid", "1000", "account", typed(99)), false},
+		{"ARN uid", "aws", user("uid", deployARN), true},
+		{"ARN uid_alt, no uid", "aws", user("uid_alt", deployARN), true},
+		// The key would be uid 1000, so the ARN beside it proves nothing.
+		{"ARN uid_alt beside a uid", "aws", user("uid", "1000", "uid_alt", "arn:aws:iam::111122223333:user/alice"), false},
+		{"China partition ARN", "aws", user("uid", "arn:aws-cn:iam::111122223333:user/alice"), true},
+		{"GovCloud ARN", "aws", user("uid", "arn:aws-us-gov:iam::111122223333:user/alice"), true},
+		{"another scheme's ARN", "aws", user("uid", "arn:foo"), false},
+		{"another scheme's ARN with a partition", "aws", user("uid", "arn:foo:iam::1:user/a"), false},
+		{"ISO partition ARN", "aws", user("uid", "arn:aws-iso:iam::111122223333:user/alice"), true},
+		{"ISO-B partition ARN", "aws", user("uid", "arn:aws-iso-b:iam::111122223333:user/alice"), true},
+		{"EUSC partition ARN", "aws", user("uid", "arn:aws-eusc:iam::111122223333:user/alice"), true},
+		{"awsx is no partition", "aws", user("uid", "arn:awsx:iam::111122223333:user/alice"), false},
+		{"an empty partition part", "aws", user("uid", "arn:aws-:iam::111122223333:user/alice"), false},
+		{"an upper-case partition part", "aws", user("uid", "arn:aws-ISO:iam::111122223333:user/alice"), false},
+		{"Linux caption with an ARN", "aws", user("uid", deployARN, "account", map[string]any{"type": "Linux Account"}), false},
+		{"IAM User caption", "aws", user("uid", "x", "account", map[string]any{"type": "aws iam user"}), true},
+		{"the id over the caption", "aws", user("uid", "x", "account", map[string]any{"type_id": 3, "type": "Linux Account"}), true},
+		{"AIDA unique id", "aws", user("uid", "AIDAIOSFODNN7EXAMPLE"), true},
+		{"AROA unique id", "aws", user("uid", "AROAIOSFODNN7EXAMPLE"), true},
+		{"AIDA unique id in uid_alt", "aws", user("uid_alt", "AIDAIOSFODNN7EXAMPLE"), true},
+		{"AIDAN", "aws", user("uid", "AIDAN"), false},
+		{"AROADMIN", "aws", user("uid", "AROADMIN"), false},
+		{"AIDA with a lower-case tail", "aws", user("uid", "AIDAiosfodnn7example"), false},
+		{"a root account id", "aws", user("uid", "111122223333"), false},
+		{"ARN uid off AWS", "gcp", user("uid", deployARN), false},
+		{"AIDA uid off AWS", "azure", user("uid", "AIDAIOSFODNN7EXAMPLE"), false},
+		// The session issuer is the key, so it must have the principal's form.
+		{"a session issuer that is no principal", "aws", map[string]any{"user": map[string]any{"name": "app"}, "session": map[string]any{"issuer": "sshd"}}, false},
+		{"a session issuer that is no principal, beside an ARN uid", "aws", map[string]any{"user": map[string]any{"uid": deployARN}, "session": map[string]any{"issuer": "sshd"}}, false},
+		{"session issuer", "aws", map[string]any{"user": map[string]any{"uid": "x"}, "session": map[string]any{"issuer": deployARN}}, true},
+		{"no signal", "aws", user("uid", "1000"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isCloudPrincipal(tc.provider, "", at{obj: map[string]any{"actor": tc.actor}, path: "actor"}); got != tc.want {
+				t.Errorf("isCloudPrincipal = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDetectionCloudRootPrincipal (adr/0359): on AWS a bare 12-digit uid
+// that is the finding's own account, or the actor's own account, is that
+// account's root principal. The
+// same uid on a finding for another account is no signal, and reads as a
+// login on the host.
+func TestDetectionCloudRootPrincipal(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	finding := func(account string) NormalizationResult {
+		return normalizeOne(t, versioned(2004, "1.9.0", map[string]any{
+			"finding_info": map[string]any{"uid": "det-root"},
+			"cloud":        map[string]any{"provider": "AWS", "account": map[string]any{"uid": account}},
+			"evidences": []any{map[string]any{
+				"actor":  map[string]any{"user": map[string]any{"uid": "111122223333", "name": "root"}},
+				"device": map[string]any{"hostname": "vm-a"},
+			}},
+		}))
+	}
+	root := ids.Account(identity.AccountIdentity{Type: "aws", UserID: "111122223333"})
+	if got := refsOf(finding("111122223333"), identity.TypeUserAccount); len(got) != 1 || got[0] != root {
+		t.Errorf("own account: user-accounts = %v; want the aws root principal %s", got, root)
+	}
+	// The actor's own account names the root too, on a finding about another
+	// account (a cross-account call).
+	cross := normalizeOne(t, versioned(2004, "1.9.0", map[string]any{
+		"finding_info": map[string]any{"uid": "det-root-x"},
+		"cloud":        map[string]any{"provider": "AWS", "account": map[string]any{"uid": "444455556666"}},
+		"evidences": []any{map[string]any{
+			"actor":  map[string]any{"user": map[string]any{"uid": "111122223333", "name": "root", "account": map[string]any{"uid": "111122223333"}}},
+			"device": map[string]any{"hostname": "vm-a"},
+		}},
+	}))
+	if got := refsOf(cross, identity.TypeUserAccount); len(got) != 1 || got[0] != root {
+		t.Errorf("the actor's own account: user-accounts = %v; want the aws root principal %s", got, root)
+	}
+	local := ids.Account(identity.AccountIdentity{Type: identity.AccountLocal, Login: "root", HostRef: ids.Host(identity.HostIdentity{Hostname: "vm-a"})})
+	if got := refsOf(finding("444455556666"), identity.TypeUserAccount); len(got) != 1 || got[0] != local {
+		t.Errorf("another account: user-accounts = %v; want the host's local root %s", got, local)
+	}
+}
+
+// TestDetectionCloudPrincipalNeedsAnID (§4.15, adr/0359): an actor the
+// account type marks as a provider user, with no durable id, mints no
+// principal. A name alone is no identifier. It mints no host login either:
+// the event said the actor is a provider user.
+func TestDetectionCloudPrincipalNeedsAnID(t *testing.T) {
+	res := normalizeOne(t, versioned(2004, "1.9.0", map[string]any{
+		"finding_info": map[string]any{"uid": "det-n"},
+		"cloud":        map[string]any{"provider": "AWS", "account": map[string]any{"uid": "111122223333"}},
+		"evidences": []any{map[string]any{
+			"actor":  map[string]any{"user": map[string]any{"name": "deploy-ci", "account": map[string]any{"type_id": 3}}},
+			"device": map[string]any{"hostname": "vm-a"},
+		}},
+	}))
+	if users := scosOf(res, identity.TypeUserAccount); len(users) != 0 {
+		t.Errorf("user-accounts = %+v; want none", users)
 	}
 }

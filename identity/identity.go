@@ -387,42 +387,47 @@ func (r *Resolver) NetworkTraffic(srcRef, dstRef STIXID, srcPort, dstPort int, p
 	})
 }
 
-// EmailMessage resolves an email-message SCO. When a message id is present,
-// identity is the message_id ALONE — a deliberate deviation from STIX 2.1's
-// (message_id, from_ref): message_id is RFC-mandated unique, and identity on it
-// alone lets two sources' records of one message join even when they disagree
-// on its sender. Falls back to (from, subject, date) when no message id is
-// available. A click names its message by the source's own id instead, the
-// weak message (WeakEmailMessage).
-func (r *Resolver) EmailMessage(messageID, from, subject string, date time.Time) STIXID {
+// EmailMessage resolves an email-message SCO (03 §4.10). When a message id is
+// present, identity is the message_id ALONE — a deliberate deviation from
+// STIX 2.1's (message_id, from_ref): message_id is RFC-mandated unique, and
+// identity on it alone lets two sources' records of one message join even
+// when they disagree on its sender.
+//
+// With no message id, identity is (from, subject, date to the second,
+// recipients, thread uid) (adr/0359). The recipients keep apart the separate
+// copies of a phishing or spam run. The thread uid keeps apart messages of
+// different threads. The resolver folds the recipients: it trims and
+// lowercases each, drops empty and repeated ones, and sorts them. Which
+// addresses count as recipients is the caller's choice. An empty thread uid
+// is left out of the key, so a message without one hashes as if the field
+// did not exist.
+func (r *Resolver) EmailMessage(messageID, from, subject string, date time.Time, recipients []string, threadUID string) STIXID {
 	if strings.TrimSpace(messageID) != "" {
 		return r.mint(TypeEmailMessage, map[string]any{
 			"message_id": strings.ToLower(strings.TrimSpace(messageID)),
 		})
 	}
-	return r.mint(TypeEmailMessage, map[string]any{
-		"from":    strings.ToLower(strings.TrimSpace(from)),
-		"subject": strings.TrimSpace(subject),
-		"date":    date.UTC().Truncate(time.Second).Format(time.RFC3339),
-	})
-}
-
-// WeakEmailMessage resolves the weak email-message a source's own message id
-// names (adr/0356): keyed on (source tool, uid), as a weak host is keyed on
-// (source tool, device uid). OCSF's email.uid and the email_uid of a click or
-// an attachment event carry this id. A weak message never joins another by
-// itself: only an aliases edge from a record that names both ids joins it to
-// the message keyed on the RFC 5322 Message-ID. It returns "" for an empty
-// uid.
-func (r *Resolver) WeakEmailMessage(sourceTool, uid string) STIXID {
-	uid = strings.TrimSpace(uid)
-	if uid == "" {
-		return ""
+	seen := map[string]bool{}
+	folded := []string{}
+	for _, a := range recipients {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a == "" || seen[a] {
+			continue
+		}
+		seen[a] = true
+		folded = append(folded, a)
 	}
-	return r.mint(TypeEmailMessage, map[string]any{
-		"source_tool": strings.ToLower(strings.TrimSpace(sourceTool)),
-		"email_uid":   uid,
-	})
+	sort.Strings(folded)
+	fields := map[string]any{
+		"from":       strings.ToLower(strings.TrimSpace(from)),
+		"subject":    strings.TrimSpace(subject),
+		"date":       date.UTC().Truncate(time.Second).Format(time.RFC3339),
+		"recipients": folded,
+	}
+	if t := strings.TrimSpace(threadUID); t != "" {
+		fields["thread_uid"] = t
+	}
+	return r.mint(TypeEmailMessage, fields)
 }
 
 // --- custom SCOs (§7.2) -----------------------------------------------------

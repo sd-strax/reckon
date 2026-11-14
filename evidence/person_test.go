@@ -451,3 +451,30 @@ func TestAccountIdentity_DetectionEvidence(t *testing.T) {
 		t.Errorf("seen as = %+v; want both artifacts' user objects", v.SeenAs)
 	}
 }
+
+// TestAccountIdentity_GroupMembers (adr/0359): from OCSF 1.9.0 a group
+// change names its members in users[]. Each entry is read for seen-as like
+// an event's own user.
+func TestAccountIdentity_GroupMembers(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	const sid = "S-1-5-21-1102"
+	inv := uuid.New()
+	persistNormalized(t, s, inv, ocsfEvent("dc", 3006, 1, map[string]any{
+		"activity_id": 1,
+		"users": []any{
+			map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21-1101"},
+			map[string]any{"name": "asmith", "domain": "CONTOSO", "uid": sid},
+			"not a user",
+		},
+		"group": map[string]any{"name": "Domain Admins", "domain": "contoso.com"},
+	}))
+	account := testIDs.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, UserID: sid})
+	v, err := s.AccountIdentity(ctx, string(account))
+	if err != nil {
+		t.Fatalf("AccountIdentity: %v", err)
+	}
+	if !slices.Equal(v.SeenAs.Logins, []string{`CONTOSO\asmith`}) || !slices.Equal(v.SeenAs.IDs, []SourceID{{Tool: "dc", UID: sid}}) {
+		t.Errorf("seen as = %+v; want the users[] entry that names the account, alone", v.SeenAs)
+	}
+}

@@ -1,9 +1,11 @@
 package capability
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/ocsfschema"
@@ -49,6 +51,32 @@ func entityIDs(t *testing.T, events ...map[string]any) (refs, rels []string) {
 	sort.Strings(refs)
 	sort.Strings(rels)
 	return refs, rels
+}
+
+// scoProps is the value of each named property on every SCO the events
+// give, as "id key=value", sorted. An SCO without the property is left out.
+func scoProps(t *testing.T, keys []string, events ...map[string]any) []string {
+	t.Helper()
+	if len(keys) == 0 {
+		return nil
+	}
+	reg := testRegistry()
+	var out []string
+	for _, e := range events {
+		res, err := reg.Normalize(makeEvent(e))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, sco := range res.SCOs {
+			for _, k := range keys {
+				if v, ok := sco.Properties[k]; ok {
+					out = append(out, fmt.Sprintf("%s %s=%v", sco.ID, k, v))
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // versioned is an OCSF event of class at version: fields plus class_uid, time
@@ -108,6 +136,8 @@ func TestBothEnds(t *testing.T) {
 		// entities is how many objects the events name, so that two empty
 		// results cannot pass as equal.
 		entities int
+		// props are SCO properties both ends must give the same value.
+		props []string
 	}{
 		{
 			name: "process_activity", entities: 5,
@@ -146,13 +176,26 @@ func TestBothEnds(t *testing.T) {
 			ceiling: []map[string]any{versioned(201001, "1.9.0", map[string]any{"reg_key": map[string]any{"path": runKey}, "actor": map[string]any{"process": actorProcess}, "device": deviceCeiling})},
 		},
 		{
-			name: "registry_value_activity", entities: 3,
+			name: "registry_value_activity", entities: 3, props: []string{"values"},
 			floor: []map[string]any{versioned(201002, "1.1.0", map[string]any{
 				"reg_value": map[string]any{"path": runKey, "name": "Updater", "data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 10},
 				"actor":     map[string]any{"process": actorProcess}, "device": device,
 			})},
 			ceiling: []map[string]any{versioned(201002, "1.9.0", map[string]any{
 				"reg_value": map[string]any{"path": runKey, "name": "Updater", "data": `C:\Temp\evil.exe`, "reg_string_data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 10},
+				"actor":     map[string]any{"process": actorProcess}, "device": deviceCeiling,
+			})},
+		},
+		{
+			// From 1.6.0 a source may send the data only in the field for its
+			// type (adr/0359).
+			name: "registry_value_activity typed data only", entities: 3, props: []string{"values"},
+			floor: []map[string]any{versioned(201002, "1.1.0", map[string]any{
+				"reg_value": map[string]any{"path": runKey, "name": "Updater", "data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 10},
+				"actor":     map[string]any{"process": actorProcess}, "device": device,
+			})},
+			ceiling: []map[string]any{versioned(201002, "1.9.0", map[string]any{
+				"reg_value": map[string]any{"path": runKey, "name": "Updater", "reg_string_data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 10},
 				"actor":     map[string]any{"process": actorProcess}, "device": deviceCeiling,
 			})},
 		},
@@ -205,6 +248,19 @@ func TestBothEnds(t *testing.T) {
 			})},
 		},
 		{
+			// From 1.9.0 the members are users[], and user is deprecated. A
+			// source may send users[] alone (adr/0359).
+			name: "group_management users[] only", entities: 4,
+			floor: []map[string]any{versioned(3006, "1.1.0", map[string]any{
+				"activity_id": 3, "user": user, "actor": map[string]any{"user": admin},
+				"group": map[string]any{"name": "Domain Admins", "domain": "contoso.com", "uid": "g-512"}, "device": device,
+			})},
+			ceiling: []map[string]any{versioned(3006, "1.9.0", map[string]any{
+				"activity_id": 3, "users": []any{user}, "actor": map[string]any{"user": admin},
+				"group": map[string]any{"name": "Domain Admins", "domain": "contoso.com", "uid": "g-512"}, "device": deviceCeiling,
+			})},
+		},
+		{
 			name: "network_activity", entities: 6,
 			floor: []map[string]any{versioned(4001, "1.1.0", map[string]any{
 				"src_endpoint": map[string]any{"ip": "10.0.4.20", "port": 49152}, "dst_endpoint": map[string]any{"ip": "203.0.113.9", "port": 443, "domain": "c2.example"},
@@ -231,12 +287,13 @@ func TestBothEnds(t *testing.T) {
 			},
 		},
 		{
-			name: "email_file_activity", entities: 4,
+			// The email_uid is a thread id: it mints no message (adr/0359).
+			name: "email_file_activity", entities: 3,
 			floor:   []map[string]any{versioned(4011, "1.1.0", map[string]any{"activity_id": 2, "email_uid": "gw-0001", "file": attachment, "actor": map[string]any{"user": user}, "device": device})},
 			ceiling: []map[string]any{versioned(4011, "1.9.0", map[string]any{"activity_id": 2, "email_uid": "gw-0001", "file": attachment, "actor": map[string]any{"user": user}, "device": deviceCeiling})},
 		},
 		{
-			name: "email_url_activity", entities: 4,
+			name: "email_url_activity", entities: 3,
 			floor: []map[string]any{versioned(4012, "1.1.0", map[string]any{
 				"email_uid": "gw-0001", "url": map[string]any{"url_string": "https://evil.example/pay"}, "actor": map[string]any{"user": user}, "device": device,
 			})},
@@ -286,15 +343,19 @@ func TestBothEnds(t *testing.T) {
 			if strings.Join(floorRels, "\n") != strings.Join(ceilRels, "\n") {
 				t.Errorf("relationships differ:\nfloor   %v\nceiling %v", floorRels, ceilRels)
 			}
+			if f, c := scoProps(t, tc.props, tc.floor...), scoProps(t, tc.props, tc.ceiling...); strings.Join(f, "\n") != strings.Join(c, "\n") {
+				t.Errorf("properties differ:\nfloor   %v\nceiling %v", f, c)
+			}
 		})
 	}
 }
 
-// TestBothEndsEmailAttachment (§4.10, §4.11a, adr/0356): below OCSF 1.4.0 an
-// attachment and a link are not on the email. The floor's email plus its
-// attachment event name the same message and file the ceiling's one email
-// names, and the message that contains the file is reached through the
-// aliases edge the email's own record gives.
+// TestBothEndsEmailAttachment (§4.10, §4.11a, adr/0356, adr/0359): below
+// OCSF 1.4.0 an attachment and a link are not on the email. The floor's
+// email and its attachment event name the same message and file the
+// ceiling's one email names. The attachment event names no message: its
+// email_uid is a thread id, kept as thread_uid. So at the floor nothing
+// records which email held the file, and no aliases edge joins anything.
 func TestBothEndsEmailAttachment(t *testing.T) {
 	sha := []any{map[string]any{"algorithm": "SHA-256", "algorithm_id": 3, "value": "beef"}}
 	mail := func() map[string]any {
@@ -327,8 +388,7 @@ func TestBothEndsEmailAttachment(t *testing.T) {
 	}
 	fm, ff, c := norm(floorMail), norm(floorFile), norm(ceiling)
 	ids := identity.NewResolver(testNS)
-	strong := ids.EmailMessage("<abc123@evil.example>", "", "", makeEvent(floorMail).Time)
-	weak := ids.WeakEmailMessage("fixture:s", "gw-0001")
+	strong := ids.EmailMessage("<abc123@evil.example>", "", "", time.Time{}, nil, "")
 	file := scoOfType(c.SCOs, identity.TypeFile)
 
 	if scoOfType(ff.SCOs, identity.TypeFile) != file || file == "" {
@@ -341,12 +401,16 @@ func TestBothEndsEmailAttachment(t *testing.T) {
 	if !hasEdge(c, RelContains, strong, file) {
 		t.Errorf("ceiling: no contains %s → %s", strong, file)
 	}
-	// Floor: the weak message contains the file, and the email's record
-	// aliases the weak message to the strong one.
-	if !hasEdge(ff, RelContains, weak, file) || !hasEdge(fm, RelAliases, weak, strong) {
-		t.Errorf("floor: want contains %s → %s and aliases %s → %s", weak, file, weak, strong)
+	// Floor: the attachment event names no message and keeps the thread id.
+	if n := len(scosOf(ff, identity.TypeEmailMessage)); n != 0 || hasRel(ff.Relationships, RelContains) {
+		t.Errorf("floor: the attachment event minted %d messages, relationships %v; want none", n, ff.Relationships)
 	}
-	if !hasEdge(c, RelAliases, weak, strong) {
-		t.Error("ceiling: the email's record must alias the weak message too")
+	if got := ff.ObservedData[0].Extensions["thread_uid"]; got != "gw-0001" {
+		t.Errorf("floor: thread_uid = %v; want gw-0001", got)
+	}
+	for name, res := range map[string]NormalizationResult{"floor": fm, "attachment": ff, "ceiling": c} {
+		if hasRel(res.Relationships, RelAliases) {
+			t.Errorf("%s: aliases %v; want nothing", name, relsOf(res, RelAliases))
+		}
 	}
 }
