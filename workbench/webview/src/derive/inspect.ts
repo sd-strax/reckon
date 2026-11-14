@@ -20,7 +20,7 @@ export function turnRenderer(entry: ThreadEntry | undefined): "turn" | "pin" | "
 
 const ENTITY_TYPES = new Set([
   "x-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file",
-  "domain-name", "email-addr", "url", "windows-registry-key", "x-registry-key",
+  "domain-name", "email-addr", "url", "windows-registry-key",
   "x-scheduled-task", "x-group", "mac-addr", "software",
   "x-cloud-account", "x-cloud-resource",
 ]);
