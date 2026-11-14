@@ -232,6 +232,8 @@ const action = object({
   tier_escalated: optional(bool),
   evidence_refs: optional(list(str)),
   edited_at: optional(str),
+  requested_at: optional(str),
+  approved_at: optional(str),
   inputs: optional(list(object({ name: str, required: optional(bool) }))),
   name: optional(str),
   category: optional(str),

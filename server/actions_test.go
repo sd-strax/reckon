@@ -605,6 +605,7 @@ func TestListInvestigationActions(t *testing.T) {
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
 	})
+	done := succeededAction(t, invID)
 
 	srv := httptest.NewServer(b.buildRouter(b.verifier))
 	t.Cleanup(srv.Close)
@@ -624,8 +625,8 @@ func TestListInvestigationActions(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(out.Actions) != 2 {
-		t.Fatalf("actions = %d; want 2", len(out.Actions))
+	if len(out.Actions) != 3 {
+		t.Fatalf("actions = %d; want 3", len(out.Actions))
 	}
 	byID := map[string]ActionView{}
 	for _, a := range out.Actions {
@@ -646,6 +647,23 @@ func TestListInvestigationActions(t *testing.T) {
 	}
 	if dis := byID[second.ActionID]; dis.ActionType != "account.disable" {
 		t.Errorf("account.disable row mangled: %+v", dis)
+	}
+	// Every row carries its request time; approved_at is when the first
+	// approval was recorded, so a row no one has approved has none (adr/0361).
+	for _, a := range out.Actions {
+		if a.RequestedAt == nil || a.RequestedAt.IsZero() {
+			t.Errorf("%s: requested_at not served: %+v", a.ActionType, a)
+		}
+	}
+	if iso.ApprovedAt != nil {
+		t.Errorf("pending host.isolate carries approved_at %v; want none", iso.ApprovedAt)
+	}
+	settled, found := byID[done.String()]
+	if !found {
+		t.Fatalf("succeeded action %s missing from list", done)
+	}
+	if settled.ApprovedAt == nil || settled.ApprovedAt.IsZero() {
+		t.Errorf("approved action: approved_at not served: %+v", settled)
 	}
 }
 

@@ -29,6 +29,8 @@
       "reversibility": "x",
       "tier_escalated": true,
       "edited_at": "2026-01-02T03:04:05Z",
+      "requested_at": "2026-01-02T03:04:05Z",
+      "approved_at": "2026-01-02T03:04:05Z",
       "inputs": [
         {
           "name": "x",

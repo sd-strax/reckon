@@ -80,6 +80,14 @@ type ActionView struct {
 	TierEscalated bool `json:"tier_escalated,omitempty"`
 	// EditedAt is when the request was last edited before approval (adr/0127).
 	EditedAt *time.Time `json:"edited_at,omitempty"`
+	// RequestedAt is when the action was requested; the Response lens orders
+	// its timeline by it (adr/0361).
+	RequestedAt *time.Time `json:"requested_at,omitempty"`
+	// ApprovedAt is when the first approval was recorded. A two-party action
+	// carries it while it still awaits its second approval, so it says when,
+	// never whether: the status says whether. Absent before any approval, and
+	// on rows approved before the time was recorded (adr/0361).
+	ApprovedAt *time.Time `json:"approved_at,omitempty"`
 	// Inputs are the type's declared non-entity parameters — what an edit may
 	// set — so a surface can offer the fields the request did not fill.
 	Inputs []EditableInput `json:"inputs,omitempty"`
@@ -178,6 +186,14 @@ func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
 	if !a.ExpiresAt.IsZero() {
 		t := a.ExpiresAt
 		v.ExpiresAt = &t
+	}
+	if !a.CreatedAt.IsZero() {
+		t := a.CreatedAt
+		v.RequestedAt = &t
+	}
+	if !a.PrimaryApprovedAt.IsZero() {
+		t := a.PrimaryApprovedAt
+		v.ApprovedAt = &t
 	}
 	// The escalation is derivable, not stored: the catalog's default tier
 	// for the type vs the frozen tier on the action.

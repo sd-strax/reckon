@@ -55,6 +55,8 @@ function mapAction(a: RawAction): ActionRow {
     name: a.name || undefined,
     category: a.category || undefined,
     editedAt: a.edited_at || undefined,
+    requestedAt: a.requested_at || undefined,
+    approvedAt: a.approved_at || undefined,
     inputs: (a.inputs ?? []).map((x) => ({ name: x.name, required: x.required ?? false })).filter((x) => x.name),
     retryOf: a.retry_of,
     reversalOfRef: a.reversal_of_ref,

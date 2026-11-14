@@ -128,7 +128,10 @@ describe("the inspector", () => {
   it("renders an action's record: history with actors, authorization, targets with results", () => {
     mount();
     fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
-    fireEvent.click(within(lens()).getAllByTitle(/^Open the action record/).find((a) => a.textContent === "host.isolate")!);
+    // host.isolate (act-1) is a one-line timeline row: its details hold the record link (adr/0361).
+    const row = document.getElementById("obj-act-1")!;
+    fireEvent.click(row.querySelector(".tlrow")!);
+    fireEvent.click(within(row).getByRole("button", { name: "Open action record ›" }));
     const p = pane();
     expect(within(p).getByText("Action")).toBeTruthy();
     expect(within(p).getByText(/approved by Analyst One/)).toBeTruthy();

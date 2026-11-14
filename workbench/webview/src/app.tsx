@@ -57,10 +57,9 @@ export interface AppContextValue {
   setCompanionMode: (m: "conversation" | "thread") => void;
   /** The companion column's width in px; undefined keeps the layout's default. */
   companionWidth: number | undefined;
-  /** Pending actions set aside to decide later (#125) — a view choice; the
-   * request still expires when its window closes. */
-  aside: ReadonlySet<string>;
-  setAside: (actionId: string, aside: boolean) => void;
+  /** The Response timeline's order (adr/0361): a view choice, oldest first by default. */
+  responseOrder: ResponseOrder;
+  setResponseOrder: (o: ResponseOrder) => void;
   /** Resize the companion; `remember` keeps the width across reloads (view state). */
   setCompanionWidth: (w: number | undefined, remember: boolean) => void;
   /** Go to an object: switch lens if needed and scroll to it; a ref opens the inspector too. */
@@ -72,9 +71,12 @@ interface PersistedView {
   companionW?: number;
   lens?: Record<string, Lens>;
   companion?: "conversation" | "thread";
-  /** Pending actions the analyst set aside to decide later (#125): view state. */
-  aside?: string[];
+  /** The Response timeline's order (adr/0361). An `aside` key saved before
+   * adr/0361 removed "Decide later" is ignored. */
+  responseOrder?: ResponseOrder;
 }
+
+export type ResponseOrder = "oldest" | "newest";
 
 const Ctx = createContext<AppContextValue | null>(null);
 
@@ -124,14 +126,10 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
     transport.send({ type: "view.state", companion: m });
   }, [transport]);
   const [companionWidth, setCompanionWidthState] = useState<number | undefined>(() => transport.getState<PersistedView>()?.companionW);
-  const [aside, setAsideState] = useState<ReadonlySet<string>>(() => new Set(transport.getState<PersistedView>()?.aside || []));
-  const setAside = useCallback((actionId: string, on: boolean) => {
-    setAsideState((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(actionId); else next.delete(actionId);
-      transport.setState({ ...(transport.getState<PersistedView>() || {}), aside: [...next] });
-      return next;
-    });
+  const [responseOrder, setResponseOrderState] = useState<ResponseOrder>(() => transport.getState<PersistedView>()?.responseOrder === "newest" ? "newest" : "oldest");
+  const setResponseOrder = useCallback((o: ResponseOrder) => {
+    setResponseOrderState(o);
+    transport.setState({ ...(transport.getState<PersistedView>() || {}), responseOrder: o });
   }, [transport]);
   const setCompanionWidth = useCallback((w: number | undefined, remember: boolean) => {
     setCompanionWidthState(w);
@@ -216,8 +214,8 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
     inspector, openInspector, inspectorBack, closeInspector, pinInspector,
     stage: (text) => setStaged((s) => ({ text, nonce: (s?.nonce ?? 0) + 1 })), staged,
     busy, setBusy,
-    lens, setLens, companionMode, setCompanionMode, companionWidth, setCompanionWidth, aside, setAside, goTo,
-  }), [state, send, transport, resolve, prompt, enableAdapter, verdictOpen, inspector, openInspector, inspectorBack, closeInspector, pinInspector, staged, busy, lens, setLens, companionMode, setCompanionMode, companionWidth, setCompanionWidth, aside, setAside, goTo]);
+    lens, setLens, companionMode, setCompanionMode, companionWidth, setCompanionWidth, responseOrder, setResponseOrder, goTo,
+  }), [state, send, transport, resolve, prompt, enableAdapter, verdictOpen, inspector, openInspector, inspectorBack, closeInspector, pinInspector, staged, busy, lens, setLens, companionMode, setCompanionMode, companionWidth, setCompanionWidth, responseOrder, setResponseOrder, goTo]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

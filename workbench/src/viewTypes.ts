@@ -890,6 +890,10 @@ export interface ActionRow {
   category?: string;
   /** When the request was edited before approval (adr/0127). */
   editedAt?: string;
+  /** When the action was requested (ISO): the Response timeline's order (adr/0361). */
+  requestedAt?: string;
+  /** When the primary approval was recorded (ISO); absent until approved (adr/0361). */
+  approvedAt?: string;
   /** The parameters an edit may set: the type's declared non-entity inputs. */
   inputs?: { name: string; required: boolean }[];
   /** Lineage: the FAILED/EXPIRED action this request replaces. */

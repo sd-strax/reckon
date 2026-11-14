@@ -67,6 +67,9 @@ type ActionCurrent struct {
 	// EditedAt is when the request was last edited before approval (adr/0127);
 	// zero when it never was.
 	EditedAt time.Time
+	// CreatedAt is when the action was requested: the ActionRequested event's
+	// time. The Response lens's timeline is ordered by it (adr/0361).
+	CreatedAt time.Time
 }
 
 // ActionCurrentProjector populates the action_current table — one row per
@@ -336,7 +339,7 @@ const actionCurrentColumns = `action_id, aggregate_id, action_type, tier, status
 	       primary_approver_ref, primary_approved_at, is_reversal, reversal_of_ref, retry_of,
 	       reversibility, reversed_by_ref, reversal_attempted_by_ref,
 	       required_mode, secondary_approver_pool, parameters, targets, evidence_refs,
-	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence, requesting_interpretation_id, edited_at`
+	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence, requesting_interpretation_id, edited_at, created_at`
 
 // scanActionCurrent decodes one actionCurrentColumns row (sql.Row or sql.Rows).
 func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
@@ -349,7 +352,7 @@ func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
 		&mode, &approver, &primaryAt, &a.IsReversal, &reversalOf, &retryOf,
 		&reversibility, &reversedBy, &attemptedBy,
 		&requiredMode, &pool, &params, &targets, &evidence, &expiresAt,
-		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence, &requesting, &editedAt)
+		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence, &requesting, &editedAt, &a.CreatedAt)
 	if err != nil {
 		return ActionCurrent{}, err
 	}
