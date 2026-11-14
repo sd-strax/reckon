@@ -48,10 +48,12 @@ const (
 	TypeDirectory      = "directory"
 	TypeNetworkTraffic = "network-traffic"
 	TypeEmailMessage   = "email-message"
-	TypeHost           = "x-host"
-	TypeRegistryKey    = "x-registry-key"
-	TypeScheduledTask  = "x-scheduled-task"
-	TypeGroup          = "x-group"
+	// TypeWindowsRegistryKey is STIX's own registry key, minted with a
+	// host-scoped identity (03 §7.2, adr/0341).
+	TypeWindowsRegistryKey = "windows-registry-key"
+	TypeHost               = "x-host"
+	TypeScheduledTask      = "x-scheduled-task"
+	TypeGroup              = "x-group"
 	// TypeCloudAccount and TypeCloudResource are the control-plane objects a
 	// cloud audit event names (03 §7.2): the account (subscription, project)
 	// the call ran in, and the resource it acted on.
@@ -463,15 +465,73 @@ func (r *Resolver) Host(h HostIdentity) STIXID {
 	return ""
 }
 
-// RegistryKey resolves an x-registry-key SCO. hive and key_path are lowercased;
-// value_name is preserved.
-func (r *Resolver) RegistryKey(hostRef STIXID, hive, keyPath, valueName string) STIXID {
-	return r.mint(TypeRegistryKey, map[string]any{
-		"host_ref":   string(hostRef),
-		"hive":       strings.ToLower(strings.TrimSpace(hive)),
-		"key_path":   strings.ToLower(strings.TrimSpace(keyPath)),
-		"value_name": strings.TrimSpace(valueName),
-	})
+// registryRoots maps a registry root, as a source writes it, to the full
+// hive name STIX requires (adr/0341). Keys are upper case.
+var registryRoots = map[string]string{
+	"HKLM":                "HKEY_LOCAL_MACHINE",
+	`REGISTRY\MACHINE`:    "HKEY_LOCAL_MACHINE",
+	"HKEY_LOCAL_MACHINE":  "HKEY_LOCAL_MACHINE",
+	"HKU":                 "HKEY_USERS",
+	`REGISTRY\USER`:       "HKEY_USERS",
+	"HKEY_USERS":          "HKEY_USERS",
+	"HKCU":                "HKEY_CURRENT_USER",
+	"HKEY_CURRENT_USER":   "HKEY_CURRENT_USER",
+	"HKCR":                "HKEY_CLASSES_ROOT",
+	"HKEY_CLASSES_ROOT":   "HKEY_CLASSES_ROOT",
+	"HKCC":                "HKEY_CURRENT_CONFIG",
+	"HKEY_CURRENT_CONFIG": "HKEY_CURRENT_CONFIG",
+}
+
+// RegistryKeyPath is the key of a windows-registry-key built from a full
+// registry path, hive first (adr/0341). Surrounding whitespace and leading or
+// trailing backslashes are trimmed, and the leading root becomes the full hive
+// name in upper case: HKLM and \REGISTRY\MACHINE become HKEY_LOCAL_MACHINE,
+// HKU and \REGISTRY\USER become HKEY_USERS, and HKCU, HKCR and HKCC their
+// full names, in any letter case. The rest keeps the source's case. A root
+// that is none of these is kept as written.
+func RegistryKeyPath(path string) string {
+	path = strings.Trim(strings.TrimSpace(path), `\`)
+	if path == "" {
+		return ""
+	}
+	first, rest, _ := strings.Cut(path, `\`)
+	if strings.EqualFold(first, "REGISTRY") {
+		// \REGISTRY\MACHINE and \REGISTRY\USER are two-segment roots.
+		second, after, _ := strings.Cut(rest, `\`)
+		if hive, ok := registryRoots[strings.ToUpper(first+`\`+second)]; ok {
+			return joinRegistryKey(hive, after)
+		}
+		return path
+	}
+	if hive, ok := registryRoots[strings.ToUpper(first)]; ok {
+		return joinRegistryKey(hive, rest)
+	}
+	return path
+}
+
+func joinRegistryKey(hive, rest string) string {
+	if rest == "" {
+		return hive
+	}
+	return hive + `\` + rest
+}
+
+// RegistryKey resolves a windows-registry-key SCO on (host, key, value name),
+// a documented deviation from STIX's key + values rule (03 §7.2, adr/0341).
+// key is built with RegistryKeyPath and lower-cased; valueName is
+// lower-cased. Registry key and value names are not case sensitive. A nil
+// valueName is a key with no value named, which leaves value_name out of the
+// identity; "" is the key's default value. The value's data and type are not
+// part of identity.
+func (r *Resolver) RegistryKey(hostRef STIXID, key string, valueName *string) STIXID {
+	contributing := map[string]any{
+		"host_ref": string(hostRef),
+		"key":      strings.ToLower(RegistryKeyPath(key)),
+	}
+	if valueName != nil {
+		contributing["value_name"] = strings.ToLower(*valueName)
+	}
+	return r.mint(TypeWindowsRegistryKey, contributing)
 }
 
 // ScheduledTask resolves an x-scheduled-task SCO. name and path are lowercased.

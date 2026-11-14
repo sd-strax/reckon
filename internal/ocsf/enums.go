@@ -23,6 +23,11 @@ var (
 	Statuses = map[int]string{1: "Success", 2: "Failure"}
 	// IncidentStatuses is an incident finding's status_id.
 	IncidentStatuses = map[int]string{1: "New", 2: "In Progress", 3: "On Hold", 4: "Resolved", 5: "Closed"}
+	// RegistryValueTypes is a registry value's type_id.
+	RegistryValueTypes = map[int]string{
+		1: "REG_BINARY", 2: "REG_DWORD", 3: "REG_DWORD_BIG_ENDIAN", 4: "REG_EXPAND_SZ", 5: "REG_LINK",
+		6: "REG_MULTI_SZ", 7: "REG_NONE", 8: "REG_QWORD", 9: "REG_QWORD_LITTLE_ENDIAN", 10: "REG_SZ",
+	}
 )
 
 // Other is the value every OCSF enum has for a source's word that is none of
