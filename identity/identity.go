@@ -484,13 +484,18 @@ var registryRoots = map[string]string{
 
 // RegistryKeyPath is the key of a windows-registry-key built from a full
 // registry path, hive first (adr/0341). Surrounding whitespace and leading or
-// trailing backslashes are trimmed, and the leading root becomes the full hive
+// trailing backslashes are trimmed, repeated backslashes inside are one (a
+// key name cannot hold a backslash, so a run is malformed input), and the
+// leading root becomes the full hive
 // name in upper case: HKLM and \REGISTRY\MACHINE become HKEY_LOCAL_MACHINE,
 // HKU and \REGISTRY\USER become HKEY_USERS, and HKCU, HKCR and HKCC their
 // full names, in any letter case. The rest keeps the source's case. A root
 // that is none of these is kept as written.
 func RegistryKeyPath(path string) string {
 	path = strings.Trim(strings.TrimSpace(path), `\`)
+	for strings.Contains(path, `\\`) {
+		path = strings.ReplaceAll(path, `\\`, `\`)
+	}
 	if path == "" {
 		return ""
 	}
@@ -518,7 +523,8 @@ func joinRegistryKey(hive, rest string) string {
 
 // RegistryKey resolves a windows-registry-key SCO on (host, key, value name),
 // a documented deviation from STIX's key + values rule (03 §7.2, adr/0341).
-// key is built with RegistryKeyPath and lower-cased; valueName is
+// key is the normalizer's RegistryKeyPath, which the resolver only trims and
+// lower-cases (03 §7.4): it does not expand a hive itself. valueName is
 // lower-cased. Registry key and value names are not case sensitive. A nil
 // valueName is a key with no value named, which leaves value_name out of the
 // identity; "" is the key's default value. The value's data and type are not
@@ -526,7 +532,7 @@ func joinRegistryKey(hive, rest string) string {
 func (r *Resolver) RegistryKey(hostRef STIXID, key string, valueName *string) STIXID {
 	contributing := map[string]any{
 		"host_ref": string(hostRef),
-		"key":      strings.ToLower(RegistryKeyPath(key)),
+		"key":      strings.ToLower(strings.TrimSpace(key)),
 	}
 	if valueName != nil {
 		contributing["value_name"] = strings.ToLower(*valueName)

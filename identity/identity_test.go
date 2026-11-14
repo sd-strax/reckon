@@ -106,8 +106,10 @@ func TestCanonicalizationEquivalence(t *testing.T) {
 	}
 }
 
-// TestRegistryKey (adr/0341): the key carries its hive expanded, and the
+// TestRegistryKey (adr/0341): RegistryKeyPath expands the hive, and the
 // identity is the host, the lower-cased key and the lower-cased value name.
+// The resolver only folds; HKLM and HKEY_LOCAL_MACHINE are one key once the
+// normalizer has shaped the path.
 func TestRegistryKey(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{`HKLM\Software\Run`, `HKEY_LOCAL_MACHINE\Software\Run`},
@@ -121,6 +123,7 @@ func TestRegistryKey(t *testing.T) {
 		{`HKCR\.exe`, `HKEY_CLASSES_ROOT\.exe`},
 		{`HKCC\System`, `HKEY_CURRENT_CONFIG\System`},
 		{`HKLM\`, `HKEY_LOCAL_MACHINE`},
+		{`HKLM\\Software\\\Run`, `HKEY_LOCAL_MACHINE\Software\Run`},
 		{`\REGISTRY\A\x`, `REGISTRY\A\x`},
 		{`Software\Run`, `Software\Run`},
 		{"", ""},
@@ -138,8 +141,9 @@ func TestRegistryKey(t *testing.T) {
 		a, b STIXID
 		same bool
 	}{
-		{"abbreviated hive", r.RegistryKey("x-host--1", `HKLM\Software\Run`, name("Updater")), r.RegistryKey("x-host--1", run, name("Updater")), true},
-		{"key case", r.RegistryKey("x-host--1", `hklm\software\run`, nil), r.RegistryKey("x-host--1", run, nil), true},
+		{"abbreviated hive, shaped", r.RegistryKey("x-host--1", RegistryKeyPath(`HKLM\Software\Run`), name("Updater")), r.RegistryKey("x-host--1", run, name("Updater")), true},
+		{"resolver does not expand", r.RegistryKey("x-host--1", `HKLM\Software\Run`, name("Updater")), r.RegistryKey("x-host--1", run, name("Updater")), false},
+		{"key case", r.RegistryKey("x-host--1", `hkey_local_machine\software\run`, nil), r.RegistryKey("x-host--1", run, nil), true},
 		{"value name case", r.RegistryKey("x-host--1", run, name("Updater")), r.RegistryKey("x-host--1", run, name("updater")), true},
 		{"key only vs default value", r.RegistryKey("x-host--1", run, nil), r.RegistryKey("x-host--1", run, name("")), false},
 		{"two values", r.RegistryKey("x-host--1", run, name("Updater")), r.RegistryKey("x-host--1", run, name("Other")), false},
