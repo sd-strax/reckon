@@ -535,11 +535,14 @@ func TestHostAliasEmission(t *testing.T) {
 // the classes and fields are OCSF's, and file hashes are read in OCSF's list
 // form only. dns_activity, user_inventory and cloud_resources_inventory_info
 // read the same input as before and did not move.
+//
+// adr/0359 moved the detection, email, email_file, email_url, account and
+// registry normalizers once more, for the four OCSF read gaps it closes.
 func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 4}, {3002, 5}, {4001, 3}, {4003, 2}, {1001, 4}, {201001, 4}, {201002, 4}, {1006, 4}, {1005, 3},
-		{3001, 4}, {3005, 4}, {3006, 4}, {4009, 3}, {4011, 4}, {4012, 4}, {2004, 6}, {2005, 2},
+		{1007, 4}, {3002, 5}, {4001, 3}, {4003, 2}, {1001, 4}, {201001, 5}, {201002, 5}, {1006, 4}, {1005, 3},
+		{3001, 5}, {3005, 5}, {3006, 5}, {4009, 4}, {4011, 5}, {4012, 5}, {2004, 7}, {2005, 2},
 		{5001, 3}, {6003, 3}, {5023, 4}, {5003, 2}, {0, 1},
 	} {
 		n, ok := reg.byClass[c.class]

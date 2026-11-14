@@ -802,7 +802,9 @@ normalizer.
 - registry_key_activity carries `reg_key.path`, the full key path with the
   hive first.
 - registry_value_activity carries `reg_value.{path,name,data,type,type_id}`.
-  Here `path` is the key the value lives under.
+  Here `path` is the key the value lives under. From 1.6.0 the data can
+  instead arrive in a field for its type: `reg_string_data`,
+  `reg_integer_data`, `reg_binary_data` or `reg_string_list_data`.
 
 Both carry `activity_id`, `actor.process.*`, `device.*` and `time`. Class
 1003 is OCSF's Kernel Activity, not a registry class (adr/0356).
@@ -826,6 +828,12 @@ Output:
   - A key event has no `values`.
   - An event with no key path mints no object.
   - Identity is in §7.2.
+- The value's `data` comes from the first typed field that holds a value
+  (`reg_string_data`, `reg_integer_data`, `reg_binary_data`,
+  `reg_string_list_data`, from 1.6.0), else from `reg_value.data`. An empty
+  typed field counts as absent. The value is then written by the rule
+  above: a string as it arrives, anything else as its JSON text. The event
+  view reads the data by the same rule (adr/0359).
 - `process` SCO for the actor process.
 - `x-host` SCO for the device.
 - One `ObservedData` referencing the registry key, actor, and host. The
@@ -887,13 +895,16 @@ for its own fields (adr/0356).
 - user_access (3005, User Access Management) covers assigning and revoking
   privileges. It carries `user.*` and `privileges[]`.
 - group_management (3006) covers adding and removing a member. It carries
-  `user.*`, `group.{name,domain,uid}` and `privileges[]`.
+  `user.*`, `group.{name,domain,uid}` and `privileges[]`. From 1.9.0 the
+  members are `users[]`, and `user` is deprecated. Every entry of `users[]`
+  is a target, and `user` is read when no entry of `users[]` names a user
+  (adr/0359).
 
 All three carry `activity_id`, `device.*` and `time`.
 
 Output:
 
-- `user-account` SCO for the target user.
+- `user-account` SCO for each target user.
 - `user-account` SCO for the initiator if present. Both are shaped by the
   account rule (§7.2): the record's strongest identifier is in
   `object_refs`; each lesser identifier it carries mints its own account
@@ -902,7 +913,7 @@ Output:
 - `x-host` SCO for the device if present (often the IdP itself for cloud
   events).
 - For group_management (3006): STIX `Relationship` of custom type
-  `member-of-group` from target user to a `x-group` custom SCO. Identity for
+  `member-of-group` from each target user to a `x-group` custom SCO. Identity for
   `x-group`: `(directory_ref.value, group_name)` where `directory_ref` is
   the AD/Entra/Okta tenant identifier.
 - One `ObservedData` referencing all of the above. The `activity_id` is
@@ -942,20 +953,22 @@ Output:
 - Edges as in §4.1.
 
 `email-message` identity is the `message_id` **alone** when present, else
-`(from_ref.value, subject, date)` as a fallback. This is a deliberate deviation
+`(from_ref.value, subject, date, recipients, thread_uid)` as a fallback.
+`date` is the event's time to the second. The recipients are the sorted,
+lowercased to, cc, bcc, `smtp_to` and Delivered-To (`delivered_to_list`,
+else `delivered_to`) addresses, and
+`thread_uid` counts only when present. They keep apart the separate copies
+of a phishing or spam run, and messages from different threads (adr/0359). This is a deliberate deviation
 from strict STIX 2.1, which uses `(message_id, from_ref.value)`. The RFC
 requires `message_id` to be unique. Identity on it alone lets two sources'
 records of one message join even when they disagree on its sender.
 
-A message may also carry the source's own id, `email.uid`. That id yields a
-second, weak `email-message` on `(source_tool, uid)`, marked `weak: true`
-and kept outside `object_refs`. The weak message gets an `aliases` edge to
-the strong one. This is the rule hosts and accounts already follow (adr/0211, adr/0324):
-a weak object never joins another on its own.
+A message may also carry `email.uid`. From 1.4.0 OCSF defines it as the id
+of the email thread, not of one message. It is kept on the message as
+`thread_uid` at every version. It creates no identity and no `aliases` edge,
+because two messages in one thread would then read as one (adr/0359).
 
-The weak message matters because `email.uid` is how an `email_url_activity`
-click (§4.11) names the message. The click joins the delivered message
-through the `aliases` edge (adr/0356). Same stitching-precedence rationale as the
+Same stitching-precedence rationale as the
 `process`/`email-addr`/`user-account` deviations (§7.2). Cross-tool stitching
 for emails is more reliable than for processes because `message_id` is unique.
 
@@ -963,16 +976,16 @@ for emails is more reliable than for processes because `message_id` is unique.
 
 Input: OCSF email_url_activity with `url.url_string`, `email_uid`,
 `actor.user.*` (the clicker), `time` and optional `device.*`. `email_uid` is
-the source's id for the message, which OCSF matches to `email.uid`. Class
-4011 is email_file_activity (§4.11a), not this class (adr/0356).
+the source's id for the email, matched to `email.uid` from 1.4.0. Class 4011 is email_file_activity (§4.11a),
+not this class (adr/0356).
 
 Output:
 
 - `url` SCO for the clicked URL.
-- `email-message` SCO for `email_uid` when present. This is the weak
-  message on `(source_tool, uid)` (§4.10). It joins the delivered message
-  through the `aliases` edge from that message's email_activity record.
-  Until such a record arrives, the weak message stands alone.
+- No `email-message`. From 1.4.0 OCSF matches `email_uid` to `email.uid`,
+  which is a thread id, so a click names a thread, never one message. The
+  `email_uid` is kept in the observation's extension fields as
+  `thread_uid` (§4.10, adr/0359).
 - `user-account` SCO for the clicker, shaped by the account rule (§7.2):
   the record's strongest identifier is in `object_refs`; each lesser
   identifier it carries mints its own account outside them, with `aliases`
@@ -980,27 +993,23 @@ Output:
 - `x-host` SCO for the device if present.
 - STIX `Relationship` of custom type `clicked` from the user-account to the
   url.
-- STIX `Relationship` of native type `contains` from the email-message to
-  the url, if the message context is available.
 - One `ObservedData` referencing all of the above.
 - Edges as in §4.1.
 
 ### 4.11a OCSF email_file_activity (class_uid 4011) → STIX
 
 Input: OCSF email_file_activity with `file.*` (the attachment), `email_uid`
-(the source's id for the message), `actor.user.*`, `activity_id`, `time`
+(the source's id for the email, as for a click), `actor.user.*`, `activity_id`, `time`
 and optional `device.*`. Below 1.4.0, this is the only place an attachment
 appears (adr/0356).
 
 Output:
 
 - `file` SCO for the attachment, with hashes if present.
-- `email-message` SCO for `email_uid` when present. This is the weak
-  message on `(source_tool, uid)` (§4.10), as for a click (§4.11).
+- No `email-message`, as for a click (§4.11). The `email_uid` is kept in
+  the observation's extension fields as `thread_uid`.
 - `user-account` SCO for the actor, shaped by the account rule (§7.2).
 - `x-host` SCO for the device if present.
-- STIX `Relationship` of native type `contains` from the email-message to the
-  file.
 - One `ObservedData` referencing all of the above, with the `activity_id`
   kept in extension fields.
 - Edges as in §4.1.
@@ -1061,10 +1070,31 @@ Output:
   An artifact is not an event and has no class, so none is sent through the
   registry (adr/0356).
 - The finding's own `cloud` and `resources[]` give the cloud account and
-  resources, by §4.15's rules. When the finding names a cloud provider, an
-  artifact's `actor.user` is shaped as that provider's cloud principal
-  (§4.15). An alert and the API calls about one resource then meet on the
-  same objects.
+  resources, by §4.15's rules. An alert and the API calls about one
+  resource then meet on the same objects.
+- On a finding that names a cloud provider, an artifact's `actor.user` is
+  shaped as that provider's cloud principal (§4.15) only when the event
+  says it is one (adr/0359):
+  - `actor.user.account.type_id` (else its caption, `account.type`) is a
+    user type of the finding's own provider (AWS 3 or 4, Azure 6, GCP 5);
+    or
+  - the id the principal would be keyed on has the provider's principal
+    form. For AWS that is an ARN in any AWS partition (`arn:aws:`,
+    `arn:aws-cn:`, `arn:aws-us-gov:` and the like), an IAM unique id
+    (`AIDA` or `AROA` and at least 16 more capital letters or digits), or
+    the root principal: a 12-digit id equal to the finding's own account
+    id or the user's own account id. The check is on the key itself, so an
+    ARN in one field never vouches for a different id in another. When the
+    provider's session row (§4.15) gives the key, the check is on that
+    value; a session issuer such as `sshd` is no signal.
+
+  A container type, such as 10 AWS Account, gives no signal. Nor does a
+  user type of another provider.
+
+  A host or directory account type (1, 2, 7, 9, 19) is read by the account
+  rule (§7.2), as on any other event, whatever the provider. So is an
+  actor with no signal either way. A login on a VM only means something on
+  that VM.
 - One `ObservedData` referencing the entities named in the detection,
   separate from the Sighting. This preserves the raw "this entity was seen"
   signal independent of the vendor's interpretation.

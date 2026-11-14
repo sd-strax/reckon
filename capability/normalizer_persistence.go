@@ -1,9 +1,6 @@
 package capability
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/ocsf"
 )
@@ -33,7 +30,8 @@ func (n *registryNormalizer) ClassUID() int { return n.class }
 // 2: host identity, adr/0211
 // 3: OCSF classes and fields, adr/0356
 // 4: STIX windows-registry-key, adr/0341
-func (*registryNormalizer) Version() int { return 4 }
+// 5: OCSF read gaps, adr/0359
+func (*registryNormalizer) Version() int { return 5 }
 
 func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -73,13 +71,14 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 
 // registryValue is the windows-registry-value-type of a value event: the name
 // as written ("" for the default value), the data as a string, and the STIX
-// data_type when the source's type is one (adr/0341).
+// data_type when the source's type is one (adr/0341). The data is read from
+// the first typed field that holds a value, else from data, by the rule the
+// event view shares (ocsf.RegistryValueData, adr/0359). data_type comes only
+// from reg_value.type or type_id, never from which typed field held the data.
 func registryValue(p map[string]any, name string) map[string]any {
 	value := map[string]any{"name": name}
-	if v, ok := lookupPath(p, "reg_value.data"); ok && v != nil {
-		if data, ok := registryData(v); ok {
-			value["data"] = data
-		}
+	if data, ok := ocsf.RegistryValueData(objectAt(p, "reg_value"), fieldOf); ok {
+		value["data"] = data
 	}
 	dataType := pathStr(p, "reg_value.type")
 	if !stixRegistryDataTypes[dataType] {
@@ -89,27 +88,6 @@ func registryValue(p map[string]any, name string) map[string]any {
 		value["data_type"] = dataType
 	}
 	return value
-}
-
-// registryData is a value's data as a string. OCSF types it as JSON, so a
-// value that is not a string is written as its JSON text. A number that
-// float64 cannot state exactly (a REG_QWORD FILETIME at or above 2^53, which
-// arrives rounded) reports false, and the value leaves data out as it does
-// when the source gives none.
-func registryData(v any) (string, bool) {
-	switch x := v.(type) {
-	case string:
-		return x, true
-	case float64:
-		if !exactNumber(x) {
-			return "", false
-		}
-	}
-	text, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Sprint(v), true
-	}
-	return string(text), true
 }
 
 // stixRegistryDataTypes are the data_type names STIX 2.1 allows on a

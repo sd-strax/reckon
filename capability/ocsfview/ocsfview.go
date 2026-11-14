@@ -283,7 +283,11 @@ func (r *renderer) keyList(name string, slots []slot, fold bool) {
 // value's ref when the record minted it, else its exact text. Two different
 // objects that read the same (two resources one name) never fold; an unbound
 // value keys by its text exactly.
-func (r *renderer) keyRefList(name string, slots []slot) {
+func (r *renderer) keyRefList(name string, slots []slot) { r.keyRefs(name, slots, false) }
+
+// keyRefs is keyRefList, with an unbound value's text folded for case when
+// fold is set: a login, which compares case-insensitively.
+func (r *renderer) keyRefs(name string, slots []slot, fold bool) {
 	texts := make([]string, 0, len(slots))
 	keys := make([]string, 0, len(slots))
 	for _, s := range slots {
@@ -291,9 +295,12 @@ func (r *renderer) keyRefList(name string, slots []slot) {
 			continue
 		}
 		texts = append(texts, s.text)
-		if s.ref != "" {
+		switch {
+		case s.ref != "":
 			keys = append(keys, "ref:"+s.ref)
-		} else {
+		case fold:
+			keys = append(keys, "text:"+strings.ToLower(s.text))
+		default:
 			keys = append(keys, "text:"+s.text)
 		}
 	}
@@ -304,7 +311,17 @@ func (r *renderer) keyRefList(name string, slots []slot) {
 		enc, _ := json.Marshal(keys) // strings always marshal
 		id = string(enc)
 	}
-	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(texts, ", "), Identity: id})
+	// One bound value carries its ref, as keySlot's does, so a pivot on that
+	// entity drops the key part (keyParts).
+	ref := ""
+	if len(keys) == 1 {
+		for _, s := range slots {
+			if s.text != "" {
+				ref = s.ref
+			}
+		}
+	}
+	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(texts, ", "), Ref: ref, Identity: id})
 }
 
 // slot is a sentence slot: what the payload shows, and the record's ref when
@@ -429,11 +446,25 @@ func (r *renderer) user(prefix string) slot { return r.userIn(r.p, prefix) }
 // userIn is user for a user object at prefix of m, an object of the event
 // such as an entry of evidences[].
 func (r *renderer) userIn(m map[string]any, prefix string) slot {
-	name := pathStr(m, prefix+".name")
+	return r.userNamed(pathStr(m, prefix+".name"), pathStr(m, prefix+".domain"))
+}
+
+// userOf is user for a user object in hand, such as an entry of users[]. It
+// returns the slot and the login qualified as qualifiedUser does.
+func (r *renderer) userOf(u map[string]any) (slot, string) {
+	name, domain := toString(fieldOf(u, "name")), toString(fieldOf(u, "domain"))
+	qualified := name
+	if domain != "" && name != "" {
+		qualified = domain + `\` + name
+	}
+	return r.userNamed(name, domain), qualified
+}
+
+// userNamed binds a user by its name and domain, by the rule user describes.
+func (r *renderer) userNamed(name, domain string) slot {
 	if name == "" {
 		return slot{}
 	}
-	domain := pathStr(m, prefix+".domain")
 	ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool {
 		login := toString(p["account_login"])
 		if domain != "" {
@@ -967,7 +998,10 @@ func (r *renderer) registry() {
 		full = r.str("reg_value.path")
 		regValue, _ := pathAny(r.p, "reg_value").(map[string]any)
 		valueName, named = ocsf.RegistryValueName(regValue)
-		valueData, valueType = r.str("reg_value.data"), r.str("reg_value.type")
+		// The data by the normalizer's own rule: the typed field first,
+		// then data (adr/0359).
+		valueData, _ = ocsf.RegistryValueData(regValue, fieldOf)
+		valueType = r.str("reg_value.type")
 	} else {
 		full = r.str("reg_key.path")
 	}
@@ -1163,7 +1197,7 @@ var groupLeads = map[string]string{"add user": " to ", "remove user": " from "}
 // (3001), user_access (3005) and group_management (3006). Each class is read
 // only for its own fields: the group on 3006, the privileges on 3005 and 3006.
 func (r *renderer) account() {
-	target := r.user("user")
+	targets, qualified := r.accountTargets()
 	actor := r.user("actor.user")
 	host := r.host("device")
 	hasGroup := r.class == classGroupManagement
@@ -1185,12 +1219,12 @@ func (r *renderer) account() {
 
 	if actor.empty() {
 		r.text("Account ")
-		r.entity(target)
+		r.entities(targets)
 		r.text(" " + pastToPassive(verb))
 	} else {
 		r.entity(actor)
 		r.text(" " + verb + " ")
-		r.entity(target)
+		r.entities(targets)
 	}
 	lead, ok := groupLeads[strings.ToLower(r.str("activity_name"))]
 	if !ok {
@@ -1199,7 +1233,20 @@ func (r *renderer) account() {
 	r.clause(lead, group)
 	r.clause(" on ", host)
 
-	r.entityField("Account", slot{text: r.qualifiedUser("user"), ref: target.ref})
+	// One linked row per target, as resources render, up to shownMembers
+	// and a "+N more" row for the rest.
+	rows := 0
+	for i, target := range targets {
+		if qualified[i] == "" {
+			continue
+		}
+		if rows == shownMembers {
+			r.field("Account", fmt.Sprintf("+%d more", countNamed(qualified)-shownMembers))
+			break
+		}
+		r.entityField("Account", slot{text: qualified[i], ref: target.ref})
+		rows++
+	}
 	r.entityField("By", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
 	r.activityField()
 	r.entityField("Group", group)
@@ -1207,7 +1254,14 @@ func (r *renderer) account() {
 	r.entityField("Host", host)
 
 	r.keySlot("actor", actor)
-	r.keySlot("target", target)
+	// Each target keys on its ref, else on its qualified login folded for
+	// case, whether there is one or many, so two domains' same-named members
+	// never fold and one login in two cases does (adr/0359).
+	keyed := make([]slot, len(targets))
+	for i, s := range targets {
+		keyed[i] = slot{text: qualified[i], ref: s.ref}
+	}
+	r.keyRefs("target", keyed, true)
 	if hasGroup {
 		r.keySlot("group", group)
 	}
@@ -1216,6 +1270,79 @@ func (r *renderer) account() {
 		r.keyText("privileges", privileges)
 	}
 	r.keyText("activity", r.str("activity_name"))
+}
+
+// accountTargets reads the accounts an account event is about, with each
+// one's qualified login. On group_management every entry of users[] (OCSF
+// 1.9.0) that names a user (ocsf.NamesUser) is a target, and user is read
+// when no entry does, as the normalizer reads them (adr/0359). The other
+// classes read user alone. It always returns at least one slot, empty when
+// the event names nobody.
+func (r *renderer) accountTargets() ([]slot, []string) {
+	if r.class == classGroupManagement {
+		var targets []slot
+		var qualified []string
+		seen := map[string]bool{}
+		for _, v := range pathList(r.p, "users") {
+			u, ok := v.(map[string]any)
+			if !ok || !ocsf.NamesUser(u, fieldOf) {
+				continue
+			}
+			s, q := r.userOf(u)
+			// A member listed twice is one account, as the normalizer mints
+			// it once: by its ref, else by its login folded for case.
+			key := "text:" + strings.ToLower(q)
+			if s.ref != "" {
+				key = "ref:" + s.ref
+			}
+			if q != "" && seen[key] {
+				continue
+			}
+			seen[key] = true
+			targets, qualified = append(targets, s), append(qualified, q)
+		}
+		if len(targets) > 0 {
+			return targets, qualified
+		}
+	}
+	return []slot{r.user("user")}, []string{r.qualifiedUser("user")}
+}
+
+// countNamed is how many of names are not empty.
+func countNamed(names []string) int {
+	n := 0
+	for _, s := range names {
+		if s != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// shownMembers is how many entries of a list the sentence and the field
+// rows name before "+N more", as a message's recipients (adr/0359).
+const shownMembers = 2
+
+// entities adds the first shownMembers slots that have a value to the
+// sentence, joined with commas, and " +N more" for the rest, as a message's
+// recipients read.
+func (r *renderer) entities(all []slot) {
+	var slots []slot
+	for _, s := range all {
+		if !s.empty() {
+			slots = append(slots, s)
+		}
+	}
+	for i, s := range slots {
+		if i == shownMembers {
+			r.text(fmt.Sprintf(" +%d more", len(slots)-shownMembers))
+			return
+		}
+		if i > 0 {
+			r.text(", ")
+		}
+		r.entity(s)
+	}
 }
 
 func (r *renderer) email() {
@@ -1298,7 +1425,7 @@ func (r *renderer) emailURL() {
 	r.activityField()
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.entityField("Host", host)
-	r.mono("Email id", r.str("email_uid"))
+	r.mono("Thread id", r.str("email_uid"))
 
 	r.keySlot("user", user)
 	r.keySlot("host", host)
@@ -1308,8 +1435,8 @@ func (r *renderer) emailURL() {
 
 var emailFileVerbs = map[string]string{"send": "sent", "receive": "received", "scan": "scanned"}
 
-// emailFile renders an attachment event (03 §4.11a): the file, the email it
-// came with by the source's id, and who and where.
+// emailFile renders an attachment event (03 §4.11a): the file, the source's
+// email id (a thread id from OCSF 1.4.0, adr/0359), and who and where.
 func (r *renderer) emailFile() {
 	user := r.user("actor.user")
 	host := r.host("device")
@@ -1335,7 +1462,7 @@ func (r *renderer) emailFile() {
 	if size := r.int("file.size"); size != 0 {
 		r.mono("Size", strconv.Itoa(size)+" bytes")
 	}
-	r.mono("Email id", r.str("email_uid"))
+	r.mono("Thread id", r.str("email_uid"))
 
 	r.keySlot("user", user)
 	r.keySlot("host", host)
@@ -1348,9 +1475,10 @@ func (r *renderer) emailFile() {
 // artifact's actor.user, else its user.
 //
 // A cloud finding names its account and resources on the finding itself
-// (adr/0356). They bind as on a control-plane call. When the finding names a
-// cloud provider, an artifact's actor.user is that provider's principal, and
-// binds by its durable id the way the normalizer keyed it.
+// (adr/0356). They bind as on a control-plane call. An artifact's
+// actor.user is read by the normalizer's rule (ocsf.IsCloudPrincipal,
+// adr/0359). The provider's user binds by its durable id, the way the
+// normalizer keys it. A login on the host binds by its login.
 func (r *renderer) detection() {
 	title := r.str("finding_info.title")
 	uid := r.str("finding_info.uid")
@@ -1366,7 +1494,8 @@ func (r *renderer) detection() {
 	}
 	confidence = firstNonEmpty(confidence, ocsf.Confidences[r.int("confidence_id")], r.str("confidence"))
 
-	cloud := r.str("cloud.provider") != ""
+	provider := ocsf.ProviderSlug(r.str("cloud.provider"))
+	finding := ocsf.PrincipalContext{AccountUID: strings.TrimSpace(r.str("cloud.account.uid"))}
 	resources := r.cloudResources()
 	account := r.findingAccount()
 
@@ -1377,12 +1506,15 @@ func (r *renderer) detection() {
 		if host.empty() {
 			host = r.hostIn(m, "device")
 		}
-		if cloud && user.empty() {
+		// The normalizer's own rule says whether actor.user is the
+		// provider's user or a login on the host (adr/0359).
+		principal := provider != "" && ocsf.IsCloudPrincipal(provider, finding, func(path string) any { return pathAny(m, "actor."+path) })
+		if principal && user.empty() {
 			user = r.cloudPrincipalIn(m)
 			qualified = user.text
 		}
 		for _, prefix := range []string{"actor.user", "user"} {
-			if cloud && prefix == "actor.user" {
+			if principal && prefix == "actor.user" {
 				continue
 			}
 			if user.empty() {

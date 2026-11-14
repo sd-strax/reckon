@@ -621,8 +621,9 @@ func (s *Store) accountKeys(ctx context.Context, refs []string) (accountKeySet, 
 
 // accountSeenAs collects what the user objects of the events referencing any
 // of refs report, for the objects that name the set. The user objects are
-// the ones the normalizers read (actor.user, user, job.user, and actor.user
-// and user in each artifact of a detection's evidences[], 03 §4.12). An object names the set when its
+// the ones the normalizers read: actor.user, user, job.user, each entry of a
+// group change's users[] (03 §4.9, adr/0359), and actor.user and user in
+// each artifact of a detection's evidences[] (03 §4.12). An object names the set when its
 // own first identifier, the one the account rule keys it on, is one of keys:
 // a SID that names a principal, else any other uid, else the principal name,
 // else "domain\sam", else the bare name; so a record keyed elsewhere lends
@@ -645,11 +646,17 @@ func (s *Store) accountSeenAs(ctx context.Context, refs []string, keys accountKe
 		art AS (
 			SELECT ev.source_tool, a FROM ev,
 				jsonb_array_elements(CASE WHEN jsonb_typeof(ev.payload->'evidences') = 'array' THEN ev.payload->'evidences' ELSE '[]'::jsonb END) AS t(a)
+		),
+		-- The members of a group change, users[] from OCSF 1.9.0 (adr/0359).
+		mem AS (
+			SELECT ev.source_tool, m FROM ev,
+				jsonb_array_elements(CASE WHEN jsonb_typeof(ev.payload->'users') = 'array' THEN ev.payload->'users' ELSE '[]'::jsonb END) AS t(m)
 		)
 		SELECT source_tool, u FROM (
 			SELECT source_tool, payload->'actor'->'user' AS u FROM ev
 			UNION ALL SELECT source_tool, payload->'user' FROM ev
 			UNION ALL SELECT source_tool, payload->'job'->'user' FROM ev
+			UNION ALL SELECT source_tool, m FROM mem
 			UNION ALL SELECT source_tool, a->'actor'->'user' FROM art
 			UNION ALL SELECT source_tool, a->'user' FROM art
 		) x WHERE jsonb_typeof(u) = 'object'
