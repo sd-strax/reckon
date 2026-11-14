@@ -449,15 +449,40 @@ func (r *renderer) userIn(m map[string]any, prefix string) slot {
 	return r.userNamed(pathStr(m, prefix+".name"), pathStr(m, prefix+".domain"))
 }
 
-// userOf is user for a user object in hand, such as an entry of users[]. It
-// returns the slot and the login qualified as qualifiedUser does.
-func (r *renderer) userOf(u map[string]any) (slot, string) {
-	name, domain := toString(fieldOf(u, "name")), toString(fieldOf(u, "domain"))
+// accountTarget binds the account a target user object of an account event
+// names, and returns the text that shows it and keys it. The name rule
+// (userNamed) binds first. When it binds nothing, the user-account whose
+// user_id equals the object's uid, else its uid_alt, binds, as
+// cloudPrincipalIn binds by user_id. An id is trimmed, and a placeholder
+// (identity.PlaceholderUserID) is no id. Binding by id is safe because the
+// entities a view receives are the ones derived from that event. The text is
+// the qualified login (domain\name, else the name). With no name it is the
+// uid, else the uid_alt, so a member named by id alone is shown and keyed.
+func (r *renderer) accountTarget(name, domain, uid, uidAlt string) (slot, string) {
+	s := r.userNamed(name, domain)
 	qualified := name
 	if domain != "" && name != "" {
 		qualified = domain + `\` + name
 	}
-	return r.userNamed(name, domain), qualified
+	var ids []string
+	for _, id := range []string{uid, uidAlt} {
+		if id = strings.TrimSpace(id); id != "" && !identity.PlaceholderUserID(id) {
+			ids = append(ids, id)
+		}
+	}
+	if qualified == "" && len(ids) > 0 {
+		qualified = ids[0]
+		s.text = qualified
+	}
+	if s.ref == "" {
+		for _, id := range ids {
+			if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return propEquals(p, "user_id", id) }); ref != "" {
+				s.ref = ref
+				break
+			}
+		}
+	}
+	return s, qualified
 }
 
 // userNamed binds a user by its name and domain, by the rule user describes.
@@ -1272,12 +1297,14 @@ func (r *renderer) account() {
 	r.keyText("activity", r.str("activity_name"))
 }
 
-// accountTargets reads the accounts an account event is about, with each
-// one's qualified login. On group_management every entry of users[] (OCSF
-// 1.9.0) that names a user (ocsf.NamesUser) is a target, and user is read
-// when no entry does, as the normalizer reads them (adr/0359). The other
-// classes read user alone. It always returns at least one slot, empty when
-// the event names nobody.
+// accountTargets reads the accounts an account event is about, with the
+// text that shows and keys each one. On group_management every entry of
+// users[] (OCSF 1.9.0) that names a user (ocsf.NamesUser) is a target, and
+// user is read when no entry does, as the normalizer reads them (adr/0359).
+// The other classes read user alone. Every target, an entry of users[] or
+// user, is read by one rule, accountTarget: bound by its name, else by its
+// uid or uid_alt, and shown by its qualified login, else by that id. It
+// always returns at least one slot, empty when the event names nobody.
 func (r *renderer) accountTargets() ([]slot, []string) {
 	if r.class == classGroupManagement {
 		var targets []slot
@@ -1288,7 +1315,8 @@ func (r *renderer) accountTargets() ([]slot, []string) {
 			if !ok || !ocsf.NamesUser(u, fieldOf) {
 				continue
 			}
-			s, q := r.userOf(u)
+			s, q := r.accountTarget(toString(fieldOf(u, "name")), toString(fieldOf(u, "domain")),
+				toString(fieldOf(u, "uid")), toString(fieldOf(u, "uid_alt")))
 			// A member listed twice is one account, as the normalizer mints
 			// it once: by its ref, else by its login folded for case.
 			key := "text:" + strings.ToLower(q)
@@ -1305,7 +1333,8 @@ func (r *renderer) accountTargets() ([]slot, []string) {
 			return targets, qualified
 		}
 	}
-	return []slot{r.user("user")}, []string{r.qualifiedUser("user")}
+	s, q := r.accountTarget(r.str("user.name"), r.str("user.domain"), r.str("user.uid"), r.str("user.uid_alt"))
+	return []slot{s}, []string{q}
 }
 
 // countNamed is how many of names are not empty.

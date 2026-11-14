@@ -1509,6 +1509,77 @@ func TestRender_GroupMembersDeduplicated(t *testing.T) {
 	}
 }
 
+// TestRender_GroupMemberByID: a users[] entry that names an account by its
+// uid alone shows the uid as the Account, and binds the user-account whose
+// user_id it is when the record holds one.
+func TestRender_GroupMemberByID(t *testing.T) {
+	const sid = "S-1-5-21-7-1101"
+	js := `{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid":"` + sid + `"}]}`
+	for name, tc := range map[string]struct {
+		ents []Entity
+		ref  string
+	}{
+		"bound":   {[]Entity{ent("user-account--sid", map[string]any{"user_id": sid})}, "user-account--sid"},
+		"unbound": {nil, ""},
+	} {
+		v := Render(Event{ClassUID: 3006, Payload: payload(js)}, tc.ents)
+		if f, ok := fieldValue(v, "Account"); !ok || f.Value != sid || f.Ref != tc.ref {
+			t.Errorf("%s: Account = %+v (present %v); want %s linked to %q", name, f, ok, sid, tc.ref)
+		}
+		if got := sentenceText(v); got != "admin added "+sid+" to G" {
+			t.Errorf("%s: sentence = %q", name, got)
+		}
+	}
+}
+
+// TestRender_GroupMemberByIDKeys: a member named by id alone keys the target
+// slot, so two changes of different such members, or of Alice with and
+// without one, never fold; one listed twice is one account.
+func TestRender_GroupMemberByIDKeys(t *testing.T) {
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+	}
+	target := func(v View) string {
+		for _, s := range v.Slots {
+			if s.Name == "target" {
+				return s.Identity
+			}
+		}
+		return ""
+	}
+	a, b := target(render(`[{"uid":"S-1-5-21-7-1101"}]`)), target(render(`[{"uid":"S-1-5-21-7-1102"}]`))
+	if a == "" || a == b {
+		t.Errorf("two id-only members fold: %q, %q", a, b)
+	}
+	alone, with := target(render(`[{"name":"alice"}]`)), target(render(`[{"name":"alice"},{"uid":"S-1-5-21-7-1101"}]`))
+	if alone == "" || alone == with {
+		t.Errorf("alice alone and alice with an id-only member fold: %q, %q", alone, with)
+	}
+	twice := render(`[{"uid":"S-1-5-21-7-1101"},{"uid":" S-1-5-21-7-1101 "}]`)
+	var rows []string
+	for _, f := range twice.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f.Value)
+		}
+	}
+	if !slices.Equal(rows, []string{"S-1-5-21-7-1101"}) {
+		t.Errorf("Account rows = %v; want one", rows)
+	}
+	if target(twice) != a {
+		t.Errorf("target slots %q and %q; want the repeat to fold", target(twice), a)
+	}
+}
+
+// TestRender_AccountChangeUserByID: an account change whose user carries
+// only a uid shows the uid as the Account, read by the same rule as a group
+// member.
+func TestRender_AccountChangeUserByID(t *testing.T) {
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"uid":"S-1-5-21-7-1101"}}`)}, nil)
+	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "S-1-5-21-7-1101" {
+		t.Errorf("Account = %+v (present %v); want the uid", f, ok)
+	}
+}
+
 // TestRender_RegistryTypedDataSlot (adr/0359): the data slot reads the typed
 // field, so two different writes to one value do not fold together.
 func TestRender_RegistryTypedDataSlot(t *testing.T) {
