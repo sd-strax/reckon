@@ -1,6 +1,6 @@
 # 0359 — Cloud alerts keep instance logins apart from provider users, an email's thread id never joins messages, and the newer group and registry fields are read
 
-Issue: #359 · PR: TBD · Status: accepted · Amends: adr/0356
+Issue: #359 · PR: #362 · Status: accepted · Amends: adr/0356
 
 ## Context
 
