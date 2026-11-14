@@ -24,7 +24,7 @@ func buildTestCapability(t *testing.T) (*capability.Resolver, *capability.Catalo
 	}
 	fixture := `{
       "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{}},"delay_ms":0},
-      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:32:11Z","dst_endpoint":{"hostname":"H1"}}
+      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":1776695531000,"time_dt":"2026-04-20T14:32:11Z","dst_endpoint":{"hostname":"H1"}}
     }`
 	if err := os.WriteFile(filepath.Join(dir, "e1.json"), []byte(fixture), 0o644); err != nil {
 		t.Fatal(err)

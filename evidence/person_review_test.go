@@ -50,7 +50,7 @@ func TestInventoryBeforeLogon(t *testing.T) {
 		"user":     map[string]any{"uid": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "uid_alt": sid, "name": "jdoe@contoso.example"},
 	}))
 	persistNormalized(t, s, inv, ocsfEvent("dc", 3002, 2, map[string]any{
-		"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": sid}},
+		"user":         map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": sid},
 		"dst_endpoint": map[string]any{"hostname": "DC1", "os": map[string]any{"type_id": 100}},
 	}))
 	acct := string(testIDs.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, UserID: sid}))
@@ -302,7 +302,7 @@ func TestSeenAs_WeakLogin(t *testing.T) {
 	inv := uuid.New()
 	radius := func(minute int, uid string) capability.OcsfEvent {
 		return ocsfEvent("radius", 3002, minute, map[string]any{
-			"actor": map[string]any{"user": map[string]any{"name": "jdoe", "uid": uid}}, "src_endpoint": map[string]any{"ip": "10.0.4.55"},
+			"user": map[string]any{"name": "jdoe", "uid": uid}, "src_endpoint": map[string]any{"ip": "10.0.4.55"},
 		})
 	}
 	persistNormalized(t, s, inv, radius(1, "u-1"))

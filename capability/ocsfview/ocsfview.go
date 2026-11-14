@@ -15,13 +15,13 @@ package ocsfview
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // Event is what the renderer reads: the class and the raw OCSF payload.
@@ -107,9 +107,11 @@ func Category(classUID int, payload map[string]any) string {
 	if classUID == classCase {
 		return CategoryCase
 	}
-	cat := toInt(payload["category_uid"])
+	cat := toInt(fieldOf(payload, "category_uid"))
 	if cat == 0 {
-		cat = classUID / 1000
+		// An extension's class number carries the extension above the
+		// category: 201001 is extension 2, category 1, class 001.
+		cat = classUID % 100000 / 1000
 	}
 	switch cat {
 	case 1:
@@ -130,39 +132,47 @@ func Category(classUID int, payload map[string]any) string {
 }
 
 // The classes with a template: every class a normalizer handles (03 §4.1–§4.12,
-// §4.15) and device inventory.
+// §4.15) and device inventory. The numbers are OCSF's (adr/0356).
 const (
 	classFileActivity    = 1001
-	classRegistryKey     = 1003
+	classModule          = 1005
 	classScheduledJob    = 1006
 	classProcess         = 1007
-	classModule          = 1009
 	classDetection       = 2004
 	classCase            = 2005
+	classAccountChange   = 3001
 	classAuthentication  = 3002
-	classAccountChange   = 3005
+	classUserAccess      = 3005
+	classGroupManagement = 3006
 	classNetwork         = 4001
 	classDNS             = 4003
 	classEmail           = 4009
-	classEmailURL        = 4011
+	classEmailFile       = 4011
+	classEmailURL        = 4012
 	classDeviceInventory = 5001
 	classCloudInventory  = 5023
 	classAPIActivity     = 6003
+	classRegistryKey     = 201001
+	classRegistryValue   = 201002
 )
 
 // Classes lists the class_uids with a sentence template, sorted.
 func Classes() []int {
 	return []int{
-		classFileActivity, classRegistryKey, classScheduledJob, classProcess, classModule,
-		classDetection, classCase, classAuthentication, classAccountChange,
-		classNetwork, classDNS, classEmail, classEmailURL, classDeviceInventory,
-		classCloudInventory, classAPIActivity,
+		classFileActivity, classModule, classScheduledJob, classProcess,
+		classDetection, classCase, classAccountChange, classAuthentication,
+		classUserAccess, classGroupManagement, classNetwork, classDNS, classEmail,
+		classEmailFile, classEmailURL, classDeviceInventory, classCloudInventory,
+		classAPIActivity, classRegistryKey, classRegistryValue,
 	}
 }
 
 // Render renders one event with the entities the record derived from it.
 func Render(e Event, entities []Entity) View {
-	r := &renderer{p: e.Payload, ents: entities}
+	if renderHook != nil {
+		defer renderHook(e)()
+	}
+	r := &renderer{class: e.ClassUID, p: e.Payload, ents: entities}
 	if r.p == nil {
 		r.p = map[string]any{}
 	}
@@ -177,18 +187,20 @@ func Render(e Event, entities []Entity) View {
 		r.dns()
 	case classFileActivity:
 		r.fileActivity()
-	case classRegistryKey:
-		r.registryKey()
+	case classRegistryKey, classRegistryValue:
+		r.registry()
 	case classScheduledJob:
 		r.scheduledJob()
 	case classModule:
 		r.module()
-	case classAccountChange:
-		r.accountChange()
+	case classAccountChange, classUserAccess, classGroupManagement:
+		r.account()
 	case classEmail:
 		r.email()
 	case classEmailURL:
 		r.emailURL()
+	case classEmailFile:
+		r.emailFile()
 	case classDetection:
 		r.detection()
 	case classCase:
@@ -211,6 +223,7 @@ func Render(e Event, entities []Entity) View {
 // renderer accumulates one view. The sentence helpers add nothing for an
 // empty value, so a template reads as a sequence of optional clauses.
 type renderer struct {
+	class    int
 	p        map[string]any
 	ents     []Entity
 	sentence []Token
@@ -389,8 +402,12 @@ func propEquals(props map[string]any, key, want string) bool {
 // in the record binds the host whose hostname is its first label, and a host
 // minted before the FQDN split, whose hostname property is the full name, still
 // binds. The slot's text stays the name as reported.
-func (r *renderer) host(prefix string) slot {
-	name := r.str(prefix + ".hostname")
+func (r *renderer) host(prefix string) slot { return r.hostIn(r.p, prefix) }
+
+// hostIn is host for a device object at prefix of m, an object of the event
+// such as an entry of evidences[].
+func (r *renderer) hostIn(m map[string]any, prefix string) slot {
+	name := pathStr(m, prefix+".hostname")
 	short, _ := identity.SplitHostname(name)
 	if short == "" {
 		return slot{}
@@ -407,12 +424,16 @@ func (r *renderer) host(prefix string) slot {
 // matches, so two same-named accounts of different domains bind apart; without
 // one the bare name matches, or a qualified login ending in it when the record
 // holds exactly one such account.
-func (r *renderer) user(prefix string) slot {
-	name := r.str(prefix + ".name")
+func (r *renderer) user(prefix string) slot { return r.userIn(r.p, prefix) }
+
+// userIn is user for a user object at prefix of m, an object of the event
+// such as an entry of evidences[].
+func (r *renderer) userIn(m map[string]any, prefix string) slot {
+	name := pathStr(m, prefix+".name")
 	if name == "" {
 		return slot{}
 	}
-	domain := r.str(prefix + ".domain")
+	domain := pathStr(m, prefix+".domain")
 	ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool {
 		login := toString(p["account_login"])
 		if domain != "" {
@@ -424,9 +445,11 @@ func (r *renderer) user(prefix string) slot {
 	return slot{text: name, ref: ref}
 }
 
-func (r *renderer) qualifiedUser(prefix string) string {
-	name := r.str(prefix + ".name")
-	if d := r.str(prefix + ".domain"); d != "" && name != "" {
+func (r *renderer) qualifiedUser(prefix string) string { return qualifiedUserIn(r.p, prefix) }
+
+func qualifiedUserIn(m map[string]any, prefix string) string {
+	name := pathStr(m, prefix+".name")
+	if d := pathStr(m, prefix+".domain"); d != "" && name != "" {
 		return d + `\` + name
 	}
 	return name
@@ -497,7 +520,7 @@ func (r *renderer) file(prefix string) slot {
 
 // proc binds an OCSF process object at prefix to its process by pid. A stored
 // name must agree with the payload's; a process the record holds by pid alone
-// (the network normalizer stores no name) still binds.
+// (one stored before the network normalizer kept the name) still binds.
 func (r *renderer) proc(prefix string) slot {
 	name := r.str(prefix + ".name")
 	pid := r.int(prefix + ".pid")
@@ -547,11 +570,14 @@ func (r *renderer) hashField(prefix string) {
 	}
 }
 
+// logonWords is how a sentence names each OCSF logon type. The key is the
+// logon_type caption in lower case with its spaces removed, so "Remote
+// Interactive" and a source's "RemoteInteractive" both find it (logonKey).
 var logonWords = map[string]string{
 	"interactive":       "interactive",
 	"network":           "network",
 	"batch":             "batch",
-	"service":           "service",
+	"osservice":         "service",
 	"unlock":            "unlock",
 	"networkcleartext":  "network cleartext",
 	"newcredentials":    "new-credentials",
@@ -560,12 +586,21 @@ var logonWords = map[string]string{
 	"system":            "system",
 }
 
+// logonKey is a logon type as logonWords keys it.
+func logonKey(logonType string) string {
+	return strings.ReplaceAll(strings.ToLower(logonType), " ", "")
+}
+
+// authentication renders a logon (03 §4.2). The account that logged on is the
+// event's user. actor.user is whoever started the logon, shown as a field
+// when the event names one that is not the same account (adr/0356).
 func (r *renderer) authentication() {
-	user := r.user("actor.user")
+	user := r.user("user")
+	initiator := r.user("actor.user")
 	host := r.host("dst_endpoint")
 	src := r.ip("src_endpoint.ip")
 	logon := r.str("logon_type")
-	word := logonWords[strings.ToLower(logon)]
+	word := logonWords[logonKey(logon)]
 	if word == "" {
 		word = strings.ToLower(logon)
 	}
@@ -602,7 +637,14 @@ func (r *renderer) authentication() {
 		r.text(" failed")
 	}
 
-	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
+	r.entityField("User", slot{text: r.qualifiedUser("user"), ref: user.ref})
+	// The initiator is the same account when it binds to the same entity,
+	// or, with no entity to go by, when the names differ only in letter case.
+	by := r.qualifiedUser("actor.user")
+	same := initiator.ref != "" && initiator.ref == user.ref || strings.EqualFold(by, r.qualifiedUser("user"))
+	if by != "" && !same {
+		r.entityField("Started by", slot{text: by, ref: initiator.ref})
+	}
 	r.field("Logon type", logon)
 	r.entityField("Source", src)
 	r.field("Location", r.locationText("src_endpoint.location"))
@@ -673,10 +715,10 @@ func (r *renderer) process() {
 	r.keyText("activity", r.str("activity_name"))
 }
 
-// networkActivities are the OCSF network_activity activity ids, for a payload
-// that carries the id without the name.
+// networkActivities are the OCSF network_activity activity captions, for a
+// payload that carries the id without the name.
 var networkActivities = map[int]string{
-	1: "open", 2: "close", 3: "reset", 4: "fail", 5: "refuse", 6: "traffic", 7: "listen",
+	1: "Open", 2: "Close", 3: "Reset", 4: "Fail", 5: "Refuse", 6: "Traffic", 7: "Listen",
 }
 
 // networkVerbs reads the activity as what happened to the connection; an
@@ -698,13 +740,13 @@ func (r *renderer) network() {
 	dst := r.ip("dst_endpoint.ip")
 	domain := r.domain(r.str("dst_endpoint.domain"))
 	proto := r.str("connection_info.protocol_name")
-	proc := r.proc("process")
+	proc := r.proc("actor.process")
 	dport := r.int("dst_endpoint.port")
 	status := r.str("status")
 
 	key := strings.ToLower(r.str("activity_name"))
 	if key == "" {
-		key = networkActivities[r.int("activity_id")]
+		key = strings.ToLower(networkActivities[r.int("activity_id")])
 	}
 	// An activity the table does not know (absent, Unknown, Other) reads as a
 	// connection, or as a failed one when the status says so.
@@ -712,7 +754,7 @@ func (r *renderer) network() {
 	if !ok {
 		verb = networkVerbs["open"]
 	}
-	if (!ok || key == "open") && (statusTone(status) == "bad" || r.int("status_id") == 2) {
+	if (!ok || key == "open") && (statusTone(status) == "bad" || ocsf.Statuses[r.int("status_id")] == "Failure") {
 		verb = networkVerbs["fail"]
 	}
 
@@ -835,7 +877,7 @@ func (r *renderer) dnsAnswers() []slot {
 	var out []slot
 	for _, a := range pathList(r.p, "answers") {
 		m, _ := a.(map[string]any)
-		rdata := toString(m["rdata"])
+		rdata := toString(fieldOf(m, "rdata"))
 		if rdata == "" {
 			continue
 		}
@@ -906,37 +948,59 @@ func (r *renderer) fileActivity() {
 var registryVerbs = map[string]string{
 	"create": "created", "read": "read", "modify": "modified", "delete": "deleted", "rename": "renamed",
 	"set security": "set security on", "restore": "restored", "import": "imported", "export": "exported",
+	"get": "read", "set": "set",
 }
 
-func (r *renderer) registryKey() {
+// registry renders both Windows registry classes (03 §4.6). A key event
+// names the key in reg_key.path. A value event names it in reg_value.path and
+// carries the value's name, data and type. The path is the full key path with
+// the hive first, which is how the record's x-registry-key splits it.
+func (r *renderer) registry() {
 	host := r.host("device")
 	proc := r.proc("actor.process")
 	user := r.user("actor.user")
-	hive, keyPath := r.str("reg_key.hive"), r.str("reg_key.path")
-	keyText := strings.Trim(hive+`\`+keyPath, `\`)
+	var full, valueName, valueData, valueType string
+	if r.class == classRegistryValue {
+		full = r.str("reg_value.path")
+		valueName, valueData, valueType = r.str("reg_value.name"), r.str("reg_value.data"), r.str("reg_value.type")
+	} else {
+		full = r.str("reg_key.path")
+	}
+	keyText := strings.Trim(full, `\`)
+	hive, keyPath := ocsf.SplitRegistryPath(full)
 	key := slot{text: keyText, ref: r.bind(identity.TypeRegistryKey, func(p map[string]any) bool {
 		return propEquals(p, "key_path", keyPath) && strings.EqualFold(toString(p["hive"]), hive)
 	})}
 	verb := r.activity(registryVerbs, "changed")
+	// A value event is about the value: "set value Updater of HKLM\…\Run".
+	object := func() {
+		if valueName != "" {
+			r.text("value " + valueName)
+			r.clause(" of ", key)
+			return
+		}
+		r.entity(key)
+	}
 
 	switch {
 	case !proc.empty():
 		r.entity(proc)
 		r.text(" " + verb + " ")
-		r.entity(key)
+		object()
 	case !user.empty():
 		r.entity(user)
 		r.text(" " + verb + " ")
-		r.entity(key)
+		object()
 	default:
-		r.entity(key)
+		object()
 		r.text(" " + pastToPassive(verb))
 	}
 	r.clause(" on ", host)
 
 	r.entityField("Key", key)
-	r.mono("Value", r.str("reg_value.name"))
-	r.mono("Data", r.str("reg_value.data"))
+	r.mono("Value", valueName)
+	r.mono("Data", valueData)
+	r.field("Type", valueType)
 	r.activityField()
 	r.entityField("Process", proc)
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
@@ -946,8 +1010,8 @@ func (r *renderer) registryKey() {
 	r.keyText("process", proc.text)
 	r.keySlot("user", user)
 	r.keySlot("key", key)
-	r.keyText("value", r.str("reg_value.name"))
-	r.keyExact("data", slot{text: r.str("reg_value.data")})
+	r.keyText("value", valueName)
+	r.keyExact("data", slot{text: valueData})
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -959,7 +1023,8 @@ func (r *renderer) scheduledJob() {
 	host := r.host("device")
 	actor := r.user("actor.user")
 	runAs := r.user("job.user")
-	name, path := r.str("job.name"), r.str("job.path")
+	name, path := r.str("job.name"), r.str("job.file.path")
+	cmds := r.jobCommandLines()
 	job := slot{text: firstNonEmpty(name, path), ref: r.bind(identity.TypeScheduledTask, func(p map[string]any) bool {
 		return (name != "" && propEquals(p, "name", name)) || (path != "" && propEquals(p, "path", path))
 	})}
@@ -979,8 +1044,15 @@ func (r *renderer) scheduledJob() {
 
 	r.entityField("Job", job)
 	r.mono("Path", path)
-	r.mono("Command line", r.str("job.command_line"))
-	r.decode("job.command_line")
+	// One line per action. The first is the one read back when encoded.
+	lines := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		r.mono("Command line", c.text)
+		lines = append(lines, c.text)
+	}
+	if len(cmds) > 0 {
+		r.decodeText(cmds[0].field, cmds[0].text)
+	}
 	r.entityField("Runs as", slot{text: r.qualifiedUser("job.user"), ref: runAs.ref})
 	r.activityField()
 	r.entityField("Actor", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
@@ -990,8 +1062,37 @@ func (r *renderer) scheduledJob() {
 	r.keySlot("host", host)
 	r.keySlot("job", job)
 	r.keySlot("run_as", runAs)
-	r.keyExact("cmd_line", slot{text: r.str("job.command_line")})
+	r.keyExact("cmd_line", slot{text: strings.Join(lines, "\n")})
 	r.keyText("activity", r.str("activity_name"))
+}
+
+// jobCommand is one command line of a job and the field it was read from,
+// as Decoded.Field names a field.
+type jobCommand struct {
+	field string
+	text  string
+}
+
+// jobCommandLines reads a job's command lines as the normalizer does (03
+// §4.7): one per action in job.job_actions[] (OCSF 1.9.0), else the
+// deprecated job.cmd_line. Each carries the field it came from: an action
+// with no command line is passed over, so the first command line may be a
+// later action's.
+func (r *renderer) jobCommandLines() []jobCommand {
+	var out []jobCommand
+	for i, a := range pathList(r.p, "job.job_actions") {
+		m, _ := a.(map[string]any)
+		if c := toString(fieldOf(m, "cmd_line")); c != "" {
+			out = append(out, jobCommand{field: "job.job_actions[" + strconv.Itoa(i) + "].cmd_line", text: c})
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	if c := r.str("job.cmd_line"); c != "" {
+		return []jobCommand{{field: "job.cmd_line", text: c}}
+	}
+	return nil
 }
 
 func (r *renderer) module() {
@@ -1025,17 +1126,36 @@ var accountVerbs = map[string]string{
 	"create": "created", "enable": "enabled", "password change": "changed the password of", "password reset": "reset the password of",
 	"disable": "disabled", "delete": "deleted", "attach policy": "attached a policy to", "detach policy": "detached a policy from",
 	"lock": "locked", "unlock": "unlocked", "mfa factor enable": "enabled an MFA factor for", "mfa factor disable": "disabled an MFA factor for",
+	"assign privileges": "assigned privileges to", "revoke privileges": "revoked privileges from",
+	"add user": "added", "remove user": "removed",
 }
 
-func (r *renderer) accountChange() {
+// groupLeads is how a group_management sentence joins the account to the
+// group, by activity: "added jdoe to Domain Admins".
+var groupLeads = map[string]string{"add user": " to ", "remove user": " from "}
+
+// account renders the three OCSF account classes (03 §4.9): account_change
+// (3001), user_access (3005) and group_management (3006). Each class is read
+// only for its own fields: the group on 3006, the privileges on 3005 and 3006.
+func (r *renderer) account() {
 	target := r.user("user")
 	actor := r.user("actor.user")
 	host := r.host("device")
-	// The account-change normalizer stores an x-group as group_name and directory.
-	groupName, groupDir := r.str("group.name"), r.str("group.domain")
-	group := slot{text: groupName, ref: r.bind(identity.TypeGroup, func(p map[string]any) bool {
-		return propEquals(p, "group_name", groupName) && (groupDir == "" || propEquals(p, "directory", groupDir))
-	})}
+	hasGroup := r.class == classGroupManagement
+	hasPrivileges := r.class == classUserAccess || r.class == classGroupManagement
+	var group slot
+	if hasGroup {
+		// The normalizer stores an x-group as group_name and directory, the
+		// name falling back to the group's uid.
+		groupName, groupDir := firstNonEmpty(r.str("group.name"), r.str("group.uid")), r.str("group.domain")
+		group = slot{text: groupName, ref: r.bind(identity.TypeGroup, func(p map[string]any) bool {
+			return propEquals(p, "group_name", groupName) && (groupDir == "" || propEquals(p, "directory", groupDir))
+		})}
+	}
+	privileges := ""
+	if hasPrivileges {
+		privileges = strings.Join(stringList(pathList(r.p, "privileges")), ", ")
+	}
 	verb := r.activity(accountVerbs, "changed")
 
 	if actor.empty() {
@@ -1047,21 +1167,29 @@ func (r *renderer) accountChange() {
 		r.text(" " + verb + " ")
 		r.entity(target)
 	}
-	r.clause(" in ", group)
+	lead, ok := groupLeads[strings.ToLower(r.str("activity_name"))]
+	if !ok {
+		lead = " in "
+	}
+	r.clause(lead, group)
 	r.clause(" on ", host)
 
 	r.entityField("Account", slot{text: r.qualifiedUser("user"), ref: target.ref})
 	r.entityField("By", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
 	r.activityField()
 	r.entityField("Group", group)
-	r.field("Privileges", r.str("privileges"))
+	r.field("Privileges", privileges)
 	r.entityField("Host", host)
 
 	r.keySlot("actor", actor)
 	r.keySlot("target", target)
-	r.keySlot("group", group)
+	if hasGroup {
+		r.keySlot("group", group)
+	}
 	r.keySlot("host", host)
-	r.keyText("privileges", r.str("privileges"))
+	if hasPrivileges {
+		r.keyText("privileges", privileges)
+	}
 	r.keyText("activity", r.str("activity_name"))
 }
 
@@ -1100,12 +1228,7 @@ func (r *renderer) email() {
 	r.mono("Message id", r.str("email.message_uid"))
 	r.activityField()
 	r.field("Disposition", r.str("disposition"))
-	// The email normalizer reads attachments from email.attachments.
-	attachments := pathList(r.p, "email.attachments")
-	if len(attachments) == 0 {
-		attachments = pathList(r.p, "email.files")
-	}
-	if n := len(attachments); n > 0 {
+	if n := len(pathList(r.p, "email.files")); n > 0 {
 		r.field("Attachments", strconv.Itoa(n))
 	}
 	if n := len(pathList(r.p, "email.urls")); n > 0 {
@@ -1150,7 +1273,7 @@ func (r *renderer) emailURL() {
 	r.activityField()
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.entityField("Host", host)
-	r.mono("Message id", r.str("email.message_uid"))
+	r.mono("Email id", r.str("email_uid"))
 
 	r.keySlot("user", user)
 	r.keySlot("host", host)
@@ -1158,19 +1281,93 @@ func (r *renderer) emailURL() {
 	r.keyText("activity", r.str("activity_name"))
 }
 
-func (r *renderer) detection() {
-	title := firstNonEmpty(r.str("finding.title"), r.str("finding_info.title"))
-	uid := firstNonEmpty(r.str("finding.uid"), r.str("finding_info.uid"))
-	vendor := firstNonEmpty(r.str("metadata.product.vendor_name"), r.str("metadata.product.name"))
-	severity := r.str("severity")
-	if severity == "" {
-		severity = r.str("finding.severity")
+var emailFileVerbs = map[string]string{"send": "sent", "receive": "received", "scan": "scanned"}
+
+// emailFile renders an attachment event (03 §4.11a): the file, the email it
+// came with by the source's id, and who and where.
+func (r *renderer) emailFile() {
+	user := r.user("actor.user")
+	host := r.host("device")
+	file := r.file("file")
+	verb := r.activity(emailFileVerbs, "handled")
+
+	if user.empty() {
+		r.text("Attachment ")
+		r.entity(file)
+		r.text(" " + pastToPassive(verb))
+	} else {
+		r.entity(user)
+		r.text(" " + verb + " attachment ")
+		r.entity(file)
 	}
-	host := r.host("evidence.device")
+	r.clause(" on ", host)
+
+	r.entityField("File", slot{text: firstNonEmpty(r.str("file.path"), file.text), ref: file.ref})
+	r.activityField()
+	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
+	r.entityField("Host", host)
+	r.hashField("file")
+	if size := r.int("file.size"); size != 0 {
+		r.mono("Size", strconv.Itoa(size)+" bytes")
+	}
+	r.mono("Email id", r.str("email_uid"))
+
+	r.keySlot("user", user)
+	r.keySlot("host", host)
+	r.keySlot("file", file)
+	r.keyText("activity", r.str("activity_name"))
+}
+
+// detection renders a detection finding (03 §4.12). The host is the first
+// evidence artifact's device, else the finding's own. The user is the first
+// artifact's actor.user, else its user.
+//
+// A cloud finding names its account and resources on the finding itself
+// (adr/0356). They bind as on a control-plane call. When the finding names a
+// cloud provider, an artifact's actor.user is that provider's principal, and
+// binds by its durable id the way the normalizer keyed it.
+func (r *renderer) detection() {
+	title := r.str("finding_info.title")
+	uid := r.str("finding_info.uid")
+	vendor := firstNonEmpty(r.str("metadata.product.vendor_name"), r.str("metadata.product.name"))
+	// An id outside OCSF's captions (0 Unknown, 99 Other) falls back to the
+	// event's own caption.
+	severity := firstNonEmpty(ocsf.Severities[r.int("severity_id")], r.str("severity"))
+	// A score is capped to 0–100, and a score of 0 is shown: the vendor said
+	// it has no confidence, which is not the same as giving none (adr/0356).
+	confidence := ""
+	if score, ok := ocsf.WholeNumber(pathAny(r.p, "confidence_score")); ok {
+		confidence = strconv.Itoa(min(max(score, 0), 100))
+	}
+	confidence = firstNonEmpty(confidence, ocsf.Confidences[r.int("confidence_id")], r.str("confidence"))
+
+	cloud := r.str("cloud.provider") != ""
+	resources := r.cloudResources()
+	account := r.findingAccount()
+
+	var host, user slot
+	qualified := ""
+	for _, a := range pathList(r.p, "evidences") {
+		m, _ := a.(map[string]any)
+		if host.empty() {
+			host = r.hostIn(m, "device")
+		}
+		if cloud && user.empty() {
+			user = r.cloudPrincipalIn(m)
+			qualified = user.text
+		}
+		for _, prefix := range []string{"actor.user", "user"} {
+			if cloud && prefix == "actor.user" {
+				continue
+			}
+			if user.empty() {
+				user, qualified = r.userIn(m, prefix), qualifiedUserIn(m, prefix)
+			}
+		}
+	}
 	if host.empty() {
 		host = r.host("device")
 	}
-	user := r.user("evidence.actor.user")
 
 	if vendor == "" {
 		r.text("Detected")
@@ -1184,28 +1381,44 @@ func (r *renderer) detection() {
 		r.text(" (" + strings.ToLower(severity) + ")")
 	}
 	r.clause(" on ", host)
+	if host.empty() && len(resources) > 0 {
+		r.clause(" on ", resources[0])
+		if n := len(resources) - 1; n > 0 {
+			r.text(fmt.Sprintf(", +%d more", n))
+		}
+	}
+	r.clause(" in ", account)
 
 	r.field("Finding", title)
 	r.field("Severity", severity).Tone = severityTone(severity)
-	r.field("Confidence", firstNonEmpty(r.str("confidence"), r.str("finding.confidence")))
-	r.mono("Techniques", strings.Join(stringList(pathList(r.p, "finding.types")), ", "))
+	r.field("Confidence", confidence)
+	r.mono("Techniques", strings.Join(stringList(pathList(r.p, "finding_info.types")), ", "))
 	r.field("Vendor", vendor)
 	r.mono("Finding id", uid)
 	r.field("Status", r.str("status"))
 	r.entityField("Host", host)
-	r.entityField("User", slot{text: r.qualifiedUser("evidence.actor.user"), ref: user.ref})
+	for _, res := range resources {
+		r.entityField("Resource", res)
+	}
+	r.entityField("Account", account)
+	r.entityField("User", slot{text: qualified, ref: user.ref})
 
 	r.keyText("vendor", vendor)
 	r.keyExact("title", slot{text: title})
 	r.keyText("severity", severity)
 	r.keySlot("host", host)
 	r.keySlot("user", user)
+	r.keyRefList("resource", resources)
+	r.keySlot("account", account)
 }
 
 func (r *renderer) caseFinding() {
-	uid := r.str("finding_info.uid")
-	title := r.str("finding_info.title")
-	status, priority, group := r.str("status"), r.str("priority"), r.str("assignment_group")
+	// The first entry of finding_info_list[] names the case (03 §2.9).
+	first, _ := firstOf(pathList(r.p, "finding_info_list")).(map[string]any)
+	uid := toString(fieldOf(first, "uid"))
+	title := toString(fieldOf(first, "title"))
+	status, priority := r.str("status"), r.str("priority")
+	group := firstNonEmpty(r.str("assignee_group.name"), r.str("assignee_group.uid"))
 
 	r.text("Case")
 	if uid != "" {
@@ -1230,7 +1443,7 @@ func (r *renderer) caseFinding() {
 	r.field("Priority", priority)
 	r.field("Assigned to", group)
 	r.field("System", firstNonEmpty(r.str("unmapped.sor"), r.str("metadata.product.vendor_name")))
-	r.mono("Link", r.str("unmapped.link"))
+	r.mono("Link", r.str("src_url"))
 
 	r.keyText("status", status)
 	r.keyText("priority", priority)
@@ -1241,7 +1454,8 @@ func (r *renderer) deviceInventory() {
 	host := r.host("device")
 	os := r.str("device.os.name")
 	owner := r.str("device.owner.name")
-	crit := r.str("device.criticality")
+	// OCSF defines no criticality on a device: it is the source's own field.
+	crit := r.str("unmapped.criticality")
 
 	if host.empty() {
 		r.text("Device")
@@ -1263,11 +1477,11 @@ func (r *renderer) deviceInventory() {
 	r.entityField("IP", r.ip("device.ip"))
 	r.field("Owner", owner)
 	r.field("Criticality", crit).Tone = severityTone(crit)
-	r.field("Last seen", r.str("device.last_seen_time"))
+	r.field("Last seen", ocsfTimestamp(r.p, "device.last_seen_time"))
 	var agents []string
 	for _, a := range pathList(r.p, "device.agent_list") {
 		m, _ := a.(map[string]any)
-		if n := toString(m["name"]); n != "" {
+		if n := toString(fieldOf(m, "name")); n != "" {
 			agents = append(agents, n)
 		}
 	}
@@ -1291,11 +1505,11 @@ func (r *renderer) cloudInventory() {
 		res = resources[0]
 	}
 	first, _ := firstOf(pathList(r.p, "resources")).(map[string]any)
-	typ := toString(first["type"])
+	typ := toString(fieldOf(first, "type"))
 	account, _ := r.cloudAccount()
-	region := firstNonEmpty(r.str("cloud.region"), strings.TrimSpace(toString(first["region"])))
+	region := firstNonEmpty(r.str("cloud.region"), strings.TrimSpace(toString(fieldOf(first, "region"))))
 	owner := firstNonEmpty(pathStr(first, "owner.name"), pathStr(first, "owner.full_name"), pathStr(first, "owner.uid"))
-	crit := toString(first["criticality"])
+	crit := toString(fieldOf(first, "criticality"))
 
 	if res.empty() {
 		r.text("Cloud resource")
@@ -1319,11 +1533,11 @@ func (r *renderer) cloudInventory() {
 	r.entityField("Account", account)
 	r.field("Region", region)
 	r.field("Owner", owner)
-	r.field("Created", ocsfTimestamp(first["created_time"]))
-	r.field("Modified", ocsfTimestamp(first["modified_time"]))
+	r.field("Created", ocsfTimestamp(first, "created_time"))
+	r.field("Modified", ocsfTimestamp(first, "modified_time"))
 	r.field("Criticality", crit).Tone = severityTone(crit)
 	r.field("Labels", strings.Join(stringList(pathList(first, "labels")), ", "))
-	if data, ok := first["data"].(map[string]any); ok {
+	if data, ok := fieldOf(first, "data").(map[string]any); ok {
 		keys := make([]string, 0, len(data))
 		for k := range data {
 			keys = append(keys, k)
@@ -1347,10 +1561,6 @@ func firstOf(l []any) any {
 	return l[0]
 }
 
-// apiStatuses are the OCSF status_id captions, for a payload that carries the
-// id without the name.
-var apiStatuses = map[int]string{1: "Success", 2: "Failure"}
-
 // apiActivity renders a cloud control-plane call (03 §4.15): who called which
 // operation on what, in which account, and how it ended. The principal binds
 // to its user-account by the durable id the record keyed it on, the account
@@ -1358,13 +1568,14 @@ var apiStatuses = map[int]string{1: "Success", 2: "Failure"}
 // or by type and name.
 func (r *renderer) apiActivity() {
 	principal := r.cloudPrincipal()
-	app := r.str("actor.app_name")
+	// actor.application.name (OCSF 1.9.0), else the deprecated actor.app_name.
+	app := firstNonEmpty(r.str("actor.application.name"), r.str("actor.app_name"))
 	op := r.str("api.operation")
 	service := r.str("api.service.name")
 	resources := r.cloudResources()
 	account, accountUID := r.cloudAccount()
 	src := r.ip("src_endpoint.ip")
-	status := firstNonEmpty(r.str("status"), apiStatuses[r.int("status_id")])
+	status := firstNonEmpty(r.str("status"), ocsf.Statuses[r.int("status_id")])
 	errCode := r.str("api.response.error")
 	outcome, tone := status, statusTone(status)
 	if errCode != "" {
@@ -1439,10 +1650,14 @@ func (r *renderer) apiActivity() {
 // normalizer's provider rows, safe because the entities a view receives are
 // the ones derived from that event. The chip reads the name, else the full
 // name, else the id.
-func (r *renderer) cloudPrincipal() slot {
-	name := r.str("actor.user.name")
-	ids := []string{r.str("actor.session.issuer"), r.str("actor.user.uid"), r.str("actor.user.uid_alt")}
-	text := firstNonEmpty(name, r.str("actor.user.full_name"), ids[1], ids[2], ids[0])
+func (r *renderer) cloudPrincipal() slot { return r.cloudPrincipalIn(r.p) }
+
+// cloudPrincipalIn binds the caller named by the actor of m: the event, or an
+// evidence artifact of a cloud detection finding.
+func (r *renderer) cloudPrincipalIn(m map[string]any) slot {
+	name := pathStr(m, "actor.user.name")
+	ids := []string{pathStr(m, "actor.session.issuer"), pathStr(m, "actor.user.uid"), pathStr(m, "actor.user.uid_alt")}
+	text := firstNonEmpty(name, pathStr(m, "actor.user.full_name"), ids[1], ids[2], ids[0])
 	if text == "" {
 		return slot{}
 	}
@@ -1474,6 +1689,20 @@ func (r *renderer) cloudAccount() (slot, string) {
 	return slot{text: uid, ref: r.bindAccount(uid)}, uid
 }
 
+// findingAccount binds the account a detection finding is about:
+// cloud.account, else the deprecated project_uid. A finding has no caller of
+// its own, so no caller's account stands in (03 §4.12).
+func (r *renderer) findingAccount() slot {
+	if s := r.accountAt("cloud.account"); !s.empty() {
+		return s
+	}
+	uid := strings.TrimSpace(r.str("cloud.project_uid"))
+	if uid == "" {
+		return slot{}
+	}
+	return slot{text: uid, ref: r.bindAccount(uid)}
+}
+
 // callerAccount binds the principal's own account, actor.user.account.
 func (r *renderer) callerAccount() slot { return r.accountAt("actor.user.account") }
 
@@ -1496,11 +1725,11 @@ func (r *renderer) cloudResources() []slot {
 	var out []slot
 	for _, item := range pathList(r.p, "resources") {
 		m, _ := item.(map[string]any)
-		uid, name, typ := toString(m["uid"]), toString(m["name"]), toString(m["type"])
-		region := strings.TrimSpace(toString(m["region"]))
-		zone := strings.TrimSpace(toString(m["zone"]))
+		uid, name, typ := toString(fieldOf(m, "uid")), toString(fieldOf(m, "name")), toString(fieldOf(m, "type"))
+		region := strings.TrimSpace(toString(fieldOf(m, "region")))
+		zone := strings.TrimSpace(toString(fieldOf(m, "zone")))
 		group := strings.TrimSpace(firstNonEmpty(pathStr(m, "group.name"), pathStr(m, "group.uid")))
-		namespace := strings.TrimSpace(toString(m["namespace"]))
+		namespace := strings.TrimSpace(toString(fieldOf(m, "namespace")))
 		text := firstNonEmpty(name, uid)
 		if text == "" {
 			continue
@@ -1530,31 +1759,87 @@ func (r *renderer) cloudResources() []slot {
 func (r *renderer) credential() string {
 	if list := pathList(r.p, "actor.user.programmatic_credentials"); len(list) > 0 {
 		m, _ := list[0].(map[string]any)
-		if c := toString(m["uid"]); c != "" {
+		if c := toString(fieldOf(m, "uid")); c != "" {
 			return c
 		}
 	}
 	return firstNonEmpty(r.str("actor.user.credential_uid"), r.str("actor.session.credential_uid"))
 }
 
-// scalars is the view of a class without a template: the payload's top-level
-// scalars as fields, the class and clock keys left out, no sentence.
+// scalars is the view of a class without a template, the Base Event (class
+// 0) among them: the payload's scalars as fields, the class and clock keys at
+// the top of the event left out, no sentence. The activity, severity and
+// status numbers at the top of the event are left out too: they are OCSF's
+// classification of the event, not something its source said. A source's own
+// key of any of these names, under unmapped, is still shown.
+//
+// The scalars come from three places, each field labelled by its own key:
+//
+//   - the top of the event;
+//   - unmapped, where OCSF puts a source's own fields;
+//   - each object directly under unmapped, such as unmapped.<vendor>, which
+//     holds the vendor's record.
+//
+// An event with no OCSF class carries everything the source said under
+// unmapped (adr/0356), so without the last two its view would be empty. A
+// key found in more than one place is shown once, from the first place in
+// that order.
+//
+// A timestamp that has its readable _dt twin beside it is shown once, as the
+// twin's text under the timestamp's own key.
 func (r *renderer) scalars() {
-	skip := map[string]bool{"class_uid": true, "class_name": true, "category_uid": true, "category_name": true, "type_uid": true, "type_name": true, "time": true}
-	keys := make([]string, 0, len(r.p))
-	for k, v := range r.p {
-		if skip[k] {
-			continue
+	skip := map[string]bool{
+		"class_uid": true, "class_name": true, "category_uid": true, "category_name": true,
+		"type_uid": true, "type_name": true, "time": true, "time_dt": true,
+	}
+	classification := map[string]bool{"activity_id": true, "severity_id": true, "status_id": true}
+	shown := map[string]string{}
+	add := func(obj map[string]any, top bool) {
+		for k, v := range obj {
+			if _, dup := shown[k]; dup || top && (skip[k] || classification[k]) || !isScalar(v) {
+				continue
+			}
+			if base, isTwin := strings.CutSuffix(k, "_dt"); isTwin && isScalar(obj[base]) {
+				continue // shown under the timestamp's key
+			}
+			if twin, ok := obj[k+"_dt"].(string); ok && twin != "" {
+				shown[k] = twin
+				continue
+			}
+			shown[k] = toString(v)
 		}
-		switch v.(type) {
-		case string, float64, bool, json.Number, int, int64:
-			keys = append(keys, k)
+	}
+	add(r.p, true)
+	unmapped, _ := r.p["unmapped"].(map[string]any)
+	add(unmapped, false)
+	vendors := make([]string, 0, len(unmapped))
+	for k := range unmapped {
+		vendors = append(vendors, k)
+	}
+	sort.Strings(vendors)
+	for _, k := range vendors {
+		if record, ok := unmapped[k].(map[string]any); ok {
+			add(record, false)
 		}
+	}
+
+	keys := make([]string, 0, len(shown))
+	for k := range shown {
+		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		r.field(k, toString(r.p[k]))
+		r.field(k, shown[k])
 	}
+}
+
+// isScalar reports whether a JSON value is a string, a number or a boolean.
+func isScalar(v any) bool {
+	switch v.(type) {
+	case string, float64, bool, json.Number, int, int64:
+		return true
+	}
+	return false
 }
 
 // --- small helpers --------------------------------------------------------------------
@@ -1691,29 +1976,46 @@ func stringList(vs []any) []string {
 	return out
 }
 
+// hashesOf reads an OCSF hashes value, a list of fingerprints
+// [{algorithm, value}], as algorithm → digest. OCSF has no other form
+// (adr/0356).
 func hashesOf(v any) map[string]string {
-	out := map[string]string{}
-	switch hv := v.(type) {
-	case map[string]any:
-		for k, val := range hv {
-			if s := toString(val); s != "" {
-				out[k] = s
-			}
-		}
-	case []any:
-		// OCSF 1.x fingerprint list: [{algorithm, value}].
-		for _, item := range hv {
-			m, _ := item.(map[string]any)
-			if alg, val := toString(m["algorithm"]), toString(m["value"]); alg != "" && val != "" {
-				out[alg] = val
-			}
-		}
-	}
-	return out
+	return ocsf.Hashes(v, fieldOf)
 }
 
-// pathAny walks a dotted path through nested maps.
+// lookupHook, when set, is told of every field read through pathAny and
+// fieldOf: the object read from, the path read within it, and the value found
+// (nil when absent). renderHook, when set, is called as Render starts on an
+// event, and the function it returns is called when Render returns. Both are
+// nil outside tests. The package's tests set them to record which OCSF fields
+// the templates read (adr/0356).
+var (
+	lookupHook func(obj map[string]any, path string, found any)
+	renderHook func(e Event) (done func())
+)
+
+// pathAny walks a dotted path through nested maps. Every read of an OCSF
+// event goes through it or through fieldOf, so the tests can record it.
 func pathAny(m map[string]any, path string) any {
+	v := walkPath(m, path)
+	if lookupHook != nil {
+		lookupHook(m, path, v)
+	}
+	return v
+}
+
+// fieldOf reads one key of an object inside an OCSF event, such as an entry
+// of a list. It is obj[key], recorded like a pathAny read.
+func fieldOf(obj map[string]any, key string) any {
+	v := obj[key]
+	if lookupHook != nil {
+		lookupHook(obj, key, v)
+	}
+	return v
+}
+
+// walkPath is the walk behind pathAny.
+func walkPath(m map[string]any, path string) any {
 	var cur any = m
 	for _, seg := range strings.Split(path, ".") {
 		mm, ok := cur.(map[string]any)
@@ -1735,37 +2037,23 @@ func pathList(m map[string]any, path string) []any {
 	return l
 }
 
-// ocsfTimestamp renders an OCSF timestamp for display as RFC 3339 UTC: a
-// number is epoch milliseconds (timestamp_t), converted when it is an exact
-// integer below 2^53 (beyond that a JSON number has already been rounded); a
-// string is shown as given; anything else is "". It is the same rule as the
-// 5023 normalizer's ocsfTimestamp in package capability, kept as a copy
-// because capability's own tests import this package, so this package
-// cannot import capability.
-func ocsfTimestamp(v any) string {
-	var f float64
-	switch x := v.(type) {
-	case string:
-		return strings.TrimSpace(x)
-	case float64:
-		f = x
-	case json.Number:
-		n, err := x.Float64()
-		if err != nil {
-			return ""
-		}
-		f = n
-	case int64:
-		f = float64(x)
-	case int:
-		f = float64(x)
-	default:
-		return ""
+// ocsfTimestamp renders the OCSF timestamp at path of m for display as RFC
+// 3339 UTC, or "" when there is none (adr/0356). The field holds epoch
+// milliseconds (timestamp_t), converted when it is a whole number below 2^53
+// (beyond that a JSON number has already been rounded). The datetime
+// profile's twin, the same name with "_dt", holds an RFC 3339 string. The
+// number is read first and the twin as a fallback. A string in the number's
+// field is not OCSF and is not shown. It is the same rule as ocsfTime in
+// package capability, kept as a copy because capability's own tests import
+// this package, so this package cannot import capability.
+func ocsfTimestamp(m map[string]any, path string) string {
+	if t, ok := ocsf.EpochMillis(pathAny(m, path)); ok {
+		return t.Format(time.RFC3339Nano)
 	}
-	if f != math.Trunc(f) || math.Abs(f) >= 1<<53 {
-		return ""
+	if t, err := time.Parse(time.RFC3339, strings.TrimSpace(pathStr(m, path+"_dt"))); err == nil {
+		return t.UTC().Format(time.RFC3339Nano)
 	}
-	return time.UnixMilli(int64(f)).UTC().Format(time.RFC3339Nano)
+	return ""
 }
 
 func toString(v any) string {

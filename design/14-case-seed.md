@@ -150,7 +150,7 @@ source_scope?: "<org>"}`:
 3. `Seed.Source` = the result's `provenance.tool` (the binding that served the
    read is the truth; the caller never names the SoR). `Seed.CaseRef` = the
    persisted `ObservedData` id. The investigation **Title** = the case title
-   (`finding_info.title` → "Reimage request: WIN-FILE01"), the seed's display
+   (`finding_info_list[0].title` → "Reimage request: WIN-FILE01"), the seed's display
    summary its `source: id` line.
 4. `CreateInvestigation{Seed: {Type: "case", CaseID, Source, CaseRef,
    SourceScope}}` — the normal aggregate path; nothing new below the seam

@@ -621,8 +621,8 @@ func (s *Store) accountKeys(ctx context.Context, refs []string) (accountKeySet, 
 
 // accountSeenAs collects what the user objects of the events referencing any
 // of refs report, for the objects that name the set. The user objects are
-// the ones the normalizers read (actor.user, user, job.user, and the same
-// under a detection's evidence, 03 §4.12). An object names the set when its
+// the ones the normalizers read (actor.user, user, job.user, and actor.user
+// and user in each artifact of a detection's evidences[], 03 §4.12). An object names the set when its
 // own first identifier, the one the account rule keys it on, is one of keys:
 // a SID that names a principal, else any other uid, else the principal name,
 // else "domain\sam", else the bare name; so a record keyed elsewhere lends
@@ -640,14 +640,18 @@ func (s *Store) accountSeenAs(ctx context.Context, refs []string, keys accountKe
 			WHERE EXISTS (
 				SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id AND o.tenant_id = $2
 				WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ?| $1::text[])
+		),
+		-- The artifacts of a detection's evidences[] (adr/0356).
+		art AS (
+			SELECT ev.source_tool, a FROM ev,
+				jsonb_array_elements(CASE WHEN jsonb_typeof(ev.payload->'evidences') = 'array' THEN ev.payload->'evidences' ELSE '[]'::jsonb END) AS t(a)
 		)
 		SELECT source_tool, u FROM (
 			SELECT source_tool, payload->'actor'->'user' AS u FROM ev
 			UNION ALL SELECT source_tool, payload->'user' FROM ev
 			UNION ALL SELECT source_tool, payload->'job'->'user' FROM ev
-			UNION ALL SELECT source_tool, payload->'evidence'->'actor'->'user' FROM ev
-			UNION ALL SELECT source_tool, payload->'evidence'->'user' FROM ev
-			UNION ALL SELECT source_tool, payload->'evidence'->'job'->'user' FROM ev
+			UNION ALL SELECT source_tool, a->'actor'->'user' FROM art
+			UNION ALL SELECT source_tool, a->'user' FROM art
 		) x WHERE jsonb_typeof(u) = 'object'
 	`, textArray(refs), module.SingleTenantUUID)
 	if err != nil {

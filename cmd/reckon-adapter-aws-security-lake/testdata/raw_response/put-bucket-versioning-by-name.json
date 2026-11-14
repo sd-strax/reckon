@@ -99,7 +99,7 @@
                 "VarCharValue": "{\"account\":{\"name\":null,\"type\":null,\"type_id\":null,\"uid\":\"111122223333\",\"uid_alt\":null,\"labels\":null},\"org\":null,\"provider\":\"AWS\",\"region\":\"us-east-1\",\"zone\":null}"
               },
               {
-                "VarCharValue": "[{\"account_uid\":\"111122223333\",\"cloud_partition\":null,\"criticality\":null,\"data\":null,\"group\":null,\"labels\":null,\"name\":\"acme-internal-exports\",\"namespace\":null,\"owner\":null,\"region\":\"us-east-1\",\"type\":\"AWS::S3::Bucket\",\"uid\":null,\"version\":null}]"
+                "VarCharValue": "[{\"cloud_partition\":null,\"criticality\":null,\"data\":null,\"group\":null,\"labels\":null,\"name\":\"acme-internal-exports\",\"namespace\":null,\"owner\":{\"account\":{\"uid\":\"111122223333\"}},\"region\":\"us-east-1\",\"type\":\"AWS::S3::Bucket\",\"uid\":null,\"version\":null}]"
               },
               {
                 "VarCharValue": "{\"domain\":null,\"hostname\":null,\"ip\":\"203.0.113.77\",\"port\":null,\"uid\":null,\"svc_name\":null}"

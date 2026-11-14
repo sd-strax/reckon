@@ -380,7 +380,7 @@ func TestHostIdentity_MatchesByFirstTier(t *testing.T) {
 		event(5001, 2, map[string]any{"device": map[string]any{"hostname": "hostc", "uid": "007", "ip": "10.0.0.19"}}),
 		// A logon to hosta from hostc: the source endpoint is hostc's fact,
 		// whatever uid it carries.
-		event(3002, 3, map[string]any{"actor": map[string]any{"user": user},
+		event(3002, 3, map[string]any{"user": user,
 			"dst_endpoint": map[string]any{"hostname": "hosta", "uid": "007"},
 			"src_endpoint": map[string]any{"hostname": "hostc", "uid": "007", "domain": "other.example", "ip": "10.0.0.9"}}),
 		// The device id alone: the weak host's own record.
@@ -390,7 +390,7 @@ func TestHostIdentity_MatchesByFirstTier(t *testing.T) {
 		// own: a record with a MAC and a uid aliases the uid's weak host to
 		// the MAC host, so a shared 007 here would join the MAC host to the
 		// set by the record's own word.
-		event(3002, 5, map[string]any{"actor": map[string]any{"user": user},
+		event(3002, 5, map[string]any{"user": user,
 			"dst_endpoint": map[string]any{"hostname": "hosta"},
 			"src_endpoint": map[string]any{"mac": "02:00:00:00:00:02", "uid": "m-2", "ip": "10.0.0.8"}}),
 		// The MAC host's own inventory.
@@ -616,5 +616,58 @@ func TestMACFormAgreesWithFoldMAC(t *testing.T) {
 		if c.accept && sqlFold != goFold {
 			t.Errorf("%q: SQL fold %q, FoldMAC %q", c.in, sqlFold, goFold)
 		}
+	}
+}
+
+// TestHostIdentity_DetectionEvidence (adr/0356): a detection's evidence is the
+// list evidences[]. The device objects of its artifacts are read for seen-as
+// like the finding's own device, and an entry that is not an artifact is
+// passed over.
+func TestHostIdentity_DetectionEvidence(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry(identity.NewResolver(uuid.MustParse("44444444-4444-4444-8444-444444444444")))
+	ids := reg.Identity()
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	evt := capability.OcsfEvent{
+		ID: uuid.Must(uuid.NewV7()), ClassUID: 2004, ClassName: "Detection Finding", Time: base, RecordedAt: base, SourceTool: "edr",
+		Payload: map[string]any{
+			"class_uid":    2004,
+			"finding_info": map[string]any{"uid": "det-1", "title": "Beacon"},
+			"device":       map[string]any{"hostname": "hosta", "ip": "10.0.0.1"},
+			"evidences": []any{
+				// An artifact with its own device object.
+				map[string]any{"device": map[string]any{"hostname": "hosta.corp.example", "uid": "a-1", "ip": "10.0.0.2"}},
+				// An artifact with no device: the host is the finding's, and its
+				// endpoint names the same machine.
+				map[string]any{
+					"actor":        map[string]any{"user": map[string]any{"name": "alice"}},
+					"src_endpoint": map[string]any{"hostname": "hosta", "ip": "10.0.0.3"},
+				},
+				"not an artifact",
+			},
+		},
+	}
+	nr, err := reg.Normalize(evt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nr.EventID = evt.ID
+	inv := uuid.New()
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "v", StartedAt: base},
+		capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: []capability.OcsfEvent{evt}, Normalized: []capability.NormalizationResult{nr}})
+
+	v, err := s.HostIdentity(ctx, string(ids.Host(identity.HostIdentity{Hostname: "hosta"})))
+	if err != nil {
+		t.Fatalf("HostIdentity: %v", err)
+	}
+	want := SeenAs{
+		Domains: []string{"corp.example"},
+		Agents:  []SourceID{{"edr", "a-1"}},
+		IPs:     []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"},
+	}
+	if !slices.Equal(v.SeenAs.Domains, want.Domains) || !slices.Equal(v.SeenAs.Agents, want.Agents) || !slices.Equal(v.SeenAs.IPs, want.IPs) {
+		t.Errorf("seen as = %+v; want %+v", v.SeenAs, want)
 	}
 }

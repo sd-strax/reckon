@@ -1,6 +1,10 @@
 package ocsfview
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 // TestDecodeCommandLine: PowerShell's encoded command decodes when PowerShell
 // is the program of the line and the token is clean UTF-16LE, and nothing
@@ -126,9 +130,48 @@ func TestRender_DecodedBesideTheOriginal(t *testing.T) {
 	if plain.Decoded != nil {
 		t.Errorf("plain command line decoded: %+v", plain.Decoded)
 	}
-	job := Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","command_line":"pwsh -enc ZQBjAGgAbwA="}}`)}, nil)
-	if job.Decoded == nil || job.Decoded.Field != "job.command_line" || job.Decoded.Text != "echo" {
-		t.Errorf("job decoded = %+v; want job.command_line echo", job.Decoded)
+	job := Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","cmd_line":"pwsh -enc ZQBjAGgAbwA="}}`)}, nil)
+	if job.Decoded == nil || job.Decoded.Field != "job.cmd_line" || job.Decoded.Text != "echo" {
+		t.Errorf("job decoded = %+v; want job.cmd_line echo", job.Decoded)
+	}
+	// From OCSF 1.9.0 the command line is the job's action. The first one is
+	// the one read back.
+	job = Render(Event{ClassUID: 1006, Payload: payload(`{"job":{"name":"Updater","job_actions":[{"cmd_line":"pwsh -enc ZQBjAGgAbwA="},{"cmd_line":"b.exe"}]}}`)}, nil)
+	if job.Decoded == nil || job.Decoded.Field != "job.job_actions[0].cmd_line" || job.Decoded.Text != "echo" {
+		t.Errorf("job decoded = %+v; want job.job_actions[0].cmd_line echo", job.Decoded)
+	}
+}
+
+// TestRender_DecodedNamesTheFieldItRead: the decoded command names the field
+// its command line was read from and carries that field's value as stored.
+// A job's first command line may be a later action's, or the deprecated
+// job.cmd_line when no action has one (adr/0356).
+func TestRender_DecodedNamesTheFieldItRead(t *testing.T) {
+	const enc = "pwsh -enc ZQBjAGgAbwA="
+	tests := []struct {
+		name  string
+		class int
+		js    string
+		field string
+	}{
+		{"process", 1007, `{"process":{"name":"pwsh","cmd_line":"` + enc + `"}}`, "process.cmd_line"},
+		{"job, deprecated field", 1006, `{"job":{"name":"U","cmd_line":"` + enc + `"}}`, "job.cmd_line"},
+		{"job, first action", 1006, `{"job":{"name":"U","job_actions":[{"cmd_line":"` + enc + `"},{"cmd_line":"b.exe"}]}}`, "job.job_actions[0].cmd_line"},
+		{"job, a later action", 1006, `{"job":{"name":"U","job_actions":[{"desc":"send mail"},{"cmd_line":""},{"cmd_line":"` + enc + `"}]}}`, "job.job_actions[2].cmd_line"},
+		{"job, actions without a command", 1006, `{"job":{"name":"U","cmd_line":"` + enc + `","job_actions":[{"desc":"send mail"}]}}`, "job.cmd_line"},
+		{"job, the action wins over the deprecated field", 1006, `{"job":{"name":"U","cmd_line":"old.exe","job_actions":[{"cmd_line":"` + enc + `"}]}}`, "job.job_actions[0].cmd_line"},
+	}
+	for _, tt := range tests {
+		p := payload(tt.js)
+		v := Render(Event{ClassUID: tt.class, Payload: p}, nil)
+		if v.Decoded == nil || v.Decoded.Field != tt.field || v.Decoded.Stored != enc || v.Decoded.Text != "echo" {
+			t.Errorf("%s: decoded = %+v; want field %s, stored %q", tt.name, v.Decoded, tt.field, enc)
+		}
+	}
+	// The stored value is not on the wire: the view's fields already show it.
+	out, err := json.Marshal(Render(Event{ClassUID: 1007, Payload: payload(tests[0].js)}, nil).Decoded)
+	if err != nil || strings.Contains(string(out), "tored") {
+		t.Errorf("decoded on the wire = %s, %v; want field, encoding and text only", out, err)
 	}
 }
 

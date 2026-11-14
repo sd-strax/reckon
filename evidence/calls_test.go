@@ -113,6 +113,37 @@ func TestPersist_CallIsInTheTransaction(t *testing.T) {
 	}
 }
 
+// TestInvestigationEvents_ExtensionCategory: an extension's class carries the
+// extension's number above the category (201002, the Windows extension's
+// Registry Value Activity, is category 1), and the category filter lists and
+// counts it with the core classes of that category.
+func TestInvestigationEvents_ExtensionCategory(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	inv := uuid.New()
+	host := stixID("x-host")
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	reg, regNorm := retrieved(201002, "Registry Value Activity", base.Add(time.Minute), host)
+	proc, procNorm := retrieved(1007, "Process Activity", base.Add(2*time.Minute), host)
+	logon, logonNorm := retrieved(3002, "Authentication", base.Add(3*time.Minute), host)
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "get_registry_changes", StartedAt: base},
+		capability.CapabilityResult{Coverage: capability.CoverageComplete,
+			Events:     []capability.OcsfEvent{reg, proc, logon},
+			Normalized: []capability.NormalizationResult{regNorm, procNorm, logonNorm}})
+
+	got, err := s.InvestigationEvents(ctx, inv, EventFilter{Category: "process"})
+	if err != nil {
+		t.Fatalf("InvestigationEvents: %v", err)
+	}
+	if got.Total != 2 || len(got.Rows) != 2 || got.Rows[0].ID != reg.ID || got.Rows[1].ID != proc.ID {
+		t.Fatalf("category 1 = %d rows, total %d; want the registry event and the process event", len(got.Rows), got.Total)
+	}
+	// Extension 2 is not category 2: the registry event is no finding.
+	if det, err := s.InvestigationEvents(ctx, inv, EventFilter{Category: "detection"}); err != nil || det.Total != 0 {
+		t.Errorf("category 2 = %d, %v; want none", det.Total, err)
+	}
+}
+
 // TestInvestigationEvents: the events of one investigation in event time, by
 // entity and by category, and the window around one of them on its host.
 func TestInvestigationEvents(t *testing.T) {

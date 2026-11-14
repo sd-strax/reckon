@@ -70,6 +70,7 @@ func (u userObject) principalName() string {
 }
 
 // OCSF account.type_id values the shaping reads (the OCSF Account object).
+// accountTypeIDs holds their captions for the schema check.
 const (
 	ocsfAccountLDAP      = 1
 	ocsfAccountWindows   = 2
@@ -79,6 +80,11 @@ const (
 	ocsfAccountGoogleWks = 15
 )
 
+var accountTypeIDs = map[int]string{
+	ocsfAccountLDAP: "LDAP Account", ocsfAccountWindows: "Windows Account", ocsfAccountAzureAD: "Azure AD Account",
+	ocsfAccountMacOS: "Mac OS Account", ocsfAccountLinux: "Linux Account", ocsfAccountGoogleWks: "Google Workspace",
+}
+
 // machineDomains are the "domains" a Windows source names for principals that
 // are the machine's own: the account is windows-local, scoped by the host.
 var machineDomains = []string{
@@ -86,20 +92,25 @@ var machineDomains = []string{
 	"application package authority", "mandatory label",
 }
 
-// osFamily reads the OCSF device object at device: "windows", "unix" or "".
-// The type_id is the OCSF OS enum (100 Windows, 200 Linux, 300 macOS, 400-402
-// the commercial Unixes); the type caption is read when the id is absent.
-func osFamily(p map[string]any, device string) string {
+// osTypes are the OCSF os.type_id captions of the systems the shaping tells
+// apart. A phone or tablet OS (101, 201, 301, 302) decides nothing.
+var osTypes = map[int]string{100: "Windows", 200: "Linux", 300: "macOS", 400: "Solaris", 401: "AIX", 402: "HP-UX"}
+
+// osFamily reads the OCSF device object the caller names: "windows", "unix"
+// or "". The type_id is the OCSF OS enum (100 Windows, 200 Linux, 300 macOS,
+// 400-402 the commercial Unixes); the type caption is read when the id is
+// absent.
+func osFamily(loc at) string {
+	p, device := loc.obj, loc.path
 	if device == "" {
 		return ""
 	}
-	switch id := pathInt(p, device+".os.type_id"); {
-	case id == 100:
-		return "windows"
-	case id == 200 || id == 300 || (id >= 400 && id <= 402):
-		return "unix"
+	// The id's caption is read the way the event's own caption is.
+	t := strings.ToLower(osTypes[pathInt(p, device+".os.type_id")])
+	if t == "" {
+		t = strings.ToLower(strings.TrimSpace(pathStr(p, device+".os.type")))
 	}
-	switch t := strings.ToLower(strings.TrimSpace(pathStr(p, device+".os.type"))); {
+	switch {
 	case strings.HasPrefix(t, "windows"):
 		return "windows"
 	case t == "linux" || t == "macos" || t == "solaris" || t == "aix" || t == "hp-ux":
@@ -110,7 +121,8 @@ func osFamily(p map[string]any, device string) string {
 
 // accountType decides the account_type of the user object u, named by an
 // event whose device object (the machine the account acted on) is at device
-// and minted as host. The order is the decision:
+// and minted as host. The record's other device objects, where an OS may be
+// named, are the builder's (deviceObjects). The order is the decision:
 //
 //  1. cloud: the source is an identity provider, which OCSF says through the
 //     account object, account.type_id 6 (Azure AD Account) or 15 (Google
@@ -142,17 +154,16 @@ func osFamily(p map[string]any, device string) string {
 //     of every machine's same-named local account, a merge no edge undoes.
 //  9. login: a bare login from a source that names no OS and no host: the
 //     weak account on the login alone, which joins nothing by itself.
-func (b *resultBuilder) accountType(u userObject, device string, host identity.STIXID) string {
-	p := b.evt.Payload
+func (b *resultBuilder) accountType(u userObject, device at, host identity.STIXID) string {
 	switch {
 	case u.accountTypeID == ocsfAccountAzureAD || u.accountTypeID == ocsfAccountGoogleWks ||
 		u.accountType == "azure ad account" || u.accountType == "google workspace" ||
-		(u.sid == "" && (u.domain == "" || u.name == "" || strings.Contains(u.name, "@")) && identityProviderSource(p)):
+		(u.sid == "" && (u.domain == "" || u.name == "" || strings.Contains(u.name, "@")) && identityProviderSource(b.evt.Payload, b.devices)):
 		return identity.AccountCloud
 	case u.accountTypeID == ocsfAccountLDAP:
 		return identity.AccountLDAP
 	}
-	os := osFamily(p, device)
+	os := osFamily(device)
 	// An explicit Unix signal, the account type or the device's OS family,
 	// outweighs the domain heuristic: a Linux host's account that names a
 	// domain is still that host's account. A SID outranks it: a Windows
@@ -201,29 +212,27 @@ var directories = map[string]knownDirectory{
 }
 
 // knownDirectoryOf looks the event's metadata.product up in directories: the
-// product name, matched whole, gives the slug and the identity-provider
-// mark. With no product name the vendor name is looked up instead; it marks
-// an identity provider only when the record names no device OS (a vendor's
-// agent on a machine is no sign-in), and otherwise gives the slug alone. A
-// product name the table does not hold is its own directory: the vendor is
-// not consulted (directorySlug slugifies the product).
-func knownDirectoryOf(p map[string]any) (knownDirectory, bool) {
+// product name, matched whole, else with no product name the vendor name
+// (byVendor). A product name the table does not hold is its own directory:
+// the vendor is not consulted (directorySlug slugifies the product).
+func knownDirectoryOf(p map[string]any) (d knownDirectory, byVendor, ok bool) {
 	product := strings.ToLower(strings.TrimSpace(pathStr(p, "metadata.product.name")))
 	if product != "" {
-		d, ok := directories[product]
-		return d, ok
+		d, ok = directories[product]
+		return d, false, ok
 	}
-	d, ok := directories[strings.ToLower(strings.TrimSpace(pathStr(p, "metadata.product.vendor_name")))]
-	if ok && namesDeviceOS(p) {
-		d.idp = false
-	}
-	return d, ok
+	d, ok = directories[strings.ToLower(strings.TrimSpace(pathStr(p, "metadata.product.vendor_name")))]
+	return d, true, ok
 }
 
-// namesDeviceOS reports whether any device object of the record names an OS.
-func namesDeviceOS(p map[string]any) bool {
-	for _, dev := range []string{"device", "src_endpoint", "dst_endpoint"} {
-		if pathInt(p, dev+".os.type_id") != 0 || strings.TrimSpace(pathStr(p, dev+".os.type")) != "" || strings.TrimSpace(pathStr(p, dev+".os.name")) != "" {
+// namesDeviceOS reports whether any of the device objects the caller names
+// says what OS it runs.
+func namesDeviceOS(devices []at) bool {
+	for _, dev := range devices {
+		if dev.path == "" {
+			continue
+		}
+		if pathInt(dev.obj, dev.path+".os.type_id") != 0 || strings.TrimSpace(pathStr(dev.obj, dev.path+".os.type")) != "" || strings.TrimSpace(pathStr(dev.obj, dev.path+".os.name")) != "" {
 			return true
 		}
 	}
@@ -232,10 +241,16 @@ func namesDeviceOS(p map[string]any) bool {
 
 // identityProviderSource reports whether the event comes from an identity
 // provider (directories, knownDirectoryOf): "Okta System Log" is one,
-// "Microsoft Entra Domain Services" is not.
-func identityProviderSource(p map[string]any) bool {
-	d, ok := knownDirectoryOf(p)
-	return ok && d.idp
+// "Microsoft Entra Domain Services" is not. A vendor name alone marks one
+// only when none of the class's device objects names an OS: a vendor's agent
+// on a machine is no sign-in. devices are the device objects the event's
+// class carries, which the calling normalizer names (adr/0356).
+func identityProviderSource(p map[string]any, devices []at) bool {
+	d, byVendor, ok := knownDirectoryOf(p)
+	if !ok || !d.idp {
+		return false
+	}
+	return !byVendor || !namesDeviceOS(devices)
 }
 
 // machineLocal reports whether u names one of the machine's own principals:
@@ -253,12 +268,18 @@ func (b *resultBuilder) machineLocal(u userObject, host identity.STIXID) bool {
 	return host != "" && d != "" && !strings.Contains(d, ".") && b.r.Host(identity.HostIdentity{Hostname: d}) == host
 }
 
-// userAccount extracts the user-account an OCSF user object at prefix (e.g.
-// "actor.user") names, shaped per adr/0324 (03 §7.2, §7.4). device is the
-// prefix of the device object the account acted on and host the x-host the
-// normalizer minted from it ("" for none): a host-scoped account
-// (windows-local, unix, local) is keyed under it, and the device's OS is one
-// of the signals the type is read from (accountType).
+// userAccount extracts the user-account the OCSF user object at prefix of
+// the event (e.g. "actor.user") names; device is the prefix of the device
+// object the account acted on. See userAccountAt.
+func (b *resultBuilder) userAccount(prefix, device string, host identity.STIXID) identity.STIXID {
+	return b.userAccountAt(b.top(prefix), b.top(device), host)
+}
+
+// userAccountAt extracts the user-account an OCSF user object names, shaped
+// per adr/0324 (03 §7.2, §7.4). device is the device object the account acted
+// on and host the x-host the normalizer minted from it ("" for none): a
+// host-scoped account (windows-local, unix, local) is keyed under it, and the
+// device's OS is one of the signals the type is read from (accountType).
 //
 // The record's strongest identifier mints the account, in object_refs: for a
 // domain account the SID, else the principal name, else "domain\sam"; for a
@@ -270,13 +291,9 @@ func (b *resultBuilder) machineLocal(u userObject, host identity.STIXID) bool {
 // from it to the strong account, DIRECT, the record's provenance: the source
 // said in this record that the login is that account, as the host rule does
 // for an agent id (adr/0211). It returns "" when the object names nothing.
-func (b *resultBuilder) userAccount(prefix, device string, host identity.STIXID) identity.STIXID {
-	v, ok := lookupPath(b.evt.Payload, prefix)
-	if !ok {
-		return ""
-	}
-	m, ok := v.(map[string]any)
-	if !ok {
+func (b *resultBuilder) userAccountAt(user, device at, host identity.STIXID) identity.STIXID {
+	m := objectAt(user.obj, user.path)
+	if m == nil {
 		return ""
 	}
 	u := readUser(m)
@@ -423,7 +440,7 @@ func (b *resultBuilder) accountProps(u userObject, typ, login string) map[string
 // spaces as dashes. The slug depends on the record alone, so two installs
 // of one source scope its persons alike.
 func directorySlug(p map[string]any, sourceTool string) string {
-	if d, ok := knownDirectoryOf(p); ok {
+	if d, _, ok := knownDirectoryOf(p); ok {
 		return d.slug
 	}
 	product := strings.ToLower(strings.TrimSpace(pathStr(p, "metadata.product.name")))

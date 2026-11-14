@@ -10,25 +10,49 @@
   "ocsf": {
     "class_uid": 2004,
     "class_name": "Detection Finding",
-    "time": "2026-04-20T14:33:10Z",
-    "metadata": { "product": { "vendor_name": "CrowdStrike" } },
-    "finding": {
+    "category_uid": 2,
+    "activity_id": 1,
+    "type_uid": 200401,
+    "time": 1776695590000,
+    "time_dt": "2026-04-20T14:33:10Z",
+    "metadata": {
+      "product": {
+        "vendor_name": "CrowdStrike"
+      },
+      "version": "1.1.0"
+    },
+    "severity": "High",
+    "severity_id": 4,
+    "confidence": "High",
+    "confidence_id": 3,
+    "finding_info": {
       "uid": "det-lm-001",
       "title": "Suspicious lateral movement via RDP followed by encoded PowerShell",
-      "confidence": "High",
-      "severity": "High",
-      "types": ["T1021.001", "T1059.001"]
+      "types": [
+        "T1021.001",
+        "T1059.001"
+      ]
     },
-    "evidence": {
-      "class_uid": 1007,
-      "class_name": "Process Activity",
-      "process": {
-        "pid": 6120,
-        "name": "powershell.exe",
-        "created_time": "2026-04-20T14:33:05Z"
-      },
-      "device": { "hostname": "WIN-FILE01", "domain": "CONTOSO" },
-      "actor": { "user": { "name": "svc_backup", "domain": "CONTOSO", "uid": "S-1-5-21-2002" } }
-    }
+    "device": {
+      "hostname": "WIN-FILE01",
+      "domain": "CONTOSO"
+    },
+    "evidences": [
+      {
+        "process": {
+          "pid": 6120,
+          "name": "powershell.exe",
+          "created_time": 1776695585000,
+          "created_time_dt": "2026-04-20T14:33:05Z"
+        },
+        "actor": {
+          "user": {
+            "name": "svc_backup",
+            "domain": "CONTOSO",
+            "uid": "S-1-5-21-2002"
+          }
+        }
+      }
+    ]
   }
 }

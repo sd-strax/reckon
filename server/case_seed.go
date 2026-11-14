@@ -109,7 +109,7 @@ func caseSource(res capability.CapabilityResult) string {
 	return ""
 }
 
-// caseTitle returns the case title the caseNormalizer carried into the
+// caseTitle returns the case title the incident normalizer carried into the
 // ObservedData extensions (03 §2.9), or "" when absent.
 func caseTitle(res capability.CapabilityResult) string {
 	for _, n := range res.Normalized {

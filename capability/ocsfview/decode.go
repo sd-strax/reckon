@@ -14,10 +14,17 @@ import (
 // recorded, not cited; the original field is always shown beside it. It is
 // present only when a known encoding decodes cleanly to printable text, since a
 // decoder that guesses puts plausible garbage next to evidence.
+//
+// Field is the path of the field the command line was read from in the
+// event: dotted, with an entry of a list named by its position, as in
+// "job.job_actions[1].cmd_line". Stored is that field's value as the event
+// holds it, so a reader of the view shows the original without looking the
+// field up again; it is in the view's fields already and is not on the wire.
 type Decoded struct {
 	Field    string `json:"field"`
 	Encoding string `json:"encoding"` // base64-utf16le
 	Text     string `json:"text"`
+	Stored   string `json:"-"`
 }
 
 // Encodings the view recognises. The list is closed: each has an exact test,
@@ -453,15 +460,16 @@ func printable(text string) bool {
 // decode records the command line's decoded argument on the view, when the
 // field carries one that decodes cleanly. One per view; the first template to
 // find one wins.
-func (r *renderer) decode(path string) {
-	if r.decoded != nil {
-		return
-	}
-	cmd := r.str(path)
-	if cmd == "" {
+func (r *renderer) decode(path string) { r.decodeText(path, r.str(path)) }
+
+// decodeText is decode for a command line the caller already read, such as
+// one entry of a list: field is the path it was read from, as Decoded.Field
+// describes.
+func (r *renderer) decodeText(field, cmd string) {
+	if r.decoded != nil || cmd == "" {
 		return
 	}
 	if encoding, text, ok := decodeCommandLine(cmd); ok {
-		r.decoded = &Decoded{Field: path, Encoding: encoding, Text: text}
+		r.decoded = &Decoded{Field: field, Encoding: encoding, Text: text, Stored: cmd}
 	}
 }

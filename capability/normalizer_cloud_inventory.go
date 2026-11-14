@@ -1,7 +1,6 @@
 package capability
 
 import (
-	"math"
 	"strings"
 	"time"
 
@@ -27,14 +26,14 @@ func (*cloudInventoryNormalizer) ClassUID() int { return 5023 }
 // ObservedData id carries the version but not the normalizer's name, so a
 // version 1 here would mint the same id and keep the entity-less observation.
 // Version 3: created_time and modified_time reach the extensions as RFC 3339
-// strings whether the payload carries epoch milliseconds (OCSF timestamp_t,
-// what a live source emits) or a string; a shaping change is a
-// re-normalization (§4.13).
-func (*cloudInventoryNormalizer) Version() int { return 3 }
+// strings; a shaping change is a re-normalization (§4.13).
+// Version 4: they are read as OCSF writes them, epoch milliseconds, else the
+// _dt twin (adr/0356).
+func (*cloudInventoryNormalizer) Version() int { return 4 }
 
 func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
-	b := newBuilder(n.r, evt, "cloud_inventory", n.Version())
+	b := newBuilder(n.r, evt, "cloud_resources_inventory_info", n.Version())
 	provider := providerSlug(pathStr(p, "cloud.provider"))
 	if provider == "" {
 		return b.finish(inventoryExt(p)), nil
@@ -42,17 +41,13 @@ func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult
 
 	var account identity.STIXID
 	if uid := pathScalar(p, "cloud.account.uid"); uid != "" {
-		account = b.addAccount(provider, uid, "cloud.account")
+		account = b.addAccount(provider, uid, b.top("cloud.account"), true)
 	} else if uid := pathScalar(p, "cloud.project_uid"); uid != "" {
-		account = b.addAccount(provider, uid, "")
+		account = b.addAccount(provider, uid, at{}, true)
 	}
-	for _, res := range b.cloudResources(provider, account) {
-		if res.rule == identity.CloudResourceByName {
-			b.addRel(RelBelongsTo, res.id, account)
-		}
-	}
+	b.cloudResourcesOf(provider, account)
 	for _, item := range inventoryResources(p) {
-		owner, _ := item["owner"].(map[string]any)
+		owner, _ := fieldOf(item, "owner").(map[string]any)
 		if id := ownerID(owner); id != "" {
 			b.cloudUser(provider, id, owner, false, "")
 		}
@@ -78,7 +73,7 @@ func ownerID(owner map[string]any) string {
 	if owner == nil {
 		return ""
 	}
-	return firstNonEmpty(scalarString(owner["uid"]), scalarString(owner["uid_alt"]))
+	return firstNonEmpty(scalarString(fieldOf(owner, "uid")), scalarString(fieldOf(owner, "uid_alt")))
 }
 
 // inventoryActivities are the OCSF 5023 activity captions.
@@ -87,8 +82,8 @@ var inventoryActivities = map[int]string{1: "Log", 2: "Collect"}
 // inventoryExt is the ObservedData's extensions for a snapshot: the activity,
 // region and resource count, and the first resource's configuration as the
 // snapshot reports it, absent keys omitted (§4.18). created_time and
-// modified_time arrive at 1.7.0 and are read when present, as RFC 3339; the schema version
-// itself is never copied (§4.16).
+// modified_time arrive at 1.5.0 and are read when present, as RFC 3339; the
+// schema version itself is never copied (§4.16).
 func inventoryExt(p map[string]any) map[string]any {
 	ext := map[string]any{}
 	put := func(k, v string) {
@@ -129,42 +124,30 @@ func inventoryExt(p map[string]any) map[string]any {
 		return ext
 	}
 	first := resources[0]
-	put("resource_uid", scalarString(first["uid"]))
-	put("resource_name", strings.TrimSpace(toString(first["name"])))
-	put("type", toString(first["type"]))
-	putAny("configuration", first["data"])
-	putAny("labels", first["labels"])
-	putAny("tags", first["tags"])
-	put("criticality", toString(first["criticality"]))
-	put("created_time", ocsfTimestamp(first["created_time"]))
-	put("modified_time", ocsfTimestamp(first["modified_time"]))
-	if owner, _ := first["owner"].(map[string]any); owner != nil {
-		put("owner_name", firstNonEmpty(strings.TrimSpace(toString(owner["name"])), strings.TrimSpace(toString(owner["full_name"]))))
+	put("resource_uid", scalarString(fieldOf(first, "uid")))
+	put("resource_name", strings.TrimSpace(toString(fieldOf(first, "name"))))
+	put("type", toString(fieldOf(first, "type")))
+	putAny("configuration", fieldOf(first, "data"))
+	putAny("labels", fieldOf(first, "labels"))
+	putAny("tags", fieldOf(first, "tags"))
+	put("criticality", toString(fieldOf(first, "criticality")))
+	put("created_time", ocsfTimestamp(first, "created_time"))
+	put("modified_time", ocsfTimestamp(first, "modified_time"))
+	if owner, _ := fieldOf(first, "owner").(map[string]any); owner != nil {
+		put("owner_name", firstNonEmpty(strings.TrimSpace(toString(fieldOf(owner, "name"))), strings.TrimSpace(toString(fieldOf(owner, "full_name")))))
 	}
 	return ext
 }
 
-// ocsfTimestamp renders an OCSF timestamp as RFC 3339 UTC: a number is epoch
-// milliseconds (timestamp_t), converted when it is an exact integer below
-// 2^53 (beyond that a JSON number has already been rounded); a string is
-// kept as given; anything else is "". capability/ocsfview holds a copy of
-// this rule for the event view (it cannot import this package).
-func ocsfTimestamp(v any) string {
-	var f float64
-	switch x := v.(type) {
-	case string:
-		return strings.TrimSpace(x)
-	case float64:
-		f = x
-	case int64:
-		f = float64(x)
-	case int:
-		f = float64(x)
-	default:
+// ocsfTimestamp renders the OCSF timestamp at key of obj as RFC 3339 UTC, or
+// "" when there is none. The field holds epoch milliseconds, and its _dt twin
+// an RFC 3339 string; the number is read first (see ocsfTime).
+// capability/ocsfview holds a copy of this rule for the event view (it cannot
+// import this package).
+func ocsfTimestamp(obj map[string]any, key string) string {
+	t := ocsfTime(obj, key)
+	if t.IsZero() {
 		return ""
 	}
-	if f != math.Trunc(f) || math.Abs(f) >= 1<<53 {
-		return ""
-	}
-	return time.UnixMilli(int64(f)).UTC().Format(time.RFC3339Nano)
+	return t.Format(time.RFC3339Nano)
 }

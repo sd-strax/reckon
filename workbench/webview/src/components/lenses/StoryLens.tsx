@@ -23,9 +23,9 @@ import type { Hypothesis } from "../../../../src/viewTypes";
 
 const CATEGORY: Record<string, string> = { Authentication: "auth", "Process Activity": "process", "Network Activity": "network", "DNS Activity": "network", "Detection Finding": "detection", "Security Finding": "detection", "observed-data": "observed" };
 
-/** An OCSF category from the class: the thousands digit of class_uid (3002 Authentication is IAM, 3). */
+/** An OCSF category from the class: the thousands digit of class_uid (3002 Authentication is IAM, 3), under an extension's number (201002 is the Windows extension's 1002, category 1). */
 export function categoryOfClass(classUid: number): string {
-  switch (Math.floor(classUid / 1000)) {
+  switch (Math.floor((classUid % 100000) / 1000)) {
     case 1: return "process";
     case 2: return "detection";
     case 3: return "auth";

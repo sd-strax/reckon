@@ -6,7 +6,7 @@ import (
 	"github.com/sd-strax/reckon/identity"
 )
 
-// userInventoryNormalizer handles OCSF user_inventory_info (class_uid 5003) →
+// userInventoryNormalizer handles OCSF user_inventory (class_uid 5003) →
 // STIX (03 §4.19, adr/0324): a directory's user object, the one record that
 // names a person. It mints the person, a STIX identity with identity_class
 // individual keyed by (directory, the directory's id), the accounts the
@@ -34,7 +34,7 @@ var onPremisesDirectories = []string{"ad"}
 
 func (n *userInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
-	b := newBuilder(n.r, evt, "user_inventory_info", n.Version())
+	b := newBuilder(n.r, evt, "user_inventory", n.Version())
 	raw, _ := lookupPath(p, "user")
 	m, ok := raw.(map[string]any)
 	if !ok {
@@ -180,7 +180,7 @@ type inventoryGroup struct{ name, domain string }
 // groupList reads user.groups[] as named groups: an entry with neither a
 // name nor a uid is dropped, and a uid stands in for a missing name.
 func groupList(user map[string]any) []inventoryGroup {
-	v, ok := user["groups"].([]any)
+	v, ok := fieldOf(user, "groups").([]any)
 	if !ok {
 		return nil
 	}
@@ -190,11 +190,11 @@ func groupList(user map[string]any) []inventoryGroup {
 		if !ok {
 			continue
 		}
-		name := firstNonEmpty(strings.TrimSpace(toString(g["name"])), strings.TrimSpace(toString(g["uid"])))
+		name := firstNonEmpty(strings.TrimSpace(toString(fieldOf(g, "name"))), strings.TrimSpace(toString(fieldOf(g, "uid"))))
 		if name == "" {
 			continue
 		}
-		out = append(out, inventoryGroup{name: name, domain: strings.TrimSpace(toString(g["domain"]))})
+		out = append(out, inventoryGroup{name: name, domain: strings.TrimSpace(toString(fieldOf(g, "domain")))})
 	}
 	return out
 }

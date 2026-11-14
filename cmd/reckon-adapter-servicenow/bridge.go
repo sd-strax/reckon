@@ -12,6 +12,7 @@ import (
 	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/internal/adapterplugin"
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 const version = "0.1.0"
@@ -85,7 +86,7 @@ func (b *bridge) configure(params []byte) (any, *wireError) {
 
 // invoke performs one read operation against the incident table (03 §2.9). Each
 // incident is shaped into a class-2005 OCSF Incident Finding the engine-side
-// caseNormalizer turns into an ObservedData. Read failures map onto the 03 §6.2
+// incident normalizer turns into an ObservedData. Read failures map onto the 03 §6.2
 // taxonomy via classErr (a not-found case is FALLTHROUGH, a down instance is
 // UNHEALTHY).
 func (b *bridge) invoke(ctx context.Context, params []byte) (any, *wireError) {
@@ -192,30 +193,64 @@ func (b *bridge) queryIncidents(ctx context.Context, client *snowClient, params 
 	return invokeResult{SourceTool: "servicenow", Events: events}, nil
 }
 
-// caseToOcsf shapes a Table API incident record into the class-2005 payload the
-// engine-side caseNormalizer reads (finding_info.uid/title/desc, status,
-// priority, assignment_group, unmapped.link/sor). With the caseFields column set
-// the display values come back as plain strings, so a `.(string)` coercion is
-// safe (empty on any surprise reference object).
+// ocsfVersion is the OCSF release this adapter writes (adr/0356). It is the
+// oldest release where an incident's priority is a caption, which is what
+// ServiceNow returns ("2 - High"). At 1.1.0 it is a number.
+const ocsfVersion = "1.2.0"
+
+// caseToOcsf shapes a Table API incident record into an OCSF Incident Finding
+// (2005), the fields the engine's incident normalizer reads (adr/0356):
+//
+//   - finding_info_list[], one entry: the number as uid, the short
+//     description as title, the description as desc
+//   - status and priority, ServiceNow's display labels. status_id is
+//     OCSF's number for the state, or Other (99) for a state OCSF does not
+//     have, and Unknown (0) when the record has none: OCSF requires it.
+//     priority_id is Other, as ServiceNow's label ("2 - High") is its own.
+//   - assignee_group.name, the assignment group's display name. The read
+//     asks for display values, so the group's sys_id is not returned and no
+//     uid is written.
+//   - src_url, the link back to the incident
+//   - unmapped.sor, the system of record's name, and unmapped.sys_id. OCSF
+//     has no field for either.
+//
+// With the caseFields column set the display values come back as plain
+// strings, so a `.(string)` coercion is safe (empty on any surprise reference
+// object). A field the record leaves empty is left out.
 func (b *bridge) caseToOcsf(rec map[string]any) capability.OcsfPayload {
 	s := func(k string) string { v, _ := rec[k].(string); return v }
-	link := ""
+	put := func(m map[string]any, k, v string) {
+		if v != "" {
+			m[k] = v
+		}
+	}
+	finding := map[string]any{}
+	put(finding, "uid", s("number"))
+	put(finding, "title", s("short_description"))
+	put(finding, "desc", s("description"))
+	unmapped := map[string]any{"sor": "servicenow"}
+	put(unmapped, "sys_id", s("sys_id"))
+	// A record with no opened_at carries no time (ocsf.SetTime).
+	opened := parseSnowTime(s("opened_at"))
+	raw := ocsf.Event(2005, ocsfVersion, ocsf.Product("ServiceNow", "ServiceNow"), opened)
+	raw["finding_info_list"] = []any{finding}
+	raw["unmapped"] = unmapped
+	raw["status_id"] = 0
+	if state := s("state"); state != "" {
+		raw["status"] = state
+		raw["status_id"] = ocsf.CaptionID(ocsf.IncidentStatuses, state)
+	}
+	if priority := s("priority"); priority != "" {
+		raw["priority"] = priority
+		raw["priority_id"] = ocsf.Other
+	}
+	if group := s("assignment_group"); group != "" {
+		raw["assignee_group"] = map[string]any{"name": group}
+	}
 	if b.client != nil && s("sys_id") != "" {
-		link = b.client.baseURL + "/nav_to.do?uri=incident.do?sys_id=" + s("sys_id")
+		raw["src_url"] = b.client.baseURL + "/nav_to.do?uri=incident.do?sys_id=" + s("sys_id")
 	}
-	raw := map[string]any{
-		"class_uid":        2005,
-		"status":           s("state"),
-		"priority":         s("priority"),
-		"assignment_group": s("assignment_group"),
-		"finding_info": map[string]any{
-			"uid":   s("number"),
-			"title": s("short_description"),
-			"desc":  s("description"),
-		},
-		"unmapped": map[string]any{"link": link, "sor": "servicenow", "sys_id": s("sys_id")},
-	}
-	return capability.OcsfPayload{ClassUID: 2005, ClassName: "Incident Finding", Time: parseSnowTime(s("opened_at")), Raw: raw}
+	return capability.OcsfPayload{ClassUID: 2005, ClassName: "Incident Finding", Time: opened, Raw: raw}
 }
 
 // readClass maps an HTTP status from a read call onto the 03 §6.2 taxonomy: a

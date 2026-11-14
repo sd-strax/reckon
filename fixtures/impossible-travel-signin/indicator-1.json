@@ -12,21 +12,27 @@
   "ocsf": {
     "class_uid": 5021,
     "class_name": "OSINT Inventory Info",
-    "time": "2026-06-11T03:30:00Z",
+    "category_uid": 5,
+    "activity_id": 2,
+    "type_uid": 502102,
+    "severity_id": 1,
+    "time": 1781148600000,
+    "time_dt": "2026-06-11T03:30:00Z",
     "metadata": {
       "product": {
         "vendor_name": "fixture-ti"
-      }
+      },
+      "version": "1.5.0"
     },
     "osint": [
       {
         "value": "203.0.113.46",
         "type": "IP Address",
-        "type_id": 2,
+        "type_id": 1,
         "reputation": {
           "provider": "fixture-ti",
-          "score": "Suspicious",
-          "score_id": 4,
+          "score": "Suspicious/Risky",
+          "score_id": 7,
           "base_score": 71
         },
         "confidence": "Medium",
@@ -38,7 +44,7 @@
           "country": "NL",
           "city": "Amsterdam"
         },
-        "categories": [
+        "labels": [
           "hosting",
           "VPN exit",
           "anonymizer"

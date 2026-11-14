@@ -2,12 +2,12 @@ package capability
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-
 	"github.com/sd-strax/reckon/identity"
 )
 
@@ -23,31 +23,40 @@ func makeEvent(payload map[string]any) OcsfEvent {
 	return OcsfEvent{
 		ID:         uuid.Must(uuid.NewV7()),
 		ClassUID:   toInt(payload["class_uid"]),
-		Time:       toTime(payload["time"]),
+		Time:       ocsfTime(payload, "time"),
 		RecordedAt: time.Now(),
 		SourceTool: "fixture:s",
 		Payload:    payload,
 	}
 }
 
+// ms is an RFC 3339 time as OCSF writes a timestamp_t: epoch milliseconds.
+func ms(rfc3339 string) int64 {
+	t, err := time.Parse(time.RFC3339, rfc3339)
+	if err != nil {
+		panic(err)
+	}
+	return t.UnixMilli()
+}
+
 func processPayload() map[string]any {
 	return map[string]any{
 		"class_uid": 1007,
-		"time":      "2026-04-20T14:32:11Z",
+		"time":      ms("2026-04-20T14:32:11Z"),
 		"process": map[string]any{
 			"pid":          4242,
 			"name":         "powershell.exe",
 			"cmd_line":     "powershell -enc ZQBjAGgAbwA=",
-			"created_time": "2026-04-20T14:32:11Z",
+			"created_time": ms("2026-04-20T14:32:11Z"),
 			"file": map[string]any{
 				"path":   `C:\Windows\System32\powershell.exe`,
 				"name":   "powershell.exe",
-				"hashes": map[string]any{"SHA-256": "ABC123"},
+				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "ABC123"}},
 			},
 			"parent_process": map[string]any{
 				"pid":          1000,
 				"name":         "explorer.exe",
-				"created_time": "2026-04-20T14:00:00Z",
+				"created_time": ms("2026-04-20T14:00:00Z"),
 			},
 		},
 		"device": map[string]any{"hostname": "WIN-DC01", "domain": "CONTOSO"},
@@ -124,8 +133,8 @@ func TestProcessNormalizer(t *testing.T) {
 func authPayload(host string) map[string]any {
 	return map[string]any{
 		"class_uid":    3002,
-		"time":         "2026-04-20T14:35:02Z",
-		"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21"}},
+		"time":         ms("2026-04-20T14:35:02Z"),
+		"user":         map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21"},
 		"dst_endpoint": map[string]any{"hostname": host, "domain": "CONTOSO"},
 		"src_endpoint": map[string]any{"ip": "10.0.4.55"},
 		"logon_type":   "RemoteInteractive",
@@ -167,12 +176,80 @@ func TestAuthNormalizer(t *testing.T) {
 	}
 }
 
+// TestAuthNormalizer_UserAndInitiator (adr/0356): the account that
+// authenticated is the event's user. actor.user is whoever started the logon:
+// a separate account, with no x-authenticated-to of its own.
+func TestAuthNormalizer_UserAndInitiator(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	host := ids.Host(identity.HostIdentity{Hostname: "WIN-FILE01"})
+	jdoe := ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, UserID: "S-1-5-21"})
+	system := ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsLocal, UserID: "S-1-5-18", HostRef: host})
+
+	authed := func(res NormalizationResult) []identity.STIXID {
+		var out []identity.STIXID
+		for _, r := range res.Relationships {
+			if r.Type == RelAuthenticatedTo {
+				if r.TargetRef != host {
+					t.Errorf("x-authenticated-to targets %s; want the destination host", r.TargetRef)
+				}
+				out = append(out, r.SourceRef)
+			}
+		}
+		return out
+	}
+
+	// Both: the user authenticated, the initiator did not.
+	p := authPayload("WIN-FILE01")
+	p["actor"] = map[string]any{"user": map[string]any{"name": "SYSTEM", "domain": "NT AUTHORITY", "uid": "S-1-5-18"}}
+	res, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := res.ObservedData[0].ObjectRefs
+	if !slices.Contains(refs, jdoe) || !slices.Contains(refs, system) {
+		t.Errorf("object_refs = %v; want the user %s and the initiator %s", refs, jdoe, system)
+	}
+	if got := authed(res); !slices.Equal(got, []identity.STIXID{jdoe}) {
+		t.Errorf("x-authenticated-to from %v; want only the user %s", got, jdoe)
+	}
+
+	// The initiator is the user: one account, one relationship.
+	p = authPayload("WIN-FILE01")
+	p["actor"] = map[string]any{"user": p["user"]}
+	same, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	alone, err := testRegistry().Normalize(makeEvent(authPayload("WIN-FILE01")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(same.SCOs) != len(alone.SCOs) || !slices.Equal(authed(same), []identity.STIXID{jdoe}) {
+		t.Errorf("the user named again as the initiator: %d objects (want %d), x-authenticated-to from %v", len(same.SCOs), len(alone.SCOs), authed(same))
+	}
+
+	// Only an initiator: the event does not say who authenticated.
+	p = authPayload("WIN-FILE01")
+	p["actor"] = map[string]any{"user": p["user"]}
+	delete(p, "user")
+	res, err = testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := authed(res); len(got) != 0 {
+		t.Errorf("an event with no user: x-authenticated-to from %v; want none", got)
+	}
+	if !slices.Contains(res.ObservedData[0].ObjectRefs, jdoe) {
+		t.Errorf("object_refs = %v; want the initiator %s kept", res.ObservedData[0].ObjectRefs, jdoe)
+	}
+}
+
 // TestOpaqueFallback: an unregistered class yields a single opaque ObservedData
 // with no object_refs and a derived-from edge (§4.13).
 func TestOpaqueFallback(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid": 9999,
-		"time":      "2026-04-20T14:32:11Z",
+		"time":      ms("2026-04-20T14:32:11Z"),
 		"weird":     "vendor payload",
 	}))
 	if err != nil {
@@ -447,24 +524,23 @@ func TestHostAliasEmission(t *testing.T) {
 	}
 }
 
-// TestHostNormalizerVersions: a normalizer sits at version 2 for one of two
-// reasons. Its shaping changed under adr/0211 (a shaping change is a
-// re-normalization under §4.13): the ones that mint a host, and email, whose
-// attachment files are identified by hash and placeholder hashes no longer
-// count. Or it took over a class the opaque default handled (5001, 6003,
-// 5023, 5003): the ObservedData id carries the version but not the
-// normalizer's name, so version 1 would collide with the opaque observation.
-// 5023 is at 3: its created and modified times became RFC 3339 in the
-// extensions whatever form the payload carries them in. The normalizers
-// that mint an account from an OCSF user object moved to 3 under adr/0324
-// (1007, 3002, 1001, 1006, 3005, 4011, and 2004, whose evidence recursion
-// mints them); api_activity shapes a control-plane principal, unchanged, and
-// stays at 2. The case normalizer and the opaque default are at 1.
-func TestHostNormalizerVersions(t *testing.T) {
+// TestNormalizerVersions pins every normalizer's version. The ObservedData id
+// carries the version but not the normalizer's name, so a normalizer that
+// takes over a class number starts above every version that number has had:
+// the inventory classes (5001, 5003, 5023) and api_activity started at 2
+// above the opaque default, and email_file_activity starts at 4 above the
+// link-click normalizer that held 4011 before adr/0356.
+//
+// adr/0356 moved every normalizer whose input changed to its next version:
+// the classes and fields are OCSF's, and file hashes are read in OCSF's list
+// form only. dns_activity, user_inventory and cloud_resources_inventory_info
+// read the same input as before and did not move.
+func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 3}, {3002, 3}, {4001, 2}, {4003, 2}, {1001, 3}, {1003, 2}, {1006, 3}, {1009, 2},
-		{3005, 3}, {4011, 3}, {2004, 3}, {5001, 2}, {4009, 2}, {6003, 2}, {5023, 3}, {5003, 2}, {2005, 1}, {0, 1},
+		{1007, 4}, {3002, 5}, {4001, 3}, {4003, 2}, {1001, 4}, {201001, 3}, {201002, 3}, {1006, 4}, {1005, 3},
+		{3001, 4}, {3005, 4}, {3006, 4}, {4009, 3}, {4011, 4}, {4012, 4}, {2004, 6}, {2005, 2},
+		{5001, 3}, {6003, 3}, {5023, 4}, {5003, 2}, {0, 1},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {
@@ -477,5 +553,152 @@ func TestHostNormalizerVersions(t *testing.T) {
 		if n.Version() != c.version {
 			t.Errorf("class %d version = %d; want %d", c.class, n.Version(), c.version)
 		}
+	}
+}
+
+// TestEndpointHostReadsNoUIDAlt (adr/0356): a network endpoint has no
+// uid_alt in OCSF, so the host an authentication mints from dst_endpoint
+// keeps none, while a device's is kept.
+func TestEndpointHostReadsNoUIDAlt(t *testing.T) {
+	object := map[string]any{"hostname": "WS1", "uid": "dev-1", "uid_alt": "asset-1"}
+	auth := authPayload("WS1")
+	auth["dst_endpoint"] = object
+	proc := processPayload()
+	proc["device"] = object
+	for name, tc := range map[string]struct {
+		payload map[string]any
+		want    any
+	}{
+		"endpoint": {auth, nil},
+		"device":   {proc, "asset-1"},
+	} {
+		res, err := testRegistry().Normalize(makeEvent(tc.payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		host := scosOf(res, identity.TypeHost)[0]
+		if got := host.Properties["device_uid_alt"]; got != tc.want {
+			t.Errorf("%s: device_uid_alt = %v; want %v", name, got, tc.want)
+		}
+		// Everything else the object says is kept either way.
+		if host.Properties["hostname"] != "WS1" || len(relsOf(res, RelAliases)) == 0 {
+			t.Errorf("%s: host = %v, aliases %v", name, host.Properties, relsOf(res, RelAliases))
+		}
+	}
+}
+
+// TestDeviceOSIsReadWhereTheClassHasADevice (adr/0356): a vendor name alone
+// marks an identity provider only when no device object of the record names
+// an OS. Each normalizer names the device objects its class has, and only
+// those are read.
+func TestDeviceOSIsReadWhereTheClassHasADevice(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	okta := map[string]any{"product": map[string]any{"vendor_name": "Okta"}}
+	user := map[string]any{"name": "jdoe@contoso.example", "uid": "00u1AbCd"}
+	linux := map[string]any{"type_id": 200}
+	onLinux := map[string]any{"hostname": "WS1", "os": linux}
+	cloud := ids.Account(identity.AccountIdentity{Type: identity.AccountCloud, UserID: "00u1AbCd"})
+
+	for _, tc := range []struct {
+		name    string
+		payload map[string]any
+		idp     bool
+	}{
+		{"authentication, no OS", map[string]any{"class_uid": 3002, "user": user}, true},
+		{"authentication, OS on the source", map[string]any{"class_uid": 3002, "user": user, "src_endpoint": map[string]any{"os": linux}}, false},
+		{"authentication, OS on the destination", map[string]any{"class_uid": 3002, "user": user, "dst_endpoint": map[string]any{"os": map[string]any{"name": "Ubuntu"}}}, false},
+		{"authentication, OS on the device", map[string]any{"class_uid": 3002, "user": user, "device": map[string]any{"hostname": "WS1", "os": map[string]any{"type": "Linux"}}}, false},
+		{"process, no OS", map[string]any{"class_uid": 1007, "actor": map[string]any{"user": user}}, true},
+		{"process, OS on the device", map[string]any{"class_uid": 1007, "actor": map[string]any{"user": user}, "device": onLinux}, false},
+		{"file, OS on the device", map[string]any{"class_uid": 1001, "actor": map[string]any{"user": user}, "device": onLinux}, false},
+		{"scheduled job, OS on the device", map[string]any{"class_uid": 1006, "job": map[string]any{"name": "j", "user": user}, "device": onLinux}, false},
+		{"account change, no OS", map[string]any{"class_uid": 3001, "user": user}, true},
+		{"account change, OS on the source", map[string]any{"class_uid": 3001, "user": user, "src_endpoint": map[string]any{"os": linux}}, false},
+		{"user access, OS on the device", map[string]any{"class_uid": 3005, "user": user, "device": onLinux}, false},
+		{"user access, OS on the source", map[string]any{"class_uid": 3005, "user": user, "src_endpoint": map[string]any{"os": map[string]any{"name": "Ubuntu"}}}, false},
+		{"group management, OS on the source", map[string]any{"class_uid": 3006, "user": user, "src_endpoint": map[string]any{"os": map[string]any{"type": "Linux"}}}, false},
+		{"group management, OS on the device", map[string]any{"class_uid": 3006, "user": user, "device": onLinux}, false},
+		{"email click, OS on the device", map[string]any{"class_uid": 4012, "actor": map[string]any{"user": user}, "device": onLinux}, false},
+		{"email attachment, OS on the device", map[string]any{"class_uid": 4011, "actor": map[string]any{"user": user}, "device": onLinux}, false},
+		{"detection evidence, no OS", map[string]any{"class_uid": 2004, "evidences": []any{map[string]any{"actor": map[string]any{"user": user}}}}, true},
+		{"detection evidence, OS on the finding's device", map[string]any{"class_uid": 2004, "device": onLinux, "evidences": []any{map[string]any{"actor": map[string]any{"user": user}}}}, false},
+		{"detection evidence, OS on the artifact's device", map[string]any{"class_uid": 2004, "evidences": []any{map[string]any{"user": user, "device": onLinux}}}, false},
+		{"detection evidence, OS on the artifact's endpoint", map[string]any{"class_uid": 2004, "evidences": []any{map[string]any{"user": user, "dst_endpoint": map[string]any{"os": linux}}}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.payload["metadata"] = okta
+			tc.payload["time"] = ms("2026-04-20T14:32:11Z")
+			res, err := testRegistry().Normalize(makeEvent(tc.payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			accounts := accountsIn(res)
+			if len(accounts) != 1 {
+				t.Fatalf("accounts = %v; want one", accounts)
+			}
+			if got := accounts[0] == cloud; got != tc.idp {
+				t.Errorf("read as the identity provider's cloud account = %v; want %v", got, tc.idp)
+			}
+		})
+	}
+}
+
+// TestOcsfTimes (adr/0356): an OCSF timestamp is epoch milliseconds, and the
+// datetime profile's _dt twin is an RFC 3339 string. The number is read
+// first and the twin as a fallback, so an event that carries either one, or
+// both, gets the same event time and the same process id.
+func TestOcsfTimes(t *testing.T) {
+	const when = "2026-04-20T14:32:11Z"
+	want, _ := time.Parse(time.RFC3339, when)
+	event := func(timeFields, processFields map[string]any) OcsfEvent {
+		p := map[string]any{
+			"class_uid": 1007,
+			"device":    map[string]any{"hostname": "WS1"},
+			"process":   map[string]any{"pid": 4242, "name": "a.exe"},
+		}
+		for k, v := range timeFields {
+			p[k] = v
+		}
+		for k, v := range processFields {
+			p["process"].(map[string]any)[k] = v
+		}
+		payload := toOcsfPayload(p)
+		return OcsfEvent{ID: uuid.Must(uuid.NewV7()), ClassUID: payload.ClassUID, Time: payload.Time, SourceTool: "fixture:s", Payload: p}
+	}
+	ids := identity.NewResolver(testNS)
+	proc, _ := ids.Process(ids.Host(identity.HostIdentity{Hostname: "WS1"}), 4242, want)
+
+	for name, tc := range map[string]struct{ time, process map[string]any }{
+		"the number":               {map[string]any{"time": ms(when)}, map[string]any{"created_time": ms(when)}},
+		"the number as JSON":       {map[string]any{"time": float64(ms(when))}, map[string]any{"created_time": float64(ms(when))}},
+		"the _dt twin alone":       {map[string]any{"time_dt": when}, map[string]any{"created_time_dt": when}},
+		"both":                     {map[string]any{"time": ms(when), "time_dt": when}, map[string]any{"created_time": ms(when), "created_time_dt": when}},
+		"the number outranks":      {map[string]any{"time": ms(when), "time_dt": "2001-01-01T00:00:00Z"}, map[string]any{"created_time": ms(when), "created_time_dt": "2001-01-01T00:00:00Z"}},
+		"the twin in another zone": {map[string]any{"time_dt": "2026-04-20T16:32:11+02:00"}, map[string]any{"created_time_dt": "2026-04-20T16:32:11+02:00"}},
+	} {
+		evt := event(tc.time, tc.process)
+		if !evt.Time.Equal(want) {
+			t.Errorf("%s: event time = %s; want %s", name, evt.Time, want)
+		}
+		res, err := testRegistry().Normalize(evt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := scoByID(res.SCOs, proc); !ok {
+			t.Errorf("%s: the process is not %s: %v", name, proc, scosOf(res, identity.TypeProcess))
+		}
+	}
+
+	// A string in the number's field is not OCSF and is not read.
+	evt := event(map[string]any{"time": when}, map[string]any{"created_time": when})
+	if !evt.Time.IsZero() {
+		t.Errorf("a string in time was read as %s", evt.Time)
+	}
+	res, err := testRegistry().Normalize(evt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := scoByID(res.SCOs, proc); ok {
+		t.Error("a string in created_time was read as the process's start")
 	}
 }

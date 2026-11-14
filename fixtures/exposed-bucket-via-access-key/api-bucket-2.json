@@ -81,7 +81,8 @@
     "activity_id": 3,
     "activity_name": "Update",
     "type_uid": 600303,
-    "time": "2026-07-14T09:28:00Z",
+    "time": 1784021280000,
+    "time_dt": "2026-07-14T09:28:00Z",
     "severity_id": 1,
     "metadata": {
       "product": {
