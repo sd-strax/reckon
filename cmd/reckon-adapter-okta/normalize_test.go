@@ -67,6 +67,38 @@ func TestNormalizeAuthEvent(t *testing.T) {
 	assertOCSF(t, evs)
 }
 
+// TestNormalizeAuthEvent_SessionOfAnotherAccount: an admin clearing a user's
+// sessions is a session event whose actor is not the account it is about.
+// The User target is OCSF's user and the admin is the initiator. A User
+// target that is the actor itself changes nothing.
+func TestNormalizeAuthEvent_SessionOfAnotherAccount(t *testing.T) {
+	in := `{"items":[{"eventType":"user.session.clear","published":"2026-08-04T10:00:00Z",` +
+		`"actor":{"id":"00uADMIN","alternateId":"admin@acme.com","type":"User"},` +
+		`"target":[{"id":"00uABC","alternateId":"alice@acme.com","type":"User"}],` +
+		`"client":{"ipAddress":"1.2.3.4"},"outcome":{"result":"SUCCESS"}},` +
+		`{"eventType":"user.session.start","published":"2026-08-04T10:00:00Z",` +
+		`"actor":{"id":"00uABC","alternateId":"alice@acme.com","type":"User"},` +
+		`"target":[{"id":"00uABC","alternateId":"alice@acme.com","type":"User"}],` +
+		`"client":{"ipAddress":"1.2.3.4"},"outcome":{"result":"SUCCESS"}}]}`
+	evs, err := normalize("get_logs", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 {
+		t.Fatalf("want two events, got %+v", evs)
+	}
+	if got := mapAt(t, evs[0].Raw, "user")["name"]; got != "alice@acme.com" {
+		t.Errorf("user.name = %v; want the account whose sessions were cleared", got)
+	}
+	if got := mapAt(t, evs[0].Raw, "actor", "user")["name"]; got != "admin@acme.com" {
+		t.Errorf("actor.user.name = %v; want the admin", got)
+	}
+	if actor, has := evs[1].Raw["actor"]; has {
+		t.Errorf("a sign-in whose target is the actor carries an actor: %v", actor)
+	}
+	assertOCSF(t, evs)
+}
+
 // TestNormalizeAuthEvent_Geolocation: Okta's client.geographicalContext (the
 // Toronto example from Okta's own sample payload, country as the full name
 // Okta sends) reaches the event as an OCSF Geo Location under src_endpoint,

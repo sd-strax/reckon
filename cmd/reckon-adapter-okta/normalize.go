@@ -197,6 +197,19 @@ func initiator(e map[string]any) map[string]any {
 // sign-in event Okta's actor is the account signing in, which OCSF calls the
 // event's user (adr/0356). The client's reported place rides
 // src_endpoint.location (adr/0208).
+//
+// Some session events are done to another account: an admin clears a user's
+// sessions (user.session.clear) or impersonates a user
+// (user.session.impersonation.*). Okta's LogEvent schema says the actor is
+// the entity "who performs an action on a target" and the target is "the
+// entity that an actor performs an action on"
+// (https://developer.okta.com/docs/api/openapi/okta-management/management/tag/SystemLog/).
+// Okta's event-type catalog
+// (https://developer.okta.com/docs/reference/api/event-types/) does not list
+// the targets of each event type, so the rule goes by the event itself: when
+// it has a User target that is not the actor, that target is the user and
+// the actor is the initiator, as in accountPayload. Otherwise the actor is
+// the user.
 func authPayload(e map[string]any) map[string]any {
 	src := map[string]any{"ip": digStr(e, "client", "ipAddress")}
 	if loc := geoLocation(e); loc != nil {
@@ -204,13 +217,27 @@ func authPayload(e map[string]any) map[string]any {
 	}
 	p := logFields(e)
 	actor, _ := e["actor"].(map[string]any)
-	p["user"] = oktaUser(actor)
+	if tu := firstTarget(e, "User"); tu != nil && !sameOktaEntity(tu, actor) {
+		p["user"] = oktaUser(tu)
+		p["actor"] = initiator(e)
+	} else {
+		p["user"] = oktaUser(actor)
+	}
 	p["src_endpoint"] = src
 	// Okta's event type is not one of OCSF's logon types, so the id is Other
 	// and the event type is the caption.
 	p["logon_type"] = str(e["eventType"])
 	p["logon_type_id"] = ocsf.Other
 	return p
+}
+
+// sameOktaEntity reports whether an Okta actor and target are one entity: by
+// id when both carry one, else by alternateId, letter case aside.
+func sameOktaEntity(a, b map[string]any) bool {
+	if ai, bi := str(a["id"]), str(b["id"]); ai != "" && bi != "" {
+		return ai == bi
+	}
+	return strings.EqualFold(str(a["alternateId"]), str(b["alternateId"]))
 }
 
 // geoProvider attributes the place: it is Okta's IP geolocation of the client,
