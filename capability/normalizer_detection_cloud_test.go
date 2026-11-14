@@ -458,6 +458,16 @@ func TestIsCloudPrincipal(t *testing.T) {
 		{"AIDAN", "aws", user("uid", "AIDAN"), false},
 		{"AROADMIN", "aws", user("uid", "AROADMIN"), false},
 		{"AIDA with a lower-case tail", "aws", user("uid", "AIDAiosfodnn7example"), false},
+		{"AROA with an instance session", "aws", user("uid", "AROAEXAMPLEEXAMPLEEXA:i-0abc123"), true},
+		{"AROA with an email session", "aws", user("uid", "AROAEXAMPLEEXAMPLEEXA:jdoe@corp.com"), true},
+		{"AIDA has no session", "aws", user("uid", "AIDAEXAMPLEEXAMPLEEXA:x1"), false},
+		{"AROA with an empty session", "aws", user("uid", "AROAEXAMPLEEXAMPLEEXA:"), false},
+		{"AROA with a one-character session", "aws", user("uid", "AROAEXAMPLEEXAMPLEEXA:a"), false},
+		{"a short AROA with a session", "aws", user("uid", "AROAshort:i-0abc"), false},
+		{"AROA with a second colon", "aws", user("uid", "AROAEXAMPLEEXAMPLEEXA:a1:b2"), false},
+		{"AROA with a bad session character", "aws", user("uid", "AROAEXAMPLEEXAMPLEEXA:a b"), false},
+		{"AROA with a 65-character session", "aws", user("uid", "AROAEXAMPLEEXAMPLEEXA:"+strings.Repeat("a", 65)), false},
+		{"AROA with a 64-character session", "aws", user("uid", "AROAEXAMPLEEXAMPLEEXA:"+strings.Repeat("a", 64)), true},
 		{"a root account id", "aws", user("uid", "111122223333"), false},
 		{"ARN uid off AWS", "gcp", user("uid", deployARN), false},
 		{"AIDA uid off AWS", "azure", user("uid", "AIDAIOSFODNN7EXAMPLE"), false},
@@ -512,6 +522,27 @@ func TestDetectionCloudRootPrincipal(t *testing.T) {
 	local := ids.Account(identity.AccountIdentity{Type: identity.AccountLocal, Login: "root", HostRef: ids.Host(identity.HostIdentity{Hostname: "vm-a"})})
 	if got := refsOf(finding("444455556666"), identity.TypeUserAccount); len(got) != 1 || got[0] != local {
 		t.Errorf("another account: user-accounts = %v; want the host's local root %s", got, local)
+	}
+}
+
+// TestDetectionCloudAssumedRoleSessionID (adr/0359): on AWS a uid in the
+// assumed-role form CloudTrail's principalId takes, the role's AROA id with
+// ":" and the session name, is the provider principal keyed on that uid,
+// with no session issuer and no account type to say so.
+func TestDetectionCloudAssumedRoleSessionID(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	uid := "AROAEXAMPLEEXAMPLEEXA:i-0abc123"
+	res := normalizeOne(t, versioned(2004, "1.9.0", map[string]any{
+		"finding_info": map[string]any{"uid": "det-aroa"},
+		"cloud":        map[string]any{"provider": "AWS", "account": map[string]any{"uid": "111122223333"}},
+		"evidences": []any{map[string]any{
+			"actor":  map[string]any{"user": map[string]any{"uid": uid, "name": "ops"}},
+			"device": map[string]any{"hostname": "vm-a"},
+		}},
+	}))
+	principal := ids.Account(identity.AccountIdentity{Type: "aws", UserID: uid})
+	if got := refsOf(res, identity.TypeUserAccount); len(got) != 1 || got[0] != principal {
+		t.Errorf("user-accounts = %v; want the aws principal %s", got, principal)
 	}
 }
 

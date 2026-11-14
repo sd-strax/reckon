@@ -620,10 +620,13 @@ func (s *Store) accountKeys(ctx context.Context, refs []string) (accountKeySet, 
 }
 
 // accountSeenAs collects what the user objects of the events referencing any
-// of refs report, for the objects that name the set. The user objects are
-// the ones the normalizers read: actor.user, user, job.user, each entry of a
-// group change's users[] (03 §4.9, adr/0359), and actor.user and user in
-// each artifact of a detection's evidences[] (03 §4.12). An object names the set when its
+// of refs report, for the objects that name the set. The user objects read
+// are actor.user, user, job.user, each entry of a group change's users[]
+// (03 §4.9, adr/0359), and actor.user and user in each artifact of a
+// detection's evidences[] (03 §4.12). On a group change this reads user and
+// every users[] entry, while the normalizer reads user only when no entry
+// names a user. Each object adds only its own ids to the account it names,
+// so the extra read lends no account another's ids. An object names the set when its
 // own first identifier, the one the account rule keys it on, is one of keys:
 // a SID that names a principal, else any other uid, else the principal name,
 // else "domain\sam", else the bare name; so a record keyed elsewhere lends

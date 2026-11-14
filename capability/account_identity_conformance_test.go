@@ -589,6 +589,53 @@ func TestBareLoginFixture(t *testing.T) {
 	}
 }
 
+// TestPlaceholderDomainQualifiedName (adr/0359): a "domain\sam" name beside
+// a placeholder domain is split, so it keys the account the same name and
+// domain written apart key.
+func TestPlaceholderDomainQualifiedName(t *testing.T) {
+	reg := testRegistry()
+	accounts := func(user map[string]any) []identity.STIXID {
+		p := authPayload("WIN-FILE01")
+		p["user"] = user
+		res, err := reg.Normalize(makeEvent(p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return accountsIn(res)
+	}
+	want := reg.Identity().Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `CONTOSO\jdoe`})
+	apart := accounts(map[string]any{"name": "jdoe", "domain": "CONTOSO"})
+	joined := accounts(map[string]any{"name": `CONTOSO\jdoe`, "domain": "-"})
+	if len(apart) != 1 || apart[0] != want {
+		t.Fatalf("name and domain apart: accounts = %v; want %s", apart, want)
+	}
+	if !slices.Equal(joined, apart) {
+		t.Errorf("domain\\sam beside a placeholder domain: accounts = %v; want %v", joined, apart)
+	}
+}
+
+// TestDistinguishedNameNotSplit (adr/0359): a member named by its
+// distinguished name, as Windows 4728/4732 write it beside domain "-", keeps
+// the whole name as its login. Its escaping backslash does not split it into
+// a domain account of domain "CN=Doe".
+func TestDistinguishedNameNotSplit(t *testing.T) {
+	const dn = `CN=Doe\, John,CN=Users,DC=contoso,DC=com`
+	p := authPayload("WIN-FILE01")
+	p["user"] = map[string]any{"name": dn, "domain": "-"}
+	res, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	accts := accountsIn(res)
+	if len(accts) != 1 {
+		t.Fatalf("accounts = %v; want one", accts)
+	}
+	s, _ := scoByID(res.SCOs, accts[0])
+	if login, typ := s.Properties["account_login"], s.Properties["account_type"]; login != dn || typ == identity.AccountWindowsDomain || s.Properties["domain"] != nil {
+		t.Errorf("account properties = %v; want login %q, not a windows-domain account, no domain", s.Properties, dn)
+	}
+}
+
 func readFixtureOCSF(t *testing.T, path string) map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile(path)

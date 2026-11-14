@@ -1580,6 +1580,166 @@ func TestRender_AccountChangeUserByID(t *testing.T) {
 	}
 }
 
+// targetSlot is the target slot of v, the slot the fold keys a change's
+// accounts on.
+func targetSlot(v View) SlotValue {
+	for _, s := range v.Slots {
+		if s.Name == "target" {
+			return s
+		}
+	}
+	return SlotValue{}
+}
+
+// accountRows are v's Account rows.
+func accountRows(v View) []Field {
+	var rows []Field
+	for _, f := range v.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f)
+		}
+	}
+	return rows
+}
+
+// TestRender_GroupMemberPlaceholderName: a member whose name is a
+// placeholder, as Windows 4728/4732 write "-" beside the SID, is read by its
+// id, as the normalizer reads it. Two such members are two accounts, and the
+// change keys apart from one with either alone.
+func TestRender_GroupMemberPlaceholderName(t *testing.T) {
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+	}
+	both := render(`[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":" n/a ","uid":"S-1-5-21-7-1102"}]`)
+	var got []string
+	for _, f := range accountRows(both) {
+		got = append(got, f.Value)
+	}
+	if want := []string{"S-1-5-21-7-1101", "S-1-5-21-7-1102"}; !slices.Equal(got, want) {
+		t.Errorf("Account rows = %v; want %v", got, want)
+	}
+	for _, tc := range []struct{ users, want string }{
+		{`[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":" n/a ","uid":"S-1-5-21-7-1102"}]`, `["text:s-1-5-21-7-1101","text:s-1-5-21-7-1102"]`},
+		{`[{"name":"-","uid":"S-1-5-21-7-1101"}]`, `["text:s-1-5-21-7-1101"]`},
+		{`[{"name":"-","uid":"S-1-5-21-7-1102"}]`, `["text:s-1-5-21-7-1102"]`},
+	} {
+		if k := targetSlot(render(tc.users)).Identity; k != tc.want {
+			t.Errorf("%s: target key = %q; want %q", tc.users, k, tc.want)
+		}
+	}
+}
+
+// TestRender_AccountTargetBindsByID: a target whose name binds nothing binds
+// by its id, the uid against the account's user_id and the uid_alt against
+// its uid_alt, the properties the normalizer stores them in.
+func TestRender_AccountTargetBindsByID(t *testing.T) {
+	render := func(users string, ents ...Entity) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	}
+	// The member {name: jdoe, uid_alt: jdoe@contoso.com} mints a
+	// windows-domain account keyed on the principal name, with these
+	// properties (accountProps). Its login is the principal name, so the
+	// name "jdoe" binds nothing and the uid_alt binds it.
+	const member = `[{"name":"jdoe","uid_alt":"jdoe@contoso.com"}]`
+	byAlt := ent("user-account--a1", map[string]any{"account_login": "jdoe@contoso.com", "user_id": "", "account_type": "windows-domain",
+		"principal_name": "jdoe@contoso.com", "uid_alt": "jdoe@contoso.com"})
+	v := render(member, byAlt)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "jdoe" || rows[0].Ref != "user-account--a1" {
+		t.Errorf("uid_alt member: Account rows = %+v; want jdoe linked to user-account--a1", rows)
+	}
+	if ref := targetSlot(v).Ref; ref != "user-account--a1" {
+		t.Errorf("uid_alt member: target ref = %q; want user-account--a1", ref)
+	}
+	byUserID := ent("user-account--a2", map[string]any{"account_login": "other", "user_id": "jdoe@contoso.com", "account_type": "cloud"})
+	v = render(member, byUserID)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "jdoe" || rows[0].Ref != "" {
+		t.Errorf("uid_alt member beside a user_id equal to it: Account rows = %+v; want jdoe with no link", rows)
+	}
+	byUID := ent("user-account--a3", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101"})
+	v = render(`[{"name":"ghost","uid":"S-1-5-21-7-1101"}]`, byUID)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "ghost" || rows[0].Ref != "user-account--a3" {
+		t.Errorf("unbound name with a bound uid: Account rows = %+v; want ghost linked to user-account--a3", rows)
+	}
+}
+
+// TestRender_AccountChangeUserByIDBinds: the single user of an account change
+// named only by its uid binds by it and keys the target slot by it.
+func TestRender_AccountChangeUserByIDBinds(t *testing.T) {
+	acct := ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101"})
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":" S-1-5-21-7-1101 "}}`)}, []Entity{acct})
+	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "S-1-5-21-7-1101" || f.Ref != "user-account--u1" {
+		t.Errorf("Account = %+v (present %v); want the uid linked to user-account--u1", f, ok)
+	}
+	if s := targetSlot(v); s.Text != "S-1-5-21-7-1101" || s.Ref != "user-account--u1" || s.Identity != `["ref:user-account--u1"]` {
+		t.Errorf("target slot = %+v; want the uid, keyed by user-account--u1", s)
+	}
+	unbound := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"S-1-5-21-7-1101"}}`)}, nil)
+	if s := targetSlot(unbound); s.Text != "S-1-5-21-7-1101" || s.Ref != "" || s.Identity != `["text:s-1-5-21-7-1101"]` {
+		t.Errorf("unbound target slot = %+v; want the uid, keyed by it", s)
+	}
+}
+
+// TestRender_AccountTargetStringOnly: a name or id that is not a string is
+// no value, as the normalizer reads a user object (readUser).
+func TestRender_AccountTargetStringOnly(t *testing.T) {
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"uid":1001}}`)}, nil)
+	if f, ok := fieldValue(v, "Account"); ok {
+		t.Errorf("numeric uid: Account = %+v; want none", f)
+	}
+	if s := targetSlot(v); s != (SlotValue{Name: "target"}) {
+		t.Errorf("numeric uid: target slot = %+v; want empty", s)
+	}
+	v = Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"name":7,"uid":"S-1-5-21-7-1101"}]}`)}, nil)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "S-1-5-21-7-1101" {
+		t.Errorf("numeric name: Account rows = %+v; want the SID", rows)
+	}
+}
+
+// TestRender_GroupMemberDomain: a member's name and domain are read by
+// ocsf.UserName, as the normalizer reads them. A "domain\sam" name beside
+// domain "-" binds the qualified login, a bare name beside "-" binds the bare
+// login, and a distinguished name is shown whole.
+func TestRender_GroupMemberDomain(t *testing.T) {
+	render := func(users string, ents ...Entity) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	}
+	v := render(`[{"name":"CONTOSO\\jdoe","domain":"-"},{"name":"jdoe2","domain":"-"}]`,
+		ent("user-account--d1", map[string]any{"account_login": `CONTOSO\jdoe`}),
+		ent("user-account--d2", map[string]any{"account_login": "jdoe2"}))
+	var refs []string
+	for _, f := range accountRows(v) {
+		refs = append(refs, f.Ref)
+	}
+	if want := []string{"user-account--d1", "user-account--d2"}; !slices.Equal(refs, want) {
+		t.Errorf("Account refs = %v; want %v", refs, want)
+	}
+	const dn = `CN=Doe\, John,CN=Users,DC=contoso,DC=com`
+	v = render(`[{"name":"CN=Doe\\, John,CN=Users,DC=contoso,DC=com","domain":"-"}]`)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != dn {
+		t.Errorf("distinguished name: Account rows = %+v; want %q", rows, dn)
+	}
+	if s := targetSlot(v); s.Text != dn {
+		t.Errorf("distinguished name: target text = %q; want %q", s.Text, dn)
+	}
+}
+
+// TestRender_AccountTargetPlaceholderID: a placeholder id with no name names
+// no one, so no target text is shown.
+func TestRender_AccountTargetPlaceholderID(t *testing.T) {
+	for _, js := range []string{
+		`{"activity_name":"Enable","user":{"uid":"-"}}`,
+		`{"activity_name":"Enable","user":{"name":"-","uid":"unknown","uid_alt":" n/a "}}`,
+	} {
+		v := Render(Event{ClassUID: 3001, Payload: payload(js)}, nil)
+		if f, ok := fieldValue(v, "Account"); ok {
+			t.Errorf("%s: Account = %+v; want none", js, f)
+		}
+		if s := targetSlot(v); s != (SlotValue{Name: "target"}) {
+			t.Errorf("%s: target slot = %+v; want empty", js, s)
+		}
+	}
+}
+
 // TestRender_RegistryTypedDataSlot (adr/0359): the data slot reads the typed
 // field, so two different writes to one value do not fold together.
 func TestRender_RegistryTypedDataSlot(t *testing.T) {

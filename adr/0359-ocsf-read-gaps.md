@@ -53,7 +53,8 @@ The rules that bound the answer:
   - the id the principal would be keyed on has the provider's principal
     form. For AWS that is an ARN in any AWS partition (`arn:aws:`,
     `arn:aws-cn:`, `arn:aws-us-gov:` and the like), an IAM unique id
-    (`AIDA` or `AROA` and at least 16 more capital letters or digits), or
+    (`AIDA` or `AROA` and at least 16 more capital letters or digits;
+    a role's id may end in `:` and the session name), or
     the root principal: a 12-digit id equal to the finding's own account
     id or the user's own account id. The check is on the key itself, so an
     ARN in one field never vouches for a different id in another. When the

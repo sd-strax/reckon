@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // Account shaping (03 §7.2, §7.4, adr/0324): which account_type an OCSF user
@@ -15,7 +16,7 @@ import (
 // userObject is what an OCSF user object says about the account, placeholders
 // already read as absent (identity.Placeholder*).
 type userObject struct {
-	name, domain    string // name with any "domain\" prefix split into domain
+	name, domain    string // ocsf.UserName: a "domain\" prefix split off, a distinguished name not split
 	uid, uidAlt     string // the source's identifiers, as given
 	sid             string // uid when it is a SID that names a principal
 	email, fullName string
@@ -23,27 +24,18 @@ type userObject struct {
 	accountType     string // user.account.type, lowercased
 }
 
-// readUser reads an OCSF user object. A name of the form "domain\sam" with no
-// domain field is split, so "CONTOSO\jdoe" and {name: jdoe, domain: CONTOSO}
-// are one login.
+// readUser reads an OCSF user object. Its name and domain are read by
+// ocsf.UserName, so a name of the form "domain\sam" with no domain, or a
+// placeholder one, is split and "CONTOSO\jdoe" and {name: jdoe, domain:
+// CONTOSO} are one login.
 func readUser(m map[string]any) userObject {
 	str := func(path string) string { return strings.TrimSpace(pathStr(m, path)) }
+	name, domain := ocsf.UserName(m, func(obj map[string]any, key string) any { return pathStr(obj, key) })
 	u := userObject{
-		name: str("name"), domain: str("domain"), uid: str("uid"), uidAlt: str("uid_alt"),
+		name: name, domain: domain, uid: str("uid"), uidAlt: str("uid_alt"),
 		email: str("email_addr"), fullName: str("full_name"),
 		accountTypeID: pathInt(m, "account.type_id"),
 		accountType:   strings.ToLower(str("account.type")),
-	}
-	if u.domain == "" {
-		if d, n, ok := strings.Cut(u.name, `\`); ok {
-			u.domain, u.name = strings.TrimSpace(d), strings.TrimSpace(n)
-		}
-	}
-	if identity.PlaceholderLogin(u.name) {
-		u.name = ""
-	}
-	if identity.PlaceholderDomain(u.domain) {
-		u.domain = ""
 	}
 	if identity.PlaceholderUserID(u.uid) {
 		u.uid = ""

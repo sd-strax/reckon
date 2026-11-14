@@ -148,6 +148,9 @@ func TestNamesUser(t *testing.T) {
 		{map[string]any{"name": `CONTOSO\jdoe`}, true},
 		{map[string]any{"uid": "S-1-5-21-1-2-3-1101"}, true},
 		{map[string]any{"uid_alt": "jdoe@contoso.example"}, true},
+		{map[string]any{"name": `X\-`, "domain": "D"}, true},
+		{map[string]any{"name": `CONTOSO\-`, "domain": "-"}, false},
+		{map[string]any{"name": `CONTOSO\jdoe`, "domain": "-"}, true},
 	} {
 		read := 0
 		got := NamesUser(tc.user, func(m map[string]any, k string) any { read++; return m[k] })
@@ -156,6 +159,36 @@ func TestNamesUser(t *testing.T) {
 		}
 		if tc.user != nil && read == 0 {
 			t.Errorf("NamesUser(%v) read nothing through the caller's reader", tc.user)
+		}
+	}
+}
+
+// UserName reads the name and domain as the normalizer's account rule does:
+// trimmed, a placeholder domain blanked, "domain\sam" split when no domain is
+// left, placeholders absent.
+func TestUserName(t *testing.T) {
+	for _, tc := range []struct {
+		user         map[string]any
+		name, domain string
+	}{
+		{map[string]any{}, "", ""},
+		{map[string]any{"name": " - "}, "", ""},
+		{map[string]any{"name": "n/a", "domain": "CONTOSO"}, "", "CONTOSO"},
+		{map[string]any{"name": " jdoe ", "domain": " CONTOSO "}, "jdoe", "CONTOSO"},
+		{map[string]any{"name": ` CONTOSO \ jdoe `}, "jdoe", "CONTOSO"},
+		{map[string]any{"name": `CONTOSO\-`}, "", "CONTOSO"},
+		{map[string]any{"name": `-\jdoe`}, "jdoe", ""},
+		{map[string]any{"name": "jdoe", "domain": "-"}, "jdoe", ""},
+		{map[string]any{"name": 7}, "", ""},
+		{map[string]any{"name": `X\-`, "domain": "D"}, `X\-`, "D"},
+		{map[string]any{"name": `CONTOSO\-`, "domain": "-"}, "", "CONTOSO"},
+		{map[string]any{"name": `CONTOSO\jdoe`, "domain": "-"}, "jdoe", "CONTOSO"},
+		{map[string]any{"name": `CN=Doe\, John,CN=Users,DC=contoso,DC=com`, "domain": "-"}, `CN=Doe\, John,CN=Users,DC=contoso,DC=com`, ""},
+		{map[string]any{"name": `CN=Doe\, John,CN=Users,DC=contoso,DC=com`}, `CN=Doe\, John,CN=Users,DC=contoso,DC=com`, ""},
+	} {
+		name, domain := UserName(tc.user, func(m map[string]any, k string) any { return m[k] })
+		if name != tc.name || domain != tc.domain {
+			t.Errorf("UserName(%v) = %q, %q; want %q, %q", tc.user, name, domain, tc.name, tc.domain)
 		}
 	}
 }

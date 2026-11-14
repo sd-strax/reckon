@@ -450,33 +450,39 @@ func (r *renderer) userIn(m map[string]any, prefix string) slot {
 }
 
 // accountTarget binds the account a target user object of an account event
-// names, and returns the text that shows it and keys it. The name rule
-// (userNamed) binds first. When it binds nothing, the user-account whose
-// user_id equals the object's uid, else its uid_alt, binds, as
-// cloudPrincipalIn binds by user_id. An id is trimmed, and a placeholder
-// (identity.PlaceholderUserID) is no id. Binding by id is safe because the
-// entities a view receives are the ones derived from that event. The text is
-// the qualified login (domain\name, else the name). With no name it is the
-// uid, else the uid_alt, so a member named by id alone is shown and keyed.
-func (r *renderer) accountTarget(name, domain, uid, uidAlt string) (slot, string) {
+// names, and returns the text that shows it and keys it. read returns the
+// raw value of one key of the object. The name and domain are read by
+// ocsf.UserName, and an id is read only when it is a string, as the
+// normalizer reads them (readUser). The name rule (userNamed) binds first.
+// When it binds nothing, the user-account whose user_id equals the object's
+// uid binds, else the one whose uid_alt equals its uid_alt. An id is trimmed, and a
+// placeholder (identity.PlaceholderUserID) is no id. Binding by id is safe
+// because the entities a view receives are the ones derived from that event.
+// The text is domain\name when both are present, else the name. With no name
+// it is the uid, else the uid_alt, so a member named by id alone is shown and
+// keyed.
+func (r *renderer) accountTarget(read func(key string) any) (slot, string) {
+	name, domain := ocsf.UserName(nil, func(_ map[string]any, key string) any { return read(key) })
 	s := r.userNamed(name, domain)
 	qualified := name
 	if domain != "" && name != "" {
 		qualified = domain + `\` + name
 	}
-	var ids []string
-	for _, id := range []string{uid, uidAlt} {
-		if id = strings.TrimSpace(id); id != "" && !identity.PlaceholderUserID(id) {
-			ids = append(ids, id)
+	type userID struct{ prop, value string }
+	var ids []userID
+	for _, k := range []struct{ key, prop string }{{"uid", "user_id"}, {"uid_alt", "uid_alt"}} {
+		v, _ := read(k.key).(string)
+		if v = strings.TrimSpace(v); v != "" && !identity.PlaceholderUserID(v) {
+			ids = append(ids, userID{k.prop, v})
 		}
 	}
 	if qualified == "" && len(ids) > 0 {
-		qualified = ids[0]
+		qualified = ids[0].value
 		s.text = qualified
 	}
 	if s.ref == "" {
 		for _, id := range ids {
-			if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return propEquals(p, "user_id", id) }); ref != "" {
+			if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return propEquals(p, id.prop, id.value) }); ref != "" {
 				s.ref = ref
 				break
 			}
@@ -1315,8 +1321,7 @@ func (r *renderer) accountTargets() ([]slot, []string) {
 			if !ok || !ocsf.NamesUser(u, fieldOf) {
 				continue
 			}
-			s, q := r.accountTarget(toString(fieldOf(u, "name")), toString(fieldOf(u, "domain")),
-				toString(fieldOf(u, "uid")), toString(fieldOf(u, "uid_alt")))
+			s, q := r.accountTarget(func(key string) any { return fieldOf(u, key) })
 			// A member listed twice is one account, as the normalizer mints
 			// it once: by its ref, else by its login folded for case.
 			key := "text:" + strings.ToLower(q)
@@ -1333,7 +1338,9 @@ func (r *renderer) accountTargets() ([]slot, []string) {
 			return targets, qualified
 		}
 	}
-	s, q := r.accountTarget(r.str("user.name"), r.str("user.domain"), r.str("user.uid"), r.str("user.uid_alt"))
+	// The single user is read by its paths, so the reads are recorded as
+	// before (user.name, ...).
+	s, q := r.accountTarget(func(key string) any { return pathAny(r.p, "user."+key) })
 	return []slot{s}, []string{q}
 }
 

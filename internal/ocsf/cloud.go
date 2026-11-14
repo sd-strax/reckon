@@ -55,6 +55,9 @@ var PrincipalForms = map[string]func(uid string, finding PrincipalContext) bool{
 //     then ":";
 //   - an IAM unique id: AIDA (a user) or AROA (a role) followed by at least
 //     16 capital letters or digits;
+//   - a role's unique id with its session, the form CloudTrail's principalId
+//     takes for an assumed role: the AROA id, ":", then the session name, 2
+//     to 64 letters, digits or "+=,.@_-". A user's AIDA id has no session;
 //   - an account's root principal: a 12-digit id equal to the finding's own
 //     account or to the actor's own account. Any other account id is not a
 //     principal.
@@ -70,11 +73,32 @@ func awsPrincipalForm(uid string, finding PrincipalContext) bool {
 		return false
 	}
 	rest := uid[4:]
+	if id, session, ok := strings.Cut(rest, ":"); ok {
+		if !strings.HasPrefix(uid, "AROA") || !awsSessionName(session) {
+			return false
+		}
+		rest = id
+	}
 	if len(rest) < 16 {
 		return false
 	}
 	for _, c := range rest {
 		if (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// awsSessionName reports whether s is an AWS role session name: 2 to 64
+// letters, digits or "+=,.@_-".
+func awsSessionName(s string) bool {
+	if len(s) < 2 || len(s) > 64 {
+		return false
+	}
+	for _, c := range s {
+		ok := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || strings.ContainsRune("+=,.@_-", c)
+		if !ok {
 			return false
 		}
 	}
