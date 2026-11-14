@@ -107,3 +107,17 @@ func WholeNumber(v any) (int, bool) {
 	}
 	return 0, false
 }
+
+// RegistryValueName is the name of the value a reg_value object names, and
+// whether it names one. A string name is the name as written. A value with no
+// name but is_default true is the default value, whose name is "" (adr/0341).
+// Anything else names no value.
+func RegistryValueName(regValue map[string]any) (string, bool) {
+	if s, ok := regValue["name"].(string); ok {
+		return s, true
+	}
+	if isDefault, _ := regValue["is_default"].(bool); isDefault {
+		return "", true
+	}
+	return "", false
+}

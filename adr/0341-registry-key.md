@@ -97,7 +97,8 @@ it replaces `ocsf.SplitRegistryPath`.
 
 **The value is what the source wrote.**
 
-- `name` is `reg_value.name`. It is empty for the default value.
+- `name` is `reg_value.name`. It is empty for the default value. A value
+  with no name but `is_default` true is the default value.
 - `data` is `reg_value.data` as a string. OCSF types it as JSON, so a
   non-string value is written as its JSON text.
 - `data_type` is `reg_value.type` when that is one of STIX's `REG_*`

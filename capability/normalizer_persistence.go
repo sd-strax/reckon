@@ -49,11 +49,12 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 	var value map[string]any
 	if n.class == classRegistryValue {
 		path = pathStr(p, "reg_value.path")
-		if v, ok := lookupPath(p, "reg_value.name"); ok {
-			if s, ok := v.(string); ok {
-				valueName = &s
-				value = registryValue(p, s)
-			}
+		// A string name wins. No name with is_default true is the default
+		// value, named "". Neither names no value: the key alone.
+		regValue, _ := p["reg_value"].(map[string]any)
+		if s, ok := ocsf.RegistryValueName(regValue); ok {
+			valueName = &s
+			value = registryValue(p, s)
 		}
 	} else {
 		path = pathStr(p, "reg_key.path")

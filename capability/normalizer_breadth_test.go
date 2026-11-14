@@ -118,6 +118,13 @@ func TestRegistryValueNormalizer(t *testing.T) {
 		}
 	}
 
+	// A value with no name but is_default true is the default value: the
+	// same id and values as the value named "".
+	named, isDefault := key(map[string]any{"path": runKey, "name": ""}), key(map[string]any{"path": runKey, "is_default": true})
+	if isDefault.ID != named.ID || !reflect.DeepEqual(isDefault.Properties, named.Properties) {
+		t.Errorf("is_default with no name = %s %v; want %s %v", isDefault.ID, isDefault.Properties, named.ID, named.Properties)
+	}
+
 	// A hive alone is a key. An event that names no key mints none.
 	if hive := key(map[string]any{"path": `HKLM\`, "name": "x"}); hive.Properties["key"] != "HKEY_LOCAL_MACHINE" {
 		t.Errorf("hive-only key = %v", hive.Properties)

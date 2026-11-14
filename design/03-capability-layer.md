@@ -2033,7 +2033,8 @@ and `values`, with no host. Here identity is
 - **`value_name` is in lower case**, because value names are not case
   sensitive either.
 - **`value_name` is left out when the event names no value.** It is the
-  empty string for the key's default value. So a key and its default value
+  empty string for the key's default value. A value with no name but
+  `is_default` true is the default value. So a key and its default value
   are two entities.
 - **The value's data and type are not part of identity.** A value whose
   data changes is still the same value, and the observation records the

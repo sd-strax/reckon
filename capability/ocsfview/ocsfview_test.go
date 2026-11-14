@@ -1178,6 +1178,7 @@ func TestRender_RegistryBindsTheKey(t *testing.T) {
 		ent("windows-registry-key--run", map[string]any{"key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`}),
 		ent("windows-registry-key--updater", map[string]any{"key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "values": []any{map[string]any{"name": "Updater"}}}),
 		ent("windows-registry-key--other", map[string]any{"key": `HKEY_CURRENT_USER\SOFTWARE\Run`}),
+		ent("windows-registry-key--default", map[string]any{"key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "values": []any{map[string]any{"name": ""}}}),
 	}
 	for js, want := range map[string]struct {
 		class int
@@ -1186,6 +1187,7 @@ func TestRender_RegistryBindsTheKey(t *testing.T) {
 		`{"reg_key":{"path":"hklm\\software\\run"}}`:                                   {201001, "windows-registry-key--run"},
 		`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"updater"}}`:                {201002, "windows-registry-key--updater"},
 		`{"reg_value":{"path":"\\REGISTRY\\MACHINE\\SOFTWARE\\Run","name":"Updater"}}`: {201002, "windows-registry-key--updater"},
+		`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","is_default":true}}`:               {201002, "windows-registry-key--default"},
 	} {
 		v := Render(Event{ClassUID: want.class, Payload: payload(js)}, ents)
 		if f, _ := fieldValue(v, "Key"); f.Ref != want.ref {

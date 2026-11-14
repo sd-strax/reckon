@@ -965,8 +965,9 @@ func (r *renderer) registry() {
 	named := false
 	if r.class == classRegistryValue {
 		full = r.str("reg_value.path")
-		valueName, valueData, valueType = r.str("reg_value.name"), r.str("reg_value.data"), r.str("reg_value.type")
-		_, named = pathAny(r.p, "reg_value.name").(string)
+		regValue, _ := pathAny(r.p, "reg_value").(map[string]any)
+		valueName, named = ocsf.RegistryValueName(regValue)
+		valueData, valueType = r.str("reg_value.data"), r.str("reg_value.type")
 	} else {
 		full = r.str("reg_key.path")
 	}
