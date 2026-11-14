@@ -16,13 +16,19 @@
   "ocsf": {
     "class_uid": 3002,
     "class_name": "Authentication",
-    "time": "2026-06-11T01:12:40Z",
-    "actor": {
-      "user": {
-        "name": "m.reyes",
-        "domain": "CONTOSO",
-        "uid": "S-1-5-21-3107"
-      }
+    "category_uid": 3,
+    "activity_id": 1,
+    "type_uid": 300201,
+    "severity_id": 1,
+    "time": 1781140360000,
+    "time_dt": "2026-06-11T01:12:40Z",
+    "metadata": {
+      "version": "1.1.0"
+    },
+    "user": {
+      "name": "m.reyes",
+      "domain": "CONTOSO",
+      "uid": "S-1-5-21-3107"
     },
     "service": {
       "name": "corp-sso"
@@ -35,7 +41,8 @@
         "city": "Toronto"
       }
     },
-    "auth_protocol": "OIDC",
+    "auth_protocol": "OpenID",
+    "auth_protocol_id": 4,
     "logon_type": "Interactive",
     "is_mfa": true,
     "status": "SUCCESS",

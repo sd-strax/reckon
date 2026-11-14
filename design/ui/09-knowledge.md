@@ -22,8 +22,8 @@ names its source, and an element with no source is a gap in `00 §6`.
 
 | Surface | Where | Job |
 |---|---|---|
-| **Knowledge view** | Its own document in the main area, opened from the left region's header (`ui/08 §8.3`) alongside the work queue | Add, browse, edit, retire and query knowledge, outside any investigation |
-| **Knowledge section** | Top of the companion column inside an investigation (`ui/08 §8.5`) | Decide what knowledge the agent reasons over in this investigation |
+| **Knowledge view** | A top-level tab of its own in the main area, opened from the sidebar's **Knowledge** view (a row, **Search** or **Open the Knowledge view**) or the `reckon.openKnowledge` command (`adr/0346`) | Read one procedure or past case, or search and filter knowledge, outside any investigation |
+| **Knowledge sidebar view** | The editor's sidebar, between Cases and Capabilities (`ui/08 §8.3`, `adr/0344`) | List procedures and past cases, import, and point the open investigation's agent at an item |
 
 **The two surfaces stay separate.** The Knowledge view shows knowledge only: no
 hypotheses, actions, verdicts, investigation status or investigation controls render in it,
@@ -32,12 +32,20 @@ the agent may read (§9.6) and what it cited (`ui/08 §8.5`, `§8.6`). Where a p
 knowledge came from an investigation, the Knowledge view names that investigation as a
 link and nothing more.
 
-The Knowledge view has a query bar (§9.2) above its content. Its sections — **Procedures**
-(§9.3), **Past cases** (§9.4), **Import** (§9.5) and **Candidates** (§9.7, superseded by `adr/0156`), each with its
-count — are listed once, in the left region, which holds the work queue in Work mode and
-these sections in Knowledge mode (`ui/08 §8.3`). There is no second row of the same items
-above the content. Running a query replaces the content with its results under a header
-naming the query, with a way back to the section that was open.
+**The sidebar is the Knowledge view's only navigation** (`adr/0346`). The sidebar lists the
+procedures and past cases. The tab has no section list and no item lists of its own, and it
+shows one of two pages:
+
+- **An item.** A procedure (§9.3) or a past case (§9.4) fills the tab, with its outline and
+  sections, where it was cited and its revisions. Links inside it move within the tab, with a
+  way back.
+- **Search**, the page that **Search** and **Open the Knowledge view** open. It has the
+  query bar (§9.2), the results as two lists (procedures, past cases) with relevance in
+  words, and the past-case filters (§9.4). With no query, the filters alone list past cases.
+  A result opens as the item page.
+
+Import (§9.5) is the **Import SOPs…** command and its panel, on the sidebar's Knowledge title
+bar, not a section of the tab.
 
 ## 9.2 Query bar: search and ask
 
@@ -114,26 +122,15 @@ by converting to markdown before import. The Import section is the existing Impo
 
 ## 9.6 Knowledge inside an investigation
 
-The **Knowledge section** at the top of the companion column replaces the knowledge rail
-(`ui/08 §8.5`). It is how the analyst decides what the agent reasons over: under the
-default `opt_in` posture nothing reaches the agent until it is included here.
+An investigation shows knowledge only as what the agent read and cited in it. The agent reaches
+knowledge through its recall tools, in the turn (`adr/0129`). Each recall renders as consulted
+chips under the turn (`ui/08 §8.5`), and each chip opens the item's inspector (`ui/08 §8.6`),
+which shows what that recall gave the agent here. There is no knowledge section in the
+investigation, and nothing is included or injected (`adr/0129`, `adr/0344`).
 
-| Element | Source |
-|---|---|
-| Retrieved procedures and past cases, each with band, `match_rationale` and an include toggle | `createSession.knowledge` (`06 §5.1`) |
-| Initial state of each toggle | The injection posture (`config.Knowledge.Injection`: `opt_in` all off; `auto` strong matches on) |
-| Collapsed summary once reviewed: "3 retrieved · 1 included" | Same |
-| Search within the investigation: results join the list with their toggle off | §9.2 Search, scoped to the investigation's seed context |
-| Each item opens in the inspector | `ui/08 §8.6` / `§8.6.1` |
-| Open in the Knowledge view | §9.3 / §9.4 |
-
-The included set rides the next turn (`06 §5.1`); toggling never rewrites past turns.
-
-**Nudges.** Beside ⚡ Propose tests, ⚡ Decide and the response plan, a one-line note when
-retrieved items that the `auto` posture would include (procedures; past cases banded
-`NEAR_DUPLICATE` or `RELATED`) are not included: "1 procedure and 1 past case the auto
-posture would include are not included · Review". It links to the Knowledge section; it never includes
-anything by itself.
+To point the agent at a specific item, use **Ask reckon to use this** on a row of the sidebar's
+Knowledge view, offered while an investigation is the active editor. It stages that request in
+the investigation's composer, and the analyst sends it.
 
 ## 9.7 Candidates
 

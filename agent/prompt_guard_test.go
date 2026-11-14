@@ -23,8 +23,8 @@ const fixtureRoot = "../fixtures"
 var identifierKeys = map[string]bool{
 	"hostname": true, "name": true, "uid": true, "ip": true, "domain": true,
 	"title": true, "desc": true, "message": true, "cmd_line": true, "path": true,
-	"email": true, "url": true, "subject": true, "link": true, "channel": true,
-	"resolved_identifier": true, "assignment_group": true, "queue": true,
+	"email": true, "url": true, "src_url": true, "subject": true, "channel": true,
+	"resolved_identifier": true, "queue": true,
 	"vendor_name": true, "types": true,
 }
 

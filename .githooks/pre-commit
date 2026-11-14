@@ -52,7 +52,7 @@ SKIP_PATHSPECS=(
 # (lines starting with '+' in the unified diff, excluding the diff header).
 KEYWORDS=(
     "MSSP"
-    "MDR\\b"
+    "\\bMDR\\b"
     "conversion hook"
     "Claude Code"
     "Claude Design"

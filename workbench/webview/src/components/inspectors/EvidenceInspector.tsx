@@ -193,6 +193,29 @@ export function AbsenceInspector({ refId }: { refId: string }) {
   );
 }
 
+/** What a sighting's observations say (03 §4.12, adr/0356). A Sighting names
+ * the observations it was seen through in observed_data_refs and nothing
+ * else about them: the entities the alert names are each observation's
+ * object_refs, and when and how often it was seen are the observation's
+ * first_observed and number_observed. The observations come back with the
+ * finding as its evidence. */
+function sightingObservations(sighting: Record<string, unknown>, evidence: EvidenceDoc[]): { entities: string[]; first: string; count: number } {
+  const cited = Array.isArray(sighting.observed_data_refs) ? (sighting.observed_data_refs as unknown[]) : [];
+  const entities: string[] = [];
+  let first = "";
+  let count = 0;
+  for (const ev of evidence) {
+    if (!cited.includes(ev.ref)) continue;
+    const op = propsOf(ev);
+    for (const r of Array.isArray(op.object_refs) ? (op.object_refs as unknown[]) : []) {
+      if (typeof r === "string" && !entities.includes(r)) entities.push(r);
+    }
+    if (typeof op.first_observed === "string" && (first === "" || Date.parse(op.first_observed) < Date.parse(first))) first = op.first_observed;
+    if (typeof op.number_observed === "number") count += op.number_observed;
+  }
+  return { entities, first, count };
+}
+
 /** Detection finding (03 §4.12): inferred by the vendor, the one inferred
  * object the capability layer produces. A sighting ref opens its indicator. */
 export function DetectionInspector({ refId }: { refId: string }) {
@@ -234,11 +257,11 @@ export function DetectionInspector({ refId }: { refId: string }) {
               { k: "Valid from", v: typeof p.valid_from === "string" ? fmtDateTime(p.valid_from) : undefined },
             ]} />
             {(related?.sightings || []).map((s) => {
-              const sp = propsOf(s);
+              const seen = sightingObservations(propsOf(s), related?.evidence || []);
               return <Section key={s.ref} title="Sighting"><KV rows={[
-                { k: "Where", v: Array.isArray(sp.where_sighted_refs) ? <>{(sp.where_sighted_refs as string[]).map((r) => <RefChip key={r} refId={r} />)}</> : undefined },
-                { k: "When", v: typeof sp.first_seen === "string" ? fmtDateTime(sp.first_seen) : undefined },
-                { k: "Count", v: typeof sp.count === "number" ? String(sp.count) : undefined, mono: true },
+                { k: "Entities", v: seen.entities.length ? <>{seen.entities.map((r) => <RefChip key={r} refId={r} />)}</> : undefined },
+                { k: "When", v: seen.first ? fmtDateTime(seen.first) : undefined },
+                { k: "Count", v: seen.count ? String(seen.count) : undefined, mono: true },
               ]} /></Section>;
             })}
             {!related ? <div className="empty">The finding's sightings and vendor identity were not returned with it.</div> : null}

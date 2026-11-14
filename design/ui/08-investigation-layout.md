@@ -4,8 +4,9 @@ This sheet defines how the investigation document is organized: the regions of t
 investigation view, the four lenses, the conversation as a companion column, and the
 inspector every citation opens. It supersedes `02 §2.2` (panel), `02 §2.8` (evidence in
 reach) and the row anatomy of `02 §2.9`, and extends `03 §3.4` and `03 §3.7`. The decision
-and its alternatives are `adr/0079-investigation-layout.md`. Reference screens for the
-reference scenario are in `mockups/`.
+and its alternatives are `adr/0079-investigation-layout.md`; the work queue moved out of the
+document into the editor's sidebar in `adr/0342-one-work-queue.md` (§8.3). Reference screens
+for the reference scenario are in `mockups/`; they still draw `0079`'s queue column.
 
 Binding rules apply unchanged (`00`): the engine is the record, engine words render
 verbatim, every element names its source, and an element with no source is a gap in
@@ -16,22 +17,20 @@ verbatim, every element names its source, and an element with no source is a gap
 ## 8.1 Regions
 
 ```
-┌ header: title · verdict · stage indicator · primary action ────────────────┐
-├ work queue ┬ lens tabs: Summary │ Story │ Reasoning │ Response ┬ companion ┤
-│            │ the active lens                                  │ column    │
-│            │                                    [inspector] ◀─┤           │
-└────────────┴──────────────────────────────────────────────────┴───────────┘
+┌ header: title · verdict · stage indicator · primary action ──┐
+├ lens tabs: Summary │ Story │ Reasoning │ Response ┬ companion ┤
+│ the active lens                                  │ column    │
+│                                    [inspector] ◀─┤           │
+└──────────────────────────────────────────────────┴───────────┘
 ```
 
 | Region | Width | Notes |
 |---|---|---|
-| Work queue | 220–270px | §8.3. Collapsible. |
 | Lens area | fluid, content max 900px | §8.4. One lens at a time. |
 | Companion column | 340–420px | §8.5. |
 | Inspector | 440–480px | §8.6. Overlays the companion column's side of the lens area; never replaces the lens. |
 
-Below 1280px the work queue collapses to an icon rail; below 1024px the companion column
-becomes a toggled drawer. The inspector always overlays. (The remaining layout-floor
+Below 1024px the companion column becomes a toggled drawer. The inspector always overlays. (The remaining layout-floor
 question in `00 §7` is the minimum width at which the lens area stays readable with the
 inspector open.)
 
@@ -64,16 +63,33 @@ only notification remains; **Conclude** when the conclude preflight passes (`02 
 
 ## 8.3 Work queue
 
-Two sections, in this order. The region's header also opens the Knowledge view (`ui/09 §9.1`).
+The work queue is not part of the investigation document. It is the editor's sidebar, the
+reckon view container, which is there before any investigation opens (`adr/0342`). Four
+views, in this order: Investigations, Cases, Knowledge (`ui/09 §9.1`, `adr/0344`), and
+Capabilities, which starts collapsed; then **Account** at the bottom, which holds one
+full-width **Sign In** or **Sign Out** button and nothing else. Signed out, Account is the only
+view, so it folds into the container's header and no view carries a sign-in row of its own:
 
-- **Investigations** — the analyst's open investigations as a triage queue (`13 §4`):
-  ordered needs-me-first (`ui/06` tree rules). A row shows the tenant
-  label when tenancy is enabled, the title, the current stage step, and the case reference
-  when seeded from a case. Source: `GET /api/investigations`.
-- **Cases** — the case system of record's queue, read-only (`14 §4.2`, `adr/0030`), listing
-  **only cases with no investigation**. Each row has **Start investigation**. A case that
-  already has an investigation is not listed here: it appears once, as its investigation.
-  Source: `query_external_cases` filtered against the seeds of existing investigations.
+- **Investigations** — the analyst's investigations as a triage queue (`13 §4`), grouped by
+  lifecycle and ordered needs-me-first within a group (`ui/06` tree rules). A row shows the
+  title, the expiry, pending and unseen cues, the current stage step of an open
+  investigation, and the seed (the case reference when seeded from a case). The view's title
+  bar carries **＋** (new investigation) and refresh. Source: `GET /api/investigations`.
+- **Cases** — the case system of record's queue, read-only (`14 §4.2`, `adr/0030`). A case
+  with no investigation offers **Start investigation**; a case under investigation is
+  marked and leads to its case page, which offers **Open investigation**. Source:
+  `GET /api/cases`, which marks each case's in-flight investigation.
+- **Knowledge** — the organization's library (`ui/09 §9.1`): **Procedures (N)** and **Past
+  cases (N)**, the latter reading *N of M* when the corpus holds more than the page. A row
+  opens its item as the page of the Knowledge tab (`adr/0346`). **Ask reckon to use this**
+  stages a request in the composer of the investigation last active. The title bar carries
+  **Search** (the Knowledge tab's search page), **Import SOPs…**, **Open the Knowledge view** and refresh. Source: `GET
+  /api/sops`, `GET /api/knowledge/case_summaries`.
+- **Capabilities** — one row per verb, available, then degraded, then unavailable, with the
+  view's description *N/M available*. An unavailable verb that an installed, disabled
+  adapter could serve offers **Set up…**, the enablement flow (`11 §5.1`) run natively:
+  a confirm, one input per field of the adapter's schema (a secret field takes a secret
+  reference), apply. Source: `GET /api/capabilities` and the enablement view.
 
 ## 8.4 Lenses
 
@@ -103,7 +119,9 @@ investigation time appears once, as a divider where the investigation started.
 | Attack path: entities as nodes, typed relations as the labels between them, the span in seconds | The two-layer graph (`01`), restricted to entities cited by a `SUPPORTED` hypothesis; ordered by first event time |
 | ATT&CK techniques | Detection finding types and hypothesis labels (`03 §4.12`) |
 | Timeline rows: time, source class, a generated sentence with entity chips, citing predictions | Cited OCSF events + an entity-scoped event query (gap `00 §6.13`); sentences per class (gap `00 §6.12`) |
+| One row per event: an event that several queries returned is one row naming every query ("via get_process_executions ×2, get_process_ancestry") | Records of different calls with the same class, event time and observed-data refs (`adr/0348`); identical records within one call stay separate |
 | Folded row (a repeated group, e.g. a nightly logon, collapsed; opens to its members) | `group_by` on the events read (`adr/0095`); the analyst changes the key per class or turns the fold off |
+| Above the rows, one line: **N events · M retrievals**, a **Group repeats** switch, and **Grouping…**, a panel with one row per event kind present ("group when these match:" and its fields, the groups it makes, Reset) | The merged rows (`adr/0348`); the fold key per class (`adr/0095`), set as `adr/0350` describes |
 | Row emphasis: expected / unusual / cited-against | Cited by a `CONFIRMED` prediction of a `SUPPORTED` hypothesis → emphasized; attested-benign context → "expected" |
 | Divider: investigation start | Seed timestamp |
 | "Not yet known" note | `INCONCLUSIVE` / `UNTESTED` predictions |
@@ -148,8 +166,9 @@ The tracker of `02 §2.9` (`adr/0047`) with these changes:
 - **What a turn records renders as a link**, one line each: "H1·P5 confirmed by
   attestation", "Proposed 3 actions + 1 owner item". Clicking scrolls the lens to the
   object (switching lens if needed) — the object itself is never restated.
-- A **Knowledge section** heads the column: what the agent may read in this investigation,
-  with include toggles (`ui/09 §9.6`). It replaces the knowledge rail.
+- The column carries **no knowledge library**. The library is the sidebar's Knowledge view
+  (`ui/09 §9.1`, `adr/0344`). Inside an investigation, knowledge shows only as what the agent
+  recalled and cited (`ui/09 §9.6`).
 - **Consulted knowledge** renders as chips under the turn (`02 §2.11`).
 - **Activity disclosure**, collapsed: "Activity · 3 tool calls, 2 records". Expanding shows
   the tool-call blocks (`02 §2.3`) and the records written. No sequence numbers, no

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // fixtureOperation is the single operation fixture bindings name; the verb being
@@ -193,7 +195,8 @@ func (a *FixtureAdapter) load() error {
 // fixtureOrder keys fixtures by event time then verb for a stable, meaningful
 // ordering (chronological within a verb).
 func fixtureOrder(f fixtureFile) string {
-	t, _ := f.OCSF["time"].(string)
+	// A fixed-width UTC form sorts as the instants do.
+	t := ocsfTime(f.OCSF, "time").Format("2006-01-02T15:04:05.000Z")
 	return t + "|" + strings.Join(f.FixtureMeta.Matches.Verb, ",")
 }
 
@@ -217,7 +220,7 @@ func (a *FixtureAdapter) Invoke(ctx context.Context, operation string, params ma
 			continue
 		}
 		if f.FixtureMeta.TimeScoped {
-			t := toTime(f.OCSF["time"])
+			t := ocsfTime(f.OCSF, "time")
 			if (!from.IsZero() && t.Before(from)) || (!to.IsZero() && t.After(to)) {
 				continue
 			}
@@ -303,9 +306,40 @@ func anyValueEqual(got any, alternatives []any) bool {
 	return false
 }
 
+// lookupHook, when set, is told of every field read through lookupPath and
+// fieldOf: the object read from, the path read within it, and the value found
+// (nil when absent). normalizeHook, when set, is called as Registry.Normalize
+// starts on an event, and the function it returns is called when Normalize
+// returns. Both are nil outside tests. The package's tests set them to record
+// which OCSF fields the normalizers read (adr/0356).
+var (
+	lookupHook    func(obj map[string]any, path string, found any)
+	normalizeHook func(evt OcsfEvent) (done func())
+)
+
 // lookupPath resolves a dotted path ("target.hostname") into a nested params
-// map, falling back to a direct flat key of the same name.
+// map, falling back to a direct flat key of the same name. Every read of an
+// OCSF event goes through it or through fieldOf, so the tests can record it.
 func lookupPath(params map[string]any, path string) (any, bool) {
+	v, ok := walkPath(params, path)
+	if lookupHook != nil {
+		lookupHook(params, path, v)
+	}
+	return v, ok
+}
+
+// fieldOf reads one key of an object inside an OCSF event, such as an entry
+// of a list. It is obj[key], recorded like a lookupPath read.
+func fieldOf(obj map[string]any, key string) any {
+	v := obj[key]
+	if lookupHook != nil {
+		lookupHook(obj, key, v)
+	}
+	return v
+}
+
+// walkPath is the walk behind lookupPath.
+func walkPath(params map[string]any, path string) (any, bool) {
 	if v, ok := params[path]; ok {
 		return v, true
 	}
@@ -336,7 +370,7 @@ func toOcsfPayload(ocsf map[string]any) OcsfPayload {
 	return OcsfPayload{
 		ClassUID:  toInt(ocsf["class_uid"]),
 		ClassName: toString(ocsf["class_name"]),
-		Time:      toTime(ocsf["time"]),
+		Time:      ocsfTime(ocsf, "time"),
 		Raw:       ocsf,
 	}
 }
@@ -359,16 +393,36 @@ func toString(v any) string {
 	return s
 }
 
-// toTime parses an OCSF time value, accepting RFC3339 strings and epoch
-// milliseconds (OCSF's numeric time form). Returns the zero time on failure.
+// toTime parses a time a binding passes in its params, such as a window
+// bound: an RFC 3339 string, or epoch milliseconds. Returns the zero time on
+// failure. A time inside an OCSF event is read with ocsfTime.
 func toTime(v any) time.Time {
-	switch t := v.(type) {
-	case string:
-		if parsed, err := time.Parse(time.RFC3339, t); err == nil {
+	if s, ok := v.(string); ok {
+		if parsed, err := time.Parse(time.RFC3339, s); err == nil {
 			return parsed.UTC()
 		}
-	case float64:
-		return time.UnixMilli(int64(t)).UTC()
+		return time.Time{}
+	}
+	t, _ := ocsf.EpochMillis(v)
+	return t
+}
+
+// ocsfTime reads an OCSF timestamp at path of obj (adr/0356). A timestamp_t
+// field such as "time" or "process.created_time" holds epoch milliseconds as
+// a whole number. OCSF's datetime profile adds a twin with the same name and
+// "_dt", an RFC 3339 string. The number is read first and the twin as a
+// fallback. A string in the number's field is not OCSF and is not read.
+// Returns the zero time when neither gives a time.
+func ocsfTime(obj map[string]any, path string) time.Time {
+	if v, ok := lookupPath(obj, path); ok {
+		if t, ok := ocsf.EpochMillis(v); ok {
+			return t
+		}
+	}
+	if v, ok := lookupPath(obj, path+"_dt"); ok {
+		if parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(toString(v))); err == nil {
+			return parsed.UTC()
+		}
 	}
 	return time.Time{}
 }

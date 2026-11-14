@@ -55,7 +55,7 @@ func TestParseTranscript(t *testing.T) {
 func TestGradeH2(t *testing.T) {
 	transcript := "[user] show raw\n" +
 		"[tool_use enumerate_logons id=tu_1] {}\n" +
-		`[tool_result enumerate_logons id=tu_1 error=false] {"actor":{"user":{"name":"svc_backup","uid":"S-1-5-21-2002"}},"src_endpoint":{"ip":"10.0.4.20"},"time":"2026-04-20T14:32:47Z"}` + "\n"
+		`[tool_result enumerate_logons id=tu_1 error=false] {"actor":{"user":{"name":"svc_backup","uid":"S-1-5-21-2002"}},"src_endpoint":{"ip":"10.0.4.20"},"time":1776695567000,"time_dt":"2026-04-20T14:32:47Z"}` + "\n"
 
 	quoting := trialWith(TurnRecord{
 		Transcript: transcript,

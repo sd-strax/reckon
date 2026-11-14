@@ -71,7 +71,7 @@ func TestResourceContext_ShapesInventory(t *testing.T) {
 	}
 	want := map[string]any{
 		"class_uid": 5023, "class_name": "Cloud Resources Inventory Info", "category_uid": 5, "type_uid": 502302,
-		"activity_id": 2, "activity_name": "Collect", "time": bucketCaptured.UnixMilli(),
+		"activity_id": 2, "activity_name": "Collect", "severity_id": 1, "time": bucketCaptured.UnixMilli(),
 		"metadata": map[string]any{"product": map[string]any{"vendor_name": "AWS", "name": "AWS Config"}, "version": "1.7.0"},
 		"cloud":    map[string]any{"provider": "AWS", "account": map[string]any{"uid": "111122223333"}, "region": "us-east-1"},
 		"resources": []any{map[string]any{

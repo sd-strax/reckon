@@ -11,7 +11,7 @@ import (
 func apiPayload() map[string]any {
 	return map[string]any{
 		"class_uid":     6003,
-		"time":          "2026-07-14T09:28:00Z",
+		"time":          ms("2026-07-14T09:28:00Z"),
 		"activity_id":   3,
 		"activity_name": "Update",
 		"actor": map[string]any{
@@ -140,7 +140,7 @@ func TestAPIActivity_IAMUser(t *testing.T) {
 	}
 
 	od := res.ObservedData[0]
-	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 2 || od.Provenance.DerivationMode != DerivationDirect {
+	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 3 || od.Provenance.DerivationMode != DerivationDirect {
 		t.Errorf("provenance = %+v", od.Provenance)
 	}
 	if len(od.ObjectRefs) != 4 {
@@ -534,6 +534,46 @@ func TestAPIActivity_CallerAccount(t *testing.T) {
 	}
 }
 
+// TestAPIActivity_CallerAccountFallback: with no cloud.account, the event's
+// account is the caller's own actor.user.account. cloud.org describes
+// cloud.account, so that account does not take org_uid; an account read from
+// cloud.account or cloud.project_uid does.
+func TestAPIActivity_CallerAccountFallback(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	home := ids.CloudAccount("aws", "111122223333")
+	principal := ids.Account(identity.AccountIdentity{Type: "aws", UserID: deployARN})
+
+	p := apiPayload()
+	p["cloud"] = map[string]any{"provider": "AWS", "org": map[string]any{"uid": "o-exampleorg1"}}
+	res := normalizeOne(t, p)
+	accts := scosOf(res, identity.TypeCloudAccount)
+	if len(accts) != 1 || accts[0].ID != home {
+		t.Fatalf("accounts = %+v; want the caller's account only", accts)
+	}
+	if accts[0].Properties["name"] != "acme-prod" || accts[0].Properties["account_type"] != "AWS Account" {
+		t.Errorf("account props = %v; want the caller account's own name and type", accts[0].Properties)
+	}
+	if org, ok := accts[0].Properties["org_uid"]; ok {
+		t.Errorf("caller's account carries cloud.org.uid %v; want no org_uid", org)
+	}
+	if !hasEdge(res, RelBelongsTo, principal, home) {
+		t.Errorf("relationships = %+v; want the principal belongs-to its account", res.Relationships)
+	}
+
+	for name, cloud := range map[string]map[string]any{
+		"cloud.account":     {"provider": "AWS", "org": map[string]any{"uid": "o-exampleorg1"}, "account": map[string]any{"uid": "444455556666"}},
+		"cloud.project_uid": {"provider": "AWS", "org": map[string]any{"uid": "o-exampleorg1"}, "project_uid": "444455556666"},
+	} {
+		p := apiPayload()
+		p["cloud"] = cloud
+		delete(p["actor"].(map[string]any)["user"].(map[string]any), "account")
+		accts := scosOf(normalizeOne(t, p), identity.TypeCloudAccount)
+		if len(accts) != 1 || accts[0].Properties["org_uid"] != "o-exampleorg1" {
+			t.Errorf("%s: accounts = %+v; want one carrying the event's org", name, accts)
+		}
+	}
+}
+
 // TestAPIActivity_NumericIDs: an account or resource uid given as a JSON
 // number is read, formatted without an exponent.
 func TestAPIActivity_NumericIDs(t *testing.T) {
@@ -605,11 +645,11 @@ func TestAPIActivity_Fallbacks(t *testing.T) {
 	// Without the list, the user's key beats the session's; without both, the session's.
 	actor := p["actor"].(map[string]any)["user"].(map[string]any)
 	delete(actor, "programmatic_credentials")
-	if got := credentialUID(p); got != "key-old" {
+	if got := credentialUID(at{obj: p, path: "actor"}); got != "key-old" {
 		t.Errorf("credential = %q; want key-old", got)
 	}
 	delete(actor, "credential_uid")
-	if got := credentialUID(p); got != "key-session" {
+	if got := credentialUID(at{obj: p, path: "actor"}); got != "key-session" {
 		t.Errorf("credential = %q; want key-session", got)
 	}
 
@@ -697,5 +737,31 @@ func TestAPIActivity_RegisteredAndStable(t *testing.T) {
 	}
 	if !slices.Equal(collect(a), collect(b)) {
 		t.Errorf("ids differ across runs:\n%v\n%v", collect(a), collect(b))
+	}
+}
+
+// TestAPIActivity_CallingApplication (§4.15, §4.16, adr/0356): the calling
+// application is actor.application.name from OCSF 1.9.0, which deprecates
+// actor.app_name. The replacement is read first and the old field is the
+// fallback, so both ends give the same app_name.
+func TestAPIActivity_CallingApplication(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		actor map[string]any
+		want  any
+	}{
+		{"the floor's actor.app_name", map[string]any{"app_name": "backup.example.internal"}, "backup.example.internal"},
+		{"the ceiling's actor.application.name", map[string]any{"application": map[string]any{"name": "backup.example.internal"}}, "backup.example.internal"},
+		{"the replacement outranks the deprecated field", map[string]any{"application": map[string]any{"name": "new"}, "app_name": "old"}, "new"},
+		{"an application with no name falls back", map[string]any{"application": map[string]any{"uid": "app-1"}, "app_name": "old"}, "old"},
+		{"neither", map[string]any{}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := apiPayload()
+			p["actor"] = tc.actor
+			if got := normalizeOne(t, p).ObservedData[0].Extensions["app_name"]; got != tc.want {
+				t.Errorf("app_name = %v; want %v", got, tc.want)
+			}
+		})
 	}
 }

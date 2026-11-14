@@ -107,9 +107,9 @@ is a layout decision, reviewed as UX and architecture, not a feature to keep or 
 | Screen | Delivers | PR |
 |---|---|---|
 | Header (stage, primary action) | C1 | #88 |
-| Left region: work queue, Work \| Knowledge toggle | C1, navigation | #88, #89 |
+| Left region: work queue, Work \| Knowledge toggle (now the sidebar's views, `adr/0342`, `adr/0344`) | C1, navigation | #88, #89 |
 | Lenses: Reasoning, Response, Story, Summary | existing capabilities re-presented; C4, C6, C8, C9 | #88 + gap PRs |
-| Companion: conversation, thread, Knowledge section | existing capabilities re-presented; C11 | #88 |
+| Companion: conversation, thread, Knowledge section (removed, `adr/0344`) | existing capabilities re-presented; C11 | #88 |
 | Inspector (one pane for every cited object) | existing "see the evidence", re-presented; C3, C5, C7, C10, C15, C17 | #87 + gap PRs |
 | Knowledge document: Procedures, Import, Search, Past cases, Ask, Candidates | C13–C19 | #89 + gap PRs |
 

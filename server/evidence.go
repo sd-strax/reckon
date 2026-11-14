@@ -37,7 +37,7 @@ type EvidenceView struct {
 
 	// Related is set on an `indicator--` ref (a detection finding, 03 §4.12):
 	// the sightings that cite it, the vendor identity that produced it, and the
-	// observed-data the finding recursed — so the Detection inspector is one
+	// observed-data of the finding's evidence — so the Detection inspector is one
 	// fetch (design/ui 08 §8.6.1). Nil for every other type.
 	Related *EvidenceRelated `json:"related,omitempty"`
 

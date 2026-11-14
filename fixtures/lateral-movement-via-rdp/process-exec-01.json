@@ -19,22 +19,30 @@
   "ocsf": {
     "class_uid": 1007,
     "class_name": "Process Activity",
-    "time": "2026-04-20T14:33:05Z",
-    "activity_name": "LAUNCH",
+    "category_uid": 1,
+    "type_uid": 100701,
+    "severity_id": 1,
+    "time": 1776695585000,
+    "time_dt": "2026-04-20T14:33:05Z",
+    "metadata": { "version": "1.1.0" },
+    "activity_id": 1,
+    "activity_name": "Launch",
     "process": {
       "pid": 6120,
       "name": "powershell.exe",
       "cmd_line": "powershell.exe -NoProfile -EncodedCommand ZQBjAGgAbwA=",
-      "created_time": "2026-04-20T14:33:05Z",
+      "created_time": 1776695585000,
+      "created_time_dt": "2026-04-20T14:33:05Z",
       "file": {
         "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
         "name": "powershell.exe",
-        "hashes": { "SHA-256": "9f1c2d3e4a5b6c7d8e9f0011223344556677889900aabbccddeeff0011223344" }
+        "hashes": [ { "algorithm": "SHA-256", "algorithm_id": 3, "value": "9f1c2d3e4a5b6c7d8e9f0011223344556677889900aabbccddeeff0011223344" } ]
       },
       "parent_process": {
         "pid": 5000,
         "name": "mstsc-hijack.exe",
-        "created_time": "2026-04-20T14:32:40Z"
+        "created_time": 1776695560000,
+        "created_time_dt": "2026-04-20T14:32:40Z"
       }
     },
     "device": { "hostname": "WIN-FILE01", "domain": "CONTOSO" },

@@ -75,7 +75,7 @@ func TestAccountIdentityConformance(t *testing.T) {
 
 	// 1. The domain controller: SID beside CONTOSO\jdoe.
 	dc, err := reg.Normalize(toolEvent("dc", 3002, map[string]any{
-		"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": sid}},
+		"user":         map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": sid},
 		"dst_endpoint": map[string]any{"hostname": "WIN-DC01", "os": windows},
 	}))
 	if err != nil {
@@ -120,9 +120,9 @@ func TestAccountIdentityConformance(t *testing.T) {
 	// 3. The identity provider: the provider id beside the principal name.
 	idp, err := reg.Normalize(toolEvent("idp", 3002, map[string]any{
 		"metadata": map[string]any{"product": map[string]any{"vendor_name": "fixture-idp"}},
-		"actor": map[string]any{"user": map[string]any{
+		"user": map[string]any{
 			"name": upn, "uid": objectID, "account": map[string]any{"type_id": 6, "type": "Azure AD Account"},
-		}},
+		},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func TestAccountShapingTypes(t *testing.T) {
 	t.Run("an identity provider's sign-in without an account type is cloud", func(t *testing.T) {
 		res, err := reg.Normalize(toolEvent("idp", 3002, map[string]any{
 			"metadata": map[string]any{"product": map[string]any{"vendor_name": "Okta"}},
-			"actor":    map[string]any{"user": map[string]any{"name": "jdoe@contoso.example", "uid": "00u1AbCd"}},
+			"user":     map[string]any{"name": "jdoe@contoso.example", "uid": "00u1AbCd"},
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -302,7 +302,7 @@ func TestAccountShapingTypes(t *testing.T) {
 	t.Run("a managed domain service naming a SID is no identity provider", func(t *testing.T) {
 		res, err := reg.Normalize(toolEvent("aadds", 3002, map[string]any{
 			"metadata": map[string]any{"product": map[string]any{"vendor_name": "Microsoft", "name": "Microsoft Entra Domain Services"}},
-			"actor":    map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21-7-1101"}},
+			"user":     map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": "S-1-5-21-7-1101"},
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -314,7 +314,7 @@ func TestAccountShapingTypes(t *testing.T) {
 		// Named whole: a product that only mentions a provider is not one.
 		res, err = reg.Normalize(toolEvent("siem", 3002, map[string]any{
 			"metadata": map[string]any{"product": map[string]any{"vendor_name": "Acme", "name": "Acme SIEM for Okta"}},
-			"actor":    map[string]any{"user": map[string]any{"name": "jdoe@contoso.example", "uid": "00u1AbCd"}},
+			"user":     map[string]any{"name": "jdoe@contoso.example", "uid": "00u1AbCd"},
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -330,7 +330,7 @@ func TestAccountShapingTypes(t *testing.T) {
 		res, err := reg.Normalize(toolEvent("okta", 3002, map[string]any{
 			"metadata": okta,
 			// A principal name beside the tenant's DNS domain is no domain\sam.
-			"actor": map[string]any{"user": map[string]any{"name": "jdoe@contoso.example", "domain": "contoso.example", "uid": "00u1AbCd"}},
+			"user": map[string]any{"name": "jdoe@contoso.example", "domain": "contoso.example", "uid": "00u1AbCd"},
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -343,8 +343,8 @@ func TestAccountShapingTypes(t *testing.T) {
 			t.Errorf("slug = %q; want okta", got)
 		}
 		aadds := map[string]any{"metadata": map[string]any{"product": map[string]any{"vendor_name": "Microsoft", "name": "Microsoft Entra Domain Services"}}}
-		if identityProviderSource(aadds) || directorySlug(aadds, "t") != "microsoft-entra-domain-services" {
-			t.Errorf("Entra Domain Services: idp %v, slug %q; want no idp, its own slug", identityProviderSource(aadds), directorySlug(aadds, "t"))
+		if identityProviderSource(aadds, nil) || directorySlug(aadds, "t") != "microsoft-entra-domain-services" {
+			t.Errorf("Entra Domain Services: idp %v, slug %q; want no idp, its own slug", identityProviderSource(aadds, nil), directorySlug(aadds, "t"))
 		}
 	})
 	t.Run("a provider's agent on a machine is no identity provider", func(t *testing.T) {
@@ -352,7 +352,7 @@ func TestAccountShapingTypes(t *testing.T) {
 		res, err := reg.Normalize(toolEvent("asa", 3002, map[string]any{
 			"metadata":     meta,
 			"dst_endpoint": map[string]any{"hostname": "WS1", "os": map[string]any{"type": "Linux"}},
-			"actor":        map[string]any{"user": map[string]any{"name": "jdoe"}},
+			"user":         map[string]any{"name": "jdoe"},
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -367,8 +367,13 @@ func TestAccountShapingTypes(t *testing.T) {
 		// The vendor alone, with a device OS: the slug, not the provider mark.
 		vendorOnly := map[string]any{"metadata": map[string]any{"product": map[string]any{"vendor_name": "Okta"}},
 			"device": map[string]any{"os": map[string]any{"type_id": 200}}}
-		if identityProviderSource(vendorOnly) || directorySlug(vendorOnly, "t") != "okta" {
-			t.Errorf("vendor with a device OS: idp %v, slug %q", identityProviderSource(vendorOnly), directorySlug(vendorOnly, "t"))
+		devices := []at{{obj: vendorOnly, path: "device"}}
+		if identityProviderSource(vendorOnly, devices) || directorySlug(vendorOnly, "t") != "okta" {
+			t.Errorf("vendor with a device OS: idp %v, slug %q", identityProviderSource(vendorOnly, devices), directorySlug(vendorOnly, "t"))
+		}
+		// The caller names the device objects: one it does not name is not read.
+		if !identityProviderSource(vendorOnly, nil) {
+			t.Error("vendor alone, no device object named: want the provider mark")
 		}
 	})
 	t.Run("an explicit Unix signal outweighs the domain", func(t *testing.T) {
@@ -415,7 +420,7 @@ func TestAccountShapingTypes(t *testing.T) {
 	})
 	t.Run("a bare login with no host and no OS is a weak login account", func(t *testing.T) {
 		res, err := reg.Normalize(toolEvent("radius", 3002, map[string]any{
-			"actor":        map[string]any{"user": map[string]any{"name": "jdoe"}},
+			"user":         map[string]any{"name": "jdoe"},
 			"src_endpoint": map[string]any{"ip": "10.0.4.55"},
 		}))
 		if err != nil {

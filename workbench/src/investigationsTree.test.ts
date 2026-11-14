@@ -53,11 +53,9 @@ describe("InvestigationsProvider (ui/06)", () => {
     expect(labels(await old.provider.getChildren())).toEqual(["Backend incompatible"]);
   });
 
-  it("offers sign-in when signed out, and says so when the list cannot be read", async () => {
+  it("shows nothing signed out (the Account view's button signs in), and says so when the list cannot be read", async () => {
     const out = tree(client(), false);
-    const [item] = await out.provider.getChildren();
-    expect(item!.label).toBe("Sign in to reckon");
-    expect(item!.command?.command).toBe("reckon.signIn");
+    expect(await out.provider.getChildren()).toEqual([]);
 
     const failing = tree(client({ investigations: async () => { throw new Error("401 token expired"); } }));
     const [err] = await failing.provider.getChildren();
@@ -100,10 +98,36 @@ describe("InvestigationsProvider (ui/06)", () => {
     const [group] = await provider.getChildren();
     const ordered = await provider.getChildren(group);
     expect(ordered.map((i) => (i as InvestigationRowItem).invId)).toEqual(["soon", "later", "pending", "unseen", "recent"]);
-    expect(ordered[0]!.description).toMatch(/^⏳ \dm · 1 pending$/);
-    expect(ordered[3]!.description).toBe("● new");
+    expect(ordered[0]!.description).toMatch(/^Investigate · ⏳ \dm · 1 pending$/);
+    expect(ordered[3]!.description).toBe("Investigate · ● new");
     expect((ordered[0]!.iconPath as vscode.ThemeIcon).id).toBe("bell-dot");
     expect((ordered[4]!.iconPath as vscode.ThemeIcon).id).toBe("circle-filled");
     expect(ordered[4]!.command).toEqual({ command: "reckon.openInvestigation", title: "Open Investigation", arguments: ["recent", "recent"] });
+  });
+
+  it("leads an open row's description with its stage step, and gives a concluded row none (adr/0342)", async () => {
+    const rows = [
+      row({ id: "contain", title: "contain", hasVerdict: true, openActions: 1, openNotifications: 0 }),
+      row({ id: "notify", title: "notify", hasVerdict: true, openActions: 0, openNotifications: 2 }),
+      row({ id: "done", title: "done", state: "CONCLUDED", hasVerdict: true, openActions: 0, openNotifications: 0, seedSummary: "case C-1" }),
+    ];
+    const { provider } = tree(client({ investigations: async () => rows }));
+    const [active, concluded] = await provider.getChildren();
+    const open = await provider.getChildren(active);
+    expect(open.map((i) => i.description)).toEqual(["Contain", "Notify"]);
+    const [closed] = await provider.getChildren(concluded);
+    expect(closed!.description).toBe("case C-1");
+  });
+
+  it("gives each status group a stable id, so its collapse state survives a count change (adr/0344)", async () => {
+    let rows = [row({ title: "a" })];
+    const { provider } = tree(client({ investigations: async () => rows }));
+    const first = await provider.getChildren();
+    rows = [row({ title: "a" }), row({ title: "b" }), row({ title: "c", state: "CONCLUDED" })];
+    const second = await provider.getChildren();
+    expect(first.map((g) => g.label)).toEqual(["Active (1)"]);
+    expect(second.map((g) => g.label)).toEqual(["Active (2)", "Concluded (1)"]);
+    expect(first[0]!.id).toBe("investigations.ACTIVE");
+    expect(second.map((g) => g.id)).toEqual(["investigations.ACTIVE", "investigations.CONCLUDED"]);
   });
 });

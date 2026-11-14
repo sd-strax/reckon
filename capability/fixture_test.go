@@ -32,19 +32,19 @@ func writeScenario(t *testing.T, scenario string, files map[string]string) strin
 var twoLogonsPlusOther = map[string]string{
 	"logon-1.json": `{
       "fixture_meta": {"scenario":"s","matches":{"verb":"enumerate_logons","params":{"target.hostname":"WIN-FILE01","outcome":"SUCCESS"}},"delay_ms":0},
-      "ocsf": {"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:32:11Z","dst_endpoint":{"hostname":"WIN-FILE01"}}
+      "ocsf": {"class_uid":3002,"class_name":"Authentication","time":1776695531000,"dst_endpoint":{"hostname":"WIN-FILE01"}}
     }`,
 	"logon-2.json": `{
       "fixture_meta": {"scenario":"s","matches":{"verb":"enumerate_logons","params":{"target.hostname":"WIN-FILE01","outcome":"SUCCESS"}},"delay_ms":0},
-      "ocsf": {"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:35:02Z","dst_endpoint":{"hostname":"WIN-FILE01"}}
+      "ocsf": {"class_uid":3002,"class_name":"Authentication","time":1776695702000,"dst_endpoint":{"hostname":"WIN-FILE01"}}
     }`,
 	"logon-other.json": `{
       "fixture_meta": {"scenario":"s","matches":{"verb":"enumerate_logons","params":{"target.hostname":"OTHER-HOST","outcome":"SUCCESS"}},"delay_ms":0},
-      "ocsf": {"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:33:00Z","dst_endpoint":{"hostname":"OTHER-HOST"}}
+      "ocsf": {"class_uid":3002,"class_name":"Authentication","time":1776695580000,"dst_endpoint":{"hostname":"OTHER-HOST"}}
     }`,
 	"ancestry.json": `{
       "fixture_meta": {"scenario":"s","matches":{"verb":"get_process_ancestry","params":{"process.pid":900}},"delay_ms":0},
-      "ocsf": {"class_uid":1007,"class_name":"Process Activity","time":"2026-04-20T14:30:00Z"}
+      "ocsf": {"class_uid":1007,"class_name":"Process Activity","time":1776695400000}
     }`,
 	"asset-criticality.json": `{"WIN-FILE01":"high"}`,
 }
@@ -123,7 +123,7 @@ func TestFixtureWildcard(t *testing.T) {
 	a := newTestFixture(t, map[string]string{
 		"any.json": `{
           "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{"target.hostname":"*"}},"delay_ms":0},
-          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:32:11Z"}
+          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":1776695531000}
         }`,
 	})
 	resp, err := a.Invoke(context.Background(), "replay", map[string]any{
@@ -210,7 +210,7 @@ func TestFixtureRecoversAfterFailedLoad(t *testing.T) {
 	}
 	fixture := `{
       "fixture_meta":{"scenario":"late","matches":{"verb":"enumerate_logons","params":{}},"delay_ms":0},
-      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:32:11Z"}
+      "ocsf":{"class_uid":3002,"class_name":"Authentication","time":1776695531000}
     }`
 	if err := os.WriteFile(filepath.Join(dir, "e1.json"), []byte(fixture), 0o644); err != nil {
 		t.Fatal(err)
@@ -263,11 +263,11 @@ func TestFixtureTimeScoped(t *testing.T) {
 	a := newTestFixture(t, map[string]string{
 		"incident.json": `{
           "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{"target.hostname":"*"}},"delay_ms":0},
-          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-20T14:32:47Z"}
+          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":1776695567000}
         }`,
 		"baseline.json": `{
           "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{"target.hostname":"*"}},"delay_ms":0,"time_scoped":true},
-          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-04-13T02:00:10Z"}
+          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":1776045610000}
         }`,
 	})
 	invoke := func(window map[string]any) int {
@@ -304,11 +304,11 @@ func TestFixtureAnyOf(t *testing.T) {
 	a := newTestFixture(t, map[string]string{
 		"ok.json": `{
           "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{"outcome":["SUCCESS","ALL"]}},"delay_ms":0},
-          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-06-11T03:21:08Z","status":"SUCCESS"}
+          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":1781148068000,"status":"SUCCESS"}
         }`,
 		"fail.json": `{
           "fixture_meta":{"scenario":"s","matches":{"verb":"enumerate_logons","params":{"outcome":["FAILURE","ALL"]}},"delay_ms":0},
-          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":"2026-06-11T03:14:02Z","status":"FAILURE"}
+          "ocsf":{"class_uid":3002,"class_name":"Authentication","time":1781147642000,"status":"FAILURE"}
         }`,
 	})
 	for outcome, want := range map[string]int{"SUCCESS": 1, "FAILURE": 1, "ALL": 2, "OTHER": 0} {
@@ -351,11 +351,11 @@ func TestFixtureVerbList(t *testing.T) {
 	a := newTestFixture(t, map[string]string{
 		"dns.json": `{
           "fixture_meta":{"scenario":"s","matches":{"verb":["resolve_dns","pivot_on_indicator"],"params":{}},"delay_ms":0},
-          "ocsf":{"class_uid":4003,"class_name":"DNS Activity","time":"2026-06-11T03:21:08Z","query":{"hostname":"a.example"}}
+          "ocsf":{"class_uid":4003,"class_name":"DNS Activity","time":1781148068000,"query":{"hostname":"a.example"}}
         }`,
 		"one.json": `{
           "fixture_meta":{"scenario":"s","matches":{"verb":"resolve_dns","params":{}},"delay_ms":0},
-          "ocsf":{"class_uid":4003,"class_name":"DNS Activity","time":"2026-06-11T03:22:08Z","query":{"hostname":"b.example"}}
+          "ocsf":{"class_uid":4003,"class_name":"DNS Activity","time":1781148128000,"query":{"hostname":"b.example"}}
         }`,
 	})
 	for verb, want := range map[string]int{"resolve_dns": 2, "pivot_on_indicator": 1, "enumerate_logons": 0} {

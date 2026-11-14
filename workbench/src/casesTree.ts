@@ -1,7 +1,9 @@
 // The Cases view (adr/0030-cases-pane.md): the team's case queue from the
 // system of record, below Investigations in the reckon container. Read-only —
-// a click opens the case document (caseDocument.ts); starting an investigation
-// happens there. The queue is the tenant's configured one (14 §4.2); rows that
+// a click opens the case document (caseDocument.ts), which starts an
+// investigation or opens the one there is. A case with no investigation also
+// carries an inline Start investigation (adr/0342: the sidebar is the work
+// queue). The queue is the tenant's configured one (14 §4.2); rows that
 // already have an open investigation say so and lead to it.
 //
 // VS Code tree items have no columns: the label is the title, the description
@@ -10,6 +12,7 @@
 import * as vscode from "vscode";
 import { BackendClient, CaseRow } from "./backend";
 import { Session } from "./auth";
+import { actionItem, infoItem } from "./treeItems";
 import { errText } from "./util";
 
 /**
@@ -61,7 +64,7 @@ export class CasesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       return [];
     }
     if (!this.session.signedIn) {
-      return [actionItem("Sign in to reckon", "opens Keycloak in your browser", "sign-in", "reckon.signIn")];
+      return []; // the view is hidden signed out; the container's header carries Sign In
     }
     let queue: string;
     let rows: CaseRow[];
@@ -114,8 +117,14 @@ function sortRows(rows: CaseRow[], mode: CasesSort): CaseRow[] {
     .map((x) => x.r);
 }
 
+/** One case row; carries its number so the inline Start investigation can act on it. */
+export class CaseRowItem extends vscode.TreeItem {
+  caseNumber = "";
+}
+
 function rowItem(r: CaseRow): vscode.TreeItem {
-  const item = new vscode.TreeItem(r.title || r.number);
+  const item = new CaseRowItem(r.title || r.number);
+  item.caseNumber = r.number;
   // Priority first: it is the sort key and the ring's meaning, spelled out so
   // the colour is never the only cue.
   const cues: string[] = [];
@@ -170,18 +179,4 @@ function age(iso: string): string {
   const h = Math.floor(m / 60);
   if (h < 48) return `${h}h`;
   return `${Math.floor(h / 24)}d`;
-}
-
-function actionItem(label: string, description: string, icon: string, command: string): vscode.TreeItem {
-  const item = infoItem(label, description, icon);
-  item.command = { command, title: label };
-  return item;
-}
-
-function infoItem(label: string, description: string, icon: string): vscode.TreeItem {
-  const item = new vscode.TreeItem(label);
-  item.description = description;
-  item.tooltip = description || label;
-  item.iconPath = new vscode.ThemeIcon(icon);
-  return item;
 }

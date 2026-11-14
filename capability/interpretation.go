@@ -44,7 +44,8 @@ const (
 	RelClicked           = "clicked"
 	// RelAliases joins a weak x-host (MAC or source device id) to the strong
 	// host the same record names by hostname (adr/0211): an identity assertion
-	// from the source, never a merge (01 edge table).
+	// from the source, never a merge (01 edge table). Accounts (adr/0324) and
+	// email messages (adr/0356) follow the same rule.
 	RelAliases = "aliases"
 
 	// RelBelongsTo is STIX 2.1's SCO relationship, adopted for a cloud
@@ -119,22 +120,31 @@ type Indicator struct {
 	PatternType    string          `json:"pattern_type,omitempty"`
 	IndicatorTypes []string        `json:"indicator_types,omitempty"` // e.g. MITRE technique IDs
 	ValidFrom      time.Time       `json:"valid_from"`
-	Confidence     int             `json:"confidence"`
-	CreatedByRef   identity.STIXID `json:"created_by_ref"` // the vendor Identity
-	Provenance     Provenance      `json:"provenance"`
+	// Confidence is the vendor's confidence, 0 to 100. It is nil, and left
+	// out of the JSON, when the vendor gives none: 0 means "no confidence"
+	// in STIX, which is not the same as unknown (adr/0356).
+	Confidence   *int            `json:"confidence,omitempty"`
+	CreatedByRef identity.STIXID `json:"created_by_ref"` // the vendor Identity
+	Provenance   Provenance      `json:"provenance"`
 }
 
-// Sighting is a STIX Sighting SRO linking an Indicator to the entities and
-// evidence it was seen through (§4.12). Also INFERRED and vendor-attributed.
+// Sighting is a STIX Sighting SRO linking an Indicator to the evidence it was
+// seen through (§4.12). Also INFERRED and vendor-attributed.
+//
+// The entities an alert names are the object_refs of the observations in
+// ObservedDataRefs. They are not in WhereSighted: STIX allows only identity
+// and location objects there, as it names who saw the indicator. Nothing
+// fills WhereSighted today (adr/0356).
 type Sighting struct {
 	ID               identity.STIXID   `json:"id"`
 	SightingOfRef    identity.STIXID   `json:"sighting_of_ref"` // the Indicator
 	ObservedDataRefs []identity.STIXID `json:"observed_data_refs,omitempty"`
-	WhereSighted     []identity.STIXID `json:"where_sighted_refs,omitempty"` // named entities
-	Confidence       int               `json:"confidence"`
-	Description      string            `json:"description,omitempty"`
-	CreatedByRef     identity.STIXID   `json:"created_by_ref"`
-	Provenance       Provenance        `json:"provenance"`
+	WhereSighted     []identity.STIXID `json:"where_sighted_refs,omitempty"`
+	// Confidence mirrors the Indicator's: nil and left out when unknown.
+	Confidence   *int            `json:"confidence,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	CreatedByRef identity.STIXID `json:"created_by_ref"`
+	Provenance   Provenance      `json:"provenance"`
 }
 
 // VendorIdentity is the per-tenant STIX Identity SDO a vendor's imported claims

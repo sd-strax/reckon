@@ -11,7 +11,7 @@ import (
 func TestNetworkNormalizer(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid":       4001,
-		"time":            "2026-04-20T14:32:11Z",
+		"time":            ms("2026-04-20T14:32:11Z"),
 		"src_endpoint":    map[string]any{"ip": "10.0.0.5", "port": 51000},
 		"dst_endpoint":    map[string]any{"ip": "93.184.216.34", "port": 443, "domain": "example.com"},
 		"connection_info": map[string]any{"protocol_name": "tcp"},
@@ -36,7 +36,7 @@ func TestNetworkNormalizer(t *testing.T) {
 func TestDNSNormalizer(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid": 4003,
-		"time":      "2026-04-20T14:32:11Z",
+		"time":      ms("2026-04-20T14:32:11Z"),
 		"query":     map[string]any{"hostname": "evil.example.com"},
 		"answers": []any{
 			map[string]any{"type": "A", "rdata": "1.2.3.4"},
@@ -72,14 +72,14 @@ func TestDNSNormalizer(t *testing.T) {
 func TestFileNormalizer(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid":     1001,
-		"time":          "2026-04-20T14:32:11Z",
+		"time":          ms("2026-04-20T14:32:11Z"),
 		"activity_name": "Create",
 		"file": map[string]any{
 			"name":   "evil.dll",
 			"path":   `C:\Windows\Temp\evil.dll`,
-			"hashes": map[string]any{"SHA-256": "deadbeef"},
+			"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "deadbeef"}},
 		},
-		"actor":  map[string]any{"process": map[string]any{"pid": 1234, "created_time": "2026-04-20T14:00:00Z"}},
+		"actor":  map[string]any{"process": map[string]any{"pid": 1234, "created_time": ms("2026-04-20T14:00:00Z")}},
 		"device": map[string]any{"hostname": "WS1"},
 	}))
 	if err != nil {

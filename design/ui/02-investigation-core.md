@@ -41,6 +41,9 @@ row per entity: entity chip + optional alias link (`⇄ alias` in 11px) + role t
 **Evidence block** — "Pinned evidence" + amber count pill. Each item: amber card
 (`--warn-bg` / `--warn-bd`), pin glyph, finding text (13px), source line
 (`tool/operation` in mono `--he-primary-soft` + pinned timestamp). Entrance uses `pinIn`.
+A pinned event leads with its sentence, the timeline's, with entity chips inline; the pinned
+objects sit behind one collapsed "What this is made of · N", and an account the record joins by an
+alias shows once, the login with its other identifier beside it (`adr/0352`).
 Empty: italic *"No evidence pinned yet — pin findings from the reasoning trace or the panel."*
 
 **Remediation block** (appears once a plan exists) — counts: N succeeded / pending / failed /

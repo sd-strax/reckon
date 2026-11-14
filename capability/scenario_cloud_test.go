@@ -72,8 +72,8 @@ func TestScenario_ExposedBucket_Normalizes(t *testing.T) {
 			bothVerbs = append(bothVerbs, base)
 		}
 		if toInt(doc.Ocsf["class_uid"]) == 5023 {
-			if res.ObservedData[0].Provenance.Normalizer != "cloud_inventory" {
-				t.Errorf("%s: not cloud_inventory: %+v", base, res.ObservedData[0].Provenance)
+			if res.ObservedData[0].Provenance.Normalizer != "cloud_resources_inventory_info" {
+				t.Errorf("%s: not cloud_resources_inventory_info: %+v", base, res.ObservedData[0].Provenance)
 			}
 			for _, s := range scosOf(res, identity.TypeCloudResource) {
 				uid, _ := s.Properties["uid"].(string)

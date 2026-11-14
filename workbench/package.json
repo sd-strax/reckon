@@ -32,11 +32,33 @@
       "reckon": [
         {
           "id": "reckon.investigations",
-          "name": "Investigations"
+          "name": "Investigations",
+          "when": "reckon.signedIn",
+          "initialSize": 5
         },
         {
           "id": "reckon.cases",
-          "name": "Cases"
+          "name": "Cases",
+          "when": "reckon.signedIn",
+          "initialSize": 4
+        },
+        {
+          "id": "reckon.knowledge",
+          "name": "Knowledge",
+          "when": "reckon.signedIn",
+          "initialSize": 4
+        },
+        {
+          "id": "reckon.capabilities",
+          "name": "Capabilities",
+          "visibility": "collapsed",
+          "when": "reckon.signedIn",
+          "initialSize": 2
+        },
+        {
+          "id": "reckon.account",
+          "name": "Account",
+          "initialSize": 1
         }
       ]
     },
@@ -109,12 +131,55 @@
       {
         "command": "reckon.importSOP",
         "category": "reckon",
-        "title": "Import SOPs…"
+        "title": "Import SOPs…",
+        "icon": "$(cloud-upload)"
       },
       {
         "command": "reckon.openKnowledge",
         "category": "reckon",
-        "title": "Open Knowledge"
+        "title": "Open the Knowledge View",
+        "icon": "$(book)"
+      },
+      {
+        "command": "reckon.searchKnowledge",
+        "category": "reckon",
+        "title": "Search Knowledge",
+        "icon": "$(search)"
+      },
+      {
+        "command": "reckon.refreshKnowledge",
+        "category": "reckon",
+        "title": "Refresh Knowledge",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "reckon.openKnowledgeItem",
+        "category": "reckon",
+        "title": "Open in the Knowledge View"
+      },
+      {
+        "command": "reckon.askToUseKnowledge",
+        "category": "reckon",
+        "title": "Ask reckon to use this",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "reckon.startInvestigationFromCase",
+        "category": "reckon",
+        "title": "Start Investigation",
+        "icon": "$(play)"
+      },
+      {
+        "command": "reckon.refreshCapabilities",
+        "category": "reckon",
+        "title": "Refresh Capabilities",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "reckon.setUpCapability",
+        "category": "reckon",
+        "title": "Set Up…",
+        "icon": "$(gear)"
       },
       {
         "command": "reckon.openInvestigation",
@@ -176,6 +241,31 @@
           "command": "reckon.refreshCases",
           "when": "view == reckon.cases",
           "group": "navigation@2"
+        },
+        {
+          "command": "reckon.searchKnowledge",
+          "when": "view == reckon.knowledge && reckon.signedIn",
+          "group": "navigation@1"
+        },
+        {
+          "command": "reckon.importSOP",
+          "when": "view == reckon.knowledge && reckon.signedIn",
+          "group": "navigation@2"
+        },
+        {
+          "command": "reckon.openKnowledge",
+          "when": "view == reckon.knowledge && reckon.signedIn",
+          "group": "navigation@3"
+        },
+        {
+          "command": "reckon.refreshKnowledge",
+          "when": "view == reckon.knowledge",
+          "group": "navigation@4"
+        },
+        {
+          "command": "reckon.refreshCapabilities",
+          "when": "view == reckon.capabilities",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -188,6 +278,21 @@
           "command": "reckon.resetAgentContext",
           "when": "view == reckon.investigations && viewItem == reckon.investigation && reckon.signedIn",
           "group": "context@1"
+        },
+        {
+          "command": "reckon.startInvestigationFromCase",
+          "when": "view == reckon.cases && viewItem == reckon.case && reckon.signedIn",
+          "group": "inline@1"
+        },
+        {
+          "command": "reckon.askToUseKnowledge",
+          "when": "view == reckon.knowledge && viewItem == reckon.knowledgeItem && reckon.signedIn && reckon.investigationStageable",
+          "group": "inline@1"
+        },
+        {
+          "command": "reckon.setUpCapability",
+          "when": "view == reckon.capabilities && viewItem == reckon.capability.setup && reckon.signedIn",
+          "group": "inline@1"
         }
       ],
       "commandPalette": [
@@ -216,6 +321,22 @@
           "when": "false"
         },
         {
+          "command": "reckon.startInvestigationFromCase",
+          "when": "false"
+        },
+        {
+          "command": "reckon.setUpCapability",
+          "when": "false"
+        },
+        {
+          "command": "reckon.openKnowledgeItem",
+          "when": "false"
+        },
+        {
+          "command": "reckon.askToUseKnowledge",
+          "when": "false"
+        },
+        {
           "command": "reckon.newInvestigation",
           "when": "reckon.signedIn"
         },
@@ -229,6 +350,10 @@
         },
         {
           "command": "reckon.openKnowledge",
+          "when": "reckon.signedIn"
+        },
+        {
+          "command": "reckon.searchKnowledge",
           "when": "reckon.signedIn"
         },
         {
@@ -278,7 +403,19 @@
           "description": "Path to the reckon binary the workbench spawns as the agent-loop sidecar (`reckon investigate --stdio`). Empty resolves `reckon` on PATH."
         }
       }
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "reckon.account",
+        "contents": "Sign in to see your investigations, the case queue and the knowledge library.\n[Sign In](command:reckon.signIn)",
+        "when": "!reckon.signedIn"
+      },
+      {
+        "view": "reckon.account",
+        "contents": "[Sign Out](command:reckon.signOut)",
+        "when": "reckon.signedIn"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./ && tsc -p webview && node esbuild.mjs",

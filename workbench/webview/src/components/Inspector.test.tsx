@@ -17,6 +17,8 @@ function mount(d: HarnessSnapshot = data) {
 }
 const chip = (text: string) => Array.from(document.querySelectorAll(".refchip")).find((c) => c.textContent === text) as HTMLElement;
 const pane = () => document.querySelector(".inspector.active") as HTMLElement;
+/** A knowledge chip in the companion: what a turn consulted opens its procedure or past case. */
+const knowledgeChip = (text: string) => Array.from(document.querySelectorAll("#companion .sopchip")).find((c) => c.textContent === text) as HTMLElement;
 const lens = () => document.querySelector(".lensscroll") as HTMLElement;
 /** Chips on the Reasoning lens live in the pinned-evidence fold and in expanded rows; expand every row first. */
 const expandRows = () => { for (const l of Array.from(document.querySelectorAll(".prow .pline"))) fireEvent.click(l); };
@@ -139,7 +141,7 @@ describe("the inspector", () => {
     expect(within(p).getByText("ISO-1")).toBeTruthy();
   });
 
-  it("renders a notification thread and a turn, a procedure and a past case from the library", () => {
+  it("renders a notification thread and a turn, a procedure and a past case from what a turn consulted", () => {
     const transport = mount();
     fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
     fireEvent.click(within(lens()).getAllByTitle("Open the thread")[0]!);
@@ -156,14 +158,14 @@ describe("the inspector", () => {
     expect(transport.intents.some((i) => i.type === "inspector.open" && i.target.kind === "turn")).toBe(true);
     expect(within(p).getByText(/transcript not recorded in this harness stage/)).toBeTruthy(); // the honest error for a stub
 
-    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Procedure one"));
+    fireEvent.click(knowledgeChip("cited: Procedure one"));
     p = pane();
     expect(within(p).getByText("Procedure")).toBeTruthy();
     expect(within(p).getAllByText(/Confirm the session with the owner first/).length).toBe(2); // the section read back as it was (adr/0097), and what recall showed (#132)
     fireEvent.click(within(p).getByRole("tab", { name: "Whole document" }));
     expect(within(p).getByText("confirm-with-owner")).toBeTruthy();
 
-    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Prior case A"));
+    fireEvent.click(knowledgeChip("recalled case: Prior case A"));
     p = pane();
     expect(within(p).getByText("Similar past case")).toBeTruthy();
     expect(within(p).getByText(/contained by isolating the host/, { selector: "p" })).toBeTruthy();
@@ -173,12 +175,11 @@ describe("the inspector", () => {
   });
 
   it("shows what the agent read of a procedure as it was, and whether it changed since (adr/0097)", () => {
-    const lib = () => document.querySelector("#knowledgeSection") as HTMLElement;
     const clone = (): HarnessSnapshot => JSON.parse(JSON.stringify(data));
 
     // Revised since: the header names both revisions; the three views.
     mount();
-    fireEvent.click(within(lib()).getByText("Procedure one"));
+    fireEvent.click(knowledgeChip("cited: Procedure one"));
     let p = pane();
     expect(within(p).getByText(/revised since this case consulted it: revision 1 then, 2 now/)).toBeTruthy();
     expect(within(p).getByText("Procedure one", { selector: ".isecthead .kicker" })).toBeTruthy(); // the heading path
@@ -198,7 +199,7 @@ describe("the inspector", () => {
     const same = clone();
     same.procedureReads = {}; same.procedureReads["sop-1"] = { currentRevision: 1, turns: [{ interpretationId: "interp-turn-1", revision: 1, cut: "1/16000", sections: [{ idx: 1, location: "Procedure one", text: "# Procedure one\n\nConfirm the session with the owner first." }] }] };
     mount(same);
-    fireEvent.click(within(lib()).getByText("Procedure one"));
+    fireEvent.click(knowledgeChip("cited: Procedure one"));
     p = pane();
     expect(within(p).getByText(/revision 1, exactly as retrieved/)).toBeTruthy();
     expect(within(p).queryByRole("button", { name: "Changes" })).toBeNull();
@@ -209,7 +210,7 @@ describe("the inspector", () => {
     cut.procedureReads = same.procedureReads;
     for (const t of cut.snapshot.turns) t.body = t.body.replace('"excerpt": "# Procedure one', '"truncated": true, "excerpt": "# Procedure one');
     mount(cut);
-    fireEvent.click(within(lib()).getByText("Procedure one"));
+    fireEvent.click(knowledgeChip("cited: Procedure one"));
     p = pane();
     expect(within(p).getByText(/revision 1, as it stood when the agent retrieved it/)).toBeTruthy();
     expect(within(p).getByText(/the recall result carried the first \d+ of \d+ runes/)).toBeTruthy();
@@ -223,7 +224,7 @@ describe("the inspector", () => {
     const goneSection = gone.procedureReads?.["sop-1"]?.turns[0]?.sections[0];
     if (goneSection) goneSection.current = null;
     mount(gone);
-    fireEvent.click(within(lib()).getByText("Procedure one"));
+    fireEvent.click(knowledgeChip("cited: Procedure one"));
     p = pane();
     fireEvent.click(within(p).getByRole("button", { name: "Current" }));
     expect(within(p).getByText(/No section of revision 2 sits under this heading any more/)).toBeTruthy();
@@ -233,7 +234,7 @@ describe("the inspector", () => {
     const failed = clone();
     delete failed.procedureReads;
     mount(failed);
-    fireEvent.click(within(lib()).getByText("Procedure one"));
+    fireEvent.click(knowledgeChip("cited: Procedure one"));
     p = pane();
     expect(within(p).getByText(/could not be read back from the library/)).toBeTruthy();
     expect(within(p).getByText("Recall showed")).toBeTruthy();
@@ -244,7 +245,7 @@ describe("the inspector", () => {
     delete bare.procedureReads;
     for (const e of bare.snapshot.thread || []) for (const s of e.consultedSops) { delete s.revision; delete s.cut; delete s.sections; }
     mount(bare);
-    fireEvent.click(within(lib()).getByText("Procedure one"));
+    fireEvent.click(knowledgeChip("cited: Procedure one"));
     p = pane();
     expect(within(p).queryByText(/could not be read back/)).toBeNull();
     expect(within(p).getByText("Recall showed")).toBeTruthy();
@@ -252,12 +253,7 @@ describe("the inspector", () => {
 
   it("shows where a procedure and a past case were consulted elsewhere, in the two words, and the procedures learned from a case (adr/0109)", () => {
     const transport = mount();
-    const lib = () => document.querySelector("#knowledgeSection") as HTMLElement;
-    // The library rows carry the count.
-    expect(within(lib()).getByText(/cited in 1 investigation$/)).toBeTruthy();
-    expect(within(lib()).getByText(/cited in 0 investigations/)).toBeTruthy();
-
-    fireEvent.click(within(lib()).getByText("Procedure one"));
+    fireEvent.click(knowledgeChip("cited: Procedure one"));
     let p = pane();
     fireEvent.click(within(p).getByRole("tab", { name: "Cited elsewhere · 1 of 2" }));
     expect(within(p).getByText(/^cited:/)).toBeTruthy();
@@ -267,7 +263,7 @@ describe("the inspector", () => {
     fireEvent.click(within(p).getByText("Service account sweep"));
     expect(transport.intents.find((i) => i.type === "investigation.open")).toMatchObject({ id: "11111111-2222-4333-8444-555555555555", title: "Service account sweep" });
 
-    fireEvent.click(within(lib()).getByText("Prior case A"));
+    fireEvent.click(knowledgeChip("recalled case: Prior case A"));
     p = pane();
     expect(within(p).getByText("Procedures learned from this case")).toBeTruthy();
     fireEvent.click(within(p).getByText("Procedure one", { selector: ".irow a" }));
@@ -281,17 +277,18 @@ describe("the inspector", () => {
   it("opens a procedure without the tab's rows when the citations read failed, and says loading while the answer is in flight", () => {
     const data = JSON.parse(JSON.stringify(synthetic)) as HarnessSnapshot;
     delete data.citations;
+    // A second procedure the turn cited, which the harness has no record of.
+    data.snapshot.thread![0]!.consultedSops.push({ sopId: "sop-pending", title: "Pending procedure", cited: true });
     const transport = new HarnessTransport(data);
     render(<AppProvider transport={transport}><App /></AppProvider>);
-    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Procedure one"));
+    fireEvent.click(knowledgeChip("cited: Procedure one"));
     const p = pane();
     fireEvent.click(within(p).getByRole("tab", { name: "Cited elsewhere" }));
     expect(within(p).getByText(/could not be read/)).toBeTruthy();
     expect(within(p).queryByText(/Not consulted in any other/)).toBeNull(); // a failed read is not "none"
 
     // A procedure the harness has not answered yet: the tab is loading, not failed.
-    act(() => transport.emit({ type: "library", sops: [{ kind: "sop", ref: "sop-pending", title: "Pending procedure" }], cases: [] }));
-    fireEvent.click(within(document.querySelector("#knowledgeSection") as HTMLElement).getByText("Pending procedure"));
+    fireEvent.click(knowledgeChip("cited: Pending procedure"));
     const q = pane();
     fireEvent.click(within(q).getByRole("tab", { name: "Cited elsewhere" }));
     expect(within(q).queryByText(/could not be read/)).toBeNull();

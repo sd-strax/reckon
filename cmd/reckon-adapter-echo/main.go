@@ -31,6 +31,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 func main() {
@@ -144,17 +146,28 @@ func (a *adapter) invoke(params json.RawMessage) (any, *wireError) {
 	case "crash":
 		os.Exit(1)
 	}
-	// Echo the params into one synthetic OCSF authentication (3002) event.
+	// Echo the params into one synthetic OCSF Authentication (3002) event.
+	// The event is OCSF (adr/0356): it says its class and version, and the
+	// echoed operation and params, which OCSF has no field for, ride under
+	// unmapped, where OCSF puts a source's own fields. Its time is OCSF's
+	// epoch milliseconds, with time_dt as the same instant in RFC 3339.
+	epoch := time.Unix(0, 0).UTC()
+	raw := ocsf.Event(3002, ocsfVersion, ocsf.Product("reckon", "echo"), epoch)
+	raw["unmapped"] = map[string]any{"operation": p.Operation, "echo": p.Params}
 	return map[string]any{
 		"source_tool": "echo:" + p.Operation,
 		"events": []map[string]any{{
 			"class_uid":  3002,
 			"class_name": "Authentication",
-			"time":       time.Unix(0, 0).UTC(),
-			"raw":        map[string]any{"operation": p.Operation, "echo": p.Params},
+			"time":       epoch,
+			"raw":        raw,
 		}},
 	}, nil
 }
+
+// ocsfVersion is the OCSF release the echoed event is written in: the oldest
+// one the engine reads.
+const ocsfVersion = "1.1.0"
 
 func (a *adapter) dispatch(params json.RawMessage) (any, *wireError) {
 	var p struct {

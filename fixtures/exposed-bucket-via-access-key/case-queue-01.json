@@ -13,22 +13,33 @@
     "class_uid": 2005,
     "class_name": "Incident Finding",
     "category_uid": 2,
-    "time": "2026-07-14T09:43:00Z",
+    "activity_id": 0,
+    "type_uid": 200500,
+    "severity_id": 0,
+    "time": 1784022180000,
+    "time_dt": "2026-07-14T09:43:00Z",
     "metadata": {
       "product": {
         "vendor_name": "ServiceNow"
-      }
+      },
+      "version": "1.2.0"
     },
     "status": "New",
+    "status_id": 1,
     "priority": "2 - High",
-    "assignment_group": "SOC Tier 2",
-    "finding_info": {
-      "uid": "INC0013020",
-      "title": "Posture alert det-eb-001: acme-internal-exports in acme-prod made publicly readable",
-      "desc": "The cloud posture product reported that the bucket policy on acme-internal-exports (account 111122223333) now grants read access to any principal. The change was made with the deploy-ci access key. No change request is linked. Assigned to SOC Tier 2 for triage."
+    "priority_id": 99,
+    "assignee_group": {
+      "name": "SOC Tier 2"
     },
+    "finding_info_list": [
+      {
+        "uid": "INC0013020",
+        "title": "Posture alert det-eb-001: acme-internal-exports in acme-prod made publicly readable",
+        "desc": "The cloud posture product reported that the bucket policy on acme-internal-exports (account 111122223333) now grants read access to any principal. The change was made with the deploy-ci access key. No change request is linked. Assigned to SOC Tier 2 for triage."
+      }
+    ],
+    "src_url": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0013020",
     "unmapped": {
-      "link": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0013020",
       "sor": "servicenow"
     }
   }

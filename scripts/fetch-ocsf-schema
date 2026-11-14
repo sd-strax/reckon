@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Download one OCSF release into third_party/ocsf-schema/<version>/schema.json.
+#
+# The file is the full schema as OCSF's schema server exports it, with the
+# Windows, Linux and macOS extensions and every profile the release has except
+# linux/linux_users and macos/macos_users. Those two profiles both define
+# process.euid, which makes the export fail from 1.8.0 on. They are left out
+# of every release so the files are consistent. The response is saved byte for
+# byte. See third_party/ocsf-schema/README.md and adr/0356.
+#
+#   scripts/fetch-ocsf-schema 1.9.0
+#
+# Needs curl and jq. Run it by hand when a release is added.
+
+set -euo pipefail
+
+if [ $# -ne 1 ] || ! [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "usage: scripts/fetch-ocsf-schema <version>   (for example 1.9.0)" >&2
+    exit 2
+fi
+version=$1
+
+server=https://schema.ocsf.io
+extensions=win,linux,macos
+out_dir="$(cd "$(dirname "$0")/.." && pwd)/third_party/ocsf-schema/$version"
+
+for tool in curl jq; do
+    command -v "$tool" >/dev/null || { echo "fetch-ocsf-schema: $tool is not installed" >&2; exit 1; }
+done
+
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+
+profiles=$(curl -fsS --max-time 120 "$server/api/$version/profiles" |
+    jq -r '[keys[] | select(. != "linux/linux_users" and . != "macos/macos_users")] | sort | join(",")')
+if [ -z "$profiles" ]; then
+    echo "fetch-ocsf-schema: $server lists no profiles for $version" >&2
+    exit 1
+fi
+
+url="$server/$version/export/schema?extensions=$extensions&profiles=$profiles"
+echo "fetching $url"
+curl -fsS --max-time 300 -o "$tmp" "$url"
+
+got=$(jq -r '.version' "$tmp")
+if [ "$got" != "$version" ]; then
+    echo "fetch-ocsf-schema: asked for $version, the export says \"$got\"" >&2
+    exit 1
+fi
+
+mkdir -p "$out_dir"
+mv "$tmp" "$out_dir/schema.json"
+chmod 644 "$out_dir/schema.json"
+echo "wrote $out_dir/schema.json ($(wc -c <"$out_dir/schema.json" | tr -d ' ') bytes)"

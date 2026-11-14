@@ -1,11 +1,15 @@
 // The Investigations view (ui/06): a triage queue, not a file listing. Rows
 // are the backend's investigations grouped by status and ordered
 // needs-me-first; the unseen cue compares each row against what this person
-// last had open (SeenTracker). Read-only: a click opens the document.
+// last had open (SeenTracker). Read-only: a click opens the document. With
+// Cases and Capabilities beside it, this is the work queue (adr/0342): an open
+// row carries its stage step, the cue the document's column used to carry.
 import * as vscode from "vscode";
 import { BackendClient, InvestigationSummary } from "./backend";
 import { Session } from "./auth";
 import { SeenTracker } from "./seenTracker";
+import { STEP_LABELS, rowStep } from "./stage";
+import { actionItem, gateItem } from "./treeItems";
 import { errText } from "./util";
 
 /** Display order + collapsed defaults for the status groups (ui/06). */
@@ -59,26 +63,16 @@ export class InvestigationsProvider implements vscode.TreeDataProvider<vscode.Tr
       return group ? this.groupRows(group) : [];
     }
 
-    const status = await this.client.status();
-    const reason = this.client.incompatibilityReason(status);
-    if (reason) {
-      return [this.actionItem(
-        status.reachable ? "Backend incompatible" : "Backend not connected",
-        reason,
-        status.reachable ? "warning" : "debug-disconnect",
-        "reckon.checkBackend",
-      )];
-    }
-
-    if (!this.session.signedIn) {
-      return [this.actionItem("Sign in to reckon", "opens Keycloak in your browser", "sign-in", "reckon.signIn")];
+    const gate = await gateItem(this.client, this.session);
+    if (gate) {
+      return gate;
     }
 
     try {
       this.rows = await this.client.investigations.list();
     } catch (err) {
       // A 401 here means the token went stale under us — surface it, don't hang.
-      return [this.actionItem("Could not load investigations", errText(err), "warning", "reckon.refreshInvestigations")];
+      return [actionItem("Could not load investigations", errText(err), "warning", "reckon.refreshInvestigations")];
     }
     if (this.rows.length === 0) {
       const empty = new vscode.TreeItem("No investigations yet");
@@ -145,6 +139,11 @@ export class InvestigationsProvider implements vscode.TreeDataProvider<vscode.Tr
     item.invTitle = r.title;
     item.contextValue = "reckon.investigation";
     const cues: string[] = [];
+    // The stage step leads, named as the document's progress strip names it.
+    const step = rowStep(r);
+    if (step) {
+      cues.push(STEP_LABELS[step]);
+    }
     if (r.nearestExpiry) {
       const left = Date.parse(r.nearestExpiry) - Date.now();
       cues.push(left <= 0 ? "⏳ expired" : `⏳ ${fmtShort(left)}`);
@@ -172,15 +171,6 @@ export class InvestigationsProvider implements vscode.TreeDataProvider<vscode.Tr
     };
     return item;
   }
-
-  private actionItem(label: string, description: string, icon: string, command: string): vscode.TreeItem {
-    const item = new vscode.TreeItem(label);
-    item.description = description;
-    item.tooltip = description;
-    item.iconPath = new vscode.ThemeIcon(icon);
-    item.command = { command, title: label };
-    return item;
-  }
 }
 
 /** One investigation row; carries its id/title so the context menu (rename)
@@ -198,6 +188,8 @@ export class GroupItem extends vscode.TreeItem {
     state: vscode.TreeItemCollapsibleState,
   ) {
     super(label, state);
+    // Stable across reads, so the group's collapse state survives a count change.
+    this.id = `investigations.${groupStatus}`;
     this.contextValue = "reckon.group";
   }
 }

@@ -1,28 +1,31 @@
-// The Knowledge view (adr/0107, ui/09 §9.1): the organization's procedures
-// and past cases outside any investigation. Sections, each with its count:
-// Procedures, Past cases (filtered by technique, disposition and conclusion
-// day, ui/09 §9.4) and Import. A query bar above searches both corpora; a
-// search replaces the content with its results under a header naming the
-// query, with a way back. An item opens in the inspector beside the list,
-// the same procedure and past-case panes an investigation shows, without
-// their "In this case" parts.
+// The Knowledge tab (adr/0107, adr/0346, ui/09 §9.1): the organization's
+// procedures and past cases outside any investigation, one page at a time.
+// The page is either the item, a procedure or a past case filling the tab
+// with the same pane an investigation shows (outline and sections, where it
+// was cited, revisions), without its "In this case" parts, links inside it
+// moving within the tab with a way back; or the search page: the query bar,
+// a search's results as two lists with relevance in words, and with no
+// search showing, the past cases under their filters (technique,
+// disposition, conclusion day, ui/09 §9.4). A result opens as the page.
 //
 // It mounts the investigation document's store with no investigation
 // loaded, so those panes render unchanged; it shows no investigation state
 // and nothing in it acts on one. A past case names the investigation it came
 // from as a link.
-import { useEffect, useMemo, useState } from "react";
+//
+// The sidebar's Knowledge view (adr/0344) is its only navigation: it opens
+// the tab on one item, or on the search page with the query bar focused:
+// cues the host posts, which this page acts on and the store never sees.
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { AppProvider, useApp } from "../app";
-import { Items } from "../components/Library";
 import { QueryBar } from "../components/QueryBar";
-import { InspectorDock } from "../components/inspectors/Inspector";
-import type { InboundMessage, KnowledgeInboundMessage, KnowledgeRenderMessage, RenderMessage } from "../../../src/protocol";
+import { InspectorPage } from "../components/inspectors/Inspector";
+import type { InboundMessage, KnowledgeCue, KnowledgeInboundMessage, KnowledgeRenderMessage, KnowledgeTarget, LibraryItem, RenderMessage } from "../../../src/protocol";
+import { citedInWords } from "../../../src/knowledgeWords";
 import type { PastCaseFilter, PastCaseRow } from "../../../src/viewTypes";
 import type { WebviewTransport } from "../transport";
 
 export type KnowledgeTransport = WebviewTransport<KnowledgeInboundMessage, KnowledgeRenderMessage>;
-
-type Section = "procedures" | "cases" | "import";
 
 /**
  * The store's transport is the investigation document's pair; this surface
@@ -32,12 +35,16 @@ type Section = "procedures" | "cases" | "import";
  * document's text); they are dropped rather than sent to a host that has no
  * investigation to answer them from.
  */
-const KNOWLEDGE_INTENTS = new Set<InboundMessage["type"]>(["ready", "refresh", "library.get", "library.search", "library.import", "pastCases.get", "inspector.open", "investigation.open", "copy"]);
+const KNOWLEDGE_INTENTS = new Set<InboundMessage["type"]>(["ready", "refresh", "library.search", "pastCases.get", "knowledge.showing", "inspector.open", "investigation.open", "copy"]);
+
+function isCue(m: KnowledgeRenderMessage): m is KnowledgeCue {
+  return m.type === "knowledge.show" || m.type === "knowledge.search";
+}
 
 function storeTransport(t: KnowledgeTransport): WebviewTransport {
   return {
     send: (m: InboundMessage) => { if (KNOWLEDGE_INTENTS.has(m.type)) t.send(m as KnowledgeInboundMessage); },
-    onMessage: (h: (m: RenderMessage) => void) => t.onMessage(h),
+    onMessage: (h: (m: RenderMessage) => void) => t.onMessage((m) => { if (!isCue(m)) h(m); }),
     getState: <T,>() => t.getState<T>(),
     setState: (s: unknown) => t.setState(s),
   };
@@ -47,69 +54,86 @@ export function KnowledgeApp({ transport }: { transport: KnowledgeTransport }) {
   const store = useMemo(() => storeTransport(transport), [transport]);
   return (
     <AppProvider transport={store}>
-      <KnowledgeView />
+      <KnowledgeView transport={transport} />
     </AppProvider>
   );
 }
 
-const SECTION_LABELS: Record<Section, string> = { procedures: "Procedures", cases: "Past cases", import: "Import" };
+/** One group of search results: a title opens the item as the page. */
+function Items({ title, items, empty, onOpen }: { title: string; items: LibraryItem[]; empty: string; onOpen: (t: KnowledgeTarget) => void }) {
+  return (
+    <div className="libgroup">
+      <div className="libhead">{title}<span className="count">{items.length}</span></div>
+      {items.length ? items.map((k) => (
+        <div key={k.kind + k.ref} className={"libitem " + k.kind}>
+          <a className="libtitle" onClick={() => onOpen(k.kind === "sop" ? { kind: "sop", sopId: k.ref } : { kind: "case", investigationRef: k.ref })}>{k.title}</a>
+          {k.relevance ? <span className={"librel " + k.relevance.replace(/ /g, "-")}>{k.relevance}</span> : null}
+          {k.detail || k.citedIn !== undefined ? (
+            <div className="imeta">
+              {[k.detail, k.citedIn !== undefined ? citedInWords(k.citedIn) : ""].filter(Boolean).join(" · ")}
+            </div>
+          ) : null}
+        </div>
+      )) : <div className="empty">{empty}</div>}
+    </div>
+  );
+}
 
-function KnowledgeView() {
-  const { state, send, dispatch, openInspector } = useApp();
-  const [section, setSection] = useState<Section>("procedures");
-  const lib = state.library;
-  const r = lib.results;
-  const counts: Record<Section, number | undefined> = { procedures: lib.loaded && !lib.sopsError ? lib.sops.length : undefined, cases: lib.loaded ? lib.casesTotal : undefined, import: undefined };
+function KnowledgeView({ transport }: { transport: KnowledgeTransport }) {
+  const { state, send, dispatch, inspector, openInspector, closeInspector } = useApp();
+  // Bumped by the sidebar's Search: the query bar takes the focus.
+  const [focusSearch, setFocusSearch] = useState(0);
+  // Held here, not in the listing, so an item opened and put away leaves the
+  // filters as they were.
+  const [filter, setFilter] = useState<PastCaseFilter>(EMPTY_FILTER);
+  // The item was opened from the search page, so the page leads back to it;
+  // an item from the sidebar starts afresh, with no way back.
+  const [fromSearch, setFromSearch] = useState(false);
+  const openFromSearch = (t: KnowledgeTarget) => { setFromSearch(true); openInspector(t); };
+  // The host reads only what the shown page uses: it hears which one it is.
+  const top = inspector.active?.stack[inspector.active.stack.length - 1];
+  useEffect(() => {
+    if (!top) send({ type: "knowledge.showing" });
+    else if (top.kind === "sop" || top.kind === "case") send({ type: "knowledge.showing", target: top });
+  }, [top, send]);
+  // Subscribed before the store says ready, so a cue the host holds for the
+  // ready is heard. An item from the sidebar starts a page of its own, not a
+  // link from the one before it; Search puts the item away.
+  useEffect(() => transport.onMessage((m) => {
+    if (m.type === "knowledge.show") {
+      setFromSearch(false);
+      closeInspector("active");
+      openInspector(m.target);
+    } else if (m.type === "knowledge.search") {
+      closeInspector("active");
+      setFocusSearch((n) => n + 1);
+    }
+  }), [transport, openInspector, closeInspector]);
+  const r = state.library.results;
   return (
     <div className="kview">
-      <nav className="knav" aria-label="Knowledge sections">
-        <div className="kicker">Knowledge</div>
-        {(Object.keys(SECTION_LABELS) as Section[]).map((s) => (
-          <button key={s} className={"knavrow" + (section === s && !r ? " on" : "")} aria-current={section === s && !r ? "page" : undefined}
-            onClick={() => { setSection(s); dispatch({ type: "library.clear" }); }}>
-            {SECTION_LABELS[s]}{counts[s] !== undefined ? <span className="count">{counts[s]}</span> : null}
-          </button>
-        ))}
-      </nav>
-      <main className="kmain">
-        {state.error ? (
-          <div className="kerror" role="alert">
-            {state.error} <button onClick={() => { dispatch({ type: "error.clear" }); send({ type: "refresh" }); }}>Retry</button>
-          </div>
-        ) : null}
-        <QueryBar showing={!!r} onSearch={(text) => { dispatch({ type: "library.searching", query: text }); send({ type: "library.search", text }); }} onClear={() => dispatch({ type: "library.clear" })} />
-        {r ? (
-          <div className="kresults">
-            <div className="kresultshead">
-              <span>Results for “{r.query}”</span>
-              <button className="linklike" onClick={() => dispatch({ type: "library.clear" })}>‹ back to {SECTION_LABELS[section]}</button>
+      {state.error ? (
+        <div className="kerror" role="alert">
+          {state.error} <button onClick={() => { dispatch({ type: "error.clear" }); send({ type: "refresh" }); }}>Retry</button>
+        </div>
+      ) : null}
+      {inspector.active ? (
+        <>
+          {fromSearch ? <button className="linklike" onClick={() => closeInspector("active")}>‹ Back to {r ? "results" : "past cases"}</button> : null}
+          <InspectorPage />
+        </>
+      ) : (
+        <main aria-label="Search knowledge">
+          <QueryBar focus={focusSearch} showing={!!r} query={r?.query} onSearch={(text) => { dispatch({ type: "library.searching", query: text }); send({ type: "library.search", text }); }} onClear={() => dispatch({ type: "library.clear" })} />
+          {r ? (
+            <div className="kresults">
+              <div className="kicker">Results for “{r.query}”</div>
+              <Items title="Procedures" items={r.sops} empty="no procedure matches" onOpen={openFromSearch} />
+              <Items title="Past cases" items={r.cases} empty="no past case matches" onOpen={openFromSearch} />
             </div>
-            <Items title="Procedures" items={r.sops} empty="no procedure matches" ask={false} />
-            <Items title="Past cases" items={r.cases} empty="no past case matches" ask={false} />
-          </div>
-        ) : section === "procedures" ? (
-          <>
-            {lib.sopsError ? (
-              <div className="kerror" role="alert">
-                The procedures could not be read: {lib.sopsError} <button onClick={() => send({ type: "library.get" })}>Retry</button>
-              </div>
-            ) : null}
-            {!lib.sopsError || lib.sops.length
-              ? <Items title="Procedures" items={lib.sops} empty={lib.loaded ? "no procedures yet — import some" : "loading…"} ask={false} />
-              : null}
-          </>
-        ) : section === "cases" ? (
-          <PastCases onOpen={(ref) => openInspector({ kind: "case", investigationRef: ref })} />
-        ) : (
-          <div className="kimport">
-            <p>Procedures are imported as markdown with YAML frontmatter. A document whose source URL is already in the library is a new revision of it, not a second copy.</p>
-            <button className="primary" onClick={() => send({ type: "library.import" })}>Import procedures…</button>
-          </div>
-        )}
-      </main>
-      <aside className="kdetail" aria-label="Detail">
-        <InspectorDock />
-      </aside>
+          ) : <PastCases filter={filter} setFilter={setFilter} onOpen={(ref) => openFromSearch({ kind: "case", investigationRef: ref })} />}
+        </main>
+      )}
     </div>
   );
 }
@@ -126,15 +150,21 @@ function filtered(f: PastCaseFilter): boolean {
 }
 
 /** Past cases (ui/09 §9.4): the filters, "n of m match", and one row per concluded case. */
-function PastCases({ onOpen }: { onOpen: (ref: string) => void }) {
+function PastCases({ filter, setFilter, onOpen }: { filter: PastCaseFilter; setFilter: Dispatch<SetStateAction<PastCaseFilter>>; onOpen: (ref: string) => void }) {
   const { state, send } = useApp();
-  const [filter, setFilter] = useState<PastCaseFilter>(EMPTY_FILTER);
   // Every filter change is the API's to answer: the listing is filtered
-  // server-side, never sieved here.
-  useEffect(() => { send({ type: "pastCases.get", filter }); }, [filter, send]);
+  // server-side, never sieved here. Coming back to the page with the listing
+  // for this filter already held asks nothing (the host re-reads it when the
+  // library changed); a failed one is asked again.
+  const held = useRef(state.pastCases);
+  useEffect(() => { held.current = state.pastCases; }, [state.pastCases]);
+  useEffect(() => {
+    const have = held.current;
+    if (have && !have.error && sameFilter(have.filter, filter)) return;
+    send({ type: "pastCases.get", filter });
+  }, [filter, send]);
   const facets = state.caseFacets;
-  // An answer for another filter (the section was left and come back to, or
-  // a newer ask is in flight) is not this list.
+  // An answer for another filter (a newer ask is in flight) is not this list.
   const list = state.pastCases && sameFilter(state.pastCases.filter, filter) ? state.pastCases : null;
   const corpus = state.library.casesTotal;
   const toggle = (t: string) => setFilter((f) => ({ ...f, techniques: f.techniques.includes(t) ? f.techniques.filter((x) => x !== t) : [...f.techniques, t] }));

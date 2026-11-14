@@ -7,7 +7,8 @@ import { useApp } from "../../app";
 import { badgeTone, blockersOf, counted, hypName, hypWords, isLive, orderHypotheses, outstanding, predWords, tested } from "../../derive/hyps";
 import { buildMatrix } from "../../derive/matrix";
 import { HypothesisCard } from "../Hypotheses";
-import { Badge, Empty, RefChip, fmtDateTime } from "../shared";
+import { AliasOf, Badge, Empty, EventSentence, RefChip, fmtDateTime } from "../shared";
+import { besideOf, partChips, pinAliases, pinnedEvents } from "../../derive/pinCard";
 import { pinTargets, typeOptions } from "../../derive/pinAction";
 import type { PinRow } from "../../../../src/viewTypes";
 
@@ -59,6 +60,36 @@ function MatrixView() {
       </tbody>
       <tfoot><tr><td>Inconsistent</td>{m.inconsistent.map((n, i) => <td key={i} className="cell">{n}</td>)}</tr></tfoot>
     </table>
+  );
+}
+
+/**
+ * A pinned card's body (adr/0352): one line per event the pin cites that the
+ * workbench holds, its time and class before the sentence, and every pinned
+ * ref behind "What this is made of"; with no such event, the refs as chips.
+ * An account the record joins by an alias shows once, the others beside it.
+ */
+function PinBody({ pin }: { pin: PinRow }) {
+  const { state } = useApp();
+  const refs = pin.inputRefs || [];
+  const sets = pinAliases(refs, state.snap?.derived?.accountAliases);
+  const events = pinnedEvents(refs, state.snap?.events);
+  const chips = <div className="pinparts">{partChips(refs, sets).map(({ ref, also }) => <span key={ref} className="pinpart"><RefChip refId={ref} pinned={!pin.superseded} />{also.map((o) => <AliasOf key={o} refId={o} />)}</span>)}</div>;
+  if (!events.length) return chips;
+  const beside = besideOf(sets);
+  return (
+    <>
+      {events.map((e) => (
+        <div key={e.id} className="pinevent">
+          <span className="ttime mono">{fmtDateTime(e.time)}</span> <span className="pinclass">{e.className}</span>{" "}
+          <EventSentence sentence={e.view.sentence} label={e.className} beside={beside} />
+        </div>
+      ))}
+      <details className="pinmade">
+        <summary>What this is made of · {new Set(refs).size}</summary>
+        {chips}
+      </details>
+    </>
   );
 }
 
@@ -121,7 +152,7 @@ function PinnedEvidence() {
             })}>un-pin</button> : null}
             <div className="finding">{p.finding}</div>
             <div className="cardmeta">{(p.actor === "AI_DELEGATED" ? "AI" : p.actor === "SYSTEM" ? "system" : "analyst") + (p.pinnedAt ? " · " + fmtDateTime(p.pinnedAt) : "")}</div>
-            <div>{(p.inputRefs || []).map((r) => <RefChip key={r} refId={r} pinned={!p.superseded} />)}</div>
+            <PinBody pin={p} />
             {!p.superseded && !closed && state.actionTypes.length ? <a className="pinact" onClick={() => requestFromPin(p)}>Request action on this…</a> : null}
           </div>
         ))}

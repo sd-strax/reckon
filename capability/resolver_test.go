@@ -34,7 +34,7 @@ func stubAuthResponse() AdapterResponse {
 		Time:      time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC),
 		Raw: map[string]any{
 			"class_uid":    3002,
-			"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO"}},
+			"user":         map[string]any{"name": "jdoe", "domain": "CONTOSO"},
 			"dst_endpoint": map[string]any{"hostname": "H1", "domain": "CONTOSO"},
 		},
 	}}}
@@ -303,7 +303,7 @@ func TestQueryLogsBestEffortNormalization(t *testing.T) {
 			ClassUID: 3002, ClassName: "Authentication", Time: time.Date(2026, 4, 20, 14, 0, 0, 0, time.UTC),
 			Raw: map[string]any{
 				"class_uid":    3002,
-				"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO"}},
+				"user":         map[string]any{"name": "jdoe", "domain": "CONTOSO"},
 				"dst_endpoint": map[string]any{"hostname": "H1", "domain": "CONTOSO"},
 			},
 		},

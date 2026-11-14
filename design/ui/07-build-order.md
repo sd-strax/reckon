@@ -122,7 +122,8 @@ activity disclosure; proposed actions as cards in the conversation.
 more than one place, and no sequence number or principal id is in the reading path.
 
 **L3 — Layout.** Header with stage indicator and primary action; lens tabs with the
-lifecycle default; the companion column; the two-section work queue.
+lifecycle default; the companion column; the two-section work queue (since moved out of
+the document into the sidebar, `adr/0342`).
 *Done when:* the default lens changes with the derived lifecycle, and a case with an
 investigation appears once, as its investigation.
 
@@ -136,7 +137,8 @@ owner action items, notification draft (needs `00 §6.16`–`§6.18`).
 left from the Summary lens alone.
 
 **L6 — Knowledge** (`ui/09`). The Knowledge section in the companion column first (it
-replaces the rail, so it lands with L3), then the Knowledge view: procedures, import, search;
+replaces the rail, so it lands with L3; since removed, the library being the sidebar's
+Knowledge view, `adr/0344`), then the Knowledge view: procedures, import, search;
 past cases, Ask and Candidates follow their gaps (`00 §6.21`–`§6.24`).
 *Done when:* under the `opt_in` posture an analyst can see, search and include knowledge
 from inside an investigation without leaving it, and can import, find, read, revise and

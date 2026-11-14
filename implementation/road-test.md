@@ -28,17 +28,24 @@ change needs only **Developer: Reload Window**.
 
 ## The layout
 
-One investigation panel, four regions:
+One investigation panel, three regions, beside the sidebar's work queue:
 
 - **Header** — the title (double-click to rename), the **Progress** strip
   (Investigate · Verdict · Contain · Notify · Close) with the next step's
   action beside it, **Verdict…**, and the lifecycle buttons (**Discard
   draft…** on a draft, **Pause** / **Resume**, **Conclude…**, **Reopen…**,
   **Archive…**).
-- **Left region** — **Investigations** (yours, in progress, with **＋** to start
-  one; concluded ones under a **Concluded** fold), **Cases** (the case
-  system's queue, with **Start investigation** — a case already investigated
-  opens its investigation), and the **Capabilities** fold.
+- **Sidebar** (not part of the panel, `adr/0342`) — **Investigations** (yours,
+  grouped by lifecycle with concluded ones in their own group, each open row
+  showing its stage step; **＋** and refresh on the title bar),
+  **Cases** (the case system's queue, with **Start investigation** on a case
+  with no investigation — a case already investigated leads to its case page
+  and **Open investigation**), **Knowledge** (procedures and past cases, with
+  **Search**, **Import SOPs…** and **Open the Knowledge view** on the title bar,
+  and **Ask reckon to use this** on a row, staging into the investigation last
+  active; a row opens the item as the Knowledge tab's page), and
+  **Capabilities**, collapsed (per-verb health, with **Set up…** where a
+  disabled adapter could serve a verb).
 - **Lenses** — four views over the same record:
   - **Summary** — verdict, containment, notification, what happened, key
     entities, still to do, procedures followed; **Copy handoff note**,
@@ -51,7 +58,8 @@ One investigation panel, four regions:
     then the actions grouped by category, and the conversations with others.
 - **Companion** (right, resizable from its left edge) — **Conversation** (the
   agent chat and composer) or **Thread** (the whole record in order, every act
-  as a line), plus the **Library** of procedures and past cases.
+  as a line). It carries no knowledge library: that is the sidebar's
+  **Knowledge** view (`adr/0344`).
 
 Clicking any chip, card title or act line opens an **inspector** pane over the
 lens (evidence, procedure, turn, action, comms thread, past case); **‹ back**
@@ -89,8 +97,8 @@ Ask **"have we investigated WIN-FILE01 before?"** at any point: the agent's
 `prior_investigations` lookup finds concluded cases by the entities they
 involved. Ask **"have we seen this pattern before?"** *after* telemetry:
 similarity compares behaviour. Knowledge reaches the agent only through these
-recalls — the Library is to browse; **Ask reckon to use this** on an item
-stages the request.
+recalls. The sidebar's **Knowledge** view is for browsing, and **Ask reckon
+to use this** on an item stages the request.
 
 > **On activation (no button).** A fresh investigation starts as a **Draft**.
 > Reasoning, hypotheses, pins and the verdict are all allowed in draft. It
@@ -222,8 +230,8 @@ panel, editable, with **Add to SOP library** / **Discard** on the panel.
 it would be.
 
 **Reopen…** a concluded investigation with a reason → ACTIVE again; the earlier
-conclusion stays in the Thread. Concluded investigations stay findable under
-**Concluded** in the left region.
+conclusion stays in the Thread. Concluded investigations stay findable in the
+sidebar's **Investigations** view, under their own group.
 
 ---
 
@@ -240,10 +248,12 @@ conclusion stays in the Thread. Concluded investigations stay findable under
   two-layer structure, every citing record's evidence, ungrounded reasoning
   flagged.
 - **Response:** decisions first, then every action by category, newest first.
-- **Library** (companion): procedures and past cases as separate lists;
-  **Search** (relevance in words) with **Clear**; **Import procedures…**; a
-  procedure's inspector shows only what the agent actually read here.
-- **Capabilities** (left): an unavailable integration → **Enable…** → a form
+- **Knowledge** (sidebar): procedures and past cases as separate groups;
+  **Search** opens the Knowledge tab's search page (relevance in words, the
+  past-case filters) with
+  **Clear**; **Import SOPs…**; a procedure's inspector shows only what the
+  agent actually read here.
+- **Capabilities** (sidebar, collapsed): an unavailable integration → **Enable…** → a form
   from the integration's schema → apply; the capability surface updates
   without a restart.
 - **Pause / Resume** (header): the composer is parked while paused.

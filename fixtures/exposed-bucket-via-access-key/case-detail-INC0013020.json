@@ -13,22 +13,33 @@
     "class_uid": 2005,
     "class_name": "Incident Finding",
     "category_uid": 2,
-    "time": "2026-07-14T09:43:00Z",
+    "activity_id": 0,
+    "type_uid": 200500,
+    "severity_id": 0,
+    "time": 1784022180000,
+    "time_dt": "2026-07-14T09:43:00Z",
     "metadata": {
       "product": {
         "vendor_name": "ServiceNow"
-      }
+      },
+      "version": "1.2.0"
     },
     "status": "New",
+    "status_id": 1,
     "priority": "2 - High",
-    "assignment_group": "SOC Tier 2",
-    "finding_info": {
-      "uid": "INC0013020",
-      "title": "Posture alert det-eb-001: acme-internal-exports in acme-prod made publicly readable",
-      "desc": "Opened by: cloud posture automation.\n\nSummary: posture alert det-eb-001 reported at 09:40 UTC that the bucket policy on acme-internal-exports (account 111122223333, us-east-1) grants s3:GetObject to any principal. The policy change was a PutBucketPolicy call at 09:28 UTC made with the deploy-ci access key (AKIAIOSFODNN7EXAMPLE) from 203.0.113.77. No change request is linked to the change.\n\nRequested of Tier 2: establish whether the change was a planned pipeline change; if not, contain the principal and the source address, restore the bucket's access controls and hand off to IR.\n\nWork notes:\n2026-07-14 09:43 UTC automation \u2014 Incident created, assigned to SOC Tier 2."
+    "priority_id": 99,
+    "assignee_group": {
+      "name": "SOC Tier 2"
     },
+    "finding_info_list": [
+      {
+        "uid": "INC0013020",
+        "title": "Posture alert det-eb-001: acme-internal-exports in acme-prod made publicly readable",
+        "desc": "Opened by: cloud posture automation.\n\nSummary: posture alert det-eb-001 reported at 09:40 UTC that the bucket policy on acme-internal-exports (account 111122223333, us-east-1) grants s3:GetObject to any principal. The policy change was a PutBucketPolicy call at 09:28 UTC made with the deploy-ci access key (AKIAIOSFODNN7EXAMPLE) from 203.0.113.77. No change request is linked to the change.\n\nRequested of Tier 2: establish whether the change was a planned pipeline change; if not, contain the principal and the source address, restore the bucket's access controls and hand off to IR.\n\nWork notes:\n2026-07-14 09:43 UTC automation — Incident created, assigned to SOC Tier 2."
+      }
+    ],
+    "src_url": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0013020",
     "unmapped": {
-      "link": "https://northwind.service-now.com/nav_to.do?uri=incident.do?sysparm_query=number=INC0013020",
       "sor": "servicenow"
     }
   }

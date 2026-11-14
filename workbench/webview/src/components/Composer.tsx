@@ -1,10 +1,11 @@
 // The composer: Enter sends, Shift+Enter newline. Parked honestly on closed
 // records (the engine would refuse the commit anyway). Staged text (the pivot
-// pattern, "Ask reckon to use this" from the library) lands here for review —
+// pattern, "Ask reckon to use this" from the sidebar's Knowledge view) lands here for review —
 // never auto-fired. While a turn runs, Send is Stop: the turn ends at its next
 // step, so a tool already running finishes (adr/0239).
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../app";
+import { recordClosed } from "../../../src/stage";
 
 export function Composer() {
   const { state, send, busy, setBusy, staged } = useApp();
@@ -12,7 +13,7 @@ export function Composer() {
   const [stopping, setStopping] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const engine = state.snap ? String(state.snap.investigation.state).toUpperCase() : "";
-  const closed = engine === "ARCHIVED" || engine === "CONCLUDED" || engine === "DISCARDED";
+  const closed = recordClosed(engine);
   const disabled = closed || busy || !state.snap;
 
   // Each staging lands once, by its nonce: the composer re-enabling after a turn

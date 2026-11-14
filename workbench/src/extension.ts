@@ -1,8 +1,9 @@
 // The reckon workbench extension entry point.
 //
 // It wires the backend version handshake, interactive PKCE login, the BYOK
-// Anthropic key in SecretStorage, the investigation list and cases, and the
-// investigation document with its agent conversation (design/13 §7).
+// Anthropic key in SecretStorage, the sidebar's views (Investigations, Cases,
+// Knowledge, Capabilities — adr/0342, adr/0344), and the investigation
+// document with its agent conversation (design/13 §7).
 //
 // Workbench discipline (design/13 §3): every surface lives in reckon-owned real
 // estate, every action is a command first, and nothing here assumes a workspace
@@ -17,6 +18,12 @@ import { InvestigationDocuments } from "./investigationDocument";
 import { ImportSOPsView } from "./importView";
 import { KnowledgeDocument } from "./knowledgeDocument";
 import { CasesProvider } from "./casesTree";
+import { CapabilitiesProvider, type CapabilityItem } from "./capabilitiesTree";
+import { KnowledgeItem, KnowledgeProvider, OPEN_ITEM_COMMAND, knowledgeShow } from "./knowledgeTree";
+import { askToUseText } from "./knowledgeWords";
+import { confirmEnablement } from "./enablementFlow";
+import { schemaFields } from "./enablement";
+import { CaseStarts } from "./caseStarts";
 import { InvestigationsProvider } from "./investigationsTree";
 import { SeenTracker } from "./seenTracker";
 import { CaseDocuments } from "./caseDocument";
@@ -56,15 +63,29 @@ export function activate(context: vscode.ExtensionContext): void {
     getToken: (kind, force) => session.token(kind, force),
   }, log);
   // The Knowledge view (adr/0107): procedures and past cases outside any
-  // investigation; an import re-reads what it lists.
+  // investigation, and its sidebar entry (adr/0344). Whatever changes the
+  // library (an import, a procedure added from a case, a conclusion) re-reads
+  // both: the tree, and the view if it is open.
   const knowledgeView = new KnowledgeDocument(context.extensionUri, client, log);
-  const importSOPs = new ImportSOPsView(context.extensionUri, client, log, () => knowledgeView.refresh());
+  const knowledgeTree = new KnowledgeProvider(client, session);
+  const libraryChanged = () => {
+    knowledgeTree.refresh();
+    knowledgeView.refresh();
+  };
+  const importSOPs = new ImportSOPsView(context.extensionUri, client, log, libraryChanged);
+  // The one start from a case (adr/0342): the Cases row, the case page and the
+  // draft's From a case share its in-flight guard, and a start re-reads the
+  // case page that shows it.
+  const caseStarts = new CaseStarts();
   const documents = new InvestigationDocuments(
     context.extensionUri, client, log, transport,
     () => client.me().then((m) => ({ name: m.username, principal: m.subject })).catch(() => null),
     (id, seq) => {
       void seen.set(id, seq).then(() => investigations.refresh());
     },
+    undefined,
+    caseStarts,
+    libraryChanged,
   );
   // The case queue (adr/0030-cases-pane.md): the SoR's queue below
   // Investigations; a case opens read-only and an investigation starts from it.
@@ -75,9 +96,71 @@ export function activate(context: vscode.ExtensionContext): void {
     documents.offerCaseNote(created);
     investigations.refresh();
     cases.refresh();
-  });
+  }, caseStarts);
+  // The capability layer's health (adr/0342), third in the container; its
+  // description counts the available verbs, so it is a TreeView, not a bare provider.
+  const capabilities = new CapabilitiesProvider(client, session);
+  const capabilitiesView = vscode.window.createTreeView("reckon.capabilities", { treeDataProvider: capabilities });
+  capabilities.describeIn(capabilitiesView);
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("reckon.cases", cases),
+    vscode.window.registerTreeDataProvider("reckon.knowledge", knowledgeTree),
+    // The Account view holds nothing: its welcome content is the one Sign In /
+    // Sign Out button at the bottom of the container, in place of a sign-in row
+    // per view. Signed out it is the only view, so it folds into the header.
+    vscode.window.registerTreeDataProvider("reckon.account", { getTreeItem: (e: vscode.TreeItem) => e, getChildren: () => [] }),
+    capabilitiesView,
+    // A case row with no investigation starts one inline (adr/0342): the same
+    // start from a case the document's seed path runs.
+    vscode.commands.registerCommand("reckon.startInvestigationFromCase", (arg?: unknown) => {
+      if (!session.signedIn) {
+        void vscode.window.showWarningMessage("reckon: sign in before starting an investigation");
+        return;
+      }
+      const number = typeof arg === "string" ? arg
+        : arg && typeof arg === "object" && "caseNumber" in arg ? String((arg as { caseNumber: unknown }).caseNumber) : "";
+      if (number !== "") {
+        void documents.startFromCase(number);
+      }
+    }),
+    vscode.commands.registerCommand("reckon.refreshCapabilities", () => capabilities.refresh()),
+    // Set up… on an unavailable verb (adr/0342): the native enablement flow —
+    // a modal confirm bound to the signed-in person, one input per field of
+    // the adapter's schema (secret fields take a reference), then the apply.
+    // The view and every open investigation re-read the capability layer after.
+    vscode.commands.registerCommand("reckon.setUpCapability", async (arg?: unknown) => {
+      if (!session.signedIn) {
+        void vscode.window.showWarningMessage("reckon: sign in before setting up a capability");
+        return;
+      }
+      const name = arg && typeof arg === "object" && "adapter" in arg ? (arg as CapabilityItem).adapter : "";
+      if (!name) {
+        return;
+      }
+      const held = documents.sameIdentity();
+      let adapter;
+      try {
+        // The schema as the backend holds it now, not as the row was drawn.
+        adapter = (await client.capabilities.enablement()).adapters.find((a) => a.name === name);
+      } catch (err) {
+        if (held()) void vscode.window.showErrorMessage(`reckon: could not read the enablement view — ${errText(err)}`);
+        return;
+      }
+      if (!held()) {
+        return;
+      }
+      if (!adapter || !adapter.supportable || adapter.enabled) {
+        void vscode.window.showInformationMessage(`reckon: ${name} cannot be set up from here now — refreshing`);
+        capabilities.refresh();
+        return;
+      }
+      const change = { adapter: name, enabled: true, config: {}, ask: schemaFields(adapter) };
+      const config = await confirmEnablement(change, held);
+      if (config) {
+        // The one apply (adr/0342): every open investigation and this view re-read after it.
+        await documents.applyEnablementChange(change, config);
+      }
+    }),
     vscode.commands.registerCommand("reckon.openCase", (number?: string) => {
       if (typeof number === "string" && number !== "") {
         caseDocs.open(number);
@@ -107,6 +190,8 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.commands.executeCommand("setContext", "reckon.signedIn", session.signedIn);
       investigations.refresh();
       cases.refresh();
+      knowledgeTree.refresh();
+      capabilities.refresh();
       documents.refreshAll();
     }),
     vscode.window.registerTreeDataProvider("reckon.investigations", investigations),
@@ -148,22 +233,57 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
 
     // Import institutional knowledge into the SOP corpus (design/06 §2.4). SOPs
-    // are consultative — the agent surfaces them (the knowledge rail); import is
+    // are consultative — the agent recalls them (adr/0129); import is
     // an occasional populate act, so it is a COMMAND (workbench discipline, 13
     // §3), not a management view. The command opens the Import SOPs PANEL:
     // choosing what becomes institutional knowledge is operational input, so it
     // lives on a reckon surface (open-editor documents with checkboxes, add
     // from disk, per-document outcome) — never the top-of-window quick input.
-    // The Knowledge view (adr/0107, ui/09 §9.1): browse, search and filter
-    // the procedures and past cases outside any investigation; opened from
-    // the investigation's left region header too.
+    // The Knowledge tab (adr/0107, adr/0346): one procedure or past case, or
+    // the search page, outside any investigation; opened from the sidebar's
+    // Knowledge view (adr/0344): its title bar and Search open the search
+    // page, a row its item.
     vscode.commands.registerCommand("reckon.openKnowledge", () => {
       if (!session.signedIn) {
         void vscode.window.showWarningMessage("reckon: sign in before opening the Knowledge view");
         return;
       }
-      knowledgeView.open();
+      knowledgeView.open({ type: "knowledge.search" });
     }),
+    vscode.commands.registerCommand("reckon.searchKnowledge", () => {
+      if (!session.signedIn) {
+        void vscode.window.showWarningMessage("reckon: sign in before searching the knowledge library");
+        return;
+      }
+      knowledgeView.open({ type: "knowledge.search" });
+    }),
+    // A row opens its item as the Knowledge tab's page (adr/0346).
+    vscode.commands.registerCommand(OPEN_ITEM_COMMAND, (arg?: unknown) => {
+      if (!session.signedIn) {
+        void vscode.window.showWarningMessage("reckon: sign in before opening the Knowledge view");
+        return;
+      }
+      if (arg instanceof KnowledgeItem) {
+        knowledgeView.open(knowledgeShow(arg.item));
+      }
+    }),
+    // Ask reckon to use this (adr/0344, adr/0346): offered while the
+    // investigation last active can take a request; staged in its composer,
+    // which is revealed; never sent.
+    vscode.commands.registerCommand("reckon.askToUseKnowledge", (arg?: unknown) => {
+      if (!session.signedIn) {
+        void vscode.window.showWarningMessage("reckon: sign in before asking reckon to use this");
+        return;
+      }
+      if (!(arg instanceof KnowledgeItem)) {
+        return;
+      }
+      const refusal = documents.stageInRecent(askToUseText(arg.item));
+      if (refusal) {
+        void vscode.window.showInformationMessage(`reckon: ${refusal}`);
+      }
+    }),
+    vscode.commands.registerCommand("reckon.refreshKnowledge", () => knowledgeTree.refresh()),
 
     vscode.commands.registerCommand("reckon.importSOP", () => {
       if (!session.signedIn) {
@@ -280,6 +400,8 @@ export function activate(context: vscode.ExtensionContext): void {
         );
       }
       investigations.refresh();
+      knowledgeTree.refresh();
+      capabilities.refresh();
     }),
 
     vscode.commands.registerCommand("reckon.refreshInvestigations", () => {

@@ -126,16 +126,16 @@ describe("reducer: the live conversation", () => {
 });
 
 describe("reducer: the library", () => {
-  it("holds the browse lists and one search's hits, and clears the search", () => {
+  it("holds one search's hits and the corpus total, and clears the search", () => {
     const item = { kind: "sop" as const, ref: "sop-1", title: "S" };
-    let s = run([{ type: "library", sops: [item], cases: [] }]);
-    expect(s.library.loaded).toBe(true);
+    let s = run([{ type: "pastCases.corpus", total: 150 }]);
+    expect(s.library.casesTotal).toBe(150);
     s = reducer(s, { type: "library.searching", query: "rdp" });
     s = run([{ type: "library.results", query: "rdp", sops: [{ ...item, relevance: "related" }], cases: [] }], s);
     expect(s.library.results?.query).toBe("rdp");
     s = reducer(s, { type: "library.clear" });
     expect(s.library.results).toBeNull();
-    expect(s.library.sops).toEqual([item]);
+    expect(s.library.casesTotal).toBe(150);
   });
 
   it("shows only the answer to the search asked last, and none after it was dismissed (adr/0107)", () => {
@@ -147,18 +147,8 @@ describe("reducer: the library", () => {
     s = run([{ type: "library.results", query: "new", sops: [], cases: [] }], s);
     expect(s.library.results).toBeNull();
   });
-
-  it("keeps a failed procedures read apart from an empty library, and the list read before it", () => {
-    const item = { kind: "sop" as const, ref: "sop-1", title: "S" };
-    let s = run([{ type: "library", sops: [item], cases: [] }]);
-    s = run([{ type: "library", sops: [], cases: [], sopsError: "HTTP 500" }], s);
-    expect(s.library.sopsError).toBe("HTTP 500");
-    expect(s.library.sops).toEqual([item]);
-    s = run([{ type: "library", sops: [], cases: [] }], s);
-    expect(s.library.sopsError).toBeUndefined();
-    expect(s.library.sops).toEqual([]); // a successful empty read is empty
-  });
 });
+
 describe("reducer: rename", () => {
   it("updates the title in place and bumps a tree-initiated request", () => {
     let s = run([{ type: "state.snapshot", seq: 1, snapshot: snap(1, "Old") }, { type: "renamed", title: "New" }]);

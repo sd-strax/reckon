@@ -7,6 +7,7 @@ import type { InboundMessage, InspectorTarget, Lens } from "../../src/protocol";
 import { defaultLens } from "./derive/lens";
 import { targetKey, turnRenderer } from "./derive/inspect";
 import { initialState, reducer, type Action, type State } from "./store";
+import { recordClosed } from "../../src/stage";
 import type { WebviewTransport } from "./transport";
 import type { PromptSpec } from "./components/PromptCard";
 
@@ -94,6 +95,10 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
   const [inspector, setInspector] = useState<InspectorState>({ active: null, pinned: null });
   const [staged, setStaged] = useState<{ text: string; nonce: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  // What the host's staged request is checked against when it lands: a busy or
+  // closed composer takes none, so nothing stale waits to appear later.
+  const composerOpen = useRef(false);
+  useLayoutEffect(() => { composerOpen.current = !busy && !!state.snap && !recordClosed(String(state.snap.investigation.state)); });
   const requested = useRef(new Set<string>());
   // Refs whose read failed: asked for again after the next refresh, not on
   // every render, so a ref that will never resolve is not fetched in a loop.
@@ -145,10 +150,16 @@ export function AppProvider({ transport, children }: { transport: WebviewTranspo
       }
       if (msg.type === "turn.end") setBusy(false);
       if (msg.type === "turn.start" || msg.type === "aside.start") setBusy(true);
+      // "Ask reckon to use this" from the sidebar (adr/0344): staged in the
+      // conversation's composer, never sent.
+      if (msg.type === "composer.stage" && composerOpen.current) {
+        setCompanionMode("conversation");
+        setStaged((s) => ({ text: msg.text, nonce: (s?.nonce ?? 0) + 1 }));
+      }
     });
     transport.send({ type: "ready" });
     return off;
-  }, [transport]);
+  }, [transport, setCompanionMode]);
 
   const send = useCallback((m: InboundMessage) => transport.send(m), [transport]);
   const openInspector = useCallback((target: InspectorTarget) => {

@@ -77,7 +77,8 @@
     "activity_id": 1,
     "activity_name": "Create",
     "type_uid": 600301,
-    "time": "2026-06-15T02:11:07Z",
+    "time": 1781489467000,
+    "time_dt": "2026-06-15T02:11:07Z",
     "severity_id": 1,
     "metadata": {
       "product": {

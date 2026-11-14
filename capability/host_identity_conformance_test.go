@@ -12,7 +12,7 @@ import (
 	"github.com/sd-strax/reckon/identity"
 )
 
-// inventoryEvent is a device_inventory_info record (class 5001) from tool.
+// inventoryEvent is an inventory_info record (class 5001) from tool.
 func inventoryEvent(tool string, dev map[string]any) OcsfEvent {
 	return OcsfEvent{
 		ID: uuid.Must(uuid.NewV7()), ClassUID: 5001, ClassName: "Device Inventory Info",
@@ -168,7 +168,7 @@ func TestHostIdentityPlaceholders(t *testing.T) {
 	}
 
 	evt := makeEvent(map[string]any{
-		"class_uid": 4001, "time": "2026-04-20T14:32:11Z",
+		"class_uid": 4001, "time": ms("2026-04-20T14:32:11Z"),
 		"src_endpoint": map[string]any{"ip": "0.0.0.0"},
 		"dst_endpoint": map[string]any{"ip": "10.0.0.7", "port": 445},
 	})
@@ -327,7 +327,7 @@ func TestDeviceInventoryFixture(t *testing.T) {
 	if !ok || h.Properties["hostname"] != "WIN-FILE01" || h.Properties["domain"] != "CONTOSO" {
 		t.Fatalf("inventory host = %+v (found %v); want WIN-FILE01 in CONTOSO", h, ok)
 	}
-	if res.ObservedData[0].Provenance.Normalizer != "device_inventory_info" || !refsContain(res.ObservedData[0].ObjectRefs, host) {
+	if res.ObservedData[0].Provenance.Normalizer != "inventory_info" || !refsContain(res.ObservedData[0].ObjectRefs, host) {
 		t.Errorf("observed-data = %+v", res.ObservedData[0])
 	}
 	ext := res.ObservedData[0].Extensions

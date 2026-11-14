@@ -1,8 +1,8 @@
 // The harness transport (impl §5.4): answers the webview from a recorded
 // snapshot set and echoes every intent, so a click's effect is visible and
 // component tests can assert on what the page asked the host for.
-import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, ProcedureReads, SOPDoc } from "../src/viewTypes";
-import type { InboundMessage, InspectorTarget, InvestigationSnapshot, LibraryItem, RenderMessage } from "../src/protocol";
+import type { ActionRecord, Appearance, CapabilityCall, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, KnowledgeCitations, ProcedureReads, SOPDoc } from "../src/viewTypes";
+import type { InboundMessage, InspectorTarget, InvestigationSnapshot, RenderMessage } from "../src/protocol";
 import type { WebviewTransport } from "../webview/src/transport";
 
 /** One recorded stage of the reference scenario (harness/record.ts). */
@@ -28,10 +28,6 @@ export interface HarnessSnapshot {
   around?: Record<string, EventRow[]>;
   /** An entity's retrieved events folded by the default key (adr/0095). */
   repeats?: Record<string, EventRepeats>;
-  /** The knowledge library (adr/0129) as the host posts it. */
-  library?: { sops: LibraryItem[]; cases: LibraryItem[] };
-  /** The work queue (08 §8.3) as the host posts it. */
-  queue?: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string };
 }
 
 export class HarnessTransport implements WebviewTransport {
@@ -66,22 +62,6 @@ export class HarnessTransport implements WebviewTransport {
       case "inspector.open":
         this.answerInspector(intent.target);
         break;
-      case "queue.get":
-        this.postQueue();
-        break;
-      case "library.get":
-        this.emit({ type: "library", sops: this.data?.library?.sops ?? [], cases: this.data?.library?.cases ?? [] });
-        break;
-      case "library.search": {
-        // The host recalls over both corpora; the harness answers with the
-        // library entries whose title mentions the query, rated in words.
-        const q = intent.text.toLowerCase();
-        const hit = (k: LibraryItem): LibraryItem => ({ ...k, relevance: "related" });
-        this.emit({ type: "library.results", query: intent.text,
-          sops: (this.data?.library?.sops ?? []).filter((k) => k.title.toLowerCase().includes(q)).map(hit),
-          cases: (this.data?.library?.cases ?? []).filter((k) => k.title.toLowerCase().includes(q)).map(hit) });
-        break;
-      }
       case "rename":
         this.emit({ type: "renamed", title: intent.title });
         break;
@@ -195,14 +175,6 @@ export class HarnessTransport implements WebviewTransport {
       return;
     }
     this.emit({ type: "state.snapshot", seq: this.data.snapshot.seq, snapshot: this.data.snapshot });
-    this.postQueue();
-    // The host posts the library with every load, like the queue.
-    this.emit({ type: "library", sops: this.data.library?.sops ?? [], cases: this.data.library?.cases ?? [] });
     this.emit({ type: "me", name: "Analyst One", principal: "analyst-1" });
-  }
-
-  private postQueue(): void {
-    const q = this.data?.queue;
-    if (q) this.emit({ type: "queue", investigations: q.investigations, cases: q.cases, caseSource: q.caseSource });
   }
 }

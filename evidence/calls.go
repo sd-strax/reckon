@@ -131,7 +131,10 @@ const DefaultEventLimit = 200
 const MaxEventLimit = 1000
 
 // categoryBounds maps a category word to its OCSF category_uid, which is the
-// thousands digit of class_uid (3002 Authentication is category 3, IAM).
+// thousands digit of class_uid (3002 Authentication is category 3, IAM). An
+// extension's class carries the extension's number above the category
+// (201002 is the Windows extension's 1002, category 1), so the filter reads
+// the category the way ocsfview.Category does: class_uid % 100000 / 1000.
 var categoryBounds = map[string]int{"process": 1, "detection": 2, "auth": 3, "network": 4}
 
 // persistCallTx writes the call row and the joins from the call to its events
@@ -226,7 +229,7 @@ func (s *Store) InvestigationEvents(ctx context.Context, investigationID uuid.UU
 	q := &eventQuery{}
 	q.where("c.investigation_id = " + q.arg(investigationID))
 	if cat, ok := categoryBounds[strings.ToLower(f.Category)]; ok {
-		q.where(fmt.Sprintf("e.class_uid BETWEEN %s AND %s", q.arg(cat*1000), q.arg(cat*1000+999)))
+		q.where("(e.class_uid % 100000) / 1000 = " + q.arg(cat))
 	} else if f.Category != "" {
 		return Events{Rows: []EventRow{}}, nil // an unknown category matches nothing
 	}

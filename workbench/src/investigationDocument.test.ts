@@ -3,7 +3,11 @@ import * as vscode from "vscode";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTransport } from "./agentTransport";
 import { BackendRequestError, type ActionRow, type BackendClient, type InvestigationDetail } from "./backend";
+import { CaseDocuments } from "./caseDocument";
+import { CaseStarts } from "./caseStarts";
 import { InvestigationDocuments } from "./investigationDocument";
+import { KnowledgeProvider } from "./knowledgeTree";
+import type { Session } from "./auth";
 import type { RenderMessage } from "./protocol";
 import { createdPanels, fakeLog, resetVscodeFake } from "./test/vscode";
 
@@ -20,7 +24,6 @@ function backend(over: Record<string, (...args: never[]) => unknown> = {}) {
     incompatibilityReason: () => null,
     "investigations.get": async () => detail(),
     "capabilities.enablement": async () => null,
-    "cases.queue": async () => null,
     "evidence.events": async () => ({ events: [], total: 0 }),
     ...over,
   };
@@ -42,6 +45,7 @@ function backend(over: Record<string, (...args: never[]) => unknown> = {}) {
 const transport = {
   closeSession: vi.fn(async () => undefined),
   cancel: vi.fn(async () => undefined),
+  turnRunning: vi.fn(() => false),
   summarizeConcluded: vi.fn(async () => undefined),
   proposeSOP: vi.fn(async () => ({ warranted: true, title: "T", body: "B", tags: [], recommendation: "", rationale: "" })),
   draftNarrative: vi.fn(async () => ({ revision: 1, chars: 10 })),
@@ -267,45 +271,63 @@ describe("InvestigationDocuments: closing", () => {
     expect(cursorPatches()[2]!.patch.events!.map((e) => e.id)).toEqual(["e-1", "e-prev"]);
   });
 
-  it("re-posts the Library when a refresh re-reads the thread, so a count follows a citing turn (adr/0109)", async () => {
-    let citedIn = 0;
-    const procedures = vi.fn(async () => [{ kind: "sop" as const, ref: "sop-1", title: "Procedure one", citedIn }]);
-    const { client } = backend({ "knowledge.procedures": procedures });
+  it("never reads or posts the library, and does not answer the Knowledge view's intents (adr/0344)", async () => {
+    const { client, calls } = backend();
     const { docs } = documents(client);
     docs.show("inv-1");
     const panel = createdPanels()[0]!;
     panel.webview.receive({ type: "ready" });
-    const libraries = () => posted().filter((m) => m.type === "library") as Extract<RenderMessage, { type: "library" }>[];
-    await vi.waitFor(() => expect(libraries().length).toBe(1));
-    expect(libraries()[0]!.sops[0]!.citedIn).toBe(0);
-    citedIn = 1; // a turn committed a citation; the record now counts it
+    await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
     panel.webview.receive({ type: "refresh" });
-    await vi.waitFor(() => expect(libraries().length).toBe(2));
-    expect(libraries()[1]!.sops[0]!.citedIn).toBe(1);
+    panel.webview.receive({ type: "pastCases.get", filter: { techniques: [] } });
+    panel.webview.receive({ type: "library.search", text: "rdp" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.filter((c) => c.startsWith("knowledge."))).toEqual([]);
+    expect(types().filter((t) => t.startsWith("library") || t.startsWith("pastCases"))).toEqual([]);
   });
 
-  it("drops an older Library answer that lands after a newer one, so a stale count never overwrites the new one", async () => {
-    let releaseOlder: (() => void) | undefined;
-    const slow = new Promise<void>((r) => { releaseOlder = r; });
-    let reads = 0;
-    const procedures = vi.fn(async () => {
-      const n = ++reads;
-      if (n === 1) { await slow; return [{ kind: "sop" as const, ref: "sop-1", title: "Procedure one", citedIn: 0 }]; } // the load's read, slow
-      return [{ kind: "sop" as const, ref: "sop-1", title: "Procedure one", citedIn: 1 }];
+  it("re-reads the sidebar's Knowledge view after a committed turn consulted knowledge, so its cited-in reading follows the record (adr/0109, adr/0344)", async () => {
+    const entry = (sequenceNo: number, consulted: boolean) => ({
+      sequenceNo, interpretationId: "i" + sequenceNo, hasTranscript: false, inputRefs: [], outputRefs: [], actor: { principal: "agent", kind: "AI_DELEGATED" },
+      consultedSops: consulted ? [{ sopId: "sop-1", title: "Procedure one", cited: true }] : [], consultedSimilar: [],
     });
-    const { client } = backend({ "knowledge.procedures": procedures });
-    const { docs } = documents(client);
+    let thread = [entry(2, true)];
+    let citedIn = 0;
+    const { client, calls } = backend({
+      "investigations.get": async () => detail(thread.at(-1)!.sequenceNo),
+      "investigations.thread": async () => thread,
+      "knowledge.procedures": async () => [{ kind: "sop" as const, ref: "sop-1", title: "Procedure one", citedIn }],
+      "knowledge.caseList": async () => ({ items: [], total: 0 }),
+      status: async () => ({ reachable: true }),
+    });
+    const tree = new KnowledgeProvider(client, { signedIn: true } as unknown as Session);
+    const changed = vi.fn(() => tree.refresh());
+    let fired = 0;
+    tree.onDidChangeTreeData(() => { fired++; });
+    const docs = new InvestigationDocuments(vscode.Uri.file("/ext"), client, fakeLog(), transport, async () => null, undefined, undefined, undefined, changed);
     docs.show("inv-1");
     const panel = createdPanels()[0]!;
     panel.webview.receive({ type: "ready" });
-    const libraries = () => posted().filter((m) => m.type === "library") as Extract<RenderMessage, { type: "library" }>[];
-    await vi.waitFor(() => expect(procedures).toHaveBeenCalledTimes(1));
-    panel.webview.receive({ type: "refresh" }); // a newer read of the library, which answers first
-    await vi.waitFor(() => expect(libraries().length).toBe(1));
-    expect(libraries()[0]!.sops[0]!.citedIn).toBe(1);
-    releaseOlder!();
-    await new Promise((r) => setTimeout(r, 0));
-    expect(libraries().length).toBe(1); // the older answer was dropped
+    await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
+    const reads = () => calls.filter((c) => c === "investigations.thread").length;
+    const settled = async (n: number) => { await vi.waitFor(() => expect(reads()).toBe(n)); await new Promise((r) => setTimeout(r, 0)); };
+    const start = reads();
+    docs.refreshOpen("inv-1"); // nothing new on the record: nothing to re-read
+    await settled(start + 1);
+    expect(fired).toBe(0);
+
+    thread = [entry(2, true), entry(3, false)]; // a turn that consulted nothing
+    docs.refreshOpen("inv-1");
+    await settled(start + 2);
+    expect(fired).toBe(0);
+
+    thread = [entry(2, true), entry(3, false), entry(4, true)]; // a turn that cited the procedure
+    citedIn = 1;
+    docs.refreshOpen("inv-1");
+    await vi.waitFor(() => expect(fired).toBe(1));
+    const [procedures] = await tree.getChildren();
+    const [row] = await tree.getChildren(procedures);
+    expect(row!.tooltip).toContain("cited in 1 investigation");
   });
 
   it("does not report the failure of an older read retired by a newer read of the record", async () => {
@@ -560,9 +582,9 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
 
   it("closes a preview that opened across the change", async () => {
     const shown = gate<void>();
-    vi.mocked(vscode.commands.executeCommand).mockImplementationOnce(() => shown.opened);
     const { docs } = documents(backend({ "investigations.exportMarkdown": async () => "# r" }).client);
     docs.show("inv-1");
+    vi.mocked(vscode.commands.executeCommand).mockImplementationOnce(() => shown.opened);
     createdPanels()[0]!.webview.receive({ type: "export.open" });
     await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("markdown.showPreviewToSide", expect.anything()));
 
@@ -609,8 +631,9 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const created = gate<InvestigationDetail>();
     const { client, calls } = backend({ "investigations.createFromInput": () => created.opened });
     const { docs } = documents(client);
+    // The sidebar's Cases row starts it (adr/0342); a draft panel is open beside it.
     docs.showDraft();
-    createdPanels()[0]!.webview.receive({ type: "queue.start", caseNumber: "C-1" });
+    void docs.startFromCase("C-1");
     await vi.waitFor(() => expect(calls).toContain("investigations.createFromInput"));
 
     docs.identityChanged();
@@ -728,7 +751,7 @@ describe("InvestigationDocuments: work in flight when the identity changes", () 
     const applyEnablement = vi.fn(async () => undefined);
     const { docs } = documents(backend({ "capabilities.applyEnablement": applyEnablement }).client);
     docs.show("inv-1");
-    createdPanels()[0]!.webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, secretFields: [] });
+    createdPanels()[0]!.webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, ask: [] });
 
     docs.identityChanged();
     answer.open("Enable");
@@ -905,6 +928,125 @@ describe("InvestigationDocuments: the wire boundary", () => {
     expect(posted()).not.toContainEqual(expect.objectContaining({ type: "sop.status", state: "added" }));
   });
 
+  it("tells the sidebar to re-read the library after a procedure is added, and not after an unchanged one (adr/0344)", async () => {
+    const doc = { uri: vscode.Uri.parse("untitled:Untitled-3"), isClosed: false, getText: () => "# T\n\nB" } as unknown as vscode.TextDocument;
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(doc);
+    const outcomes = ["unchanged", "created"];
+    const importMarkdown = vi.fn(async () => ({ outcome: outcomes.shift()!, title: "T" }));
+    const changed = vi.fn();
+    const docs = new InvestigationDocuments(vscode.Uri.file("/ext"), backend({ "knowledge.importMarkdown": importMarkdown }).client, fakeLog(), transport, async () => null, undefined, undefined, undefined, changed);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    for (const _ of [1, 2]) {
+      panel.webview.receive({ type: "sop.draft" });
+      await vi.waitFor(() => expect(posted().at(-1)).toMatchObject({ type: "sop.status", state: "ready" }));
+      panel.webview.receive({ type: "sop.accept" });
+      await vi.waitFor(() => expect(posted().at(-1)).toMatchObject({ type: "sop.status", state: "added" }));
+    }
+    expect(changed).toHaveBeenCalledTimes(1);
+    vi.mocked(vscode.workspace.openTextDocument).mockReset();
+  });
+
+  it("tells the sidebar to re-read the library after a conclusion, and again when the narrative settles (adr/0344)", async () => {
+    let finish!: () => void;
+    vi.mocked(transport.summarizeConcluded).mockImplementationOnce(() => new Promise((r) => { finish = r; }));
+    const changed = vi.fn();
+    const docs = new InvestigationDocuments(vscode.Uri.file("/ext"), backend({ "investigations.lifecycle": async () => ({ status: "CONCLUDED" }) }).client, fakeLog(), transport, async () => null, undefined, undefined, undefined, changed);
+    docs.show("inv-1");
+    createdPanels()[0]!.webview.receive({ type: "lifecycle", transition: "conclude", summary: "done" });
+    await vi.waitFor(() => expect(transport.summarizeConcluded).toHaveBeenCalledWith("inv-1"));
+    expect(changed).toHaveBeenCalledTimes(1);
+    finish();
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(2));
+  });
+
+  it("holds reckon.investigationStageable while an open investigation can take a request, whichever editor is active (adr/0346)", async () => {
+    let state = "ACTIVE";
+    const { client } = backend({ "investigations.get": async () => ({ ...detail(), state }) });
+    const { docs } = documents(client);
+    const contextKey = () => vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] === "setContext" && c[1] === "reckon.investigationStageable").map((c) => c[2]);
+    docs.showDraft();
+    expect(contextKey()).toEqual([false]); // a draft has no investigation to ask about
+    expect(docs.stageInRecent("x")).toMatch(/open an investigation/);
+    docs.show("inv-1");
+    const panel = createdPanels()[1]!;
+    expect(docs.stageInRecent("x")).toMatch(/loading/); // its state is not known yet
+    panel.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(contextKey()).toEqual([false, true]));
+
+    // Another tab (the Knowledge tab) takes the focus: still offered, and the
+    // stage reveals the investigation.
+    panel.setActive(false);
+    expect(contextKey()).toEqual([false, true]);
+    expect(docs.stageInRecent("Use the procedure")).toBeNull();
+    expect(posted(1)).toContainEqual({ type: "composer.stage", text: "Use the procedure" });
+    expect(panel.reveals.at(-1)).toEqual({ column: panel.viewColumn, preserveFocus: undefined });
+    expect(panel.active).toBe(true);
+
+    // Mid-turn: refused, nothing staged.
+    vi.mocked(transport.turnRunning).mockReturnValue(true);
+    expect(docs.stageInRecent("mid-turn")).toMatch(/a turn is running/);
+    vi.mocked(transport.turnRunning).mockReturnValue(false);
+
+    // Concluded: the menu stops offering it and a stale ask is refused, with why.
+    state = "CONCLUDED";
+    docs.refreshOpen("inv-1");
+    await vi.waitFor(() => expect(contextKey()).toEqual([false, true, false]));
+    expect(docs.stageInRecent("closed")).toBe("this investigation is concluded, so its composer takes no request");
+    expect(posted(1).filter((m) => m.type === "composer.stage").length).toBe(1);
+    panel.dispose();
+    expect(docs.stageInRecent("gone")).toMatch(/open an investigation/);
+  });
+
+  it("stages only in the investigation last active, and refuses with its reason rather than staging in another (adr/0346)", async () => {
+    const states: Record<string, string> = { "inv-1": "ACTIVE", "inv-2": "ACTIVE" };
+    const { client } = backend({ "investigations.get": async (id: unknown) => ({ ...detail(), state: states[String(id)] ?? "ACTIVE" }) });
+    const { docs } = documents(client);
+    const contextKey = () => vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] === "setContext" && c[1] === "reckon.investigationStageable").map((c) => c[2]);
+    docs.show("inv-1");
+    docs.show("inv-2");
+    const [one, two] = createdPanels();
+    one!.webview.receive({ type: "ready" });
+    two!.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(docs.stageInRecent("first")).toBeNull());
+    expect(posted(1)).toContainEqual({ type: "composer.stage", text: "first" }); // the one opened last
+    two!.setActive(false); // the analyst goes back to the first
+    one!.setActive(true);
+    one!.setActive(false); // and on to another tab
+    expect(docs.stageInRecent("second")).toBeNull();
+    expect(posted(0)).toContainEqual({ type: "composer.stage", text: "second" });
+
+    // The last active is mid-turn: refused with why, nothing staged in the other, the key off.
+    vi.mocked(transport.turnRunning).mockImplementation((id: string) => id === "inv-1");
+    one!.setActive(false); // a view-state change re-derives the key
+    expect(contextKey().at(-1)).toBe(false);
+    expect(docs.stageInRecent("third")).toMatch(/a turn is running/);
+    expect(posted(1).filter((m) => m.type === "composer.stage").length).toBe(1);
+    vi.mocked(transport.turnRunning).mockReset();
+    vi.mocked(transport.turnRunning).mockReturnValue(false);
+
+    // The last active is concluded: refused with why, the key off.
+    states["inv-1"] = "CONCLUDED";
+    docs.refreshOpen("inv-1");
+    await vi.waitFor(() => expect(docs.stageInRecent("fourth")).toBe("this investigation is concluded, so its composer takes no request"));
+    expect(contextKey().at(-1)).toBe(false);
+    expect(posted(1).filter((m) => m.type === "composer.stage").length).toBe(1);
+  });
+
+  it("says the investigation could not be loaded when its load failed, and stages again once a reload succeeds (adr/0344)", async () => {
+    let fail = true;
+    const { docs } = documents(backend({ "investigations.get": async () => { if (fail) throw new Error("HTTP 500"); return { ...detail(), state: "ACTIVE" }; } }).client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(types()).toContain("error"));
+    expect(docs.stageInRecent("x")).toBe("the investigation could not be loaded");
+    fail = false;
+    panel.webview.receive({ type: "refresh" });
+    await vi.waitFor(() => expect(types()).toContain("state.snapshot"));
+    expect(docs.stageInRecent("x")).toBeNull();
+  });
+
   it("does not throw on a message of unknown type", () => {
     const { docs } = documents(backend().client);
     docs.show("inv-1");
@@ -957,5 +1099,150 @@ describe("InvestigationDocuments: a seed's entity kind (adr/0324)", () => {
     createdPanels()[0]!.webview.receive({ type: "seed.submit", value: "jane", kind: "entity", entityKind: "person" });
     await vi.waitFor(() => expect(types()).toContain("draft.error"));
     expect(posted().find((m) => m.type === "draft.error")).toEqual({ type: "draft.error", message: refused.body!.error, unknownEntity: false });
+  });
+});
+
+describe("InvestigationDocuments: the capability layer after an apply (adr/0342)", () => {
+  const enablement = { adapters: [], verbs: [] };
+  const verb = (status: string) => [{ verb: "query_dns", status, intent: "", inputs: [], output: "" }];
+  const patches = (i: number) => posted(i).filter((m): m is Extract<RenderMessage, { type: "state.patch" }> => m.type === "state.patch");
+  const lastLayer = (i: number) => patches(i).filter((m) => "capabilities" in m.patch).pop()?.patch;
+  const gate = <T>() => {
+    let open!: (v: T) => void;
+    const opened = new Promise<T>((r) => { open = r; });
+    return { opened, open };
+  };
+
+  async function twoOpen(over: Record<string, (...args: never[]) => unknown> = {}) {
+    const apply = vi.fn(async () => undefined);
+    const b = backend({ "capabilities.enablement": async () => enablement, "capabilities.list": async () => verb("available"), "capabilities.applyEnablement": apply, ...over });
+    const { docs } = documents(b.client);
+    docs.show("inv-1");
+    docs.show("inv-2");
+    docs.showDraft();
+    createdPanels()[0]!.webview.receive({ type: "ready" });
+    createdPanels()[1]!.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect([lastLayer(0), lastLayer(1)].every(Boolean)).toBe(true));
+    b.calls.length = 0;
+    return { docs, apply, calls: b.calls };
+  }
+
+  it("an apply from one panel's form reads the layer once and patches every open investigation, then the sidebar view", async () => {
+    const { calls } = await twoOpen();
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValueOnce("Enable" as never);
+    createdPanels()[0]!.webview.receive({ type: "enablement.apply", adapter: "dns-adapter", enabled: true, config: { base_url: "x" }, ask: [] });
+
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshCapabilities"));
+    expect(calls.sort()).toEqual(["capabilities.applyEnablement", "capabilities.enablement", "capabilities.list"]);
+    expect(lastLayer(0)).toEqual({ enablement, capabilities: verb("available") });
+    expect(lastLayer(1)).toEqual({ enablement, capabilities: verb("available") });
+    expect(posted(2)).toEqual([]); // the draft reads nothing
+  });
+
+  it("a failed apply still re-reads the layer once for every open panel, and the sidebar view", async () => {
+    const { docs, calls } = await twoOpen({ "capabilities.applyEnablement": async () => { throw new Error("500 rebuild failed"); } });
+    const before = [patches(0).length, patches(1).length];
+    await docs.applyEnablementChange({ adapter: "dns-adapter", enabled: true }, {});
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith("reckon: enablement failed — 500 rebuild failed");
+    expect(calls.sort()).toEqual(["capabilities.applyEnablement", "capabilities.enablement", "capabilities.list"]);
+    expect([patches(0).length, patches(1).length]).toEqual([before[0]! + 1, before[1]! + 1]);
+    expect(lastLayer(1)).toEqual({ enablement, capabilities: verb("available") });
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshCapabilities");
+  });
+
+  it("with no investigation open, an apply reads nothing document-side and still refreshes the sidebar view", async () => {
+    const { client, calls } = backend({ "capabilities.applyEnablement": async () => undefined });
+    const { docs } = documents(client);
+    docs.showDraft(); // a draft is not an investigation: nothing to patch
+    await docs.applyEnablementChange({ adapter: "dns-adapter", enabled: true }, {});
+    expect(calls).toEqual(["capabilities.applyEnablement"]);
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("reckon.refreshCapabilities");
+  });
+
+  it("a load overlapping an apply ends with the fresh verb list posted", async () => {
+    let fresh = false;
+    let gateEnablement: ReturnType<typeof gate<typeof enablement>> | null = null;
+    let gateGet: ReturnType<typeof gate<InvestigationDetail>> | null = null;
+    const { docs } = documents(backend({
+      "capabilities.list": async () => verb(fresh ? "available" : "unavailable"),
+      "capabilities.enablement": () => (gateEnablement ? gateEnablement.opened : Promise.resolve(enablement)),
+      "investigations.get": () => (gateGet ? gateGet.opened : Promise.resolve(detail())),
+      "capabilities.applyEnablement": async () => undefined,
+    }).client);
+    docs.show("inv-1");
+    const panel = createdPanels()[0]!;
+    panel.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(lastLayer(0)).toBeDefined());
+
+    gateGet = gate();
+    panel.webview.receive({ type: "refresh" }); // a reload: its snapshot reads the verb list before the change
+    await settle();
+    fresh = true; // the adapter is enabled server-side
+    const enablementGate = gate<typeof enablement>();
+    gateEnablement = enablementGate;
+    const applied = docs.applyEnablementChange({ adapter: "dns-adapter", enabled: true }, {});
+    await settle();
+    gateEnablement = null;
+    gateGet.open(detail()); // the reload lands after the apply's read began, and retires it
+    await vi.waitFor(() => expect(posted().filter((m) => m.type === "state.snapshot").length).toBe(2));
+    enablementGate.open(enablement);
+    await applied;
+    await settle();
+
+    // What the page holds last, whichever message carried it: the snapshot or a patch.
+    const carried = posted().flatMap((m) => m.type === "state.snapshot" ? [m.snapshot.capabilities] : m.type === "state.patch" && "capabilities" in m.patch ? [m.patch.capabilities] : []);
+    expect(carried.pop()).toEqual(verb("available"));
+  });
+
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+});
+
+describe("InvestigationDocuments: the one start from a case (adr/0342)", () => {
+  it("sends one POST for a double start of the same case", async () => {
+    let land!: (d: InvestigationDetail) => void;
+    const { client, calls } = backend({ "investigations.createFromInput": () => new Promise<InvestigationDetail>((r) => { land = r; }) });
+    const { docs } = documents(client);
+    const first = docs.startFromCase("C-1");
+    void docs.startFromCase("C-1");
+    land({ id: "inv-2", title: "T" } as InvestigationDetail);
+    await first;
+    expect(calls.filter((c) => c === "investigations.createFromInput")).toHaveLength(1);
+  });
+
+  it("guards a start from the case page and from the sidebar together, and re-reads an open case page after a sidebar start", async () => {
+    let land!: (d: InvestigationDetail) => void;
+    const { client, calls } = backend({ "investigations.createFromInput": () => new Promise<InvestigationDetail>((r) => { land = r; }), "cases.get": async () => ({ number: "C-1" }) });
+    const starts = new CaseStarts();
+    const docs = new InvestigationDocuments(vscode.Uri.file("/ext"), client, fakeLog(), transport, async () => null, undefined, undefined, starts);
+    const cases = new CaseDocuments(vscode.Uri.file("/ext"), client, fakeLog(), vi.fn(), starts);
+    cases.open("C-1");
+    const page = createdPanels()[0]!;
+    page.webview.receive({ type: "ready" });
+    await vi.waitFor(() => expect(calls.filter((c) => c === "cases.get")).toHaveLength(1));
+
+    const started = docs.startFromCase("C-1");
+    page.webview.receive({ type: "start" }); // the page's own start while the sidebar's is in flight
+    land({ id: "inv-2", title: "T" } as InvestigationDetail);
+    await started;
+
+    expect(calls.filter((c) => c === "investigations.createFromInput")).toHaveLength(1);
+    await vi.waitFor(() => expect(calls.filter((c) => c === "cases.get")).toHaveLength(2));
+  });
+});
+
+describe("InvestigationDocuments: the document form's field rules (adr/0342)", () => {
+  it("refuses a blank required secret, so nothing is applied", async () => {
+    const apply = vi.fn(async () => undefined);
+    const { docs } = documents(backend({ "capabilities.applyEnablement": apply }).client);
+    docs.show("inv-1");
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValueOnce("Enable" as never);
+    vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce("");
+    createdPanels()[0]!.webview.receive({ type: "enablement.apply", adapter: "a", enabled: true, config: {}, ask: [{ name: "api_key", secret: true, required: true }] });
+    await vi.waitFor(() => expect(vscode.window.showInputBox).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = vi.mocked(vscode.window.showInputBox).mock.calls[0]![0] as { password?: boolean; validateInput?: (v: string) => string | undefined };
+    expect(opts.password).toBe(true);
+    expect(opts.validateInput!("")).toBe("api_key is required");
+    expect(apply).not.toHaveBeenCalled();
   });
 });

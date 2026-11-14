@@ -3,9 +3,9 @@
 Status: **proposed** (for review before implementation). Decision records:
 `adr/0079-investigation-layout.md` and `adr/0084-knowledge-view.md`. Specifications:
 `design/ui/08-investigation-layout.md` (including `§8.6.1`, the inspector for every citable
-type) and `design/ui/09-knowledge.md` (the Knowledge view and the Knowledge section inside an
-investigation), bound by `design/ui/00-backend-binding.md` (the authority layer; gaps
-`§6.12`–`§6.24`) and the workbench discipline (`design/13 §3`). Mockups:
+type) and `design/ui/09-knowledge.md` (the Knowledge view and its sidebar entry, `adr/0344`),
+bound by `design/ui/00-backend-binding.md` (the authority layer; gaps `§6.12`–`§6.24`) and
+the workbench discipline (`design/13 §3`). Mockups:
 `design/ui/mockups/01`–`17`. Parity inventory of the current webview and the Import SOPs panel:
 `implementation/workbench-parity.md`.
 
@@ -104,7 +104,12 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
 (`08 §8.7`). Names below are the files under `webview/src/components/`.
 
 ```
-<App>                                  regions grid; inspector overlay; dialogs; draft mode
+<App>                                  regions grid (lens area · companion); inspector overlay; dialogs; draft mode
+                                       no work-queue column (adr/0342): the queue is the editor's sidebar —
+                                       investigationsTree.ts (rows with their stage step, src/stage.ts), casesTree.ts
+                                       (inline Start investigation), knowledgeTree.ts (Procedures · Past cases, a row
+                                       opens the Knowledge view, inline Ask reckon to use this — adr/0344),
+                                       capabilitiesTree.ts (per-verb health, native Set up…; collapsed)
 ├─ <DraftSeed>                         unseeded state (seed picker, alert, case search) — parity §A
 ├─ <Header>                            08 §8.2
 │   ├─ <Title>                         inline rename (dblclick / pencil); case reference "from INC…" + <CaseNoteControl>
@@ -114,13 +119,6 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
 │   ├─ <NearestExpiry>                 min expires_at over REQUESTED actions
 │   ├─ <SinceYouWereHere>              one-line delta vs last seen (02 §2.12)
 │   └─ <HeaderControls>                Pause/Resume/Reopen/Archive · Refresh · (Export moves to Summary)
-├─ <LeftRegion>                        08 §8.3 + 09 §9.1; collapsible; icon rail below 1280px
-│   ├─ <RegionModeToggle>              Work | Knowledge (§2.6: Knowledge here reveals the Knowledge document)
-│   ├─ <WorkQueue>                     Work mode
-│   │   ├─ <InvestigationRows>         GET /api/investigations, needs-me-first (ui/06 rules)
-│   │   ├─ <CaseRows>                  GET /api/cases filtered to rows with no investigation; Start investigation
-│   │   └─ <CapabilityHealth>          collapsed fold at the bottom (parity §J; 13 §4 home is the container, v1)
-│   └─ <KnowledgeSections>             Knowledge mode: Procedures · Past cases · Import · Candidates, each with its count
 ├─ <LensArea>
 │   ├─ <LensTabs>                      Summary · Story · Reasoning(count) · Response(pending count)
 │   ├─ <SummaryLens>                   08 §8.4 Summary
@@ -154,11 +152,8 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
 │       └─ <CommsThreads>              Phase F threads: ack / follow up / snooze / done (parity §H)
 ├─ <Companion>                         08 §8.5; drawer below 1024px
 │   ├─ <CompanionModeToggle>           Conversation | Thread (§2.5)
-│   ├─ <KnowledgeSection>              09 §9.6, heads the column; replaces the rail (parity §C)
-│   │   ├─ <KnowledgeSummaryLine>      collapsed: "4 retrieved · 1 included"; "The agent reads only what is included."
-│   │   ├─ <KnowledgeItemRow>*         kind · band · title · rationale · include toggle; opens Procedure / Similar-case inspector
-│   │   ├─ <KnowledgeSearch>           scoped search; results join the list with their toggle off (§8.0, sidecar searchKnowledge)
-│   │   └─ <OpenKnowledgeView>         link → knowledge.open
+│   │                                  no knowledge section (adr/0344): the library is the sidebar's Knowledge view;
+│   │                                  the sidebar's Ask reckon to use this arrives as composer.stage
 │   ├─ <Conversation>
 │   │   ├─ <AnalystTurn>               the analyst's text; ⚡ scoped turns render as collapsed asides
 │   │   ├─ <AgentTurn>                 prose (<Markdown>), <TurnRecords> links, <KnowledgeChips>, <Activity>
@@ -193,8 +188,8 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
     ├─ <ResultDialog>                  Record result with attestation (adr/0054)
     └─ <EnableForm>                    schema-derived enablement form (11 §5.1); confirm hands off to the host
 
-<KnowledgeApp>                         the Knowledge document (09 §9.1; §2.6); same <LeftRegion>, inspector, dialogs
-├─ <LeftRegion mode="knowledge">       sections with counts; Work mode shows the queue, rows open investigations
+<KnowledgeApp>                         the Knowledge document (09 §9.1; §2.6); same inspector, dialogs
+├─ <KnowledgeNav>                      its own section list (Procedures · Past cases · Import); not a queue (adr/0342)
 ├─ <QueryBar>                          Search | Ask, one natural-language box (09 §9.2); filters bind to tags (§8.0)
 ├─ <KnowledgeMain>                     one of:
 │   ├─ <Procedures>                    09 §9.3
@@ -222,13 +217,13 @@ syntax-tinted, copy), `Disclosure`.
 | Seed chip + Note the case | `<Title>` case reference + `<CaseNoteControl>` |
 | Needs your approval (interrupt) | `<PrimaryAction>` "Review N proposed actions" → Response; compact cards in the companion turn |
 | Hypotheses (tracker) | `<ReasoningLens>` |
-| Institutional knowledge rail | `<KnowledgeSection>` at the top of the companion (`09 §9.6`) |
+| Institutional knowledge rail | the sidebar's Knowledge view (`knowledgeTree.ts`, `adr/0344`); the companion carries none |
 | Import SOPs panel (`importView.ts`, `reckon.importSOP`) | `<Import>` section of the Knowledge document; the command opens it |
 | Conclude-time candidate SOP (editor tab, Add to library / Discard) | `<Candidates>` section of the Knowledge document, once §6.24 stores the draft |
 | Pinned evidence | `<PinnedEvidence>` under the hypotheses in Reasoning; "Pinned" marker on prediction rows |
 | Actions ledger | `<ResponseLens>` cards in every state (the ledger is the plan) |
 | External work (comms) | `<CommsThreads>` in Response under Notification |
-| Capabilities fold + gap hints + enable form | `<CapabilityHealth>` at the bottom of the work queue; gap hints stay under tool-call blocks |
+| Capabilities fold + gap hints + enable form | the sidebar's Capabilities view (`capabilitiesTree.ts`, adr/0342) with a native Set up…; gap hints and `<EnableForm>` stay under tool-call blocks, the same Set up rule (`src/enablement.ts`) and apply (`enablementFlow.ts`) |
 | Event-time strip | superseded by `<Timeline>` |
 | Minimal evidence graph | `<EvidenceGraph>` disclosure behind "Open full graph" in Story |
 | Chronicle (interleaved turns + act lines) | `<ThreadView>` (companion Thread mode); turns in `<Conversation>` |
@@ -296,24 +291,29 @@ This is a decision this document makes; it is flagged in §11.
 
 ### 2.6 The Knowledge document
 
-`09 §9.1` gives knowledge two surfaces. The **Knowledge section** is part of the investigation
-webview (above). The **Knowledge view** is its own document in the main area: one webview
+`09 §9.1` gave knowledge two surfaces; since `adr/0344` the investigation webview carries no
+**Knowledge section**, and the sidebar's **Knowledge** tree is the library's entry point. The
+**Knowledge view** is its own document in the main area: one webview
 panel, created by `knowledgeDocument.ts` the way `caseDocument.ts` creates a case document,
 kept as a singleton (`retainContextWhenHidden`, revealed rather than re-created), rendering
 `<KnowledgeApp>` from the same bundle with `data-surface="knowledge"`. *Built (`adr/0107`): the
-singleton panel, `knowledge.open` from the investigation's left region and Library, Procedures ·
-Past cases · Import with the query bar and the inspector dock; the Work toggle in the Knowledge
-document's region is not built, and the view lists its sections in its own navigation.* It shares `<LeftRegion>`,
-the inspector dock, the dialogs, the primitives and the tokens with the investigation document;
-it shares no state with any investigation, and nothing in it posts an investigation intent.
+singleton panel, Procedures · Past cases · Import with the query bar and the inspector dock, and
+the view's own section list.* Since `adr/0344` it opens from the sidebar's Knowledge view: its
+title bar (`reckon.openKnowledge`), its **Search** (`reckon.searchKnowledge`, the `knowledge.search`
+cue focuses the query bar) and a row (`reckon.openKnowledgeItem`, the `knowledge.show` cue opens
+that item's inspector). A cue for a view not yet ready is held until its `ready`. *Since `adr/0346`
+it is a top-level tab: it opens in the active editor group and takes the focus, one panel reused
+and revealed where it is; the section list, the procedure and past-case lists and Import are
+gone. Its page is the item (the inspector pane full-width, with its back stack, no pin or close)
+or the search page (the query bar, results as two lists, and with no search showing the past
+cases under their filters); `reckon.openKnowledge` opens the search page.* It shares the inspector dock, the dialogs, the primitives and the tokens with the
+investigation document; it shares no state with any investigation, and nothing in it posts an
+investigation intent.
 
-**The left region's mode is a navigation act, not a content swap.** In an investigation
-document the region shows the work queue; choosing Knowledge sends `knowledge.open` and the
-host reveals the Knowledge document (at the last section, or the one named). In the Knowledge
-document the region lists the four sections with their counts; choosing Work shows the queue
-there, and a queue row opens its investigation (`investigation.open`). Each document's main area
-is fixed; the toggle only chooses what the region lists. The investigation's `<KnowledgeSection>`
-links "Open the Knowledge view" the same way, with the item's section and id.
+**Opening the Knowledge view is a navigation act, not a content swap.** The host reveals the
+Knowledge document (on the item named, or the search page, `adr/0346`); each document's main area is fixed.
+The work queue is the editor's sidebar (`adr/0342`), where a row opens its investigation; a
+sidebar Knowledge row opens the Knowledge view on its item (`adr/0344`).
 
 **Separation is enforced by type.** `<KnowledgeApp>` receives a `KnowledgeState` (§3.1) that
 holds no investigation slice; the only investigation facts it can show are the links the
@@ -400,9 +400,11 @@ were read (or the thread's last entry, if the thread read saw a newer event). Th
 read of one investigation in order, so an older read is never posted after a newer one. After a
 write — the analyst's, the agent's turn, or a dispatch landing — the host re-reads the event-sourced
 slices together (investigation, hypotheses, actions, pins, comms, thread with its transcripts) and
-posts one patch, with no loading state; the work queue, the derived views and any action record
-the inspector holds follow. Layers a write cannot change (capabilities, enablement, knowledge) are
-read on load only and posted with the current watermark. The webview drops a snapshot or patch
+posts one patch, with no loading state; the derived views and any action record the inspector
+holds follow. Layers a write cannot change (capabilities, enablement, knowledge) are read on load
+and posted with the current watermark; an enablement apply, from the document's form or the
+sidebar's Set up…, re-reads the capability layer (both lists, once) for every open investigation
+(`adr/0342`). The webview drops a snapshot or patch
 older than what it holds for the same investigation.
 
 There is no gap detection at v0: every change the webview can know about comes from the host,
@@ -431,7 +433,6 @@ the types; the host narrows on `type`. One protocol, extended; no second one.
 | { type: "state.snapshot"; seq: number; snapshot: InvestigationSnapshot }
 | { type: "state.patch"; seq: number; patch: Partial<InvestigationSnapshot> }
 | { type: "me"; name: string; principal: string }                        // for "edited by you" and attestations
-| { type: "queue"; investigations: InvestigationSummary[]; cases: CaseRow[] } // work queue (08 §8.3)
 | { type: "inspector.evidence"; ref: string; doc: EvidenceDoc; view: EventView | null; around: EventRow[]; appearances: Appearance[] }
 | { type: "inspector.entity"; ref: string; doc: EvidenceDoc | null; label: string; baseline: Baseline | null; appearances: Appearance[]; eventCount: number }
 | { type: "inspector.procedure"; sopId: string; sop: SOPView; excerpts: RetrievedExcerpt[]; revisions: SOPRevision[] }
@@ -464,8 +465,6 @@ then drops the old ones).
 ### 4.2 Webview → host (`InboundMessage`), additions
 
 ```ts
-| { type: "queue.get" }
-| { type: "queue.start"; caseNumber: string }                            // Start investigation from the work queue
 | { type: "inspector.open"; target:
       | { kind: "ref"; ref: string }                 // any STIX / OCSF id: evidence, observed-data, absence, indicator, note, prediction, hypothesis, entity, alias edge
       | { kind: "sop"; sopId: string }
@@ -478,7 +477,7 @@ then drops the old ones).
       | { kind: "person"; principalId: string } }
 // Absence "Re-run with a wider window" stages the text in the composer webview-side; no host message
 | { type: "knowledge.search"; text: string }                              // 09 §9.6: sidecar searchKnowledge; the merged set comes back as `knowledge`
-| { type: "knowledge.open"; section?: "procedures" | "cases" | "import" | "candidates"; id?: string } // reveal the Knowledge document
+| { type: "knowledge.open"; section?: "procedures" | "cases" | "import" | "candidates"; id?: string } // reveal the Knowledge document — removed by adr/0344: the sidebar opens it (knowledge.show / knowledge.search cues)
 | { type: "events.get"; entity?: string }
 | { type: "summary.get" }
 | { type: "narrative.draft" }                                            // sidecar BYOK draft (§6.18)
@@ -560,8 +559,9 @@ Mono from `media/fonts/`, falling back to `--vscode-font-family` / `--vscode-edi
 
 ### 5.3 Layout floors
 
-Regions per `08 §8.1`: work queue 220–270px (icon rail below 1280px), lens content max 900px,
-companion 340–420px (drawer below 1024px), inspector 440–480px overlaying. The grid uses
+Regions per `08 §8.1`: lens content max 900px, companion 340–420px (drawer below 1024px),
+inspector 440–480px overlaying. There is no work-queue column (`adr/0342`): the queue is the
+editor's sidebar, hidden on a narrow editor with the editor's own sidebar toggle. The grid uses
 container queries on `#root` so the harness can test the collapse points by resizing the
 viewport. No horizontal page scroll at 1280px is a harness assertion.
 
@@ -721,12 +721,13 @@ architectural commitment: the investigation aggregate is the only event-sourced 
 
 - `InvestigationView`: `created_at`; `opened_by_name` (the `investigation.created` actor's
   display name, `adr/0077`); list rows add `has_verdict`, `open_actions`, `open_notifications`
-  so the work queue can derive the stage step without fetching every investigation.
+  so the sidebar's Investigations rows derive the stage step (`src/stage.ts`, adr/0342) without
+  fetching every investigation.
 - `ThreadActorView`: `principal_name`. `PinView`, `VerdictView`, `AttestationView` already
   carry or gain the name. People render by display name, id on hover (`08 §8.7`).
 - `ActionView.targets` keep `entity_ref` and `resolved_identifier` (the client stops flattening).
-- `GET /api/cases` is already the queue; the work queue filters client-side to rows with no
-  `investigation`.
+- `GET /api/cases` is already the queue; the sidebar's Cases view lists every row, marks the
+  investigated ones, and offers Start investigation on the rest (adr/0342).
 - `GET /api/evidence/{ref}` on an `indicator--` ref gains `related`: the sightings whose
   `sighting_of_ref` is the indicator, the vendor identity (`created_by_ref`), and the
   observed-data the finding recursed (`03 §4.12`), so the Detection inspector is one fetch.
@@ -782,7 +783,7 @@ inspector and the baseline fold must agree, and the fixtures already exercise th
 // EventView — on GET /api/evidence/{ref} (ocsf kind) as "view", and on every EventRow
 {
   "sentence": [ {"t":"entity","ref":"user-account--…","text":"svc_backup"}, {"t":"text","text":" interactive RDP logon to "}, {"t":"entity","ref":"x-host--…","text":"WIN-FILE01"}, {"t":"text","text":" from "}, {"t":"entity","ref":"ipv4-addr--…","text":"10.0.4.20"} ],
-  "fields": [ {"label":"User","value":"svc_backup","ref":"user-account--…","mono":true}, {"label":"Logon type","value":"RemoteInteractive (type 10)"}, {"label":"Result","value":"Success","tone":"ok"} ],
+  "fields": [ {"label":"User","value":"svc_backup","ref":"user-account--…","mono":true}, {"label":"Logon type","value":"Remote Interactive (type 10)"}, {"label":"Result","value":"Success","tone":"ok"} ],
   "category": "auth",             // auth | process | network | detection | asset | case | other (from category_uid)
   "decoded": { "field": "process.cmd_line", "encoding": "base64-utf16le", "text": "echo" }  // only when a known encoding decodes cleanly; the original is always shown
 }
@@ -1147,11 +1148,13 @@ PRs in dependency order, each green on `make ci` and `make workbench-ci`, each r
 4. **Density + layout (L2, L3, L6 first half)** — header with stage and primary action, the
    left region with its mode toggle and the work queue, lens tabs with the lifecycle default,
    companion column with the Knowledge section (replacing the rail: toggles, collapsed summary,
-   scoped search via the sidecar, nudges, Open the Knowledge view), turn records and the
+   scoped search via the sidecar, nudges, Open the Knowledge view; the section is removed by
+   `adr/0344`, the library moving to the sidebar), turn records and the
    activity disclosure, one-line prediction rows and the matrix, Response lens from the existing
    action data, §8.0 view additions.
    The left region's Work | Knowledge toggle is present but inert in this PR (it names the
-   Knowledge document, which 4b adds); the Knowledge section's "Open the Knowledge view" link
+   Knowledge document, which 4b adds; the region itself is removed by `adr/0342`, the queue
+   moving to the sidebar); the Knowledge section's "Open the Knowledge view" link
    arrives with it. Export moves to the Summary lens; the companion keeps `08 §8.1`'s width
    floors instead of an analyst-resized width.
 4b. **Knowledge document (L6)** — `knowledgeDocument.ts` and `<KnowledgeApp>`: Procedures (list,
@@ -1211,8 +1214,9 @@ is set.
     `§6.24` are now taken by `ui/09`, so it would be `§6.25`), or stay out until a normalizer or
     adapter mints alias edges?
 14. **The Knowledge view is one singleton webview panel sharing the bundle** (§2.6), not a
-    second extension surface; the left region's Work | Knowledge toggle is a navigation act
-    that reveals the other document, never a swap of the main area.
+    second extension surface; opening it is a navigation act that reveals the other document,
+    never a swap of the main area (since `adr/0342`, from the sidebar's Investigations title bar
+    and the Library; the left region is gone).
 15. **Searched-in knowledge joins the sidecar session, not the host** (§8.0 `searchKnowledge`):
     the session owns what the model may read, so the host never calls the recall endpoints on
     the investigation's behalf. Inclusion stays webview state that rides the next turn.

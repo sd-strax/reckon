@@ -42,7 +42,7 @@ func persistPersonWorld(t *testing.T, s *Store) personWorld {
 	}
 	evts := []capability.OcsfEvent{
 		mk("dc", 3002, 1, map[string]any{
-			"actor":        map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": sid}},
+			"user":         map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": sid},
 			"dst_endpoint": map[string]any{"hostname": "WIN-DC01", "os": windows},
 		}),
 		mk("edr", 1007, 2, map[string]any{
@@ -52,7 +52,7 @@ func persistPersonWorld(t *testing.T, s *Store) personWorld {
 		}),
 		mk("idp", 3002, 3, map[string]any{
 			"metadata": idpMeta,
-			"actor":    map[string]any{"user": map[string]any{"name": upn, "uid": oid, "account": map[string]any{"type_id": float64(6)}}},
+			"user":     map[string]any{"name": upn, "uid": oid, "account": map[string]any{"type_id": float64(6)}},
 		}),
 		mk("idp", 5003, 4, map[string]any{
 			"metadata": idpMeta,
@@ -405,5 +405,49 @@ func TestAssertOwner(t *testing.T) {
 	}
 	if err := s.AssertAlias(ctx, testIDs, string(w.person), string(vendor), ana, ""); !errors.As(err, &missing) {
 		t.Errorf("a person joined to a vendor identity: %v", err)
+	}
+}
+
+// TestAccountIdentity_DetectionEvidence (adr/0356): a detection's evidence is
+// the list evidences[]. The user objects of its artifacts, actor.user and
+// user, are read for seen-as like an event's own.
+func TestAccountIdentity_DetectionEvidence(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry(testIDs)
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	const (
+		sid = "S-1-5-21-1001"
+		upn = "jdoe@contoso.example"
+	)
+	evt := capability.OcsfEvent{
+		ID: uuid.Must(uuid.NewV7()), ClassUID: 2004, ClassName: "Detection Finding", Time: base, RecordedAt: base, SourceTool: "edr",
+		Payload: map[string]any{
+			"class_uid":    2004,
+			"finding_info": map[string]any{"uid": "det-1", "title": "Beacon"},
+			"evidences": []any{
+				map[string]any{"actor": map[string]any{"user": map[string]any{"name": "jdoe", "domain": "CONTOSO", "uid": sid}}},
+				map[string]any{"user": map[string]any{"name": upn, "uid": sid}},
+				"not an artifact",
+			},
+		},
+	}
+	nr, err := reg.Normalize(evt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nr.EventID = evt.ID
+	inv := uuid.New()
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "v", StartedAt: base},
+		capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: []capability.OcsfEvent{evt}, Normalized: []capability.NormalizationResult{nr}})
+
+	account := testIDs.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, UserID: sid})
+	v, err := s.AccountIdentity(ctx, string(account))
+	if err != nil {
+		t.Fatalf("AccountIdentity: %v", err)
+	}
+	if !slices.Contains(v.SeenAs.Logins, `CONTOSO\jdoe`) || !slices.Contains(v.SeenAs.IDs, SourceID{Tool: "edr", UID: sid}) ||
+		!slices.Contains(v.SeenAs.PrincipalNames, upn) {
+		t.Errorf("seen as = %+v; want both artifacts' user objects", v.SeenAs)
 	}
 }

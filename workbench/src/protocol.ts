@@ -29,7 +29,6 @@ import type {
   Hypothesis,
   IdentityViews,
   InvestigationDetail,
-  InvestigationSummary,
   KnowledgeCitations,
   PastCaseFacets,
   PastCaseFilter,
@@ -40,6 +39,7 @@ import type {
   SOPOutlineView,
   ThreadEntry,
 } from "./viewTypes";
+import type { EnablementField } from "./enablement";
 
 /** The four lenses (08 §8.4). */
 export type Lens = "summary" | "story" | "reasoning" | "response";
@@ -118,6 +118,18 @@ export interface DerivedViews {
   graph: GraphView;
   /** The entities the cited evidence observed, most cited first (Summary key entities). */
   entities?: { ref: string; citations: number }[];
+  /** The pinned user accounts the record joins by an alias (adr/0352); absent when none. */
+  accountAliases?: AccountAlias[];
+}
+
+/**
+ * A set of user accounts one pin cites that a live aliases edge joins
+ * (adr/0324): `ref` the login's account, the card's one chip; `also` the
+ * others (the SID's), read beside it.
+ */
+export interface AccountAlias {
+  ref: string;
+  also: string[];
 }
 
 /**
@@ -204,9 +216,6 @@ export type RenderMessage =
   // The whole cache, and whole re-posts of the slices an act touched (§3.1).
   | { type: "state.snapshot"; seq: number; snapshot: InvestigationSnapshot }
   | { type: "state.patch"; seq: number; patch: Partial<InvestigationSnapshot> }
-  // The work queue (08 §8.3): the analyst's investigations and the case
-  // system's queue, posted on load and on refresh; `queue.get` re-asks.
-  | { type: "queue"; investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string }
   // Who the signed-in principal is, for "edited by you" and attestations.
   | { type: "me"; name: string; principal: string }
   | { type: "error"; message: string }
@@ -255,15 +264,14 @@ export type RenderMessage =
   // the text on the investigation) or failed; an edit saving, saved (after
   // the re-read) or refused, the text still in the editor.
   | { type: "narrative.status"; state: "drafting" | "written" | "failed" | "saving" | "saved" | "save-failed"; message?: string }
-  // The knowledge library (adr/0129): the browse lists, and one search's hits.
-  // casesTotal is every past case in the corpus, beyond the listing's page
-  // (adr/0107); absent where it was not read.
-  // sopsError is set when the procedures could not be read: not an empty library.
-  | { type: "library"; sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number; sopsError?: string }
+  // The knowledge library (adr/0129): one search's hits.
   | { type: "library.results"; query: string; sops: LibraryItem[]; cases: LibraryItem[] }
   // The Knowledge view's past cases under a filter (adr/0107), with how many
   // matched; error is set, and rows empty, when the read failed.
   | { type: "pastCases"; filter: PastCaseFilter; rows: PastCaseRow[]; total: number; error?: string }
+  // Every past case in the corpus, beyond the listing's page (adr/0107): the
+  // "m" of "n of m match". Not sent when it could not be read.
+  | { type: "pastCases.corpus"; total: number }
   | { type: "pastCases.facets"; facets: PastCaseFacets }
   // The host finished handling a decision on this action (approve, reject,
   // re-request, reversal), whatever the outcome, after refreshing the record.
@@ -281,14 +289,14 @@ export type RenderMessage =
   | { type: "turn.toolResult"; name: string; isError: boolean; coverage?: string; events?: number; refs?: string[]; callId?: string }
   | { type: "turn.committed"; interpretationId: string }
   | { type: "turn.error"; message: string }
-  | { type: "turn.end"; usage?: { input: number; output: number; cacheRead: number }; rounds?: number };
+  | { type: "turn.end"; usage?: { input: number; output: number; cacheRead: number }; rounds?: number }
+  // Stage a request in the composer, never sent (adr/0344): "Ask reckon to
+  // use this" from the sidebar's Knowledge view.
+  | { type: "composer.stage"; text: string };
 
 /** What the webview posts back to the extension host. */
 export type InboundMessage =
   | { type: "refresh" | "ready" }
-  | { type: "queue.get" }
-  // Start an investigation from a case row in the work queue (08 §8.3).
-  | { type: "queue.start"; caseNumber: string }
   // Draft a procedure from this concluded case, then add or discard it (adr/0156).
   | { type: "sop.draft"; force?: boolean }
   | { type: "sop.accept" }
@@ -297,14 +305,14 @@ export type InboundMessage =
   // record the analyst's own revision.
   | { type: "narrative.draft" }
   | { type: "narrative.edit"; body: string }
-  // The knowledge library (adr/0129): load it, search it, import into it.
-  | { type: "library.get" }
+  // The Knowledge tab's (adr/0107, adr/0346): search the library, and its
+  // past cases under a filter. An investigation document sends neither
+  // (adr/0344): its host has no handler for them.
   | { type: "library.search"; text: string }
-  | { type: "library.import" }
-  // The Knowledge view (adr/0107): its past cases under a filter, and opening
-  // the view from the investigation's left region.
+  // The page the Knowledge tab now shows (adr/0346): an item, or with no
+  // target the search page. The host reads only what the shown page uses.
+  | { type: "knowledge.showing"; target?: KnowledgeTarget }
   | { type: "pastCases.get"; filter: PastCaseFilter }
-  | { type: "knowledge.open" }
   // The lens and companion mode the analyst chose, mirrored to globalState so
   // the tree can deep-link (view state, never investigation state).
   | { type: "view.state"; lens?: Lens; companion?: "conversation" | "thread" }
@@ -348,7 +356,9 @@ export type InboundMessage =
   // One prediction's test, run as a scoped turn from its row (the ⚡ family).
   | { type: "pred.test"; predictionRef: string; predictionName: string; statement: string; queryText?: string; tool?: string; hypothesisRef: string; hypStatement: string; handle?: string; rivals?: RivalBrief[] }
   | { type: "hyp.decide"; hypothesisRef: string; statement: string; handle?: string; rivals?: RivalBrief[] }
-  | { type: "enablement.apply"; adapter: string; enabled: boolean; config: Record<string, string>; secretFields: string[] }
+  // `ask`: the fields the native flow still asks for — every secret, and any
+  // required field the form left empty — with the schema's rules (adr/0342).
+  | { type: "enablement.apply"; adapter: string; enabled: boolean; config: Record<string, string>; ask: EnablementField[] }
   | { type: "comms.act"; threadId: string; verb: "ack" | "done" }
   | { type: "comms.snooze"; threadId: string; hours: number }
   | { type: "comms.followup"; threadId: string; actionType: string; target: string; subject: string; message: string; followUpHours: number }
@@ -381,8 +391,6 @@ export type InboundMessage =
   | { type: "export.open" }
   | { type: "copy"; text: string }
   | { type: "investigation.open"; id: string; title?: string }
-  // Start a new investigation: the seed surface, as the command opens it (#162).
-  | { type: "investigation.new" }
   | { type: "rename"; title: string };
 
 // ---- the other surfaces -------------------------------------------------------
@@ -395,19 +403,36 @@ export type InboundMessage =
 export type Surface = "investigation" | "case" | "import" | "knowledge";
 
 /**
- * The Knowledge view (adr/0107, ui/09 §9.1): knowledge only, outside any
- * investigation. It mounts the investigation document's store with no
- * investigation loaded, so its pair is a subset of that document's: the
- * library, search, the past-case listing, the procedure and case inspectors,
- * import, and opening an investigation a case names. Nothing in it acts on
- * an investigation.
+ * The Knowledge tab (adr/0107, adr/0346, ui/09 §9.1): knowledge only, outside
+ * any investigation. It mounts the investigation document's store with no
+ * investigation loaded, so its pair is a subset of that document's: search,
+ * the past-case listing, the procedure and case inspectors, and opening an
+ * investigation a case names. Nothing in it acts on an investigation.
  */
 export type KnowledgeRenderMessage = Extract<RenderMessage, {
-  type: "library" | "library.results" | "pastCases" | "pastCases.facets" | "inspector.procedure" | "inspector.case" | "inspector.error" | "error";
-}>;
+  type: "library.results" | "pastCases" | "pastCases.corpus" | "pastCases.facets" | "inspector.procedure" | "inspector.case" | "inspector.error" | "error";
+}> | KnowledgeCue;
+
+/** A procedure or a past case: what the Knowledge tab's item page shows. */
+export type KnowledgeTarget = Extract<InspectorTarget, { kind: "sop" | "case" }>;
+
+/**
+ * What the sidebar asks of the Knowledge tab (adr/0344, adr/0346): open on one
+ * item, or on the search page with its query bar focused. The page's own,
+ * never the store's.
+ */
+export type KnowledgeCue =
+  | { type: "knowledge.show"; target: KnowledgeTarget }
+  | { type: "knowledge.search" };
+
+/** The intents only the Knowledge view sends (adr/0344). */
+export type KnowledgeOnlyIntent = "library.search" | "pastCases.get" | "knowledge.showing";
+
+/** What an investigation document's host answers: every intent but the Knowledge view's own. */
+export type InvestigationInboundMessage = Exclude<InboundMessage, { type: KnowledgeOnlyIntent }>;
 
 export type KnowledgeInboundMessage = Extract<InboundMessage, {
-  type: "ready" | "refresh" | "library.get" | "library.search" | "library.import" | "pastCases.get" | "inspector.open" | "investigation.open" | "copy";
+  type: "ready" | "refresh" | "library.search" | "pastCases.get" | "knowledge.showing" | "inspector.open" | "investigation.open" | "copy";
 }>;
 
 /** The case document (adr/0030): one system-of-record case, read-only. */

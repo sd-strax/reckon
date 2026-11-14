@@ -3,7 +3,7 @@
 // arrive whole with a sequence (impl §3.1/§3.2); a snapshot or patch older than
 // what the webview holds is dropped. Everything here is view state or a mirror of the
 // host's cache — never a second source of truth.
-import type { ActionRecord, Appearance, CapabilityCall, CaseRow, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, InvestigationSummary, KnowledgeCitations, PastCaseFacets, PastCaseFilter, PastCaseRow, ProcedureReads, SOPDoc, SOPOutlineView } from "../../src/viewTypes";
+import type { ActionRecord, Appearance, CapabilityCall, CaseSummary, CaseSummaryView, EventRepeats, EventRow, EvidenceDoc, KnowledgeCitations, PastCaseFacets, PastCaseFilter, PastCaseRow, ProcedureReads, SOPDoc, SOPOutlineView } from "../../src/viewTypes";
 import type { ActionTypeView, InvestigationSnapshot, KnownAccount, LibraryItem, RenderMessage, SopDraftState } from "../../src/protocol";
 import { docBearsIdentity, identityViewKeys } from "../../src/identityKinds";
 
@@ -103,12 +103,9 @@ export interface State {
   narrativeStatus: { state: "drafting" | "failed" | "saving" | "save-failed"; message?: string } | null;
   /** How many edits the record has taken in this session, so the editor closes once its own landed. */
   narrativeSaves: number;
-  /** The knowledge library (adr/0129): what there is, and the last search's hits. */
+  /** The knowledge library (adr/0129): the last search's hits, and every past case there is (adr/0107). */
   library: {
-    sops: LibraryItem[]; cases: LibraryItem[]; casesTotal?: number;
-    /** The last procedures read failed; the list is the one read before it. */
-    sopsError?: string;
-    loaded: boolean;
+    casesTotal?: number;
     results: { query: string; sops: LibraryItem[]; cases: LibraryItem[] } | null;
     /** The search asked last; an answer for any other, or after it was dismissed, is not shown. */
     pending?: string;
@@ -117,8 +114,6 @@ export interface State {
   streaming: boolean;
   /** A failed turn's live copy is the only record of it: keep it until a new turn. */
   preserveLive: boolean;
-  /** The work queue (08 §8.3); null until the host posts it. */
-  queue: { investigations: InvestigationSummary[]; cases: CaseRow[]; caseSource?: string } | null;
   /** The signed-in principal, for "edited by you" and attestations. */
   me: { name: string; principal: string } | null;
   /** Actions with a decision sent and not yet settled by the host: every card for one disables. */
@@ -211,7 +206,7 @@ export const initialState: State = {
   around: {},
   repeats: {},
   inspectorErrors: {},
-  library: { sops: [], cases: [], loaded: false, results: null },
+  library: { results: null },
   actionTypes: [],
   sopDraft: null,
   summaryStatus: null,
@@ -220,7 +215,6 @@ export const initialState: State = {
   live: [],
   streaming: false,
   preserveLive: false,
-  queue: null,
   me: null,
   actionsInFlight: {},
   identityActs: {},
@@ -325,14 +319,11 @@ function onMessage(state: State, msg: RenderMessage): State {
       if (msg.state === "saved") return { ...state, narrativeStatus: null, narrativeSaves: state.narrativeSaves + 1 };
       if (msg.state === "written") return { ...state, narrativeStatus: null };
       return { ...state, narrativeStatus: { state: msg.state, message: msg.message } };
-    case "library":
-      return {
-        ...state,
-        library: msg.sopsError
-          // A failed read keeps what was read before and says it failed.
-          ? { ...state.library, cases: msg.cases, casesTotal: msg.casesTotal, sopsError: msg.sopsError, loaded: true }
-          : { ...state.library, sops: msg.sops, cases: msg.cases, casesTotal: msg.casesTotal, sopsError: undefined, loaded: true },
-      };
+    // The provider stages it in the composer: view state, not the record's.
+    case "composer.stage":
+      return state;
+    case "pastCases.corpus":
+      return { ...state, library: { ...state.library, casesTotal: msg.total } };
     case "library.results":
       if (state.library.pending !== msg.query) return state;
       return { ...state, library: { ...state.library, pending: undefined, results: { query: msg.query, sops: msg.sops, cases: msg.cases } } };
@@ -380,8 +371,6 @@ function onMessage(state: State, msg: RenderMessage): State {
       if (msg.patch.thread !== undefined && !state.streaming && !state.preserveLive) next.live = [];
       return next;
     }
-    case "queue":
-      return { ...state, queue: { investigations: msg.investigations, cases: msg.cases, caseSource: msg.caseSource } };
     case "me":
       return { ...state, me: { name: msg.name, principal: msg.principal } };
     case "rename.begin":

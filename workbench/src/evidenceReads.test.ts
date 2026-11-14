@@ -344,3 +344,36 @@ describe("an account's and a person's identity in the inspector reads (adr/0324)
     expect(elsewhere).toEqual([{ type: "identity.changed", ref: acct }]);
   });
 });
+
+describe("a pin card follows an identity act (adr/0352)", () => {
+  it("a join on two pinned accounts derives the views again, the pair joined, with no thread change", async () => {
+    const sid = "user-account--00000000-0000-4000-8000-000000000001";
+    const login = "user-account--00000000-0000-4000-8000-000000000002";
+    let joined = false;
+    const acctDoc = (ref: string, other: string, uid: string): EvidenceDoc => ({
+      ref, kind: "stix", type: "user-account", payload: { account_login: "CONTOSO\\svc_backup", ...(uid ? { user_id: uid } : {}) },
+      accountIdentity: { aliases: joined ? [{ edgeId: "relationship--j", otherRef: other, kind: "asserted", at: "2026-01-02T03:04:05Z", withdrawn: false }] : [], distinct: [], seenAs: { logins: [], ids: [], principalNames: [] }, owners: [] },
+    });
+    const posted: RenderMessage[] = [];
+    const fake = {
+      client: {
+        evidence: {
+          get: async (ref: string) => ref === sid ? acctDoc(sid, login, "S-1-5-21-1004") : acctDoc(login, sid, ""),
+          appearances: async () => [],
+          assertIdentity: async () => { joined = true; return null; },
+        },
+      },
+      post: async (p: vscode.WebviewPanel, m: RenderMessage) => { if (p === panel) posted.push(m); return true; },
+      openPanels: () => [panel],
+      sameIdentity: () => () => true,
+      log: { debug: () => {} },
+    } as unknown as DocumentHost;
+    const reads = new EvidenceReads(fake);
+    const pins = [{ interpretationId: "pin", finding: "", inputRefs: [sid, login], actor: "HUMAN", pinnedAt: "", superseded: false }];
+    const derivedOf = () => posted.filter((m): m is Extract<RenderMessage, { type: "state.patch" }> => m.type === "state.patch" && !!m.patch.derived).map((m) => ({ seq: m.seq, aliases: m.patch.derived!.accountAliases, thread: m.patch.thread }));
+    await reads.postDerivedViews(panel, [], 7, { pins });
+    expect(derivedOf()).toEqual([{ seq: 7, aliases: undefined, thread: undefined }]);
+    await reads.assertIdentity("inv-1", panel, { ref: login, requestId: "j1", relation: "aliases", other: { ref: sid } });
+    expect(derivedOf().at(-1)).toEqual({ seq: 7, aliases: [{ ref: login, also: [sid] }], thread: undefined });
+  });
+});

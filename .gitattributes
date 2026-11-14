@@ -1,0 +1,3 @@
+# The OCSF schema exports are one long line each (adr/0356): not diffable,
+# and third-party material.
+third_party/ocsf-schema/*/schema.json -diff linguist-vendored

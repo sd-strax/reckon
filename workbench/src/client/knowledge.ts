@@ -28,12 +28,7 @@ export class KnowledgeClient {
     return r.sops.filter((x) => x.id).map((x) => ({ kind: "sop" as const, ref: x.id, title: x.title || x.id, detail: x.tags.join(", ") || undefined, citedIn: x.cited_in }));
   }
 
-  /** GET /api/knowledge/case_summaries — the past cases in the library (adr/0129), unfiltered. */
-  async cases(): Promise<LibraryItem[]> {
-    return (await this.caseList()).items;
-  }
-
-  /** The unfiltered listing as library rows, and how many past cases the corpus holds beyond its page. */
+  /** GET /api/knowledge/case_summaries, unfiltered (adr/0129): the listing as library rows, and how many past cases the corpus holds beyond its page. */
   async caseList(): Promise<{ items: LibraryItem[]; total: number }> {
     const { rows, total } = await this.pastCases({ techniques: [] });
     return { total, items: rows.map((x) => ({
