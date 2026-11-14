@@ -203,7 +203,8 @@ func initiator(e map[string]any) map[string]any {
 // (user.session.impersonation.*). Okta's LogEvent schema says the actor is
 // the entity "who performs an action on a target" and the target is "the
 // entity that an actor performs an action on"
-// (https://developer.okta.com/docs/api/openapi/okta-management/management/tag/SystemLog/).
+// (Okta's management OpenAPI spec, LogActor and LogTarget:
+// https://github.com/okta/okta-management-openapi-spec, dist/current/management-minimal.yaml).
 // Okta's event-type catalog
 // (https://developer.okta.com/docs/reference/api/event-types/) does not list
 // the targets of each event type, so the rule goes by the event itself: when
