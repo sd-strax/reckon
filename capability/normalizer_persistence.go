@@ -1,6 +1,9 @@
 package capability
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/ocsf"
 )
@@ -13,12 +16,13 @@ const (
 )
 
 // registryNormalizer handles OCSF registry_key_activity (class_uid 201001)
-// and registry_value_activity (201002) → STIX (§4.6): the host-scoped
-// registry key, the actor process, and the host, with activity_id preserved
-// on the ObservedData. It is registered once per class and reads only that
-// class's fields: a key event names the key in reg_key.path, a value event in
-// reg_value.path, so both yield the same type of object. Their ids differ:
-// the value name is part of the id.
+// and registry_value_activity (201002) → STIX (§4.6, adr/0341): the
+// host-scoped windows-registry-key, the actor process, and the host, with
+// activity_id preserved on the ObservedData. It is registered once per class
+// and reads only that class's fields: a key event names the key in
+// reg_key.path, a value event in reg_value.path, so both yield the same type
+// of object. A value event's object holds that one value in values, and its
+// id carries the value's name.
 type registryNormalizer struct {
 	r     *identity.Resolver
 	class int
@@ -28,7 +32,8 @@ func (n *registryNormalizer) ClassUID() int { return n.class }
 
 // 2: host identity, adr/0211
 // 3: OCSF classes and fields, adr/0356
-func (*registryNormalizer) Version() int { return 3 }
+// 4: STIX windows-registry-key, adr/0341
+func (*registryNormalizer) Version() int { return 4 }
 
 func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -39,33 +44,82 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 	b := newBuilder(n.r, evt, name, n.Version())
 
 	host := b.host("device")
-	var fullPath, valueName, valueData string
-	props := map[string]any{}
+	var path string
+	var valueName *string
+	var value map[string]any
 	if n.class == classRegistryValue {
-		fullPath = pathStr(p, "reg_value.path")
-		valueName = pathStr(p, "reg_value.name")
-		if v, ok := lookupPath(p, "reg_value.data"); ok {
-			valueData = scalarString(v)
-		}
-		// The value's type: the caption, else the id.
-		if t := pathStr(p, "reg_value.type"); t != "" {
-			props["value_type"] = t
-		} else if id := pathInt(p, "reg_value.type_id"); id != 0 {
-			props["value_type_id"] = id
+		path = pathStr(p, "reg_value.path")
+		// A string name wins. No name with is_default true is the default
+		// value, named "". Neither names no value: the key alone.
+		regValue, _ := p["reg_value"].(map[string]any)
+		if s, ok := ocsf.RegistryValueName(regValue); ok {
+			valueName = &s
+			value = registryValue(p, s)
 		}
 	} else {
-		fullPath = pathStr(p, "reg_key.path")
+		path = pathStr(p, "reg_key.path")
 	}
-	if hive, keyPath := ocsf.SplitRegistryPath(fullPath); hive != "" || keyPath != "" {
-		props["hive"] = hive
-		props["key_path"] = keyPath
-		props["value_name"] = valueName
-		props["value_data"] = valueData
-		b.addSCO(n.r.RegistryKey(host, hive, keyPath, valueName), identity.TypeRegistryKey, props)
+	if key := identity.RegistryKeyPath(path); key != "" {
+		props := map[string]any{"key": key}
+		if value != nil {
+			props["values"] = []any{value}
+		}
+		b.addSCO(n.r.RegistryKey(host, key, valueName), identity.TypeWindowsRegistryKey, props)
 	}
 	b.actorProcess(p, host)
 
 	return b.finish(activityExt(p)), nil
+}
+
+// registryValue is the windows-registry-value-type of a value event: the name
+// as written ("" for the default value), the data as a string, and the STIX
+// data_type when the source's type is one (adr/0341).
+func registryValue(p map[string]any, name string) map[string]any {
+	value := map[string]any{"name": name}
+	if v, ok := lookupPath(p, "reg_value.data"); ok && v != nil {
+		if data, ok := registryData(v); ok {
+			value["data"] = data
+		}
+	}
+	dataType := pathStr(p, "reg_value.type")
+	if !stixRegistryDataTypes[dataType] {
+		dataType = ocsf.RegistryValueTypes[pathInt(p, "reg_value.type_id")]
+	}
+	if stixRegistryDataTypes[dataType] {
+		value["data_type"] = dataType
+	}
+	return value
+}
+
+// registryData is a value's data as a string. OCSF types it as JSON, so a
+// value that is not a string is written as its JSON text. A number that
+// float64 cannot state exactly (a REG_QWORD FILETIME at or above 2^53, which
+// arrives rounded) reports false, and the value leaves data out as it does
+// when the source gives none.
+func registryData(v any) (string, bool) {
+	switch x := v.(type) {
+	case string:
+		return x, true
+	case float64:
+		if !exactNumber(x) {
+			return "", false
+		}
+	}
+	text, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v), true
+	}
+	return string(text), true
+}
+
+// stixRegistryDataTypes are the data_type names STIX 2.1 allows on a
+// windows-registry-value-type (windows-registry-datatype-enum).
+var stixRegistryDataTypes = map[string]bool{
+	"REG_NONE": true, "REG_SZ": true, "REG_EXPAND_SZ": true, "REG_BINARY": true,
+	"REG_DWORD": true, "REG_DWORD_BIG_ENDIAN": true, "REG_DWORD_LITTLE_ENDIAN": true,
+	"REG_LINK": true, "REG_MULTI_SZ": true, "REG_RESOURCE_LIST": true,
+	"REG_FULL_RESOURCE_DESCRIPTION": true, "REG_RESOURCE_REQUIREMENTS_LIST": true,
+	"REG_QWORD": true, "REG_INVALID_TYPE": true,
 }
 
 // scheduledJobNormalizer handles OCSF scheduled_job_activity (class_uid 1006) →

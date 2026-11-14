@@ -7,7 +7,6 @@ package ocsf
 import (
 	"encoding/json"
 	"math"
-	"strings"
 	"time"
 )
 
@@ -109,12 +108,16 @@ func WholeNumber(v any) (int, bool) {
 	return 0, false
 }
 
-// SplitRegistryPath splits an OCSF registry path, which is the full key path
-// with the hive first, into the hive (the first segment) and the rest. The
-// normalizer and the event view both split with it, so the view finds the
-// x-registry-key the record holds.
-func SplitRegistryPath(full string) (hive, keyPath string) {
-	full = strings.Trim(strings.TrimSpace(full), `\`)
-	hive, keyPath, _ = strings.Cut(full, `\`)
-	return hive, strings.TrimLeft(keyPath, `\`)
+// RegistryValueName is the name of the value a reg_value object names, and
+// whether it names one. A string name is the name as written. A value with no
+// name but is_default true is the default value, whose name is "" (adr/0341).
+// Anything else names no value.
+func RegistryValueName(regValue map[string]any) (string, bool) {
+	if s, ok := regValue["name"].(string); ok {
+		return s, true
+	}
+	if isDefault, _ := regValue["is_default"].(bool); isDefault {
+		return "", true
+	}
+	return "", false
 }

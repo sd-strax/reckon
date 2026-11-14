@@ -263,14 +263,14 @@ func TestRender_Sentences(t *testing.T) {
 			"jdoe created payload.dll on WS1 via explorer.exe", CategoryProcess},
 		{"registry key", 201001, `{"activity_name":"Modify","reg_key":{"path":"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"},
 			"actor":{"process":{"pid":9,"name":"reg.exe"}},"device":{"hostname":"WS1"}}`,
-			`reg.exe modified HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run on WS1`, CategoryProcess},
+			`reg.exe modified HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run on WS1`, CategoryProcess},
 		{"registry key without actor", 201001, `{"activity_name":"Delete","reg_key":{"path":"HKLM\\SOFTWARE\\Run"},"device":{"hostname":"WS1"}}`,
-			`HKLM\SOFTWARE\Run was deleted on WS1`, CategoryProcess},
+			`HKEY_LOCAL_MACHINE\SOFTWARE\Run was deleted on WS1`, CategoryProcess},
 		{"registry value", 201002, `{"activity_name":"Set","reg_value":{"path":"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run","name":"Updater","data":"C:\\u.exe","type":"REG_SZ"},
 			"actor":{"process":{"pid":9,"name":"reg.exe"}},"device":{"hostname":"WS1"}}`,
-			`reg.exe set value Updater of HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run on WS1`, CategoryProcess},
+			`reg.exe set value Updater of HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run on WS1`, CategoryProcess},
 		{"registry value by user", 201002, `{"activity_name":"Delete","reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater"},"actor":{"user":{"name":"jdoe"}}}`,
-			`jdoe deleted value Updater of HKLM\SOFTWARE\Run`, CategoryProcess},
+			`jdoe deleted value Updater of HKEY_LOCAL_MACHINE\SOFTWARE\Run`, CategoryProcess},
 		{"scheduled job", 1006, `{"activity_name":"Create","job":{"name":"Updater","file":{"path":"\\Microsoft\\Updater"},"user":{"name":"SYSTEM"}},"actor":{"user":{"name":"jdoe"}},"device":{"hostname":"WS1"}}`,
 			"jdoe created scheduled job Updater on WS1 running as SYSTEM", CategoryProcess},
 		{"scheduled job named by its path", 1006, `{"activity_name":"Create","job":{"file":{"path":"\\Microsoft\\Updater"},"job_actions":[{"cmd_line":"u.exe"}]},"device":{"hostname":"WS1"}}`,
@@ -1093,9 +1093,9 @@ func TestRender_OCSFFields(t *testing.T) {
 		want    map[string]string // label → value; "" means the field is absent
 	}{
 		{"registry value", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","data":"C:\\u.exe","type":"REG_SZ"}}`,
-			map[string]string{"Key": `HKLM\SOFTWARE\Run`, "Value": "Updater", "Data": `C:\u.exe`, "Type": "REG_SZ"}},
+			map[string]string{"Key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "Value": "Updater", "Data": `C:\u.exe`, "Type": "REG_SZ"}},
 		{"registry key reads no value", 201001, `{"reg_key":{"path":"HKLM\\SOFTWARE\\Run"},"reg_value":{"name":"Updater","data":"x"}}`,
-			map[string]string{"Key": `HKLM\SOFTWARE\Run`, "Value": "", "Data": ""}},
+			map[string]string{"Key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "Value": "", "Data": ""}},
 		{"job at the floor", 1006, `{"job":{"name":"Updater","file":{"path":"\\Microsoft\\Updater"},"cmd_line":"u.exe -q"}}`,
 			map[string]string{"Job": "Updater", "Path": `\Microsoft\Updater`, "Command line": "u.exe -q"}},
 		{"job at the ceiling", 1006, `{"job":{"name":"Updater","job_actions":[{"cmd_line":"u.exe -q"}],"cmd_line":"old.exe"}}`,
@@ -1170,21 +1170,28 @@ func TestRender_OCSFFields(t *testing.T) {
 	}
 }
 
-// TestRender_RegistryBindsTheSplitKey: the record's x-registry-key holds the
-// hive apart from the key path. Both registry classes give the full path, and
-// bind to the key it splits into.
-func TestRender_RegistryBindsTheSplitKey(t *testing.T) {
+// TestRender_RegistryBindsTheKey (adr/0341): both registry classes give the
+// full path, and bind the windows-registry-key whose expanded key and value
+// name match, letter case aside. A key event binds the key with no value.
+func TestRender_RegistryBindsTheKey(t *testing.T) {
 	ents := []Entity{
-		ent("x-registry-key--run", map[string]any{"hive": "HKLM", "key_path": `SOFTWARE\Run`}),
-		ent("x-registry-key--other", map[string]any{"hive": "HKCU", "key_path": `SOFTWARE\Run`}),
+		ent("windows-registry-key--run", map[string]any{"key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`}),
+		ent("windows-registry-key--updater", map[string]any{"key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "values": []any{map[string]any{"name": "Updater"}}}),
+		ent("windows-registry-key--other", map[string]any{"key": `HKEY_CURRENT_USER\SOFTWARE\Run`}),
+		ent("windows-registry-key--default", map[string]any{"key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "values": []any{map[string]any{"name": ""}}}),
 	}
-	for class, js := range map[int]string{
-		201001: `{"reg_key":{"path":"hklm\\software\\run"}}`,
-		201002: `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater"}}`,
+	for js, want := range map[string]struct {
+		class int
+		ref   string
+	}{
+		`{"reg_key":{"path":"hklm\\software\\run"}}`:                                   {201001, "windows-registry-key--run"},
+		`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"updater"}}`:                {201002, "windows-registry-key--updater"},
+		`{"reg_value":{"path":"\\REGISTRY\\MACHINE\\SOFTWARE\\Run","name":"Updater"}}`: {201002, "windows-registry-key--updater"},
+		`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","is_default":true}}`:               {201002, "windows-registry-key--default"},
 	} {
-		v := Render(Event{ClassUID: class, Payload: payload(js)}, ents)
-		if f, _ := fieldValue(v, "Key"); f.Ref != "x-registry-key--run" {
-			t.Errorf("class %d: Key = %+v; want it bound to the HKLM key", class, f)
+		v := Render(Event{ClassUID: want.class, Payload: payload(js)}, ents)
+		if f, _ := fieldValue(v, "Key"); f.Ref != want.ref {
+			t.Errorf("%s: Key = %+v; want it bound to %s", js, f, want.ref)
 		}
 	}
 }

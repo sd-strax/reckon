@@ -25,6 +25,7 @@ func TestEnumsMatchSchema(t *testing.T) {
 		{"Statuses", 6003, "status_id", Statuses},
 		{"Statuses on a logon", 3002, "status_id", Statuses},
 		{"IncidentStatuses", 2005, "status_id", IncidentStatuses},
+		{"RegistryValueTypes", 201002, "reg_value.type_id", RegistryValueTypes},
 	}
 	for _, tt := range tests {
 		for _, problem := range ocsfschema.CheckCaptions(tt.class, tt.path, tt.table) {
@@ -116,7 +117,7 @@ func TestHashesReadsThroughTheCaller(t *testing.T) {
 // a schema check.
 var numberTables = map[string]struct{ checked, exempt []string }{
 	"internal/ocsf": {
-		checked: []string{"HashAlgorithms", "Severities", "Confidences", "Statuses", "IncidentStatuses"}, // TestEnumsMatchSchema
+		checked: []string{"HashAlgorithms", "Severities", "Confidences", "Statuses", "IncidentStatuses", "RegistryValueTypes"}, // TestEnumsMatchSchema
 	},
 	"capability": {
 		// capability.TestEnumTablesMatchSchema

@@ -343,7 +343,7 @@ func scalarString(v any) string {
 	case string:
 		return strings.TrimSpace(x)
 	case float64:
-		if x != math.Trunc(x) || math.Abs(x) >= 1<<53 {
+		if x != math.Trunc(x) || !exactNumber(x) {
 			return ""
 		}
 		return strconv.FormatFloat(x, 'f', -1, 64)
@@ -353,6 +353,14 @@ func scalarString(v any) string {
 		return strconv.FormatInt(x, 10)
 	}
 	return ""
+}
+
+// exactNumber reports whether a JSON number, decoded as float64, still states
+// the source's value: below 2^53 in magnitude every integer is representable,
+// and at or above it an integer may already be rounded. NaN and the
+// infinities fail the comparison, so they are not exact either.
+func exactNumber(x float64) bool {
+	return math.Abs(x) < 1<<53
 }
 
 // apiActivities are the OCSF activity captions for a payload that carries the

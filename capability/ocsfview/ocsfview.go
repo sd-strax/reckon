@@ -953,23 +953,27 @@ var registryVerbs = map[string]string{
 
 // registry renders both Windows registry classes (03 §4.6). A key event
 // names the key in reg_key.path. A value event names it in reg_value.path and
-// carries the value's name, data and type. The path is the full key path with
-// the hive first, which is how the record's x-registry-key splits it.
+// carries the value's name, data and type. The key is built from the path
+// with identity.RegistryKeyPath, as the normalizer builds the record's
+// windows-registry-key, and binds the one whose key and value name match
+// (adr/0341).
 func (r *renderer) registry() {
 	host := r.host("device")
 	proc := r.proc("actor.process")
 	user := r.user("actor.user")
 	var full, valueName, valueData, valueType string
+	named := false
 	if r.class == classRegistryValue {
 		full = r.str("reg_value.path")
-		valueName, valueData, valueType = r.str("reg_value.name"), r.str("reg_value.data"), r.str("reg_value.type")
+		regValue, _ := pathAny(r.p, "reg_value").(map[string]any)
+		valueName, named = ocsf.RegistryValueName(regValue)
+		valueData, valueType = r.str("reg_value.data"), r.str("reg_value.type")
 	} else {
 		full = r.str("reg_key.path")
 	}
-	keyText := strings.Trim(full, `\`)
-	hive, keyPath := ocsf.SplitRegistryPath(full)
-	key := slot{text: keyText, ref: r.bind(identity.TypeRegistryKey, func(p map[string]any) bool {
-		return propEquals(p, "key_path", keyPath) && strings.EqualFold(toString(p["hive"]), hive)
+	keyText := identity.RegistryKeyPath(full)
+	key := slot{text: keyText, ref: r.bind(identity.TypeWindowsRegistryKey, func(p map[string]any) bool {
+		return propEquals(p, "key", keyText) && registryValueMatches(p["values"], named, valueName)
 	})}
 	verb := r.activity(registryVerbs, "changed")
 	// A value event is about the value: "set value Updater of HKLM\…\Run".
@@ -1013,6 +1017,27 @@ func (r *renderer) registry() {
 	r.keyText("value", valueName)
 	r.keyExact("data", slot{text: valueData})
 	r.keyText("activity", r.str("activity_name"))
+}
+
+// registryValueMatches reports whether a windows-registry-key's values name
+// the event's value: none when the event names no value, else the one value
+// whose name matches, letter case aside.
+func registryValueMatches(values any, named bool, name string) bool {
+	var list []map[string]any
+	switch v := values.(type) {
+	case []any:
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				list = append(list, m)
+			}
+		}
+	case []map[string]any:
+		list = v
+	}
+	if !named {
+		return len(list) == 0
+	}
+	return len(list) == 1 && strings.EqualFold(toString(list[0]["name"]), name)
 }
 
 var jobVerbs = map[string]string{

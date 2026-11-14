@@ -98,12 +98,63 @@ func TestCanonicalizationEquivalence(t *testing.T) {
 		{"host fqdn vs short", r.Host(HostIdentity{Hostname: "WS1.Corp.Example"}), r.Host(HostIdentity{Hostname: "ws1"})},
 		{"host trailing dot", r.Host(HostIdentity{Hostname: " ws1.corp.example. "}), r.Host(HostIdentity{Hostname: "ws1"})},
 		{"mac format", r.Host(HostIdentity{MAC: "00-1A-2B-3C-4D-5E"}), r.Host(HostIdentity{MAC: "00:1a:2b:3c:4d:5e"})},
-		{"registry case", r.RegistryKey("x-host--1", "HKLM", "Software\\Run", "Val"), r.RegistryKey("x-host--1", "hklm", "software\\run", "Val")},
 	}
 	for _, c := range eq {
 		if c.a != c.b {
 			t.Errorf("%s: expected equal ids, got %q vs %q", c.name, c.a, c.b)
 		}
+	}
+}
+
+// TestRegistryKey (adr/0341): RegistryKeyPath expands the hive, and the
+// identity is the host, the lower-cased key and the lower-cased value name.
+// The resolver only folds; HKLM and HKEY_LOCAL_MACHINE are one key once the
+// normalizer has shaped the path.
+func TestRegistryKey(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{`HKLM\Software\Run`, `HKEY_LOCAL_MACHINE\Software\Run`},
+		{`hklm\Software\Run`, `HKEY_LOCAL_MACHINE\Software\Run`},
+		{`\REGISTRY\MACHINE\Software\Run`, `HKEY_LOCAL_MACHINE\Software\Run`},
+		{`hkey_local_machine\Software\Run\`, `HKEY_LOCAL_MACHINE\Software\Run`},
+		{` HKU\S-1-5-21\Run `, `HKEY_USERS\S-1-5-21\Run`},
+		{`\registry\user\S-1-5-21`, `HKEY_USERS\S-1-5-21`},
+		{`HKEY_USERS\S-1-5-21`, `HKEY_USERS\S-1-5-21`},
+		{`HKCU\Software`, `HKEY_CURRENT_USER\Software`},
+		{`HKCR\.exe`, `HKEY_CLASSES_ROOT\.exe`},
+		{`HKCC\System`, `HKEY_CURRENT_CONFIG\System`},
+		{`HKLM\`, `HKEY_LOCAL_MACHINE`},
+		{`HKLM\\Software\\\Run`, `HKEY_LOCAL_MACHINE\Software\Run`},
+		{`\REGISTRY\A\x`, `REGISTRY\A\x`},
+		{`Software\Run`, `Software\Run`},
+		{"", ""},
+	} {
+		if got := RegistryKeyPath(tc.in); got != tc.want {
+			t.Errorf("RegistryKeyPath(%q) = %q; want %q", tc.in, got, tc.want)
+		}
+	}
+
+	r := NewResolver(nsA)
+	name := func(s string) *string { return &s }
+	run := `HKEY_LOCAL_MACHINE\Software\Run`
+	for _, tc := range []struct {
+		name string
+		a, b STIXID
+		same bool
+	}{
+		{"abbreviated hive, shaped", r.RegistryKey("x-host--1", RegistryKeyPath(`HKLM\Software\Run`), name("Updater")), r.RegistryKey("x-host--1", run, name("Updater")), true},
+		{"resolver does not expand", r.RegistryKey("x-host--1", `HKLM\Software\Run`, name("Updater")), r.RegistryKey("x-host--1", run, name("Updater")), false},
+		{"key case", r.RegistryKey("x-host--1", `hkey_local_machine\software\run`, nil), r.RegistryKey("x-host--1", run, nil), true},
+		{"value name case", r.RegistryKey("x-host--1", run, name("Updater")), r.RegistryKey("x-host--1", run, name("updater")), true},
+		{"key only vs default value", r.RegistryKey("x-host--1", run, nil), r.RegistryKey("x-host--1", run, name("")), false},
+		{"two values", r.RegistryKey("x-host--1", run, name("Updater")), r.RegistryKey("x-host--1", run, name("Other")), false},
+		{"two hosts", r.RegistryKey("x-host--1", run, name("Updater")), r.RegistryKey("x-host--2", run, name("Updater")), false},
+	} {
+		if (tc.a == tc.b) != tc.same {
+			t.Errorf("%s: %q vs %q; want same = %v", tc.name, tc.a, tc.b, tc.same)
+		}
+	}
+	if typ, _, _ := strings.Cut(string(r.RegistryKey("x-host--1", run, nil)), "--"); typ != TypeWindowsRegistryKey {
+		t.Errorf("type = %s; want %s", typ, TypeWindowsRegistryKey)
 	}
 }
 

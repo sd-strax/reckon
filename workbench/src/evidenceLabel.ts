@@ -26,6 +26,13 @@ export function deriveEvidenceLabel(doc: EvidenceDoc): string {
     }
     return "";
   };
+  if (doc.type === "windows-registry-key") {
+    // adr/0341: the key, then the value's name; "(default)" for the default value.
+    const key = first("key");
+    const value = Array.isArray(props.values) ? (props.values[0] as Record<string, unknown> | undefined) : undefined;
+    if (!key || typeof value?.name !== "string") return key;
+    return `${key} (${value.name || "default"})`;
+  }
   const val = first("hostname", "value", "address", "name", "user_id", "account_login", "display_name", "path");
   if (val) {
     const pid = props.pid;

@@ -177,7 +177,7 @@ Family headers whose children are individually dispositioned inherit "covered vi
 | D3-ST Session Termination | Action | roadmap `session.revoke` |
 | D3-ER Email Removal | Action | `email.purge` ✅ (terminal) + `email.quarantine` ✅ (reversible) |
 | D3-FEV File Eviction | Action | roadmap `file.quarantine` |
-| D3-RKD Registry Key Deletion | Action (gap) | roadmap `persistence.remove` — pairs with the `x-registry-key`/`x-scheduled-task` domain entities |
+| D3-RKD Registry Key Deletion | Action (gap) | roadmap `persistence.remove` — pairs with the `windows-registry-key`/`x-scheduled-task` domain entities |
 | D3-DNSCE DNS Cache Eviction | Action (low priority) | endpoint flush; typically bundled into host remediation |
 | D3-HR Host Reboot; D3-HS Host Shutdown | Handoff | deliberately not agent-dispatchable — destroys volatile memory evidence mid-incident; post-forensics ticket |
 | D3-DKE Disk Erasure; D3-DKF Disk Formatting; D3-DKP Disk Partitioning | Handoff | rebuild operations — the manual half of the reimage flow |

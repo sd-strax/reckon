@@ -7,12 +7,17 @@ import (
 	"github.com/sd-strax/reckon/identity"
 )
 
-// registryKeyPath is the Run key the registry tests name, hive first.
-const registryKeyPath = `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
+// registryKeyPath is the Run key the registry tests name, hive first and
+// abbreviated; runKey is the key it expands to.
+const (
+	registryKeyPath = `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
+	runKey          = `HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run`
+)
 
-// TestRegistryNormalizer (§4.6): a registry_key_activity event gives the
-// host-scoped registry key split into hive and key path, the actor process and
-// the host, with the activity in the extensions.
+// TestRegistryNormalizer (§4.6, adr/0341): a registry_key_activity event
+// gives the host-scoped windows-registry-key with its hive expanded and no
+// values, the actor process and the host, with the activity in the
+// extensions.
 func TestRegistryNormalizer(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(map[string]any{
 		"class_uid":     201001,
@@ -26,16 +31,16 @@ func TestRegistryNormalizer(t *testing.T) {
 		t.Fatal(err)
 	}
 	bt := countTypes(res.SCOs)
-	if bt[identity.TypeRegistryKey] != 1 || bt[identity.TypeProcess] != 1 || bt[identity.TypeHost] != 1 {
+	if bt[identity.TypeWindowsRegistryKey] != 1 || bt[identity.TypeProcess] != 1 || bt[identity.TypeHost] != 1 {
 		t.Errorf("want 1 registry-key + 1 process + 1 host; got %v", bt)
 	}
-	key := scosOf(res, identity.TypeRegistryKey)[0]
-	if key.Properties["hive"] != "HKLM" || key.Properties["key_path"] != `Software\Microsoft\Windows\CurrentVersion\Run` || key.Properties["value_name"] != "" {
-		t.Errorf("key = %v; want the hive split off the path and no value", key.Properties)
+	key := scosOf(res, identity.TypeWindowsRegistryKey)[0]
+	if want := map[string]any{"key": runKey}; !reflect.DeepEqual(key.Properties, want) {
+		t.Errorf("key = %v; want %v", key.Properties, want)
 	}
 	ids := identity.NewResolver(testNS)
 	host := ids.Host(identity.HostIdentity{Hostname: "WS1"})
-	if want := ids.RegistryKey(host, "HKLM", `Software\Microsoft\Windows\CurrentVersion\Run`, ""); key.ID != want {
+	if want := ids.RegistryKey(host, runKey, nil); key.ID != want {
 		t.Errorf("key id = %s; want %s", key.ID, want)
 	}
 	od := res.ObservedData[0]
@@ -44,9 +49,10 @@ func TestRegistryNormalizer(t *testing.T) {
 	}
 }
 
-// TestRegistryValueNormalizer (§4.6): a registry_value_activity event names
-// the key in reg_value.path and carries the value. It yields the same kind of
-// object, keyed with the value's name.
+// TestRegistryValueNormalizer (§4.6, adr/0341): a registry_value_activity
+// event names the key in reg_value.path and holds the value in values, with
+// its data as a string and a STIX data_type. The id carries the value's name
+// but not its data, and HKLM and HKEY_LOCAL_MACHINE are one key.
 func TestRegistryValueNormalizer(t *testing.T) {
 	value := func(v map[string]any) NormalizationResult {
 		t.Helper()
@@ -59,40 +65,71 @@ func TestRegistryValueNormalizer(t *testing.T) {
 		}
 		return res
 	}
-	res := value(map[string]any{"path": registryKeyPath, "name": "Updater", "data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 10})
-	key := scosOf(res, identity.TypeRegistryKey)[0]
-	want := map[string]any{
-		"hive": "HKLM", "key_path": `Software\Microsoft\Windows\CurrentVersion\Run`,
-		"value_name": "Updater", "value_data": `C:\Temp\evil.exe`, "value_type": "REG_SZ",
+	key := func(v map[string]any) SCO {
+		t.Helper()
+		keys := scosOf(value(v), identity.TypeWindowsRegistryKey)
+		if len(keys) != 1 {
+			t.Fatalf("%v: %d keys; want one", v, len(keys))
+		}
+		return keys[0]
 	}
-	if !reflect.DeepEqual(key.Properties, want) {
-		t.Errorf("key = %v; want %v", key.Properties, want)
+	// As the fixtures write it: the full hive name.
+	res := value(map[string]any{"path": runKey, "name": "Updater", "data": `C:\Temp\evil.exe`, "type": "REG_SZ", "type_id": 10})
+	got := scosOf(res, identity.TypeWindowsRegistryKey)[0]
+	want := map[string]any{"key": runKey, "values": []any{map[string]any{"name": "Updater", "data": `C:\Temp\evil.exe`, "data_type": "REG_SZ"}}}
+	if !reflect.DeepEqual(got.Properties, want) {
+		t.Errorf("key = %v; want %v", got.Properties, want)
 	}
 	ids := identity.NewResolver(testNS)
 	host := ids.Host(identity.HostIdentity{Hostname: "WS1"})
-	if id := ids.RegistryKey(host, "hklm", `software\microsoft\windows\currentversion\run`, "Updater"); key.ID != id {
-		t.Errorf("key id = %s; want %s", key.ID, id)
+	updater := "Updater"
+	if id := ids.RegistryKey(host, runKey, &updater); got.ID != id {
+		t.Errorf("key id = %s; want %s", got.ID, id)
+	}
+	if other := key(map[string]any{"path": registryKeyPath, "name": "updater", "data": "other.exe"}); other.ID != got.ID {
+		t.Errorf("HKLM, a lower-cased name and other data: id %s; want %s", other.ID, got.ID)
 	}
 	od := res.ObservedData[0]
 	if od.Extensions["activity_id"] != 2 || od.Provenance.Normalizer != "registry_value_activity" {
 		t.Errorf("extensions %v, normalizer %q", od.Extensions, od.Provenance.Normalizer)
 	}
 
-	// The type's id stands in for a missing caption, and numeric data is kept.
-	byID := scosOf(value(map[string]any{"path": registryKeyPath, "name": "Start", "data": 4, "type_id": 4}), identity.TypeRegistryKey)[0]
-	if byID.Properties["value_type_id"] != 4 || byID.Properties["value_data"] != "4" {
-		t.Errorf("key = %v; want value_type_id 4 and data \"4\"", byID.Properties)
+	// data_type: the caption when STIX has it, else the caption of the id;
+	// left out when neither is a STIX name. Data that is not a string is its
+	// JSON text, and a number float64 cannot state exactly is left out.
+	for _, tc := range []struct {
+		in   map[string]any
+		want map[string]any
+	}{
+		{map[string]any{"path": runKey, "name": "Start", "data": float64(4), "type_id": 2},
+			map[string]any{"name": "Start", "data": "4", "data_type": "REG_DWORD"}},
+		{map[string]any{"path": runKey, "name": "List", "data": []any{"a", "b"}, "type": "Multi", "type_id": 6},
+			map[string]any{"name": "List", "data": `["a","b"]`, "data_type": "REG_MULTI_SZ"}},
+		{map[string]any{"path": runKey, "name": "Q", "data": true, "type_id": 9},
+			map[string]any{"name": "Q", "data": "true"}},
+		// A FILETIME past 2^53 arrives rounded, so its data is left out.
+		{map[string]any{"path": runKey, "name": "T", "data": float64(133445566778899001), "type": "REG_QWORD"},
+			map[string]any{"name": "T", "data_type": "REG_QWORD"}},
+		{map[string]any{"path": runKey, "name": ""},
+			map[string]any{"name": ""}},
+	} {
+		if v := key(tc.in).Properties["values"]; !reflect.DeepEqual(v, []any{tc.want}) {
+			t.Errorf("%v: values = %v; want [%v]", tc.in, v, tc.want)
+		}
 	}
-	if _, ok := byID.Properties["value_type"]; ok {
-		t.Errorf("key = %v; want no value_type caption", byID.Properties)
+
+	// A value with no name but is_default true is the default value: the
+	// same id and values as the value named "".
+	named, isDefault := key(map[string]any{"path": runKey, "name": ""}), key(map[string]any{"path": runKey, "is_default": true})
+	if isDefault.ID != named.ID || !reflect.DeepEqual(isDefault.Properties, named.Properties) {
+		t.Errorf("is_default with no name = %s %v; want %s %v", isDefault.ID, isDefault.Properties, named.ID, named.Properties)
 	}
 
 	// A hive alone is a key. An event that names no key mints none.
-	hive := scosOf(value(map[string]any{"path": `HKLM\`, "name": "x"}), identity.TypeRegistryKey)[0]
-	if hive.Properties["hive"] != "HKLM" || hive.Properties["key_path"] != "" {
+	if hive := key(map[string]any{"path": `HKLM\`, "name": "x"}); hive.Properties["key"] != "HKEY_LOCAL_MACHINE" {
 		t.Errorf("hive-only key = %v", hive.Properties)
 	}
-	if n := len(scosOf(value(map[string]any{"name": "x"}), identity.TypeRegistryKey)); n != 0 {
+	if n := len(scosOf(value(map[string]any{"name": "x"}), identity.TypeWindowsRegistryKey)); n != 0 {
 		t.Errorf("no path: %d keys; want none", n)
 	}
 }
@@ -115,8 +152,8 @@ func TestRegistryClassesReadTheirOwnFields(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		keys := scosOf(res, identity.TypeRegistryKey)
-		if len(keys) != 1 || keys[0].Properties["key_path"] != want {
+		keys := scosOf(res, identity.TypeWindowsRegistryKey)
+		if len(keys) != 1 || keys[0].Properties["key"] != `HKEY_LOCAL_MACHINE\`+want {
 			t.Errorf("class %d: keys = %+v; want one at %s", class, keys, want)
 		}
 	}
