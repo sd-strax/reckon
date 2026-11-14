@@ -1,6 +1,6 @@
 # 0341 — A registry key is STIX's native `windows-registry-key`, and `x-registry-key` is removed
 
-Issue: #341 · PR: — · Status: proposed
+Issue: #341 · PR: #360 · Status: proposed
 
 ## Context
 
