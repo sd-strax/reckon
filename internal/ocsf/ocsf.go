@@ -7,6 +7,7 @@ package ocsf
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -106,4 +107,14 @@ func WholeNumber(v any) (int, bool) {
 		return int(min(max(n, -1e9), 1e9)), true
 	}
 	return 0, false
+}
+
+// SplitRegistryPath splits an OCSF registry path, which is the full key path
+// with the hive first, into the hive (the first segment) and the rest. The
+// normalizer and the event view both split with it, so the view finds the
+// x-registry-key the record holds.
+func SplitRegistryPath(full string) (hive, keyPath string) {
+	full = strings.Trim(strings.TrimSpace(full), `\`)
+	hive, keyPath, _ = strings.Cut(full, `\`)
+	return hive, strings.TrimLeft(keyPath, `\`)
 }

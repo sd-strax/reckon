@@ -967,7 +967,7 @@ func (r *renderer) registry() {
 		full = r.str("reg_key.path")
 	}
 	keyText := strings.Trim(full, `\`)
-	hive, keyPath, _ := strings.Cut(keyText, `\`)
+	hive, keyPath := ocsf.SplitRegistryPath(full)
 	key := slot{text: keyText, ref: r.bind(identity.TypeRegistryKey, func(p map[string]any) bool {
 		return propEquals(p, "key_path", keyPath) && strings.EqualFold(toString(p["hive"]), hive)
 	})}
@@ -1767,11 +1767,11 @@ func (r *renderer) credential() string {
 }
 
 // scalars is the view of a class without a template, the Base Event (class
-// 0) among them: the payload's scalars as fields, the class and clock keys
-// left out, no sentence. The activity, severity and status numbers at the top
-// of the event are left out too: they are OCSF's classification of the event,
-// not something its source said. A source's own key of the same name, under
-// unmapped, is still shown.
+// 0) among them: the payload's scalars as fields, the class and clock keys at
+// the top of the event left out, no sentence. The activity, severity and
+// status numbers at the top of the event are left out too: they are OCSF's
+// classification of the event, not something its source said. A source's own
+// key of any of these names, under unmapped, is still shown.
 //
 // The scalars come from three places, each field labelled by its own key:
 //
@@ -1796,7 +1796,7 @@ func (r *renderer) scalars() {
 	shown := map[string]string{}
 	add := func(obj map[string]any, top bool) {
 		for k, v := range obj {
-			if _, dup := shown[k]; dup || skip[k] || top && classification[k] || !isScalar(v) {
+			if _, dup := shown[k]; dup || top && (skip[k] || classification[k]) || !isScalar(v) {
 				continue
 			}
 			if base, isTwin := strings.CutSuffix(k, "_dt"); isTwin && isScalar(obj[base]) {

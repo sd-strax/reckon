@@ -124,7 +124,8 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 // evidence reads one artifact of a detection's evidences[] with the shared
 // extractors (§4.12, adr/0356):
 //
-//   - the host from the artifact's device, else from the finding's own device
+//   - the host from the artifact's device, else, when it has none or its
+//     device names no host, from the finding's own device
 //   - a process from process and from actor.process
 //   - a file from file
 //   - addresses and the destination's domain from the endpoints
@@ -140,12 +141,21 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 // that provider's cloud principal (§4.15), not a directory login: the alert
 // then names the same user-account the provider's API calls do (adr/0356).
 func (b *resultBuilder) evidence(artifact map[string]any, provider string, account identity.STIXID) {
-	device := at{obj: artifact, path: "device"}
-	if objectAt(artifact, "device") == nil {
-		device = b.top("device")
+	own := at{obj: artifact, path: "device"}
+	device := own
+	b.devices = []at{own, {obj: artifact, path: "src_endpoint"}, {obj: artifact, path: "dst_endpoint"}}
+	var host identity.STIXID
+	if objectAt(artifact, "device") != nil {
+		host = b.hostAt(own, true)
 	}
-	b.devices = []at{device, {obj: artifact, path: "src_endpoint"}, {obj: artifact, path: "dst_endpoint"}}
-	host := b.hostAt(device, true)
+	if host == "" {
+		// No device, or one that names no host (an address alone): the
+		// finding's own device is the host. What the artifact's device does
+		// say, its OS for one, still counts.
+		device = b.top("device")
+		b.devices = append([]at{device}, b.devices...)
+		host = b.hostAt(device, true)
+	}
 
 	if objectAt(artifact, "process") != nil {
 		b.process(artifact, "process", host)

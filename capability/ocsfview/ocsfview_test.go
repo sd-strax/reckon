@@ -593,6 +593,11 @@ func TestRender_BaseEvent(t *testing.T) {
 			`{"class_uid":0,"severity":"Low","unmapped":{"severity":"vendor-high","b":{"severity":"b","name":"from b"},"a":{"name":"from a"}}}`,
 			[]string{"name=from a", "severity=Low"},
 		},
+		// The class and clock keys are left out at the top of the event only.
+		"a vendor's own time and class keys": {
+			`{"class_uid":0,"class_name":"Base Event","time":1767225600000,"unmapped":{"type_name":"lookup","falcon":{"time":"2026-01-01T00:00:00Z","class_name":"intel"}}}`,
+			[]string{"class_name=intel", "time=2026-01-01T00:00:00Z", "type_name=lookup"},
+		},
 		"unmapped that is not an object": {`{"class_uid":0,"count":1,"unmapped":"text"}`, []string{"count=1", "unmapped=text"}},
 	} {
 		if got := fields(tc.js); !slices.Equal(got, tc.want) {

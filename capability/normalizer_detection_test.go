@@ -297,6 +297,12 @@ func TestDetectionEvidenceExtractors(t *testing.T) {
 				"url":          map[string]any{"url_string": "https://c2.example/x"},
 				"actor":        map[string]any{"process": map[string]any{"pid": 77, "created_time": when}},
 			},
+			// An artifact whose device names no host (an address alone) falls
+			// back to the finding's too.
+			map[string]any{
+				"device":  map[string]any{"ip": "10.0.0.9"},
+				"process": map[string]any{"pid": 78, "name": "b.exe", "created_time": when},
+			},
 			"not an artifact",
 		},
 	}
@@ -312,6 +318,7 @@ func TestDetectionEvidenceExtractors(t *testing.T) {
 	parent, _ := ids.Process(ws7, 9, evt.Time)
 	actorProc, _ := ids.Process(ws7, 8, evt.Time)
 	fallbackProc, _ := ids.Process(fallback, 77, evt.Time)
+	addressOnlyProc, _ := ids.Process(fallback, 78, evt.Time)
 	want := map[string]identity.STIXID{
 		"artifact host":       ws7,
 		"finding host":        fallback,
@@ -319,15 +326,16 @@ func TestDetectionEvidenceExtractors(t *testing.T) {
 		"parent":              parent,
 		"actor process":       actorProc,
 		"process on fallback": fallbackProc,
-		"image":               ids.File(identity.FileIdentity{Hashes: map[string]string{"SHA-256": "aa"}, Name: "a.exe"}),
-		"file":                ids.File(identity.FileIdentity{Name: "drop.dll", ParentDirectory: `C:\Temp`}),
-		"actor.user":          ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `CONTOSO\jdoe`}),
-		"user":                ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `CONTOSO\target`}),
-		"src ip":              ids.IPv4Addr("10.0.0.5"),
-		"dst ip":              ids.IPv4Addr("203.0.113.9"),
-		"dst domain":          ids.DomainName("c2.example"),
-		"query":               ids.DomainName("lookup.example"),
-		"url":                 ids.URL("https://c2.example/x"),
+		"process on fallback, device with an address alone": addressOnlyProc,
+		"image":      ids.File(identity.FileIdentity{Hashes: map[string]string{"SHA-256": "aa"}, Name: "a.exe"}),
+		"file":       ids.File(identity.FileIdentity{Name: "drop.dll", ParentDirectory: `C:\Temp`}),
+		"actor.user": ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `CONTOSO\jdoe`}),
+		"user":       ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `CONTOSO\target`}),
+		"src ip":     ids.IPv4Addr("10.0.0.5"),
+		"dst ip":     ids.IPv4Addr("203.0.113.9"),
+		"dst domain": ids.DomainName("c2.example"),
+		"query":      ids.DomainName("lookup.example"),
+		"url":        ids.URL("https://c2.example/x"),
 	}
 	od := res.ObservedData[0]
 	for name, id := range want {

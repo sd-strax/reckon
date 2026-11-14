@@ -1,9 +1,8 @@
 package capability
 
 import (
-	"strings"
-
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 // The two OCSF Windows registry classes one normalizer handles (§4.6,
@@ -57,7 +56,7 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 	} else {
 		fullPath = pathStr(p, "reg_key.path")
 	}
-	if hive, keyPath := splitRegistryPath(fullPath); hive != "" || keyPath != "" {
+	if hive, keyPath := ocsf.SplitRegistryPath(fullPath); hive != "" || keyPath != "" {
 		props["hive"] = hive
 		props["key_path"] = keyPath
 		props["value_name"] = valueName
@@ -67,14 +66,6 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 	b.actorProcess(p, host)
 
 	return b.finish(activityExt(p)), nil
-}
-
-// splitRegistryPath splits an OCSF registry path, which is the full key path
-// with the hive first, into the hive (the first segment) and the rest.
-func splitRegistryPath(full string) (hive, keyPath string) {
-	full = strings.Trim(strings.TrimSpace(full), `\`)
-	hive, keyPath, _ = strings.Cut(full, `\`)
-	return hive, strings.TrimLeft(keyPath, `\`)
 }
 
 // scheduledJobNormalizer handles OCSF scheduled_job_activity (class_uid 1006) →

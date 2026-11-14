@@ -74,6 +74,5 @@ The script needs `curl` and `jq`. It applies the rule above, checks that the
 export declares the version asked for, and writes
 `third_party/ocsf-schema/<version>/schema.json`.
 
-Then update the download date in this file if it differs, add the release to
-the table above, and run the tests. `adr/0356-ocsf-conformance.md` says what
+Then add the release to the table above, and run the tests. `adr/0356-ocsf-conformance.md` says what
 to do when the newest supported release moves.
