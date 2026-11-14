@@ -27,20 +27,20 @@ The custom type caused three problems:
 
 - The workbench's citation table lists `windows-registry-key` as an entity
   type. Nothing mints that type, and the type that is minted gets no label.
-- Identity hashed the hive as the source wrote it. The in-tree fixture
-  writes `HKEY_LOCAL_MACHINE` and the tests and most sources write `HKLM`,
-  so one key minted two ids.
-- An event naming only a key and an event naming the key's default value
-  both hashed an empty `value_name`. So the two minted one id.
+- Identity hashes the hive as the source wrote it. The scenario fixtures
+  write `HKEY_LOCAL_MACHINE` and the tests and most sources write `HKLM`, so
+  one key mints two ids.
+- A key event and an event naming the key's default value both hash an
+  empty `value_name`. So the two mint one id.
 
-What OCSF says (1.3.0, Windows extension):
+adr/0356 already moved the input to OCSF:
 
-- `reg_key.path` is "the full path to the registry key". There is no hive
-  attribute.
-- `reg_value` carries `name`, `data` (JSON), `type` and `type_id` (the
-  `REG_*` names), and `path`, the key the value lives under.
-- The in-tree fixture and tests split the key into `reg_key.hive` and
-  `reg_key.path`.
+- Registry Key Activity (201001) names the key in `reg_key.path`, the full
+  path with the hive first. OCSF has no hive attribute.
+- Registry Value Activity (201002) carries `reg_value.{path,name,data,type,
+  type_id}`. Its `path` is the key the value lives under.
+- Today the normalizer and the event view split that path with
+  `ocsf.SplitRegistryPath` into `hive` (the first segment) and `key_path`.
 
 The rules this decision has to follow:
 
@@ -76,14 +76,13 @@ minted two ids.
   value, not on the `Run` key. One object per key with all its values would
   merge every autorun under `Run` into one entity.
 
-**The key carries its hive expanded.** One identity function,
-`identity.RegistryKeyPath(hive, path)`, builds the key string. The
-normalizer and the event view (`capability/ocsfview`) both call it.
+**The key carries its hive expanded.** One function,
+`identity.RegistryKeyPath(path)`, builds the key string from the full path.
+The normalizer and the event view (`capability/ocsfview`) both call it, and
+it replaces `ocsf.SplitRegistryPath`.
 
-- When the source splits the key into `reg_key.hive` and `reg_key.path`,
-  the function joins them with a backslash.
-- Otherwise it reads `reg_key.path` as OCSF defines it (the full path),
-  else `reg_value.path`.
+- The path is `reg_key.path` on a key event and `reg_value.path` on a
+  value event.
 - The leading root becomes the full hive name in upper case:
   - `HKLM`, `\REGISTRY\MACHINE` and `HKEY_LOCAL_MACHINE`, in any case,
     become `HKEY_LOCAL_MACHINE`.
@@ -94,8 +93,7 @@ normalizer and the event view (`capability/ocsfview`) both call it.
   a leading or trailing backslash are trimmed.
 - A path whose root is none of these is kept as written. Dropping the
   evidence would be worse than keeping a key STIX would call malformed.
-- An event with neither a key nor a value path mints no registry key, as
-  before.
+- An event with no key path mints no registry key, as before.
 
 **The value is what the source wrote.**
 
@@ -130,7 +128,8 @@ documented in `03 §7.2`:
 The host is kept the way `process` keeps it: in the identity tuple and in
 the observation's `object_refs`. It is not a property of the object.
 
-**The normalizer moves to version 3, and nothing reads the old type.** No
+**The normalizer moves to its next version, 4, and nothing reads the old
+type.** No
 recorded data has to stay readable. So there is no backfill and no reader
 for the old type, and the workbench's inspector drops `x-registry-key`
 from its entity types.
@@ -171,13 +170,8 @@ from its entity types.
 - A registry key from `HKLM` and the same key from `HKEY_LOCAL_MACHINE` are
   one entity.
 - A key and its default value are two entities.
-- A source that writes OCSF's full `reg_key.path` with no hive now yields a
-  STIX key. Before, it yielded an empty hive.
 - The lateral-movement scenario's persistence answer now shows a
   `windows-registry-key` with a `key` and a `values` list. This changes the
   data the model reads, but no prompt text, tool definition or engine-text
   template. So `PromptVersion` is unchanged. The scenario is re-run on both
   models before merge.
-- OCSF puts registry key activity at class 201001 in its Windows extension.
-  The normalizer registers class 1003, as `03 §2.5` and the fixtures do.
-  This record does not change that.
