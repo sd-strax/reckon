@@ -30,6 +30,14 @@ func TestEnumsMatchSchema(t *testing.T) {
 		for _, problem := range ocsfschema.CheckCaptions(tt.class, tt.path, tt.table) {
 			t.Errorf("%s: %s", tt.name, problem)
 		}
+		// A source's own "Unknown" is OCSF's 0, not Other; a word OCSF
+		// does not have is Other.
+		if got := CaptionID(tt.table, "UNKNOWN"); got != Unknown {
+			t.Errorf("%s: CaptionID of UNKNOWN = %d; want 0", tt.name, got)
+		}
+		if got := CaptionID(tt.table, "no such caption"); got != Other {
+			t.Errorf("%s: CaptionID of a word OCSF does not have = %d; want 99", tt.name, got)
+		}
 	}
 }
 

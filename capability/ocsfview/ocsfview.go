@@ -638,7 +638,11 @@ func (r *renderer) authentication() {
 	}
 
 	r.entityField("User", slot{text: r.qualifiedUser("user"), ref: user.ref})
-	if by := r.qualifiedUser("actor.user"); by != "" && by != r.qualifiedUser("user") {
+	// The initiator is the same account when it binds to the same entity,
+	// or, with no entity to go by, when the names differ only in letter case.
+	by := r.qualifiedUser("actor.user")
+	same := initiator.ref != "" && initiator.ref == user.ref || strings.EqualFold(by, r.qualifiedUser("user"))
+	if by != "" && !same {
 		r.entityField("Started by", slot{text: by, ref: initiator.ref})
 	}
 	r.field("Logon type", logon)

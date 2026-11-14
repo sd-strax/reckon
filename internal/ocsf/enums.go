@@ -29,15 +29,22 @@ var (
 // its own. The caption field beside it holds that word.
 const Other = 99
 
+// Unknown is the value every OCSF enum has for a source that does not know.
+const Unknown = 0
+
 // CaptionID returns the enum value a source's word stands for: the value in
-// the table whose caption is the word, letter case aside, and Other when
-// the table has none. The caller writes the word itself to the caption
+// the table whose caption is the word, letter case aside; Unknown when the
+// word is the source's own "Unknown"; and Other when it is any other word
+// the table does not have. The caller writes the word itself to the caption
 // field.
 func CaptionID(table map[int]string, word string) int {
 	for id, caption := range table {
 		if strings.EqualFold(caption, word) {
 			return id
 		}
+	}
+	if strings.EqualFold(word, "Unknown") {
+		return Unknown
 	}
 	return Other
 }

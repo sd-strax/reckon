@@ -12,9 +12,11 @@ import (
 // This file is "Test both ends" (03 §4.16, adr/0356) for the normalizers
 // adr/0356 changed: an event shaped to the OCSF floor (1.1.0) and one shaped
 // to the ceiling (1.9.0), naming the same entities, mint the same ids. Each
-// event is first checked against the schema of the version it declares
-// (ocsfschema.ValidateEvent, the check the fixtures and adapters get), so a
-// test event cannot drift away from OCSF.
+// event's fields are first checked against the schema of the version it
+// declares (ocsfschema.ValidateFields), so a test event cannot name a field
+// or a type OCSF does not have. ValidateFields does not check that the
+// fields OCSF requires are there: these events carry only what the
+// normalizers read.
 
 // entityIDs is what a set of events names: the ids of the SCOs in their
 // observations' object_refs, and their relationships as "type src tgt", both

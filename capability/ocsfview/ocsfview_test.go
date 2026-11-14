@@ -147,12 +147,21 @@ func TestRender_AuthenticationInitiator(t *testing.T) {
 	}
 
 	// The same account in both places, or no initiator, shows no extra field.
-	for _, js := range []string{
-		`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}`,
-		`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"}}`,
+	// It is the same account when the names differ only in letter case, with
+	// or without an entity to bind to, and when two spellings bind to one
+	// entity.
+	for _, tc := range []struct {
+		js   string
+		ents []Entity
+	}{
+		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}`, ents},
+		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"}}`, ents},
+		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"JDoe","domain":"contoso"}}}`, ents},
+		{`{"class_uid":3002,"user":{"name":"jdoe","domain":"CONTOSO"},"actor":{"user":{"name":"JDoe","domain":"contoso"}}}`, nil},
+		{`{"class_uid":3002,"user":{"name":"jdoe"},"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}`, ents},
 	} {
-		if f, ok := fieldValue(Render(Event{ClassUID: 3002, Payload: payload(js)}, ents), "Started by"); ok {
-			t.Errorf("%s: Started by field = %+v; want none", js, f)
+		if f, ok := fieldValue(Render(Event{ClassUID: 3002, Payload: payload(tc.js)}, tc.ents), "Started by"); ok {
+			t.Errorf("%s: Started by field = %+v; want none", tc.js, f)
 		}
 	}
 
@@ -320,8 +329,8 @@ func TestRender_Sentences(t *testing.T) {
 }
 
 // TestRender_HashByAlgorithmID: a fingerprint that carries OCSF's required
-// algorithm_id and no caption still shows its hash and binds its file
-// (adr/0356).
+// algorithm_id and no caption still shows its hash, labelled with the
+// caption OCSF gives that id (adr/0356).
 func TestRender_HashByAlgorithmID(t *testing.T) {
 	p := payload(`{"process":{"pid":6120,"name":"tool.exe","file":{"hashes":[{"algorithm_id":3,"value":"9f1c"}]}},"device":{"hostname":"WIN-FILE01"}}`)
 	v := Render(Event{ClassUID: 1007, Payload: p}, []Entity{ent("file--f1", map[string]any{"hashes": map[string]any{"SHA-256": "9f1c"}})})
