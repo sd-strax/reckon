@@ -96,7 +96,7 @@ func TestRegistryValueNormalizer(t *testing.T) {
 
 	// data_type: the caption when STIX has it, else the caption of the id;
 	// left out when neither is a STIX name. Data that is not a string is its
-	// JSON text.
+	// JSON text, and a number float64 cannot state exactly is left out.
 	for _, tc := range []struct {
 		in   map[string]any
 		want map[string]any
@@ -107,6 +107,9 @@ func TestRegistryValueNormalizer(t *testing.T) {
 			map[string]any{"name": "List", "data": `["a","b"]`, "data_type": "REG_MULTI_SZ"}},
 		{map[string]any{"path": runKey, "name": "Q", "data": true, "type_id": 9},
 			map[string]any{"name": "Q", "data": "true"}},
+		// A FILETIME past 2^53 arrives rounded, so its data is left out.
+		{map[string]any{"path": runKey, "name": "T", "data": float64(133445566778899001), "type": "REG_QWORD"},
+			map[string]any{"name": "T", "data_type": "REG_QWORD"}},
 		{map[string]any{"path": runKey, "name": ""},
 			map[string]any{"name": ""}},
 	} {

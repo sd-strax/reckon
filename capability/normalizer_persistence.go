@@ -76,7 +76,9 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 func registryValue(p map[string]any, name string) map[string]any {
 	value := map[string]any{"name": name}
 	if v, ok := lookupPath(p, "reg_value.data"); ok && v != nil {
-		value["data"] = registryData(v)
+		if data, ok := registryData(v); ok {
+			value["data"] = data
+		}
 	}
 	dataType := pathStr(p, "reg_value.type")
 	if !stixRegistryDataTypes[dataType] {
@@ -89,16 +91,24 @@ func registryValue(p map[string]any, name string) map[string]any {
 }
 
 // registryData is a value's data as a string. OCSF types it as JSON, so a
-// value that is not a string is written as its JSON text.
-func registryData(v any) string {
-	if s, ok := v.(string); ok {
-		return s
+// value that is not a string is written as its JSON text. A number that
+// float64 cannot state exactly (a REG_QWORD FILETIME at or above 2^53, which
+// arrives rounded) reports false, and the value leaves data out as it does
+// when the source gives none.
+func registryData(v any) (string, bool) {
+	switch x := v.(type) {
+	case string:
+		return x, true
+	case float64:
+		if !exactNumber(x) {
+			return "", false
+		}
 	}
 	text, err := json.Marshal(v)
 	if err != nil {
-		return fmt.Sprint(v)
+		return fmt.Sprint(v), true
 	}
-	return string(text)
+	return string(text), true
 }
 
 // stixRegistryDataTypes are the data_type names STIX 2.1 allows on a
