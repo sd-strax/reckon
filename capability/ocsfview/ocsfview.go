@@ -1764,7 +1764,10 @@ func (r *renderer) credential() string {
 
 // scalars is the view of a class without a template, the Base Event (class
 // 0) among them: the payload's scalars as fields, the class and clock keys
-// left out, no sentence.
+// left out, no sentence. The activity, severity and status numbers at the top
+// of the event are left out too: they are OCSF's classification of the event,
+// not something its source said. A source's own key of the same name, under
+// unmapped, is still shown.
 //
 // The scalars come from three places, each field labelled by its own key:
 //
@@ -1785,10 +1788,11 @@ func (r *renderer) scalars() {
 		"class_uid": true, "class_name": true, "category_uid": true, "category_name": true,
 		"type_uid": true, "type_name": true, "time": true, "time_dt": true,
 	}
+	classification := map[string]bool{"activity_id": true, "severity_id": true, "status_id": true}
 	shown := map[string]string{}
-	add := func(obj map[string]any) {
+	add := func(obj map[string]any, top bool) {
 		for k, v := range obj {
-			if _, dup := shown[k]; dup || skip[k] || !isScalar(v) {
+			if _, dup := shown[k]; dup || skip[k] || top && classification[k] || !isScalar(v) {
 				continue
 			}
 			if base, isTwin := strings.CutSuffix(k, "_dt"); isTwin && isScalar(obj[base]) {
@@ -1801,9 +1805,9 @@ func (r *renderer) scalars() {
 			shown[k] = toString(v)
 		}
 	}
-	add(r.p)
+	add(r.p, true)
 	unmapped, _ := r.p["unmapped"].(map[string]any)
-	add(unmapped)
+	add(unmapped, false)
 	vendors := make([]string, 0, len(unmapped))
 	for k := range unmapped {
 		vendors = append(vendors, k)
@@ -1811,7 +1815,7 @@ func (r *renderer) scalars() {
 	sort.Strings(vendors)
 	for _, k := range vendors {
 		if record, ok := unmapped[k].(map[string]any); ok {
-			add(record)
+			add(record, false)
 		}
 	}
 

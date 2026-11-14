@@ -7,6 +7,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
 func sentenceText(v View) string {
@@ -586,6 +589,28 @@ func TestRender_BaseEvent(t *testing.T) {
 		if got := fields(tc.js); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: fields = %v; want %v", name, got, tc.want)
 		}
+	}
+}
+
+// TestRender_BaseEventFromWrapper: a Base Event as an adapter writes it
+// (ocsf.Event) shows what its source said and none of the fields the wrapper
+// adds. The activity, severity and status numbers are OCSF's classification,
+// so they are not shown, and a source's own key of the same name is.
+func TestRender_BaseEventFromWrapper(t *testing.T) {
+	raw := ocsf.Event(0, "1.1.0", ocsf.Product("Okta", "Okta Directory"), time.UnixMilli(1767225600000))
+	raw["status_id"] = 1
+	raw["unmapped"] = map[string]any{"okta": map[string]any{"name": "Everyone", "severity_id": "sev-2"}}
+	js, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := Render(Event{ClassUID: 0, Payload: payload(string(js))}, nil)
+	got := make([]string, 0, len(v.Fields))
+	for _, f := range v.Fields {
+		got = append(got, f.Label+"="+f.Value)
+	}
+	if want := []string{"name=Everyone", "severity_id=sev-2"}; !slices.Equal(got, want) {
+		t.Errorf("fields = %v; want %v", got, want)
 	}
 }
 
