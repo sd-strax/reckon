@@ -505,6 +505,25 @@ func labeledList(rl *refLabeler, refs []string) string {
 	return strings.Join(out, ", ")
 }
 
+// registryKeyLabel is a windows-registry-key's label (adr/0341): the key,
+// then the value's name in parentheses, "(default)" for the default value.
+// A key with no value is the key alone.
+func registryKeyLabel(key string, values any) string {
+	list, _ := values.([]any)
+	if key == "" || len(list) == 0 {
+		return key
+	}
+	v, _ := list[0].(map[string]any)
+	name, ok := v["name"].(string)
+	if !ok {
+		return key
+	}
+	if name == "" {
+		name = "default"
+	}
+	return key + " (" + name + ")"
+}
+
 // stixLabel derives an identifying label from a persisted STIX object's payload
 // (id/type/properties/provenance). Identity-contributing fields live under
 // "properties" (03 §7); the switch mirrors the workbench evidence card. Returns
@@ -531,6 +550,8 @@ func stixLabel(typ string, payload []byte) string {
 		return firstNonEmpty(get("display_name"), get("user_id"), get("account_login"))
 	case "file":
 		return get("name")
+	case "windows-registry-key":
+		return registryKeyLabel(get("key"), obj.Properties["values"])
 	case "process":
 		if cl := get("command_line"); cl != "" {
 			return oneLine(cl)
