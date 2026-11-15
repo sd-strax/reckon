@@ -1,6 +1,6 @@
 # 0355 — One spec lists every item of D3FEND, STIX, OCSF and ATT&CK and says what the engine does with it
 
-Issue: #355 · Status: accepted
+Issue: #355 · PR: #375 · Status: accepted
 
 ## Context
 
