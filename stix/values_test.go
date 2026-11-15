@@ -59,3 +59,25 @@ func TestValueChecks(t *testing.T) {
 		}
 	}
 }
+
+// TestEmailAddress: an address is trimmed, and a mailbox with a display name
+// keeps its address. A value that is still not an addr-spec is not one.
+func TestEmailAddress(t *testing.T) {
+	for in, want := range map[string]string{
+		"alice@corp.example":             "alice@corp.example",
+		"  alice@corp.example\t":         "alice@corp.example",
+		"Alice <alice@corp.example>":     "alice@corp.example",
+		" \"Doe, Jo\" <jo@corp.example>": "jo@corp.example",
+		"<bob@corp.example>":             "bob@corp.example",
+		"":                               "",
+		"   ":                            "",
+		"Undisclosed recipients:;":       "",
+		"a,b@corp.example":               "",
+		"accounts payable":               "",
+	} {
+		got, ok := EmailAddress(in)
+		if got != want || ok != (want != "") {
+			t.Errorf("EmailAddress(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+}

@@ -1379,6 +1379,23 @@ func TestRender_BindsThroughTheNormalizersCleanup(t *testing.T) {
 		t.Errorf("a padded digest did not bind the stored file: %+v", v.Sentence)
 	}
 
+	// A padded sender and a display-name recipient bind the address the
+	// normalizer stores (stix.EmailAddress).
+	v = Render(Event{ClassUID: 4009, Payload: payload(`{"email":{"from":" a@x.example ","to":["Bob <bob@x.example>"],"subject":"s"}}`)}, []Entity{
+		ent("email-addr--a", map[string]any{"value": "a@x.example"}),
+		ent("email-addr--b", map[string]any{"value": "bob@x.example"}),
+	})
+	refs = map[string]bool{}
+	for _, part := range v.Sentence {
+		refs[part.Ref] = true
+	}
+	for _, f := range v.Fields {
+		refs[f.Ref] = true
+	}
+	if !refs["email-addr--a"] || !refs["email-addr--b"] {
+		t.Errorf("a padded sender and a display-name recipient did not bind: %+v %+v", v.Sentence, v.Fields)
+	}
+
 	v = Render(Event{ClassUID: 201001, Payload: payload(`{"activity_name":"Create","reg_key":{"path":"Software\\Run"}}`)}, []Entity{
 		ent("windows-registry-key--k", map[string]any{"key": `Software\Run`}),
 	})

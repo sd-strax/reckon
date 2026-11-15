@@ -626,37 +626,59 @@ func (b *resultBuilder) addDomain(v string) identity.STIXID {
 	return b.addSCO(b.r.DomainName(v), identity.TypeDomainName, map[string]any{"value": v})
 }
 
-// emailAddr adds an email-addr SCO for a literal address value. A value that
-// is not an RFC 5322 addr-spec, such as one with a display name, is left out
-// (stix.IsAddrSpec, adr/0357). The raw event still holds it.
-func (b *resultBuilder) emailAddr(v string) identity.STIXID {
-	if v == "" || !stix.IsAddrSpec(v) {
-		return ""
+// emailAddr adds an email-addr SCO for an address the record gives, and
+// returns its id and the value it stores. The address is cleaned up first
+// (stix.EmailAddress, adr/0357): surrounding white space is trimmed, and a
+// mailbox with a display name keeps its address. A value that is still not
+// an RFC 5322 addr-spec is left out, with "" for both. The raw event still
+// holds it.
+func (b *resultBuilder) emailAddr(v string) (identity.STIXID, string) {
+	value, ok := stix.EmailAddress(v)
+	if !ok {
+		return "", ""
 	}
-	return b.addSCO(b.r.EmailAddr(v), identity.TypeEmailAddr, map[string]any{"value": v})
+	return b.addSCO(b.r.EmailAddr(value), identity.TypeEmailAddr, map[string]any{"value": value}), value
 }
 
-// emailAddrs adds an email-addr SCO for each string in the array at path of
-// m. It returns their ids and the address strings they were minted from.
-func (b *resultBuilder) emailAddrs(m map[string]any, path string) ([]identity.STIXID, []string) {
+// emailAddrList adds an email-addr SCO for each address in addrs, by
+// emailAddr. It returns their ids and the values they store, an address
+// named twice kept once, and the trimmed text of each non-empty entry that
+// is still not an address.
+func (b *resultBuilder) emailAddrList(addrs []string) (refs []identity.STIXID, values, unparsed []string) {
+	seen := map[identity.STIXID]bool{}
+	for _, a := range addrs {
+		id, value := b.emailAddr(a)
+		if id == "" {
+			if t := strings.TrimSpace(a); t != "" {
+				unparsed = append(unparsed, t)
+			}
+			continue
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		refs = append(refs, id)
+		values = append(values, value)
+	}
+	return refs, values, unparsed
+}
+
+// emailAddrs is emailAddrList for the strings in the array at path of m.
+func (b *resultBuilder) emailAddrs(m map[string]any, path string) (refs []identity.STIXID, values, unparsed []string) {
 	v, ok := lookupPath(m, path)
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
 	arr, ok := v.([]any)
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
-	var refs []identity.STIXID
-	var values []string
+	addrs := make([]string, 0, len(arr))
 	for _, item := range arr {
-		s := toString(item)
-		if id := b.emailAddr(s); id != "" {
-			refs = append(refs, id)
-			values = append(values, s)
-		}
+		addrs = append(addrs, toString(item))
 	}
-	return refs, values
+	return b.emailAddrList(addrs)
 }
 
 // url adds a url SCO for a literal URL value.

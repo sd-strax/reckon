@@ -193,6 +193,9 @@ writes every payload.
     for the envelope ones. adr/0359 mints a message with no Message-ID from
     its recipients, the envelope ones included. Storing them keeps that id
     minted from stored values.
+  - A recipient that is still not an address after cleanup is kept as text
+    in `unparsed_recipients`, and the id counts it. Two copies of one run
+    that differ only there stay two messages, as adr/0359 requires.
     - This extension first held the weak message known only by a source's
       own id. adr/0359 removed that message, because the id names a thread,
       not a message. The extension is not yet published, so it changes.
@@ -291,6 +294,9 @@ rule invents a value.
 
 - A value is cleaned up when the result is the same value.
   - An IP address has surrounding white space trimmed.
+  - An email address has surrounding white space trimmed. A mailbox with a
+    display name, such as `Alice <alice@corp.example>`, keeps its address,
+    `alice@corp.example`.
   - An IPv4 address written as IPv4-mapped IPv6 (`::ffff:10.0.0.5`) is
     stored as the IPv4 address. It is then the same object as that address
     seen anywhere else.

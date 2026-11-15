@@ -84,6 +84,28 @@ func IsAddrSpec(s string) bool {
 	return a.Address == s
 }
 
+// EmailAddress cleans up an email address read from telemetry and reports
+// whether the result is an addr-spec (IsAddrSpec). Surrounding white space is
+// trimmed. A mailbox with a display name, such as "Alice
+// <alice@corp.example>", keeps its address, alice@corp.example. Both are the
+// same address, so the cleanup invents nothing (adr/0357). Every reader that
+// writes an email-addr, or matches a raw address against one, cleans it up
+// here, so they agree on the value.
+func EmailAddress(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	if IsAddrSpec(s) {
+		return s, true
+	}
+	a, err := mail.ParseAddress(s)
+	if err != nil || !IsAddrSpec(a.Address) {
+		return "", false
+	}
+	return a.Address, true
+}
+
 // ldhLabel is a host name label (RFC 1034 §3.5, with RFC 1123 §2.1 allowing a
 // digit first): letters, digits and inner hyphens, 1 to 63 characters.
 var ldhLabel = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)

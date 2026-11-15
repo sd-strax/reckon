@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"mime"
 	"net/textproto"
+	"slices"
 	"strings"
 
 	"github.com/sd-strax/reckon/identity"
@@ -29,23 +30,24 @@ func (*emailNormalizer) ClassUID() int { return 4009 }
 // naming nothing, and a broken record is a normalize error; is_multipart from
 // the raw header, addresses that are addr-specs, URLs that are URIs, file
 // hashes and names STIX can hold, the thread and envelope recipients stored
-// on the message, adr/0357
+// on the message, addresses cleaned up before they are checked, and a
+// recipient that is not an address kept as text, adr/0357
 func (*emailNormalizer) Version() int { return 5 }
 
 func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
 	b := newBuilder(n.r, evt, "email_activity", n.Version())
 
-	from := pathStr(p, "email.from")
-	fromRef := b.emailAddr(from)
-	toRefs, to := b.emailAddrs(p, "email.to")
-	ccRefs, cc := b.emailAddrs(p, "email.cc")
+	fromRef, from := b.emailAddr(pathStr(p, "email.from"))
+	toRefs, to, unparsed := b.emailAddrs(p, "email.to")
+	ccRefs, cc, ccUnparsed := b.emailAddrs(p, "email.cc")
 	// Blind copy is email.bcc[] from OCSF 1.9.0. Below that OCSF has no
 	// field for it, so a source that reports one puts it in unmapped.bcc[].
-	bccRefs, bcc := b.emailAddrs(p, "email.bcc")
-	if len(bccRefs) == 0 {
-		bccRefs, bcc = b.emailAddrs(p, "unmapped.bcc")
+	bccRefs, bcc, bccUnparsed := b.emailAddrs(p, "email.bcc")
+	if len(bccRefs) == 0 && len(bccUnparsed) == 0 {
+		bccRefs, bcc, bccUnparsed = b.emailAddrs(p, "unmapped.bcc")
 	}
+	unparsed = append(append(unparsed, ccUnparsed...), bccUnparsed...)
 	subject := pathStr(p, "email.subject")
 	msgUID := strings.TrimSpace(pathStr(p, "email.message_uid"))
 	// A property the record does not give is left out, not written empty:
@@ -79,20 +81,24 @@ func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) 
 	}
 	// The envelope recipients are email-addrs like the header ones, kept as
 	// envelope_to_refs: STIX has no property for them (adr/0357).
-	envRefs, env := b.envelopeRecipients(p)
+	envRefs, env, envUnparsed := b.envelopeRecipients(p)
 	if len(envRefs) > 0 {
 		props["envelope_to_refs"] = stringifyRefs(envRefs)
+	}
+	// A recipient that is still not an address after cleanup has no
+	// email-addr. It is kept as text, sorted and named once, so the message
+	// id below is still minted from what the message stores (adr/0357).
+	unparsed = sortedUnique(append(unparsed, envUnparsed...))
+	if len(unparsed) > 0 {
+		props["unparsed_recipients"] = unparsed
 	}
 	// The recipients are every address the message was sent to: the header
 	// to, cc and blind copy, and the envelope. With no Message-ID they are
 	// part of its identity, so two copies of one run sent to different
 	// mailboxes stay two messages (adr/0359). The message is keyed on the
-	// addresses it stores: a sender or recipient left out is not in the key
-	// (adr/0357).
-	if fromRef == "" {
-		from = ""
-	}
-	recipients := append(append(append(append([]string{}, to...), cc...), bcc...), env...)
+	// values it stores: the cleaned-up sender and recipients, and the text
+	// of a recipient that is not an address (adr/0357).
+	recipients := append(append(append(append(append([]string{}, to...), cc...), bcc...), env...), unparsed...)
 	msgID := b.addSCO(b.r.EmailMessage(msgUID, from, subject, b.evt.Time, recipients, thread), identity.TypeEmailMessage, props)
 
 	// Attachments and body links, with a contains edge each. Both lists are
@@ -113,31 +119,25 @@ func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) 
 }
 
 // envelopeRecipients adds an email-addr for each envelope address of an
-// email and returns their ids and the addresses they were minted from. The
-// envelope is smtp_to[] (the SMTP RCPT TO values), and the Delivered-To
-// values, delivered_to_list[] from OCSF 1.4.0, else the deprecated single
-// delivered_to (03 §4.16). Each address goes through emailAddr, as the header
-// recipients do, and one named twice is kept once.
-func (b *resultBuilder) envelopeRecipients(p map[string]any) ([]identity.STIXID, []string) {
+// email, by emailAddrList. The envelope is smtp_to[] (the SMTP RCPT TO
+// values), and the Delivered-To values, delivered_to_list[] from OCSF 1.4.0,
+// else the deprecated single delivered_to (03 §4.16). It returns the ids,
+// the values they store, and the text of each entry that is not an address.
+func (b *resultBuilder) envelopeRecipients(p map[string]any) ([]identity.STIXID, []string, []string) {
 	addrs := stringsAt(p, "email.smtp_to")
 	if delivered := stringsAt(p, "email.delivered_to_list"); len(delivered) > 0 {
 		addrs = append(addrs, delivered...)
 	} else if d := pathStr(p, "email.delivered_to"); d != "" {
 		addrs = append(addrs, d)
 	}
-	var refs []identity.STIXID
-	var values []string
-	seen := map[identity.STIXID]bool{}
-	for _, a := range addrs {
-		id := b.emailAddr(a)
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		refs = append(refs, id)
-		values = append(values, a)
-	}
-	return refs, values
+	return b.emailAddrList(addrs)
+}
+
+// sortedUnique returns ss sorted, each string once.
+func sortedUnique(ss []string) []string {
+	out := slices.Clone(ss)
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // stringsAt reads the strings of the list at path of p.
@@ -205,8 +205,8 @@ func (*emailURLNormalizer) ClassUID() int { return 4012 }
 // 4: OCSF classes and fields, adr/0356
 // 5: OCSF read gaps, adr/0359
 // 6: STIX 2.1 output through the one serializer, an artifact for a record
-// naming nothing, and a broken record is a normalize error; is_multipart,
-// URLs that are URIs, adr/0357
+// naming nothing, and a broken record is a normalize error; URLs that are
+// URIs, adr/0357
 func (*emailURLNormalizer) Version() int { return 6 }
 
 func (n *emailURLNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
@@ -239,8 +239,8 @@ func (*emailFileNormalizer) ClassUID() int { return 4011 }
 // ObservedData id carries the version but not the normalizer's name.
 // 5: OCSF read gaps, adr/0359
 // 6: STIX 2.1 output through the one serializer, an artifact for a record
-// naming nothing, and a broken record is a normalize error; is_multipart,
-// file hashes and names STIX can hold, adr/0357
+// naming nothing, and a broken record is a normalize error; file hashes and
+// names STIX can hold, adr/0357
 func (*emailFileNormalizer) Version() int { return 6 }
 
 func (n *emailFileNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {

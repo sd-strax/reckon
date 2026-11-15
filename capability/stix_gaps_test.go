@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -109,8 +110,9 @@ func TestGapDomainNames(t *testing.T) {
 	}
 }
 
-// A URL that is not a URI, and an email address that is not an addr-spec,
-// are left out.
+// A URL that is not a URI is left out. An email address is cleaned up first:
+// a display-name sender keeps its address. A recipient that is still not an
+// addr-spec has no email-addr and is kept as text.
 func TestGapURLsAndEmailAddresses(t *testing.T) {
 	res := normalizeEvent(t, map[string]any{"class_uid": 4012, "email_uid": "m-1", "url": map[string]any{"url_string": "www.example.com/login"}})
 	if u := scosOf(res, identity.TypeURL); len(u) != 0 {
@@ -123,12 +125,15 @@ func TestGapURLsAndEmailAddresses(t *testing.T) {
 	res = normalizeEvent(t, map[string]any{"class_uid": 4009, "email": map[string]any{
 		"from": "Bob <bob@example.com>", "to": []any{"jdoe@example.com", "a,b@example.com"}, "subject": "s",
 	}})
-	if got := values(scosOf(res, identity.TypeEmailAddr)); len(got) != 1 || got[0] != "jdoe@example.com" {
-		t.Errorf("email addresses = %v; want jdoe@example.com alone", got)
+	if got := values(scosOf(res, identity.TypeEmailAddr)); !slices.Equal(got, []any{"bob@example.com", "jdoe@example.com"}) {
+		t.Errorf("email addresses = %v; want bob@example.com and jdoe@example.com", got)
 	}
 	msg := scosOf(res, identity.TypeEmailMessage)
-	if len(msg) != 1 || msg[0].Properties["from_ref"] != nil {
-		t.Errorf("message = %+v; want no from_ref for a display-name sender", msg)
+	if len(msg) != 1 || msg[0].Properties["from_ref"] != string(identity.NewResolver(testNS).EmailAddr("bob@example.com")) {
+		t.Errorf("message = %+v; want from_ref the display-name sender's address", msg)
+	}
+	if got, _ := msg[0].Properties["unparsed_recipients"].([]string); !slices.Equal(got, []string{"a,b@example.com"}) {
+		t.Errorf("unparsed_recipients = %v; want a,b@example.com", msg[0].Properties["unparsed_recipients"])
 	}
 }
 

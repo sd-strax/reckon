@@ -980,10 +980,14 @@ Output:
   whose value starts with `multipart/`, without regard to case. Otherwise it
   is `false` (adr/0357).
 - `email-addr` SCO for each address (sender, recipients, cc, bcc, and the
-  envelope recipients).
+  envelope recipients). Each address is cleaned up first: surrounding white
+  space is trimmed, and a mailbox with a display name, such as
+  `Alice <alice@corp.example>`, keeps its address (adr/0357).
 - `reckon-email-message` property-extension on the message, with
-  `thread_uid` from `email.uid` and `envelope_to_refs`, the envelope
-  recipients. STIX has no property for either (adr/0357, adr/0359).
+  `thread_uid` from `email.uid`, `envelope_to_refs`, the envelope
+  recipients, and `unparsed_recipients`. That last one holds, as sorted
+  text, each recipient that is still not an address after cleanup. STIX has
+  no property for any of them (adr/0357, adr/0359).
 - `file` SCO for each attachment in `email.files[]`, with hashes if present.
 - `url` SCO for each URL in `email.urls[]`.
 - STIX `Relationship` of native type `contains` from the email-message to
@@ -996,7 +1000,7 @@ Output:
 Each is the value the message stores: an address that was left out (§4.13)
 is neither the sender nor a recipient. `date` is the record's `time` to the
 second. The recipients are the sorted, lowercased to, cc, bcc and envelope
-addresses. The envelope addresses are `smtp_to` and Delivered-To
+addresses, and the `unparsed_recipients` text. The envelope addresses are `smtp_to` and Delivered-To
 (`delivered_to_list`, else `delivered_to`), stored as `envelope_to_refs`.
 `thread_uid` counts only when present. The recipients and the thread keep
 apart the separate copies of a phishing or spam run, and messages from
@@ -1736,9 +1740,9 @@ only SCOs and relationships (adr/0357).
     investigation seeded on a person finds the person's directory records.
 - Edges as in §4.1.
 
-Version 4, as §4.17: a record stored before the normalizer existed went
+Version 2, as §4.17: a record stored before the normalizer existed went
 through the opaque default at version 1. Version 3 follows the shared user
-name rule (adr/0359), which changes the accounts the record mints. Version 4
+name rule, which changes the accounts the record mints (adr/0359). Version 4
 takes the person out of `object_refs` and names it in `person_ref`
 (adr/0357). Failure modes: two directories that
 describe one human are two persons, linked by `aliases` from a record or a

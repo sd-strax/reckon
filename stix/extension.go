@@ -169,7 +169,7 @@ var definitions = []Definition{
 	define(ExtProcess, "f6373d83-b6b9-49e4-b16c-e300d5187038", PropertyExtension,
 		"Process fields hold a process's name, which the STIX process object has no property for."),
 	define(ExtEmailMessage, "d406ebfb-83e0-48cf-adc4-299269d886fe", PropertyExtension,
-		"Email message fields hold the thread id a message is part of and its envelope recipients."),
+		"Email message fields hold the thread id a message is part of, its envelope recipients, and the recipients that are not addresses."),
 	define(ExtAssertion, "7fd9b083-aa06-4623-b280-873699a3a3c6", PropertyExtension,
 		"An assertion on a relationship records the person who asserted it, when and why, and its withdrawal."),
 }

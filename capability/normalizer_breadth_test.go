@@ -877,6 +877,9 @@ func TestEmailThreadAndEnvelopeStored(t *testing.T) {
 	if msgs[0].Properties["thread_uid"] != "thread-7" {
 		t.Errorf("thread_uid = %v; want thread-7", msgs[0].Properties["thread_uid"])
 	}
+	if got, _ := msgs[0].Properties["unparsed_recipients"].([]string); !slices.Equal(got, []string{"not an address"}) {
+		t.Errorf("unparsed_recipients = %v; want the one entry that is not an address", msgs[0].Properties["unparsed_recipients"])
+	}
 	for _, ref := range want {
 		if !refsContain(res.ObservedData[0].ObjectRefs, identity.STIXID(ref)) {
 			t.Errorf("envelope address %s is not in object_refs", ref)
@@ -905,6 +908,92 @@ func TestEmailThreadAndEnvelopeStored(t *testing.T) {
 	}
 	if p := remintProblems(reg.Identity(), res); len(p) > 0 {
 		t.Errorf("R1: %v", p)
+	}
+}
+
+// TestEmailRecipientCleanup (adr/0357, adr/0359): a recipient with a display
+// name, or padded with white space, is cleaned up to its address and kept as
+// an email-addr, in the header and the envelope alike. Two messages alike in
+// sender, subject and second, sent to different such recipients, are two
+// messages. Each validates and re-mints (TestMain).
+func TestEmailRecipientCleanup(t *testing.T) {
+	reg := testRegistry()
+	ids := identity.NewResolver(testNS)
+	send := func(field string, rcpt any) (identity.STIXID, NormalizationResult) {
+		t.Helper()
+		res, err := reg.Normalize(makeEvent(versioned(4009, "1.9.0", map[string]any{"email": map[string]any{
+			"from": " Billing <billing@evil.example> ", "subject": "Overdue invoice", field: rcpt,
+		}})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		msgs := scosOf(res, identity.TypeEmailMessage)
+		if len(msgs) != 1 {
+			t.Fatalf("messages = %+v; want one", msgs)
+		}
+		if msgs[0].Properties["from_ref"] != string(ids.EmailAddr("billing@evil.example")) {
+			t.Errorf("from_ref = %v; want the sender's address", msgs[0].Properties["from_ref"])
+		}
+		if u, ok := msgs[0].Properties["unparsed_recipients"]; ok {
+			t.Errorf("unparsed_recipients = %v; want none", u)
+		}
+		return msgs[0].ID, res
+	}
+	for _, tc := range []struct {
+		name, field string
+		a, b        any
+		refs        string
+	}{
+		{"display names", "to", []any{"Alice <alice@corp.example>"}, []any{"Bob <bob@corp.example>"}, "to_refs"},
+		{"padded envelope recipients", "smtp_to", []any{" alice@corp.example "}, []any{"\tbob@corp.example\n"}, "envelope_to_refs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, ra := send(tc.field, tc.a)
+			b, rb := send(tc.field, tc.b)
+			if a == b {
+				t.Errorf("both messages are %s; want two", a)
+			}
+			for addr, res := range map[string]NormalizationResult{"alice@corp.example": ra, "bob@corp.example": rb} {
+				want := ids.EmailAddr(addr)
+				if scoOfType(res.SCOs, identity.TypeEmailAddr) == "" || !refsContain(res.ObservedData[0].ObjectRefs, want) {
+					t.Errorf("%s is not kept as an email-addr", addr)
+				}
+				msg := scosOf(res, identity.TypeEmailMessage)[0]
+				if got, _ := msg.Properties[tc.refs].([]string); !slices.Equal(got, []string{string(want)}) {
+					t.Errorf("%s = %v; want %s", tc.refs, msg.Properties[tc.refs], want)
+				}
+			}
+		})
+	}
+}
+
+// TestEmailUnparsedRecipients (adr/0357, adr/0359): a recipient that is not
+// an address after cleanup is kept as text in unparsed_recipients, sorted and
+// named once, and counts in the id. Two copies that differ only there are two
+// messages.
+func TestEmailUnparsedRecipients(t *testing.T) {
+	reg := testRegistry()
+	send := func(to ...any) SCO {
+		t.Helper()
+		res, err := reg.Normalize(makeEvent(versioned(4009, "1.9.0", map[string]any{"email": map[string]any{
+			"from": "promo@spam.example", "subject": "You won", "to": to,
+		}})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		msgs := scosOf(res, identity.TypeEmailMessage)
+		if len(msgs) != 1 {
+			t.Fatalf("messages = %+v; want one", msgs)
+		}
+		return msgs[0]
+	}
+	a := send("ap@corp.example", "Undisclosed recipients:;", " zz-list ", "zz-list")
+	b := send("ap@corp.example", "accounts payable")
+	if got, _ := a.Properties["unparsed_recipients"].([]string); !slices.Equal(got, []string{"Undisclosed recipients:;", "zz-list"}) {
+		t.Errorf("unparsed_recipients = %v; want the two texts, sorted, each once", a.Properties["unparsed_recipients"])
+	}
+	if a.ID == b.ID {
+		t.Errorf("both copies are %s; want two ids", a.ID)
 	}
 }
 

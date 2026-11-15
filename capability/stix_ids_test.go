@@ -25,7 +25,7 @@ import (
 //   - A process with no pid or no start time has a random id: STIX gives a
 //     process no id contributing properties (03 §7.2).
 //   - An email-message with no Message-ID is keyed on its sender, subject,
-//     recipients, thread and the record's time. The record's time is the
+//     recipients (the unparsed ones included), thread and the record's time. The record's time is the
 //     observation's first_observed, not a property of the message.
 //   - A sighting is keyed on the vendor that saw it, whose name is stored on
 //     the identity its where_sighted_refs names.
@@ -188,6 +188,12 @@ func remintCandidates(ids *identity.Resolver, typ string, m map[string]any, stor
 		refs(m["bcc_refs"])
 		ext := stix.ExtensionFrom(m, stix.ExtEmailMessage)
 		refs(ext["envelope_to_refs"])
+		if arr, ok := ext["unparsed_recipients"].([]any); ok {
+			for _, r := range arr {
+				s, _ := r.(string)
+				recipients = append(recipients, s)
+			}
+		}
 		thread, _ := ext["thread_uid"].(string)
 		return []identity.STIXID{ids.EmailMessage(str(m, "message_id"), from, str(m, "subject"), eventTime, recipients, thread)}, false
 	case identity.TypeHost:

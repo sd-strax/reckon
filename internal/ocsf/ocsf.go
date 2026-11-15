@@ -209,7 +209,7 @@ func registryText(v any) (string, bool) {
 	case string:
 		return x, true
 	case float64:
-		if !(math.Abs(x) < 1<<53) {
+		if !(math.Abs(x) <= MaxWholeNumber) {
 			return "", false
 		}
 	}
@@ -222,12 +222,12 @@ func registryText(v any) (string, bool) {
 
 // integerText writes a whole number in decimal, or "" when the value is not
 // one that can be written exactly. A float64 is a decoded JSON number: one
-// of 2^53 or more may already be rounded, so it reads as "". This is the
+// above MaxWholeNumber may already be rounded, so it reads as "". This is the
 // rule scalarString in package capability follows for identifiers.
 func integerText(v any) string {
 	switch n := v.(type) {
 	case float64:
-		if n != math.Trunc(n) || math.Abs(n) >= 1<<53 {
+		if n != math.Trunc(n) || !(math.Abs(n) <= MaxWholeNumber) {
 			return ""
 		}
 		return strconv.FormatFloat(n, 'f', -1, 64)

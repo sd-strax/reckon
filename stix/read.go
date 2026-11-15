@@ -26,6 +26,7 @@ func prop(ext, name string) Prop {
 // The extension properties readers look up.
 var (
 	AccountPrincipalName = prop(ExtAccount, "principal_name")
+	AccountUIDAlt        = prop(ExtAccount, "uid_alt")
 	PersonPrincipalName  = prop(ExtPerson, "principal_name")
 	PersonMail           = prop(ExtPerson, "mail")
 	PersonDirectoryID    = prop(ExtPerson, "directory_id")

@@ -533,14 +533,13 @@ func (r *renderer) accountTarget(read func(key string) any) (slot, string) {
 // user-account, so the account stores both in its reckon-account extension
 // (adr/0357).
 func accountUIDAltEquals(props map[string]any, want string) bool {
-	ext := stix.ExtensionFrom(props, stix.ExtAccount)
-	if propFoldEquals(ext, "uid_alt", want) {
+	if foldEquals(stix.AccountUIDAlt.String(props), want) {
 		return true
 	}
 	if !strings.Contains(want, "@") || accountType(props) != identity.AccountWindowsDomain {
 		return false
 	}
-	return propFoldEquals(props, "account_login", want) || propFoldEquals(ext, "principal_name", want)
+	return propFoldEquals(props, "account_login", want) || foldEquals(stix.AccountPrincipalName.String(props), want)
 }
 
 // accountUIDEquals reports whether the user-account props are keyed on a
@@ -593,7 +592,13 @@ func accountType(props map[string]any) string {
 // propFoldEquals reports whether props hold want at prop, both trimmed and
 // folded for case.
 func propFoldEquals(props map[string]any, prop, want string) bool {
-	got := strings.TrimSpace(toString(props[prop]))
+	return foldEquals(toString(props[prop]), want)
+}
+
+// foldEquals reports whether got equals want, both trimmed and folded for
+// case. An empty value equals nothing.
+func foldEquals(got, want string) bool {
+	got, want = strings.TrimSpace(got), strings.TrimSpace(want)
 	return want != "" && got != "" && strings.EqualFold(got, want)
 }
 
@@ -673,14 +678,17 @@ func (r *renderer) url(v string) slot {
 	return slot{text: v, ref: r.bind(identity.TypeURL, func(p map[string]any) bool { return propEquals(p, "value", v) })}
 }
 
+// emailAddr shows an address as the record gives it, and binds it through
+// the cleanup the normalizer stored it with (stix.EmailAddress, adr/0357).
 func (r *renderer) emailAddr(v string) slot {
 	if v == "" {
 		return slot{}
 	}
-	if !stix.IsAddrSpec(v) {
+	value, ok := stix.EmailAddress(v)
+	if !ok {
 		return slot{text: v}
 	}
-	return slot{text: v, ref: r.bind(identity.TypeEmailAddr, func(p map[string]any) bool { return propEquals(p, "value", v) })}
+	return slot{text: v, ref: r.bind(identity.TypeEmailAddr, func(p map[string]any) bool { return propEquals(p, "value", value) })}
 }
 
 // file binds an OCSF file object at prefix to its file by name, hash or path.
