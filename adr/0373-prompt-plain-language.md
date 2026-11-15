@@ -95,6 +95,30 @@ Its findings and what was done with each:
 - **Declined.** A new "when refused" sentence on `manual-tests`. It would add
   an instruction, and the rule already says the analyst records the result.
 
+## Eval findings before acceptance
+
+The first Sonnet run on each of the three scenarios passed every MUST
+assertion. Two findings changed the wording once more, in one edit, before
+any run was accepted:
+
+- **E3 fell on two scenarios.** It went from 3/3 to 0/3 on lateral movement,
+  which is a regression, and from 3/3 to 2/3 on impossible travel. In every
+  failing reply the agent refused to record the outcome. But it gave the
+  untested discriminators as the reason, not the hypothesis still being
+  PROPOSED. The engine refuses an AI outcome on a PROPOSED hypothesis, and no
+  rule said so: `proposed-by-design` named the gate in `Enforced` but did not
+  say what it refuses. The revised `decide-against-rivals` was the only rule
+  that gave a reason not to record, so the model used it. `proposed-by-design`
+  now states the refusal, its reason, and what to say when asked to decide.
+- **H6 fell on two scenarios.** One trial in each of impossible travel and
+  exposed bucket sent `parameters` as an unparseable string, and the loop had
+  to repair it. The pass had replaced "do not wrap it in quotes or escape it"
+  with "never as a quoted or escaped JSON string". The concrete instruction
+  is restored.
+
+The other one-trial changes (O2 and O3 on impossible travel, O3 on exposed
+bucket) are inside the tolerance and left alone.
+
 ## Alternatives rejected
 
 - **Reword only the rules that failed a trial.** That is the per-finding loop

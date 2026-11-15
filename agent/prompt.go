@@ -281,7 +281,7 @@ var promptLedger = []promptSection{
 				Enforced:          "loop: UnwrapStringifiedObject",
 				Graded:            "H5, H6",
 				PendingValidation: "#373",
-				Text:              "Send request_action.parameters as a JSON object (e.g. {\"summary\": \"...\", \"description\": \"...\"}), never as a quoted or escaped JSON string, because a string can reach the write adapter as an empty field. If a call is rejected for a malformed payload, send it again with parameters as a plain object.",
+				Text:              "Send request_action.parameters as a JSON object (e.g. {\"summary\": \"...\", \"description\": \"...\"}), never as a string: do not wrap it in quotes or escape it, because a string can reach the write adapter as an empty field. If a call is rejected for a malformed payload, send it again with parameters as a plain object.",
 			},
 			{
 				ID:                "narrowest-action",
@@ -300,7 +300,7 @@ var promptLedger = []promptSection{
 				Enforced:          "aggregate: the acknowledgment gate",
 				Graded:            "E3",
 				PendingValidation: "#373",
-				Text:              "Expect your hypotheses to be recorded PROPOSED until the analyst acknowledges them. That is by design, not a failure: you propose a theory, and the analyst adopts it.",
+				Text:              "Your hypotheses are recorded PROPOSED until the analyst acknowledges them, and the engine refuses any outcome you record on a PROPOSED hypothesis, because the analyst adopts a theory before it can be decided. When asked to decide one, say it needs their acknowledgment first. That is by design, not a failure.",
 			},
 		},
 	},
