@@ -222,6 +222,7 @@ const action = object({
   action_type: str,
   tier: str,
   status: str,
+  outcome: optional(str),
   required_mode: optional(str),
   secondary_approver_pool: optional(list(str)),
   primary_approver_ref: optional(str),

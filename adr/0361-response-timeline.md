@@ -28,7 +28,7 @@ A pending card also offered "Decide later". That button set a view-only flag (`a
   - Approve, Edit… (only when the request has inputs that are not entities) and Reject…, below the sentence and not in the header
 - **A pending card's details** hold the evidence it was based on, the type id, the tier, the approval requirement with the policy decision link, and the action record link.
 - **A timeline item at rest** is one line: the request time, the group tile, the title, the targets, and the status as a glyph plus the engine's word (`SUCCEEDED`, `FAILED`). Tier and reversibility are not pills on it.
-- **Items that need attention open at rest.** A `FAILED`, `TIMEOUT`, `PARTIAL` or `OUTCOME_UNKNOWN` item, and an `EXPIRED` one that can be re-requested, stay at their place in the timeline as an open card. A failure that a later action has taken over is handled, so it is one line with a marker linking to that action, which is its own item. A later action takes over a failure when it re-requests it, or when it is a later reversal of the same original as a failed reversal, and it was not itself rejected or left to expire. The card says what the outcome means for the target, with Resolve… or Re-request where they apply.
+- **Items that need attention open at rest.** A `FAILED`, `TIMEOUT`, `PARTIAL` or `OUTCOME_UNKNOWN` item, and an `EXPIRED` one that can be re-requested, stay at their place in the timeline as an open card. A failure that a later action has taken over is handled, so it is one line with a marker linking to that action, which is its own item. A later action takes over a failure when it re-requests it, when it reverses a partial result, or when it is a later reversal of the same original as a failed reversal. It must not itself have been rejected or left to expire. The card says what the outcome means for the target, with Resolve… or Re-request where they apply.
 - **A timeline item's details** hold:
   - a history line: requested, then approved (with the time, when the action has one) or rejected or expired
   - the type id, tier, adapter, approval, evidence and the raw tool error
@@ -36,7 +36,12 @@ A pending card also offered "Decide later". That button set a view-only flag (`a
   - Reverse…, the retry and reversal successor links, and the action record link
 - **The phase is the group tile**, not a section heading.
 - **"Decide later" and the "Set aside" section are removed,** along with the saved `aside` view state.
-- **The action list carries its times.** `GET /api/investigations/{id}/actions` adds `requested_at` (the projection's `created_at`) and `approved_at` (`primary_approved_at`) to each row.
+- **The action list carries its times and its outcome.** `GET /api/investigations/{id}/actions` adds three fields to each row:
+  - `requested_at`, the projection's `created_at`
+  - `approved_at`, its `primary_approved_at`
+  - `outcome`, the outcome on record: the result's final outcome (`SUCCEEDED`, `FAILED`, `PARTIAL` or `TIMEOUT`), or a person's resolution of an unknown one. It is empty until one is recorded. The action record carries the same field.
+
+  The row needs the outcome because the status folds a partial result into `SUCCEEDED` and a timeout into `FAILED`. Whether an item needs attention is read from the outcome, or from a `FAILED` status when there is no outcome. A partial or timed-out item shows the outcome word in place of the status word. A later status such as `REVERSED` still wins. Every place the workbench says what happened reads the outcome: the status word, the handoff note, the Notification tile ("partly notified", "notification unconfirmed") and the case note. The stage strip and the dependency rules follow the status, as the server does.
 - **The compact card** in the conversation shares the new header. Its body keeps its own layout, but it also carries the pending card's decision lines: reversibility in words, the escalation reason, and the approval requirement when it is more than the reader's own approval. The header no longer carries them, and the compact card has Approve too.
 
 `design/ui/03-remediation.md §3.3` and the Response part of `design/ui/08-investigation-layout.md §8.4` are amended to match.

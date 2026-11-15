@@ -306,3 +306,24 @@ describe("the inspector", () => {
     expect(within(pane()).getByText(/no persisted record for this ref/)).toBeTruthy();
   });
 });
+
+// adr/0361: what happened to an action reads its recorded outcome wherever an
+// inspector names it.
+describe("an action's word in the inspectors", () => {
+  it("reads PARTIAL for a partial result on an entity and in In this case", () => {
+    const d = structuredClone(data);
+    d.snapshot.actions = d.snapshot.actions!.map((a) => (a.actionId === "act-1" ? { ...a, status: "SUCCEEDED", outcome: "PARTIAL" } : a));
+    mount(d);
+    fireEvent.click(chip("host · host-a"));
+    expect(within(pane()).getByText("Actions on this entity")).toBeTruthy();
+    expect(within(pane()).getAllByText("PARTIAL").length).toBeGreaterThan(0);
+    expect(within(pane()).queryByText("SUCCEEDED")).toBeNull();
+    cleanup();
+    mount(d);
+    fireEvent.click(chip("observed data · 3 objects"));
+    const block = pane().querySelector(".ithiscase") as HTMLElement;
+    expect(within(block).getByText("host.isolate")).toBeTruthy();
+    expect(within(block).getByText("PARTIAL")).toBeTruthy();
+    expect(within(block).queryByText("SUCCEEDED")).toBeNull();
+  });
+});

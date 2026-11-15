@@ -189,6 +189,13 @@ func TestRequestAction_InvisibleActivateOnDraft(t *testing.T) {
 // result SUCCEEDED on the given investigation, returning its id.
 func succeededAction(t *testing.T, invID uuid.UUID) uuid.UUID {
 	t.Helper()
+	return resultedAction(t, invID, "SUCCEEDED")
+}
+
+// resultedAction drives an x-action through request → approve → dispatch →
+// result with the given final outcome, returning its id.
+func resultedAction(t *testing.T, invID uuid.UUID, finalOutcome string) uuid.UUID {
+	t.Helper()
 	ctx := context.Background()
 	actionID := uuid.New()
 	env := func(kind string) aggregate.Envelope {
@@ -216,8 +223,90 @@ func succeededAction(t *testing.T, invID uuid.UUID) uuid.UUID {
 		},
 	})
 	mustDo(env(aggregate.ActorSystem), aggregate.DispatchAction{ActionID: actionID, Adapter: "fx", AdapterRequestID: "wf"})
-	mustDo(env(aggregate.ActorSystem), aggregate.ResultAction{ActionID: actionID, FinalOutcome: "SUCCEEDED", Attempts: 1})
+	mustDo(env(aggregate.ActorSystem), aggregate.ResultAction{ActionID: actionID, FinalOutcome: finalOutcome, Attempts: 1})
 	return actionID
+}
+
+// resolvedAction drives an x-action to OUTCOME_UNKNOWN and has a person
+// resolve it to the given outcome, returning its id (adr/0216).
+func resolvedAction(t *testing.T, invID uuid.UUID, outcome string) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	actionID := uuid.New()
+	env := func(kind string) aggregate.Envelope {
+		return aggregate.Envelope{
+			AggregateID: invID, TenantID: module.SingleTenantUUID, CorrelationID: uuid.New(),
+			Actor: aggregate.Actor{PrincipalID: "test-subject", Kind: kind}, OccurredAt: time.Now().UTC(),
+		}
+	}
+	for _, step := range []struct {
+		kind string
+		cmd  aggregate.Command
+	}{
+		{"", aggregate.RequestAction{
+			ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
+			Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+			ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
+		}},
+		{"", aggregate.ApproveAction{ActionID: actionID, Authorization: aggregate.Authorization{
+			Mode: aggregate.AuthModeManual, Stage: aggregate.AuthStageSolo,
+			PrimaryApproverRef: "test-subject", PrimaryApprovedAt: time.Now(),
+		}}},
+		{aggregate.ActorSystem, aggregate.DispatchAction{ActionID: actionID, Adapter: "fx", AdapterRequestID: "wf"}},
+		{aggregate.ActorSystem, aggregate.RecordOutcomeUnknown{ActionID: actionID, Detail: "the run stopped"}},
+		{"", aggregate.ResolveActionOutcome{ActionID: actionID, Outcome: outcome, Note: "checked the EDR console"}},
+	} {
+		if _, err := testHandler.Handle(ctx, env(step.kind), step.cmd); err != nil {
+			t.Fatalf("%s: %v", step.cmd.Kind(), err)
+		}
+	}
+	return actionID
+}
+
+// TestActionOutcome_ListAndRecordAgree: an unknown outcome a person resolved
+// reads the same on its list row and its record, for either resolution
+// (adr/0361).
+func TestActionOutcome_ListAndRecordAgree(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	b := actionBackend(t)
+	want := map[uuid.UUID]string{
+		resolvedAction(t, invID, aggregate.ActionStatusSucceeded): aggregate.ActionStatusSucceeded,
+		resolvedAction(t, invID, aggregate.ActionStatusFailed):    aggregate.ActionStatusFailed,
+	}
+
+	srv := httptest.NewServer(b.buildRouter(b.verifier))
+	t.Cleanup(srv.Close)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/investigations/"+invID.String()+"/actions", nil)
+	req.Header.Set("Authorization", "Bearer "+mintToken(t, nil))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Actions []ActionView `json:"actions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Actions) != len(want) {
+		t.Fatalf("actions = %d; want %d", len(out.Actions), len(want))
+	}
+	for _, row := range out.Actions {
+		id := uuid.MustParse(row.ActionID)
+		rec, err := b.loadActionRecord(context.Background(), id)
+		if err != nil {
+			t.Fatalf("loadActionRecord: %v", err)
+		}
+		if row.Status != want[id] || row.Outcome != want[id] || rec.Action.Outcome != row.Outcome {
+			t.Errorf("%s: list status/outcome = %q/%q, record outcome = %q; want %q on all three",
+				id, row.Status, row.Outcome, rec.Action.Outcome, want[id])
+		}
+	}
 }
 
 // TestRerequestAction: re-requesting an EXPIRED action creates a NEW action
@@ -606,6 +695,8 @@ func TestListInvestigationActions(t *testing.T) {
 		InvestigationRef: invID.String(),
 	})
 	done := succeededAction(t, invID)
+	partial := resultedAction(t, invID, "PARTIAL")
+	timeout := resultedAction(t, invID, "TIMEOUT")
 
 	srv := httptest.NewServer(b.buildRouter(b.verifier))
 	t.Cleanup(srv.Close)
@@ -625,8 +716,8 @@ func TestListInvestigationActions(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(out.Actions) != 3 {
-		t.Fatalf("actions = %d; want 3", len(out.Actions))
+	if len(out.Actions) != 5 {
+		t.Fatalf("actions = %d; want 5", len(out.Actions))
 	}
 	byID := map[string]ActionView{}
 	for _, a := range out.Actions {
@@ -664,6 +755,28 @@ func TestListInvestigationActions(t *testing.T) {
 	}
 	if settled.ApprovedAt == nil || settled.ApprovedAt.IsZero() {
 		t.Errorf("approved action: approved_at not served: %+v", settled)
+	}
+	// The recorded outcome rides beside the lifecycle status, which folds
+	// PARTIAL into SUCCEEDED and TIMEOUT into FAILED (adr/0361); a row with
+	// no result carries none.
+	for id, want := range map[string][2]string{
+		done.String():    {aggregate.ActionStatusSucceeded, "SUCCEEDED"},
+		partial.String(): {aggregate.ActionStatusSucceeded, "PARTIAL"},
+		timeout.String(): {aggregate.ActionStatusFailed, "TIMEOUT"},
+		first.ActionID:   {aggregate.ActionStatusRequested, ""},
+	} {
+		if got := byID[id]; got.Status != want[0] || got.Outcome != want[1] {
+			t.Errorf("%s: status/outcome = %q/%q; want %q/%q", id, got.Status, got.Outcome, want[0], want[1])
+		}
+	}
+
+	// The action's record carries the same outcome as its list row.
+	rec, err := b.loadActionRecord(context.Background(), partial)
+	if err != nil {
+		t.Fatalf("loadActionRecord: %v", err)
+	}
+	if rec.Action.Status != aggregate.ActionStatusSucceeded || rec.Action.Outcome != "PARTIAL" {
+		t.Errorf("record status/outcome = %q/%q; want SUCCEEDED/PARTIAL", rec.Action.Status, rec.Action.Outcome)
 	}
 }
 

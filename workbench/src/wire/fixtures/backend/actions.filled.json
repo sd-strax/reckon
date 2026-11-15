@@ -6,6 +6,7 @@
       "tier": "x",
       "status": "x",
       "required_mode": "x",
+      "outcome": "x",
       "secondary_approver_pool": [
         "x"
       ],

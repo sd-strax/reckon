@@ -7,7 +7,7 @@ import { useApp } from "../../app";
 import { awaitsDecision, byDeadline, byRequested } from "../../derive/actions";
 import { terminal } from "../../derive/stage";
 import { hypName } from "../../derive/hyps";
-import { handoffNote, keyEntities, proceduresCited, stillToDo } from "../../derive/summary";
+import { handoffNote, keyEntities, notificationWord, proceduresCited, stillToDo } from "../../derive/summary";
 import { Badge, Countdown, Empty, Markdown, RefChip, fmtDateTime, fmtTime } from "../shared";
 import type { NarrativeAuthor, NarrativeView } from "../../../../src/viewTypes";
 import { verdictLinks } from "../../derive/verdict";
@@ -172,7 +172,7 @@ export function SummaryLens() {
         </div>
         <div className="tile" onClick={() => goTo({ kind: "lens", lens: "response", anchor: notifyTarget?.actionId })}>
           <div className="kicker">Notification</div>
-          <div className="tilemain">{notify.some((a) => a.status === "SUCCEEDED") ? "notified" : notify.some((a) => a.pending) ? "awaiting approval" : "not yet notified"}</div>
+          <div className="tilemain">{notificationWord(notify)}</div>
           <div className="imeta">{awaiting ? `${awaiting} reply outstanding` : notify.length ? `${notify.length} sent or requested` : "ask reckon in the conversation"}</div>
         </div>
         <div className="tile" onClick={() => goTo({ kind: "lens", lens: "reasoning" })}>

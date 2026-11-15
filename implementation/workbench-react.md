@@ -622,7 +622,7 @@ state.
 ### 7.1 Stage (`stage.ts`, `08 §8.2`)
 
 Inputs: `investigation.status`, `verdict`, `actions`, `comms`, `ownerItems`.
-`terminal(a)` = status ∈ {SUCCEEDED, PARTIAL, FAILED, TIMEOUT, REJECTED, EXPIRED, REVERSED}.
+`terminal(a)` = status ∈ {SUCCEEDED, FAILED, REJECTED, EXPIRED, REVERSED}. The status folds a partial result into SUCCEEDED and a timeout into FAILED (`adr/0361`).
 `isNotify(a)` = `action_type` starts with `notify.`.
 
 | Step | done | current |

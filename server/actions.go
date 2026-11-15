@@ -50,6 +50,12 @@ type ActionView struct {
 	Tier         string `json:"tier"`
 	Status       string `json:"status"`
 	RequiredMode string `json:"required_mode,omitempty"`
+	// Outcome is the recorded final outcome (SUCCEEDED | FAILED | PARTIAL |
+	// TIMEOUT), or a person's resolution of an unknown one. Empty until one
+	// is recorded. Status folds PARTIAL into SUCCEEDED and TIMEOUT into
+	// FAILED (08 §7.1), so a surface that tells the analyst what happened
+	// reads this field (adr/0361).
+	Outcome string `json:"outcome,omitempty"`
 	// SecondaryApproverPool is who may complete a two-party approval, frozen
 	// at request time by the policy that required it (04 §4.1); empty for a
 	// manual action, and for a two-party one whose policy named no pool (the
@@ -135,9 +141,16 @@ func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Reques
 		writeInternalError(w, "list actions", err)
 		return
 	}
+	outcomes, err := b.cfg.Reads.ListRecordedOutcomes(r.Context(), invID)
+	if err != nil {
+		writeInternalError(w, "list action outcomes", err)
+		return
+	}
 	out := make([]ActionView, 0, len(acts))
 	for _, a := range acts {
-		out = append(out, b.actionView(a))
+		v := b.actionView(a)
+		v.Outcome = outcomes[a.ActionID]
+		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"actions": out})
 }

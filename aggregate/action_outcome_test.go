@@ -244,3 +244,72 @@ func TestStrandedReversal(t *testing.T) {
 		t.Errorf("after the original is marked: stranded = %d, %v; want none", len(stranded), err)
 	}
 }
+
+// TestListRecordedOutcomes: the list read returns each action's recorded
+// outcome by the rule LoadRecordedOutcome applies, beside a lifecycle status
+// that folds PARTIAL into SUCCEEDED and TIMEOUT into FAILED (adr/0361). A
+// person's resolution is the outcome, an action with none is absent, and
+// another investigation's actions are not listed.
+func TestListRecordedOutcomes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetTables(t)
+	ctx := context.Background()
+	h := newTestHandler()
+	aggID := mustActivate(t, h)
+	other := mustActivate(t, h)
+
+	dispatched := func(agg uuid.UUID) uuid.UUID {
+		id := uuid.New()
+		mustHandle(t, h, cmdEnv(agg), RequestAction{
+			ActionID: id, ActionType: "host.isolate", Tier: TierT2,
+			Targets:   []TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-DC01"}},
+			ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
+		})
+		mustHandle(t, h, cmdEnv(agg), ApproveAction{ActionID: id, Authorization: Authorization{
+			Mode: AuthModeManual, Stage: AuthStageSolo, PrimaryApproverRef: "alice", PrimaryApprovedAt: time.Now(),
+		}})
+		mustHandle(t, h, sysEnv2(agg), DispatchAction{ActionID: id, Adapter: "fx", AdapterRequestID: "wf-" + id.String()})
+		return id
+	}
+	partial, timeout, resolved, executing := dispatched(aggID), dispatched(aggID), dispatched(aggID), dispatched(aggID)
+	elsewhere := dispatched(other)
+	mustHandle(t, h, sysEnv2(aggID), ResultAction{ActionID: partial, FinalOutcome: "PARTIAL", Attempts: 1})
+	mustHandle(t, h, sysEnv2(aggID), ResultAction{ActionID: timeout, FinalOutcome: "TIMEOUT", Attempts: 3})
+	mustHandle(t, h, sysEnv2(aggID), RecordOutcomeUnknown{ActionID: resolved, Detail: "the run stopped"})
+	mustHandle(t, h, cmdEnv(aggID), ResolveActionOutcome{ActionID: resolved, Outcome: ActionStatusSucceeded, Note: "the console shows the host isolated"})
+	mustHandle(t, h, sysEnv2(other), ResultAction{ActionID: elsewhere, FinalOutcome: "SUCCEEDED", Attempts: 1})
+
+	got, err := testReads().ListRecordedOutcomes(ctx, aggID)
+	if err != nil {
+		t.Fatalf("ListRecordedOutcomes: %v", err)
+	}
+	want := map[uuid.UUID]string{partial: "PARTIAL", timeout: "TIMEOUT", resolved: ActionStatusSucceeded}
+	if len(got) != len(want) {
+		t.Errorf("outcomes = %v; want %v (no row for the EXECUTING action or another investigation's)", got, want)
+	}
+	for id, outcome := range want {
+		if got[id] != outcome {
+			t.Errorf("outcome of %s = %q; want %q", id, got[id], outcome)
+		}
+		single, err := testReads().LoadRecordedOutcome(ctx, id)
+		if err != nil || single != outcome {
+			t.Errorf("LoadRecordedOutcome(%s) = %q, %v; want %q, the list's answer", id, single, err, outcome)
+		}
+	}
+	if _, ok := got[executing]; ok {
+		t.Errorf("an action with no outcome on record is listed: %q", got[executing])
+	}
+
+	// The lifecycle status beside it keeps the 08 §7.1 fold.
+	for id, status := range map[uuid.UUID]string{partial: ActionStatusSucceeded, timeout: ActionStatusFailed} {
+		ac, err := testReads().LoadActionCurrent(ctx, id)
+		if err != nil {
+			t.Fatalf("LoadActionCurrent: %v", err)
+		}
+		if ac.Status != status {
+			t.Errorf("status of %s = %q; want %q", id, ac.Status, status)
+		}
+	}
+}

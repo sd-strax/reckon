@@ -1,12 +1,15 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ActionRow } from "../../../src/viewTypes";
-import { needsAttention } from "../derive/actions";
+import { attentionKind } from "../derive/actions";
 import { ActionCard, approvalFact, willDoKicker } from "./ActionCard";
 import { AppProvider } from "../app";
 import { App } from "./App";
 import { HarnessTransport, type HarnessSnapshot } from "../../../harness/transport";
 import synthetic from "../../../harness/snapshots/synthetic.json";
+import { ActionsClient } from "../../../src/client/actions";
+import type { BackendHttp } from "../../../src/client/http";
+import { decode, type Decoder } from "../../../src/wire/decode";
 
 const data = synthetic as unknown as HarnessSnapshot;
 const lens = () => document.querySelector(".lensscroll") as HTMLElement;
@@ -28,6 +31,27 @@ function withActions(rows: ActionRow[]): HarnessSnapshot {
 }
 /** A settled host.isolate row, act-1's shape, overridden. */
 const settled = (over: Partial<ActionRow>): ActionRow => ({ ...(data.snapshot.actions![0] as ActionRow), approvedAt: undefined, ...over });
+/** The lifecycle status and recorded outcome the action list serves for a
+ * status word: PARTIAL is SUCCEEDED with outcome PARTIAL, TIMEOUT is FAILED
+ * with outcome TIMEOUT (08 §7.1, adr/0361). */
+const served = (word: string): Pick<ActionRow, "status" | "outcome"> =>
+  word === "PARTIAL" ? { status: "SUCCEEDED", outcome: "PARTIAL" }
+    : word === "TIMEOUT" ? { status: "FAILED", outcome: "TIMEOUT" }
+    : { status: word };
+
+/** Rows as the workbench maps them from GET /api/investigations/{id}/actions. */
+async function fromWire(rows: Record<string, unknown>[]): Promise<ActionRow[]> {
+  const http = { get: async <T,>(p: string, shape: Decoder<T>) => decode(p, shape, { actions: rows }) } as unknown as BackendHttp;
+  return new ActionsClient(http).list("inv-1");
+}
+/** A settled host.isolate list row as the backend sends it. */
+const wireRow = (id: string, host: string, over: Record<string, unknown>) => ({
+  action_id: id, action_type: "host.isolate", tier: "T2", required_mode: "MANUAL", mode: "MANUAL",
+  targets: [{ entity_ref: "x-host--" + id, resolved_identifier: host }], evidence_refs: ["observed-data--1"],
+  reversibility: "REVERSIBLE", requested_at: "2026-10-27T18:30:00.000Z", approved_at: "2026-10-27T18:31:00.000Z",
+  name: "Isolate host", category: "containment", adapter: "fixture-edr", ...over,
+});
+
 /** Open an item's details: the row on a line, the Details link on a card. */
 function openDetails(id: string) {
   const row = item(id).querySelector(".tlrow");
@@ -167,17 +191,17 @@ describe("the Response lens (adr/0361)", () => {
     "TIMEOUT", "OUTCOME_UNKNOWN", "REVERSED", "REJECTED", "EXPIRED",
   ];
   const LINEAGE = ["alone", "re-requested", "reversed again"] as const;
-  it.each(STATUSES.flatMap((status) => LINEAGE.map((l) => [status, l] as const)))("opens a %s item (%s) at rest exactly when needsAttention says so", (status, lineage) => {
+  it.each(STATUSES.flatMap((status) => LINEAGE.map((l) => [status, l] as const)))("opens a %s item (%s) at rest exactly when attentionKind says so", (status, lineage) => {
     // Lapsed, so a pending status lands on the timeline too.
     const lapsed = status === "REQUESTED" || status === "PENDING_SECONDARY";
     const reversal = lineage === "reversed again" ? { isReversal: true, reversalOfRef: "o", requestedAt: "2026-10-27T18:40:00.000Z" } : {};
-    const row = settled({ actionId: "x", status, expired: status === "EXPIRED" || lapsed, pending: lapsed, ...reversal });
+    const row = settled({ actionId: "x", ...served(status), expired: status === "EXPIRED" || lapsed, pending: lapsed, ...reversal });
     const rows = lineage === "re-requested" ? [row, settled({ actionId: "r", status: "SUCCEEDED", retryOf: "x" })]
       : lineage === "reversed again" ? [row, settled({ actionId: "r", status: "SUCCEEDED", isReversal: true, reversalOfRef: "o", requestedAt: "2026-10-27T18:50:00.000Z" })]
       : [row];
     mount(withActions(rows));
     const open = Boolean(item("x").querySelector(".actioncard.attention"));
-    expect(open).toBe(needsAttention(row, rows));
+    expect(open).toBe(attentionKind(row, rows) !== null);
     expect(Boolean(item("x").querySelector(".tlrow"))).toBe(!open);
   });
 
@@ -211,7 +235,7 @@ describe("the Response lens (adr/0361)", () => {
   });
 
   it.each(STATUSES)("says approved in the history exactly when the Approval row does (%s)", (status) => {
-    const row = settled({ actionId: "x", status, expired: status === "EXPIRED" || status === "REQUESTED" || status === "PENDING_SECONDARY", pending: status === "REQUESTED" || status === "PENDING_SECONDARY" });
+    const row = settled({ actionId: "x", ...served(status), expired: status === "EXPIRED" || status === "REQUESTED" || status === "PENDING_SECONDARY", pending: status === "REQUESTED" || status === "PENDING_SECONDARY" });
     mount(withActions([row]));
     openDetails("x");
     const approval = within(item("x")).getByText("Approval").nextElementSibling!.textContent!;
@@ -299,7 +323,123 @@ describe("the Response lens (adr/0361)", () => {
     ["REJECTED", "Asked to"], ["EXPIRED", "Asked to"],
   ])("kicks a %s action's will-do with %s", (status, word) => {
     const pending = status === "REQUESTED";
-    expect(willDoKicker(settled({ status, pending, expired: status === "EXPIRED" }))).toBe(word);
+    expect(willDoKicker(settled({ ...served(status), pending, expired: status === "EXPIRED" }))).toBe(word);
+  });
+
+  // The list serves PARTIAL as SUCCEEDED and TIMEOUT as FAILED, with the
+  // recorded outcome beside them; the timeline reads the outcome (adr/0361).
+  it("opens a partial and a timed-out result as the list serves them, each in its own words", async () => {
+    const rows = await fromWire([
+      wireRow("part", "WIN-A", { status: "SUCCEEDED", outcome: "PARTIAL" }),
+      wireRow("tout", "WIN-B", { status: "FAILED", outcome: "TIMEOUT" }),
+    ]);
+    expect(rows.map((r) => [r.status, r.outcome])).toEqual([["SUCCEEDED", "PARTIAL"], ["FAILED", "TIMEOUT"]]);
+    mount(withActions(rows));
+    const part = item("part");
+    expect(part.querySelector(".actioncard.attention")).toBeTruthy();
+    expect(part.querySelector(".tlrow")).toBeNull();
+    expect(within(part).getByText(/Partly done — some of WIN-A may be changed; check each before relying on it\./)).toBeTruthy();
+    expect(within(part).getByText("PARTIAL")).toBeTruthy();
+    expect(within(part).queryByText("SUCCEEDED")).toBeNull();
+    const tout = item("tout");
+    expect(tout.querySelector(".actioncard.attention")).toBeTruthy();
+    expect(within(tout).getByText(/No answer from the tool — whether WIN-B changed is unknown\./)).toBeTruthy();
+    expect(within(tout).getByText("TIMEOUT")).toBeTruthy();
+    expect(within(tout).queryByText(/Did not complete/)).toBeNull();
+    fireEvent.click(within(tout).getByRole("button", { name: /^Details/ }));
+    expect(within(tout).getByText("Tried to")).toBeTruthy();
+  });
+
+  it("keeps a full success, a reversed partial and a resolution to success on one line, and opens a resolution to failure", async () => {
+    const rows = await fromWire([
+      wireRow("ok", "WIN-A", { status: "SUCCEEDED", outcome: "SUCCEEDED" }),
+      wireRow("rev", "WIN-B", { status: "REVERSED", outcome: "PARTIAL" }),
+      wireRow("fixed", "WIN-C", { status: "SUCCEEDED", outcome: "SUCCEEDED" }),
+      wireRow("bad", "WIN-D", { status: "FAILED", outcome: "FAILED" }),
+      wireRow("old", "WIN-E", { status: "FAILED" }),
+    ]);
+    mount(withActions(rows));
+    for (const [id, word] of [["ok", "SUCCEEDED"], ["rev", "REVERSED"], ["fixed", "SUCCEEDED"]] as const) {
+      expect(item(id).querySelector(".actioncard.attention")).toBeNull();
+      expect(within(item(id).querySelector(".tlrow") as HTMLElement).getByText(word)).toBeTruthy();
+    }
+    // A failure with no outcome on record (a row served before the field) still opens.
+    for (const [id, host] of [["bad", "WIN-D"], ["old", "WIN-E"]] as const) {
+      expect(item(id).querySelector(".actioncard.attention")).toBeTruthy();
+      expect(within(item(id)).getByText(new RegExp(`Did not complete — reckon cannot confirm any change on ${host}`))).toBeTruthy();
+    }
+  });
+
+  // A reversal of a partial result takes it over (adr/0361), unless it was
+  // rejected or left to expire.
+  it("closes a partial result a live reversal of it took over, and opens one whose reversal was rejected", async () => {
+    const later = new Date(Date.now() + 3600_000).toISOString();
+    const undo = (id: string, of: string, over: Record<string, unknown>) =>
+      wireRow(id, "WIN-" + of, { action_type: "host.unisolate", name: "Lift isolation", category: "recovery", is_reversal: true, reversal_of_ref: of, requested_at: "2026-10-27T18:40:00.000Z", ...over });
+    const rows = await fromWire([
+      wireRow("pa", "WIN-pa", { status: "SUCCEEDED", outcome: "PARTIAL" }),
+      undo("pa-undo", "pa", { status: "REQUESTED", expires_at: later }),
+      // The reversal ran; a best-effort original stays SUCCEEDED with its outcome PARTIAL.
+      wireRow("pb", "WIN-pb", { status: "SUCCEEDED", outcome: "PARTIAL", reversibility: "best_effort" }),
+      undo("pb-undo", "pb", { status: "SUCCEEDED", outcome: "SUCCEEDED" }),
+      wireRow("pc", "WIN-pc", { status: "SUCCEEDED", outcome: "PARTIAL" }),
+      undo("pc-undo", "pc", { status: "REJECTED" }),
+    ]);
+    const transport = mount(withActions(rows));
+    for (const id of ["pa", "pb"]) {
+      expect(item(id).querySelector(".actioncard.attention")).toBeNull();
+      expect(within(item(id).querySelector(".tlrow") as HTMLElement).getByText("PARTIAL")).toBeTruthy();
+      const marker = within(item(id)).getByRole("button", { name: "reversal requested ↺" });
+      expect(marker.textContent).not.toContain("reversed");
+    }
+    fireEvent.click(within(item("pa")).getByRole("button", { name: "reversal requested ↺" }));
+    expect(transport.intents).toContainEqual({ type: "inspector.open", target: { kind: "action", actionId: "pa-undo" } });
+    expect(item("pc").querySelector(".actioncard.attention")).toBeTruthy();
+    expect(within(item("pc")).getByText(/Partly done — some of WIN-pc may be changed/)).toBeTruthy();
+    expect(within(item("pc")).queryByRole("button", { name: /reversal requested/ })).toBeNull();
+  });
+
+  it("marks a partial reversal that a reversal of it took over as a reversal requested, not again", async () => {
+    const rows = await fromWire([
+      wireRow("orig", "WIN-A", { status: "SUCCEEDED", outcome: "SUCCEEDED" }),
+      wireRow("undo", "WIN-A", { action_type: "host.unisolate", status: "SUCCEEDED", outcome: "PARTIAL", is_reversal: true, reversal_of_ref: "orig", requested_at: "2026-10-27T18:40:00.000Z" }),
+      wireRow("redo", "WIN-A", { status: "SUCCEEDED", outcome: "SUCCEEDED", is_reversal: true, reversal_of_ref: "undo", requested_at: "2026-10-27T18:50:00.000Z" }),
+    ]);
+    mount(withActions(rows));
+    expect(item("undo").querySelector(".actioncard.attention")).toBeNull();
+    expect(within(item("undo")).getByRole("button", { name: "reversal requested ↺" })).toBeTruthy();
+    expect(within(item("undo")).queryByRole("button", { name: /again/ })).toBeNull();
+  });
+
+  it("walks a re-request chain to its first live link, and keeps a failure open when the chain ends dead", async () => {
+    const rows = await fromWire([
+      wireRow("a", "WIN-A", { status: "FAILED", outcome: "FAILED" }),
+      wireRow("r1", "WIN-A", { status: "EXPIRED", retry_of: "a", requested_at: "2026-10-27T18:40:00.000Z" }),
+      wireRow("r2", "WIN-A", { status: "SUCCEEDED", outcome: "SUCCEEDED", retry_of: "r1", requested_at: "2026-10-27T18:50:00.000Z" }),
+      wireRow("b", "WIN-B", { status: "FAILED", outcome: "FAILED" }),
+      wireRow("b1", "WIN-B", { status: "REJECTED", retry_of: "b", requested_at: "2026-10-27T18:45:00.000Z" }),
+    ]);
+    const transport = mount(withActions(rows));
+    expect(item("a").querySelector(".actioncard.attention")).toBeNull();
+    fireEvent.click(within(item("a")).getByRole("button", { name: "re-requested ↻" }));
+    expect(transport.intents).toContainEqual({ type: "inspector.open", target: { kind: "action", actionId: "r2" } });
+    expect(item("b").querySelector(".actioncard.attention")).toBeTruthy();
+    expect(within(item("b")).queryByRole("button", { name: "re-requested ↻" })).toBeNull();
+  });
+
+  it("says a reversal the tool never answered is unconfirmed on the original", async () => {
+    const rows = await fromWire([
+      wireRow("orig", "WIN-A", { status: "SUCCEEDED", outcome: "SUCCEEDED" }),
+      wireRow("undo", "WIN-A", { action_type: "host.unisolate", status: "FAILED", outcome: "TIMEOUT", is_reversal: true, reversal_of_ref: "orig", requested_at: "2026-10-27T18:40:00.000Z" }),
+      wireRow("o2", "WIN-B", { status: "SUCCEEDED", outcome: "SUCCEEDED" }),
+      wireRow("u2", "WIN-B", { action_type: "host.unisolate", status: "FAILED", outcome: "FAILED", is_reversal: true, reversal_of_ref: "o2", requested_at: "2026-10-27T18:41:00.000Z" }),
+    ]);
+    mount(withActions(rows));
+    openDetails("orig");
+    expect(within(item("orig")).getByText(/↺ reversal unconfirmed:/)).toBeTruthy();
+    expect(within(item("orig")).queryByText(/did not take effect/)).toBeNull();
+    openDetails("o2");
+    expect(within(item("o2")).getByText(/↺ reversal did not take effect:/)).toBeTruthy();
   });
 
   it("reads expired on a stored EXPIRED row's Approval", () => {

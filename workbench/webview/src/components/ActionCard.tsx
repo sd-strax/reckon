@@ -13,7 +13,7 @@
 // never disagree. A notification lists the dependencies riding on it (adr/0101).
 import { useState } from "react";
 import { useApp } from "../app";
-import { actionStatusBadge, approvalNeedsMore, attentionKind, awaitsDecision, canReverse, reversalEnded, successors, takenOverBy, wasApproved } from "../derive/actions";
+import { actionStatusBadge, approvalNeedsMore, attentionKind, awaitsDecision, canReverse, outcomeStatus, reversalEnded, successors, takenOverBy, wasApproved, type Takeover } from "../derive/actions";
 import { actionPreview, undoWords } from "../derive/actionPreview";
 import type { ActionRow } from "../../../src/viewTypes";
 import type { InboundMessage } from "../../../src/protocol";
@@ -61,7 +61,7 @@ function WillDo({ a, via }: { a: ActionRow; via?: boolean }) {
  * "Asked to" for a request that never ran (rejected, expired, lapsed). */
 export function willDoKicker(a: ActionRow): string {
   if (awaitsDecision(a) || a.status === "APPROVED") return "Will do";
-  switch (a.status) {
+  switch (outcomeStatus(a)) {
     case "EXECUTING": return "Doing";
     case "SUCCEEDED": case "REVERSED": return "Did";
     case "FAILED": case "PARTIAL": case "TIMEOUT": case "OUTCOME_UNKNOWN": return "Tried to";
@@ -81,12 +81,14 @@ export function actionTitle(a: Pick<ActionRow, "actionType" | "name">): string {
 }
 
 /** What a failed or partial outcome means for the targets, in plain words: the
- * engine records an unconfirmed effect as unknown, never as done or undone. */
-export function failureSentence(a: Pick<ActionRow, "status" | "targets">): string {
+ * engine records an unconfirmed effect as unknown, never as done or undone.
+ * Partial and timeout are read from the recorded outcome (adr/0361). */
+export function failureSentence(a: Pick<ActionRow, "status" | "outcome" | "targets">): string {
   const on = a.targets.length ? a.targets.join(", ") : "the target";
-  if (a.status === "OUTCOME_UNKNOWN") return `Sent, but the run stopped before the tool answered — whether ${on} changed is unknown. Check the tool, then resolve it to what it shows.`;
-  if (a.status === "PARTIAL") return `Partly done — some of ${on} may be changed; check each before relying on it.`;
-  if (a.status === "TIMEOUT") return `No answer from the tool — whether ${on} changed is unknown.`;
+  const s = outcomeStatus(a);
+  if (s === "OUTCOME_UNKNOWN") return `Sent, but the run stopped before the tool answered — whether ${on} changed is unknown. Check the tool, then resolve it to what it shows.`;
+  if (s === "PARTIAL") return `Partly done — some of ${on} may be changed; check each before relying on it.`;
+  if (s === "TIMEOUT") return `No answer from the tool — whether ${on} changed is unknown.`;
   return `Did not complete — reckon cannot confirm any change on ${on}.`;
 }
 
@@ -97,7 +99,9 @@ const STATUS_GLYPH: Record<string, string> = {
 };
 
 /** The status as a glyph plus the engine's word, no pill (adr/0361). A
- * request whose window ran out before the timer converged reads EXPIRED. */
+ * partial or timed-out outcome shows that word in place of the lifecycle
+ * status it folds into. A request whose window ran out before the timer
+ * converged reads EXPIRED. */
 function StatusMark({ a }: { a: ActionRow }) {
   const sb = actionStatusBadge(a);
   const lapsed = a.expired && a.pending;
@@ -105,7 +109,7 @@ function StatusMark({ a }: { a: ActionRow }) {
   const tone = lapsed ? "warn" : sb.tone;
   return (
     <span className={"acstatus" + (tone ? " " + tone : "")}>
-      <span aria-hidden="true">{STATUS_GLYPH[lapsed ? "EXPIRED" : a.status] || "•"}</span>{word}
+      <span aria-hidden="true">{STATUS_GLYPH[lapsed ? "EXPIRED" : outcomeStatus(a)] || "•"}</span>{word}
     </span>
   );
 }
@@ -365,6 +369,15 @@ export function historyLine(a: ActionRow): string {
   return parts.join(" · ") || "—";
 }
 
+/** The marker on a failure a later action took over (adr/0361), chosen by the
+ * rule that matched. It names a request, never an outcome: the successor is
+ * its own item. */
+const TAKEOVER_MARKER: Record<NonNullable<Takeover>["how"], string> = {
+  "retry": "re-requested ↻",
+  "undo-partial": "reversal requested ↺",
+  "re-reversal": "reversal requested again ↺",
+};
+
 /** One action on the Response timeline (adr/0361): a one-line row that opens
  * its details, or an open card when it needs attention. */
 export function TimelineItem({ a, showDate }: { a: ActionRow; showDate?: boolean }) {
@@ -433,7 +446,7 @@ export function TimelineItem({ a, showDate }: { a: ActionRow; showDate?: boolean
           {/* A failure a later action took over is handled (adr/0361): that
               action is its own item, and the marker links to it. */}
           {takeover ? (
-            <button className="linklike tlretry" title={"Open the action that took over · " + takeover.by.actionId} onClick={() => d.openInspector({ kind: "action", actionId: takeover.by.actionId })}>{takeover.how === "retry" ? "re-requested ↻" : "reversal requested again ↺"}</button>
+            <button className="linklike tlretry" title={"Open the action that took over · " + takeover.by.actionId} onClick={() => d.openInspector({ kind: "action", actionId: takeover.by.actionId })}>{TAKEOVER_MARKER[takeover.how]}</button>
           ) : null}
         </div>
         {details}
@@ -461,7 +474,7 @@ function TimelineDetails({ a, d }: { a: ActionRow; d: Decisions }) {
       <EditedLine a={a} d={d} />
       <RetryLine a={a} d={d} />
       {d.next.retry ? <SuccessorLine label="↻ re-requested as" s={d.next.retry} d={d} /> : null}
-      {d.next.reversal ? <SuccessorLine label={reversalEnded(d.next.reversal) ? "↺ reversal did not take effect:" : "↺ reversal"} s={d.next.reversal} d={d} /> : null}
+      {d.next.reversal ? <SuccessorLine label={reversalLabel(d.next.reversal)} s={d.next.reversal} d={d} /> : null}
       <div className="acactions">
         {canReverse(a, d.rows, d.next) ? (
           <button className="ghost" disabled={d.locked} onClick={d.reverse}>{(d.next.reversal ? "Reverse again" : "Reverse") + (a.reversibility === "BEST_EFFORT" ? " (best effort)…" : "…")}</button>
@@ -470,6 +483,13 @@ function TimelineDetails({ a, d }: { a: ActionRow; d: Decisions }) {
       </div>
     </div>
   );
+}
+
+/** The label on an original's reversal line: a reversal the tool never
+ * answered is unconfirmed, not known to have failed (adr/0361). */
+export function reversalLabel(r: ActionRow): string {
+  if (outcomeStatus(r) === "TIMEOUT") return "↺ reversal unconfirmed:";
+  return reversalEnded(r) ? "↺ reversal did not take effect:" : "↺ reversal";
 }
 
 /** A short local month and day ("Oct 27"). */

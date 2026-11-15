@@ -858,6 +858,12 @@ export interface ActionRow {
   tier: string;
   /** Raw engine lifecycle status (REQUESTED, PENDING_SECONDARY, APPROVED, …). */
   status: string;
+  /**
+   * The recorded final outcome (SUCCEEDED | FAILED | PARTIAL | TIMEOUT), absent
+   * until one is recorded. The lifecycle status folds PARTIAL into SUCCEEDED
+   * and TIMEOUT into FAILED, so what happened is read here (adr/0361).
+   */
+  outcome?: string;
   requiredMode: string;
   /** Who may complete a two-party approval, frozen at request time (adr/0099); absent for manual. */
   secondaryApproverPool?: string[];

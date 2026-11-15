@@ -36,6 +36,7 @@ function mapAction(a: RawAction): ActionRow {
     actionType: a.action_type,
     tier: a.tier,
     status,
+    outcome: a.outcome || undefined,
     requiredMode: mode,
     secondaryApproverPool: a.secondary_approver_pool?.length ? a.secondary_approver_pool : undefined,
     primaryApproverRef: a.primary_approver_ref || undefined,

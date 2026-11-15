@@ -1,12 +1,24 @@
 // Derivations over the action queue (03 §3.3, binding §2.3/§2.4). Pure.
 import type { ActionRow, Seed, Verdict } from "../../../src/viewTypes";
 
+/** What happened to the action, in the word the analyst reads (adr/0361). The
+ * lifecycle status folds a PARTIAL outcome into SUCCEEDED and a TIMEOUT into
+ * FAILED, so on those two statuses the recorded outcome gives the word back.
+ * Every other status is its own word: a later step such as REVERSED wins over
+ * the outcome, and a row with no outcome reads its status. */
+export function outcomeStatus(a: Pick<ActionRow, "status" | "outcome">): string {
+  if (a.status === "SUCCEEDED" && a.outcome === "PARTIAL") return "PARTIAL";
+  if (a.status === "FAILED" && a.outcome === "TIMEOUT") return "TIMEOUT";
+  return a.status;
+}
+
 /** The status badge for a settled or in-flight action: label + tone. Pending
- * rows keep their approval vocabulary; the rest map the engine's lifecycle
- * status to an outcome colour. */
+ * rows keep their approval vocabulary; the rest map what happened (the
+ * lifecycle status, with the recorded outcome where it says more) to an
+ * outcome colour. */
 export function actionStatusBadge(a: ActionRow): { label: string; tone: string } {
   if (a.pending) return { label: a.pendingLabel || "PENDING", tone: "warn" };
-  switch (a.status) {
+  switch (outcomeStatus(a)) {
     case "SUCCEEDED": return { label: "SUCCEEDED", tone: "ok" };
     case "PARTIAL": return { label: "PARTIAL", tone: "warn" };
     case "FAILED": return { label: "FAILED", tone: "bad" };
@@ -17,7 +29,7 @@ export function actionStatusBadge(a: ActionRow): { label: string; tone: string }
     case "APPROVED": return { label: "APPROVED", tone: "info" };
     case "EXECUTING": return { label: "DISPATCHING", tone: "info" };
     case "OUTCOME_UNKNOWN": return { label: "OUTCOME UNKNOWN", tone: "bad" };
-    default: return { label: a.status || "—", tone: "" };
+    default: return { label: outcomeStatus(a) || "—", tone: "" };
   }
 }
 
@@ -65,11 +77,11 @@ export function awaitsDecision(a: Pick<ActionRow, "pending" | "expired">): boole
 }
 
 /** The action was approved and went on to be dispatched, or is about to be:
- * every status past the approval. The one predicate the history line, the
- * approval fact and the will-do kicker read (adr/0361). */
+ * every status past the approval. The one predicate the history line and the
+ * approval fact read (adr/0361). */
 export function wasApproved(status: string): boolean {
   return status === "APPROVED" || status === "EXECUTING" || status === "SUCCEEDED" || status === "FAILED"
-    || status === "PARTIAL" || status === "TIMEOUT" || status === "OUTCOME_UNKNOWN" || status === "REVERSED";
+    || status === "OUTCOME_UNKNOWN" || status === "REVERSED";
 }
 
 /** A pending request needs more than the reader's own approval: a two-party
@@ -79,9 +91,12 @@ export function approvalNeedsMore(a: Pick<ActionRow, "pending" | "status" | "req
   return a.pending && (a.status === "PENDING_SECONDARY" || a.requiredMode === "TWO_PARTY");
 }
 
-/** A failed, timed-out or partial outcome. */
-export function failedOutcome(a: Pick<ActionRow, "status">): boolean {
-  return a.status === "FAILED" || a.status === "TIMEOUT" || a.status === "PARTIAL";
+/** A failed, timed-out or partial outcome, read from the recorded outcome
+ * (adr/0361). A row with no outcome falls back to a FAILED status. A reversed
+ * partial reads REVERSED and is handled. */
+export function failedOutcome(a: Pick<ActionRow, "status" | "outcome">): boolean {
+  const s = outcomeStatus(a);
+  return s === "FAILED" || s === "TIMEOUT" || s === "PARTIAL";
 }
 
 /** Whether `x` was requested after `a`: by request time, else by row order. */
@@ -97,21 +112,42 @@ function live(x: ActionRow): boolean {
   return x.status !== "REJECTED" && x.status !== "EXPIRED" && !(x.pending && x.expired);
 }
 
-export type Takeover = { by: ActionRow; how: "retry" | "reversal" } | undefined;
+/** The rule that matched (adr/0361): a re-request, a reversal of a partial
+ * result, or a later reversal of the same original as a failed reversal. */
+export type Takeover = { by: ActionRow; how: "retry" | "undo-partial" | "re-reversal" } | undefined;
 
 /** The later action that took over a failure (adr/0361), if one did: its
- * live re-request, or, for a failed reversal, the next live reversal of the
- * same original. Either link makes the failure handled; a successor that was
- * rejected or left to expire took nothing over. */
+ * live re-request, for a partial result the first live reversal of it, or,
+ * for a failed reversal, the next live reversal of the same original. Any of
+ * these links makes the failure handled; a successor that was rejected or
+ * left to expire took nothing over. */
 export function takenOverBy(a: ActionRow, actions: ActionRow[], next: Successors = successors(a, actions)): Takeover {
   if (!failedOutcome(a)) return undefined;
-  if (next.retry && live(next.retry)) return { by: next.retry, how: "retry" };
-  if (a.isReversal && a.reversalOfRef) {
-    const later = actions.filter((x) => x !== a && x.reversalOfRef === a.reversalOfRef && live(x) && requestedAfter(x, a, actions));
-    const first = byRequested(later, "oldest")[0];
-    if (first) return { by: first, how: "reversal" };
+  const retry = firstLiveRetry(next.retry, actions);
+  if (retry) return { by: retry, how: "retry" };
+  const undo = outcomeStatus(a) === "PARTIAL" ? firstLiveReversalOf(a.actionId, a, actions) : undefined;
+  if (undo) return { by: undo, how: "undo-partial" };
+  const again = a.isReversal && a.reversalOfRef ? firstLiveReversalOf(a.reversalOfRef, a, actions) : undefined;
+  if (again) return { by: again, how: "re-reversal" };
+  return undefined;
+}
+
+/** The first live link of a re-request chain starting at `r`: a re-request
+ * that expired or was rejected was itself re-requested, and the later link
+ * takes the failure over. A cycle in the links ends the walk. */
+function firstLiveRetry(r: ActionRow | undefined, actions: ActionRow[]): ActionRow | undefined {
+  const seen = new Set<string>();
+  for (let x = r; x && !seen.has(x.actionId); x = successors(x, actions).retry) {
+    if (live(x)) return x;
+    seen.add(x.actionId);
   }
   return undefined;
+}
+
+/** The first live reversal of `original` requested after `a`, other than `a`. */
+function firstLiveReversalOf(original: string, a: ActionRow, actions: ActionRow[]): ActionRow | undefined {
+  const later = actions.filter((x) => x !== a && x.isReversal && x.reversalOfRef === original && live(x) && requestedAfter(x, a, actions));
+  return byRequested(later, "oldest")[0];
 }
 
 /** Why a timeline item opens at rest (adr/0361), or null when it is one line:
@@ -123,11 +159,6 @@ export function attentionKind(a: ActionRow, actions: ActionRow[], next: Successo
   if (canResolve(a)) return "unknown";
   if (a.expired && a.status === "EXPIRED" && canRerequest(a, actions, next)) return "rerequest";
   return null;
-}
-
-/** A timeline item that opens at rest (adr/0361). */
-export function needsAttention(a: ActionRow, actions: ActionRow[]): boolean {
-  return attentionKind(a, actions) !== null;
 }
 
 const at = (iso: string | undefined): number => (iso ? Date.parse(iso) : NaN);
@@ -181,7 +212,8 @@ export function caseNoteStatus(seed: Seed | null | undefined, actions: ActionRow
   if (!seed?.caseId) return null;
   const existing = actions.find((a) => a.actionType === "ticket.comment" && (a.targets || []).includes(seed.caseId!));
   if (!existing) return null;
-  const s = String(existing.status || "").toUpperCase();
+  // What happened to the comment: a partial or timed-out post reads its outcome word (adr/0361).
+  const s = String(outcomeStatus(existing) || "").toUpperCase();
   return existing.pending ? "awaiting approval"
     : s === "SUCCEEDED" ? "posted"
     : s === "FAILED" ? "failed"

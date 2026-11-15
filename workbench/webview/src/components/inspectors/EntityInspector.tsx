@@ -7,6 +7,7 @@
 // never fires), Pin, Copy. The popover of ui/02 §2.4 folded in (impl §2.1).
 import { useEffect, useRef } from "react";
 import { useApp } from "../../app";
+import { outcomeStatus } from "../../derive/actions";
 import { inThisCase } from "../../derive/citations";
 import { collapses, fmtDay, spanText } from "../../derive/events";
 import { refTypeLabel } from "../../refs";
@@ -114,7 +115,7 @@ export function EntityInspector({ refId }: { refId: string }) {
         <Section title="Actions on this entity">
           {actionsOn.map((a) => (
             <div key={a.actionId} className="irow">
-              <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a> <Badge tone={a.tier}>{a.tier}</Badge> <Badge tone={a.pending ? "warn" : ""}>{a.pending ? a.pendingLabel : a.status}</Badge>
+              <a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a> <Badge tone={a.tier}>{a.tier}</Badge> <Badge tone={a.pending ? "warn" : ""}>{a.pending ? a.pendingLabel : outcomeStatus(a)}</Badge>
             </div>
           ))}
         </Section>

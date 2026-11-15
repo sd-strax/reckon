@@ -4,6 +4,7 @@
 // "In this case" block every pane carries.
 import { useState } from "react";
 import { useApp } from "../../app";
+import { outcomeStatus } from "../../derive/actions";
 import { inThisCase, isEmpty } from "../../derive/citations";
 import { hypName, predName } from "../../derive/hyps";
 import { Badge, fmtTime } from "../shared";
@@ -105,7 +106,7 @@ export function InThisCaseBlock({ refId }: { refId: string }) {
       ))}
       {c.actions.map(({ a, role }) => (
         <span key={a.actionId} className="icite">
-          {role === "evidence" ? "grounds " : "target of "}<a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a> <Badge tone={a.pending ? "warn" : ""}>{a.pending ? a.pendingLabel : a.status}</Badge>
+          {role === "evidence" ? "grounds " : "target of "}<a onClick={() => openInspector({ kind: "action", actionId: a.actionId })}>{a.actionType}</a> <Badge tone={a.pending ? "warn" : ""}>{a.pending ? a.pendingLabel : outcomeStatus(a)}</Badge>
         </span>
       ))}
       {c.pins.map((p) => <span key={p.interpretationId} className="icite">pinned{p.superseded ? " (superseded)" : ""}: “{p.finding}”</span>)}

@@ -37,6 +37,7 @@ type readModel interface {
 	ListHypotheses(ctx context.Context, aggregateID uuid.UUID) ([]aggregate.HypothesisCurrent, error)
 	ListInvestigations(ctx context.Context) ([]aggregate.InvestigationRow, error)
 	ListPendingActionCurrents(ctx context.Context) ([]aggregate.ActionCurrent, error)
+	ListRecordedOutcomes(ctx context.Context, aggregateID uuid.UUID) (map[uuid.UUID]string, error)
 	ListPredictions(ctx context.Context, aggregateID uuid.UUID) ([]aggregate.PredictionCurrent, error)
 	ListRefAppearances(ctx context.Context, ref string) ([]aggregate.RefAppearance, error)
 	ListKnowledgeCitations(ctx context.Context, ref string) ([]aggregate.KnowledgeCitation, error)

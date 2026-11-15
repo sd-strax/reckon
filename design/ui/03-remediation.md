@@ -49,9 +49,11 @@ Terminal states: `SUCCEEDED`, `REVERSED`, `WAIVED`, `REJECTED`, `EXPIRED`.
 > - **The evidence moves into the requested card's details,** with the type id, the tier,
 >   the approval requirement and the record link.
 > - **A settled card is one line** (`ui/08 §8.4`, Response). A failed card, an
->   unknown-outcome card and a re-requestable expired card stay open, with their sentence
->   and their one action. A failure that a later, live action has taken over (a
->   re-request, or a later reversal of the same original) is one line.
+>   unknown-outcome card and a re-requestable expired card stay open with their sentence,
+>   and with Resolve… or Re-request where they apply. A partial result and a timeout count as failed. The card reads
+>   them from the recorded outcome, because the status says `SUCCEEDED` or `FAILED`. A
+>   failure that a later, live action has taken over (a re-request, a reversal of a
+>   partial result, or a later reversal of the same original) is one line.
 > - **Border colour and opacity no longer encode every state.** Only a requested card
 >   (warning) and an open attention card carry a coloured border: danger for a failure or
 >   an unknown outcome, warning for a re-requestable expired request. A settled
