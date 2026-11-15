@@ -402,17 +402,26 @@ func (r *renderer) int(path string) int    { return toInt(pathAny(r.p, path)) }
 // alone (two users on an account change, two addresses on a connection), and an
 // ambiguous match renders as text rather than open the wrong object.
 func (r *renderer) bind(typ string, match func(props map[string]any) bool) string {
-	ref := ""
+	ref, _ := r.bindCount(typ, match)
+	return ref
+}
+
+// bindCount is bind that also returns how many entities matched, so a caller
+// can tell no match (0) from an ambiguous one (more than 1). The ref is set
+// only when exactly one matched.
+func (r *renderer) bindCount(typ string, match func(props map[string]any) bool) (string, int) {
+	ref, n := "", 0
 	for _, e := range r.ents {
 		if e.Type != typ || !match(e.Props) {
 			continue
 		}
-		if ref != "" {
-			return ""
-		}
+		n++
 		ref = e.Ref
 	}
-	return ref
+	if n != 1 {
+		return "", n
+	}
+	return ref, n
 }
 
 func propEquals(props map[string]any, key, want string) bool {
@@ -460,11 +469,16 @@ func (r *renderer) userIn(m map[string]any, prefix string) slot {
 // raw value of one key of the object. The name and domain are read by
 // ocsf.UserName, and an id is read only when it is a string, as the
 // normalizer reads them (readUser). The name rule (userNamed) binds first.
-// When it binds nothing, the user-account whose user_id equals the object's
-// uid binds, else the one whose uid_alt equals its uid_alt. An id is trimmed, and a
-// placeholder (identity.PlaceholderUserID) is no id. Binding by id is safe
-// because the entities a view receives are the ones derived from that event.
-// The text is domain\name when both are present, else the name. With no name
+// When it binds nothing, the uid binds the one user-account keyed on a
+// user_id equal to it (accountUIDEquals); an account keyed on its login is
+// never matched by uid, since its user_id may name someone else. Only when
+// the uid matches no account does the uid_alt bind, to the one account whose
+// uid_alt equals it folded for case, or, for an "@" uid_alt, the one
+// windows-domain account whose account_login or principal_name does
+// (accountUIDAltEquals). An id that matches several accounts binds nothing,
+// and the case an account stores an id in never breaks the tie: a missed
+// link is better than a wrong one. An id is trimmed, and a placeholder
+// (identity.PlaceholderUserID) is no id. The text is domain\name when both are present, else the name. With no name
 // it is the uid, else the uid_alt, so a member named by id alone is shown and
 // keyed. A member shown by its uid keys by it in its own namespace ("id:"),
 // folded as accountIDKey folds it, never as a login is. A member shown by its
@@ -493,14 +507,19 @@ func (r *renderer) accountTarget(read func(key string) any) (slot, string) {
 		}
 	}
 	if s.ref == "" {
-		// Each id binds exactly first, so an account that stores it in this
-		// very case wins over one that matches only once folded.
+		// A missed link is better than a wrong one: an id that matches more
+		// than one account binds nothing, and the case an account stores an
+		// id in never breaks a tie. The uid_alt is tried only when the uid
+		// matched no account at all.
 		for _, id := range ids {
-			if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return accountIDExact(p, id.prop, id.value) }); ref != "" {
-				s.ref = ref
-				break
+			var ref string
+			var n int
+			if id.prop == "user_id" {
+				ref, n = r.bindCount(identity.TypeUserAccount, func(p map[string]any) bool { return accountUIDEquals(p, id.value) })
+			} else {
+				ref, n = r.bindCount(identity.TypeUserAccount, func(p map[string]any) bool { return accountUIDAltEquals(p, id.value) })
 			}
-			if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return accountIDEquals(p, id.prop, id.value) }); ref != "" {
+			if n > 0 {
 				s.ref = ref
 				break
 			}
@@ -509,32 +528,74 @@ func (r *renderer) accountTarget(read func(key string) any) (slot, string) {
 	return s, qualified
 }
 
-// accountIDExact reports whether the user-account props hold want at prop
-// (user_id or uid_alt) in exactly its case, both trimmed.
-func accountIDExact(props map[string]any, prop, want string) bool {
-	got := strings.TrimSpace(toString(props[prop]))
-	return want != "" && got == want
-}
-
-// accountIDEquals reports whether the user-account props hold want at prop,
-// compared as the account stores it. A uid_alt folds case: identity.Account
-// never keys on it, and an "@" uid_alt is a principal-name login. A user_id
-// is compared as identity.Account keys it. A cloud or LDAP account keeps an
-// opaque id's case (identity.FoldCloudUID), so "OpaqueA" and "opaquea" are
-// two accounts and match exactly once folded. Any other type lowercases its
-// id (a windows-domain SID), so case is folded.
-func accountIDEquals(props map[string]any, prop, want string) bool {
-	got := strings.TrimSpace(toString(props[prop]))
-	if want == "" || got == "" {
+// accountUIDAltEquals reports whether the user-account props hold the
+// uid_alt want, folded for case: identity.Account never keys on a uid_alt.
+// When want holds "@" it is a principal name, on which the normalizer mints
+// a windows-domain account, so a windows-domain account whose account_login
+// or principal_name equals it, folded for case, matches too. No other type
+// is matched by its login.
+func accountUIDAltEquals(props map[string]any, want string) bool {
+	if propFoldEquals(props, "uid_alt", want) {
+		return true
+	}
+	if !strings.Contains(want, "@") || accountType(props) != identity.AccountWindowsDomain {
 		return false
 	}
-	if prop == "user_id" {
-		switch toString(props["account_type"]) {
-		case identity.AccountCloud, identity.AccountLDAP:
-			return identity.FoldCloudUID(got) == identity.FoldCloudUID(want)
-		}
+	return propFoldEquals(props, "account_login", want) || propFoldEquals(props, "principal_name", want)
+}
+
+// accountUIDEquals reports whether the user-account props are keyed on a
+// user_id equal to the uid want, both trimmed, compared as identity.Account
+// keys it. A cloud or LDAP account keeps an opaque id's case
+// (identity.FoldCloudUID), so "OpaqueA" and "opaquea" are two accounts and
+// compare exactly once folded. A Windows account keyed on a SID folds its
+// case. An account whose user_id is not its key never matches
+// (accountKeyedOnUserID).
+func accountUIDEquals(props map[string]any, want string) bool {
+	got := strings.TrimSpace(toString(props["user_id"]))
+	if want == "" || got == "" || !accountKeyedOnUserID(props) {
+		return false
+	}
+	switch accountType(props) {
+	case identity.AccountCloud, identity.AccountLDAP:
+		return identity.FoldCloudUID(got) == identity.FoldCloudUID(want)
 	}
 	return strings.EqualFold(got, want)
+}
+
+// accountKeyedOnUserID reports whether identity.Account keys the account the
+// props describe on its user_id: a cloud or LDAP account with an id, a
+// windows-domain account whose id is a SID, and a windows-local account
+// whose id is a well-known local SID (identity.WellKnownLocalSID). Every
+// other account, of those types or of any other or no type, is keyed on its
+// login or on its login and id together, so its user_id alone names no one.
+func accountKeyedOnUserID(props map[string]any) bool {
+	uid := strings.TrimSpace(toString(props["user_id"]))
+	if uid == "" || identity.PlaceholderUserID(uid) {
+		return false
+	}
+	switch accountType(props) {
+	case identity.AccountCloud, identity.AccountLDAP:
+		return true
+	case identity.AccountWindowsDomain:
+		return identity.IsSID(uid)
+	case identity.AccountWindowsLocal:
+		return identity.WellKnownLocalSID(uid)
+	}
+	return false
+}
+
+// accountType is the user-account props' account_type, trimmed as
+// identity.Account trims it.
+func accountType(props map[string]any) string {
+	return strings.TrimSpace(toString(props["account_type"]))
+}
+
+// propFoldEquals reports whether props hold want at prop, both trimmed and
+// folded for case.
+func propFoldEquals(props map[string]any, prop, want string) bool {
+	got := strings.TrimSpace(toString(props[prop]))
+	return want != "" && got != "" && strings.EqualFold(got, want)
 }
 
 // accountIDKey folds an id an unbound account target is keyed by: a SID

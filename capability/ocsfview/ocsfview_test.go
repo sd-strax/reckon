@@ -1510,8 +1510,8 @@ func TestRender_GroupMembersDeduplicated(t *testing.T) {
 }
 
 // TestRender_GroupMemberByID: a users[] entry that names an account by its
-// uid alone shows the uid as the Account, and binds the user-account whose
-// user_id it is when the record holds one.
+// uid alone shows the uid as the Account, and binds the windows-domain
+// account keyed on that SID when the record holds one.
 func TestRender_GroupMemberByID(t *testing.T) {
 	const sid = "S-1-5-21-7-1101"
 	js := `{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid":"` + sid + `"}]}`
@@ -1519,7 +1519,7 @@ func TestRender_GroupMemberByID(t *testing.T) {
 		ents []Entity
 		ref  string
 	}{
-		"bound":   {[]Entity{ent("user-account--sid", map[string]any{"user_id": sid})}, "user-account--sid"},
+		"bound":   {[]Entity{ent("user-account--sid", map[string]any{"user_id": sid, "account_type": "windows-domain"})}, "user-account--sid"},
 		"unbound": {nil, ""},
 	} {
 		v := Render(Event{ClassUID: 3006, Payload: payload(js)}, tc.ents)
@@ -1630,8 +1630,11 @@ func TestRender_GroupMemberPlaceholderName(t *testing.T) {
 }
 
 // TestRender_AccountTargetBindsByID: a target whose name binds nothing binds
-// by its id, the uid against the account's user_id and the uid_alt against
-// its uid_alt, the properties the normalizer stores them in.
+// by its id. The uid binds an account keyed on a user_id equal to it, here a
+// windows-domain account keyed on a SID. The uid_alt binds an account whose
+// uid_alt equals it, or, for an "@" uid_alt, a windows-domain account whose
+// login or principal name does. A cloud account whose user_id equals the
+// uid_alt is not bound: the uid_alt is never read against a user_id.
 func TestRender_AccountTargetBindsByID(t *testing.T) {
 	render := func(users string, ents ...Entity) View {
 		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
@@ -1655,7 +1658,7 @@ func TestRender_AccountTargetBindsByID(t *testing.T) {
 	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "jdoe" || rows[0].Ref != "" {
 		t.Errorf("uid_alt member beside a user_id equal to it: Account rows = %+v; want jdoe with no link", rows)
 	}
-	byUID := ent("user-account--a3", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101"})
+	byUID := ent("user-account--a3", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
 	v = render(`[{"name":"ghost","uid":"S-1-5-21-7-1101"}]`, byUID)
 	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "ghost" || rows[0].Ref != "user-account--a3" {
 		t.Errorf("unbound name with a bound uid: Account rows = %+v; want ghost linked to user-account--a3", rows)
@@ -1665,7 +1668,7 @@ func TestRender_AccountTargetBindsByID(t *testing.T) {
 // TestRender_AccountChangeUserByIDBinds: the single user of an account change
 // named only by its uid binds by it and keys the target slot by it.
 func TestRender_AccountChangeUserByIDBinds(t *testing.T) {
-	acct := ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101"})
+	acct := ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
 	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":" S-1-5-21-7-1101 "}}`)}, []Entity{acct})
 	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "S-1-5-21-7-1101" || f.Ref != "user-account--u1" {
 		t.Errorf("Account = %+v (present %v); want the uid linked to user-account--u1", f, ok)
@@ -1751,22 +1754,139 @@ func TestRender_GroupMemberUIDAltCase(t *testing.T) {
 	}
 }
 
-// TestRender_GroupMemberExactIDFirst: an account that stores a member's uid
-// in exactly its case binds before one that matches it only once folded. An
-// LDAP account holds OpaqueA and a unix account opaquea, which folds to it.
-func TestRender_GroupMemberExactIDFirst(t *testing.T) {
-	ldap := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "OpaqueA", "account_type": "ldap"})
-	unix := ent("user-account--x1", map[string]any{"account_login": "bob", "user_id": "opaquea", "account_type": "unix"})
-	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid":"OpaqueA","account":{"type_id":1}},{"name":"bob","uid":"opaquea","account":{"type_id":9}}]}`)}, []Entity{ldap, unix})
-	rows := accountRows(v)
-	if len(rows) != 2 || rows[0].Ref != "user-account--l1" || rows[1].Ref != "user-account--x1" {
-		t.Errorf("Account rows = %+v; want OpaqueA linked to l1 and bob linked to x1", rows)
+// TestRender_AccountTargetUIDAltCaseNeverDecides: a uid_alt folds case, so
+// the case an account stores it in never picks among accounts that equal it.
+// A windows-domain account stores Alice@Contoso.com and the LDAP actor
+// alice@contoso.com; a target alice@contoso.com equals both and is unbound.
+func TestRender_AccountTargetUIDAltCaseNeverDecides(t *testing.T) {
+	target := ent("user-account--w1", map[string]any{"account_login": "Alice@Contoso.com", "user_id": "", "account_type": "windows-domain",
+		"principal_name": "Alice@Contoso.com", "uid_alt": "Alice@Contoso.com"})
+	actor := ent("user-account--l1", map[string]any{"account_login": "admin", "user_id": "", "account_type": "ldap", "uid_alt": "alice@contoso.com"})
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid_alt":"alice@contoso.com"}]}`)}, []Entity{target, actor})
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "alice@contoso.com" || rows[0].Ref != "" {
+		t.Errorf("Account rows = %+v; want alice@contoso.com with no link", rows)
+	}
+	s := targetSlot(v)
+	if s.Ref != "" {
+		t.Errorf("target ref = %q; want unbound", s.Ref)
+	}
+	if strings.Contains(s.Identity, "user-account--l1") {
+		t.Errorf("target key = %q; want no actor ref", s.Identity)
 	}
 }
 
-// TestRender_AccountTargetIDCaseByType: a uid binds as the account stores
-// it. A cloud account's GUID folds case, an opaque cloud id does not, and an
-// account of no recorded type folds case.
+// TestRender_AccountTargetFoldedUIDCaseNeverDecides: a Windows account
+// keyed on a SID folds its case, so a windows-domain and a windows-local
+// account keyed on the well-known SID S-1-5-18, which differ only in the
+// case they store it in, both equal the uid, and the target is unbound.
+func TestRender_AccountTargetFoldedUIDCaseNeverDecides(t *testing.T) {
+	upper := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-18", "account_type": "windows-domain"})
+	lower := ent("user-account--w2", map[string]any{"account_login": `WS1\b`, "user_id": "s-1-5-18", "account_type": "windows-local"})
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"S-1-5-18"}}`)}, []Entity{upper, lower})
+	if s := targetSlot(v); s.Ref != "" {
+		t.Errorf("target slot = %+v; want unbound", s)
+	}
+	if f, ok := fieldValue(v, "Account"); !ok || f.Ref != "" {
+		t.Errorf("Account = %+v (present %v); want the uid with no link", f, ok)
+	}
+}
+
+// accountChangeTarget renders an account change of the one user object
+// user against ents and returns its target slot.
+func accountChangeTarget(user string, ents ...Entity) SlotValue {
+	return targetSlot(Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":` + user + `}`)}, ents))
+}
+
+// TestRender_AccountTargetOpaqueIDSkipsLoginKeyed: an LDAP account is keyed
+// on OpaqueA, and a unix account, keyed on its login, stores opaquea and
+// OpaqueA as a user_id. A uid OpaqueA matches only the LDAP account: a unix
+// account's user_id is no key, so it is never matched by uid.
+func TestRender_AccountTargetOpaqueIDSkipsLoginKeyed(t *testing.T) {
+	ldap := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "OpaqueA", "account_type": "ldap"})
+	unixFolded := ent("user-account--x1", map[string]any{"account_login": "bob", "user_id": "opaquea", "account_type": "unix"})
+	unixExact := ent("user-account--x2", map[string]any{"account_login": "carol", "user_id": "OpaqueA", "account_type": "unix"})
+	if s := accountChangeTarget(`{"name":"-","uid":"OpaqueA"}`, ldap, unixFolded, unixExact); s.Ref != "user-account--l1" {
+		t.Errorf("target slot = %+v; want bound to user-account--l1", s)
+	}
+}
+
+// TestRender_AccountTargetAmbiguousMixedTypes: an LDAP account stores a SID
+// in the uid's exact spelling and a windows-domain account in lower case.
+// The LDAP account compares exactly and the windows-domain account folds
+// case, so the uid equals both and binds neither: the exact spelling does
+// not break the tie.
+func TestRender_AccountTargetAmbiguousMixedTypes(t *testing.T) {
+	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "s-1-5-21-7-1101", "account_type": "windows-domain"})
+	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101", "account_type": "ldap"})
+	if s := accountChangeTarget(`{"name":"-","uid":"S-1-5-21-7-1101"}`, w, l); s.Ref != "" {
+		t.Errorf("target slot = %+v; want unbound", s)
+	}
+}
+
+// TestRender_AccountTargetAmbiguousGUID: a cloud account stores a GUID in
+// upper case and an LDAP account the same GUID in lower case. Both fold a
+// GUID, so a lowercase uid equals both and binds neither.
+func TestRender_AccountTargetAmbiguousGUID(t *testing.T) {
+	c := ent("user-account--c1", map[string]any{"account_login": "", "user_id": "8F6A0B5C-1D2E-4F3A-9B8C-7D6E5F4A3B2C", "account_type": "cloud"})
+	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "ldap"})
+	if s := accountChangeTarget(`{"name":"-","uid":"8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c"}`, c, l); s.Ref != "" {
+		t.Errorf("target slot = %+v; want unbound", s)
+	}
+}
+
+// TestRender_AccountTargetAmbiguousUIDStops: a uid that equals several
+// accounts leaves the target unbound; the uid_alt is not tried, though one
+// account alone holds it.
+func TestRender_AccountTargetAmbiguousUIDStops(t *testing.T) {
+	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-18", "account_type": "windows-domain"})
+	wl := ent("user-account--w2", map[string]any{"account_login": `WS1\a`, "user_id": "S-1-5-18", "account_type": "windows-local"})
+	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "", "account_type": "ldap", "uid_alt": "alice@contoso.com"})
+	if s := accountChangeTarget(`{"name":"-","uid":"S-1-5-18","uid_alt":"alice@contoso.com"}`, w, wl, l); s.Ref != "" {
+		t.Errorf("target slot = %+v; want unbound", s)
+	}
+}
+
+// TestRender_AccountTargetUIDAltPrincipalName: an "@" uid_alt also equals an
+// account's account_login or principal_name, folded for case, since the
+// normalizer mints a windows-domain account on that principal name. Beside
+// an LDAP account holding it as uid_alt the target is unbound; alone, the
+// windows-domain account binds.
+func TestRender_AccountTargetUIDAltPrincipalName(t *testing.T) {
+	w := ent("user-account--w1", map[string]any{"account_login": "Alice@Contoso.com", "user_id": "", "account_type": "windows-domain",
+		"principal_name": "Alice@Contoso.com"})
+	l := ent("user-account--l1", map[string]any{"account_login": "admin", "user_id": "", "account_type": "ldap", "uid_alt": "alice@contoso.com"})
+	const user = `{"name":"-","uid_alt":"alice@contoso.com"}`
+	if s := accountChangeTarget(user, w, l); s.Ref != "" {
+		t.Errorf("both: target slot = %+v; want unbound", s)
+	}
+	if s := accountChangeTarget(user, w); s.Ref != "user-account--w1" {
+		t.Errorf("windows-domain alone: target slot = %+v; want bound to user-account--w1", s)
+	}
+}
+
+// TestRender_GroupMemberSIDTwoCases: a SID in two cases in users[] beside a
+// windows-domain and an LDAP account that both store it as S-1-5-21-7-1101.
+// The upper-case member equals both and binds neither. The lower-case member
+// equals only the windows-domain account, since an LDAP account compares an
+// id exactly, so it binds that account and the two members are two rows.
+func TestRender_GroupMemberSIDTwoCases(t *testing.T) {
+	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
+	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101", "account_type": "ldap"})
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":"-","uid":"s-1-5-21-7-1101"}]}`)}, []Entity{w, l})
+	rows := accountRows(v)
+	if len(rows) != 2 || rows[0].Value != "S-1-5-21-7-1101" || rows[0].Ref != "" ||
+		rows[1].Value != "s-1-5-21-7-1101" || rows[1].Ref != "user-account--w1" {
+		t.Errorf("Account rows = %+v; want S-1-5-21-7-1101 with no link and s-1-5-21-7-1101 linked to w1", rows)
+	}
+	if k := targetSlot(v).Identity; k != `["id:s-1-5-21-7-1101","ref:user-account--w1"]` {
+		t.Errorf("target key = %q; want the unbound id and the w1 ref", k)
+	}
+}
+
+// TestRender_AccountTargetIDCaseByType: a uid binds as the account is keyed
+// on it. A cloud account's GUID folds case, an opaque cloud id does not, and
+// a windows-domain SID folds case. An account of no recorded type is keyed
+// on its login, so a user_id equal to the uid, in any case, never binds it.
 func TestRender_AccountTargetIDCaseByType(t *testing.T) {
 	render := func(uid string, e Entity) SlotValue {
 		return targetSlot(Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"` + uid + `"}}`)}, []Entity{e}))
@@ -1778,11 +1898,65 @@ func TestRender_AccountTargetIDCaseByType(t *testing.T) {
 	}{
 		{"cloud GUID", "8F6A0B5C-1D2E-4F3A-9B8C-7D6E5F4A3B2C", map[string]any{"account_login": "", "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "cloud"}, true},
 		{"cloud opaque", "abc123", map[string]any{"account_login": "", "user_id": "AbC123", "account_type": "cloud"}, false},
-		{"no type", "abc123", map[string]any{"account_login": "", "user_id": "AbC123"}, true},
+		{"windows-domain SID", "s-1-5-21-7-1101", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"}, true},
+		{"no type", "abc123", map[string]any{"account_login": "", "user_id": "AbC123"}, false},
+		{"no type, exact", "AbC123", map[string]any{"account_login": "", "user_id": "AbC123"}, false},
+		{"windows-domain, no SID", "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", map[string]any{"account_login": `CONTOSO\a`, "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "windows-domain"}, false},
+		{"windows-local, domain SID", "S-1-5-21-7-1101", map[string]any{"account_login": `WS1\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-local"}, false},
+		{"windows", "S-1-5-21-7-1101", map[string]any{"account_login": "a", "user_id": "S-1-5-21-7-1101", "account_type": "windows"}, false},
+		{"unix", "1001", map[string]any{"account_login": "a", "user_id": "1001", "account_type": "unix"}, false},
 	} {
 		s := render(tc.uid, ent("user-account--u1", tc.props))
 		if got := s.Ref == "user-account--u1"; got != tc.bound {
 			t.Errorf("%s: target slot = %+v; want bound %v", tc.name, s, tc.bound)
+		}
+	}
+}
+
+// TestRender_AccountTargetUIDSkipsUnkeyedActor: a target {uid: G, uid_alt:
+// alice@contoso.com} with no name, beside the windows-domain account keyed
+// on the principal name alice@contoso.com and a windows-domain actor keyed
+// on its login CONTOSO\alice whose user_id is G. G is a GUID, no SID, so the
+// actor's user_id is no key and the uid matches no account. The uid_alt then
+// binds the principal-name account, never the actor.
+func TestRender_AccountTargetUIDSkipsUnkeyedActor(t *testing.T) {
+	const g = "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c"
+	upn := ent("user-account--p1", map[string]any{"account_login": "alice@contoso.com", "user_id": "", "account_type": "windows-domain",
+		"principal_name": "alice@contoso.com"})
+	actor := ent("user-account--a1", map[string]any{"account_login": `CONTOSO\alice`, "user_id": g, "account_type": "windows-domain"})
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"alice","domain":"CONTOSO"}},"group":{"name":"G"},"users":[{"uid":"` + g + `","uid_alt":"alice@contoso.com"}]}`)}, []Entity{upn, actor})
+	if s := targetSlot(v); s.Ref != "user-account--p1" {
+		t.Errorf("target slot = %+v; want bound to user-account--p1", s)
+	}
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Ref != "user-account--p1" {
+		t.Errorf("Account rows = %+v; want one linked to user-account--p1", rows)
+	}
+}
+
+// TestRender_AccountTargetUIDSkipsUntyped: an account of no recorded type is
+// keyed on its login, so a user_id equal to the target's uid does not bind
+// it, and the target keys by its uid.
+func TestRender_AccountTargetUIDSkipsUntyped(t *testing.T) {
+	e := ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101"})
+	s := accountChangeTarget(`{"name":"-","uid":"S-1-5-21-7-1101"}`, e)
+	if s.Ref != "" || s.Identity != `["id:s-1-5-21-7-1101"]` {
+		t.Errorf("target slot = %+v; want unbound, keyed by the uid", s)
+	}
+}
+
+// TestRender_AccountTargetUIDAltLoginWindowsDomainOnly: an "@" uid_alt is
+// matched against a login or principal name only on a windows-domain
+// account. A target named only by that uid_alt does not link to a cloud,
+// LDAP or unix account whose login or principal name equals it.
+func TestRender_AccountTargetUIDAltLoginWindowsDomainOnly(t *testing.T) {
+	const user = `{"name":"-","uid_alt":"alice@contoso.com"}`
+	for _, typ := range []string{"cloud", "ldap", "unix", ""} {
+		props := map[string]any{"account_login": "alice@contoso.com", "user_id": "", "principal_name": "alice@contoso.com"}
+		if typ != "" {
+			props["account_type"] = typ
+		}
+		if s := accountChangeTarget(user, ent("user-account--c1", props)); s.Ref != "" {
+			t.Errorf("%q account: target slot = %+v; want unbound", typ, s)
 		}
 	}
 }

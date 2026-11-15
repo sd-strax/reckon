@@ -93,9 +93,16 @@ The rules that bound the answer:
   normalizer and the event view share. Each target gets its own
   `member-of-group` edge. The event view and the account "seen as" read
   both fields. In the event view, a target with no name is shown by its
-  `uid`, else its `uid_alt`. Its `uid` is matched as the account stores
-  it: exactly for a cloud or directory account, ignoring case for any
-  other. Its `uid_alt` is matched ignoring case.
+  `uid`, else its `uid_alt`.
+  - Its `uid` is matched only against an account keyed on that id: a
+    cloud or directory account, or a Windows account keyed on a SID. It
+    is compared as the account's key is: with case for a cloud or
+    directory id other than a GUID, without case otherwise.
+  - Its `uid_alt` is tried only when the `uid` matched no account. It is
+    matched without case. An address form (`name@domain`) is also matched
+    against a Windows domain account's login and principal name.
+  - An id that matches more than one account links to none. A missed
+    link is better than a wrong one.
 - **Registry value data.** One shared rule reads a value's data. It takes
   the first typed field that holds a value, then `data`. An empty typed
   field counts as absent, so it never hides the next one. The value is
