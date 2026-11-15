@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -67,14 +68,22 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 		return
 	}
 
-	// Gate 2 again, over the request as it will now read.
+	// Gate 2 again, over the request as it will now read. It evaluates the
+	// action as its requester asked for it (adr/0374): the editor's identity
+	// never stands in for the requester's, so a person editing an agent's
+	// request neither makes a requester policy match nor lifts the AI baseline.
+	requester, err := b.actionRequester(r, ac)
+	if err != nil {
+		writeInternalError(w, "load action requester", err)
+		return
+	}
 	actor := actorFromRequest(r, claims)
 	now := commandNow()
 	probe := aggregate.RequestAction{
 		ActionID: ac.ActionID, ActionType: ac.ActionType, Tier: ac.Tier,
 		Targets: ac.Targets, Parameters: body.Parameters, EvidenceRefs: ac.EvidenceRefs,
 	}
-	decision, err := b.cfg.Gate2.Evaluate(action.EvalInputForCommand(probe, actor.Kind, claims.Subject, now))
+	decision, err := b.cfg.Gate2.Evaluate(action.EvalInputForCommand(probe, requester.Kind, requester.PrincipalID, now))
 	if err != nil {
 		writeInternalError(w, "policy evaluation", err)
 		return
@@ -96,4 +105,23 @@ func (b *Backend) editAction(w http.ResponseWriter, r *http.Request, actionID uu
 		return
 	}
 	writeJSON(w, http.StatusOK, ActionDecisionResponse{ActionID: actionID.String(), Status: aggregate.ActionStatusRequested})
+}
+
+// actionRequester returns the actor of the action's ActionRequested event: who
+// asked for it, and whether as a person or an AI delegate. An empty kind is a
+// person's: events written before Kind existed carry none (aggregate.Actor).
+func (b *Backend) actionRequester(r *http.Request, ac aggregate.ActionCurrent) (aggregate.Actor, error) {
+	history, err := b.cfg.Reads.ActionHistory(r.Context(), ac.AggregateID, ac.ActionID)
+	if err != nil {
+		return aggregate.Actor{}, err
+	}
+	for _, e := range history {
+		if req, ok := e.Event.(aggregate.ActionRequested); ok && req.ActionID == ac.ActionID {
+			if e.Actor.Kind == "" {
+				e.Actor.Kind = aggregate.ActorHuman
+			}
+			return e.Actor, nil
+		}
+	}
+	return aggregate.Actor{}, fmt.Errorf("action %s has no request event", ac.ActionID)
 }

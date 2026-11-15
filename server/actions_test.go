@@ -812,3 +812,45 @@ func TestRequestAction_AIDelegatedT3BaselineDeny(t *testing.T) {
 		t.Errorf("AI-delegated T3 was auto-approved (%q); the baseline DENY must force manual", out.Status)
 	}
 }
+
+// TestRequestAction_RequesterAccountable: under a requester-accountable policy
+// (adr/0374) a person's own ticket is approved and credited to that person; the
+// agent's same request is left for a person to approve.
+func TestRequestAction_RequesterAccountable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	b := actionBackend(t, action.Policy{
+		ID: "policy/ticket-own-auto-approve/1.0.0", ActionMatch: []string{"ticket.*"},
+		Effect: action.EffectAutoApprove, Accountable: action.AccountableRequester,
+		Predicate:  `ctx.action.requested_by.kind == "HUMAN" && ctx.action.tier == "T2"`,
+		AuthoredBy: "system",
+	})
+	body := RequestActionBody{
+		ActionType:       "ticket.create",
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-queue--1", ResolvedIdentifier: "SEC"}},
+		Parameters:       json.RawMessage(`{"summary":"contain WIN-A"}`),
+		Rationale:        "hand off",
+		EvidenceRefs:     []string{"observed-data--od1"},
+		InvestigationRef: invID.String(),
+	}
+
+	_, out := postAction(t, b, mintToken(t, nil), body)
+	if out.Mode != action.ModeAutoPolicy || out.Status != "APPROVED" {
+		t.Fatalf("person's ticket: mode=%q status=%q; want AUTO_POLICY/APPROVED", out.Mode, out.Status)
+	}
+	ac, err := testHandler.Reads().LoadActionCurrent(context.Background(), uuid.MustParse(out.ActionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ac.PrimaryApprover != "test-subject" {
+		t.Errorf("approver = %q; want the requester test-subject", ac.PrimaryApprover)
+	}
+
+	_, out = postAction(t, b, mintToken(t, map[string]any{"delegate_kind": "claude"}), body)
+	if out.Status != "PENDING_MANUAL" {
+		t.Errorf("agent's ticket: status=%q mode=%q; want PENDING_MANUAL", out.Status, out.Mode)
+	}
+}

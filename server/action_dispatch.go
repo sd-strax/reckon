@@ -29,8 +29,13 @@ func (b *Backend) autoApproveAndDispatch(ctx context.Context, reqEnv aggregate.E
 	// token was presented for this act and no route gate applied: the actor
 	// carries neither roles nor a gate (adr/0105), and the action record names
 	// the policy that authorized it.
-	approveEnv := newEnvelope(reqEnv.AggregateID,
-		aggregate.Actor{PrincipalID: decision.PolicyAccountable, Kind: aggregate.ActorHuman}, now)
+	approver := aggregate.Actor{PrincipalID: decision.PolicyAccountable, Kind: aggregate.ActorHuman}
+	// A requester-accountable policy credits the person who asked (adr/0374):
+	// the approval carries their display name, as their own request does.
+	if reqEnv.Actor.Kind == aggregate.ActorHuman && reqEnv.Actor.PrincipalID == decision.PolicyAccountable {
+		approver.PrincipalName = reqEnv.Actor.PrincipalName
+	}
+	approveEnv := newEnvelope(reqEnv.AggregateID, approver, now)
 	_, err := b.cfg.Handler.Handle(ctx, approveEnv, aggregate.ApproveAction{
 		ActionID: cmd.ActionID,
 		Authorization: aggregate.Authorization{

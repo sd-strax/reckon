@@ -38,6 +38,9 @@ func NewGate2(policies []Policy) (*Gate2, error) {
 
 	compiled := make([]compiledPolicy, 0, len(all))
 	for _, p := range all {
+		if err := validateAccountable(p); err != nil {
+			return nil, err
+		}
 		ast, iss := env.Compile(p.Predicate)
 		if iss != nil && iss.Err() != nil {
 			return nil, fmt.Errorf("policy %s: predicate compile: %w", p.ID, iss.Err())
@@ -85,6 +88,13 @@ func (g *Gate2) Evaluate(input EvalInput) (Decision, error) {
 		if !ok {
 			return Decision{}, fmt.Errorf("policy %s: predicate did not return bool", cp.ID)
 		}
+		// A requester-accountable policy credits the requester with the
+		// approval, so it can fire only when that requester is a person. The
+		// engine holds this, not the predicate, so no wording gets around it
+		// (adr/0374).
+		if cp.Accountable == AccountableRequester && !humanRequester(input) {
+			fired = false
+		}
 
 		evals = append(evals, PolicyEvaluation{
 			PolicyRef: cp.ID, PolicyVersion: cp.ContentHash(),
@@ -106,7 +116,7 @@ func (g *Gate2) Evaluate(input EvalInput) (Decision, error) {
 		case EffectAutoApprove:
 			if autoRef == "" {
 				autoRef = cp.ID
-				autoAccountable = accountableHuman(cp.Policy)
+				autoAccountable = accountableHuman(cp.Policy, input)
 			}
 		}
 	}
@@ -126,12 +136,38 @@ func (g *Gate2) Evaluate(input EvalInput) (Decision, error) {
 }
 
 // accountableHuman returns the analyst an AUTO_POLICY approval is attributed to:
-// the last signed-off-by, else the authored-by (04 §3.3).
-func accountableHuman(p Policy) string {
+// the requester for a requester-accountable policy (adr/0374), else the last
+// signed-off-by, else the authored-by (04 §3.3).
+func accountableHuman(p Policy, input EvalInput) string {
+	if p.Accountable == AccountableRequester {
+		return input.RequestedByID
+	}
 	if n := len(p.SignedOffBy); n > 0 {
 		return p.SignedOffBy[n-1]
 	}
 	return p.AuthoredBy
+}
+
+// humanRequester reports whether the request came from a named person, not an
+// AI delegate.
+func humanRequester(input EvalInput) bool {
+	return input.RequestedByKind == aggregate.ActorHuman && input.RequestedByID != ""
+}
+
+// validateAccountable refuses an accountable value the engine does not know,
+// and "requester" on any effect but AUTO_APPROVE, where nothing is credited.
+func validateAccountable(p Policy) error {
+	switch p.Accountable {
+	case "", AccountableAuthor:
+		return nil
+	case AccountableRequester:
+		if p.Effect != EffectAutoApprove {
+			return fmt.Errorf("policy %s: accountable %q applies only to effect %s, not %s", p.ID, p.Accountable, EffectAutoApprove, p.Effect)
+		}
+		return nil
+	default:
+		return fmt.Errorf("policy %s: unknown accountable %q (want %q or %q)", p.ID, p.Accountable, AccountableAuthor, AccountableRequester)
+	}
 }
 
 // ApplyDecision attaches a Decision's audit trail to a RequestAction command,
