@@ -4,9 +4,10 @@
 // export. Every element names its source or says it is a gap.
 import { useState } from "react";
 import { useApp } from "../../app";
+import { awaitsDecision, byDeadline, byRequested } from "../../derive/actions";
 import { terminal } from "../../derive/stage";
 import { hypName } from "../../derive/hyps";
-import { handoffNote, keyEntities, proceduresCited, stillToDo } from "../../derive/summary";
+import { handoffNote, keyEntities, notificationWord, proceduresCited, stillToDo } from "../../derive/summary";
 import { Badge, Countdown, Empty, Markdown, RefChip, fmtDateTime, fmtTime } from "../shared";
 import type { NarrativeAuthor, NarrativeView } from "../../../../src/viewTypes";
 import { verdictLinks } from "../../derive/verdict";
@@ -138,6 +139,9 @@ export function SummaryLens() {
   const approved = contain.filter((a) => a.status !== "REQUESTED" && a.status !== "PENDING_SECONDARY" && a.status !== "REJECTED" && a.status !== "EXPIRED").length;
   const nearest = actions.filter((a) => a.pending && !a.expired && a.expiresAt).map((a) => a.expiresAt!).sort()[0];
   const notify = actions.filter((a) => a.actionType.startsWith("notify."));
+  // The Notification tile opens the notify action itself (adr/0361): the
+  // pending one whose window closes first, else the most recently requested.
+  const notifyTarget = byDeadline(notify.filter(awaitsDecision))[0] || byRequested(notify, "newest")[0];
   const awaiting = comms.filter((t) => t.status === "awaiting_reply" || t.status === "followed_up").length;
   const open = hs.flatMap((h) => h.status === "ABANDONED" ? [] : h.predictions.filter((p) => p.status === "UNTESTED" || p.status === "INCONCLUSIVE").map((p) => ({ h, p })));
   const ents = keyEntities(snap.investigation.seed, snap.thread || [], snap.pins, actions, state.labels, snap.derived?.entities);
@@ -166,9 +170,9 @@ export function SummaryLens() {
           <div className="tilemain">{contain.length ? `${approved} of ${contain.length} approved` : "no actions"}</div>
           <div className="imeta">{nearest ? <>first window closes in <Countdown expiresAt={nearest} className="inline" /></> : contain.length && contain.every(terminal) ? "every action terminal" : "—"}</div>
         </div>
-        <div className="tile" onClick={() => goTo({ kind: "lens", lens: "response", anchor: "notification" })}>
+        <div className="tile" onClick={() => goTo({ kind: "lens", lens: "response", anchor: notifyTarget?.actionId })}>
           <div className="kicker">Notification</div>
-          <div className="tilemain">{notify.some((a) => a.status === "SUCCEEDED") ? "notified" : notify.some((a) => a.pending) ? "awaiting approval" : "not yet notified"}</div>
+          <div className="tilemain">{notificationWord(notify)}</div>
           <div className="imeta">{awaiting ? `${awaiting} reply outstanding` : notify.length ? `${notify.length} sent or requested` : "ask reckon in the conversation"}</div>
         </div>
         <div className="tile" onClick={() => goTo({ kind: "lens", lens: "reasoning" })}>

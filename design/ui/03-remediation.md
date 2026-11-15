@@ -36,6 +36,31 @@ Terminal states: `SUCCEEDED`, `REVERSED`, `WAIVED`, `REJECTED`, `EXPIRED`.
 
 ## 3.3 Action card
 
+> **Amended by `adr/0361`**: a card shows at rest only what the decision or the outcome
+> needs, and the rest opens on demand.
+> - **The header** drops the tier badge and the state pill. It carries the group tile, the
+>   title, the target chips and the request time. A requested card also shows its
+>   countdown. Every other card shows its status as a glyph plus the engine's word.
+> - **A requested card at rest** keeps the countdown, reversibility in words, the
+>   escalation reason and the dispatch route ("via okta", at the end of the will-do
+>   sentence), and the approval requirement when it is more than the reader's own
+>   approval (two-party, or awaiting a second approver). Approve, Edit… and Reject… sit
+>   below that sentence.
+> - **The evidence moves into the requested card's details,** with the type id, the tier,
+>   the approval requirement and the record link.
+> - **A settled card is one line** (`ui/08 §8.4`, Response). A failed card, an
+>   unknown-outcome card and a re-requestable expired card stay open with their sentence,
+>   and with Resolve… or Re-request where they apply. A partial result and a timeout count as failed. The card reads
+>   them from the recorded outcome, because the status says `SUCCEEDED` or `FAILED`. A
+>   failure that a later, live action has taken over (a re-request, a reversal of a
+>   partial result, or a later reversal of the same original) is one line.
+> - **Border colour and opacity no longer encode every state.** Only a requested card
+>   (warning) and an open attention card carry a coloured border: danger for a failure or
+>   an unknown outcome, warning for a re-requestable expired request. A settled
+>   one-line item has none, and rejected or expired items are not dimmed. The state is
+>   the glyph and the word.
+> - **There is no "Decide later".** A request stays open until its window closes either way.
+
 Border color encodes state: requested → warning · approved/executing → info (executing adds a
 1px ring) · succeeded → success · failed → danger · reversed → dashed info ·
 rejected/waived/expired → 0.72 opacity.

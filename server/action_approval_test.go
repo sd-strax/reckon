@@ -143,6 +143,10 @@ func TestApproveAction_TwoPartyFlow(t *testing.T) {
 	// who completes it.
 	if row := listedAction(t, b, invID, actionID); row.Status != aggregate.ActionStatusPendingSecondary || row.PrimaryApproverRef == "" || row.PrimaryApproverRef == "bob" {
 		t.Errorf("listed row after primary = %+v; want PENDING_SECONDARY naming the primary approver", row)
+	} else if row.ApprovedAt == nil || row.ApprovedAt.IsZero() {
+		// approved_at is when the first approval was recorded, so it is set
+		// while the action still awaits its second (adr/0361).
+		t.Errorf("listed row after primary has no approved_at: %+v", row)
 	}
 
 	// The same principal cannot complete the second stage — two humans required.

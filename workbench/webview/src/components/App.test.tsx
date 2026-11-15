@@ -2,7 +2,7 @@
 // its regions from recorded data (08 §8.1–§8.5), and the analyst's acts reach
 // the host as the intents the protocol names.
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../app";
 import { App } from "./App";
 import { HarnessTransport, type HarnessSnapshot } from "../../../harness/transport";
@@ -73,18 +73,29 @@ describe("the investigation document", () => {
   it("Response: cards in every state, the approve lock, no notification composer, the comms threads", () => {
     const { transport } = mount();
     tab("Response");
+    const item = (id: string) => document.getElementById("obj-" + id)!;
+    const details = (id: string) => fireEvent.click(within(item(id)).getByRole("button", { name: /^Details/ }));
+    // Pending cards and the items that need attention are cards; a settled action is one line (adr/0361).
     const cards = lens().querySelectorAll(".actioncard.full");
-    expect(cards.length).toBe(5);
+    expect(cards.length).toBe(4);
+    expect(lens().querySelectorAll(".tlrow").length).toBe(1);
     expect(within(lens()).getByText("Approve · Send")).toBeTruthy();
     expect(within(lens()).getByText("Approve (challenge)…")).toBeTruthy();
     expect(within(lens()).getByText("↻ Re-request")).toBeTruthy();
+    expect(within(lens()).queryByText("Reverse…")).toBeNull(); // in the settled row's details
+    fireEvent.click(item("act-1").querySelector(".tlrow")!);
     expect(within(lens()).getByText("Reverse…")).toBeTruthy(); // SUCCEEDED + REVERSIBLE
     expect(within(lens()).getByText(/Did not complete — reckon cannot confirm any change on/)).toBeTruthy();
-    expect(within(lens()).getByText("Reason: ticket is read-only")).toBeTruthy();
-    expect(within(lens()).getAllByText(/^needs your approval/).length).toBeGreaterThan(0);
-    expect(within(lens()).getAllByRole("button", { name: "policy decision ›" }).length).toBeGreaterThan(0);
-    // The two-party card names who completes it (adr/0099).
-    expect(within(document.getElementById("obj-act-3")!).getByText(/two-party · a second approval from one of analyst-b, analyst-c/)).toBeTruthy();
+    details("act-5");
+    expect(within(item("act-5")).getByText("ticket is read-only")).toBeTruthy(); // the raw tool error
+    details("act-2");
+    expect(within(item("act-2")).getAllByText(/^needs your approval/).length).toBeGreaterThan(0);
+    expect(within(item("act-2")).getAllByRole("button", { name: "policy decision ›" }).length).toBeGreaterThan(0);
+    // The two-party card names who completes it (adr/0099), at rest and in its details (adr/0361).
+    expect(item("act-3").querySelector(".ackv")).toBeNull(); // details closed
+    expect(within(item("act-3")).getAllByText(/two-party · a second approval from one of analyst-b, analyst-c/).length).toBe(1);
+    details("act-3");
+    expect(within(item("act-3")).getAllByText(/two-party · a second approval from one of analyst-b, analyst-c/).length).toBe(2);
     fireEvent.click(within(document.getElementById("obj-act-3")!).getByText("Reject…"));
     const dlg = screen.getByRole("dialog");
     fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "not warranted" } });
@@ -288,6 +299,31 @@ describe("the investigation document", () => {
   });
 });
 
+describe("the Summary lens's Notification tile (adr/0361)", () => {
+  it("opens the pending notification itself in Response", () => {
+    const scrolled: string[] = [];
+    // goTo scrolls on the next frame, after the lens has switched.
+    const frames: FrameRequestCallback[] = [];
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { frames.push(cb); return frames.length; });
+    const had = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id); };
+    try {
+      mount();
+      tab("Summary");
+      const tile = within(lens()).getByText("Notification").closest(".tile") as HTMLElement;
+      fireEvent.click(tile);
+      act(() => { frames.splice(0).forEach((cb) => cb(0)); });
+      expect(screen.getByRole("tab", { name: /^Response/ }).getAttribute("aria-selected")).toBe("true");
+      expect(scrolled).toEqual(["obj-act-2"]); // the pending notify.email
+      expect(document.getElementById("obj-act-2")?.classList.contains("pending")).toBe(true);
+    } finally {
+      raf.mockRestore();
+      if (had) Object.defineProperty(Element.prototype, "scrollIntoView", had);
+      else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+});
+
 describe("action lineage on the cards (adr/0152)", () => {
   it("an original shows its successor in place of the step it already took", () => {
     const d = structuredClone(data);
@@ -299,7 +335,10 @@ describe("action lineage on the cards (adr/0152)", () => {
     mount(d);
     tab("Response");
     expect(within(lens()).queryByText("↻ Re-request")).toBeNull();
+    // The successor lines sit in each original's details (adr/0361).
+    fireEvent.click(document.getElementById("obj-act-4")!.querySelector(".tlrow")!);
     expect(within(lens()).getByText(/re-requested as/)).toBeTruthy();
+    fireEvent.click(document.getElementById("obj-act-1")!.querySelector(".tlrow")!);
     expect(within(lens()).queryByText(/^Reverse/)).toBeNull();
     expect(within(lens()).getAllByText(/↺ reversal/).length).toBeGreaterThan(0);
   });

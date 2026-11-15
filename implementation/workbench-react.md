@@ -145,8 +145,11 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
 │   │   └─ <PinnedEvidence>            the pin fold (canonical place for pins; un-pin here)
 │   └─ <ResponseLens>                  08 §8.4 Response
 │       ├─ <PlanHeader>                N actions · M owner items · from SOPs …; Review one by one · Approve all T2
-│       ├─ <ActionGroup>*              Containment → Eradication → Recovery → Notification → External work
-│       │   └─ <ActionCard>*           03 §3.3 decision-grade + policy fact (§6.16); all engine states
+│       ├─ Needs your decision         pending actions, soonest window first (adr/0361)
+│       │   └─ <ActionCard>*           03 §3.3 decision lines at rest; evidence, type, tier, policy fact (§6.16) in Details
+│       ├─ Timeline                    every other action in request order; Oldest first | Newest first (view state)
+│       │   └─ <TimelineItem>*         one line (time · group tile · title · targets · status) that opens its details;
+│       │                              an open card for a failure, an unknown outcome or a re-requestable expiry
 │       ├─ <OwnerItems>                §6.17
 │       ├─ <NotificationDraft>         assembled from the record; Edit · Preview & send (= request notify.*)
 │       └─ <CommsThreads>              Phase F threads: ack / follow up / snooze / done (parity §H)
@@ -221,7 +224,7 @@ syntax-tinted, copy), `Disclosure`.
 | Import SOPs panel (`importView.ts`, `reckon.importSOP`) | `<Import>` section of the Knowledge document; the command opens it |
 | Conclude-time candidate SOP (editor tab, Add to library / Discard) | `<Candidates>` section of the Knowledge document, once §6.24 stores the draft |
 | Pinned evidence | `<PinnedEvidence>` under the hypotheses in Reasoning; "Pinned" marker on prediction rows |
-| Actions ledger | `<ResponseLens>` cards in every state (the ledger is the plan) |
+| Actions ledger | `<ResponseLens>`: pending cards under Needs your decision, then one Timeline of every other action in request order (adr/0361) |
 | External work (comms) | `<CommsThreads>` in Response under Notification |
 | Capabilities fold + gap hints + enable form | the sidebar's Capabilities view (`capabilitiesTree.ts`, adr/0342) with a native Set up…; gap hints and `<EnableForm>` stay under tool-call blocks, the same Set up rule (`src/enablement.ts`) and apply (`enablementFlow.ts`) |
 | Event-time strip | superseded by `<Timeline>` |
@@ -619,7 +622,7 @@ state.
 ### 7.1 Stage (`stage.ts`, `08 §8.2`)
 
 Inputs: `investigation.status`, `verdict`, `actions`, `comms`, `ownerItems`.
-`terminal(a)` = status ∈ {SUCCEEDED, PARTIAL, FAILED, TIMEOUT, REJECTED, EXPIRED, REVERSED}.
+`terminal(a)` = status ∈ {SUCCEEDED, FAILED, REJECTED, EXPIRED, REVERSED}. The status folds a partial result into SUCCEEDED and a timeout into FAILED (`adr/0361`).
 `isNotify(a)` = `action_type` starts with `notify.`.
 
 | Step | done | current |

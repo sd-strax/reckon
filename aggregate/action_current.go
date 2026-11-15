@@ -67,6 +67,9 @@ type ActionCurrent struct {
 	// EditedAt is when the request was last edited before approval (adr/0127);
 	// zero when it never was.
 	EditedAt time.Time
+	// CreatedAt is when the action was requested: the ActionRequested event's
+	// time. The Response lens's timeline is ordered by it (adr/0361).
+	CreatedAt time.Time
 }
 
 // ActionCurrentProjector populates the action_current table — one row per
@@ -336,7 +339,7 @@ const actionCurrentColumns = `action_id, aggregate_id, action_type, tier, status
 	       primary_approver_ref, primary_approved_at, is_reversal, reversal_of_ref, retry_of,
 	       reversibility, reversed_by_ref, reversal_attempted_by_ref,
 	       required_mode, secondary_approver_pool, parameters, targets, evidence_refs,
-	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence, requesting_interpretation_id, edited_at`
+	       expires_at, adapter, error_detail, raw_response_ref, last_event_sequence, requesting_interpretation_id, edited_at, created_at`
 
 // scanActionCurrent decodes one actionCurrentColumns row (sql.Row or sql.Rows).
 func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
@@ -349,7 +352,7 @@ func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
 		&mode, &approver, &primaryAt, &a.IsReversal, &reversalOf, &retryOf,
 		&reversibility, &reversedBy, &attemptedBy,
 		&requiredMode, &pool, &params, &targets, &evidence, &expiresAt,
-		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence, &requesting, &editedAt)
+		&a.Adapter, &a.ErrorDetail, &a.RawResponseRef, &a.LastEventSequence, &requesting, &editedAt, &a.CreatedAt)
 	if err != nil {
 		return ActionCurrent{}, err
 	}
@@ -454,6 +457,13 @@ func nullUUID(id uuid.UUID) uuid.NullUUID {
 	return uuid.NullUUID{UUID: id, Valid: true}
 }
 
+// recordedOutcomeExpr reads the outcome an action.resulted or an
+// action.outcome_resolved puts on record: the final_outcome of a result, or
+// the outcome of a person's resolution. The latest such event by sequence_no
+// is the recorded outcome. LoadRecordedOutcome and ListRecordedOutcomes share
+// it, so the single read and the list read apply one rule.
+const recordedOutcomeExpr = `COALESCE(payload->>'final_outcome', payload->>'outcome')`
+
 // LoadRecordedOutcome returns the outcome on record for an action: the
 // final_outcome of its action.resulted (SUCCEEDED | FAILED | PARTIAL |
 // TIMEOUT), or a person's resolution of an unknown outcome (SUCCEEDED |
@@ -467,7 +477,7 @@ func (r *ReadModel) LoadRecordedOutcome(ctx context.Context, actionID uuid.UUID)
 		version   int
 	)
 	err := r.db.QueryRowContext(ctx, `
-		SELECT COALESCE(payload->>'final_outcome', payload->>'outcome'), event_type, event_version
+		SELECT `+recordedOutcomeExpr+`, event_type, event_version
 		FROM events
 		WHERE event_type IN ($1, $2) AND payload->>'action_id' = $3
 		ORDER BY sequence_no DESC
@@ -483,6 +493,49 @@ func (r *ReadModel) LoadRecordedOutcome(ctx context.Context, actionID uuid.UUID)
 		return "", err
 	}
 	return outcome.String, nil
+}
+
+// ListRecordedOutcomes returns the recorded outcome of every action of one
+// investigation in one query, keyed by action id, by the same rule as
+// LoadRecordedOutcome. An action with no outcome on record is absent. The
+// action list serves it beside the lifecycle status, which folds PARTIAL
+// into SUCCEEDED and TIMEOUT into FAILED (adr/0361).
+func (r *ReadModel) ListRecordedOutcomes(ctx context.Context, aggregateID uuid.UUID) (map[uuid.UUID]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT ON (payload->>'action_id')
+		       payload->>'action_id', `+recordedOutcomeExpr+`, event_type, event_version
+		FROM events
+		WHERE aggregate_id = $1 AND event_type IN ($2, $3)
+		ORDER BY payload->>'action_id', sequence_no DESC`,
+		aggregateID, EventTypeActionResulted, EventTypeActionOutcomeResolved)
+	if err != nil {
+		return nil, fmt.Errorf("list recorded outcomes: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[uuid.UUID]string{}
+	for rows.Next() {
+		var (
+			rawID     sql.NullString
+			outcome   sql.NullString
+			eventType string
+			version   int
+		)
+		if err := rows.Scan(&rawID, &outcome, &eventType, &version); err != nil {
+			return nil, fmt.Errorf("scan recorded outcome: %w", err)
+		}
+		if err := CheckEventVersion(eventType, version); err != nil {
+			return nil, err
+		}
+		id, err := uuid.Parse(rawID.String)
+		if err != nil {
+			return nil, fmt.Errorf("recorded outcome action id %q: %w", rawID.String, err)
+		}
+		if outcome.String != "" {
+			out[id] = outcome.String
+		}
+	}
+	return out, rows.Err()
 }
 
 // ListStrandedActionCurrents returns the actions that should have a workflow

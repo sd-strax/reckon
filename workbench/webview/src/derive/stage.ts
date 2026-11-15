@@ -5,7 +5,8 @@
 import type { ActionRow, CommsThread, Verdict } from "../../../src/viewTypes";
 import type { Step } from "../../../src/stage";
 
-const TERMINAL = new Set(["SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT", "REJECTED", "EXPIRED", "REVERSED"]);
+// Terminal is a lifecycle fact, so it reads the status.
+const TERMINAL = new Set(["SUCCEEDED", "FAILED", "REJECTED", "EXPIRED", "REVERSED"]);
 export const terminal = (a: ActionRow): boolean => TERMINAL.has(a.status);
 export const isNotify = (a: Pick<ActionRow, "actionType">): boolean => a.actionType.startsWith("notify.");
 
@@ -38,7 +39,11 @@ export const isContainment = (a: ActionRow): boolean => {
   return !isNotify(a) && !a.actionType.startsWith("ticket.");
 };
 
-const took = (a: ActionRow): boolean => a.status === "SUCCEEDED" || a.status === "PARTIAL" || a.status === "REVERSED";
+// The stage strip follows the lifecycle status, as the server does
+// (adr/0361): a partial containment is SUCCEEDED and cannot be re-requested,
+// so reading the outcome would hold the strip on Contain with no way on. The
+// Response lens opens the partial for attention instead.
+const took = (a: ActionRow): boolean => a.status === "SUCCEEDED" || a.status === "REVERSED";
 
 /**
  * The progress row (#145). Investigate → Verdict is a sequence; Contain and
@@ -55,6 +60,8 @@ export function stageOf(i: StageInputs): Stage {
   const notify = i.actions.filter(isNotify);
   const awaiting = i.comms.some((t) => t.status === "awaiting_reply" || t.status === "followed_up");
   const containDone = contain.some(took) && contain.every(terminal);
+  // Status, not outcome, as the server does: a SUCCEEDED notify, partial or
+  // not, marks its dependencies sent (adr/0361).
   const notifyDone = notify.some((a) => a.status === "SUCCEEDED") && notify.every(terminal) && !awaiting && i.openDependencies === 0;
   const closed = status === "CONCLUDED" || status === "ARCHIVED" || status === "DISCARDED";
   const notNeeded: Record<Step, boolean> = {

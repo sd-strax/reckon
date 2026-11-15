@@ -98,6 +98,9 @@ func (*fakeReads) ListInvestigations(context.Context) ([]aggregate.Investigation
 func (*fakeReads) ListPendingActionCurrents(context.Context) ([]aggregate.ActionCurrent, error) {
 	return nil, nil
 }
+func (*fakeReads) ListRecordedOutcomes(context.Context, uuid.UUID) (map[uuid.UUID]string, error) {
+	return nil, nil
+}
 func (*fakeReads) ListPredictions(context.Context, uuid.UUID) ([]aggregate.PredictionCurrent, error) {
 	return nil, nil
 }
