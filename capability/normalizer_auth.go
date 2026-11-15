@@ -19,10 +19,11 @@ func (*authNormalizer) ClassUID() int { return 3002 }
 // 2: host identity, adr/0211; 3: account identity, adr/0324
 // 4: OCSF classes and fields, adr/0356
 // 5: the authenticated account is user, not actor.user, adr/0356
-// 6: STIX 2.1 output through the one serializer, an artifact for a record
+// 6: OCSF read gaps, adr/0359
+// 7: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; addresses in
 // canonical text, adr/0357
-func (*authNormalizer) Version() int { return 6 }
+func (*authNormalizer) Version() int { return 7 }
 
 func (n *authNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

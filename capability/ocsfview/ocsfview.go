@@ -279,7 +279,12 @@ func (r *renderer) keyList(name string, slots []slot, fold bool) {
 // value's ref when the record minted it, else its exact text. Two different
 // objects that read the same (two resources one name) never fold; an unbound
 // value keys by its text exactly.
-func (r *renderer) keyRefList(name string, slots []slot) {
+func (r *renderer) keyRefList(name string, slots []slot) { r.keyRefs(name, slots, false) }
+
+// keyRefs is keyRefList, with an unbound value's text folded for case when
+// fold is set: a login, which compares case-insensitively. An unbound value
+// that carries its own key (slot.key) keys by it, never folded.
+func (r *renderer) keyRefs(name string, slots []slot, fold bool) {
 	texts := make([]string, 0, len(slots))
 	keys := make([]string, 0, len(slots))
 	for _, s := range slots {
@@ -287,9 +292,14 @@ func (r *renderer) keyRefList(name string, slots []slot) {
 			continue
 		}
 		texts = append(texts, s.text)
-		if s.ref != "" {
+		switch {
+		case s.ref != "":
 			keys = append(keys, "ref:"+s.ref)
-		} else {
+		case s.key != "":
+			keys = append(keys, s.key)
+		case fold:
+			keys = append(keys, "text:"+strings.ToLower(s.text))
+		default:
 			keys = append(keys, "text:"+s.text)
 		}
 	}
@@ -300,7 +310,17 @@ func (r *renderer) keyRefList(name string, slots []slot) {
 		enc, _ := json.Marshal(keys) // strings always marshal
 		id = string(enc)
 	}
-	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(texts, ", "), Identity: id})
+	// One bound value carries its ref, as keySlot's does, so a pivot on that
+	// entity drops the key part (keyParts).
+	ref := ""
+	if len(keys) == 1 {
+		for _, s := range slots {
+			if s.text != "" {
+				ref = s.ref
+			}
+		}
+	}
+	r.slots = append(r.slots, SlotValue{Name: name, Text: strings.Join(texts, ", "), Ref: ref, Identity: id})
 }
 
 // slot is a sentence slot: what the payload shows, and the record's ref when
@@ -308,6 +328,9 @@ func (r *renderer) keyRefList(name string, slots []slot) {
 type slot struct {
 	text string
 	ref  string
+	// key, when set, is what an unbound slot keys by in place of its text:
+	// an account target shown by its id alone (accountTarget).
+	key string
 }
 
 func (s slot) empty() bool { return s.text == "" }
@@ -375,17 +398,26 @@ func (r *renderer) int(path string) int    { return toInt(pathAny(r.p, path)) }
 // alone (two users on an account change, two addresses on a connection), and an
 // ambiguous match renders as text rather than open the wrong object.
 func (r *renderer) bind(typ string, match func(props map[string]any) bool) string {
-	ref := ""
+	ref, _ := r.bindCount(typ, match)
+	return ref
+}
+
+// bindCount is bind that also returns how many entities matched, so a caller
+// can tell no match (0) from an ambiguous one (more than 1). The ref is set
+// only when exactly one matched.
+func (r *renderer) bindCount(typ string, match func(props map[string]any) bool) (string, int) {
+	ref, n := "", 0
 	for _, e := range r.ents {
 		if e.Type != typ || !match(e.Props) {
 			continue
 		}
-		if ref != "" {
-			return ""
-		}
+		n++
 		ref = e.Ref
 	}
-	return ref
+	if n != 1 {
+		return "", n
+	}
+	return ref, n
 }
 
 func propEquals(props map[string]any, key, want string) bool {
@@ -425,11 +457,163 @@ func (r *renderer) user(prefix string) slot { return r.userIn(r.p, prefix) }
 // userIn is user for a user object at prefix of m, an object of the event
 // such as an entry of evidences[].
 func (r *renderer) userIn(m map[string]any, prefix string) slot {
-	name := pathStr(m, prefix+".name")
+	return r.userNamed(pathStr(m, prefix+".name"), pathStr(m, prefix+".domain"))
+}
+
+// accountTarget binds the account a target user object of an account event
+// names, and returns the text that shows it and keys it. read returns the
+// raw value of one key of the object. The name and domain are read by
+// ocsf.UserName, and an id is read only when it is a string, as the
+// normalizer reads them (readUser). The name rule (userNamed) binds first.
+// When it binds nothing, the uid binds the one user-account keyed on a
+// user_id equal to it (accountUIDEquals); an account keyed on its login is
+// never matched by uid, since its user_id may name someone else. Only when
+// the uid matches no account does the uid_alt bind, to the one account whose
+// uid_alt equals it folded for case, or, for an "@" uid_alt, the one
+// windows-domain account whose account_login or principal_name does
+// (accountUIDAltEquals). An id that matches several accounts binds nothing,
+// and the case an account stores an id in never breaks the tie: a missed
+// link is better than a wrong one. An id is trimmed, and a placeholder
+// (identity.PlaceholderUserID) is no id. The text is domain\name when both are present, else the name. With no name
+// it is the uid, else the uid_alt, so a member named by id alone is shown and
+// keyed. A member shown by its uid keys by it in its own namespace ("id:"),
+// folded as accountIDKey folds it, never as a login is. A member shown by its
+// uid_alt keys as a login does, folded for case: identity.Account never keys
+// on uid_alt, and an "@" uid_alt is read as a principal-name login.
+func (r *renderer) accountTarget(read func(key string) any) (slot, string) {
+	name, domain := ocsf.UserName(nil, func(_ map[string]any, key string) any { return read(key) })
+	s := r.userNamed(name, domain)
+	qualified := name
+	if domain != "" && name != "" {
+		qualified = domain + `\` + name
+	}
+	type userID struct{ prop, value string }
+	var ids []userID
+	for _, k := range []struct{ key, prop string }{{"uid", "user_id"}, {"uid_alt", "uid_alt"}} {
+		v, _ := read(k.key).(string)
+		if v = strings.TrimSpace(v); v != "" && !identity.PlaceholderUserID(v) {
+			ids = append(ids, userID{k.prop, v})
+		}
+	}
+	if qualified == "" && len(ids) > 0 {
+		qualified = ids[0].value
+		s.text = qualified
+		if ids[0].prop == "user_id" {
+			s.key = "id:" + accountIDKey(qualified)
+		}
+	}
+	if s.ref == "" {
+		// A missed link is better than a wrong one: an id that matches more
+		// than one account binds nothing, and the case an account stores an
+		// id in never breaks a tie. The uid_alt is tried only when the uid
+		// matched no account at all.
+		for _, id := range ids {
+			var ref string
+			var n int
+			if id.prop == "user_id" {
+				ref, n = r.bindCount(identity.TypeUserAccount, func(p map[string]any) bool { return accountUIDEquals(p, id.value) })
+			} else {
+				ref, n = r.bindCount(identity.TypeUserAccount, func(p map[string]any) bool { return accountUIDAltEquals(p, id.value) })
+			}
+			if n > 0 {
+				s.ref = ref
+				break
+			}
+		}
+	}
+	return s, qualified
+}
+
+// accountUIDAltEquals reports whether the user-account props hold the
+// uid_alt want, folded for case: identity.Account never keys on a uid_alt.
+// When want holds "@" it is a principal name, on which the normalizer mints
+// a windows-domain account, so a windows-domain account whose account_login
+// or principal_name equals it, folded for case, matches too. No other type
+// is matched by its login. STIX has no uid_alt or principal_name on a
+// user-account, so the account stores both in its reckon-account extension
+// (adr/0357).
+func accountUIDAltEquals(props map[string]any, want string) bool {
+	ext := stix.ExtensionFrom(props, stix.ExtAccount)
+	if propFoldEquals(ext, "uid_alt", want) {
+		return true
+	}
+	if !strings.Contains(want, "@") || accountType(props) != identity.AccountWindowsDomain {
+		return false
+	}
+	return propFoldEquals(props, "account_login", want) || propFoldEquals(ext, "principal_name", want)
+}
+
+// accountUIDEquals reports whether the user-account props are keyed on a
+// user_id equal to the uid want, both trimmed, compared as identity.Account
+// keys it. A cloud or LDAP account keeps an opaque id's case
+// (identity.FoldCloudUID), so "OpaqueA" and "opaquea" are two accounts and
+// compare exactly once folded. A Windows account keyed on a SID folds its
+// case. An account whose user_id is not its key never matches
+// (accountKeyedOnUserID).
+func accountUIDEquals(props map[string]any, want string) bool {
+	got := strings.TrimSpace(toString(props["user_id"]))
+	if want == "" || got == "" || !accountKeyedOnUserID(props) {
+		return false
+	}
+	switch accountType(props) {
+	case identity.AccountCloud, identity.AccountLDAP:
+		return identity.FoldCloudUID(got) == identity.FoldCloudUID(want)
+	}
+	return strings.EqualFold(got, want)
+}
+
+// accountKeyedOnUserID reports whether identity.Account keys the account the
+// props describe on its user_id: a cloud or LDAP account with an id, a
+// windows-domain account whose id is a SID, and a windows-local account
+// whose id is a well-known local SID (identity.WellKnownLocalSID). Every
+// other account, of those types or of any other or no type, is keyed on its
+// login or on its login and id together, so its user_id alone names no one.
+func accountKeyedOnUserID(props map[string]any) bool {
+	uid := strings.TrimSpace(toString(props["user_id"]))
+	if uid == "" || identity.PlaceholderUserID(uid) {
+		return false
+	}
+	switch accountType(props) {
+	case identity.AccountCloud, identity.AccountLDAP:
+		return true
+	case identity.AccountWindowsDomain:
+		return identity.IsSID(uid)
+	case identity.AccountWindowsLocal:
+		return identity.WellKnownLocalSID(uid)
+	}
+	return false
+}
+
+// accountType is the user-account props' account_type, trimmed as
+// identity.Account trims it.
+func accountType(props map[string]any) string {
+	return strings.TrimSpace(toString(props["account_type"]))
+}
+
+// propFoldEquals reports whether props hold want at prop, both trimmed and
+// folded for case.
+func propFoldEquals(props map[string]any, prop, want string) bool {
+	got := strings.TrimSpace(toString(props[prop]))
+	return want != "" && got != "" && strings.EqualFold(got, want)
+}
+
+// accountIDKey folds an id an unbound account target is keyed by: a SID
+// lowercased, as a windows-domain account's SID is keyed; any other id as a
+// cloud or LDAP account's is (identity.FoldCloudUID): a GUID lowercased, an
+// opaque id kept exact. An unbound SID keys lowercased even when an LDAP
+// account carried it, since the view has no account type for an unbound target.
+func accountIDKey(id string) string {
+	if identity.IsSID(id) {
+		return strings.ToLower(strings.TrimSpace(id))
+	}
+	return identity.FoldCloudUID(id)
+}
+
+// userNamed binds a user by its name and domain, by the rule user describes.
+func (r *renderer) userNamed(name, domain string) slot {
 	if name == "" {
 		return slot{}
 	}
-	domain := pathStr(m, prefix+".domain")
 	ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool {
 		login := toString(p["account_login"])
 		if domain != "" {
@@ -980,7 +1164,10 @@ func (r *renderer) registry() {
 		full = r.str("reg_value.path")
 		regValue, _ := pathAny(r.p, "reg_value").(map[string]any)
 		valueName, named = ocsf.RegistryValueName(regValue)
-		valueData, valueType = r.str("reg_value.data"), r.str("reg_value.type")
+		// The data by the normalizer's own rule: the typed field first,
+		// then data (adr/0359).
+		valueData, _ = ocsf.RegistryValueData(regValue, fieldOf)
+		valueType = r.str("reg_value.type")
 	} else {
 		full = r.str("reg_key.path")
 	}
@@ -1179,7 +1366,7 @@ var groupLeads = map[string]string{"add user": " to ", "remove user": " from "}
 // (3001), user_access (3005) and group_management (3006). Each class is read
 // only for its own fields: the group on 3006, the privileges on 3005 and 3006.
 func (r *renderer) account() {
-	target := r.user("user")
+	targets, qualified := r.accountTargets()
 	actor := r.user("actor.user")
 	host := r.host("device")
 	hasGroup := r.class == classGroupManagement
@@ -1201,12 +1388,12 @@ func (r *renderer) account() {
 
 	if actor.empty() {
 		r.text("Account ")
-		r.entity(target)
+		r.entities(targets)
 		r.text(" " + pastToPassive(verb))
 	} else {
 		r.entity(actor)
 		r.text(" " + verb + " ")
-		r.entity(target)
+		r.entities(targets)
 	}
 	lead, ok := groupLeads[strings.ToLower(r.str("activity_name"))]
 	if !ok {
@@ -1215,7 +1402,20 @@ func (r *renderer) account() {
 	r.clause(lead, group)
 	r.clause(" on ", host)
 
-	r.entityField("Account", slot{text: r.qualifiedUser("user"), ref: target.ref})
+	// One linked row per target, as resources render, up to shownMembers
+	// and a "+N more" row for the rest.
+	rows := 0
+	for i, target := range targets {
+		if qualified[i] == "" {
+			continue
+		}
+		if rows == shownMembers {
+			r.field("Account", fmt.Sprintf("+%d more", countNamed(qualified)-shownMembers))
+			break
+		}
+		r.entityField("Account", slot{text: qualified[i], ref: target.ref})
+		rows++
+	}
 	r.entityField("By", slot{text: r.qualifiedUser("actor.user"), ref: actor.ref})
 	r.activityField()
 	r.entityField("Group", group)
@@ -1223,7 +1423,15 @@ func (r *renderer) account() {
 	r.entityField("Host", host)
 
 	r.keySlot("actor", actor)
-	r.keySlot("target", target)
+	// Each target keys on its ref, else on its qualified login folded for
+	// case, else on its id as accountIDKey folds it, whether there is one or
+	// many, so two domains' same-named members never fold, one login in two
+	// cases does, and two opaque ids in two cases do not (adr/0359).
+	keyed := make([]slot, len(targets))
+	for i, s := range targets {
+		keyed[i] = slot{text: qualified[i], ref: s.ref, key: s.key}
+	}
+	r.keyRefs("target", keyed, true)
 	if hasGroup {
 		r.keySlot("group", group)
 	}
@@ -1232,6 +1440,88 @@ func (r *renderer) account() {
 		r.keyText("privileges", privileges)
 	}
 	r.keyText("activity", r.str("activity_name"))
+}
+
+// accountTargets reads the accounts an account event is about, with the
+// text that shows and keys each one. On group_management every entry of
+// users[] (OCSF 1.9.0) that names a user (ocsf.NamesUser) is a target, and
+// user is read when no entry does, as the normalizer reads them (adr/0359).
+// The other classes read user alone. Every target, an entry of users[] or
+// user, is read by one rule, accountTarget: bound by its name, else by its
+// uid or uid_alt, and shown by its qualified login, else by that id. It
+// always returns at least one slot, empty when the event names nobody.
+func (r *renderer) accountTargets() ([]slot, []string) {
+	if r.class == classGroupManagement {
+		var targets []slot
+		var qualified []string
+		seen := map[string]bool{}
+		for _, v := range pathList(r.p, "users") {
+			u, ok := v.(map[string]any)
+			if !ok || !ocsf.NamesUser(u, fieldOf) {
+				continue
+			}
+			s, q := r.accountTarget(func(key string) any { return fieldOf(u, key) })
+			// A member listed twice is one account, as the normalizer mints
+			// it once: by its ref, else by its login folded for case, else
+			// by its id as accountIDKey folds it.
+			key := "text:" + strings.ToLower(q)
+			switch {
+			case s.ref != "":
+				key = "ref:" + s.ref
+			case s.key != "":
+				key = s.key
+			}
+			if q != "" && seen[key] {
+				continue
+			}
+			seen[key] = true
+			targets, qualified = append(targets, s), append(qualified, q)
+		}
+		if len(targets) > 0 {
+			return targets, qualified
+		}
+	}
+	// The single user is read by its paths, so the reads are recorded as
+	// before (user.name, ...).
+	s, q := r.accountTarget(func(key string) any { return pathAny(r.p, "user."+key) })
+	return []slot{s}, []string{q}
+}
+
+// countNamed is how many of names are not empty.
+func countNamed(names []string) int {
+	n := 0
+	for _, s := range names {
+		if s != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// shownMembers is how many entries of a list the sentence and the field
+// rows name before "+N more", as a message's recipients (adr/0359).
+const shownMembers = 2
+
+// entities adds the first shownMembers slots that have a value to the
+// sentence, joined with commas, and " +N more" for the rest, as a message's
+// recipients read.
+func (r *renderer) entities(all []slot) {
+	var slots []slot
+	for _, s := range all {
+		if !s.empty() {
+			slots = append(slots, s)
+		}
+	}
+	for i, s := range slots {
+		if i == shownMembers {
+			r.text(fmt.Sprintf(" +%d more", len(slots)-shownMembers))
+			return
+		}
+		if i > 0 {
+			r.text(", ")
+		}
+		r.entity(s)
+	}
 }
 
 func (r *renderer) email() {
@@ -1314,7 +1604,7 @@ func (r *renderer) emailURL() {
 	r.activityField()
 	r.entityField("User", slot{text: r.qualifiedUser("actor.user"), ref: user.ref})
 	r.entityField("Host", host)
-	r.mono("Email id", r.str("email_uid"))
+	r.mono("Thread id", r.str("email_uid"))
 
 	r.keySlot("user", user)
 	r.keySlot("host", host)
@@ -1324,8 +1614,8 @@ func (r *renderer) emailURL() {
 
 var emailFileVerbs = map[string]string{"send": "sent", "receive": "received", "scan": "scanned"}
 
-// emailFile renders an attachment event (03 §4.11a): the file, the email it
-// came with by the source's id, and who and where.
+// emailFile renders an attachment event (03 §4.11a): the file, the source's
+// email id (a thread id from OCSF 1.4.0, adr/0359), and who and where.
 func (r *renderer) emailFile() {
 	user := r.user("actor.user")
 	host := r.host("device")
@@ -1351,7 +1641,7 @@ func (r *renderer) emailFile() {
 	if size := r.int("file.size"); size != 0 {
 		r.mono("Size", strconv.Itoa(size)+" bytes")
 	}
-	r.mono("Email id", r.str("email_uid"))
+	r.mono("Thread id", r.str("email_uid"))
 
 	r.keySlot("user", user)
 	r.keySlot("host", host)
@@ -1364,9 +1654,10 @@ func (r *renderer) emailFile() {
 // artifact's actor.user, else its user.
 //
 // A cloud finding names its account and resources on the finding itself
-// (adr/0356). They bind as on a control-plane call. When the finding names a
-// cloud provider, an artifact's actor.user is that provider's principal, and
-// binds by its durable id the way the normalizer keyed it.
+// (adr/0356). They bind as on a control-plane call. An artifact's
+// actor.user is read by the normalizer's rule (ocsf.IsCloudPrincipal,
+// adr/0359). The provider's user binds by its durable id, the way the
+// normalizer keys it. A login on the host binds by its login.
 func (r *renderer) detection() {
 	title := r.str("finding_info.title")
 	uid := r.str("finding_info.uid")
@@ -1382,7 +1673,8 @@ func (r *renderer) detection() {
 	}
 	confidence = firstNonEmpty(confidence, ocsf.Confidences[r.int("confidence_id")], r.str("confidence"))
 
-	cloud := r.str("cloud.provider") != ""
+	provider := ocsf.ProviderSlug(r.str("cloud.provider"))
+	finding := ocsf.PrincipalContext{AccountUID: strings.TrimSpace(r.str("cloud.account.uid"))}
 	resources := r.cloudResources()
 	account := r.findingAccount()
 
@@ -1393,12 +1685,15 @@ func (r *renderer) detection() {
 		if host.empty() {
 			host = r.hostIn(m, "device")
 		}
-		if cloud && user.empty() {
+		// The normalizer's own rule says whether actor.user is the
+		// provider's user or a login on the host (adr/0359).
+		principal := provider != "" && ocsf.IsCloudPrincipal(provider, finding, func(path string) any { return pathAny(m, "actor."+path) })
+		if principal && user.empty() {
 			user = r.cloudPrincipalIn(m)
 			qualified = user.text
 		}
 		for _, prefix := range []string{"actor.user", "user"} {
-			if cloud && prefix == "actor.user" {
+			if principal && prefix == "actor.user" {
 				continue
 			}
 			if user.empty() {

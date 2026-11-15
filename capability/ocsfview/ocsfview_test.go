@@ -2,6 +2,7 @@ package ocsfview
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -297,6 +298,8 @@ func TestRender_Sentences(t *testing.T) {
 			"admin assigned privileges to jdoe on DC1", CategoryAuth},
 		{"group management", 3006, `{"activity_name":"Add User","user":{"name":"jdoe"},"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},"device":{"hostname":"DC1"}}`,
 			"admin added jdoe to Domain Admins on DC1", CategoryAuth},
+		{"group management users[]", 3006, `{"activity_name":"Add User","users":[{"name":"jdoe"},{"name":"asmith"}],"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},"device":{"hostname":"DC1"}}`,
+			"admin added jdoe, asmith to Domain Admins on DC1", CategoryAuth},
 		{"group management remove", 3006, `{"activity_name":"Remove User","user":{"name":"jdoe"},"group":{"uid":"g-512"}}`,
 			"Account jdoe was removed from g-512", CategoryAuth},
 		{"group management privileges", 3006, `{"activity_name":"Assign Privileges","user":{"name":"jdoe"},"actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"}}`,
@@ -1108,6 +1111,12 @@ func TestRender_OCSFFields(t *testing.T) {
 	}{
 		{"registry value", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","data":"C:\\u.exe","type":"REG_SZ"}}`,
 			map[string]string{"Key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "Value": "Updater", "Data": `C:\u.exe`, "Type": "REG_SZ"}},
+		{"registry value, typed data only", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","reg_string_data":"C:\\u.exe","type":"REG_SZ"}}`,
+			map[string]string{"Data": `C:\u.exe`}},
+		{"registry value, integer data", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Start","reg_string_data":"","reg_integer_data":4}}`,
+			map[string]string{"Data": "4"}},
+		{"registry value, a typed list as JSON", 201002, `{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Libs","reg_string_list_data":["a.dll","b.dll"]}}`,
+			map[string]string{"Data": `["a.dll","b.dll"]`}},
 		{"registry key reads no value", 201001, `{"reg_key":{"path":"HKLM\\SOFTWARE\\Run"},"reg_value":{"name":"Updater","data":"x"}}`,
 			map[string]string{"Key": `HKEY_LOCAL_MACHINE\SOFTWARE\Run`, "Value": "", "Data": ""}},
 		{"job at the floor", 1006, `{"job":{"name":"Updater","file":{"path":"\\Microsoft\\Updater"},"cmd_line":"u.exe -q"}}`,
@@ -1122,10 +1131,14 @@ func TestRender_OCSFFields(t *testing.T) {
 			map[string]string{"Group": "", "Privileges": "SeDebugPrivilege, SeBackupPrivilege"}},
 		{"group management", 3006, `{"user":{"name":"jdoe"},"group":{"name":"Domain Admins"},"privileges":["SeDebugPrivilege"]}`,
 			map[string]string{"Group": "Domain Admins", "Privileges": "SeDebugPrivilege"}},
+		{"group management users[]", 3006, `{"users":[{"name":"jdoe","domain":"CONTOSO"},{"name":"asmith"}],"user":{"name":"old"},"group":{"name":"Domain Admins"}}`,
+			map[string]string{"Account": `CONTOSO\jdoe`}},
+		{"group management empty users[]", 3006, `{"users":[],"user":{"name":"jdoe"},"group":{"name":"Domain Admins"}}`,
+			map[string]string{"Account": "jdoe"}},
 		{"email click", 4012, `{"email_uid":"gw-1","url":{"url_string":"https://x.example/"}}`,
-			map[string]string{"URL": "https://x.example/", "Email id": "gw-1"}},
+			map[string]string{"URL": "https://x.example/", "Thread id": "gw-1", "Email id": ""}},
 		{"email attachment", 4011, `{"email_uid":"gw-1","file":{"name":"a.exe","path":"C:\\a.exe","size":12,"hashes":[{"algorithm":"SHA-256","value":"beef"}]}}`,
-			map[string]string{"File": `C:\a.exe`, "SHA-256": "beef", "Size": "12 bytes", "Email id": "gw-1"}},
+			map[string]string{"File": `C:\a.exe`, "SHA-256": "beef", "Size": "12 bytes", "Thread id": "gw-1", "Email id": ""}},
 		{"hashes in the object form are not read", 1001, `{"file":{"name":"a.exe","hashes":{"SHA-256":"beef"}}}`,
 			map[string]string{"File": "a.exe", "SHA-256": ""}},
 		{"detection by ids", 2004, `{"finding_info":{"uid":"det-1","title":"Beacon","types":["T1071","T1105"]},"severity_id":5,"severity":"ignored","confidence_id":2,"confidence":"ignored",
@@ -1270,6 +1283,23 @@ func TestRender_CloudDetection(t *testing.T) {
 	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
 		t.Errorf("User = %+v; want the directory login", f)
 	}
+	// With one, an actor.user the normalizer read as a login on the host
+	// (no provider signal, adr/0359) binds by its login.
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},"evidences":[{"actor":{"user":{"name":"jdoe","domain":"CONTOSO"}}}]}`)}, ents)
+	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
+		t.Errorf("User = %+v; want the host login", f)
+	}
+	// A Windows account type on a cloud finding is a login on the host,
+	// shown qualified and bound by its login, never by its id.
+	sidEnts := []Entity{
+		ent("user-account--login", map[string]any{"account_login": `CONTOSO\jdoe`}),
+		ent("user-account--id", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101"}),
+	}
+	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},
+		"evidences":[{"actor":{"user":{"name":"jdoe","domain":"CONTOSO","uid":"S-1-5-21-7-1101","account":{"type_id":2}}}}]}`)}, sidEnts)
+	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" || f.Value != `CONTOSO\jdoe` {
+		t.Errorf("User = %+v; want the Windows login bound by its login", f)
+	}
 	// With one, the artifact's own user is still a directory login.
 	v = Render(Event{ClassUID: 2004, Payload: payload(`{"finding_info":{"title":"T"},"cloud":{"provider":"AWS"},"evidences":[{"user":{"name":"jdoe","domain":"CONTOSO"}}]}`)}, ents)
 	if f, _ := fieldValue(v, "User"); f.Ref != "user-account--login" {
@@ -1356,5 +1386,727 @@ func TestRender_BindsThroughTheNormalizersCleanup(t *testing.T) {
 		if part.Ref == "windows-registry-key--k" {
 			t.Errorf("a key with no hive bound a stored object: %+v", v.Sentence)
 		}
+	}
+}
+
+// TestRender_GroupMembers (03 §4.9, adr/0359): each entry of a group
+// change's users[] binds to its own account, and the target slot holds them
+// all, so two changes of different members never fold together.
+func TestRender_GroupMembers(t *testing.T) {
+	ents := []Entity{
+		ent("user-account--jdoe", map[string]any{"account_login": `CONTOSO\jdoe`}),
+		ent("user-account--asmith", map[string]any{"account_login": `CONTOSO\asmith`}),
+	}
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","users":` + users + `,"group":{"name":"Domain Admins"}}`)}, ents)
+	}
+	v := render(`[{"name":"jdoe","domain":"CONTOSO"},{"name":"asmith","domain":"CONTOSO"}]`)
+	var refs []string
+	for _, tok := range v.Sentence {
+		if tok.T == "entity" {
+			refs = append(refs, tok.Ref)
+		}
+	}
+	if !slices.Equal(refs, []string{"user-account--jdoe", "user-account--asmith"}) {
+		t.Errorf("sentence entities = %v; want both members bound", refs)
+	}
+	// Each member has its own Account row, linked to its account.
+	var rows []Field
+	for _, f := range v.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f)
+		}
+	}
+	if len(rows) != 2 || rows[0].Value != `CONTOSO\jdoe` || rows[0].Ref != "user-account--jdoe" ||
+		rows[1].Value != `CONTOSO\asmith` || rows[1].Ref != "user-account--asmith" {
+		t.Errorf("Account rows = %+v; want one linked row per member", rows)
+	}
+	target := func(v View) SlotValue {
+		for _, s := range v.Slots {
+			if s.Name == "target" {
+				return s
+			}
+		}
+		return SlotValue{}
+	}
+	one := render(`[{"name":"jdoe","domain":"CONTOSO"}]`)
+	if target(v).Identity == "" || target(v).Identity == target(one).Identity {
+		t.Errorf("target slots %+v and %+v; want two members apart from one", target(v), target(one))
+	}
+}
+
+// TestRender_GroupMembersFoldByAccount (adr/0359): with several members the
+// target slot keys on each member's account, so the same names in two
+// domains never fold, whether or not the record bound them.
+func TestRender_GroupMembersFoldByAccount(t *testing.T) {
+	ents := []Entity{
+		ent("user-account--corp-alice", map[string]any{"account_login": `CORP\alice`}),
+		ent("user-account--corp-bob", map[string]any{"account_login": `CORP\bob`}),
+		ent("user-account--lab-alice", map[string]any{"account_login": `LAB\alice`}),
+		ent("user-account--lab-bob", map[string]any{"account_login": `LAB\bob`}),
+	}
+	target := func(domain string, ents []Entity) SlotValue {
+		js := `{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"Domain Admins"},` +
+			`"users":[{"name":"alice","domain":"` + domain + `"},{"name":"bob","domain":"` + domain + `"}]}`
+		for _, s := range Render(Event{ClassUID: 3006, Payload: payload(js)}, ents).Slots {
+			if s.Name == "target" {
+				return s
+			}
+		}
+		return SlotValue{}
+	}
+	for name, e := range map[string][]Entity{"bound": ents, "unbound": nil} {
+		corp, lab := target("CORP", e), target("LAB", e)
+		if corp.Identity == "" || corp.Identity == lab.Identity {
+			t.Errorf("%s: target slots %+v and %+v fold; want them apart", name, corp, lab)
+		}
+	}
+	if got := target("CORP", ents).Identity; !strings.Contains(got, "ref:user-account--corp-alice") || !strings.Contains(got, "ref:user-account--corp-bob") {
+		t.Errorf("bound target identity = %s; want each member's ref", got)
+	}
+}
+
+// TestRender_GroupMembersNotTheDeprecatedUser (adr/0359): with users[]
+// present, its members are the accounts shown, and the deprecated user is
+// not shown.
+func TestRender_GroupMembersNotTheDeprecatedUser(t *testing.T) {
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"users":[{"name":"jdoe","domain":"CONTOSO"},{"name":"asmith"}],"user":{"name":"old"},"group":{"name":"Domain Admins"}}`)}, nil)
+	var accounts []string
+	for _, f := range v.Fields {
+		if f.Label == "Account" {
+			accounts = append(accounts, f.Value)
+		}
+	}
+	if !slices.Equal(accounts, []string{`CONTOSO\jdoe`, "asmith"}) {
+		t.Errorf("Account rows = %v; want the users[] members", accounts)
+	}
+	if strings.Contains(sentenceText(v), "old") {
+		t.Errorf("sentence %q names the deprecated user", sentenceText(v))
+	}
+}
+
+// TestRender_GroupMembersNameNobody (adr/0359): when no entry of users[]
+// names a user, the deprecated user is the target, as the normalizer reads
+// it.
+func TestRender_GroupMembersNameNobody(t *testing.T) {
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","users":[{"uid":""}],"user":{"name":"jdoe"},"group":{"name":"Domain Admins"}}`)}, nil)
+	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "jdoe" {
+		t.Errorf("Account = %+v (present %v); want jdoe from user", f, ok)
+	}
+	if got := sentenceText(v); got != "Account jdoe was added to Domain Admins" {
+		t.Errorf("sentence = %q", got)
+	}
+}
+
+// TestRender_GroupTargetFoldsAlike (adr/0359): one member and many fold by
+// the same rule: the ref, else the qualified login folded for case.
+func TestRender_GroupTargetFoldsAlike(t *testing.T) {
+	target := func(users string) string {
+		js := `{"activity_name":"Add User","group":{"name":"Domain Admins"},"users":` + users + `}`
+		for _, s := range Render(Event{ClassUID: 3006, Payload: payload(js)}, nil).Slots {
+			if s.Name == "target" {
+				return s.Identity
+			}
+		}
+		return ""
+	}
+	corp, lab := target(`[{"name":"alice","domain":"CORP"}]`), target(`[{"name":"alice","domain":"LAB"}]`)
+	if corp == "" || corp == lab {
+		t.Errorf("CORP and LAB alice fold: %q, %q", corp, lab)
+	}
+	if a, b := target(`[{"name":"Alice","domain":"CORP"}]`), target(`[{"name":"alice","domain":"corp"}]`); a == "" || a != b {
+		t.Errorf("CORP\\Alice and corp\\alice do not fold: %q, %q", a, b)
+	}
+	if a, b := target(`[{"name":"Alice","domain":"CORP"},{"name":"bob","domain":"CORP"}]`), target(`[{"name":"bob","domain":"corp"},{"name":"alice","domain":"corp"}]`); a == "" || a != b {
+		t.Errorf("two members in another case and order do not fold: %q, %q", a, b)
+	}
+}
+
+// TestRender_GroupMembersCapped (adr/0359): a long member list reads as a
+// message's recipients do: two named, then "+N more", in the sentence and in
+// the field rows.
+func TestRender_GroupMembersCapped(t *testing.T) {
+	var members []string
+	for i := range 300 {
+		members = append(members, fmt.Sprintf(`{"name":"user%03d"}`, i))
+	}
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[` + strings.Join(members, ",") + `]}`)}, nil)
+	if got := sentenceText(v); got != "admin added user000, user001 +298 more to G" {
+		t.Errorf("sentence = %q", got)
+	}
+	var rows []string
+	for _, f := range v.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f.Value)
+		}
+	}
+	if !slices.Equal(rows, []string{"user000", "user001", "+298 more"}) {
+		t.Errorf("Account rows = %v", rows)
+	}
+}
+
+// TestRender_GroupMembersDeduplicated (adr/0359): a member listed twice is
+// one account, as the normalizer mints it once. The change reads and folds
+// as the same change sent without the repeat.
+func TestRender_GroupMembersDeduplicated(t *testing.T) {
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+	}
+	twice := render(`[{"name":"jdoe"},{"name":"JDOE"},{"name":"asmith"}]`)
+	once := render(`[{"name":"jdoe"},{"name":"asmith"}]`)
+	if got := sentenceText(twice); got != "admin added jdoe, asmith to G" {
+		t.Errorf("sentence = %q", got)
+	}
+	var rows []string
+	for _, f := range twice.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f.Value)
+		}
+	}
+	if !slices.Equal(rows, []string{"jdoe", "asmith"}) {
+		t.Errorf("Account rows = %v; want two", rows)
+	}
+	target := func(v View) string {
+		for _, s := range v.Slots {
+			if s.Name == "target" {
+				return s.Identity
+			}
+		}
+		return ""
+	}
+	if target(twice) == "" || target(twice) != target(once) {
+		t.Errorf("target slots %q and %q; want them to fold", target(twice), target(once))
+	}
+}
+
+// TestRender_GroupMemberByID: a users[] entry that names an account by its
+// uid alone shows the uid as the Account, and binds the windows-domain
+// account keyed on that SID when the record holds one.
+func TestRender_GroupMemberByID(t *testing.T) {
+	const sid = "S-1-5-21-7-1101"
+	js := `{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid":"` + sid + `"}]}`
+	for name, tc := range map[string]struct {
+		ents []Entity
+		ref  string
+	}{
+		"bound":   {[]Entity{ent("user-account--sid", map[string]any{"user_id": sid, "account_type": "windows-domain"})}, "user-account--sid"},
+		"unbound": {nil, ""},
+	} {
+		v := Render(Event{ClassUID: 3006, Payload: payload(js)}, tc.ents)
+		if f, ok := fieldValue(v, "Account"); !ok || f.Value != sid || f.Ref != tc.ref {
+			t.Errorf("%s: Account = %+v (present %v); want %s linked to %q", name, f, ok, sid, tc.ref)
+		}
+		if got := sentenceText(v); got != "admin added "+sid+" to G" {
+			t.Errorf("%s: sentence = %q", name, got)
+		}
+	}
+}
+
+// TestRender_GroupMemberByIDKeys: a member named by id alone keys the target
+// slot, so two changes of different such members, or of Alice with and
+// without one, never fold; one listed twice is one account.
+func TestRender_GroupMemberByIDKeys(t *testing.T) {
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+	}
+	target := func(v View) string {
+		for _, s := range v.Slots {
+			if s.Name == "target" {
+				return s.Identity
+			}
+		}
+		return ""
+	}
+	a, b := target(render(`[{"uid":"S-1-5-21-7-1101"}]`)), target(render(`[{"uid":"S-1-5-21-7-1102"}]`))
+	if a == "" || a == b {
+		t.Errorf("two id-only members fold: %q, %q", a, b)
+	}
+	alone, with := target(render(`[{"name":"alice"}]`)), target(render(`[{"name":"alice"},{"uid":"S-1-5-21-7-1101"}]`))
+	if alone == "" || alone == with {
+		t.Errorf("alice alone and alice with an id-only member fold: %q, %q", alone, with)
+	}
+	twice := render(`[{"uid":"S-1-5-21-7-1101"},{"uid":" S-1-5-21-7-1101 "}]`)
+	var rows []string
+	for _, f := range twice.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f.Value)
+		}
+	}
+	if !slices.Equal(rows, []string{"S-1-5-21-7-1101"}) {
+		t.Errorf("Account rows = %v; want one", rows)
+	}
+	if target(twice) != a {
+		t.Errorf("target slots %q and %q; want the repeat to fold", target(twice), a)
+	}
+}
+
+// TestRender_AccountChangeUserByID: an account change whose user carries
+// only a uid shows the uid as the Account, read by the same rule as a group
+// member.
+func TestRender_AccountChangeUserByID(t *testing.T) {
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"uid":"S-1-5-21-7-1101"}}`)}, nil)
+	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "S-1-5-21-7-1101" {
+		t.Errorf("Account = %+v (present %v); want the uid", f, ok)
+	}
+}
+
+// targetSlot is the target slot of v, the slot the fold keys a change's
+// accounts on.
+func targetSlot(v View) SlotValue {
+	for _, s := range v.Slots {
+		if s.Name == "target" {
+			return s
+		}
+	}
+	return SlotValue{}
+}
+
+// accountRows are v's Account rows.
+func accountRows(v View) []Field {
+	var rows []Field
+	for _, f := range v.Fields {
+		if f.Label == "Account" {
+			rows = append(rows, f)
+		}
+	}
+	return rows
+}
+
+// TestRender_GroupMemberPlaceholderName: a member whose name is a
+// placeholder, as Windows 4728/4732 write "-" beside the SID, is read by its
+// id, as the normalizer reads it. Two such members are two accounts, and the
+// change keys apart from one with either alone.
+func TestRender_GroupMemberPlaceholderName(t *testing.T) {
+	render := func(users string) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, nil)
+	}
+	both := render(`[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":" n/a ","uid":"S-1-5-21-7-1102"}]`)
+	var got []string
+	for _, f := range accountRows(both) {
+		got = append(got, f.Value)
+	}
+	if want := []string{"S-1-5-21-7-1101", "S-1-5-21-7-1102"}; !slices.Equal(got, want) {
+		t.Errorf("Account rows = %v; want %v", got, want)
+	}
+	for _, tc := range []struct{ users, want string }{
+		{`[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":" n/a ","uid":"S-1-5-21-7-1102"}]`, `["id:s-1-5-21-7-1101","id:s-1-5-21-7-1102"]`},
+		{`[{"name":"-","uid":"S-1-5-21-7-1101"}]`, `["id:s-1-5-21-7-1101"]`},
+		{`[{"name":"-","uid":"S-1-5-21-7-1102"}]`, `["id:s-1-5-21-7-1102"]`},
+	} {
+		if k := targetSlot(render(tc.users)).Identity; k != tc.want {
+			t.Errorf("%s: target key = %q; want %q", tc.users, k, tc.want)
+		}
+	}
+}
+
+// TestRender_AccountTargetBindsByID: a target whose name binds nothing binds
+// by its id. The uid binds an account keyed on a user_id equal to it, here a
+// windows-domain account keyed on a SID. The uid_alt binds an account whose
+// uid_alt equals it, or, for an "@" uid_alt, a windows-domain account whose
+// login or principal name does. A cloud account whose user_id equals the
+// uid_alt is not bound: the uid_alt is never read against a user_id.
+func TestRender_AccountTargetBindsByID(t *testing.T) {
+	render := func(users string, ents ...Entity) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	}
+	// The member {name: jdoe, uid_alt: jdoe@contoso.com} mints a
+	// windows-domain account keyed on the principal name, with these
+	// properties (accountProps). Its login is the principal name, so the
+	// name "jdoe" binds nothing and the uid_alt binds it.
+	const member = `[{"name":"jdoe","uid_alt":"jdoe@contoso.com"}]`
+	byAlt := ent("user-account--a1", map[string]any{"account_login": "jdoe@contoso.com", "user_id": "", "account_type": "windows-domain",
+		"principal_name": "jdoe@contoso.com", "uid_alt": "jdoe@contoso.com"})
+	v := render(member, byAlt)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "jdoe" || rows[0].Ref != "user-account--a1" {
+		t.Errorf("uid_alt member: Account rows = %+v; want jdoe linked to user-account--a1", rows)
+	}
+	if ref := targetSlot(v).Ref; ref != "user-account--a1" {
+		t.Errorf("uid_alt member: target ref = %q; want user-account--a1", ref)
+	}
+	byUserID := ent("user-account--a2", map[string]any{"account_login": "other", "user_id": "jdoe@contoso.com", "account_type": "cloud"})
+	v = render(member, byUserID)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "jdoe" || rows[0].Ref != "" {
+		t.Errorf("uid_alt member beside a user_id equal to it: Account rows = %+v; want jdoe with no link", rows)
+	}
+	byUID := ent("user-account--a3", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
+	v = render(`[{"name":"ghost","uid":"S-1-5-21-7-1101"}]`, byUID)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "ghost" || rows[0].Ref != "user-account--a3" {
+		t.Errorf("unbound name with a bound uid: Account rows = %+v; want ghost linked to user-account--a3", rows)
+	}
+}
+
+// TestRender_AccountChangeUserByIDBinds: the single user of an account change
+// named only by its uid binds by it and keys the target slot by it.
+func TestRender_AccountChangeUserByIDBinds(t *testing.T) {
+	acct := ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":" S-1-5-21-7-1101 "}}`)}, []Entity{acct})
+	if f, ok := fieldValue(v, "Account"); !ok || f.Value != "S-1-5-21-7-1101" || f.Ref != "user-account--u1" {
+		t.Errorf("Account = %+v (present %v); want the uid linked to user-account--u1", f, ok)
+	}
+	if s := targetSlot(v); s.Text != "S-1-5-21-7-1101" || s.Ref != "user-account--u1" || s.Identity != `["ref:user-account--u1"]` {
+		t.Errorf("target slot = %+v; want the uid, keyed by user-account--u1", s)
+	}
+	unbound := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"S-1-5-21-7-1101"}}`)}, nil)
+	if s := targetSlot(unbound); s.Text != "S-1-5-21-7-1101" || s.Ref != "" || s.Identity != `["id:s-1-5-21-7-1101"]` {
+		t.Errorf("unbound target slot = %+v; want the uid, keyed by it", s)
+	}
+}
+
+// TestRender_GroupMemberOpaqueIDCase: two LDAP members whose opaque ids
+// differ only in case are two accounts, as identity.Account keys a cloud or
+// LDAP id with its case kept. Each binds its own account, unbound they are
+// two rows and two key parts, and a change of OpaqueA and OPAQUEA keys apart
+// from OpaqueA alone. A SID in two cases is still one member.
+func TestRender_GroupMemberOpaqueIDCase(t *testing.T) {
+	render := func(users string, ents ...Entity) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	}
+	const two = `[{"uid":"OpaqueA","account":{"type_id":1}},{"uid":"opaquea","account":{"type_id":1}}]`
+	upper := ent("user-account--o1", map[string]any{"account_login": "", "user_id": "OpaqueA", "account_type": "ldap"})
+	lower := ent("user-account--o2", map[string]any{"account_login": "", "user_id": "opaquea", "account_type": "ldap"})
+	v := render(two, upper, lower)
+	rows := accountRows(v)
+	if len(rows) != 2 || rows[0].Value != "OpaqueA" || rows[0].Ref != "user-account--o1" ||
+		rows[1].Value != "opaquea" || rows[1].Ref != "user-account--o2" {
+		t.Errorf("bound: Account rows = %+v; want OpaqueA linked to o1 and opaquea linked to o2", rows)
+	}
+	if k := targetSlot(v).Identity; k != `["ref:user-account--o1","ref:user-account--o2"]` {
+		t.Errorf("bound: target key = %q; want both refs", k)
+	}
+
+	v = render(two)
+	var got []string
+	for _, f := range accountRows(v) {
+		got = append(got, f.Value)
+	}
+	if want := []string{"OpaqueA", "opaquea"}; !slices.Equal(got, want) {
+		t.Errorf("unbound: Account rows = %v; want %v", got, want)
+	}
+	if k := targetSlot(v).Identity; k != `["id:OpaqueA","id:opaquea"]` {
+		t.Errorf("unbound: target key = %q; want two id parts", k)
+	}
+
+	sid := render(`[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":"-","uid":"s-1-5-21-7-1101"}]`)
+	if rows := accountRows(sid); len(rows) != 1 || rows[0].Value != "S-1-5-21-7-1101" {
+		t.Errorf("SID in two cases: Account rows = %+v; want one", rows)
+	}
+	if k := targetSlot(sid).Identity; k != `["id:s-1-5-21-7-1101"]` {
+		t.Errorf("SID in two cases: target key = %q; want one id part", k)
+	}
+
+	alone := targetSlot(render(`[{"uid":"OpaqueA","account":{"type_id":1}}]`)).Identity
+	mixed := targetSlot(render(`[{"uid":"OpaqueA","account":{"type_id":1}},{"uid":"OPAQUEA","account":{"type_id":1}}]`)).Identity
+	if alone == mixed {
+		t.Errorf("OpaqueA+OPAQUEA keys as OpaqueA alone (%q); want them apart", alone)
+	}
+}
+
+// TestRender_GroupMemberUIDAltCase: a member named by uid_alt alone is read
+// as a login, whose case never counts: identity.Account never keys on
+// uid_alt, and an "@" uid_alt is a principal name. Unbound, two cases key
+// alike and one users[] holding both is one row; an LDAP account binds from
+// either case.
+func TestRender_GroupMemberUIDAltCase(t *testing.T) {
+	render := func(users string, ents ...Entity) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	}
+	upper := targetSlot(render(`[{"uid_alt":"Alice@Contoso.com"}]`)).Identity
+	lower := targetSlot(render(`[{"uid_alt":"alice@contoso.com"}]`)).Identity
+	if upper != lower {
+		t.Errorf("unbound: target keys %q and %q; want one", upper, lower)
+	}
+	if rows := accountRows(render(`[{"uid_alt":"Alice@Contoso.com"},{"uid_alt":"alice@contoso.com"}]`)); len(rows) != 1 {
+		t.Errorf("both cases: Account rows = %+v; want one", rows)
+	}
+	ldap := ent("user-account--l1", map[string]any{"account_login": "", "uid_alt": "alice@contoso.com", "account_type": "ldap"})
+	if s := targetSlot(render(`[{"uid_alt":"Alice@Contoso.com"}]`, ldap)); s.Ref != "user-account--l1" {
+		t.Errorf("LDAP uid_alt: target slot = %+v; want bound to user-account--l1", s)
+	}
+}
+
+// TestRender_AccountTargetUIDAltCaseNeverDecides: a uid_alt folds case, so
+// the case an account stores it in never picks among accounts that equal it.
+// A windows-domain account stores Alice@Contoso.com and the LDAP actor
+// alice@contoso.com; a target alice@contoso.com equals both and is unbound.
+func TestRender_AccountTargetUIDAltCaseNeverDecides(t *testing.T) {
+	target := ent("user-account--w1", map[string]any{"account_login": "Alice@Contoso.com", "user_id": "", "account_type": "windows-domain",
+		"principal_name": "Alice@Contoso.com", "uid_alt": "Alice@Contoso.com"})
+	actor := ent("user-account--l1", map[string]any{"account_login": "admin", "user_id": "", "account_type": "ldap", "uid_alt": "alice@contoso.com"})
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid_alt":"alice@contoso.com"}]}`)}, []Entity{target, actor})
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "alice@contoso.com" || rows[0].Ref != "" {
+		t.Errorf("Account rows = %+v; want alice@contoso.com with no link", rows)
+	}
+	s := targetSlot(v)
+	if s.Ref != "" {
+		t.Errorf("target ref = %q; want unbound", s.Ref)
+	}
+	if strings.Contains(s.Identity, "user-account--l1") {
+		t.Errorf("target key = %q; want no actor ref", s.Identity)
+	}
+}
+
+// TestRender_AccountTargetFoldedUIDCaseNeverDecides: a Windows account
+// keyed on a SID folds its case, so a windows-domain and a windows-local
+// account keyed on the well-known SID S-1-5-18, which differ only in the
+// case they store it in, both equal the uid, and the target is unbound.
+func TestRender_AccountTargetFoldedUIDCaseNeverDecides(t *testing.T) {
+	upper := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-18", "account_type": "windows-domain"})
+	lower := ent("user-account--w2", map[string]any{"account_login": `WS1\b`, "user_id": "s-1-5-18", "account_type": "windows-local"})
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"S-1-5-18"}}`)}, []Entity{upper, lower})
+	if s := targetSlot(v); s.Ref != "" {
+		t.Errorf("target slot = %+v; want unbound", s)
+	}
+	if f, ok := fieldValue(v, "Account"); !ok || f.Ref != "" {
+		t.Errorf("Account = %+v (present %v); want the uid with no link", f, ok)
+	}
+}
+
+// accountChangeTarget renders an account change of the one user object
+// user against ents and returns its target slot.
+func accountChangeTarget(user string, ents ...Entity) SlotValue {
+	return targetSlot(Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":` + user + `}`)}, ents))
+}
+
+// TestRender_AccountTargetOpaqueIDSkipsLoginKeyed: an LDAP account is keyed
+// on OpaqueA, and a unix account, keyed on its login, stores opaquea and
+// OpaqueA as a user_id. A uid OpaqueA matches only the LDAP account: a unix
+// account's user_id is no key, so it is never matched by uid.
+func TestRender_AccountTargetOpaqueIDSkipsLoginKeyed(t *testing.T) {
+	ldap := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "OpaqueA", "account_type": "ldap"})
+	unixFolded := ent("user-account--x1", map[string]any{"account_login": "bob", "user_id": "opaquea", "account_type": "unix"})
+	unixExact := ent("user-account--x2", map[string]any{"account_login": "carol", "user_id": "OpaqueA", "account_type": "unix"})
+	if s := accountChangeTarget(`{"name":"-","uid":"OpaqueA"}`, ldap, unixFolded, unixExact); s.Ref != "user-account--l1" {
+		t.Errorf("target slot = %+v; want bound to user-account--l1", s)
+	}
+}
+
+// TestRender_AccountTargetAmbiguousMixedTypes: an LDAP account stores a SID
+// in the uid's exact spelling and a windows-domain account in lower case.
+// The LDAP account compares exactly and the windows-domain account folds
+// case, so the uid equals both and binds neither: the exact spelling does
+// not break the tie.
+func TestRender_AccountTargetAmbiguousMixedTypes(t *testing.T) {
+	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "s-1-5-21-7-1101", "account_type": "windows-domain"})
+	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101", "account_type": "ldap"})
+	if s := accountChangeTarget(`{"name":"-","uid":"S-1-5-21-7-1101"}`, w, l); s.Ref != "" {
+		t.Errorf("target slot = %+v; want unbound", s)
+	}
+}
+
+// TestRender_AccountTargetAmbiguousGUID: a cloud account stores a GUID in
+// upper case and an LDAP account the same GUID in lower case. Both fold a
+// GUID, so a lowercase uid equals both and binds neither.
+func TestRender_AccountTargetAmbiguousGUID(t *testing.T) {
+	c := ent("user-account--c1", map[string]any{"account_login": "", "user_id": "8F6A0B5C-1D2E-4F3A-9B8C-7D6E5F4A3B2C", "account_type": "cloud"})
+	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "ldap"})
+	if s := accountChangeTarget(`{"name":"-","uid":"8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c"}`, c, l); s.Ref != "" {
+		t.Errorf("target slot = %+v; want unbound", s)
+	}
+}
+
+// TestRender_AccountTargetAmbiguousUIDStops: a uid that equals several
+// accounts leaves the target unbound; the uid_alt is not tried, though one
+// account alone holds it.
+func TestRender_AccountTargetAmbiguousUIDStops(t *testing.T) {
+	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-18", "account_type": "windows-domain"})
+	wl := ent("user-account--w2", map[string]any{"account_login": `WS1\a`, "user_id": "S-1-5-18", "account_type": "windows-local"})
+	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "", "account_type": "ldap", "uid_alt": "alice@contoso.com"})
+	if s := accountChangeTarget(`{"name":"-","uid":"S-1-5-18","uid_alt":"alice@contoso.com"}`, w, wl, l); s.Ref != "" {
+		t.Errorf("target slot = %+v; want unbound", s)
+	}
+}
+
+// TestRender_AccountTargetUIDAltPrincipalName: an "@" uid_alt also equals an
+// account's account_login or principal_name, folded for case, since the
+// normalizer mints a windows-domain account on that principal name. Beside
+// an LDAP account holding it as uid_alt the target is unbound; alone, the
+// windows-domain account binds.
+func TestRender_AccountTargetUIDAltPrincipalName(t *testing.T) {
+	w := ent("user-account--w1", map[string]any{"account_login": "Alice@Contoso.com", "user_id": "", "account_type": "windows-domain",
+		"principal_name": "Alice@Contoso.com"})
+	l := ent("user-account--l1", map[string]any{"account_login": "admin", "user_id": "", "account_type": "ldap", "uid_alt": "alice@contoso.com"})
+	const user = `{"name":"-","uid_alt":"alice@contoso.com"}`
+	if s := accountChangeTarget(user, w, l); s.Ref != "" {
+		t.Errorf("both: target slot = %+v; want unbound", s)
+	}
+	if s := accountChangeTarget(user, w); s.Ref != "user-account--w1" {
+		t.Errorf("windows-domain alone: target slot = %+v; want bound to user-account--w1", s)
+	}
+}
+
+// TestRender_GroupMemberSIDTwoCases: a SID in two cases in users[] beside a
+// windows-domain and an LDAP account that both store it as S-1-5-21-7-1101.
+// The upper-case member equals both and binds neither. The lower-case member
+// equals only the windows-domain account, since an LDAP account compares an
+// id exactly, so it binds that account and the two members are two rows.
+func TestRender_GroupMemberSIDTwoCases(t *testing.T) {
+	w := ent("user-account--w1", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"})
+	l := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "S-1-5-21-7-1101", "account_type": "ldap"})
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":"-","uid":"s-1-5-21-7-1101"}]}`)}, []Entity{w, l})
+	rows := accountRows(v)
+	if len(rows) != 2 || rows[0].Value != "S-1-5-21-7-1101" || rows[0].Ref != "" ||
+		rows[1].Value != "s-1-5-21-7-1101" || rows[1].Ref != "user-account--w1" {
+		t.Errorf("Account rows = %+v; want S-1-5-21-7-1101 with no link and s-1-5-21-7-1101 linked to w1", rows)
+	}
+	if k := targetSlot(v).Identity; k != `["id:s-1-5-21-7-1101","ref:user-account--w1"]` {
+		t.Errorf("target key = %q; want the unbound id and the w1 ref", k)
+	}
+}
+
+// TestRender_AccountTargetIDCaseByType: a uid binds as the account is keyed
+// on it. A cloud account's GUID folds case, an opaque cloud id does not, and
+// a windows-domain SID folds case. An account of no recorded type is keyed
+// on its login, so a user_id equal to the uid, in any case, never binds it.
+func TestRender_AccountTargetIDCaseByType(t *testing.T) {
+	render := func(uid string, e Entity) SlotValue {
+		return targetSlot(Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"` + uid + `"}}`)}, []Entity{e}))
+	}
+	for _, tc := range []struct {
+		name, uid string
+		props     map[string]any
+		bound     bool
+	}{
+		{"cloud GUID", "8F6A0B5C-1D2E-4F3A-9B8C-7D6E5F4A3B2C", map[string]any{"account_login": "", "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "cloud"}, true},
+		{"cloud opaque", "abc123", map[string]any{"account_login": "", "user_id": "AbC123", "account_type": "cloud"}, false},
+		{"windows-domain SID", "s-1-5-21-7-1101", map[string]any{"account_login": `CONTOSO\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-domain"}, true},
+		{"no type", "abc123", map[string]any{"account_login": "", "user_id": "AbC123"}, false},
+		{"no type, exact", "AbC123", map[string]any{"account_login": "", "user_id": "AbC123"}, false},
+		{"windows-domain, no SID", "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", map[string]any{"account_login": `CONTOSO\a`, "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "windows-domain"}, false},
+		{"windows-local, domain SID", "S-1-5-21-7-1101", map[string]any{"account_login": `WS1\a`, "user_id": "S-1-5-21-7-1101", "account_type": "windows-local"}, false},
+		{"windows", "S-1-5-21-7-1101", map[string]any{"account_login": "a", "user_id": "S-1-5-21-7-1101", "account_type": "windows"}, false},
+		{"unix", "1001", map[string]any{"account_login": "a", "user_id": "1001", "account_type": "unix"}, false},
+	} {
+		s := render(tc.uid, ent("user-account--u1", tc.props))
+		if got := s.Ref == "user-account--u1"; got != tc.bound {
+			t.Errorf("%s: target slot = %+v; want bound %v", tc.name, s, tc.bound)
+		}
+	}
+}
+
+// TestRender_AccountTargetUIDSkipsUnkeyedActor: a target {uid: G, uid_alt:
+// alice@contoso.com} with no name, beside the windows-domain account keyed
+// on the principal name alice@contoso.com and a windows-domain actor keyed
+// on its login CONTOSO\alice whose user_id is G. G is a GUID, no SID, so the
+// actor's user_id is no key and the uid matches no account. The uid_alt then
+// binds the principal-name account, never the actor.
+func TestRender_AccountTargetUIDSkipsUnkeyedActor(t *testing.T) {
+	const g = "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c"
+	upn := ent("user-account--p1", map[string]any{"account_login": "alice@contoso.com", "user_id": "", "account_type": "windows-domain",
+		"principal_name": "alice@contoso.com"})
+	actor := ent("user-account--a1", map[string]any{"account_login": `CONTOSO\alice`, "user_id": g, "account_type": "windows-domain"})
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"alice","domain":"CONTOSO"}},"group":{"name":"G"},"users":[{"uid":"` + g + `","uid_alt":"alice@contoso.com"}]}`)}, []Entity{upn, actor})
+	if s := targetSlot(v); s.Ref != "user-account--p1" {
+		t.Errorf("target slot = %+v; want bound to user-account--p1", s)
+	}
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Ref != "user-account--p1" {
+		t.Errorf("Account rows = %+v; want one linked to user-account--p1", rows)
+	}
+}
+
+// TestRender_AccountTargetUIDSkipsUntyped: an account of no recorded type is
+// keyed on its login, so a user_id equal to the target's uid does not bind
+// it, and the target keys by its uid.
+func TestRender_AccountTargetUIDSkipsUntyped(t *testing.T) {
+	e := ent("user-account--u1", map[string]any{"account_login": `CONTOSO\jdoe`, "user_id": "S-1-5-21-7-1101"})
+	s := accountChangeTarget(`{"name":"-","uid":"S-1-5-21-7-1101"}`, e)
+	if s.Ref != "" || s.Identity != `["id:s-1-5-21-7-1101"]` {
+		t.Errorf("target slot = %+v; want unbound, keyed by the uid", s)
+	}
+}
+
+// TestRender_AccountTargetUIDAltLoginWindowsDomainOnly: an "@" uid_alt is
+// matched against a login or principal name only on a windows-domain
+// account. A target named only by that uid_alt does not link to a cloud,
+// LDAP or unix account whose login or principal name equals it.
+func TestRender_AccountTargetUIDAltLoginWindowsDomainOnly(t *testing.T) {
+	const user = `{"name":"-","uid_alt":"alice@contoso.com"}`
+	for _, typ := range []string{"cloud", "ldap", "unix", ""} {
+		props := map[string]any{"account_login": "alice@contoso.com", "user_id": "", "principal_name": "alice@contoso.com"}
+		if typ != "" {
+			props["account_type"] = typ
+		}
+		if s := accountChangeTarget(user, ent("user-account--c1", props)); s.Ref != "" {
+			t.Errorf("%q account: target slot = %+v; want unbound", typ, s)
+		}
+	}
+}
+
+// TestRender_AccountTargetStringOnly: a name or id that is not a string is
+// no value, as the normalizer reads a user object (readUser).
+func TestRender_AccountTargetStringOnly(t *testing.T) {
+	v := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"uid":1001}}`)}, nil)
+	if f, ok := fieldValue(v, "Account"); ok {
+		t.Errorf("numeric uid: Account = %+v; want none", f)
+	}
+	if s := targetSlot(v); s != (SlotValue{Name: "target"}) {
+		t.Errorf("numeric uid: target slot = %+v; want empty", s)
+	}
+	v = Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"name":7,"uid":"S-1-5-21-7-1101"}]}`)}, nil)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != "S-1-5-21-7-1101" {
+		t.Errorf("numeric name: Account rows = %+v; want the SID", rows)
+	}
+}
+
+// TestRender_GroupMemberDomain: a member's name and domain are read by
+// ocsf.UserName, as the normalizer reads them. A "domain\sam" name beside
+// domain "-" binds the qualified login, a bare name beside "-" binds the bare
+// login, and a distinguished name is shown whole.
+func TestRender_GroupMemberDomain(t *testing.T) {
+	render := func(users string, ents ...Entity) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	}
+	v := render(`[{"name":"CONTOSO\\jdoe","domain":"-"},{"name":"jdoe2","domain":"-"}]`,
+		ent("user-account--d1", map[string]any{"account_login": `CONTOSO\jdoe`}),
+		ent("user-account--d2", map[string]any{"account_login": "jdoe2"}))
+	var refs []string
+	for _, f := range accountRows(v) {
+		refs = append(refs, f.Ref)
+	}
+	if want := []string{"user-account--d1", "user-account--d2"}; !slices.Equal(refs, want) {
+		t.Errorf("Account refs = %v; want %v", refs, want)
+	}
+	const dn = `CN=Doe\, John,CN=Users,DC=contoso,DC=com`
+	v = render(`[{"name":"CN=Doe\\, John,CN=Users,DC=contoso,DC=com","domain":"-"}]`)
+	if rows := accountRows(v); len(rows) != 1 || rows[0].Value != dn {
+		t.Errorf("distinguished name: Account rows = %+v; want %q", rows, dn)
+	}
+	if s := targetSlot(v); s.Text != dn {
+		t.Errorf("distinguished name: target text = %q; want %q", s.Text, dn)
+	}
+}
+
+// TestRender_AccountTargetPlaceholderID: a placeholder id with no name names
+// no one, so no target text is shown.
+func TestRender_AccountTargetPlaceholderID(t *testing.T) {
+	for _, js := range []string{
+		`{"activity_name":"Enable","user":{"uid":"-"}}`,
+		`{"activity_name":"Enable","user":{"name":"-","uid":"unknown","uid_alt":" n/a "}}`,
+	} {
+		v := Render(Event{ClassUID: 3001, Payload: payload(js)}, nil)
+		if f, ok := fieldValue(v, "Account"); ok {
+			t.Errorf("%s: Account = %+v; want none", js, f)
+		}
+		if s := targetSlot(v); s != (SlotValue{Name: "target"}) {
+			t.Errorf("%s: target slot = %+v; want empty", js, s)
+		}
+	}
+}
+
+// TestRender_RegistryTypedDataSlot (adr/0359): the data slot reads the typed
+// field, so two different writes to one value do not fold together.
+func TestRender_RegistryTypedDataSlot(t *testing.T) {
+	data := func(js string) string {
+		v := Render(Event{ClassUID: 201002, Payload: payload(js)}, nil)
+		for _, s := range v.Slots {
+			if s.Name == "data" {
+				return s.Identity
+			}
+		}
+		return ""
+	}
+	a := data(`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","reg_string_data":"C:\\a.exe"}}`)
+	b := data(`{"reg_value":{"path":"HKLM\\SOFTWARE\\Run","name":"Updater","reg_string_data":"C:\\b.exe"}}`)
+	if a == "" || a == b {
+		t.Errorf("data slots %q and %q; want two values", a, b)
 	}
 }

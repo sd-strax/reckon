@@ -177,6 +177,10 @@
     "user_agent": {
       "type": "string",
       "description": "The user agent of an API call."
+    },
+    "thread_uid": {
+      "type": "string",
+      "description": "The email thread a click or an attachment event names, as the source gives it."
     }
   },
   "required": [

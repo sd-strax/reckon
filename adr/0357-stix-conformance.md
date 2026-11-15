@@ -186,8 +186,19 @@ writes every payload.
     `title`, `organization`, `display_name` and `enabled`.
   - `reckon-file` on `file`: `path`.
   - `reckon-process` on `process`: `name`.
-  - `reckon-email-message` on an `email-message` known only by a source's
-    own id, with no Message-ID: `source_tool`, `email_uid` and `weak`.
+  - `reckon-email-message` on an `email-message`: `thread_uid`, the thread
+    id adr/0359 keeps on a message, and `envelope_to_refs`, the envelope
+    recipients (`smtp_to` and Delivered-To). STIX stores the header
+    recipients in `to_refs`, `cc_refs` and `bcc_refs`, but has no property
+    for the envelope ones. adr/0359 mints a message with no Message-ID from
+    its recipients, the envelope ones included. Storing them keeps that id
+    minted from stored values.
+    - This extension first held the weak message known only by a source's
+      own id. adr/0359 removed that message, because the id names a thread,
+      not a message. The extension is not yet published, so it changes.
+  - `reckon-observation` also holds `thread_uid` for a click or an
+    attachment event, which names its email only by a thread id
+    (adr/0359).
   - `reckon-assertion` on a relationship a person asserted: who asserted it
     and when, the note, the history, and the withdrawal.
 - These lists come from running every bundled fixture through the

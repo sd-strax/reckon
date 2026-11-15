@@ -24,9 +24,9 @@ import (
 //     is a reckon-host of the same result, and the check tries each one.
 //   - A process with no pid or no start time has a random id: STIX gives a
 //     process no id contributing properties (03 §7.2).
-//   - An email-message with no Message-ID is keyed on its sender, subject and
-//     the record's time. The record's time is the observation's
-//     first_observed, not a property of the message.
+//   - An email-message with no Message-ID is keyed on its sender, subject,
+//     recipients, thread and the record's time. The record's time is the
+//     observation's first_observed, not a property of the message.
 //   - A sighting is keyed on the vendor that saw it, whose name is stored on
 //     the identity its where_sighted_refs names.
 //
@@ -168,16 +168,28 @@ func remintCandidates(ids *identity.Resolver, typ string, m map[string]any, stor
 			return ids.Account(identity.AccountIdentity{Type: str(m, "account_type"), Login: str(m, "account_login"), UserID: str(m, "user_id"), HostRef: h})
 		}), false
 	case identity.TypeEmailMessage:
-		if ext := stix.ExtensionFrom(m, stix.ExtEmailMessage); ext["weak"] == true {
-			s, _ := ext["source_tool"].(string)
-			u, _ := ext["email_uid"].(string)
-			return []identity.STIXID{ids.WeakEmailMessage(s, u)}, false
+		value := func(ref any) string {
+			r, _ := ref.(string)
+			return str(stored[r], "value")
 		}
 		from := ""
 		if ref := str(m, "from_ref"); ref != "" {
-			from = str(stored[ref], "value")
+			from = value(ref)
 		}
-		return []identity.STIXID{ids.EmailMessage(str(m, "message_id"), from, str(m, "subject"), eventTime)}, false
+		var recipients []string
+		refs := func(v any) {
+			arr, _ := v.([]any)
+			for _, r := range arr {
+				recipients = append(recipients, value(r))
+			}
+		}
+		refs(m["to_refs"])
+		refs(m["cc_refs"])
+		refs(m["bcc_refs"])
+		ext := stix.ExtensionFrom(m, stix.ExtEmailMessage)
+		refs(ext["envelope_to_refs"])
+		thread, _ := ext["thread_uid"].(string)
+		return []identity.STIXID{ids.EmailMessage(str(m, "message_id"), from, str(m, "subject"), eventTime, recipients, thread)}, false
 	case identity.TypeHost:
 		return []identity.STIXID{ids.Host(identity.HostIdentity{
 			Hostname: str(m, "hostname"), MAC: str(m, "mac"), SourceTool: str(m, "source_tool"), SourceUID: str(m, "device_uid"),

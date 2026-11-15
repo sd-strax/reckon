@@ -83,7 +83,7 @@ func TestMarshal_NativeSplit(t *testing.T) {
 			map[string]any{"name": "cmd.exe"}},
 		{identity.TypeEmailMessage, "email-message--00000000-0000-4000-8000-000000000005", ExtEmailMessage,
 			map[string]any{"is_multipart": false},
-			map[string]any{"source_tool": "mail-gw", "email_uid": "m-1", "weak": true}},
+			map[string]any{"thread_uid": "t-1", "envelope_to_refs": []string{"email-addr--00000000-0000-4000-8000-000000000006"}}},
 	}
 	for _, c := range cases {
 		props := map[string]any{}

@@ -12,17 +12,25 @@ import (
 // emailNormalizer handles OCSF email_activity (class_uid 4009) → STIX (§4.10):
 // the email-message, every address (from/to/cc/bcc), attachment files, and body
 // URLs, with a contains relationship from the message to each attachment and URL.
+//
+// The message is keyed on its Message-ID (email.message_uid), else on (from,
+// subject, date, recipients, thread_uid). email.uid is the id of the email
+// thread, not of one message, so it is kept on the message as thread_uid.
+// It mints no weak message and no aliases edge: two messages of one thread
+// would then read as one (adr/0359).
 type emailNormalizer struct{ r *identity.Resolver }
 
 func (*emailNormalizer) ClassUID() int { return 4009 }
 
 // 2: placeholder file hashes, adr/0211
 // 3: OCSF classes and fields, adr/0356
-// 4: STIX 2.1 output through the one serializer, an artifact for a record
+// 4: OCSF read gaps, adr/0359
+// 5: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; is_multipart from
 // the raw header, addresses that are addr-specs, URLs that are URIs, file
-// hashes and names STIX can hold, adr/0357
-func (*emailNormalizer) Version() int { return 4 }
+// hashes and names STIX can hold, the thread and envelope recipients stored
+// on the message, adr/0357
+func (*emailNormalizer) Version() int { return 5 }
 
 func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -30,15 +38,14 @@ func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) 
 
 	from := pathStr(p, "email.from")
 	fromRef := b.emailAddr(from)
-	toRefs := b.emailAddrs(p, "email.to")
-	ccRefs := b.emailAddrs(p, "email.cc")
+	toRefs, to := b.emailAddrs(p, "email.to")
+	ccRefs, cc := b.emailAddrs(p, "email.cc")
 	// Blind copy is email.bcc[] from OCSF 1.9.0. Below that OCSF has no
 	// field for it, so a source that reports one puts it in unmapped.bcc[].
-	bccRefs := b.emailAddrs(p, "email.bcc")
+	bccRefs, bcc := b.emailAddrs(p, "email.bcc")
 	if len(bccRefs) == 0 {
-		bccRefs = b.emailAddrs(p, "unmapped.bcc")
+		bccRefs, bcc = b.emailAddrs(p, "unmapped.bcc")
 	}
-
 	subject := pathStr(p, "email.subject")
 	msgUID := strings.TrimSpace(pathStr(p, "email.message_uid"))
 	// A property the record does not give is left out, not written empty:
@@ -62,12 +69,31 @@ func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) 
 	if len(bccRefs) > 0 {
 		props["bcc_refs"] = stringifyRefs(bccRefs)
 	}
-	// The message is keyed on the sender it stores: none when the address
-	// was left out (adr/0357).
+	// From OCSF 1.4.0, email.uid is the id of the email thread. It is read as
+	// one at every version and kept as a property. It is never the
+	// message's identity on its own: with no Message-ID it only keeps apart
+	// messages of different threads (adr/0359).
+	thread := strings.TrimSpace(pathStr(p, "email.uid"))
+	if thread != "" {
+		props["thread_uid"] = thread
+	}
+	// The envelope recipients are email-addrs like the header ones, kept as
+	// envelope_to_refs: STIX has no property for them (adr/0357).
+	envRefs, env := b.envelopeRecipients(p)
+	if len(envRefs) > 0 {
+		props["envelope_to_refs"] = stringifyRefs(envRefs)
+	}
+	// The recipients are every address the message was sent to: the header
+	// to, cc and blind copy, and the envelope. With no Message-ID they are
+	// part of its identity, so two copies of one run sent to different
+	// mailboxes stay two messages (adr/0359). The message is keyed on the
+	// addresses it stores: a sender or recipient left out is not in the key
+	// (adr/0357).
 	if fromRef == "" {
 		from = ""
 	}
-	msgID := b.emailMessage(msgUID, strings.TrimSpace(pathStr(p, "email.uid")), from, subject, props)
+	recipients := append(append(append(append([]string{}, to...), cc...), bcc...), env...)
+	msgID := b.addSCO(b.r.EmailMessage(msgUID, from, subject, b.evt.Time, recipients, thread), identity.TypeEmailMessage, props)
 
 	// Attachments and body links, with a contains edge each. Both lists are
 	// OCSF 1.4.0 and read when present. Below that an attachment is its own
@@ -86,48 +112,41 @@ func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) 
 	return b.finish(nil), nil
 }
 
-// emailMessage adds the email-message an email activity event names and
-// returns its id. The identity follows the rule hosts and accounts follow
-// (adr/0211, adr/0324, adr/0356):
-//
-//   - A Message-ID (email.message_uid) mints the strong message.
-//   - With no Message-ID, the source's own id (email.uid) mints the weak
-//     message on (source tool, uid), marked weak. It is the event's message.
-//   - With both, the strong message is the event's, and the weak one is added
-//     outside object_refs with an aliases edge to the strong one. That edge is
-//     how a click, which names the message by the source's id alone, reaches
-//     the delivered message.
-//   - With neither, the message is keyed on (from, subject, date).
-func (b *resultBuilder) emailMessage(msgUID, uid, from, subject string, props map[string]any) identity.STIXID {
-	weak, weakProps := b.weakEmailMessage(uid)
-	if msgUID == "" && weak != "" {
-		// The event's own properties stand; the weak message adds its mark.
-		for k, v := range weakProps {
-			if _, ok := props[k]; !ok {
-				props[k] = v
-			}
+// envelopeRecipients adds an email-addr for each envelope address of an
+// email and returns their ids and the addresses they were minted from. The
+// envelope is smtp_to[] (the SMTP RCPT TO values), and the Delivered-To
+// values, delivered_to_list[] from OCSF 1.4.0, else the deprecated single
+// delivered_to (03 §4.16). Each address goes through emailAddr, as the header
+// recipients do, and one named twice is kept once.
+func (b *resultBuilder) envelopeRecipients(p map[string]any) ([]identity.STIXID, []string) {
+	addrs := stringsAt(p, "email.smtp_to")
+	if delivered := stringsAt(p, "email.delivered_to_list"); len(delivered) > 0 {
+		addrs = append(addrs, delivered...)
+	} else if d := pathStr(p, "email.delivered_to"); d != "" {
+		addrs = append(addrs, d)
+	}
+	var refs []identity.STIXID
+	var values []string
+	seen := map[identity.STIXID]bool{}
+	for _, a := range addrs {
+		id := b.emailAddr(a)
+		if id == "" || seen[id] {
+			continue
 		}
-		return b.addSCO(weak, identity.TypeEmailMessage, props)
+		seen[id] = true
+		refs = append(refs, id)
+		values = append(values, a)
 	}
-	strong := b.addSCO(b.r.EmailMessage(msgUID, from, subject, b.evt.Time), identity.TypeEmailMessage, props)
-	if msgUID != "" && weak != "" {
-		b.addLinkedSCO(weak, identity.TypeEmailMessage, weakProps)
-		b.addRel(RelAliases, weak, strong)
-	}
-	return strong
+	return refs, values
 }
 
-// weakEmailMessage mints the weak email-message the source's own message id
-// names, on (source tool, uid), with the properties a weak message carries.
-// It returns "" for an empty uid.
-func (b *resultBuilder) weakEmailMessage(uid string) (identity.STIXID, map[string]any) {
-	id := b.r.WeakEmailMessage(b.evt.SourceTool, uid)
-	if id == "" {
-		return "", nil
+// stringsAt reads the strings of the list at path of p.
+func stringsAt(p map[string]any, path string) []string {
+	v, ok := lookupPath(p, path)
+	if !ok {
+		return nil
 	}
-	// STIX requires is_multipart. A record that names the message only by
-	// the source's id says nothing about its parts, so it is false.
-	return id, map[string]any{"is_multipart": false, "source_tool": b.evt.SourceTool, "email_uid": strings.TrimSpace(uid), "weak": true}
+	return stringSlice(v)
 }
 
 // isMultipart reports whether an email's raw header says the message has
@@ -156,28 +175,39 @@ func isMultipart(rawHeader string) bool {
 	return strings.HasPrefix(strings.ToLower(value), "multipart/")
 }
 
-// eventEmailMessage adds the weak email-message a click or an attachment
-// event names by its email_uid, in object_refs: the event names no other.
-func (b *resultBuilder) eventEmailMessage() identity.STIXID {
-	id, props := b.weakEmailMessage(pathStr(b.evt.Payload, "email_uid"))
-	return b.addSCO(id, identity.TypeEmailMessage, props)
+// threadExt adds the event's email_uid to ext as thread_uid, trimmed, and
+// returns ext. A click or an attachment event names its email only by
+// email_uid, which OCSF matches to email.uid from 1.4.0: a thread id. So it
+// is kept on the observation and mints no email-message (adr/0359). An empty
+// email_uid adds nothing.
+func threadExt(p, ext map[string]any) map[string]any {
+	t := strings.TrimSpace(pathStr(p, "email_uid"))
+	if t == "" {
+		return ext
+	}
+	if ext == nil {
+		ext = map[string]any{}
+	}
+	ext["thread_uid"] = t
+	return ext
 }
 
 // emailURLNormalizer handles OCSF email_url_activity (class_uid 4012) → STIX
-// (§4.11): the clicked URL, the clicker, the weak email-message the click
-// names by email_uid, and the host, with a clicked edge (user → url) and a
-// contains edge (message → url). 4011 is email_file_activity, not this class
-// (adr/0356).
+// (§4.11): the clicked URL, the clicker and the host, with a clicked edge
+// (user → url). The click's email_uid names a thread, not one message, so
+// it mints no email-message and rides the observation as thread_uid
+// (adr/0359). 4011 is email_file_activity, not this class (adr/0356).
 type emailURLNormalizer struct{ r *identity.Resolver }
 
 func (*emailURLNormalizer) ClassUID() int { return 4012 }
 
 // 2: host identity, adr/0211; 3: account identity, adr/0324
 // 4: OCSF classes and fields, adr/0356
-// 5: STIX 2.1 output through the one serializer, an artifact for a record
+// 5: OCSF read gaps, adr/0359
+// 6: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; is_multipart,
 // URLs that are URIs, adr/0357
-func (*emailURLNormalizer) Version() int { return 5 }
+func (*emailURLNormalizer) Version() int { return 6 }
 
 func (n *emailURLNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -187,22 +217,19 @@ func (n *emailURLNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 	urlID := b.url(pathStr(p, "url.url_string"))
 	host := b.host("device")
 	user := b.userAccount("actor.user", "device", host)
-	msgID := b.eventEmailMessage()
 
 	if user != "" && urlID != "" {
 		b.addRel(RelClicked, user, urlID)
 	}
-	if msgID != "" && urlID != "" {
-		b.addRel(RelContains, msgID, urlID)
-	}
 
-	return b.finish(nil), nil
+	return b.finish(threadExt(p, nil)), nil
 }
 
 // emailFileNormalizer handles OCSF email_file_activity (class_uid 4011) → STIX
-// (§4.11a): the attachment file, the weak email-message the event names by
-// email_uid, the actor and the host, with a contains edge (message → file).
-// Below OCSF 1.4.0 this event is the only place an attachment appears.
+// (§4.11a): the attachment file, the actor and the host. Like a click, the
+// event's email_uid names a thread, so it mints no email-message and rides
+// the observation as thread_uid (adr/0359). Below OCSF 1.4.0 this event is
+// the only place an attachment appears.
 type emailFileNormalizer struct{ r *identity.Resolver }
 
 func (*emailFileNormalizer) ClassUID() int { return 4011 }
@@ -210,26 +237,22 @@ func (*emailFileNormalizer) ClassUID() int { return 4011 }
 // Version starts at 4. Versions 1 to 3 of class 4011 were the link-click
 // normalizer registered under this number before adr/0356, and the
 // ObservedData id carries the version but not the normalizer's name.
-// 5: STIX 2.1 output through the one serializer, an artifact for a record
+// 5: OCSF read gaps, adr/0359
+// 6: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error; is_multipart,
 // file hashes and names STIX can hold, adr/0357
-func (*emailFileNormalizer) Version() int { return 5 }
+func (*emailFileNormalizer) Version() int { return 6 }
 
 func (n *emailFileNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
 	b := newBuilder(n.r, evt, "email_file_activity", n.Version())
 	b.deviceObjects("device")
 
-	fileID := b.file("file")
+	b.file("file")
 	host := b.host("device")
 	b.userAccount("actor.user", "device", host)
-	msgID := b.eventEmailMessage()
 
-	if msgID != "" && fileID != "" {
-		b.addRel(RelContains, msgID, fileID)
-	}
-
-	return b.finish(activityExt(p)), nil
+	return b.finish(threadExt(p, activityExt(p))), nil
 }
 
 // stringifyRefs renders a ref slice for storage in SCO properties.

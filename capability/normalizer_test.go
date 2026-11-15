@@ -542,16 +542,22 @@ func TestHostAliasEmission(t *testing.T) {
 // form only. dns_activity, user_inventory and cloud_resources_inventory_info
 // read the same input as before and did not move.
 //
-// adr/0357 moved every normalizer to its next version once: each now writes
+// adr/0359 moved the detection, email, email_file, email_url, account and
+// registry normalizers once more, for the four OCSF read gaps it closes. It
+// also moved every normalizer that reads a user object through readUser
+// (authentication, process, file, scheduled_job and user_inventory), since
+// the shared user read changed the accounts they mint.
+//
+// adr/0357 then moved every normalizer once more: each now writes
 // STIX 2.1 through the one serializer, observes a record it extracts nothing
 // from as an artifact, and refuses a broken record. The opaque default moved
 // to 2, so a typed normalizer that takes over a class it held starts above 2.
 func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 5}, {3002, 6}, {4001, 4}, {4003, 3}, {1001, 5}, {201001, 5}, {201002, 5}, {1006, 5}, {1005, 4},
-		{3001, 5}, {3005, 5}, {3006, 5}, {4009, 4}, {4011, 5}, {4012, 5}, {2004, 7}, {2005, 3},
-		{5001, 4}, {6003, 4}, {5023, 5}, {5003, 3}, {0, 2},
+		{1007, 6}, {3002, 7}, {4001, 4}, {4003, 3}, {1001, 6}, {201001, 6}, {201002, 6}, {1006, 6}, {1005, 4},
+		{3001, 6}, {3005, 6}, {3006, 6}, {4009, 5}, {4011, 6}, {4012, 6}, {2004, 8}, {2005, 3},
+		{5001, 4}, {6003, 4}, {5023, 5}, {5003, 4}, {0, 2},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {
