@@ -738,4 +738,9 @@ export type RawCase = Decoded<typeof caseView>;
 
 export { caseView as case };
 
-export const cases = object({ queue: optional(str), cases: list(caseView) });
+export const cases = object({
+  queue: optional(str),
+  cases: list(caseView),
+  // Records the system of record returned that the engine could not read, and why (adr/0357).
+  unread: optional(object({ count: num, reasons: list(str) })),
+});

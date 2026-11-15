@@ -30,6 +30,21 @@ describe("BackendClient: action rows", () => {
   });
 });
 
+describe("BackendClient: the case queue", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it("carries the records the system of record returned that could not be read, beside the readable cases (adr/0357)", async () => {
+    const reason = "normalize class 2005: the event has no time";
+    const client = clientAnswering({ queue: "SOC", cases: [{ number: "INC2" }], unread: { count: 1, reasons: [reason] } });
+    const q = await client.cases.queue();
+    expect(q.cases.map((c) => c.number)).toEqual(["INC2"]);
+    expect(q.unread).toEqual({ count: 1, reasons: [reason] });
+  });
+  it("has no unread notice when every record was read", async () => {
+    const client = clientAnswering({ queue: "SOC", cases: [{ number: "INC2" }] });
+    expect((await client.cases.queue()).unread).toBeUndefined();
+  });
+});
+
 describe("BackendClient: the action catalog", () => {
   it("reads each type's inverse from its descriptor", async () => {
     const client = clientAnswering({ action_types: [

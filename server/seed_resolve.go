@@ -403,25 +403,10 @@ func (b *Backend) unknownHost(r *http.Request, s seedResolution) (bool, string) 
 	}
 	// Records came back, but none could be normalized: the inventory knows
 	// something by that name, so "no host" would be false.
-	if unread, why := unreadRecords(res); unread {
-		return true, fmt.Sprintf("the host inventory answered for %q, but its record could not be read (%s) — start anyway, or fix the source", host, why)
+	if _, why, all := res.UnreadRecords(); all {
+		return true, fmt.Sprintf("the host inventory answered for %q, but its record could not be read (%s) — start anyway, or fix the source", host, strings.Join(why, "; "))
 	}
 	return true, fmt.Sprintf("no host named %q in the host inventory reckon can see — check the name, or start anyway", host)
-}
-
-// unreadRecords reports whether a call returned records that produced no
-// observation, because each failed to normalize, and why, from the
-// resolver's notes. A reader that turns an empty answer into "not found"
-// checks it first: records that could not be read are not an absence.
-func unreadRecords(res capability.CapabilityResult) (bool, string) {
-	if len(res.Events) == 0 || len(res.ObservedDataRefs) > 0 {
-		return false, ""
-	}
-	why := strings.Join(res.DegradationNotes, "; ")
-	if why == "" {
-		why = "no reason given"
-	}
-	return true, why
 }
 
 // isIPToken reports whether a seed token is an IP address or a CIDR block,

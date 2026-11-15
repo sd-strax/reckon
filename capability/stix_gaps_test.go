@@ -541,3 +541,47 @@ func TestDetectionWhitespaceRuleReferenceIsAbsent(t *testing.T) {
 		t.Errorf("a white-space uid: pattern %q, references %v; want the trimmed title and no uid reference", ind.Pattern, ind.ExternalReferences)
 	}
 }
+
+// UnreadRecords counts the records a call returned that could not be
+// normalized, with the reasons from the notes, and says when none could be
+// read (adr/0357).
+func TestUnreadRecords(t *testing.T) {
+	if n, _, all := (CapabilityResult{}).UnreadRecords(); n != 0 || all {
+		t.Error("an empty answer counted as unread")
+	}
+	read := CapabilityResult{Events: []OcsfEvent{{}}, Normalized: []NormalizationResult{{}}}
+	if n, _, _ := read.UnreadRecords(); n != 0 {
+		t.Error("a record that normalized counted as unread")
+	}
+	some := CapabilityResult{Events: []OcsfEvent{{}, {}}, Normalized: []NormalizationResult{{}},
+		DegradationNotes: []string{"binding b skipped", normalizeNotePrefix + "1007: " + ErrNoEventTime.Error()}}
+	if n, why, all := some.UnreadRecords(); n != 1 || all || len(why) != 1 || !strings.Contains(why[0], ErrNoEventTime.Error()) {
+		t.Errorf("one of two unread: %d %v %v", n, why, all)
+	}
+	none := CapabilityResult{Events: []OcsfEvent{{}}}
+	if n, why, all := none.UnreadRecords(); n != 1 || !all || len(why) != 1 {
+		t.Errorf("all unread: %d %v %v", n, why, all)
+	}
+}
+
+// A quoted local part may hold "@", "<" or ">" (RFC 5322 §3.2.4): such a
+// sender is an addr-spec, kept as an email-addr with the message's from_ref
+// (the review's inputs on #365).
+func TestQuotedLocalPartSenderIsKept(t *testing.T) {
+	for _, from := range []string{`"alerts@corp"@attacker.example`, `"alerts<corp"@attacker.example`, `"alerts>corp"@attacker.example`} {
+		res := normalizeEvent(t, map[string]any{"class_uid": 4009, "email": map[string]any{"from": from, "subject": "s", "to": []any{"jdoe@example.com"}}})
+		var addr SCO
+		for _, s := range scosOf(res, identity.TypeEmailAddr) {
+			if s.Properties["value"] == from {
+				addr = s
+			}
+		}
+		if addr.ID == "" {
+			t.Errorf("%s: no email-addr kept: %v", from, values(scosOf(res, identity.TypeEmailAddr)))
+			continue
+		}
+		if msg := scosOf(res, identity.TypeEmailMessage); len(msg) != 1 || msg[0].Properties["from_ref"] != string(addr.ID) {
+			t.Errorf("%s: message from_ref = %v; want %s", from, msg, addr.ID)
+		}
+	}
+}

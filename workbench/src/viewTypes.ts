@@ -105,6 +105,8 @@ export interface CaseRow {
 export interface CaseQueue {
   queue: string;
   cases: CaseRow[];
+  /** Records the system of record returned that could not be read, and why (adr/0357). Absent when every record was read. */
+  unread?: { count: number; reasons: string[] };
 }
 
 /** The verdict of record (mirrors server.VerdictView) — absent when none. */

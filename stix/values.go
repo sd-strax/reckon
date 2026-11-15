@@ -50,22 +50,36 @@ func isHex(c byte) bool {
 }
 
 // IsAddrSpec reports whether s is an RFC 5322 addr-spec (§3.4.1): an address
-// alone, with no display name, no angle brackets, no comment and no
+// alone, with no display name, no enclosing angle brackets, no comment and no
 // surrounding white space. STIX 2.1 §6.5.1 requires an email-addr's value to
-// be one.
+// be one. net/mail parses the grammar. The checks here only keep a mailbox
+// that is not an addr-spec from passing:
+//
+//   - the address is split at its last "@", since a domain cannot hold one,
+//     while a quoted local part can (§3.2.4);
+//   - "<" and ">" are allowed only inside a quoted local part, where they are
+//     ordinary characters; anywhere else they enclose a mailbox.
 func IsAddrSpec(s string) bool {
-	if s == "" || strings.TrimSpace(s) != s || strings.ContainsAny(s, "<>\r\n") {
+	if s == "" || strings.TrimSpace(s) != s || strings.ContainsAny(s, "\r\n") {
+		return false
+	}
+	at := strings.LastIndex(s, "@")
+	if at <= 0 || at == len(s)-1 {
+		return false
+	}
+	local, domain := s[:at], s[at+1:]
+	quoted := len(local) >= 2 && strings.HasPrefix(local, `"`) && strings.HasSuffix(local, `"`)
+	if strings.ContainsAny(domain, "<> ") || (!quoted && strings.ContainsAny(local, "<>")) {
 		return false
 	}
 	a, err := mail.ParseAddress(s)
 	if err != nil || a.Name != "" {
 		return false
 	}
-	if strings.HasPrefix(s, `"`) {
-		// A quoted local part, such as "a b"@example.com, which the parser
-		// returns unquoted. The domain must still be the whole tail.
-		_, domain, _ := strings.Cut(a.Address, "@")
-		return strings.HasSuffix(s, `"@`+domain)
+	if quoted {
+		// The parser returns a quoted local part unquoted; the domain must
+		// still be the whole tail.
+		return strings.HasSuffix(a.Address, "@"+domain)
 	}
 	return a.Address == s
 }

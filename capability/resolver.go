@@ -101,6 +101,31 @@ type CapabilityResult struct {
 	NullObservation *NullObservation
 }
 
+// normalizeNotePrefix starts the note the resolver adds for a record it could
+// not normalize. UnreadRecords reads the reasons back by it.
+const normalizeNotePrefix = "normalize class "
+
+// UnreadRecords reports the records a call returned that could not be
+// normalized, so produced no observation: how many, and why, from the
+// resolver's notes. A reader that would turn an empty answer into "not found"
+// checks it first, because a record that could not be read is not an absence
+// (adr/0357). All is true when records came back and none could be read.
+func (r CapabilityResult) UnreadRecords() (n int, reasons []string, all bool) {
+	n = len(r.Events) - len(r.Normalized)
+	if n <= 0 {
+		return 0, nil, false
+	}
+	for _, note := range r.DegradationNotes {
+		if strings.HasPrefix(note, normalizeNotePrefix) {
+			reasons = append(reasons, note)
+		}
+	}
+	if len(reasons) == 0 {
+		reasons = []string{"no reason given"}
+	}
+	return n, reasons, len(r.Normalized) == 0
+}
+
 func (r *CapabilityResult) note(format string, args ...any) {
 	r.DegradationNotes = append(r.DegradationNotes, fmt.Sprintf(format, args...))
 }
@@ -433,7 +458,7 @@ func (r *Resolver) ingest(res *CapabilityResult, norm *Registry, resp AdapterRes
 
 		nr, err := norm.Normalize(evt)
 		if err != nil {
-			res.note("normalize class %d: %v", evt.ClassUID, err)
+			res.note(normalizeNotePrefix+"%d: %v", evt.ClassUID, err)
 			continue
 		}
 		nr.EventID = evt.ID

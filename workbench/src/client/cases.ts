@@ -37,7 +37,9 @@ export class CasesClient {
     if (opts.queue) q.set("queue", opts.queue);
     const qs = q.toString();
     const body = await this.http.get("/api/cases" + (qs ? "?" + qs : ""), shapes.cases);
-    return { queue: body.queue ?? "", cases: body.cases.map(mapCase) };
+    const out: CaseQueue = { queue: body.queue ?? "", cases: body.cases.map(mapCase) };
+    if (body.unread && body.unread.count > 0) out.unread = { count: body.unread.count, reasons: body.unread.reasons };
+    return out;
   }
 
   /** GET /api/cases/{number} — one case, read-only and non-persisting. */

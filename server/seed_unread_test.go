@@ -46,13 +46,4 @@ func TestUnknownHost_UnreadRecordIsNotAbsence(t *testing.T) {
 	if !unknown || strings.Contains(msg, "no host named") || !strings.Contains(msg, "could not be read") || !strings.Contains(msg, capability.ErrNoEventTime.Error()) {
 		t.Errorf("unknownHost = %v, %q; want the unread record and its reason, not no host", unknown, msg)
 	}
-
-	// unreadRecords: no records is an absence; a record that normalized is
-	// not unread.
-	if u, _ := unreadRecords(capability.CapabilityResult{}); u {
-		t.Error("an empty answer counted as unread records")
-	}
-	if u, _ := unreadRecords(capability.CapabilityResult{Events: []capability.OcsfEvent{{}}, ObservedDataRefs: []identity.STIXID{"observed-data--x"}}); u {
-		t.Error("a record that normalized counted as unread")
-	}
 }

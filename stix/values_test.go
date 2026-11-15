@@ -25,6 +25,15 @@ func TestValueChecks(t *testing.T) {
 		{"addr-spec, angle brackets", IsAddrSpec, "<bob@example.com>", false},
 		{"addr-spec, unquoted comma", IsAddrSpec, "a,b@example.com", false},
 		{"addr-spec, white space", IsAddrSpec, " bob@example.com", false},
+		// RFC 5322 §3.2.4: "@", "<" and ">" are ordinary inside a quoted
+		// local part (the review's inputs on #365).
+		{"addr-spec, quoted @", IsAddrSpec, `"alerts@corp"@attacker.example`, true},
+		{"addr-spec, quoted <", IsAddrSpec, `"alerts<corp"@attacker.example`, true},
+		{"addr-spec, quoted >", IsAddrSpec, `"alerts>corp"@attacker.example`, true},
+		{"addr-spec, trailing space", IsAddrSpec, "bob@example.com ", false},
+		{"addr-spec, quoted display name", IsAddrSpec, `"Bob" <bob@example.com>`, false},
+		{"addr-spec, brackets around a quoted local part", IsAddrSpec, `<"a@b"@example.com>`, false},
+		{"addr-spec, no domain", IsAddrSpec, "bob@", false},
 		{"domain", IsDomainName, "www.example.com", true},
 		{"domain, trailing dot", IsDomainName, "www.example.com.", true},
 		{"domain, U-label", IsDomainName, "bücher.example", true},
