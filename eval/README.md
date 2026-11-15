@@ -93,9 +93,12 @@ capability:
 
 ### Gate 2 note
 
-`init` does **not** seed a `capability.policy_dir`, so Gate 2 runs
-**baseline-only**: every containment/ticket action the agent proposes lands
-`PENDING_MANUAL` (only the non-deletable AI-no-T3 baseline DENY auto-fires).
+A fresh `init` seeds one policy into `capability.policy_dir`
+(`adr/0374`). It auto-approves only a person's own T2 ticketing. The agent's
+requests are AI-delegated, so it never fires for them, and Gate 2 acts
+**baseline-only** for the eval: every containment/ticket action the agent
+proposes lands `PENDING_MANUAL` (only the non-deletable AI-no-T3 baseline DENY
+auto-fires).
 That is correct for the eval as written — the driver script never approves
 actions, and the assertions grade *proposal* behavior (evidence-grounded
 requests, status honesty, irreversibility awareness), none of which need a
