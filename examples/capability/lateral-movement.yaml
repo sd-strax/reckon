@@ -42,7 +42,7 @@ bindings:
           # incident-day logons. The baseline is also time-scoped, so a
           # 30-day window answers "is RDP normal for this account?" and a
           # 24-hour window does not — the discriminating test behind the
-          # competing-hypotheses demo (01 §x-hypothesis).
+          # competing-hypotheses demo (01 §reckon-hypothesis).
           user: '${entity.user.name?}'
         outcome: '${outcome ?? "SUCCESS"}'
         window:

@@ -22,6 +22,7 @@ import (
 
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/ocsf"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // Event is what the renderer reads: the class and the raw OCSF payload.
@@ -32,25 +33,20 @@ type Event struct {
 }
 
 // Entity is one interpretation-layer object the event was normalized into, as
-// the record holds it: its ref, its STIX type and its properties.
+// the record holds it: its ref, its STIX type and the STIX object itself.
+// The object's STIX properties are at its top level, and its custom ones are
+// in its property-extension (adr/0357).
 type Entity struct {
 	Ref   string
 	Type  string
 	Props map[string]any
 }
 
-// EntityFromObject reads a persisted STIX object into an Entity. The object's
-// properties sit under "properties" (capability.SCO); an object without that
-// key is read as flat.
+// EntityFromObject reads a persisted STIX object into an Entity.
 func EntityFromObject(ref, typ string, payload []byte) Entity {
 	e := Entity{Ref: ref, Type: typ}
 	var raw map[string]any
-	if json.Unmarshal(payload, &raw) != nil {
-		return e
-	}
-	if props, ok := raw["properties"].(map[string]any); ok {
-		e.Props = props
-	} else {
+	if json.Unmarshal(payload, &raw) == nil {
 		e.Props = raw
 	}
 	return e
@@ -396,8 +392,8 @@ func propEquals(props map[string]any, key, want string) bool {
 	return want != "" && strings.EqualFold(toString(props[key]), want)
 }
 
-// host binds an OCSF endpoint/device object at prefix to its x-host. The
-// x-host is identified by the short hostname (adr/0211), so the reported name
+// host binds an OCSF endpoint/device object at prefix to its reckon-host. The
+// reckon-host is identified by the short hostname (adr/0211), so the reported name
 // and the entity's hostname property are compared in their short form: an FQDN
 // in the record binds the host whose hostname is its first label, and a host
 // minted before the FQDN split, whose hostname property is the full name, still
@@ -455,22 +451,30 @@ func qualifiedUserIn(m map[string]any, prefix string) string {
 	return name
 }
 
+// The readers below match a raw OCSF value against the stored object through
+// the same cleanup the normalizer wrote it with (class rule R2, adr/0357): an
+// address through identity.IPValue, a hash through identity.FittingHashes,
+// a registry key through identity.RegistryKeyPath, and a domain, URL or email
+// address only when the normalizer would have kept it.
+
 func (r *renderer) ip(path string) slot {
 	v := r.str(path)
 	if v == "" {
 		return slot{}
 	}
-	match := func(p map[string]any) bool { return propEquals(p, "value", v) }
-	ref := r.bind(identity.TypeIPv4Addr, match)
-	if ref == "" {
-		ref = r.bind(identity.TypeIPv6Addr, match)
+	value, typ, ok := identity.IPValue(v)
+	if !ok {
+		return slot{text: v}
 	}
-	return slot{text: v, ref: ref}
+	return slot{text: v, ref: r.bind(typ, func(p map[string]any) bool { return propEquals(p, "value", value) })}
 }
 
 func (r *renderer) domain(v string) slot {
 	if v == "" {
 		return slot{}
+	}
+	if !stix.IsDomainName(v) {
+		return slot{text: v}
 	}
 	return slot{text: v, ref: r.bind(identity.TypeDomainName, func(p map[string]any) bool { return propEquals(p, "value", v) })}
 }
@@ -479,12 +483,18 @@ func (r *renderer) url(v string) slot {
 	if v == "" {
 		return slot{}
 	}
+	if !stix.IsURI(v) {
+		return slot{text: v}
+	}
 	return slot{text: v, ref: r.bind(identity.TypeURL, func(p map[string]any) bool { return propEquals(p, "value", v) })}
 }
 
 func (r *renderer) emailAddr(v string) slot {
 	if v == "" {
 		return slot{}
+	}
+	if !stix.IsAddrSpec(v) {
+		return slot{text: v}
 	}
 	return slot{text: v, ref: r.bind(identity.TypeEmailAddr, func(p map[string]any) bool { return propEquals(p, "value", v) })}
 }
@@ -500,12 +510,14 @@ func (r *renderer) file(prefix string) slot {
 	if text == "" {
 		return slot{}
 	}
-	hashes := hashesOf(pathAny(r.p, prefix+".hashes"))
+	// Bind through the hashes the normalizer stores; show the ones the
+	// record gives.
+	hashes := identity.FittingHashes(hashesOf(pathAny(r.p, prefix+".hashes")))
 	ref := r.bind(identity.TypeFile, func(p map[string]any) bool {
 		if name != "" && propEquals(p, "name", name) {
 			return true
 		}
-		if path != "" && propEquals(p, "path", path) {
+		if path != "" && strings.EqualFold(stix.FilePath.String(p), path) {
 			return true
 		}
 		for alg, want := range hashes {
@@ -523,8 +535,9 @@ func (r *renderer) file(prefix string) slot {
 // (one stored before the network normalizer kept the name) still binds.
 func (r *renderer) proc(prefix string) slot {
 	name := r.str(prefix + ".name")
-	pid := r.int(prefix + ".pid")
-	if name == "" && pid == 0 {
+	pid64, hasPID := ocsf.OptionalNumber(pathAny(r.p, prefix+".pid"), ocsf.MaxWholeNumber)
+	pid := int(pid64)
+	if name == "" && !hasPID {
 		return slot{}
 	}
 	text := name
@@ -532,10 +545,11 @@ func (r *renderer) proc(prefix string) slot {
 		text = "pid " + strconv.Itoa(pid)
 	}
 	ref := r.bind(identity.TypeProcess, func(p map[string]any) bool {
-		if pid == 0 || toInt(p["pid"]) != pid {
+		storedPID, storedOK := ocsf.OptionalNumber(p["pid"], ocsf.MaxWholeNumber)
+		if !hasPID || !storedOK || int(storedPID) != pid {
 			return false
 		}
-		stored := toString(p["name"])
+		stored := stix.ProcessName.String(p)
 		return name == "" || stored == "" || strings.EqualFold(stored, name)
 	})
 	return slot{text: text, ref: ref}
@@ -882,9 +896,8 @@ func (r *renderer) dnsAnswers() []slot {
 			continue
 		}
 		s := slot{text: rdata}
-		s.ref = r.bind(identity.TypeIPv4Addr, func(p map[string]any) bool { return propEquals(p, "value", rdata) })
-		if s.ref == "" {
-			s.ref = r.bind(identity.TypeIPv6Addr, func(p map[string]any) bool { return propEquals(p, "value", rdata) })
+		if value, typ, ok := identity.IPValue(rdata); ok {
+			s.ref = r.bind(typ, func(p map[string]any) bool { return propEquals(p, "value", value) })
 		}
 		if s.ref == "" {
 			s.ref = r.domain(rdata).ref
@@ -972,9 +985,12 @@ func (r *renderer) registry() {
 		full = r.str("reg_key.path")
 	}
 	keyText := identity.RegistryKeyPath(full)
-	key := slot{text: keyText, ref: r.bind(identity.TypeWindowsRegistryKey, func(p map[string]any) bool {
-		return propEquals(p, "key", keyText) && registryValueMatches(p["values"], named, valueName)
-	})}
+	key := slot{text: keyText}
+	if identity.HasRegistryHive(keyText) {
+		key.ref = r.bind(identity.TypeWindowsRegistryKey, func(p map[string]any) bool {
+			return propEquals(p, "key", keyText) && registryValueMatches(p["values"], named, valueName)
+		})
+	}
 	verb := r.activity(registryVerbs, "changed")
 	// A value event is about the value: "set value Updater of HKLM\…\Run".
 	object := func() {
@@ -1170,7 +1186,7 @@ func (r *renderer) account() {
 	hasPrivileges := r.class == classUserAccess || r.class == classGroupManagement
 	var group slot
 	if hasGroup {
-		// The normalizer stores an x-group as group_name and directory, the
+		// The normalizer stores a reckon-group as group_name and directory, the
 		// name falling back to the group's uid.
 		groupName, groupDir := firstNonEmpty(r.str("group.name"), r.str("group.uid")), r.str("group.domain")
 		group = slot{text: groupName, ref: r.bind(identity.TypeGroup, func(p map[string]any) bool {
@@ -1589,7 +1605,7 @@ func firstOf(l []any) any {
 // apiActivity renders a cloud control-plane call (03 §4.15): who called which
 // operation on what, in which account, and how it ended. The principal binds
 // to its user-account by the durable id the record keyed it on, the account
-// to its x-cloud-account by uid, each resource to its x-cloud-resource by uid
+// to its reckon-cloud-account by uid, each resource to its reckon-cloud-resource by uid
 // or by type and name.
 func (r *renderer) apiActivity() {
 	principal := r.cloudPrincipal()
@@ -1731,7 +1747,7 @@ func (r *renderer) findingAccount() slot {
 // callerAccount binds the principal's own account, actor.user.account.
 func (r *renderer) callerAccount() slot { return r.accountAt("actor.user.account") }
 
-// accountAt binds the OCSF account object at prefix to its x-cloud-account.
+// accountAt binds the OCSF account object at prefix to its reckon-cloud-account.
 func (r *renderer) accountAt(prefix string) slot {
 	uid := strings.TrimSpace(r.str(prefix + ".uid"))
 	if uid == "" {
@@ -1744,7 +1760,7 @@ func (r *renderer) bindAccount(uid string) string {
 	return r.bind(identity.TypeCloudAccount, func(p map[string]any) bool { return propEquals(p, "account_uid", uid) })
 }
 
-// cloudResources binds each resources[] entry to its x-cloud-resource: by uid
+// cloudResources binds each resources[] entry to its reckon-cloud-resource: by uid
 // when the entry has one, else by the name-rule tuple (03 §7.2).
 func (r *renderer) cloudResources() []slot {
 	var out []slot
@@ -1767,7 +1783,7 @@ func (r *renderer) cloudResources() []slot {
 				return propEquals(p, "uid", uid)
 			}
 			return name != "" && strings.TrimSpace(toString(p["name"])) == strings.TrimSpace(name) &&
-				strings.EqualFold(toString(p["type"]), typ) &&
+				strings.EqualFold(toString(p["resource_type"]), typ) &&
 				strings.EqualFold(strings.TrimSpace(toString(p["region"])), region) &&
 				strings.EqualFold(strings.TrimSpace(toString(p["zone"])), zone) &&
 				strings.EqualFold(strings.TrimSpace(toString(p["group"])), group) &&

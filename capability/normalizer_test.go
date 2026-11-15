@@ -2,6 +2,8 @@ package capability
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -51,7 +53,7 @@ func processPayload() map[string]any {
 			"file": map[string]any{
 				"path":   `C:\Windows\System32\powershell.exe`,
 				"name":   "powershell.exe",
-				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "ABC123"}},
+				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "E0BEBD22819993425814866B62701E2919EA26F1370499C1037B53B9D49C2C8A"}},
 			},
 			"parent_process": map[string]any{
 				"pid":          1000,
@@ -143,7 +145,7 @@ func authPayload(host string) map[string]any {
 }
 
 // TestAuthNormalizer covers §4.2: user, host, source-IP SCOs; an
-// x-authenticated-to relationship; and logon_type/status in the ObservedData
+// reckon-authenticated-to relationship; and logon_type/status in the ObservedData
 // extensions.
 func TestAuthNormalizer(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(authPayload("WIN-FILE01")))
@@ -167,7 +169,7 @@ func TestAuthNormalizer(t *testing.T) {
 		}
 	}
 	if authed != 1 {
-		t.Errorf("x-authenticated-to relationships = %d; want 1", authed)
+		t.Errorf("reckon-authenticated-to relationships = %d; want 1", authed)
 	}
 
 	od := res.ObservedData[0]
@@ -178,7 +180,7 @@ func TestAuthNormalizer(t *testing.T) {
 
 // TestAuthNormalizer_UserAndInitiator (adr/0356): the account that
 // authenticated is the event's user. actor.user is whoever started the logon:
-// a separate account, with no x-authenticated-to of its own.
+// a separate account, with no reckon-authenticated-to of its own.
 func TestAuthNormalizer_UserAndInitiator(t *testing.T) {
 	ids := identity.NewResolver(testNS)
 	host := ids.Host(identity.HostIdentity{Hostname: "WIN-FILE01"})
@@ -190,7 +192,7 @@ func TestAuthNormalizer_UserAndInitiator(t *testing.T) {
 		for _, r := range res.Relationships {
 			if r.Type == RelAuthenticatedTo {
 				if r.TargetRef != host {
-					t.Errorf("x-authenticated-to targets %s; want the destination host", r.TargetRef)
+					t.Errorf("reckon-authenticated-to targets %s; want the destination host", r.TargetRef)
 				}
 				out = append(out, r.SourceRef)
 			}
@@ -210,7 +212,7 @@ func TestAuthNormalizer_UserAndInitiator(t *testing.T) {
 		t.Errorf("object_refs = %v; want the user %s and the initiator %s", refs, jdoe, system)
 	}
 	if got := authed(res); !slices.Equal(got, []identity.STIXID{jdoe}) {
-		t.Errorf("x-authenticated-to from %v; want only the user %s", got, jdoe)
+		t.Errorf("reckon-authenticated-to from %v; want only the user %s", got, jdoe)
 	}
 
 	// The initiator is the user: one account, one relationship.
@@ -225,7 +227,7 @@ func TestAuthNormalizer_UserAndInitiator(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(same.SCOs) != len(alone.SCOs) || !slices.Equal(authed(same), []identity.STIXID{jdoe}) {
-		t.Errorf("the user named again as the initiator: %d objects (want %d), x-authenticated-to from %v", len(same.SCOs), len(alone.SCOs), authed(same))
+		t.Errorf("the user named again as the initiator: %d objects (want %d), reckon-authenticated-to from %v", len(same.SCOs), len(alone.SCOs), authed(same))
 	}
 
 	// Only an initiator: the event does not say who authenticated.
@@ -237,7 +239,7 @@ func TestAuthNormalizer_UserAndInitiator(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := authed(res); len(got) != 0 {
-		t.Errorf("an event with no user: x-authenticated-to from %v; want none", got)
+		t.Errorf("an event with no user: reckon-authenticated-to from %v; want none", got)
 	}
 	if !slices.Contains(res.ObservedData[0].ObjectRefs, jdoe) {
 		t.Errorf("object_refs = %v; want the initiator %s kept", res.ObservedData[0].ObjectRefs, jdoe)
@@ -245,30 +247,31 @@ func TestAuthNormalizer_UserAndInitiator(t *testing.T) {
 }
 
 // TestOpaqueFallback: an unregistered class yields a single opaque ObservedData
-// with no object_refs and a derived-from edge (§4.13).
+// whose one object is the artifact for the stored record, an extracted-from
+// edge for that artifact, and a derived-from edge (§4.13, adr/0357).
 func TestOpaqueFallback(t *testing.T) {
-	res, err := testRegistry().Normalize(makeEvent(map[string]any{
+	evt := makeEvent(map[string]any{
 		"class_uid": 9999,
 		"time":      ms("2026-04-20T14:32:11Z"),
 		"weird":     "vendor payload",
-	}))
+	})
+	res, err := testRegistry().Normalize(evt)
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
-	if len(res.SCOs) != 0 {
-		t.Errorf("opaque produced %d SCOs; want 0", len(res.SCOs))
+	recordArtifactOnly(t, evt, res)
+	if res.ObservedData[0].Provenance.Normalizer != "opaque" {
+		t.Errorf("normalizer = %q; want opaque", res.ObservedData[0].Provenance.Normalizer)
 	}
-	if len(res.ObservedData) != 1 || len(res.ObservedData[0].ObjectRefs) != 0 {
-		t.Errorf("opaque ObservedData not empty/singular: %+v", res.ObservedData)
-	}
-	if len(res.Edges) != 1 || res.Edges[0].Type != EdgeDerivedFrom {
-		t.Errorf("opaque edges = %+v; want one derived-from", res.Edges)
+	if len(res.Edges) != 2 || res.Edges[0].Type != EdgeExtractedFrom || res.Edges[1].Type != EdgeDerivedFrom ||
+		res.Edges[1].SourceRef != res.ObservedData[0].ID {
+		t.Errorf("opaque edges = %+v; want the artifact's extracted-from and the observation's derived-from", res.Edges)
 	}
 }
 
 // TestCrossEventStitching is the whole point of the identity layer: the same
 // host seen through a process event and an authentication event resolves to the
-// SAME x-host SCO id — the graph stitches instead of fragmenting.
+// SAME reckon-host SCO id — the graph stitches instead of fragmenting.
 func TestCrossEventStitching(t *testing.T) {
 	reg := testRegistry()
 
@@ -456,15 +459,18 @@ func TestHostShaping(t *testing.T) {
 		t.Error("two addresses in the hostname field minted one host")
 	}
 
-	// A device uid from a record with no source tool is kept unkeyed, and with
-	// no hostname still mints a weak host.
-	res7, _ := reg.Normalize(hostEvent("", map[string]any{"hostname": "ws1", "uid": "agent-7"}))
-	if h7, _ := scoByID(res7.SCOs, strong); h7.Properties["device_uid"] != "agent-7" || h7.Properties["source_ids"] != nil {
-		t.Errorf("no source tool: host props = %v; want device_uid, no source_ids", h7.Properties)
+	// A device uid is keyed by the tool that gave it. Every ingest names its
+	// tool (adr/0357), so the same uid from another tool is another tool's
+	// id: keyed under that tool, and with no hostname a different weak host.
+	res7, _ := reg.Normalize(hostEvent("siem", map[string]any{"hostname": "ws1", "uid": "agent-7"}))
+	if h7, _ := scoByID(res7.SCOs, strong); h7.Properties["device_uid"] != nil ||
+		!reflect.DeepEqual(h7.Properties["source_ids"], map[string]any{"siem": "agent-7"}) {
+		t.Errorf("another tool: host props = %v; want source_ids {siem: agent-7}, no device_uid", h7.Properties)
 	}
-	res8, _ := reg.Normalize(hostEvent("", map[string]any{"uid": "agent-7"}))
-	if scoOfType(res8.SCOs, identity.TypeHost) != ids.Host(identity.HostIdentity{SourceUID: "agent-7"}) {
-		t.Error("a uid-only record with no source tool minted no weak host")
+	res8, _ := reg.Normalize(hostEvent("siem", map[string]any{"uid": "agent-7"}))
+	siemHost := ids.Host(identity.HostIdentity{SourceTool: "siem", SourceUID: "agent-7"})
+	if got := scoOfType(res8.SCOs, identity.TypeHost); got != siemHost || got == uidHost {
+		t.Errorf("a uid-only record from another tool minted %s; want %s, not the edr host %s", got, siemHost, uidHost)
 	}
 
 	// Nothing to identify the device by: no host.
@@ -535,12 +541,17 @@ func TestHostAliasEmission(t *testing.T) {
 // the classes and fields are OCSF's, and file hashes are read in OCSF's list
 // form only. dns_activity, user_inventory and cloud_resources_inventory_info
 // read the same input as before and did not move.
+//
+// adr/0357 moved every normalizer to its next version once: each now writes
+// STIX 2.1 through the one serializer, observes a record it extracts nothing
+// from as an artifact, and refuses a broken record. The opaque default moved
+// to 2, so a typed normalizer that takes over a class it held starts above 2.
 func TestNormalizerVersions(t *testing.T) {
 	reg := testRegistry()
 	for _, c := range []struct{ class, version int }{
-		{1007, 4}, {3002, 5}, {4001, 3}, {4003, 2}, {1001, 4}, {201001, 4}, {201002, 4}, {1006, 4}, {1005, 3},
-		{3001, 4}, {3005, 4}, {3006, 4}, {4009, 3}, {4011, 4}, {4012, 4}, {2004, 6}, {2005, 2},
-		{5001, 3}, {6003, 3}, {5023, 4}, {5003, 2}, {0, 1},
+		{1007, 5}, {3002, 6}, {4001, 4}, {4003, 3}, {1001, 5}, {201001, 5}, {201002, 5}, {1006, 5}, {1005, 4},
+		{3001, 5}, {3005, 5}, {3006, 5}, {4009, 4}, {4011, 5}, {4012, 5}, {2004, 7}, {2005, 3},
+		{5001, 4}, {6003, 4}, {5023, 5}, {5003, 3}, {0, 2},
 	} {
 		n, ok := reg.byClass[c.class]
 		if c.class == 0 {
@@ -628,6 +639,10 @@ func TestDeviceOSIsReadWhereTheClassHasADevice(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.payload["metadata"] = okta
 			tc.payload["time"] = ms("2026-04-20T14:32:11Z")
+			if tc.payload["class_uid"] == 2004 {
+				// OCSF requires a finding's uid and title (adr/0357).
+				tc.payload["finding_info"] = map[string]any{"uid": "f-1", "title": "Suspicious sign-in"}
+			}
 			res, err := testRegistry().Normalize(makeEvent(tc.payload))
 			if err != nil {
 				t.Fatal(err)
@@ -689,11 +704,17 @@ func TestOcsfTimes(t *testing.T) {
 		}
 	}
 
-	// A string in the number's field is not OCSF and is not read.
+	// A string in the number's field is not OCSF and is not read. An event
+	// left with no time is a broken record, and normalizing it is an error
+	// (adr/0357).
 	evt := event(map[string]any{"time": when}, map[string]any{"created_time": when})
 	if !evt.Time.IsZero() {
 		t.Errorf("a string in time was read as %s", evt.Time)
 	}
+	if _, err := testRegistry().Normalize(evt); !errors.Is(err, ErrNoEventTime) {
+		t.Errorf("an event with no time: err = %v; want ErrNoEventTime", err)
+	}
+	evt = event(map[string]any{"time": ms(when)}, map[string]any{"created_time": when})
 	res, err := testRegistry().Normalize(evt)
 	if err != nil {
 		t.Fatal(err)
@@ -702,3 +723,11 @@ func TestOcsfTimes(t *testing.T) {
 		t.Error("a string in created_time was read as the process's start")
 	}
 }
+
+// Digests that fit their algorithms' STIX formats: the SHA-256, SHA-1 and
+// MD5 of "test".
+const (
+	testSHA256 = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+	testSHA1   = "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
+	testMD5    = "098f6bcd4621d373cade4e832627b4f6"
+)

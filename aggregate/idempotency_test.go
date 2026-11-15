@@ -60,7 +60,7 @@ func TestHandle_SystemRetryIsNoOp(t *testing.T) {
 	actionID := uuid.New()
 	mustHandle(t, h, cmdEnv(aggID), RequestAction{
 		ActionID: actionID, ActionType: "host.isolate", Tier: TierT2,
-		Targets:   []TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-DC01"}},
+		Targets:   []TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-DC01"}},
 		ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
 	})
 	mustHandle(t, h, cmdEnv(aggID), ApproveAction{

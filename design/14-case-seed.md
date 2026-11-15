@@ -92,7 +92,7 @@ one:
 
 Cost of the honest choice: one added enum value in a field already holding three
 strings, one validation branch, one display branch. No new table, no new
-primitive — the `x-interpretation`-is-the-only-invented-primitive commitment
+primitive — the `reckon-interpretation`-is-the-only-invented-primitive commitment
 (`01`) is untouched.
 
 ---
@@ -212,7 +212,7 @@ a sentence: turning words into verb parameters is the agent's job, and the
 capability layer stays pure I/O — a language layer behind the search box would
 be a second reasoning surface with no investigation to attribute it to, and it
 would make "no results" ambiguous (an empty queue, or a mistranslated query?).
-And the picker **reads only**: a `ticket.*` write is an x-action inside an
+And the picker **reads only**: a `ticket.*` write is a reckon-action inside an
 investigation, grounded by evidence and recorded against a principal; before
 the investigation exists there is nothing to record it against, so taking
 ownership or changing state stays in the SoR's own interface.

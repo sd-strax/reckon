@@ -28,7 +28,7 @@ fix belongs*; that one records *what the field taught us*.
 | The mechanism-vs-prompt layer decision (`§2`) | The AI-delegate write protections, Gate 2, baseline DENY (`04`) |
 | System-prompt structure, versioning, evaluation (`§4`, `§6`) | The agent loop, tool assembly, turn commit (`05 §3.4`) |
 | The product-reasoning vs tenant-behavior boundary (`§5`) | The SOP corpus + retrieval (`06`); CEL policy (`04 §4`) |
-| The containment→hypothesis soft-mechanism proposal (`§3`) | The `x-hypothesis`/`x-action` primitives + evidence edges (`01`) |
+| The containment→hypothesis soft-mechanism proposal (`§3`) | The `reckon-hypothesis`/`reckon-action` primitives + evidence edges (`01`) |
 
 ### Out of scope
 
@@ -93,8 +93,8 @@ arrive.
 optional — offering containment as a peer alternative to forming a hypothesis — is the archetype of a
 methodology that *could* be a soft mechanism, because the domain model already carries the evidence:
 
-- An `x-action` request carries `evidence_refs` (`01`, `08 §2`).
-- The reasoning thread knows whether any `x-hypothesis` exists for the investigation (`01`, the
+- A `reckon-action` request carries `evidence_refs` (`01`, `08 §2`).
+- The reasoning thread knows whether any `reckon-hypothesis` exists for the investigation (`01`, the
   reasoning projection).
 
 That makes it mechanically observable whether a containment request is grounded in validated
@@ -116,7 +116,7 @@ deliberately decoupled from the authorization tier (blast radius still drives th
 separate axis). Left as an open design question (`§7`) pending field feedback.
 
 > **Update — the evidence-refs floor is now a mechanism.** The dial above concerns
-> *hypothesis existence* (is there a validated `x-hypothesis`?). Its weakest form —
+> *hypothesis existence* (is there a validated `reckon-hypothesis`?). Its weakest form —
 > does the action cite **any** grounding evidence at all — has been graduated to a
 > hard mechanism ahead of the dial, because the eval caught the failure it guards:
 > a live opus run requested `account.disable` with no `evidence_refs` in 1 of 3
@@ -194,7 +194,7 @@ prompts take many iterations.
 Shape (forward-looking):
 
 - **Behavioral assertions over transcripts**, not golden-string matches. Examples: *does not
-  `request_action` before an `x-hypothesis` exists*; *cites refs in every evaluation*; *honors a
+  `request_action` before a `reckon-hypothesis` exists*; *cites refs in every evaluation*; *honors a
   raw-data request*; *does not concede a challenged claim without evidence*; *classifies coverage
   honestly on an unavailable source*.
 - **An offline eval mode** that runs the **real** model against scenario fixtures and scores the

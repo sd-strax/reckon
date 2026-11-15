@@ -93,7 +93,7 @@ type Investigation struct {
 	ConcludedAt     time.Time
 
 	Events      []json.RawMessage // full event stream, sequence order
-	StixObjects []json.RawMessage // interpretation-layer nodes (x-hypothesis/x-prediction/...)
+	StixObjects []json.RawMessage // interpretation-layer nodes (reckon-hypothesis/reckon-prediction/...)
 	Hypotheses  []HypothesisSummary
 	Actions     []ActionSummary
 	// Dependencies is nil when the loader had no dependency store, and the

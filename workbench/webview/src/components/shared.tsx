@@ -75,11 +75,11 @@ export function AliasOf({ refId: r }: { refId: string }) {
 function snapshotLabel(r: string, snap: InvestigationSnapshot | null): string | undefined {
   if (!snap) return undefined;
   const hs = snap.hypotheses || [];
-  if (r.startsWith("x-hypothesis--")) {
+  if (r.startsWith("reckon-hypothesis--")) {
     const h = hs.find((x) => x.id === r);
     return h ? hypWords(h, hs) : undefined;
   }
-  if (r.startsWith("x-prediction--")) {
+  if (r.startsWith("reckon-prediction--")) {
     for (const h of hs) {
       const p = h.predictions.find((x) => x.id === r);
       if (p) return (p.ordinal ? "P" + p.ordinal + " " : "") + titleOf(p);

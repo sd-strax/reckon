@@ -1,6 +1,9 @@
 package capability
 
 import (
+	"bufio"
+	"mime"
+	"net/textproto"
 	"strings"
 
 	"github.com/sd-strax/reckon/identity"
@@ -15,7 +18,11 @@ func (*emailNormalizer) ClassUID() int { return 4009 }
 
 // 2: placeholder file hashes, adr/0211
 // 3: OCSF classes and fields, adr/0356
-func (*emailNormalizer) Version() int { return 3 }
+// 4: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; is_multipart from
+// the raw header, addresses that are addr-specs, URLs that are URIs, file
+// hashes and names STIX can hold, adr/0357
+func (*emailNormalizer) Version() int { return 4 }
 
 func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -34,17 +41,31 @@ func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) 
 
 	subject := pathStr(p, "email.subject")
 	msgUID := strings.TrimSpace(pathStr(p, "email.message_uid"))
-	props := map[string]any{
-		"message_id": msgUID,
-		"subject":    subject,
-		"from_ref":   string(fromRef),
-		"to_refs":    stringifyRefs(toRefs),
+	// A property the record does not give is left out, not written empty:
+	// STIX reads an absent property as unknown (adr/0357).
+	props := map[string]any{"is_multipart": isMultipart(pathStr(p, "email.raw_header"))}
+	if msgUID != "" {
+		props["message_id"] = msgUID
+	}
+	if subject != "" {
+		props["subject"] = subject
+	}
+	if fromRef != "" {
+		props["from_ref"] = string(fromRef)
+	}
+	if len(toRefs) > 0 {
+		props["to_refs"] = stringifyRefs(toRefs)
 	}
 	if len(ccRefs) > 0 {
 		props["cc_refs"] = stringifyRefs(ccRefs)
 	}
 	if len(bccRefs) > 0 {
 		props["bcc_refs"] = stringifyRefs(bccRefs)
+	}
+	// The message is keyed on the sender it stores: none when the address
+	// was left out (adr/0357).
+	if fromRef == "" {
+		from = ""
 	}
 	msgID := b.emailMessage(msgUID, strings.TrimSpace(pathStr(p, "email.uid")), from, subject, props)
 
@@ -80,8 +101,11 @@ func (n *emailNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) 
 func (b *resultBuilder) emailMessage(msgUID, uid, from, subject string, props map[string]any) identity.STIXID {
 	weak, weakProps := b.weakEmailMessage(uid)
 	if msgUID == "" && weak != "" {
+		// The event's own properties stand; the weak message adds its mark.
 		for k, v := range weakProps {
-			props[k] = v
+			if _, ok := props[k]; !ok {
+				props[k] = v
+			}
 		}
 		return b.addSCO(weak, identity.TypeEmailMessage, props)
 	}
@@ -101,7 +125,35 @@ func (b *resultBuilder) weakEmailMessage(uid string) (identity.STIXID, map[strin
 	if id == "" {
 		return "", nil
 	}
-	return id, map[string]any{"source_tool": b.evt.SourceTool, "email_uid": strings.TrimSpace(uid), "weak": true}
+	// STIX requires is_multipart. A record that names the message only by
+	// the source's id says nothing about its parts, so it is false.
+	return id, map[string]any{"is_multipart": false, "source_tool": b.evt.SourceTool, "email_uid": strings.TrimSpace(uid), "weak": true}
+}
+
+// isMultipart reports whether an email's raw header says the message has
+// parts: its Content-Type header's media type is multipart/... (adr/0357).
+// OCSF has no field for it, so the raw header is the only place a source can
+// say it. The header is read as RFC 5322 defines it (net/textproto): folded
+// lines are unfolded first (§2.2.3), and the header name is matched without
+// case. A header that names no Content-Type, or no raw header at all, is
+// false.
+func isMultipart(rawHeader string) bool {
+	if strings.TrimSpace(rawHeader) == "" {
+		return false
+	}
+	// The header block ends at a blank line; a raw header may lack one. A
+	// line the reader cannot parse ends the block, and what came before it
+	// is kept.
+	r := textproto.NewReader(bufio.NewReader(strings.NewReader(strings.TrimRight(rawHeader, "\r\n") + "\r\n\r\n")))
+	header, _ := r.ReadMIMEHeader()
+	value := strings.TrimSpace(header.Get("Content-Type"))
+	if value == "" {
+		return false
+	}
+	if mediaType, _, err := mime.ParseMediaType(value); err == nil {
+		return strings.HasPrefix(mediaType, "multipart/")
+	}
+	return strings.HasPrefix(strings.ToLower(value), "multipart/")
 }
 
 // eventEmailMessage adds the weak email-message a click or an attachment
@@ -122,7 +174,10 @@ func (*emailURLNormalizer) ClassUID() int { return 4012 }
 
 // 2: host identity, adr/0211; 3: account identity, adr/0324
 // 4: OCSF classes and fields, adr/0356
-func (*emailURLNormalizer) Version() int { return 4 }
+// 5: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; is_multipart,
+// URLs that are URIs, adr/0357
+func (*emailURLNormalizer) Version() int { return 5 }
 
 func (n *emailURLNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -155,7 +210,10 @@ func (*emailFileNormalizer) ClassUID() int { return 4011 }
 // Version starts at 4. Versions 1 to 3 of class 4011 were the link-click
 // normalizer registered under this number before adr/0356, and the
 // ObservedData id carries the version but not the normalizer's name.
-func (*emailFileNormalizer) Version() int { return 4 }
+// 5: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; is_multipart,
+// file hashes and names STIX can hold, adr/0357
+func (*emailFileNormalizer) Version() int { return 5 }
 
 func (n *emailFileNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

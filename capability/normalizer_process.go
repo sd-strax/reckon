@@ -11,7 +11,11 @@ func (*processNormalizer) ClassUID() int { return 1007 }
 
 // 2: host identity, adr/0211; 3: account identity, adr/0324
 // 4: OCSF classes and fields, adr/0356
-func (*processNormalizer) Version() int { return 4 }
+// 5: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; the start time
+// stored, pids only when given, file hashes, names and sizes STIX can hold,
+// adr/0357
+func (*processNormalizer) Version() int { return 5 }
 
 func (n *processNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	b := newBuilder(n.r, evt, "process_activity", n.Version())

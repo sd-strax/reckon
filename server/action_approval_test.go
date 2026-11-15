@@ -46,7 +46,7 @@ func requestManualAction(t *testing.T, b *Backend, invID uuid.UUID) string {
 	_, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
 		EvidenceRefs:     []string{"observed-data--od1"},
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
 	})
@@ -119,7 +119,7 @@ func TestApproveAction_TwoPartyFlow(t *testing.T) {
 	_, req := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
 		EvidenceRefs:     []string{"observed-data--od1"},
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
 	})
@@ -185,7 +185,7 @@ func TestApproveAction_SecondaryCarriesPrimaryTime(t *testing.T) {
 	_, req := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
 		EvidenceRefs:     []string{"observed-data--od1"},
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
 	})
@@ -252,7 +252,7 @@ func TestApproveAction_ExpiredRejected(t *testing.T) {
 	}
 	if _, err := testHandler.Handle(context.Background(), env, aggregate.RequestAction{
 		ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
-		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		ExpiresAt: time.Now().Add(-time.Hour), Rationale: "stale",
 	}); err != nil {
 		t.Fatal(err)
@@ -321,7 +321,7 @@ func TestApproveAction_UnfrozenTwoPartySecondary(t *testing.T) {
 	}
 	if _, err := testHandler.Handle(context.Background(), env("alice"), aggregate.RequestAction{
 		ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
-		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
 	}); err != nil {
 		t.Fatal(err)

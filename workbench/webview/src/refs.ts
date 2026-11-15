@@ -3,32 +3,33 @@
 
 /** Human type labels by STIX type prefix (an OCSF event id has no prefix). */
 export const REF_TYPE_LABELS: Record<string, string> = {
-  "observed-data": "observed data", "x-host": "host", "ipv4-addr": "IP",
+  "observed-data": "observed data", "reckon-host": "host", "ipv4-addr": "IP",
   "ipv6-addr": "IP", "user-account": "account", "process": "process",
   "file": "file", "domain-name": "domain", "email-addr": "email",
   "url": "URL", "windows-registry-key": "registry", "indicator": "indicator",
-  "x-hypothesis": "hypothesis", "x-prediction": "prediction",
+  "reckon-hypothesis": "hypothesis", "reckon-prediction": "prediction",
   "identity": "vendor", "sighting": "sighting",
   "note": "attestation", // a human statement recorded as evidence (adr/0054)
-  "x-null-observation": "nothing observed", // a complete, empty answer recorded as evidence (adr/0061)
-  "x-cloud-account": "cloud account", "x-cloud-resource": "cloud resource",
+  "reckon-null-observation": "nothing observed", // a complete, empty answer recorded as evidence (adr/0061)
+  "reckon-cloud-account": "cloud account", "reckon-cloud-resource": "cloud resource",
+  "artifact": "stored record", // stands for a stored record with nothing to extract (adr/0357)
 };
 
 /** Entity-type palette classes: one fixed colour per type, everywhere. */
 export const REF_CHIP_CLASS: Record<string, string> = {
-  "x-host": "chip-host", "ipv4-addr": "chip-ip", "ipv6-addr": "chip-ip",
+  "reckon-host": "chip-host", "ipv4-addr": "chip-ip", "ipv6-addr": "chip-ip",
   "user-account": "chip-account", "file": "chip-hash",
   "domain-name": "chip-domain", "url": "chip-domain", "email-addr": "chip-email",
   "indicator": "chip-alert", "sighting": "chip-alert",
-  "x-hypothesis": "chip-brand", "x-prediction": "chip-brand",
-  "x-cloud-account": "chip-host", "x-cloud-resource": "chip-hash",
+  "reckon-hypothesis": "chip-brand", "reckon-prediction": "chip-brand",
+  "reckon-cloud-account": "chip-host", "reckon-cloud-resource": "chip-hash",
 };
 
 /** Entity types get the popover (ui/02 §2.4); everything else opens its record. */
 export const ENTITY_POPOVER_TYPES = new Set([
-  "x-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file",
+  "reckon-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file",
   "domain-name", "email-addr", "url", "windows-registry-key", "indicator",
-  "x-cloud-account", "x-cloud-resource",
+  "reckon-cloud-account", "reckon-cloud-resource",
 ]);
 
 /** The STIX type prefix of a ref, "" for an OCSF event id. */
@@ -59,7 +60,7 @@ export function isEntityRef(ref: string): boolean {
 /** The seed line's type word for an entity seed. */
 export function seedTypeLabel(ref: string | undefined): string {
   const t = String(ref || "").split("--")[0];
-  if (t === "x-host") return "host";
+  if (t === "reckon-host") return "host";
   if (t === "ipv4-addr" || t === "ipv6-addr") return "IP";
   if (t === "file") return "file";
   if (t === "user-account") return "account";

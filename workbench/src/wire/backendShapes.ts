@@ -458,7 +458,7 @@ export const evidence: Decoder<RawEvidence> = object({
     identity: optional(lazy(() => evidence)),
     evidence: list(lazy(() => evidence)),
   })),
-  // On an x-host only (adr/0211).
+  // On a reckon-host only (adr/0211).
   identity: optional(hostIdentity),
   // On a user-account, and on an identity that is a person (adr/0324).
   account_identity: optional(accountIdentity),

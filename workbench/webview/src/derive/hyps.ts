@@ -13,7 +13,7 @@ export const tested = (p: Prediction): boolean => counted(p) && p.status !== "UN
 export const outstanding = (p: Prediction, h: Hypothesis): boolean =>
   isLive(h) && (p.status === "UNTESTED" || p.status === "INCONCLUSIVE");
 
-/** A hypothesis is referred to by its handle (01 §x-hypothesis); a handle-less
+/** A hypothesis is referred to by its handle (01 §reckon-hypothesis); a handle-less
  * one by its position (H1, H2 …) so every hypothesis has a stable short name. */
 export function hypName(h: Hypothesis, all: Hypothesis[]): string {
   if (h.handle) return h.handle;
@@ -65,7 +65,7 @@ export function rivalsOf(h: Hypothesis, all: Hypothesis[]): RivalBrief[] {
 }
 
 /** The untested discriminators standing between h and a decision: predictions a
- * LIVE RIVAL holds that come out the opposite way under h (01 §x-hypothesis). */
+ * LIVE RIVAL holds that come out the opposite way under h (01 §reckon-hypothesis). */
 export function blockersOf(h: Hypothesis, all: Hypothesis[]): { p: Prediction; owner: Hypothesis }[] {
   const out: { p: Prediction; owner: Hypothesis }[] = [];
   for (const o of all) {

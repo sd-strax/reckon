@@ -6,6 +6,7 @@
 // fetcher; shared by the document host and the harness recorder.
 import type { ActionRow, EvidenceDoc, Hypothesis, PinRow, Seed, ThreadEntry } from "./viewTypes";
 import type { AccountAlias, DerivedViews, GraphView, StripItem } from "./protocol";
+import { observedEntityRefs } from "./stixExtensions";
 
 /**
  * The records that cite evidence beside the thread (#141): a prediction's test
@@ -78,10 +79,7 @@ export async function buildDerivedViews(
   const entityCount = new Map<string, number>();
   for (const doc of docs.values()) {
     if (doc?.kind !== "stix" || doc.type !== "observed-data") continue;
-    const p = doc.payload as { object_refs?: unknown } | null;
-    for (const or of Array.isArray(p?.object_refs) ? p.object_refs : []) {
-      if (typeof or === "string" && or) entityCount.set(or, (entityCount.get(or) || 0) + 1);
-    }
+    for (const or of observedEntityRefs(doc.payload)) entityCount.set(or, (entityCount.get(or) || 0) + 1);
   }
   const entities = [...entityCount].map(([ref, citations]) => ({ ref, citations }))
     .sort((a, b) => b.citations - a.citations);
@@ -115,10 +113,7 @@ export async function buildDerivedViews(
   for (const r of [...inGraph]) {
     const doc = docs.get(r) ?? null;
     if (doc?.kind === "stix" && doc.type === "observed-data") {
-      const p = doc.payload as { object_refs?: unknown } | null;
-      const objRefs = Array.isArray(p?.object_refs) ? p.object_refs : [];
-      for (const or of objRefs) {
-        if (typeof or !== "string" || or === "") continue;
+      for (const or of observedEntityRefs(doc.payload)) {
         inGraph.add(or);
         addEdge(r, or, false, true);
       }
@@ -171,6 +166,5 @@ async function pinnedAccountAliases(pins: PinRow[], docOf: (ref: string) => Prom
 /** The source's identifier an account carries (the SID, a directory id), when it carries one. */
 function sourceId(doc: EvidenceDoc | null): string {
   const p = (doc?.payload ?? {}) as Record<string, unknown>;
-  const props = (typeof p.properties === "object" && p.properties ? p.properties : p) as Record<string, unknown>;
-  return typeof props.user_id === "string" ? props.user_id : "";
+  return typeof p.user_id === "string" ? p.user_id : "";
 }

@@ -22,7 +22,7 @@ func identityBackend(t *testing.T) (*Backend, *fakeEvidence, string, string) {
 	b.cfg.TenantNamespace = testTenantNamespace
 	ids := identity.NewResolver(uuid.MustParse(testTenantNamespace))
 	host := string(ids.Host(identity.HostIdentity{Hostname: "win-file01"}))
-	other := "x-host--" + uuid.NewString()
+	other := "reckon-host--" + uuid.NewString()
 	store := &fakeEvidence{
 		objects: map[string]evidence.Object{
 			host:  {Ref: host, Type: identity.TypeHost},
@@ -91,7 +91,7 @@ func TestAssertIdentity_Refusals(t *testing.T) {
 		{"delegate split", "/api/entities/" + other + "/distinct", delegate, `{"other_ref":"` + host + `"}`, http.StatusForbidden},
 		{"non-host ref", "/api/entities/ipv4-addr--" + uuid.NewString() + "/aliases", human, `{"other_ref":"` + host + `"}`, http.StatusBadRequest},
 		{"non-host other", "/api/entities/" + other + "/distinct", human, `{"other_ref":"user-account--` + uuid.NewString() + `"}`, http.StatusBadRequest},
-		{"malformed ref", "/api/entities/x-host--nope/aliases", human, `{"other_ref":"` + host + `"}`, http.StatusBadRequest},
+		{"malformed ref", "/api/entities/reckon-host--nope/aliases", human, `{"other_ref":"` + host + `"}`, http.StatusBadRequest},
 		{"both", "/api/entities/" + other + "/aliases", human, `{"other_ref":"` + host + `","other_hostname":"win-file01"}`, http.StatusBadRequest},
 		{"neither", "/api/entities/" + other + "/aliases", human, `{"note":"x"}`, http.StatusBadRequest},
 		{"no body", "/api/entities/" + other + "/aliases", human, ``, http.StatusBadRequest},
@@ -100,9 +100,9 @@ func TestAssertIdentity_Refusals(t *testing.T) {
 		{"placeholder", "/api/entities/" + other + "/aliases", human, `{"other_hostname":"localhost"}`, http.StatusBadRequest},
 		{"address", "/api/entities/" + other + "/aliases", human, `{"other_hostname":"10.0.0.7"}`, http.StatusBadRequest},
 		{"not a name", "/api/entities/" + other + "/aliases", human, `{"other_hostname":"two words"}`, http.StatusBadRequest},
-		{"unknown other", "/api/entities/" + other + "/aliases", human, `{"other_ref":"x-host--` + uuid.NewString() + `"}`, http.StatusNotFound},
+		{"unknown other", "/api/entities/" + other + "/aliases", human, `{"other_ref":"reckon-host--` + uuid.NewString() + `"}`, http.StatusNotFound},
 		{"unknown split", "/api/entities/" + other + "/distinct", human, `{"other_hostname":"ws-nowhere"}`, http.StatusNotFound},
-		{"unknown self", "/api/entities/x-host--" + uuid.NewString() + "/aliases", human, `{"other_ref":"` + host + `"}`, http.StatusNotFound},
+		{"unknown self", "/api/entities/reckon-host--" + uuid.NewString() + "/aliases", human, `{"other_ref":"` + host + `"}`, http.StatusNotFound},
 	} {
 		store.acts = nil
 		code, body := send(t, b, "POST", tc.path, tc.token, tc.body)
@@ -112,7 +112,7 @@ func TestAssertIdentity_Refusals(t *testing.T) {
 	}
 
 	// The store names the missing end; a join over a live split is 409.
-	ghost := "x-host--" + uuid.NewString()
+	ghost := "reckon-host--" + uuid.NewString()
 	if code, body := send(t, b, "POST", "/api/entities/"+other+"/aliases", human, `{"other_ref":"`+ghost+`"}`); code != http.StatusNotFound || !strings.Contains(body, ghost) {
 		t.Errorf("missing end: status %d, %s; want 404 naming %s", code, body, ghost)
 	}
@@ -190,7 +190,7 @@ func TestWithdrawIdentity(t *testing.T) {
 		{"bad id", "/api/identity/relationship--nope/withdraw", mintToken(t, nil), ``, nil, http.StatusBadRequest},
 		{"bad ref", "/api/identity/" + edge.String() + "/withdraw", mintToken(t, nil), `{"ref":"ipv4-addr--` + uuid.NewString() + `"}`, nil, http.StatusBadRequest},
 		// A host that is neither end of the edge: refused before the write.
-		{"not an end", "/api/identity/" + edge.String() + "/withdraw", mintToken(t, nil), `{"ref":"x-host--` + uuid.NewString() + `"}`, nil, http.StatusBadRequest},
+		{"not an end", "/api/identity/" + edge.String() + "/withdraw", mintToken(t, nil), `{"ref":"reckon-host--` + uuid.NewString() + `"}`, nil, http.StatusBadRequest},
 	} {
 		if code, body := send(t, b, "POST", tc.path, tc.token, tc.body); code != tc.want || len(store.acts) != 0 {
 			t.Errorf("%s: status %d, acts %+v; want %d: %s", tc.name, code, store.acts, tc.want, body)

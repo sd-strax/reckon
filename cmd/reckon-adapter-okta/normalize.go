@@ -148,11 +148,19 @@ func inventoryUser(u map[string]any) map[string]any {
 }
 
 // opaque keeps an Okta object no OCSF class describes (a group) as a Base
-// Event: the object rides under unmapped.okta.
+// Event: the object rides under unmapped.okta. Its time is the group's own:
+// lastUpdated, else created, both fields of Okta's Group object. The time
+// comes from the record only (adr/0357). The field names come from Okta's
+// API docs ("Retrieve a group"); no recorded real response confirms them
+// yet.
 func opaque(objs []map[string]any) []ocsfEvent {
 	out := make([]ocsfEvent, 0, len(objs))
 	for _, o := range objs {
-		out = append(out, event(classBase, "Base Event", productDirectory, time.Time{}, nil, o))
+		t := eventTime(o, "lastUpdated")
+		if t.IsZero() {
+			t = eventTime(o, "created")
+		}
+		out = append(out, event(classBase, "Base Event", productDirectory, t, nil, o))
 	}
 	return out
 }

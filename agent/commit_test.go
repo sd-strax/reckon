@@ -75,7 +75,7 @@ func TestTurn_ModelFailureCommitsTurn(t *testing.T) {
 	llm := &erroringLLM{
 		scriptedLLM: scriptedLLM{script: []CompleteResponse{
 			{StopReason: StopToolUse, Content: []ContentBlock{
-				toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
+				toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
 			}},
 		}},
 		err: errors.New("provider overloaded"),
@@ -134,7 +134,7 @@ func TestTurn_CancelCommitsTurn(t *testing.T) {
 	llm := &cancellingLLM{
 		scriptedLLM: scriptedLLM{script: []CompleteResponse{
 			{StopReason: StopToolUse, Content: []ContentBlock{
-				toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
+				toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
 			}},
 		}},
 		cancel: cancel,
@@ -162,7 +162,7 @@ func TestTurn_CancelLetsDispatchedToolFinish(t *testing.T) {
 	f := newFakeBackend(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	action := `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
+	action := `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
 	llm := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopToolUse, Content: []ContentBlock{
 			toolUse("t1", ToolRequestAction, action),
@@ -221,7 +221,7 @@ func TestTurn_TimeLimitNamedOnSkippedTools(t *testing.T) {
 	f := newFakeBackend(t)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	action := `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
+	action := `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
 	s := commitSession(t, f, &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopToolUse, Content: []ContentBlock{
 			toolUse("t1", ToolRequestAction, action),

@@ -4,11 +4,11 @@ import type { EvidenceDoc, Hypothesis, ThreadEntry } from "./viewTypes";
 
 // The road-test shape (#141): the thread lists only the records each act made;
 // the evidence sits on a prediction's test results and on the seed.
-const thread = [{ sequenceNo: 1, interpretationId: "i1", inputRefs: [], outputRefs: ["x-prediction--p"], actor: { kind: "AI_DELEGATED" } }] as unknown as ThreadEntry[];
-const hypotheses = [{ id: "x-hypothesis--h", predictions: [{ id: "x-prediction--p", testResultRefs: ["observed-data--logon"] }] }] as unknown as Hypothesis[];
+const thread = [{ sequenceNo: 1, interpretationId: "i1", inputRefs: [], outputRefs: ["reckon-prediction--p"], actor: { kind: "AI_DELEGATED" } }] as unknown as ThreadEntry[];
+const hypotheses = [{ id: "reckon-hypothesis--h", predictions: [{ id: "reckon-prediction--p", testResultRefs: ["observed-data--logon"] }] }] as unknown as Hypothesis[];
 const docs: Record<string, EvidenceDoc> = {
-  "observed-data--logon": { ref: "observed-data--logon", kind: "stix", type: "observed-data", payload: { first_observed: "2026-04-20T14:32:47Z", object_refs: ["x-host--win", "user-account--svc"] } } as unknown as EvidenceDoc,
-  "observed-data--case": { ref: "observed-data--case", kind: "stix", type: "observed-data", payload: { first_observed: "2026-04-20T14:40:00Z", object_refs: ["x-host--win"] } } as unknown as EvidenceDoc,
+  "observed-data--logon": { ref: "observed-data--logon", kind: "stix", type: "observed-data", payload: { first_observed: "2026-04-20T14:32:47Z", object_refs: ["reckon-host--win", "user-account--svc"] } } as unknown as EvidenceDoc,
+  "observed-data--case": { ref: "observed-data--case", kind: "stix", type: "observed-data", payload: { first_observed: "2026-04-20T14:40:00Z", object_refs: ["reckon-host--win"] } } as unknown as EvidenceDoc,
 };
 const getDoc = async (ref: string) => docs[ref] ?? null;
 
@@ -16,8 +16,20 @@ describe("derived views over every citing record (#141)", () => {
   it("the timeline, entities and graph read evidence cited outside the thread", async () => {
     const v = await buildDerivedViews(thread, getDoc, { hypotheses, seed: { type: "case", caseRef: "observed-data--case" } });
     expect(v.strip.map((s) => s.ref)).toEqual(["observed-data--logon", "observed-data--case"]);
-    expect(v.entities).toEqual([{ ref: "x-host--win", citations: 2 }, { ref: "user-account--svc", citations: 1 }]);
-    expect(v.graph.edges).toContainEqual({ from: "x-prediction--p", to: "observed-data--logon", ai: false, join: undefined });
+    expect(v.entities).toEqual([{ ref: "reckon-host--win", citations: 2 }, { ref: "user-account--svc", citations: 1 }]);
+    expect(v.graph.edges).toContainEqual({ from: "reckon-prediction--p", to: "observed-data--logon", ai: false, join: undefined });
+  });
+  it("an observation's record artifact and relationships are not entities, in the list or the graph (adr/0357)", async () => {
+    const withRecord: Record<string, EvidenceDoc> = {
+      ...docs,
+      "observed-data--case": { ref: "observed-data--case", kind: "stix", type: "observed-data", payload: { first_observed: "2026-04-20T14:40:00Z", object_refs: ["artifact--rec", "relationship--r"] } } as unknown as EvidenceDoc,
+    };
+    const v = await buildDerivedViews(thread, async (ref) => withRecord[ref] ?? null, { hypotheses, seed: { type: "case", caseRef: "observed-data--case" } });
+    expect(v.entities).toBeDefined();
+    const refs = (v.entities ?? []).map((e) => e.ref);
+    expect(refs).not.toContain("artifact--rec");
+    expect(refs).not.toContain("relationship--r");
+    expect(v.graph.edges.map((e) => e.to)).not.toContain("artifact--rec");
   });
   it("with the thread alone it stays as before", async () => {
     const v = await buildDerivedViews(thread, getDoc);

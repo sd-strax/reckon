@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-email-message/1.0.0.json",
+  "title": "reckon-email-message",
+  "description": "What reckon keeps about an email message that is known only by a source's own id, with no Message-ID.",
+  "type": "object",
+  "properties": {
+    "extension_type": {
+      "const": "property-extension"
+    },
+    "source_tool": {
+      "type": "string",
+      "description": "The source tool whose id names the message."
+    },
+    "email_uid": {
+      "type": "string",
+      "description": "The source's own id for the message."
+    },
+    "weak": {
+      "type": "boolean",
+      "description": "True when the message is identified by the source's id alone."
+    }
+  },
+  "required": [
+    "extension_type"
+  ],
+  "additionalProperties": false
+}

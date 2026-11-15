@@ -26,7 +26,7 @@ const ocsfVersion = "1.1.0"
 //     (composite_id, device.hostname, tactic/technique, severity_name) —
 //     LIVE-TUNE against real output.
 //   - hosts → OCSF Device Inventory Info (class 5001): the engine's §4.17
-//     normalizer reads the device and mints its x-host. A host record with
+//     normalizer reads the device and mints its reckon-host. A host record with
 //     no hostname has nothing OCSF's device can name, and is a Base Event.
 //   - intel indicators → Base Events (class 0 → the engine's default
 //     normalizer, 03 §4.13): the record is preserved whole with the
@@ -64,7 +64,14 @@ func event(class int, name string, t time.Time, fields, unmapped map[string]any)
 // fields the engine's §4.12 normalizer reads (adr/0356):
 //
 //   - finding_info names the finding: its uid, its title, and the tactic and
-//     technique as types.
+//     technique as types. The engine keeps those names as the indicator's
+//     labels (adr/0357).
+//   - finding_info.attacks holds the same tactic and technique as OCSF's
+//     ATT&CK object, by name. It is finding_info's list because the
+//     finding-level attacks belongs to the security_control profile, which
+//     the adapter does not declare. Falcon's recorded detections give names
+//     only, so the objects carry no uid, and the engine finds no technique
+//     id to reference.
 //   - severity is Falcon's severity name, and severity_id OCSF's number for
 //     it, or Other (99) for a name OCSF does not have. Falcon's severity is
 //     not a confidence, so none is written.
@@ -91,6 +98,9 @@ func normalizeDetections(items []map[string]any) []ocsfEvent {
 		if len(types) > 0 {
 			finding["types"] = types
 		}
+		if a := falconAttack(d); a != nil {
+			finding["attacks"] = []any{a}
+		}
 		fields := map[string]any{"finding_info": finding}
 		if sev := str(d["severity_name"]); sev != "" {
 			fields["severity"] = sev
@@ -102,6 +112,23 @@ func normalizeDetections(items []map[string]any) []ocsfEvent {
 		out = append(out, event(2004, "Detection Finding", eventTime(d, "created_timestamp"), fields, map[string]any{"falcon": d}))
 	}
 	return out
+}
+
+// falconAttack is the OCSF attack object for a detection's tactic and
+// technique, by name, or nil when it gives neither. OCSF requires at least one
+// of the two in the object, and a name in each (adr/0357).
+func falconAttack(d map[string]any) map[string]any {
+	a := map[string]any{}
+	if v := str(d["tactic"]); v != "" {
+		a["tactic"] = map[string]any{"name": v}
+	}
+	if v := str(d["technique"]); v != "" {
+		a["technique"] = map[string]any{"name": v}
+	}
+	if len(a) == 0 {
+		return nil
+	}
+	return a
 }
 
 // normalizeHosts maps Falcon host records onto OCSF Device Inventory Info
@@ -120,7 +147,7 @@ func normalizeHosts(objs []map[string]any) []ocsfEvent {
 			continue
 		}
 		fields := map[string]any{"device": map[string]any{"hostname": hostname}}
-		out = append(out, event(5001, "Device Inventory Info", time.Time{}, fields, map[string]any{"falcon": o}))
+		out = append(out, event(5001, "Device Inventory Info", hostTime(o), fields, map[string]any{"falcon": o}))
 	}
 	return out
 }
@@ -173,6 +200,18 @@ func extractObjects(text string) ([]map[string]any, error) {
 		}
 	}
 	return []map[string]any{obj}, nil
+}
+
+// hostTime is a host record's time: last_seen, when the host was last seen,
+// else modified_timestamp. The time comes from the record only (adr/0357).
+// The field names come from the vendor's docs: falcon-mcp's hosts module
+// documents both as fields of the host record. No recorded real response
+// confirms them yet.
+func hostTime(o map[string]any) time.Time {
+	if t := eventTime(o, "last_seen"); !t.IsZero() {
+		return t
+	}
+	return eventTime(o, "modified_timestamp")
 }
 
 // eventTime parses an RFC3339 timestamp at key, else returns the zero time.

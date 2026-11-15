@@ -2,7 +2,6 @@ package evidence
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -27,7 +26,8 @@ func edgeRow(t *testing.T, id identity.STIXID) (src, tgt uuid.UUID, p assertedEd
 	if err := testDB.QueryRow(`SELECT source_ref, target_ref, payload FROM stix_edges WHERE id = $1`, eid).Scan(&src, &tgt, &raw); err != nil {
 		t.Fatalf("read edge %s: %v", id, err)
 	}
-	if err := json.Unmarshal(raw, &p); err != nil {
+	p, err := decodeAssertedEdge(raw)
+	if err != nil {
 		t.Fatal(err)
 	}
 	return src, tgt, p
@@ -53,7 +53,7 @@ func edgeUUID(id identity.STIXID) uuid.UUID {
 func TestAssertAlias_JoinsBothWays(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b := stixID("x-host"), stixID("x-host")
+	a, b := stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, "ws1-old")})
 
 	if err := s.AssertAlias(ctx, testIDs, string(a), string(b), ana, "same serial in the asset register"); err != nil {
@@ -102,7 +102,7 @@ func TestAssertAlias_JoinsBothWays(t *testing.T) {
 func TestAssertDistinct_Cuts(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b := stixID("x-host"), stixID("x-host")
+	a, b := stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, "")}, observedAlias(b, a, "edr"))
 	if got, _ := s.AliasSet(ctx, string(a)); !sameSet(got, a, b) {
 		t.Fatalf("observed join missing: %v", got)
@@ -129,7 +129,7 @@ func TestAssertDistinct_Cuts(t *testing.T) {
 func TestWithdrawAssertion_RestoresAndReasserts(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b := stixID("x-host"), stixID("x-host")
+	a, b := stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, "")}, observedAlias(b, a, "edr"))
 	if err := s.AssertDistinct(ctx, testIDs, string(b), string(a), ana, "two machines"); err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func TestWithdrawAssertion_RestoresAndReasserts(t *testing.T) {
 func TestAssertAlias_OverObserved(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b := stixID("x-host"), stixID("x-host")
+	a, b := stixID("reckon-host"), stixID("reckon-host")
 	rel := observedAlias(b, a, "edr")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, "")}, rel)
 
@@ -240,7 +240,7 @@ func TestAssertAlias_OverObserved(t *testing.T) {
 func TestAssertionEnds(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b := stixID("x-host"), stixID("x-host")
+	a, b := stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, "ws2")})
 	if err := s.AssertDistinct(ctx, testIDs, string(a), string(b), ana, ""); err != nil {
 		t.Fatal(err)
@@ -259,13 +259,13 @@ func TestAssertionEnds(t *testing.T) {
 }
 
 // TestAssert_NonHostUUID: a persisted object of another type, its uuid behind
-// an x-host prefix, is no host.
+// a reckon-host prefix, is no host.
 func TestAssert_NonHostUUID(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, addr := stixID("x-host"), stixID("ipv4-addr")
+	a, addr := stixID("reckon-host"), stixID("ipv4-addr")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), {ID: addr, Type: "ipv4-addr", Properties: map[string]any{"value": "10.0.0.7"}}})
-	posing := "x-host--" + strings.TrimPrefix(string(addr), "ipv4-addr--")
+	posing := "reckon-host--" + strings.TrimPrefix(string(addr), "ipv4-addr--")
 	err := s.AssertAlias(ctx, testIDs, string(a), posing, ana, "")
 	var missing *MissingHostError
 	if !errors.As(err, &missing) || missing.Ref != posing {
@@ -279,11 +279,11 @@ func TestAssert_NonHostUUID(t *testing.T) {
 func TestCanonicalHostRef(t *testing.T) {
 	id := uuid.NewString()
 	for in, want := range map[string]string{
-		"x-host--" + id:                  "x-host--" + id,
-		"X-HOST--" + strings.ToUpper(id): "x-host--" + id,
-		"ipv4-addr--" + id:               "",
-		"x-host--nope":                   "",
-		"win-file01":                     "",
+		"reckon-host--" + id:                  "reckon-host--" + id,
+		"RECKON-HOST--" + strings.ToUpper(id): "reckon-host--" + id,
+		"ipv4-addr--" + id:                    "",
+		"reckon-host--nope":                   "",
+		"win-file01":                          "",
 	} {
 		got, ok := CanonicalHostRef(in)
 		if got != want || ok != (want != "") {
@@ -297,7 +297,7 @@ func TestCanonicalHostRef(t *testing.T) {
 func TestAssert_CaseFolds(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b := stixID("x-host"), stixID("x-host")
+	a, b := stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, "ws2")})
 	if err := s.AssertDistinct(ctx, testIDs, string(a), string(b), ana, ""); err != nil {
 		t.Fatal(err)
@@ -320,7 +320,7 @@ func TestAssert_CaseFolds(t *testing.T) {
 func TestAssertAlias_BesideObserved(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b := stixID("x-host"), stixID("x-host")
+	a, b := stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, "")})
 	if err := s.AssertAlias(ctx, testIDs, string(a), string(b), ana, "asset register"); err != nil {
 		t.Fatal(err)
@@ -353,7 +353,7 @@ func TestAssertAlias_BesideObserved(t *testing.T) {
 func TestAssert_SplitAndJoin(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b := stixID("x-host"), stixID("x-host")
+	a, b := stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, "ws2")})
 	if err := s.AssertAlias(ctx, testIDs, string(a), string(b), ana, ""); err != nil {
 		t.Fatal(err)
@@ -384,7 +384,7 @@ func TestAssert_SplitAndJoin(t *testing.T) {
 func TestAssert_Refusals(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, ghost := stixID("x-host"), stixID("x-host")
+	a, ghost := stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1")})
 
 	// No principal: an empty asserted_by would read as a source's record.

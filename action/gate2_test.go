@@ -20,7 +20,7 @@ func baseInput() EvalInput {
 	return EvalInput{
 		ActionType:      "host.isolate",
 		Tier:            aggregate.TierT2,
-		Targets:         []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:         []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		RequestedByKind: "HUMAN",
 		RequestedByID:   "alice",
 		AllDirect:       true,
@@ -187,7 +187,7 @@ func TestCELParametersAvailable(t *testing.T) {
 	cmd := aggregate.RequestAction{
 		ActionType: "host.isolate",
 		Tier:       aggregate.TierT2,
-		Targets:    []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:    []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Parameters: []byte(`{"duration_hours": 2}`),
 	}
 	in := EvalInputForCommand(cmd, "HUMAN", "alice", time.Now())

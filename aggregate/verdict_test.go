@@ -247,7 +247,7 @@ func TestSeed_Validation(t *testing.T) {
 		{"nil seed", nil, true},
 		{"alert", &Seed{Type: SeedAlert, AlertID: "EDR-7741", Source: "crowdstrike-edr"}, true},
 		{"alert missing source", &Seed{Type: SeedAlert, AlertID: "EDR-7741"}, false},
-		{"entity", &Seed{Type: SeedEntity, EntityRef: "x-host--00000000-0000-0000-0000-000000000001"}, true},
+		{"entity", &Seed{Type: SeedEntity, EntityRef: "reckon-host--00000000-0000-0000-0000-000000000001"}, true},
 		{"entity missing ref", &Seed{Type: SeedEntity}, false},
 		{"question", &Seed{Type: SeedQuestion, HypothesisStatement: "service accounts abused for RDP?"}, true},
 		{"question empty", &Seed{Type: SeedQuestion}, false},
@@ -272,7 +272,7 @@ func TestSeed_Summary(t *testing.T) {
 	if got := (Seed{Type: SeedAlert, AlertID: "A-1", Source: "edr"}).Summary(); got != "edr: A-1" {
 		t.Errorf("alert summary = %q", got)
 	}
-	if got := (Seed{Type: SeedEntity, EntityRef: "x-host--1"}).Summary(); got != "x-host--1" {
+	if got := (Seed{Type: SeedEntity, EntityRef: "reckon-host--1"}).Summary(); got != "reckon-host--1" {
 		t.Errorf("entity summary = %q", got)
 	}
 	if got := (Seed{Type: SeedQuestion, HypothesisStatement: "q?"}).Summary(); got != "q?" {

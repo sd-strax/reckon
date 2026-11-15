@@ -43,7 +43,7 @@ flowchart TB
         subgraph ENTITIES["Entities (STIX SCOs)"]
             direction LR
             E_IP["ipv4-addr<br/>8.8.8.8"]
-            E_HOST["x-host<br/>WIN-DC01"]
+            E_HOST["reckon-host<br/>WIN-DC01"]
             E_USER["user-account<br/>alice@corp"]
             E_PROC["process<br/>powershell.exe"]
         end
@@ -56,20 +56,20 @@ flowchart TB
 
         subgraph JUDGE["Judgments"]
             direction LR
-            HYP["x-hypothesis<br/>'lateral movement<br/>from DC01'"]
-            PRED["x-prediction"]
+            HYP["reckon-hypothesis<br/>'lateral movement<br/>from DC01'"]
+            PRED["reckon-prediction"]
             IND["Indicator"]
             REP["Report<br/>(conclusion)"]
         end
 
         subgraph OPS["Operations"]
             direction LR
-            ACT["x-action<br/>host.isolate<br/>tier: T2"]
+            ACT["reckon-action<br/>host.isolate<br/>tier: T2"]
         end
 
         subgraph REASON["Reasoning trail"]
             direction LR
-            INTERP["x-interpretation<br/>(extraction, hypothesis,<br/>support, pivot, action-*,<br/>conclusion)"]
+            INTERP["reckon-interpretation<br/>(extraction, hypothesis,<br/>support, pivot, action-*,<br/>conclusion)"]
         end
 
         subgraph CONTAIN["Containers"]
@@ -101,7 +101,7 @@ flowchart TB
 
     %% Within interpretation layer
     OD --> SIGHT
-    SIGHT -->|x-supports| HYP
+    SIGHT -->|reckon-supports| HYP
     HYP --> PRED
     HYP -.->|leads to| ACT
     HYP --> REP

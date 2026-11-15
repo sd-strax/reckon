@@ -97,8 +97,8 @@ describe("KnowledgeDocument (adr/0107)", () => {
 
   it("says a reference from a document's text cannot open here, rather than leaving the pane waiting", async () => {
     const { panel, posted } = opened({});
-    panel.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "x-host--1" } });
-    await vi.waitFor(() => expect(posted()).toContainEqual(expect.objectContaining({ type: "inspector.error", target: "x-host--1" })));
+    panel.webview.receive({ type: "inspector.open", target: { kind: "ref", ref: "reckon-host--1" } });
+    await vi.waitFor(() => expect(posted()).toContainEqual(expect.objectContaining({ type: "inspector.error", target: "reckon-host--1" })));
   });
 
   it("reads a listing asked for before the page's ready only after the handshake (adr/0244)", async () => {

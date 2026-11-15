@@ -105,12 +105,12 @@ export function otherBody(other: IdentityOther | string, note?: string): Record<
 
 /**
  * The other host of a join or a split, as the analyst typed it: a host ref
- * (`x-host--…`) goes as `other_ref`, anything else as a hostname the server
+ * (`reckon-host--…`) goes as `other_ref`, anything else as a hostname the server
  * mints as the seed does (a hostname may itself hold "--", as punycode does).
  */
 export function otherHostBody(other: string, note?: string): Record<string, string> {
   const v = other.trim();
-  const body: Record<string, string> = v.toLowerCase().startsWith("x-host--") ? { other_ref: v } : { other_hostname: v };
+  const body: Record<string, string> = v.toLowerCase().startsWith("reckon-host--") ? { other_ref: v } : { other_hostname: v };
   if (note && note.trim()) body.note = note.trim();
   return body;
 }

@@ -117,7 +117,7 @@ func resolveSeedInputAs(res *identity.Resolver, value, kind, entityKind string) 
 		if strings.ContainsAny(v, " \t\n") {
 			return seedResolution{}, fmt.Errorf("%q looks like a question, not a host/IP/hash", v)
 		}
-		if net.ParseIP(v) == nil && !hexHash.MatchString(v) && !hostName.MatchString(v) {
+		if !isIPToken(v) && !hexHash.MatchString(v) && !hostName.MatchString(v) {
 			return seedResolution{}, fmt.Errorf("%q is not a host name, IP address or file hash — check it for a typo", v)
 		}
 		ref, label := resolveEntityToken(res, v)
@@ -169,11 +169,16 @@ func seedSummaryOf(s *aggregate.Seed) string {
 // (adr/0211), so "WIN-FILE01" and "win-file01.corp.example" seed the host the
 // events mint. A placeholder token mints nothing and ref is "".
 func resolveEntityToken(res *identity.Resolver, token string) (ref, label string) {
-	if ip := net.ParseIP(token); ip != nil {
-		if ip.To4() != nil {
-			return string(res.IPv4Addr(token)), "IP"
+	// An address, or a CIDR block, through the cleanup the normalizers write
+	// with (adr/0357). A block is an ip SCO too (STIX 2.1 §6.8, §6.9).
+	if value, typ, ok := identity.IPValue(token); ok {
+		if typ == identity.TypeIPv4Addr {
+			return string(res.IPv4Addr(value)), "IP"
 		}
-		return string(res.IPv6Addr(token)), "IP"
+		return string(res.IPv6Addr(value)), "IP"
+	}
+	if isIPToken(token) {
+		return "", "IP" // a placeholder address or block names nothing
 	}
 	if hexHash.MatchString(token) {
 		switch len(token) {
@@ -290,22 +295,20 @@ func (b *Backend) resolveAccountRefSeed(r *http.Request, ref, typed string) (see
 		return seedResolution{}, http.StatusInternalServerError, fmt.Errorf("read account: %w", err)
 	}
 	var p struct {
-		Properties struct {
-			Login  string `json:"account_login"`
-			Type   string `json:"account_type"`
-			UserID string `json:"user_id"`
-		} `json:"properties"`
+		Login  string `json:"account_login"`
+		Type   string `json:"account_type"`
+		UserID string `json:"user_id"`
 	}
 	_ = json.Unmarshal(obj.Payload, &p)
-	name := strings.TrimSpace(p.Properties.Login)
+	name := strings.TrimSpace(p.Login)
 	if name == "" {
-		name = strings.TrimSpace(p.Properties.UserID)
+		name = strings.TrimSpace(p.UserID)
 	}
 	if name == "" {
 		name = strings.TrimSpace(typed) // what the analyst sees in the box
 	}
 	display := "account " + name
-	if t := strings.TrimSpace(p.Properties.Type); t != "" {
+	if t := strings.TrimSpace(p.Type); t != "" {
 		display += " (" + t + ")"
 	}
 	return seedResolution{
@@ -385,7 +388,7 @@ func (b *Backend) unknownAccount(r *http.Request, s seedResolution) (bool, strin
 // with no inventory connected, or an answer that was not complete, nothing can
 // vouch either way and the seed stands.
 func (b *Backend) unknownHost(r *http.Request, s seedResolution) (bool, string) {
-	if !strings.HasPrefix(s.Seed.EntityRef, "x-host--") {
+	if !strings.HasPrefix(s.Seed.EntityRef, identity.TypeHost+"--") {
 		return false, ""
 	}
 	resolver, catalog := b.capabilitySurface()
@@ -398,5 +401,36 @@ func (b *Backend) unknownHost(r *http.Request, s seedResolution) (bool, string) 
 	if err != nil || res.Coverage != capability.CoverageComplete || len(res.ObservedDataRefs) > 0 || len(res.EntityRefs) > 0 {
 		return false, ""
 	}
+	// Records came back, but none could be normalized: the inventory knows
+	// something by that name, so "no host" would be false.
+	if unread, why := unreadRecords(res); unread {
+		return true, fmt.Sprintf("the host inventory answered for %q, but its record could not be read (%s) — start anyway, or fix the source", host, why)
+	}
 	return true, fmt.Sprintf("no host named %q in the host inventory reckon can see — check the name, or start anyway", host)
+}
+
+// unreadRecords reports whether a call returned records that produced no
+// observation, because each failed to normalize, and why, from the
+// resolver's notes. A reader that turns an empty answer into "not found"
+// checks it first: records that could not be read are not an absence.
+func unreadRecords(res capability.CapabilityResult) (bool, string) {
+	if len(res.Events) == 0 || len(res.ObservedDataRefs) > 0 {
+		return false, ""
+	}
+	why := strings.Join(res.DegradationNotes, "; ")
+	if why == "" {
+		why = "no reason given"
+	}
+	return true, why
+}
+
+// isIPToken reports whether a seed token is an IP address or a CIDR block,
+// which STIX 2.1 §6.8 and §6.9 allow as an address's value.
+func isIPToken(token string) bool {
+	t := strings.TrimSpace(token)
+	if net.ParseIP(t) != nil {
+		return true
+	}
+	_, _, err := net.ParseCIDR(t)
+	return err == nil
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// actionState is one x-action's folded state within the aggregate.
+// actionState is one reckon-action's folded state within the aggregate.
 // PrimaryApprover is retained from the primary approval so the secondary stage
 // can enforce two-party integrity (distinct approvers, consistent audit record)
 // against authoritative state rather than trusting the caller's payload.

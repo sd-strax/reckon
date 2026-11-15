@@ -41,7 +41,7 @@ type EvidenceView struct {
 	// fetch (design/ui 08 §8.6.1). Nil for every other type.
 	Related *EvidenceRelated `json:"related,omitempty"`
 
-	// Identity is set on an `x-host--` ref (adr/0211): the aliases and
+	// Identity is set on a `reckon-host--` ref (adr/0211): the aliases and
 	// distinct-from edges that touch the host, each with its origin, and what
 	// the record has seen under it. Nil for every other type.
 	Identity *EvidenceIdentity `json:"identity,omitempty"`
@@ -307,11 +307,9 @@ func (b *Backend) attachIdentity(r *http.Request, obj evidence.Object, v *Eviden
 // (identity_class individual), not a vendor's.
 func isPerson(payload []byte) bool {
 	var p struct {
-		Properties struct {
-			IdentityClass string `json:"identity_class"`
-		} `json:"properties"`
+		IdentityClass string `json:"identity_class"`
 	}
-	return json.Unmarshal(payload, &p) == nil && p.Properties.IdentityClass == "individual"
+	return json.Unmarshal(payload, &p) == nil && p.IdentityClass == "individual"
 }
 
 func edgeViews(in []evidence.IdentityEdge) []IdentityEdgeView {

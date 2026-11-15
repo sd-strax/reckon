@@ -34,8 +34,8 @@ import (
 type STIXID string
 
 // STIX/OCSF object type prefixes this resolver mints ids for. Standard STIX SCO
-// types use their canonical names; custom objects use the x- prefix per STIX
-// convention (design/01).
+// types use their canonical names; custom objects use the reckon- prefix (design/01,
+// adr/0357).
 const (
 	TypeIPv4Addr       = "ipv4-addr"
 	TypeIPv6Addr       = "ipv6-addr"
@@ -51,19 +51,32 @@ const (
 	// TypeWindowsRegistryKey is STIX's own registry key, minted with a
 	// host-scoped identity (03 §7.2, adr/0341).
 	TypeWindowsRegistryKey = "windows-registry-key"
-	TypeHost               = "x-host"
-	TypeScheduledTask      = "x-scheduled-task"
-	TypeGroup              = "x-group"
+	TypeHost               = "reckon-host"
+	TypeScheduledTask      = "reckon-scheduled-task"
+	TypeGroup              = "reckon-group"
 	// TypeCloudAccount and TypeCloudResource are the control-plane objects a
 	// cloud audit event names (03 §7.2): the account (subscription, project)
 	// the call ran in, and the resource it acted on.
-	TypeCloudAccount  = "x-cloud-account"
-	TypeCloudResource = "x-cloud-resource"
+	TypeCloudAccount  = "reckon-cloud-account"
+	TypeCloudResource = "reckon-cloud-resource"
 	TypeObservedData  = "observed-data"
+	// TypeArtifact stands for a stored OCSF record an observation names when
+	// the record gives no entity (03 §4.13, adr/0357).
+	TypeArtifact = "artifact"
 	// TypeNullObservation is the custom SDO recording that a complete query
 	// observed nothing (01 §Invented, adr/0061): the citeable form of absence.
-	TypeNullObservation = "x-null-observation"
+	TypeNullObservation = "reckon-null-observation"
 	TypeIdentity        = "identity"
+)
+
+// The reasoning and action types. Their ids are not minted by this resolver,
+// but every reckon custom type is named here, so the stix package can check
+// that each one has an extension definition (adr/0357).
+const (
+	TypeHypothesis     = "reckon-hypothesis"
+	TypePrediction     = "reckon-prediction"
+	TypeInterpretation = "reckon-interpretation"
+	TypeAction         = "reckon-action"
 )
 
 // Resolver computes tenant-scoped deterministic ids. Construct one per tenant
@@ -179,20 +192,17 @@ func (r *Resolver) File(f FileIdentity) STIXID {
 
 // pickHash returns the strongest available (algorithm, digest), both
 // canonicalized (algorithm as bare lowercase name, digest lowercased), or
-// ("", "") when no usable hash is present. A placeholder digest is skipped.
+// ("", "") when no usable hash is present. A placeholder digest is skipped,
+// and so is one that does not fit its algorithm's STIX format (HashFits,
+// adr/0357).
 func pickHash(hashes map[string]string) (algo, digest string) {
-	// Normalize keys once so lookup is case/format-insensitive ("SHA-256",
-	// "sha256", "SHA256" all match).
-	norm := make(map[string]string, len(hashes))
-	for k, v := range hashes {
-		key := foldAlgo(k)
-		if v = strings.TrimSpace(v); v != "" && !PlaceholderHash(key, v) {
-			norm[key] = strings.ToLower(v)
-		}
-	}
+	// The same cleanup and collapse the stored hashes get (FittingHashes), so
+	// "SHA-256", "sha256" and "SHA 256" are one key, and the choice never
+	// depends on map order.
+	fitting := FittingHashes(hashes)
 	for _, a := range []string{"sha256", "sha1", "md5"} {
-		if v, ok := norm[a]; ok {
-			return a, v
+		if v, ok := fitting[stixHashKeys[a]]; ok && !PlaceholderHash(a, v) {
+			return a, strings.ToLower(v)
 		}
 	}
 	return "", ""
@@ -374,17 +384,34 @@ func (r *Resolver) Directory(path string) STIXID {
 	return r.mint(TypeDirectory, map[string]any{"path": strings.TrimSpace(path)})
 }
 
-// NetworkTraffic resolves a network-traffic SCO. STIX assigns these random ids;
-// we compute deterministically from the endpoints, ports, and protocol so the
-// same connection observed twice dedupes (same trade as ObservedData, §7.3).
-func (r *Resolver) NetworkTraffic(srcRef, dstRef STIXID, srcPort, dstPort int, protocol string) STIXID {
-	return r.mint(TypeNetworkTraffic, map[string]any{
-		"src_ref":  string(srcRef),
-		"dst_ref":  string(dstRef),
-		"src_port": srcPort,
-		"dst_port": dstPort,
-		"protocol": strings.ToLower(strings.TrimSpace(protocol)),
-	})
+// NetworkTraffic resolves a network-traffic SCO from the two ends, the two
+// ports and the protocols the object stores. STIX 2.1 §6.12.1 lists start,
+// end, src_ref, dst_ref, src_port, dst_port, protocols and extensions as its
+// id contributing properties. reckon leaves out start and end, and the
+// extensions, so one connection seen in many events is one object, and each
+// observation holds its own times (03 §7, adr/0357). protocols is the
+// stored list, already lowercased by the normalizer; it is folded again so a
+// caller cannot split one connection by case. A port the telemetry does not
+// give is nil and left out of the identity.
+func (r *Resolver) NetworkTraffic(srcRef, dstRef STIXID, srcPort, dstPort *int, protocols []string) STIXID {
+	fields := map[string]any{
+		"src_ref": string(srcRef),
+		"dst_ref": string(dstRef),
+	}
+	if srcPort != nil {
+		fields["src_port"] = *srcPort
+	}
+	if dstPort != nil {
+		fields["dst_port"] = *dstPort
+	}
+	if len(protocols) > 0 {
+		folded := make([]string, len(protocols))
+		for i, p := range protocols {
+			folded[i] = strings.ToLower(strings.TrimSpace(p))
+		}
+		fields["protocols"] = folded
+	}
+	return r.mint(TypeNetworkTraffic, fields)
 }
 
 // EmailMessage resolves an email-message SCO. When a message id is present,
@@ -427,7 +454,7 @@ func (r *Resolver) WeakEmailMessage(sourceTool, uid string) STIXID {
 
 // --- custom SCOs (§7.2) -----------------------------------------------------
 
-// HostIdentity carries the fields an x-host is identified by (adr/0211). The
+// HostIdentity carries the fields a reckon-host is identified by (adr/0211). The
 // short hostname is the identity: Host folds it with canonicalHostname, so
 // "WIN-FILE01", "win-file01" and "win-file01.corp.example." are one host.
 // MAC, and failing that the pair (SourceTool, SourceUID), are weak tiers used
@@ -444,7 +471,7 @@ type HostIdentity struct {
 	SourceUID  string
 }
 
-// Host resolves an x-host SCO on the first tier present: the canonical short
+// Host resolves a reckon-host SCO on the first tier present: the canonical short
 // hostname, else the MAC, else (source tool, device uid), the uid required and
 // the tool possibly empty. A placeholder (PlaceholderHostname, PlaceholderMAC,
 // PlaceholderDeviceUID) reads as absent, so the host falls to its next tier.
@@ -480,6 +507,24 @@ var registryRoots = map[string]string{
 	"HKEY_CLASSES_ROOT":   "HKEY_CLASSES_ROOT",
 	"HKCC":                "HKEY_CURRENT_CONFIG",
 	"HKEY_CURRENT_CONFIG": "HKEY_CURRENT_CONFIG",
+	// Two hives with no common abbreviation, named in full.
+	"HKEY_PERFORMANCE_DATA": "HKEY_PERFORMANCE_DATA",
+	"HKEY_DYN_DATA":         "HKEY_DYN_DATA",
+}
+
+// HasRegistryHive reports whether a key starts with a full hive name, such as
+// HKEY_LOCAL_MACHINE, in any letter case. STIX 2.1 §6.17.1 requires a key to
+// include the hive, fully expanded. A key with no root, such as a relative
+// path, or with a root that is not a hive, such as an application hive under
+// \REGISTRY\A, has none (adr/0357).
+func HasRegistryHive(key string) bool {
+	first, _, _ := strings.Cut(key, `\`)
+	for _, hive := range registryRoots {
+		if strings.EqualFold(first, hive) {
+			return true
+		}
+	}
+	return false
 }
 
 // RegistryKeyPath is the key of a windows-registry-key built from a full
@@ -489,8 +534,9 @@ var registryRoots = map[string]string{
 // leading root becomes the full hive
 // name in upper case: HKLM and \REGISTRY\MACHINE become HKEY_LOCAL_MACHINE,
 // HKU and \REGISTRY\USER become HKEY_USERS, and HKCU, HKCR and HKCC their
-// full names, in any letter case. The rest keeps the source's case. A root
-// that is none of these is kept as written.
+// full names, in any letter case. A leading "Computer\", as a registry
+// editor copies a key, is removed first. The rest keeps the source's case. A
+// root that is none of these is kept as written: HasRegistryHive tells.
 func RegistryKeyPath(path string) string {
 	path = strings.Trim(strings.TrimSpace(path), `\`)
 	for strings.Contains(path, `\\`) {
@@ -500,6 +546,11 @@ func RegistryKeyPath(path string) string {
 		return ""
 	}
 	first, rest, _ := strings.Cut(path, `\`)
+	// A registry editor copies a key with "Computer\" before the root. It
+	// names the local machine, not a part of the key (adr/0357).
+	if strings.EqualFold(first, "Computer") && rest != "" {
+		return RegistryKeyPath(rest)
+	}
 	if strings.EqualFold(first, "REGISTRY") {
 		// \REGISTRY\MACHINE and \REGISTRY\USER are two-segment roots.
 		second, after, _ := strings.Cut(rest, `\`)
@@ -540,7 +591,7 @@ func (r *Resolver) RegistryKey(hostRef STIXID, key string, valueName *string) ST
 	return r.mint(TypeWindowsRegistryKey, contributing)
 }
 
-// ScheduledTask resolves an x-scheduled-task SCO. name and path are lowercased.
+// ScheduledTask resolves a reckon-scheduled-task SCO. name and path are lowercased.
 func (r *Resolver) ScheduledTask(hostRef STIXID, name, path string) STIXID {
 	return r.mint(TypeScheduledTask, map[string]any{
 		"host_ref": string(hostRef),
@@ -549,7 +600,7 @@ func (r *Resolver) ScheduledTask(hostRef STIXID, name, path string) STIXID {
 	})
 }
 
-// Group resolves an x-group SCO. directory and group_name are lowercased.
+// Group resolves a reckon-group SCO. directory and group_name are lowercased.
 func (r *Resolver) Group(directory, groupName string) STIXID {
 	return r.mint(TypeGroup, map[string]any{
 		"directory":  strings.ToLower(strings.TrimSpace(directory)),
@@ -557,7 +608,7 @@ func (r *Resolver) Group(directory, groupName string) STIXID {
 	})
 }
 
-// CloudAccount resolves an x-cloud-account SCO from (provider, account_uid)
+// CloudAccount resolves a reckon-cloud-account SCO from (provider, account_uid)
 // (03 §7.2). The provider is lowercased; the account uid is trimmed and keeps
 // its case, except a GUID-shaped uid (an Azure subscription or tenant id),
 // which is hex and lowercased. Which payload field names the account, and the
@@ -570,7 +621,7 @@ func (r *Resolver) CloudAccount(provider, uid string) STIXID {
 }
 
 // CloudResourceIdentity carries the identity-contributing fields of an
-// x-cloud-resource, in priority order: the provider's unique resource id (UID)
+// reckon-cloud-resource, in priority order: the provider's unique resource id (UID)
 // > the resource's (Type, Region, Zone, Group, Namespace, Name) under its
 // account (AccountRef). Zone is OCSF's availability zone, a field newer
 // schema versions carry and older ones do not (03 §4.16); it is empty when
@@ -587,7 +638,7 @@ type CloudResourceIdentity struct {
 	Name       string
 }
 
-// CloudResourceRule says which identity rule resolved an x-cloud-resource, so
+// CloudResourceRule says which identity rule resolved a reckon-cloud-resource, so
 // a caller can tell an owner-carrying id from an account-scoped one without
 // re-deriving the priority.
 type CloudResourceRule int
@@ -603,7 +654,7 @@ const (
 	CloudResourceByName
 )
 
-// CloudResource resolves an x-cloud-resource SCO using the strongest available
+// CloudResource resolves a reckon-cloud-resource SCO using the strongest available
 // identifier (03 §7.2): (provider, uid) when the provider's unique resource id
 // is present, since it is unique within the provider and already carries its
 // account; else (account_ref, type, region, zone, group, namespace, name),
@@ -690,7 +741,26 @@ func (r *Resolver) ObservedData(classUID int, observed time.Time, sourceTool str
 	})
 }
 
-// NullObservation resolves the id of an x-null-observation (adr/0061): the
+// Artifact resolves the artifact that stands for a stored OCSF record (03
+// §4.13, adr/0357). The id is minted over hashes, the property STIX names for
+// an artifact's id when it has no payload_bin. The hash is the SHA-256 of the
+// payload's canonical JSON, the same content hash the ObservedData id uses.
+// It is returned beside the id, so the artifact's hashes property holds the
+// exact value its id was minted from.
+func (r *Resolver) Artifact(payload any) (id STIXID, sha256 string) {
+	sha256 = contentHash(payload)
+	return r.ArtifactByHash(sha256), sha256
+}
+
+// ArtifactByHash resolves an artifact from the SHA-256 its hashes hold, the
+// value Artifact mints from.
+func (r *Resolver) ArtifactByHash(sha256 string) STIXID {
+	return r.mint(TypeArtifact, map[string]any{
+		"hashes": map[string]string{"SHA-256": sha256},
+	})
+}
+
+// NullObservation resolves the id of a reckon-null-observation (adr/0061): the
 // same question — verb, subject, parameters, window — asked of the same
 // sources and answered empty is the same absence, so it mints the same id.
 // A different window is a different absence. Sources are sorted so binding
@@ -728,22 +798,39 @@ func (r *Resolver) Relationship(relType string, source, target STIXID) STIXID {
 }
 
 // Indicator resolves a deterministic id for an imported vendor Indicator
-// (§4.12) from the vendor's stable finding uid (falling back to the pattern), so
-// re-ingesting the same detection dedupes to one Indicator.
-func (r *Resolver) Indicator(findingUID, pattern string) STIXID {
-	return r.mint("indicator", map[string]any{
-		"finding_uid": strings.TrimSpace(findingUID),
-		"pattern":     strings.TrimSpace(pattern),
-	})
+// (§4.12) from values the indicator stores: the vendor that made the claim
+// (created_by_ref), the pattern, the pattern_type, and the vendor's finding
+// uid when the source gives one, stored as an external reference under the
+// vendor's name (adr/0357). So re-ingesting the same detection dedupes to one
+// Indicator, while two vendors, or two findings, with one pattern stay two.
+func (r *Resolver) Indicator(createdByRef STIXID, pattern, patternType, findingUID string) STIXID {
+	fields := map[string]any{
+		"created_by_ref": string(createdByRef),
+		"pattern":        strings.TrimSpace(pattern),
+		"pattern_type":   strings.TrimSpace(patternType),
+	}
+	if uid := strings.TrimSpace(findingUID); uid != "" {
+		fields["finding_uid"] = uid
+	}
+	return r.mint("indicator", fields)
 }
 
 // Sighting resolves a deterministic id for an imported vendor Sighting (§4.12)
 // from (indicator, observation second, tool).
-func (r *Resolver) Sighting(indicatorRef STIXID, observed time.Time, tool string) STIXID {
+// The observations the sighting cites are part of it, so two findings in the
+// same second on different evidence are two sightings (adr/0357). They are
+// sorted, so their order cannot change the id.
+func (r *Resolver) Sighting(indicatorRef STIXID, observed time.Time, tool string, observedDataRefs []STIXID) STIXID {
+	refs := make([]string, 0, len(observedDataRefs))
+	for _, ref := range observedDataRefs {
+		refs = append(refs, string(ref))
+	}
+	sort.Strings(refs)
 	return r.mint("sighting", map[string]any{
-		"sighting_of": string(indicatorRef),
-		"time":        observed.UTC().Truncate(time.Second).Format(time.RFC3339),
-		"tool":        strings.TrimSpace(tool),
+		"sighting_of":        string(indicatorRef),
+		"time":               observed.UTC().Truncate(time.Second).Format(time.RFC3339),
+		"tool":               strings.TrimSpace(tool),
+		"observed_data_refs": refs,
 	})
 }
 

@@ -160,48 +160,48 @@ describe("reducer: rename", () => {
 });
 
 describe("reducer: a host's identity acts (adr/0211)", () => {
-  const ref = "x-host--1";
+  const ref = "reckon-host--1";
   const identity = { aliases: [], distinct: [], seenAs: { domains: [], agents: [], ips: [] } };
-  const prior = { ...identity, aliases: [{ edgeId: "relationship--1", otherRef: "x-host--2", kind: "observed" as const, source: "edr", at: "2026-01-02T03:04:05Z", withdrawn: false }] };
+  const prior = { ...identity, aliases: [{ edgeId: "relationship--1", otherRef: "reckon-host--2", kind: "observed" as const, source: "edr", at: "2026-01-02T03:04:05Z", withdrawn: false }] };
   it("settles each act by its own request id: in flight, refused, landed", () => {
     let s = reducer(initialState, { type: "identity.sent", ref, requestId: "r1" });
     expect(s.identityActs.r1).toEqual({ ref, state: "pending" });
     expect(identityActPending(s, ref)).toBe(true);
-    expect(identityActPending(s, "x-host--other")).toBe(false);
+    expect(identityActPending(s, "reckon-host--other")).toBe(false);
     s = run([{ type: "identity.error", ref, requestId: "r1", message: "the signed-in person changed" }], s);
     expect(s.identityActs.r1).toEqual({ ref, state: "failed", message: "the signed-in person changed" });
     expect(identityActPending(s, ref)).toBe(false);
     s = reducer(s, { type: "identity.sent", ref, requestId: "r2" });
-    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] }, { type: "inspector.identity", ref, requestId: "r2", views: { identity } }], s);
+    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: {}, identity: prior }, appearances: [] }, { type: "inspector.identity", ref, requestId: "r2", views: { identity } }], s);
     expect(s.identityActs.r2).toEqual({ ref, state: "landed", message: undefined });
     expect(s.identityActs.r1!.state).toBe("failed"); // the other act is untouched
     expect(s.docs[ref]!.identity).toEqual(identity);
   });
   it("keeps a host's last view when a read answers it without one, marking it stale though it was not", () => {
-    let s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] }]);
+    let s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: {}, identity: prior }, appearances: [] }]);
     expect(s.staleEntities[ref]).toBeUndefined();
-    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: { fresh: true } }, appearances: [] }], s);
+    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: { fresh: true } }, appearances: [] }], s);
     expect(s.docs[ref]!.identity).toEqual(prior);
     expect(s.docs[ref]!.payload).toEqual({ fresh: true });
     expect(s.staleEntities[ref]).toBe(true);
   });
   it("marks every other host held stale after an act, until it is read again", () => {
-    const other = "x-host--2";
+    const other = "reckon-host--2";
     let s = run([
-      { type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] },
-      { type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "x-host", payload: {}, identity }, appearances: [] },
+      { type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: {}, identity: prior }, appearances: [] },
+      { type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "reckon-host", payload: {}, identity }, appearances: [] },
       { type: "inspector.evidence", ref: "ipv4-addr--1", doc: { ref: "ipv4-addr--1", kind: "stix", type: "ipv4-addr", payload: {} }, appearances: [] },
     ]);
     s = reducer(s, { type: "identity.sent", ref, requestId: "r4" });
     s = run([{ type: "inspector.identity", ref, requestId: "r4", views: { identity } }], s);
     expect(s.staleEntities).toEqual({ [other]: true });
-    s = run([{ type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "x-host", payload: {}, identity }, appearances: [] }], s);
+    s = run([{ type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "reckon-host", payload: {}, identity }, appearances: [] }], s);
     expect(s.staleEntities).toEqual({});
   });
   it("a load marks every held host stale, so a pane showing one reads it afresh", () => {
     let s = run([
       { type: "state.snapshot", seq: 1, snapshot: snap(1) },
-      { type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] },
+      { type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: {}, identity: prior }, appearances: [] },
       { type: "inspector.evidence", ref: "ipv4-addr--1", doc: { ref: "ipv4-addr--1", kind: "stix", type: "ipv4-addr", payload: {} }, appearances: [] },
     ]);
     expect(s.staleEntities).toEqual({});
@@ -217,21 +217,21 @@ describe("reducer: a host's identity acts (adr/0211)", () => {
     expect(s.reloadSeq).toBe(2);
   });
   it("identity.changed marks all hosts stale, the acted one included", () => {
-    const other = "x-host--2";
+    const other = "reckon-host--2";
     let s = run([
-      { type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] },
-      { type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "x-host", payload: {}, identity }, appearances: [] },
+      { type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: {}, identity: prior }, appearances: [] },
+      { type: "inspector.evidence", ref: other, doc: { ref: other, kind: "stix", type: "reckon-host", payload: {}, identity }, appearances: [] },
       { type: "inspector.evidence", ref: "ipv4-addr--1", doc: { ref: "ipv4-addr--1", kind: "stix", type: "ipv4-addr", payload: {} }, appearances: [] },
     ]);
     s = run([{ type: "identity.changed", ref }], s);
     expect(s.staleEntities).toEqual({ [ref]: true, [other]: true });
   });
   it("keeps a stale host marked when its re-read reuses the held view, and clears it on a fresh view", () => {
-    let s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] }, { type: "identity.changed", ref }]);
-    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {} }, appearances: [] }], s);
+    let s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: {}, identity: prior }, appearances: [] }, { type: "identity.changed", ref }]);
+    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: {} }, appearances: [] }], s);
     expect(s.docs[ref]!.identity).toEqual(prior);
     expect(s.staleEntities[ref]).toBe(true);
-    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity }, appearances: [] }], s);
+    s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: {}, identity }, appearances: [] }], s);
     expect(s.staleEntities[ref]).toBeUndefined();
   });
   it("forgets a closed form's act: at once when settled, once it settles when in flight", () => {
@@ -247,7 +247,7 @@ describe("reducer: a host's identity acts (adr/0211)", () => {
     expect(identityActPending(s, ref)).toBe(false);
   });
   it("keeps the last view when the act's view could not be read, and says the act was recorded", () => {
-    let s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "x-host", payload: {}, identity: prior }, appearances: [] }]);
+    let s = run([{ type: "inspector.evidence", ref, doc: { ref, kind: "stix", type: "reckon-host", payload: {}, identity: prior }, appearances: [] }]);
     s = reducer(s, { type: "identity.sent", ref, requestId: "r3" });
     s = run([{ type: "inspector.identity", ref, requestId: "r3", views: null }], s);
     expect(s.identityActs.r3).toEqual({ ref, state: "landed", message: identityViewUnavailable });
@@ -262,11 +262,11 @@ describe("reducer: an account's and a person's identity (adr/0324)", () => {
   const edge = { edgeId: "relationship--1", otherRef: "user-account--2", kind: "observed" as const, source: "dc", at: "2026-01-02T03:04:05Z", withdrawn: false };
   const accountView = { aliases: [edge], distinct: [], seenAs: { logins: ["jdoe"], ids: [], principalNames: [] }, owners: [] };
   const personView = { aliases: [], distinct: [], accounts: [{ accountRef: acct, personRef: person, accountAliases: [acct], edgeId: "relationship--o", kind: "observed" as const, source: "idp", at: "2026-01-02T03:04:05Z", withdrawn: false, cut: false }], readAccounts: [acct] };
-  const person$ = { type: "identity", payload: { properties: { identity_class: "individual" } } };
+  const person$ = { type: "identity", payload: { identity_class: "individual" } };
   const docs: RenderMessage[] = [
     { type: "inspector.evidence", ref: acct, doc: { ref: acct, kind: "stix", type: "user-account", payload: {}, accountIdentity: accountView }, appearances: [] },
     { type: "inspector.evidence", ref: person, doc: { ref: person, kind: "stix", ...person$, personIdentity: personView }, appearances: [] },
-    { type: "inspector.evidence", ref: vendor, doc: { ref: vendor, kind: "stix", type: "identity", payload: { properties: { name: "edr vendor" } } }, appearances: [] },
+    { type: "inspector.evidence", ref: vendor, doc: { ref: vendor, kind: "stix", type: "identity", payload: { name: "edr vendor" } }, appearances: [] },
   ];
 
   it("keeps an account's and a person's last view when a read answers without it, marking each stale", () => {
@@ -286,7 +286,7 @@ describe("reducer: an account's and a person's identity (adr/0324)", () => {
   });
 
   it("identity.changed and a load mark accounts and persons stale, never a vendor identity", () => {
-    let s = run([...docs, { type: "identity.changed", ref: "x-host--9" }]);
+    let s = run([...docs, { type: "identity.changed", ref: "reckon-host--9" }]);
     expect(s.staleEntities).toEqual({ [acct]: true, [person]: true });
     s = run([...docs, { type: "state.snapshot", seq: 1, snapshot: snap(1) }]);
     expect(s.staleEntities).toEqual({ [acct]: true, [person]: true });
@@ -320,10 +320,10 @@ describe("reducer: an account's and a person's identity (adr/0324)", () => {
 
 describe("reducer: an identity change re-reads as a load does (adr/0211, adr/0324)", () => {
   const a = "user-account--1";
-  const h = "x-host--1";
+  const h = "reckon-host--1";
   const held: RenderMessage[] = [
     { type: "inspector.evidence", ref: a, doc: { ref: a, kind: "stix", type: "user-account", payload: {}, accountIdentity: { aliases: [], distinct: [], seenAs: { logins: [], ids: [], principalNames: [] }, owners: [] } }, appearances: [] },
-    { type: "inspector.evidence", ref: h, doc: { ref: h, kind: "stix", type: "x-host", payload: {}, identity: { aliases: [], distinct: [], seenAs: { domains: [], agents: [], ips: [] } } }, appearances: [] },
+    { type: "inspector.evidence", ref: h, doc: { ref: h, kind: "stix", type: "reckon-host", payload: {}, identity: { aliases: [], distinct: [], seenAs: { domains: [], agents: [], ips: [] } } }, appearances: [] },
   ];
   it("bumps the change on every identity.changed, stale or not, and on nothing else", () => {
     let s = run(held);

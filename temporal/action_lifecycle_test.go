@@ -18,7 +18,7 @@ func lifecycleInput() ActionLifecycleInput {
 		TenantID:    "33333333-3333-4333-8333-333333333333",
 		ApproverID:  "alice",
 		ActionType:  "host.isolate",
-		Targets:     []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:     []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 	}
 }
 

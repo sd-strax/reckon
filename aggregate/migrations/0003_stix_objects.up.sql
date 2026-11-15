@@ -4,7 +4,7 @@
 -- (01-domain-model.md). STIX objects are stored with their canonical
 -- deterministic UUIDv5 id and the full STIX JSON payload.
 --
--- type is denormalized for indexed queries (e.g., "all x-host objects for
+-- type is denormalized for indexed queries (e.g., "all reckon-host objects for
 -- this investigation"). Inline JSON access works too but is slower for
 -- type-filtered scans.
 --
@@ -31,7 +31,7 @@ CREATE INDEX IF NOT EXISTS stix_objects_modified_idx ON stix_objects (modified);
 -- interpretation layers are typed edges, never embedded references. The table
 -- is named stix_edges to match the canonical name in 02-persistence.md §2.2 and
 -- 05-component-architecture.md — it holds more than standard STIX relationship
--- types (member-of, x-supports, x-refutes, aliases, ...). tenant_id is the
+-- types (member-of, reckon-supports, reckon-refutes, aliases, ...). tenant_id is the
 -- always-present partition key; the rest of the column-level schema here is a
 -- placeholder for the authoritative edge shape (subject/predicate/object) (the
 -- tenant-leading indexes already match 02-persistence.md §2.2).

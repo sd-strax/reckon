@@ -27,8 +27,8 @@ This spec defines how investigation state is persisted. It assumes the investiga
 | Layer | Strategy | Reasoning |
 |---|---|---|
 | Investigation aggregate | Event-sourced | Replay, defensibility, AI reasoning audit, multi-analyst handoff, detection authoring all bite here and only here |
-| x-action lifecycle | Event-sourced (inside the investigation aggregate) | Has a real state machine (REQUESTED → APPROVED → EXECUTING → terminal); same-aggregate placement makes the action ↔ producing-Interpretation write atomic and removes any cross-aggregate consistency story |
-| STIX object layer (entities, ObservedData, Sightings, Indicators, Reports, Notes, Opinions, Relationships, x-hypothesis, x-prediction, vendor Identity SDOs) | CRUD + thin change-history table | No state-machine invariants; mostly accretive; ES gives no leverage. x-hypothesis status transitions are recorded as Interpretations in the investigation aggregate, not as separate events here. |
+| reckon-action lifecycle | Event-sourced (inside the investigation aggregate) | Has a real state machine (REQUESTED → APPROVED → EXECUTING → terminal); same-aggregate placement makes the action ↔ producing-Interpretation write atomic and removes any cross-aggregate consistency story |
+| STIX object layer (entities, ObservedData, Sightings, Indicators, Reports, Notes, Opinions, Relationships, reckon-hypothesis, reckon-prediction, vendor Identity SDOs) | CRUD over two tables, payloads in STIX 2.1 form (§2.2) | No state-machine invariants; mostly accretive; ES gives no leverage. reckon-hypothesis status transitions are recorded as Interpretations in the investigation aggregate, not as separate events here. |
 | OCSF telemetry | Append-only insert | Already immutable by construction; not an aggregate |
 | AI tool calls | Append-only side store, content-hashed | Inherently event-shaped; not an aggregate; needs integrity guarantees |
 | AI prompt/response transcripts | Append-only side store, content-hashed, retention-bounded | Bytes are cheap when stored where they belong; referenced not embedded |
@@ -40,38 +40,46 @@ This spec defines how investigation state is persisted. It assumes the investiga
 
 ### 2.1 Investigation aggregate (event-sourced)
 
-The Investigation aggregate is the unit of event sourcing. Boundary: one Grouping plus its four extensions (Seed, Lifecycle, ReasoningThread, ConclusionSlot), its membership, its Interpretations, and its x-actions (the REQUESTED → APPROVED → EXECUTING → terminal lifecycle for any state-changing action taken from this investigation; see 04-action-authorization.md §3 for the action model and §3.2 for the lifecycle).
+The Investigation aggregate is the unit of event sourcing. Boundary: one Grouping plus its four extensions (Seed, Lifecycle, ReasoningThread, ConclusionSlot), its membership, its Interpretations, and its reckon-actions (the REQUESTED → APPROVED → EXECUTING → terminal lifecycle for any state-changing action taken from this investigation; see 04-action-authorization.md §3 for the action model and §3.2 for the lifecycle).
 
 Things outside the boundary that the aggregate references but does not own: STIX entities, ObservedData, Sightings, OCSF events, AI tool calls, transcripts. The aggregate references them by id; their existence and lifecycle are managed elsewhere.
 
 Aggregate state is reconstructed by folding the event stream in `sequence_no` order. Commands are validated against the folded state, then produce new events. Event append and projection update happen in a single transaction (see §4).
 
-### 2.2 STIX object layer (CRUD + change history)
+### 2.2 STIX object layer (two tables)
 
-Each STIX object type has a current-state row and a thin `<type>_history` table. Change history captures who/when/what-changed for any mutation. STIX objects are mostly created and rarely mutated; the history table is small in practice.
-
-This is *not* event sourcing. There is no fold to derive current state — current state is the row. The history table exists for audit, not for replay.
-
-**Edges.** All interpretation-layer edges (member-of, produced-by, extracted-from, derived-from, sighted-in, x-supports, x-refutes, aliases, parent-of, reverses, plus standard STIX relationship types) live in a single `stix_edges` table:
+The interpretation layer is stored in two tables. `stix_objects` holds every STIX object, and `stix_edges` holds every STIX relationship. Each row's `payload` is the object's STIX 2.1 JSON, valid by 01-domain-model.md *STIX Conformance and Change*. The other columns are indexes over the payload and are filled from it.
 
 ```sql
-CREATE TABLE stix_edges (
-  edge_id        UUID PRIMARY KEY,
-  tenant_id      UUID NOT NULL,
-  subject_id     TEXT NOT NULL,         -- STIX id (any type) or OcsfEvent id
-  predicate      TEXT NOT NULL,         -- edge type from 01-domain-model.md EDGE TYPES
-  object_id      TEXT NOT NULL,         -- STIX id (any type) or OcsfEvent id
-  properties     JSONB,                 -- e.g., {weight: "STRONG"} for x-supports
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  created_by     JSONB                  -- ActorRef envelope when relevant
+CREATE TABLE stix_objects (
+  id            UUID PRIMARY KEY,
+  tenant_id     UUID NOT NULL,
+  type          TEXT NOT NULL,          -- the STIX type, e.g. ipv4-addr, reckon-host
+  spec_version  TEXT NOT NULL,          -- 2.1
+  payload       JSONB NOT NULL,         -- the STIX object
+  created       TIMESTAMPTZ NOT NULL,
+  modified      TIMESTAMPTZ NOT NULL
 );
-CREATE INDEX ON stix_edges (tenant_id, subject_id, predicate);
-CREATE INDEX ON stix_edges (tenant_id, object_id, predicate);
+
+CREATE TABLE stix_edges (
+  id                 UUID PRIMARY KEY,
+  tenant_id          UUID NOT NULL,
+  source_ref         UUID NOT NULL,
+  target_ref         UUID NOT NULL,
+  relationship_type  TEXT NOT NULL,     -- e.g. parent-process-of, aliases
+  payload            JSONB NOT NULL,    -- the STIX relationship
+  created            TIMESTAMPTZ NOT NULL,
+  modified           TIMESTAMPTZ NOT NULL
+);
 ```
 
-Subject and object can be any id in the tenant, including OcsfEvent ids — this is the storage path for STIX↔OCSF edges (`extracted-from`, `derived-from`) that bridge the interpretation and telemetry layers.
+This is not event sourcing. There is no fold to derive current state; current state is the row. Who writes a row decides whether it changes, and where its history is kept:
 
-Edges to OcsfEvent are append-only by construction (OcsfEvents are immutable). Other edge types are CRUD, but in practice are mostly created and rarely deleted; supersession is preferred (e.g., add a new `aliases` edge with stronger evidence rather than delete the old one).
+- **Evidence** is what the normalizers write: SCOs, observed-data, indicators, sightings and their relationships. A row is written once and never changed. The same object from a second event is the same id, and the second write does nothing.
+- **Reasoning objects** (`reckon-hypothesis`, `reckon-prediction`, and the note an attestation becomes) are written by projectors of the investigation aggregate. A change updates the row. The history is the aggregate's event log, not a table here.
+- **A relationship a person asserts** (`aliases`, `distinct-from`, `belongs-to`) keeps its history in its own payload: who asserted it, when, the note and any withdrawal.
+
+The link from an observed-data to the OCSF event it came from is the `derived-from` edge of 01-domain-model.md. It is stored in `observed_data_events`, keyed by both ids, because the telemetry layer is a separate table (§2.3) and an OCSF event is not a STIX object.
 
 ### 2.3 OCSF telemetry (append-only insert)
 
@@ -116,7 +124,7 @@ Lifecycle (each event is recorded in the same aggregate transaction as its corre
 - `InvestigationArchived` — terminal. After this event the aggregate accepts no further events of any kind.
 
 Membership (Grouping.object_refs):
-- `MemberAdded` — payload: stix_object_ref, rationale. **Only for external references** — bringing a STIX object that already exists in the store (an entity from another investigation, an ObservedData from a shared cache) into this investigation's scope. Nodes the aggregate creates internally (Interpretations, x-actions) are members implicitly via their creation event; no separate MemberAdded fires for them.
+- `MemberAdded` — payload: stix_object_ref, rationale. **Only for external references** — bringing a STIX object that already exists in the store (an entity from another investigation, an ObservedData from a shared cache) into this investigation's scope. Nodes the aggregate creates internally (Interpretations, reckon-actions) are members implicitly via their creation event; no separate MemberAdded fires for them.
 - `MemberRemoved` — payload: stix_object_ref, reason. Soft removal — historical membership is preserved by the event itself.
 
 Reasoning thread:
@@ -124,19 +132,19 @@ Reasoning thread:
 - `InterpretationSuperseded` — payload: superseded_id, superseding_id, reason. No deletion; the thread shows both.
 
 Evidence linkage:
-- `EvidenceAttached` — payload: evidence_ref (`EvidenceRef` per 01-domain-model.md INTERPRETATION → Reference types — `StixId | OcsfEventId`), interpretation_ref, role ("supports" | "refutes"), weight (STRONG | MODERATE | WEAK). Role and weight map directly to the `x-supports` / `x-refutes` edge vocabulary in 01-domain-model.md EDGE TYPES. Non-evidentiary references — context, related-but-not-supporting, etc. — belong in the producing Interpretation's `input_refs`, not in this event.
+- `EvidenceAttached` — payload: evidence_ref (`EvidenceRef` per 01-domain-model.md INTERPRETATION → Reference types — `StixId | OcsfEventId`), interpretation_ref, role ("supports" | "refutes"), weight (STRONG | MODERATE | WEAK). Role and weight map directly to the `reckon-supports` / `reckon-refutes` edge vocabulary in 01-domain-model.md EDGE TYPES. Non-evidentiary references — context, related-but-not-supporting, etc. — belong in the producing Interpretation's `input_refs`, not in this event.
 - `EvidenceDetached` — payload: evidence_ref, reason
 
 Action lifecycle (see 04-action-authorization.md §3 for the action model and §3.2 for the state machine):
 - `ActionRequested` — payload: action_id, action_type, tier, reversibility (the classification frozen at request time — reversible | best_effort | irreversible, 04 §7.1 — so the REVERSED-claim gate cannot drift with later catalog edits), targets, parameters, evidence_refs, expires_at, requesting_interpretation_id. Recorded in the same aggregate transaction as the producing `InterpretationRecorded` (interpretation_type "action-request"); shared `correlation_id` ties them. Permitted against a CONCLUDED investigation only when the request is a reversal action (see 04-action-authorization.md §9.1 and the 01-domain-model.md Lifecycle invariants).
-- `ActionApproved` — payload: action_id, authorization { mode (MANUAL | AUTO_POLICY | TWO_PARTY | EXTERNAL_DELEGATED — the last recorded when an external orchestrator substitutes reckon's approval gate, 04-action-authorization.md §5.7), stage (SOLO | PRIMARY | SECONDARY — SOLO for MANUAL/AUTO_POLICY; PRIMARY then SECONDARY for TWO_PARTY), primary_approver_ref, primary_approved_at, secondary_approver_ref?, secondary_approved_at?, policy_ref?, policy_version?, challenge_response? }, approval_interpretation_id. Resulting x-action status: PENDING_SECONDARY when (mode=TWO_PARTY, stage=PRIMARY); APPROVED otherwise. Subsequent rejection or expiry from PENDING_SECONDARY uses the existing `ActionRejected` / `ActionExpired` events.
+- `ActionApproved` — payload: action_id, authorization { mode (MANUAL | AUTO_POLICY | TWO_PARTY | EXTERNAL_DELEGATED — the last recorded when an external orchestrator substitutes reckon's approval gate, 04-action-authorization.md §5.7), stage (SOLO | PRIMARY | SECONDARY — SOLO for MANUAL/AUTO_POLICY; PRIMARY then SECONDARY for TWO_PARTY), primary_approver_ref, primary_approved_at, secondary_approver_ref?, secondary_approved_at?, policy_ref?, policy_version?, challenge_response? }, approval_interpretation_id. Resulting reckon-action status: PENDING_SECONDARY when (mode=TWO_PARTY, stage=PRIMARY); APPROVED otherwise. Subsequent rejection or expiry from PENDING_SECONDARY uses the existing `ActionRejected` / `ActionExpired` events.
 - `ActionRejected` — payload: action_id, reason, rejection_interpretation_id.
 - `ActionExpired` — payload: action_id, expiry_interpretation_id. System-emitted on `expires_at`.
 - `ActionDispatched` — payload: action_id, adapter, adapter_request_id, dispatched_at, dispatch_interpretation_id. System-emitted when the dispatcher picks up an APPROVED action.
 - `ActionResulted` — payload: action_id, final_outcome (SUCCEEDED | FAILED | PARTIAL | TIMEOUT), per_target_results, attempts, raw_response_ref?, result_interpretation_id. System-emitted; `per_target_results` is what makes PARTIAL outcomes auditable.
 - `ActionOutcomeUnknown` (`action.outcome_unknown`) — payload: action_id, detail, result_interpretation_id. System-emitted by a workflow run that finds the dispatch recorded and no result: the run that made the call stopped, so whether the tool acted is unknown (04 §6.2). Status EXECUTING → OUTCOME_UNKNOWN; pairs with an `action-result` Interpretation.
 - `ActionOutcomeResolved` (`action.outcome_resolved`) — payload: action_id, outcome (SUCCEEDED | FAILED), note, reference?, artifact?, resolution_interpretation_id. Human-only: the person who checked the tool records what it shows, with what they checked and, optionally, where the evidence is kept (a reference, never the artifact). Status OUTCOME_UNKNOWN → the outcome; pairs with an `action-resolution` Interpretation.
-- `ActionReversed` — payload: original_action_id, reversing_action_id, reversal_interpretation_id. The reversing action is itself a new x-action (with its own `ActionRequested` etc.); this event records that the original's status moves to REVERSED on the reversing action's success — the *verified* undo (04 §7.1): projected as `reversed_by_ref` on the original.
+- `ActionReversed` — payload: original_action_id, reversing_action_id, reversal_interpretation_id. The reversing action is itself a new reckon-action (with its own `ActionRequested` etc.); this event records that the original's status moves to REVERSED on the reversing action's success — the *verified* undo (04 §7.1): projected as `reversed_by_ref` on the original.
 - `ActionReversalAttempted` — payload: original_action_id, reversing_action_id, reversal_interpretation_id. System-emitted when a reversing dispatch fully succeeded but the original's frozen reversibility is best_effort (04 §7.1 Position C — the effect cannot be verified undone): the original's status does NOT change; the attempt is projected as `reversal_attempted_by_ref` so it is queryable from the original's side without over-claiming. Pairs with an `action-reversal` Interpretation (the interpretation_type enum is canonical; the domain event carries the verified/unverified distinction).
 - `PolicyEvaluated` — payload: action_id, evaluations (list of `{policy_ref, policy_version (content_hash), would_have_fired: bool, effect (AUTO_APPROVE | REQUIRE_TWO_PARTY | DENY), shadow: bool}`), matched_policy_ref (the policy whose effect actually drove authorization, or null if all matching policies were shadow and the action fell through to the manual flow). Recorded once per action-request, in the same aggregate transaction as `ActionRequested`. Captures both firing and shadow-mode policies — the shadow audit (04-action-authorization.md §4.4) reads `would_have_fired = true AND shadow = true` from this event stream.
 
@@ -149,8 +157,8 @@ Total: ~20 event types at v0+. Named after analyst verbs. No derived-fact events
 
 - No event for "EntityPromotedFromObservation" or "HypothesisContradicted" — both derivable from `InterpretationRecorded`. Don't make derived facts first-class.
 - No `VerdictRecorded` or `EvidencePinned` events — both are `InterpretationRecorded` acts (types `verdict` / `evidence-pin`, 01-domain-model.md INTERPRETATION → Verdict / Pinned evidence). The disposition of record and the pinned-evidence list are folds over the thread (latest non-superseded verdict; non-superseded pins), projected — not stored — state. An AI-delegated `verdict` act additionally carries the enabling tenant-config ref in its payload (the default-deny dial, 01), so the audit trail shows *what authorized* the delegate to judge.
-- No event for STIX object creation. Entities, Sightings, etc. are created in the STIX object store independently. The investigation references them via `MemberAdded` / `EvidenceAttached`. This keeps entities reusable across investigations without forcing replay of every investigation that ever touched them. (x-actions are an exception — they are aggregate-internal and created by `ActionRequested` events, not in the external store.)
-- No separate `MemberAdded` event for aggregate-internal nodes (Interpretations, x-actions). Membership is implicit at creation time; a separate event would be bookkeeping that doubles event volume during action lifecycles for no information gain.
+- No event for STIX object creation. Entities, Sightings, etc. are created in the STIX object store independently. The investigation references them via `MemberAdded` / `EvidenceAttached`. This keeps entities reusable across investigations without forcing replay of every investigation that ever touched them. (reckon-actions are an exception — they are aggregate-internal and created by `ActionRequested` events, not in the external store.)
+- No separate `MemberAdded` event for aggregate-internal nodes (Interpretations, reckon-actions). Membership is implicit at creation time; a separate event would be bookkeeping that doubles event volume during action lifecycles for no information gain.
 - No `InvestigationForked` event at v0. Forking-as-branching has not shown enough demand. Replay-as-reading (walking the event stream in order) is a v0 feature; replay-as-re-execution and forking are v1+.
 
 ---

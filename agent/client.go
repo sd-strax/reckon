@@ -145,7 +145,7 @@ type ToolCall struct {
 	CapabilityCallID string `json:"capability_call_id,omitempty"`
 }
 
-// Hypothesis is the creation payload of a new x-hypothesis.
+// Hypothesis is the creation payload of a new reckon-hypothesis.
 type Hypothesis struct {
 	Statement   string   `json:"statement"`
 	Handle      string   `json:"handle,omitempty"`
@@ -154,9 +154,9 @@ type Hypothesis struct {
 	Labels      []string `json:"labels,omitempty"`
 }
 
-// Prediction is the creation payload of a new x-prediction. Discriminates
+// Prediction is the creation payload of a new reckon-prediction. Discriminates
 // names the rival hypotheses whose expectation for it is the opposite of the
-// owner's (01 §x-prediction).
+// owner's (01 §reckon-prediction).
 type Prediction struct {
 	HypothesisRef string     `json:"hypothesis_ref"`
 	Statement     string     `json:"statement"`
@@ -200,7 +200,7 @@ type ActionTarget struct {
 	AssetCriticality   string `json:"asset_criticality,omitempty"`
 }
 
-// ActionResponse reports the created x-action and how authorization resolved.
+// ActionResponse reports the created reckon-action and how authorization resolved.
 type ActionResponse struct {
 	ActionID   string `json:"action_id"`
 	Tier       string `json:"tier"`
@@ -283,7 +283,7 @@ type Investigation struct {
 	Seed        *Seed  `json:"seed,omitempty"`
 	SeedSummary string `json:"seed_summary,omitempty"`
 	// HypothesisFraming is the tenant's competing-hypotheses dial (01
-	// §x-hypothesis): "leading_null" (default) or "leading_only". Empty is
+	// §reckon-hypothesis): "leading_null" (default) or "leading_only". Empty is
 	// treated as leading_null.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
 	// Verdict is the disposition of record (01 §Verdict), absent when none.
@@ -628,7 +628,7 @@ func (c *Client) Transcript(ctx context.Context, interpretationID string) (strin
 	return out.Body, err
 }
 
-// ListActions returns the investigation's x-actions with their current status
+// ListActions returns the investigation's reckon-actions with their current status
 // (agent token — a read). The durable source of the pending-approval queue.
 func (c *Client) ListActions(ctx context.Context, id string) ([]ActionStatus, error) {
 	var out struct {

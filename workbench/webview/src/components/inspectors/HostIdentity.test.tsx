@@ -14,17 +14,17 @@ import type { InboundMessage, RenderMessage } from "../../../../src/protocol";
 const base = synthetic as unknown as HarnessSnapshot;
 const host = base.snapshot.investigation.seed!.entityRef!;
 const ip = "ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03";
-const hostB = "x-host--00000000-0000-4000-8000-000000000004";
+const hostB = "reckon-host--00000000-0000-4000-8000-000000000004";
 const at = "2026-01-02T03:04:05Z";
 
 function identity(domains: string[]): HostIdentity {
   return {
     aliases: [
-      { edgeId: "relationship--1", otherRef: "x-host--00000000-0000-4000-8000-000000000002", kind: "observed", source: "edr", at, withdrawn: false },
-      { edgeId: "relationship--3", otherRef: "x-host--00000000-0000-4000-8000-000000000004", kind: "asserted", by: "u-1", byName: "Ana Analyst", at, note: "same serial in the asset register", withdrawn: false },
-      { edgeId: "relationship--5", otherRef: "x-host--00000000-0000-4000-8000-000000000006", kind: "asserted", by: "u-1", byName: "Ana Analyst", at, withdrawn: true },
+      { edgeId: "relationship--1", otherRef: "reckon-host--00000000-0000-4000-8000-000000000002", kind: "observed", source: "edr", at, withdrawn: false },
+      { edgeId: "relationship--3", otherRef: "reckon-host--00000000-0000-4000-8000-000000000004", kind: "asserted", by: "u-1", byName: "Ana Analyst", at, note: "same serial in the asset register", withdrawn: false },
+      { edgeId: "relationship--5", otherRef: "reckon-host--00000000-0000-4000-8000-000000000006", kind: "asserted", by: "u-1", byName: "Ana Analyst", at, withdrawn: true },
     ],
-    distinct: [{ edgeId: "relationship--7", otherRef: "x-host--00000000-0000-4000-8000-000000000008", kind: "asserted", by: "u-2", byName: "Ben Analyst", at, note: "two machines", withdrawn: false }],
+    distinct: [{ edgeId: "relationship--7", otherRef: "reckon-host--00000000-0000-4000-8000-000000000008", kind: "asserted", by: "u-2", byName: "Ben Analyst", at, note: "two machines", withdrawn: false }],
     seenAs: { domains, agents: [{ tool: "edr", uid: "a-7" }, { tool: "edr", uid: "a-8" }, { tool: "ids", uid: "x-9" }], ips: ["10.0.0.7"] },
   };
 }
@@ -36,7 +36,7 @@ function mount(domains: string[]) {
       ...base.docs,
       [host]: { ...base.docs![host]!, identity: identity(domains) },
       [ip]: { ref: ip, kind: "stix", type: "ipv4-addr", payload: { type: "ipv4-addr", value: "10.0.0.9" } },
-      [hostB]: { ref: hostB, kind: "stix", type: "x-host", payload: { type: "x-host", properties: { hostname: "ws1-old" } }, identity: { aliases: [{ edgeId: "relationship--b1", otherRef: host, kind: "observed", source: "edr", at, withdrawn: false }], distinct: [], seenAs: { domains: [], agents: [], ips: [] } } },
+      [hostB]: { ref: hostB, kind: "stix", type: "reckon-host", payload: { type: "reckon-host", hostname: "ws1-old" }, identity: { aliases: [{ edgeId: "relationship--b1", otherRef: host, kind: "observed", source: "edr", at, withdrawn: false }], distinct: [], seenAs: { domains: [], agents: [], ips: [] } } },
     },
     labels: { ...base.labels, [hostB]: "ws1-old" },
   };
@@ -105,9 +105,9 @@ describe("a host's identity in the inspector (adr/0211)", () => {
 
     fireEvent.click(within(p).getByText("Not the same host as…"));
     const split = within(p).getByRole("form", { name: "Not the same host as" });
-    fireEvent.change(split.querySelector("input")!, { target: { value: "x-host--00000000-0000-4000-8000-000000000002" } });
+    fireEvent.change(split.querySelector("input")!, { target: { value: "reckon-host--00000000-0000-4000-8000-000000000002" } });
     fireEvent.click(within(split).getByText("Split"));
-    expect(lastIdentityIntent(transport)).toEqual({ type: "identity.assert", ref: host, requestId: expect.any(String), relation: "distinct", other: "x-host--00000000-0000-4000-8000-000000000002" });
+    expect(lastIdentityIntent(transport)).toEqual({ type: "identity.assert", ref: host, requestId: expect.any(String), relation: "distinct", other: "reckon-host--00000000-0000-4000-8000-000000000002" });
     settle(transport, identity(["corp"]));
 
     fireEvent.click(within(edge("relationship--3")).getByText("Withdraw…"));

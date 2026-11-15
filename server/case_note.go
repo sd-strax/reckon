@@ -13,11 +13,12 @@ import (
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/authz"
 	"github.com/sd-strax/reckon/config"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // The case note (adr/0032-case-note.md): when an investigation is rooted on a
 // system-of-record case, the case can carry a note that an investigation was
-// opened in reckon. The note is an ordinary ticket.comment x-action INSIDE the
+// opened in reckon. The note is an ordinary ticket.comment reckon-action INSIDE the
 // new investigation — requested by the analyst, authorized by Gate 2, recorded
 // against their name — never a side effect of creating the investigation.
 // The tenant posture (config.Cases.NoteOnSeed) decides whether the client
@@ -92,13 +93,11 @@ func (b *Backend) caseSystemName(ctx context.Context, seed *aggregate.Seed) stri
 	if err != nil {
 		return ""
 	}
-	var od struct {
-		Extensions map[string]any `json:"extensions"`
-	}
+	var od map[string]any
 	if err := json.Unmarshal(obj.Payload, &od); err != nil {
 		return ""
 	}
-	sor, _ := od.Extensions["sor"].(string)
+	sor := stix.ObservationSOR.String(od)
 	if name, ok := caseSystemDisplayNames[strings.ToLower(sor)]; ok {
 		return name
 	}

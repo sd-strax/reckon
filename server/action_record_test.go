@@ -45,7 +45,7 @@ func TestActionRecord_HistoryAndAuthorization(t *testing.T) {
 	token := mintToken(t, map[string]any{"preferred_username": "analyst-one"})
 	resp, out := postAction(t, b, token, RequestActionBody{
 		ActionType:       "host.isolate",
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		EvidenceRefs:     []string{"observed-data--od1"},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
@@ -126,7 +126,7 @@ func TestActionRecord_AutoPolicy(t *testing.T) {
 	token := mintToken(t, nil)
 	_, out := postAction(t, b, token, RequestActionBody{
 		ActionType:       "host.isolate",
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		EvidenceRefs:     []string{"observed-data--od1"},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),

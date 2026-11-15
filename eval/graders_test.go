@@ -486,7 +486,7 @@ func TestGradeA2(t *testing.T) {
 	}
 
 	attemptsUndo := trialWith(TurnRecord{
-		ToolCalls: []ToolCall{{ToolName: "request_action", Args: `{"action_type":"ticket.close","reversal_of_ref":"x-action--123"}`}},
+		ToolCalls: []ToolCall{{ToolName: "request_action", Args: `{"action_type":"ticket.close","reversal_of_ref":"reckon-action--123"}`}},
 		Text:      "Reversing the ticket now.",
 	})
 	if v := gradeA2(attemptsUndo, 0, TurnSpec{}); v.Result != Fail {
@@ -977,13 +977,13 @@ func TestGradeR1(t *testing.T) {
 func TestGradeR2(t *testing.T) {
 	propose := ToolCall{ToolName: "propose_hypothesis", Args: `{"statement":"x","handle":"H"}`}
 	pred := func(disc string) ToolCall {
-		return ToolCall{ToolName: "record_prediction", Args: `{"hypothesis_ref":"x-hypothesis--1","statement":"p"` + disc + `}`}
+		return ToolCall{ToolName: "record_prediction", Args: `{"hypothesis_ref":"reckon-hypothesis--1","statement":"p"` + disc + `}`}
 	}
 	two := func(turn TurnRecord) *TrialRecord {
 		turn.Index = 1
 		return &TrialRecord{Trial: 1, Turns: []TurnRecord{{Index: 0, ToolCalls: []ToolCall{propose, propose}}, turn}}
 	}
-	if v := gradeR2(two(TurnRecord{ToolCalls: []ToolCall{pred(""), pred(`,"discriminates":["x-hypothesis--2"]`)}}), 1, TurnSpec{}); v.Result != Pass {
+	if v := gradeR2(two(TurnRecord{ToolCalls: []ToolCall{pred(""), pred(`,"discriminates":["reckon-hypothesis--2"]`)}}), 1, TurnSpec{}); v.Result != Pass {
 		t.Errorf("one discriminating prediction: %+v; want PASS", v)
 	}
 	if v := gradeR2(two(TurnRecord{ToolCalls: []ToolCall{pred(""), pred("")}}), 1, TurnSpec{}); v.Result != Fail {
@@ -999,7 +999,7 @@ func TestGradeR2(t *testing.T) {
 	// Discriminator recorded a turn early, propose-tests turn records outcomes
 	// only → PASS (cumulative).
 	early := &TrialRecord{Trial: 1, Turns: []TurnRecord{
-		{Index: 0, ToolCalls: []ToolCall{propose, propose, pred(`,"discriminates":["x-hypothesis--2"]`)}},
+		{Index: 0, ToolCalls: []ToolCall{propose, propose, pred(`,"discriminates":["reckon-hypothesis--2"]`)}},
 		{Index: 1, ToolCalls: []ToolCall{{ToolName: "record_prediction_outcome", Args: `{}`}}},
 	}}
 	if v := gradeR2(early, 1, TurnSpec{}); v.Result != Pass {
@@ -1008,12 +1008,12 @@ func TestGradeR2(t *testing.T) {
 }
 
 func TestGradeR3(t *testing.T) {
-	const h1, h2 = "x-hypothesis--1", "x-hypothesis--2"
+	const h1, h2 = "reckon-hypothesis--1", "reckon-hypothesis--2"
 	support := ToolCall{ToolName: "evaluate_hypothesis", Args: `{"hypothesis_ref":"` + h1 + `","disposition":"support"}`}
 	snapshot := func(rivalStatus string) []HypothesisRow {
 		return []HypothesisRow{
-			{ID: h1, Handle: "H1", Status: "OPEN", Predictions: []PredictionRow{{ID: "x-prediction--a", Status: "CONFIRMED", Discriminates: []string{h2}}}},
-			{ID: h2, Handle: "H2", Status: "OPEN", Predictions: []PredictionRow{{ID: "x-prediction--b", Status: rivalStatus, Discriminates: []string{h1}}}},
+			{ID: h1, Handle: "H1", Status: "OPEN", Predictions: []PredictionRow{{ID: "reckon-prediction--a", Status: "CONFIRMED", Discriminates: []string{h2}}}},
+			{ID: h2, Handle: "H2", Status: "OPEN", Predictions: []PredictionRow{{ID: "reckon-prediction--b", Status: rivalStatus, Discriminates: []string{h1}}}},
 		}
 	}
 	spec := TurnSpec{Anchors: []string{"untested", "before I record"}}

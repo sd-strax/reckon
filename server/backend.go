@@ -188,7 +188,7 @@ type BackendConfig struct {
 	// HypothesisFraming is the effective competing-hypotheses dial
 	// (config.Reasoning.HypothesisFraming: "leading_null" default |
 	// "leading_only"), surfaced to the agent on the investigation detail view
-	// (01 §x-hypothesis "Competing hypotheses").
+	// (01 §reckon-hypothesis "Competing hypotheses").
 	HypothesisFraming string
 
 	// CaseNoteOnSeed is the effective case write-back posture

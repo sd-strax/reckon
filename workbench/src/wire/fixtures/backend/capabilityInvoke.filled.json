@@ -97,6 +97,15 @@
           "indicator_types": [
             "x"
           ],
+          "labels": [
+            "x"
+          ],
+          "external_references": [
+            {
+              "source_name": "x",
+              "external_id": "x"
+            }
+          ],
           "valid_from": "2026-01-02T03:04:05Z",
           "confidence": 1,
           "created_by_ref": "x",
@@ -122,6 +131,7 @@
           "confidence": 1,
           "description": "x",
           "created_by_ref": "x",
+          "seen_at": "2026-01-02T03:04:05Z",
           "provenance": {
             "derivation_mode": "x",
             "tool": "x",

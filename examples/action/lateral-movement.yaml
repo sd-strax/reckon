@@ -105,7 +105,7 @@ action_bindings:
         ticket: "${target.resolved_identifier}"
 
   # Comms family (binding §4) — the "fake Slack/SMTP". An outbound
-  # message is a T2 x-action; the pre-send preview is its approval surface.
+  # message is a T2 reckon-action; the pre-send preview is its approval surface.
   # On SUCCEEDED the result path opens/extends the comms thread (comms/).
   notify.slack:
     - action_type: notify.slack

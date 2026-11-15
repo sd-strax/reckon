@@ -3,13 +3,13 @@
 -- because aggregate/migrations is the reckon_main schema set. Comms threads
 -- are CRUD + thin history (the architectural commitment: only the
 -- investigation aggregate is event-sourced): every outbound message is a
--- notify.* x-action whose audit record lives in the event log; this table
+-- notify.* reckon-action whose audit record lives in the event log; this table
 -- tracks the CONVERSATION state that follows — replies, follow-ups, closure.
 CREATE TABLE IF NOT EXISTS comms_threads (
     thread_id        UUID PRIMARY KEY,
     aggregate_id     UUID NOT NULL,
     tenant_id        UUID NOT NULL,
-    action_id        UUID NOT NULL,  -- the originating notify.* x-action
+    action_id        UUID NOT NULL,  -- the originating notify.* reckon-action
     action_type      TEXT NOT NULL,  -- notify.slack | notify.email
     target           TEXT NOT NULL,  -- channel / recipient
     subject          TEXT NOT NULL DEFAULT '',

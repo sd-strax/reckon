@@ -1,3 +1,7 @@
 # The OCSF schema exports are one long line each (adr/0356): not diffable,
 # and third-party material.
 third_party/ocsf-schema/*/schema.json -diff linguist-vendored
+
+# The OASIS STIX 2.1 schemas (adr/0357): third-party material, kept as
+# upstream wrote it.
+third_party/stix2-json-schemas/** linguist-vendored

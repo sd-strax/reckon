@@ -26,9 +26,13 @@ var lookups = ocsfschema.NewRecorder()
 
 func TestMain(m *testing.M) {
 	record(lookups)
+	normalizedHook = produced.add
 	code := m.Run()
 	if code == 0 {
 		code = checkLookups(lookups)
+	}
+	if code == 0 {
+		code = checkProduced(&produced)
 	}
 	os.Exit(code)
 }
@@ -101,7 +105,7 @@ func TestLookupsAreRecorded(t *testing.T) {
 		"device": map[string]any{"hostname": "WIN-FILE01", "agent_list": []any{map[string]any{"uid": "a1"}}},
 		"process": map[string]any{
 			"pid":  4242,
-			"file": map[string]any{"name": "x.exe", "hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "ab"}}},
+			"file": map[string]any{"name": "x.exe", "hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603"}}},
 		},
 	})); err != nil {
 		t.Fatal(err)
@@ -190,7 +194,13 @@ func TestRegisteredClassesAreOCSF(t *testing.T) {
 			t.Errorf("class %d is registered, and OCSF %s has no such class", uid, schema.Version())
 			continue
 		}
-		res, err := reg.Normalize(makeEvent(map[string]any{"class_uid": uid, "time": ms("2026-05-06T03:14:00Z")}))
+		evt := map[string]any{"class_uid": uid, "time": ms("2026-05-06T03:14:00Z")}
+		if uid == 2004 {
+			// The least a finding is: OCSF requires its uid and title, and
+			// without them it is a broken record (adr/0357).
+			evt["finding_info"] = map[string]any{"uid": "f-1", "title": "t"}
+		}
+		res, err := reg.Normalize(makeEvent(evt))
 		if err != nil || len(res.ObservedData) == 0 {
 			t.Errorf("class %d: an empty event did not normalize: %v", uid, err)
 			continue

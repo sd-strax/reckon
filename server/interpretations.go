@@ -100,7 +100,7 @@ type HypothesisBody struct {
 
 // PredictionBody is the client shape of a new prediction. Discriminates names
 // the rival hypotheses whose expectation for it is the opposite of the owner's
-// (01 §x-prediction).
+// (01 §reckon-prediction).
 type PredictionBody struct {
 	HypothesisRef string               `json:"hypothesis_ref"`
 	Statement     string               `json:"statement"`
@@ -362,7 +362,7 @@ type HypothesisView struct {
 }
 
 // PredictionView is one prediction row in a HypothesisView. TestQuery is the
-// declared falsification test (01 §x-prediction) — the tracker's "Test this"
+// declared falsification test (01 §reckon-prediction) — the tracker's "Test this"
 // stages it into the composer, never fires it. Discriminates names the rivals
 // this prediction decides against.
 type PredictionView struct {

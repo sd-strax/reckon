@@ -42,7 +42,7 @@ type ActionDescriptor struct {
 	// best_effort→reversible when the wired tool is trusted (04 §7; deferred).
 	Reversibility string `json:"reversibility"`
 	// ReversibleBy is the inverse action type (04 §7); empty when irreversible.
-	// A reversal request creates an x-action of this type against the original's
+	// A reversal request creates a reckon-action of this type against the original's
 	// targets, at the SAME tier (reversing is never lower-tier than the original).
 	ReversibleBy string `json:"reversible_by,omitempty"`
 	D3FEND       string `json:"d3fend,omitempty"`
@@ -274,7 +274,7 @@ func DefaultActionCatalog() *ActionCatalog {
 		},
 
 		// The comms family (binding §4): an outbound message is an
-		// x-action like any external dispatch — T2, because there is no T1
+		// reckon-action like any external dispatch — T2, because there is no T1
 		// external action (04 §1: chat is named explicitly; low friction comes
 		// from the approval surface, never a lower tier). IRREVERSIBLE: a sent
 		// message is permanent. The mandatory pre-send preview IS the approval

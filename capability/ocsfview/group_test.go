@@ -49,7 +49,7 @@ func scenarioLogons() []GroupItem {
 	ents := []Entity{
 		ent("user-account--svc", map[string]any{"account_login": `CONTOSO\svc_backup`}),
 		ent("user-account--jdoe", map[string]any{"account_login": `CONTOSO\jdoe`}),
-		ent("x-host--file01", map[string]any{"hostname": "WIN-FILE01"}),
+		ent("reckon-host--file01", map[string]any{"hostname": "WIN-FILE01"}),
 		ent("ipv4-addr--bkp", map[string]any{"value": "10.0.9.10"}),
 		ent("ipv4-addr--ws20", map[string]any{"value": "10.0.4.20"}),
 		ent("ipv4-addr--ws55", map[string]any{"value": "10.0.4.55"}),
@@ -85,7 +85,7 @@ func TestFold_Scenario(t *testing.T) {
 	for _, p := range g.Key {
 		key = append(key, p.Slot+"="+p.Text+"@"+p.Ref)
 	}
-	want := []string{"user=svc_backup@user-account--svc", "logon_type=Network@", "src=10.0.9.10@ipv4-addr--bkp", "dst=WIN-FILE01@x-host--file01"}
+	want := []string{"user=svc_backup@user-account--svc", "logon_type=Network@", "src=10.0.9.10@ipv4-addr--bkp", "dst=WIN-FILE01@reckon-host--file01"}
 	if !slices.Equal(key, want) {
 		t.Errorf("key = %v; want %v", key, want)
 	}
@@ -109,7 +109,7 @@ func TestFold_PivotDropsTheEntity(t *testing.T) {
 	if len(groups) != 3 {
 		t.Errorf("groups pivoted on the account = %d", len(groups))
 	}
-	groups = Fold(scenarioLogons(), nil, "x-host--file01")
+	groups = Fold(scenarioLogons(), nil, "reckon-host--file01")
 	if len(groups) != 3 {
 		t.Errorf("groups pivoted on the host = %d; want the two users apart", len(groups))
 	}
@@ -129,12 +129,12 @@ func TestFold_ImageKeysByHash(t *testing.T) {
 		v := Render(Event{ClassUID: classProcess, Payload: payload(js)}, ents)
 		return GroupItem{ID: id, ClassUID: classProcess, Time: at, Slots: v.Slots}
 	}
-	same := []Entity{ent("file--abc", map[string]any{"name": "", "hashes": map[string]any{"SHA-256": "abc"}})}
+	same := []Entity{ent("file--abc", map[string]any{"name": "", "hashes": map[string]any{"SHA-256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"}})}
 	items := []GroupItem{
-		item("a", `{"process":{"pid":1,"name":"tool.exe","file":{"name":"tool.exe","hashes":[{"algorithm":"SHA-256","value":"abc"}]},"parent_process":{"name":"cmd.exe"}}}`, same),
-		item("b", `{"process":{"pid":2,"name":"renamed.exe","file":{"name":"renamed.exe","hashes":[{"algorithm":"SHA-256","value":"abc"}]},"parent_process":{"name":"cmd.exe"}}}`, same),
-		item("c", `{"process":{"pid":3,"name":"tool.exe","file":{"name":"tool.exe","hashes":[{"algorithm":"SHA-256","value":"zzz"}]},"parent_process":{"name":"cmd.exe"}}}`,
-			[]Entity{ent("file--zzz", map[string]any{"name": "tool.exe", "hashes": map[string]any{"SHA-256": "zzz"}})}),
+		item("a", `{"process":{"pid":1,"name":"tool.exe","file":{"name":"tool.exe","hashes":[{"algorithm":"SHA-256","value":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"}]},"parent_process":{"name":"cmd.exe"}}}`, same),
+		item("b", `{"process":{"pid":2,"name":"renamed.exe","file":{"name":"renamed.exe","hashes":[{"algorithm":"SHA-256","value":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"}]},"parent_process":{"name":"cmd.exe"}}}`, same),
+		item("c", `{"process":{"pid":3,"name":"tool.exe","file":{"name":"tool.exe","hashes":[{"algorithm":"SHA-256","value":"17f165d5a5ba695f27c023a83aa2b3463e23810e360b7517127e90161eebabda"}]},"parent_process":{"name":"cmd.exe"}}}`,
+			[]Entity{ent("file--zzz", map[string]any{"name": "tool.exe", "hashes": map[string]any{"SHA-256": "17f165d5a5ba695f27c023a83aa2b3463e23810e360b7517127e90161eebabda"}})}),
 		item("d", `{"process":{"pid":4,"name":"tool.exe"}}`, nil),
 		item("e", `{"process":{"pid":5,"name":"tool.exe"}}`, nil),
 	}

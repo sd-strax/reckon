@@ -153,9 +153,13 @@ func normalizeFixture(t *testing.T, name string) capability.NormalizationResult 
 		t.Fatal(err)
 	}
 	classUID, _ := f.OCSF["class_uid"].(float64)
+	// The event's time, as the fixture adapter reads it: OCSF writes it as
+	// epoch milliseconds. An event with no time does not normalize (adr/0357).
+	ms, _ := f.OCSF["time"].(float64)
 	reg := capability.NewRegistry(identity.NewResolver(equivalenceNS))
 	res, err := reg.Normalize(capability.OcsfEvent{
-		ID: uuid.New(), ClassUID: int(classUID), SourceTool: "fixture:exposed-bucket-via-access-key", Payload: f.OCSF,
+		ID: uuid.New(), ClassUID: int(classUID), Time: time.UnixMilli(int64(ms)).UTC(),
+		SourceTool: "fixture:exposed-bucket-via-access-key", Payload: f.OCSF,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -273,7 +277,7 @@ func TestEquivalence_AssumedRolePrincipalIsIssuer(t *testing.T) {
 
 // TestEquivalence_NamedResource: a management event whose resource carries
 // no ARN — only its name, type and region — mints the name-scoped
-// x-cloud-resource the 6003 normalizer mints for the same resource in a
+// reckon-cloud-resource the 6003 normalizer mints for the same resource in a
 // fixture-shaped event, belonging to the same account.
 func TestEquivalence_NamedResource(t *testing.T) {
 	lake := normalizeWire(t, sourceLake, lakeEvents(t, "put-bucket-versioning-by-name.json"))
@@ -293,7 +297,8 @@ func TestEquivalence_NamedResource(t *testing.T) {
 	}
 	f.OCSF["resources"] = []any{map[string]any{"name": "acme-internal-exports", "type": "AWS::S3::Bucket", "region": "us-east-1"}}
 	reg := capability.NewRegistry(identity.NewResolver(equivalenceNS))
-	want, err := reg.Normalize(capability.OcsfEvent{ID: uuid.New(), ClassUID: 6003, SourceTool: "fixture", Payload: f.OCSF})
+	ms, _ := f.OCSF["time"].(float64)
+	want, err := reg.Normalize(capability.OcsfEvent{ID: uuid.New(), ClassUID: 6003, Time: time.UnixMilli(int64(ms)).UTC(), SourceTool: "fixture", Payload: f.OCSF})
 	if err != nil {
 		t.Fatal(err)
 	}

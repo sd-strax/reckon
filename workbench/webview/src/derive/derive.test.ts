@@ -34,8 +34,8 @@ describe("hyps", () => {
 
 describe("key entities (#141)", () => {
   it("lists what the cited evidence observed, seed first", () => {
-    const ents = keyEntities({ type: "entity", entityRef: "x-host--win" }, [], [], [], {}, [{ ref: "user-account--svc", citations: 3 }, { ref: "x-host--win", citations: 2 }]);
-    expect(ents.map((e) => [e.ref, e.role, e.citations])).toEqual([["x-host--win", "seed subject", 2], ["user-account--svc", "cited", 3]]);
+    const ents = keyEntities({ type: "entity", entityRef: "reckon-host--win" }, [], [], [], {}, [{ ref: "user-account--svc", citations: 3 }, { ref: "reckon-host--win", citations: 2 }]);
+    expect(ents.map((e) => [e.ref, e.role, e.citations])).toEqual([["reckon-host--win", "seed subject", 2], ["user-account--svc", "cited", 3]]);
   });
 });
 
@@ -122,13 +122,13 @@ describe("verdict", () => {
 describe("graph", () => {
   it("splits the layers and flags reasoning that reaches no evidence", () => {
     const l = layoutGraph({
-      refs: [{ id: "x-hypothesis--1", kind: "stix", type: "x-hypothesis" }, { id: "x-prediction--2", kind: "stix", type: "x-prediction" }, { id: "observed-data--3", kind: "stix", type: "observed-data" }, { id: "e1", kind: "ocsf", type: "Authentication" }],
-      edges: [{ from: "x-hypothesis--1", to: "x-prediction--2", ai: true }, { from: "x-prediction--2", to: "x-hypothesis--1", ai: true }],
+      refs: [{ id: "reckon-hypothesis--1", kind: "stix", type: "reckon-hypothesis" }, { id: "reckon-prediction--2", kind: "stix", type: "reckon-prediction" }, { id: "observed-data--3", kind: "stix", type: "observed-data" }, { id: "e1", kind: "ocsf", type: "Authentication" }],
+      edges: [{ from: "reckon-hypothesis--1", to: "reckon-prediction--2", ai: true }, { from: "reckon-prediction--2", to: "reckon-hypothesis--1", ai: true }],
     });
     expect(l.stix.length).toBe(3);
     expect(l.ocsf.map((r) => r.id)).toEqual(["e1"]);
-    expect([...l.ungrounded]).toEqual(["x-hypothesis--1", "x-prediction--2"]);
-    const grounded = layoutGraph({ refs: l.stix.concat(l.ocsf), edges: [{ from: "x-hypothesis--1", to: "x-prediction--2", ai: true }, { from: "x-prediction--2", to: "observed-data--3", ai: false }] });
+    expect([...l.ungrounded]).toEqual(["reckon-hypothesis--1", "reckon-prediction--2"]);
+    const grounded = layoutGraph({ refs: l.stix.concat(l.ocsf), edges: [{ from: "reckon-hypothesis--1", to: "reckon-prediction--2", ai: true }, { from: "reckon-prediction--2", to: "observed-data--3", ai: false }] });
     expect(grounded.ungrounded.size).toBe(0);
   });
 });

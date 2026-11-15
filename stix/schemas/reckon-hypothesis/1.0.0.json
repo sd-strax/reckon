@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-hypothesis/1.0.0.json",
+  "title": "reckon-hypothesis",
+  "description": "A hypothesis: a theory of what happened, which predictions test. The STIX common properties come from the STIX 2.1 core schema, so this schema lists only the ones it constrains.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "reckon-hypothesis"
+    },
+    "spec_version": {
+      "const": "2.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^reckon-hypothesis--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "modified": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "statement": {
+      "type": "string",
+      "description": "The theory, in one or two sentences."
+    },
+    "handle": {
+      "type": "string",
+      "description": "The short name views use for the hypothesis."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PROPOSED",
+        "OPEN",
+        "SUPPORTED",
+        "REFUTED",
+        "INCONCLUSIVE",
+        "ABANDONED"
+      ],
+      "description": "Where the hypothesis stands."
+    },
+    "parent_ref": {
+      "type": "string",
+      "pattern": "^reckon-hypothesis--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The hypothesis this one refines."
+    },
+    "rooted_at_ref": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The object the hypothesis starts from."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Why the hypothesis was proposed."
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Labels, by convention MITRE ATT&CK technique ids."
+    }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id",
+    "created",
+    "modified",
+    "statement",
+    "status"
+  ]
+}

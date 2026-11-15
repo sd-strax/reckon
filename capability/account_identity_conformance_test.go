@@ -156,13 +156,18 @@ func TestAccountIdentityConformance(t *testing.T) {
 		p.Properties["mail"] != upn || p.Properties["directory"] != "fixture-idp" || p.Properties["directory_id"] != objectID {
 		t.Fatalf("person = %+v (found %v)", p, ok)
 	}
-	if !refsContain(dir.ObservedData[0].ObjectRefs, person) {
-		t.Error("the person is not in the directory record's object_refs")
+	// The person is an SDO, which object_refs may not list. The belongs-to
+	// relationships stand in its place (adr/0357).
+	if refsContain(dir.ObservedData[0].ObjectRefs, person) {
+		t.Error("the person is in the directory record's object_refs")
 	}
 	owned := map[identity.STIXID]bool{}
 	for _, r := range dir.Relationships {
 		if r.Type == RelBelongsTo && r.TargetRef == person {
 			owned[r.SourceRef] = r.Provenance.DerivationMode == DerivationDirect
+			if !refsContain(dir.ObservedData[0].ObjectRefs, r.ID) {
+				t.Errorf("the belongs-to %s is not in the directory record's object_refs", r.ID)
+			}
 		}
 	}
 	for name, a := range map[string]identity.STIXID{"SID": sidAcct, "principal name": upnAcct, "sam": samAcct, "sign-in": cloudAcct, "sign-in name": cloudName} {

@@ -3,7 +3,7 @@
 // host, confirm a change (design/ui binding §6 gap 17, adr/0101).
 //
 // A dependency is a record of its own, CRUD + thin history like the comms
-// threads (comms/): it is not an x-action (nothing executes, no blast radius,
+// threads (comms/): it is not a reckon-action (nothing executes, no blast radius,
 // no dispatch) and not a message (the channel that carried the ask owns the
 // conversation; a dependency keeps the ask, its status, who closed it and
 // why, and a pointer out). Only the investigation aggregate is event-sourced.

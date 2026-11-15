@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-cloud-account/1.0.0.json",
+  "title": "reckon-cloud-account",
+  "description": "A cloud account: a subscription, project or account that cloud resources and principals live in. The STIX common properties come from the STIX 2.1 core schema, so this schema lists only the ones it constrains.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "reckon-cloud-account"
+    },
+    "spec_version": {
+      "const": "2.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^reckon-cloud-account--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "provider": {
+      "type": "string",
+      "description": "The cloud provider."
+    },
+    "account_uid": {
+      "type": "string",
+      "description": "The provider's id for the account."
+    },
+    "name": {
+      "type": "string",
+      "description": "The account's name."
+    },
+    "account_type": {
+      "type": "string",
+      "description": "The kind of account."
+    },
+    "org_uid": {
+      "type": "string",
+      "description": "The provider's id for the organization the account is in."
+    }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id",
+    "provider",
+    "account_uid"
+  ]
+}

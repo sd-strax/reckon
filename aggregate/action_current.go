@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// ActionCurrent is the materialized state of one x-action: what it is, its
+// ActionCurrent is the materialized state of one reckon-action: what it is, its
 // targets, and where it sits in the lifecycle. Drives the action review queue
 // (a REQUESTED/PENDING_SECONDARY row is a pending approval) and the audit view.
 type ActionCurrent struct {
@@ -31,10 +31,10 @@ type ActionCurrent struct {
 	// reversible | best_effort | irreversible); empty for actions requested
 	// before it was frozen (callers fall back to the live catalog).
 	Reversibility string
-	// ReversedByRef is the reversing x-action once the original is REVERSED
+	// ReversedByRef is the reversing reckon-action once the original is REVERSED
 	// (verified undo, 04 §7.1); zero otherwise.
 	ReversedByRef uuid.UUID
-	// ReversalAttemptedByRef is the reversing x-action of a fully-successful
+	// ReversalAttemptedByRef is the reversing reckon-action of a fully-successful
 	// but UNVERIFIED reversal (04 §7.1 — the original stays SUCCEEDED); zero if
 	// no unverified attempt was recorded.
 	ReversalAttemptedByRef uuid.UUID
@@ -73,7 +73,7 @@ type ActionCurrent struct {
 }
 
 // ActionCurrentProjector populates the action_current table — one row per
-// x-action, keyed by action_id (which is aggregate-internal, unlike STIX
+// reckon-action, keyed by action_id (which is aggregate-internal, unlike STIX
 // entities that live in the external object store).
 type ActionCurrentProjector struct{}
 
@@ -391,7 +391,7 @@ func scanActionCurrent(scan func(dest ...any) error) (ActionCurrent, error) {
 	return a, nil
 }
 
-// LoadActionCurrent returns the materialized state for one x-action, or
+// LoadActionCurrent returns the materialized state for one reckon-action, or
 // ErrNoRecord if it has not been projected.
 func (r *ReadModel) LoadActionCurrent(ctx context.Context, actionID uuid.UUID) (ActionCurrent, error) {
 	row := r.db.QueryRowContext(ctx,
@@ -400,7 +400,7 @@ func (r *ReadModel) LoadActionCurrent(ctx context.Context, actionID uuid.UUID) (
 	return a, notFound(err)
 }
 
-// ListActionCurrents returns every x-action of one investigation, oldest first
+// ListActionCurrents returns every reckon-action of one investigation, oldest first
 // — the action review queue (a REQUESTED/PENDING_SECONDARY row is a pending
 // approval) and the audit list, with full targets/mode detail (unlike
 // ListActionSummaries, which serves the export report's lightweight view).

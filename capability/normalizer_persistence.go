@@ -33,7 +33,10 @@ func (n *registryNormalizer) ClassUID() int { return n.class }
 // 2: host identity, adr/0211
 // 3: OCSF classes and fields, adr/0356
 // 4: STIX windows-registry-key, adr/0341
-func (*registryNormalizer) Version() int { return 4 }
+// 5: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; a key only with a
+// full hive name, adr/0357
+func (*registryNormalizer) Version() int { return 5 }
 
 func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -59,7 +62,10 @@ func (n *registryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, erro
 	} else {
 		path = pathStr(p, "reg_key.path")
 	}
-	if key := identity.RegistryKeyPath(path); key != "" {
+	// STIX requires the key to start with the full hive name (§6.17.1). A key
+	// with no root, such as a relative path, or with a root that is not a
+	// hive, gets no windows-registry-key (adr/0357). The raw event keeps it.
+	if key := identity.RegistryKeyPath(path); key != "" && identity.HasRegistryHive(key) {
 		props := map[string]any{"key": key}
 		if value != nil {
 			props["values"] = []any{value}
@@ -130,7 +136,9 @@ func (*scheduledJobNormalizer) ClassUID() int { return 1006 }
 
 // 2: host identity, adr/0211; 3: account identity, adr/0324
 // 4: OCSF classes and fields, adr/0356
-func (*scheduledJobNormalizer) Version() int { return 4 }
+// 5: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error, adr/0357
+func (*scheduledJobNormalizer) Version() int { return 5 }
 
 func (n *scheduledJobNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -189,7 +197,10 @@ func (*moduleNormalizer) ClassUID() int { return 1005 }
 
 // 2: host identity, adr/0211
 // 3: OCSF classes and fields, adr/0356
-func (*moduleNormalizer) Version() int { return 3 }
+// 4: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; file hashes,
+// names and sizes STIX can hold, adr/0357
+func (*moduleNormalizer) Version() int { return 4 }
 
 func (n *moduleNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	b := newBuilder(n.r, evt, "module_activity", n.Version())

@@ -251,7 +251,7 @@ not yet drawn.*
 Every object a surface can cite has an inspector in the same frame. Reference screens:
 `mockups/07`–`11`.
 
-**Absence** (`x-null-observation`, `adr/0061`). Not an event: a search that answered in
+**Absence** (`reckon-null-observation`, `adr/0061`). Not an event: a search that answered in
 full and found nothing. Tabs: Search · Provenance · Raw.
 
 | Element | Source |
@@ -311,7 +311,7 @@ Evidence · Raw.
 | Wording history: proposed text, restatement at adoption, parent when refined | The acknowledgment and refinement events (`/thread`); `parent_ref` |
 | The competing set with each status; open the matrix | `/hypotheses` |
 
-**Action** (`x-action`). The card (`03 §3.3`) is the summary; the inspector is the record.
+**Action** (`reckon-action`). The card (`03 §3.3`) is the summary; the inspector is the record.
 Tabs: History · Authorization · Targets.
 
 | Element | Source |

@@ -1,9 +1,9 @@
--- 0009_action_current: projection of the x-action lifecycle. One row per
--- x-action, keyed by action_id, materialized from the action lifecycle events
+-- 0009_action_current: projection of the reckon-action lifecycle. One row per
+-- reckon-action, keyed by action_id, materialized from the action lifecycle events
 -- (every action.* event except action.policy_evaluated) by the
 -- ActionCurrentProjector inside the same transaction as the event-append.
 --
--- x-actions are aggregate-internal (created by action.requested events, not in
+-- reckon-actions are aggregate-internal (created by action.requested events, not in
 -- the external STIX object store — 02-persistence.md §3), so this table is the
 -- queryable view of "what actions exist and where they sit in the lifecycle."
 -- A REQUESTED / PENDING_SECONDARY row is a pending approval (the review queue).

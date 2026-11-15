@@ -3,7 +3,7 @@
 // investigation rooted on it (14 §3), or open the one already rooted on it.
 // It does not link out: the document IS the read, and the case number is
 // enough for anyone who needs the SoR's own page.
-// Nothing on this surface writes to the case system: a write is an x-action
+// Nothing on this surface writes to the case system: a write is a reckon-action
 // inside an investigation, and before the investigation exists there is
 // nothing to record it against.
 //

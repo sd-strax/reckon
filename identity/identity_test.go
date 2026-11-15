@@ -126,10 +126,22 @@ func TestRegistryKey(t *testing.T) {
 		{`HKLM\\Software\\\Run`, `HKEY_LOCAL_MACHINE\Software\Run`},
 		{`\REGISTRY\A\x`, `REGISTRY\A\x`},
 		{`Software\Run`, `Software\Run`},
+		{`Computer\HKEY_LOCAL_MACHINE\SOFTWARE\Example`, `HKEY_LOCAL_MACHINE\SOFTWARE\Example`},
+		{`computer\HKLM\Software`, `HKEY_LOCAL_MACHINE\Software`},
+		{`Computer`, `Computer`},
 		{"", ""},
 	} {
 		if got := RegistryKeyPath(tc.in); got != tc.want {
 			t.Errorf("RegistryKeyPath(%q) = %q; want %q", tc.in, got, tc.want)
+		}
+	}
+	// A key starts with a full hive name, or it has none (adr/0357).
+	for key, want := range map[string]bool{
+		`HKEY_LOCAL_MACHINE\Software`: true, `hkey_users\S-1`: true, `HKEY_PERFORMANCE_DATA`: true,
+		`HKLM\Software`: false, `Software\Run`: false, `REGISTRY\A\x`: false, ``: false,
+	} {
+		if got := HasRegistryHive(key); got != want {
+			t.Errorf("HasRegistryHive(%q) = %v; want %v", key, got, want)
 		}
 	}
 
@@ -141,19 +153,19 @@ func TestRegistryKey(t *testing.T) {
 		a, b STIXID
 		same bool
 	}{
-		{"abbreviated hive, shaped", r.RegistryKey("x-host--1", RegistryKeyPath(`HKLM\Software\Run`), name("Updater")), r.RegistryKey("x-host--1", run, name("Updater")), true},
-		{"resolver does not expand", r.RegistryKey("x-host--1", `HKLM\Software\Run`, name("Updater")), r.RegistryKey("x-host--1", run, name("Updater")), false},
-		{"key case", r.RegistryKey("x-host--1", `hkey_local_machine\software\run`, nil), r.RegistryKey("x-host--1", run, nil), true},
-		{"value name case", r.RegistryKey("x-host--1", run, name("Updater")), r.RegistryKey("x-host--1", run, name("updater")), true},
-		{"key only vs default value", r.RegistryKey("x-host--1", run, nil), r.RegistryKey("x-host--1", run, name("")), false},
-		{"two values", r.RegistryKey("x-host--1", run, name("Updater")), r.RegistryKey("x-host--1", run, name("Other")), false},
-		{"two hosts", r.RegistryKey("x-host--1", run, name("Updater")), r.RegistryKey("x-host--2", run, name("Updater")), false},
+		{"abbreviated hive, shaped", r.RegistryKey("reckon-host--1", RegistryKeyPath(`HKLM\Software\Run`), name("Updater")), r.RegistryKey("reckon-host--1", run, name("Updater")), true},
+		{"resolver does not expand", r.RegistryKey("reckon-host--1", `HKLM\Software\Run`, name("Updater")), r.RegistryKey("reckon-host--1", run, name("Updater")), false},
+		{"key case", r.RegistryKey("reckon-host--1", `hkey_local_machine\software\run`, nil), r.RegistryKey("reckon-host--1", run, nil), true},
+		{"value name case", r.RegistryKey("reckon-host--1", run, name("Updater")), r.RegistryKey("reckon-host--1", run, name("updater")), true},
+		{"key only vs default value", r.RegistryKey("reckon-host--1", run, nil), r.RegistryKey("reckon-host--1", run, name("")), false},
+		{"two values", r.RegistryKey("reckon-host--1", run, name("Updater")), r.RegistryKey("reckon-host--1", run, name("Other")), false},
+		{"two hosts", r.RegistryKey("reckon-host--1", run, name("Updater")), r.RegistryKey("reckon-host--2", run, name("Updater")), false},
 	} {
 		if (tc.a == tc.b) != tc.same {
 			t.Errorf("%s: %q vs %q; want same = %v", tc.name, tc.a, tc.b, tc.same)
 		}
 	}
-	if typ, _, _ := strings.Cut(string(r.RegistryKey("x-host--1", run, nil)), "--"); typ != TypeWindowsRegistryKey {
+	if typ, _, _ := strings.Cut(string(r.RegistryKey("reckon-host--1", run, nil)), "--"); typ != TypeWindowsRegistryKey {
 		t.Errorf("type = %s; want %s", typ, TypeWindowsRegistryKey)
 	}
 }
@@ -171,21 +183,25 @@ func TestDistinctnessAcrossType(t *testing.T) {
 // case/format-insensitive; absent hashes fall back to name/dir/size.
 func TestFileHashPriority(t *testing.T) {
 	r := NewResolver(nsA)
-	full := r.File(FileIdentity{Hashes: map[string]string{"SHA-256": "ABC", "SHA-1": "def", "MD5": "123"}})
-	sha256Only := r.File(FileIdentity{Hashes: map[string]string{"sha256": "abc"}})
+	sha256 := strings.Repeat("ab", 32)
+	sha1 := strings.Repeat("de", 20)
+	md5 := strings.Repeat("12", 16)
+	full := r.File(FileIdentity{Hashes: map[string]string{"SHA-256": strings.ToUpper(sha256), "SHA-1": sha1, "MD5": md5}})
+	sha256Only := r.File(FileIdentity{Hashes: map[string]string{"sha256": sha256}})
 	if full != sha256Only {
 		t.Errorf("SHA-256 not prioritized / not case-insensitive: %q vs %q", full, sha256Only)
 	}
 
-	sha1Only := r.File(FileIdentity{Hashes: map[string]string{"SHA1": "def"}})
+	sha1Only := r.File(FileIdentity{Hashes: map[string]string{"SHA1": sha1}})
 	if full == sha1Only {
 		t.Error("file with SHA-256 collided with file identified by SHA-1 only")
 	}
 
-	// The algorithm participates in identity: an identical digest string under
-	// a different algorithm is a different file, never a merge.
-	if r.File(FileIdentity{Hashes: map[string]string{"sha1": "abc"}}) ==
-		r.File(FileIdentity{Hashes: map[string]string{"md5": "abc"}}) {
+	// The algorithm participates in identity: a digest is read only under the
+	// algorithm whose format it fits (adr/0357), so the same digest string
+	// under another algorithm is dropped, never merged with the file it fits.
+	if r.File(FileIdentity{Hashes: map[string]string{"sha1": md5}, Name: "a.exe"}) ==
+		r.File(FileIdentity{Hashes: map[string]string{"md5": md5}, Name: "a.exe"}) {
 		t.Error("same digest under different algorithms collided")
 	}
 
@@ -422,7 +438,7 @@ func TestMACForms(t *testing.T) {
 	}
 }
 
-// TestCloudAccount: "<x-cloud-account>--<uuidv5>", deterministic, provider
+// TestCloudAccount: "<reckon-cloud-account>--<uuidv5>", deterministic, provider
 // folded for case, the uid's case kept unless it is a GUID, and a different
 // account or provider a different id.
 func TestCloudAccount(t *testing.T) {
@@ -643,5 +659,26 @@ func TestWeakEmailMessage(t *testing.T) {
 		if got := r.WeakEmailMessage("mailgw", uid); got != "" {
 			t.Errorf("WeakEmailMessage(%q) = %q, want none", uid, got)
 		}
+	}
+}
+
+// TestArtifact (adr/0357): the artifact for a stored record is minted from
+// hashes alone, and the hash it returns is the content hash the ObservedData
+// id uses.
+func TestArtifact(t *testing.T) {
+	payload := map[string]any{"class_uid": 2005, "status": "New"}
+	id, hash := NewResolver(nsA).Artifact(payload)
+	if hash != contentHash(payload) {
+		t.Errorf("hash = %s; want the observed-data content hash %s", hash, contentHash(payload))
+	}
+	if typ, _ := splitID(t, id); typ != TypeArtifact {
+		t.Errorf("type = %s; want %s", typ, TypeArtifact)
+	}
+	want := NewResolver(nsA).mint(TypeArtifact, map[string]any{"hashes": map[string]string{"SHA-256": hash}})
+	if id != want {
+		t.Errorf("id = %s; want %s, over hashes", id, want)
+	}
+	if other, _ := NewResolver(nsB).Artifact(payload); other == id {
+		t.Error("two tenants minted one artifact id")
 	}
 }

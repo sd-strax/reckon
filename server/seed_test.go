@@ -56,7 +56,7 @@ func TestSeedsAppearancesProvenance_EndToEnd(t *testing.T) {
 		return resp.StatusCode, out
 	}
 
-	const entityRef = "x-host--e4c1b0a2-9f3d-5e88-b1c4-7a02d9f4e110"
+	const entityRef = "reckon-host--e4c1b0a2-9f3d-5e88-b1c4-7a02d9f4e110"
 
 	// 1. An entity-seeded investigation (the "have I seen this host" root).
 	code, out := post("/api/investigations", map[string]any{

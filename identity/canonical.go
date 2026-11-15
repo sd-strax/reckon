@@ -18,6 +18,9 @@ import (
 // falls back to a trimmed lowercase string so identity is still deterministic.
 func canonicalIP(v string) string {
 	s := strings.TrimSpace(v)
+	if value, _, ok := IPValue(s); ok {
+		return strings.ToLower(value)
+	}
 	ip := net.ParseIP(s)
 	if ip == nil {
 		return strings.ToLower(s)
@@ -149,7 +152,7 @@ func canonicalMAC(v string) string {
 	return strings.Join(pairs, ":")
 }
 
-// canonicalHostname folds a hostname to the short name that is an x-host's
+// canonicalHostname folds a hostname to the short name that is a reckon-host's
 // identity (adr/0211): trimmed, lowercased, trailing dots removed, cut at the
 // first dot; an IP literal in the hostname field is kept whole. It returns ""
 // when nothing remains.

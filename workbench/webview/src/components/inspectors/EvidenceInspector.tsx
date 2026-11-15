@@ -1,4 +1,4 @@
-// Evidence (an OCSF event or observed-data), Absence (x-null-observation,
+// Evidence (an OCSF event or observed-data), Absence (reckon-null-observation,
 // adr/0061), Detection finding (indicator + sighting + vendor identity,
 // 03 §4.12) and Alias (an alias edge) — the record-shaped inspectors
 // (08 §8.6, §8.6.1). An event shows the retrieved events around it on the
@@ -7,6 +7,7 @@
 // the payload.
 import { useApp } from "../../app";
 import type { EventField, EventRow, EventView, EvidenceDoc } from "../../../../src/viewTypes";
+import { attackTechniques, observedEntityRefs, stixExtension, stixProperties } from "../../../../src/stixExtensions";
 import { refType, refTypeLabel } from "../../refs";
 import { EntityChip, RefChip, Sentence, fmtDateTime } from "../shared";
 import { Fields, Json, KV, Loading, Section, Tabs } from "./primitives";
@@ -14,9 +15,10 @@ import { Fields, Json, KV, Loading, Section, Tabs } from "./primitives";
 function payloadOf(doc: EvidenceDoc): Record<string, unknown> {
   return (doc.payload && typeof doc.payload === "object" ? doc.payload : {}) as Record<string, unknown>;
 }
+/** An OCSF event's fields, or a STIX object's own properties with its custom ones (adr/0357). */
 function propsOf(doc: EvidenceDoc): Record<string, unknown> {
   const p = payloadOf(doc);
-  return doc.kind === "ocsf" ? p : ((p.properties && typeof p.properties === "object" ? p.properties : p) as Record<string, unknown>);
+  return doc.kind === "ocsf" ? p : stixProperties(p);
 }
 
 /** The exact JSON the raw tab shows, so the card and the tab never disagree. */
@@ -27,8 +29,8 @@ function rawOf(doc: EvidenceDoc): unknown {
 }
 
 function ProvenanceTab({ doc }: { doc: EvidenceDoc }) {
-  const p = payloadOf(doc);
-  const prov = (p.provenance && typeof p.provenance === "object" ? p.provenance : null) as Record<string, unknown> | null;
+  // Provenance is the reckon-provenance property-extension (adr/0357).
+  const prov = doc.kind === "ocsf" ? null : stixExtension(payloadOf(doc), "reckon-provenance");
   if (doc.kind === "ocsf") {
     return <KV rows={[
       { k: "Source tool", v: doc.sourceTool, mono: true },
@@ -118,7 +120,11 @@ export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: stri
   const around = state.around[target.ref];
   const row = doc.kind === "ocsf" ? retrievedBy(target.ref, state.snap?.events, around) : undefined;
   const isOD = doc.type === "observed-data";
-  const objectRefs = Array.isArray(p.object_refs) ? (p.object_refs as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  // The entities the observation is about: no relationship, no artifact for
+  // the record itself. A directory record names the person it describes in
+  // person_ref, since object_refs cannot list a person (adr/0324, adr/0357).
+  const personRef = isOD ? stixExtension(p, "reckon-observation")?.person_ref : undefined;
+  const objectRefs = isOD ? observedEntityRefs(p).filter((r) => r !== personRef) : [];
   const sub = doc.kind === "ocsf"
     ? [doc.type, doc.classUid ? "class " + doc.classUid : "", doc.time ? fmtDateTime(doc.time) : ""].filter(Boolean).join(" · ")
     : [doc.type, isOD && typeof p.first_observed === "string" ? "first " + fmtDateTime(p.first_observed) : "", isOD && typeof p.number_observed === "number" ? `×${p.number_observed}` : ""].filter(Boolean).join(" · ");
@@ -130,6 +136,7 @@ export function EvidenceInspector({ target }: { target: { kind: "ref"; ref: stri
         { id: "details", label: "Details", body: () => (
           <>
             {isOD && objectRefs.length ? <Section title="Objects it contains">{objectRefs.map((r) => <RefChip key={r} refId={r} />)}</Section> : null}
+            {typeof personRef === "string" && personRef ? <Section title="Person it describes"><RefChip refId={personRef} /></Section> : null}
             {doc.view?.fields.length ? <Summary fields={doc.view.fields} /> : null}
             {doc.view?.decoded ? <DecodedCommand decoded={doc.view.decoded} /> : null}
             <Section title={doc.kind === "ocsf" ? "Event fields" : "Properties"}><Fields obj={propsOf(doc)} /></Section>
@@ -194,12 +201,12 @@ export function AbsenceInspector({ refId }: { refId: string }) {
 }
 
 /** What a sighting's observations say (03 §4.12, adr/0356). A Sighting names
- * the observations it was seen through in observed_data_refs and nothing
- * else about them: the entities the alert names are each observation's
- * object_refs, and when and how often it was seen are the observation's
- * first_observed and number_observed. The observations come back with the
- * finding as its evidence. */
-function sightingObservations(sighting: Record<string, unknown>, evidence: EvidenceDoc[]): { entities: string[]; first: string; count: number } {
+ * the observations it was seen through in observed_data_refs: the entities
+ * the alert names are each observation's object_refs, and when and how often
+ * it was seen are the observation's first_observed and number_observed. The
+ * observations come back with the finding as its evidence. Its own
+ * where_sighted_refs names who saw it, the vendor (adr/0357). */
+function sightingObservations(sighting: Record<string, unknown>, evidence: EvidenceDoc[]): { entities: string[]; where: string[]; first: string; count: number } {
   const cited = Array.isArray(sighting.observed_data_refs) ? (sighting.observed_data_refs as unknown[]) : [];
   const entities: string[] = [];
   let first = "";
@@ -207,13 +214,15 @@ function sightingObservations(sighting: Record<string, unknown>, evidence: Evide
   for (const ev of evidence) {
     if (!cited.includes(ev.ref)) continue;
     const op = propsOf(ev);
-    for (const r of Array.isArray(op.object_refs) ? (op.object_refs as unknown[]) : []) {
-      if (typeof r === "string" && !entities.includes(r)) entities.push(r);
-    }
+    // The entities read from the stored payload, extensions included, so a
+    // directory record's person_ref is found (adr/0357).
+    for (const r of observedEntityRefs(payloadOf(ev))) if (!entities.includes(r)) entities.push(r);
     if (typeof op.first_observed === "string" && (first === "" || Date.parse(op.first_observed) < Date.parse(first))) first = op.first_observed;
     if (typeof op.number_observed === "number") count += op.number_observed;
   }
-  return { entities, first, count };
+  const where = (Array.isArray(sighting.where_sighted_refs) ? (sighting.where_sighted_refs as unknown[]) : [])
+    .filter((r): r is string => typeof r === "string" && r !== "");
+  return { entities, where, first, count };
 }
 
 /** Detection finding (03 §4.12): inferred by the vendor, the one inferred
@@ -236,7 +245,11 @@ export function DetectionInspector({ refId }: { refId: string }) {
   }
   const related = doc.related;
   const identity = related?.identity ? propsOf(related.identity) : null;
-  const techniques = Array.isArray(p.indicator_types) ? (p.indicator_types as unknown[]).map(String) : [];
+  // The techniques are the indicator's ATT&CK external references; its
+  // indicator_types hold only STIX's own vocabulary (adr/0357).
+  const techniques = attackTechniques(p);
+  const types = Array.isArray(p.indicator_types) ? (p.indicator_types as unknown[]).map(String) : [];
+  const labels = Array.isArray(p.labels) ? (p.labels as unknown[]).map(String) : [];
   const confirmed: { ref: string; names: string[] }[] = [];
   for (const ev of related?.evidence || []) {
     const names: string[] = [];
@@ -253,6 +266,8 @@ export function DetectionInspector({ refId }: { refId: string }) {
               { k: "Vendor", v: identity ? String(identity.name || "") : undefined },
               { k: "Indicator", v: String(p.name || refId), mono: true },
               { k: "Techniques", v: techniques.length ? techniques.join(", ") : undefined, mono: true },
+              { k: "Types", v: types.length ? types.join(", ") : undefined, mono: true },
+              { k: "Labels", v: labels.length ? labels.join(", ") : undefined },
               { k: "Severity", v: typeof p.severity === "string" ? p.severity : undefined },
               { k: "Valid from", v: typeof p.valid_from === "string" ? fmtDateTime(p.valid_from) : undefined },
             ]} />
@@ -260,6 +275,7 @@ export function DetectionInspector({ refId }: { refId: string }) {
               const seen = sightingObservations(propsOf(s), related?.evidence || []);
               return <Section key={s.ref} title="Sighting"><KV rows={[
                 { k: "Entities", v: seen.entities.length ? <>{seen.entities.map((r) => <RefChip key={r} refId={r} />)}</> : undefined },
+                { k: "Where", v: seen.where.length ? <>{seen.where.map((r) => <RefChip key={r} refId={r} />)}</> : undefined },
                 { k: "When", v: seen.first ? fmtDateTime(seen.first) : undefined },
                 { k: "Count", v: seen.count ? String(seen.count) : undefined, mono: true },
               ]} /></Section>;

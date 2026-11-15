@@ -23,15 +23,15 @@ function client(body: unknown): { e: EvidenceClient; calls: { method: string; pa
 
 describe("a host's identity view (adr/0211)", () => {
   it("decodes from the evidence read Go sends: origins, the note, the withdrawn mark, the split and what it was seen as", async () => {
-    const doc = await client(fixture("evidence.filled")).e.get("x-host--1");
+    const doc = await client(fixture("evidence.filled")).e.get("reckon-host--1");
     expect(doc.identity).toEqual({
       aliases: [
-        { edgeId: "relationship--1", otherRef: "x-host--2", kind: "observed", source: "edr", at: "2026-01-02T03:04:05Z", withdrawn: false },
-        { edgeId: "relationship--3", otherRef: "x-host--4", kind: "asserted", by: "u-1", byName: "Ana Analyst", at: "2026-01-02T03:04:05Z", note: "same serial in the asset register", withdrawn: false },
-        { edgeId: "relationship--5", otherRef: "x-host--6", kind: "asserted", by: "u-1", byName: "Ana Analyst", at: "2026-01-02T03:04:05Z", withdrawn: true },
+        { edgeId: "relationship--1", otherRef: "reckon-host--2", kind: "observed", source: "edr", at: "2026-01-02T03:04:05Z", withdrawn: false },
+        { edgeId: "relationship--3", otherRef: "reckon-host--4", kind: "asserted", by: "u-1", byName: "Ana Analyst", at: "2026-01-02T03:04:05Z", note: "same serial in the asset register", withdrawn: false },
+        { edgeId: "relationship--5", otherRef: "reckon-host--6", kind: "asserted", by: "u-1", byName: "Ana Analyst", at: "2026-01-02T03:04:05Z", withdrawn: true },
       ],
       distinct: [
-        { edgeId: "relationship--7", otherRef: "x-host--8", kind: "asserted", by: "u-2", byName: "Ben Analyst", at: "2026-01-02T03:04:05Z", note: "two machines", withdrawn: false },
+        { edgeId: "relationship--7", otherRef: "reckon-host--8", kind: "asserted", by: "u-2", byName: "Ben Analyst", at: "2026-01-02T03:04:05Z", note: "two machines", withdrawn: false },
       ],
       seenAs: { domains: ["corp", "corp.example"], agents: [{ tool: "edr", uid: "a-7" }], ips: ["10.0.0.7"] },
     });
@@ -40,34 +40,34 @@ describe("a host's identity view (adr/0211)", () => {
   it("is absent on a ref that is not a host; an act whose view could not be read answers null, never an empty view", async () => {
     const zero = await client(fixture("evidence.zero")).e.get("ipv4-addr--1");
     expect(zero.identity).toBeUndefined();
-    expect(await client(fixture("identityAct.zero")).e.assertIdentity("x-host--1", "aliases", "ws1")).toBeNull();
-    expect(await client(fixture("identityAct.zero")).e.withdrawIdentity("relationship--5", "x-host--1")).toBeNull();
+    expect(await client(fixture("identityAct.zero")).e.assertIdentity("reckon-host--1", "aliases", "ws1")).toBeNull();
+    expect(await client(fixture("identityAct.zero")).e.withdrawIdentity("relationship--5", "reckon-host--1")).toBeNull();
   });
 
   it("sends a join or a split to its route, the other host by name or by ref, and decodes the answer", async () => {
     const { e, calls } = client(fixture("identityAct.filled"));
-    const id = await e.assertIdentity("x-host--a", "aliases", " WIN-FILE01.corp.example ", " checked ");
-    await e.assertIdentity("x-host--a", "distinct", "x-host--b");
+    const id = await e.assertIdentity("reckon-host--a", "aliases", " WIN-FILE01.corp.example ", " checked ");
+    await e.assertIdentity("reckon-host--a", "distinct", "reckon-host--b");
     expect(calls).toEqual([
-      { method: "POST", path: "/api/entities/x-host--a/aliases", body: { other_hostname: "WIN-FILE01.corp.example", note: "checked" } },
-      { method: "POST", path: "/api/entities/x-host--a/distinct", body: { other_ref: "x-host--b" } },
+      { method: "POST", path: "/api/entities/reckon-host--a/aliases", body: { other_hostname: "WIN-FILE01.corp.example", note: "checked" } },
+      { method: "POST", path: "/api/entities/reckon-host--a/distinct", body: { other_ref: "reckon-host--b" } },
     ]);
     expect(id?.identity?.aliases.map((a) => a.edgeId)).toEqual(["x"]);
   });
 
   it("withdraws by the edge id, asking for the view of the host in view", async () => {
     const { e, calls } = client(fixture("identityAct.filled"));
-    await e.withdrawIdentity("relationship--5", "x-host--a", "wrong link");
-    await e.withdrawIdentity("relationship--5", "x-host--a");
+    await e.withdrawIdentity("relationship--5", "reckon-host--a", "wrong link");
+    await e.withdrawIdentity("relationship--5", "reckon-host--a");
     expect(calls).toEqual([
-      { method: "POST", path: "/api/identity/relationship--5/withdraw", body: { ref: "x-host--a", note: "wrong link" } },
-      { method: "POST", path: "/api/identity/relationship--5/withdraw", body: { ref: "x-host--a" } },
+      { method: "POST", path: "/api/identity/relationship--5/withdraw", body: { ref: "reckon-host--a", note: "wrong link" } },
+      { method: "POST", path: "/api/identity/relationship--5/withdraw", body: { ref: "reckon-host--a" } },
     ]);
     expect(otherHostBody("  ", "")).toEqual({ other_hostname: "" });
   });
 
   it("sends a host ref as other_ref and anything else, punycode included, as a hostname", () => {
-    expect(otherHostBody("x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01")).toEqual({ other_ref: "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01" });
+    expect(otherHostBody("reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01")).toEqual({ other_ref: "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01" });
     expect(otherHostBody("xn--bcher-kva.corp.example")).toEqual({ other_hostname: "xn--bcher-kva.corp.example" });
     expect(otherHostBody("ws--01")).toEqual({ other_hostname: "ws--01" });
   });
@@ -112,13 +112,13 @@ describe("an account's and a person's identity views (adr/0324)", () => {
     const { e, calls } = client(fixture("identityAct.filled"));
     await e.assertIdentity("user-account--a", "aliases", { hint: " CONTOSO\\jdoe " }, "same login");
     await e.assertIdentity("user-account--a", "distinct", { ref: "identity--p" });
-    await e.assertIdentity("x-host--a", "aliases", { hostname: "ws1" });
+    await e.assertIdentity("reckon-host--a", "aliases", { hostname: "ws1" });
     await e.assertOwner("user-account--a", { personHint: "jdoe@contoso.example" }, " badge photo ");
     await e.assertOwner("user-account--a", { personRef: "identity--p" });
     expect(calls).toEqual([
       { method: "POST", path: "/api/entities/user-account--a/aliases", body: { other_hint: "CONTOSO\\jdoe", note: "same login" } },
       { method: "POST", path: "/api/entities/user-account--a/distinct", body: { other_ref: "identity--p" } },
-      { method: "POST", path: "/api/entities/x-host--a/aliases", body: { other_hostname: "ws1" } },
+      { method: "POST", path: "/api/entities/reckon-host--a/aliases", body: { other_hostname: "ws1" } },
       { method: "POST", path: "/api/entities/user-account--a/owner", body: { person_hint: "jdoe@contoso.example", note: "badge photo" } },
       { method: "POST", path: "/api/entities/user-account--a/owner", body: { person_ref: "identity--p" } },
     ]);

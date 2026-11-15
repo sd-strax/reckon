@@ -22,7 +22,7 @@ The proposed four tiers are mostly right but conflate two orthogonal axes: **rev
 
 **T1 — ANNOTATE.** Mutations confined to the interpretation layer of the system itself: create/edit hypotheses, add Sightings, tag entities, propose detections (as drafts, not deployed), write Notes, change investigation lifecycle (`DRAFT → ACTIVE → PAUSED`). No friction. Always recorded as Interpretations in the normal way. The AI agent operates freely here.
 
-**T1 is exclusively reckon-internal — there is no "T1 external action."** Any dispatch that leaves reckon is an `x-action` at T2 or above, however low-stakes (ticketing, chat). Low-stakes external dispatches achieve low *friction* via an auto-approve policy (§4) — an accountable, tenant-signed, revocable decision — never via a lower *tier*. Tier is calibrated to harm; authorization mode is what removes friction. (This is also why `x-action.tier` is `T2 | T3` and the tiers map one-to-one onto architectural surfaces: T0 = capability read verb, T1 = interpretation-layer CRUD with no action descriptor, T2/T3 = `ActionDescriptor` + write adapter — see 08 §3.)
+**T1 is exclusively reckon-internal — there is no "T1 external action."** Any dispatch that leaves reckon is a `reckon-action` at T2 or above, however low-stakes (ticketing, chat). Low-stakes external dispatches achieve low *friction* via an auto-approve policy (§4) — an accountable, tenant-signed, revocable decision — never via a lower *tier*. Tier is calibrated to harm; authorization mode is what removes friction. (This is also why `reckon-action.tier` is `T2 | T3` and the tiers map one-to-one onto architectural surfaces: T0 = capability read verb, T1 = interpretation-layer CRUD with no action descriptor, T2/T3 = `ActionDescriptor` + write adapter — see 08 §3.)
 
 **T2 — REVERSIBLE EXTERNAL ACTION.** Side effects on the outside world that can be cleanly undone: host isolation, session revocation, file quarantine, account suspension (not deletion), single-message mailbox quarantine, process kill on a running session. Single-key confirm in the IDE/CLI with the proposed action and its cited evidence rendered. The AI agent may *request* but never execute.
 
@@ -58,7 +58,7 @@ Default tiers for common SOC actions. Orgs can shift any action *up* a tier via 
 | Query EDR telemetry, SIEM logs, identity logs | T0 | |
 | Pivot on entity, fetch enrichment | T0 | |
 | Read another investigation's content | T0 | RBAC still applies |
-| Detonate hash/file in internal private sandbox | T0 | Enrichment: a capability query with a submission side effect, returning an observation — not an x-action. Private-only; public/shared submission is the T2 disclosure row below |
+| Detonate hash/file in internal private sandbox | T0 | Enrichment: a capability query with a submission side effect, returning an observation — not a reckon-action. Private-only; public/shared submission is the T2 disclosure row below |
 | Submit file/hash to VT or external sandbox | T2 | Information disclosure |
 | Create/edit hypothesis, Sighting, Note | T1 | |
 | Tag entity, label investigation | T1 | |
@@ -177,7 +177,7 @@ Family headers whose children are individually dispositioned inherit "covered vi
 | D3-ST Session Termination | Action | roadmap `session.revoke` |
 | D3-ER Email Removal | Action | `email.purge` ✅ (terminal) + `email.quarantine` ✅ (reversible) |
 | D3-FEV File Eviction | Action | roadmap `file.quarantine` |
-| D3-RKD Registry Key Deletion | Action (gap) | roadmap `persistence.remove` — pairs with the `windows-registry-key`/`x-scheduled-task` domain entities |
+| D3-RKD Registry Key Deletion | Action (gap) | roadmap `persistence.remove` — pairs with the `windows-registry-key`/`reckon-scheduled-task` domain entities |
 | D3-DNSCE DNS Cache Eviction | Action (low priority) | endpoint flush; typically bundled into host remediation |
 | D3-HR Host Reboot; D3-HS Host Shutdown | Handoff | deliberately not agent-dispatchable — destroys volatile memory evidence mid-incident; post-forensics ticket |
 | D3-DKE Disk Erasure; D3-DKF Disk Formatting; D3-DKP Disk Partitioning | Handoff | rebuild operations — the manual half of the reimage flow |
@@ -205,17 +205,17 @@ The shape this yields: the *dispatchable* response surface is ~15 action types, 
 
 Actions integrate with the existing model rather than parallel to it.
 
-### 3.1 The shape of an action: `x-action`
+### 3.1 The shape of an action: `reckon-action`
 
-I introduce one new custom STIX object, `x-action`, rather than overloading `x-interpretation` with a new `interpretation_type`. Reasoning:
+I introduce one new custom STIX object, `reckon-action`, rather than overloading `reckon-interpretation` with a new `interpretation_type`. Reasoning:
 
-- `x-interpretation` is already typed by the *kind of reasoning* (`extraction`, `sighting`, `hypothesis`, `prediction`, `refutation`, `conclusion`, `lifecycle`). Adding `action` to that enum mixes two different things — reasoning *about* state and reasoning that *changes* state in the world.
+- `reckon-interpretation` is already typed by the *kind of reasoning* (`extraction`, `sighting`, `hypothesis`, `prediction`, `refutation`, `conclusion`, `lifecycle`). Adding `action` to that enum mixes two different things — reasoning *about* state and reasoning that *changes* state in the world.
 - An action has a meaningful lifecycle of its own (REQUESTED → APPROVED → EXECUTING → SUCCEEDED / FAILED / REJECTED / EXPIRED), with multiple Interpretations recorded against it over time. A plain Interpretation is a single recorded act and shouldn't carry mutable state.
-- Reversal needs a stable identity to point at: "this `x-action` was reversed by that `x-action`." That's much cleaner than "this Interpretation reverses that Interpretation."
+- Reversal needs a stable identity to point at: "this `reckon-action` was reversed by that `reckon-action`." That's much cleaner than "this Interpretation reverses that Interpretation."
 
-So: `x-action` is a sibling primitive, **produced by** an Interpretation (the analyst or AI's reasoning that this action should happen), and its lifecycle transitions each emit further Interpretations.
+So: `reckon-action` is a sibling primitive, **produced by** an Interpretation (the analyst or AI's reasoning that this action should happen), and its lifecycle transitions each emit further Interpretations.
 
-The canonical `x-action` schema lives in **01-domain-model.md → CUSTOM STIX OBJECTS** (single source of truth: fields, status enum, evidence_refs as `list<EvidenceRef>`, actor model, etc.). This spec defines only the auth-specific pieces — the `Authorization` sub-record (§3.3), the `Execution` sub-record (§6.1), and the `TargetSpec` shape carried inside `x-action.targets`:
+The canonical `reckon-action` schema lives in **01-domain-model.md → CUSTOM STIX OBJECTS** (single source of truth: fields, status enum, evidence_refs as `list<EvidenceRef>`, actor model, etc.). This spec defines only the auth-specific pieces — the `Authorization` sub-record (§3.3), the `Execution` sub-record (§6.1), and the `TargetSpec` shape carried inside `reckon-action.targets`:
 
 ```text
 TargetSpec:
@@ -225,13 +225,13 @@ TargetSpec:
   asset_criticality      optional string (see §10)
 ```
 
-Every `x-action` has a `produced-by` edge to an Interpretation of type `action-request` (a value in the canonical `interpretation_type` enum — this *is* a kind of reasoning, even though the action itself is not). This piggybacks on the existing produced-by mechanism in the domain model and keeps the reasoning thread intact.
+Every `reckon-action` has a `produced-by` edge to an Interpretation of type `action-request` (a value in the canonical `interpretation_type` enum — this *is* a kind of reasoning, even though the action itself is not). This piggybacks on the existing produced-by mechanism in the domain model and keeps the reasoning thread intact.
 
-The `x-action` lifecycle is **event-sourced as part of the investigation aggregate** (02-persistence.md §1, §2.1, §3). The `status` field above is a projection — the canonical state machine lives in the action lifecycle events: `ActionRequested`, `ActionApproved`, `ActionRejected`, `ActionExpired`, `ActionDispatched`, `ActionResulted`, `ActionOutcomeUnknown`, `ActionOutcomeResolved`, `ActionReversed`, `ActionReversalAttempted` (the last records an unverified reversal attempt on the original *without* a status change, §7.1). Same-aggregate placement means the `x-action` and its producing Interpretation are recorded in one transaction (a shared `correlation_id` ties them); no cross-aggregate consistency story is needed.
+The `reckon-action` lifecycle is **event-sourced as part of the investigation aggregate** (02-persistence.md §1, §2.1, §3). The `status` field above is a projection — the canonical state machine lives in the action lifecycle events: `ActionRequested`, `ActionApproved`, `ActionRejected`, `ActionExpired`, `ActionDispatched`, `ActionResulted`, `ActionOutcomeUnknown`, `ActionOutcomeResolved`, `ActionReversed`, `ActionReversalAttempted` (the last records an unverified reversal attempt on the original *without* a status change, §7.1). Same-aggregate placement means the `reckon-action` and its producing Interpretation are recorded in one transaction (a shared `correlation_id` ties them); no cross-aggregate consistency story is needed.
 
 ### 3.2 Lifecycle and emitted Interpretations
 
-Each transition emits a new Interpretation linked to the `x-action`. The mapping:
+Each transition emits a new Interpretation linked to the `reckon-action`. The mapping:
 
 ```text
 REQUESTED          -> APPROVED            interpretation_type = "action-approval"
@@ -260,8 +260,8 @@ EXECUTING          -> OUTCOME_UNKNOWN     interpretation_type = "action-result" 
 OUTCOME_UNKNOWN    -> SUCCEEDED | FAILED  interpretation_type = "action-resolution"
                                           (human-only: what the tool shows when a
                                           person checks it)
-SUCCEEDED          -> REVERSED            recorded on the *reversing* x-action via reversal_of_ref;
-                                          reversed x-action is mutated to status REVERSED
+SUCCEEDED          -> REVERSED            recorded on the *reversing* reckon-action via reversal_of_ref;
+                                          reversed reckon-action is mutated to status REVERSED
                                           and emits an "action-reversal" Interpretation.
 ```
 
@@ -366,12 +366,12 @@ ctx.investigation.lifecycle      string
 ctx.investigation.seed_kind      "alert" | "entity" | "question"
 
 ctx.evidence.sightings           list<Sighting view>
-ctx.evidence.hypotheses          list<x-hypothesis view>
+ctx.evidence.hypotheses          list<reckon-hypothesis view>
                                  each with: status, supporting_sightings (with weight),
                                  refuting_sightings (with weight)
 ctx.evidence.all_direct          bool — true iff every Sighting/ObservedData
                                  in evidence_refs has derivation_mode == DIRECT
-ctx.evidence.has_strong_support  bool — convenience: any x-supports edge with weight STRONG
+ctx.evidence.has_strong_support  bool — convenience: any reckon-supports edge with weight STRONG
 ctx.evidence.max_supporting_weight   "STRONG" | "MODERATE" | "WEAK" | "NONE"
 
 ctx.targets.criticality_classes  set<string> — union of asset classes across all targets
@@ -498,7 +498,7 @@ Out of scope to fully build in v0, but the mechanic is: the same `REQUESTED` act
 
 ### 5.4 Multiple analysts watching
 
-Each `x-action` row has an `assignee_ref` (set when an analyst opens the review panel and clicks "I'll handle this") and a `pending_approvers` set. The first analyst to approve/reject wins; the others see the panel update in real time (web socket from the Go backend). This avoids two analysts approving the same isolation simultaneously.
+Each `reckon-action` row has an `assignee_ref` (set when an analyst opens the review panel and clicks "I'll handle this") and a `pending_approvers` set. The first analyst to approve/reject wins; the others see the panel update in real time (web socket from the Go backend). This avoids two analysts approving the same isolation simultaneously.
 
 For T3 two-party: the primary's identity is captured at primary-approve time and that analyst is *excluded* from the secondary pool to enforce two-person integrity.
 
@@ -513,7 +513,7 @@ For T3 two-party: the primary's identity is captured at primary-approve time and
 
 ### 5.6 The AI/analyst boundary in the request itself
 
-The AI agent emits an action request by calling a single tool, `request_action`, with: `action_type`, `targets`, `parameters`, `evidence_refs`, `rationale`, and `investigation_ref` (canonical tool schema in 08-write-side-actions.md §2). The Go backend constructs the `x-action` (in `REQUESTED`), creates the producing `x-interpretation` of type `action-request`, runs policy evaluation, and either advances state (`AUTO_APPROVE`) or surfaces in the analyst's review queue.
+The AI agent emits an action request by calling a single tool, `request_action`, with: `action_type`, `targets`, `parameters`, `evidence_refs`, `rationale`, and `investigation_ref` (canonical tool schema in 08-write-side-actions.md §2). The Go backend constructs the `reckon-action` (in `REQUESTED`), creates the producing `reckon-interpretation` of type `action-request`, runs policy evaluation, and either advances state (`AUTO_APPROVE`) or surfaces in the analyst's review queue.
 
 The AI does *not* know whether a policy auto-approved; from its perspective the call returns an action id and (if policy auto-approved) a synchronous result, otherwise pending status. This keeps AI prompts simple and means you can change policy without re-prompting the AI.
 
@@ -623,7 +623,7 @@ email.purge          null               IRREVERSIBLE    no inverse; backup resto
 The reversal machinery bundles three things that are **independently gated**:
 
 1. **The affordance** — a "reverse this action" control appears on any `SUCCEEDED` action whose descriptor has a `reversible_by`. Driven by `reversible_by` alone.
-2. **The linkage** — the reversing action is its own x-action carrying `reversal_of_ref` pointing at the original (recorded at request time, always), and the original gains a back-reference when the reversing dispatch completes: `reversed_by_ref` on a verified undo, `reversal_attempted_by_ref` on an unverified one. *"Was this block ever lifted, by whom, when?"* is queryable from both sides.
+2. **The linkage** — the reversing action is its own reckon-action carrying `reversal_of_ref` pointing at the original (recorded at request time, always), and the original gains a back-reference when the reversing dispatch completes: `reversed_by_ref` on a verified undo, `reversal_attempted_by_ref` on an unverified one. *"Was this block ever lifted, by whom, when?"* is queryable from both sides.
 3. **The status claim** — the original's status moves to `REVERSED` and `reversed_by_ref` is populated. This is a strong assertion — *"the effect was undone"* — and is the **only** feature gated on the reliability classification.
 
 The design rule (**Position C**, the canonical model): *keep the affordance and the forward linkage for every reversible-or-best-effort action; gate only the status claim on reliability.*
@@ -639,7 +639,7 @@ Common to all reversible action types:
 - Reversal is itself an action and goes through the same authorization flow. Critically, **reversing an action is the same tier as the original, not lower.** Un-isolating a host is also T2; pushing a "retract" detection is also T3 (because retracting a rule has the same blast radius as deploying one — anything that detected on it stops firing).
 - A `PARTIAL`/`FAILED`/`TIMEOUT` reversing dispatch never marks the original `REVERSED`, regardless of reliability — you can't claim an undo that didn't fully take effect (§6.2, honest-state).
 
-**Implementation note (v0).** The reliability gate is live end to end. The classification is **frozen onto the x-action at request time** (`ActionRequested.reversibility`, 02 §3), so the gate reads the value the analyst approved under — a later catalog edit cannot re-classify an in-flight action (fallback to the live catalog for pre-freeze actions; a lookup failure defaults to *not reliable*, the conservative choice). On a fully-successful reversing dispatch the saga emits `ActionReversed` (original → `REVERSED`, `reversed_by_ref` set) when the original is `REVERSIBLE`, or `ActionReversalAttempted` (original stays `SUCCEEDED`, `reversal_attempted_by_ref` set) when it is `BEST_EFFORT` — so the attempt is queryable from the original's side in both cases. **Deferred to Phase F:** the adapter-side `verify` operation (§7.3) that lets a `BEST_EFFORT` reversal *earn* the `REVERSED` claim per-dispatch; until a real adapter can verify, best-effort attempts terminally record as attempted-unverified.
+**Implementation note (v0).** The reliability gate is live end to end. The classification is **frozen onto the reckon-action at request time** (`ActionRequested.reversibility`, 02 §3), so the gate reads the value the analyst approved under — a later catalog edit cannot re-classify an in-flight action (fallback to the live catalog for pre-freeze actions; a lookup failure defaults to *not reliable*, the conservative choice). On a fully-successful reversing dispatch the saga emits `ActionReversed` (original → `REVERSED`, `reversed_by_ref` set) when the original is `REVERSIBLE`, or `ActionReversalAttempted` (original stays `SUCCEEDED`, `reversal_attempted_by_ref` set) when it is `BEST_EFFORT` — so the attempt is queryable from the original's side in both cases. **Deferred to Phase F:** the adapter-side `verify` operation (§7.3) that lets a `BEST_EFFORT` reversal *earn* the `REVERSED` claim per-dispatch; until a real adapter can verify, best-effort attempts terminally record as attempted-unverified.
 
 ### 7.2 Effect-based vs action-based reversal
 
@@ -669,7 +669,7 @@ The `audit_depth` on the reversing action's `Execution` record is independent �
 
 ### 8.1 Target resolution
 
-Every `TargetSpec` has both an `entity_ref` (STIX id, stable across investigations) and a `resolved_identifier` (what the adapter actually sends to the downstream tool — hostname, UPN, mailbox SMTP, etc.). The resolution happens at request time and is *frozen* into the `x-action`. This matters because:
+Every `TargetSpec` has both an `entity_ref` (STIX id, stable across investigations) and a `resolved_identifier` (what the adapter actually sends to the downstream tool — hostname, UPN, mailbox SMTP, etc.). The resolution happens at request time and is *frozen* into the `reckon-action`. This matters because:
 
 - The same STIX entity can resolve differently in different environments (a hostname can change FQDN).
 - An attacker watching telemetry shouldn't be able to manipulate resolution between request and execution.
@@ -694,38 +694,38 @@ I'd flag this as an explicit dependency for the fan-in: there's a "Asset Classif
 Putting it together, an action produces this graph:
 
 ```text
-[Sighting]    [x-hypothesis]     [Sighting]
+[Sighting]    [reckon-hypothesis]     [Sighting]
      \             |                /
       \            |               /
        v           v              v
-      [x-interpretation: "action-request"]
+      [reckon-interpretation: "action-request"]
                    |
                    | produced-by
                    v
-              [x-action: status=REQUESTED]
+              [reckon-action: status=REQUESTED]
                    |
                    |  (analyst clicks approve)
                    v
-      [x-interpretation: "action-approval"]
+      [reckon-interpretation: "action-approval"]
                    |
                    | references
                    v
-              [x-action: status=APPROVED]
+              [reckon-action: status=APPROVED]
                    |
                    v
-              [x-action: status=EXECUTING]      <- "action-dispatch" Interp
+              [reckon-action: status=EXECUTING]      <- "action-dispatch" Interp
                    |
                    v
-              [x-action: status=SUCCEEDED]      <- "action-result" Interp
+              [reckon-action: status=SUCCEEDED]      <- "action-result" Interp
 ```
 
 Properties this graph has:
 
 - Every state transition is an Interpretation → preserves the domain model's "every reasoning act is in the thread" invariant.
-- The action's evidence is reachable in two ways: directly via `x-action.evidence_refs`, and indirectly via the producing Interpretation's `input_refs`. The two are the same set, written in the same aggregate transaction (02-persistence.md §3): the `ActionRequested` event payload carries `evidence_refs` and shares a `correlation_id` with the producing `InterpretationRecorded` event. There is no cross-aggregate constraint to enforce.
-- `member-of` edges from the `x-action` and all its associated Interpretations to the Grouping put the entire action history inside the investigation.
-- Querying "what actions were taken in this investigation" is a single edge traversal: `Grouping --member-of-- x-action`.
-- Querying "what evidence justified this action" walks `x-action.evidence_refs` directly; querying "what reasoning led to this action" walks `produced-by` to the Interpretation and then `input_refs` from there.
+- The action's evidence is reachable in two ways: directly via `reckon-action.evidence_refs`, and indirectly via the producing Interpretation's `input_refs`. The two are the same set, written in the same aggregate transaction (02-persistence.md §3): the `ActionRequested` event payload carries `evidence_refs` and shares a `correlation_id` with the producing `InterpretationRecorded` event. There is no cross-aggregate constraint to enforce.
+- `member-of` edges from the `reckon-action` and all its associated Interpretations to the Grouping put the entire action history inside the investigation.
+- Querying "what actions were taken in this investigation" is a single edge traversal: `Grouping --member-of-- reckon-action`.
+- Querying "what evidence justified this action" walks `reckon-action.evidence_refs` directly; querying "what reasoning led to this action" walks `produced-by` to the Interpretation and then `input_refs` from there.
 
 ### 9.1 Integration with investigation Lifecycle
 
@@ -747,8 +747,8 @@ Properties this graph has:
 **Explicitly flagged back to fan-in:**
 
 - The `interpretation_type` enum in the domain model gains seven new values: `action-request`, `action-approval`, `action-rejection`, `action-expiry`, `action-dispatch`, `action-result`, `action-reversal`. Additive, not breaking.
-- The `x-action` custom STIX object is a new domain primitive, sibling to `x-hypothesis` and `x-prediction`. It needs to land in the domain model section listing custom STIX objects.
-- A new edge type, `reverses`, between two `x-action`s — though this is also expressible via the `reversal_of_ref` field, the edge form is useful for graph queries.
+- The `reckon-action` custom STIX object is a new domain primitive, sibling to `reckon-hypothesis` and `reckon-prediction`. It needs to land in the domain model section listing custom STIX objects.
+- A new edge type, `reverses`, between two `reckon-action`s — though this is also expressible via the `reversal_of_ref` field, the edge form is useful for graph queries.
 - An assumed dependency on an "Asset Classification" thread for `asset_criticality`.
 - A dependency on the capability layer for the actual tool dispatch and the contract for `adapter_request_id` correlation. The capability spec (03-capability-layer.md) covers the read side; the write-side / action-dispatch contract — operation declaration, idempotency, `adapter_request_id` correlation — is specified in 08-write-side-actions.md. Until it is implemented, action dispatch in v0 prototype runs against fixture stubs only (08 §9).
 
@@ -758,14 +758,14 @@ Properties this graph has:
 
 To make the spec concrete, the path of one T2 action:
 
-1. AI agent, investigating an alert seeded from a Cobalt Strike beacon detection, runs queries (T0, no friction) and creates Sightings (T1, no friction) linking telemetry to a hypothesis `h-1: "host WIN-A14 is C2-active"` with `x-supports` weight STRONG from a Sighting whose evidence is two `OcsfEvent`s with `derivation_mode: DIRECT`.
+1. AI agent, investigating an alert seeded from a Cobalt Strike beacon detection, runs queries (T0, no friction) and creates Sightings (T1, no friction) linking telemetry to a hypothesis `h-1: "host WIN-A14 is C2-active"` with `reckon-supports` weight STRONG from a Sighting whose evidence is two `OcsfEvent`s with `derivation_mode: DIRECT`.
 2. Hypothesis status moves from `OPEN` to `SUPPORTED` after the AI agent's reasoning (recorded as a normal `hypothesis` Interpretation).
 3. AI agent calls `request_action(action_type="host.isolate", targets=[{entity_ref: ipv4-addr--..., resolved_identifier: "WIN-A14"}], evidence_refs=[sighting-1, h-1], rationale="Hypothesis SUPPORTED with STRONG-weight direct evidence; isolation prevents lateral movement.", investigation_ref=grouping-1)`.
-4. Backend creates `x-interpretation` of type `action-request` and `x-action` in `REQUESTED`. Both get `member-of` edges to the Grouping.
+4. Backend creates `reckon-interpretation` of type `action-request` and `reckon-action` in `REQUESTED`. Both get `member-of` edges to the Grouping.
 5. Policy engine evaluates. The "auto-isolate on Cobalt Strike" policy from §4.3 fires: status moves to `APPROVED` with `Authorization.mode=AUTO_POLICY`, `policy_ref=policy/host-isolate-cobalt-strike/1.2.0`, `primary_approver_ref=<the analyst who signed off on this policy>`. An `action-approval` Interpretation is emitted.
 6. Dispatcher picks up `APPROVED`, calls the EDR via its capability adapter. Status `EXECUTING`, `action-dispatch` Interpretation emitted.
 7. EDR returns success. Status `SUCCEEDED`, `action-result` Interpretation emitted with `confidence=HIGH` (tool confirmed).
-8. Three days later, after investigation conclusion, the analyst un-isolates the host: a new `x-action` of type `host.unisolate` with `reversal_of_ref` pointing at the original. Goes through normal T2 flow (one click confirm). On success, original `x-action.status` becomes `REVERSED`.
+8. Three days later, after investigation conclusion, the analyst un-isolates the host: a new `reckon-action` of type `host.unisolate` with `reversal_of_ref` pointing at the original. Goes through normal T2 flow (one click confirm). On success, original `reckon-action.status` becomes `REVERSED`.
 
 Every step lives in the reasoning thread. The whole story is reconstructible by walking edges from the Grouping.
 

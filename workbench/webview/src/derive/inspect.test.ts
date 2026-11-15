@@ -8,13 +8,13 @@ const snap = (synthetic as unknown as { snapshot: InvestigationSnapshot }).snaps
 
 describe("rendererFor", () => {
   it("resolves a target from the id's shape", () => {
-    expect(rendererFor({ kind: "ref", ref: "x-null-observation--1" })).toBe("absence");
+    expect(rendererFor({ kind: "ref", ref: "reckon-null-observation--1" })).toBe("absence");
     expect(rendererFor({ kind: "ref", ref: "indicator--1" })).toBe("detection");
     expect(rendererFor({ kind: "ref", ref: "sighting--1" })).toBe("detection");
     expect(rendererFor({ kind: "ref", ref: "note--1" })).toBe("attestation");
-    expect(rendererFor({ kind: "ref", ref: "x-prediction--1" })).toBe("prediction");
-    expect(rendererFor({ kind: "ref", ref: "x-hypothesis--1" })).toBe("hypothesis");
-    expect(rendererFor({ kind: "ref", ref: "x-host--1" })).toBe("entity");
+    expect(rendererFor({ kind: "ref", ref: "reckon-prediction--1" })).toBe("prediction");
+    expect(rendererFor({ kind: "ref", ref: "reckon-hypothesis--1" })).toBe("hypothesis");
+    expect(rendererFor({ kind: "ref", ref: "reckon-host--1" })).toBe("entity");
     expect(rendererFor({ kind: "ref", ref: "user-account--1" })).toBe("entity");
     expect(rendererFor({ kind: "ref", ref: "observed-data--1" })).toBe("evidence");
     expect(rendererFor({ kind: "ref", ref: "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8" })).toBe("evidence");
@@ -26,8 +26,8 @@ describe("rendererFor", () => {
     const t = { kind: "ref" as const, ref: "identity--1" };
     expect(rendererFor(t)).toBe("entity");
     expect(rendererFor(t, null)).toBe("entity");
-    expect(rendererFor(t, { ref: t.ref, kind: "stix", type: "identity", payload: { properties: { identity_class: "individual" } } })).toBe("entity");
-    expect(rendererFor(t, { ref: t.ref, kind: "stix", type: "identity", payload: { properties: { name: "edr vendor" } } })).toBe("evidence");
+    expect(rendererFor(t, { ref: t.ref, kind: "stix", type: "identity", payload: { identity_class: "individual" } })).toBe("entity");
+    expect(rendererFor(t, { ref: t.ref, kind: "stix", type: "identity", payload: { name: "edr vendor" } })).toBe("evidence");
   });
   it("treats a relationship as an alias only when the edge says so", () => {
     const t = { kind: "ref" as const, ref: "relationship--1" };
@@ -46,8 +46,8 @@ describe("targetName", () => {
     const h = snap.hypotheses[0];
     expect(targetName({ kind: "ref", ref: h!.id }, snap, {})).toBe(h!.handle + " · " + h!.statement);
     expect(targetName({ kind: "ref", ref: h!.predictions[0]!.id }, snap, {})).toBe("P1 · " + h!.predictions[0]!.statement);
-    expect(targetName({ kind: "ref", ref: "x-host--z" }, snap, { "x-host--z": "host-z" })).toBe("host-z");
-    expect(targetName({ kind: "ref", ref: "x-host--z" }, snap, {})).toBe("host");
+    expect(targetName({ kind: "ref", ref: "reckon-host--z" }, snap, { "reckon-host--z": "host-z" })).toBe("host-z");
+    expect(targetName({ kind: "ref", ref: "reckon-host--z" }, snap, {})).toBe("host");
     expect(targetName({ kind: "action", actionId: "act-1" }, snap, {})).toBe("host.isolate → host-a");
     expect(targetName({ kind: "sop", sopId: "sop-1" }, snap, {})).toBe("Procedure one");
     expect(targetName({ kind: "case", investigationRef: "grouping--prior-1" }, snap, {})).toBe("Prior case A");

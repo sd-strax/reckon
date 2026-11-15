@@ -32,7 +32,7 @@ func postInterpretation(t *testing.T, b *Backend, token string, body RecordInter
 // TestRecordInterpretation_Records: an AI-delegated agent (delegate_kind claim)
 // posts a hypothesis interpretation with its transcript + tool call. The
 // endpoint records the event and persists the side store — proving the agent is
-// the legal author of x-interpretation through the HTTP seam (03 §1, 05 §3.4).
+// the legal author of reckon-interpretation through the HTTP seam (03 §1, 05 §3.4).
 func TestRecordInterpretation_Records(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")
@@ -293,7 +293,7 @@ func TestReasoningNodes_EndpointFlow(t *testing.T) {
 		Rationale:          "query confirmed the spike",
 		PredictionRef:      pRef,
 		PredictionStatus:   "CONFIRMED",
-		TestResultRefs:     []string{"observed-data--1"},
+		TestResultRefs:     []string{"observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf"},
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("prediction outcome: status %d", resp.StatusCode)
@@ -340,7 +340,7 @@ func TestReasoningNodes_EndpointFlow(t *testing.T) {
 		InvestigationRef:   invID.String(),
 		InterpretationType: "refutation",
 		Rationale:          "no such node",
-		HypothesisRef:      "x-hypothesis--" + uuid.NewString(),
+		HypothesisRef:      "reckon-hypothesis--" + uuid.NewString(),
 	})
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("refutation of nonexistent hypothesis: status %d; want 422", resp.StatusCode)

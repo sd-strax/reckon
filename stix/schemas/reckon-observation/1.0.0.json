@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-observation/1.0.0.json",
+  "title": "reckon-observation",
+  "description": "The fields an observation keeps from its OCSF event that STIX has no property for. Each field is optional.",
+  "type": "object",
+  "properties": {
+    "extension_type": {
+      "const": "property-extension"
+    },
+    "activity": {
+      "type": "string",
+      "description": "The event's activity name."
+    },
+    "activity_id": {
+      "type": "integer",
+      "description": "The event's activity id."
+    },
+    "app_name": {
+      "type": "string",
+      "description": "The application that made an API call."
+    },
+    "assignment_group": {
+      "type": "string",
+      "description": "The group a case is assigned to."
+    },
+    "case_number": {
+      "type": "string",
+      "description": "A case's number."
+    },
+    "person_ref": {
+      "type": "string",
+      "pattern": "^identity--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The person a directory record describes. An identity is an SDO, so it cannot be in object_refs."
+    },
+    "configuration": {
+      "description": "A cloud resource's configuration, as the snapshot gives it: any JSON value, as OCSF types it."
+    },
+    "created_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When a cloud resource was created."
+    },
+    "credential_uid": {
+      "type": "string",
+      "description": "The credential an API call was made with."
+    },
+    "criticality": {
+      "type": "string",
+      "description": "The source's criticality for the device or resource."
+    },
+    "error": {
+      "type": "string",
+      "description": "An API call's error code."
+    },
+    "error_message": {
+      "type": "string",
+      "description": "An API call's error message."
+    },
+    "finding_uids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Every finding a case is about, when there is more than one."
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "A cloud resource's labels."
+    },
+    "link": {
+      "type": "string",
+      "description": "A link to a case in its own system."
+    },
+    "logon_type": {
+      "type": "string",
+      "description": "A sign-in's logon type."
+    },
+    "modified_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When a cloud resource was last changed."
+    },
+    "operation": {
+      "type": "string",
+      "description": "An API call's operation."
+    },
+    "os_name": {
+      "type": "string",
+      "description": "A device's operating system."
+    },
+    "owner_name": {
+      "type": "string",
+      "description": "The owner of a device or cloud resource."
+    },
+    "principal_name": {
+      "type": "string",
+      "description": "The name of the principal that made an API call."
+    },
+    "priority": {
+      "type": "string",
+      "description": "A case's priority."
+    },
+    "privileges": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The privileges an account change or group change names."
+    },
+    "region": {
+      "type": "string",
+      "description": "The cloud region."
+    },
+    "request_uid": {
+      "type": "string",
+      "description": "An API call's request id."
+    },
+    "resource_count": {
+      "type": "integer",
+      "description": "How many resources the event names."
+    },
+    "resource_name": {
+      "type": "string",
+      "description": "The name of the first cloud resource in a snapshot."
+    },
+    "resource_type": {
+      "type": "string",
+      "description": "The provider's type for the first cloud resource in a snapshot."
+    },
+    "resource_uid": {
+      "type": "string",
+      "description": "The id of the first cloud resource in a snapshot."
+    },
+    "response_code": {
+      "type": "integer",
+      "description": "An API call's response code."
+    },
+    "service": {
+      "type": "string",
+      "description": "The cloud service an API call went to."
+    },
+    "session": {
+      "type": "object",
+      "description": "The session an API call was made in."
+    },
+    "sor": {
+      "type": "string",
+      "description": "The system a case is kept in."
+    },
+    "status": {
+      "type": "string",
+      "description": "The event's status."
+    },
+    "status_id": {
+      "type": "integer",
+      "description": "The event's status id."
+    },
+    "summary": {
+      "type": "string",
+      "description": "A case's summary."
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "A cloud resource's tags."
+    },
+    "title": {
+      "type": "string",
+      "description": "A case's title."
+    },
+    "user_agent": {
+      "type": "string",
+      "description": "The user agent of an API call."
+    }
+  },
+  "required": [
+    "extension_type"
+  ],
+  "additionalProperties": false
+}

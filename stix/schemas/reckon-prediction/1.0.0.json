@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-prediction/1.0.0.json",
+  "title": "reckon-prediction",
+  "description": "A prediction: an observable consequence of a hypothesis, and how to test it. The STIX common properties come from the STIX 2.1 core schema, so this schema lists only the ones it constrains.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "reckon-prediction"
+    },
+    "spec_version": {
+      "const": "2.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^reckon-prediction--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "modified": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "hypothesis_ref": {
+      "type": "string",
+      "pattern": "^reckon-hypothesis--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The hypothesis this prediction follows from."
+    },
+    "statement": {
+      "type": "string",
+      "description": "What should be observed if the hypothesis holds."
+    },
+    "title": {
+      "type": "string",
+      "description": "The short name views show."
+    },
+    "title_derived": {
+      "type": "boolean",
+      "description": "True when the title was derived from the statement rather than written."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "UNTESTED",
+        "CONFIRMED",
+        "DISCONFIRMED",
+        "INCONCLUSIVE",
+        "WITHDRAWN"
+      ],
+      "description": "Where the test stands."
+    },
+    "test_query": {
+      "type": "object",
+      "description": "The test to run: a tool query, or for a manual test whom to ask and what.",
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "query_text": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "tool",
+        "query_text"
+      ],
+      "additionalProperties": false
+    },
+    "discriminates": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^reckon-hypothesis--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "description": "The rival hypotheses whose expectation for this prediction is the opposite of its owner's."
+    },
+    "test_kind": {
+      "type": "string",
+      "enum": [
+        "tool",
+        "manual"
+      ],
+      "description": "Whether a tool query or a person's answer decides the prediction. Absent means tool."
+    },
+    "test_result_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]+--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "description": "The STIX objects the recorded outcome cites."
+    },
+    "test_result_event_ids": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      },
+      "description": "The raw OCSF events the recorded outcome cites, by event id. A raw event id is not a STIX id, so it is kept apart from test_result_refs (adr/0357)."
+    }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id",
+    "created",
+    "modified",
+    "hypothesis_ref",
+    "statement",
+    "status"
+  ]
+}

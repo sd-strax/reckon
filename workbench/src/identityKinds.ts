@@ -14,7 +14,7 @@ export type IdentityKind = "host" | "account" | "person";
  */
 export function identityKindOf(ref: string): IdentityKind | null {
   const r = ref.toLowerCase();
-  if (r.startsWith("x-host--")) return "host";
+  if (r.startsWith("reckon-host--")) return "host";
   if (r.startsWith("user-account--")) return "account";
   if (r.startsWith("identity--")) return "person";
   return null;
@@ -39,8 +39,7 @@ export function isPersonDoc(doc: EvidenceDoc | null | undefined): boolean {
   if (!doc) return false;
   if (doc.personIdentity) return true;
   const p = doc.payload && typeof doc.payload === "object" ? (doc.payload as Record<string, unknown>) : null;
-  const props = p && typeof p.properties === "object" && p.properties ? (p.properties as Record<string, unknown>) : p;
-  return !!props && props.identity_class === "individual";
+  return !!p && p.identity_class === "individual";
 }
 
 /**

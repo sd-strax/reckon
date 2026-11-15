@@ -12,9 +12,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/identity"
 )
 
-// x-hypothesis status values (01-domain-model.md §x-hypothesis). Status is a
+// reckon-hypothesis status values (01-domain-model.md §reckon-hypothesis). Status is a
 // projection over interpretation events, never stored aggregate state: a
 // hypothesis is created PROPOSED (AI-authored) or OPEN (human-authored), a
 // human acknowledgment moves PROPOSED→OPEN, and the evidential outcomes
@@ -30,7 +32,7 @@ const (
 	HypothesisAbandoned    = "ABANDONED"
 )
 
-// x-prediction status values (01-domain-model.md §x-prediction). A prediction
+// reckon-prediction status values (01-domain-model.md §reckon-prediction). A prediction
 // is created UNTESTED against a PROPOSED/OPEN hypothesis and terminates when
 // its test outcome is recorded — or when a human WITHDRAWS it untested (a
 // discarded test, not an evidential outcome: it carries no evidence and never
@@ -43,18 +45,18 @@ const (
 	PredictionWithdrawn    = "WITHDRAWN"
 )
 
-// STIX type prefixes for the reasoning nodes (custom objects per the x- STIX
-// convention, 01-domain-model.md §Adopted vs invented).
+// STIX type prefixes for the reasoning nodes: reckon's custom types, declared
+// by extension definitions (01-domain-model.md, STIX Conformance and Change).
 const (
-	stixTypeHypothesis = "x-hypothesis"
-	stixTypePrediction = "x-prediction"
+	stixTypeHypothesis = identity.TypeHypothesis
+	stixTypePrediction = identity.TypePrediction
 	// stixTypeNote is STIX 2.1's Note, adopted unchanged (01 "Adopted vs
 	// invented"): the object a human's attestation of a prediction result is
 	// recorded as (adr/0054).
 	stixTypeNote = "note"
 )
 
-// x-prediction test kinds (01 §x-prediction, adr/0054). A TOOL test is a query
+// reckon-prediction test kinds (01 §reckon-prediction, adr/0054). A TOOL test is a query
 // the agent or the analyst runs; a MANUAL test is a person's answer — the
 // account owner confirming a session, the change owner confirming a window —
 // which no verb can fetch. The kind decides who may record the result: a
@@ -111,7 +113,7 @@ const handleMaxRunes = 40
 const TitleMaxRunes = 64
 
 // maxDiscriminates bounds a prediction's discriminates list: a competing set is
-// a handful of rivals (01 §x-hypothesis caps the agent at three), never a crowd.
+// a handful of rivals (01 §reckon-hypothesis caps the agent at three), never a crowd.
 const maxDiscriminates = 8
 
 // Bounds on a prediction's declared test query — it lands in the event payload
@@ -122,20 +124,20 @@ const (
 	maxQueryParamBytes = 4096
 )
 
-// HypothesisNode is the creation payload for a new x-hypothesis, carried on a
+// HypothesisNode is the creation payload for a new reckon-hypothesis, carried on a
 // RecordInterpretation of type "hypothesis" (01: hypotheses are OUTPUTS of
 // interpretations, not separate primitives — there is no CreateHypothesis
 // command). ID is minted by the caller (the endpoint), like RequestAction.
 type HypothesisNode struct {
 	ID          uuid.UUID `json:"id"`
 	Statement   string    `json:"statement"`
-	Handle      string    `json:"handle,omitempty"`        // short mnemonic (01 §x-hypothesis)
-	ParentRef   string    `json:"parent_ref,omitempty"`    // x-hypothesis-- id (refinement chain)
+	Handle      string    `json:"handle,omitempty"`        // short mnemonic (01 §reckon-hypothesis)
+	ParentRef   string    `json:"parent_ref,omitempty"`    // reckon-hypothesis-- id (refinement chain)
 	RootedAtRef string    `json:"rooted_at_ref,omitempty"` // SCO id (anchor entity)
 	Labels      []string  `json:"labels,omitempty"`        // ATT&CK technique ids by convention
 }
 
-// QuerySpec is a prediction's optional declared test (01 §x-prediction): what
+// QuerySpec is a prediction's optional declared test (01 §reckon-prediction): what
 // query against which tool would confirm or disconfirm it.
 type QuerySpec struct {
 	Tool       string         `json:"tool"`
@@ -143,7 +145,7 @@ type QuerySpec struct {
 	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
-// PredictionNode is the creation payload for a new x-prediction, carried on a
+// PredictionNode is the creation payload for a new reckon-prediction, carried on a
 // RecordInterpretation of type "prediction".
 type PredictionNode struct {
 	ID            uuid.UUID `json:"id"`
@@ -154,8 +156,8 @@ type PredictionNode struct {
 	// the statement and marks the record title_derived.
 	Title     string     `json:"title,omitempty"`
 	TestQuery *QuerySpec `json:"test_query,omitempty"`
-	// Discriminates lists the rival x-hypothesis ids whose expectation for this
-	// prediction is the OPPOSITE of the owner's (01 §x-prediction): CONFIRMED
+	// Discriminates lists the rival reckon-hypothesis ids whose expectation for this
+	// prediction is the OPPOSITE of the owner's (01 §reckon-prediction): CONFIRMED
 	// supports the owner and counts against these; DISCONFIRMED the reverse.
 	// Empty means the prediction is merely consistent with its owner.
 	Discriminates []string `json:"discriminates,omitempty"`
@@ -234,7 +236,7 @@ type HypothesisRecorded struct {
 // HypothesisTransitionRecorded records a status move on an existing hypothesis
 // (acknowledgment or evidential outcome), or — From == To == OPEN — a human
 // field update. Statement/Handle are set when the act restated the hypothesis
-// (acknowledge-with-restatement, 01 §x-hypothesis): the projector rewrites the
+// (acknowledge-with-restatement, 01 §reckon-hypothesis): the projector rewrites the
 // node's fields; the prior wording stays on the earlier event.
 type HypothesisTransitionRecorded struct {
 	Ref       string `json:"ref"` // full STIX id
@@ -447,7 +449,7 @@ func validateHypothesisNode(h HypothesisNode) error {
 		return err
 	}
 	if h.RootedAtRef != "" {
-		if err := validateRefList("rooted_at_ref", []string{h.RootedAtRef}); err != nil {
+		if err := validateSTIXRef("RecordInterpretation", "rooted_at_ref", h.RootedAtRef); err != nil {
 			return err
 		}
 	}
@@ -721,7 +723,7 @@ func applyHypothesisCreate(env Envelope, state aggregateState, h HypothesisNode,
 
 // hypothesisHasResults reports whether any prediction under the hypothesis
 // carries a test result (anything but UNTESTED / WITHDRAWN). Tested wording is
-// frozen (01 §x-hypothesis): a result was recorded against the statement as it
+// frozen (01 §reckon-hypothesis): a result was recorded against the statement as it
 // stood, so a restatement after that point is a refinement via parent_ref, not
 // an edit.
 func hypothesisHasResults(state aggregateState, ref string) bool {
@@ -783,7 +785,7 @@ func applyHypothesisAckOrRevise(env Envelope, state aggregateState, c RecordInte
 // full automation: the server stamps AIReasoningConfigRef only when it is on, so
 // absent stamp + AI actor + PROPOSED = denied on every path (structural
 // default-deny, mirroring the AI-verdict dial).
-// outstandingDiscriminatorGate enforces decide-against-rivals (01 §x-hypothesis;
+// outstandingDiscriminatorGate enforces decide-against-rivals (01 §reckon-hypothesis;
 // adr/0051) for an AI delegate: a hypothesis may not be recorded SUPPORTED or
 // REFUTED while an UNTESTED prediction discriminates between it and a live
 // rival — whether the rival holds that prediction against it, or it holds one

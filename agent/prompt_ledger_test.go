@@ -22,8 +22,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "08fdc5fe7269cae5f79da477488ac140b710040bb39754752d30799f17f8d02e",
-		framingLeadingOnly: "335a0bdce1b9744b5abfff6f9b70ab7c51105bcebf0dfd53f17089952e6c18b8",
+		framingLeadingNull: "e851a68be09184fc98894969b37207baba93ba8ce7ba63d3d216864da0197d0a",
+		framingLeadingOnly: "33130fa21ec605ca5ce786b986a35fb20e404129995fd747b024696b825676e6",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -76,14 +76,14 @@ var componentGolden = map[string]string{
 	"tools/read_sop":                                   "d2a3d735e2d12528e5f651c56b8403778179d882ddb5a9405f88326d358a1b28",
 	"tools/recall_similar_investigations":              "013a01bbff06558a7d972be60d2e93248f23e54e71e1f5ce87196e800d45d711",
 	"tools/prior_investigations":                       "433c5d17cb369e9f19d36a54571b007c5230278d076c129006b037d61341f49e",
-	"tools/propose_hypothesis":                         "7e8b3212c19b856139929b44c97ebea7eef78588a613b189a26ff9eb0828baf9",
-	"tools/record_prediction":                          "de9fe394674042ace225eb4ef59c1fed2b9b92f2de865b06d69430d7a95ad73c",
-	"tools/evaluate_hypothesis":                        "9ea21732ba5c7000c7940a635f7871c066a9fb687da5b2b751f00f5f74e1da97",
-	"tools/record_prediction_outcome":                  "146ac06325ffa4fb1805a7cdf3844ca15968be16c3947518cce7e4e1d7e8ed52",
-	"tools/request_action":                             "117932bb6e2e9b1eeb5b1974a37f1a5b0a2d3278adca0efc57d6f38c7e70c02e",
+	"tools/propose_hypothesis":                         "f9f8bddb979a6e836c1168e139973b63efcb7c8dddaa079436b9910b2ebcdf0c",
+	"tools/record_prediction":                          "dab8d176db49bd8468f80c619155c7d43eb98eaf43b3d2bc3d0c7fbc45ccd0ad",
+	"tools/evaluate_hypothesis":                        "6d7ba1b58f94d4dbc22f1f766efefe8793a260a99901a0f6d3fab5da3938f2be",
+	"tools/record_prediction_outcome":                  "1ca1335b3341d5ba553423d74b53b7960ae89b6d8078bc72fda2aa2c5605ad9e",
+	"tools/request_action":                             "192ed18548a6315d8149389e4c3db0c9e912e42591f23b3ff2a71d97ae8425d4",
 	"tools/list_actions":                               "149708b898187a9bf3a486e36bd969630944a5fa234e72a4c40cf1f90a77cbea",
 	"tools/read_result":                                "e8a77530cd8f75be5ce8c3d39c8fbc1a777defb2a5e04b4ee86e2b37e4fb4f3b",
-	"tools/request_action+catalog":                     "6306b2cfe0054491a3b2760418af0bcfde7761285b813ef888e291cbfb3a58d2",
+	"tools/request_action+catalog":                     "74ec8bbbc476e948328379bc973c61601a8b0935f1e613806528f6a3be80b5a8",
 	"tools/<verb>":                                     "795672a811bcaa201639fa7f3626615ddc873c0aa69c025d072486b773f95bf0",
 	"engine-text/clock":                                "9d82e0ccdff304d70aafa9f32ea959243dd87ef82b25b1919c0ea2ddde472f06",
 	"engine-text/reasoning-state":                      "e1aec4e82563e9898ba2876b6a9fa94d9bf4cc3842a259177a7b5c50cb1fed23",

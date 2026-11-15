@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -142,17 +143,19 @@ func TestEngineReadsTheFinding(t *testing.T) {
 	if ind.Name != "GreyNoise: malicious (Mirai)" || ind.Pattern != "[ipv4-addr:value = '45.83.64.1']" || ind.Confidence == nil || *ind.Confidence != 85 || ind.Provenance.Tool != "GreyNoise" {
 		t.Errorf("indicator = %+v", ind)
 	}
-	if len(ind.IndicatorTypes) != 1 || ind.IndicatorTypes[0] != "Mirai" {
-		t.Errorf("indicator types = %v", ind.IndicatorTypes)
+	// A tag name is not a STIX indicator type. It is a label (adr/0357).
+	if ind.IndicatorTypes != nil || !slices.Equal(ind.Labels, []string{"Mirai"}) || ind.PatternType != "vendor" {
+		t.Errorf("indicator types = %v, labels %v, pattern type %q; want no types, the tag as a label, and the vendor's pattern", ind.IndicatorTypes, ind.Labels, ind.PatternType)
 	}
 	// The address is in the observation the sighting names. It is not in
 	// where_sighted_refs, where STIX allows only identity and location objects.
+	// That names who saw it: GreyNoise (adr/0357).
 	od := res.ObservedData[0]
 	if want := ids.IPv4Addr("45.83.64.1"); len(od.ObjectRefs) != 1 || od.ObjectRefs[0] != want {
 		t.Errorf("observed %v; want the address %s", od.ObjectRefs, want)
 	}
-	if s := res.Sightings[0]; len(s.WhereSighted) != 0 || len(s.ObservedDataRefs) != 1 || s.ObservedDataRefs[0] != od.ID {
-		t.Errorf("sighting where %v, observed-data %v; want the observation alone", s.WhereSighted, s.ObservedDataRefs)
+	if s := res.Sightings[0]; len(s.WhereSighted) != 1 || s.WhereSighted[0] != ind.CreatedByRef || len(s.ObservedDataRefs) != 1 || s.ObservedDataRefs[0] != od.ID {
+		t.Errorf("sighting where %v, observed-data %v; want the vendor and the observation", s.WhereSighted, s.ObservedDataRefs)
 	}
 }
 

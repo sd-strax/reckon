@@ -7,10 +7,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/stix"
 )
 
 // EventTypeInterpretationRecorded tags an event that records one reasoning act
-// — an x-interpretation node (01-domain-model.md §Interpretation). Lifecycle
+// — a reckon-interpretation node (01-domain-model.md §Interpretation). Lifecycle
 // transitions, linkages, and action requests each pair their domain
 // event with one of these in the same transaction, tied by correlation_id, so
 // the reasoning thread can be reassembled from the event log.
@@ -97,6 +99,23 @@ func validateRefList(field string, refs []string) error {
 	return nil
 }
 
+// validateCitations refuses a cited ref that is neither a STIX id
+// (<type>--<UUID>) nor a raw OCSF event id (a bare UUID), the two forms a
+// citation can take (adr/0357). The stored object keeps each form in its own
+// list.
+func validateCitations(field string, refs []string) error {
+	for _, r := range refs {
+		if stix.IsIdentifier(r) {
+			continue
+		}
+		if _, err := uuid.Parse(r); err == nil && len(r) == 36 {
+			continue
+		}
+		return fmt.Errorf("RecordInterpretation: %s entry %q is neither a STIX id (<type>--<UUID>) nor an event id (a UUID); cite the observation or the event the tool result names", field, r)
+	}
+	return nil
+}
+
 // Confidence values (01-domain-model.md §Interpretation schema). Optional.
 const (
 	ConfidenceHigh   = "HIGH"
@@ -175,7 +194,7 @@ const maxConsultedPerInterpretation = 20
 
 // InterpretationRecorded is the payload of an EventTypeInterpretationRecorded
 // event: one recorded reasoning act. It is the event-log projection of the
-// x-interpretation primitive, which has no stix_objects row: this payload is
+// reckon-interpretation primitive, which has no stix_objects row: this payload is
 // the interpretation. Recording it here keeps the reasoning thread
 // reconstructable from events alone.
 type InterpretationRecorded struct {
@@ -261,7 +280,7 @@ func interpretationEvent(env Envelope, seqNo int64, interpID uuid.UUID, itype, s
 // the transcript + tool-call content that produced it into the side store
 // (02 §6 Layer B), hashed and written in the same transaction.
 //
-// This is the command that makes the agent the legal author of x-interpretation
+// This is the command that makes the agent the legal author of reckon-interpretation
 // (03 §1: "the agent loop is their only legal author"): it is on the
 // AI_DELEGATED allowlist, is annotate-tier (T1), and can never touch action
 // status or authorization.
@@ -367,6 +386,9 @@ func (c RecordInterpretation) Validate(env Envelope) error {
 		return err
 	}
 	if err := validateRefList("output_refs", c.OutputRefs); err != nil {
+		return err
+	}
+	if err := validateCitations("test_result_refs", c.TestResultRefs); err != nil {
 		return err
 	}
 	if err := validateRefList("test_result_refs", c.TestResultRefs); err != nil {

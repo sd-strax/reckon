@@ -1,4 +1,4 @@
-// Action (x-action: History · Authorization · Targets, from GET /api/actions/{id})
+// Action (reckon-action: History · Authorization · Targets, from GET /api/actions/{id})
 // and Notification thread (a notify.* action + its comms thread: Thread ·
 // Sent message) — 08 §8.6.1. The card is the summary; this is the record.
 import { useApp } from "../../app";

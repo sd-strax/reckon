@@ -86,7 +86,7 @@ func TestDependencies_Lifecycle(t *testing.T) {
 	isolateID := uuid.New()
 	if _, err := testHandler.Handle(context.Background(), env(), aggregate.RequestAction{
 		ActionID: isolateID, ActionType: "host.isolate", Tier: aggregate.TierT2,
-		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-FILE01"}},
+		Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}},
 		ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
 	}); err != nil {
 		t.Fatalf("request isolate: %v", err)

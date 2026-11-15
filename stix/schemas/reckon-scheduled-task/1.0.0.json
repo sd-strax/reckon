@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-scheduled-task/1.0.0.json",
+  "title": "reckon-scheduled-task",
+  "description": "A scheduled task: a job set to run on a host. The STIX common properties come from the STIX 2.1 core schema, so this schema lists only the ones it constrains.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "reckon-scheduled-task"
+    },
+    "spec_version": {
+      "const": "2.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^reckon-scheduled-task--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "name": {
+      "type": "string",
+      "description": "The task's name."
+    },
+    "path": {
+      "type": "string",
+      "description": "The path of the task's file."
+    },
+    "command_line": {
+      "type": "string",
+      "description": "The first command the task runs."
+    },
+    "command_lines": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Every command the task runs, when it runs more than one."
+    },
+    "principal_user_ref": {
+      "type": "string",
+      "description": "The account the task runs as, as a user-account id, or empty."
+    }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id"
+  ]
+}

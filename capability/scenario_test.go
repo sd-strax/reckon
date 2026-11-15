@@ -129,7 +129,7 @@ func TestShippedLateralMovementScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Evidence of absence is citeable (adr/0061): the complete, empty answer
-	// mints an x-null-observation and its id is the one ref in the result.
+	// mints a reckon-null-observation and its id is the one ref in the result.
 	if change.Coverage != CoverageComplete || change.NullObservation == nil || len(change.ObservedDataRefs) != 1 || change.ObservedDataRefs[0] != change.NullObservation.ID {
 		t.Errorf("query_external_cases(change record): coverage=%q null=%v refs=%v; want COMPLETE with the null observation as the only ref", change.Coverage, change.NullObservation != nil, change.ObservedDataRefs)
 	}

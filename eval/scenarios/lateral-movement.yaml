@@ -36,7 +36,7 @@ turns:
 
   # Competing-set framing (R1; G2's precondition): under the default
   # leading_null dial the agent frames the leader AND the concrete alternative,
-  # each with a handle (01 §x-hypothesis). Under leading_only R1 is
+  # each with a handle (01 §reckon-hypothesis). Under leading_only R1 is
   # NOT_EXERCISED.
   - user: >-
       Frame the competing hypotheses for what happened on WIN-FILE01 — the

@@ -223,7 +223,7 @@ export interface EvidenceDoc {
   view?: EventView;
   /** On an `indicator--` ref: its sightings, vendor identity and recursed evidence (08 §8.6.1). */
   related?: { sightings: EvidenceDoc[]; identity: EvidenceDoc | null; evidence: EvidenceDoc[] };
-  /** On an `x-host--` ref: its identity view (adr/0211). */
+  /** On a `reckon-host--` ref: its identity view (adr/0211). */
   identity?: HostIdentity;
   /** On a `user-account--` ref: its identity view (adr/0324). */
   accountIdentity?: AccountIdentity;
@@ -575,7 +575,7 @@ export interface Prediction {
   testQuery?: TestQuery;
   /**
    * Rival hypothesis ids whose expectation for this prediction is the OPPOSITE
-   * of the owner's (01 §x-prediction). Empty = merely consistent with its owner.
+   * of the owner's (01 §reckon-prediction). Empty = merely consistent with its owner.
    */
   discriminates: string[];
   testResultRefs: string[];

@@ -2,7 +2,7 @@
 // §4): the thread that FOLLOWS an outbound message.
 //
 // The message itself is never sent from here — every outbound message is a
-// notify.* x-action (T2: any dispatch that leaves reckon is T2+, 04 §1)
+// notify.* reckon-action (T2: any dispatch that leaves reckon is T2+, 04 §1)
 // through the full request → Gate 2 → approve → dispatch path, with the
 // pre-send preview as its approval surface. This package owns what the action
 // layer deliberately does not: the reply/follow-up/closure state of the

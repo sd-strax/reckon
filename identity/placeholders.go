@@ -31,7 +31,12 @@ func PlaceholderMAC(v string) bool {
 // on every machine, so it identifies none; link-local and private addresses
 // do identify a machine within a network and are not placeholders.
 func PlaceholderIP(v string) bool {
-	ip := net.ParseIP(strings.TrimSpace(v))
+	v = strings.TrimSpace(v)
+	// A CIDR block is judged by its address (STIX 2.1 §6.8, §6.9).
+	if addr, _, cut := strings.Cut(v, "/"); cut {
+		v = addr
+	}
+	ip := net.ParseIP(v)
 	if ip == nil {
 		return true
 	}

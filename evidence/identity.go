@@ -12,6 +12,7 @@ import (
 
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/module"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // Identity reads (adr/0211). A host's id is its short hostname; what the key
@@ -119,11 +120,11 @@ func (s *Store) aliasGraph(ctx context.Context, seeds []uuid.UUID) (aliasGraph, 
 			CROSS JOIN LATERAL (
 				SELECT e.target_ref AS other FROM stix_edges e
 				WHERE e.tenant_id = $3 AND e.source_ref = w.id
-				  AND e.relationship_type = '`+relAliases+`' AND e.payload->>'withdrawn_at' IS NULL
+				  AND e.relationship_type = '`+relAliases+`' AND `+eWithdrawnAtSQL+` IS NULL
 				UNION ALL
 				SELECT e.source_ref FROM stix_edges e
 				WHERE e.tenant_id = $3 AND e.target_ref = w.id
-				  AND e.relationship_type = '`+relAliases+`' AND e.payload->>'withdrawn_at' IS NULL
+				  AND e.relationship_type = '`+relAliases+`' AND `+eWithdrawnAtSQL+` IS NULL
 			) n
 			WHERE w.depth < $2
 		)
@@ -152,7 +153,7 @@ func (s *Store) aliasGraph(ctx context.Context, seeds []uuid.UUID) (aliasGraph, 
 	edges, err := s.db.QueryContext(ctx, `
 		SELECT source_ref, target_ref, relationship_type FROM stix_edges
 		WHERE tenant_id = $2 AND relationship_type IN ('`+relAliases+`', '`+relDistinctFrom+`')
-		  AND payload->>'withdrawn_at' IS NULL
+		  AND `+withdrawnAtSQL+` IS NULL
 		  AND source_ref = ANY($1) AND target_ref = ANY($1)
 	`, uuidArray(nodes), tenant)
 	if err != nil {
@@ -401,11 +402,11 @@ func (s *Store) edgesTouching(ctx context.Context, id uuid.UUID, relTypes []stri
 	return out, rows.Err()
 }
 
-// Assertion is the payload part of an aliases or distinct-from edge a person
+// Assertion is the part of an aliases or distinct-from edge a person
 // asserted (adr/0211): who, when, the note, the withdrawal once withdrawn,
 // and a thin history of the acts on it (02 §2.2, CRUD with history). It is
-// stored beside the relationship's own fields; an observed edge, a
-// normalizer's, carries provenance instead.
+// stored in the relationship's reckon-assertion property-extension
+// (adr/0357); an observed edge, a normalizer's, carries provenance instead.
 type Assertion struct {
 	AssertedBy     string           `json:"asserted_by"`
 	AssertedByName string           `json:"asserted_by_name,omitempty"`
@@ -426,27 +427,27 @@ type AssertionEvent struct {
 }
 
 // identityEdge reads an edge's origin from its payload: an asserted edge
-// carries an Assertion; an observed one carries the normalizer's provenance.
+// carries an Assertion in reckon-assertion; an observed one carries the
+// normalizer's provenance in reckon-provenance (adr/0357).
 func identityEdge(payload []byte, created time.Time) IdentityEdge {
-	var p struct {
-		Assertion
-		Provenance struct {
-			Tool       string    `json:"tool"`
-			ObservedAt time.Time `json:"observed_at"`
-		} `json:"provenance"`
-	}
-	_ = json.Unmarshal(payload, &p)
-	e := IdentityEdge{At: created, Withdrawn: p.WithdrawnAt != nil, Note: p.Note}
-	if p.AssertedBy != "" {
-		e.Kind, e.By, e.ByName = IdentityAsserted, p.AssertedBy, p.AssertedByName
-		if !p.AssertedAt.IsZero() {
-			e.At = p.AssertedAt
+	var a Assertion
+	_, _ = stix.DecodeExtension(payload, stix.ExtAssertion, &a)
+	e := IdentityEdge{At: created, Withdrawn: a.WithdrawnAt != nil, Note: a.Note}
+	if a.AssertedBy != "" {
+		e.Kind, e.By, e.ByName = IdentityAsserted, a.AssertedBy, a.AssertedByName
+		if !a.AssertedAt.IsZero() {
+			e.At = a.AssertedAt
 		}
 		return e
 	}
-	e.Kind, e.Source = IdentityObserved, p.Provenance.Tool
-	if !p.Provenance.ObservedAt.IsZero() {
-		e.At = p.Provenance.ObservedAt
+	var prov struct {
+		Tool       string    `json:"tool"`
+		ObservedAt time.Time `json:"observed_at"`
+	}
+	_, _ = stix.DecodeExtension(payload, stix.ExtProvenance, &prov)
+	e.Kind, e.Source = IdentityObserved, prov.Tool
+	if !prov.ObservedAt.IsZero() {
+		e.At = prov.ObservedAt
 	}
 	return e
 }
@@ -507,7 +508,7 @@ const literalPlaceholderSQL = `CASE WHEN literal AND strpos(h, '/') = 0 AND h !~
 const macForm = `^([0-9a-f]{2}(:[0-9a-f]{2}){5}|[0-9a-f]{2}(-[0-9a-f]{2}){5}|[0-9a-f]{4}(\.[0-9a-f]{4}){2}|[0-9a-f]{12}` +
 	`|[0-9a-f]{2}(:[0-9a-f]{2}){7}|[0-9a-f]{2}(-[0-9a-f]{2}){7}|[0-9a-f]{16})$`
 
-// hostMatchers reads what the x-hosts among refs can be matched on: only the
+// hostMatchers reads what the reckon-hosts among refs can be matched on: only the
 // identifier each was minted on (identity.Host's tiers, a placeholder read as
 // absent by the same identity predicates). A strong host
 // contributes its short hostname and nothing else; its mac and device ids are
@@ -527,7 +528,7 @@ func (s *Store) hostMatchers(ctx context.Context, refs []string) (hostMatch, err
 		return m, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT COALESCE(payload->'properties', '{}'::jsonb) FROM stix_objects
+		SELECT payload FROM stix_objects
 		WHERE tenant_id = $3 AND id = ANY($1) AND type = $2
 	`, uuidArray(ids), identity.TypeHost, module.SingleTenantUUID)
 	if err != nil {
@@ -578,12 +579,13 @@ func (s *Store) hostMatchers(ctx context.Context, refs []string) (hostMatch, err
 // object's tier and is never yielded as a domain, an agent id or an address.
 func (s *Store) seenAs(ctx context.Context, refs []string, match hostMatch) (SeenAs, error) {
 	out := SeenAs{Domains: []string{}, Agents: []SourceID{}, IPs: []string{}}
+	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
 	rows, err := s.db.QueryContext(ctx, `
 		WITH ev AS (
 			SELECT e.source_tool, e.payload FROM ocsf_events e
 			WHERE EXISTS (
 				SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id AND o.tenant_id = $8
-				WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ?| $1::text[])
+				WHERE ode.ocsf_event_id = e.id AND `+observationNamesAny("o.payload", "$1::text[]")+`)
 		),
 		-- The artifacts of a detection's evidences[] (adr/0356).
 		art AS (

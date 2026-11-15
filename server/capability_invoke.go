@@ -59,7 +59,7 @@ type NormalizedView struct {
 }
 
 // CapabilityInvokeResponse is the CapabilityResult envelope (03 §2, §6.1): the
-// reference lists the agent loop attaches to an x-interpretation, the coverage
+// reference lists the agent loop attaches to a reckon-interpretation, the coverage
 // classification, degradation notes, and the concrete objects produced.
 type CapabilityInvokeResponse struct {
 	// CallID is the engine-minted id of this invocation (adr/0092): the record

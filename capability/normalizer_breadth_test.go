@@ -157,12 +157,14 @@ func TestRegistryClassesReadTheirOwnFields(t *testing.T) {
 			t.Errorf("class %d: keys = %+v; want one at %s", class, keys, want)
 		}
 	}
-	res, err := reg.Normalize(makeEvent(both(1003)))
+	evt := makeEvent(both(1003))
+	res, err := reg.Normalize(evt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.SCOs) != 0 || res.ObservedData[0].Provenance.Normalizer != "opaque" {
-		t.Errorf("class 1003: %d SCOs under %q; want the opaque default", len(res.SCOs), res.ObservedData[0].Provenance.Normalizer)
+	recordArtifactOnly(t, evt, res)
+	if res.ObservedData[0].Provenance.Normalizer != "opaque" {
+		t.Errorf("class 1003: under %q; want the opaque default", res.ObservedData[0].Provenance.Normalizer)
 	}
 }
 
@@ -241,7 +243,7 @@ func TestModuleNormalizer(t *testing.T) {
 			"time":      ms("2026-04-20T14:32:11Z"),
 			"module": map[string]any{"file": map[string]any{
 				"name": "evil.dll", "path": `C:\Temp\evil.dll`,
-				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "abcd"}},
+				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589"}},
 			}},
 			"actor":  map[string]any{"process": map[string]any{"pid": 999, "created_time": ms("2026-04-20T14:00:00Z")}},
 			"device": map[string]any{"hostname": "WS1"},
@@ -257,12 +259,14 @@ func TestModuleNormalizer(t *testing.T) {
 	if !hasRel(res.Relationships, RelLoads) {
 		t.Error("missing loads relationship (process → module)")
 	}
-	old, err := testRegistry().Normalize(makeEvent(payload(1009)))
+	oldEvt := makeEvent(payload(1009))
+	old, err := testRegistry().Normalize(oldEvt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(old.SCOs) != 0 {
-		t.Errorf("class 1009: %d SCOs; want the opaque default", len(old.SCOs))
+	recordArtifactOnly(t, oldEvt, old)
+	if old.ObservedData[0].Provenance.Normalizer != "opaque" {
+		t.Errorf("class 1009: under %q; want the opaque default", old.ObservedData[0].Provenance.Normalizer)
 	}
 }
 
@@ -281,11 +285,11 @@ func TestFileHashesListFormOnly(t *testing.T) {
 		}
 		return scosOf(res, identity.TypeFile)[0]
 	}
-	list := file([]any{map[string]any{"algorithm": "SHA-256", "algorithm_id": 3, "value": "deadbeef"}, "not a fingerprint", map[string]any{"algorithm": "MD5"}})
-	if !reflect.DeepEqual(list.Properties["hashes"], map[string]string{"SHA-256": "deadbeef"}) {
+	list := file([]any{map[string]any{"algorithm": "SHA-256", "algorithm_id": 3, "value": testSHA256}, "not a fingerprint", map[string]any{"algorithm": "MD5"}})
+	if !reflect.DeepEqual(list.Properties["hashes"], map[string]string{"SHA-256": testSHA256}) {
 		t.Errorf("list form: hashes = %v", list.Properties["hashes"])
 	}
-	object := file(map[string]any{"SHA-256": "deadbeef"})
+	object := file(map[string]any{"SHA-256": testSHA256})
 	if _, ok := object.Properties["hashes"]; ok || object.ID == list.ID {
 		t.Errorf("object form was read: %v", object.Properties)
 	}
@@ -308,15 +312,15 @@ func TestFileHashesByAlgorithmID(t *testing.T) {
 		}
 		return scosOf(res, identity.TypeFile)[0]
 	}
-	byID := file(map[string]any{"algorithm_id": float64(3), "value": "deadbeef"}, map[string]any{"algorithm_id": float64(1), "value": "0123"})
-	if want := map[string]string{"SHA-256": "deadbeef", "MD5": "0123"}; !reflect.DeepEqual(byID.Properties["hashes"], want) {
+	byID := file(map[string]any{"algorithm_id": float64(3), "value": testSHA256}, map[string]any{"algorithm_id": float64(1), "value": testMD5})
+	if want := map[string]string{"SHA-256": testSHA256, "MD5": testMD5}; !reflect.DeepEqual(byID.Properties["hashes"], want) {
 		t.Errorf("hashes = %v; want %v", byID.Properties["hashes"], want)
 	}
-	byCaption := file(map[string]any{"algorithm": "SHA-256", "algorithm_id": float64(3), "value": "deadbeef"})
+	byCaption := file(map[string]any{"algorithm": "SHA-256", "algorithm_id": float64(3), "value": testSHA256})
 	if byID.ID != byCaption.ID {
 		t.Errorf("the same SHA-256 gives %s by id and %s by caption", byID.ID, byCaption.ID)
 	}
-	if unnamed := file(map[string]any{"algorithm_id": float64(99), "value": "deadbeef"}); unnamed.Properties["hashes"] != nil {
+	if unnamed := file(map[string]any{"algorithm_id": float64(99), "value": testSHA256}); unnamed.Properties["hashes"] != nil {
 		t.Errorf("a hash whose algorithm is not named was kept: %v", unnamed.Properties["hashes"])
 	}
 }
@@ -437,7 +441,7 @@ func emailEvent() map[string]any {
 			"uid":         "gw-0001",
 			"files": []any{map[string]any{
 				"name":   "invoice.pdf.exe",
-				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "beef"}},
+				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "aa415c4e8890cf0fec7826aec962ffbcc04534faefd2b3266c54f690d40d6e82"}},
 			}},
 			"urls": []any{map[string]any{"url_string": "https://evil.example/pay"}},
 		},
@@ -517,6 +521,78 @@ func TestEmailBlindCopy(t *testing.T) {
 				t.Errorf("bcc_refs = %v; want %v", msg.Properties["bcc_refs"], want)
 			}
 		})
+	}
+}
+
+// TestEmailIsMultipart (§4.10, adr/0357): STIX requires is_multipart, and
+// OCSF has no field for it. It is true when the raw header's Content-Type
+// names a multipart type, matched without case, and false otherwise. A
+// weak message a click names says nothing of its parts, so it is false.
+func TestEmailIsMultipart(t *testing.T) {
+	for _, tc := range []struct {
+		name, header string
+		want         bool
+	}{
+		{"multipart", "From: a@b.example\r\nContent-Type: multipart/mixed; boundary=\"x\"\r\nSubject: hi", true},
+		{"any case", "content-type: Multipart/Alternative", true},
+		{"single part", "Content-Type: text/plain; charset=utf-8", false},
+		{"a folded line is not a header", "X-Note: see\r\n Content-Type: multipart/mixed", false},
+		// RFC 5322 §2.2.3: a folded header is unfolded before it is read.
+		{"a folded Content-Type", "From: a@b.example\r\nContent-Type:\r\n multipart/related;\r\n\tboundary=\"x\"", true},
+		{"an upper-case name, folded after the type", "CONTENT-TYPE: Multipart/Mixed;\r\n boundary=\"x\"", true},
+		{"lower-case name, folded parameters", "content-type: multipart/signed;\n protocol=\"application/pgp-signature\"", true},
+		{"no Content-Type", "From: a@b.example", false},
+		{"no raw header", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := emailEvent()
+			if tc.header != "" {
+				p["email"].(map[string]any)["raw_header"] = tc.header
+			}
+			res, err := testRegistry().Normalize(makeEvent(p))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, m := range scosOf(res, identity.TypeEmailMessage) {
+				want := tc.want
+				if m.Properties["weak"] == true {
+					want = false // the weak alias says nothing of the parts
+				}
+				if m.Properties["is_multipart"] != want {
+					t.Errorf("%s: is_multipart = %v; want %v", m.ID, m.Properties["is_multipart"], want)
+				}
+			}
+		})
+	}
+	res, err := testRegistry().Normalize(makeEvent(clickEvent()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgs := scosOf(res, identity.TypeEmailMessage); len(msgs) != 1 || msgs[0].Properties["is_multipart"] != false {
+		t.Errorf("click's message = %+v; want is_multipart false", msgs)
+	}
+}
+
+// TestEmailLeavesUnknownsOut (adr/0357): a property the record does not give
+// is left out of the message, not written empty.
+func TestEmailLeavesUnknownsOut(t *testing.T) {
+	p := emailEvent()
+	mail := p["email"].(map[string]any)
+	for _, k := range []string{"message_uid", "subject", "to", "cc", "bcc", "from"} {
+		delete(mail, k)
+	}
+	res, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := scosOf(res, identity.TypeEmailMessage)
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %+v", msgs)
+	}
+	for _, k := range []string{"message_id", "subject", "from_ref", "to_refs", "cc_refs", "bcc_refs"} {
+		if v, ok := msgs[0].Properties[k]; ok {
+			t.Errorf("%s = %#v; want it left out", k, v)
+		}
 	}
 }
 
@@ -705,7 +781,7 @@ func TestEmailFileNormalizer(t *testing.T) {
 		"email_uid":   "gw-0001",
 		"file": map[string]any{
 			"name":   "invoice.pdf.exe",
-			"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "beef"}},
+			"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "aa415c4e8890cf0fec7826aec962ffbcc04534faefd2b3266c54f690d40d6e82"}},
 		},
 		"actor":  map[string]any{"user": map[string]any{"name": "alice", "domain": "CORP"}},
 		"device": map[string]any{"hostname": "WS1"},
@@ -716,7 +792,7 @@ func TestEmailFileNormalizer(t *testing.T) {
 	}
 	ids := identity.NewResolver(testNS)
 	weak := ids.WeakEmailMessage("fixture:s", "gw-0001")
-	file := ids.File(identity.FileIdentity{Hashes: map[string]string{"SHA-256": "beef"}, Name: "invoice.pdf.exe"})
+	file := ids.File(identity.FileIdentity{Hashes: map[string]string{"SHA-256": "aa415c4e8890cf0fec7826aec962ffbcc04534faefd2b3266c54f690d40d6e82"}, Name: "invoice.pdf.exe"})
 	bt := countTypes(res.SCOs)
 	if bt[identity.TypeFile] != 1 || bt[identity.TypeEmailMessage] != 1 || bt[identity.TypeUserAccount] != 1 || bt[identity.TypeHost] != 1 {
 		t.Errorf("want 1 file + 1 message + 1 account + 1 host; got %v", bt)

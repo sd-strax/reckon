@@ -29,10 +29,10 @@ func sampleInvestigation() Investigation {
 			json.RawMessage(`{"sequence_no":2,"type":"interpretation.recorded"}`),
 		},
 		StixObjects: []json.RawMessage{
-			json.RawMessage(`{"type":"x-hypothesis","id":"x-hypothesis--1","status":"SUPPORTED"}`),
+			json.RawMessage(`{"type":"reckon-hypothesis","id":"reckon-hypothesis--1","status":"SUPPORTED"}`),
 		},
 		Hypotheses: []HypothesisSummary{
-			{ID: "x-hypothesis--1", Statement: "C2 via DNS tunneling", Status: "SUPPORTED", Labels: []string{"T1071.004"}},
+			{ID: "reckon-hypothesis--1", Statement: "C2 via DNS tunneling", Status: "SUPPORTED", Labels: []string{"T1071.004"}},
 		},
 		Actions: []ActionSummary{
 			{ID: "act-1", ActionType: "host.isolate", Tier: "T2", Status: "SUCCEEDED"},

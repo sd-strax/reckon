@@ -70,20 +70,20 @@ func requireLedgerText(t *testing.T, what, rendered string, values ...string) {
 func TestEngineText_RenderersUseTheLedger(t *testing.T) {
 	long := strings.Repeat("x", 200)
 	block := hypothesisStateBlock(json.RawMessage(`{"hypotheses":[
-	  {"id":"x-hypothesis--a","handle":"lead rdp","status":"OPEN","statement":"first","labels":["Ta","Tb"],"predictions":[
-	    {"id":"x-prediction--b","ordinal":3,"status":"UNTESTED","test_kind":"manual","statement":"` + long + `","discriminates":["x-hypothesis--c","x-hypothesis--z"]},
-	    {"id":"x-prediction--d","status":"CONFIRMED","statement":"q"},
-	    {"id":"x-prediction--e","status":"WITHDRAWN","statement":"q"},
-	    {"id":"x-prediction--f","status":"LATER","statement":"q"}]},
-	  {"id":"x-hypothesis--c","status":"OPEN","statement":"second","predictions":[
-	    {"id":"x-prediction--g","status":"UNTESTED","statement":"third","discriminates":["x-hypothesis--a"]}]},
-	  {"id":"x-hypothesis--z","status":"REFUTED","statement":"fourth"}]}`))
+	  {"id":"reckon-hypothesis--a","handle":"lead rdp","status":"OPEN","statement":"first","labels":["Ta","Tb"],"predictions":[
+	    {"id":"reckon-prediction--b","ordinal":3,"status":"UNTESTED","test_kind":"manual","statement":"` + long + `","discriminates":["reckon-hypothesis--c","reckon-hypothesis--z"]},
+	    {"id":"reckon-prediction--d","status":"CONFIRMED","statement":"q"},
+	    {"id":"reckon-prediction--e","status":"WITHDRAWN","statement":"q"},
+	    {"id":"reckon-prediction--f","status":"LATER","statement":"q"}]},
+	  {"id":"reckon-hypothesis--c","status":"OPEN","statement":"second","predictions":[
+	    {"id":"reckon-prediction--g","status":"UNTESTED","statement":"third","discriminates":["reckon-hypothesis--a"]}]},
+	  {"id":"reckon-hypothesis--z","status":"REFUTED","statement":"fourth"}]}`))
 	requireLedgerText(t, "reasoning state", block,
-		"x-hypothesis--a", "x-hypothesis--c", "x-hypothesis--z", "x-prediction--b", "x-prediction--g",
+		"reckon-hypothesis--a", "reckon-hypothesis--c", "reckon-hypothesis--z", "reckon-prediction--b", "reckon-prediction--g",
 		"lead rdp", "OPEN", "REFUTED", "first", "second", "third", "fourth", "Ta", "Tb",
 		long[:predictionStatementMax-1], "later")
-	decided := hypothesisStateBlock(json.RawMessage(`{"hypotheses":[{"id":"x-hypothesis--a","status":"OPEN","statement":"first"}]}`))
-	requireLedgerText(t, "reasoning state, none outstanding", decided, "x-hypothesis--a", "OPEN", "first")
+	decided := hypothesisStateBlock(json.RawMessage(`{"hypotheses":[{"id":"reckon-hypothesis--a","status":"OPEN","statement":"first"}]}`))
+	requireLedgerText(t, "reasoning state, none outstanding", decided, "reckon-hypothesis--a", "OPEN", "first")
 
 	requireLedgerText(t, "clock", clockBlock(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)), "2026-01-02T03:04:05Z")
 

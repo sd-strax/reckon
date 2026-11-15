@@ -49,7 +49,7 @@ type ActionPolicyEvaluated struct {
 	MatchedPolicyRef string                   `json:"matched_policy_ref,omitempty"`
 }
 
-// ActionRequested records a new x-action in REQUESTED. Paired with the
+// ActionRequested records a new reckon-action in REQUESTED. Paired with the
 // producing action-request Interpretation.
 type ActionRequested struct {
 	ActionID   uuid.UUID `json:"action_id"`
@@ -133,7 +133,7 @@ type ActionResulted struct {
 }
 
 // ActionReversed records the original action's status moving to REVERSED on the
-// reversing action's success (02 §3). The reversing action is its own x-action
+// reversing action's success (02 §3). The reversing action is its own reckon-action
 // with its own lifecycle events.
 type ActionReversed struct {
 	OriginalActionID         uuid.UUID `json:"original_action_id"`

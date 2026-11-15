@@ -67,7 +67,7 @@ SOP
   status              DRAFT | IN_REVIEW | PUBLISHED | RETIRED
   version             string (semver: 1.0.0, 1.1.0, 2.0.0)
   applies_to          {
-                        entity_types?      list<string>   # e.g., ["x-host", "user-account"]
+                        entity_types?      list<string>   # e.g., ["reckon-host", "user-account"]
                         techniques?        list<string>   # MITRE ATT&CK technique IDs
                         threat_categories? list<string>   # e.g., ["ransomware", "bec"]
                         severity_min?      "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
@@ -225,9 +225,9 @@ Steps:
 2. Extract structured fields directly from the aggregate:
    - `seed_kind`, `seed_value` from the immutable seed
    - `primary_entities` from Grouping `object_refs`, ranked by edge density and member-of recency
-   - `techniques` from `x-hypothesis.labels` and from Indicators' `indicator_types`
+   - `techniques` from `reckon-hypothesis.labels`, and from the Indicators' `external_references` whose `source_name` is `mitre-attack` (adr/0357). An Indicator's `indicator_types` holds STIX's own vocabulary, not techniques.
    - `primary_indicators` from Indicators with `produced-by` edges to Interpretations in the thread
-   - `actions_taken` from `x-action` lifecycle events
+   - `actions_taken` from `reckon-action` lifecycle events
    - `conclusion_outcome` from the thread's `conclusion` Interpretation rationale, with LLM disambiguation if not classifiable from structure alone
    - `duration_hours` from seed timestamp to conclusion timestamp
 3. Render a deterministic `summary_text` from the structured fields, compute embeddings, and write the summary + audit record (extractor version, content hash) — **the server-side tier, no LLM, guaranteed at every conclusion**

@@ -18,7 +18,7 @@ const stage = synthetic as unknown as HarnessSnapshot;
 const base: HarnessSnapshot = { ...stage, snapshot: { ...stage.snapshot, events: undefined, eventsTotal: undefined, eventsCursor: undefined, eventGroups: undefined, eventKeys: undefined, eventsFoldedOver: undefined }, calls: undefined, repeats: undefined };
 const callId = "0192f3a0-0000-7000-8000-0000000000c1";
 const cited = "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8"; // an event the synthetic stage cites and holds a doc for
-const host = "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01";
+const host = "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01";
 // The server's rendering of the authentication rows (adr/0090): the host as a chip, the rest as text.
 const authView = {
   sentence: [{ t: "text" as const, text: "user-a interactive logon to " }, { t: "entity" as const, ref: host, text: "host-a" }, { t: "text" as const, text: " from 10.0.0.9" }],
@@ -42,7 +42,7 @@ const call: CapabilityCall = {
     { adapter: "edr", operation: "logons", priority: 200, params: { host: "host-a" }, answered: false, skipped: "adapter not configured or disabled" },
     { adapter: "fixture", operation: "replay", priority: 100, params: { host: "host-a" }, answered: true },
   ],
-  produced: { eventIds: events.map((e) => e.id), observedDataRefs: ["observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"], entityRefs: ["x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"] },
+  produced: { eventIds: events.map((e) => e.id), observedDataRefs: ["observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"], entityRefs: ["reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"] },
   bindings: [{ adapter: "edr", operation: "logons", priority: 200, enabled: false }, { adapter: "fixture", operation: "replay", priority: 100, enabled: true }],
 };
 const data: HarnessSnapshot = { ...base, snapshot: { ...base.snapshot, events }, calls: { [callId]: call }, around: { [cited]: [events[0]!, events[1]!] } };

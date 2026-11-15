@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-account/1.0.0.json",
+  "title": "reckon-account",
+  "description": "What a source says about a user account beyond the STIX user-account properties.",
+  "type": "object",
+  "properties": {
+    "extension_type": {
+      "const": "property-extension"
+    },
+    "domain": {
+      "type": "string",
+      "description": "The account's domain."
+    },
+    "email": {
+      "type": "string",
+      "description": "The account's email address."
+    },
+    "principal_name": {
+      "type": "string",
+      "description": "The account's principal name."
+    },
+    "provider": {
+      "type": "string",
+      "description": "The directory or identity provider of a cloud account."
+    },
+    "user_type": {
+      "type": "string",
+      "description": "The kind of principal."
+    },
+    "credential_uid": {
+      "type": "string",
+      "description": "The credential a cloud principal used."
+    },
+    "cloud_account_uid": {
+      "type": "string",
+      "description": "The cloud account a cloud principal belongs to."
+    },
+    "uid_alt": {
+      "type": "string",
+      "description": "The account's alternate id."
+    },
+    "source_ids": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The account's id, keyed by the source tool that gave it."
+    },
+    "weak": {
+      "type": "boolean",
+      "description": "True when the account is identified by its login alone."
+    }
+  },
+  "required": [
+    "extension_type"
+  ],
+  "additionalProperties": false
+}

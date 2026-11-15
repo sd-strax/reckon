@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability/ocsfview"
+	"github.com/sd-strax/reckon/identity"
 )
 
 // Live markdown export (design/ui binding §6 item 10): the portable,
@@ -374,7 +375,7 @@ func yamlString(s string) string {
 }
 
 // refLabeler resolves cited refs to human labels for the export (a raw
-// `x-host--65c1…` id is unreadable in a ticket; `WIN-FILE01` is not). Caches
+// `reckon-host--65c1…` id is unreadable in a ticket; `WIN-FILE01` is not). Caches
 // within one render, and ALWAYS falls back to the raw ref — a missing or opaque
 // object degrades to the id, never a broken document.
 type refLabeler struct {
@@ -524,25 +525,23 @@ func registryKeyLabel(key string, values any) string {
 	return key + " (" + name + ")"
 }
 
-// stixLabel derives an identifying label from a persisted STIX object's payload
-// (id/type/properties/provenance). Identity-contributing fields live under
-// "properties" (03 §7); the switch mirrors the workbench evidence card. Returns
-// "" when nothing identifying is present, so the caller falls back to the ref.
+// stixLabel derives an identifying label from a persisted STIX object's payload.
+// The identifying fields are STIX properties at the top level of the object
+// (adr/0357); the switch mirrors the workbench evidence card. Returns "" when
+// nothing identifying is present, so the caller falls back to the ref.
 func stixLabel(typ string, payload []byte) string {
-	var obj struct {
-		Properties map[string]any `json:"properties"`
-	}
-	if err := json.Unmarshal(payload, &obj); err != nil {
+	var props map[string]any
+	if err := json.Unmarshal(payload, &props); err != nil {
 		return ""
 	}
 	get := func(k string) string {
-		if v, ok := obj.Properties[k].(string); ok {
+		if v, ok := props[k].(string); ok {
 			return v
 		}
 		return ""
 	}
 	switch typ {
-	case "x-host":
+	case identity.TypeHost:
 		return firstNonEmpty(get("hostname"), get("name"))
 	case "ipv4-addr", "ipv6-addr", "domain-name", "url", "email-addr":
 		return get("value")
@@ -551,13 +550,13 @@ func stixLabel(typ string, payload []byte) string {
 	case "file":
 		return get("name")
 	case "windows-registry-key":
-		return registryKeyLabel(get("key"), obj.Properties["values"])
+		return registryKeyLabel(get("key"), props["values"])
 	case "process":
 		if cl := get("command_line"); cl != "" {
 			return oneLine(cl)
 		}
 		// pid is a JSON number, not a string — format it rather than drop it.
-		if pid, ok := obj.Properties["pid"].(float64); ok {
+		if pid, ok := props["pid"].(float64); ok {
 			return fmt.Sprintf("pid %.0f", pid)
 		}
 		return get("pid")
@@ -572,7 +571,7 @@ func stixLabel(typ string, payload []byte) string {
 			return firstNonEmpty(n.Abstract, oneLine(n.Content))
 		}
 		return ""
-	case "x-null-observation":
+	case identity.TypeNullObservation:
 		// A complete, empty answer (adr/0061) reads as what was searched and
 		// over what window, so the report says "nothing found" with its scope.
 		var n struct {

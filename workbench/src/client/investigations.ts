@@ -283,7 +283,7 @@ export class InvestigationsClient {
   }
 
   /**
-   * Record an analyst-authored hypothesis (01 §x-hypothesis): lands OPEN
+   * Record an analyst-authored hypothesis (01 §reckon-hypothesis): lands OPEN
    * immediately (acknowledgment is only for AI proposals). An alternate
    * explanation is simply a sibling hypothesis — the tracker scores them
    * against each other. Human token; the node id is minted server-side.
@@ -323,7 +323,7 @@ export class InvestigationsClient {
   }
 
   /**
-   * Revise an OPEN hypothesis's handle and/or statement (01 §x-hypothesis:
+   * Revise an OPEN hypothesis's handle and/or statement (01 §reckon-hypothesis:
    * human-only, statement only while untested). Same act as the adopt, on an
    * already-owned hypothesis. Human token.
    */
@@ -344,7 +344,7 @@ export class InvestigationsClient {
 
   /**
    * Abandon a live hypothesis the analyst is not pursuing (→ ABANDONED,
-   * 01 §x-hypothesis). Terminal; the thread keeps it. Human token.
+   * 01 §reckon-hypothesis). Terminal; the thread keeps it. Human token.
    */
   async abandonHypothesis(investigationId: string, hypothesisRef: string, reason: string): Promise<void> {
     await this.http.post("/api/interpretations", {
@@ -358,7 +358,7 @@ export class InvestigationsClient {
 
   /**
    * Record an analyst-authored prediction under a hypothesis (01
-   * §x-prediction: either actor authors predictions) — the test only
+   * §reckon-prediction: either actor authors predictions) — the test only
    * environmental knowledge can supply. discriminates names the rivals whose
    * expectation is the opposite. Lands UNTESTED. Human token.
    */
@@ -415,7 +415,7 @@ export class InvestigationsClient {
   }
 
   /**
-   * Withdraw an UNTESTED prediction (→ WITHDRAWN, 01 §x-prediction): the
+   * Withdraw an UNTESTED prediction (→ WITHDRAWN, 01 §reckon-prediction): the
    * analyst discarding a bad test without a deletion. Not an evidential
    * outcome — no evidence refs. Human token; the aggregate refuses it from the AI.
    */

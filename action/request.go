@@ -24,11 +24,11 @@ type ActionRequest struct {
 	EvidenceRefs     []string               `json:"evidence_refs,omitempty"`
 	Rationale        string                 `json:"rationale"`
 	InvestigationRef uuid.UUID              `json:"investigation_ref"`
-	// ReversalOfRef, when set, makes this a reversal of that original x-action
+	// ReversalOfRef, when set, makes this a reversal of that original reckon-action
 	// (04 §7): IsReversal is implied, and the endpoint triggers the ReversalSaga
 	// instead of a plain ActionLifecycle on auto-approval.
 	ReversalOfRef uuid.UUID `json:"reversal_of_ref,omitempty"`
-	// RetryOf, when set, records lineage to the prior FAILED/EXPIRED x-action
+	// RetryOf, when set, records lineage to the prior FAILED/EXPIRED reckon-action
 	// this request replaces (a retry IS a new action — the dispatch ledger
 	// forbids re-dispatching one id).
 	RetryOf uuid.UUID `json:"retry_of,omitempty"`
@@ -41,7 +41,7 @@ type ActionRequest struct {
 const DefaultRequestTTL = 30 * time.Minute
 
 // BuildRequestCommand validates a request_action against the catalog and builds
-// the aggregate.RequestAction command that creates the x-action in REQUESTED
+// the aggregate.RequestAction command that creates the reckon-action in REQUESTED
 // (08 §2). The AI may call this — it sets no Authorization and cannot advance
 // status; that write-protection lives in the aggregate command handler
 // (04 §5.6). The tier is the descriptor's default with the blast-radius

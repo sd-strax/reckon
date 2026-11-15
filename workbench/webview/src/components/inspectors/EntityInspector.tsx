@@ -18,6 +18,7 @@ import { HostIdentitySection } from "./HostIdentity";
 import { AccountIdentitySection } from "./AccountIdentity";
 import { PersonIdentitySection } from "./PersonIdentity";
 import { identityKindOf, isPersonDoc } from "../../../../src/identityKinds";
+import { stixProperties } from "../../../../src/stixExtensions";
 
 export function EntityInspector({ refId }: { refId: string }) {
   const { state, send, openPrompt, openInspector, stage } = useApp();
@@ -75,9 +76,7 @@ export function EntityInspector({ refId }: { refId: string }) {
   const repeatsLine = !rep ? "" : unrepeated === 0
     ? (truncated ? `Every one of ${covered} retrieved events on this entity repeats.` : "Every retrieved event on this entity repeats.")
     : (truncated ? `${plural(unrepeated, "event")} of ${covered} on this entity ${unrepeated === 1 ? "does" : "do"} not repeat.` : `${plural(unrepeated, "retrieved event")} on this entity ${unrepeated === 1 ? "does" : "do"} not repeat.`);
-  const props = doc && doc.payload && typeof doc.payload === "object"
-    ? (((doc.payload as Record<string, unknown>).properties as Record<string, unknown>) || (doc.payload as Record<string, unknown>))
-    : null;
+  const props = doc && doc.payload && typeof doc.payload === "object" ? stixProperties(doc.payload) : null;
   return (
     <>
       <div className="isub">

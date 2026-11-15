@@ -261,7 +261,7 @@ export class ActionDecisions {
   }
 
   /**
-   * Request the reversal of a SUCCEEDED action (04 §7): a NEW x-action of the
+   * Request the reversal of a SUCCEEDED action (04 §7): a NEW reckon-action of the
    * descriptor's declared inverse type, at the same tier, linked by
    * reversal_of_ref, which lands in the approval queue like any action. The
    * engine validates the pairing and the original's status; the host only

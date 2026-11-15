@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-action/1.0.0.json",
+  "title": "reckon-action",
+  "description": "An action: a state-changing operation against the world, with its authorization and execution. The STIX common properties come from the STIX 2.1 core schema, so this schema lists only the ones it constrains.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "reckon-action"
+    },
+    "spec_version": {
+      "const": "2.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^reckon-action--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "modified": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "action_type": {
+      "type": "string",
+      "description": "The operation, such as host.isolate."
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "T2",
+        "T3"
+      ],
+      "description": "The trust tier the action was requested at."
+    },
+    "reversibility": {
+      "type": "string",
+      "enum": [
+        "reversible",
+        "best_effort",
+        "irreversible"
+      ],
+      "description": "How the action can be undone, fixed when it was requested."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "REQUESTED",
+        "PENDING_SECONDARY",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "EXECUTING",
+        "SUCCEEDED",
+        "FAILED",
+        "REVERSED",
+        "OUTCOME_UNKNOWN"
+      ],
+      "description": "Where the action stands."
+    },
+    "targets": {
+      "type": "array",
+      "description": "What the action acts on.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "entity_ref": {
+            "type": "string"
+          },
+          "resolved_identifier": {
+            "type": "string"
+          },
+          "asset_criticality": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_ref",
+          "resolved_identifier"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "description": "The arguments the action type takes."
+    },
+    "requested_by_actor": {
+      "type": "object",
+      "description": "Who requested the action."
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the action was requested."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "A short reason for the action."
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The evidence the request cites."
+    },
+    "investigation_ref": {
+      "type": "string",
+      "pattern": "^grouping--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The investigation the action belongs to."
+    },
+    "reversal_of_ref": {
+      "type": "string",
+      "pattern": "^reckon-action--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The action this one reverses."
+    },
+    "reversed_by_ref": {
+      "type": "string",
+      "pattern": "^reckon-action--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The action that reversed this one."
+    },
+    "reversal_attempted_by_ref": {
+      "type": "string",
+      "pattern": "^reckon-action--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The action that tried to reverse this one, when the reversal could not be checked."
+    },
+    "retry_of": {
+      "type": "string",
+      "pattern": "^reckon-action--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The action this one requests again."
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the request lapses if nobody approves it."
+    },
+    "required_mode": {
+      "type": "string",
+      "enum": [
+        "MANUAL",
+        "AUTO_POLICY",
+        "TWO_PARTY",
+        "EXTERNAL_DELEGATED"
+      ],
+      "description": "The authorization the request needs, fixed when it was requested."
+    },
+    "secondary_approver_pool": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Who may give the second approval of a two-party action."
+    },
+    "assignee_ref": {
+      "type": "string",
+      "description": "The analyst who claimed the review."
+    },
+    "pending_approvers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Who may still approve."
+    },
+    "notification_channels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Where approval requests are sent."
+    },
+    "authorization": {
+      "type": "object",
+      "description": "How the action was authorized."
+    },
+    "execution": {
+      "type": "object",
+      "description": "How the action was dispatched and what came back."
+    }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id",
+    "created",
+    "modified",
+    "action_type",
+    "tier",
+    "status",
+    "targets"
+  ]
+}

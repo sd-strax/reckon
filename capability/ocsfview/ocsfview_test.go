@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/internal/ocsf"
+	"github.com/sd-strax/reckon/stix"
 )
 
 func sentenceText(v View) string {
@@ -37,9 +38,20 @@ func payload(js string) map[string]any {
 	return m
 }
 
+// ent builds an entity as the record stores it: the properties go through
+// the STIX serializer, so a custom property sits in its property-extension
+// (adr/0357).
 func ent(ref string, props map[string]any) Entity {
 	typ, _, _ := strings.Cut(ref, "--")
-	return Entity{Ref: ref, Type: typ, Props: props}
+	o := stix.Object{Type: typ, ID: ref, Properties: props}
+	if stix.Timestamped(typ) {
+		o.Created = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+	b, err := stix.Marshal(o)
+	if err != nil {
+		panic(err)
+	}
+	return EntityFromObject(ref, typ, b)
 }
 
 // TestRender_Authentication: the design's sentence, with the three entities as
@@ -181,7 +193,7 @@ func TestRender_Authentication(t *testing.T) {
 		"logon_type":"RemoteInteractive","status":"SUCCESS"}`)
 	ents := []Entity{
 		ent("user-account--u1", map[string]any{"account_login": `CONTOSO\svc_backup`, "account_type": "windows-domain"}),
-		ent("x-host--h1", map[string]any{"hostname": "WIN-FILE01", "domain": "CONTOSO"}),
+		ent("reckon-host--h1", map[string]any{"hostname": "WIN-FILE01", "domain": "CONTOSO"}),
 		ent("ipv4-addr--i1", map[string]any{"value": "10.0.4.20"}),
 	}
 	v := Render(Event{ClassUID: 3002, Payload: p}, ents)
@@ -191,7 +203,7 @@ func TestRender_Authentication(t *testing.T) {
 	want := []Token{
 		{T: "entity", Ref: "user-account--u1", Text: "svc_backup"},
 		{T: "text", Text: " RDP logon to "},
-		{T: "entity", Ref: "x-host--h1", Text: "WIN-FILE01"},
+		{T: "entity", Ref: "reckon-host--h1", Text: "WIN-FILE01"},
 		{T: "text", Text: " from "},
 		{T: "entity", Ref: "ipv4-addr--i1", Text: "10.0.4.20"},
 	}
@@ -458,36 +470,37 @@ func TestRender_BindsStoredShapes(t *testing.T) {
 	}
 
 	v = Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"path":"C:\\Temp\\payload.dll"},"device":{"hostname":"WS1"}}`)}, []Entity{
-		ent("file--f", map[string]any{"name": "", "path": `C:\Temp\payload.dll`}),
+		// The normalizer took the stored name from the path (adr/0357).
+		ent("file--f", map[string]any{"name": "payload.dll", "path": `C:\Temp\payload.dll`}),
 	})
 	if refs := entityRefs(v); !slices.Equal(refs, []string{"file--f"}) {
 		t.Errorf("path-only file did not bind: %v", refs)
 	}
 
 	v = Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","user":{"name":"jdoe"},"group":{"name":"Domain Admins","domain":"CONTOSO"}}`)}, []Entity{
-		ent("x-group--other", map[string]any{"group_name": "Domain Admins", "directory": "FABRIKAM"}),
-		ent("x-group--g", map[string]any{"group_name": "Domain Admins", "directory": "CONTOSO"}),
+		ent("reckon-group--other", map[string]any{"group_name": "Domain Admins", "directory": "FABRIKAM"}),
+		ent("reckon-group--g", map[string]any{"group_name": "Domain Admins", "directory": "CONTOSO"}),
 	})
-	if refs := entityRefs(v); !slices.Equal(refs, []string{"x-group--g"}) {
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"reckon-group--g"}) {
 		t.Errorf("group slots = %v; want the CONTOSO group", refs)
 	}
-	if f, _ := fieldValue(v, "Group"); f.Ref != "x-group--g" {
+	if f, _ := fieldValue(v, "Group"); f.Ref != "reckon-group--g" {
 		t.Errorf("Group field = %+v", f)
 	}
 }
 
-// TestRender_BindsHostByShortName: an x-host is identified by its short
+// TestRender_BindsHostByShortName: a reckon-host is identified by its short
 // hostname (adr/0211), so a record naming the FQDN binds the host whose
 // hostname is its first label, in either case, and a host stored before the
 // split with the full name still binds; the slot shows the name as reported.
 func TestRender_BindsHostByShortName(t *testing.T) {
 	for _, stored := range []string{"WS1", "ws1.corp.example"} {
 		v := Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"path":"C:\\Temp\\a.dll"},"device":{"hostname":"ws1.Corp.Example."}}`)}, []Entity{
-			ent("x-host--h", map[string]any{"hostname": stored}),
+			ent("reckon-host--h", map[string]any{"hostname": stored}),
 		})
 		var bound bool
 		for _, tok := range v.Sentence {
-			if tok.T == "entity" && tok.Ref == "x-host--h" {
+			if tok.T == "entity" && tok.Ref == "reckon-host--h" {
 				bound = tok.Text == "ws1.Corp.Example."
 			}
 		}
@@ -496,9 +509,9 @@ func TestRender_BindsHostByShortName(t *testing.T) {
 		}
 	}
 	v := Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"path":"C:\\Temp\\a.dll"},"device":{"hostname":"ws2.corp.example"}}`)}, []Entity{
-		ent("x-host--h", map[string]any{"hostname": "ws1"}),
+		ent("reckon-host--h", map[string]any{"hostname": "ws1"}),
 	})
-	if refs := entityRefs(v); slices.Contains(refs, "x-host--h") {
+	if refs := entityRefs(v); slices.Contains(refs, "reckon-host--h") {
 		t.Errorf("another short name bound: %v", refs)
 	}
 }
@@ -668,13 +681,14 @@ func TestRender_Fixtures(t *testing.T) {
 }
 
 func TestEntityFromObject(t *testing.T) {
-	e := EntityFromObject("x-host--1", "x-host", []byte(`{"id":"x-host--1","type":"x-host","properties":{"hostname":"H"},"provenance":{}}`))
+	e := EntityFromObject("reckon-host--1", "reckon-host", []byte(`{"id":"reckon-host--1","type":"reckon-host","spec_version":"2.1","hostname":"H"}`))
 	if e.Props["hostname"] != "H" {
 		t.Errorf("properties not read: %+v", e)
 	}
-	e = EntityFromObject("x-host--1", "x-host", []byte(`{"hostname":"flat"}`))
-	if e.Props["hostname"] != "flat" {
-		t.Errorf("flat object not read: %+v", e)
+	// A process's name is in its reckon-process property-extension.
+	e = ent("process--1", map[string]any{"pid": 7, "name": "cmd.exe"})
+	if stix.ProcessName.String(e.Props) != "cmd.exe" || e.Props["pid"] != float64(7) {
+		t.Errorf("process not read: %+v", e)
 	}
 	if e := EntityFromObject("x", "x", []byte(`nope`)); e.Props != nil {
 		t.Errorf("malformed payload: %+v", e)
@@ -693,8 +707,8 @@ const apiCall = `{"class_uid":6003,"category_uid":6,"activity_name":"Update",
 func apiEntities() []Entity {
 	return []Entity{
 		ent("user-account--p", map[string]any{"account_login": "", "user_id": "arn:aws:iam::111122223333:user/deploy-ci", "account_type": "aws", "display_name": "deploy-ci"}),
-		ent("x-cloud-account--a", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
-		ent("x-cloud-resource--r", map[string]any{"uid": "arn:aws:s3:::acme-internal-exports", "name": "acme-internal-exports"}),
+		ent("reckon-cloud-account--a", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
+		ent("reckon-cloud-resource--r", map[string]any{"provider": "aws", "uid": "arn:aws:s3:::acme-internal-exports", "name": "acme-internal-exports"}),
 		ent("ipv4-addr--s", map[string]any{"value": "203.0.113.77"}),
 	}
 }
@@ -707,7 +721,7 @@ func TestRender_APIActivity(t *testing.T) {
 	if got := sentenceText(v); got != "deploy-ci PutBucketPolicy acme-internal-exports in acme-prod · Success" {
 		t.Errorf("sentence = %q", got)
 	}
-	if refs := entityRefs(v); !slices.Equal(refs, []string{"user-account--p", "x-cloud-resource--r", "x-cloud-account--a"}) {
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"user-account--p", "reckon-cloud-resource--r", "reckon-cloud-account--a"}) {
 		t.Errorf("sentence refs = %v", refs)
 	}
 	if v.Category != CategoryApplication {
@@ -717,8 +731,8 @@ func TestRender_APIActivity(t *testing.T) {
 		"Principal":  {Label: "Principal", Value: "deploy-ci", Ref: "user-account--p", Mono: true},
 		"Operation":  {Label: "Operation", Value: "PutBucketPolicy", Mono: true},
 		"Service":    {Label: "Service", Value: "s3.amazonaws.com"},
-		"Resource":   {Label: "Resource", Value: "acme-internal-exports", Ref: "x-cloud-resource--r", Mono: true},
-		"Account":    {Label: "Account", Value: "acme-prod", Ref: "x-cloud-account--a", Mono: true},
+		"Resource":   {Label: "Resource", Value: "acme-internal-exports", Ref: "reckon-cloud-resource--r", Mono: true},
+		"Account":    {Label: "Account", Value: "acme-prod", Ref: "reckon-cloud-account--a", Mono: true},
 		"Region":     {Label: "Region", Value: "us-east-1"},
 		"Outcome":    {Label: "Outcome", Value: "Success", Tone: "ok"},
 		"Source":     {Label: "Source", Value: "203.0.113.77", Ref: "ipv4-addr--s", Mono: true},
@@ -734,7 +748,7 @@ func TestRender_APIActivity(t *testing.T) {
 	for _, s := range v.Slots {
 		slots[s.Name] = s
 	}
-	if slots["actor"].Ref != "user-account--p" || slots["account"].Ref != "x-cloud-account--a" || slots["source"].Ref != "ipv4-addr--s" ||
+	if slots["actor"].Ref != "user-account--p" || slots["account"].Ref != "reckon-cloud-account--a" || slots["source"].Ref != "ipv4-addr--s" ||
 		slots["operation"].Text != "PutBucketPolicy" || slots["resource"].Text != "acme-internal-exports" || slots["outcome"].Text != "Success" {
 		t.Errorf("slots = %+v", v.Slots)
 	}
@@ -784,11 +798,11 @@ func TestRender_APIActivityShapes(t *testing.T) {
 
 	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci","account":{"uid":"111122223333"}}},"api":{"operation":"PutObject"},
 		"resources":[{"name":"acme-logs","type":"AWS::S3::Bucket"}]}`)}, []Entity{
-		ent("x-cloud-resource--other", map[string]any{"name": "acme-logs", "type": "AWS::DynamoDB::Table"}),
-		ent("x-cloud-resource--n", map[string]any{"name": "acme-logs", "type": "AWS::S3::Bucket"}),
-		ent("x-cloud-account--a", map[string]any{"account_uid": "111122223333"}),
+		ent("reckon-cloud-resource--other", map[string]any{"provider": "aws", "name": "acme-logs", "resource_type": "AWS::DynamoDB::Table"}),
+		ent("reckon-cloud-resource--n", map[string]any{"provider": "aws", "name": "acme-logs", "resource_type": "AWS::S3::Bucket"}),
+		ent("reckon-cloud-account--a", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
 	})
-	if refs := entityRefs(v); !slices.Equal(refs, []string{"x-cloud-resource--n", "x-cloud-account--a"}) {
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"reckon-cloud-resource--n", "reckon-cloud-account--a"}) {
 		t.Errorf("name-bound refs = %v", refs)
 	}
 }
@@ -827,15 +841,15 @@ func TestRender_APIActivityOutcomeAndCaller(t *testing.T) {
 		t.Errorf("Outcome without status = %+v", f)
 	}
 	ents := []Entity{
-		ent("x-cloud-account--target", map[string]any{"account_uid": "444455556666"}),
-		ent("x-cloud-account--home", map[string]any{"account_uid": "111122223333"}),
+		ent("reckon-cloud-account--target", map[string]any{"provider": "aws", "account_uid": "444455556666"}),
+		ent("reckon-cloud-account--home", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
 	}
 	v = Render(Event{ClassUID: 6003, Payload: payload(`{"actor":{"user":{"name":"deploy-ci","account":{"uid":"111122223333","name":"acme-prod"}}},
 		"api":{"operation":"GetObject"},"cloud":{"account":{"uid":"444455556666","name":"acme-shared"}}}`)}, ents)
-	if f, _ := fieldValue(v, "Account"); f.Value != "acme-shared" || f.Ref != "x-cloud-account--target" {
+	if f, _ := fieldValue(v, "Account"); f.Value != "acme-shared" || f.Ref != "reckon-cloud-account--target" {
 		t.Errorf("Account = %+v", f)
 	}
-	if f, ok := fieldValue(v, "Caller account"); !ok || f.Value != "acme-prod" || f.Ref != "x-cloud-account--home" {
+	if f, ok := fieldValue(v, "Caller account"); !ok || f.Value != "acme-prod" || f.Ref != "reckon-cloud-account--home" {
 		t.Errorf("Caller account = %+v, %v", f, ok)
 	}
 	v = Render(Event{ClassUID: 6003, Payload: payload(apiCall)}, apiEntities())
@@ -858,9 +872,9 @@ func TestRender_APIActivityResourceKey(t *testing.T) {
 		t.Fatal("no resource slot")
 		return SlotValue{}
 	}
-	a := key("arn:aws:s3:::exports", []Entity{ent("x-cloud-resource--a", map[string]any{"uid": "arn:aws:s3:::exports"})})
-	b := key("arn:aws:s3:::other/exports", []Entity{ent("x-cloud-resource--b", map[string]any{"uid": "arn:aws:s3:::other/exports"})})
-	again := key("arn:aws:s3:::exports", []Entity{ent("x-cloud-resource--a", map[string]any{"uid": "arn:aws:s3:::exports"})})
+	a := key("arn:aws:s3:::exports", []Entity{ent("reckon-cloud-resource--a", map[string]any{"provider": "aws", "uid": "arn:aws:s3:::exports"})})
+	b := key("arn:aws:s3:::other/exports", []Entity{ent("reckon-cloud-resource--b", map[string]any{"provider": "aws", "uid": "arn:aws:s3:::other/exports"})})
+	again := key("arn:aws:s3:::exports", []Entity{ent("reckon-cloud-resource--a", map[string]any{"provider": "aws", "uid": "arn:aws:s3:::exports"})})
 	if a.Text != "exports" || b.Text != "exports" {
 		t.Errorf("texts = %q, %q; want the display name", a.Text, b.Text)
 	}
@@ -890,9 +904,9 @@ func TestRender_APIActivityResourceByName(t *testing.T) {
 		{"name":"Orders","type":"AWS::DynamoDB::Table","region":"us-east-1"},
 		{"name":"orders","type":"AWS::DynamoDB::Table","region":"US-EAST-1"},
 		{"name":"Orders","type":"AWS::DynamoDB::Table","region":"us-west-2"}]}`)}, []Entity{
-		ent("x-cloud-resource--east", map[string]any{"name": "Orders", "type": "AWS::DynamoDB::Table", "region": "us-east-1"}),
-		ent("x-cloud-resource--lower", map[string]any{"name": "orders", "type": "AWS::DynamoDB::Table", "region": "us-east-1"}),
-		ent("x-cloud-resource--west", map[string]any{"name": "Orders", "type": "AWS::DynamoDB::Table", "region": "us-west-2"}),
+		ent("reckon-cloud-resource--east", map[string]any{"provider": "aws", "name": "Orders", "resource_type": "AWS::DynamoDB::Table", "region": "us-east-1"}),
+		ent("reckon-cloud-resource--lower", map[string]any{"provider": "aws", "name": "orders", "resource_type": "AWS::DynamoDB::Table", "region": "us-east-1"}),
+		ent("reckon-cloud-resource--west", map[string]any{"provider": "aws", "name": "Orders", "resource_type": "AWS::DynamoDB::Table", "region": "us-west-2"}),
 	})
 	var refs []string
 	for _, f := range v.Fields {
@@ -900,7 +914,7 @@ func TestRender_APIActivityResourceByName(t *testing.T) {
 			refs = append(refs, f.Ref)
 		}
 	}
-	if want := []string{"x-cloud-resource--east", "x-cloud-resource--lower", "x-cloud-resource--west"}; !slices.Equal(refs, want) {
+	if want := []string{"reckon-cloud-resource--east", "reckon-cloud-resource--lower", "reckon-cloud-resource--west"}; !slices.Equal(refs, want) {
 		t.Errorf("resource refs = %v; want %v", refs, want)
 	}
 }
@@ -911,8 +925,8 @@ func TestRender_APIActivityResourceGroups(t *testing.T) {
 	v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"Restart"},"resources":[
 		{"name":"api","type":"Microsoft.Compute/virtualMachines","region":"eastus","group":{"name":"rg-a"}},
 		{"name":"api","type":"Microsoft.Compute/virtualMachines","region":"eastus","group":{"name":"RG-B"}}]}`)}, []Entity{
-		ent("x-cloud-resource--a", map[string]any{"name": "api", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-a"}),
-		ent("x-cloud-resource--b", map[string]any{"name": "api", "type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-b"}),
+		ent("reckon-cloud-resource--a", map[string]any{"provider": "aws", "name": "api", "resource_type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-a"}),
+		ent("reckon-cloud-resource--b", map[string]any{"provider": "aws", "name": "api", "resource_type": "Microsoft.Compute/virtualMachines", "region": "eastus", "group": "rg-b"}),
 	})
 	var refs []string
 	for _, f := range v.Fields {
@@ -920,7 +934,7 @@ func TestRender_APIActivityResourceGroups(t *testing.T) {
 			refs = append(refs, f.Ref)
 		}
 	}
-	if want := []string{"x-cloud-resource--a", "x-cloud-resource--b"}; !slices.Equal(refs, want) {
+	if want := []string{"reckon-cloud-resource--a", "reckon-cloud-resource--b"}; !slices.Equal(refs, want) {
 		t.Errorf("resource refs = %v; want %v", refs, want)
 	}
 }
@@ -931,10 +945,10 @@ func TestRender_APIActivityResourceZones(t *testing.T) {
 	v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"Stop"},"resources":[
 		{"name":"api","type":"compute.googleapis.com/Instance","region":"us-central1","zone":"us-central1-a"},
 		{"name":"api","type":"compute.googleapis.com/Instance","region":"us-central1","zone":"US-CENTRAL1-B"}]}`)}, []Entity{
-		ent("x-cloud-resource--a", map[string]any{"name": "api", "type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-a"}),
-		ent("x-cloud-resource--b", map[string]any{"name": "api", "type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-b"}),
+		ent("reckon-cloud-resource--a", map[string]any{"provider": "aws", "name": "api", "resource_type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-a"}),
+		ent("reckon-cloud-resource--b", map[string]any{"provider": "aws", "name": "api", "resource_type": "compute.googleapis.com/Instance", "region": "us-central1", "zone": "us-central1-b"}),
 	})
-	if refs, want := resourceRefs(v), []string{"x-cloud-resource--a", "x-cloud-resource--b"}; !slices.Equal(refs, want) {
+	if refs, want := resourceRefs(v), []string{"reckon-cloud-resource--a", "reckon-cloud-resource--b"}; !slices.Equal(refs, want) {
 		t.Errorf("resource refs = %v; want %v", refs, want)
 	}
 }
@@ -945,10 +959,10 @@ func TestRender_APIActivityResourceNamespaceCase(t *testing.T) {
 	v := Render(Event{ClassUID: 6003, Payload: payload(`{"api":{"operation":"GetTable"},"resources":[
 		{"name":"orders","type":"AWS::Glue::Table","namespace":"sourcea"},
 		{"name":"orders","type":"AWS::Glue::Table","namespace":"SourceA"}]}`)}, []Entity{
-		ent("x-cloud-resource--upper", map[string]any{"name": "orders", "type": "AWS::Glue::Table", "namespace": "SourceA"}),
-		ent("x-cloud-resource--lower", map[string]any{"name": "orders", "type": "AWS::Glue::Table", "namespace": "sourcea"}),
+		ent("reckon-cloud-resource--upper", map[string]any{"provider": "aws", "name": "orders", "resource_type": "AWS::Glue::Table", "namespace": "SourceA"}),
+		ent("reckon-cloud-resource--lower", map[string]any{"provider": "aws", "name": "orders", "resource_type": "AWS::Glue::Table", "namespace": "sourcea"}),
 	})
-	if refs, want := resourceRefs(v), []string{"x-cloud-resource--lower", "x-cloud-resource--upper"}; !slices.Equal(refs, want) {
+	if refs, want := resourceRefs(v), []string{"reckon-cloud-resource--lower", "reckon-cloud-resource--upper"}; !slices.Equal(refs, want) {
 		t.Errorf("resource refs = %v; want %v", refs, want)
 	}
 }
@@ -977,24 +991,24 @@ const inventorySnapshot = `{"class_uid":5023,"category_uid":5,"activity_id":2,"a
 // the same sentence reads with unbound text.
 func TestRender_CloudInventory(t *testing.T) {
 	ents := []Entity{
-		ent("x-cloud-account--a", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
-		ent("x-cloud-resource--r", map[string]any{"uid": "arn:aws:s3:::acme-internal-exports", "name": "acme-internal-exports"}),
+		ent("reckon-cloud-account--a", map[string]any{"provider": "aws", "account_uid": "111122223333"}),
+		ent("reckon-cloud-resource--r", map[string]any{"provider": "aws", "uid": "arn:aws:s3:::acme-internal-exports", "name": "acme-internal-exports"}),
 	}
 	v := Render(Event{ClassUID: 5023, Payload: payload(inventorySnapshot)}, ents)
 	const want = "acme-internal-exports (AWS::S3::Bucket) in acme-prod, us-east-1"
 	if got := sentenceText(v); got != want {
 		t.Errorf("sentence = %q", got)
 	}
-	if refs := entityRefs(v); !slices.Equal(refs, []string{"x-cloud-resource--r", "x-cloud-account--a"}) {
+	if refs := entityRefs(v); !slices.Equal(refs, []string{"reckon-cloud-resource--r", "reckon-cloud-account--a"}) {
 		t.Errorf("sentence refs = %v", refs)
 	}
 	if v.Category != CategoryAsset {
 		t.Errorf("category = %s", v.Category)
 	}
 	for label, want := range map[string]Field{
-		"Resource":      {Label: "Resource", Value: "acme-internal-exports", Ref: "x-cloud-resource--r", Mono: true},
+		"Resource":      {Label: "Resource", Value: "acme-internal-exports", Ref: "reckon-cloud-resource--r", Mono: true},
 		"Type":          {Label: "Type", Value: "AWS::S3::Bucket", Mono: true},
-		"Account":       {Label: "Account", Value: "acme-prod", Ref: "x-cloud-account--a", Mono: true},
+		"Account":       {Label: "Account", Value: "acme-prod", Ref: "reckon-cloud-account--a", Mono: true},
 		"Region":        {Label: "Region", Value: "us-east-1"},
 		"Owner":         {Label: "Owner", Value: "data-platform"},
 		"Created":       {Label: "Created", Value: "2025-03-02T12:00:00Z"},
@@ -1011,7 +1025,7 @@ func TestRender_CloudInventory(t *testing.T) {
 	for _, s := range v.Slots {
 		slots[s.Name] = s
 	}
-	if slots["resource"].Ref != "x-cloud-resource--r" || slots["account"].Ref != "x-cloud-account--a" ||
+	if slots["resource"].Ref != "reckon-cloud-resource--r" || slots["account"].Ref != "reckon-cloud-account--a" ||
 		slots["type"].Text != "AWS::S3::Bucket" || slots["region"].Text != "us-east-1" || slots["owner"].Text != "data-platform" {
 		t.Errorf("slots = %+v", v.Slots)
 	}
@@ -1219,8 +1233,8 @@ func TestRender_CloudDetection(t *testing.T) {
 		t.Errorf("sentence = %q", got)
 	}
 	for label, want := range map[string]Field{
-		"Resource": {Label: "Resource", Value: "acme-internal-exports", Ref: "x-cloud-resource--r", Mono: true},
-		"Account":  {Label: "Account", Value: "acme-prod", Ref: "x-cloud-account--a", Mono: true},
+		"Resource": {Label: "Resource", Value: "acme-internal-exports", Ref: "reckon-cloud-resource--r", Mono: true},
+		"Account":  {Label: "Account", Value: "acme-prod", Ref: "reckon-cloud-account--a", Mono: true},
 		"User":     {Label: "User", Value: "deploy-ci", Ref: "user-account--p", Mono: true},
 	} {
 		if f, ok := fieldValue(v, label); !ok || f != want {
@@ -1231,7 +1245,7 @@ func TestRender_CloudDetection(t *testing.T) {
 	for _, s := range v.Slots {
 		slots[s.Name] = s
 	}
-	if slots["user"].Ref != "user-account--p" || slots["account"].Ref != "x-cloud-account--a" || slots["resource"].Text != "acme-internal-exports, second" {
+	if slots["user"].Ref != "user-account--p" || slots["account"].Ref != "reckon-cloud-account--a" || slots["resource"].Text != "acme-internal-exports, second" {
 		t.Errorf("slots = %+v", v.Slots)
 	}
 
@@ -1242,7 +1256,7 @@ func TestRender_CloudDetection(t *testing.T) {
 	if got := sentenceText(v); got != "Detected “T” on WS1 in 111122223333" {
 		t.Errorf("sentence = %q", got)
 	}
-	if f, _ := fieldValue(v, "Account"); f.Ref != "x-cloud-account--a" {
+	if f, _ := fieldValue(v, "Account"); f.Ref != "reckon-cloud-account--a" {
 		t.Errorf("Account = %+v; want it bound by project_uid", f)
 	}
 
@@ -1285,6 +1299,62 @@ func TestRender_FixtureActivities(t *testing.T) {
 		v := Render(Event{ClassUID: toInt(doc.Ocsf["class_uid"]), Payload: doc.Ocsf}, nil)
 		if got := sentenceText(v); got != want {
 			t.Errorf("%s reads %q; want %q", file, got, want)
+		}
+	}
+}
+
+// Class rule R2 (adr/0357): the view matches raw telemetry against stored
+// objects through the cleanup the normalizer wrote them with. A padded
+// address and an IPv4-mapped IPv6 address bind the stored ipv4-addr; a hash
+// binds through the same reshaping; a key with no hive binds nothing.
+func TestRender_BindsThroughTheNormalizersCleanup(t *testing.T) {
+	v := Render(Event{ClassUID: 4001, Payload: payload(`{"src_endpoint":{"ip":" 10.0.0.1 "},"dst_endpoint":{"ip":"::ffff:10.0.0.2"}}`)}, []Entity{
+		ent("ipv4-addr--src", map[string]any{"value": "10.0.0.1"}),
+		ent("ipv4-addr--dst", map[string]any{"value": "10.0.0.2"}),
+	})
+	refs := map[string]bool{}
+	for _, part := range v.Sentence {
+		if part.Ref != "" {
+			refs[part.Ref] = true
+		}
+	}
+	if !refs["ipv4-addr--src"] || !refs["ipv4-addr--dst"] {
+		t.Errorf("a padded and a mapped address did not bind the stored ipv4-addr: %+v", v.Sentence)
+	}
+
+	// An uncompressed, upper-case IPv6 address and a CIDR block bind the
+	// canonical text the normalizer stores.
+	v = Render(Event{ClassUID: 4001, Payload: payload(`{"src_endpoint":{"ip":"2001:DB8:0:0:0:0:0:1"},"dst_endpoint":{"ip":"10.0.0.5/24"}}`)}, []Entity{
+		ent("ipv6-addr--src", map[string]any{"value": "2001:db8::1"}),
+		ent("ipv4-addr--net", map[string]any{"value": "10.0.0.0/24"}),
+	})
+	refs = map[string]bool{}
+	for _, part := range v.Sentence {
+		refs[part.Ref] = true
+	}
+	if !refs["ipv6-addr--src"] || !refs["ipv4-addr--net"] {
+		t.Errorf("a non-canonical IPv6 address and a CIDR block did not bind: %+v", v.Sentence)
+	}
+
+	sha := strings.Repeat("ab", 32)
+	v = Render(Event{ClassUID: 1001, Payload: payload(`{"activity_name":"Create","file":{"name":"a.exe","hashes":[{"algorithm":"SHA-256","value":" ` + sha + ` "}]}}`)}, []Entity{
+		// Another name, so only the hash can bind it.
+		ent("file--f", map[string]any{"name": "renamed.exe", "hashes": map[string]any{"SHA-256": sha}}),
+	})
+	bound := false
+	for _, part := range v.Sentence {
+		bound = bound || part.Ref == "file--f"
+	}
+	if !bound {
+		t.Errorf("a padded digest did not bind the stored file: %+v", v.Sentence)
+	}
+
+	v = Render(Event{ClassUID: 201001, Payload: payload(`{"activity_name":"Create","reg_key":{"path":"Software\\Run"}}`)}, []Entity{
+		ent("windows-registry-key--k", map[string]any{"key": `Software\Run`}),
+	})
+	for _, part := range v.Sentence {
+		if part.Ref == "windows-registry-key--k" {
+			t.Errorf("a key with no hive bound a stored object: %+v", v.Sentence)
 		}
 	}
 }

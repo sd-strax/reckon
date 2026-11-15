@@ -21,16 +21,16 @@ func TestClockBlock(t *testing.T) {
 }
 
 const hypothesesFixture = `{"hypotheses":[
-  {"id":"x-hypothesis--1","handle":"H1 rdp-intrusion","status":"OPEN","statement":"An attacker moved laterally over RDP.","labels":["T1021.001"],
+  {"id":"reckon-hypothesis--1","handle":"H1 rdp-intrusion","status":"OPEN","statement":"An attacker moved laterally over RDP.","labels":["T1021.001"],
    "predictions":[
-     {"id":"x-prediction--a","statement":"PowerShell parent is an RDP session","status":"CONFIRMED","discriminates":["x-hypothesis--2"]},
-     {"id":"x-prediction--b","statement":"Outbound C2 follows the logon","status":"UNTESTED","discriminates":["x-hypothesis--2"]}
+     {"id":"reckon-prediction--a","statement":"PowerShell parent is an RDP session","status":"CONFIRMED","discriminates":["reckon-hypothesis--2"]},
+     {"id":"reckon-prediction--b","statement":"Outbound C2 follows the logon","status":"UNTESTED","discriminates":["reckon-hypothesis--2"]}
    ]},
-  {"id":"x-hypothesis--2","handle":"H2 legit-admin","status":"OPEN","statement":"An admin used svc_backup for maintenance.",
+  {"id":"reckon-hypothesis--2","handle":"H2 legit-admin","status":"OPEN","statement":"An admin used svc_backup for maintenance.",
    "predictions":[
-     {"id":"x-prediction--c","statement":"A change ticket covers the window","status":"UNTESTED","discriminates":["x-hypothesis--1"]}
+     {"id":"reckon-prediction--c","statement":"A change ticket covers the window","status":"UNTESTED","discriminates":["reckon-hypothesis--1"]}
    ]},
-  {"id":"x-hypothesis--3","status":"REFUTED","statement":"Scanner noise.","predictions":[]}
+  {"id":"reckon-hypothesis--3","status":"REFUTED","statement":"Scanner noise.","predictions":[]}
 ]}`
 
 // TestHypothesisStateBlock: the per-turn block names every hypothesis, tallies
@@ -40,11 +40,11 @@ const hypothesesFixture = `{"hypotheses":[
 // id — the tracker's vocabulary, so analyst and agent point at the same test.
 func TestHypothesisStateBlock_Ordinals(t *testing.T) {
 	raw := `{"hypotheses":[
-	  {"id":"x-hypothesis--a","handle":"H1 rdp","status":"OPEN","statement":"s1","predictions":[
-	    {"id":"x-prediction--b","ordinal":3,"status":"UNTESTED","statement":"p","discriminates":["x-hypothesis--c"]}]},
-	  {"id":"x-hypothesis--c","handle":"H2 admin","status":"OPEN","statement":"s2"}]}`
+	  {"id":"reckon-hypothesis--a","handle":"H1 rdp","status":"OPEN","statement":"s1","predictions":[
+	    {"id":"reckon-prediction--b","ordinal":3,"status":"UNTESTED","statement":"p","discriminates":["reckon-hypothesis--c"]}]},
+	  {"id":"reckon-hypothesis--c","handle":"H2 admin","status":"OPEN","statement":"s2"}]}`
 	b := hypothesisStateBlock(json.RawMessage(raw))
-	for _, want := range []string{"untested P3 (x-prediction--b) (discriminates vs H2 admin)", "H1 rdp holds P3 (x-prediction--b) against H2 admin"} {
+	for _, want := range []string{"untested P3 (reckon-prediction--b) (discriminates vs H2 admin)", "H1 rdp holds P3 (reckon-prediction--b) against H2 admin"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("block lacks %q:\n%s", want, b)
 		}
@@ -55,14 +55,14 @@ func TestHypothesisStateBlock(t *testing.T) {
 	got := hypothesisStateBlock(json.RawMessage(hypothesesFixture))
 	for _, want := range []string{
 		"[reasoning state",
-		"H1 rdp-intrusion (x-hypothesis--1) OPEN [T1021.001] — An attacker moved laterally over RDP.",
+		"H1 rdp-intrusion (reckon-hypothesis--1) OPEN [T1021.001] — An attacker moved laterally over RDP.",
 		"predictions: 1 untested, 1 confirmed",
-		"untested x-prediction--b (discriminates vs H2 legit-admin)",
-		"H2 legit-admin (x-hypothesis--2) OPEN — An admin used svc_backup for maintenance.",
-		"untested x-prediction--c (discriminates vs H1 rdp-intrusion)",
-		"H3 (x-hypothesis--3) REFUTED — Scanner noise.",
+		"untested reckon-prediction--b (discriminates vs H2 legit-admin)",
+		"H2 legit-admin (reckon-hypothesis--2) OPEN — An admin used svc_backup for maintenance.",
+		"untested reckon-prediction--c (discriminates vs H1 rdp-intrusion)",
+		"H3 (reckon-hypothesis--3) REFUTED — Scanner noise.",
 		"predictions: none",
-		"H1 rdp-intrusion holds x-prediction--b against H2 legit-admin; H2 legit-admin holds x-prediction--c against H1 rdp-intrusion",
+		"H1 rdp-intrusion holds reckon-prediction--b against H2 legit-admin; H2 legit-admin holds reckon-prediction--c against H1 rdp-intrusion",
 		"cannot be recorded supported",
 	} {
 		if !strings.Contains(got, want) {
@@ -98,7 +98,7 @@ func TestTurn_StateRidesTheMessageNotThePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	if strings.Contains(s.System(), "x-hypothesis--1") || strings.Contains(s.System(), "2026-10-21T20:55") {
+	if strings.Contains(s.System(), "reckon-hypothesis--1") || strings.Contains(s.System(), "2026-10-21T20:55") {
 		t.Error("per-turn state leaked into the system prompt")
 	}
 	before := s.System()
@@ -110,7 +110,7 @@ func TestTurn_StateRidesTheMessageNotThePrompt(t *testing.T) {
 		t.Error("a turn rewrote the system prompt")
 	}
 	u := lastUserMessage(t, s, "and now?")
-	if !strings.Contains(u, "[reasoning state") || !strings.Contains(u, "x-prediction--c") {
+	if !strings.Contains(u, "[reasoning state") || !strings.Contains(u, "reckon-prediction--c") {
 		t.Errorf("reasoning state not on the user message:\n%s", u)
 	}
 	if !strings.Contains(res.Transcript, "[engine] [reasoning state") {
@@ -131,15 +131,15 @@ func TestTurn_StateRidesTheMessageNotThePrompt(t *testing.T) {
 // it does not try to run it or record its result.
 func TestHypothesisStateBlock_ManualPrediction(t *testing.T) {
 	raw := `{"hypotheses":[
-	  {"id":"x-hypothesis--a","handle":"H2 admin","status":"OPEN","statement":"s2","predictions":[
-	    {"id":"x-prediction--b","ordinal":2,"status":"UNTESTED","statement":"owner confirms","test_kind":"manual","discriminates":["x-hypothesis--c"]},
-	    {"id":"x-prediction--d","ordinal":3,"status":"UNTESTED","statement":"baseline","test_kind":"tool"}]},
-	  {"id":"x-hypothesis--c","handle":"H1 rdp","status":"OPEN","statement":"s1"}]}`
+	  {"id":"reckon-hypothesis--a","handle":"H2 admin","status":"OPEN","statement":"s2","predictions":[
+	    {"id":"reckon-prediction--b","ordinal":2,"status":"UNTESTED","statement":"owner confirms","test_kind":"manual","discriminates":["reckon-hypothesis--c"]},
+	    {"id":"reckon-prediction--d","ordinal":3,"status":"UNTESTED","statement":"baseline","test_kind":"tool"}]},
+	  {"id":"reckon-hypothesis--c","handle":"H1 rdp","status":"OPEN","statement":"s1"}]}`
 	b := hypothesisStateBlock(json.RawMessage(raw))
-	if !strings.Contains(b, "untested P2 (x-prediction--b) (discriminates vs H1 rdp) [manual — a person tests it; the analyst records the result, you cannot]: owner confirms") {
+	if !strings.Contains(b, "untested P2 (reckon-prediction--b) (discriminates vs H1 rdp) [manual — a person tests it; the analyst records the result, you cannot]: owner confirms") {
 		t.Errorf("manual prediction not marked:\n%s", b)
 	}
-	if strings.Contains(b, "P3 (x-prediction--d) [manual") {
+	if strings.Contains(b, "P3 (reckon-prediction--d) [manual") {
 		t.Errorf("tool prediction marked manual:\n%s", b)
 	}
 }

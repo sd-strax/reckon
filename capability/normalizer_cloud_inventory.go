@@ -5,14 +5,15 @@ import (
 	"time"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // cloudInventoryNormalizer handles OCSF Cloud Resources Inventory Info
 // (class_uid 5023) → STIX (§4.18): a configuration snapshot of cloud
 // resources. Identity follows api_activity exactly, so a snapshot of a
 // resource mints the id the control-plane calls on it mint: the account is an
-// x-cloud-account from cloud.account, each resources[] entry an
-// x-cloud-resource by the same rules, a resource named under the account
+// reckon-cloud-account from cloud.account, each resources[] entry an
+// reckon-cloud-resource by the same rules, a resource named under the account
 // belongs-to it. A resource's owner (an OCSF User) is a user-account by the
 // principal shaping when it carries an identifier. The configuration rides
 // the one ObservedData. With no cloud.provider nothing cloud-shaped is
@@ -29,7 +30,11 @@ func (*cloudInventoryNormalizer) ClassUID() int { return 5023 }
 // strings; a shaping change is a re-normalization (§4.13).
 // Version 4: they are read as OCSF writes them, epoch milliseconds, else the
 // _dt twin (adr/0356).
-func (*cloudInventoryNormalizer) Version() int { return 4 }
+// 5: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; resource_type,
+// configuration as any JSON, an out-of-range resource time left out,
+// is_service_account only when known, adr/0357
+func (*cloudInventoryNormalizer) Version() int { return 5 }
 
 func (n *cloudInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -126,7 +131,7 @@ func inventoryExt(p map[string]any) map[string]any {
 	first := resources[0]
 	put("resource_uid", scalarString(fieldOf(first, "uid")))
 	put("resource_name", strings.TrimSpace(toString(fieldOf(first, "name"))))
-	put("type", toString(fieldOf(first, "type")))
+	put("resource_type", toString(fieldOf(first, "type")))
 	putAny("configuration", fieldOf(first, "data"))
 	putAny("labels", fieldOf(first, "labels"))
 	putAny("tags", fieldOf(first, "tags"))
@@ -146,7 +151,10 @@ func inventoryExt(p map[string]any) map[string]any {
 // import this package).
 func ocsfTimestamp(obj map[string]any, key string) string {
 	t := ocsfTime(obj, key)
-	if t.IsZero() {
+	// An optional time whose year a STIX timestamp cannot write, outside
+	// 0000 to 9999, is left out, and the object is kept. Only the event's own
+	// time refuses the record (adr/0357).
+	if t.IsZero() || !stix.InTimestampRange(t) {
 		return ""
 	}
 	return t.Format(time.RFC3339Nano)

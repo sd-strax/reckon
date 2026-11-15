@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -226,7 +227,7 @@ func TestEveryEventIsOCSF(t *testing.T) {
 	for op, in := range map[string]string{
 		"get_user": `[{"id":"00uX","status":"ACTIVE","created":"2026-01-02T03:04:05Z","profile":{"login":"carol@acme.com","email":"carol@acme.com",` +
 			`"firstName":"Carol","lastName":"Diaz","department":"Finance","organization":"Acme","title":"Analyst","employeeNumber":"E-7","managerId":"someone"}}]`,
-		"list_groups": `[{"id":"00gADM","profile":{"name":"Admins"}}]`,
+		"list_groups": `[{"id":"00gADM","created":"2025-01-02T03:04:05.000Z","lastUpdated":"2026-02-03T04:05:06.000Z","profile":{"name":"Admins"}}]`,
 	} {
 		evs, err := normalize(op, in)
 		if err != nil || len(evs) != 1 {
@@ -426,7 +427,7 @@ func TestEngineReadsWhatTheAdapterWrites(t *testing.T) {
 		return n
 	}
 
-	users, _ := normalize("get_user", `[{"id":"00uX","profile":{"login":"carol@acme.com","email":"carol@acme.com","firstName":"Carol","lastName":"Diaz"}}]`)
+	users, _ := normalize("get_user", `[{"id":"00uX","created":"2025-01-02T03:04:05.000Z","profile":{"login":"carol@acme.com","email":"carol@acme.com","firstName":"Carol","lastName":"Diaz"}}]`)
 	res := engineNormalize(t, users)[0]
 	if got := res.ObservedData[0].Provenance.Normalizer; got != "user_inventory" {
 		t.Fatalf("a user record went to %s", got)
@@ -473,5 +474,26 @@ func TestEngineReadsWhatTheAdapterWrites(t *testing.T) {
 	if _, has := access.ObservedData[0].Extensions["privileges"]; has || count(access, identity.TypeUserAccount) == 0 {
 		t.Errorf("privilege event: privileges %v, %d accounts; want the account and no privileges",
 			access.ObservedData[0].Extensions["privileges"], count(access, identity.TypeUserAccount))
+	}
+}
+
+// A group's time is its own: lastUpdated, else created (adr/0357). The
+// adapter never stamps a record with the time it read it.
+func TestGroupTimeIsTheGroupsOwn(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{`[{"id":"00gA","created":"2025-01-02T03:04:05.000Z","lastUpdated":"2026-02-03T04:05:06.000Z","profile":{"name":"A"}}]`, "2026-02-03T04:05:06Z"},
+		{`[{"id":"00gA","created":"2025-01-02T03:04:05.000Z","profile":{"name":"A"}}]`, "2025-01-02T03:04:05Z"},
+	} {
+		evs, err := normalize("list_groups", c.in)
+		if err != nil || len(evs) != 1 {
+			t.Fatalf("%s: %v, %d events", c.in, err, len(evs))
+		}
+		got := ""
+		if !evs[0].Time.IsZero() {
+			got = evs[0].Time.UTC().Format(time.RFC3339)
+		}
+		if got != c.want {
+			t.Errorf("%s: time = %q; want %q", c.in, got, c.want)
+		}
 	}
 }

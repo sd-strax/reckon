@@ -9,11 +9,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// RequestAction proposes a state-changing action, producing an x-action in
+// RequestAction proposes a state-changing action, producing a reckon-action in
 // REQUESTED plus its action-request Interpretation (08 §2). The AI may issue
 // this; it carries no Authorization and cannot advance status.
 type RequestAction struct {
-	ActionID   uuid.UUID `json:"action_id"` // the x-action id, minted by the caller
+	ActionID   uuid.UUID `json:"action_id"` // the reckon-action id, minted by the caller
 	ActionType string    `json:"action_type"`
 	Tier       string    `json:"tier"`
 	// Reversibility is the action type's classification from the catalog
@@ -25,10 +25,10 @@ type RequestAction struct {
 	ExpiresAt     time.Time       `json:"expires_at"`
 	Rationale     string          `json:"rationale"`
 	IsReversal    bool            `json:"is_reversal,omitempty"`
-	// ReversalOfRef points at the original x-action this action reverses
+	// ReversalOfRef points at the original reckon-action this action reverses
 	// (04 §7). Set only when IsReversal; drives the ReversalSaga.
 	ReversalOfRef uuid.UUID `json:"reversal_of_ref,omitempty"`
-	// RetryOf points at a prior FAILED/EXPIRED x-action this request replaces.
+	// RetryOf points at a prior FAILED/EXPIRED reckon-action this request replaces.
 	// Lineage only (design/ui binding §2.3): the dispatch ledger makes
 	// re-dispatching one id impossible, so a retry IS a new action — this ref
 	// lets surfaces render the chain.

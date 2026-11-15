@@ -171,7 +171,7 @@ Mapped to the regions of `08 §8.1`. One canonical component per object; elsewhe
 │       ├─ <EvidenceInspector>         an OCSF event, or an observed-data (its one event) — Details · Provenance · Raw (08 §8.6)
 │       ├─ <EntityInspector>           type/value/aliases/id-on-hover; role & counts; <Baseline>; actions; other investigations; Pivot; Copy; Pin as evidence
 │       ├─ <ProcedureInspector>        What the AI read · Whole document · Versions; hash check; Open original
-│       ├─ <AbsenceInspector>          x-null-observation — Search · Provenance · Raw; says / does not say; Re-run wider (08 §8.6.1)
+│       ├─ <AbsenceInspector>          reckon-null-observation — Search · Provenance · Raw; says / does not say; Re-run wider (08 §8.6.1)
 │       ├─ <DetectionInspector>        indicator + sighting + vendor identity — Finding · Evidence · Raw; "inferred by the vendor"
 │       ├─ <AttestationInspector>      note — statement, who said it / recorded it, the question it answers, rules
 │       ├─ <PredictionInspector>       Record · History (from the thread's prediction events)
@@ -266,8 +266,8 @@ the companion side of the lens area (`08 §8.1`), never replacing the lens.
 
 **Resolving a target to a renderer.** An `inspector.open` target (§4.2) is resolved by the host
 from the id's shape and the snapshot: an OCSF event id or `observed-data--` → Evidence;
-`x-null-observation--` → Absence; `indicator--` → Detection (with its sighting and vendor
-identity); `note--` → Attestation; `x-prediction--` / `x-hypothesis--` → the reasoning
+`reckon-null-observation--` → Absence; `indicator--` → Detection (with its sighting and vendor
+identity); `note--` → Attestation; `reckon-prediction--` / `reckon-hypothesis--` → the reasoning
 inspectors (data already in the snapshot; history from the thread); an SCO type → Entity;
 `relationship--` of type `aliases` → Alias; a SOP id → Procedure; an action id → Action; a comms
 thread id → Thread; an owner item id → Owner item; a knowledge `case` ref → Similar case; an
@@ -785,7 +785,7 @@ inspector and the baseline fold must agree, and the fixtures already exercise th
 ```json
 // EventView — on GET /api/evidence/{ref} (ocsf kind) as "view", and on every EventRow
 {
-  "sentence": [ {"t":"entity","ref":"user-account--…","text":"svc_backup"}, {"t":"text","text":" interactive RDP logon to "}, {"t":"entity","ref":"x-host--…","text":"WIN-FILE01"}, {"t":"text","text":" from "}, {"t":"entity","ref":"ipv4-addr--…","text":"10.0.4.20"} ],
+  "sentence": [ {"t":"entity","ref":"user-account--…","text":"svc_backup"}, {"t":"text","text":" interactive RDP logon to "}, {"t":"entity","ref":"reckon-host--…","text":"WIN-FILE01"}, {"t":"text","text":" from "}, {"t":"entity","ref":"ipv4-addr--…","text":"10.0.4.20"} ],
   "fields": [ {"label":"User","value":"svc_backup","ref":"user-account--…","mono":true}, {"label":"Logon type","value":"Remote Interactive (type 10)"}, {"label":"Result","value":"Success","tone":"ok"} ],
   "category": "auth",             // auth | process | network | detection | asset | case | other (from category_uid)
   "decoded": { "field": "process.cmd_line", "encoding": "base64-utf16le", "text": "echo" }  // only when a known encoding decodes cleanly; the original is always shown
@@ -795,7 +795,7 @@ inspector and the baseline fold must agree, and the fixtures already exercise th
 Classes covered: every class the normalizers handle (`03 §4.1`–`§4.12`) plus 2005 and 5001.
 Unknown classes get `fields` from the top-level scalars and no sentence.
 
-**Prediction short title.** A new optional `title` on `x-prediction`, recorded with the
+**Prediction short title.** A new optional `title` on `reckon-prediction`, recorded with the
 prediction (`PredictionNode.Title` on the `prediction` interpretation event; projected to
 `prediction_current.title`; `PredictionView.title`). Authored by whoever records the prediction:
 the agent's `record_prediction` tool gains an optional `title` parameter (≤ 64 characters, a
@@ -841,8 +841,8 @@ returns, ordered by event time:
 
 ```json
 { "events": [ { "id":"…", "class_uid":3002, "class_name":"Authentication", "time":"…", "recorded_at":"…", "source_tool":"fixture:lateral-movement-via-rdp",
-  "verb":"enumerate_logons", "coverage":"COMPLETE", "view": EventView, "observed_data_refs":["observed-data--…"], "entity_refs":["user-account--…","x-host--…"],
-  "relationships":[{"type":"x-authenticated-to","source_ref":"…","target_ref":"…"}] } ], "total": 17 }
+  "verb":"enumerate_logons", "coverage":"COMPLETE", "view": EventView, "observed_data_refs":["observed-data--…"], "entity_refs":["user-account--…","reckon-host--…"],
+  "relationships":[{"type":"reckon-authenticated-to","source_ref":"…","target_ref":"…"}] } ], "total": 17 }
 ```
 
 `entity` restricts to events whose observed-data `object_refs` include the ref; `around` returns
@@ -923,7 +923,7 @@ completes a two-party approval.*
 ### 8.6 §6.17 — Owner action items
 
 **Decision.** An owner action item is **its own record**, CRUD + thin history, modeled on the
-comms threads (`comms/`), not an x-action. It executes nothing in any tool, carries no blast
+comms threads (`comms/`), not a reckon-action. It executes nothing in any tool, carries no blast
 radius, and never dispatches; forcing it through Gate 2 and the dispatch ledger would invent a
 tier that measures no harm and a dispatch that never happens. `owner_items (id, tenant,
 investigation_id, title, owner, detail, status OPEN|SENT|CONFIRMED|WAIVED, notify_action_id,

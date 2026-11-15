@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/stix"
 )
 
 // Membership event types (02-persistence.md §3). Unlike lifecycle transitions
@@ -19,7 +21,7 @@ const (
 )
 
 // Evidence role and weight vocabularies (02-persistence.md §3; they map onto the
-// x-supports / x-refutes edge vocabulary in 01-domain-model.md).
+// reckon-supports / reckon-refutes edge vocabulary in 01-domain-model.md).
 const (
 	RoleSupports = "supports"
 	RoleRefutes  = "refutes"
@@ -31,7 +33,7 @@ const (
 
 // MemberAdded brings an externally-existing STIX object into this
 // investigation's scope (02-persistence.md §3). Only for external references —
-// aggregate-internal nodes (Interpretations, x-actions) are members implicitly
+// aggregate-internal nodes (Interpretations, reckon-actions) are members implicitly
 // at creation, with no MemberAdded event.
 type MemberAdded struct {
 	StixObjectRef string `json:"stix_object_ref"`
@@ -71,7 +73,7 @@ func (c AddMember) Validate(env Envelope) error {
 	if c.StixObjectRef == "" {
 		return errors.New("AddMember: StixObjectRef is required")
 	}
-	return nil
+	return validateSTIXRef("AddMember", "stix_object_ref", c.StixObjectRef)
 }
 
 // RemoveMember is the command for MemberRemoved.
@@ -91,7 +93,7 @@ func (c RemoveMember) Validate(env Envelope) error {
 	if c.StixObjectRef == "" {
 		return errors.New("RemoveMember: StixObjectRef is required")
 	}
-	return nil
+	return validateSTIXRef("RemoveMember", "stix_object_ref", c.StixObjectRef)
 }
 
 // AttachEvidence is the command for EvidenceAttached.
@@ -152,4 +154,14 @@ func membershipEvent(env Envelope, state aggregateState, eventType string, paylo
 		OccurredAt:    env.OccurredAt,
 		CorrelationID: env.CorrelationID,
 	}}, nil
+}
+
+// validateSTIXRef refuses a reference that is not a STIX identifier,
+// <type>--<UUID> (STIX 2.1 §2.9), at the command boundary, so no other form
+// reaches an event or a stored object (adr/0357).
+func validateSTIXRef(cmd, field, ref string) error {
+	if !stix.IsIdentifier(ref) {
+		return fmt.Errorf("%s: %s %q is not a STIX identifier (<type>--<UUID>)", cmd, field, ref)
+	}
+	return nil
 }

@@ -224,23 +224,23 @@ type proposeHypothesisInput struct {
 	Rationale   string   `json:"rationale" required:"true" desc:"why you believe this, citing evidence refs"`
 	Labels      []string `json:"labels" desc:"MITRE ATT&CK technique ids where evident"`
 	RootedAtRef string   `json:"rooted_at_ref" desc:"STIX id of the anchor entity, optional"`
-	ParentRef   string   `json:"parent_ref" desc:"x-hypothesis id this refines, optional"`
+	ParentRef   string   `json:"parent_ref" desc:"reckon-hypothesis id this refines, optional"`
 	Confidence  string   `json:"confidence" desc:"HIGH | MEDIUM | LOW"`
 }
 
 type recordPredictionInput struct {
-	HypothesisRef string   `json:"hypothesis_ref" required:"true" desc:"the x-hypothesis id that predicts this WILL be observed (the owner)"`
+	HypothesisRef string   `json:"hypothesis_ref" required:"true" desc:"the reckon-hypothesis id that predicts this WILL be observed (the owner)"`
 	Statement     string   `json:"statement" required:"true" desc:"what should be observable if the hypothesis holds"`
 	Title         string   `json:"title" desc:"a short name for the prediction: a noun phrase of at most 64 characters, no trailing period, optional — the record derives one from the statement when absent"`
 	Rationale     string   `json:"rationale" required:"true" desc:"why this test discriminates (or, if it only confirms, say so)"`
-	Discriminates []string `json:"discriminates" desc:"x-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner"`
+	Discriminates []string `json:"discriminates" desc:"reckon-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner"`
 	TestKind      string   `json:"test_kind" desc:"tool (default) | manual — manual only when no tool can test the prediction and a person's answer can"`
 	TestTool      string   `json:"test_tool" desc:"the tool that would test it, optional (for a manual test: the role of the person to ask)"`
 	TestQuery     string   `json:"test_query" desc:"the query text, optional (for a manual test: the question to put to them)"`
 }
 
 type evaluateHypothesisInput struct {
-	HypothesisRef  string   `json:"hypothesis_ref" required:"true" desc:"the x-hypothesis id"`
+	HypothesisRef  string   `json:"hypothesis_ref" required:"true" desc:"the reckon-hypothesis id"`
 	Disposition    string   `json:"disposition" required:"true" desc:"support | refutation | inconclusive"`
 	Rationale      string   `json:"rationale" required:"true" desc:"the evidential reasoning"`
 	TestResultRefs []string `json:"test_result_refs" desc:"STIX/OCSF refs of the observed evidence; required for support and refutation"`
@@ -249,7 +249,7 @@ type evaluateHypothesisInput struct {
 }
 
 type recordPredictionOutcomeInput struct {
-	PredictionRef  string   `json:"prediction_ref" required:"true" desc:"the x-prediction id"`
+	PredictionRef  string   `json:"prediction_ref" required:"true" desc:"the reckon-prediction id"`
 	Status         string   `json:"status" required:"true" desc:"CONFIRMED | DISCONFIRMED | INCONCLUSIVE"`
 	Rationale      string   `json:"rationale" required:"true" desc:"what was observed"`
 	TestResultRefs []string `json:"test_result_refs" desc:"refs of the observed evidence"`
@@ -269,7 +269,7 @@ type requestActionInput struct {
 	ActionType   string          `json:"action_type" required:"true"`
 	Targets      []targetInput   `json:"targets" required:"true" desc:"the distinct targets; blast radius drives the trust tier"`
 	Rationale    string          `json:"rationale" required:"true" desc:"why this action, now"`
-	EvidenceRefs []string        `json:"evidence_refs" required:"true" nonempty:"true" desc:"REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / x-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it."`
+	EvidenceRefs []string        `json:"evidence_refs" required:"true" nonempty:"true" desc:"REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it."`
 	Parameters   json.RawMessage `json:"parameters"`
 	RetryOf      string          `json:"retry_of" desc:"when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage)"`
 }
@@ -320,34 +320,35 @@ func intrinsicTools(actionTypes []ActionType) []tool {
 		defineTool(toolSpec[proposeHypothesisInput]{
 			Name:        ToolProposeHypothesis,
 			Origin:      "80420c3",
-			Revised:     []string{"0efca01"},
+			Revised:     []string{"0efca01", "#357"},
 			Description: "Propose one falsifiable hypothesis — ONE claim, not a compound story. Hypotheses compete: call this once per rival (the leader, then the concrete alternative). It is recorded PROPOSED until the analyst acknowledges it. Returns the hypothesis id for later predictions and evaluation.",
 			Run:         (*Session).proposeHypothesis,
 		}),
 		defineTool(toolSpec[recordPredictionInput]{
 			Name:        ToolRecordPrediction,
 			Origin:      "80420c3",
-			Revised:     []string{"0efca01", "cebed87", "633ebd0", "#90"},
+			Revised:     []string{"0efca01", "cebed87", "633ebd0", "#90", "#357"},
 			Description: "Record a testable prediction under a hypothesis: what you expect to observe if it is true, and what query would test it. A prediction that DISCRIMINATES — one a rival hypothesis predicts the opposite outcome for — is worth more than one that merely confirms; name those rivals in discriminates. When a test is manual (no tool available to you can answer it and a person can), set test_kind to manual and say in test_query whom to ask and what; the analyst records its result, never you.",
 			Run:         (*Session).recordPrediction,
 		}),
 		defineTool(toolSpec[evaluateHypothesisInput]{
 			Name:        ToolEvaluateHypothesis,
 			Origin:      "80420c3",
+			Revised:     []string{"#357"},
 			Description: "Record an evidential outcome for a hypothesis: support, refutation, or inconclusive. Decisive outcomes must cite the observed evidence refs.",
 			Run:         (*Session).evaluateHypothesis,
 		}),
 		defineTool(toolSpec[recordPredictionOutcomeInput]{
 			Name:        ToolRecordPredictionOutcome,
 			Origin:      "80420c3",
-			Revised:     []string{"cebed87"},
+			Revised:     []string{"cebed87", "#357"},
 			Description: "Record a prediction's test outcome. CONFIRMED and DISCONFIRMED must cite test_result_refs. A manual prediction (a person tests it) is not yours to record: the engine refuses it; ask the analyst for the result.",
 			Run:         (*Session).recordPredictionOutcome,
 		}),
 		defineTool(toolSpec[requestActionInput]{
 			Name:        ToolRequestAction,
 			Origin:      "80420c3",
-			Revised:     []string{"b50bd4f", "adac4a6", "0ade6d2", "6b020a1"},
+			Revised:     []string{"b50bd4f", "adac4a6", "0ade6d2", "6b020a1", "#357"},
 			Description: requestActionDescription(actionTypes),
 			Overrides: map[string]any{
 				"action_type": actionTypeSchema(actionTypes),

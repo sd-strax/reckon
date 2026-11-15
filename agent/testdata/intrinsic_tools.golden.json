@@ -115,7 +115,7 @@
             "type": "array"
           },
           "parent_ref": {
-            "description": "x-hypothesis id this refines, optional",
+            "description": "reckon-hypothesis id this refines, optional",
             "type": "string"
           },
           "rationale": {
@@ -145,14 +145,14 @@
       "InputSchema": {
         "properties": {
           "discriminates": {
-            "description": "x-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner",
+            "description": "reckon-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "hypothesis_ref": {
-            "description": "the x-hypothesis id that predicts this WILL be observed (the owner)",
+            "description": "the reckon-hypothesis id that predicts this WILL be observed (the owner)",
             "type": "string"
           },
           "rationale": {
@@ -206,7 +206,7 @@
             "type": "string"
           },
           "hypothesis_ref": {
-            "description": "the x-hypothesis id",
+            "description": "the reckon-hypothesis id",
             "type": "string"
           },
           "rationale": {
@@ -235,7 +235,7 @@
       "InputSchema": {
         "properties": {
           "prediction_ref": {
-            "description": "the x-prediction id",
+            "description": "the reckon-prediction id",
             "type": "string"
           },
           "rationale": {
@@ -276,7 +276,7 @@
             "type": "string"
           },
           "evidence_refs": {
-            "description": "REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / x-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it.",
+            "description": "REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it.",
             "items": {
               "type": "string"
             },
@@ -486,7 +486,7 @@
             "type": "array"
           },
           "parent_ref": {
-            "description": "x-hypothesis id this refines, optional",
+            "description": "reckon-hypothesis id this refines, optional",
             "type": "string"
           },
           "rationale": {
@@ -516,14 +516,14 @@
       "InputSchema": {
         "properties": {
           "discriminates": {
-            "description": "x-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner",
+            "description": "reckon-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "hypothesis_ref": {
-            "description": "the x-hypothesis id that predicts this WILL be observed (the owner)",
+            "description": "the reckon-hypothesis id that predicts this WILL be observed (the owner)",
             "type": "string"
           },
           "rationale": {
@@ -577,7 +577,7 @@
             "type": "string"
           },
           "hypothesis_ref": {
-            "description": "the x-hypothesis id",
+            "description": "the reckon-hypothesis id",
             "type": "string"
           },
           "rationale": {
@@ -606,7 +606,7 @@
       "InputSchema": {
         "properties": {
           "prediction_ref": {
-            "description": "the x-prediction id",
+            "description": "the reckon-prediction id",
             "type": "string"
           },
           "rationale": {
@@ -643,7 +643,7 @@
             "type": "string"
           },
           "evidence_refs": {
-            "description": "REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / x-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it.",
+            "description": "REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it.",
             "items": {
               "type": "string"
             },

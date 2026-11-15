@@ -23,6 +23,7 @@ import (
 
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/module"
+	"github.com/sd-strax/reckon/stix"
 )
 
 var (
@@ -91,38 +92,41 @@ func (s *Store) Persist(ctx context.Context, call Call, res capability.Capabilit
 		}
 	}
 
-	stix := func(id string, created time.Time, obj any) error {
-		return upsertObject(ctx, tx, tenant, id, created, obj)
+	// Every object is written by the one serializer (adr/0357). created is
+	// the time an SDO or SRO carries; an SCO gets the time it was first
+	// stored as its row's created, and none in its payload.
+	write := func(o stix.Object, created time.Time) error {
+		return upsertObject(ctx, tx, tenant, o, created)
 	}
 	if n := res.NullObservation; n != nil {
 		// The absence is a citeable object like any observation (adr/0061).
-		if err := stix(string(n.ID), n.ObservedAt, n); err != nil {
+		if err := write(n.STIXObject(), n.ObservedAt); err != nil {
 			return err
 		}
 	}
 	for _, n := range res.Normalized {
 		for _, od := range n.ObservedData {
-			if err := stix(string(od.ID), od.FirstObserved, od); err != nil {
+			if err := write(od.STIXObject(), od.FirstObserved); err != nil {
 				return err
 			}
 		}
 		for _, s := range n.SCOs {
-			if err := stix(string(s.ID), time.Time{}, s); err != nil {
+			if err := write(s.STIXObject(), time.Time{}); err != nil {
 				return err
 			}
 		}
 		for _, i := range n.Indicators {
-			if err := stix(string(i.ID), i.ValidFrom, i); err != nil {
+			if err := write(i.STIXObject(), i.ValidFrom); err != nil {
 				return err
 			}
 		}
 		for _, s := range n.Sightings {
-			if err := stix(string(s.ID), time.Time{}, s); err != nil {
+			if err := write(s.STIXObject(), time.Time{}); err != nil {
 				return err
 			}
 		}
 		for _, id := range n.Identities {
-			if err := stix(string(id.ID), time.Time{}, id); err != nil {
+			if err := write(id.STIXObject(), time.Time{}); err != nil {
 				return err
 			}
 		}
@@ -133,7 +137,10 @@ func (s *Store) Persist(ctx context.Context, call Call, res capability.Capabilit
 			if !sok || !tok || !rok {
 				continue
 			}
-			payload, err := json.Marshal(rel)
+			o := rel.STIXObject()
+			at := stix.Truncate(now())
+			o.Created = at
+			payload, err := stix.Marshal(o)
 			if err != nil {
 				return fmt.Errorf("marshal relationship: %w", err)
 			}
@@ -141,7 +148,7 @@ func (s *Store) Persist(ctx context.Context, call Call, res capability.Capabilit
 				INSERT INTO stix_edges (id, tenant_id, source_ref, target_ref, relationship_type, payload, created, modified)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
 				ON CONFLICT (id) DO NOTHING
-			`, relUUID, tenant, srcUUID, tgtUUID, rel.Type, payload, now()); err != nil {
+			`, relUUID, tenant, srcUUID, tgtUUID, rel.Type, payload, at); err != nil {
 				return fmt.Errorf("insert stix edge: %w", err)
 			}
 		}
@@ -152,25 +159,31 @@ func (s *Store) Persist(ctx context.Context, call Call, res capability.Capabilit
 	return tx.Commit()
 }
 
-func upsertObject(ctx context.Context, tx *sql.Tx, tenant uuid.UUID, stixID string, created time.Time, obj any) error {
-	id, ok := refUUID(stixID)
+// upsertObject writes one STIX object. An SDO or SRO carries created in its
+// payload and in its row, the same instant to the millisecond; a zero created
+// is the time of the write. An SCO's row gets the time of the write.
+func upsertObject(ctx context.Context, tx *sql.Tx, tenant uuid.UUID, o stix.Object, created time.Time) error {
+	id, ok := refUUID(o.ID)
 	if !ok {
-		return fmt.Errorf("normalizer emitted a malformed STIX id %q", stixID)
-	}
-	typ, _, _ := strings.Cut(stixID, "--")
-	payload, err := json.Marshal(obj)
-	if err != nil {
-		return fmt.Errorf("marshal %s: %w", typ, err)
+		return fmt.Errorf("normalizer emitted a malformed STIX id %q", o.ID)
 	}
 	if created.IsZero() {
 		created = now()
 	}
+	if stix.Timestamped(o.Type) {
+		created = stix.Truncate(created)
+		o.Created = created
+	}
+	payload, err := stix.Marshal(o)
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", o.Type, err)
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO stix_objects (id, tenant_id, type, spec_version, payload, created, modified)
-		VALUES ($1, $2, $3, '2.1', $4, $5, $5)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)
 		ON CONFLICT (id) DO NOTHING
-	`, id, tenant, typ, payload, created); err != nil {
-		return fmt.Errorf("insert stix %s: %w", typ, err)
+	`, id, tenant, o.Type, stix.SpecVersion, payload, created); err != nil {
+		return fmt.Errorf("insert stix %s: %w", o.Type, err)
 	}
 	return nil
 }
