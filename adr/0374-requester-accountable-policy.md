@@ -1,6 +1,6 @@
 # 0374 — A policy can credit the requester, and the install ships one that approves a person's own ticketing
 
-Issue: #374 · PR: (to be opened) · Status: accepted
+Issue: #374 · PR: #377 · Status: accepted
 
 ## Context
 
