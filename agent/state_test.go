@@ -43,7 +43,7 @@ func TestHypothesisStateBlock_Ordinals(t *testing.T) {
 	  {"id":"reckon-hypothesis--a","handle":"H1 rdp","status":"OPEN","statement":"s1","predictions":[
 	    {"id":"reckon-prediction--b","ordinal":3,"status":"UNTESTED","statement":"p","discriminates":["reckon-hypothesis--c"]}]},
 	  {"id":"reckon-hypothesis--c","handle":"H2 admin","status":"OPEN","statement":"s2"}]}`
-	b := hypothesisStateBlock(json.RawMessage(raw))
+	b := hypothesisStateBlock(json.RawMessage(raw), false)
 	for _, want := range []string{"untested P3 (reckon-prediction--b) (discriminates vs H2 admin)", "H1 rdp holds P3 (reckon-prediction--b) against H2 admin"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("block lacks %q:\n%s", want, b)
@@ -52,7 +52,7 @@ func TestHypothesisStateBlock_Ordinals(t *testing.T) {
 }
 
 func TestHypothesisStateBlock(t *testing.T) {
-	got := hypothesisStateBlock(json.RawMessage(hypothesesFixture))
+	got := hypothesisStateBlock(json.RawMessage(hypothesesFixture), false)
 	for _, want := range []string{
 		"[reasoning state",
 		"H1 rdp-intrusion (reckon-hypothesis--1) OPEN [T1021.001] — An attacker moved laterally over RDP.",
@@ -69,17 +69,39 @@ func TestHypothesisStateBlock(t *testing.T) {
 			t.Errorf("block missing %q:\n%s", want, got)
 		}
 	}
-	if again := hypothesisStateBlock(json.RawMessage(hypothesesFixture)); again != got {
+	if again := hypothesisStateBlock(json.RawMessage(hypothesesFixture), false); again != got {
 		t.Error("block is not deterministic for the same state")
 	}
 	for _, empty := range []string{"", "null", "[]", `{"hypotheses":[]}`} {
-		if b := hypothesisStateBlock(json.RawMessage(empty)); b != "" {
+		if b := hypothesisStateBlock(json.RawMessage(empty), false); b != "" {
 			t.Errorf("hypothesisStateBlock(%q) = %q; want empty", empty, b)
 		}
 	}
 	decided := strings.ReplaceAll(hypothesesFixture, `"UNTESTED"`, `"DISCONFIRMED"`)
-	if b := hypothesisStateBlock(json.RawMessage(decided)); !strings.Contains(b, "No untested discriminator is outstanding.") {
+	if b := hypothesisStateBlock(json.RawMessage(decided), false); !strings.Contains(b, "No untested discriminator is outstanding.") {
 		t.Errorf("all-tested set should say nothing is outstanding:\n%s", b)
+	}
+}
+
+// TestHypothesisStateBlock_AcknowledgmentGate: a PROPOSED hypothesis carries
+// the acknowledgment refusal beside its status while the tenant keeps the
+// gate (trust.ai_reasoning off), so the block the model trusts names both
+// gates that refuse an outcome (#373). An acknowledged (OPEN) hypothesis, or a
+// tenant with the dial on, carries no such note: the engine would accept the
+// outcome.
+func TestHypothesisStateBlock_AcknowledgmentGate(t *testing.T) {
+	raw := json.RawMessage(`{"hypotheses":[
+	  {"id":"reckon-hypothesis--a","handle":"H1 rdp","status":"PROPOSED","statement":"s1"},
+	  {"id":"reckon-hypothesis--c","handle":"H2 admin","status":"OPEN","statement":"s2"}]}`)
+	gated := hypothesisStateBlock(raw, false)
+	if want := "H1 rdp (reckon-hypothesis--a) PROPOSED" + textAwaitingAck.Text + " — s1"; !strings.Contains(gated, want) {
+		t.Errorf("a PROPOSED hypothesis under the gate lacks the refusal:\n%s", gated)
+	}
+	if strings.Count(gated, textAwaitingAck.Text) != 1 {
+		t.Errorf("only the PROPOSED hypothesis carries the refusal, once:\n%s", gated)
+	}
+	if open := hypothesisStateBlock(raw, true); strings.Contains(open, textAwaitingAck.Text) {
+		t.Errorf("with trust.ai_reasoning on the engine accepts the outcome, so the block must not say it refuses:\n%s", open)
 	}
 }
 
@@ -135,7 +157,7 @@ func TestHypothesisStateBlock_ManualPrediction(t *testing.T) {
 	    {"id":"reckon-prediction--b","ordinal":2,"status":"UNTESTED","statement":"owner confirms","test_kind":"manual","discriminates":["reckon-hypothesis--c"]},
 	    {"id":"reckon-prediction--d","ordinal":3,"status":"UNTESTED","statement":"baseline","test_kind":"tool"}]},
 	  {"id":"reckon-hypothesis--c","handle":"H1 rdp","status":"OPEN","statement":"s1"}]}`
-	b := hypothesisStateBlock(json.RawMessage(raw))
+	b := hypothesisStateBlock(json.RawMessage(raw), false)
 	if !strings.Contains(b, "untested P2 (reckon-prediction--b) (discriminates vs H1 rdp) [manual — a person tests it; the analyst records the result, you cannot]: owner confirms") {
 		t.Errorf("manual prediction not marked:\n%s", b)
 	}

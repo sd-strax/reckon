@@ -286,6 +286,10 @@ type Investigation struct {
 	// §reckon-hypothesis): "leading_null" (default) or "leading_only". Empty is
 	// treated as leading_null.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
+	// AIReasoning is the tenant's autonomous-reasoning dial (trust.ai_reasoning).
+	// False means the engine refuses the agent's outcome on a PROPOSED
+	// hypothesis, which the reasoning-state block then says.
+	AIReasoning bool `json:"ai_reasoning,omitempty"`
 	// Verdict is the disposition of record (01 §Verdict), absent when none.
 	// The narrative draft reads it so an account written between turns says
 	// what the record holds, not what the conversation last heard.

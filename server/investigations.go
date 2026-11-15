@@ -58,6 +58,13 @@ type InvestigationView struct {
 	// renders its framing contract from it.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
 
+	// AIReasoning is the tenant's autonomous-reasoning dial (config
+	// trust.ai_reasoning; 01 §Interpretation types). False (the default) means
+	// the engine refuses an AI delegate's outcome on a PROPOSED hypothesis.
+	// Detail responses only — the agent's reasoning-state block says so only
+	// when it is true for this tenant.
+	AIReasoning bool `json:"ai_reasoning,omitempty"`
+
 	// CaseNoteOnSeed is the tenant's case write-back posture
 	// (config.Cases.NoteOnSeed; adr/0032): "confirm" | "auto" | "off". CaseNote
 	// is the offer itself — the default note text for the seed case — present
@@ -205,6 +212,7 @@ func (b *Backend) getInvestigation(w http.ResponseWriter, r *http.Request, id uu
 		Seed:              seedBody(ic.Seed),
 		SeedSummary:       ic.SeedSummary,
 		HypothesisFraming: b.cfg.HypothesisFraming,
+		AIReasoning:       b.cfg.AllowAIReasoning,
 		CaseNoteOnSeed:    b.cfg.CaseNoteOnSeed,
 	}
 	// The case-note offer rides the detail view too (adr/0032 as amended):

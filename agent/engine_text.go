@@ -35,6 +35,11 @@ var (
 		Text: "[reasoning state — the investigation's hypothesis set as the engine holds it now (trust THIS over any earlier narration):\n"}
 	textHypothesisLine = modelText{ID: "reasoning-state-hypothesis", Origin: "f01ffc3",
 		Text: "%s (%s) %s"}
+	// textAwaitingAck follows a PROPOSED hypothesis's status when the tenant
+	// keeps the acknowledgment gate (trust.ai_reasoning off, the default), so
+	// the block the model trusts names both gates that refuse an outcome.
+	textAwaitingAck = modelText{ID: "reasoning-state-awaiting-ack", Origin: "#373",
+		Text: " (not yet acknowledged by the analyst: the engine refuses any outcome you record on it until they acknowledge it)"}
 	textHypothesisLabels = modelText{ID: "reasoning-state-labels", Origin: "f01ffc3",
 		Text: " [%s]"}
 	textHypothesisStatement = modelText{ID: "reasoning-state-statement", Origin: "f01ffc3",
@@ -136,7 +141,7 @@ var (
 // this order, and TestModelTextLedger_Complete reads it.
 var engineTexts = []modelText{
 	textClock,
-	textReasoningState, textHypothesisLine, textHypothesisLabels, textHypothesisStatement,
+	textReasoningState, textHypothesisLine, textAwaitingAck, textHypothesisLabels, textHypothesisStatement,
 	textPositionalName, textPredictionName,
 	textNoPredictions, textPredictionTally, textTallyCount, textTallyOrder, textUntested, textDiscriminatesVs,
 	textManualTest, textPredictionStatement, textOutstanding, textHolds, textHoldsSeparator, textUntilTested,

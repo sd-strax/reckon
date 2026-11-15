@@ -511,7 +511,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		fmt.Fprintf(&transcript, "[engine] %s\n", sanitizeTranscript(block))
 	}
 	engine(clockBlock(s.now()))
-	if hb := hypothesisStateBlock(s.hyps); hb != "" {
+	if hb := hypothesisStateBlock(s.hyps, s.investigation.AIReasoning); hb != "" {
 		engine(hb)
 	}
 	s.turnsSinceAnchor++
@@ -874,7 +874,7 @@ func (s *Session) narrativeRecord(ctx context.Context) (narrativeRecord, error) 
 		TextBlock(clockBlock(s.now())),
 		TextBlock(fmt.Sprintf(sideNarrativeRecord.Text, inv.Status, verdict)),
 	}}
-	if hb := hypothesisStateBlock(hyps); hb != "" {
+	if hb := hypothesisStateBlock(hyps, inv.AIReasoning); hb != "" {
 		rec.blocks = append(rec.blocks, TextBlock(hb))
 		rec.hasActs = true
 	}

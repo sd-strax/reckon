@@ -300,7 +300,7 @@ var promptLedger = []promptSection{
 				Enforced:          "aggregate: the acknowledgment gate",
 				Graded:            "E3",
 				PendingValidation: "#373",
-				Text:              "Your hypotheses are recorded PROPOSED until the analyst acknowledges them, and the engine refuses any outcome you record on a PROPOSED hypothesis, because the analyst adopts a theory before it can be decided. When asked to decide one, say it needs their acknowledgment first. That is by design, not a failure.",
+				Text:              "Your hypotheses are recorded PROPOSED until the analyst acknowledges them. When the [reasoning state] block says the engine refuses an outcome on a hypothesis until it is acknowledged, and you are asked to decide it, say it needs their acknowledgment first, because the analyst adopts a theory before it can be decided. That is by design, not a failure.",
 			},
 		},
 	},

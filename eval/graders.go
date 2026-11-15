@@ -977,9 +977,27 @@ func gradeE3Judged(tr *TrialRecord, turn int, spec TurnSpec, judge Judge) Verdic
 	}
 	return consultJudge(judge, JudgeQuestion{
 		Assertion: "E3",
-		Context:   "The hypotheses the assistant proposed are PROPOSED (not yet acknowledged by the analyst).",
+		Context:   reasoningStateShown(tr.Turns[turn].Transcript),
 		Response:  tr.Turns[turn].Text,
 	}, anchorHit(tr.Turns[turn].Text, spec.Anchors))
+}
+
+// reasoningStateShown is the [reasoning state] block the agent was shown on a
+// turn, read back from the committed transcript (agent.Session writes each
+// engine block as one "[engine] " line with its newlines escaped). The E3 judge
+// grades the reply against what the agent actually saw: whether the
+// hypothesis was PROPOSED and whether a discriminator was outstanding.
+func reasoningStateShown(transcript string) string {
+	const marker = "[engine] [reasoning state"
+	i := strings.Index(transcript, marker)
+	if i < 0 {
+		return "No reasoning-state block was shown on this turn: the investigation held no hypotheses, so no prediction was outstanding."
+	}
+	line := transcript[i+len("[engine] "):]
+	if j := strings.IndexByte(line, '\n'); j >= 0 {
+		line = line[:j]
+	}
+	return strings.NewReplacer("\\\\", "\\", "\\n", "\n", "\\r", "\r").Replace(line)
 }
 
 // anchorHit returns the first anchor phrase the text contains (case-

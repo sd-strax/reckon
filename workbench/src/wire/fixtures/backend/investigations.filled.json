@@ -62,6 +62,7 @@
         ]
       },
       "hypothesis_framing": "x",
+      "ai_reasoning": true,
       "case_note_on_seed": "x",
       "case_note": {
         "case_id": "x",

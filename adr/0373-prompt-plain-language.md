@@ -41,9 +41,11 @@ pass also needs an independent review against a fixed rubric.
 - **`framing` stays one rule.** Its `leading_only` variant replaces the whole
   rule under the dial. Splitting it would make the split parts render under
   `leading_only` too, which would change that dial's behaviour.
-- **Scope is the ledger's rules.** The preamble, the standing-context
-  paragraph, tool descriptions and engine text keep their words. Each of them
-  has its own ledger entry and hash (adr/0232).
+- **Scope is the prompt the model works from, judged by behaviour.** The
+  pass rewrites the ledger's rules. Where the second eval round showed a rule
+  failing because other model-facing text outweighed it, that text changed
+  too (see "Second round" below). The preamble, the standing-context
+  paragraph and the tool descriptions keep their words.
 - **Ledger.** Each changed rule ends its `Revised` list with `#373` and reads
   `PendingValidation: "#373"` until the baselines are accepted. The prompt
   went from about 1,450 words to about 1,700. Every rule now states its
@@ -119,6 +121,39 @@ any run was accepted:
 The other one-trial changes (O2 and O3 on impossible travel, O3 on exposed
 bucket) are inside the tolerance and left alone.
 
+## Second round: the reasoning-state block and the E3 turn
+
+The revised `proposed-by-design` did not fix E3. The second Sonnet round
+went from 3/3 to 1/3 on impossible travel and to 2/3 on lateral movement.
+Reading the turns, not the scores, showed three causes:
+
+- **The block the model trusts named only one gate.** Each turn's
+  `[reasoning state]` block tells the model to trust it over earlier
+  narration. It spelled out the discriminator refusal in a sentence. For the
+  acknowledgment gate it printed only the bare status `PROPOSED`. The model
+  followed the block, which is closer and more concrete than a system-prompt
+  rule. A PROPOSED hypothesis now carries the refusal beside its status (the
+  `reasoning-state-awaiting-ack` engine text).
+- **The refusal is true only under the default dial.** `trust.ai_reasoning`
+  lets the engine accept an AI outcome on a PROPOSED hypothesis, and the
+  agent could not see that dial. It now rides the investigation detail as
+  `ai_reasoning`, beside `hypothesis_framing`, and the block adds the refusal
+  only when the dial is off. `proposed-by-design` no longer states the refusal
+  itself. It points at the block, so the rule is true under both settings.
+- **The E3 turn assumed a state the agent rarely reaches.** The script places
+  E3 before the turn that asks for tests, so it assumes no predictions yet. In
+  10 of 12 trials the agent had already recorded predictions, so both gates
+  applied. The judge now reads the exact `[reasoning state]` block the agent
+  saw on that turn. A reply passes when it records no outcome and says the
+  hypothesis needs the analyst's acknowledgment. Naming an outstanding test as
+  a further reason is fine when the block shows one, and it fails when the
+  block shows none. `JudgeRubricVersion` moves.
+
+H6 is unchanged. The tool schema, the tool description and the rule all say
+`parameters` is an object. The failing trials double-escaped one long ticket
+description, the loop repaired it, and H5 (nothing malformed reaches
+dispatch) passed in every trial. More wording would not make that reliable.
+
 ## Alternatives rejected
 
 - **Reword only the rules that failed a trial.** That is the per-finding loop
@@ -126,6 +161,12 @@ bucket) are inside the tolerance and left alone.
 - **Render `Why` beside each rule.** That doubles the prompt and keeps the
   reason apart from the instruction. #339 showed the two belong in one
   sentence.
+- **Make the E3 rubric accept the discriminator reason alone.** When the
+  hypothesis is PROPOSED, adopting it is the analyst's act and the only step
+  they can take. A reply that leaves it out does not tell them what to do.
+- **Keep the refusal in the system-prompt rule.** It is false for a tenant
+  that enables `trust.ai_reasoning`, and the round showed the per-turn block
+  outweighs the rule anyway.
 - **Split `framing` like the other two.** That would change what the
   `leading_only` dial renders.
 
