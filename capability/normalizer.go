@@ -480,23 +480,26 @@ func (b *resultBuilder) emailAddr(v string) identity.STIXID {
 }
 
 // emailAddrs adds an email-addr SCO for each string in the array at path of
-// m, returning their ids.
-func (b *resultBuilder) emailAddrs(m map[string]any, path string) []identity.STIXID {
+// m. It returns their ids and the address strings they were minted from.
+func (b *resultBuilder) emailAddrs(m map[string]any, path string) ([]identity.STIXID, []string) {
 	v, ok := lookupPath(m, path)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	arr, ok := v.([]any)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	var refs []identity.STIXID
+	var values []string
 	for _, item := range arr {
-		if id := b.emailAddr(toString(item)); id != "" {
+		s := toString(item)
+		if id := b.emailAddr(s); id != "" {
 			refs = append(refs, id)
+			values = append(values, s)
 		}
 	}
-	return refs
+	return refs, values
 }
 
 // url adds a url SCO for a literal URL value.

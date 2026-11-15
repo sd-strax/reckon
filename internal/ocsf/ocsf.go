@@ -6,7 +6,9 @@ package ocsf
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
+	"strconv"
 	"time"
 )
 
@@ -120,4 +122,86 @@ func RegistryValueName(regValue map[string]any) (string, bool) {
 		return "", true
 	}
 	return "", false
+}
+
+// RegistryValueData is the data of an OCSF registry value object as a
+// string, and whether the object gives one (03 §4.6). The normalizer's
+// windows-registry-value-type data and the event view's Data field both come
+// from it, so the two always agree.
+//
+// From 1.6.0 the data can arrive in a field for its type (adr/0359). The
+// first of reg_string_data, reg_integer_data, reg_binary_data and
+// reg_string_list_data that holds a value is read, else data. An empty
+// string or an empty list in a typed field holds no value, so it never hides
+// the next field.
+//
+// The value is written by adr/0341's rule. A string is kept as it arrives.
+// Any other value is written as its JSON text, so a list reads as a JSON
+// array. A number that float64 cannot state exactly (2^53 or more, which
+// arrives rounded) is left out, as when the source gives no data.
+//
+// field reads one key of the object. The caller passes its own recorded
+// reader, so the schema check sees which fields were read.
+func RegistryValueData(regValue map[string]any, field func(obj map[string]any, key string) any) (string, bool) {
+	if regValue == nil {
+		return "", false
+	}
+	for _, key := range []string{"reg_string_data", "reg_integer_data", "reg_binary_data", "reg_string_list_data"} {
+		v := field(regValue, key)
+		if s, ok := v.(string); ok && s == "" {
+			continue
+		}
+		if l, ok := v.([]any); ok && len(l) == 0 {
+			continue
+		}
+		if text, ok := registryText(v); ok {
+			return text, true
+		}
+	}
+	return registryText(field(regValue, "data"))
+}
+
+// registryText writes one registry data value by adr/0341's rule: a string
+// as it arrives, anything else as its JSON text. A missing value, and a
+// number float64 cannot state exactly, report false.
+func registryText(v any) (string, bool) {
+	switch x := v.(type) {
+	case nil:
+		return "", false
+	case string:
+		return x, true
+	case float64:
+		if !(math.Abs(x) < 1<<53) {
+			return "", false
+		}
+	}
+	text, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v), true
+	}
+	return string(text), true
+}
+
+// integerText writes a whole number in decimal, or "" when the value is not
+// one that can be written exactly. A float64 is a decoded JSON number: one
+// of 2^53 or more may already be rounded, so it reads as "". This is the
+// rule scalarString in package capability follows for identifiers.
+func integerText(v any) string {
+	switch n := v.(type) {
+	case float64:
+		if n != math.Trunc(n) || math.Abs(n) >= 1<<53 {
+			return ""
+		}
+		return strconv.FormatFloat(n, 'f', -1, 64)
+	case json.Number:
+		if _, err := n.Int64(); err != nil {
+			return ""
+		}
+		return n.String()
+	case int:
+		return strconv.Itoa(n)
+	case int64:
+		return strconv.FormatInt(n, 10)
+	}
+	return ""
 }

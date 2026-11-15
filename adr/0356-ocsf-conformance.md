@@ -1,6 +1,6 @@
 # 0356 — Normalizers use OCSF's own class numbers and fields, checked by a test against the OCSF schema checked into the repo
 
-Issue: #356 · PR: #358 · Status: accepted
+Issue: #356 · PR: #358 · Status: accepted · Amended by: adr/0359 (cloud evidence actors, the email thread id)
 
 ## Context
 

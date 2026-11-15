@@ -1,10 +1,15 @@
 package capability
 
 import (
+	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/internal/ocsfschema"
 )
 
 // registryKeyPath is the Run key the registry tests name, hive first and
@@ -131,6 +136,59 @@ func TestRegistryValueNormalizer(t *testing.T) {
 	}
 	if n := len(scosOf(value(map[string]any{"name": "x"}), identity.TypeWindowsRegistryKey)); n != 0 {
 		t.Errorf("no path: %d keys; want none", n)
+	}
+}
+
+// TestRegistryValueTypedData (§4.6, adr/0359, adr/0341): from OCSF 1.6.0 a
+// value's data can arrive in a field for its type. The first typed field
+// that holds a value is read, then data, and written by adr/0341's rule: a
+// string as it arrives, anything else as its JSON text. An empty typed field
+// does not hide the next one, and a number float64 cannot state exactly is
+// left out. data_type comes only from the source's type, never from which
+// typed field held the data.
+func TestRegistryValueTypedData(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value map[string]any
+		want  any // the value's data, nil for none
+	}{
+		{"reg_string_data only", map[string]any{"reg_string_data": `C:\Temp\evil.exe`}, `C:\Temp\evil.exe`},
+		{"reg_integer_data only", map[string]any{"reg_integer_data": float64(4)}, "4"},
+		{"reg_binary_data only", map[string]any{"reg_binary_data": "3q2+7w=="}, "3q2+7w=="},
+		{"reg_string_list_data only", map[string]any{"reg_string_list_data": []any{"a.dll", "b.dll"}}, `["a.dll","b.dll"]`},
+		{"the typed field before data", map[string]any{"data": "old", "reg_string_data": "new"}, "new"},
+		{"an empty string does not hide an integer", map[string]any{"type_id": 4, "reg_string_data": "", "reg_integer_data": float64(4)}, "4"},
+		{"an empty list does not hide data", map[string]any{"reg_string_list_data": []any{}, "data": "x"}, "x"},
+		// A JSON number past 2^53 arrives rounded: it is not written.
+		{"a rounded integer", map[string]any{"reg_integer_data": float64(9007199254740993), "data": "x"}, "x"},
+		{"a rounded integer alone", map[string]any{"reg_integer_data": float64(9007199254740993)}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := map[string]any{"path": registryKeyPath, "name": "Updater"}
+			for k, x := range tc.value {
+				v[k] = x
+			}
+			e := versioned(201002, "1.9.0", map[string]any{"reg_value": v, "device": map[string]any{"hostname": "WS1"}})
+			if bad := ocsfschema.ValidateFields(e); len(bad) > 0 {
+				t.Fatalf("OCSF 1.9.0: %v", bad)
+			}
+			res, err := testRegistry().Normalize(makeEvent(e))
+			if err != nil {
+				t.Fatal(err)
+			}
+			values, _ := scosOf(res, identity.TypeWindowsRegistryKey)[0].Properties["values"].([]any)
+			if len(values) != 1 {
+				t.Fatalf("values = %v; want one", values)
+			}
+			value := values[0].(map[string]any)
+			if got := value["data"]; got != tc.want {
+				t.Errorf("data = %#v; want %#v", got, tc.want)
+			}
+			_, typed := value["data_type"]
+			if wantType := tc.value["type_id"] != nil; typed != wantType {
+				t.Errorf("value = %v; data_type set = %v, want %v", value, typed, wantType)
+			}
+		})
 	}
 }
 
@@ -421,6 +479,87 @@ func TestGroupManagementGroup(t *testing.T) {
 	}
 }
 
+// TestGroupManagementUsers (§4.9, adr/0359): from OCSF 1.9.0 the members
+// are users[]. Every entry that names a user is a target with its own
+// member-of-group edge, and user is read when no entry does. The other account
+// classes have no users[] and read user alone.
+func TestGroupManagementUsers(t *testing.T) {
+	ids := identity.NewResolver(testNS)
+	group := ids.Group("contoso.com", "Domain Admins")
+	sid := func(s string) identity.STIXID {
+		return ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, UserID: s})
+	}
+	members := []any{
+		map[string]any{"name": "alice", "domain": "CONTOSO", "uid": "S-1-5-21-7-1101"},
+		map[string]any{"name": "bob", "domain": "CONTOSO", "uid": "S-1-5-21-7-1102"},
+	}
+	e := versioned(3006, "1.9.0", map[string]any{
+		"activity_id": 1, "users": members,
+		"actor":  map[string]any{"user": map[string]any{"name": "admin", "domain": "CONTOSO", "uid": "S-1-5-21-7-500"}},
+		"group":  map[string]any{"name": "Domain Admins", "domain": "contoso.com", "uid": "g-512"},
+		"device": map[string]any{"hostname": "DC01"},
+	})
+	if bad := ocsfschema.ValidateFields(e); len(bad) > 0 {
+		t.Fatalf("OCSF 1.9.0: %v", bad)
+	}
+	res, err := testRegistry().Normalize(makeEvent(e))
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice, bob := sid("S-1-5-21-7-1101"), sid("S-1-5-21-7-1102")
+	for _, id := range []identity.STIXID{alice, bob, sid("S-1-5-21-7-500")} {
+		if !refsContain(res.ObservedData[0].ObjectRefs, id) {
+			t.Errorf("object_refs lack %s", id)
+		}
+	}
+	rels := relsOf(res, RelMemberOfGroup)
+	if len(rels) != 2 || !slices.Contains(rels, [2]identity.STIXID{alice, group}) || !slices.Contains(rels, [2]identity.STIXID{bob, group}) {
+		t.Errorf("member-of-group = %v; want one from each of %s and %s", rels, alice, bob)
+	}
+
+	// users[] wins over the deprecated user. An empty users[] reads user.
+	both := accountEvent(3006, "Add User")
+	both["users"] = members[1:]
+	res, err = testRegistry().Normalize(makeEvent(both))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rels := relsOf(res, RelMemberOfGroup); len(rels) != 1 || rels[0] != [2]identity.STIXID{bob, group} {
+		t.Errorf("users[] and user: member-of-group = %v; want %s alone", rels, bob)
+	}
+	empty := accountEvent(3006, "Add User")
+	empty["users"] = []any{}
+	res, err = testRegistry().Normalize(makeEvent(empty))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rels := relsOf(res, RelMemberOfGroup); len(rels) != 1 || rels[0] != [2]identity.STIXID{alice, group} {
+		t.Errorf("empty users[]: member-of-group = %v; want %s from user", rels, alice)
+	}
+
+	// An entry that names no user is no member: user is read instead.
+	nobody := accountEvent(3006, "Add User")
+	nobody["users"] = []any{map[string]any{"uid": ""}}
+	res, err = testRegistry().Normalize(makeEvent(nobody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rels := relsOf(res, RelMemberOfGroup); len(rels) != 1 || rels[0] != [2]identity.STIXID{alice, group} {
+		t.Errorf("users[] naming nobody: member-of-group = %v; want %s from user", rels, alice)
+	}
+
+	// Account Change has no users[]: a stray one is not read.
+	change := accountEvent(3001, "Create")
+	change["users"] = members[1:]
+	res, err = testRegistry().Normalize(makeEvent(change))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refsContain(res.ObservedData[0].ObjectRefs, bob) || !refsContain(res.ObservedData[0].ObjectRefs, alice) {
+		t.Errorf("account_change object_refs = %v; want user, not users[]", res.ObservedData[0].ObjectRefs)
+	}
+}
+
 // emailEvent is an email_activity event at the OCSF ceiling: attachments in
 // email.files[], links in email.urls[], blind copy in email.bcc[].
 func emailEvent() map[string]any {
@@ -452,7 +591,7 @@ func TestEmailNormalizer(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := identity.NewResolver(testNS)
-	strong := ids.EmailMessage("<abc123@evil.example>", "", "", makeEvent(emailEvent()).Time)
+	strong := ids.EmailMessage("<abc123@evil.example>", "", "", time.Time{}, nil, "")
 	bt := countTypes(res.SCOs)
 	if bt[identity.TypeEmailAddr] != 5 { // from + 2 recipients + cc + bcc
 		t.Errorf("email-addr SCOs = %d; want 5", bt[identity.TypeEmailAddr])
@@ -520,17 +659,17 @@ func TestEmailBlindCopy(t *testing.T) {
 	}
 }
 
-// TestEmailMessageIdentity (§4.10, adr/0356): the email-message follows the
-// rule hosts and accounts follow. The Message-ID mints the strong message.
-// The source's own id mints a weak one on (source tool, uid). A record with
-// both names the strong one, and adds the weak one outside object_refs with
-// an aliases edge to it. A record with neither is keyed on (from, subject,
-// date).
+// TestEmailMessageIdentity (§4.10, adr/0356, adr/0359): the Message-ID
+// mints the message, else (from, subject, date, recipients, thread_uid)
+// does. email.uid is a thread id: it is kept as thread_uid and mints no weak
+// message and no aliases edge.
 func TestEmailMessageIdentity(t *testing.T) {
 	ids := identity.NewResolver(testNS)
 	when := makeEvent(emailEvent()).Time
-	strong := ids.EmailMessage("<abc123@evil.example>", "", "", when)
-	weak := ids.WeakEmailMessage("fixture:s", "gw-0001")
+	recipients := []string{"alice@corp.com", "bob@corp.com", "carol@corp.com", "dave@corp.com"}
+	strong := ids.EmailMessage("<abc123@evil.example>", "", "", time.Time{}, nil, "")
+	byFacts := ids.EmailMessage("", "attacker@evil.example", "Invoice", when, recipients, "")
+	byThread := ids.EmailMessage("", "attacker@evil.example", "Invoice", when, recipients, "gw-0001")
 	normalize := func(drop ...string) NormalizationResult {
 		t.Helper()
 		p := emailEvent()
@@ -543,64 +682,150 @@ func TestEmailMessageIdentity(t *testing.T) {
 		}
 		return res
 	}
-
-	t.Run("both ids", func(t *testing.T) {
-		res := normalize()
-		refs := res.ObservedData[0].ObjectRefs
-		if !refsContain(refs, strong) || refsContain(refs, weak) {
-			t.Errorf("object_refs = %v; want the strong message and not the weak one", refs)
-		}
-		w, ok := scoByID(res.SCOs, weak)
-		if !ok || w.Properties["weak"] != true || w.Properties["email_uid"] != "gw-0001" || w.Properties["source_tool"] != "fixture:s" {
-			t.Errorf("weak message = %+v; want it minted, marked weak, with its key", w)
-		}
-		if s, _ := scoByID(res.SCOs, strong); s.Properties["weak"] != nil {
-			t.Errorf("strong message is marked weak: %v", s.Properties)
-		}
-		if rels := relsOf(res, RelAliases); len(rels) != 1 || rels[0] != [2]identity.STIXID{weak, strong} {
-			t.Errorf("aliases = %v; want %s → %s", rels, weak, strong)
-		}
-		for _, c := range relsOf(res, RelContains) {
-			if c[0] != strong {
-				t.Errorf("contains from %s; want from the strong message", c[0])
+	for _, tc := range []struct {
+		name   string
+		drop   []string
+		want   identity.STIXID
+		thread any
+	}{
+		{"both ids", nil, strong, "gw-0001"},
+		{"the Message-ID alone", []string{"uid"}, strong, nil},
+		{"the thread id alone", []string{"message_uid"}, byThread, "gw-0001"},
+		{"neither id", []string{"message_uid", "uid"}, byFacts, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := normalize(tc.drop...)
+			msgs := scosOf(res, identity.TypeEmailMessage)
+			if len(msgs) != 1 || msgs[0].ID != tc.want || msgs[0].Properties["weak"] != nil {
+				t.Fatalf("messages = %+v; want %s alone, not weak", msgs, tc.want)
 			}
-		}
-	})
-	t.Run("the Message-ID alone", func(t *testing.T) {
-		res := normalize("uid")
-		if msgs := scosOf(res, identity.TypeEmailMessage); len(msgs) != 1 || msgs[0].ID != strong {
-			t.Errorf("messages = %+v; want the strong one alone", msgs)
-		}
-		if hasRel(res.Relationships, RelAliases) {
-			t.Error("an alias with one id")
-		}
-	})
-	t.Run("the source's id alone", func(t *testing.T) {
-		res := normalize("message_uid")
-		msgs := scosOf(res, identity.TypeEmailMessage)
-		if len(msgs) != 1 || msgs[0].ID != weak || msgs[0].Properties["weak"] != true || msgs[0].Properties["subject"] != "Invoice" {
-			t.Fatalf("messages = %+v; want the weak one alone, with the message's facts", msgs)
-		}
-		if !refsContain(res.ObservedData[0].ObjectRefs, weak) {
-			t.Error("the weak message is the event's message and must be in object_refs")
-		}
-		if hasRel(res.Relationships, RelAliases) {
-			t.Error("a weak message joined another by itself")
-		}
-		if c := relsOf(res, RelContains); len(c) != 2 || c[0][0] != weak {
-			t.Errorf("contains = %v; want 2 from the weak message", c)
-		}
-	})
-	t.Run("neither id", func(t *testing.T) {
-		res := normalize("message_uid", "uid")
-		want := ids.EmailMessage("", "attacker@evil.example", "Invoice", when)
-		if msgs := scosOf(res, identity.TypeEmailMessage); len(msgs) != 1 || msgs[0].ID != want || msgs[0].Properties["weak"] != nil {
-			t.Errorf("messages = %+v; want the one keyed on from, subject and date", msgs)
-		}
-	})
+			if got := msgs[0].Properties["thread_uid"]; got != tc.thread {
+				t.Errorf("thread_uid = %v; want %v", got, tc.thread)
+			}
+			if !refsContain(res.ObservedData[0].ObjectRefs, tc.want) {
+				t.Error("the message is not in object_refs")
+			}
+			if hasRel(res.Relationships, RelAliases) {
+				t.Errorf("aliases = %v; want none", relsOf(res, RelAliases))
+			}
+			if c := relsOf(res, RelContains); len(c) != 2 || c[0][0] != tc.want || c[1][0] != tc.want {
+				t.Errorf("contains = %v; want 2 from the message", c)
+			}
+		})
+	}
 }
 
-// clickEvent is an email_url_activity event naming its message by email_uid.
+// TestEmailMessageWithoutMessageID (§4.10, adr/0359): with no Message-ID a
+// message is keyed on its sender, subject, second, recipients and thread
+// id. Separate copies of one run, or messages of two threads, stay apart.
+// Two records of one message with no thread id join.
+func TestEmailMessageWithoutMessageID(t *testing.T) {
+	reg := testRegistry()
+	message := func(mail map[string]any) identity.STIXID {
+		t.Helper()
+		e := versioned(4009, "1.9.0", map[string]any{"email": mail})
+		if bad := ocsfschema.ValidateFields(e); len(bad) > 0 {
+			t.Fatalf("OCSF 1.9.0: %v", bad)
+		}
+		res, err := reg.Normalize(makeEvent(e))
+		if err != nil {
+			t.Fatal(err)
+		}
+		msgs := scosOf(res, identity.TypeEmailMessage)
+		if len(msgs) != 1 {
+			t.Fatalf("messages = %+v; want one", msgs)
+		}
+		return msgs[0].ID
+	}
+	mail := func(fields ...any) map[string]any {
+		m := map[string]any{"from": "billing@evil.example", "subject": "Overdue invoice"}
+		for i := 0; i < len(fields); i += 2 {
+			if fields[i+1] == nil {
+				delete(m, fields[i].(string))
+				continue
+			}
+			m[fields[i].(string)] = fields[i+1]
+		}
+		return m
+	}
+	for _, tc := range []struct {
+		name string
+		a, b map[string]any
+		same bool
+	}{
+		{"different recipients", mail("to", []any{"ap@corp.example"}), mail("to", []any{"cfo@corp.example"}), false},
+		{"different blind copy", mail("to", []any{"ap@corp.example"}, "bcc", []any{"x@corp.example"}),
+			mail("to", []any{"ap@corp.example"}, "bcc", []any{"y@corp.example"}), false},
+		{"different envelope recipients", mail("to", []any{"all-staff@corp.example"}, "smtp_to", []any{"ap@corp.example"}),
+			mail("to", []any{"all-staff@corp.example"}, "smtp_to", []any{"cfo@corp.example"}), false},
+		{"different Delivered-To", mail("to", []any{"all-staff@corp.example"}, "delivered_to_list", []any{"ap@corp.example"}),
+			mail("to", []any{"all-staff@corp.example"}, "delivered_to_list", []any{"cfo@corp.example"}), false},
+		{"different deprecated Delivered-To", mail("to", []any{"all-staff@corp.example"}, "delivered_to", "ap@corp.example"),
+			mail("to", []any{"all-staff@corp.example"}, "delivered_to", "cfo@corp.example"), false},
+		{"different thread ids", mail("to", []any{"ap@corp.example"}, "uid", "t-1"), mail("to", []any{"ap@corp.example"}, "uid", "t-2"), false},
+		{"the same message, no thread id", mail("to", []any{"ap@corp.example", "cfo@corp.example"}),
+			mail("to", []any{"CFO@corp.example"}, "cc", []any{"ap@corp.example"}), true},
+		{"no sender or subject, different recipients", mail("from", nil, "subject", nil, "to", []any{"ap@corp.example"}),
+			mail("from", nil, "subject", nil, "to", []any{"cfo@corp.example"}), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if a, b := message(tc.a), message(tc.b); (a == b) != tc.same {
+				t.Errorf("ids %s and %s; want same = %v", a, b, tc.same)
+			}
+		})
+	}
+}
+
+// TestEmailThreadDoesNotJoinMessages (adr/0359): two messages of one thread
+// share email.uid. From one source, with different Message-IDs, they stay two
+// messages with no aliases edge. With no Message-ID they do not share an id
+// either.
+func TestEmailThreadDoesNotJoinMessages(t *testing.T) {
+	reg := testRegistry()
+	message := func(messageUID, subject string, minute int) NormalizationResult {
+		t.Helper()
+		mail := map[string]any{"from": "attacker@evil.example", "to": []any{"alice@corp.example"}, "subject": subject, "uid": "thread-7"}
+		if messageUID != "" {
+			mail["message_uid"] = messageUID
+		}
+		res, err := reg.Normalize(makeEvent(versioned(4009, "1.9.0", map[string]any{
+			"time": ms(fmt.Sprintf("2026-04-20T14:%02d:00Z", minute)), "email": mail,
+		})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	for _, tc := range []struct {
+		name string
+		a, b NormalizationResult
+	}{
+		{"different Message-IDs", message("<one@evil.example>", "Invoice", 30), message("<two@evil.example>", "Re: Invoice", 31)},
+		{"no Message-ID", message("", "Invoice", 30), message("", "Re: Invoice", 31)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []identity.STIXID
+			for _, res := range []NormalizationResult{tc.a, tc.b} {
+				msgs := scosOf(res, identity.TypeEmailMessage)
+				if len(msgs) != 1 {
+					t.Fatalf("messages = %+v; want one per event", msgs)
+				}
+				if msgs[0].Properties["thread_uid"] != "thread-7" {
+					t.Errorf("thread_uid = %v; want thread-7", msgs[0].Properties["thread_uid"])
+				}
+				if hasRel(res.Relationships, RelAliases) {
+					t.Errorf("aliases = %v; want none", relsOf(res, RelAliases))
+				}
+				got = append(got, msgs[0].ID)
+			}
+			if got[0] == got[1] {
+				t.Errorf("two messages of one thread share the id %s", got[0])
+			}
+		})
+	}
+}
+
+// clickEvent is an email_url_activity event naming its email by email_uid.
 func clickEvent() map[string]any {
 	return map[string]any{
 		"class_uid": 4012,
@@ -612,39 +837,34 @@ func clickEvent() map[string]any {
 	}
 }
 
-// TestEmailURLNormalizer (§4.11): clicked url + clicker + the weak message the
-// click names, with clicked and contains edges.
+// TestEmailURLNormalizer (§4.11, adr/0359): clicked url + clicker + host,
+// with a clicked edge. The click's email_uid names a thread, so it mints no
+// email-message and is kept in the extension fields as thread_uid.
 func TestEmailURLNormalizer(t *testing.T) {
 	res, err := testRegistry().Normalize(makeEvent(clickEvent()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	bt := countTypes(res.SCOs)
-	if bt[identity.TypeURL] != 1 || bt[identity.TypeUserAccount] != 2 || bt[identity.TypeEmailMessage] != 1 {
-		t.Errorf("want 1 url + 1 user and its login account (adr/0324) + 1 email-message; got %v", bt)
+	if bt[identity.TypeURL] != 1 || bt[identity.TypeUserAccount] != 2 || bt[identity.TypeEmailMessage] != 0 {
+		t.Errorf("want 1 url + 1 user and its login account (adr/0324) and no email-message; got %v", bt)
 	}
-	ids := identity.NewResolver(testNS)
-	weak, link := ids.WeakEmailMessage("fixture:s", "gw-0001"), ids.URL("https://evil.example/pay")
-	msg := scosOf(res, identity.TypeEmailMessage)[0]
-	if msg.ID != weak || msg.Properties["weak"] != true || !refsContain(res.ObservedData[0].ObjectRefs, weak) {
-		t.Errorf("message = %+v; want the weak one, in object_refs", msg)
+	if !hasRel(res.Relationships, RelClicked) || hasRel(res.Relationships, RelContains) {
+		t.Errorf("relationships = %v; want clicked and no contains", res.Relationships)
 	}
-	if c := relsOf(res, RelContains); len(c) != 1 || c[0] != [2]identity.STIXID{weak, link} {
-		t.Errorf("contains = %v; want %s → %s", c, weak, link)
-	}
-	if !hasRel(res.Relationships, RelClicked) {
-		t.Error("missing clicked relationship")
+	if got := res.ObservedData[0].Extensions["thread_uid"]; got != "gw-0001" {
+		t.Errorf("thread_uid = %v; want gw-0001", got)
 	}
 
-	// A click that names no message has none, and no contains edge.
+	// A click that names no email keeps no thread id.
 	bare := clickEvent()
-	delete(bare, "email_uid")
+	bare["email_uid"] = "  "
 	res, err = testRegistry().Normalize(makeEvent(bare))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(scosOf(res, identity.TypeEmailMessage)) != 0 || hasRel(res.Relationships, RelContains) || !hasRel(res.Relationships, RelClicked) {
-		t.Errorf("click with no email_uid: %v, relationships %v", countTypes(res.SCOs), res.Relationships)
+	if _, ok := res.ObservedData[0].Extensions["thread_uid"]; ok || !hasRel(res.Relationships, RelClicked) {
+		t.Errorf("click with a blank email_uid: extensions %v, relationships %v", res.ObservedData[0].Extensions, res.Relationships)
 	}
 
 	// 4011 is email_file_activity: a click sent under it is not read as one.
@@ -659,44 +879,47 @@ func TestEmailURLNormalizer(t *testing.T) {
 	}
 }
 
-// TestEmailClickReachesMessageThroughAlias (§4.10, §4.11, adr/0356): a click
-// names its message by the source's id, which is the weak message. The
-// delivered message's own record aliases that weak message to the strong one,
-// and that edge is the only thing that joins them.
-func TestEmailClickReachesMessageThroughAlias(t *testing.T) {
+// TestEmailClickAndAttachmentMintNoMessage (§4.11, §4.11a, adr/0359): a
+// click and an attachment event that name the same email_uid mint no
+// email-message. Each keeps the thread id on its observation, and nothing
+// joins them to each other or to the delivered message.
+func TestEmailClickAndAttachmentMintNoMessage(t *testing.T) {
 	reg := testRegistry()
+	click := clickEvent()
+	file := map[string]any{
+		"class_uid": 4011, "time": ms("2026-04-20T14:41:00Z"), "activity_id": 2, "email_uid": " gw-0001 ",
+		"file": map[string]any{"name": "invoice.pdf.exe"}, "device": map[string]any{"hostname": "WS1"},
+	}
+	for name, e := range map[string]map[string]any{"click": click, "attachment": file} {
+		res, err := reg.Normalize(makeEvent(e))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := len(scosOf(res, identity.TypeEmailMessage)); n != 0 {
+			t.Errorf("%s: %d email-messages; want none", name, n)
+		}
+		// The only aliases are the actor's own login to its SID account.
+		for _, r := range res.Relationships {
+			if r.Type == RelContains || strings.HasPrefix(string(r.SourceRef), identity.TypeEmailMessage) || strings.HasPrefix(string(r.TargetRef), identity.TypeEmailMessage) {
+				t.Errorf("%s: relationship %s %s → %s; want none from or to a message", name, r.Type, r.SourceRef, r.TargetRef)
+			}
+		}
+		if got := res.ObservedData[0].Extensions["thread_uid"]; got != "gw-0001" {
+			t.Errorf("%s: thread_uid = %v; want gw-0001, trimmed", name, got)
+		}
+	}
 	mail, err := reg.Normalize(makeEvent(emailEvent()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	click, err := reg.Normalize(makeEvent(clickEvent()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	clicked := scoOfType(click.SCOs, identity.TypeEmailMessage)
-	aliases := relsOf(mail, RelAliases)
-	if len(aliases) != 1 || aliases[0][0] != clicked {
-		t.Fatalf("the click's message %s is not the one the mail aliases: %v", clicked, aliases)
-	}
-	if delivered := aliases[0][1]; delivered == clicked || !refsContain(mail.ObservedData[0].ObjectRefs, delivered) {
-		t.Errorf("alias target %s; want the delivered message, apart from the weak one", delivered)
-	}
-
-	// Another tool's same id is another weak message: it joins nothing.
-	other := makeEvent(clickEvent())
-	other.SourceTool = "other-gateway"
-	res, err := reg.Normalize(other)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if scoOfType(res.SCOs, identity.TypeEmailMessage) == clicked {
-		t.Error("two tools' same email_uid minted one message")
+	if hasRel(mail.Relationships, RelAliases) {
+		t.Errorf("the delivery aliases %v; want nothing", relsOf(mail, RelAliases))
 	}
 }
 
-// TestEmailFileNormalizer (§4.11a): an attachment event gives the file, the
-// weak message it names, the actor and the host, with a contains edge from
-// the message to the file and the activity in the extensions.
+// TestEmailFileNormalizer (§4.11a, adr/0359): an attachment event gives
+// the file, the actor and the host, with the activity and the thread id in
+// the extensions. It mints no email-message.
 func TestEmailFileNormalizer(t *testing.T) {
 	payload := map[string]any{
 		"class_uid":   4011,
@@ -715,17 +938,16 @@ func TestEmailFileNormalizer(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := identity.NewResolver(testNS)
-	weak := ids.WeakEmailMessage("fixture:s", "gw-0001")
 	file := ids.File(identity.FileIdentity{Hashes: map[string]string{"SHA-256": "beef"}, Name: "invoice.pdf.exe"})
 	bt := countTypes(res.SCOs)
-	if bt[identity.TypeFile] != 1 || bt[identity.TypeEmailMessage] != 1 || bt[identity.TypeUserAccount] != 1 || bt[identity.TypeHost] != 1 {
-		t.Errorf("want 1 file + 1 message + 1 account + 1 host; got %v", bt)
+	if bt[identity.TypeFile] != 1 || bt[identity.TypeEmailMessage] != 0 || bt[identity.TypeUserAccount] != 1 || bt[identity.TypeHost] != 1 {
+		t.Errorf("want 1 file + 1 account + 1 host and no message; got %v", bt)
 	}
-	if c := relsOf(res, RelContains); len(c) != 1 || c[0] != [2]identity.STIXID{weak, file} {
-		t.Errorf("contains = %v; want %s → %s", c, weak, file)
+	if hasRel(res.Relationships, RelContains) {
+		t.Errorf("relationships = %v; want no contains", res.Relationships)
 	}
 	od := res.ObservedData[0]
-	if od.Extensions["activity_id"] != 2 || od.Provenance.Normalizer != "email_file_activity" {
+	if od.Extensions["activity_id"] != 2 || od.Extensions["thread_uid"] != "gw-0001" || od.Provenance.Normalizer != "email_file_activity" {
 		t.Errorf("extensions %v, normalizer %q", od.Extensions, od.Provenance.Normalizer)
 	}
 
@@ -738,13 +960,13 @@ func TestEmailFileNormalizer(t *testing.T) {
 		t.Errorf("email.files[] file = %s; the attachment event's = %s", got, file)
 	}
 
-	// With no email_uid the file stands alone.
+	// With no email_uid there is no thread id.
 	delete(payload, "email_uid")
 	res, err = testRegistry().Normalize(makeEvent(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(scosOf(res, identity.TypeEmailMessage)) != 0 || hasRel(res.Relationships, RelContains) {
-		t.Errorf("no email_uid: %v", countTypes(res.SCOs))
+	if _, ok := res.ObservedData[0].Extensions["thread_uid"]; ok {
+		t.Errorf("no email_uid: extensions %v", res.ObservedData[0].Extensions)
 	}
 }

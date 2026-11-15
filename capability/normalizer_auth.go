@@ -19,7 +19,8 @@ func (*authNormalizer) ClassUID() int { return 3002 }
 // 2: host identity, adr/0211; 3: account identity, adr/0324
 // 4: OCSF classes and fields, adr/0356
 // 5: the authenticated account is user, not actor.user, adr/0356
-func (*authNormalizer) Version() int { return 5 }
+// 6: OCSF read gaps, adr/0359
+func (*authNormalizer) Version() int { return 6 }
 
 func (n *authNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

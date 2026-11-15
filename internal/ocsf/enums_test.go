@@ -117,7 +117,9 @@ func TestHashesReadsThroughTheCaller(t *testing.T) {
 // a schema check.
 var numberTables = map[string]struct{ checked, exempt []string }{
 	"internal/ocsf": {
-		checked: []string{"HashAlgorithms", "Severities", "Confidences", "Statuses", "IncidentStatuses", "RegistryValueTypes"}, // TestEnumsMatchSchema
+		// TestEnumsMatchSchema, and TestAccountTypeKindsCoverTheEnum for
+		// AccountTypeKinds.
+		checked: []string{"HashAlgorithms", "Severities", "Confidences", "Statuses", "IncidentStatuses", "RegistryValueTypes", "AccountTypeKinds"},
 	},
 	"capability": {
 		// capability.TestEnumTablesMatchSchema
@@ -159,6 +161,62 @@ func TestEveryNumberTableIsChecked(t *testing.T) {
 		}
 		for _, name := range stale {
 			t.Errorf("%s: numberTables lists %s, which is no longer a table there", dir, name)
+		}
+	}
+}
+
+// TestAccountTypeKindsCoverTheEnum (adr/0359): AccountTypeKinds classifies
+// every value of the ceiling's account.type_id enum, and no value the enum
+// lacks. A value left out would read as no signal without anyone deciding
+// so. A principal type names a provider with a principal-form or session
+// rule, or one of the three the rule knows, and is never also a host type.
+func TestAccountTypeKindsCoverTheEnum(t *testing.T) {
+	schema, err := ocsfschema.Load(ocsfschema.Ceiling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enum, ok := schema.Enum(2004, "evidences[].actor.user.account.type_id")
+	if !ok {
+		t.Fatal("OCSF has no account.type_id enum on a detection's evidence actor")
+	}
+	for _, problem := range ocsfschema.CheckCaptions(2004, "evidences[].actor.user.account.type_id", accountTypeCaptions()) {
+		t.Errorf("AccountTypeKinds: %s", problem)
+	}
+	for id, caption := range enum {
+		if _, ok := AccountTypeKinds[id]; !ok {
+			t.Errorf("account.type_id %d (%s) is not classified", id, caption)
+		}
+	}
+	for id, kind := range AccountTypeKinds {
+		if _, ok := enum[id]; !ok {
+			t.Errorf("AccountTypeKinds classifies %d, which OCSF %s does not define", id, ocsfschema.Ceiling)
+		}
+		if kind.Host && kind.Provider != "" {
+			t.Errorf("account.type_id %d is both a host type and a %s principal", id, kind.Provider)
+		}
+		if p := kind.Provider; p != "" && p != "aws" && p != "azure" && p != "gcp" {
+			t.Errorf("account.type_id %d names the unknown provider %q", id, p)
+		}
+	}
+}
+
+// AccountTypeID reads the id, else the caption by OCSF's enum, letter case
+// aside (adr/0359).
+func TestAccountTypeID(t *testing.T) {
+	for _, tc := range []struct {
+		id      any
+		caption string
+		want    int
+	}{
+		{float64(9), "Windows Account", 9},
+		{nil, "linux account", 9},
+		{nil, " AWS IAM Role ", 4},
+		{nil, "", Unknown},
+		{nil, "Unknown", Unknown},
+		{nil, "a word OCSF lacks", Other},
+	} {
+		if got := AccountTypeID(tc.id, tc.caption); got != tc.want {
+			t.Errorf("AccountTypeID(%v, %q) = %d; want %d", tc.id, tc.caption, got, tc.want)
 		}
 	}
 }

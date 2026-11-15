@@ -83,3 +83,112 @@ func TestWholeNumber(t *testing.T) {
 		}
 	}
 }
+
+// RegistryValueData reads the first typed field that holds a value, then
+// data, writes it by adr/0341's rule, and reads every field through the
+// caller's reader (adr/0359).
+func TestRegistryValueData(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value map[string]any
+		want  string
+		ok    bool
+	}{
+		{"none", nil, "", false},
+		{"no data", map[string]any{"name": "x"}, "", false},
+		{"string", map[string]any{"reg_string_data": "x", "reg_integer_data": float64(1), "data": "d"}, "x", true},
+		{"integer", map[string]any{"reg_integer_data": float64(4294967295), "data": "d"}, "4294967295", true},
+		{"binary", map[string]any{"reg_binary_data": "AAE=", "data": "d"}, "AAE=", true},
+		{"string list as JSON", map[string]any{"reg_string_list_data": []any{"a", "b"}, "data": "d"}, `["a","b"]`, true},
+		{"data string", map[string]any{"data": "d"}, "d", true},
+		{"data string as it arrives", map[string]any{"data": " C:\\a.exe "}, " C:\\a.exe ", true},
+		{"data number", map[string]any{"data": float64(4)}, "4", true},
+		{"data list as JSON", map[string]any{"data": []any{"a", "b"}}, `["a","b"]`, true},
+		{"data object as JSON", map[string]any{"data": map[string]any{"a": "b"}}, `{"a":"b"}`, true},
+		{"an empty data string is data", map[string]any{"data": ""}, "", true},
+		// An empty typed value never hides the next field.
+		{"empty string before an integer", map[string]any{"type_id": float64(4), "reg_string_data": "", "reg_integer_data": float64(4)}, "4", true},
+		{"empty list before data", map[string]any{"reg_string_list_data": []any{}, "data": "x"}, "x", true},
+		// A number float64 cannot state exactly is left out.
+		{"integer past 2^53", map[string]any{"reg_integer_data": float64(9007199254740993), "data": "x"}, "x", true},
+		{"integer past 2^53 alone", map[string]any{"reg_integer_data": float64(9007199254740993)}, "", false},
+		{"integer past 2^53 in data", map[string]any{"data": float64(9007199254740993)}, "", false},
+		{"largest exact integer", map[string]any{"reg_integer_data": float64(9007199254740991)}, "9007199254740991", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seen := map[string]bool{}
+			got, ok := RegistryValueData(tc.value, func(m map[string]any, k string) any {
+				seen[k] = true
+				return m[k]
+			})
+			if got != tc.want || ok != tc.ok {
+				t.Errorf("RegistryValueData = %q, %v; want %q, %v", got, ok, tc.want, tc.ok)
+			}
+			if tc.value != nil && len(seen) == 0 {
+				t.Error("no field was read through the caller's reader")
+			}
+		})
+	}
+}
+
+// NamesUser counts a login, a uid or a uid_alt that is not a placeholder,
+// and reads each field through the caller's reader (adr/0359).
+func TestNamesUser(t *testing.T) {
+	for _, tc := range []struct {
+		user map[string]any
+		want bool
+	}{
+		{nil, false},
+		{map[string]any{}, false},
+		{map[string]any{"uid": ""}, false},
+		{map[string]any{"name": " ", "uid": "-", "uid_alt": "0"}, false},
+		{map[string]any{"name": "anonymous logon"}, false},
+		{map[string]any{"name": `CONTOSO\`}, false},
+		{map[string]any{"name": "jdoe"}, true},
+		{map[string]any{"name": `CONTOSO\jdoe`}, true},
+		{map[string]any{"uid": "S-1-5-21-1-2-3-1101"}, true},
+		{map[string]any{"uid_alt": "jdoe@contoso.example"}, true},
+		{map[string]any{"name": `X\-`, "domain": "D"}, true},
+		{map[string]any{"name": `CONTOSO\-`, "domain": "-"}, false},
+		{map[string]any{"name": `CONTOSO\jdoe`, "domain": "-"}, true},
+	} {
+		read := 0
+		got := NamesUser(tc.user, func(m map[string]any, k string) any { read++; return m[k] })
+		if got != tc.want {
+			t.Errorf("NamesUser(%v) = %v; want %v", tc.user, got, tc.want)
+		}
+		if tc.user != nil && read == 0 {
+			t.Errorf("NamesUser(%v) read nothing through the caller's reader", tc.user)
+		}
+	}
+}
+
+// UserName reads the name and domain as the normalizer's account rule does:
+// trimmed, a placeholder domain blanked, "domain\sam" split when no domain is
+// left, placeholders absent.
+func TestUserName(t *testing.T) {
+	for _, tc := range []struct {
+		user         map[string]any
+		name, domain string
+	}{
+		{map[string]any{}, "", ""},
+		{map[string]any{"name": " - "}, "", ""},
+		{map[string]any{"name": "n/a", "domain": "CONTOSO"}, "", "CONTOSO"},
+		{map[string]any{"name": " jdoe ", "domain": " CONTOSO "}, "jdoe", "CONTOSO"},
+		{map[string]any{"name": ` CONTOSO \ jdoe `}, "jdoe", "CONTOSO"},
+		{map[string]any{"name": `CONTOSO\-`}, "", "CONTOSO"},
+		{map[string]any{"name": `-\jdoe`}, "jdoe", ""},
+		{map[string]any{"name": "jdoe", "domain": "-"}, "jdoe", ""},
+		{map[string]any{"name": 7}, "", ""},
+		{map[string]any{"name": `X\-`, "domain": "D"}, `X\-`, "D"},
+		{map[string]any{"name": `CONTOSO\-`, "domain": "-"}, "", "CONTOSO"},
+		{map[string]any{"name": `CONTOSO\jdoe`, "domain": "-"}, "jdoe", "CONTOSO"},
+		{map[string]any{"name": `CN=Doe\, John,CN=Users,DC=contoso,DC=com`, "domain": "-"}, `CN=Doe\, John,CN=Users,DC=contoso,DC=com`, ""},
+		{map[string]any{"name": `CN=Doe\, John,CN=Users,DC=contoso,DC=com`}, `CN=Doe\, John,CN=Users,DC=contoso,DC=com`, ""},
+	} {
+		name, domain := UserName(tc.user, func(m map[string]any, k string) any { return m[k] })
+		if name != tc.name || domain != tc.domain {
+			t.Errorf("UserName(%v) = %q, %q; want %q, %q", tc.user, name, domain, tc.name, tc.domain)
+		}
+	}
+}

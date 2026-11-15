@@ -21,7 +21,9 @@ func (*userInventoryNormalizer) ClassUID() int { return 5003 }
 // Version starts at 2: a 5003 record normalized before this normalizer
 // existed went through the opaque default at version 1, and the ObservedData
 // id carries the version but not the normalizer's name (§4.13), as for 5001.
-func (*userInventoryNormalizer) Version() int { return 2 }
+//
+// 3: OCSF read gaps, adr/0359
+func (*userInventoryNormalizer) Version() int { return 3 }
 
 // accountlessDirectories describe people, not sign-ins: a personnel system's
 // worker id names a person and no account.
@@ -56,11 +58,16 @@ func (n *userInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult,
 	// carries for a synced user (uid_alt when it has the SID form, else the
 	// unmapped on_premises_security_identifier). The sAMAccountName and its
 	// NetBIOS domain are the unmapped on_premises_sam_account_name and
-	// on_premises_domain_name, the domain falling back to user.domain; an
-	// on-premises directory's own record carries the sam as user.name.
+	// on_premises_domain_name, a placeholder domain read as none and the
+	// domain falling back to user.domain; an on-premises directory's own
+	// record carries the sam as user.name.
 	sid := firstNonEmpty(u.sid, sidOf(u.uidAlt), sidOf(str("unmapped.on_premises_security_identifier")))
 	sam := str("unmapped.on_premises_sam_account_name")
-	domain := firstNonEmpty(str("unmapped.on_premises_domain_name"), u.domain)
+	onPremDomain := str("unmapped.on_premises_domain_name")
+	if identity.PlaceholderDomain(onPremDomain) {
+		onPremDomain = ""
+	}
+	domain := firstNonEmpty(onPremDomain, u.domain)
 	onPrem := containsFold(onPremisesDirectories, directory)
 	if onPrem && sam == "" && !strings.Contains(u.name, "@") {
 		sam = u.name

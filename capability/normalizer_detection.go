@@ -30,7 +30,8 @@ func (*detectionNormalizer) ClassUID() int { return 2004 }
 // 4: OCSF classes and fields, adr/0356
 // 5: a cloud finding's account, resources and cloud principal, adr/0356
 // 6: the finding's own host, and an unknown confidence left out, adr/0356
-func (*detectionNormalizer) Version() int { return 6 }
+// 7: OCSF read gaps, adr/0359
+func (*detectionNormalizer) Version() int { return 7 }
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -138,8 +139,11 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 //
 // provider is the cloud provider the finding names, "" for none, and account
 // the x-cloud-account the finding is about. With a provider, actor.user is
-// that provider's cloud principal (§4.15), not a directory login: the alert
-// then names the same user-account the provider's API calls do (adr/0356).
+// that provider's cloud principal (§4.15) only when the event says it is one
+// (isCloudPrincipal, adr/0359). The alert then names the same user-account
+// the provider's API calls do (adr/0356). Otherwise actor.user is a login on
+// the artifact's host, as on a finding with no provider. A login on a VM
+// only means something on that VM.
 func (b *resultBuilder) evidence(artifact map[string]any, provider string, account identity.STIXID) {
 	own := at{obj: artifact, path: "device"}
 	device := own
@@ -163,8 +167,7 @@ func (b *resultBuilder) evidence(artifact map[string]any, provider string, accou
 	b.actorProcess(artifact, host)
 	b.fileAt(artifact, "file")
 	b.endpoints(artifact)
-	if provider != "" {
-		actor := at{obj: artifact, path: "actor"}
+	if actor := (at{obj: artifact, path: "actor"}); provider != "" && isCloudPrincipal(provider, pathScalar(b.evt.Payload, "cloud.account.uid"), actor) {
 		b.cloudHome(provider, b.cloudPrincipal(provider, actor), account, actor)
 	} else {
 		b.userAccountAt(at{obj: artifact, path: "actor.user"}, device, host)

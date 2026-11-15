@@ -51,31 +51,23 @@ func (n *apiActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, e
 	return b.finish(apiExt(p)), nil
 }
 
-// providerSlug maps an OCSF cloud.provider to the slug a cloud principal's
-// account_type and a cloud account's provider carry (03 §7.2). The provider is
-// the principal's namespace, deliberately not "cloud" (the IdP sign-in
-// account): an ARN and an IdP user id never share one. A provider the table
-// does not know is kept, lowercased.
-func providerSlug(provider string) string {
-	p := strings.ToLower(strings.TrimSpace(provider))
-	switch p {
-	case "aws", "amazon web services":
-		return "aws"
-	case "azure", "microsoft azure":
-		return "azure"
-	case "gcp", "google cloud", "google cloud platform":
-		return "gcp"
-	}
-	return p
-}
+// providerSlug is ocsf.ProviderSlug. The event view needs the same slug, so
+// the rule lives in internal/ocsf.
+func providerSlug(provider string) string { return ocsf.ProviderSlug(provider) }
 
-// sessionScopedActors names, per provider slug, the field holding the durable
-// principal behind a session-scoped actor id. The rule is "the provider's
-// durable principal identifier"; a row exists where a provider's actor id is
-// session-scoped (an AWS assumed-role ARN names the session, the session's
-// issuer names the role), so another such provider is a row, not a branch.
-var sessionScopedActors = map[string]string{
-	"aws": "session.issuer",
+// sessionScopedActors is ocsf.SessionScopedActors: per provider slug, the
+// field holding the durable principal behind a session-scoped actor id.
+var sessionScopedActors = ocsf.SessionScopedActors
+
+// isCloudPrincipal reports whether the user of actor, an evidence actor on a
+// finding that names provider and whose own account is accountUID, is that
+// provider's user. It is ocsf.IsCloudPrincipal, the rule the event view
+// shares (adr/0359).
+func isCloudPrincipal(provider, accountUID string, actor at) bool {
+	return ocsf.IsCloudPrincipal(provider, ocsf.PrincipalContext{AccountUID: accountUID}, func(path string) any {
+		v, _ := lookupPath(actor.obj, actor.path+"."+path)
+		return v
+	})
 }
 
 // durablePrincipalID returns the provider's durable id for the caller and

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -589,6 +590,53 @@ func TestBareLoginFixture(t *testing.T) {
 	}
 }
 
+// TestPlaceholderDomainQualifiedName (adr/0359): a "domain\sam" name beside
+// a placeholder domain is split, so it keys the account the same name and
+// domain written apart key.
+func TestPlaceholderDomainQualifiedName(t *testing.T) {
+	reg := testRegistry()
+	accounts := func(user map[string]any) []identity.STIXID {
+		p := authPayload("WIN-FILE01")
+		p["user"] = user
+		res, err := reg.Normalize(makeEvent(p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return accountsIn(res)
+	}
+	want := reg.Identity().Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `CONTOSO\jdoe`})
+	apart := accounts(map[string]any{"name": "jdoe", "domain": "CONTOSO"})
+	joined := accounts(map[string]any{"name": `CONTOSO\jdoe`, "domain": "-"})
+	if len(apart) != 1 || apart[0] != want {
+		t.Fatalf("name and domain apart: accounts = %v; want %s", apart, want)
+	}
+	if !slices.Equal(joined, apart) {
+		t.Errorf("domain\\sam beside a placeholder domain: accounts = %v; want %v", joined, apart)
+	}
+}
+
+// TestDistinguishedNameNotSplit (adr/0359): a member named by its
+// distinguished name, as Windows 4728/4732 write it beside domain "-", keeps
+// the whole name as its login. Its escaping backslash does not split it into
+// a domain account of domain "CN=Doe".
+func TestDistinguishedNameNotSplit(t *testing.T) {
+	const dn = `CN=Doe\, John,CN=Users,DC=contoso,DC=com`
+	p := authPayload("WIN-FILE01")
+	p["user"] = map[string]any{"name": dn, "domain": "-"}
+	res, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	accts := accountsIn(res)
+	if len(accts) != 1 {
+		t.Fatalf("accounts = %v; want one", accts)
+	}
+	s, _ := scoByID(res.SCOs, accts[0])
+	if login, typ := s.Properties["account_login"], s.Properties["account_type"]; login != dn || typ == identity.AccountWindowsDomain || s.Properties["domain"] != nil {
+		t.Errorf("account properties = %v; want login %q, not a windows-domain account, no domain", s.Properties, dn)
+	}
+}
+
 func readFixtureOCSF(t *testing.T, path string) map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -602,4 +650,42 @@ func readFixtureOCSF(t *testing.T, path string) map[string]any {
 		t.Fatal(err)
 	}
 	return f.OCSF
+}
+
+// TestUserInventoryPlaceholderOnPremDomain: an on_premises_domain_name a
+// source writes when it has none ("-") is no domain, so the sam mints no
+// windows-domain login under "-". The domain family is then the principal
+// name alone, beside the cloud account (adr/0359).
+func TestUserInventoryPlaceholderOnPremDomain(t *testing.T) {
+	reg := testRegistry()
+	ids := reg.Identity()
+	res, err := reg.Normalize(toolEvent("dir", 5003, map[string]any{
+		"metadata": map[string]any{"product": map[string]any{"vendor_name": "Microsoft", "name": "Microsoft Entra ID"}},
+		"user":     map[string]any{"uid": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "name": "jdoe@contoso.example"},
+		"unmapped": map[string]any{"on_premises_sam_account_name": "jdoe", "on_premises_domain_name": "-"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range res.SCOs {
+		if s.Type != identity.TypeUserAccount {
+			continue
+		}
+		if login, _ := s.Properties["account_login"].(string); strings.HasPrefix(login, `-\`) || s.Properties["domain"] == "-" {
+			t.Errorf("account %s minted under the placeholder domain: %v", s.ID, s.Properties)
+		}
+	}
+	if _, ok := scoByID(res.SCOs, ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `-\jdoe`})); ok {
+		t.Errorf(`minted the windows-domain account -\jdoe`)
+	}
+	principal := ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: "jdoe@contoso.example"})
+	var types []string
+	a := accountsIn(res)
+	for _, id := range a {
+		s, _ := scoByID(res.SCOs, id)
+		types = append(types, toString(s.Properties["account_type"]))
+	}
+	if len(a) != 2 || a[0] != principal || !slices.Equal(types, []string{identity.AccountWindowsDomain, identity.AccountCloud}) {
+		t.Errorf("accounts = %v (%v); want the principal-name domain account %s, then the cloud account", a, types, principal)
+	}
 }
