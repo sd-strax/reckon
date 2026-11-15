@@ -50,9 +50,9 @@ func TestInputSchema_RefusesWhatItCannotShow(t *testing.T) {
 		Field string `json:"field" desc:"d"`
 	}
 	for name, build := range map[string]func(){
-		"undescribed field":      func() { inputSchema[undescribed](nil) },
-		"override of no field":   func() { inputSchema[described](map[string]any{"feild": 1}) },
-		"unsupported field type": func() { valueSchema(reflect.TypeFor[float64]()) },
+		"undescribed field":      func() { inputSchema[undescribed](nil, false) },
+		"override of no field":   func() { inputSchema[described](map[string]any{"feild": 1}, false) },
+		"unsupported field type": func() { valueSchema(reflect.TypeFor[float64](), false) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			defer func() {
@@ -72,7 +72,7 @@ func TestInputSchema_Required(t *testing.T) {
 		A string `json:"a" required:"true" desc:"d"`
 		C string `json:"c" desc:"d"`
 	}
-	if got := inputSchema[in](nil)["required"]; !reflect.DeepEqual(got, []string{"b", "a"}) {
+	if got := inputSchema[in](nil, false)["required"]; !reflect.DeepEqual(got, []string{"b", "a"}) {
 		t.Errorf("required = %v", got)
 	}
 }

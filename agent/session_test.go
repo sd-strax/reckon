@@ -256,34 +256,6 @@ func TestSession_ToolAssembly(t *testing.T) {
 	}
 }
 
-// TestUnwrapStringifiedObject: the loop unwraps a model-stringified parameters
-// object (the eval-harness finding) so a real write adapter templating
-// ${parameters.x} sees the field, and leaves everything else untouched.
-func TestUnwrapStringifiedObject(t *testing.T) {
-	cases := []struct {
-		name, in, want string
-	}{
-		{"stringified object", `"{\"summary\":\"x\"}"`, `{"summary":"x"}`},
-		{"stringified object with whitespace", `"  {\"a\":1}  "`, `{"a":1}`},
-		{"already an object", `{"summary":"x"}`, `{"summary":"x"}`},
-		{"empty", ``, ``},
-		{"null", `null`, `null`},
-		{"plain string left alone", `"just text"`, `"just text"`},
-		{"stringified non-object left alone", `"[1,2,3]"`, `"[1,2,3]"`},
-		{"stringified invalid json left alone", `"{not json}"`, `"{not json}"`},
-		// The real malformation that blocked every ticket create: a stringified
-		// object with a stray trailing ']' the model appended. Salvage the
-		// leading object instead of failing the whole action.
-		{"stringified object with trailing junk", `"{\"summary\":\"x\",\"issue_type\":\"Task\"}]"`, `{"issue_type":"Task","summary":"x"}`},
-	}
-	for _, c := range cases {
-		got := string(UnwrapStringifiedObject(json.RawMessage(c.in)))
-		if got != c.want {
-			t.Errorf("%s: UnwrapStringifiedObject(%s) = %s; want %s", c.name, c.in, got, c.want)
-		}
-	}
-}
-
 // TestRequestActionDescription_Parameters: the description surfaces each
 // type's declared non-entity inputs — the parameters vocabulary the backend
 // validates — so the model cannot invent keys ("title" for ticket.create's
@@ -313,19 +285,19 @@ func TestRequestActionDescription_Parameters(t *testing.T) {
 		t.Errorf("entity inputs ride targets and must not be listed as parameters:\n%s", desc)
 	}
 
-	// The `parameters` schema is a concrete object with real properties (not a
-	// bare {"type":"object"}), so the model fills a structured object rather than
-	// stringifying it (the H6 fix). Entity inputs are excluded.
+	// The `parameters` schema has one closed shape per action type (adr/0376).
+	// Entity inputs are excluded, so host.isolate takes the empty shape.
 	schema := parametersSchema([]ActionType{ticket, isolate})
-	props, ok := schema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("parameters schema has no properties: %+v", schema)
+	shapes, ok := schema["anyOf"].([]any)
+	if !ok || len(shapes) != 2 {
+		t.Fatalf("parameters schema = %+v; want two shapes under anyOf", schema)
 	}
+	props := shapes[0].(map[string]any)["properties"].(map[string]any)
 	if _, ok := props["summary"]; !ok {
-		t.Errorf("parameters properties missing 'summary': %+v", props)
+		t.Errorf("ticket.create shape missing 'summary': %+v", props)
 	}
-	if _, ok := props["host"]; ok {
-		t.Error("entity input 'host' must not appear in parameters properties")
+	if empty := shapes[1].(map[string]any)["properties"].(map[string]any); len(empty) != 0 {
+		t.Errorf("entity input 'host' must not appear in parameters: %+v", empty)
 	}
 	if d, _ := schema["description"].(string); !strings.Contains(d, "never a JSON string") {
 		t.Errorf("parameters description should warn against stringifying: %q", d)

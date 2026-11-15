@@ -253,8 +253,8 @@ var promptLedger = []promptSection{
 			{
 				ID:        "parameters-are-an-object",
 				Origin:    "6b14bae",
-				Why:       "A stringified parameters object templates to an empty field against a real write adapter; the loop repairs it, the model should not need it to.",
-				Enforced:  "loop: UnwrapStringifiedObject",
+				Why:       "A stringified parameters object templates to an empty field against a real write adapter. The strict schema holds the model to an object, and the engine refuses a string where strict mode is not in force.",
+				Enforced:  "loop: the strict request_action schema (adr/0376); action: validateParameters refuses a parameters that is not an object",
 				Graded:    "H5, H6",
 				Validated: []string{scenarioLateralMovement},
 				Text:      "request_action.parameters is a JSON object (e.g. {\"summary\": \"...\", \"description\": \"...\"}), never a JSON string — do not wrap it in quotes or escape it. If a call is rejected for a malformed payload, re-send it with parameters as a plain object.",
