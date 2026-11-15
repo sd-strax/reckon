@@ -23,7 +23,7 @@ func retrieved(classUID int, className string, at time.Time, refs ...identity.ST
 
 func persistCall(t *testing.T, s *Store, call Call, res capability.CapabilityResult) {
 	t.Helper()
-	if err := s.Persist(context.Background(), call, res); err != nil {
+	if err := s.Persist(context.Background(), call, complete(res)); err != nil {
 		t.Fatalf("Persist: %v", err)
 	}
 }
@@ -35,7 +35,7 @@ func TestPersist_RecordsTheCall(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	inv := uuid.New()
-	evt, nr := retrieved(3002, "Authentication", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), stixID("user-account"), stixID("x-host"))
+	evt, nr := retrieved(3002, "Authentication", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), stixID("user-account"), stixID("reckon-host"))
 	call := Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "enumerate_logons", StartedAt: time.Date(2026, 1, 2, 3, 5, 0, 0, time.UTC), Duration: 1500 * time.Millisecond}
 	persistCall(t, s, call, capability.CapabilityResult{
 		Coverage: capability.CoverageComplete,
@@ -103,8 +103,8 @@ func TestPersist_RecordsTheCall(t *testing.T) {
 // write, so no event is left without its membership.
 func TestPersist_CallIsInTheTransaction(t *testing.T) {
 	s := newStore(t)
-	evt, nr := retrieved(3002, "Authentication", time.Now(), stixID("x-host"))
-	err := s.Persist(context.Background(), Call{Verb: "v"}, capability.CapabilityResult{Events: []capability.OcsfEvent{evt}, Normalized: []capability.NormalizationResult{nr}})
+	evt, nr := retrieved(3002, "Authentication", time.Now(), stixID("reckon-host"))
+	err := s.Persist(context.Background(), Call{Verb: "v"}, complete(capability.CapabilityResult{Events: []capability.OcsfEvent{evt}, Normalized: []capability.NormalizationResult{nr}}))
 	if err == nil {
 		t.Fatal("Persist accepted a call without an id")
 	}
@@ -121,7 +121,7 @@ func TestInvestigationEvents_ExtensionCategory(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	inv := uuid.New()
-	host := stixID("x-host")
+	host := stixID("reckon-host")
 	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	reg, regNorm := retrieved(201002, "Registry Value Activity", base.Add(time.Minute), host)
 	proc, procNorm := retrieved(1007, "Process Activity", base.Add(2*time.Minute), host)
@@ -150,7 +150,7 @@ func TestInvestigationEvents(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	inv, other := uuid.New(), uuid.New()
-	host1, host2, svc := stixID("x-host"), stixID("x-host"), stixID("user-account")
+	host1, host2, svc := stixID("reckon-host"), stixID("reckon-host"), stixID("user-account")
 	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	// Five logons on host1 (svc on three of them), one process on host1, one
@@ -290,4 +290,57 @@ func times(rows []EventRow) []int {
 		out = append(out, r.Time.Minute())
 	}
 	return out
+}
+
+// TestRecordArtifactIsNotAnEntity (adr/0357): a case record gives no entity,
+// so its observation lists the artifact that stands for the stored record. The
+// artifact is stored and opens like any object, but the event's entities and
+// the call's entity refs leave it out, and nothing is "around" the event.
+func TestRecordArtifactIsNotAnEntity(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	inv := uuid.New()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	evt := capability.OcsfEvent{
+		ID: uuid.Must(uuid.NewV7()), ClassUID: 2005, ClassName: "Incident Finding", Time: at, RecordedAt: at, SourceTool: "fixture:test",
+		Payload: map[string]any{"class_uid": 2005, "status": "New", "finding_info_list": []any{map[string]any{"uid": "INC1", "title": "Case"}}},
+	}
+	nr, err := capability.NewRegistry(identity.NewResolver(uuid.New())).Normalize(evt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nr.EventID = evt.ID
+	if len(nr.SCOs) != 1 || nr.SCOs[0].Type != identity.TypeArtifact {
+		t.Fatalf("SCOs = %+v; want the record's artifact", nr.SCOs)
+	}
+	artifact := string(nr.SCOs[0].ID)
+	call := Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "query_external_cases", StartedAt: at}
+	persistCall(t, s, call, capability.CapabilityResult{
+		Coverage: capability.CoverageComplete, Events: []capability.OcsfEvent{evt}, Normalized: []capability.NormalizationResult{nr},
+	})
+
+	if o, err := s.Object(ctx, artifact); err != nil || o.Type != identity.TypeArtifact {
+		t.Errorf("Object(%s) = %+v, %v; want the stored artifact", artifact, o, err)
+	}
+	got, err := s.InvestigationEvents(ctx, inv, EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Rows) != 1 || len(got.Rows[0].ObservedDataRefs) != 1 || len(got.Rows[0].EntityRefs) != 0 || len(got.Rows[0].Entities) != 0 {
+		t.Errorf("rows = %+v; want the event with its observation and no entity", got.Rows)
+	}
+	c, err := s.Call(ctx, inv, call.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Produced.ObservedDataRefs) != 1 || len(c.Produced.EntityRefs) != 0 {
+		t.Errorf("produced = %+v; want one observation and no entity", c.Produced)
+	}
+	around, err := s.InvestigationEvents(ctx, inv, EventFilter{Around: evt.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(around.Rows) != 0 {
+		t.Errorf("around = %d rows; want none, since the record names no entity", len(around.Rows))
+	}
 }

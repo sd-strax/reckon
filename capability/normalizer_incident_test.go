@@ -25,24 +25,19 @@ func casePayload() map[string]any {
 }
 
 // TestIncidentNormalizer covers §2.9: an incident_finding (2005) normalizes to
-// a single ObservedData carrying case metadata in Extensions, with no SCOs and
-// a DIRECT derivation (a plain observation, not the INFERRED Indicator path).
+// a single ObservedData carrying case metadata in Extensions, with no entity
+// and a DIRECT derivation (a plain observation, not the INFERRED Indicator
+// path). Its one object is the artifact that stands for the stored record
+// (§4.13, adr/0357).
 func TestIncidentNormalizer(t *testing.T) {
-	res, err := testRegistry().Normalize(makeEvent(casePayload()))
+	evt := makeEvent(casePayload())
+	res, err := testRegistry().Normalize(evt)
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
 
-	if len(res.SCOs) != 0 {
-		t.Errorf("incident normalizer produced %d SCOs; want 0 (no entity extraction in v0)", len(res.SCOs))
-	}
-	if len(res.ObservedData) != 1 {
-		t.Fatalf("got %d ObservedData; want 1", len(res.ObservedData))
-	}
+	recordArtifactOnly(t, evt, res)
 	od := res.ObservedData[0]
-	if len(od.ObjectRefs) != 0 {
-		t.Errorf("ObservedData.object_refs = %d; want 0", len(od.ObjectRefs))
-	}
 	if od.Provenance.DerivationMode != DerivationDirect || od.Provenance.Normalizer != "incident_finding" {
 		t.Errorf("provenance = %+v; want DIRECT from incident_finding", od.Provenance)
 	}

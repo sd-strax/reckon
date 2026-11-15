@@ -212,7 +212,7 @@ func TestValidateBindings(t *testing.T) {
 }
 
 // TestResolveNullObservation: a COMPLETE answer with no events mints an
-// x-null-observation (adr/0061) whose id rides ObservedDataRefs; a complete
+// reckon-null-observation (adr/0061) whose id rides ObservedDataRefs; a complete
 // answer WITH events, a PARTIAL empty answer, and an unavailable verb mint
 // nothing. The id is deterministic over the question and its window.
 func TestResolveNullObservation(t *testing.T) {
@@ -329,9 +329,12 @@ func TestQueryLogsBestEffortNormalization(t *testing.T) {
 	if len(out.Normalized[0].SCOs) == 0 {
 		t.Error("the authentication row produced no entities; want typed normalization")
 	}
-	if len(out.Normalized[1].SCOs) != 0 || len(out.Normalized[1].ObservedData) != 1 {
-		t.Errorf("the unknown-class row: scos=%d observed=%d; want 0 entities and one opaque ObservedData",
-			len(out.Normalized[1].SCOs), len(out.Normalized[1].ObservedData))
+	// The unknown-class row names no entity. Its one object is the artifact
+	// for the stored record (adr/0357).
+	if u := out.Normalized[1]; len(u.SCOs) != 1 || u.SCOs[0].Type != identity.TypeArtifact || len(u.ObservedData) != 1 ||
+		u.ObservedData[0].Provenance.Normalizer != "opaque" {
+		t.Errorf("the unknown-class row: scos=%+v observed=%d; want the record's artifact alone and one opaque ObservedData",
+			u.SCOs, len(u.ObservedData))
 	}
 	if siem.calls != 1 {
 		t.Errorf("adapter called %d times; want 1", siem.calls)

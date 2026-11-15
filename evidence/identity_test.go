@@ -2,7 +2,6 @@ package evidence
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"regexp"
@@ -17,7 +16,7 @@ import (
 	"github.com/sd-strax/reckon/identity"
 )
 
-// hostSCO is a persisted x-host with a hostname, or a weak one without.
+// hostSCO is a persisted reckon-host with a hostname, or a weak one without.
 func hostSCO(id identity.STIXID, hostname string) capability.SCO {
 	props := map[string]any{"weak": true}
 	if hostname != "" {
@@ -41,8 +40,9 @@ func persistObjects(t *testing.T, s *Store, scos []capability.SCO, rels ...capab
 	persistCall(t, s, aCall(), capability.CapabilityResult{Normalized: []capability.NormalizationResult{{SCOs: scos, Relationships: rels}}})
 }
 
-// assertEdge writes an edge as a person's assertion is stored, its payload the
-// relationship's fields beside an Assertion, withdrawn when withdrawn is set.
+// assertEdge writes an edge as a person's assertion is stored, a STIX
+// relationship with its Assertion in reckon-assertion, withdrawn when
+// withdrawn is set.
 func assertEdge(t *testing.T, relType string, src, tgt identity.STIXID, withdrawn bool) identity.STIXID {
 	t.Helper()
 	id := stixID("relationship")
@@ -56,12 +56,8 @@ func assertEdge(t *testing.T, relType string, src, tgt identity.STIXID, withdraw
 		a.WithdrawnAt = &w
 		a.History = append(a.History, AssertionEvent{Act: "withdrawn", By: "u-1", At: w})
 	}
-	payload, err := json.Marshal(struct {
-		Type      string          `json:"relationship_type"`
-		SourceRef identity.STIXID `json:"source_ref"`
-		TargetRef identity.STIXID `json:"target_ref"`
-		Assertion
-	}{relType, src, tgt, a})
+	e := assertedEdge{ID: string(id), Type: relType, SourceRef: string(src), TargetRef: string(tgt), Created: at, Assertion: a}
+	payload, err := e.payload(at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +88,7 @@ func sameSet(got []string, want ...identity.STIXID) bool {
 func TestAliasSet_Closure(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b, c, d := stixID("x-host"), stixID("x-host"), stixID("x-host"), stixID("x-host")
+	a, b, c, d := stixID("reckon-host"), stixID("reckon-host"), stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, ""), hostSCO(b, "ws1"), hostSCO(c, ""), hostSCO(d, "ws2")},
 		observedAlias(a, b, "edr"), observedAlias(c, b, "ids"))
 
@@ -118,7 +114,7 @@ func TestAliasSet_Closure(t *testing.T) {
 func TestAliasSet_DistinctCut(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b, c := stixID("x-host"), stixID("x-host"), stixID("x-host")
+	a, b, c := stixID("reckon-host"), stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, ""), hostSCO(c, "ws1b")},
 		observedAlias(b, a, "edr"), observedAlias(b, c, "edr"))
 
@@ -167,7 +163,7 @@ func TestAliasSet_DistinctCut(t *testing.T) {
 func TestAliasSet_DisputedSeed(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	w, a, b, c := stixID("x-host"), stixID("x-host"), stixID("x-host"), stixID("x-host")
+	w, a, b, c := stixID("reckon-host"), stixID("reckon-host"), stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(w, ""), hostSCO(a, "ws1"), hostSCO(b, "ws2"), hostSCO(c, "ws3")},
 		observedAlias(w, a, "edr"), observedAlias(w, b, "edr"), observedAlias(w, c, "edr"))
 
@@ -191,7 +187,7 @@ func TestAliasSet_DisputedSeed(t *testing.T) {
 func TestAliasSet_WithdrawnAlias(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	a, b := stixID("x-host"), stixID("x-host")
+	a, b := stixID("reckon-host"), stixID("reckon-host")
 	persistObjects(t, s, []capability.SCO{hostSCO(a, "ws1"), hostSCO(b, "ws2")})
 	assertEdge(t, "aliases", a, b, true)
 	if got, _ := s.AliasSet(ctx, string(a)); !sameSet(got, a) {
@@ -210,7 +206,7 @@ func TestInvestigationEvents_FollowsAliases(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	inv := uuid.New()
-	strong, weak, other := stixID("x-host"), stixID("x-host"), stixID("x-host")
+	strong, weak, other := stixID("reckon-host"), stixID("reckon-host"), stixID("reckon-host")
 	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	e1, n1 := retrieved(1007, "Process Activity", base.Add(time.Minute), strong)

@@ -82,7 +82,7 @@ export function recordLine(e: ThreadEntry, hs: Hypothesis[], actions: ActionRow[
       if (pred && pred.h && !outs.includes(pred.h.id)) {
         const pw = pred.status === "CONFIRMED" ? "confirmed" : pred.status === "DISCONFIRMED" ? "disconfirmed" : pred.status.toLowerCase();
         const attested = (e.inputRefs || []).some((r) => r.startsWith("note--"));
-        const predRef = [...outs, ...ins].find((r) => r.startsWith("x-prediction--")) || outs[0];
+        const predRef = [...outs, ...ins].find((r) => r.startsWith("reckon-prediction--")) || outs[0];
         return { text: `prediction ${predWords(pred)} ${pw}${attested ? " by attestation" : ""}`, title: `${hypName(pred.h, hs)} · P${pred.ordinal ?? "?"}`, target: predRef ? { kind: "ref", ref: predRef } : { kind: "lens", lens: "reasoning" }, entry: e, tone: pred.status === "CONFIRMED" ? "ok" : pred.status === "DISCONFIRMED" ? "bad" : "" };
       }
       return { text: h ? `hypothesis ${hypWords(h, hs)} ${word}` : e.summary || word, title: h ? hypName(h, hs) : undefined, target: h ? { kind: "ref", ref: h.id } : { kind: "lens", lens: "reasoning" }, entry: e, tone: word === "supported" ? "ok" : word === "refuted" ? "bad" : "" };

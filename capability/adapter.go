@@ -1,7 +1,7 @@
 // Package capability is the LLM↔tool read surface (design/03-capability-layer.md):
 // the transport-neutral adapter contract, the fixture adapter, normalization,
 // and the verb resolver. It is pure I/O plus normalization — it
-// does not reason, never authors x-interpretation, and emits observations with
+// does not reason, never authors reckon-interpretation, and emits observations with
 // derivation_mode = DIRECT (the single exception being the detection_finding
 // normalizer, §4.12). Identity is never computed here; the normalizer delegates
 // to the identity resolver, the single arbiter of STIX ids (§7.4).

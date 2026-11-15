@@ -487,7 +487,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 	// The reasoning state must be current at every turn: between turns the
 	// analyst adopts with a restatement, frames a rival by hand, adds or
 	// withdraws predictions — and the competing-set contract asks the model to
-	// read EVERY live hypothesis (01 §x-hypothesis). One GET; a failure keeps
+	// read EVERY live hypothesis (01 §reckon-hypothesis). One GET; a failure keeps
 	// the last known set rather than failing the turn.
 	s.refreshHypotheses(ctx)
 	turnID := uuid.NewString()

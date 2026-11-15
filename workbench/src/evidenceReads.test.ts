@@ -11,15 +11,15 @@ import type { RenderMessage } from "./protocol";
 import { BackendRequestError } from "./client/http";
 import type { AccountIdentity, EvidenceDoc, HostIdentity, IdentityViews, PersonIdentity } from "./viewTypes";
 
-const hostA = "x-host--00000000-0000-4000-8000-00000000000a";
-const hostB = "x-host--00000000-0000-4000-8000-00000000000b";
+const hostA = "reckon-host--00000000-0000-4000-8000-00000000000a";
+const hostB = "reckon-host--00000000-0000-4000-8000-00000000000b";
 const panel = { name: "sender" } as unknown as vscode.WebviewPanel;
 const otherPanel = { name: "another investigation" } as unknown as vscode.WebviewPanel;
 const view = (edgeId: string): HostIdentity => ({
-  aliases: [{ edgeId, otherRef: "x-host--00000000-0000-4000-8000-000000000002", kind: "asserted", by: "u-1", at: "2026-01-02T03:04:05Z", withdrawn: false }],
+  aliases: [{ edgeId, otherRef: "reckon-host--00000000-0000-4000-8000-000000000002", kind: "asserted", by: "u-1", at: "2026-01-02T03:04:05Z", withdrawn: false }],
   distinct: [], seenAs: { domains: [], agents: [], ips: [] },
 });
-const doc = (ref: string, identity: HostIdentity): EvidenceDoc => ({ ref, kind: "stix", type: "x-host", payload: { properties: { hostname: "ws1" } }, identity });
+const doc = (ref: string, identity: HostIdentity): EvidenceDoc => ({ ref, kind: "stix", type: "reckon-host", payload: { hostname: "ws1" }, identity });
 
 const deferred = <T,>() => {
   let resolve!: (v: T) => void;
@@ -189,11 +189,11 @@ describe("overlapping inspector reads: the latest issued for a target wins", () 
     const r1 = reads.answerInspector("inv-1", panel, { kind: "ref", ref: hostA });
     await reads.answerInspector("inv-1", panel, { kind: "ref", ref: hostA });
     expect(answers(hostA)).toEqual(["relationship--new"]);
-    const r1Doc = { ...doc(hostA, view("relationship--old")), payload: { properties: { hostname: "old" } } };
+    const r1Doc = { ...doc(hostA, view("relationship--old")), payload: { hostname: "old" } };
     slow.resolve(r1Doc);
     await r1;
     expect(answers(hostA)).toEqual(["relationship--new"]);
-    expect(cached(reads, hostA)?.payload).toEqual({ properties: { hostname: "ws1" } });
+    expect(cached(reads, hostA)?.payload).toEqual({ hostname: "ws1" });
   });
 
   it("drops an older read's late error after the newer read's answer", async () => {
@@ -242,9 +242,9 @@ describe("an account's and a person's identity in the inspector reads (adr/0324)
   const personView = (edgeId: string): PersonIdentity => ({
     aliases: [{ edgeId, otherRef: "identity--2", kind: "asserted", by: "u-1", at: "2026-01-02T03:04:05Z", withdrawn: false }], distinct: [], accounts: [], readAccounts: [],
   });
-  const accountDoc = (edgeId: string): EvidenceDoc => ({ ref: acct, kind: "stix", type: "user-account", payload: { properties: { account_login: "jdoe" } }, accountIdentity: accountView(edgeId) });
-  const personDoc = (edgeId: string): EvidenceDoc => ({ ref: person, kind: "stix", type: "identity", payload: { properties: { identity_class: "individual" } }, personIdentity: personView(edgeId) });
-  const vendorDoc: EvidenceDoc = { ref: vendor, kind: "stix", type: "identity", payload: { properties: { name: "edr vendor" } } };
+  const accountDoc = (edgeId: string): EvidenceDoc => ({ ref: acct, kind: "stix", type: "user-account", payload: { account_login: "jdoe" }, accountIdentity: accountView(edgeId) });
+  const personDoc = (edgeId: string): EvidenceDoc => ({ ref: person, kind: "stix", type: "identity", payload: { identity_class: "individual" }, personIdentity: personView(edgeId) });
+  const vendorDoc: EvidenceDoc = { ref: vendor, kind: "stix", type: "identity", payload: { name: "edr vendor" } };
   const answered = (posted: RenderMessage[], ref: string) => posted
     .filter((m): m is Extract<RenderMessage, { type: "inspector.evidence" }> => m.type === "inspector.evidence" && m.ref === ref)
     .map((m) => (m.doc.accountIdentity ?? m.doc.personIdentity)?.aliases[0]?.edgeId);

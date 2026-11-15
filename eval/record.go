@@ -46,7 +46,7 @@ type ParamSpec struct {
 	Required bool   `json:"required"`
 }
 
-// ActionRow is one x-action from the investigation's durable actions view
+// ActionRow is one reckon-action from the investigation's durable actions view
 // (mirrors agent.ActionStatus without the agent dependency): the event-log
 // truth an auditor reads, and what G1 grades.
 type ActionRow struct {
@@ -93,7 +93,7 @@ type TrialRecord struct {
 	// ActionInputs is each action type's declared non-entity parameter schema
 	// (08 §3) as served by the backend — H5's ground truth.
 	ActionInputs map[string][]ParamSpec `json:"action_inputs,omitempty"`
-	// Actions is the investigation's x-actions as the product API served them at
+	// Actions is the investigation's reckon-actions as the product API served them at
 	// trial end — the EVENT-LOG layer read back through the durable view
 	// (10 §1.1b), not the transcript. Event graders (G1) grade these. No
 	// omitempty: a captured empty record writes [] and a missing one null, so
@@ -106,7 +106,7 @@ type TrialRecord struct {
 	// failed (R3 reports NOT_EXERCISED rather than guessing).
 	Hypotheses []HypothesisRow `json:"hypotheses,omitempty"`
 	// HypothesisFraming is the tenant's competing-hypotheses dial as the
-	// investigation view served it (01 §x-hypothesis): "leading_null" or
+	// investigation view served it (01 §reckon-hypothesis): "leading_null" or
 	// "leading_only". R1 is NOT_EXERCISED under leading_only.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
 	// Attestations lists the manual tests the driver answered on the analyst's

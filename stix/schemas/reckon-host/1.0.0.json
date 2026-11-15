@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-host/1.0.0.json",
+  "title": "reckon-host",
+  "description": "A host: a machine named by telemetry. The STIX common properties come from the STIX 2.1 core schema, so this schema lists only the ones it constrains.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "reckon-host"
+    },
+    "spec_version": {
+      "const": "2.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^reckon-host--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "hostname": {
+      "type": "string",
+      "description": "The short host name. A host with one is identified by it."
+    },
+    "fqdn": {
+      "type": "string",
+      "description": "The fully qualified name, when the source gave one."
+    },
+    "domain": {
+      "type": "string",
+      "description": "The domain the host is in."
+    },
+    "mac": {
+      "type": "string",
+      "description": "The MAC address."
+    },
+    "source_ids": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The device id, keyed by the source tool that gave it."
+    },
+    "device_uid": {
+      "type": "string",
+      "description": "The device id, when no source tool names it, or on a host identified by it."
+    },
+    "device_uid_alt": {
+      "type": "string",
+      "description": "The device's alternate id."
+    },
+    "source_tool": {
+      "type": "string",
+      "description": "The source tool a host identified by its device id came from."
+    },
+    "agents": {
+      "type": "array",
+      "description": "The agents on the host.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "vendor_name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "weak": {
+      "type": "boolean",
+      "description": "True when the host is identified by its MAC or device id rather than its name."
+    }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id"
+  ]
+}

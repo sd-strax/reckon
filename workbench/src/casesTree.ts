@@ -11,6 +11,7 @@
 
 import * as vscode from "vscode";
 import { BackendClient, CaseRow } from "./backend";
+import type { CaseQueue } from "./viewTypes";
 import { Session } from "./auth";
 import { actionItem, infoItem } from "./treeItems";
 import { errText } from "./util";
@@ -68,10 +69,12 @@ export class CasesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     }
     let queue: string;
     let rows: CaseRow[];
+    let unread: CaseQueue["unread"];
     try {
       const res = await this.client.cases.queue();
       queue = res.queue;
       rows = res.cases;
+      unread = res.unread;
     } catch (err) {
       const msg = errText(err);
       if (/\b503\b|not configured|no case system/i.test(msg)) {
@@ -81,6 +84,9 @@ export class CasesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     }
 
     const items: vscode.TreeItem[] = [];
+    // Records the system of record returned that could not be read are not
+    // an empty queue: say so above the readable cases (adr/0357).
+    if (unread) items.push(unreadItem(unread));
     if (!queue) {
       items.push(infoItem("No case queue configured", "set policies.case_queue in the tenant capability config — showing recent cases", "info"));
     }
@@ -93,6 +99,12 @@ export class CasesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     }
     return items;
   }
+}
+
+/** The one-line notice for records that could not be read, with their reasons. */
+export function unreadItem(unread: { count: number; reasons: string[] }): vscode.TreeItem {
+  const label = `${unread.count} record${unread.count === 1 ? "" : "s"} couldn't be read`;
+  return infoItem(label, unread.reasons.join("; "), "warning");
 }
 
 /** Stable sort by the chosen order; a row missing the key sorts last. */

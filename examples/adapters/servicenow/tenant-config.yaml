@@ -79,7 +79,7 @@ action_adapters:
 action_bindings:
   # ticket.create targets the DESTINATION assignment group; the entities the
   # ticket concerns go in evidence_refs, not targets (04 §2.2). short_description
-  # and description come from the x-action parameters the agent proposes.
+  # and description come from the reckon-action parameters the agent proposes.
   # Params map the ENGINE's canonical ticket vocabulary (the agent sends
   # summary/description/body/to_status/resolution) onto ServiceNow incident
   # fields. Optional inputs are marked `?` so a missing one omits the field

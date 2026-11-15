@@ -62,7 +62,7 @@ func postAction(t *testing.T, b *Backend, token string, body RequestActionBody) 
 }
 
 // TestRequestAction_AutoApprove: a matching AUTO_APPROVE policy (signed off by a
-// human) auto-approves; the x-action lands APPROVED, attributed to that human.
+// human) auto-approves; the reckon-action lands APPROVED, attributed to that human.
 func TestRequestAction_AutoApprove(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")
@@ -77,7 +77,7 @@ func TestRequestAction_AutoApprove(t *testing.T) {
 
 	resp, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		EvidenceRefs:     []string{"observed-data--od1"},
 		InvestigationRef: invID.String(),
@@ -111,7 +111,7 @@ func TestRequestAction_ManualFallThrough(t *testing.T) {
 
 	_, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		EvidenceRefs:     []string{"observed-data--od1"},
 		InvestigationRef: invID.String(),
@@ -145,7 +145,7 @@ func TestRequestAction_InvisibleActivateOnDraft(t *testing.T) {
 	resp, out := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
 		EvidenceRefs:     []string{"observed-data--od1"},
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),
 	})
@@ -185,14 +185,14 @@ func TestRequestAction_InvisibleActivateOnDraft(t *testing.T) {
 	}
 }
 
-// succeededAction drives an x-action through request → approve → dispatch →
+// succeededAction drives a reckon-action through request → approve → dispatch →
 // result SUCCEEDED on the given investigation, returning its id.
 func succeededAction(t *testing.T, invID uuid.UUID) uuid.UUID {
 	t.Helper()
 	return resultedAction(t, invID, "SUCCEEDED")
 }
 
-// resultedAction drives an x-action through request → approve → dispatch →
+// resultedAction drives a reckon-action through request → approve → dispatch →
 // result with the given final outcome, returning its id.
 func resultedAction(t *testing.T, invID uuid.UUID, finalOutcome string) uuid.UUID {
 	t.Helper()
@@ -212,7 +212,7 @@ func resultedAction(t *testing.T, invID uuid.UUID, finalOutcome string) uuid.UUI
 	}
 	mustDo(env(""), aggregate.RequestAction{
 		ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
-		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
 	})
 	mustDo(env(""), aggregate.ApproveAction{
@@ -227,7 +227,7 @@ func resultedAction(t *testing.T, invID uuid.UUID, finalOutcome string) uuid.UUI
 	return actionID
 }
 
-// resolvedAction drives an x-action to OUTCOME_UNKNOWN and has a person
+// resolvedAction drives a reckon-action to OUTCOME_UNKNOWN and has a person
 // resolve it to the given outcome, returning its id (adr/0216).
 func resolvedAction(t *testing.T, invID uuid.UUID, outcome string) uuid.UUID {
 	t.Helper()
@@ -245,7 +245,7 @@ func resolvedAction(t *testing.T, invID uuid.UUID, outcome string) uuid.UUID {
 	}{
 		{"", aggregate.RequestAction{
 			ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
-			Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+			Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 			ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
 		}},
 		{"", aggregate.ApproveAction{ActionID: actionID, Authorization: aggregate.Authorization{
@@ -324,7 +324,7 @@ func TestRerequestAction(t *testing.T) {
 	// Request an action, then expire it (SYSTEM-emitted, as the timer would).
 	_, orig := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--9", ResolvedIdentifier: "WIN-9"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--9", ResolvedIdentifier: "WIN-9"}},
 		EvidenceRefs:     []string{"observed-data--od9"},
 		Rationale:        "original containment rationale",
 		InvestigationRef: invID.String(),
@@ -414,7 +414,7 @@ func TestRerequestAction_LazyExpiry(t *testing.T) {
 	}
 	if _, err := testHandler.Handle(context.Background(), env, aggregate.RequestAction{
 		ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
-		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--l", ResolvedIdentifier: "WIN-L"}},
+		Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--l", ResolvedIdentifier: "WIN-L"}},
 		ExpiresAt: time.Now().Add(-time.Minute), Rationale: "contain",
 		EvidenceRefs: []string{"observed-data--od1"}, // the re-request inherits the original's grounding
 	}); err != nil {
@@ -471,7 +471,7 @@ func TestExpiryTimer_RaceResolvesForTheHuman(t *testing.T) {
 	}
 	if _, err := testHandler.Handle(context.Background(), env(), aggregate.RequestAction{
 		ActionID: actionID, ActionType: "host.isolate", Tier: aggregate.TierT2,
-		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--r", ResolvedIdentifier: "WIN-R"}},
+		Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--r", ResolvedIdentifier: "WIN-R"}},
 		ExpiresAt: time.Now().Add(time.Minute), Rationale: "contain",
 	}); err != nil {
 		t.Fatalf("request: %v", err)
@@ -504,7 +504,7 @@ func TestExpiryTimer_RaceResolvesForTheHuman(t *testing.T) {
 	pendingID := uuid.New()
 	if _, err := testHandler.Handle(context.Background(), env(), aggregate.RequestAction{
 		ActionID: pendingID, ActionType: "host.isolate", Tier: aggregate.TierT2,
-		Targets:   []aggregate.TargetSpec{{EntityRef: "x-host--p", ResolvedIdentifier: "WIN-P"}},
+		Targets:   []aggregate.TargetSpec{{EntityRef: "reckon-host--p", ResolvedIdentifier: "WIN-P"}},
 		ExpiresAt: time.Now().Add(-time.Minute), Rationale: "contain",
 		EvidenceRefs: []string{"observed-data--od1"}, // the re-request inherits the original's grounding
 	}); err != nil {
@@ -553,7 +553,7 @@ func TestRequestAction_ReversalValidation(t *testing.T) {
 	post := func(body RequestActionBody) (*http.Response, RequestActionResponse) {
 		return postAction(t, b, mintToken(t, nil), body)
 	}
-	revTarget := []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}}
+	revTarget := []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}}
 
 	// Nonexistent original → 422.
 	resp, _ := post(RequestActionBody{
@@ -669,7 +669,7 @@ func TestListActionTypes_ServiceUnavailable(t *testing.T) {
 }
 
 // TestListInvestigationActions: GET /api/investigations/{id}/actions returns
-// the durable action queue — every x-action with its raw status, required mode,
+// the durable action queue — every reckon-action with its raw status, required mode,
 // and targets — so a surface can recover pending approvals after the turn that
 // proposed them is gone.
 func TestListInvestigationActions(t *testing.T) {
@@ -682,7 +682,7 @@ func TestListInvestigationActions(t *testing.T) {
 
 	_, first := postAction(t, b, mintToken(t, nil), RequestActionBody{
 		ActionType:       "host.isolate",
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-FILE01"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}},
 		EvidenceRefs:     []string{"observed-data--od1"},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),

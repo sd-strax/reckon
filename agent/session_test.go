@@ -139,7 +139,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 		_ = json.Unmarshal(raw, &body)
 		resp := InterpretationResponse{InterpretationID: "interp-1", SequenceNo: 7}
 		if body.Hypothesis != nil {
-			resp.NodeID = "x-hypothesis--h1"
+			resp.NodeID = "reckon-hypothesis--h1"
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
@@ -347,7 +347,7 @@ func TestSession_Turn(t *testing.T) {
 			toolUse("t2", ToolProposeHypothesis, `{"statement":"RDP lateral movement to H1","rationale":"successful remote logons cite observed-data--od1","labels":["T1021.001"]}`),
 		}},
 		{StopReason: StopToolUse, Content: []ContentBlock{
-			toolUse("t3", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain lateral movement","evidence_refs":["observed-data--od1"]}`),
+			toolUse("t3", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain lateral movement","evidence_refs":["observed-data--od1"]}`),
 		}},
 		{StopReason: StopEndTurn, Content: []ContentBlock{
 			TextBlock("I found successful RDP logons, proposed a hypothesis, and requested isolation pending your approval."),
@@ -460,7 +460,7 @@ func TestSession_Turn(t *testing.T) {
 	var sawRef bool
 	for _, m := range last.Messages {
 		for _, blk := range m.Content {
-			if blk.Type == BlockToolResult && strings.Contains(blk.Content, "x-hypothesis--h1") {
+			if blk.Type == BlockToolResult && strings.Contains(blk.Content, "reckon-hypothesis--h1") {
 				sawRef = true
 			}
 		}
@@ -717,7 +717,7 @@ func TestSession_ModelFailureKeepsPendingActions(t *testing.T) {
 	llm := &erroringLLM{
 		scriptedLLM: scriptedLLM{script: []CompleteResponse{
 			{StopReason: StopToolUse, Content: []ContentBlock{
-				toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
+				toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
 			}},
 		}},
 		err: errors.New("provider overloaded"),
@@ -1764,7 +1764,7 @@ func TestSession_NoActionAttestation(t *testing.T) {
 	// And a turn that REALLY requested an action gets no attestation.
 	llm2 := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopToolUse, Content: []ContentBlock{
-			toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"x-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
+			toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
 		}},
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Requested isolation — the action is queued for your approval.")}},
 	}}
@@ -2015,7 +2015,7 @@ func TestEvaluateHypothesis_OnlyOutcomes(t *testing.T) {
 		t.Fatalf("NewSession: %v", err)
 	}
 	for _, d := range []string{"context-reset", "other", "verdict", ""} {
-		input := fmt.Sprintf(`{"hypothesis_ref":"x-hypothesis--h1","disposition":%q,"rationale":"r"}`, d)
+		input := fmt.Sprintf(`{"hypothesis_ref":"reckon-hypothesis--h1","disposition":%q,"rationale":"r"}`, d)
 		if _, isErr := s.dispatchTool(context.Background(), ToolEvaluateHypothesis, json.RawMessage(input)); !isErr {
 			t.Errorf("disposition %q was accepted", d)
 		}
@@ -2024,7 +2024,7 @@ func TestEvaluateHypothesis_OnlyOutcomes(t *testing.T) {
 		t.Errorf("%d interpretations recorded; want none", n)
 	}
 	if _, isErr := s.dispatchTool(context.Background(), ToolEvaluateHypothesis,
-		json.RawMessage(`{"hypothesis_ref":"x-hypothesis--h1","disposition":"inconclusive","rationale":"r"}`)); isErr {
+		json.RawMessage(`{"hypothesis_ref":"reckon-hypothesis--h1","disposition":"inconclusive","rationale":"r"}`)); isErr {
 		t.Error("inconclusive was refused")
 	}
 }

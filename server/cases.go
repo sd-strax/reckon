@@ -59,6 +59,17 @@ type CaseListResponse struct {
 	// search).
 	Queue string     `json:"queue,omitempty"`
 	Cases []CaseView `json:"cases"`
+	// Unread is set when the system of record returned records reckon could
+	// not read: how many, and why. The readable cases are still listed
+	// (adr/0357).
+	Unread *UnreadRecordsView `json:"unread,omitempty"`
+}
+
+// UnreadRecordsView counts the records a read returned that could not be
+// normalized, with the reasons from the resolver's notes.
+type UnreadRecordsView struct {
+	Count   int      `json:"count"`
+	Reasons []string `json:"reasons"`
 }
 
 // listCases reads the queue: `queue` (default: the tenant policy) and `filter`
@@ -98,7 +109,11 @@ func (b *Backend) listCases(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, CaseListResponse{Queue: queue, Cases: cases})
+	out := CaseListResponse{Queue: queue, Cases: cases}
+	if n, why, _ := res.UnreadRecords(); n > 0 {
+		out.Unread = &UnreadRecordsView{Count: n, Reasons: why}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // getCase reads one case by number. 404 when the SoR answers "no such case"
@@ -119,6 +134,11 @@ func (b *Backend) getCase(w http.ResponseWriter, r *http.Request, number string)
 		return
 	}
 	cases := casesFromResult(res)
+	if _, why, all := res.UnreadRecords(); all && len(cases) == 0 {
+		// The record came back and could not be read: not "no such case".
+		writeJSONError(w, http.StatusBadGateway, unreadCaseError(number, why).Error())
+		return
+	}
 	if len(cases) == 0 {
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("no case matches %q in the system of record", number))
 		return

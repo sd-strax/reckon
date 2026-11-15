@@ -208,9 +208,9 @@ func TestE3_JudgeDecidesAnchorsCrossCheck(t *testing.T) {
 // with the outstanding discriminators rendered for it.
 func TestR3_JudgeOnlyForDeclines(t *testing.T) {
 	hs := []HypothesisRow{
-		{ID: "x-hypothesis--1", Handle: "H1 leader", Status: "OPEN"},
-		{ID: "x-hypothesis--2", Handle: "H2 rival", Status: "OPEN", Predictions: []PredictionRow{
-			{ID: "x-prediction--9", Status: "UNTESTED", Discriminates: []string{"x-hypothesis--1"}},
+		{ID: "reckon-hypothesis--1", Handle: "H1 leader", Status: "OPEN"},
+		{ID: "reckon-hypothesis--2", Handle: "H2 rival", Status: "OPEN", Predictions: []PredictionRow{
+			{ID: "reckon-prediction--9", Status: "UNTESTED", Discriminates: []string{"reckon-hypothesis--1"}},
 		}},
 	}
 	spec := TurnSpec{Anchors: []string{"untested"}}
@@ -218,7 +218,7 @@ func TestR3_JudgeOnlyForDeclines(t *testing.T) {
 
 	decided := trialWith(TurnRecord{
 		Text:      "H1 is supported.",
-		ToolCalls: []ToolCall{{ToolName: toolEvaluateHypothesis, Args: `{"hypothesis_ref":"x-hypothesis--1","disposition":"support"}`}},
+		ToolCalls: []ToolCall{{ToolName: toolEvaluateHypothesis, Args: `{"hypothesis_ref":"reckon-hypothesis--1","disposition":"support"}`}},
 	})
 	decided.Hypotheses = hs
 	if v := gradeR3Judged(decided, 0, spec, j); v.Result != Fail || v.Judged || len(j.asked) != 0 {
@@ -231,7 +231,7 @@ func TestR3_JudgeOnlyForDeclines(t *testing.T) {
 	if v.Result != Pass || !v.Judged || v.Quote != "P3 is the gate" || v.Anchor != "" {
 		t.Errorf("declined, anchors missed, judge pass: got %+v", v)
 	}
-	if len(j.asked) != 1 || j.asked[0].Assertion != "R3" || !strings.Contains(j.asked[0].Context, "x-prediction--9") || !strings.Contains(j.asked[0].Context, "H1 leader") {
+	if len(j.asked) != 1 || j.asked[0].Assertion != "R3" || !strings.Contains(j.asked[0].Context, "reckon-prediction--9") || !strings.Contains(j.asked[0].Context, "H1 leader") {
 		t.Errorf("judge question = %+v; want the outstanding discriminator rendered with the rival's handle", j.asked)
 	}
 	named := trialWith(TurnRecord{Text: "P3 is still untested, so I will not decide."})

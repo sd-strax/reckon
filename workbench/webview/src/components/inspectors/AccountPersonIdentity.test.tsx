@@ -21,7 +21,7 @@ const personA = "identity--00000000-0000-4000-8000-0000000000a1";
 const personB = "identity--00000000-0000-4000-8000-0000000000b2";
 const personC = "identity--00000000-0000-4000-8000-0000000000c3";
 const acct2 = "user-account--00000000-0000-4000-8000-000000000012";
-const hostX = "x-host--00000000-0000-4000-8000-0000000000f1";
+const hostX = "reckon-host--00000000-0000-4000-8000-0000000000f1";
 const personD = "identity--00000000-0000-4000-8000-0000000000d4";
 const personE = "identity--00000000-0000-4000-8000-0000000000e5";
 const personF = "identity--00000000-0000-4000-8000-0000000000f6";
@@ -29,7 +29,7 @@ const personG = "identity--00000000-0000-4000-8000-0000000000a7";
 const personH = "identity--00000000-0000-4000-8000-0000000000a8";
 const acct3 = "user-account--00000000-0000-4000-8000-000000000013";
 const acct3login = "user-account--00000000-0000-4000-8000-000000000014";
-const hostY = "x-host--00000000-0000-4000-8000-0000000000f2";
+const hostY = "reckon-host--00000000-0000-4000-8000-0000000000f2";
 const at = "2026-01-02T03:04:05Z";
 
 function accountView(owners = true): AccountIdentity {
@@ -72,7 +72,7 @@ const personView: PersonIdentity = {
 };
 
 const personDoc = (ref: string, view?: PersonIdentity): EvidenceDoc => ({
-  ref, kind: "stix", type: "identity", payload: { type: "identity", properties: { identity_class: "individual", name: "Jane Doe" } }, ...(view ? { personIdentity: view } : {}),
+  ref, kind: "stix", type: "identity", payload: { type: "identity", identity_class: "individual", name: "Jane Doe" }, ...(view ? { personIdentity: view } : {}),
 });
 
 function mount(view: AccountIdentity = accountView()) {
@@ -86,10 +86,10 @@ function mount(view: AccountIdentity = accountView()) {
       { ...event, id: "3d4e5f60-7182-4394-a5b6-c7d8e9f0a1b2", entityRefs: [acct3login, hostY] }] },
     docs: {
       ...base.docs,
-      [acct]: { ref: acct, kind: "stix", type: "user-account", payload: { type: "user-account", properties: { account_login: "CONTOSO\\jdoe" } }, accountIdentity: view },
+      [acct]: { ref: acct, kind: "stix", type: "user-account", payload: { type: "user-account", account_login: "CONTOSO\\jdoe" }, accountIdentity: view },
       [personA]: personDoc(personA, personView),
       [personB]: personDoc(personB),
-      [personC]: { ref: personC, kind: "stix", type: "identity", payload: { type: "identity", properties: { name: "a vendor" } } },
+      [personC]: { ref: personC, kind: "stix", type: "identity", payload: { type: "identity", name: "a vendor" } },
     },
     labels: { ...base.labels, [personA]: "Jane Doe", [personH]: "J. Doe (hr)", [hostX]: "ws-jane", [hostY]: "ws-jane-2" },
   };
@@ -370,8 +370,8 @@ describe("a person's identity in the inspector (adr/0324)", () => {
     const sid1 = "user-account--00000000-0000-4000-8000-000000000021";
     const sid2 = "user-account--00000000-0000-4000-8000-000000000022";
     const sam = "user-account--00000000-0000-4000-8000-000000000023";
-    const hostH = "x-host--00000000-0000-4000-8000-0000000000f3";
-    const hostH2 = "x-host--00000000-0000-4000-8000-0000000000f4";
+    const hostH = "reckon-host--00000000-0000-4000-8000-0000000000f3";
+    const hostH2 = "reckon-host--00000000-0000-4000-8000-0000000000f4";
     const john: PersonIdentity = {
       aliases: [],
       distinct: [{ edgeId: "relationship--rc", otherRef: sid2, kind: "asserted", by: "u-1", byName: "Ana Analyst", at, withdrawn: false }],

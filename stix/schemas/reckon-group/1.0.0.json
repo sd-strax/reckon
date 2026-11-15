@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-group/1.0.0.json",
+  "title": "reckon-group",
+  "description": "A group: a directory group accounts are members of. The STIX common properties come from the STIX 2.1 core schema, so this schema lists only the ones it constrains.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "reckon-group"
+    },
+    "spec_version": {
+      "const": "2.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^reckon-group--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "group_name": {
+      "type": "string",
+      "description": "The group's name."
+    },
+    "directory": {
+      "type": "string",
+      "description": "The directory or domain the group is in."
+    }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id",
+    "group_name"
+  ]
+}

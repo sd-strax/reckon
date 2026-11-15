@@ -11,7 +11,7 @@
         "type": "case",
         "caseId": "CASE-1001",
         "source": "ticketing",
-        "entityRef": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+        "entityRef": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
         "entityIdentifier": "host-a"
       },
       "caseNoteOnSeed": "confirm",
@@ -38,7 +38,7 @@
     },
     "hypotheses": [
       {
-        "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+        "id": "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000001",
         "statement": "The interactive logon by user-a on host-a was not performed by the account owner.",
         "handle": "H1 not-owner",
         "status": "OPEN",
@@ -47,14 +47,14 @@
         ],
         "predictions": [
           {
-            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
+            "id": "reckon-prediction--bbbb2222-0000-4000-8000-000000000001",
             "ordinal": 1,
             "statement": "user-a's 30-day logon history shows no prior interactive logons to host-a.",
             "title": "user-a's 30-day logon history shows no prior interactive logons…",
             "titleDerived": true,
             "status": "CONFIRMED",
             "discriminates": [
-              "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
+              "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000002"
             ],
             "testResultRefs": [
               "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05"
@@ -65,14 +65,14 @@
             }
           },
           {
-            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000002",
+            "id": "reckon-prediction--bbbb2222-0000-4000-8000-000000000002",
             "ordinal": 2,
             "statement": "The account owner did not start the session.",
             "title": "The account owner did not start the session",
             "titleDerived": true,
             "status": "CONFIRMED",
             "discriminates": [
-              "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
+              "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000002"
             ],
             "testResultRefs": [
               "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06"
@@ -88,14 +88,14 @@
             }
           },
           {
-            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000003",
+            "id": "reckon-prediction--bbbb2222-0000-4000-8000-000000000003",
             "ordinal": 3,
             "statement": "No scheduled job on host-a accounts for the session.",
             "title": "No scheduled job on host-a accounts for the session",
             "titleDerived": true,
             "status": "UNTESTED",
             "discriminates": [
-              "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
+              "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000002"
             ],
             "testResultRefs": [],
             "testQuery": {
@@ -106,20 +106,20 @@
         ]
       },
       {
-        "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000002",
+        "id": "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000002",
         "statement": "The logon was routine maintenance by the account owner.",
         "status": "PROPOSED",
         "labels": [],
         "predictions": [
           {
-            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000004",
+            "id": "reckon-prediction--bbbb2222-0000-4000-8000-000000000004",
             "ordinal": 4,
             "statement": "A change ticket covers maintenance on host-a in the window.",
             "title": "A change ticket covers maintenance on host-a in the window",
             "titleDerived": true,
             "status": "UNTESTED",
             "discriminates": [
-              "x-hypothesis--aaaa1111-0000-4000-8000-000000000001"
+              "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000001"
             ],
             "testResultRefs": []
           }
@@ -258,7 +258,7 @@
         "finding": "Early guess, re-scoped.",
         "inputRefs": [
           "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
-          "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+          "reckon-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
           "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08"
         ],
         "actor": "AI_DELEGATED",
@@ -368,12 +368,12 @@
         "inputRefs": [
           "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
           "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
-          "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+          "reckon-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
           "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08"
         ],
         "outputRefs": [
-          "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
-          "x-hypothesis--aaaa1111-0000-4000-8000-000000000002"
+          "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+          "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000002"
         ],
         "toolCalls": 1,
         "hasTranscript": true,
@@ -414,8 +414,8 @@
         "summary": "⚡ Propose tests: recorded P1, P2",
         "inputRefs": [],
         "outputRefs": [
-          "x-prediction--bbbb2222-0000-4000-8000-000000000001",
-          "x-prediction--bbbb2222-0000-4000-8000-000000000002"
+          "reckon-prediction--bbbb2222-0000-4000-8000-000000000001",
+          "reckon-prediction--bbbb2222-0000-4000-8000-000000000002"
         ],
         "toolCalls": 0,
         "hasTranscript": true,
@@ -573,7 +573,7 @@
       {
         "sequenceNo": 2,
         "occurredAt": "2026-10-20T09:01:00.000Z",
-        "body": "[user] Review the seed host's recent interactive logons.\n[tool_use recall_sops id=tk1] {\"query\":\"rdp session owner\"}\n[tool_result recall_sops id=tk1 error=false] {\"results\": [{\"sop_id\": \"sop-1\", \"title\": \"Procedure one\", \"revision\": 1, \"cut\": \"1/16000\", \"excerpt\": \"# Procedure one\\\\n\\\\nConfirm the session with the owner first.\", \"section\": {\"idx\": 1, \"of\": 2, \"location\": \"Procedure one\"}, \"score\": 0.82, \"match_rationale\": \"matches the seed host\"}], \"coverage\": \"COMPLETE\"}\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round"
+        "body": "[user] Review the seed host's recent interactive logons.\n[tool_use recall_sops id=tk1] {\"query\":\"rdp session owner\"}\n[tool_result recall_sops id=tk1 error=false] {\"results\": [{\"sop_id\": \"sop-1\", \"title\": \"Procedure one\", \"revision\": 1, \"cut\": \"1/16000\", \"excerpt\": \"# Procedure one\\\\n\\\\nConfirm the session with the owner first.\", \"section\": {\"idx\": 1, \"of\": 2, \"location\": \"Procedure one\"}, \"score\": 0.82, \"match_rationale\": \"matches the seed host\"}], \"coverage\": \"COMPLETE\"}\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round"
       },
       {
         "sequenceNo": 4,
@@ -660,19 +660,19 @@
       "graph": {
         "refs": [
           {
-            "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+            "id": "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000001",
             "kind": "stix",
-            "type": "x-hypothesis"
+            "type": "reckon-hypothesis"
           },
           {
-            "id": "x-hypothesis--aaaa1111-0000-4000-8000-000000000002",
+            "id": "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000002",
             "kind": "stix",
-            "type": "x-hypothesis"
+            "type": "reckon-hypothesis"
           },
           {
-            "id": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
+            "id": "reckon-prediction--bbbb2222-0000-4000-8000-000000000001",
             "kind": "stix",
-            "type": "x-prediction"
+            "type": "reckon-prediction"
           },
           {
             "id": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
@@ -685,9 +685,9 @@
             "type": "observed-data"
           },
           {
-            "id": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+            "id": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
             "kind": "stix",
-            "type": "x-host"
+            "type": "reckon-host"
           },
           {
             "id": "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8",
@@ -697,28 +697,28 @@
         ],
         "edges": [
           {
-            "from": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+            "from": "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000001",
             "to": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
             "ai": true
           },
           {
-            "from": "x-hypothesis--aaaa1111-0000-4000-8000-000000000002",
+            "from": "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000002",
             "to": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
             "ai": true
           },
           {
-            "from": "x-hypothesis--aaaa1111-0000-4000-8000-000000000001",
+            "from": "reckon-hypothesis--aaaa1111-0000-4000-8000-000000000001",
             "to": "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
             "ai": true
           },
           {
-            "from": "x-prediction--bbbb2222-0000-4000-8000-000000000001",
+            "from": "reckon-prediction--bbbb2222-0000-4000-8000-000000000001",
             "to": "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05",
             "ai": false
           },
           {
             "from": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
-            "to": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+            "to": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
             "ai": false,
             "join": true
           },
@@ -746,7 +746,7 @@
           "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
         ],
         "entityRefs": [
-          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+          "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
         ],
         "view": {
           "sentence": [
@@ -756,7 +756,7 @@
             },
             {
               "t": "entity",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "text": "host-a"
             },
             {
@@ -782,7 +782,7 @@
             {
               "label": "Destination",
               "value": "host-a",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "mono": true
             },
             {
@@ -808,7 +808,7 @@
           "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
         ],
         "entityRefs": [
-          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+          "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
         ],
         "view": {
           "sentence": [
@@ -818,7 +818,7 @@
             },
             {
               "t": "entity",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "text": "host-a"
             },
             {
@@ -844,7 +844,7 @@
             {
               "label": "Destination",
               "value": "host-a",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "mono": true
             },
             {
@@ -870,7 +870,7 @@
           "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
         ],
         "entityRefs": [
-          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+          "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
         ],
         "view": {
           "sentence": [
@@ -880,7 +880,7 @@
             },
             {
               "t": "entity",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "text": "host-a"
             },
             {
@@ -906,7 +906,7 @@
             {
               "label": "Destination",
               "value": "host-a",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "mono": true
             },
             {
@@ -932,7 +932,7 @@
           "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
         ],
         "entityRefs": [
-          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+          "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
         ],
         "view": {
           "sentence": [
@@ -942,7 +942,7 @@
             },
             {
               "t": "entity",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "text": "host-a"
             },
             {
@@ -968,7 +968,7 @@
             {
               "label": "Destination",
               "value": "host-a",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "mono": true
             },
             {
@@ -994,7 +994,7 @@
           "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
         ],
         "entityRefs": [
-          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+          "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
         ],
         "view": {
           "sentence": [
@@ -1004,7 +1004,7 @@
             },
             {
               "t": "entity",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "text": "host-a"
             },
             {
@@ -1030,7 +1030,7 @@
             {
               "label": "Destination",
               "value": "host-a",
-              "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+              "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
               "mono": true
             },
             {
@@ -1068,7 +1068,7 @@
             "slot": "dst",
             "label": "Destination",
             "text": "host-a",
-            "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
           }
         ],
         "count": 2,
@@ -1102,7 +1102,7 @@
             "slot": "dst",
             "label": "Destination",
             "text": "host-a",
-            "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
           }
         ],
         "count": 3,
@@ -1159,7 +1159,7 @@
     "eventsFoldedOver": 5
   },
   "labels": {
-    "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": "host-a",
+    "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": "host-a",
     "user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02": "user-a",
     "ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03": "10.0.0.9",
     "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04": "3 objects",
@@ -1167,10 +1167,10 @@
     "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8": "Authentication",
     "1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9": "Authentication",
     "note--9e3f7061-c081-43a4-ef60-7b8c9d0e1f06": "attested by analyst-1 by phone: account owner",
-    "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07": "get_network_connections over 7 days"
+    "reckon-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07": "get_network_connections over 7 days"
   },
   "appearances": {
-    "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": [
+    "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": [
       {
         "investigationId": "grouping--prior-1",
         "title": "Prior case A",
@@ -1180,23 +1180,28 @@
     ]
   },
   "docs": {
-    "7c6b5a49-3827-4160-9f8e-7d6c5b4a3920": {"ref": "7c6b5a49-3827-4160-9f8e-7d6c5b4a3920", "kind": "ocsf", "type": "Process Activity", "classUid": 1007, "time": "2026-10-20T09:03:30Z", "recordedAt": "2026-10-20T09:05:00Z", "sourceTool": "fixture:scenario", "payload": {"class_uid": 1007, "activity_name": "Launch", "actor": {"user": {"name": "user-a"}}, "device": {"hostname": "host-a"}, "process": {"name": "powershell.exe", "pid": 6120, "cmd_line": "powershell.exe -NoProfile -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkA"}}, "view": {"sentence": [{"t": "text", "text": "user-a launched powershell.exe on "}, {"t": "entity", "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01", "text": "host-a"}], "fields": [{"label": "Process", "value": "powershell.exe", "mono": true}, {"label": "PID", "value": "6120", "mono": true}, {"label": "Command line", "value": "powershell.exe -NoProfile -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkA", "mono": true}, {"label": "User", "value": "user-a", "mono": true}, {"label": "Host", "value": "host-a", "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01", "mono": true}], "category": "process", "decoded": {"field": "process.cmd_line", "encoding": "base64-utf16le", "text": "IEX (New-Object Net.WebClient)"}}},
-    "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": {
-      "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+    "7c6b5a49-3827-4160-9f8e-7d6c5b4a3920": {"ref": "7c6b5a49-3827-4160-9f8e-7d6c5b4a3920", "kind": "ocsf", "type": "Process Activity", "classUid": 1007, "time": "2026-10-20T09:03:30Z", "recordedAt": "2026-10-20T09:05:00Z", "sourceTool": "fixture:scenario", "payload": {"class_uid": 1007, "activity_name": "Launch", "actor": {"user": {"name": "user-a"}}, "device": {"hostname": "host-a"}, "process": {"name": "powershell.exe", "pid": 6120, "cmd_line": "powershell.exe -NoProfile -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkA"}}, "view": {"sentence": [{"t": "text", "text": "user-a launched powershell.exe on "}, {"t": "entity", "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01", "text": "host-a"}], "fields": [{"label": "Process", "value": "powershell.exe", "mono": true}, {"label": "PID", "value": "6120", "mono": true}, {"label": "Command line", "value": "powershell.exe -NoProfile -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkA", "mono": true}, {"label": "User", "value": "user-a", "mono": true}, {"label": "Host", "value": "host-a", "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01", "mono": true}], "category": "process", "decoded": {"field": "process.cmd_line", "encoding": "base64-utf16le", "text": "IEX (New-Object Net.WebClient)"}}},
+    "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": {
+      "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
       "kind": "stix",
-      "type": "x-host",
+      "type": "reckon-host",
       "payload": {
-        "type": "x-host",
-        "id": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
-        "properties": {
-          "hostname": "host-a",
-          "os": "Windows Server"
-        },
-        "provenance": {
-          "tool": "fixture",
-          "normalizer": "authentication",
-          "normalizer_version": "1",
-          "derivation_mode": "DIRECT"
+        "type": "reckon-host",
+        "spec_version": "2.1",
+        "id": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+        "hostname": "host-a",
+        "extensions": {
+          "extension-definition--7aa9a12c-441c-41e1-ab22-8bb028fd44e1": {
+            "extension_type": "new-sco"
+          },
+          "extension-definition--d9cb6ba5-7f21-41e1-88bc-3fb28093fb6e": {
+            "extension_type": "property-extension",
+            "tool": "fixture",
+            "normalizer": "authentication",
+            "normalizer_version": 1,
+            "derivation_mode": "DIRECT",
+            "observed_at": "2026-10-20T09:00:00Z"
+          }
         }
       }
     },
@@ -1206,20 +1211,26 @@
       "type": "observed-data",
       "payload": {
         "type": "observed-data",
+        "spec_version": "2.1",
         "id": "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04",
+        "created": "2026-10-20T09:00:00.000Z",
+        "modified": "2026-10-20T09:00:00.000Z",
         "number_observed": 1,
         "first_observed": "2026-10-20T09:00:00Z",
         "last_observed": "2026-10-20T09:00:00Z",
         "object_refs": [
-          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+          "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
           "observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05"
         ],
-        "provenance": {
-          "tool": "fixture",
-          "normalizer": "authentication",
-          "normalizer_version": "1",
-          "derivation_mode": "DIRECT",
-          "coverage": "COMPLETE"
+        "extensions": {
+          "extension-definition--d9cb6ba5-7f21-41e1-88bc-3fb28093fb6e": {
+            "extension_type": "property-extension",
+            "tool": "fixture",
+            "normalizer": "authentication",
+            "normalizer_version": 1,
+            "derivation_mode": "DIRECT",
+            "observed_at": "2026-10-20T09:00:00Z"
+          }
         }
       }
     },
@@ -1256,7 +1267,7 @@
           },
           {
             "t": "entity",
-            "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+            "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
             "text": "host-a"
           },
           {
@@ -1282,7 +1293,7 @@
           {
             "label": "Destination",
             "value": "host-a",
-            "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+            "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
             "mono": true
           },
           {
@@ -1309,13 +1320,13 @@
         "created": "2026-10-20T09:40:00Z"
       }
     },
-    "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07": {
-      "ref": "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+    "reckon-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07": {
+      "ref": "reckon-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
       "kind": "stix",
-      "type": "x-null-observation",
+      "type": "reckon-null-observation",
       "payload": {
-        "type": "x-null-observation",
-        "id": "x-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
+        "type": "reckon-null-observation",
+        "id": "reckon-null-observation--af408172-d192-44b5-f071-8c9d0e1f2a07",
         "verb": "get_network_connections",
         "subject": "host-a",
         "parameters": {
@@ -1337,8 +1348,13 @@
         "type": "indicator",
         "id": "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08",
         "name": "det-1 · interactive logon followed by an encoded command",
-        "indicator_types": [
-          "T1021.001"
+        "pattern": "det-1",
+        "pattern_type": "vendor-x",
+        "external_references": [
+          {
+            "source_name": "mitre-attack",
+            "external_id": "T1021.001"
+          }
         ],
         "severity": "HIGH",
         "valid_from": "2026-10-20T09:01:00Z",
@@ -1356,6 +1372,9 @@
               "sighting_of_ref": "indicator--bf519283-e2a3-45c6-8182-9d0e1f2a3b08",
               "observed_data_refs": [
                 "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
+              ],
+              "where_sighted_refs": [
+                "identity--d173b4a5-04c5-47e8-a3a4-bf2a3b4c5d0a"
               ]
             }
           }
@@ -1383,7 +1402,7 @@
               "last_observed": "2026-10-20T09:01:00Z",
               "number_observed": 1,
               "object_refs": [
-                "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+                "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
               ]
             }
           }
@@ -1392,7 +1411,7 @@
     }
   },
   "transcripts": {
-    "interp-turn-1": "[user] Review the seed host's recent interactive logons.\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round",
+    "interp-turn-1": "[user] Review the seed host's recent interactive logons.\n[assistant] I will enumerate logons for host-a over the last 24 hours.\n[tool_use enumerate_logons id=call-1] {\"host\":\"host-a\",\"window\":\"24h\"}\n[tool_result enumerate_logons id=call-1 error=false] {\"coverage\":\"COMPLETE\",\"events\":[{},{}],\"observed_data_refs\":[\"observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04\",\"observed-data--8d2e6f50-bf70-4293-de5f-6a7b8c9d0e05\"],\"entity_refs\":[\"reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01\",\"user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02\",\"ipv4-addr--6b0c4d3e-9d5e-4071-bc3d-4e5f6a7b8c03\"],\"ocsf_event_refs\":[\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9\"]}\n[assistant] Two interactive logons by user-a from 10.0.0.9.\\n\\n| when | type |\\n|---|---|\\n| 09:00 | interactive |\\n| 09:06 | interactive |\\n\\nI propose H1 and H2.\n[loop] 1 tool round",
     "interp-aside-1": "[user] ⚡ Propose tests: for the hypothesis H1, record the falsifiable predictions.\n[assistant] Recorded P1 and P2.\n[loop] 0 tool rounds"
   },
   "actionRecords": {
@@ -1665,7 +1684,7 @@
           "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
         ],
         "entityRefs": [
-          "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+          "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
         ]
       },
       "bindings": [
@@ -1679,7 +1698,7 @@
     }
   },
   "repeats": {
-    "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": {
+    "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01": {
       "events": [
         {
           "id": "1b2c3d4e-5f60-4172-9283-a4b5c6d7e8f9",
@@ -1695,7 +1714,7 @@
             "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
           ],
           "entityRefs": [
-            "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
           ],
           "view": {
             "sentence": [
@@ -1705,7 +1724,7 @@
               },
               {
                 "t": "entity",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "text": "host-a"
               },
               {
@@ -1731,7 +1750,7 @@
               {
                 "label": "Destination",
                 "value": "host-a",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "mono": true
               },
               {
@@ -1757,7 +1776,7 @@
             "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
           ],
           "entityRefs": [
-            "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
           ],
           "view": {
             "sentence": [
@@ -1767,7 +1786,7 @@
               },
               {
                 "t": "entity",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "text": "host-a"
               },
               {
@@ -1793,7 +1812,7 @@
               {
                 "label": "Destination",
                 "value": "host-a",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "mono": true
               },
               {
@@ -1819,7 +1838,7 @@
             "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
           ],
           "entityRefs": [
-            "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
           ],
           "view": {
             "sentence": [
@@ -1829,7 +1848,7 @@
               },
               {
                 "t": "entity",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "text": "host-a"
               },
               {
@@ -1855,7 +1874,7 @@
               {
                 "label": "Destination",
                 "value": "host-a",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "mono": true
               },
               {
@@ -1881,7 +1900,7 @@
             "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
           ],
           "entityRefs": [
-            "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
           ],
           "view": {
             "sentence": [
@@ -1891,7 +1910,7 @@
               },
               {
                 "t": "entity",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "text": "host-a"
               },
               {
@@ -1917,7 +1936,7 @@
               {
                 "label": "Destination",
                 "value": "host-a",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "mono": true
               },
               {
@@ -1943,7 +1962,7 @@
             "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04"
           ],
           "entityRefs": [
-            "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
+            "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01"
           ],
           "view": {
             "sentence": [
@@ -1953,7 +1972,7 @@
               },
               {
                 "t": "entity",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "text": "host-a"
               },
               {
@@ -1979,7 +1998,7 @@
               {
                 "label": "Destination",
                 "value": "host-a",
-                "ref": "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
+                "ref": "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01",
                 "mono": true
               },
               {

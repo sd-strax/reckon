@@ -6,7 +6,7 @@ An investigation reaching CONCLUDED produces more than a Report. The reasoning t
 
 This spec defines what happens after CONCLUDED. The architectural property is that **post-conclusion is just more workflow, not more domain machinery**. The Temporal worker that handles action dispatch handles post-conclusion outputs the same way: triggered by an event in the aggregate, executing a multi-step workflow, calling capability adapters and the knowledge service, recording its work as new events on the same aggregate.
 
-Nothing about the domain model changes for post-conclusion. The same `x-action` primitive that carries containment-class actions during the investigation carries ticketing actions after it. The same `x-interpretation` records the agent's decision to extract IOCs. The same Temporal infrastructure (05) runs the workflows. The product surface this enables — closing the loop from investigation to remediation to learning — is what justifies reckon as a SOAR successor rather than a focused investigation tool.
+Nothing about the domain model changes for post-conclusion. The same `reckon-action` primitive that carries containment-class actions during the investigation carries ticketing actions after it. The same `reckon-interpretation` records the agent's decision to extract IOCs. The same Temporal infrastructure (05) runs the workflows. The product surface this enables — closing the loop from investigation to remediation to learning — is what justifies reckon as a SOAR successor rather than a focused investigation tool.
 
 ## Thread scope
 
@@ -35,13 +35,13 @@ Nothing about the domain model changes for post-conclusion. The same `x-action` 
 
 ## 1. Architectural commitments
 
-**1. Post-conclusion is workflow, not new primitive.** The same Temporal worker that handles action dispatch handles post-conclusion. The same `x-action` lifecycle handles ticketing-as-action. No new STIX primitive, no new aggregate type. New outputs land as new events of existing types or as content in adjacent stores (knowledge service, archive target).
+**1. Post-conclusion is workflow, not new primitive.** The same Temporal worker that handles action dispatch handles post-conclusion. The same `reckon-action` lifecycle handles ticketing-as-action. No new STIX primitive, no new aggregate type. New outputs land as new events of existing types or as content in adjacent stores (knowledge service, archive target).
 
 **2. Triggered, then orchestrated, then auditable.** `InvestigationConcluded` (02 §3) triggers the `PostConclusionPipeline(grouping_id)` workflow. The pipeline's steps are themselves recorded — as Interpretations on the source investigation's reasoning thread, or as new events on a thin parallel projection — so the workflow's work is inspectable in the same audit surface as the investigation that produced it.
 
 **3. Author-pending for AI-generated content.** Outputs the system generates — candidate SOPs, draft compliance documents, suggested ticket bodies, suggested indicators for publication — enter their target stores in a *pending* state requiring human review and signoff. The system never silently publishes judgment. Outputs the system *executes* (ticketing API calls, IOC additions to the tenant's known-bad list) go through the same action authorization machinery as in-flight actions.
 
-**4. Reuse, not duplicate.** Ticketing is an `x-action`. IOC publication is an `x-action`. Document storage is an export action. None of these get bespoke pipelines; they share the existing action authorization, dispatch, audit, and reversal machinery (04-action-authorization.md). What this spec adds is the *trigger* (post-conclusion, automatic where policy permits) and the *templating* (sourcing the action's parameters from the investigation's content).
+**4. Reuse, not duplicate.** Ticketing is a `reckon-action`. IOC publication is a `reckon-action`. Document storage is an export action. None of these get bespoke pipelines; they share the existing action authorization, dispatch, audit, and reversal machinery (04-action-authorization.md). What this spec adds is the *trigger* (post-conclusion, automatic where policy permits) and the *templating* (sourcing the action's parameters from the investigation's content).
 
 **5. Customer choice on every path.** Every post-conclusion path is configurable per-tenant. Customers can disable IOC extraction, disable candidate SOP generation, disable ticketing handoff, disable any specific TI integration. Customers may also configure reckon to defer entirely to their existing SoR — reckon produces the export bundle, drops it into the SoR, and the org's existing post-incident processes take over from there. The architecture supports the full spectrum from "reckon is the SoR" to "reckon hands off everything at conclusion."
 
@@ -131,7 +131,7 @@ Concluded investigations produce indicators worth feeding back into the tenant's
 
 1. Walk the investigation's STIX nodes for entities of types worth treating as IOCs:
    - `ipv4-addr`, `ipv6-addr`, `domain-name`, `url`, `file` (by hash), `email-addr` (in BEC contexts)
-   - Excluded: `x-host`, `user-account`, `process` (these are local entities, not transferable indicators)
+   - Excluded: `reckon-host`, `user-account`, `process` (these are local entities, not transferable indicators)
 2. Filter to entities with at least one Sighting or Indicator-via-detection-finding linkage and a non-trivial confidence
 3. For each, compute the proposed IOC record:
    - Value (the canonical identifier)
@@ -149,7 +149,7 @@ The proposed IOCs land in the tenant's known-bad list as candidates pending revi
 
 ### 3.3 Optional TI publication
 
-Tenants may configure post-conclusion IOC publication to external TI platforms (MISP, OpenCTI, internal feeds, ISAC submissions). Publication is an `x-action` of the `ioc.publish_*` family — `ioc.publish_to_misp` (T2, org-controlled feed) or `ioc.publish_to_isac` (04 §2.1) — gated through the same authorization machinery as any other action. `ti_admin` or `senior_approver` typically authorizes; `ioc.publish_to_isac` is T3 by default because it leaves the org boundary.
+Tenants may configure post-conclusion IOC publication to external TI platforms (MISP, OpenCTI, internal feeds, ISAC submissions). Publication is a `reckon-action` of the `ioc.publish_*` family — `ioc.publish_to_misp` (T2, org-controlled feed) or `ioc.publish_to_isac` (04 §2.1) — gated through the same authorization machinery as any other action. `ti_admin` or `senior_approver` typically authorizes; `ioc.publish_to_isac` is T3 by default because it leaves the org boundary.
 
 The action's evidence_refs cite the investigation that produced the IOC; the audit trail captures who authorized publishing. Reversal is type-specific: TI platforms with a delete API support reversal; ISAC publications are typically irreversible.
 
@@ -276,7 +276,7 @@ Generated documents are retained alongside the export bundle. Each is versioned 
 
 For tenants that maintain a separate operational system (Jira, ServiceNow SOC, Linear, custom), reckon opens tickets at conclusion to drive longer-tail remediation, recovery, and post-incident work that lives in the org's existing system.
 
-### 7.1 Ticketing as `x-action`
+### 7.1 Ticketing as `reckon-action`
 
 Per the symmetry property (05 §6.4, action types are extensible), ticketing is just another action category:
 
@@ -321,7 +321,7 @@ Tenants without a SoR or who prefer manual ticketing simply don't configure any 
 
 When a ticket is created, the response includes the ticket id and URL. The investigation's projection is updated with a `linked_external_cases` field referencing the ticket. Future capability calls can pull updates from the ticket (`get_external_case_details`, 05 §14.2) so the investigation reflects ongoing work in the SoR.
 
-v0 note: the `ticket.create` x-action itself — its request, evidence_refs, and result in the investigation aggregate — is the investigation↔ticket link at v0. The `linked_external_cases` projection lands with the real SoR adapters (Phase F), whose responses carry the actual ticket id/URL that field needs (the fixture adapter's `WriteResult` has no structured response payload to draw it from).
+v0 note: the `ticket.create` reckon-action itself — its request, evidence_refs, and result in the investigation aggregate — is the investigation↔ticket link at v0. The `linked_external_cases` projection lands with the real SoR adapters (Phase F), whose responses carry the actual ticket id/URL that field needs (the fixture adapter's `WriteResult` has no structured response payload to draw it from).
 
 ---
 
@@ -329,7 +329,7 @@ v0 note: the `ticket.create` x-action itself — its request, evidence_refs, and
 
 Optional. Customers operating in regulated or threat-aware industries (financial services, healthcare, critical infrastructure) may participate in threat-intelligence sharing through ISACs, MITRE submissions, or MISP federations.
 
-### 8.1 Sharing as `x-action`
+### 8.1 Sharing as `reckon-action`
 
 Same pattern as ticketing and IOC publication:
 
@@ -426,7 +426,7 @@ Tenants may re-run the pipeline against a concluded investigation (e.g., after i
 | Stage | Capabilities |
 |---|---|
 | **v0** | Export bundle generation only. The other pipeline steps either don't apply (no real data to extract IOCs from in fixture mode) or don't exist yet (candidate SOPs require the knowledge service to be functional with real summaries). The bundle generation itself is fully functional at v0. |
-| **v1** | Full pipeline: archive bundle, summary extraction, IOC extraction, candidate SOPs, linkage suggestion. Real integrations enable ticketing handoff and IOC publication via `x-action` types. Document generation for the common templates. |
+| **v1** | Full pipeline: archive bundle, summary extraction, IOC extraction, candidate SOPs, linkage suggestion. Real integrations enable ticketing handoff and IOC publication via `reckon-action` types. Document generation for the common templates. |
 | **v2** | SaaS launch: the pipeline runs in the multi-tenant Temporal cluster; per-tenant configuration becomes a tenant-admin UI surface; cross-investigation linkage events become first-class queryable; campaign-level visualization becomes possible. |
 | **v3+** | Federated indicator pool (cross-tenant); detection authoring tooling formally lands as a v3 thread that consumes the same investigation event stream and reasoning thread; quality of candidate SOPs and document narratives improves with operational data. |
 

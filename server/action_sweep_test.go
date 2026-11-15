@@ -66,7 +66,7 @@ func approvedAction(t *testing.T, aggID uuid.UUID, req aggregate.RequestAction) 
 		req.ActionType = "host.isolate"
 	}
 	req.Tier = aggregate.TierT2
-	req.Targets = []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}}
+	req.Targets = []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}}
 	req.ExpiresAt = time.Now().Add(time.Hour)
 	req.Rationale = "contain"
 	humanHandle(t, aggID, req)

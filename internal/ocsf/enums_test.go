@@ -124,6 +124,9 @@ var numberTables = map[string]struct{ checked, exempt []string }{
 	"capability": {
 		// capability.TestEnumTablesMatchSchema
 		checked: []string{"userTypes", "accountTypes", "accountTypeIDs", "apiActivities", "inventoryActivities", "osTypes", "confidenceLevels"},
+		// IANA protocol numbers: OCSF's protocol_num is a plain integer that
+		// refers to IANA's registry, not an OCSF enum (adr/0357).
+		exempt: []string{"ipProtocols"},
 	},
 	"capability/ocsfview": {
 		checked: []string{"networkActivities"}, // ocsfview.TestEnumTablesMatchSchema
@@ -162,6 +165,17 @@ func TestEveryNumberTableIsChecked(t *testing.T) {
 		for _, name := range stale {
 			t.Errorf("%s: numberTables lists %s, which is no longer a table there", dir, name)
 		}
+	}
+}
+
+// MaxWholeNumber is the bound both the normalizers and the event view read a
+// count with: a JSON number holds it exactly, and one more is refused.
+func TestMaxWholeNumber(t *testing.T) {
+	if n, ok := OptionalNumber(float64(MaxWholeNumber), MaxWholeNumber); !ok || n != MaxWholeNumber {
+		t.Errorf("OptionalNumber(MaxWholeNumber) = %d, %v", n, ok)
+	}
+	if _, ok := OptionalNumber(int64(MaxWholeNumber)+1, MaxWholeNumber); ok {
+		t.Error("one above MaxWholeNumber was accepted")
 	}
 }
 

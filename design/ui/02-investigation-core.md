@@ -269,7 +269,7 @@ analyst's trust in the agent is calibrated by spot-checking it; spot-checking is
 > shows the same set as a matrix. The interactions below are unchanged.
 
 Hypotheses are the unit of work, not passive rail entries — and they come as a **competing
-set** (`01 §x-hypothesis`, "Competing hypotheses"), so the tracker's job is to keep the
+set** (`01 §reckon-hypothesis`, "Competing hypotheses"), so the tracker's job is to keep the
 comparison visible. The whole set is on screen, in full (`adr/0047`):
 
 - **One card per hypothesis, stacked, live ones first.** The head reads `handle` (`H1

@@ -15,6 +15,7 @@ import (
 
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/module"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // Identity assertions (adr/0211, adr/0324): the analyst's "same as another
@@ -67,7 +68,7 @@ var (
 
 // MissingHostError names an end of an assertion that is not persisted as the
 // entity type it was named as: a host, an account or a person (Type, the
-// STIX type, x-host when empty). It is ErrNotFound.
+// STIX type, reckon-host when empty). It is ErrNotFound.
 type MissingHostError struct {
 	Ref  string
 	Type string
@@ -104,15 +105,76 @@ const (
 	actWithdrawn = "withdrawn"
 )
 
-// assertedEdge is the payload of an asserted edge: the relationship's own
-// fields beside the Assertion, as identityEdge reads it.
+// assertedEdge is an asserted edge as the code holds it: the relationship's
+// own fields and its Assertion. The payload is a STIX relationship that keeps
+// the Assertion in the reckon-assertion property-extension (adr/0357).
 type assertedEdge struct {
-	ID        string `json:"id"`
-	Type      string `json:"relationship_type"`
-	SourceRef string `json:"source_ref"`
-	TargetRef string `json:"target_ref"`
+	ID        string
+	Type      string
+	SourceRef string
+	TargetRef string
+	// Created is the relationship's created time, which never moves.
+	Created time.Time
 	Assertion
 }
+
+// payload builds the edge's STIX JSON, modified at the given time.
+// withdrawn_at is left out while the assertion stands.
+func (e assertedEdge) payload(modified time.Time) ([]byte, error) {
+	ext := map[string]any{
+		"asserted_by":      e.AssertedBy,
+		"asserted_by_name": e.AssertedByName,
+		"asserted_at":      e.AssertedAt,
+		"note":             e.Note,
+		"history":          e.History,
+	}
+	if e.WithdrawnAt != nil {
+		ext["withdrawn_at"] = *e.WithdrawnAt
+	}
+	return stix.Marshal(stix.Object{
+		Type:     "relationship",
+		ID:       e.ID,
+		Created:  e.Created,
+		Modified: modified,
+		Properties: map[string]any{
+			"relationship_type": e.Type,
+			"source_ref":        e.SourceRef,
+			"target_ref":        e.TargetRef,
+		},
+		Extensions: map[string]map[string]any{stix.ExtAssertion: ext},
+	})
+}
+
+// decodeAssertedEdge reads an identity edge's payload. An edge a source's
+// record produced has no assertion, so its Assertion is the zero value.
+func decodeAssertedEdge(raw []byte) (assertedEdge, error) {
+	var top struct {
+		ID        string    `json:"id"`
+		Type      string    `json:"relationship_type"`
+		SourceRef string    `json:"source_ref"`
+		TargetRef string    `json:"target_ref"`
+		Created   time.Time `json:"created"`
+	}
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return assertedEdge{}, fmt.Errorf("decode identity edge: %w", err)
+	}
+	e := assertedEdge{ID: top.ID, Type: top.Type, SourceRef: top.SourceRef, TargetRef: top.TargetRef, Created: top.Created}
+	if _, err := stix.DecodeExtension(raw, stix.ExtAssertion, &e.Assertion); err != nil {
+		return assertedEdge{}, fmt.Errorf("decode identity edge: %w", err)
+	}
+	return e, nil
+}
+
+// The SQL paths into the property-extensions the identity reads use
+// (adr/0357).
+var (
+	withdrawnAtSQL          = stix.AssertionWithdrawnAt.SQL("payload")
+	eWithdrawnAtSQL         = stix.AssertionWithdrawnAt.SQL("e.payload")
+	assertedBySQL           = stix.AssertionAssertedBy.SQL("payload")
+	accountPrincipalNameSQL = stix.AccountPrincipalName.SQL("payload")
+	personPrincipalNameSQL  = stix.PersonPrincipalName.SQL("payload")
+	personMailSQL           = stix.PersonMail.SQL("payload")
+)
 
 // assertedNamespace discriminates an asserted edge's minted id from the id a
 // source's record of the same pair and type would take.
@@ -140,7 +202,7 @@ func (s *Store) AssertDistinct(ctx context.Context, ids *identity.Resolver, ref,
 	return s.assert(ctx, ids, relDistinctFrom, ref, otherRef, by, note)
 }
 
-// CanonicalHostRef reports whether ref is a host ref (`x-host--<uuid>`, the
+// CanonicalHostRef reports whether ref is a host ref (`reckon-host--<uuid>`, the
 // type in any case) and answers it in canonical (lowercase) form, so one host
 // has one spelling of its ref.
 func CanonicalHostRef(ref string) (string, bool) {
@@ -153,7 +215,7 @@ func CanonicalHostRef(ref string) (string, bool) {
 var identityTypes = []string{identity.TypeHost, identity.TypeUserAccount, identity.TypeIdentity}
 
 // CanonicalEntityRef reports whether ref names an entity whose identity can
-// be asserted (x-host, user-account or identity, the type in any case) and
+// be asserted (reckon-host, user-account or identity, the type in any case) and
 // answers it in canonical (lowercase) form with its type, so one entity has
 // one spelling of its ref.
 func CanonicalEntityRef(ref string) (canonical, typ string, ok bool) {
@@ -379,7 +441,7 @@ func (s *Store) assertOwnerOnce(ctx context.Context, ids *identity.Resolver, acc
 	var split bool
 	if err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS (SELECT 1 FROM stix_edges
-		WHERE tenant_id = $1 AND relationship_type = '`+relDistinctFrom+`' AND payload->>'withdrawn_at' IS NULL
+		WHERE tenant_id = $1 AND relationship_type = '`+relDistinctFrom+`' AND `+withdrawnAtSQL+` IS NULL
 		  AND ((source_ref = ANY($2) AND target_ref = ANY($3)) OR (source_ref = ANY($3) AND target_ref = ANY($2))))
 	`, module.SingleTenantUUID, uuidArray(setIDs), uuidArray(personIDs)).Scan(&split); err != nil {
 		return fmt.Errorf("query live splits of the account from the person: %w", err)
@@ -391,7 +453,7 @@ func (s *Store) assertOwnerOnce(ctx context.Context, ids *identity.Resolver, acc
 	if err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS (SELECT 1 FROM stix_edges
 		WHERE tenant_id = $1 AND relationship_type = '`+relBelongsTo+`' AND source_ref = ANY($2) AND NOT (target_ref = ANY($3))
-		  AND payload->>'withdrawn_at' IS NULL AND COALESCE(payload->>'asserted_by', '') <> '')
+		  AND `+withdrawnAtSQL+` IS NULL AND COALESCE(`+assertedBySQL+`, '') <> '')
 	`, module.SingleTenantUUID, uuidArray(setIDs), uuidArray(personIDs)).Scan(&other); err != nil {
 		return fmt.Errorf("query live owner assertions: %w", err)
 	}
@@ -522,10 +584,11 @@ func (s *Store) ownersDiffer(ctx context.Context, a, b []string) (bool, error) {
 // liveAssertedOwners reads the persons a live asserted belongs-to attaches
 // any of accounts to.
 func liveAssertedOwners(ctx context.Context, tx *sql.Tx, accounts []uuid.UUID) ([]string, error) {
+	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
 	rows, err := tx.QueryContext(ctx, `
 		SELECT DISTINCT target_ref FROM stix_edges
 		WHERE tenant_id = $1 AND relationship_type = '`+relBelongsTo+`' AND source_ref = ANY($2)
-		  AND payload->>'withdrawn_at' IS NULL AND COALESCE(payload->>'asserted_by', '') <> ''
+		  AND `+withdrawnAtSQL+` IS NULL AND COALESCE(`+assertedBySQL+`, '') <> ''
 	`, module.SingleTenantUUID, uuidArray(accounts))
 	if err != nil {
 		return nil, fmt.Errorf("query live owner assertions: %w", err)
@@ -547,13 +610,15 @@ func liveAssertedOwners(ctx context.Context, tx *sql.Tx, accounts []uuid.UUID) (
 // one again; a row that is no assertion is left alone. The caller holds the
 // transaction and commits.
 func writeAssertion(ctx context.Context, tx *sql.Tx, edgeRef identity.STIXID, edgeID uuid.UUID, relType string, ends [2]string, endIDs [2]uuid.UUID, by Asserter, note string) error {
-	at := now()
+	// The row's created and the payload's are the same instant, to the
+	// millisecond STIX keeps.
+	at := stix.Truncate(now())
 	event := AssertionEvent{Act: actAsserted, By: by.ID, ByName: by.Name, At: at, Note: note}
 	fresh := assertedEdge{
-		ID: string(edgeRef), Type: relType, SourceRef: ends[0], TargetRef: ends[1],
+		ID: string(edgeRef), Type: relType, SourceRef: ends[0], TargetRef: ends[1], Created: at,
 		Assertion: Assertion{AssertedBy: by.ID, AssertedByName: by.Name, AssertedAt: at, Note: note, History: []AssertionEvent{event}},
 	}
-	payload, err := json.Marshal(fresh)
+	payload, err := fresh.payload(at)
 	if err != nil {
 		return fmt.Errorf("marshal assertion: %w", err)
 	}
@@ -598,7 +663,7 @@ func writeAssertion(ctx context.Context, tx *sql.Tx, edgeRef identity.STIXID, ed
 func requirePersisted(ctx context.Context, tx *sql.Tx, refs [2]string, ids [2]uuid.UUID, types [2]string) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id, type FROM stix_objects WHERE tenant_id = $1 AND id = ANY($2) AND type = ANY($3::text[])
-		  AND (type <> $4 OR payload->'properties'->>'identity_class' = $5)
+		  AND (type <> $4 OR payload->>'identity_class' = $5)
 		ORDER BY id FOR UPDATE
 	`, module.SingleTenantUUID, uuidArray(ids[:]), textArray(types[:]), identity.TypeIdentity, identityClassIndividual)
 	if err != nil {
@@ -633,7 +698,7 @@ func liveAssertedPairEdge(ctx context.Context, tx *sql.Tx, relType string, a, b 
 		SELECT EXISTS (SELECT 1 FROM stix_edges
 		WHERE tenant_id = $1 AND relationship_type = $4
 		  AND ((source_ref = $2 AND target_ref = $3) OR (source_ref = $3 AND target_ref = $2))
-		  AND payload->>'withdrawn_at' IS NULL AND COALESCE(payload->>'asserted_by', '') <> '')
+		  AND `+withdrawnAtSQL+` IS NULL AND COALESCE(`+assertedBySQL+`, '') <> '')
 	`, module.SingleTenantUUID, a, b, relType).Scan(&live); err != nil {
 		return false, fmt.Errorf("query live %s edges of the pair: %w", relType, err)
 	}
@@ -650,7 +715,7 @@ func (s *Store) AssertionEnds(ctx context.Context, edgeID uuid.UUID) (lo, hi str
 	var src, tgt, srcRef, tgtRef, by string
 	err = s.db.QueryRowContext(ctx, `
 		SELECT source_ref::text, target_ref::text, COALESCE(payload->>'source_ref', ''), COALESCE(payload->>'target_ref', ''),
-		       COALESCE(payload->>'asserted_by', '')
+		       COALESCE(`+assertedBySQL+`, '')
 		FROM stix_edges
 		WHERE tenant_id = $1 AND id = $2 AND relationship_type IN ('`+relAliases+`', '`+relDistinctFrom+`', '`+relBelongsTo+`')
 	`, module.SingleTenantUUID, edgeID).Scan(&src, &tgt, &srcRef, &tgtRef, &by)
@@ -727,7 +792,7 @@ func (s *Store) withdrawOnce(ctx context.Context, edgeID uuid.UUID, by Asserter,
 			return "", "", err
 		}
 	}
-	at := now()
+	at := stix.Truncate(now())
 	held.WithdrawnAt = &at
 	held.History = append(held.History, AssertionEvent{Act: actWithdrawn, By: by.ID, ByName: by.Name, At: at, Note: note})
 	if err := updateEdge(ctx, tx, edgeID, held, at); err != nil {
@@ -826,10 +891,11 @@ func (s *Store) refuseOwnersSeparated(ctx context.Context, tx *sql.Tx, person st
 // assertedOwnerEdges reads the live asserted belongs-to edges into persons,
 // as (account, person) pairs.
 func assertedOwnerEdges(ctx context.Context, tx *sql.Tx, persons []uuid.UUID) ([][2]uuid.UUID, error) {
+	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
 	rows, err := tx.QueryContext(ctx, `
 		SELECT source_ref, target_ref FROM stix_edges
 		WHERE tenant_id = $1 AND relationship_type = '`+relBelongsTo+`' AND target_ref = ANY($2)
-		  AND payload->>'withdrawn_at' IS NULL AND COALESCE(payload->>'asserted_by', '') <> ''
+		  AND `+withdrawnAtSQL+` IS NULL AND COALESCE(`+assertedBySQL+`, '') <> ''
 		ORDER BY source_ref, target_ref
 	`, module.SingleTenantUUID, uuidArray(persons))
 	if err != nil {
@@ -861,16 +927,12 @@ func lockedEdge(ctx context.Context, tx *sql.Tx, edgeID uuid.UUID) (assertedEdge
 	if err != nil {
 		return assertedEdge{}, fmt.Errorf("query identity edge: %w", err)
 	}
-	var e assertedEdge
-	if err := json.Unmarshal(raw, &e); err != nil {
-		return assertedEdge{}, fmt.Errorf("decode identity edge: %w", err)
-	}
-	return e, nil
+	return decodeAssertedEdge(raw)
 }
 
 // updateEdge writes an asserted edge's payload back; the caller commits.
 func updateEdge(ctx context.Context, tx *sql.Tx, edgeID uuid.UUID, e assertedEdge, at time.Time) error {
-	payload, err := json.Marshal(e)
+	payload, err := e.payload(at)
 	if err != nil {
 		return fmt.Errorf("marshal assertion: %w", err)
 	}

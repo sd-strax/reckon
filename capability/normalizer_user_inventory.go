@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // userInventoryNormalizer handles OCSF user_inventory (class_uid 5003) →
@@ -23,7 +24,10 @@ func (*userInventoryNormalizer) ClassUID() int { return 5003 }
 // id carries the version but not the normalizer's name (§4.13), as for 5001.
 //
 // 3: OCSF read gaps, adr/0359
-func (*userInventoryNormalizer) Version() int { return 3 }
+// 4: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; the person out of
+// object_refs and named in person_ref, and only with a name, adr/0357
+func (*userInventoryNormalizer) Version() int { return 4 }
 
 // accountlessDirectories describe people, not sign-ins: a personnel system's
 // worker id names a person and no account.
@@ -47,10 +51,21 @@ func (n *userInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult,
 	directoryID := u.uid
 	str := func(path string) string { return strings.TrimSpace(pathStr(p, path)) }
 
-	// The person, from the directory's own id.
+	// The person, from the directory's own id. An identity is an SDO, and
+	// observed-data's object_refs may list only SCOs and relationships, so
+	// the person stays out of them. The observation lists the belongs-to
+	// relationships instead, and the person is their target (adr/0357).
+	// STIX requires an identity to have a name. A record that gives the
+	// person no name gets no person, and so no belongs-to to one. Its
+	// accounts are still written (adr/0357).
 	person := n.r.Person(directory, directoryID)
 	if person != "" {
-		b.addSCO(person, identity.TypeIdentity, n.personProps(p, u, directory, directoryID))
+		props := n.personProps(p, u, directory, directoryID)
+		if props["name"] == nil {
+			person = ""
+		} else {
+			b.addLinkedSCO(person, identity.TypeIdentity, props)
+		}
 	}
 
 	// The domain family's SID: user.uid when it is one (an on-premises
@@ -104,7 +119,7 @@ func (n *userInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult,
 		}
 	}
 	for _, a := range accounts {
-		b.addRel(RelBelongsTo, a, person)
+		b.addRefRel(RelBelongsTo, a, person)
 	}
 
 	// Group memberships ride the account, as account_change records them
@@ -117,7 +132,19 @@ func (n *userInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult,
 			b.addRel(RelMemberOfGroup, member, gid)
 		}
 	}
-	return b.finish(activityExt(p)), nil
+	// The observation names the person it describes in person_ref. An
+	// identity is an SDO, which object_refs cannot list, and a directory with
+	// no accounts, such as an HR system, has no belongs-to to reach the person
+	// through. Readers that ask which records are about a person read it
+	// beside object_refs (adr/0324, adr/0357).
+	ext := activityExt(p)
+	if person != "" {
+		if ext == nil {
+			ext = map[string]any{}
+		}
+		ext[stix.ObservationPersonRef.Name()] = string(person)
+	}
+	return b.finish(ext), nil
 }
 
 // personProps is what the directory record says about the person: the

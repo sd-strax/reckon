@@ -80,12 +80,12 @@ func TestWireFixtures(t *testing.T) {
 		at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 		v.Identity = &EvidenceIdentity{
 			Aliases: []IdentityEdgeView{
-				{EdgeID: "relationship--1", OtherRef: "x-host--2", Kind: evidence.IdentityObserved, Source: "edr", At: at},
-				{EdgeID: "relationship--3", OtherRef: "x-host--4", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Note: "same serial in the asset register"},
-				{EdgeID: "relationship--5", OtherRef: "x-host--6", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Withdrawn: true},
+				{EdgeID: "relationship--1", OtherRef: "reckon-host--2", Kind: evidence.IdentityObserved, Source: "edr", At: at},
+				{EdgeID: "relationship--3", OtherRef: "reckon-host--4", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Note: "same serial in the asset register"},
+				{EdgeID: "relationship--5", OtherRef: "reckon-host--6", Kind: evidence.IdentityAsserted, By: "u-1", ByName: "Ana Analyst", At: at, Withdrawn: true},
 			},
 			Distinct: []IdentityEdgeView{
-				{EdgeID: "relationship--7", OtherRef: "x-host--8", Kind: evidence.IdentityAsserted, By: "u-2", ByName: "Ben Analyst", At: at, Note: "two machines"},
+				{EdgeID: "relationship--7", OtherRef: "reckon-host--8", Kind: evidence.IdentityAsserted, By: "u-2", ByName: "Ben Analyst", At: at, Note: "two machines"},
 			},
 			SeenAs: SeenAsView{
 				Domains: []string{"corp", "corp.example"},

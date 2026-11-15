@@ -90,7 +90,7 @@ func TestShippedActionScenario(t *testing.T) {
 	ticketCmd, err := BuildRequestCommand(catalog, ActionRequest{
 		ActionType:   "ticket.create",
 		Targets:      []aggregate.TargetSpec{{ResolvedIdentifier: "IT-OPS"}},
-		EvidenceRefs: []string{"x-host--1"},
+		EvidenceRefs: []string{"reckon-host--1"},
 		Parameters:   []byte(`{"summary":"Reimage WIN-FILE01 after RDP lateral movement","issue_type":"remediation"}`),
 		Rationale:    "hand off host rebuild to IT after containment",
 	}, time.Now())
@@ -116,7 +116,7 @@ func TestShippedActionScenario(t *testing.T) {
 	// it through the resolver into the fixture write adapter.
 	cmd, err := BuildRequestCommand(catalog, ActionRequest{
 		ActionType:   "host.isolate",
-		Targets:      []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-FILE01"}},
+		Targets:      []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}},
 		EvidenceRefs: []string{"observed-data--rdp"},
 		Rationale:    "contain the RDP lateral movement",
 	}, time.Now())

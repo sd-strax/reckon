@@ -12,7 +12,7 @@ import (
 // apiActivityNormalizer handles OCSF api_activity (class_uid 6003) → STIX
 // (§4.15): a cloud control-plane call. The principal is a user-account keyed
 // on the provider's durable principal id, the account the call ran in an
-// x-cloud-account, each resource it named an x-cloud-resource, the caller's
+// reckon-cloud-account, each resource it named a reckon-cloud-resource, the caller's
 // address an ipv4/ipv6-addr. A resource named under the account belongs-to it;
 // the principal belongs-to its own account. The operation, its outcome and the
 // session ride on the one ObservedData, which is the observation: there is no
@@ -27,7 +27,10 @@ func (*apiActivityNormalizer) ClassUID() int { return 6003 }
 // ObservedData id carries the version but not the normalizer's name, so a
 // version 1 here would mint the same id and keep the entity-less observation.
 // 3: OCSF classes and fields, adr/0356
-func (*apiActivityNormalizer) Version() int { return 3 }
+// 4: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; resource_type,
+// is_service_account only when known, addresses in canonical text, adr/0357
+func (*apiActivityNormalizer) Version() int { return 4 }
 
 func (n *apiActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
@@ -126,10 +129,18 @@ func (b *resultBuilder) cloudUser(provider, userID string, user map[string]any, 
 	}
 	typeID := pathInt(user, "type_id")
 	props := map[string]any{
-		"account_login":      "",
-		"user_id":            userID,
-		"account_type":       provider,
-		"is_service_account": service || typeID == 3 || typeID == 4,
+		"account_login": "",
+		"user_id":       userID,
+		"account_type":  provider,
+	}
+	// is_service_account is written only when the telemetry says: the
+	// session rule or a System or Service type says true, a User or Admin
+	// type says false. Otherwise it is unknown and left out (adr/0357).
+	switch {
+	case service || typeID == 3 || typeID == 4:
+		props["is_service_account"] = true
+	case typeID == 1 || typeID == 2:
+		props["is_service_account"] = false
 	}
 	if d := firstNonEmpty(pathStr(user, "full_name"), strings.TrimSpace(pathStr(user, "name"))); d != "" {
 		props["display_name"] = d
@@ -170,7 +181,7 @@ var accountTypes = map[int]string{
 	11: "GCP Project", 13: "Azure Subscription", 17: "M365 Tenant",
 }
 
-// cloudAccount extracts the x-cloud-account the event is about (the account
+// cloudAccount extracts the reckon-cloud-account the event is about (the account
 // an API call ran in): cloud.account first, then the caller's own account,
 // then the deprecated cloud.project_uid as a last fallback. Returns "" when
 // the event names no account.
@@ -204,7 +215,7 @@ func callerAccountAt(actor at) at {
 }
 
 // callerAccount returns the principal's own account from actor.user.account:
-// the event's account when it is the same one, else a second x-cloud-account
+// the event's account when it is the same one, else a second reckon-cloud-account
 // (a cross-account call). Returns "" when the payload does not name it; the
 // event's account is never assumed to be the caller's.
 func (b *resultBuilder) callerAccount(provider string, eventAccount identity.STIXID, actor at) identity.STIXID {
@@ -222,7 +233,7 @@ func (b *resultBuilder) callerAccount(provider string, eventAccount identity.STI
 	return b.addAccount(provider, uid, home, false)
 }
 
-// addAccount adds an x-cloud-account, its descriptive properties read from the
+// addAccount adds a reckon-cloud-account, its descriptive properties read from the
 // OCSF account object at loc (none when loc names nothing). cloud.org
 // describes the account the event is about, so org_uid attaches only to an
 // account read from cloud.account or cloud.project_uid (inCloud), never to
@@ -263,7 +274,7 @@ type cloudResource struct {
 	rule identity.CloudResourceRule
 }
 
-// cloudResources extracts an x-cloud-resource for each resources[] entry the
+// cloudResources extracts a reckon-cloud-resource for each resources[] entry the
 // resolver can identify (by the provider's unique id, else by name under the
 // event's account), each once; an entry with neither stays in the raw payload.
 func (b *resultBuilder) cloudResources(provider string, account identity.STIXID) []cloudResource {
@@ -291,7 +302,7 @@ func (b *resultBuilder) cloudResources(provider string, account identity.STIXID)
 		seen[id] = true
 		props := map[string]any{"provider": provider}
 		fields := map[string]string{
-			"uid": uid, "name": name, "type": typ,
+			"uid": uid, "name": name, "resource_type": typ,
 			"region": region, "zone": zone, "group": group, "namespace": namespace,
 			"cloud_partition": toString(fieldOf(m, "cloud_partition")),
 		}
@@ -352,7 +363,7 @@ func scalarString(v any) string {
 // and at or above it an integer may already be rounded. NaN and the
 // infinities fail the comparison, so they are not exact either.
 func exactNumber(x float64) bool {
-	return math.Abs(x) < 1<<53
+	return math.Abs(x) <= ocsf.MaxWholeNumber
 }
 
 // apiActivities are the OCSF activity captions for a payload that carries the

@@ -53,7 +53,7 @@ type InvestigationView struct {
 	Narrative *NarrativeView `json:"narrative,omitempty"`
 
 	// HypothesisFraming is the tenant's competing-hypotheses dial
-	// (config.Reasoning.HypothesisFraming; 01 §x-hypothesis): "leading_null"
+	// (config.Reasoning.HypothesisFraming; 01 §reckon-hypothesis): "leading_null"
 	// (default) or "leading_only". Detail responses only — the agent session
 	// renders its framing contract from it.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`

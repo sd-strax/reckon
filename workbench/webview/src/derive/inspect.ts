@@ -19,10 +19,10 @@ export function turnRenderer(entry: ThreadEntry | undefined): "turn" | "pin" | "
 }
 
 const ENTITY_TYPES = new Set([
-  "x-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file",
+  "reckon-host", "ipv4-addr", "ipv6-addr", "user-account", "process", "file",
   "domain-name", "email-addr", "url", "windows-registry-key",
-  "x-scheduled-task", "x-group", "mac-addr", "software",
-  "x-cloud-account", "x-cloud-resource",
+  "reckon-scheduled-task", "reckon-group", "mac-addr", "software",
+  "reckon-cloud-account", "reckon-cloud-resource",
 ]);
 
 /** A stable key for a target: the pane identity and the fetch cache key. */
@@ -54,11 +54,11 @@ export function rendererFor(t: InspectorTarget, doc?: EvidenceDoc | null, entry?
     case "dependency": return "dependency";
     case "ref": {
       const type = refType(t.ref);
-      if (type === "x-null-observation") return "absence";
+      if (type === "reckon-null-observation") return "absence";
       if (type === "indicator" || type === "sighting") return "detection";
       if (type === "note") return "attestation";
-      if (type === "x-prediction") return "prediction";
-      if (type === "x-hypothesis") return "hypothesis";
+      if (type === "reckon-prediction") return "prediction";
+      if (type === "reckon-hypothesis") return "hypothesis";
       if (ENTITY_TYPES.has(type)) return "entity";
       // An identity is a person (adr/0324) or a vendor; only its doc tells.
       // Until it arrives, or when it cannot be read, it opens as an entity,
@@ -105,11 +105,11 @@ export function targetName(t: InspectorTarget, snap: InvestigationSnapshot | nul
   switch (t.kind) {
     case "ref": {
       const type = refType(t.ref);
-      if (type === "x-hypothesis") {
+      if (type === "reckon-hypothesis") {
         const h = snap?.hypotheses.find((x) => x.id === t.ref);
         if (h) return h.handle ? h.handle + " · " + h.statement : h.statement;
       }
-      if (type === "x-prediction") {
+      if (type === "reckon-prediction") {
         for (const h of snap?.hypotheses || []) {
           const p = h.predictions.find((x) => x.id === t.ref);
           if (p) return (p.ordinal ? "P" + p.ordinal + " · " : "") + p.statement;

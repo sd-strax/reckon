@@ -3,11 +3,15 @@ package aggregate
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/internal/stixschema"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // reasoningState builds an ACTIVE aggregateState carrying the given node maps.
@@ -83,7 +87,7 @@ func TestReasoningNodeShape_Validate(t *testing.T) {
 	// support requires a well-formed hypothesis ref.
 	sup := base
 	sup.InterpretationType = InterpretationSupport
-	sup.HypothesisRef = "x-action--" + uuid.NewString() // wrong type prefix
+	sup.HypothesisRef = "reckon-action--" + uuid.NewString() // wrong type prefix
 	if err := sup.Validate(env); err == nil {
 		t.Error("support with a non-hypothesis ref accepted")
 	}
@@ -122,7 +126,7 @@ func TestReasoningNodeShape_Validate(t *testing.T) {
 	if err := out.Validate(env); err == nil {
 		t.Error("CONFIRMED outcome without test_result_refs accepted")
 	}
-	out.TestResultRefs = []string{"observed-data--1"}
+	out.TestResultRefs = []string{"observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf"}
 	if err := out.Validate(env); err != nil {
 		t.Errorf("valid CONFIRMED outcome rejected: %v", err)
 	}
@@ -288,7 +292,7 @@ func TestPredictionOutcome_AIReasoningGate(t *testing.T) {
 			Rationale:          "query returned matches",
 			PredictionRef:      pRef,
 			PredictionStatus:   PredictionConfirmed,
-			TestResultRefs:     []string{"observed-data--1"},
+			TestResultRefs:     []string{"observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf"},
 		}
 	}
 
@@ -347,7 +351,7 @@ func TestPredictionLifecycle_Apply(t *testing.T) {
 		Rationale:          "query returned matches",
 		PredictionRef:      pRef,
 		PredictionStatus:   PredictionConfirmed,
-		TestResultRefs:     []string{"observed-data--1"},
+		TestResultRefs:     []string{"observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf"},
 	}
 	untested := reasoningState(
 		map[string]hypothesisState{hRef: {Status: HypothesisOpen}},
@@ -403,6 +407,7 @@ func TestReasoningNodes_ProjectionAndReplay(t *testing.T) {
 	}
 
 	// AI proposes → human acknowledges → prediction → CONFIRMED → SUPPORTED.
+	rawEvent := uuid.NewString()
 	hypID := uuid.New()
 	mustHandle(env(ActorAIDelegated), RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: InterpretationHypothesis,
@@ -424,7 +429,8 @@ func TestReasoningNodes_ProjectionAndReplay(t *testing.T) {
 	mustHandle(env(ActorAIDelegated), RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: InterpretationPrediction,
 		Rationale: "query confirmed the spike", PredictionRef: pRef,
-		PredictionStatus: PredictionConfirmed, TestResultRefs: []string{"observed-data--1"},
+		// A citation of an observation and of a raw event (adr/0348).
+		PredictionStatus: PredictionConfirmed, TestResultRefs: []string{"observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf", rawEvent},
 	})
 	mustHandle(env(ActorAIDelegated), RecordInterpretation{
 		InterpretationID: uuid.New(), InterpretationType: InterpretationSupport,
@@ -444,39 +450,79 @@ func TestReasoningNodes_ProjectionAndReplay(t *testing.T) {
 		if err != nil || len(ps) != 1 {
 			t.Fatalf("[%s] ListPredictions = %v, %v; want 1", phase, ps, err)
 		}
-		if ps[0].Status != PredictionConfirmed || len(ps[0].TestResultRefs) != 1 {
+		// The read model keeps the citation as given.
+		if ps[0].Status != PredictionConfirmed || len(ps[0].TestResultRefs) != 2 {
 			t.Errorf("[%s] prediction = %+v; want CONFIRMED with refs", phase, ps[0])
 		}
 
 		// The canonical STIX node: status transitioned in-place, id intact.
 		var payload []byte
 		if err := testDB.QueryRow(`SELECT payload FROM stix_objects WHERE id = $1`, hypID).Scan(&payload); err != nil {
-			t.Fatalf("[%s] stix x-hypothesis row: %v", phase, err)
+			t.Fatalf("[%s] stix reckon-hypothesis row: %v", phase, err)
 		}
 		var node map[string]any
 		_ = json.Unmarshal(payload, &node)
-		if node["type"] != "x-hypothesis" || node["id"] != hRef || node["status"] != HypothesisSupported {
-			t.Errorf("[%s] stix node = %v; want x-hypothesis %s SUPPORTED", phase, node, hRef)
+		if node["type"] != "reckon-hypothesis" || node["id"] != hRef || node["status"] != HypothesisSupported {
+			t.Errorf("[%s] stix node = %v; want reckon-hypothesis %s SUPPORTED", phase, node, hRef)
+		}
+		// The node names its definition, and its modified moved with the
+		// transition (adr/0357).
+		exts, _ := node["extensions"].(map[string]any)
+		if def, _ := exts[stix.Key(stixTypeHypothesis)].(map[string]any); def["extension_type"] != "new-sdo" {
+			t.Errorf("[%s] stix node extensions = %v; want the reckon-hypothesis definition", phase, node["extensions"])
+		}
+		if node["spec_version"] != "2.1" || node["created"] == nil || node["modified"] == node["created"] {
+			t.Errorf("[%s] stix node created %v, modified %v; want modified after the transition", phase, node["created"], node["modified"])
 		}
 		if err := testDB.QueryRow(`SELECT payload FROM stix_objects WHERE id = $1`, predID).Scan(&payload); err != nil {
-			t.Fatalf("[%s] stix x-prediction row: %v", phase, err)
+			t.Fatalf("[%s] stix reckon-prediction row: %v", phase, err)
 		}
+		node = map[string]any{}
 		_ = json.Unmarshal(payload, &node)
 		if node["status"] != PredictionConfirmed {
 			t.Errorf("[%s] stix prediction status = %v; want CONFIRMED", phase, node["status"])
 		}
+		// The stored prediction keeps the STIX id and the raw event id in
+		// their own lists, and is valid STIX (adr/0357).
+		if refs, _ := node["test_result_refs"].([]any); len(refs) != 1 || refs[0] != "observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf" {
+			t.Errorf("[%s] test_result_refs = %v", phase, node["test_result_refs"])
+		}
+		if ids, _ := node["test_result_event_ids"].([]any); len(ids) != 1 || ids[0] != rawEvent {
+			t.Errorf("[%s] test_result_event_ids = %v", phase, node["test_result_event_ids"])
+		}
+		if p := stixschema.CheckJSON(payload); len(p) != 0 {
+			t.Errorf("[%s] stored prediction is not valid STIX: %v", phase, p)
+		}
 	}
 	verify("live")
+	payloads := func() map[uuid.UUID]string {
+		t.Helper()
+		out := map[uuid.UUID]string{}
+		for _, id := range []uuid.UUID{hypID, predID} {
+			var p []byte
+			if err := testDB.QueryRow(`SELECT payload FROM stix_objects WHERE id = $1`, id).Scan(&p); err != nil {
+				t.Fatal(err)
+			}
+			out[id] = string(p)
+		}
+		return out
+	}
+	live := payloads()
 
 	// Replay rebuilds the nodes from the event log alone.
 	if err := h.Replay(ctx); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	verify("replayed")
+	// Every change went through the serializer, live and in the replay, so
+	// the stored payloads are byte for byte the same (adr/0357).
+	if replayed := payloads(); !reflect.DeepEqual(live, replayed) {
+		t.Errorf("payloads differ after replay:\nlive     %v\nreplayed %v", live, replayed)
+	}
 }
 
 // TestCompetingHypotheses_Apply covers the competing-set additions (01
-// §x-hypothesis "Competing hypotheses"): handle + discriminates on creation,
+// §reckon-hypothesis "Competing hypotheses"): handle + discriminates on creation,
 // acknowledge-with-restatement and its tested-wording freeze, the OPEN revise
 // path, and the human-only WITHDRAWN prediction status.
 // adr/0051: an AI delegate cannot record SUPPORTED/REFUTED over an untested
@@ -662,7 +708,7 @@ func TestCompetingHypotheses_Apply(t *testing.T) {
 		t.Errorf("withdraw transition = %+v; want → WITHDRAWN", tr)
 	}
 	withRefs := withdraw
-	withRefs.TestResultRefs = []string{"observed-data--1"}
+	withRefs.TestResultRefs = []string{"observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf"}
 	if err := withRefs.Validate(human); err == nil {
 		t.Error("withdrawal carrying evidence accepted")
 	}
@@ -761,7 +807,7 @@ func TestCompetingHypotheses_Projection(t *testing.T) {
 		}
 		var payload []byte
 		if err := testDB.QueryRow(`SELECT payload FROM stix_objects WHERE id = $1`, h1).Scan(&payload); err != nil {
-			t.Fatalf("[%s] stix x-hypothesis row: %v", phase, err)
+			t.Fatalf("[%s] stix reckon-hypothesis row: %v", phase, err)
 		}
 		var node map[string]any
 		_ = json.Unmarshal(payload, &node)
@@ -769,7 +815,7 @@ func TestCompetingHypotheses_Projection(t *testing.T) {
 			t.Errorf("[%s] stix H1 = %v; want renamed + restated", phase, node)
 		}
 		if err := testDB.QueryRow(`SELECT payload FROM stix_objects WHERE id = $1`, p1).Scan(&payload); err != nil {
-			t.Fatalf("[%s] stix x-prediction row: %v", phase, err)
+			t.Fatalf("[%s] stix reckon-prediction row: %v", phase, err)
 		}
 		_ = json.Unmarshal(payload, &node)
 		if d, _ := node["discriminates"].([]any); len(d) != 1 || d[0] != h2Ref {

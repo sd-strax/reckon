@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-person/1.0.0.json",
+  "title": "reckon-person",
+  "description": "What a directory says about a person beyond the STIX identity properties.",
+  "type": "object",
+  "properties": {
+    "extension_type": {
+      "const": "property-extension"
+    },
+    "principal_name": {
+      "type": "string",
+      "description": "The person's principal name."
+    },
+    "mail": {
+      "type": "string",
+      "description": "The person's email address."
+    },
+    "directory": {
+      "type": "string",
+      "description": "The directory the person is in."
+    },
+    "directory_id": {
+      "type": "string",
+      "description": "The person's id in that directory."
+    },
+    "employee_id": {
+      "type": "string",
+      "description": "The person's employee id."
+    },
+    "department": {
+      "type": "string",
+      "description": "The person's department."
+    },
+    "title": {
+      "type": "string",
+      "description": "The person's job title."
+    },
+    "organization": {
+      "type": "string",
+      "description": "The person's organization."
+    },
+    "display_name": {
+      "type": "string",
+      "description": "The person's display name."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether the person's directory account is enabled."
+    },
+    "manager_ref": {
+      "type": "string",
+      "pattern": "^identity--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The person's manager."
+    }
+  },
+  "required": [
+    "extension_type"
+  ],
+  "additionalProperties": false
+}

@@ -26,7 +26,7 @@ func sampleRequest(id uuid.UUID) RequestAction {
 		ActionID:   id,
 		ActionType: "host.isolate",
 		Tier:       TierT2,
-		Targets:    []TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-DC01"}},
+		Targets:    []TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-DC01"}},
 		ExpiresAt:  time.Now().Add(time.Hour),
 		Rationale:  "contain lateral movement",
 	}

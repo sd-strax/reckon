@@ -134,7 +134,7 @@ func activeInvestigation(t *testing.T, h *Handler, tenantID uuid.UUID) uuid.UUID
 }
 
 // TestRecordInterpretation_RecordsEventAndSideStore: an AI-delegated reasoning
-// act (the agent is the legal author of x-interpretation) appends one
+// act (the agent is the legal author of reckon-interpretation) appends one
 // InterpretationRecorded event carrying the content hash, and the transcript +
 // tool-call bytes land in the side store within the same commit.
 func TestRecordInterpretation_RecordsEventAndSideStore(t *testing.T) {

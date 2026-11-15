@@ -20,7 +20,7 @@ function hostSpec(refId: string, kind: FormKind): ActSpec {
     title: relation === "aliases" ? "Same as another host" : "Not the same host as",
     confirm: relation === "aliases" ? "Join" : "Split",
     actRef: refId,
-    other: { label: "The other host: its name or its ref", placeholder: "WIN-FILE01 or x-host--…" },
+    other: { label: "The other host: its name or its ref", placeholder: "WIN-FILE01 or reckon-host--…" },
     message: (requestId, other, note) => ({ type: "identity.assert", ref: refId, requestId, relation, other, note }),
   };
 }

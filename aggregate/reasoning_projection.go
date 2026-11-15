@@ -9,17 +9,19 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/stix"
 )
 
 // ReasoningNodeProjector materializes the reasoning nodes carried on
 // interpretation.recorded events into two places, in the same transaction as
 // the event append:
 //
-//   - stix_objects — the canonical STIX-shaped node (x-hypothesis /
-//     x-prediction JSON payload, 01-domain-model.md). This is the first writer
+//   - stix_objects — the canonical STIX-shaped node (reckon-hypothesis /
+//     reckon-prediction JSON payload, 01-domain-model.md). This is the first writer
 //     of the interpretation-layer object store: reasoning nodes are "STIX
 //     nodes inside the Grouping," and here they land as exactly that. (The
-//     Grouping object itself and membership/x-supports/x-refutes edges are
+//     Grouping object itself and membership/reckon-supports/reckon-refutes edges are
 //     not written; capability-layer SCOs arrive through evidence.Store.)
 //   - hypothesis_current / prediction_current — investigation-scoped read
 //     models (the panels' query surface), same pattern as action_current.
@@ -53,7 +55,7 @@ func (ReasoningNodeProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 		if err := transitionNode(ctx, tx, evt, stixTypeHypothesis, rec.HypothesisTransition.Ref, rec.HypothesisTransition.To, nil); err != nil {
 			return err
 		}
-		// Acknowledge-with-restatement / revise (01 §x-hypothesis): the node's
+		// Acknowledge-with-restatement / revise (01 §reckon-hypothesis): the node's
 		// fields move with the act; the prior wording stays on the earlier event.
 		if tr := rec.HypothesisTransition; tr.Statement != "" || tr.Handle != "" {
 			if err := reviseHypothesisFields(ctx, tx, evt, tr.Ref, tr.Statement, tr.Handle); err != nil {
@@ -78,25 +80,6 @@ func (ReasoningNodeProjector) Apply(ctx context.Context, tx *sql.Tx, evt Event) 
 		}
 	}
 	return nil
-}
-
-// stixNote is the canonical STIX 2.1 Note written for a human attestation
-// (adr/0054): adopted unchanged — abstract, content, authors, object_refs —
-// plus the attestation's structure under an x_ custom property so a reader
-// can tell who was asked and how without parsing the abstract.
-type stixNote struct {
-	Type        string          `json:"type"`
-	SpecVersion string          `json:"spec_version"`
-	ID          string          `json:"id"`
-	Abstract    string          `json:"abstract,omitempty"`
-	Content     string          `json:"content"`
-	Authors     []string        `json:"authors,omitempty"`
-	ObjectRefs  []string        `json:"object_refs"`
-	Attestation stixAttestation `json:"x_reckon_attestation"`
-	// ExternalReferences points at where the attestation happened (#139).
-	ExternalReferences []stixExternalRef `json:"external_references,omitempty"`
-	Created            string            `json:"created"`
-	Modified           string            `json:"modified"`
 }
 
 // stixExternalRef is a STIX 2.1 external reference: a URL, or an id in a
@@ -147,13 +130,6 @@ func artifactRefs(a *ArtifactLocation) []stixExternalRef {
 	return []stixExternalRef{ref}
 }
 
-type stixAttestation struct {
-	PredictionRef string     `json:"prediction_ref"`
-	Source        string     `json:"source,omitempty"`
-	Channel       string     `json:"channel,omitempty"`
-	ObservedAt    *time.Time `json:"observed_at,omitempty"`
-}
-
 // attestedBy names the attesting principal for display: the name the identity
 // provider gave at the time (adr/0077), falling back to the id for records
 // that predate it.
@@ -177,36 +153,55 @@ func attestationAbstract(a AttestationRecorded) string {
 	return s
 }
 
+// attestationNotePayload builds the STIX JSON of an attestation's note.
+func attestationNotePayload(evt Event, a AttestationRecorded) ([]byte, error) {
+	refs := []string{a.PredictionRef}
+	if a.HypothesisRef != "" {
+		refs = append(refs, a.HypothesisRef)
+	}
+	// The note is a STIX note with the attestation's structure in the
+	// reckon-attestation property-extension (adr/0054, adr/0357), so a reader
+	// can tell who was asked and how without parsing the abstract.
+	at := stix.Truncate(evt.OccurredAt)
+	var observedAt any
+	if a.ObservedAt != nil {
+		observedAt = *a.ObservedAt
+	}
+	return stix.Marshal(stix.Object{
+		Type:    stixTypeNote,
+		ID:      a.ID,
+		Created: at,
+		Properties: map[string]any{
+			"abstract":            attestationAbstract(a),
+			"content":             a.Content,
+			"authors":             []string{a.Author},
+			"object_refs":         refs,
+			"external_references": append(attestationRefs(a.Reference), artifactRefs(a.Artifact)...),
+		},
+		Extensions: map[string]map[string]any{stix.ExtAttestation: {
+			"prediction_ref": a.PredictionRef,
+			"source":         a.Source,
+			"channel":        a.Channel,
+			"observed_at":    observedAt,
+		}},
+	})
+}
+
 func insertAttestationNote(ctx context.Context, tx *sql.Tx, evt Event, a AttestationRecorded) error {
 	noteUUID, err := stixIDUUID(a.ID, stixTypeNote)
 	if err != nil {
 		return fmt.Errorf("project attestation: %w", err)
 	}
-	refs := []string{a.PredictionRef}
-	if a.HypothesisRef != "" {
-		refs = append(refs, a.HypothesisRef)
-	}
-	payload, err := json.Marshal(stixNote{
-		Type:               stixTypeNote,
-		SpecVersion:        "2.1",
-		ID:                 a.ID,
-		Abstract:           attestationAbstract(a),
-		Content:            a.Content,
-		Authors:            []string{a.Author},
-		ObjectRefs:         refs,
-		Attestation:        stixAttestation{PredictionRef: a.PredictionRef, Source: a.Source, Channel: a.Channel, ObservedAt: a.ObservedAt},
-		ExternalReferences: append(attestationRefs(a.Reference), artifactRefs(a.Artifact)...),
-		Created:            stixTime(evt.OccurredAt),
-		Modified:           stixTime(evt.OccurredAt),
-	})
+	at := stix.Truncate(evt.OccurredAt)
+	payload, err := attestationNotePayload(evt, a)
 	if err != nil {
 		return fmt.Errorf("marshal note: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO stix_objects (id, tenant_id, type, spec_version, payload, created, modified)
-		VALUES ($1, $2, $3, '2.1', $4, $5, $5)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)
 		ON CONFLICT (id) DO NOTHING
-	`, noteUUID, evt.TenantID, stixTypeNote, payload, evt.OccurredAt); err != nil {
+	`, noteUUID, evt.TenantID, stixTypeNote, stix.SpecVersion, payload, at); err != nil {
 		return fmt.Errorf("insert stix note: %w", err)
 	}
 	// The prediction row carries the attestation too, so the view needs no
@@ -223,73 +218,60 @@ func insertAttestationNote(ctx context.Context, tx *sql.Tx, evt Event, a Attesta
 	return nil
 }
 
-// stixHypothesis is the canonical x-hypothesis STIX JSON written to
-// stix_objects (01-domain-model.md §x-hypothesis). created_by_ref is omitted at
-// v0 — there are no Identity SDOs yet; authorship is fully recorded on the
-// producing interpretation event (actor + delegate).
-type stixHypothesis struct {
-	Type        string   `json:"type"`
-	SpecVersion string   `json:"spec_version"`
-	ID          string   `json:"id"`
-	Statement   string   `json:"statement"`
-	Handle      string   `json:"handle,omitempty"`
-	Status      string   `json:"status"`
-	ParentRef   string   `json:"parent_ref,omitempty"`
-	RootedAtRef string   `json:"rooted_at_ref,omitempty"`
-	Rationale   string   `json:"rationale,omitempty"`
-	Labels      []string `json:"labels,omitempty"`
-	Created     string   `json:"created"`
-	Modified    string   `json:"modified"`
+// hypothesisPayload builds the node's STIX JSON (01 §reckon-hypothesis).
+// created_by_ref is left out: there are no identity objects for people yet,
+// and the producing interpretation event records the actor and delegate.
+func hypothesisPayload(evt Event, rec InterpretationRecorded, h HypothesisRecorded) ([]byte, error) {
+	at := stix.Truncate(evt.OccurredAt)
+	return hypothesisNode{HypothesisRecorded: h, Rationale: rec.Summary}.payload(at, at)
 }
 
-// stixPrediction is the canonical x-prediction STIX JSON (01 §x-prediction).
-type stixPrediction struct {
-	Type           string     `json:"type"`
-	SpecVersion    string     `json:"spec_version"`
-	ID             string     `json:"id"`
-	HypothesisRef  string     `json:"hypothesis_ref"`
-	Statement      string     `json:"statement"`
-	Title          string     `json:"title,omitempty"`
-	TitleDerived   bool       `json:"title_derived,omitempty"`
-	Status         string     `json:"status"`
-	TestQuery      *QuerySpec `json:"test_query,omitempty"`
-	Discriminates  []string   `json:"discriminates,omitempty"`
-	TestKind       string     `json:"test_kind,omitempty"`
-	TestResultRefs []string   `json:"test_result_refs,omitempty"`
-	Created        string     `json:"created"`
-	Modified       string     `json:"modified"`
+// hypothesisNode is a stored reckon-hypothesis as the projector rebuilds it:
+// the node content, the rationale it was recorded with, and its created time.
+// Every write of the node, its first and every change after, goes through
+// payload, so the serializer checks each one and a replay writes the same
+// bytes (adr/0357).
+type hypothesisNode struct {
+	HypothesisRecorded
+	Rationale string    `json:"rationale,omitempty"`
+	Created   time.Time `json:"created"`
 }
 
-func stixTime(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.999Z") }
+func (n hypothesisNode) payload(created, modified time.Time) ([]byte, error) {
+	h := n.HypothesisRecorded
+	return stix.Marshal(stix.Object{
+		Type:     stixTypeHypothesis,
+		ID:       h.ID,
+		Created:  created,
+		Modified: modified,
+		Properties: map[string]any{
+			"statement":     h.Statement,
+			"handle":        h.Handle,
+			"status":        h.Status,
+			"parent_ref":    h.ParentRef,
+			"rooted_at_ref": h.RootedAtRef,
+			"rationale":     n.Rationale,
+			"labels":        h.Labels,
+		},
+	})
+}
 
 func insertHypothesis(ctx context.Context, tx *sql.Tx, evt Event, rec InterpretationRecorded, h HypothesisRecorded) error {
 	nodeUUID, err := stixIDUUID(h.ID, stixTypeHypothesis)
 	if err != nil {
 		return fmt.Errorf("project hypothesis: %w", err)
 	}
-	payload, err := json.Marshal(stixHypothesis{
-		Type:        stixTypeHypothesis,
-		SpecVersion: "2.1",
-		ID:          h.ID,
-		Statement:   h.Statement,
-		Handle:      h.Handle,
-		Status:      h.Status,
-		ParentRef:   h.ParentRef,
-		RootedAtRef: h.RootedAtRef,
-		Rationale:   rec.Summary,
-		Labels:      h.Labels,
-		Created:     stixTime(evt.OccurredAt),
-		Modified:    stixTime(evt.OccurredAt),
-	})
+	at := stix.Truncate(evt.OccurredAt)
+	payload, err := hypothesisPayload(evt, rec, h)
 	if err != nil {
-		return fmt.Errorf("marshal x-hypothesis: %w", err)
+		return fmt.Errorf("marshal reckon-hypothesis: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO stix_objects (id, tenant_id, type, spec_version, payload, created, modified)
-		VALUES ($1, $2, $3, '2.1', $4, $5, $5)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)
 		ON CONFLICT (id) DO NOTHING
-	`, nodeUUID, evt.TenantID, stixTypeHypothesis, payload, evt.OccurredAt); err != nil {
-		return fmt.Errorf("insert stix x-hypothesis: %w", err)
+	`, nodeUUID, evt.TenantID, stixTypeHypothesis, stix.SpecVersion, payload, at); err != nil {
+		return fmt.Errorf("insert stix reckon-hypothesis: %w", err)
 	}
 
 	var labels []byte
@@ -319,14 +301,20 @@ func reviseHypothesisFields(ctx context.Context, tx *sql.Tx, evt Event, ref, sta
 	if err != nil {
 		return fmt.Errorf("project hypothesis revise: %w", err)
 	}
-	if statement != "" {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE stix_objects
-			SET payload = jsonb_set(payload, '{statement}', to_jsonb($2::text)), modified = $3
-			WHERE id = $1
-		`, nodeUUID, statement, evt.OccurredAt); err != nil {
-			return fmt.Errorf("update stix x-hypothesis statement: %w", err)
+	if statement != "" || handle != "" {
+		if err := rewriteNode(ctx, tx, nodeUUID, stixTypeHypothesis, evt.OccurredAt, func(node any) {
+			n := node.(*hypothesisNode)
+			if statement != "" {
+				n.Statement = statement
+			}
+			if handle != "" {
+				n.Handle = handle
+			}
+		}); err != nil {
+			return err
 		}
+	}
+	if statement != "" {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE hypothesis_current SET statement = $2, last_event_sequence = $3, updated_at = $4 WHERE id = $1
 		`, ref, statement, evt.SequenceNo, evt.OccurredAt); err != nil {
@@ -334,13 +322,6 @@ func reviseHypothesisFields(ctx context.Context, tx *sql.Tx, evt Event, ref, sta
 		}
 	}
 	if handle != "" {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE stix_objects
-			SET payload = jsonb_set(payload, '{handle}', to_jsonb($2::text)), modified = $3
-			WHERE id = $1
-		`, nodeUUID, handle, evt.OccurredAt); err != nil {
-			return fmt.Errorf("update stix x-hypothesis handle: %w", err)
-		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE hypothesis_current SET handle = $2, last_event_sequence = $3, updated_at = $4 WHERE id = $1
 		`, ref, handle, evt.SequenceNo, evt.OccurredAt); err != nil {
@@ -350,28 +331,106 @@ func reviseHypothesisFields(ctx context.Context, tx *sql.Tx, evt Event, ref, sta
 	return nil
 }
 
+// predictionPayload builds the node's STIX JSON (01 §reckon-prediction).
+func predictionPayload(evt Event, p PredictionRecorded) ([]byte, error) {
+	at := stix.Truncate(evt.OccurredAt)
+	return predictionNode{PredictionRecorded: p}.payload(at, at)
+}
+
+// predictionNode is a stored reckon-prediction as the projector rebuilds it,
+// with the test results its outcome cites. As hypothesisNode, every write goes
+// through payload (adr/0357).
+type predictionNode struct {
+	PredictionRecorded
+	// The outcome's citations as stored: STIX ids in TestResultRefs, raw OCSF
+	// event ids in TestResultEventIDs (adr/0357).
+	TestResultRefs     []string  `json:"test_result_refs,omitempty"`
+	TestResultEventIDs []string  `json:"test_result_event_ids,omitempty"`
+	Created            time.Time `json:"created"`
+}
+
+// cite stores an outcome's citations as the command gave them, split by form:
+// a STIX id is a ref, and a bare UUID is a raw OCSF event's id (adr/0357). The
+// event log keeps the list whole, so a replay splits it the same way.
+func (n *predictionNode) cite(refs []string) {
+	n.TestResultRefs, n.TestResultEventIDs = nil, nil
+	for _, r := range refs {
+		if stix.IsIdentifier(r) {
+			n.TestResultRefs = append(n.TestResultRefs, r)
+		} else {
+			n.TestResultEventIDs = append(n.TestResultEventIDs, r)
+		}
+	}
+}
+
+func (n predictionNode) payload(created, modified time.Time) ([]byte, error) {
+	p := n.PredictionRecorded
+	properties := map[string]any{
+		"hypothesis_ref": p.HypothesisRef,
+		"statement":      p.Statement,
+		"title":          p.Title,
+		"status":         p.Status,
+		"test_query":     p.TestQuery,
+		"discriminates":  p.Discriminates,
+		"test_kind":      p.TestKind,
+		// An empty list is left out, never stored as [] (adr/0357).
+		"test_result_refs":      n.TestResultRefs,
+		"test_result_event_ids": n.TestResultEventIDs,
+	}
+	if p.TitleDerived {
+		properties["title_derived"] = true
+	}
+	return stix.Marshal(stix.Object{Type: stixTypePrediction, ID: p.ID, Created: created, Modified: modified, Properties: properties})
+}
+
+// rewriteNode rebuilds a stored reasoning node from its current payload with
+// change applied, through the node's payload function, and writes it whole
+// with modified at the event's time (adr/0357). A change the serializer
+// refuses fails the event's transaction.
+func rewriteNode(ctx context.Context, tx *sql.Tx, nodeUUID uuid.UUID, stixType string, at time.Time, change func(node any)) error {
+	var stored []byte
+	if err := tx.QueryRowContext(ctx, `SELECT payload FROM stix_objects WHERE id = $1 FOR UPDATE`, nodeUUID).Scan(&stored); err != nil {
+		return fmt.Errorf("read stix %s: %w", stixType, err)
+	}
+	modified := stix.Truncate(at)
+	var payload []byte
+	var err error
+	switch stixType {
+	case stixTypeHypothesis:
+		var n hypothesisNode
+		if err := json.Unmarshal(stored, &n); err != nil {
+			return fmt.Errorf("decode stix %s: %w", stixType, err)
+		}
+		change(&n)
+		payload, err = n.payload(n.Created, modified)
+	case stixTypePrediction:
+		var n predictionNode
+		if err := json.Unmarshal(stored, &n); err != nil {
+			return fmt.Errorf("decode stix %s: %w", stixType, err)
+		}
+		change(&n)
+		payload, err = n.payload(n.Created, modified)
+	default:
+		return fmt.Errorf("rewrite %s: not a reasoning node", stixType)
+	}
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", stixType, err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE stix_objects SET payload = $2, modified = $3 WHERE id = $1`, nodeUUID, payload, modified); err != nil {
+		return fmt.Errorf("update stix %s: %w", stixType, err)
+	}
+	return nil
+}
+
 func insertPrediction(ctx context.Context, tx *sql.Tx, evt Event, _ InterpretationRecorded, p PredictionRecorded) error {
 	nodeUUID, err := stixIDUUID(p.ID, stixTypePrediction)
 	if err != nil {
 		return fmt.Errorf("project prediction: %w", err)
 	}
-	payload, err := json.Marshal(stixPrediction{
-		Type:          stixTypePrediction,
-		SpecVersion:   "2.1",
-		ID:            p.ID,
-		HypothesisRef: p.HypothesisRef,
-		Statement:     p.Statement,
-		Title:         p.Title,
-		TitleDerived:  p.TitleDerived,
-		Status:        p.Status,
-		TestQuery:     p.TestQuery,
-		Discriminates: p.Discriminates,
-		TestKind:      p.TestKind,
-		Created:       stixTime(evt.OccurredAt),
-		Modified:      stixTime(evt.OccurredAt),
-	})
+	at := stix.Truncate(evt.OccurredAt)
+	payload, err := predictionPayload(evt, p)
 	if err != nil {
-		return fmt.Errorf("marshal x-prediction: %w", err)
+		return fmt.Errorf("marshal reckon-prediction: %w", err)
 	}
 	testKind := p.TestKind
 	if testKind == "" {
@@ -385,10 +444,10 @@ func insertPrediction(ctx context.Context, tx *sql.Tx, evt Event, _ Interpretati
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO stix_objects (id, tenant_id, type, spec_version, payload, created, modified)
-		VALUES ($1, $2, $3, '2.1', $4, $5, $5)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)
 		ON CONFLICT (id) DO NOTHING
-	`, nodeUUID, evt.TenantID, stixTypePrediction, payload, evt.OccurredAt); err != nil {
-		return fmt.Errorf("insert stix x-prediction: %w", err)
+	`, nodeUUID, evt.TenantID, stixTypePrediction, stix.SpecVersion, payload, at); err != nil {
+		return fmt.Errorf("insert stix reckon-prediction: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -414,32 +473,21 @@ func transitionNode(ctx context.Context, tx *sql.Tx, evt Event, stixType, ref, t
 		return fmt.Errorf("project %s transition: %w", stixType, err)
 	}
 
-	// The STIX payload: set status (+ test_result_refs for predictions), bump
-	// modified. jsonb_set on the stored payload keeps this a single UPDATE.
-	if testResultRefs == nil {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE stix_objects
-			SET payload = jsonb_set(payload, '{status}', to_jsonb($2::text)),
-			    modified = $3
-			WHERE id = $1
-		`, nodeUUID, to, evt.OccurredAt); err != nil {
-			return fmt.Errorf("update stix %s status: %w", stixType, err)
+	// The STIX payload: the status (+ test_result_refs for predictions),
+	// rebuilt whole through the node's payload function, modified moved in
+	// the payload and the column alike (adr/0357).
+	if err := rewriteNode(ctx, tx, nodeUUID, stixType, evt.OccurredAt, func(node any) {
+		switch n := node.(type) {
+		case *hypothesisNode:
+			n.Status = to
+		case *predictionNode:
+			n.Status = to
+			if testResultRefs != nil {
+				n.cite(testResultRefs)
+			}
 		}
-	} else {
-		refs, err := json.Marshal(testResultRefs)
-		if err != nil {
-			return fmt.Errorf("marshal test_result_refs: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE stix_objects
-			SET payload = jsonb_set(
-			        jsonb_set(payload, '{status}', to_jsonb($2::text)),
-			        '{test_result_refs}', $3::jsonb),
-			    modified = $4
-			WHERE id = $1
-		`, nodeUUID, to, refs, evt.OccurredAt); err != nil {
-			return fmt.Errorf("update stix %s outcome: %w", stixType, err)
-		}
+	}); err != nil {
+		return err
 	}
 
 	switch stixType {
@@ -480,8 +528,10 @@ func (ReasoningNodeProjector) Reset(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("delete reasoning stix_objects: %w", err)
 	}
 	// Attestation notes are ours to rebuild; a note from any other producer
-	// (none today) is not, so the delete is scoped by the attestation marker.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM stix_objects WHERE type = $1 AND payload ? 'x_reckon_attestation'`,
+	// (none today) is not, so the delete is scoped by the reckon-attestation
+	// property-extension (adr/0357).
+	// #nosec G202 -- the joined fragment is a fixed JSON path from the stix package, never input.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM stix_objects WHERE type = $1 AND `+stix.HasExtensionSQL("payload", stix.ExtAttestation),
 		stixTypeNote); err != nil {
 		return fmt.Errorf("delete attestation notes: %w", err)
 	}
@@ -507,7 +557,7 @@ type HypothesisCurrent struct {
 }
 
 // PredictionCurrent is one materialized prediction row. TestQuery is read from
-// the canonical x-prediction STIX payload (the projector's other write) rather
+// the canonical reckon-prediction STIX payload (the projector's other write) rather
 // than a duplicated column — the declared test is immutable after creation.
 type PredictionCurrent struct {
 	ID                string
@@ -603,7 +653,7 @@ func (r *ReadModel) ListPredictions(ctx context.Context, aggregateID uuid.UUID) 
 // ListReasoningStixPayloads returns the canonical STIX payloads of the
 // interpretation-layer nodes belonging to one investigation — the objects the
 // export bundle's stix-bundle.json carries (07 §2.1). The reasoning nodes'
-// _current tables key the node by its full STIX id (x-hypothesis--<uuid>);
+// _current tables key the node by its full STIX id (reckon-hypothesis--<uuid>);
 // stix_objects keys by the bare uuid, so we join on the uuid extracted from the
 // full id (split on the STIX "--" separator). Ordered by type+id for a stable
 // bundle.
@@ -637,7 +687,7 @@ func (r *ReadModel) ListReasoningStixPayloads(ctx context.Context, aggregateID u
 	return out, rows.Err()
 }
 
-// ActionSummary is the lightweight view of an x-action for the export report
+// ActionSummary is the lightweight view of a reckon-action for the export report
 // (07 §2.1) — what it was, its tier, and where it ended.
 type ActionSummary struct {
 	ActionID   uuid.UUID
@@ -646,7 +696,7 @@ type ActionSummary struct {
 	Status     string
 }
 
-// ListActionSummaries returns every x-action of one investigation, oldest
+// ListActionSummaries returns every reckon-action of one investigation, oldest
 // first, for the export report + audit view.
 func (r *ReadModel) ListActionSummaries(ctx context.Context, aggregateID uuid.UUID) ([]ActionSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `

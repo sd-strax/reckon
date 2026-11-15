@@ -17,5 +17,11 @@
         "status": "x"
       }
     }
-  ]
+  ],
+  "unread": {
+    "count": 1,
+    "reasons": [
+      "x"
+    ]
+  }
 }

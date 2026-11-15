@@ -11,7 +11,7 @@ import (
 // the model, for the given hypothesis-framing dial (adr/0057, adr/0232): the
 // base prompt, every intrinsic tool definition, and the engine text. It is a
 // pure function of the code and the one tenant dial that changes the prompt's
-// words (01 §x-hypothesis); it does not move with the investigation, the
+// words (01 §reckon-hypothesis); it does not move with the investigation, the
 // environment's verbs or its action catalog, which vary per case and per
 // install and are not the prompt (the catalog's content is attributed apart, as
 // the action-catalog hash). The eval harness stamps it on every run (10 §1.4),

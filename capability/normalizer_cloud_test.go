@@ -125,7 +125,7 @@ func TestAPIActivity_IAMUser(t *testing.T) {
 		t.Fatalf("resources = %d; want 1", len(rs))
 	}
 	wantRes, _ := ids.CloudResource(identity.CloudResourceIdentity{Provider: "aws", UID: "arn:aws:s3:::acme-internal-exports"})
-	if rs[0].ID != wantRes || rs[0].Properties["type"] != "AWS::S3::Bucket" {
+	if rs[0].ID != wantRes || rs[0].Properties["resource_type"] != "AWS::S3::Bucket" {
 		t.Errorf("resource = %+v", rs[0])
 	}
 	if _, ok := rs[0].Properties["account_ref"]; ok {
@@ -140,7 +140,7 @@ func TestAPIActivity_IAMUser(t *testing.T) {
 	}
 
 	od := res.ObservedData[0]
-	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 3 || od.Provenance.DerivationMode != DerivationDirect {
+	if od.Provenance.Normalizer != "api_activity" || od.Provenance.NormalizerVersion != 4 || od.Provenance.DerivationMode != DerivationDirect {
 		t.Errorf("provenance = %+v", od.Provenance)
 	}
 	if len(od.ObjectRefs) != 4 {
@@ -221,8 +221,10 @@ func TestAPIActivity_AzureIssuerIgnored(t *testing.T) {
 	if u1[0].ID == u2[0].ID {
 		t.Error("two Azure users under one issuer merged")
 	}
-	if u1[0].Properties["is_service_account"] != false {
-		t.Error("an ignored issuer marked the principal a service account")
+	// No type and no session rule: whether it is a service account is
+	// unknown, so it is left out, not written false (adr/0357).
+	if v, ok := u1[0].Properties["is_service_account"]; ok {
+		t.Errorf("an ignored issuer wrote is_service_account = %v; want it left out", v)
 	}
 }
 

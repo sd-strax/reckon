@@ -23,7 +23,7 @@ func inventoryEvent(tool string, dev map[string]any) OcsfEvent {
 
 // TestHostIdentityConformance is the host identity conformance check
 // (adr/0211, `make conformance`): one machine as three tools' inventories
-// report it normalizes to one strong x-host, each record that carries a
+// report it normalizes to one strong reckon-host, each record that carries a
 // device id also yields the weak host that id alone mints, aliased to the
 // strong host and kept out of the observation's object_refs, and a later
 // activity record that names the machine by its device id alone lands on that

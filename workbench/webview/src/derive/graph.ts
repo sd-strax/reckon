@@ -10,7 +10,7 @@ export interface GraphLayout {
   ungrounded: Set<string>;
 }
 
-export const isReason = (r: GraphRef): boolean => r.type === "x-hypothesis" || r.type === "x-prediction";
+export const isReason = (r: GraphRef): boolean => r.type === "reckon-hypothesis" || r.type === "reckon-prediction";
 
 export function layoutGraph(g: GraphView): GraphLayout {
   const refs = g.refs || [], edges = g.edges || [];

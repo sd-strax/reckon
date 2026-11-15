@@ -90,7 +90,7 @@ The package's rule "no data is information, not failure" is the engine's
 | `WAIVED` | No engine state; nearest truth is `REJECTED` with a waive-flavored rationale. Open question §7. |
 
 **Retry binds to a new action, never the same id.** The dispatch ledger (`08 §6b`)
-guarantees one x-action id never dispatches twice, and the write path is no-fall-through
+guarantees one reckon-action id never dispatches twice, and the write path is no-fall-through
 (a partial state change must not be re-attempted). "Retry" = request a new action with the
 same descriptor/targets carrying `retry_of` lineage (§6.6); the card renders the chain.
 
@@ -155,7 +155,7 @@ Engine statuses, verbatim: `PROPOSED / OPEN / SUPPORTED / REFUTED / INCONCLUSIVE
 ABANDONED` — and **predictions**: falsifiable test conditions with per-prediction status and
 test-result refs (`01`; served by `/hypotheses`). The hypothesis card grows a prediction
 sublist; the flat open/supported/refuted list in the sheets is superseded. Hypotheses carry
-a `handle` and predictions a `discriminates` list (`01 §x-hypothesis` "Competing
+a `handle` and predictions a `discriminates` list (`01 §reckon-hypothesis` "Competing
 hypotheses"); the tracker renders them as a tabbed scoreboard (`02 §2.9`), one working
 hypothesis at a time with the whole set always in view.
 
@@ -266,7 +266,7 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     it may live client-side keyed by `class_uid`; the short title is recorded with the
     prediction, never generated at render time. *Built: `adr/0090`, server-side in
     `capability/ocsfview`, `view` on every event row and on `GET /api/evidence/{ref}`;
-    `title` on `x-prediction`. The decoded command line landed as `adr/0300`: `decoded` on the
+    `title` on `reckon-prediction`. The decoded command line landed as `adr/0300`: `decoded` on the
     view, only when a known encoding decodes cleanly, the original always shown.*
 13. **Entity-scoped event query** — the cited and retrieved events for one entity within
     one investigation, ordered by event time, for the inspector's "around it" strip and
@@ -297,7 +297,7 @@ Motivated by the investigation layout (`ui/08`, `adr/0079`), not yet built:
     policy and the shadow outcomes stay on `GET /api/actions/{id}`, which the card links to.*
 17. **Owner action items** — work that only an owner outside reckon can do, tracked to
     confirmation with the investigation and counted by the conclude preflight. Open: an
-    `x-action` with an external-work descriptor (`00 §4`'s external work) or its own record.
+    `reckon-action` with an external-work descriptor (`00 §4`'s external work) or its own record.
     *Built: `adr/0101`, as a **dependency**, its own record (`dependency/`,
     `GET/POST /api/investigations/{id}/dependencies`, `/api/dependencies/{id}/attach|confirm|waive`);
     SENT when the `notify.*` action it rides on succeeds (the result path on every attempt,

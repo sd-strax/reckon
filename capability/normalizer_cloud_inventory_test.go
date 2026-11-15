@@ -70,13 +70,13 @@ func TestCloudInventory_Snapshot(t *testing.T) {
 	}
 
 	od := res.ObservedData[0]
-	if od.Provenance.Normalizer != "cloud_resources_inventory_info" || od.Provenance.NormalizerVersion != 4 {
+	if od.Provenance.Normalizer != "cloud_resources_inventory_info" || od.Provenance.NormalizerVersion != 5 {
 		t.Errorf("provenance = %+v", od.Provenance)
 	}
 	ext := od.Extensions
 	for k, want := range map[string]any{
 		"activity": "Collect", "activity_id": 2, "region": "us-east-1", "resource_count": 1,
-		"resource_uid": bucketARN, "resource_name": "acme-internal-exports", "type": "AWS::S3::Bucket",
+		"resource_uid": bucketARN, "resource_name": "acme-internal-exports", "resource_type": "AWS::S3::Bucket",
 		"criticality": "High", "created_time": "2025-03-02T12:00:00Z", "modified_time": "2026-07-14T09:28:00Z",
 	} {
 		if ext[k] != want {
@@ -170,13 +170,19 @@ func TestCloudInventory_Owner(t *testing.T) {
 
 // TestCloudInventory_NoProvider: with no cloud.provider there is no namespace
 // for a cloud identity; the snapshot is one ObservedData with its extensions.
+// It names no entity, so its one object is the record's artifact (adr/0357).
 func TestCloudInventory_NoProvider(t *testing.T) {
 	p := inventoryPayload()
 	delete(p, "cloud")
 	p["resources"].([]any)[0].(map[string]any)["owner"] = map[string]any{"uid": "u-1", "name": "someone"}
-	res := normalizeOne(t, p)
-	if len(res.SCOs) != 0 || len(res.Relationships) != 0 {
-		t.Errorf("SCOs %+v, relationships %+v; want none without a provider", res.SCOs, res.Relationships)
+	evt := makeEvent(p)
+	res, err := testRegistry().Normalize(evt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordArtifactOnly(t, evt, res)
+	if len(res.Relationships) != 0 {
+		t.Errorf("relationships %+v; want none without a provider", res.Relationships)
 	}
 	if ext := res.ObservedData[0].Extensions; ext["resource_uid"] != bucketARN || ext["configuration"] == nil {
 		t.Errorf("ext = %v; want the snapshot's fields", ext)

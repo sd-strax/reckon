@@ -11,18 +11,18 @@ func TestStixLabel(t *testing.T) {
 		payload string
 		want    string
 	}{
-		{"host by hostname", "x-host", `{"properties":{"domain":"CONTOSO","hostname":"WIN-FILE01"}}`, "WIN-FILE01"},
-		{"host falls back to name", "x-host", `{"properties":{"name":"srv-01"}}`, "srv-01"},
-		{"ipv4 value", "ipv4-addr", `{"properties":{"value":"10.0.0.5"}}`, "10.0.0.5"},
-		{"user by display name", "user-account", `{"properties":{"display_name":"Mike Torres","user_id":"mtorres"}}`, "Mike Torres"},
-		{"user falls back to user_id", "user-account", `{"properties":{"user_id":"svc_backup"}}`, "svc_backup"},
-		{"file by name", "file", `{"properties":{"name":"evil.exe"}}`, "evil.exe"},
-		{"registry key with a value", "windows-registry-key", `{"properties":{"key":"HKEY_LOCAL_MACHINE\\Run","values":[{"name":"Updater","data":"u.exe"}]}}`, `HKEY_LOCAL_MACHINE\Run (Updater)`},
-		{"registry key's default value", "windows-registry-key", `{"properties":{"key":"HKEY_LOCAL_MACHINE\\Run","values":[{"name":""}]}}`, `HKEY_LOCAL_MACHINE\Run (default)`},
-		{"process command line collapses whitespace", "process", "{\"properties\":{\"command_line\":\"powershell   -enc\\n  AAA\"}}", "powershell -enc AAA"},
-		{"process numeric pid formatted", "process", `{"properties":{"pid":4321}}`, "pid 4321"},
-		{"unknown type, no identifier", "x-mystery", `{"properties":{"foo":"bar"}}`, ""},
-		{"malformed payload", "x-host", `not json`, ""},
+		{"host by hostname", "reckon-host", `{"domain":"CONTOSO","hostname":"WIN-FILE01"}`, "WIN-FILE01"},
+		{"host falls back to name", "reckon-host", `{"name":"srv-01"}`, "srv-01"},
+		{"ipv4 value", "ipv4-addr", `{"value":"10.0.0.5"}`, "10.0.0.5"},
+		{"user by display name", "user-account", `{"display_name":"Mike Torres","user_id":"mtorres"}`, "Mike Torres"},
+		{"user falls back to user_id", "user-account", `{"user_id":"svc_backup"}`, "svc_backup"},
+		{"file by name", "file", `{"name":"evil.exe"}`, "evil.exe"},
+		{"registry key with a value", "windows-registry-key", `{"key":"HKEY_LOCAL_MACHINE\\Run","values":[{"name":"Updater","data":"u.exe"}]}`, `HKEY_LOCAL_MACHINE\Run (Updater)`},
+		{"registry key's default value", "windows-registry-key", `{"key":"HKEY_LOCAL_MACHINE\\Run","values":[{"name":""}]}`, `HKEY_LOCAL_MACHINE\Run (default)`},
+		{"process command line collapses whitespace", "process", "{\"command_line\":\"powershell   -enc\\n  AAA\"}", "powershell -enc AAA"},
+		{"process numeric pid formatted", "process", `{"pid":4321}`, "pid 4321"},
+		{"unknown type, no identifier", "reckon-mystery", `{"foo":"bar"}`, ""},
+		{"malformed payload", "reckon-host", `not json`, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

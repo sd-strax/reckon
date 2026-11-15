@@ -96,7 +96,7 @@ func TestActionHistory(t *testing.T) {
 
 	mustHandle(t, h, cmdEnv(aggID), RequestAction{
 		ActionID: actionID, ActionType: "host.isolate", Tier: TierT2,
-		Targets:      []TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-DC01"}},
+		Targets:      []TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-DC01"}},
 		EvidenceRefs: []string{"observed-data--od1"}, ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
 	})
 	mustHandle(t, h, cmdEnv(aggID), ApproveAction{
@@ -153,7 +153,7 @@ func TestActionHistory_CorruptPayload(t *testing.T) {
 	actionID := uuid.New()
 	mustHandle(t, h, cmdEnv(aggID), RequestAction{
 		ActionID: actionID, ActionType: "host.isolate", Tier: TierT2,
-		Targets:      []TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-DC01"}},
+		Targets:      []TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-DC01"}},
 		EvidenceRefs: []string{"observed-data--od1"}, ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
 	})
 	corrupt, _ := json.Marshal(map[string]any{"action_id": actionID, "targets": "not a list"})

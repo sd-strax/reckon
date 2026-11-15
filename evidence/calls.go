@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/capability"
+	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // A capability call is an addressable record (adr/0092): one row per
@@ -247,7 +249,7 @@ func (s *Store) InvestigationEvents(ctx context.Context, investigationID uuid.UU
 		}
 		q.where(fmt.Sprintf(`EXISTS (
 			SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id
-			WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ?| %s::text[])`, q.arg(textArray(set))))
+			WHERE ode.ocsf_event_id = e.id AND %s)`, observationNamesAny("o.payload", q.arg(textArray(set))+"::text[]")))
 	}
 
 	if f.Around != (uuid.UUID{}) {
@@ -308,7 +310,7 @@ func (s *Store) eventsAround(ctx context.Context, investigationID uuid.UUID, q *
 	}
 	var hosts []string
 	for _, r := range refs {
-		if strings.HasPrefix(r, "x-host--") {
+		if strings.HasPrefix(r, identity.TypeHost+"--") {
 			hosts = append(hosts, r)
 		}
 	}
@@ -329,7 +331,7 @@ func (s *Store) eventsAround(ctx context.Context, investigationID uuid.UUID, q *
 	if len(shared) == 0 {
 		return Events{Rows: []EventRow{}}, nil
 	}
-	q.where(`EXISTS (SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ?| ` + q.arg(textArray(shared)) + `::text[])`)
+	q.where(`EXISTS (SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id WHERE ode.ocsf_event_id = e.id AND ` + observationNamesAny("o.payload", q.arg(textArray(shared))+"::text[]") + `)`)
 	atArg, idArg := q.arg(at), q.arg(anchor)
 	before := q.clone()
 	before.where(fmt.Sprintf("(e.time < %s OR (e.time = %s AND e.id < %s))", atArg, atArg, idArg))
@@ -431,8 +433,9 @@ func (s *Store) attachDerivedRefs(ctx context.Context, rows []EventRow) error {
 		ids = append(ids, r.ID)
 		index[r.ID] = i
 	}
+	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
 	res, err := s.db.QueryContext(ctx, `
-		SELECT ode.ocsf_event_id, ode.observed_data_id, o.payload->'object_refs'
+		SELECT ode.ocsf_event_id, ode.observed_data_id, o.payload->'object_refs', COALESCE(`+stix.ObservationPersonRef.SQL("o.payload")+`, '')
 		FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id
 		WHERE ode.ocsf_event_id = ANY($1)
 		ORDER BY ode.ocsf_event_id, ode.observed_data_id
@@ -444,7 +447,8 @@ func (s *Store) attachDerivedRefs(ctx context.Context, rows []EventRow) error {
 	for res.Next() {
 		var eventID, odID uuid.UUID
 		var refsJSON []byte
-		if err := res.Scan(&eventID, &odID, &refsJSON); err != nil {
+		var personRef string
+		if err := res.Scan(&eventID, &odID, &refsJSON, &personRef); err != nil {
 			return fmt.Errorf("scan derived object: %w", err)
 		}
 		i, ok := index[eventID]
@@ -454,8 +458,17 @@ func (s *Store) attachDerivedRefs(ctx context.Context, rows []EventRow) error {
 		rows[i].ObservedDataRefs = append(rows[i].ObservedDataRefs, "observed-data--"+odID.String())
 		var refs []string
 		_ = json.Unmarshal(refsJSON, &refs)
+		// A directory record names its person in person_ref, which
+		// object_refs cannot hold (adr/0324, adr/0357).
+		if personRef != "" {
+			refs = append(refs, personRef)
+		}
 		for _, r := range refs {
-			if r != "" && !contains(rows[i].EntityRefs, r) {
+			// An observation may list a relationship, such as a directory
+			// record's belongs-to, or the artifact that stands for a record
+			// with nothing to extract (adr/0357). Neither is an entity the
+			// event names.
+			if capability.IsEntityRef(r) && !contains(rows[i].EntityRefs, r) {
 				rows[i].EntityRefs = append(rows[i].EntityRefs, r)
 			}
 		}
@@ -680,4 +693,13 @@ func uuidArray(ids []uuid.UUID) string {
 		parts = append(parts, id.String())
 	}
 	return "{" + strings.Join(parts, ",") + "}"
+}
+
+// observationNamesAny is a Postgres condition that holds when the observation
+// in the jsonb column payload names one of the refs in arr, a text array: in
+// its object_refs, or as the person a directory record describes in
+// reckon-observation's person_ref (adr/0324, adr/0357). Every query that asks
+// which records are about an entity uses it.
+func observationNamesAny(payload, arr string) string {
+	return "(" + payload + "->'object_refs' ?| " + arr + " OR " + stix.ObservationPersonRef.SQL(payload) + " = ANY(" + arr + "))"
 }

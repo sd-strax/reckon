@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Hypothesis-framing shapes (01 §x-hypothesis "Competing hypotheses"), mirrored
+// Hypothesis-framing shapes (01 §reckon-hypothesis "Competing hypotheses"), mirrored
 // from config.Reasoning so the agent package stays free of the config import.
 const (
 	framingLeadingNull = "leading_null"
@@ -101,7 +101,7 @@ var promptLedger = []promptSection{
 			{
 				ID:        "hypothesis-first",
 				Origin:    "80420c3",
-				Why:       "An investigation is a loop of falsifiable claims, tests, and evidence-cited outcomes — the reasoning model the domain is built on (design/01 §x-hypothesis, design/09 §2).",
+				Why:       "An investigation is a loop of falsifiable claims, tests, and evidence-cited outcomes — the reasoning model the domain is built on (design/01 §reckon-hypothesis, design/09 §2).",
 				Enforced:  "aggregate: outcomes cite test_result_refs; hypotheses are PROPOSED until a human acknowledges",
 				Validated: []string{scenarioLateralMovement},
 				Text:      "Work hypothesis-first: form falsifiable hypotheses (propose_hypothesis), derive testable predictions (record_prediction), test them with read tools, then record outcomes (record_prediction_outcome, evaluate_hypothesis) citing the evidence refs you observed.",
@@ -119,7 +119,7 @@ var promptLedger = []promptSection{
 				ID:          "framing",
 				Origin:      "#6",
 				Revised:     []string{"#60"},
-				Why:         "The alternative that would make the leader wrong is framed up front, and only when a test can tell them apart — the competing set is the unit of reasoning (design/01 §x-hypothesis, the reasoning.hypothesis_framing dial).",
+				Why:         "The alternative that would make the leader wrong is framed up front, and only when a test can tell them apart — the competing set is the unit of reasoning (design/01 §reckon-hypothesis, the reasoning.hypothesis_framing dial).",
 				Graded:      "R1",
 				Validated:   bothScenarios,
 				Text:        "Framing (leading_null): when you first form a theory, propose the LEADING hypothesis AND exactly one concrete ALTERNATIVE: an explanation under which the leader is wrong — most often that the activity was legitimate, or that a different actor produced the same evidence. A third only when the evidence genuinely supports it. Give each a short numbered handle. Never propose an alternative you cannot name a discriminating test for; if no credible rival exists, propose one hypothesis and say why.",
@@ -130,7 +130,7 @@ var promptLedger = []promptSection{
 				Origin:    "#6",
 				Revised:   []string{"#54", "#60"},
 				Why:       "Evidence is asymmetric: a prediction whose outcome differs across rivals decides, one that comes out the same under both does not. A test is a person's to run only when no capability can answer it, and its result is then the analyst's to record.",
-				Enforced:  "aggregate: discriminates is data on x-prediction; an AI delegate records no outcome but withdraw on a manual prediction (adr/0054)",
+				Enforced:  "aggregate: discriminates is data on reckon-prediction; an AI delegate records no outcome but withdraw on a manual prediction (adr/0054)",
 				Graded:    "R2",
 				Validated: bothScenarios,
 				Text:      "Tests discriminate: evidence is asymmetric. One strong disconfirmation can kill a hypothesis; any number of confirmations only make it consistent. When you propose predictions, read EVERY live hypothesis in the reasoning state and make sure at least one prediction has opposite expected outcomes under the leader and its rival; set discriminates to those rival ids. A prediction that comes out the same under both tells us nothing about which is true. A test is manual only when no tool available to you can answer it: confirm that before saying a person must be asked. For a manual test, say in test_query whom to ask and what; the analyst records its result, never you.",

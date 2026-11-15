@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/sd-strax/reckon/identity"
@@ -14,7 +15,7 @@ func TestNetworkNormalizer(t *testing.T) {
 		"time":            ms("2026-04-20T14:32:11Z"),
 		"src_endpoint":    map[string]any{"ip": "10.0.0.5", "port": 51000},
 		"dst_endpoint":    map[string]any{"ip": "93.184.216.34", "port": 443, "domain": "example.com"},
-		"connection_info": map[string]any{"protocol_name": "tcp"},
+		"connection_info": map[string]any{"protocol_name": "TCP"},
 		"device":          map[string]any{"hostname": "WS1"},
 	}))
 	if err != nil {
@@ -29,6 +30,11 @@ func TestNetworkNormalizer(t *testing.T) {
 	}
 	if !hasRel(res.Relationships, RelResolvesTo) {
 		t.Error("missing resolves-to (domain → dst IP)")
+	}
+	// STIX protocols is a list of lowercase names (adr/0357).
+	traffic := scosOf(res, identity.TypeNetworkTraffic)[0]
+	if got, _ := traffic.Properties["protocols"].([]string); !slices.Equal(got, []string{"tcp"}) {
+		t.Errorf("protocols = %#v; want [tcp]", traffic.Properties["protocols"])
 	}
 }
 
@@ -77,7 +83,7 @@ func TestFileNormalizer(t *testing.T) {
 		"file": map[string]any{
 			"name":   "evil.dll",
 			"path":   `C:\Windows\Temp\evil.dll`,
-			"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "deadbeef"}},
+			"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "2baf1f40105d9501fe319a8ec463fdf4325a2a5df445adf3f572f626253678c9"}},
 		},
 		"actor":  map[string]any{"process": map[string]any{"pid": 1234, "created_time": ms("2026-04-20T14:00:00Z")}},
 		"device": map[string]any{"hostname": "WS1"},

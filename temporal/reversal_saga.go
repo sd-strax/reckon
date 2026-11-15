@@ -26,7 +26,7 @@ type ReversalSagaInput struct {
 
 // ReversalSaga compensates a succeeded action by dispatching its inverse and,
 // when the original is reliably reversible, marking it REVERSED (04 §7 Position
-// C, 05 §6.2 step 5). The reversing action is a full x-action with its own
+// C, 05 §6.2 step 5). The reversing action is a full reckon-action with its own
 // lifecycle: the saga runs its ActionLifecycle as a child workflow (so it
 // inherits the dispatch-ledger guard and retry budget), then — only if the
 // reversing action actually took effect AND the original is reliably reversible —

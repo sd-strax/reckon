@@ -112,14 +112,14 @@ func TestPersist_OpensWhatItWrote(t *testing.T) {
 	ctx := context.Background()
 	eventID := uuid.New()
 	od := stixID("observed-data")
-	src, tgt := stixID("user-account"), stixID("x-host")
-	err := s.Persist(ctx, aCall(), capability.CapabilityResult{
+	src, tgt := stixID("user-account"), stixID("reckon-host")
+	err := s.Persist(ctx, aCall(), complete(capability.CapabilityResult{
 		Events: []capability.OcsfEvent{telemetry(eventID)},
 		Normalized: []capability.NormalizationResult{{
 			ObservedData:  []capability.ObservedData{{ID: od, FirstObserved: time.Now()}},
-			Relationships: []capability.Relationship{{ID: stixID("relationship"), Type: "x-authenticated-to", SourceRef: src, TargetRef: tgt}},
+			Relationships: []capability.Relationship{{ID: stixID("relationship"), Type: "reckon-authenticated-to", SourceRef: src, TargetRef: tgt}},
 		}},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("Persist: %v", err)
 	}
@@ -140,12 +140,12 @@ func TestPersist_OpensWhatItWrote(t *testing.T) {
 // no ref from the failed invocation can be cited.
 func TestPersist_IsAtomic(t *testing.T) {
 	s := newStore(t)
-	err := s.Persist(context.Background(), aCall(), capability.CapabilityResult{
+	err := s.Persist(context.Background(), aCall(), complete(capability.CapabilityResult{
 		Events: []capability.OcsfEvent{telemetry(uuid.New())},
 		Normalized: []capability.NormalizationResult{{
 			ObservedData: []capability.ObservedData{{ID: "no-separator"}},
 		}},
-	})
+	}))
 	if err == nil {
 		t.Fatal("Persist accepted a malformed STIX id")
 	}
@@ -163,10 +163,10 @@ func TestPersist_ReSeeingIsANoOp(t *testing.T) {
 	eventID := uuid.New()
 	write := func(n int) {
 		t.Helper()
-		err := s.Persist(ctx, aCall(), capability.CapabilityResult{
+		err := s.Persist(ctx, aCall(), complete(capability.CapabilityResult{
 			Events:     []capability.OcsfEvent{telemetry(eventID)},
 			Normalized: []capability.NormalizationResult{{ObservedData: []capability.ObservedData{{ID: id, NumberObserved: n}}}},
-		})
+		}))
 		if err != nil {
 			t.Fatalf("Persist: %v", err)
 		}
@@ -210,7 +210,7 @@ func TestIndicatorNeighbourhood(t *testing.T) {
 	ctx := context.Background()
 	indID, vendor, od := stixID("indicator"), stixID("identity"), stixID("observed-data")
 	missing := stixID("observed-data")
-	err := s.Persist(ctx, aCall(), capability.CapabilityResult{
+	err := s.Persist(ctx, aCall(), complete(capability.CapabilityResult{
 		Normalized: []capability.NormalizationResult{{
 			ObservedData: []capability.ObservedData{{ID: od}},
 			Indicators:   []capability.Indicator{{ID: indID, CreatedByRef: vendor, ValidFrom: time.Now()}},
@@ -220,7 +220,7 @@ func TestIndicatorNeighbourhood(t *testing.T) {
 			}},
 			Identities: []capability.VendorIdentity{{ID: vendor, Name: "EDR"}},
 		}},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("Persist: %v", err)
 	}

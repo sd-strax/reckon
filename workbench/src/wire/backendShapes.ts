@@ -458,7 +458,7 @@ export const evidence: Decoder<RawEvidence> = object({
     identity: optional(lazy(() => evidence)),
     evidence: list(lazy(() => evidence)),
   })),
-  // On an x-host only (adr/0211).
+  // On a reckon-host only (adr/0211).
   identity: optional(hostIdentity),
   // On a user-account, and on an identity that is a person (adr/0324).
   account_identity: optional(accountIdentity),
@@ -738,4 +738,9 @@ export type RawCase = Decoded<typeof caseView>;
 
 export { caseView as case };
 
-export const cases = object({ queue: optional(str), cases: list(caseView) });
+export const cases = object({
+  queue: optional(str),
+  cases: list(caseView),
+  // Records the system of record returned that the engine could not read, and why (adr/0357).
+  unread: optional(object({ count: num, reasons: list(str) })),
+});

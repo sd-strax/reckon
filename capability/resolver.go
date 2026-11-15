@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // Coverage is the structured outcome of a capability call (§2, §6.1). The agent
@@ -75,7 +77,7 @@ type TenantContext struct {
 }
 
 // CapabilityResult is the verb-call envelope (§2). It carries the reference
-// lists the agent loop attaches to an x-interpretation, the structured Coverage,
+// lists the agent loop attaches to a reckon-interpretation, the structured Coverage,
 // and — for the caller that persists them — the concrete telemetry and
 // interpretation objects produced.
 type CapabilityResult struct {
@@ -97,6 +99,31 @@ type CapabilityResult struct {
 	// (adr/0061): the citeable record of absence. Its id also rides
 	// ObservedDataRefs so a caller cites it like any observation.
 	NullObservation *NullObservation
+}
+
+// normalizeNotePrefix starts the note the resolver adds for a record it could
+// not normalize. UnreadRecords reads the reasons back by it.
+const normalizeNotePrefix = "normalize class "
+
+// UnreadRecords reports the records a call returned that could not be
+// normalized, so produced no observation: how many, and why, from the
+// resolver's notes. A reader that would turn an empty answer into "not found"
+// checks it first, because a record that could not be read is not an absence
+// (adr/0357). All is true when records came back and none could be read.
+func (r CapabilityResult) UnreadRecords() (n int, reasons []string, all bool) {
+	n = len(r.Events) - len(r.Normalized)
+	if n <= 0 {
+		return 0, nil, false
+	}
+	for _, note := range r.DegradationNotes {
+		if strings.HasPrefix(note, normalizeNotePrefix) {
+			reasons = append(reasons, note)
+		}
+	}
+	if len(reasons) == 0 {
+		reasons = []string{"no reason given"}
+	}
+	return n, reasons, len(r.Normalized) == 0
 }
 
 func (r *CapabilityResult) note(format string, args ...any) {
@@ -323,7 +350,7 @@ func (r *Resolver) Resolve(ctx context.Context, verb string, input CallInput) (C
 	return res, nil
 }
 
-// nullObservation builds the x-null-observation for a complete, empty answer
+// nullObservation builds the reckon-null-observation for a complete, empty answer
 // to verb over input.
 func nullObservation(ids *identity.Resolver, verb string, input CallInput, sources []string, now time.Time) NullObservation {
 	params := map[string]any{}
@@ -368,21 +395,22 @@ func nullObservation(ids *identity.Resolver, verb string, input CallInput, sourc
 // not resolved here).
 func subjectRefs(ids *identity.Resolver, entity map[string]any) []identity.STIXID {
 	var refs []identity.STIXID
+	// The subject is matched to the objects the normalizers write through the
+	// same cleanup they write with (class rule R2, adr/0357). A value they
+	// would not write names nothing.
 	if v, ok := entity["ip"].(string); ok && v != "" {
-		var id identity.STIXID
-		if strings.Contains(v, ":") {
-			id = ids.IPv6Addr(v)
-		} else {
-			id = ids.IPv4Addr(v)
-		}
-		if id != "" { // a placeholder address names nothing
-			refs = append(refs, id)
+		if value, typ, ok := identity.IPValue(v); ok {
+			if typ == identity.TypeIPv6Addr {
+				refs = append(refs, ids.IPv6Addr(value))
+			} else {
+				refs = append(refs, ids.IPv4Addr(value))
+			}
 		}
 	}
-	if v, ok := entity["domain"].(string); ok && v != "" {
+	if v, ok := entity["domain"].(string); ok && v != "" && stix.IsDomainName(v) {
 		refs = append(refs, ids.DomainName(v))
 	}
-	if v, ok := entity["url"].(string); ok && v != "" {
+	if v, ok := entity["url"].(string); ok && v != "" && stix.IsURI(v) {
 		refs = append(refs, ids.URL(v))
 	}
 	if h, ok := entity["host"].(map[string]any); ok {
@@ -430,7 +458,7 @@ func (r *Resolver) ingest(res *CapabilityResult, norm *Registry, resp AdapterRes
 
 		nr, err := norm.Normalize(evt)
 		if err != nil {
-			res.note("normalize class %d: %v", evt.ClassUID, err)
+			res.note(normalizeNotePrefix+"%d: %v", evt.ClassUID, err)
 			continue
 		}
 		nr.EventID = evt.ID
@@ -439,8 +467,15 @@ func (r *Resolver) ingest(res *CapabilityResult, norm *Registry, resp AdapterRes
 			res.ObservedDataRefs = append(res.ObservedDataRefs, od.ID)
 		}
 		for _, sco := range nr.SCOs {
-			res.EntityRefs = append(res.EntityRefs, sco.ID)
+			// The artifact for a record with nothing to extract stands for
+			// the record, not an entity (§4.13, adr/0357).
+			if IsEntityRef(string(sco.ID)) {
+				res.EntityRefs = append(res.EntityRefs, sco.ID)
+			}
 		}
+		// A directory record names its person in person_ref, not in
+		// object_refs, which cannot list an SDO (adr/0324, adr/0357).
+		res.EntityRefs = appendNew(res.EntityRefs, ObservedPersonRefs(nr)...)
 	}
 }
 
@@ -496,4 +531,14 @@ func anyFanOut(bindings []Binding) bool {
 		}
 	}
 	return false
+}
+
+// appendNew appends each ref not already in refs.
+func appendNew(refs []identity.STIXID, add ...identity.STIXID) []identity.STIXID {
+	for _, r := range add {
+		if !slices.Contains(refs, r) {
+			refs = append(refs, r)
+		}
+	}
+	return refs
 }

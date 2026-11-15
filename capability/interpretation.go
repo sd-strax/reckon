@@ -19,7 +19,7 @@ const (
 	DerivationDirect DerivationMode = "DIRECT"
 	// DerivationInferred: an imported upstream inference (a vendor detection).
 	// The single capability-layer exception (§4.12); never wrapped in an
-	// x-interpretation here — the agent loop does that on engagement.
+	// reckon-interpretation here — the agent loop does that on engagement.
 	DerivationInferred DerivationMode = "INFERRED"
 )
 
@@ -31,18 +31,18 @@ const (
 )
 
 // STIX Relationship (SRO) types produced by the v0 normalizers. parent-of is
-// deliberately NOT used here — 01-domain-model.md reserves it for x-hypothesis
+// deliberately NOT used here — 01-domain-model.md reserves it for reckon-hypothesis
 // refinement, distinct from parent-process-of.
 const (
 	RelParentProcessOf   = "parent-process-of"
 	RelParentDirectoryOf = "parent-directory-of"
 	RelResolvesTo        = "resolves-to"
-	RelAuthenticatedTo   = "x-authenticated-to"
+	RelAuthenticatedTo   = "reckon-authenticated-to"
 	RelLoads             = "loads"
 	RelMemberOfGroup     = "member-of-group"
 	RelContains          = "contains"
 	RelClicked           = "clicked"
-	// RelAliases joins a weak x-host (MAC or source device id) to the strong
+	// RelAliases joins a weak reckon-host (MAC or source device id) to the strong
 	// host the same record names by hostname (adr/0211): an identity assertion
 	// from the source, never a merge (01 edge table). Accounts (adr/0324) and
 	// email messages (adr/0356) follow the same rule.
@@ -90,7 +90,7 @@ type ObservedData struct {
 }
 
 // Relationship is a STIX SRO: a typed edge between two interpretation-layer
-// objects (parent-process-of, resolves-to, x-authenticated-to).
+// objects (parent-process-of, resolves-to, reckon-authenticated-to).
 type Relationship struct {
 	ID         identity.STIXID `json:"id"`
 	Type       string          `json:"relationship_type"`
@@ -114,12 +114,24 @@ type Edge struct {
 // It carries no produced-by edge — the agent loop wraps it in an Interpretation
 // only when an investigation engages with it.
 type Indicator struct {
-	ID             identity.STIXID `json:"id"`
-	Name           string          `json:"name"`
-	Pattern        string          `json:"pattern,omitempty"`
-	PatternType    string          `json:"pattern_type,omitempty"`
-	IndicatorTypes []string        `json:"indicator_types,omitempty"` // e.g. MITRE technique IDs
-	ValidFrom      time.Time       `json:"valid_from"`
+	ID   identity.STIXID `json:"id"`
+	Name string          `json:"name"`
+	// Pattern and PatternType are always set. Without a vendor pattern, the
+	// pattern is the finding's rule reference and the type is the tool's
+	// name (adr/0357).
+	Pattern     string `json:"pattern,omitempty"`
+	PatternType string `json:"pattern_type,omitempty"`
+	// IndicatorTypes holds only values of STIX's indicator-type-ov. A
+	// technique id never goes here (adr/0357).
+	IndicatorTypes []string `json:"indicator_types,omitempty"`
+	// Labels holds the vendor's other finding types, such as a tag or a
+	// tactic name: neither a technique id nor an indicator type (adr/0357).
+	Labels []string `json:"labels,omitempty"`
+	// ExternalReferences holds the ATT&CK techniques the finding names, under
+	// source_name mitre-attack, and then the finding uid under the vendor's
+	// name, which the id is minted from (adr/0357).
+	ExternalReferences []ExternalReference `json:"external_references,omitempty"`
+	ValidFrom          time.Time           `json:"valid_from"`
 	// Confidence is the vendor's confidence, 0 to 100. It is nil, and left
 	// out of the JSON, when the vendor gives none: 0 means "no confidence"
 	// in STIX, which is not the same as unknown (adr/0356).
@@ -128,13 +140,23 @@ type Indicator struct {
 	Provenance   Provenance      `json:"provenance"`
 }
 
+// ExternalReference is a STIX external reference: a pointer to a record in
+// another system, such as an ATT&CK technique.
+type ExternalReference struct {
+	SourceName string `json:"source_name"`
+	ExternalID string `json:"external_id,omitempty"`
+}
+
+// SourceMITREATTACK is the source_name STIX uses for an ATT&CK reference.
+const SourceMITREATTACK = "mitre-attack"
+
 // Sighting is a STIX Sighting SRO linking an Indicator to the evidence it was
 // seen through (§4.12). Also INFERRED and vendor-attributed.
 //
 // The entities an alert names are the object_refs of the observations in
 // ObservedDataRefs. They are not in WhereSighted: STIX allows only identity
-// and location objects there, as it names who saw the indicator. Nothing
-// fills WhereSighted today (adr/0356).
+// and location objects there, as it names who saw the indicator. WhereSighted
+// holds the vendor identity, since the vendor saw it (adr/0357).
 type Sighting struct {
 	ID               identity.STIXID   `json:"id"`
 	SightingOfRef    identity.STIXID   `json:"sighting_of_ref"` // the Indicator
@@ -144,7 +166,10 @@ type Sighting struct {
 	Confidence   *int            `json:"confidence,omitempty"`
 	Description  string          `json:"description,omitempty"`
 	CreatedByRef identity.STIXID `json:"created_by_ref"`
-	Provenance   Provenance      `json:"provenance"`
+	// SeenAt is when the vendor saw it: the finding's time, which the id is
+	// minted from. It is stored as first_seen and last_seen (adr/0357).
+	SeenAt     time.Time  `json:"seen_at"`
+	Provenance Provenance `json:"provenance"`
 }
 
 // VendorIdentity is the per-tenant STIX Identity SDO a vendor's imported claims
@@ -155,7 +180,7 @@ type VendorIdentity struct {
 	Name string          `json:"name"`
 }
 
-// NullObservation is the custom STIX SDO x-null-observation (01 §Invented,
+// NullObservation is the custom STIX SDO reckon-null-observation (01 §Invented,
 // adr/0061): the record that a question was asked of a source with complete
 // coverage and nothing came back. It is what an outcome cites when the
 // evidence is an absence — no change record, no prior alert, no failed

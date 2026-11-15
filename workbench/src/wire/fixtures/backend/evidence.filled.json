@@ -649,7 +649,7 @@
     "aliases": [
       {
         "edge_id": "relationship--1",
-        "other_ref": "x-host--2",
+        "other_ref": "reckon-host--2",
         "kind": "observed",
         "source": "edr",
         "at": "2026-01-02T03:04:05Z",
@@ -657,7 +657,7 @@
       },
       {
         "edge_id": "relationship--3",
-        "other_ref": "x-host--4",
+        "other_ref": "reckon-host--4",
         "kind": "asserted",
         "by": "u-1",
         "by_name": "Ana Analyst",
@@ -667,7 +667,7 @@
       },
       {
         "edge_id": "relationship--5",
-        "other_ref": "x-host--6",
+        "other_ref": "reckon-host--6",
         "kind": "asserted",
         "by": "u-1",
         "by_name": "Ana Analyst",
@@ -678,7 +678,7 @@
     "distinct": [
       {
         "edge_id": "relationship--7",
-        "other_ref": "x-host--8",
+        "other_ref": "reckon-host--8",
         "kind": "asserted",
         "by": "u-2",
         "by_name": "Ben Analyst",

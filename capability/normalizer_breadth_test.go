@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/ocsfschema"
+	"github.com/sd-strax/reckon/internal/stixschema"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // registryKeyPath is the Run key the registry tests name, hive first and
@@ -215,12 +218,14 @@ func TestRegistryClassesReadTheirOwnFields(t *testing.T) {
 			t.Errorf("class %d: keys = %+v; want one at %s", class, keys, want)
 		}
 	}
-	res, err := reg.Normalize(makeEvent(both(1003)))
+	evt := makeEvent(both(1003))
+	res, err := reg.Normalize(evt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.SCOs) != 0 || res.ObservedData[0].Provenance.Normalizer != "opaque" {
-		t.Errorf("class 1003: %d SCOs under %q; want the opaque default", len(res.SCOs), res.ObservedData[0].Provenance.Normalizer)
+	recordArtifactOnly(t, evt, res)
+	if res.ObservedData[0].Provenance.Normalizer != "opaque" {
+		t.Errorf("class 1003: under %q; want the opaque default", res.ObservedData[0].Provenance.Normalizer)
 	}
 }
 
@@ -299,7 +304,7 @@ func TestModuleNormalizer(t *testing.T) {
 			"time":      ms("2026-04-20T14:32:11Z"),
 			"module": map[string]any{"file": map[string]any{
 				"name": "evil.dll", "path": `C:\Temp\evil.dll`,
-				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "abcd"}},
+				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589"}},
 			}},
 			"actor":  map[string]any{"process": map[string]any{"pid": 999, "created_time": ms("2026-04-20T14:00:00Z")}},
 			"device": map[string]any{"hostname": "WS1"},
@@ -315,12 +320,14 @@ func TestModuleNormalizer(t *testing.T) {
 	if !hasRel(res.Relationships, RelLoads) {
 		t.Error("missing loads relationship (process → module)")
 	}
-	old, err := testRegistry().Normalize(makeEvent(payload(1009)))
+	oldEvt := makeEvent(payload(1009))
+	old, err := testRegistry().Normalize(oldEvt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(old.SCOs) != 0 {
-		t.Errorf("class 1009: %d SCOs; want the opaque default", len(old.SCOs))
+	recordArtifactOnly(t, oldEvt, old)
+	if old.ObservedData[0].Provenance.Normalizer != "opaque" {
+		t.Errorf("class 1009: under %q; want the opaque default", old.ObservedData[0].Provenance.Normalizer)
 	}
 }
 
@@ -339,11 +346,11 @@ func TestFileHashesListFormOnly(t *testing.T) {
 		}
 		return scosOf(res, identity.TypeFile)[0]
 	}
-	list := file([]any{map[string]any{"algorithm": "SHA-256", "algorithm_id": 3, "value": "deadbeef"}, "not a fingerprint", map[string]any{"algorithm": "MD5"}})
-	if !reflect.DeepEqual(list.Properties["hashes"], map[string]string{"SHA-256": "deadbeef"}) {
+	list := file([]any{map[string]any{"algorithm": "SHA-256", "algorithm_id": 3, "value": testSHA256}, "not a fingerprint", map[string]any{"algorithm": "MD5"}})
+	if !reflect.DeepEqual(list.Properties["hashes"], map[string]string{"SHA-256": testSHA256}) {
 		t.Errorf("list form: hashes = %v", list.Properties["hashes"])
 	}
-	object := file(map[string]any{"SHA-256": "deadbeef"})
+	object := file(map[string]any{"SHA-256": testSHA256})
 	if _, ok := object.Properties["hashes"]; ok || object.ID == list.ID {
 		t.Errorf("object form was read: %v", object.Properties)
 	}
@@ -366,15 +373,15 @@ func TestFileHashesByAlgorithmID(t *testing.T) {
 		}
 		return scosOf(res, identity.TypeFile)[0]
 	}
-	byID := file(map[string]any{"algorithm_id": float64(3), "value": "deadbeef"}, map[string]any{"algorithm_id": float64(1), "value": "0123"})
-	if want := map[string]string{"SHA-256": "deadbeef", "MD5": "0123"}; !reflect.DeepEqual(byID.Properties["hashes"], want) {
+	byID := file(map[string]any{"algorithm_id": float64(3), "value": testSHA256}, map[string]any{"algorithm_id": float64(1), "value": testMD5})
+	if want := map[string]string{"SHA-256": testSHA256, "MD5": testMD5}; !reflect.DeepEqual(byID.Properties["hashes"], want) {
 		t.Errorf("hashes = %v; want %v", byID.Properties["hashes"], want)
 	}
-	byCaption := file(map[string]any{"algorithm": "SHA-256", "algorithm_id": float64(3), "value": "deadbeef"})
+	byCaption := file(map[string]any{"algorithm": "SHA-256", "algorithm_id": float64(3), "value": testSHA256})
 	if byID.ID != byCaption.ID {
 		t.Errorf("the same SHA-256 gives %s by id and %s by caption", byID.ID, byCaption.ID)
 	}
-	if unnamed := file(map[string]any{"algorithm_id": float64(99), "value": "deadbeef"}); unnamed.Properties["hashes"] != nil {
+	if unnamed := file(map[string]any{"algorithm_id": float64(99), "value": testSHA256}); unnamed.Properties["hashes"] != nil {
 		t.Errorf("a hash whose algorithm is not named was kept: %v", unnamed.Properties["hashes"])
 	}
 }
@@ -576,7 +583,7 @@ func emailEvent() map[string]any {
 			"uid":         "gw-0001",
 			"files": []any{map[string]any{
 				"name":   "invoice.pdf.exe",
-				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "beef"}},
+				"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "aa415c4e8890cf0fec7826aec962ffbcc04534faefd2b3266c54f690d40d6e82"}},
 			}},
 			"urls": []any{map[string]any{"url_string": "https://evil.example/pay"}},
 		},
@@ -656,6 +663,68 @@ func TestEmailBlindCopy(t *testing.T) {
 				t.Errorf("bcc_refs = %v; want %v", msg.Properties["bcc_refs"], want)
 			}
 		})
+	}
+}
+
+// TestEmailIsMultipart (§4.10, adr/0357): STIX requires is_multipart, and
+// OCSF has no field for it. It is true when the raw header's Content-Type
+// names a multipart type, matched without case, and false otherwise.
+func TestEmailIsMultipart(t *testing.T) {
+	for _, tc := range []struct {
+		name, header string
+		want         bool
+	}{
+		{"multipart", "From: a@b.example\r\nContent-Type: multipart/mixed; boundary=\"x\"\r\nSubject: hi", true},
+		{"any case", "content-type: Multipart/Alternative", true},
+		{"single part", "Content-Type: text/plain; charset=utf-8", false},
+		{"a folded line is not a header", "X-Note: see\r\n Content-Type: multipart/mixed", false},
+		// RFC 5322 §2.2.3: a folded header is unfolded before it is read.
+		{"a folded Content-Type", "From: a@b.example\r\nContent-Type:\r\n multipart/related;\r\n\tboundary=\"x\"", true},
+		{"an upper-case name, folded after the type", "CONTENT-TYPE: Multipart/Mixed;\r\n boundary=\"x\"", true},
+		{"lower-case name, folded parameters", "content-type: multipart/signed;\n protocol=\"application/pgp-signature\"", true},
+		{"no Content-Type", "From: a@b.example", false},
+		{"no raw header", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := emailEvent()
+			if tc.header != "" {
+				p["email"].(map[string]any)["raw_header"] = tc.header
+			}
+			res, err := testRegistry().Normalize(makeEvent(p))
+			if err != nil {
+				t.Fatal(err)
+			}
+			msgs := scosOf(res, identity.TypeEmailMessage)
+			if len(msgs) != 1 {
+				t.Fatalf("messages = %+v; want one", msgs)
+			}
+			if msgs[0].Properties["is_multipart"] != tc.want {
+				t.Errorf("is_multipart = %v; want %v", msgs[0].Properties["is_multipart"], tc.want)
+			}
+		})
+	}
+}
+
+// TestEmailLeavesUnknownsOut (adr/0357): a property the record does not give
+// is left out of the message, not written empty.
+func TestEmailLeavesUnknownsOut(t *testing.T) {
+	p := emailEvent()
+	mail := p["email"].(map[string]any)
+	for _, k := range []string{"message_uid", "subject", "to", "cc", "bcc", "from"} {
+		delete(mail, k)
+	}
+	res, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := scosOf(res, identity.TypeEmailMessage)
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %+v", msgs)
+	}
+	for _, k := range []string{"message_id", "subject", "from_ref", "to_refs", "cc_refs", "bcc_refs"} {
+		if v, ok := msgs[0].Properties[k]; ok {
+			t.Errorf("%s = %#v; want it left out", k, v)
+		}
 	}
 }
 
@@ -773,6 +842,219 @@ func TestEmailMessageWithoutMessageID(t *testing.T) {
 				t.Errorf("ids %s and %s; want same = %v", a, b, tc.same)
 			}
 		})
+	}
+}
+
+// TestEmailThreadAndEnvelopeStored (adr/0357, adr/0359): a message with no
+// Message-ID, a thread id and envelope recipients stores the thread as
+// thread_uid and each envelope address as an email-addr in
+// envelope_to_refs, listed by the observation. The message validates against
+// the STIX schemas, and its id re-mints from what it stores.
+func TestEmailThreadAndEnvelopeStored(t *testing.T) {
+	reg := testRegistry()
+	e := versioned(4009, "1.9.0", map[string]any{"email": map[string]any{
+		"from": "billing@evil.example", "subject": "Overdue invoice", "uid": "thread-7",
+		"to":                []any{"all-staff@corp.example"},
+		"smtp_to":           []any{"ap@corp.example", " ", "not an address"},
+		"delivered_to_list": []any{"ap@corp.example", "cfo@corp.example"},
+	}})
+	if bad := ocsfschema.ValidateFields(e); len(bad) > 0 {
+		t.Fatalf("OCSF 1.9.0: %v", bad)
+	}
+	res, err := reg.Normalize(makeEvent(e))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := scosOf(res, identity.TypeEmailMessage)
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %+v; want one", msgs)
+	}
+	ids := identity.NewResolver(testNS)
+	want := []string{string(ids.EmailAddr("ap@corp.example")), string(ids.EmailAddr("cfo@corp.example"))}
+	if got, _ := msgs[0].Properties["envelope_to_refs"].([]string); !slices.Equal(got, want) {
+		t.Errorf("envelope_to_refs = %v; want %v, each address once", msgs[0].Properties["envelope_to_refs"], want)
+	}
+	if msgs[0].Properties["thread_uid"] != "thread-7" {
+		t.Errorf("thread_uid = %v; want thread-7", msgs[0].Properties["thread_uid"])
+	}
+	if got, _ := msgs[0].Properties["unparsed_recipients"].([]string); !slices.Equal(got, []string{"not an address"}) {
+		t.Errorf("unparsed_recipients = %v; want the one entry that is not an address", msgs[0].Properties["unparsed_recipients"])
+	}
+	for _, ref := range want {
+		if !refsContain(res.ObservedData[0].ObjectRefs, identity.STIXID(ref)) {
+			t.Errorf("envelope address %s is not in object_refs", ref)
+		}
+	}
+	var report stixschema.Report
+	for _, o := range stixObjects(res) {
+		raw, err := stix.Marshal(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if o.Type == identity.TypeEmailMessage {
+			var m map[string]any
+			if err := json.Unmarshal(raw, &m); err != nil {
+				t.Fatal(err)
+			}
+			ext := stix.ExtensionFrom(m, stix.ExtEmailMessage)
+			if ext["thread_uid"] != "thread-7" || len(ext["envelope_to_refs"].([]any)) != 2 {
+				t.Errorf("%s extension = %v; want thread_uid and envelope_to_refs", stix.ExtEmailMessage, ext)
+			}
+		}
+		report.Add(o.ID, raw)
+	}
+	if report.Failed() {
+		t.Errorf("not valid STIX 2.1:\n%s", report.String())
+	}
+	if p := remintProblems(reg.Identity(), res); len(p) > 0 {
+		t.Errorf("R1: %v", p)
+	}
+}
+
+// TestEmailRecipientCleanup (adr/0357, adr/0359): a recipient with a display
+// name, or padded with white space, is cleaned up to its address and kept as
+// an email-addr, in the header and the envelope alike. Two messages alike in
+// sender, subject and second, sent to different such recipients, are two
+// messages. Each validates and re-mints (TestMain).
+func TestEmailRecipientCleanup(t *testing.T) {
+	reg := testRegistry()
+	ids := identity.NewResolver(testNS)
+	send := func(field string, rcpt any) (identity.STIXID, NormalizationResult) {
+		t.Helper()
+		res, err := reg.Normalize(makeEvent(versioned(4009, "1.9.0", map[string]any{"email": map[string]any{
+			"from": " Billing <billing@evil.example> ", "subject": "Overdue invoice", field: rcpt,
+		}})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		msgs := scosOf(res, identity.TypeEmailMessage)
+		if len(msgs) != 1 {
+			t.Fatalf("messages = %+v; want one", msgs)
+		}
+		if msgs[0].Properties["from_ref"] != string(ids.EmailAddr("billing@evil.example")) {
+			t.Errorf("from_ref = %v; want the sender's address", msgs[0].Properties["from_ref"])
+		}
+		if u, ok := msgs[0].Properties["unparsed_recipients"]; ok {
+			t.Errorf("unparsed_recipients = %v; want none", u)
+		}
+		return msgs[0].ID, res
+	}
+	for _, tc := range []struct {
+		name, field string
+		a, b        any
+		refs        string
+	}{
+		{"display names", "to", []any{"Alice <alice@corp.example>"}, []any{"Bob <bob@corp.example>"}, "to_refs"},
+		{"padded envelope recipients", "smtp_to", []any{" alice@corp.example "}, []any{"\tbob@corp.example\n"}, "envelope_to_refs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, ra := send(tc.field, tc.a)
+			b, rb := send(tc.field, tc.b)
+			if a == b {
+				t.Errorf("both messages are %s; want two", a)
+			}
+			for addr, res := range map[string]NormalizationResult{"alice@corp.example": ra, "bob@corp.example": rb} {
+				want := ids.EmailAddr(addr)
+				if scoOfType(res.SCOs, identity.TypeEmailAddr) == "" || !refsContain(res.ObservedData[0].ObjectRefs, want) {
+					t.Errorf("%s is not kept as an email-addr", addr)
+				}
+				msg := scosOf(res, identity.TypeEmailMessage)[0]
+				if got, _ := msg.Properties[tc.refs].([]string); !slices.Equal(got, []string{string(want)}) {
+					t.Errorf("%s = %v; want %s", tc.refs, msg.Properties[tc.refs], want)
+				}
+			}
+		})
+	}
+}
+
+// TestEmailUnparsedRecipients (adr/0357, adr/0359): a recipient that is not
+// an address after cleanup is kept as text in unparsed_recipients, sorted and
+// named once, and counts in the id. Two copies that differ only there are two
+// messages.
+func TestEmailUnparsedRecipients(t *testing.T) {
+	reg := testRegistry()
+	send := func(to ...any) SCO {
+		t.Helper()
+		res, err := reg.Normalize(makeEvent(versioned(4009, "1.9.0", map[string]any{"email": map[string]any{
+			"from": "promo@spam.example", "subject": "You won", "to": to,
+		}})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		msgs := scosOf(res, identity.TypeEmailMessage)
+		if len(msgs) != 1 {
+			t.Fatalf("messages = %+v; want one", msgs)
+		}
+		return msgs[0]
+	}
+	a := send("ap@corp.example", "Undisclosed recipients:;", " zz-list ", "zz-list")
+	b := send("ap@corp.example", "accounts payable")
+	if got, _ := a.Properties["unparsed_recipients"].([]string); !slices.Equal(got, []string{"Undisclosed recipients:;", "zz-list"}) {
+		t.Errorf("unparsed_recipients = %v; want the two texts, sorted, each once", a.Properties["unparsed_recipients"])
+	}
+	if a.ID == b.ID {
+		t.Errorf("both copies are %s; want two ids", a.ID)
+	}
+}
+
+// TestEmailSpamCopiesByEnvelope (adr/0359): two copies of one spam run,
+// alike in their headers and sent to different envelope recipients, are two
+// messages.
+func TestEmailSpamCopiesByEnvelope(t *testing.T) {
+	reg := testRegistry()
+	copyTo := func(rcpt string) identity.STIXID {
+		t.Helper()
+		res, err := reg.Normalize(makeEvent(versioned(4009, "1.9.0", map[string]any{"email": map[string]any{
+			"from": "promo@spam.example", "subject": "You won", "to": []any{"undisclosed@spam.example"},
+			"smtp_to": []any{rcpt},
+		}})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		msgs := scosOf(res, identity.TypeEmailMessage)
+		if len(msgs) != 1 {
+			t.Fatalf("messages = %+v; want one", msgs)
+		}
+		return msgs[0].ID
+	}
+	if a, b := copyTo("ap@corp.example"), copyTo("cfo@corp.example"); a == b {
+		t.Errorf("both copies are %s; want two ids", a)
+	}
+}
+
+// TestEmailClickCarriesThread (adr/0359): a click keeps its email_uid on the
+// observation as thread_uid and creates no email-message.
+func TestEmailClickCarriesThread(t *testing.T) {
+	res, err := testRegistry().Normalize(makeEvent(clickEvent()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgs := scosOf(res, identity.TypeEmailMessage); len(msgs) != 0 {
+		t.Errorf("messages = %+v; want none", msgs)
+	}
+	if got := res.ObservedData[0].Extensions["thread_uid"]; got != "gw-0001" {
+		t.Errorf("thread_uid = %v; want gw-0001", got)
+	}
+	found := false
+	for _, o := range stixObjects(res) {
+		if o.Type != "observed-data" {
+			continue
+		}
+		found = true
+		raw, err := stix.Marshal(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		if ext := stix.ExtensionFrom(m, stix.ExtObservation); ext["thread_uid"] != "gw-0001" {
+			t.Errorf("%s extension = %v; want thread_uid gw-0001", stix.ExtObservation, ext)
+		}
+	}
+	if !found {
+		t.Error("no observed-data was written")
 	}
 }
 
@@ -928,7 +1210,7 @@ func TestEmailFileNormalizer(t *testing.T) {
 		"email_uid":   "gw-0001",
 		"file": map[string]any{
 			"name":   "invoice.pdf.exe",
-			"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "beef"}},
+			"hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "aa415c4e8890cf0fec7826aec962ffbcc04534faefd2b3266c54f690d40d6e82"}},
 		},
 		"actor":  map[string]any{"user": map[string]any{"name": "alice", "domain": "CORP"}},
 		"device": map[string]any{"hostname": "WS1"},
@@ -938,7 +1220,7 @@ func TestEmailFileNormalizer(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := identity.NewResolver(testNS)
-	file := ids.File(identity.FileIdentity{Hashes: map[string]string{"SHA-256": "beef"}, Name: "invoice.pdf.exe"})
+	file := ids.File(identity.FileIdentity{Hashes: map[string]string{"SHA-256": "aa415c4e8890cf0fec7826aec962ffbcc04534faefd2b3266c54f690d40d6e82"}, Name: "invoice.pdf.exe"})
 	bt := countTypes(res.SCOs)
 	if bt[identity.TypeFile] != 1 || bt[identity.TypeEmailMessage] != 0 || bt[identity.TypeUserAccount] != 1 || bt[identity.TypeHost] != 1 {
 		t.Errorf("want 1 file + 1 account + 1 host and no message; got %v", bt)

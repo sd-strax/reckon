@@ -47,11 +47,11 @@ What lives in the interpretation layer:
 
   Entities         SCOs — ip, domain, file, process, host, user-account, ...
   Observations     ObservedData, Sighting — "we saw this, here, this often"
-  Judgments        x-hypothesis, x-prediction, Indicator, Report — what we
+  Judgments        reckon-hypothesis, reckon-prediction, Indicator, Report — what we
                    think
-  Operations       x-action — state-changing things we did (isolate host,
+  Operations       reckon-action — state-changing things we did (isolate host,
                    purge email)
-  Reasoning acts   x-interpretation — the audit trail of analytical moves
+  Reasoning acts   reckon-interpretation — the audit trail of analytical moves
                    (extraction, hypothesis, support/refute, pivot, conclude,
                    action-*)
   Containers       Grouping — the investigation itself, with its Seed,
@@ -126,11 +126,11 @@ ARCHITECTURAL COMMITMENTS
 
 **1. Two-layer graph.** Telemetry layer holds raw OCSF events as ingested via capability-layer adapters (03-capability-layer.md §4) — natively where the source supports OCSF, normalized at ingest where it doesn't — stored verbatim, immutable. Interpretation layer holds STIX-shaped objects representing entities, observations, judgments, and reasoning, all mutable. The two layers are joined by typed edges, not embedding. One OCSF event can back many STIX nodes. One STIX entity can be backed by many OCSF events. See "Mental model" above for the rationale.
 
-**2. Vocabularies.** STIX 2.1 is the vocabulary for the interpretation layer. OCSF is the vocabulary for telemetry payloads.
+**2. Vocabularies.** STIX 2.1 is the vocabulary for the interpretation layer. OCSF is the vocabulary for telemetry payloads. How reckon conforms to STIX, and how its own types change, is in *STIX Conformance and Change* below.
 
 **3. Deterministic identity.** Identity follows STIX deterministic UUIDv5 rules, computed within a per-tenant namespace UUID (see below). The same entity (e.g., `8.8.8.8`) produces the same ID across producers and investigations within a tenant. Cross-investigation entity identity is preserved by default within a tenant. Aliasing between entities is an **explicit edge, never a destructive merge**.
 
-**4. Three deliberate STIX deviations.** Identity computation deviates from strict STIX 2.1 for three SCO types — `process`, `email-addr`, `user-account` — required for cross-tool stitching to work in real enterprise environments where every authentication system, mail platform, and EDR is case-insensitive in practice. See 03-capability-layer.md §7.2 for the per-type rules and rationale.
+**4. Deliberate STIX deviations.** Identity computation deviates from strict STIX 2.1 in a few places. Most of them exist so cross-tool stitching works in real enterprise environments, where authentication systems, mail platforms and EDRs are case-insensitive in practice. 03-capability-layer.md §7 lists every deviation with its reason.
 
 **5. Multi-tenant by construction.** A tenant is a complete partition of the data:
 
@@ -148,7 +148,7 @@ The same value (e.g., `8.8.8.8`) in two different tenants produces two different
 **7. Two genuinely invented primitives.**
 
 - **Interpretation** — records reasoning acts: who, when, from-what, to-what, why.
-- **x-action** — state-changing operations against the world (see 04-action-authorization.md).
+- **reckon-action** — state-changing operations against the world (see 04-action-authorization.md).
 
 Hypotheses and predictions are *not* separate primitives — they are outputs of Interpretations and live as STIX-shaped nodes inside the Grouping.
 
@@ -188,11 +188,11 @@ All objects follow **STIX 2.1 conventions**. Identity is `<type>--<uuidv5>`. Com
 **v0 types:**
 
 - **STIX-native:** `ipv4-addr`, `ipv6-addr`, `domain-name`, `url`, `file`, `directory`, `network-traffic`, `email-addr`, `email-message`, `user-account`, `process`, `windows-registry-key`
-- **Custom (`x-` prefix):** `x-host`, `x-scheduled-task`, `x-group`, `x-cloud-account`, `x-cloud-resource`
+- **Custom (`reckon-` prefix, each declared by an extension definition, see *STIX Conformance and Change*):** `reckon-host`, `reckon-scheduled-task`, `reckon-group`, `reckon-cloud-account`, `reckon-cloud-resource`
 
-The five `x-` types cover scheduled tasks (and equivalents — cron, launchd, systemd), directory groups (AD / Entra / Okta), host entities, cloud accounts and the resources inside them, which STIX 2.1 does not cover natively. A cloud principal (a user, role, service principal or service account) is a `user-account`, not a new type (03-capability-layer.md §4.15).
+The five `reckon-` types cover scheduled tasks (and equivalents — cron, launchd, systemd), directory groups (AD / Entra / Okta), host entities, cloud accounts and the resources inside them, which STIX 2.1 does not cover natively. A cloud principal (a user, role, service principal or service account) is a `user-account`, not a new type (03-capability-layer.md §4.15).
 
-Canonical identifiers are normalized on construction. Identity rules (including the three case-insensitivity deviations noted in *Architectural Commitments §4*) live in 03-capability-layer.md §7.2.
+Canonical identifiers are normalized on construction. Identity rules live in 03-capability-layer.md §7.2. Every deviation from strict STIX is listed in 03-capability-layer.md §7.
 
 ### ObservedData (STIX SDO)
 
@@ -209,7 +209,7 @@ ObservedData
 
 Linked to `OcsfEvent`(s) via the `derived-from` edge.
 
-### NullObservation (custom STIX SDO `x-null-observation`)
+### NullObservation (custom STIX SDO `reckon-null-observation`)
 
 The citeable form of absence (adr/0061). Minted by the capability layer when a
 verb's coverage is COMPLETE and no event came back; never by a normalizer over
@@ -233,7 +233,7 @@ Sighting
   first_seen            timestamp
   last_seen             timestamp
   count                 int
-  confidence            HIGH | MEDIUM | LOW
+  confidence            int 0–100, left out when unknown (STIX confidence)
   description           string (rationale)
   created, modified, created_by_ref (STIX standard)
 ```
@@ -345,20 +345,20 @@ Records a **single reasoning act**: who, when, from-what, to-what, why.
 
 ### Reference types
 
-Used below and on `x-action`:
+Used below and on `reckon-action`:
 
 ```
 EvidenceRef = StixId | OcsfEventId
 ```
 
-A typed union — a reference to either a STIX object or a raw `OcsfEvent`. `Interpretation.input_refs` and `x-action.evidence_refs` are both `list<EvidenceRef>`. **Output references are always `StixId`** — Interpretations produce STIX-shaped nodes only, never OcsfEvents.
+A typed union — a reference to either a STIX object or a raw `OcsfEvent`. `Interpretation.input_refs` and `reckon-action.evidence_refs` are both `list<EvidenceRef>`. **Output references are always `StixId`** — Interpretations produce STIX-shaped nodes only, never OcsfEvents.
 
 ### Schema
 
 ```
-x-interpretation
+reckon-interpretation
 
-  id                                x-interpretation--<uuid>
+  id                                reckon-interpretation--<uuid>
   actor                             ActorRef (canonical shape; see "Actor model" below)
   timestamp                         timestamp
   interpretation_type               enum (see "Interpretation types" below)
@@ -398,7 +398,7 @@ actor.kind         derived: HUMAN if delegate is null, else AI_DELEGATED
 
 **External orchestrators (SOAR playbooks) are dispatch routes, not delegates.** When an action is delegated to an external SOAR orchestrator (Tines, Torq, Splunk SOAR — see 03 §5.4 SOAR_PLAYBOOK adapter class), the orchestrator is a *mechanism* reckon invokes on the principal's behalf, not a participant in the actor model. The AI agent remains the delegate that reasoned the action; the human remains the principal who is responsible. Which dispatch route was taken (native API vs SOAR playbook) and how deep the audit chain runs are recorded on the action's `Execution` sub-record (`dispatched_via`, `audit_depth`; see 04 §6.1), not on the actor.
 
-**Scope.** The canonical `ActorRef` shape applies only to **invented primitives** (`x-interpretation`, `x-action`) and to the **persistence event envelope** (see 02-persistence.md §7). STIX SDOs / SROs / SCOs (ObservedData, Sighting, Indicator, Report, Note, Opinion, Relationship, x-hypothesis, x-prediction, all SCOs) use the STIX-standard `created_by_ref` → Identity ref convention as defined by STIX 2.1. The responsibility chain for any STIX-shaped node runs through the Interpretation that produced it, *not* through that node's own `created_by_ref`.
+**Scope.** The canonical `ActorRef` shape applies only to **invented primitives** (`reckon-interpretation`, `reckon-action`) and to the **persistence event envelope** (see 02-persistence.md §7). STIX SDOs / SROs / SCOs (ObservedData, Sighting, Indicator, Report, Note, Opinion, Relationship, reckon-hypothesis, reckon-prediction, all SCOs) use the STIX-standard `created_by_ref` → Identity ref convention as defined by STIX 2.1. The responsibility chain for any STIX-shaped node runs through the Interpretation that produced it, *not* through that node's own `created_by_ref`.
 
 ### Interpretation types (canonical enum)
 
@@ -409,23 +409,23 @@ Referenced by all components.
 | `extraction`      | Entity lifted from an OcsfEvent.                                                                                                     |
 | `sighting`        | Sighting created from ObservedData.                                                                                                  |
 | `evidence-pin`    | Analyst curation: the cited `input_refs` are pinned to the investigation's evidence surface (see "Pinned evidence" below).            |
-| `hypothesis`      | `x-hypothesis` proposed (creation; includes AI-PROPOSED → OPEN acknowledgment — optionally with a restated `statement`/`handle` — and human non-status field updates while untested). |
-| `support`         | `x-hypothesis` status changed to SUPPORTED.                                                                                          |
-| `refutation`      | `x-hypothesis` status changed to REFUTED.                                                                                            |
-| `inconclusive`    | `x-hypothesis` status changed to INCONCLUSIVE or ABANDONED (rationale carries the distinction).                                      |
-| `prediction`      | `x-prediction` proposed, or its status moved (test outcome; human `WITHDRAWN` from `UNTESTED`).                                       |
+| `hypothesis`      | `reckon-hypothesis` proposed (creation; includes AI-PROPOSED → OPEN acknowledgment — optionally with a restated `statement`/`handle` — and human non-status field updates while untested). |
+| `support`         | `reckon-hypothesis` status changed to SUPPORTED.                                                                                          |
+| `refutation`      | `reckon-hypothesis` status changed to REFUTED.                                                                                            |
+| `inconclusive`    | `reckon-hypothesis` status changed to INCONCLUSIVE or ABANDONED (rationale carries the distinction).                                      |
+| `prediction`      | `reckon-prediction` proposed, or its status moved (test outcome; human `WITHDRAWN` from `UNTESTED`).                                       |
 | `verdict`         | Disposition of record set or revised — benign / suspicious / malicious (see "Verdict" below). Distinct from `conclusion`.            |
 | `conclusion`      | Investigation concluded; final Report referenced from `ConclusionSlot`.                                                              |
 | `pivot`           | Reasoning departed from one entity to pursue a related lead. Underlying telemetry queries are T0; this captures the analytical move. |
 | `lifecycle`       | Investigation state transition (DRAFT / ACTIVE / PAUSED / CONCLUDED / ARCHIVED).                                                     |
-| `action-request`  | `x-action` proposed (see 04-action-authorization.md §3.2 for the full action lifecycle).                                             |
-| `action-approval` | `x-action` approved (manual, auto-policy, or two-party primary).                                                                     |
-| `action-rejection`| `x-action` denied.                                                                                                                   |
-| `action-expiry`   | `x-action` timed out unapproved (system-emitted).                                                                                    |
-| `action-dispatch` | `x-action` sent to its capability adapter (system-emitted).                                                                          |
-| `action-result`   | `x-action` terminal outcome — SUCCEEDED, FAILED, PARTIAL, TIMEOUT — or OUTCOME_UNKNOWN when nobody can tell (system-emitted).       |
-| `action-resolution` | A person checked the tool and resolved an OUTCOME_UNKNOWN `x-action` to SUCCEEDED or FAILED.                                     |
-| `action-reversal` | A previously-SUCCEEDED `x-action` was reversed by a new `x-action`.                                                                  |
+| `action-request`  | `reckon-action` proposed (see 04-action-authorization.md §3.2 for the full action lifecycle).                                             |
+| `action-approval` | `reckon-action` approved (manual, auto-policy, or two-party primary).                                                                     |
+| `action-rejection`| `reckon-action` denied.                                                                                                                   |
+| `action-expiry`   | `reckon-action` timed out unapproved (system-emitted).                                                                                    |
+| `action-dispatch` | `reckon-action` sent to its capability adapter (system-emitted).                                                                          |
+| `action-result`   | `reckon-action` terminal outcome — SUCCEEDED, FAILED, PARTIAL, TIMEOUT — or OUTCOME_UNKNOWN when nobody can tell (system-emitted).       |
+| `action-resolution` | A person checked the tool and resolved an OUTCOME_UNKNOWN `reckon-action` to SUCCEEDED or FAILED.                                     |
+| `action-reversal` | A previously-SUCCEEDED `reckon-action` was reversed by a new `reckon-action`.                                                                  |
 | `linkage`         | Investigation linked to another (see-also, follow-up-of, spawned-by, duplicate-of, supersedes); see 07-post-conclusion-outputs.md §5. |
 | `post_conclusion` | Step in the post-conclusion pipeline (archive, IOC extract, candidate-SOP, linkage suggestion, ticketing handoff); see 07.            |
 | `context-reset`   | The analyst rebuilt the agent's working conversation from the engine record; a rebuilt conversation starts after the newest one (`adr/0235`). |
@@ -483,14 +483,14 @@ simply has no verdict (absence is the honest zero, not an enum value).
 CUSTOM STIX OBJECTS
 -------------------
 
-### x-hypothesis
+### reckon-hypothesis
 
 A **working theory under investigation**.
 
 ```
-x-hypothesis
+reckon-hypothesis
 
-  id                  x-hypothesis--<uuid>
+  id                  reckon-hypothesis--<uuid>
   statement           string (the claim — ONE claim; compound claims are
                       not falsifiable as a unit, see "Competing hypotheses")
   handle              optional short mnemonic ("H1 rdp-lateral") — the
@@ -498,7 +498,7 @@ x-hypothesis
                       and export use; agent-proposed, analyst-renamable
   status              PROPOSED | OPEN | SUPPORTED | REFUTED |
                       INCONCLUSIVE | ABANDONED
-  parent_ref          optional x-hypothesis id (refinement)
+  parent_ref          optional reckon-hypothesis id (refinement)
   rooted_at_ref       optional STIX SCO id (anchor entity)
   rationale           string (why proposed)
   labels              optional list of strings — MITRE ATT&CK technique
@@ -511,22 +511,22 @@ x-hypothesis
 
 - `PROPOSED` is the initial state for **AI-generated** hypotheses pending acknowledgment.
 - `OPEN` is the initial state for **analyst-created** hypotheses, and where AI hypotheses move on acknowledgment.
-- **Competing hypotheses.** An investigation carries a *set* of hypotheses that compete to explain the same evidence, not one theory that accumulates confirmations. Evidence is asymmetric: one strong disconfirmation can kill a hypothesis, while any number of confirmations only makes it *consistent* with what was seen — so the predictions that matter most are the ones whose outcome **differs** between rivals (`x-prediction.discriminates`, below). The framing shape the AI delegate is asked to produce is the tenant dial **`reasoning.hypothesis_framing`**: `leading_null` (default — a leading hypothesis plus exactly one concrete alternative, benign or different-actor, with a third only when the evidence genuinely supports it; the alternative is only legitimate if the delegate can name a prediction that discriminates it from the leader) or `leading_only` (a single leading hypothesis). The dial shapes what the delegate proposes; the model itself is the same under both — an analyst may always frame a rival by hand.
+- **Competing hypotheses.** An investigation carries a *set* of hypotheses that compete to explain the same evidence, not one theory that accumulates confirmations. Evidence is asymmetric: one strong disconfirmation can kill a hypothesis, while any number of confirmations only makes it *consistent* with what was seen — so the predictions that matter most are the ones whose outcome **differs** between rivals (`reckon-prediction.discriminates`, below). The framing shape the AI delegate is asked to produce is the tenant dial **`reasoning.hypothesis_framing`**: `leading_null` (default — a leading hypothesis plus exactly one concrete alternative, benign or different-actor, with a third only when the evidence genuinely supports it; the alternative is only legitimate if the delegate can name a prediction that discriminates it from the leader) or `leading_only` (a single leading hypothesis). The dial shapes what the delegate proposes; the model itself is the same under both — an analyst may always frame a rival by hand.
 - **Acknowledgment may restate.** The acknowledging human may supply a revised `statement` and/or `handle` in the same act (acknowledge-with-restatement: the analyst sharpening the claim is the ownership moment). A restatement is legal only while **every prediction under the hypothesis is `UNTESTED` or `WITHDRAWN`** — once any prediction carries a result, the result was tested against the old wording, and a change of theory is a refinement chained via `parent_ref`. The same rule governs a later field update on an `OPEN` hypothesis (a `hypothesis` interpretation carrying `hypothesis_ref` + the new fields, no status change): human-only, untested-only. The original statement stays in the thread.
 - **Acknowledgment is a human-only act**, legal only on a `PROPOSED` hypothesis (an AI delegate cannot acknowledge — its own or any). It marks analyst ownership of the line of inquiry. **By default it is a gate on AI-driven adjudication** (`vetted` posture): an AI delegate may **not** record an evidential outcome — a prediction result (`run tests`) or a hypothesis evaluation (`support` / `refutation` / `inconclusive`) — on a hypothesis that is still `PROPOSED`; a human must Acknowledge it into `OPEN` first. A **human** may adjudicate a `PROPOSED` hypothesis directly (engaging with the AI's proposal is itself the human taking the loop), and either actor drives an `OPEN` hypothesis freely. The tenant dial **`trust.ai_reasoning`** reopens full autonomy — with it enabled, AI outcomes are legal from `PROPOSED` too (the server stamps an enabling ref the aggregate requires, structurally default-deny, mirroring the AI-verdict dial). The gate is decoupled from action containment (04-action-authorization.md §4–§5): it loosens *reasoning* friction, never *world-changing* friction. Every transition is recorded as an Interpretation with principal + delegate, so "AI-adjudicated vs human-acknowledged" is always derivable from the thread.
 - **Terminal statuses are terminal** — a changed judgment is a new hypothesis chained via `parent_ref`, keeping every reversal auditable. Consequence: a hypothesis decided before acknowledgment can never be acknowledged; analyst disagreement with a terminal verdict is expressed by chaining, not by re-opening.
-- **Evidence is not embedded** — it lives as `x-supports` / `x-refutes` relationships from Sightings.
+- **Evidence is not embedded** — it lives as `reckon-supports` / `reckon-refutes` relationships from the evidence object: an observed-data, a `reckon-null-observation`, a note or an indicator. A sighting is cited through its observed-data.
 - Status transitions are recorded as Interpretations in the reasoning thread.
 
-### x-prediction
+### reckon-prediction
 
 A **testable consequence** of a hypothesis.
 
 ```
-x-prediction
+reckon-prediction
 
-  id                  x-prediction--<uuid>
-  hypothesis_ref      x-hypothesis id (the owner: the hypothesis that
+  id                  reckon-prediction--<uuid>
+  hypothesis_ref      reckon-hypothesis id (the owner: the hypothesis that
                       predicts this will be OBSERVED)
   statement           string (what would be observed if hypothesis is true)
   title               string, one line of at most 64 characters: the short
@@ -536,7 +536,7 @@ x-prediction
                       made at render time. Frozen with the statement.
   title_derived       optional boolean — the aggregate derived the title
   test_query          optional QuerySpec { tool, query_text, parameters }
-  discriminates       optional list of x-hypothesis ids — rivals whose
+  discriminates       optional list of reckon-hypothesis ids — rivals whose
                       expectation for this prediction is the OPPOSITE of
                       the owner's. CONFIRMED supports the owner and counts
                       against the listed; DISCONFIRMED the reverse. A
@@ -550,6 +550,10 @@ x-prediction
                       a manual test, test_query says whom to ask and what.
   test_result_refs    list of ObservedData, Sighting, or Note ids (a Note is
                       a human attestation — see below)
+  test_result_event_ids
+                      list of raw OCSF event ids the outcome cites. A raw
+                      event id is not a STIX id, so the stored object keeps
+                      it apart from test_result_refs (adr/0357)
   created, modified, created_by_ref (STIX standard)
 ```
 
@@ -561,14 +565,14 @@ x-prediction
 - **The node is immutable except for status.** Editing an untested prediction is *withdraw + record*: the thread shows both, and a result can never be attached to wording it was not tested against.
 - **A person's answer is evidence the record can cite** (`adr/0054`). A human recording an outcome may attach an *attestation* — what was observed, who was asked, over what channel — which the aggregate materializes as a STIX `Note` (adopted unchanged) authored by that principal, with `object_refs` to the prediction and its hypothesis, and prepends to `test_result_refs`. The evidence rule is unchanged: a decisive outcome still cites what was observed; a human observation is simply citeable, and reads as *attested*, never as telemetry. Two human-only rules follow: an AI delegate never carries an attestation, and never records any outcome but withdraw on a `manual` prediction — it may propose the test and ask for the result, not supply it. The decide gate (`adr/0051`) reads a manual discriminator like any other.
 
-### x-action
+### reckon-action
 
 A **state-changing operation against the world** (host isolation, email purge, detection deployment, etc.). Canonical schema:
 
 ```
-x-action
+reckon-action
 
-  id                  x-action--<uuid>
+  id                  reckon-action--<uuid>
   action_type         string (controlled vocabulary, e.g.,
                       "host.isolate", "email.purge", "detection.deploy")
   tier                T2 | T3
@@ -592,11 +596,11 @@ x-action
   rationale           string, bounded ~500 chars
   evidence_refs       list<EvidenceRef>
   investigation_ref   grouping--<uuid>
-  reversal_of_ref     optional x-action id (if this reverses another)
-  reversed_by_ref     optional x-action id (set when this is reversed —
+  reversal_of_ref     optional reckon-action id (if this reverses another)
+  reversed_by_ref     optional reckon-action id (set when this is reversed —
                       the verified undo, 04-action-authorization.md §7.1)
   reversal_attempted_by_ref
-                      optional x-action id (set when a best_effort reversal
+                      optional reckon-action id (set when a best_effort reversal
                       dispatched but its effect could not be verified; the
                       original stays SUCCEEDED, 04-action-authorization.md §7.1)
   expires_at          timestamp (REQUESTED expires if not approved
@@ -623,7 +627,7 @@ x-action
 
 **Conceptual notes:**
 
-- `x-action` is a **sibling primitive** to `x-hypothesis` and `x-prediction` — it has its own lifecycle (the `status` field) rather than being a single recorded act.
+- `reckon-action` is a **sibling primitive** to `reckon-hypothesis` and `reckon-prediction` — it has its own lifecycle (the `status` field) rather than being a single recorded act.
 - The producing reasoning is captured by an Interpretation of type `action-request`; subsequent state changes produce `action-approval`, `action-rejection`, `action-expiry`, `action-dispatch`, `action-result`, `action-resolution`, or `action-reversal` Interpretations. See 04-action-authorization.md §3.2 for the full state machine and §3.3 / §6 for the authorization and execution sub-records.
 
 
@@ -637,18 +641,18 @@ EDGE TYPES (v0 vocabulary, open)
 | `sighted-in`     | Sighting       | ObservedData   | Sighting based on observation.                                                                                                                         |
 | `member-of`      | any STIX node  | Grouping       | Investigation membership.                                                                                                                              |
 | `produced-by`    | any STIX node  | Interpretation | Produced by this reasoning act.                                                                                                                        |
-| `x-supports`     | Sighting       | x-hypothesis   | Evidence supports (with weight: `STRONG` \| `MODERATE` \| `WEAK`).                                                                                     |
-| `x-refutes`      | Sighting       | x-hypothesis   | Evidence refutes (with weight: `STRONG` \| `MODERATE` \| `WEAK`).                                                                                      |
+| `reckon-supports`     | Evidence SDO   | reckon-hypothesis   | Evidence supports (with weight: `STRONG` \| `MODERATE` \| `WEAK`).                                                                                     |
+| `reckon-refutes`      | Evidence SDO   | reckon-hypothesis   | Evidence refutes (with weight: `STRONG` \| `MODERATE` \| `WEAK`).                                                                                      |
 | `aliases`        | Entity         | Entity         | Identity assertion (non-destructive — never a merge).                                                                                                  |
 | `distinct-from`  | Entity         | Entity         | Identity separation asserted by a person: the two are not one thing; reads do not join them through aliases (adr/0211). Between a `user-account` and a person (`identity`, individual), the one pair of unlike types it joins, it says the account is not that person's and cuts a `belongs-to` the directory recorded (adr/0324). |
-| `parent-of`      | x-hypothesis   | x-hypothesis   | Hypothesis refinement.                                                                                                                                 |
-| `reverses`       | x-action       | x-action       | A reversing action negates a previously-`SUCCEEDED` action. Also expressible via `x-action.reversal_of_ref`; the edge form supports graph queries (04-action-authorization.md §7). |
-| `parent-process-of` | process     | process        | Observed process parent/child relationship (emitted by the process_activity normalizer, 03-capability-layer.md §4.1). Distinct from `parent-of`, which is reserved for x-hypothesis refinement. |
-| `x-authenticated-to` | user-account | x-host        | Observed authentication of a user to a host (emitted by the authentication normalizer, 03-capability-layer.md §4.2).                                                                    |
+| `parent-of`      | reckon-hypothesis   | reckon-hypothesis   | Hypothesis refinement.                                                                                                                                 |
+| `reverses`       | reckon-action       | reckon-action       | A reversing action negates a previously-`SUCCEEDED` action. Also expressible via `reckon-action.reversal_of_ref`; the edge form supports graph queries (04-action-authorization.md §7). |
+| `parent-process-of` | process     | process        | Observed process parent/child relationship (emitted by the process_activity normalizer, 03-capability-layer.md §4.1). Distinct from `parent-of`, which is reserved for reckon-hypothesis refinement. |
+| `reckon-authenticated-to` | user-account | reckon-host        | Observed authentication of a user to a host (emitted by the authentication normalizer, 03-capability-layer.md §4.2).                                                                    |
 | `loads`          | process        | file           | Observed module/DLL load (emitted by the module_activity normalizer, 03-capability-layer.md §4.8).                                                                                       |
-| `member-of-group`| user-account   | x-group        | Observed directory-group membership (emitted by the account_change normalizer, 03-capability-layer.md §4.9).                                                                             |
+| `member-of-group`| user-account   | reckon-group        | Observed directory-group membership (emitted by the account_change normalizer, 03-capability-layer.md §4.9).                                                                             |
 | `clicked`        | user-account   | url            | Observed URL click from email (emitted by the email_url_activity normalizer, 03-capability-layer.md §4.11).                                                                              |
-| `belongs-to`     | x-cloud-resource, user-account | x-cloud-account, identity (individual) | Observed membership of a resource identified under an account, or of a principal in its own account (STIX 2.1 vocabulary; emitted by the api_activity normalizer, 03-capability-layer.md §4.15). Never asserted for a resource named by a provider-unique id. From a `user-account` to the person (`identity`, `identity_class: individual`) that owns it: emitted by the user inventory normalizer from the directory record that names both, or asserted by a person with who, when and a note, and withdrawn by marking (adr/0324). An event never references the person; it is reached from the account through this edge. |
+| `belongs-to`     | reckon-cloud-resource, user-account | reckon-cloud-account, identity (individual) | Observed membership of a resource identified under an account, or of a principal in its own account (STIX 2.1 vocabulary; emitted by the api_activity normalizer, 03-capability-layer.md §4.15). Never asserted for a resource named by a provider-unique id. From a `user-account` to the person (`identity`, `identity_class: individual`) that owns it: emitted by the user inventory normalizer from the directory record that names both, or asserted by a person with who, when and a note, and withdrawn by marking (adr/0324). An event never references the person; it is reached from the account through this edge. |
 
 Standard STIX relationship types (`indicates`, `uses`, `targets`, `communicates-with`, `resolves-to`, `located-at`, etc.) are also valid where applicable.
 
@@ -675,7 +679,7 @@ producer_version    optional string — see below
 **`producer_version`:** version of the producer that emitted this artifact:
 
 - Normalizer version for capability-layer outputs.
-- AI agent + model version for reasoning outputs. On Interpretations, extended with an optional `retrieval_context_hash` — a hash over the union of `consulted_sops` and `consulted_similar_investigations` (see x-interpretation schema). Re-running an investigation under the same retrieval context (same SOPs and summaries available at the same versions) yields a stable hash, supporting behavioral-consistency analysis across runs. See 06-knowledge-service.md §6.3.
+- AI agent + model version for reasoning outputs. On Interpretations, extended with an optional `retrieval_context_hash` — a hash over the union of `consulted_sops` and `consulted_similar_investigations` (see reckon-interpretation schema). Re-running an investigation under the same retrieval context (same SOPs and summaries available at the same versions) yields a stable hash, supporting behavioral-consistency analysis across runs. See 06-knowledge-service.md §6.3.
 - Human user-agent for analyst-authored outputs.
 
 Used to scope re-normalization and re-reasoning.
@@ -701,7 +705,7 @@ INVARIANTS
 
 - Investigation **seed is immutable** after creation.
 - Investigation cannot be `CONCLUDED` without `conclusion_ref` populated.
-- Every status change on `x-hypothesis` produces a corresponding Interpretation in the reasoning thread.
+- Every status change on `reckon-hypothesis` produces a corresponding Interpretation in the reasoning thread.
 - Every node in an investigation's `object_refs` has a `member-of` edge to that Grouping.
 
 **Reasoning provenance**
@@ -715,20 +719,43 @@ ADOPTED VS INVENTED
 
 ### Adopted unchanged
 
-- **From STIX 2.1** — all SCOs, `ObservedData`, `Sighting`, `Indicator`, `Report`, `Note`, `Opinion`, `Grouping`, `Relationship`, identity rules (deterministic UUIDv5), field naming conventions, custom-object naming convention (`x-` prefix). `Identity` with `identity_class: individual` is the **person**: the human an account belongs to, keyed by the durable identifier a directory gives it and scoped by that directory, minted only from a directory record that names one or asserted by a person, never inferred from a shared address or name; events reference accounts, never the person, who is reached through `belongs-to` (adr/0324). The vendor identities the detection normalizer mints are the same object with another class.
+- **From STIX 2.1** — all SCOs, `ObservedData`, `Sighting`, `Indicator`, `Report`, `Note`, `Opinion`, `Grouping`, `Relationship`, identity rules (deterministic UUIDv5), field naming conventions, and extension definitions for custom types and properties (STIX 2.1 §7.3). `Identity` with `identity_class: individual` is the **person**: the human an account belongs to, keyed by the durable identifier a directory gives it and scoped by that directory, minted only from a directory record that names one or asserted by a person, never inferred from a shared address or name; events reference accounts, never the person, who is reached through `belongs-to` (adr/0324). The vendor identities the detection normalizer mints are the same object with another class.
 - **From OCSF** — event classes and payload shapes, class UID system.
 - **From working SOC tooling and IR methodology** (TheHive, NIST 800-61) — case lifecycle state machine, seed concept (precursor / indicator / question).
 - **From event-sourcing patterns** — reasoning thread as append-only ordered log.
 
 ### Invented
 
-- **`x-interpretation`** — primitive that records a reasoning act.
-- **`x-action`** — primitive for state-changing operations. Lifecycle and authorization in 04-action-authorization.md.
-- **Custom STIX SDOs:** `x-hypothesis`, `x-prediction`, `x-null-observation` — the last records that a complete query observed nothing (adr/0061). STIX has no form for absence: `observed-data` must observe at least one object and a `sighting` sights an indicator, so "no change record exists for this host in this window" had nothing an outcome could cite. The capability layer mints it on a mechanical condition only — coverage COMPLETE and zero results — carrying the verb, the subject entity, the parameters, the window and the sources; a PARTIAL empty answer mints nothing, so an absence the layer cannot vouch for is not citeable and INCONCLUSIVE is the only honest outcome. Identity is UUIDv5 over (verb, sources, subject, parameters, window), so the same question answered empty twice is one object.
-- **Custom STIX SCOs:** `x-host`, `x-scheduled-task`, `x-group`, `x-cloud-account`, `x-cloud-resource` — entity types not covered by STIX 2.1 native; identity rules in 03-capability-layer.md §7.2. The cloud account is a SCO rather than an `identity` SDO because it is an observable the telemetry names and the owner the resources reference; the cloud principal is deliberately *not* a new type, since `user-account` already models it.
-- **Custom STIX relationship types:** `x-supports`, `x-refutes`, `reverses`, `distinct-from` (a person's assertion that two entities are not one thing, so reads stop joining them through aliases; withdrawing an alias only removes a join, it does not record that the two are known apart; adr/0211); plus the normalizer-emitted observation relationships `parent-process-of`, `x-authenticated-to`, `loads`, `member-of-group`, `clicked` (03-capability-layer.md §4.1, §4.2, §4.8, §4.9, §4.11).
+- **`reckon-interpretation`** — primitive that records a reasoning act.
+- **`reckon-action`** — primitive for state-changing operations. Lifecycle and authorization in 04-action-authorization.md.
+- **Custom STIX SDOs:** `reckon-hypothesis`, `reckon-prediction`, `reckon-null-observation` — the last records that a complete query observed nothing (adr/0061). STIX has no form for absence: `observed-data` must observe at least one object and a `sighting` sights an indicator, so "no change record exists for this host in this window" had nothing an outcome could cite. The capability layer mints it on a mechanical condition only — coverage COMPLETE and zero results — carrying the verb, the subject entity, the parameters, the window and the sources; a PARTIAL empty answer mints nothing, so an absence the layer cannot vouch for is not citeable and INCONCLUSIVE is the only honest outcome. Identity is UUIDv5 over (verb, sources, subject, parameters, window), so the same question answered empty twice is one object.
+- **Custom STIX SCOs:** `reckon-host`, `reckon-scheduled-task`, `reckon-group`, `reckon-cloud-account`, `reckon-cloud-resource` — entity types not covered by STIX 2.1 native; identity rules in 03-capability-layer.md §7.2. The cloud account is a SCO rather than an `identity` SDO because it is an observable the telemetry names and the owner the resources reference; the cloud principal is deliberately *not* a new type, since `user-account` already models it.
+- **Custom STIX relationship types:** `reckon-supports`, `reckon-refutes`, `reverses`, `distinct-from` (a person's assertion that two entities are not one thing, so reads stop joining them through aliases; withdrawing an alias only removes a join, it does not record that the two are known apart; adr/0211); plus the normalizer-emitted observation relationships `parent-process-of`, `reckon-authenticated-to`, `loads`, `member-of-group`, `clicked` (03-capability-layer.md §4.1, §4.2, §4.8, §4.9, §4.11).
 - **Investigation extension structure** — `Seed`, `Lifecycle`, `ReasoningThread`, `ConclusionSlot` layered on top of `Grouping`.
 - **Deliberately NOT invented:** pinned evidence and the verdict are *not* new primitives — both are Interpretation acts (`evidence-pin`, `verdict`) whose investigation-level surfaces (the pinned-evidence list, the disposition of record) are folds over the thread. Making them first-class objects would duplicate what the reasoning thread already records.
+
+
+STIX CONFORMANCE AND CHANGE
+---------------------------
+
+Every STIX object reckon stores is a valid STIX 2.1 object (adr/0357). reckon's own types and properties are declared the way STIX 2.1 asks, by extension definitions. These nine rules say how reckon conforms, and how its types change as STIX and reckon move on.
+
+1. **The version.** reckon writes STIX 2.1, read with Errata 01 (CSD01). This section is the only place that states the version. Changing it needs an ADR.
+2. **Native first.** A native STIX object or property is used when one fits. If none fits, a published OASIS extension is used. Only when neither fits does reckon define its own extension. A native property is never given a different meaning (STIX 2.1 §7.3).
+3. **Declared and versioned.** Every reckon type and property set has an extension definition. Each definition has a semver `version` and a JSON Schema.
+4. **Names start with `reckon-`.** Every custom type and property-extension is named after the product. The prefix stops a later STIX version from using a reckon name for something else. A type name is part of every id, so renaming a type later needs an ADR.
+5. **Additive and breaking changes.**
+   - An additive change, such as a new optional property, raises the minor version. The definition id stays the same.
+   - A breaking change gets a new definition with a new id. Renaming a property, removing one, making one required or changing its meaning are all breaking.
+   - Objects written under the old definition keep it. Readers accept both until the old objects are rewritten. 03-capability-layer.md §4.16 reads both sides of an OCSF deprecation in the same way.
+6. **Identity properties are fixed per definition.** Changing the properties that make up a type's id changes ids. So it needs an ADR.
+7. **Deviations are listed in one place.** That place is 03-capability-layer.md §7. Each deviation states its reason. Adding one needs an ADR.
+8. **Stored objects are validated.** A test checks every object the normalizers and projections write, against the OASIS STIX 2.1 schemas and reckon's extension schemas.
+   - The OASIS schemas are copied into the repository, with their licence.
+   - The schemas do not cover every rule in the spec text, so the test adds checks of its own. A sighting's `sighting_of_ref` must name an SDO. A top-level property the type does not define fails, so a custom property outside an extension is caught.
+9. **Draft extensions are adopted by definition id.** A later revision of a draft arrives under a new id. So a definition's meaning never changes silently.
+
+**The definitions are the same in every install.** Each definition's id is a fixed UUIDv4 in the code, and nothing about a definition depends on the tenant. One fixed `identity`, with `identity_class: organization`, is every definition's `created_by_ref`; it names the organization that publishes reckon, and it is the only place that organization is named. Each definition's schema is a file in the repository under a versioned path, embedded in the binary, and a published version's file is never edited.
 
 
 OPEN QUESTIONS DELIBERATELY LEFT TO IMPLEMENTATION
@@ -738,13 +765,13 @@ These are **not domain-model gaps**. The model accommodates either choice.
 
 - Sharding / partitioning strategy for per-tenant data at scale. Constrained by the tenant model — per-tenant scope is guaranteed by construction; the remaining question is operational tuning within a tenant, not global federation.
 - **Hypothesis adjudication mode (`vetted` vs `autonomous`) — RESOLVED, built.** Whether an AI delegate may record an evidential outcome on its own un-acknowledged hypothesis is a trust posture, not a fixed property of the model. Shipped as the tenant dial **`trust.ai_reasoning`**, **default off** (`vetted`): a `PROPOSED` hypothesis must be human-acknowledged into `OPEN` before an AI delegate can run its tests or decide it — the AI assembles the theory and its candidate tests, then hands the loop to the analyst. Enabling the dial (`autonomous`) makes AI outcomes legal from `PROPOSED`, so a hunt self-adjudicates. Enforced at the aggregate boundary (`applyPredictionOutcome` / `applyHypothesisOutcome` via the shared `aiReasoningGate`), with the server stamping the enabling ref only when the dial is on, so no alternate path bypasses it. Deliberately decoupled from action containment: Gate 2 and human approval (04-action-authorization.md §4–§5) are identical in both modes — the dial loosens *reasoning* friction, never *world-changing* friction. Interaction to spec when background hunts land (05-component-architecture.md §3.3, v2): a `vetted` hunt yields a queue of `PROPOSED` theories for morning review; an `autonomous` hunt self-adjudicates overnight.
-- **Hypothesis framing shape (`leading_null` vs `leading_only`) — RESOLVED, built.** Whether the AI delegate frames one hypothesis or a competing set is a reasoning posture, not a property of the model: the model always holds a *set* (see §x-hypothesis "Competing hypotheses"). Shipped as the tenant dial **`reasoning.hypothesis_framing`**, **default `leading_null`**: the delegate proposes a leading hypothesis plus exactly one concrete alternative (benign / different-actor), a third only when the evidence genuinely supports it, and it may not propose an alternative it cannot name a discriminating prediction for — a perfunctory rival is worse than none, because analysts learn to ignore the rail. `leading_only` restores a single leading hypothesis. Two companion behaviours ride the dial but are *agent behaviour with an analyst override*, deliberately not aggregate gates: propose-tests runs against the whole live set and must yield at least one prediction whose outcome differs across rivals; decide does not record a hypothesis as SUPPORTED while a rival still has an untested discriminating prediction — it says so and asks to run it, and the analyst may answer "record it anyway." The dial travels server → investigation view → agent session exactly like `knowledge.injection`, so one tenant setting governs every client.
+- **Hypothesis framing shape (`leading_null` vs `leading_only`) — RESOLVED, built.** Whether the AI delegate frames one hypothesis or a competing set is a reasoning posture, not a property of the model: the model always holds a *set* (see §reckon-hypothesis "Competing hypotheses"). Shipped as the tenant dial **`reasoning.hypothesis_framing`**, **default `leading_null`**: the delegate proposes a leading hypothesis plus exactly one concrete alternative (benign / different-actor), a third only when the evidence genuinely supports it, and it may not propose an alternative it cannot name a discriminating prediction for — a perfunctory rival is worse than none, because analysts learn to ignore the rail. `leading_only` restores a single leading hypothesis. Two companion behaviours ride the dial but are *agent behaviour with an analyst override*, deliberately not aggregate gates: propose-tests runs against the whole live set and must yield at least one prediction whose outcome differs across rivals; decide does not record a hypothesis as SUPPORTED while a rival still has an untested discriminating prediction — it says so and asks to run it, and the analyst may answer "record it anyway." The dial travels server → investigation view → agent session exactly like `knowledge.injection`, so one tenant setting governs every client.
 
 ### Closed (resolved by other specs)
 
 - **Eager STIX promotion from OCSF.** Every tool response is normalized at ingest into `ObservedData` and SCOs, with the raw `OcsfEvent` retained as ground truth and re-normalizable on demand. See 03-capability-layer.md §4.13.
 - **Reasoning thread is a projection.** It is materialized as a projection (`investigation_thread`) rebuilt from the event stream; the canonical ordering lives in the events' `sequence_no`, not in a list field on the Grouping. The Grouping's `ReasoningThread` extension is the logical view. See 02-persistence.md §4 (Projections subsection).
-- **`labels` on `x-hypothesis` controlled vocabulary.** Bind to MITRE ATT&CK technique IDs (e.g., `T1486`, `T1078.004`) by convention; freeform values remain permitted. The agent loop is prompted to label hypotheses with applicable techniques where evident. See 05-component-architecture.md §14.1.
+- **`labels` on `reckon-hypothesis` controlled vocabulary.** Bind to MITRE ATT&CK technique IDs (e.g., `T1486`, `T1078.004`) by convention; freeform values remain permitted. The agent loop is prompted to label hypotheses with applicable techniques where evident. See 05-component-architecture.md §14.1.
 
 
 END OF SPEC

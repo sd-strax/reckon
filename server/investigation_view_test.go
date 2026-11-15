@@ -23,7 +23,7 @@ func TestInvestigationView_StageInputsAndStart(t *testing.T) {
 	token := mintToken(t, map[string]any{"preferred_username": "opener"})
 	if resp, _ := postAction(t, b, token, RequestActionBody{
 		ActionType:       "host.isolate",
-		Targets:          []aggregate.TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-A"}},
+		Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-A"}},
 		EvidenceRefs:     []string{"observed-data--od1"},
 		Rationale:        "contain",
 		InvestigationRef: invID.String(),

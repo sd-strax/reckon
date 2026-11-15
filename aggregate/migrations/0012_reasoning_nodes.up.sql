@@ -1,5 +1,5 @@
 -- 0012_reasoning_nodes: investigation-scoped read models for the reasoning
--- nodes (x-hypothesis / x-prediction, 01-domain-model.md).
+-- nodes (reckon-hypothesis / reckon-prediction, 01-domain-model.md).
 --
 -- The canonical STIX-shaped nodes live in stix_objects (written by the
 -- ReasoningNodeProjector — the object store's first writer). These two tables
@@ -8,7 +8,7 @@
 -- investigation" is an indexed scan, not a JSONB payload crawl.
 
 CREATE TABLE IF NOT EXISTS hypothesis_current (
-    id                  TEXT PRIMARY KEY,   -- full STIX id (x-hypothesis--<uuid>)
+    id                  TEXT PRIMARY KEY,   -- full STIX id (reckon-hypothesis--<uuid>)
     aggregate_id        UUID NOT NULL,
     tenant_id           UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
     statement           TEXT NOT NULL,
@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS hypothesis_current_aggregate_idx ON hypothesis_curren
 CREATE INDEX IF NOT EXISTS hypothesis_current_tenant_status_idx ON hypothesis_current (tenant_id, status);
 
 CREATE TABLE IF NOT EXISTS prediction_current (
-    id                  TEXT PRIMARY KEY,   -- full STIX id (x-prediction--<uuid>)
+    id                  TEXT PRIMARY KEY,   -- full STIX id (reckon-prediction--<uuid>)
     hypothesis_ref      TEXT NOT NULL,      -- the hypothesis it tests
     aggregate_id        UUID NOT NULL,
     tenant_id           UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',

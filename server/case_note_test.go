@@ -10,7 +10,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sd-strax/reckon/aggregate"
+	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/config"
+	"github.com/sd-strax/reckon/evidence"
+	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // The note is an ordinary ticket.comment request (adr/0032): one target (the
@@ -81,5 +85,32 @@ func TestCaseNoteOffer(t *testing.T) {
 	}
 	if o := b.caseNoteOffer(context.Background(), "inv-1", "t", &aggregate.Seed{Type: aggregate.SeedEntity}, "", now); o != nil {
 		t.Error("entity seed: want no offer")
+	}
+}
+
+// TestCaseSystemName_ReadsTheStoredObservation: with no known seed source,
+// the case system is the sor the promoted case read kept in its
+// reckon-observation property-extension (adr/0357).
+func TestCaseSystemName_ReadsTheStoredObservation(t *testing.T) {
+	ref := "observed-data--" + uuid.NewString()
+	seen := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	od := capability.ObservedData{
+		ID:            identity.STIXID(ref),
+		FirstObserved: seen, LastObserved: seen, NumberObserved: 1,
+		ObjectRefs: []identity.STIXID{identity.STIXID("artifact--" + uuid.NewString())},
+		Extensions: map[string]any{"case_number": "INC0010042", "sor": "servicenow"},
+		Provenance: capability.Provenance{DerivationMode: capability.DerivationDirect, Tool: "fixture:x", Normalizer: "incident_finding", NormalizerVersion: 6, ObservedAt: time.Now()},
+	}
+	o := od.STIXObject()
+	o.Created = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	payload, err := stix.Marshal(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newFakeBackend(t)
+	b.cfg.Evidence = &fakeEvidence{objects: map[string]evidence.Object{ref: {Ref: ref, Type: "observed-data", Payload: payload}}}
+	got := b.caseSystemName(context.Background(), &aggregate.Seed{Type: aggregate.SeedCase, CaseRef: ref, Source: "fixture:x"})
+	if got != caseSystemDisplayNames["servicenow"] {
+		t.Errorf("caseSystemName = %q; want %q", got, caseSystemDisplayNames["servicenow"])
 	}
 }

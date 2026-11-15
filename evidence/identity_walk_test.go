@@ -78,7 +78,7 @@ func TestAliasGraphWalk_Rule(t *testing.T) {
 			for j, n := range tt.nodes {
 				u := uuid.MustParse(fmt.Sprintf("00000000-0000-4000-8000-%06d%06d", i, j))
 				id[n], name[u] = u, n
-				g.types[u] = "x-host"
+				g.types[u] = "reckon-host"
 			}
 			for _, e := range tt.aliases {
 				a, b := id[e[0]], id[e[1]]

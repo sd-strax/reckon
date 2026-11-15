@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/stix"
 )
 
 // adr/0054: a prediction may declare that a person tests it; a human records
@@ -71,7 +73,7 @@ func TestManualPrediction_Apply(t *testing.T) {
 
 	// The AI cannot record any outcome on a manual prediction — even with refs.
 	for _, status := range []string{PredictionConfirmed, PredictionDisconfirmed, PredictionInconclusive} {
-		if _, err := applyCommand(ai, outcome(status, nil, "observed-data--1"), state, testIDs()); err == nil || !strings.Contains(err.Error(), "tested by a person") {
+		if _, err := applyCommand(ai, outcome(status, nil, "observed-data--b67d30ff-02ac-498a-92f9-32f845f448cf"), state, testIDs()); err == nil || !strings.Contains(err.Error(), "tested by a person") {
 			t.Errorf("AI %s on a manual prediction: err = %v; want the manual guard", status, err)
 		}
 	}
@@ -101,11 +103,11 @@ func TestManualPrediction_Apply(t *testing.T) {
 		t.Errorf("output refs %v lack the note", rec.OutputRefs)
 	}
 	// An attestation alongside telemetry refs: the note comes first.
-	events, err = applyCommand(human, outcome(PredictionDisconfirmed, att(), "observed-data--9"), toolState, testIDs())
+	events, err = applyCommand(human, outcome(PredictionDisconfirmed, att(), "observed-data--5a0c6f2e-7b1d-4e3a-9c8b-2d1e0f9a8b7c"), toolState, testIDs())
 	if err != nil {
 		t.Fatalf("human attested outcome with refs on a tool prediction: %v", err)
 	}
-	if refs := recFromEvents(t, events).PredictionTransition.TestResultRefs; len(refs) != 2 || !strings.HasPrefix(refs[0], "note--") || refs[1] != "observed-data--9" {
+	if refs := recFromEvents(t, events).PredictionTransition.TestResultRefs; len(refs) != 2 || !strings.HasPrefix(refs[0], "note--") || refs[1] != "observed-data--5a0c6f2e-7b1d-4e3a-9c8b-2d1e0f9a8b7c" {
 		t.Errorf("refs = %v; want the note first, then the telemetry", refs)
 	}
 
@@ -211,6 +213,18 @@ func TestAttestation_ProjectionAndReplay(t *testing.T) {
 		refs, _ := node["object_refs"].([]any)
 		if len(refs) != 2 || refs[0] != pRef || refs[1] != hRef {
 			t.Errorf("[%s] note object_refs = %v; want [%s %s]", phase, refs, pRef, hRef)
+		}
+		// The attestation's structure is the reckon-attestation
+		// property-extension, not a custom top-level property (adr/0357).
+		if _, ok := node["x_reckon_attestation"]; ok {
+			t.Errorf("[%s] note keeps x_reckon_attestation: %v", phase, node)
+		}
+		if att := stix.ExtensionFrom(node, stix.ExtAttestation); att["prediction_ref"] != pRef || att["source"] != "J. Doe" ||
+			att["channel"] != "phone" || att["extension_type"] != "property-extension" {
+			t.Errorf("[%s] reckon-attestation = %v", phase, att)
+		}
+		if node["spec_version"] != "2.1" || node["created"] == nil || node["modified"] == nil {
+			t.Errorf("[%s] note common properties = %v", phase, node)
 		}
 		payloads, err := testReads().ListReasoningStixPayloads(ctx, invID)
 		if err != nil {

@@ -41,7 +41,7 @@ func okResult() WriteResult {
 }
 
 func target(id string) aggregate.TargetSpec {
-	return aggregate.TargetSpec{EntityRef: "x-host--" + id, ResolvedIdentifier: id}
+	return aggregate.TargetSpec{EntityRef: "reckon-host--" + id, ResolvedIdentifier: id}
 }
 
 // --- descriptor / list_action_types -----------------------------------------
@@ -201,7 +201,7 @@ func TestBuildRequestCommandRejections(t *testing.T) {
 		"unknown type":   {ActionType: "nope", Targets: []aggregate.TargetSpec{target("x")}, Rationale: "r"},
 		"no targets":     {ActionType: "host.isolate", Rationale: "r"},
 		"no rationale":   {ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("x")}},
-		"unresolved tgt": {ActionType: "host.isolate", Targets: []aggregate.TargetSpec{{EntityRef: "x-host--1"}}, Rationale: "r"},
+		"unresolved tgt": {ActionType: "host.isolate", Targets: []aggregate.TargetSpec{{EntityRef: "reckon-host--1"}}, Rationale: "r"},
 		// Grounding is enforced (09 §3): a forward action with no evidence_refs is
 		// rejected — the ungrounded containment a live opus run produced 1-in-3.
 		"no evidence_refs": {ActionType: "host.isolate", Targets: []aggregate.TargetSpec{target("x")}, Rationale: "r"},

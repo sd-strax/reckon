@@ -1,6 +1,7 @@
 // A human label for an evidence ref — what it IS, not its id. Shared by the
 // document host (chip resolution) and the harness recorder.
 import type { EvidenceDoc } from "./backend";
+import { observedEntityRefs, stixProperties } from "./stixExtensions";
 
 /**
  * A short human label for an opened evidence ref — what it IS, not its id.
@@ -13,11 +14,19 @@ export function deriveEvidenceLabel(doc: EvidenceDoc): string {
     return doc.type || "event";
   }
   const p = (doc.payload ?? {}) as Record<string, unknown>;
+  if (doc.type === "artifact") {
+    // The artifact that stands for a stored record with nothing to extract
+    // (adr/0357). It is the record, not an entity, and its chip's type label
+    // ("stored record") says so on its own.
+    return "";
+  }
   if (doc.type === "note") {
     // An attestation (adr/0054): "attested by analyst-1 by phone: J. Doe".
     return typeof p.abstract === "string" && p.abstract ? p.abstract : "attestation";
   }
-  const props = (typeof p.properties === "object" && p.properties ? p.properties : p) as Record<string, unknown>;
+  // A process's name and a file's path are in their property-extensions
+  // (adr/0357); stixProperties reads them beside the top-level ones.
+  const props = stixProperties(p);
   const first = (...keys: string[]): string => {
     for (const k of keys) {
       const v = props[k];
@@ -39,7 +48,11 @@ export function deriveEvidenceLabel(doc: EvidenceDoc): string {
     return typeof pid === "number" ? `${val} (pid ${pid})` : val;
   }
   if (doc.type === "observed-data" && Array.isArray(p.object_refs)) {
-    const n = p.object_refs.length;
+    // Only the entities count, the person a directory record describes
+    // among them. An observation of a record with nothing to extract lists
+    // the record's artifact alone (adr/0357).
+    const n = observedEntityRefs(doc.payload).length;
+    if (n === 0) return "the stored record";
     return `${n} object${n === 1 ? "" : "s"}`;
   }
   return "";

@@ -1,12 +1,13 @@
 package capability
 
 import (
-	"net"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/ocsf"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // Normalizer turns one OCSF event into interpretation-layer objects. It is a
@@ -18,6 +19,20 @@ type Normalizer interface {
 	Version() int
 	Normalize(evt OcsfEvent) (NormalizationResult, error)
 }
+
+// The errors a normalizer returns for a broken record (adr/0357). The
+// resolver keeps the raw event and notes the error, as for any normalize
+// error.
+var (
+	// ErrNoEventTime is an event with no time.
+	ErrNoEventTime = errors.New("the event has no time")
+	// ErrEventTimeOutOfRange is an event whose time has a year outside 0000
+	// to 9999, which a STIX timestamp cannot write.
+	ErrEventTimeOutOfRange = errors.New("the event's time is outside the years 0000 to 9999")
+	// ErrNoRuleReference is a detection with no pattern, no finding uid and
+	// no title.
+	ErrNoRuleReference = errors.New("the detection has no pattern, no finding_info.uid and no title")
+)
 
 // Registry dispatches OcsfEvents to the normalizer registered for their class,
 // falling back to an opaque default for unrecognized classes (§4.13). One
@@ -88,10 +103,29 @@ func (reg *Registry) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	if normalizeHook != nil {
 		defer normalizeHook(evt)()
 	}
-	if n, ok := reg.byClass[evt.ClassUID]; ok {
-		return n.Normalize(evt)
+	// An event with no time is a broken record: OCSF requires time, and
+	// STIX needs it for first_observed. So is one whose own time has a year
+	// a STIX timestamp cannot write, outside 0000 to 9999 (adr/0357). An
+	// optional time out of that range is left out instead, and the object
+	// kept.
+	if evt.Time.IsZero() {
+		return NormalizationResult{}, ErrNoEventTime
 	}
-	return reg.def.Normalize(evt)
+	if !stix.InTimestampRange(evt.Time) {
+		return NormalizationResult{}, ErrEventTimeOutOfRange
+	}
+	n, ok := reg.byClass[evt.ClassUID]
+	if !ok {
+		n = reg.def
+	}
+	res, err := n.Normalize(evt)
+	if err == nil {
+		err = serializable(res, evt.Time)
+	}
+	if err == nil && normalizedHook != nil {
+		normalizedHook(reg.resolver, res)
+	}
+	return res, err
 }
 
 // HandledClasses returns the class_uids with a dedicated normalizer, sorted for
@@ -110,13 +144,17 @@ func (reg *Registry) HandledClasses() []int {
 	return out
 }
 
-// opaqueNormalizer is the §4.13 default: it emits a single ObservedData with no
-// object_refs and a derived-from edge, so the LLM still sees the raw payload
-// without typed entities.
+// opaqueNormalizer is the §4.13 default: it emits a single ObservedData and a
+// derived-from edge, so the LLM still sees the raw payload without typed
+// entities. The observation's one object is the artifact that stands for the
+// stored record.
 type opaqueNormalizer struct{ r *identity.Resolver }
 
 func (*opaqueNormalizer) ClassUID() int { return 0 }
-func (*opaqueNormalizer) Version() int  { return 1 }
+
+// 2: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error, adr/0357
+func (*opaqueNormalizer) Version() int { return 2 }
 func (n *opaqueNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	return newBuilder(n.r, evt, "opaque", n.Version()).finish(nil), nil
 }
@@ -214,10 +252,34 @@ func (b *resultBuilder) addRel(relType string, src, tgt identity.STIXID) {
 	})
 }
 
+// addRefRel records a relationship as addRel does, and lists it in the
+// observation's object_refs, which STIX allows (adr/0357). It is how an
+// observation names an object it may not list itself, such as a person
+// identity, which is an SDO.
+func (b *resultBuilder) addRefRel(relType string, src, tgt identity.STIXID) {
+	if src == "" || tgt == "" {
+		return
+	}
+	b.addRel(relType, src, tgt)
+	id := b.r.Relationship(relType, src, tgt)
+	if !b.inRefs[id] {
+		b.inRefs[id] = true
+		b.refs = append(b.refs, id)
+	}
+}
+
 // finish mints the ObservedData over the collected refs, adds its derived-from
 // edge, and returns the assembled result. extensions carries custom fields
 // (e.g. logon_type/status).
+//
+// STIX requires an observation to list at least one object. When the record
+// gave no entity, finish lists an artifact that stands for the stored record
+// instead (§4.13, adr/0357). The test is the result, not the class, so every
+// normalizer that extracts nothing gets one.
 func (b *resultBuilder) finish(extensions map[string]any) NormalizationResult {
+	if len(b.refs) == 0 {
+		b.recordArtifact()
+	}
 	odID := b.r.ObservedData(b.evt.ClassUID, b.evt.Time, b.evt.SourceTool, b.prov.NormalizerVersion, b.evt.Payload)
 	b.edges = append(b.edges, Edge{Type: EdgeDerivedFrom, SourceRef: odID, OcsfEventID: b.evt.ID.String()})
 	return NormalizationResult{
@@ -234,6 +296,94 @@ func (b *resultBuilder) finish(extensions map[string]any) NormalizationResult {
 		Relationships: b.rels,
 		Edges:         b.edges,
 	}
+}
+
+// RecordURLPrefix starts the url of the artifact that stands for a stored OCSF
+// record. The record's SHA-256 follows it, the same hash as the artifact's
+// hashes. So the url names the record by its content, as the id does, and one
+// record fetched twice is one artifact (adr/0357).
+const RecordURLPrefix = "reckon://ocsf-record/sha256/"
+
+// IsEntityRef reports whether an object_ref of an observation names an entity
+// the record is about. A relationship is not one (adr/0357). Nor is the
+// artifact that stands for the stored record itself (§4.13): it is the
+// record, which the event refs already name.
+func IsEntityRef(ref string) bool {
+	return ref != "" && !strings.HasPrefix(ref, "relationship--") && !strings.HasPrefix(ref, identity.TypeArtifact+"--")
+}
+
+// serializable checks that every object a normalizer produced is one the
+// serializer can write: a property the object's schema requires that is
+// empty is a normalize error, as any broken record is, so the raw event is
+// kept with a note rather than an invalid object stored (adr/0357). The store
+// sets an SDO's created when it writes it; the event's time stands in here.
+func serializable(res NormalizationResult, at time.Time) error {
+	check := func(o stix.Object) error {
+		if stix.Timestamped(o.Type) && o.Created.IsZero() {
+			o.Created = at
+		}
+		_, err := stix.Build(o)
+		return err
+	}
+	for _, o := range res.ObservedData {
+		if err := check(o.STIXObject()); err != nil {
+			return err
+		}
+	}
+	for _, o := range res.SCOs {
+		if err := check(o.STIXObject()); err != nil {
+			return err
+		}
+	}
+	for _, o := range res.Relationships {
+		if err := check(o.STIXObject()); err != nil {
+			return err
+		}
+	}
+	for _, o := range res.Indicators {
+		if err := check(o.STIXObject()); err != nil {
+			return err
+		}
+	}
+	for _, o := range res.Sightings {
+		if err := check(o.STIXObject()); err != nil {
+			return err
+		}
+	}
+	for _, o := range res.Identities {
+		if err := check(o.STIXObject()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ObservedPersonRefs returns the persons a result's observations name in
+// person_ref: the person a directory record describes (adr/0324, adr/0357).
+// A reader that lists an observation's entities reads them beside
+// object_refs.
+func ObservedPersonRefs(res NormalizationResult) []identity.STIXID {
+	var out []identity.STIXID
+	for _, od := range res.ObservedData {
+		if ref, _ := od.Extensions[stix.ObservationPersonRef.Name()].(string); ref != "" {
+			out = append(out, identity.STIXID(ref))
+		}
+	}
+	return out
+}
+
+// recordArtifact adds the artifact that stands for the stored OCSF record:
+// its url names the record by the SHA-256 of the payload, its hashes hold that
+// same SHA-256, and
+// its type is JSON (§4.13, adr/0357). It goes in object_refs with an
+// extracted-from edge, like any SCO.
+func (b *resultBuilder) recordArtifact() {
+	id, sha := b.r.Artifact(b.evt.Payload)
+	b.addSCO(id, identity.TypeArtifact, map[string]any{
+		"url":       RecordURLPrefix + sha,
+		"hashes":    map[string]string{"SHA-256": sha},
+		"mime_type": "application/json",
+	})
 }
 
 // --- shared OCSF entity extraction ------------------------------------------
@@ -260,20 +410,20 @@ func (b *resultBuilder) deviceObjects(paths ...string) {
 	}
 }
 
-// host extracts an x-host SCO from the OCSF device object at prefix of the
+// host extracts a reckon-host SCO from the OCSF device object at prefix of the
 // event ("device"). See hostAt.
 func (b *resultBuilder) host(prefix string) identity.STIXID {
 	return b.hostAt(b.top(prefix), true)
 }
 
-// endpointHost extracts an x-host SCO from the OCSF network endpoint at
+// endpointHost extracts a reckon-host SCO from the OCSF network endpoint at
 // prefix of the event ("dst_endpoint"). An endpoint has no uid_alt, so none
 // is read (adr/0356).
 func (b *resultBuilder) endpointHost(prefix string) identity.STIXID {
 	return b.hostAt(b.top(prefix), false)
 }
 
-// hostAt extracts an x-host SCO from an OCSF device or endpoint object,
+// hostAt extracts a reckon-host SCO from an OCSF device or endpoint object,
 // shaped per adr/0211 (03 §7.2, §7.4). device says the object is a device,
 // which carries uid_alt; a network endpoint does not.
 //
@@ -395,7 +545,7 @@ func (b *resultBuilder) deviceFacts(loc at, device bool, mac, uid string, hasMAC
 	return props
 }
 
-// weakHost mints the weak x-host a device object with no hostname identifies
+// weakHost mints the weak reckon-host a device object with no hostname identifies
 // (adr/0211): on the MAC, else on (source tool, device uid), the tiers
 // identity.Host applies, a placeholder in either read as absent. It returns ""
 // when neither is usable.
@@ -450,61 +600,92 @@ func (b *resultBuilder) ipAddr(path string) identity.STIXID {
 }
 
 // addIPValue adds an ipv4-addr or ipv6-addr SCO for a literal address value
-// (used when the value comes from an array element, not a fixed path). A
-// placeholder address mints no id, so nothing is added and "" is returned.
+// (used when the value comes from an array element, not a fixed path). It is
+// the one place a normalizer writes an address, through identity.IPValue,
+// the cleanup the readers match with too (adr/0357). A placeholder or
+// unparseable address mints no id, so nothing is added and "" is returned.
 func (b *resultBuilder) addIPValue(v string) identity.STIXID {
-	if v == "" {
+	value, typ, ok := identity.IPValue(v)
+	switch {
+	case !ok:
 		return ""
+	case typ == identity.TypeIPv6Addr:
+		return b.addSCO(b.r.IPv6Addr(value), typ, map[string]any{"value": value})
 	}
-	ip := net.ParseIP(strings.TrimSpace(v))
-	if ip != nil && ip.To4() == nil {
-		return b.addSCO(b.r.IPv6Addr(v), identity.TypeIPv6Addr, map[string]any{"value": v})
-	}
-	return b.addSCO(b.r.IPv4Addr(v), identity.TypeIPv4Addr, map[string]any{"value": v})
+	return b.addSCO(b.r.IPv4Addr(value), typ, map[string]any{"value": value})
 }
 
-// addDomain adds a domain-name SCO for a literal domain value.
+// addDomain adds a domain-name SCO for a literal domain value. A value STIX
+// cannot hold, one that breaks RFC 1034 for a reason other than an
+// underscore label, is left out (stix.IsDomainName, adr/0357). The raw event
+// still holds it.
 func (b *resultBuilder) addDomain(v string) identity.STIXID {
-	if v == "" {
+	if v == "" || !stix.IsDomainName(v) {
 		return ""
 	}
 	return b.addSCO(b.r.DomainName(v), identity.TypeDomainName, map[string]any{"value": v})
 }
 
-// emailAddr adds an email-addr SCO for a literal address value.
-func (b *resultBuilder) emailAddr(v string) identity.STIXID {
-	if v == "" {
-		return ""
+// emailAddr adds an email-addr SCO for an address the record gives, and
+// returns its id and the value it stores. The address is cleaned up first
+// (stix.EmailAddress, adr/0357): surrounding white space is trimmed, and a
+// mailbox with a display name keeps its address. A value that is still not
+// an RFC 5322 addr-spec is left out, with "" for both. The raw event still
+// holds it.
+func (b *resultBuilder) emailAddr(v string) (identity.STIXID, string) {
+	value, ok := stix.EmailAddress(v)
+	if !ok {
+		return "", ""
 	}
-	return b.addSCO(b.r.EmailAddr(v), identity.TypeEmailAddr, map[string]any{"value": v})
+	return b.addSCO(b.r.EmailAddr(value), identity.TypeEmailAddr, map[string]any{"value": value}), value
 }
 
-// emailAddrs adds an email-addr SCO for each string in the array at path of
-// m. It returns their ids and the address strings they were minted from.
-func (b *resultBuilder) emailAddrs(m map[string]any, path string) ([]identity.STIXID, []string) {
+// emailAddrList adds an email-addr SCO for each address in addrs, by
+// emailAddr. It returns their ids and the values they store, an address
+// named twice kept once, and the trimmed text of each non-empty entry that
+// is still not an address.
+func (b *resultBuilder) emailAddrList(addrs []string) (refs []identity.STIXID, values, unparsed []string) {
+	seen := map[identity.STIXID]bool{}
+	for _, a := range addrs {
+		id, value := b.emailAddr(a)
+		if id == "" {
+			if t := strings.TrimSpace(a); t != "" {
+				unparsed = append(unparsed, t)
+			}
+			continue
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		refs = append(refs, id)
+		values = append(values, value)
+	}
+	return refs, values, unparsed
+}
+
+// emailAddrs is emailAddrList for the strings in the array at path of m.
+func (b *resultBuilder) emailAddrs(m map[string]any, path string) (refs []identity.STIXID, values, unparsed []string) {
 	v, ok := lookupPath(m, path)
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
 	arr, ok := v.([]any)
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
-	var refs []identity.STIXID
-	var values []string
+	addrs := make([]string, 0, len(arr))
 	for _, item := range arr {
-		s := toString(item)
-		if id := b.emailAddr(s); id != "" {
-			refs = append(refs, id)
-			values = append(values, s)
-		}
+		addrs = append(addrs, toString(item))
 	}
-	return refs, values
+	return b.emailAddrList(addrs)
 }
 
 // url adds a url SCO for a literal URL value.
 func (b *resultBuilder) url(v string) identity.STIXID {
-	if v == "" {
+	// A value that is not a URI is left out (stix.IsURI, adr/0357). The raw
+	// event still holds it.
+	if v == "" || !stix.IsURI(v) {
 		return ""
 	}
 	return b.addSCO(b.r.URL(v), identity.TypeURL, map[string]any{"value": v})
@@ -516,16 +697,28 @@ func (b *resultBuilder) fileFrom(m map[string]any) identity.STIXID {
 	name := toString(fieldOf(m, "name"))
 	filePath := toString(fieldOf(m, "path"))
 	hashes := hashesFromValue(fieldOf(m, "hashes"))
-	if name == "" && filePath == "" && len(hashes) == 0 {
+	// STIX requires a file to have a name or a hash (§6.7). With neither, the
+	// name is the last element of the path, which is the same name the
+	// telemetry gives (adr/0357). A file that still has neither is not
+	// written.
+	if name == "" && len(hashes) == 0 {
+		name = baseName(filePath)
+	}
+	if name == "" && len(hashes) == 0 {
 		return ""
 	}
+	// The size the id is minted from is the size the file stores (adr/0357).
+	size, hasSize := ocsf.OptionalNumber(fieldOf(m, "size"), maxCount)
 	id := b.r.File(identity.FileIdentity{
 		Hashes:          hashes,
 		Name:            name,
 		ParentDirectory: parentDir(filePath),
-		Size:            int64(toInt(fieldOf(m, "size"))),
+		Size:            size,
 	})
 	props := map[string]any{"name": name}
+	if hasSize {
+		props["size"] = size
+	}
 	if filePath != "" {
 		props["path"] = filePath
 	}
@@ -596,37 +789,51 @@ func (b *resultBuilder) fileAt(m map[string]any, prefix string) identity.STIXID 
 // (§7.2), which is still a valid node, just not stitchable.
 func (b *resultBuilder) process(m map[string]any, prefix string, host identity.STIXID) identity.STIXID {
 	b.fileAt(m, prefix+".file")
-	pid := pathInt(m, prefix+".pid")
-	procID, _ := b.r.Process(host, pid, pathTime(m, prefix+".created_time"))
-	b.addSCO(procID, identity.TypeProcess, map[string]any{
-		"pid":          pid,
-		"name":         pathStr(m, prefix+".name"),
-		"command_line": pathStr(m, prefix+".cmd_line"),
-	})
-	if ppid := pathInt(m, prefix+".parent_process.pid"); ppid != 0 {
-		parentID, _ := b.r.Process(host, ppid, pathTime(m, prefix+".parent_process.created_time"))
-		b.addSCO(parentID, identity.TypeProcess, map[string]any{
-			"pid":  ppid,
-			"name": pathStr(m, prefix+".parent_process.name"),
-		})
+	procID := b.addProcess(m, prefix, host, map[string]any{"command_line": pathStr(m, prefix+".cmd_line")})
+	// The parent is read by the actor's rule: written when its pid is present,
+	// and PID 0 is a real process (adr/0357).
+	if _, ok := pathNumber(m, prefix+".parent_process.pid", maxCount); ok {
+		parentID := b.addProcess(m, prefix+".parent_process", host, nil)
 		b.addRel(RelParentProcessOf, parentID, procID)
 	}
 	return procID
+}
+
+// addProcess adds the process the OCSF process object at prefix of m
+// describes, on host, with its pid, name and start time and any extra
+// properties. The id is minted from the stored pid and start time, a start
+// time cut to the second (adr/0357). A pid the telemetry does not give is
+// unknown, and left out; PID 0 is a real process. A start time outside the
+// years a STIX timestamp can write is left out too.
+func (b *resultBuilder) addProcess(m map[string]any, prefix string, host identity.STIXID, extra map[string]any) identity.STIXID {
+	pid, hasPID := pathNumber(m, prefix+".pid", maxCount)
+	started := pathTime(m, prefix+".created_time")
+	if !stix.InTimestampRange(started) {
+		started = time.Time{}
+	}
+	idTime := started
+	if !hasPID {
+		idTime = time.Time{} // no pid to key on: a random id (03 §7.2)
+	}
+	procID, _ := b.r.Process(host, pid, idTime)
+	props := map[string]any{"name": pathStr(m, prefix+".name"), "created_time": started}
+	if hasPID {
+		props["pid"] = pid
+	}
+	for k, v := range extra {
+		props[k] = v
+	}
+	return b.addSCO(procID, identity.TypeProcess, props)
 }
 
 // actorProcess extracts the actor.process of m (if a pid is present) on
 // host, returning its id. Shared by the classes that carry an acting process
 // and by a detection's evidence.
 func (b *resultBuilder) actorProcess(m map[string]any, host identity.STIXID) identity.STIXID {
-	pid := pathInt(m, "actor.process.pid")
-	if pid == 0 {
+	if _, ok := pathNumber(m, "actor.process.pid", maxCount); !ok {
 		return ""
 	}
-	procID, _ := b.r.Process(host, pid, pathTime(m, "actor.process.created_time"))
-	return b.addSCO(procID, identity.TypeProcess, map[string]any{
-		"pid":  pid,
-		"name": pathStr(m, "actor.process.name"),
-	})
+	return b.addProcess(m, "actor.process", host, nil)
 }
 
 // endpoints extracts the addresses of m's src_endpoint and dst_endpoint, and
@@ -652,9 +859,29 @@ func pathStr(m map[string]any, path string) string {
 
 func pathInt(m map[string]any, path string) int {
 	if v, ok := lookupPath(m, path); ok {
-		return toInt(v)
+		n, _ := ocsf.WholeNumber(v)
+		return n
 	}
 	return 0
+}
+
+// The largest values the optional numbers can hold.
+const (
+	maxPort     = 65535
+	maxProtocol = 255
+	// maxCount is the largest whole number a JSON number holds exactly.
+	maxCount = ocsf.MaxWholeNumber
+)
+
+// pathNumber is ocsf.OptionalNumber over the value at path of m (class rule
+// R3, adr/0357).
+func pathNumber(m map[string]any, path string, max int64) (int, bool) {
+	v, ok := lookupPath(m, path)
+	if !ok {
+		return 0, false
+	}
+	n, ok := ocsf.OptionalNumber(v, max)
+	return int(n), ok
 }
 
 // pathTime reads the OCSF timestamp at path of m: epoch milliseconds, else
@@ -663,9 +890,18 @@ func pathTime(m map[string]any, path string) time.Time { return ocsfTime(m, path
 
 // hashesFromValue reads an OCSF hashes value, a list of fingerprints, as
 // algorithm → digest (see ocsf.Hashes): the algorithm is the fingerprint's
-// caption, else the caption of its algorithm_id.
+// caption, else the caption of its algorithm_id. A digest that does not fit
+// its algorithm is left out, so the stored file and its id see the same
+// hashes (identity.FittingHashes, adr/0357).
 func hashesFromValue(v any) map[string]string {
-	return ocsf.Hashes(v, fieldOf)
+	return identity.FittingHashes(ocsf.Hashes(v, fieldOf))
+}
+
+// baseName returns the last element of an OCSF file path, tolerating both
+// Windows ("\") and POSIX ("/") separators. It is "" for a path that ends in
+// a separator.
+func baseName(p string) string {
+	return strings.TrimSpace(p[strings.LastIndexAny(p, `/\`)+1:])
 }
 
 // parentDir returns the directory portion of an OCSF file path, tolerating both

@@ -3,7 +3,7 @@
 ## 0. Framing
 
 This spec defines the **write-side adapter contract**: the I/O surface by which an authorized
-`x-action` is dispatched to the outside world and its result is recorded. It is the symmetric twin of
+`reckon-action` is dispatched to the outside world and its result is recorded. It is the symmetric twin of
 the read-side capability contract in `03-capability-layer.md`. Where `03` covers query verbs (binding
 → resolver → adapter → normalizer → `CapabilityResult`), this spec covers action types (binding →
 resolver → adapter → `WriteResult`). The architecture is deliberately the same shape; the differences
@@ -16,7 +16,7 @@ restate it. It owns only the adapter-facing contract.
 | Owned here (`08`) | Owned elsewhere (authoritative) |
 |---|---|
 | The `request_action` tool schema | Authorization, trust tiers, CEL policy (`04`) |
-| `ActionDescriptor`, action bindings, the action resolver | The `x-action` primitive, lifecycle, `Execution` record (`01`, `04 §3`, `04 §6.1`) |
+| `ActionDescriptor`, action bindings, the action resolver | The `reckon-action` primitive, lifecycle, `Execution` record (`01`, `04 §3`, `04 §6.1`) |
 | The write adapter operation signature + idempotency model | Action lifecycle events + payloads (`02 §3`) |
 | The `WriteResult` envelope | Temporal dispatch topology, manifest/registry (`05 §6.2`, `05 §11`) |
 | Action fixtures | The action-type taxonomy (`04 §2`, `07 §7`, `07 §8`) |
@@ -40,7 +40,7 @@ Temporal workflow (`05 §6.2`) rather than a synchronous request:
 
 ```
 request_action (LLM/analyst)            <- §2
-  -> x-action REQUESTED                 (04 §3.2; authorization in 04)
+  -> reckon-action REQUESTED                 (04 §3.2; authorization in 04)
   -> ... APPROVED ...                   (04 §5)
   -> ActionLifecycle workflow           (05 §6.2)
        resolve action binding           <- §4
@@ -75,13 +75,13 @@ request_action(
 
 **The AI/analyst boundary.** The AI may *call* `request_action`, but it can never construct an
 `Authorization` record or set `status` — those fields are write-protected at the aggregate command
-handler (`04 §5.6`, enforced per `02-persistence.md §2.1`/`§4`). Calling the tool produces an `x-action` in
+handler (`04 §5.6`, enforced per `02-persistence.md §2.1`/`§4`). Calling the tool produces a `reckon-action` in
 `REQUESTED` and its producing `action-request` Interpretation, in one transaction. Everything between
 `REQUESTED` and `APPROVED` is `04`'s; this contract resumes at dispatch.
 
 `TargetSpec` (defined in `04 §3.1`) carries both `entity_ref` (stable STIX id) and
 `resolved_identifier` (what the adapter actually sends downstream). Resolution is frozen into the
-`x-action` at request time (`04 §8.1`); the write adapter consumes `resolved_identifier`, never
+`reckon-action` at request time (`04 §8.1`); the write adapter consumes `resolved_identifier`, never
 re-resolves.
 
 ---
@@ -136,7 +136,7 @@ ActionBinding:
 ```
 
 **The action resolver** (the dispatch-step analog of the read resolver, `03 §3.2`): given
-`(action_type, x-action, tenant)`, pick the highest-priority binding whose preconditions hold
+`(action_type, reckon-action, tenant)`, pick the highest-priority binding whose preconditions hold
 (adapter enabled, credentials configured, target type applicable), render the parameter template
 against the frozen `TargetSpec`s and `parameters`, and hand off to the adapter operation.
 
@@ -241,14 +241,14 @@ replay/crash/retry must not double-execute a real-world effect (double-isolate a
 ticket). The model is layered, and honest about the one case nobody can resolve.
 
 **(a) Mandatory idempotency key.** Every write op receives a `idempotency_key` that is **stable and
-deterministic** — derived from `f(x-action.id, target)` — so the same logical action against the same
+deterministic** — derived from `f(reckon-action.id, target)` — so the same logical action against the same
 target always presents the same key. Adapters declare `honors_idempotency: true|false` in their
 manifest (`05 §11`); for `true` adapters the downstream vendor dedups on the key (the standard
 `Idempotency-Key` pattern). The key is the second line of defence: it protects the case where reckon
 *does* re-issue after an ambiguous failure.
 
 **(b) reckon dispatch-ledger guard (primary).** Before any outbound call, the workflow checks whether
-an `ActionDispatched` event already exists for this `(x-action, attempt)`. Because the `x-action`
+an `ActionDispatched` event already exists for this `(reckon-action, attempt)`. Because the `reckon-action`
 lifecycle is event-sourced (`02 §3`) and Temporal execution is deterministic on replay, a crashed or
 replayed workflow sees the prior `ActionDispatched` and **short-circuits re-issue** rather than
 calling the adapter again. reckon owns this guarantee from its own event log — it does not depend on
@@ -356,14 +356,14 @@ fixture and real write bindings per-binding (`03 §9.3`). A fixture write adapte
 
 ## 10. Open questions / deferred to v1+
 
-- **Composite / atomic multi-effect actions.** Whether a single `x-action` may bundle multiple
+- **Composite / atomic multi-effect actions.** Whether a single `reckon-action` may bundle multiple
   effects (atomic in the audit and authorization sense), or multi-step stays the agent loop's job
   with per-action gates. v0 defers to the agent loop (`05`, "guard against half-finished AI
   multi-step responses").
 - **Pre-dispatch state reconciliation as a requirement.** `§6` makes `probe(target)` optional; a
   future revision may require it for reversible state-change action types if the `UNKNOWN` residual
   proves operationally costly.
-- **Idempotency key derivation across retargeting.** The `f(x-action.id, target)` key is stable per
+- **Idempotency key derivation across retargeting.** The `f(reckon-action.id, target)` key is stable per
   target; the precise canonicalization (and whether `attempt_no` participates) is settled at
   implementation time alongside the dispatch ledger.
 - **Credential-resolution specifics for write creds.** Deferred to the uniform scheme in `05 §10.2`;

@@ -17,7 +17,7 @@
 // the RequestAction command so the PolicyEvaluated audit event (02 §3) is
 // written in the same transaction as ActionRequested.
 //
-// The x-action lifecycle events themselves live in the aggregate (04 §3.1).
+// The reckon-action lifecycle events themselves live in the aggregate (04 §3.1).
 // The request_action HTTP endpoint applies Gate2, deriving Actor.Kind from the
 // JWT delegate_kind claim; the ActionLifecycle and ReversalSaga workflows live
 // in package temporal.

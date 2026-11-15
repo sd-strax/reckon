@@ -452,6 +452,61 @@ func TestAccountIdentity_DetectionEvidence(t *testing.T) {
 	}
 }
 
+// TestPersonFindsTheAccountlessDirectoryRecord (adr/0324, adr/0357): a
+// personnel system's record names a person and no account. Its observation
+// carries the person in person_ref, so a person-filtered read finds it, and
+// its entity refs list the person. A directory record that also names an
+// account is found by the person and by the account.
+func TestPersonFindsTheAccountlessDirectoryRecord(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry(testIDs)
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	mk := func(minute int, product string, user map[string]any) capability.OcsfEvent {
+		return capability.OcsfEvent{ID: uuid.Must(uuid.NewV7()), ClassUID: 5003, ClassName: "User Inventory Info",
+			Time: base.Add(time.Duration(minute) * time.Minute), RecordedAt: base, SourceTool: "dir",
+			Payload: map[string]any{"class_uid": 5003, "metadata": map[string]any{"product": map[string]any{"name": product}}, "user": user}}
+	}
+	workday := mk(1, "Workday", map[string]any{"uid": "W-1001", "full_name": "Jo Doe"})
+	okta := mk(2, "Okta", map[string]any{"uid": "00u1abc", "name": "jdoe@contoso.example", "full_name": "Jo Doe"})
+	res := capability.CapabilityResult{Coverage: capability.CoverageComplete, Events: []capability.OcsfEvent{workday, okta}}
+	for _, e := range res.Events {
+		nr, err := reg.Normalize(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nr.EventID = e.ID
+		res.Normalized = append(res.Normalized, nr)
+	}
+	inv := uuid.New()
+	persistCall(t, s, Call{ID: uuid.Must(uuid.NewV7()), InvestigationID: &inv, Verb: "v", StartedAt: base}, res)
+
+	worker := testIDs.Person("workday", "W-1001")
+	oktaPerson := testIDs.Person("okta", "00u1abc")
+	oktaAccount := testIDs.Account(identity.AccountIdentity{Type: identity.AccountCloud, UserID: "00u1abc"})
+	for _, c := range []struct {
+		name string
+		ref  identity.STIXID
+		want []uuid.UUID
+	}{
+		{"the accountless record's person", worker, []uuid.UUID{workday.ID}},
+		{"the person of a record with an account", oktaPerson, []uuid.UUID{okta.ID}},
+		{"the account", oktaAccount, []uuid.UUID{okta.ID}},
+	} {
+		got, err := s.InvestigationEvents(ctx, inv, EventFilter{Entity: string(c.ref)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ids := eventIDs(got.Rows); !slices.Equal(ids, c.want) {
+			t.Errorf("%s: events = %v; want %v", c.name, ids, c.want)
+			continue
+		}
+		if !slices.Contains(got.Rows[0].EntityRefs, string(c.ref)) && c.ref != oktaAccount {
+			t.Errorf("%s: entity refs = %v; want the person among them", c.name, got.Rows[0].EntityRefs)
+		}
+	}
+}
+
 // TestAccountIdentity_GroupMembers (adr/0359): from OCSF 1.9.0 a group
 // change names its members in users[]. Each entry is read for seen-as like
 // an event's own user.

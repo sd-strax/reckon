@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sd-strax/reckon/identity"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // detectionPayload is a detection finding at the OCSF floor: the host is the
@@ -56,14 +57,21 @@ func TestDetectionNormalizer(t *testing.T) {
 	if ind.Provenance.Tool != "CrowdStrike" {
 		t.Errorf("indicator tool = %q; want CrowdStrike", ind.Provenance.Tool)
 	}
-	if ind.Name != "Suspicious PowerShell" || !reflect.DeepEqual(ind.IndicatorTypes, []string{"T1059.001", "T1086"}) {
-		t.Errorf("indicator name %q, types %v", ind.Name, ind.IndicatorTypes)
+	// The technique ids in finding_info.types are external references, not
+	// indicator types (adr/0357).
+	// The finding uid follows them, under the vendor's name.
+	attack := []ExternalReference{{SourceName: "mitre-attack", ExternalID: "T1059.001"}, {SourceName: "mitre-attack", ExternalID: "T1086"}, {SourceName: "CrowdStrike", ExternalID: "det-123"}}
+	if ind.Name != "Suspicious PowerShell" || ind.IndicatorTypes != nil || ind.Labels != nil || !reflect.DeepEqual(ind.ExternalReferences, attack) {
+		t.Errorf("indicator name %q, types %v, references %v; want no types, the two techniques and the finding uid", ind.Name, ind.IndicatorTypes, ind.ExternalReferences)
 	}
 	if !confidenceIs(ind.Confidence, 85) {
 		t.Errorf("confidence = %s; want 85 (confidence_id 3, High)", confidenceText(ind.Confidence))
 	}
-	if ind.ID != identity.NewResolver(testNS).Indicator("det-123", "") || ind.Pattern != "" || ind.PatternType != "" {
-		t.Errorf("indicator %s pattern %q/%q; want the id of the finding uid and no pattern", ind.ID, ind.Pattern, ind.PatternType)
+	// No vendor pattern: the pattern is the finding uid and its type the
+	// tool's name. The id is minted from the stored vendor, pattern, type
+	// and uid (adr/0357).
+	if ind.ID != identity.NewResolver(testNS).Indicator(ind.CreatedByRef, "det-123", "CrowdStrike", "det-123") || ind.Pattern != "det-123" || ind.PatternType != "CrowdStrike" {
+		t.Errorf("indicator %s pattern %q/%q; want the id of the stored pattern det-123/CrowdStrike", ind.ID, ind.Pattern, ind.PatternType)
 	}
 
 	// Vendor Identity is the created_by_ref target and is emitted.
@@ -98,7 +106,8 @@ func TestDetectionNormalizer(t *testing.T) {
 
 	// Sighting references the indicator and the observation. The entities
 	// are the observation's object_refs, not where_sighted_refs, where STIX
-	// allows only identity and location objects (adr/0356).
+	// allows only identity and location objects (adr/0356). The vendor saw
+	// it, so where_sighted_refs is the vendor identity (adr/0357).
 	if len(res.Sightings) != 1 {
 		t.Fatalf("sightings = %d; want 1", len(res.Sightings))
 	}
@@ -106,8 +115,8 @@ func TestDetectionNormalizer(t *testing.T) {
 	if s.SightingOfRef != ind.ID || !confidenceIs(s.Confidence, 85) {
 		t.Errorf("sighting_of_ref = %q, confidence %s; want indicator %q at 85", s.SightingOfRef, confidenceText(s.Confidence), ind.ID)
 	}
-	if len(s.WhereSighted) != 0 || !reflect.DeepEqual(s.ObservedDataRefs, []identity.STIXID{od.ID}) {
-		t.Errorf("sighting where %v, observed-data %v; want the observation alone", s.WhereSighted, s.ObservedDataRefs)
+	if !reflect.DeepEqual(s.WhereSighted, []identity.STIXID{ind.CreatedByRef}) || !reflect.DeepEqual(s.ObservedDataRefs, []identity.STIXID{od.ID}) {
+		t.Errorf("sighting where %v, observed-data %v; want the vendor %s and the observation", s.WhereSighted, s.ObservedDataRefs, ind.CreatedByRef)
 	}
 	// The login account the record aliases to the SID account is linked, not
 	// sighted (adr/0324).
@@ -154,20 +163,20 @@ func TestDetectionNormalizerNoEvidence(t *testing.T) {
 	if len(res.Sightings[0].ObservedDataRefs) != 1 || res.Sightings[0].ObservedDataRefs[0] != res.ObservedData[0].ID {
 		t.Error("Sighting does not reference the detection's raw ObservedData")
 	}
-	if len(res.Sightings[0].WhereSighted) != 0 {
-		t.Errorf("where_sighted = %v; want none", res.Sightings[0].WhereSighted)
+	if w := res.Sightings[0].WhereSighted; len(w) != 1 || w[0] != res.Identities[0].ID {
+		t.Errorf("where_sighted = %v; want the vendor identity alone", w)
 	}
 
 	// With neither a device nor evidences[], nothing is named.
-	res, err = testRegistry().Normalize(makeEvent(map[string]any{
+	// The observation's one object is then the record's artifact (adr/0357).
+	bare := makeEvent(map[string]any{
 		"class_uid": 2004, "time": ms("2026-04-20T14:32:11Z"), "finding_info": map[string]any{"uid": "d-1"},
-	}))
+	})
+	res, err = testRegistry().Normalize(bare)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.SCOs) != 0 || len(res.ObservedData) != 1 || len(res.ObservedData[0].ObjectRefs) != 0 {
-		t.Errorf("no device and no evidence: SCOs %+v, observations %+v; want one empty observation", res.SCOs, res.ObservedData)
-	}
+	recordArtifactOnly(t, bare, res)
 }
 
 // confidenceIs reports whether a confidence is known and equals want.
@@ -257,8 +266,103 @@ func TestDetectionPattern(t *testing.T) {
 	if ind.Pattern != `process.cmd_line = "*-enc*"` || ind.PatternType != "vendor" {
 		t.Errorf("pattern %q type %q; want the vendor's pattern", ind.Pattern, ind.PatternType)
 	}
-	if ind.ID != identity.NewResolver(testNS).Indicator("det-123", `process.cmd_line = "*-enc*"`) {
-		t.Errorf("indicator id %s is not keyed on the uid and pattern", ind.ID)
+	if ind.ID != identity.NewResolver(testNS).Indicator(ind.CreatedByRef, `process.cmd_line = "*-enc*"`, "vendor", "det-123") {
+		t.Errorf("indicator id %s is not keyed on the stored pattern and pattern_type", ind.ID)
+	}
+}
+
+// TestDetectionPatternFallback (§4.12, adr/0357): STIX requires a pattern.
+// Without the vendor's, the pattern is the finding uid, else its title, and
+// the pattern type is the tool's name. The id is minted from what is stored,
+// so two findings with different titles are two indicators (adr/0357).
+func TestDetectionPatternFallback(t *testing.T) {
+	p := detectionPayload()
+	delete(p["finding_info"].(map[string]any), "uid")
+	res, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ind := res.Indicators[0]
+	if ind.Pattern != "Suspicious PowerShell" || ind.PatternType != "CrowdStrike" {
+		t.Errorf("pattern %q type %q; want the title and the tool's name", ind.Pattern, ind.PatternType)
+	}
+	if ind.ID != identity.NewResolver(testNS).Indicator(ind.CreatedByRef, "Suspicious PowerShell", "CrowdStrike", "") {
+		t.Errorf("indicator id %s; want the id of the stored pattern and pattern_type", ind.ID)
+	}
+	other := detectionPayload()
+	delete(other["finding_info"].(map[string]any), "uid")
+	other["finding_info"].(map[string]any)["title"] = "Credential dumping"
+	res2, err := testRegistry().Normalize(makeEvent(other))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.Indicators[0].ID == ind.ID {
+		t.Error("two findings with no uid and different titles share one indicator id")
+	}
+
+	// The tool's name is the vendor the normalizer attributes to: with no
+	// product metadata, the source tool.
+	p = detectionPayload()
+	delete(p, "metadata")
+	res, err = testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ind := res.Indicators[0]; ind.Pattern != "det-123" || ind.PatternType != "fixture:s" {
+		t.Errorf("pattern %q type %q; want the uid and the source tool", ind.Pattern, ind.PatternType)
+	}
+}
+
+// TestDetectionTechniquesAndTypes (§4.12, adr/0357): ATT&CK technique ids come
+// from finding_info.types[] and from OCSF's ATT&CK objects on the finding and
+// on finding_info, de-duplicated in reading order. indicator_types keeps only
+// values of STIX's indicator-type-ov, and every other type is a label.
+func TestDetectionTechniquesAndTypes(t *testing.T) {
+	p := detectionPayload()
+	fi := p["finding_info"].(map[string]any)
+	fi["types"] = []any{"T1059.001", "Malicious-Activity", "Credential Access", "anomalous-activity", "T1003", "malicious-activity", "Credential Access"}
+	fi["attacks"] = []any{map[string]any{
+		"technique":     map[string]any{"uid": "T1003", "name": "OS Credential Dumping"},
+		"sub_technique": map[string]any{"uid": "T1003.001", "name": "LSASS Memory"},
+	}}
+	p["attacks"] = []any{
+		map[string]any{"technique": map[string]any{"uid": "T1021"}, "tactic": map[string]any{"uid": "TA0008"}},
+		map[string]any{"technique": map[string]any{"uid": "AML.T0043"}},
+	}
+	res, err := testRegistry().Normalize(makeEvent(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ind := res.Indicators[0]
+	// The techniques come first, under mitre-attack; the last reference is
+	// the finding uid, under the vendor's name (adr/0357).
+	var got []string
+	refs := ind.ExternalReferences
+	if n := len(refs); n == 0 || refs[n-1] != (ExternalReference{SourceName: "CrowdStrike", ExternalID: "det-123"}) {
+		t.Errorf("references = %+v; want the finding uid under CrowdStrike last", refs)
+	} else {
+		refs = refs[:n-1]
+	}
+	for _, r := range refs {
+		if r.SourceName != "mitre-attack" {
+			t.Errorf("reference %+v; want source_name mitre-attack", r)
+		}
+		got = append(got, r.ExternalID)
+	}
+	if want := []string{"T1059.001", "T1003", "T1021", "T1003.001"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("techniques = %v; want %v", got, want)
+	}
+	if want := []string{"malicious-activity", "anomalous-activity"}; !reflect.DeepEqual(ind.IndicatorTypes, want) {
+		t.Errorf("indicator_types = %v; want %v", ind.IndicatorTypes, want)
+	}
+	// Anything else is a label, kept once in reading order.
+	if want := []string{"Credential Access"}; !reflect.DeepEqual(ind.Labels, want) {
+		t.Errorf("labels = %v; want %v", ind.Labels, want)
+	}
+	o := ind.STIXObject()
+	o.Created = ind.ValidFrom
+	if obj, err := stix.Build(o); err != nil || obj["labels"] == nil || obj["external_references"] == nil {
+		t.Errorf("serialized indicator = %v, %v; want labels and external_references at the top level", obj, err)
 	}
 }
 
@@ -279,7 +383,7 @@ func TestDetectionEvidenceExtractors(t *testing.T) {
 				"device": map[string]any{"hostname": "WS7", "uid": "dev-7", "uid_alt": "asset-7", "os": map[string]any{"type_id": 100}},
 				"process": map[string]any{
 					"pid": 10, "name": "a.exe", "cmd_line": "a.exe -x", "created_time": when,
-					"file":           map[string]any{"name": "a.exe", "hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "aa"}}},
+					"file":           map[string]any{"name": "a.exe", "hashes": []any{map[string]any{"algorithm": "SHA-256", "value": "961b6dd3ede3cb8ecbaacbd68de040cd78eb2ed5889130cceb4c49268ea4d506"}}},
 					"parent_process": map[string]any{"pid": 9, "name": "p.exe", "created_time": when},
 				},
 				"actor": map[string]any{
@@ -327,7 +431,7 @@ func TestDetectionEvidenceExtractors(t *testing.T) {
 		"actor process":       actorProc,
 		"process on fallback": fallbackProc,
 		"process on fallback, device with an address alone": addressOnlyProc,
-		"image":      ids.File(identity.FileIdentity{Hashes: map[string]string{"SHA-256": "aa"}, Name: "a.exe"}),
+		"image":      ids.File(identity.FileIdentity{Hashes: map[string]string{"SHA-256": "961b6dd3ede3cb8ecbaacbd68de040cd78eb2ed5889130cceb4c49268ea4d506"}, Name: "a.exe"}),
 		"file":       ids.File(identity.FileIdentity{Name: "drop.dll", ParentDirectory: `C:\Temp`}),
 		"actor.user": ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `CONTOSO\jdoe`}),
 		"user":       ids.Account(identity.AccountIdentity{Type: identity.AccountWindowsDomain, Login: `CONTOSO\target`}),
@@ -346,8 +450,8 @@ func TestDetectionEvidenceExtractors(t *testing.T) {
 	if len(od.ObjectRefs) != len(want) {
 		t.Errorf("object_refs = %d entities; want %d: %v", len(od.ObjectRefs), len(want), countTypes(res.SCOs))
 	}
-	if s := res.Sightings[0]; len(s.WhereSighted) != 0 || !reflect.DeepEqual(s.ObservedDataRefs, []identity.STIXID{od.ID}) {
-		t.Errorf("sighting where %v, observed-data %v; want the observation alone", s.WhereSighted, s.ObservedDataRefs)
+	if s := res.Sightings[0]; !reflect.DeepEqual(s.WhereSighted, []identity.STIXID{s.CreatedByRef}) || !reflect.DeepEqual(s.ObservedDataRefs, []identity.STIXID{od.ID}) {
+		t.Errorf("sighting where %v, observed-data %v; want the vendor and the observation", s.WhereSighted, s.ObservedDataRefs)
 	}
 	// The artifact's device is a device object: its uid_alt is kept, and its
 	// device id's weak host is aliased to it, outside object_refs (adr/0211).

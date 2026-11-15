@@ -338,7 +338,7 @@ Two hard rules on what `describe` output may do:
   time as a drift signal, never silently resolved. An action type the catalog does *not* know
   arrives with no tier; an untiered action type cannot be enabled until the operator assigns one
   (the adapter's claim serving as the visible *proposal*), and the blast-radius escalator can
-  still only raise it. This is the same posture as freezing reversibility onto the x-action at
+  still only raise it. This is the same posture as freezing reversibility onto the reckon-action at
   request time: adapter claims and catalog edits never out-vote the recorded decision.
 
 ### 4.3 `configure` — instance configuration

@@ -1,5 +1,5 @@
-// The analyst's writes to the reasoning thread (01 §x-hypothesis,
-// §x-prediction, §Verdict, §Pinned evidence): pins, hypotheses, predictions
+// The analyst's writes to the reasoning thread (01 §reckon-hypothesis,
+// §reckon-prediction, §Verdict, §Pinned evidence): pins, hypotheses, predictions
 // and their results, the verdict of record. Each is one `mutate` on the human
 // token; the aggregate's guards surface verbatim.
 import * as vscode from "vscode";
@@ -43,7 +43,7 @@ export class ReasoningWrites {
     }));
   }
 
-  /** Rename / restate an OPEN hypothesis (01 §x-hypothesis; human, untested-only for the statement). */
+  /** Rename / restate an OPEN hypothesis (01 §reckon-hypothesis; human, untested-only for the statement). */
   async reviseHypothesis(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, restatement?: string, handle?: string): Promise<void> {
     const r = restatement?.trim() || undefined;
     const h = handle?.trim() || undefined;
@@ -58,7 +58,7 @@ export class ReasoningWrites {
     return this.host.mutate(id, panel, "abandon", () => this.host.client.investigations.abandonHypothesis(id, hypothesisRef, reason.trim() || "abandoned from the workbench — not pursued"));
   }
 
-  /** Record the analyst's own test under a hypothesis (01 §x-prediction: either actor authors predictions). */
+  /** Record the analyst's own test under a hypothesis (01 §reckon-prediction: either actor authors predictions). */
   async newPrediction(id: string, panel: vscode.WebviewPanel, hypothesisRef: string, statement: string, discriminates: string[], testKind?: string, title?: string): Promise<void> {
     if (statement.trim() === "") {
       return;

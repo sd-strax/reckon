@@ -204,14 +204,14 @@ func DefaultCatalog() *Catalog {
 		{
 			Verb:   "get_cloud_resource_context",
 			Intent: "Fetch the current configuration of one cloud resource — policy, exposure settings, tags, labels, owner, created and modified times — as a cloud resource inventory snapshot.",
-			Inputs: []InputParam{entityInput("resource", `the x-cloud-resource, as {"cloud_resource":{"provider":"aws","uid":"<provider resource id>"}} or {"cloud_resource":{"provider":"aws","name":"<name>","type":"<type>","account_uid":"<account id>"}}`)},
+			Inputs: []InputParam{entityInput("resource", `the reckon-cloud-resource, as {"cloud_resource":{"provider":"aws","uid":"<provider resource id>"}} or {"cloud_resource":{"provider":"aws","name":"<name>","type":"<type>","account_uid":"<account id>"}}`)},
 			Output: "resource context",
 		},
 		{
 			Verb:   "get_cloud_resource_history",
 			Intent: "List the control-plane calls that created, changed or deleted one cloud resource in a window, oldest first — the resource's change timeline.",
 			Inputs: []InputParam{
-				entityInput("resource", `the x-cloud-resource, as {"cloud_resource":{"provider":"aws","uid":"<provider resource id>"}} or {"cloud_resource":{"provider":"aws","name":"<name>","type":"<type>","account_uid":"<account id>"}}`),
+				entityInput("resource", `the reckon-cloud-resource, as {"cloud_resource":{"provider":"aws","uid":"<provider resource id>"}} or {"cloud_resource":{"provider":"aws","name":"<name>","type":"<type>","account_uid":"<account id>"}}`),
 				windowInput(),
 				limitInput(200),
 			},

@@ -47,7 +47,7 @@ async function fromWire(rows: Record<string, unknown>[]): Promise<ActionRow[]> {
 /** A settled host.isolate list row as the backend sends it. */
 const wireRow = (id: string, host: string, over: Record<string, unknown>) => ({
   action_id: id, action_type: "host.isolate", tier: "T2", required_mode: "MANUAL", mode: "MANUAL",
-  targets: [{ entity_ref: "x-host--" + id, resolved_identifier: host }], evidence_refs: ["observed-data--1"],
+  targets: [{ entity_ref: "reckon-host--" + id, resolved_identifier: host }], evidence_refs: ["observed-data--1"],
   reversibility: "REVERSIBLE", requested_at: "2026-10-27T18:30:00.000Z", approved_at: "2026-10-27T18:31:00.000Z",
   name: "Isolate host", category: "containment", adapter: "fixture-edr", ...over,
 });

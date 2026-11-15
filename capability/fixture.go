@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/ocsf"
 )
 
@@ -44,7 +45,7 @@ type fixtureFile struct {
 		// history — a baseline the question "is this normal for this account
 		// over 30 days?" reaches, that a 24-hour query does not — so the same
 		// scenario answers differently to different questions (01
-		// §x-hypothesis: discriminating tests need fixtures that can
+		// §reckon-hypothesis: discriminating tests need fixtures that can
 		// discriminate). Unscoped fixtures replay regardless of window, as
 		// before.
 		TimeScoped bool `json:"time_scoped"`
@@ -310,11 +311,14 @@ func anyValueEqual(got any, alternatives []any) bool {
 // fieldOf: the object read from, the path read within it, and the value found
 // (nil when absent). normalizeHook, when set, is called as Registry.Normalize
 // starts on an event, and the function it returns is called when Normalize
-// returns. Both are nil outside tests. The package's tests set them to record
-// which OCSF fields the normalizers read (adr/0356).
+// returns. normalizedHook, when set, is handed every result Registry.Normalize
+// returns. All three are nil outside tests. The package's tests set them to
+// record which OCSF fields the normalizers read (adr/0356), and to check that
+// every object a normalizer produces serializes as STIX (adr/0357).
 var (
-	lookupHook    func(obj map[string]any, path string, found any)
-	normalizeHook func(evt OcsfEvent) (done func())
+	lookupHook     func(obj map[string]any, path string, found any)
+	normalizeHook  func(evt OcsfEvent) (done func())
+	normalizedHook func(*identity.Resolver, NormalizationResult)
 )
 
 // lookupPath resolves a dotted path ("target.hostname") into a nested params

@@ -105,11 +105,11 @@ func TestBothEnds(t *testing.T) {
 	admin := map[string]any{"name": "admin", "domain": "CONTOSO", "uid": "S-1-5-21-7-500"}
 	process := map[string]any{
 		"pid": 4242, "name": "powershell.exe", "cmd_line": "powershell -enc ZQBjAGgAbwA=", "created_time": when,
-		"file":           map[string]any{"name": "powershell.exe", "path": `C:\Windows\System32\powershell.exe`, "type_id": 1, "hashes": sha("abc123")},
+		"file":           map[string]any{"name": "powershell.exe", "path": `C:\Windows\System32\powershell.exe`, "type_id": 1, "hashes": sha("6ca13d52ca70c883e0f0bb101e425a89e8624de51db2d2392593af6a84118090")},
 		"parent_process": map[string]any{"pid": 1000, "name": "explorer.exe", "created_time": when},
 	}
 	actorProcess := map[string]any{"pid": 4242, "name": "powershell.exe", "created_time": when}
-	attachment := map[string]any{"name": "invoice.pdf.exe", "type_id": 1, "hashes": sha("beef")}
+	attachment := map[string]any{"name": "invoice.pdf.exe", "type_id": 1, "hashes": sha("aa415c4e8890cf0fec7826aec962ffbcc04534faefd2b3266c54f690d40d6e82")}
 	mail := map[string]any{
 		"from": "attacker@evil.example", "to": []any{"alice@corp.example"}, "cc": []any{"carol@corp.example"},
 		"subject": "Invoice", "message_uid": "<abc123@evil.example>", "uid": "gw-0001",
@@ -162,11 +162,11 @@ func TestBothEnds(t *testing.T) {
 		{
 			name: "file_activity", entities: 5,
 			floor: []map[string]any{versioned(1001, "1.1.0", map[string]any{
-				"file":  map[string]any{"name": "evil.dll", "path": `C:\Temp\evil.dll`, "type_id": 1, "hashes": sha("dead")},
+				"file":  map[string]any{"name": "evil.dll", "path": `C:\Temp\evil.dll`, "type_id": 1, "hashes": sha("28a3a5e81d1e89f0efc70b63bf717b921373fc7fac70bc1b7e4d466799c0c6b0")},
 				"actor": map[string]any{"process": actorProcess, "user": user}, "device": device,
 			})},
 			ceiling: []map[string]any{versioned(1001, "1.9.0", map[string]any{
-				"file":  map[string]any{"name": "evil.dll", "path": `C:\Temp\evil.dll`, "type_id": 1, "hashes": sha("dead")},
+				"file":  map[string]any{"name": "evil.dll", "path": `C:\Temp\evil.dll`, "type_id": 1, "hashes": sha("28a3a5e81d1e89f0efc70b63bf717b921373fc7fac70bc1b7e4d466799c0c6b0")},
 				"actor": map[string]any{"process": actorProcess, "user": user}, "device": deviceCeiling,
 			})},
 		},
@@ -218,11 +218,11 @@ func TestBothEnds(t *testing.T) {
 		{
 			name: "module_activity", entities: 3,
 			floor: []map[string]any{versioned(1005, "1.1.0", map[string]any{
-				"module": map[string]any{"load_type_id": 1, "file": map[string]any{"name": "evil.dll", "path": `C:\Temp\evil.dll`, "type_id": 1, "hashes": sha("abcd")}},
+				"module": map[string]any{"load_type_id": 1, "file": map[string]any{"name": "evil.dll", "path": `C:\Temp\evil.dll`, "type_id": 1, "hashes": sha("88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589")}},
 				"actor":  map[string]any{"process": actorProcess}, "device": device,
 			})},
 			ceiling: []map[string]any{versioned(1005, "1.9.0", map[string]any{
-				"module": map[string]any{"load_type_id": 1, "file": map[string]any{"name": "evil.dll", "path": `C:\Temp\evil.dll`, "type_id": 1, "hashes": sha("abcd")}},
+				"module": map[string]any{"load_type_id": 1, "file": map[string]any{"name": "evil.dll", "path": `C:\Temp\evil.dll`, "type_id": 1, "hashes": sha("88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589")}},
 				"actor":  map[string]any{"process": actorProcess}, "device": deviceCeiling,
 			})},
 		},
@@ -357,7 +357,7 @@ func TestBothEnds(t *testing.T) {
 // email_uid is a thread id, kept as thread_uid. So at the floor nothing
 // records which email held the file, and no aliases edge joins anything.
 func TestBothEndsEmailAttachment(t *testing.T) {
-	sha := []any{map[string]any{"algorithm": "SHA-256", "algorithm_id": 3, "value": "beef"}}
+	sha := []any{map[string]any{"algorithm": "SHA-256", "algorithm_id": 3, "value": "aa415c4e8890cf0fec7826aec962ffbcc04534faefd2b3266c54f690d40d6e82"}}
 	mail := func() map[string]any {
 		return map[string]any{
 			"from": "attacker@evil.example", "to": []any{"alice@corp.example"},

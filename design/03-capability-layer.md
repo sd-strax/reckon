@@ -29,7 +29,7 @@ crosses the adapter boundary into the capability layer, transport details are
 gone.
 
 **The capability layer is pure I/O plus normalization.** It does not reason. It
-does not produce `x-interpretation` records (Interpretations live inside the
+does not produce `reckon-interpretation` records (Interpretations live inside the
 investigation aggregate per 02-persistence.md §2.1; the agent loop is their only
 legal author). It does not make hypothesis judgments. Its outputs are typically
 `derivation_mode = DIRECT` because every observation it emits traces to a real
@@ -89,7 +89,7 @@ Coverage = COMPLETE
          | FAILED                   // bindings healthy, all calls failed
 ```
 
-The agent loop is what attaches these refs to an `x-interpretation` of type
+The agent loop is what attaches these refs to a `reckon-interpretation` of type
 `extraction`. The `coverage` field is structured so the agent loop can branch
 on outcome class without parsing prose; `degradation_notes` carries
 human-readable detail (e.g., which adapters failed and why).
@@ -108,7 +108,7 @@ Pulls IdP/directory context for a user (Entra ID, AD, Okta). Output is one or
 more `user-account` SCOs plus relationships materialized as ObservedData.
 
 **`get_host_context(host: Entity) -> {host: Entity, owner_ref?: Entity, os: string, last_seen: timestamp, sensors: list<string>}`**
-Asset/CMDB context for a host. Returns enriched `x-host`.
+Asset/CMDB context for a host. Returns enriched `reckon-host`.
 
 **`get_indicator_context(indicator: Entity) -> {ti_matches: list<ObservedData>, reputation: string, first_seen?: timestamp}`**
 Threat-intel enrichment for an IP, domain, hash, or URL.
@@ -136,7 +136,7 @@ vendors expose it.
 
 **`enumerate_logons(target: Entity, window: TimeWindow, outcome?: SUCCESS|FAILURE|ALL) -> list<ObservedData>`**
 Logons to or by a host/user. OCSF class 3002. `target` may be a `user-account`
-or `x-host`.
+or `reckon-host`.
 
 **`get_failed_auth_burst(target: Entity, window: TimeWindow, threshold?: int = 5) -> list<ObservedData>`**
 Convenience verb returning failed auth bursts above threshold. Same telemetry as
@@ -234,7 +234,9 @@ normalized to an `ObservedData` that carries the case metadata in its
 extensions. The case fields are `finding_info_list[]`, `assignee_group` and
 `src_url`, and the system of record's name is in `unmapped.sor` (adr/0356).
 Entity extraction from case bodies is deferred, since SNOW incidents carry no
-structured entity fields.
+structured entity fields. A case record therefore gives no entity. Its
+observation lists the `artifact` that stands for the stored record instead,
+as §4.13 describes (adr/0357).
 
 These verbs are the read-side of the "have we seen this before in our
 SoR?" question; the internal-similarity counterpart lives in the knowledge
@@ -251,8 +253,8 @@ Control-plane API calls — OCSF API Activity (class 6003, §4.15) — matching
 every given filter. The entity is optional, the fleet-wide shape of §2's
 conventions: given a `user-account` it asks what that principal did (the
 account may be named by its credential id, since "what did this access key
-do" names the key, not the user); given an `x-cloud-resource`, who touched
-it; given an `x-cloud-account`, what happened in it; absent, `operation` or
+do" names the key, not the user); given a `reckon-cloud-resource`, who touched
+it; given a `reckon-cloud-account`, what happened in it; absent, `operation` or
 `service` alone asks who called that anywhere in the window — the
 "across accounts" question. The entity's wire shape is stated in the
 descriptor's own text — `{"user":{"name"}}` or `{"user":{"credential_uid"}}`,
@@ -271,7 +273,7 @@ answer an unbounded query refuses it under §6.2.
 "What is this resource now": the current configuration of one cloud
 resource — policy, exposure settings, tags, labels, owner, created and
 modified times — as an OCSF Cloud Resources Inventory Info event (class
-5023, §4.18) normalized to the same `x-cloud-resource` and `x-cloud-account`
+5023, §4.18) normalized to the same `reckon-cloud-resource` and `reckon-cloud-account`
 ids §4.15 mints from activity, so the snapshot and the calls that produced it
 meet on one node. The parallel of `get_host_context` for a resource; the
 half of the story the trail cannot tell (is the bucket public *now*).
@@ -668,6 +670,16 @@ SCOs (with computed UUIDv5 ids), one or more `ObservedData` SDOs, and the edges
 connecting them to the originating `OcsfEvent`. All outputs carry uniform
 provenance.
 
+The store writes every output as STIX 2.1 JSON, through the one serializer in
+the `stix` package (adr/0357). A property STIX defines on the type is at the
+top level. A property it does not define is in the type's reckon
+property-extension, such as a file's `path` in `reckon-file`. The provenance
+is the `reckon-provenance` property-extension. An observation's extensions
+below are the fields of its `reckon-observation` property-extension. One of
+them, `person_ref`, is not an OCSF field: it names the person a directory
+record describes, which `object_refs` cannot list (§4.19). A
+property the record does not give is left out, not written empty.
+
 Device objects (`device`, `src_endpoint`, `dst_endpoint`) are shaped once, by
 the shared host extractor, for every class: OCSF `device.uid` is the device's
 own id and `agent_list[].uid` the sensor's, but neither is identity; the host
@@ -685,11 +697,15 @@ Input: an OCSF process_activity event with fields including `process.pid`,
 Output:
 
 - One `process` SCO for the process: `pid`, `command_line`, `name`, optional
-  `created_time`. STIX 2.1 process SCOs are not first-class identifiable by
+  `created_time`. A `pid` the record does not give, or one that does not
+  parse as a whole number, is left out, not written as 0, since PID 0 is a
+  real process. `created_time` is stored, because the id is minted from it
+  (adr/0357). STIX 2.1 process SCOs are not first-class identifiable by
   themselves; identity is composed (see §7).
-- One `process` SCO for the parent process if present.
+- One `process` SCO for the parent process when its `pid` is present, by the
+  same rule as the process: PID 0 is kept (adr/0357).
 - One `file` SCO for the executable image, with hashes if present.
-- One `x-host` SCO for the device.
+- One `reckon-host` SCO for the device.
 - One `user-account` SCO for the executing user if present, shaped by the
   account rule (§7.2): the record's strongest identifier is in
   `object_refs`; each lesser identifier it carries mints its own account
@@ -700,7 +716,7 @@ Output:
   the `ObservedData` to the `OcsfEvent`.
 - STIX `Relationship` objects for parent-child (`relationship_type:
   "parent-process-of"` between the two process SCOs; distinct from the
-  `parent-of` edge, which 01-domain-model.md reserves for x-hypothesis
+  `parent-of` edge, which 01-domain-model.md reserves for reckon-hypothesis
   refinement).
 
 ### 4.2 OCSF authentication (class_uid 3002) → STIX
@@ -724,14 +740,14 @@ Output:
   is the weak `login` account, so the account is kept. Version 3 (adr/0324).
 - When the event carries `actor.user`, a second `user-account` SCO for the
   initiator, shaped the same way. It is a separate account with no
-  `x-authenticated-to` of its own; when it names the same account as `user`,
+  `reckon-authenticated-to` of its own; when it names the same account as `user`,
   it is that one object. Version 5 (adr/0356).
-- One `x-host` SCO for the destination.
+- One `reckon-host` SCO for the destination.
 - One `ipv4-addr` (or `ipv6-addr`) SCO for the source IP if present.
 - One `ObservedData` SDO referencing all three, plus a `description`-style note
   in custom extension fields recording `logon_type` and `status`.
 - Edges as in §4.1.
-- An `x-authenticated-to` Relationship between the user and host (derivable from
+- A `reckon-authenticated-to` Relationship between the user and host (derivable from
   STIX `Relationship` with custom type since STIX has no first-class auth
   relationship).
 
@@ -748,8 +764,16 @@ Output:
 - `domain-name` SCO for destination domain if present (with a `resolves-to`
   Relationship to the dst IP).
 - `network-traffic` SCO (STIX 2.1 native) wrapping the connection, with
-  `src_ref`, `dst_ref`, `src_port`, `dst_port`, `protocols`.
-- `process` SCO and `x-host` SCO if process/device info present.
+  `src_ref`, `dst_ref`, `src_port`, `dst_port`, `protocols`. A port the
+  record does not give is left out, not written as 0, since port 0 is a real
+  value (adr/0357).
+  `protocols` is a list of lowercase protocol names, such as `["tcp"]`, as
+  STIX requires (adr/0357). The name comes from the telemetry only.
+  - It is `connection_info.protocol_name` when present, lowercased.
+  - Else it is the name of `connection_info.protocol_num`: 6 is `tcp`, 17 is
+    `udp` and 1 is `icmp`.
+  - Else it is the address family of the endpoints, `ipv4` or `ipv6`.
+- `process` SCO and `reckon-host` SCO if process/device info present.
 - One `ObservedData` referencing all of the above.
 - Edges as in §4.1.
 
@@ -767,7 +791,7 @@ Output:
 - STIX `Relationship` of type `resolves-to` from the queried domain to each
   resolved address (one per A/AAAA answer).
 - `ipv4-addr`/`ipv6-addr` SCO for the requesting source if present.
-- `x-host` SCO for the device if present.
+- `reckon-host` SCO for the device if present.
 - One `ObservedData` referencing the queried domain, the answers, and the
   requestor. `first_observed = last_observed = time`.
 - Edges as in §4.1.
@@ -780,11 +804,12 @@ Input: OCSF file_activity with `file.name`, `file.path`, `file.hashes`,
 
 Output:
 
-- `file` SCO for the file, with hashes if present and a `parent_directory_ref`
+- `file` SCO for the file, with hashes and `size` if present (the id is
+  minted from the stored size when it has no hash, adr/0357) and a `parent_directory_ref`
   pointing to a `directory` SCO if `file.path` carries a directory.
 - `directory` SCO for the parent directory.
 - `process` SCO for the actor process if present.
-- `x-host` SCO for the device.
+- `reckon-host` SCO for the device.
 - `user-account` SCO for the executing user if present in `actor`, shaped
   by the account rule (§7.2): the record's strongest identifier is in
   `object_refs`; each lesser identifier it carries mints its own account
@@ -818,7 +843,12 @@ Output:
   - A leading `HKLM`, `HKU`, `HKCU`, `HKCR`, `HKCC`, `\REGISTRY\MACHINE` or
     `\REGISTRY\USER`, in any case, becomes the full hive name in upper
     case. The rest of the path keeps the source's case.
-  - A path with no known root is kept as written.
+  - A leading `Computer\`, which a registry editor puts before the root
+    when it copies a key, is removed first.
+  - A path with no full hive name after that, such as a relative path or an
+    application hive under `\REGISTRY\A`, gets no `windows-registry-key`.
+    STIX requires the hive (§6.17.1 of STIX 2.1). The raw event keeps the
+    path (adr/0357).
   - When the event names a value, `values` holds that one value as
     `{name, data, data_type}`. The name is as written, and empty for the
     key's default value. The data is a string, with non-string JSON written
@@ -835,7 +865,7 @@ Output:
   above: a string as it arrives, anything else as its JSON text. The event
   view reads the data by the same rule (adr/0359).
 - `process` SCO for the actor process.
-- `x-host` SCO for the device.
+- `reckon-host` SCO for the device.
 - One `ObservedData` referencing the registry key, actor, and host. The
   `activity_id` (CREATE/MODIFY/DELETE) is preserved in custom extension
   fields.
@@ -855,18 +885,18 @@ from `job.job_actions[].cmd_line` (1.9.0), else from the deprecated
 
 Output:
 
-- `x-scheduled-task` custom SCO with fields `name`, `path`, `command_line`
+- `reckon-scheduled-task` custom SCO with fields `name`, `path`, `command_line`
   (the first action's), `command_lines` (every action's, when there are
   several), `principal_user_ref`. Identity rule: `(host_ref.id, name, path)`.
 - `user-account` SCO for the principal user (the user the task runs as),
   shaped by the account rule (§7.2): the record's strongest identifier is in
   `object_refs`; each lesser identifier it carries mints its own account
   outside them, with `aliases` to the strongest. Version 3 (adr/0324).
-- `x-host` SCO for the device.
+- `reckon-host` SCO for the device.
 - One `ObservedData` referencing all of the above.
 - Edges as in §4.1.
 
-`x-scheduled-task` is a custom SCO covering Windows scheduled tasks, cron
+`reckon-scheduled-task` is a custom SCO covering Windows scheduled tasks, cron
 entries, systemd timers, launchd jobs, and similar persistence mechanisms.
 Identity is host-scoped.
 
@@ -879,7 +909,7 @@ Output:
 
 - `file` SCO for the loaded module (DLL, .so, etc.), with hashes if present.
 - `process` SCO for the loading process.
-- `x-host` SCO for the device.
+- `reckon-host` SCO for the device.
 - STIX `Relationship` of custom type `loads` from the process to the file.
 - One `ObservedData` referencing all of the above.
 - Edges as in §4.1.
@@ -910,11 +940,11 @@ Output:
   `object_refs`; each lesser identifier it carries mints its own account
   outside them, with `aliases` to the strongest, and an alias the target and
   the initiator share is recorded once. Version 3 (adr/0324).
-- `x-host` SCO for the device if present (often the IdP itself for cloud
+- `reckon-host` SCO for the device if present (often the IdP itself for cloud
   events).
 - For group_management (3006): STIX `Relationship` of custom type
-  `member-of-group` from each target user to a `x-group` custom SCO. Identity for
-  `x-group`: `(directory_ref.value, group_name)` where `directory_ref` is
+  `member-of-group` from each target user to a `reckon-group` custom SCO. Identity for
+  `reckon-group`: `(directory_ref.value, group_name)` where `directory_ref` is
   the AD/Entra/Okta tenant identifier.
 - One `ObservedData` referencing all of the above. The `activity_id` is
   preserved in custom extension fields. For user_access and
@@ -942,9 +972,22 @@ Input: OCSF email_activity with `email.from`, `email.to[]`, `email.cc[]`,
 Output:
 
 - `email-message` SCO (STIX 2.1 native) with `from_ref`, `to_refs`, `cc_refs`,
-  `bcc_refs` (from `email.bcc[]`, else `unmapped.bcc[]`), `subject`, `body_multipart` (if available), `is_multipart`,
-  and a `message_id` field populated from `email.message_uid`.
-- `email-addr` SCO for each address (sender, recipients, cc, bcc).
+  `bcc_refs` (from `email.bcc[]`, else `unmapped.bcc[]`), `subject`, and
+  `message_id` from `email.message_uid`. Each is left out when the record
+  does not give it.
+- `is_multipart`, which STIX requires. OCSF has no field for it, so it comes
+  from `email.raw_header`. It is `true` when that header has a `Content-Type`
+  whose value starts with `multipart/`, without regard to case. Otherwise it
+  is `false` (adr/0357).
+- `email-addr` SCO for each address (sender, recipients, cc, bcc, and the
+  envelope recipients). Each address is cleaned up first: surrounding white
+  space is trimmed, and a mailbox with a display name, such as
+  `Alice <alice@corp.example>`, keeps its address (adr/0357).
+- `reckon-email-message` property-extension on the message, with
+  `thread_uid` from `email.uid`, `envelope_to_refs`, the envelope
+  recipients, and `unparsed_recipients`. That last one holds, as sorted
+  text, each recipient that is still not an address after cleanup. STIX has
+  no property for any of them (adr/0357, adr/0359).
 - `file` SCO for each attachment in `email.files[]`, with hashes if present.
 - `url` SCO for each URL in `email.urls[]`.
 - STIX `Relationship` of native type `contains` from the email-message to
@@ -954,11 +997,14 @@ Output:
 
 `email-message` identity is the `message_id` **alone** when present, else
 `(from_ref.value, subject, date, recipients, thread_uid)` as a fallback.
-`date` is the event's time to the second. The recipients are the sorted,
-lowercased to, cc, bcc, `smtp_to` and Delivered-To (`delivered_to_list`,
-else `delivered_to`) addresses, and
-`thread_uid` counts only when present. They keep apart the separate copies
-of a phishing or spam run, and messages from different threads (adr/0359). This is a deliberate deviation
+Each is the value the message stores: an address that was left out (§4.13)
+is neither the sender nor a recipient. `date` is the record's `time` to the
+second. The recipients are the sorted, lowercased to, cc, bcc and envelope
+addresses, and the `unparsed_recipients` text. The envelope addresses are `smtp_to` and Delivered-To
+(`delivered_to_list`, else `delivered_to`), stored as `envelope_to_refs`.
+`thread_uid` counts only when present. The recipients and the thread keep
+apart the separate copies of a phishing or spam run, and messages from
+different threads (adr/0359). This is a deliberate deviation
 from strict STIX 2.1, which uses `(message_id, from_ref.value)`. The RFC
 requires `message_id` to be unique. Identity on it alone lets two sources'
 records of one message join even when they disagree on its sender.
@@ -990,7 +1036,7 @@ Output:
   the record's strongest identifier is in `object_refs`; each lesser
   identifier it carries mints its own account outside them, with `aliases`
   to the strongest. Version 3 (adr/0324).
-- `x-host` SCO for the device if present.
+- `reckon-host` SCO for the device if present.
 - STIX `Relationship` of custom type `clicked` from the user-account to the
   url.
 - One `ObservedData` referencing all of the above.
@@ -1009,7 +1055,7 @@ Output:
 - No `email-message`, as for a click (§4.11). The `email_uid` is kept in
   the observation's extension fields as `thread_uid`.
 - `user-account` SCO for the actor, shaped by the account rule (§7.2).
-- `x-host` SCO for the device if present.
+- `reckon-host` SCO for the device if present.
 - One `ObservedData` referencing all of the above, with the `activity_id`
   kept in extension fields.
 - Edges as in §4.1.
@@ -1025,6 +1071,8 @@ Input: OCSF detection_finding with these fields:
 
 - `finding_info.title`, `finding_info.uid` and `finding_info.types[]` (for
   example, MITRE ATT&CK technique IDs).
+- `attacks[]` on the finding and `finding_info.attacks[]`, OCSF's ATT&CK
+  objects. Both exist from 1.1.0 to 1.9.0.
 - `severity_id`, else the `severity` caption.
 - `confidence_score`, else `confidence_id`.
 - `device`, the host the detection fired on, and `time`.
@@ -1035,14 +1083,42 @@ Input: OCSF detection_finding with these fields:
 
 Output:
 
-- STIX `Indicator` SCO with `pattern` (vendor-specific or a STIX pattern if
-  the detection exposes one), `pattern_type`, `valid_from`, `confidence`
-  (see below), `name` from
-  `finding_info.title`, and `indicator_types` from `finding_info.types[]` — by convention, MITRE ATT&CK
-  technique IDs (e.g., `T1486`, `T1078.004`) where vendors emit them. This
-  is the canonical path for technique data into the interpretation layer;
-  hypotheses produced by the agent loop also carry technique IDs as labels
-  per 01-domain-model.md.
+- STIX `Indicator` SDO with `pattern`, `pattern_type`, `valid_from`,
+  `confidence` (see below), and `name` from `finding_info.title`.
+- The pattern is always present, because STIX requires it (adr/0357).
+  - A vendor's own pattern is read from `unmapped.pattern`, since OCSF has no
+    field for it. Its `pattern_type` is `vendor`.
+  - Without one, the pattern is the source's rule reference: the finding's
+    `uid`, else its `title`. The `pattern_type` is then the tool's name, the
+    vendor name the indicator is attributed to.
+  - The finding uid is stored as an `external_references` entry under the
+    vendor's name, `{source_name: <vendor>, external_id: <uid>}`, after any
+    ATT&CK entries. That is where STIX puts a source's own id for an object.
+  - The indicator's id is minted from what it stores: the vendor
+    (`created_by_ref`), the `pattern`, the `pattern_type` and that uid. So
+    two vendors, or two findings, with one pattern are two indicators, and
+    one finding from one vendor is one (adr/0357).
+  - A finding with no vendor pattern, no `uid` and no title has no rule
+    reference. OCSF requires the uid and the title, so it is a broken record.
+    Normalizing it is an error (§4.13).
+- The ATT&CK techniques the finding names go into the indicator's
+  `external_references`, each as `{source_name: "mitre-attack", external_id:
+  "<id>"}` (adr/0357).
+  - They come from the values of `finding_info.types[]` that are technique
+    ids, such as `T1486` or `T1078.004`, and then from the `technique.uid`
+    and `sub_technique.uid` of each entry in `attacks[]` and
+    `finding_info.attacks[]`.
+  - An id is kept once, at the first place it is read. A value that is not
+    an ATT&CK technique id, such as an ATLAS id, is left out.
+  - This is the canonical path for technique data into the interpretation
+    layer. Hypotheses produced by the agent loop also carry technique ids,
+    as labels, per 01-domain-model.md.
+- `indicator_types` holds only the values of `finding_info.types[]` that
+  are in STIX's `indicator-type-ov`, such as `malicious-activity`. A
+  technique id never goes there.
+- Any other value of `finding_info.types[]`, such as a vendor's tag or a
+  tactic name, goes into the indicator's `labels`. Each is kept once, in
+  reading order.
 - Confidence is a number from 0 to 100, as STIX defines it.
   - It comes from `confidence_score`, capped to 0–100. A score of 0 is kept.
   - Without a score, it comes from `confidence_id`. Low, Medium and High
@@ -1050,12 +1126,18 @@ Output:
   - When the finding has neither, or the level is unknown, the confidence is
     left out. It is never written as 0, because 0 means "no confidence" in
     STIX.
-- STIX `Sighting` SDO linking the indicator to the observation below, through
+- STIX `Sighting` SRO linking the indicator to the observation below, through
   `observed_data_refs`. `Sighting.confidence` mirrors the Indicator's.
   - The entities the detection names are that observation's `object_refs`.
   - They are not written to `where_sighted_refs`. STIX allows only identity
-    and location objects there, as it names who saw the indicator. Nothing
-    fills `where_sighted_refs` today (adr/0356).
+    and location objects there, as it names who saw the indicator
+    (adr/0356).
+  - `where_sighted_refs` holds the vendor identity, because the vendor saw
+    it (adr/0357).
+  - `first_seen` and `last_seen` are the finding's `time`. The sighting's id
+    is minted from that stored time, the indicator, the vendor and the
+    observations in `observed_data_refs`. So two findings in one second on
+    different evidence are two sightings (adr/0357).
 - The finding's own `device` gives the host. It does so whether or not the
   finding has `evidences[]`.
 - Each artifact in `evidences[]` is read with the same extractors the
@@ -1109,10 +1191,10 @@ Output:
   definition, an inference, just not one made by our agent loop.
 
 The Indicator and Sighting are interpretation-layer artifacts but the
-capability layer **does not** emit a synthetic `x-interpretation` to wrap
+capability layer **does not** emit a synthetic `reckon-interpretation` to wrap
 them. That would violate two invariants: (a) capability §1, "the layer is
 pure I/O plus normalization; does not reason; does not produce
-x-interpretation records," and (b) 02-persistence.md §2.1 aggregate ownership
+reckon-interpretation records," and (b) 02-persistence.md §2.1 aggregate ownership
 — Interpretations live inside the investigation aggregate, and capability
 has no legal write path into it.
 
@@ -1147,16 +1229,116 @@ vendor-emitted Indicators relative to its own reasoning.
 
 Every normalizer is a pure function `(OcsfEvent) -> NormalizationResult`.
 Normalizers are registered by `class_uid`. A default normalizer handles
-unrecognized classes by emitting an opaque `ObservedData` with `object_refs`
-empty and the OcsfEvent attached via `derived-from` — the LLM can still see the
-raw payload, just without typed entities.
+unrecognized classes by emitting an opaque `ObservedData` with the OcsfEvent
+attached via `derived-from` — the LLM can still see the raw payload, just
+without typed entities. This holds only for a valid OCSF event. A record with
+no `time` gets no observation at all, whatever its class (see *A broken
+record* below). The adapter must take the time from the vendor's record.
+
+**A record with nothing to extract.** STIX requires an observation to list at
+least one object. Some records give a normalizer no entity: a case record
+(§2.9), an event the default normalizer handles, or any event that names
+nothing a normalizer reads. For such a record, the normalizer also writes a
+STIX `artifact` that stands for the stored OCSF record (adr/0357).
+
+- Its `url` is `reckon://ocsf-record/sha256/<hash>`, where the hash is the
+  SHA-256 in its `hashes`. The url names the record by its content, as the
+  id does, so one record fetched twice is one artifact. The events behind an
+  observation are found through the observation.
+- Its `hashes` hold `SHA-256`, the hash of the stored payload. It is the same
+  content hash the ObservedData id uses (§7.1).
+- Its `mime_type` is `application/json`.
+- Its id is minted from `hashes`, by STIX's rule for an artifact (§7.2).
+
+The observation lists the artifact in `object_refs`, and the artifact has the
+usual `extracted-from` edge. The test is the result, not the class: whenever
+a normalizer ends with no object to list, it lists the artifact. An event that
+yields an entity gets no artifact. The artifact is the record itself, not an
+entity it names. So the lists of an event's entities, the "around it" query
+and a call's entity refs leave it out.
+
+**A broken record.** Some records cannot be normalized into valid STIX.
+Normalizing one is an error, not an observation (adr/0357).
+
+- An event with no `time` is one. OCSF requires `time`, and STIX needs it for
+  `first_observed`. Every class refuses it. The ingest time is never used in
+  its place.
+- A detection with no pattern, no `finding_info.uid` and no title is another
+  (§4.12).
+- So is an event whose own `time` has a year outside 0000 to 9999. A STIX
+  timestamp writes the year in four digits. Its error says so, and never
+  says the event has no time.
+- An optional time out of that range, such as a resource's `created_time`
+  or `modified_time` or a process's `created_time`, is left out. The object
+  is kept.
+- So is a record whose objects would miss a property their schema
+  requires, such as an empty provenance tool. The serializer refuses such an
+  object at runtime, and the normalizer returns its refusal as the error. The
+  aggregate's writes go through the same serializer, so a reasoning object
+  missing one fails its event's transaction.
+- The resolver handles the error as it handles any normalize error. It keeps
+  the raw event in the result and adds a note to `degradation_notes`. The
+  event gets no observation.
+
+**A hash that does not fit its algorithm** is left out (adr/0357). The format
+is the one STIX gives the algorithm: 32 hex characters for `MD5`, 40 for
+`SHA-1`, 64 for `SHA-256` and `SHA3-256`, 128 for `SHA-512` and `SHA3-512`,
+and STIX's own patterns for `SSDEEP` and `TLSH`. An algorithm STIX gives no
+format keeps any digest. A broken digest cannot say which file this is. So it
+is dropped from the stored `file` and from the inputs to the file's id (§7.2).
+A hash whose key is shorter than 3 or longer than 250 characters is left out
+too, since STIX allows no such key. A file with no name and no hash that
+fits takes its name from the last element of its path, which is the same
+name. A file left with no name and no hash is not written.
+
+**Other values STIX cannot hold** (adr/0357). One helper writes each kind,
+for every normalizer.
+
+- An IP address has surrounding white space trimmed, and is stored in
+  canonical text: an IPv6 address lowercased and compressed. So the stored
+  value, the id and every reader agree. An IPv4 address written as
+  IPv4-mapped IPv6, such as `::ffff:10.0.0.5`, is stored as the IPv4 address,
+  so it is the same object as that address seen anywhere else.
+- A CIDR block, which STIX 2.1 allows as an address's value (§6.8, §6.9), is
+  kept in canonical prefix text, as an `ipv4-addr` or an `ipv6-addr` by its
+  family. A `/32` or a `/128` is one address and is stored as the bare
+  address, since the spec says the suffix may be omitted. A seed that names
+  a block roots on that address object.
+- A domain name that breaks RFC 1034, or whose labels break RFC 5890, gets
+  no `domain-name`, and no `resolves-to` names it. A name with an underscore
+  label is kept (§7). One trailing dot, RFC 1034's form of an absolute name,
+  is allowed.
+- A URL that is not an absolute RFC 3986 URI gets no `url`.
+- An email address that is not an RFC 5322 addr-spec, such as one with a
+  display name, gets no `email-addr`, and the message has no ref to it.
+- A value the record does not give is left out, never written as 0 or
+  false. An optional number, such as a port, a pid or a size, is present
+  only when it parses as a whole number in its range. Text, a fraction or a
+  negative number is absent.
+- Every id is minted from the values the object stores, never from the raw
+  input. A reader that matches raw telemetry against a stored object, such
+  as the event view, goes through the same cleanup.
+- The raw event keeps every value left out.
+
+Two hashes are reshaped first, so that STIX can hold them (adr/0357).
+
+- A TLSH digest with the `T1` version prefix and 70 hex characters loses the
+  prefix. STIX's TLSH format is the 70 characters.
+- An algorithm name STIX does not allow as a `hashes` key gets `-` for each
+  disallowed character. A key allows letters, digits, `_` and `-`. So OCSF's
+  `SHA-512/256` is stored as `SHA-512-256`, and `xxHash H3 64-bit` as
+  `xxHash-H3-64-bit`. The stored hashes and the id inputs use the same key.
+- A digest is trimmed before its format is checked.
+- When two algorithm names give one key, equal digests keep the key. Different
+  digests make it ambiguous, so the key is left out. The result never depends
+  on the order the hashes are read in.
 
 An adapter that sends a record OCSF has no class for sends it as a Base
 Event (class 0). The vendor's fields go under `unmapped.<vendor>`, and the
 event view shows the scalars there (adr/0356).
 
 **Absence.** When every applicable binding answered (coverage COMPLETE) and
-no event came back, the resolver mints an `x-null-observation`
+no event came back, the resolver mints a `reckon-null-observation`
 (01-domain-model.md §NullObservation, adr/0061) over the question that was
 asked — verb, subject entity, parameters, window, sources — and returns its id
 among `observed_data_refs`, so the caller can cite the absence as it would cite
@@ -1169,9 +1351,9 @@ provenance. If a normalizer is improved, prior OcsfEvents can be re-normalized
 into new ObservedData; old ObservedData remains valid (immutable in spirit, even
 if the model permits mutation). Re-normalization writes new ObservedData and
 links them to the same OcsfEvent. The ObservedData id (§7.1) carries the
-version but not the normalizer's name, and the opaque default is version 1,
-so a typed normalizer that takes over a class the default used to handle
-starts at version 2: a payload stored opaque before the normalizer existed
+version but not the normalizer's name. So a typed normalizer that takes over
+a class the default used to handle starts above the default's version, which
+is 2 (adr/0357). A payload stored opaque before the normalizer existed then
 keeps its row, and the typed observation gets its own id beside it rather
 than colliding with it and being discarded on write.
 
@@ -1245,20 +1427,25 @@ unrelated applications' coincident ids could share. With a provider:
   an event carrying only a name, or only `actor.app_name`, mints no
   `user-account`; the name rides the ObservedData as `principal_name`. A
   name is never composed into an identity the source did not give.
-  `is_service_account` is set for a role or a System/Service `type_id`; the
+  `is_service_account` is true for a role or a System/Service `type_id`,
+  false for a User/Admin `type_id`, and left out otherwise, since nothing
+  says (adr/0357); the
   credential id and the session ride as properties and extensions, never as
   identity.
-- One `x-cloud-account` SCO for the account the call ran in, from
+- One `reckon-cloud-account` SCO for the account the call ran in, from
   `cloud.account.uid`, else `actor.user.account.uid`, else the deprecated
   `cloud.project_uid`; and, when `actor.user.account.uid` names a different
-  account, a second `x-cloud-account` for the principal's home account (a
+  account, a second `reckon-cloud-account` for the principal's home account (a
   cross-account call shows both). Identity `(provider, account_uid)` (§7.2).
-- One `x-cloud-resource` SCO per `resources[]` entry that can be
+- One `reckon-cloud-resource` SCO per `resources[]` entry that can be
   identified: by `(provider, uid)` when the source gives the provider's
   unique id, else by `(account_ref, type, region, zone, group, namespace,
   name)` under the event's account, else not at all (§7.2). The engine does no provider-specific
   parsing of an id; a resource identified by its unique id carries no
   `account_ref`, since the id is its own statement of ownership.
+  The provider's resource type, such as `AWS::S3::Bucket`, is the property
+  `resource_type`. STIX's `type` names the object's own type, so the two
+  cannot share a name (adr/0357).
 - `ipv4-addr` / `ipv6-addr` for `src_endpoint.ip`.
 - STIX `Relationship` of type `belongs-to` (the STIX 2.1 vocabulary, adopted)
   from a resource to the event's account **only when the resource was
@@ -1286,7 +1473,7 @@ and once with only `uid_alt` is two principals; a resource seen once by its
 unique id and once by a bare name is two SCOs, as is one named once with
 its region, zone, group or namespace and once without, or with its name's
 or namespace's case varied by the source.
-Each is the `x-host` kind of split and each is remedied by an `aliases`
+Each is the `reckon-host` kind of split and each is remedied by an `aliases`
 edge, not by a rule change. Whether a control-plane caller that *is* the
 identity provider's account (one directory serving both) should be shaped to stitch with its
 sign-in is deferred until such a source exists; the provider rows are where
@@ -1398,7 +1585,7 @@ rules, which §4.15 follows and every class is held to:
   leaving it out would merge distinct entities. Its absence contributes an
   empty component, so two sightings that both omit it still meet, and a
   sighting that carries it splits from one that does not: a split of the
-  `x-host` kind, named in the class's failure modes and repaired by
+  `reckon-host` kind, named in the class's failure modes and repaired by
   `aliases`. The alternative — identity over floor fields only — is a merge
   no edge can undo once data is recorded against the shared id.
 - **Test both ends.** A class's fixture is written at the floor and declares
@@ -1416,7 +1603,7 @@ from `unmapped.criticality`.
 
 Output:
 
-- `x-host` SCO for the device, shaped by the shared host extractor (§4
+- `reckon-host` SCO for the device, shaped by the shared host extractor (§4
   preamble, §7.2). An inventory record that names the hostname beside the
   source's device id or the MAC also yields the weak host that identifier
   mints, outside `object_refs`, with an `aliases` edge to the strong host:
@@ -1446,9 +1633,9 @@ resource and the calls against it meet on one node:
 
 - **No provider, no cloud identities**: without `cloud.provider` the event
   yields its ObservedData only.
-- One `x-cloud-account` from `cloud.account.uid`, else the deprecated
+- One `reckon-cloud-account` from `cloud.account.uid`, else the deprecated
   `cloud.project_uid`; identity `(provider, account_uid)`.
-- One `x-cloud-resource` per `resources[]` entry that can be identified, by
+- One `reckon-cloud-resource` per `resources[]` entry that can be identified, by
   `(provider, uid)` else the name-rule tuple under the event's account
   (§7.2); `belongs-to` to the account only under the name rule.
 - One `user-account` for `resources[].owner` when it carries an identifier
@@ -1461,8 +1648,8 @@ resource and the calls against it meet on one node:
 - One `ObservedData` referencing all of the above, carrying the
   configuration in its extensions: `activity`, `activity_id`, `region`,
   `resource_count`, and for the first resource `resource_uid`,
-  `resource_name`, `type`, `configuration` (the resource's `data`, as
-  decoded), `labels`, `tags`, `criticality`, `created_time`,
+  `resource_name`, `resource_type`, `configuration` (the resource's `data`, as
+  decoded: any JSON value, as OCSF types it), `labels`, `tags`, `criticality`, `created_time`,
   `modified_time` (both written as RFC 3339, read from the field's epoch
   milliseconds, else from its `_dt` twin, §4.16), `owner_name`. The configuration is data the model reads
   through the event view, never an entity: a policy document is a property
@@ -1498,10 +1685,14 @@ every field identity reads (`user.uid`, `uid_alt`, `name`, `domain`,
 only for properties, is read when present.
 
 Output. This is the only normalizer that mints a person (adr/0324); every
-other class names accounts only, and no other observation's `object_refs`
-holds a person.
+other class names accounts only. No observation's `object_refs` holds a
+person. A person is an `identity`, which is an SDO, and `object_refs` may list
+only SCOs and relationships (adr/0357).
 
-- One `identity` with `identity_class: individual`, the person, keyed
+- One `identity` with `identity_class: individual`, the person, when the
+  record gives it a name (STIX requires one). A record that names no person
+  gets no person and no `belongs-to` to one; its accounts are still written
+  (adr/0357). The person is keyed
   `(directory, directory_id)` (§7.2): the directory slug is derived from
   `metadata.product`, the product name, or with none the vendor name, matched
   whole against known directories (`entra` for Entra ID or Azure Active
@@ -1516,7 +1707,10 @@ holds a person.
   (`org.ou_name`), `organization`, `title` (`ldap_person.job_title`),
   `employee_id` (`ldap_person.employee_uid`), `manager_ref` (the person
   `ldap_person.manager.uid` names in the same directory), `enabled`,
-  `directory`, `directory_id`. No uid or a placeholder uid mints no person.
+  `directory`, `directory_id`. `name` and `identity_class` are STIX
+  properties of an identity. The rest are in the `reckon-person`
+  property-extension. No uid or a placeholder uid mints no
+  person.
 - The accounts the record names, each by the account rule (§7.2): the
   domain account family, the SID when the record carries one, the principal
   name, `domain\sam` when the sAMAccountName and its domain are present,
@@ -1529,16 +1723,28 @@ holds a person.
 - `belongs-to` from each account the record minted to the person, DIRECT,
   with the record's provenance.
 - `member-of-group` from the sign-in account (the domain account's strongest
-  when there is none) to an `x-group` per `groups[]` entry, the directory
+  when there is none) to a `reckon-group` per `groups[]` entry, the directory
   `group.domain` else the slug, as §4.9 records memberships.
-- One `ObservedData` referencing the person, the strongest account of each
-  family and the groups; the activity rides its extensions. The schema
-  version is not copied (§4.16).
+- One `ObservedData` referencing the strongest account of each family, the
+  `belongs-to` relationships and the groups. The person is the target of
+  those relationships. The activity rides its extensions. The schema version
+  is not copied (§4.16).
+- The observation names the person it describes in its `reckon-observation`
+  extension, as `person_ref` (adr/0324, adr/0357). It is set on every record
+  that yields a person, whether or not the record names an account.
+  - A personnel system's record names a person and no account. It has no
+    `belongs-to` to reach the person through, and `object_refs` holds only
+    its artifact (§4.13). `person_ref` is how it is found.
+  - Every reader that asks which records are about an entity, or lists an
+    observation's entities, reads `person_ref` beside `object_refs`. So an
+    investigation seeded on a person finds the person's directory records.
 - Edges as in §4.1.
 
-Version 3, as §4.17: a record stored before the normalizer existed went
+Version 2, as §4.17: a record stored before the normalizer existed went
 through the opaque default at version 1. Version 3 follows the shared user
-name rule (adr/0359), which changes the accounts the record mints. Failure modes: two directories that
+name rule, which changes the accounts the record mints (adr/0359). Version 4
+takes the person out of `object_refs` and names it in `person_ref`
+(adr/0357). Failure modes: two directories that
 describe one human are two persons, linked by `aliases` from a record or a
 person; a directory record that omits the on-premises identifiers leaves the
 domain accounts unowned until one names them or a person asserts the owner.
@@ -1822,6 +2028,41 @@ determines whether the same `8.8.8.8` from CrowdStrike and from Splunk produces
 the same SCO id (allowing graph stitching) or two distinct ids (fragmenting the
 investigation).
 
+**Every deviation from STIX 2.1.** This is the one list of the places reckon
+departs from strict STIX 2.1 (01-domain-model.md *STIX Conformance and
+Change*, rule 7). Adding one needs an ADR. Each is described, with its reason,
+in the section named.
+
+- **The per-tenant namespace.** SCO ids are minted under a namespace UUID per
+  tenant, not the STIX namespace, so one value in two tenants is two ids
+  (§7.1).
+- **UUIDv5 ids for the SDOs and SROs the normalizers write.** STIX says SDO
+  and SRO ids should be UUIDv4. The resolver mints observed-data, indicator,
+  sighting, relationship, the vendor identity, a person `identity` and
+  `reckon-null-observation` as UUIDv5 over their identity fields, so the same observation from two
+  producers is one object (§7.1).
+- **`file`**: identity on content. STIX mints a file's id from one hash,
+  MD5 first, together with its name and parent directory. reckon mints it
+  from the strongest hash alone, SHA-256 first. Only a file with no hash is
+  identified by name, parent directory and size. So the same content under
+  two names, on two hosts, is one file, and an investigation sees where it
+  spread (§7.2, adr/0357).
+- **`network-traffic`**: identity on the two ends, the two ports and the
+  stored `protocols`, without STIX's `start` and `end`. So one connection
+  seen in many events is one object, and each observation holds its own
+  times (§7.2, adr/0357).
+- **`process`**: identity on host, pid and start time (§7.2).
+- **`email-addr`**: the address is lowercased (§7.2).
+- **`user-account`**: identity from what the source keys the account on,
+  lowercased (§7.2).
+- **`email-message`**: identity on `message_id` alone (§4.10).
+- **`windows-registry-key`**: identity scoped to the host, over the
+  lowercased key and value name (§7.2, adr/0341).
+- **`domain-name`**: a name with an underscore label, such as
+  `_ldap._tcp.dc._msdcs.example.com`, is kept, though RFC 1034's host name
+  rule has no underscore. DNS service and policy records use such names, and
+  they are real evidence (§4.13, adr/0357).
+
 ### 7.1 Rule
 
 Identity follows STIX 2.1 deterministic UUIDv5 rules with one structural
@@ -1834,7 +2075,7 @@ not a project-wide custom-object namespace.
 Each tenant is assigned a fresh namespace UUIDv4 at tenant creation, stored
 in the tenant CRUD record (02-persistence.md §1), and immutable thereafter.
 Both standard SCOs (`ipv4-addr`, `domain-name`, `file`, etc.) and custom
-SCOs (`x-host`, `x-scheduled-task`, `x-group`) use the
+SCOs (`reckon-host`, `reckon-scheduled-task`, `reckon-group`) use the
 same per-tenant namespace; there is no separate custom-object namespace.
 
 This makes same-value-different-tenant collision impossible: `8.8.8.8` in
@@ -1868,27 +2109,24 @@ the storage layer.
 ### 7.2 Per-type identity-contributing fields
 
 These follow STIX 2.1 spec for native SCOs and are documented here for the
-custom and composite cases. Four of them deliberately deviate from strict
-spec, and each is described below: `process`, `email-addr`, `user-account`
-and `windows-registry-key`. All identity tuples below describe what enters the
+custom and composite cases. Seven of them deliberately deviate from strict
+spec, and each is described below: `file`, `network-traffic`, `process`,
+`email-addr`, `user-account`, `windows-registry-key` and the person
+`identity`. All identity tuples below describe what enters the
 canonical-form JSON; the JSON is then hashed against the per-tenant
 namespace UUID per §7.1.
 
 **Standard cases (no deviation):**
 
-- **`ipv4-addr` / `ipv6-addr`**: `value` (the address string, lowercase, no
-  leading zeros).
+- **`ipv4-addr` / `ipv6-addr`**: `value`, as stored: the canonical address
+  text, or the canonical prefix text of a CIDR block (§4.13).
 - **`domain-name`**: `value` (FQDN, lowercase, trailing dot stripped, IDN
   punycoded).
 - **`url`**: `value` (full URL, scheme lowercased, host lowercased, default
   ports stripped, fragment preserved, query-string keys sorted).
-- **`file`**: hashes in priority order — `SHA-256` if present, else `SHA-1`,
-  else `MD5`, else `(name, parent_directory_ref.value, size)`. Hash strings
-  lowercased. The selected algorithm participates in identity alongside its
-  digest (the canonical JSON carries the `{algorithm: digest}` pair, mirroring
-  STIX 2.1's `hashes` contributing property), so equal digest strings under
-  different algorithms can never merge two files.
-- **`x-host`** (custom): `(hostname)`, the short hostname — trimmed,
+- **`artifact`**: `hashes`, the `SHA-256` of the stored record's payload
+  (§4.13). An artifact reckon writes has no `payload_bin`.
+- **`reckon-host`** (custom): `(hostname)`, the short hostname — trimmed,
   lowercased, a trailing dot removed, cut at the first dot — so `WIN-FILE01`,
   `win-file01` and `win-file01.corp.example` are one host (adr/0211). Only
   when a record carries no hostname is the host minted on a weak identifier:
@@ -1900,13 +2138,13 @@ namespace UUID per §7.1.
   kept keyed by the source that reported them. Two machines with one short
   name in two domains share an id, which the record shows rather than guesses
   (§7.3).
-- **`x-scheduled-task`** (custom): `(host_ref.id, name, path)`, name and path
+- **`reckon-scheduled-task`** (custom): `(host_ref.id, name, path)`, name and path
   lowercased.
-- **`x-group`** (custom): `(directory_ref.value, group_name)` lowercased.
-- **`x-cloud-account`** (custom): `(provider, account_uid)`, provider
+- **`reckon-group`** (custom): `(directory_ref.value, group_name)` lowercased.
+- **`reckon-cloud-account`** (custom): `(provider, account_uid)`, provider
   lowercased; the uid as the provider issues it (a GUID-shaped uid
   lowercased).
-- **`x-cloud-resource`** (custom): priority order — `(provider, uid)` when
+- **`reckon-cloud-resource`** (custom): priority order — `(provider, uid)` when
   the provider's unique resource id is present (unique within the provider
   and already carrying its account; folded as the account uid is), else
   `(account_ref.id, type, region, zone, group, namespace, name)` under the
@@ -1921,8 +2159,36 @@ namespace UUID per §7.1.
   case-insensitive — each scope empty when the source carries none; else
   the resource is not minted.
   For a source whose uniqueness scope lies outside those fields the unique
-  id is the only strong identity. The `x-host` pattern: strongest
+  id is the only strong identity. The `reckon-host` pattern: strongest
   identifier first, no parsing of the id.
+
+**Deviation: `file`.** STIX 2.1 §6.7.1 mints a file's id from one hash, MD5
+first, together with its `name` and `parent_directory_ref`. reckon mints it
+from content. So the same content under two names, on two hosts, is one
+file, and an investigation sees where it spread. reckon's ids are already
+minted under a per-tenant namespace (§7.1), so matching other systems' ids
+is not lost (adr/0357).
+
+Identity rule: hashes in priority order — `SHA-256` if present, else
+`SHA-1`, else `MD5`, else `(name, parent_directory_ref.value, size)`. Hash
+strings lowercased. Only a hash that fits its algorithm's STIX format counts
+(§4.13, adr/0357). The stored `hashes` hold the same set, so a broken hash is
+in neither. The selected algorithm participates in identity alongside its
+digest (the canonical JSON carries the `{algorithm: digest}` pair, mirroring
+STIX 2.1's `hashes` contributing property), so equal digest strings under
+different algorithms can never merge two files.
+
+**Deviation: `network-traffic`.** STIX 2.1 §6.12.1 mints the id from
+`start`, `end`, `src_ref`, `dst_ref`, `src_port`, `dst_port`, `protocols`
+and `extensions`. reckon leaves out `start`, `end` and the extensions. So one
+connection seen in many events is one object, and each observation holds
+its own times (adr/0357).
+
+Identity rule: `(src_ref, dst_ref, src_port, dst_port, protocols)`, each as
+the object stores it. A port the record does not give is left out of the
+identity, as it is left out of the object. `protocols` is the stored list,
+lowercased (§4.3), so `TCP` and `tcp` are one connection, and two protocol
+numbers with no protocol name are two.
 
 **Deviation: `process`.** STIX 2.1 specifies no `id_contributing_properties`
 for `process`, intentionally — the spec authors made the call that PIDs are
@@ -1935,7 +2201,7 @@ We deviate. Identity is
 `(host_ref.id, pid, created_time_truncated_to_second)`. Cross-tool process
 stitching is a load-bearing operation in this product — every multi-tool
 investigation pivots on processes constantly, and `get_process_ancestry`,
-`x-supports`/`x-refutes` evidence weighting, and the ObservedData cache all
+`reckon-supports`/`reckon-refutes` evidence weighting, and the ObservedData cache all
 depend on the same process producing the same SCO id across tool calls.
 Without deterministic identity, the graph fragments at exactly the layer
 analysts reason about most.
@@ -2073,7 +2339,18 @@ and `values`, with no host. Here identity is
   change.
 
 Failure mode: a source might name a key by a root outside the expanded set
-(§4.6). That key does not join the same key named by its hive.
+(§4.6). Such a key gets no `windows-registry-key` (adr/0357).
+
+**Deviation: the person `identity`.** STIX 2.1 §2.9 says an SDO's id SHOULD
+be a UUIDv4. The person is an SDO, and reckon mints it as a UUIDv5, like the
+other SDOs the normalizers write (§7). So the same person from two records
+of one directory is one object (adr/0357).
+
+Identity rule: `(identity_class, directory, directory_id)`. `identity_class`
+is `individual`, which keeps a person from ever taking a vendor identity's
+id. The directory slug is trimmed and lowercased (§4.19). The directory's id
+for the person is trimmed and keeps its case, a GUID lowercased, as a cloud
+uid is. A record with no directory, or a placeholder id, names no person.
 
 ### 7.3 Cross-tool stitching: practical implications
 
@@ -2149,8 +2426,8 @@ an `aws` `user-account` (the role or user a call ran as, §4.15) and the
 `cloud` `user-account` that signed in to the identity provider are
 different accounts in different namespaces, and nothing merges them. A
 resource seen by its unique id and again by a bare name is two
-`x-cloud-resource` SCOs for the same reason a host seen by asset id and by
-hostname is two `x-host` SCOs; `aliases` is the remedy in both cases.
+`reckon-cloud-resource` SCOs for the same reason a host seen by asset id and by
+hostname is two `reckon-host` SCOs; `aliases` is the remedy in both cases.
 
 ### 7.4 Computation location
 
@@ -2374,7 +2651,7 @@ does not. Combined with a parameter the caller controls (the shipped scenario
 matches its `svc_backup` baseline on `target.user`, rendered from
 `${entity.user.name?}` so a host-rooted query omits it), the same scenario
 answers differently to different questions — the property a *discriminating*
-prediction needs (01-domain-model.md §x-prediction) and the reason a
+prediction needs (01-domain-model.md §reckon-prediction) and the reason a
 competing-hypotheses demo can refute its benign alternative on fixtures.
 
 ### 9.3 Mixed mode

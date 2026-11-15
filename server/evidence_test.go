@@ -82,14 +82,14 @@ func TestEvidence_PersistAndOpen(t *testing.T) {
 	// Determinism makes re-invocation idempotent on the interpretation layer:
 	// the same entities upsert to the same ids (no duplicate objects).
 	var stixCount int
-	if err := testDB.QueryRow(`SELECT count(*) FROM stix_objects WHERE type NOT IN ('x-hypothesis','x-prediction')`).Scan(&stixCount); err != nil {
+	if err := testDB.QueryRow(`SELECT count(*) FROM stix_objects WHERE type NOT IN ('reckon-hypothesis','reckon-prediction')`).Scan(&stixCount); err != nil {
 		t.Fatal(err)
 	}
 	if resp, _ := postCapability(t, b, token, "enumerate_logons", CapabilityInvokeBody{}); resp.StatusCode != http.StatusOK {
 		t.Fatalf("re-invoke = %d", resp.StatusCode)
 	}
 	var after int
-	if err := testDB.QueryRow(`SELECT count(*) FROM stix_objects WHERE type NOT IN ('x-hypothesis','x-prediction')`).Scan(&after); err != nil {
+	if err := testDB.QueryRow(`SELECT count(*) FROM stix_objects WHERE type NOT IN ('reckon-hypothesis','reckon-prediction')`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != stixCount {
@@ -103,7 +103,7 @@ func TestEvidence_PersistAndOpen(t *testing.T) {
 }
 
 // TestEvidence_NullObservationOpens: a complete, empty answer persists its
-// x-null-observation (adr/0061) and the citation opens like any other.
+// reckon-null-observation (adr/0061) and the citation opens like any other.
 func TestEvidence_NullObservationOpens(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in short mode")
@@ -138,7 +138,7 @@ func TestEvidence_NullObservationOpens(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&ev); err != nil {
 		t.Fatal(err)
 	}
-	if ev.Kind != "stix" || ev.Type != "x-null-observation" {
+	if ev.Kind != "stix" || ev.Type != "reckon-null-observation" {
 		t.Errorf("opened %s as kind=%q type=%q", out.ObservedDataRefs[0], ev.Kind, ev.Type)
 	}
 }

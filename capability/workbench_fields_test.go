@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
-	"strings"
 	"testing"
+
+	"github.com/sd-strax/reckon/stix"
 )
 
 // The workbench reads the objects this package writes by field name, in
@@ -19,19 +19,20 @@ const workbenchDir = "../workbench"
 
 // unfilledFields are fields a struct still declares and nothing fills, by
 // the object's STIX type. They are not fields the workbench can be sent.
-var unfilledFields = map[string][]string{
-	"sighting": {"where_sighted_refs"},
-}
+// None today: the detection normalizer fills where_sighted_refs with the
+// vendor (adr/0357).
+var unfilledFields = map[string][]string{}
 
-// jsonFields lists a struct's JSON field names.
-func jsonFields(v any) map[string]bool {
-	out := map[string]bool{}
-	typ := reflect.TypeOf(v)
-	for i := 0; i < typ.NumField(); i++ {
-		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
-		if name != "" && name != "-" {
-			out[name] = true
-		}
+// sentFields lists the top-level properties the store writes for an object:
+// the ones its STIXObject method fills, and the ones the serializer sets on
+// every object (adr/0357).
+func sentFields(o stix.Object) map[string]bool {
+	out := map[string]bool{"type": true, "spec_version": true, "id": true, "extensions": true}
+	if stix.Timestamped(o.Type) {
+		out["created"], out["modified"] = true, true
+	}
+	for k := range o.Properties {
+		out[k] = true
 	}
 	return out
 }
@@ -42,9 +43,9 @@ func jsonFields(v any) map[string]bool {
 // so a workbench test cannot pass on a field the engine never sends.
 func TestWorkbenchSnapshotHoldsOnlyFieldsTheEngineSends(t *testing.T) {
 	sent := map[string]map[string]bool{
-		"indicator":     jsonFields(Indicator{}),
-		"sighting":      jsonFields(Sighting{}),
-		"observed-data": jsonFields(ObservedData{}),
+		"indicator":     sentFields(Indicator{}.STIXObject()),
+		"sighting":      sentFields(Sighting{}.STIXObject()),
+		"observed-data": sentFields(ObservedData{}.STIXObject()),
 	}
 	for typ, names := range unfilledFields {
 		for _, n := range names {
@@ -53,10 +54,6 @@ func TestWorkbenchSnapshotHoldsOnlyFieldsTheEngineSends(t *testing.T) {
 			}
 			delete(sent[typ], n)
 		}
-	}
-	// STIX's own type name, which the stored object carries beside the fields.
-	for _, fields := range sent {
-		fields["type"] = true
 	}
 	// The finding's severity: design/03 §4.12 reads it from the event and no
 	// object carries it yet, so the inspector's Severity row has no source.

@@ -80,7 +80,7 @@ const predictionStatementMax = 140
 // hypothesisStateBlock renders the investigation's hypothesis set as the
 // engine holds it now: every hypothesis with handle, id, status, statement and
 // a prediction tally, then the discriminators still untested — the one fact
-// the decide contract turns on (01 §x-hypothesis: a rival holding an untested
+// the decide contract turns on (01 §reckon-hypothesis: a rival holding an untested
 // discriminator is undecided, so neither it nor the leader can be called).
 // Empty when the investigation has no hypotheses.
 func hypothesisStateBlock(raw json.RawMessage) string {

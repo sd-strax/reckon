@@ -58,6 +58,14 @@ func TestNormalizeDetectionsToFindings(t *testing.T) {
 	if types, _ := f["types"].([]any); !slices.Equal(types, []any{"Credential Access", "OS Credential Dumping"}) {
 		t.Errorf("types = %v, want tactic+technique", f["types"])
 	}
+	// The same tactic and technique as OCSF's ATT&CK object, by name.
+	attacks, _ := f["attacks"].([]any)
+	a, _ := firstMap(attacks)
+	tactic, _ := a["tactic"].(map[string]any)
+	technique, _ := a["technique"].(map[string]any)
+	if len(attacks) != 1 || tactic["name"] != "Credential Access" || technique["name"] != "OS Credential Dumping" {
+		t.Errorf("attacks = %v; want one with the tactic and the technique by name", f["attacks"])
+	}
 	if evs[0].Raw["severity"] != "High" || evs[0].Raw["severity_id"] != 4 {
 		t.Errorf("severity = %v / %v; want High / 4", evs[0].Raw["severity"], evs[0].Raw["severity_id"])
 	}
@@ -90,7 +98,7 @@ func TestNormalizeDetectionsToFindings(t *testing.T) {
 	if evs[0].Raw["severity"] != "Elevated" || evs[0].Raw["severity_id"] != 99 {
 		t.Errorf("severity = %v / %v; want the caption and the id 99", evs[0].Raw["severity"], evs[0].Raw["severity_id"])
 	}
-	if f, _ := evs[0].Raw["finding_info"].(map[string]any); f["types"] != nil || f["title"] != "Falcon detection" {
+	if f, _ := evs[0].Raw["finding_info"].(map[string]any); f["types"] != nil || f["attacks"] != nil || f["title"] != "Falcon detection" {
 		t.Errorf("finding_info = %v", f)
 	}
 	assertOCSF(t, evs)
@@ -132,7 +140,14 @@ func TestEngineReadsTheFinding(t *testing.T) {
 		t.Fatalf("%d indicators, %d sightings; want one of each", len(res.Indicators), len(res.Sightings))
 	}
 	ind := res.Indicators[0]
-	if ind.Name != "Credential theft via LSASS access" || ind.Provenance.Tool != "CrowdStrike" || !slices.Equal(ind.IndicatorTypes, []string{"Credential Access", "OS Credential Dumping"}) {
+	// The tactic and technique names are not STIX indicator types and not
+	// technique ids. They are the indicator's labels. Falcon's record gives
+	// no technique id, so there is no ATT&CK reference (adr/0357). The one
+	// reference is the finding uid under the vendor's name. With no vendor
+	// pattern, the pattern is the finding uid and its type the tool's name.
+	if ind.Name != "Credential theft via LSASS access" || ind.Provenance.Tool != "CrowdStrike" || ind.IndicatorTypes != nil ||
+		!slices.Equal(ind.Labels, []string{"Credential Access", "OS Credential Dumping"}) ||
+		!slices.Equal(ind.ExternalReferences, []capability.ExternalReference{{SourceName: "CrowdStrike", ExternalID: "falcon:abc:ind:123"}}) || ind.Pattern != "falcon:abc:ind:123" || ind.PatternType != "CrowdStrike" {
 		t.Errorf("indicator = %+v", ind)
 	}
 	// Falcon gives no confidence, so none is written: not 0.
@@ -143,8 +158,10 @@ func TestEngineReadsTheFinding(t *testing.T) {
 	if refs := res.ObservedData[0].ObjectRefs; len(res.SCOs) != 1 || len(refs) != 1 || refs[0] != host {
 		t.Errorf("%d objects named, object_refs %v; want the host %s alone", len(res.SCOs), refs, host)
 	}
-	if s := res.Sightings[0]; len(s.WhereSighted) != 0 || len(s.ObservedDataRefs) != 1 || s.ObservedDataRefs[0] != res.ObservedData[0].ID {
-		t.Errorf("sighting where %v, observed-data %v; want the observation alone", s.WhereSighted, s.ObservedDataRefs)
+	// CrowdStrike saw it, so where_sighted_refs is the vendor identity
+	// (adr/0357).
+	if s := res.Sightings[0]; !slices.Equal(s.WhereSighted, []identity.STIXID{ind.CreatedByRef}) || len(s.ObservedDataRefs) != 1 || s.ObservedDataRefs[0] != res.ObservedData[0].ID {
+		t.Errorf("sighting where %v, observed-data %v; want the vendor and the observation", s.WhereSighted, s.ObservedDataRefs)
 	}
 }
 
@@ -176,7 +193,7 @@ func TestEventTimes(t *testing.T) {
 // reads, with the Falcon record under unmapped. The engine's inventory
 // normalizer mints the host from it.
 func TestNormalizeHostsToDeviceInventory(t *testing.T) {
-	text := `{"resources":[{"device_id":"d1","hostname":"WIN-FILE01","platform_name":"Windows"}]}`
+	text := `{"resources":[{"device_id":"d1","hostname":"WIN-FILE01","platform_name":"Windows","last_seen":"2026-04-20T14:32:11Z"}]}`
 	evs, err := normalize("search_hosts", text)
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
@@ -268,5 +285,35 @@ func TestIOCIDsExtraction(t *testing.T) {
 	}
 	if ids := iocIDs(`{"resources":[]}`); len(ids) != 0 {
 		t.Errorf("empty = %v", ids)
+	}
+}
+
+// firstMap is a list's first entry as an object.
+func firstMap(list []any) (map[string]any, bool) {
+	if len(list) == 0 {
+		return nil, false
+	}
+	m, ok := list[0].(map[string]any)
+	return m, ok
+}
+
+// A host record's time is its own: last_seen, else modified_timestamp
+// (adr/0357). The adapter never stamps a record with the time it read it.
+func TestHostTimeIsTheRecordsOwn(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{`{"resources":[{"device_id":"d1","hostname":"H","last_seen":"2026-04-20T14:32:11Z","modified_timestamp":"2026-04-21T00:00:00Z"}]}`, "2026-04-20T14:32:11Z"},
+		{`{"resources":[{"device_id":"d1","hostname":"H","modified_timestamp":"2026-04-21T00:00:00Z"}]}`, "2026-04-21T00:00:00Z"},
+	} {
+		evs, err := normalize("search_hosts", c.in)
+		if err != nil || len(evs) != 1 {
+			t.Fatalf("%s: %v, %d events", c.in, err, len(evs))
+		}
+		got := ""
+		if !evs[0].Time.IsZero() {
+			got = evs[0].Time.UTC().Format(time.RFC3339)
+		}
+		if got != c.want {
+			t.Errorf("%s: time = %q; want %q", c.in, got, c.want)
+		}
 	}
 }

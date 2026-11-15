@@ -38,12 +38,12 @@ func TestMembership_AddRemoveAttach(t *testing.T) {
 	mustHandle(t, h, cmdEnv(aggID), ActivateInvestigation{})
 
 	// AddMember writes exactly one event (no paired interpretation).
-	addRes := mustHandle(t, h, cmdEnv(aggID), AddMember{StixObjectRef: "ipv4-addr--1", Rationale: "C2 beacon dest"})
+	addRes := mustHandle(t, h, cmdEnv(aggID), AddMember{StixObjectRef: "ipv4-addr--ff26c055-6336-5bc5-b98d-13d6226742dd", Rationale: "C2 beacon dest"})
 	if len(addRes.AppliedEvents) != 1 {
 		t.Fatalf("AddMember produced %d events; want 1 (membership is unpaired)", len(addRes.AppliedEvents))
 	}
 
-	mustHandle(t, h, cmdEnv(aggID), RemoveMember{StixObjectRef: "ipv4-addr--1", Reason: "benign on review"})
+	mustHandle(t, h, cmdEnv(aggID), RemoveMember{StixObjectRef: "ipv4-addr--ff26c055-6336-5bc5-b98d-13d6226742dd", Reason: "benign on review"})
 
 	interpID := uuid.New()
 	mustHandle(t, h, cmdEnv(aggID), AttachEvidence{
@@ -90,8 +90,10 @@ func TestMembership_Validation(t *testing.T) {
 	mustHandle(t, h, cmdEnv(aggID), CreateInvestigation{Title: "INV-MV"})
 
 	cases := []Command{
-		AddMember{},    // empty ref
-		RemoveMember{}, // empty ref
+		AddMember{},                              // empty ref
+		RemoveMember{},                           // empty ref
+		AddMember{StixObjectRef: "ipv4-addr--1"}, // not a STIX identifier (adr/0357)
+		RemoveMember{StixObjectRef: "10.0.0.1"},  // not a STIX identifier
 		AttachEvidence{InterpretationRef: uuid.New(), Role: RoleSupports, Weight: WeightStrong},              // empty evidence ref
 		AttachEvidence{EvidenceRef: "e", Role: RoleSupports, Weight: WeightStrong},                           // zero interpretation ref
 		AttachEvidence{EvidenceRef: "e", InterpretationRef: uuid.New(), Role: "maybe", Weight: WeightStrong}, // bad role
@@ -119,13 +121,13 @@ func TestMembership_RejectedWhenConcluded(t *testing.T) {
 	recordVerdictFixture(t, h, aggID)
 	mustHandle(t, h, cmdEnv(aggID), ConcludeInvestigation{ReportRef: "report--c"})
 
-	if _, err := h.Handle(ctx, cmdEnv(aggID), AddMember{StixObjectRef: "url--1"}); err == nil {
+	if _, err := h.Handle(ctx, cmdEnv(aggID), AddMember{StixObjectRef: "url--2568d22a-8998-58eb-99ec-3c8ca74f527d"}); err == nil {
 		t.Error("AddMember on concluded investigation should fail")
 	}
 
 	// After reopen it is allowed again.
 	mustHandle(t, h, cmdEnv(aggID), ReopenInvestigation{})
-	if _, err := h.Handle(ctx, cmdEnv(aggID), AddMember{StixObjectRef: "url--1"}); err != nil {
+	if _, err := h.Handle(ctx, cmdEnv(aggID), AddMember{StixObjectRef: "url--2568d22a-8998-58eb-99ec-3c8ca74f527d"}); err != nil {
 		t.Errorf("AddMember after reopen should succeed: %v", err)
 	}
 }

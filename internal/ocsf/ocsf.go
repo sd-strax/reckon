@@ -65,7 +65,7 @@ func EpochMillis(v any) (time.Time, bool) {
 	var ms int64
 	switch n := v.(type) {
 	case float64:
-		if n != math.Trunc(n) || math.Abs(n) >= 1<<53 {
+		if n != math.Trunc(n) || math.Abs(n) > MaxWholeNumber {
 			return time.Time{}, false
 		}
 		ms = int64(n)
@@ -124,6 +124,44 @@ func RegistryValueName(regValue map[string]any) (string, bool) {
 	return "", false
 }
 
+// MaxWholeNumber is the largest whole number a JSON number holds exactly,
+// the bound OptionalNumber is given for a count such as a pid or a size.
+const MaxWholeNumber = 1<<53 - 1
+
+// OptionalNumber reads an optional whole number that cannot be negative, such
+// as a port, a process id or a size, and reports whether it is present. A
+// value is present only when it parses: a JSON or Go number with no fraction,
+// from 0 to max. An empty string, text, null, a fraction, a negative number
+// or one above max is absent, and a writer leaves it out rather than writing
+// 0. 0 is a real value and is kept (adr/0357). The normalizers and the event
+// view both read through it, so they agree on what is present.
+func OptionalNumber(v any, max int64) (int64, bool) {
+	var n int64
+	switch x := v.(type) {
+	case float64:
+		if x != math.Trunc(x) || x < 0 || x > float64(max) {
+			return 0, false
+		}
+		n = int64(x)
+	case json.Number:
+		i, err := x.Int64()
+		if err != nil {
+			return 0, false
+		}
+		n = i
+	case int:
+		n = int64(x)
+	case int64:
+		n = x
+	default:
+		return 0, false
+	}
+	if n < 0 || n > max {
+		return 0, false
+	}
+	return n, true
+}
+
 // RegistryValueData is the data of an OCSF registry value object as a
 // string, and whether the object gives one (03 §4.6). The normalizer's
 // windows-registry-value-type data and the event view's Data field both come
@@ -171,7 +209,7 @@ func registryText(v any) (string, bool) {
 	case string:
 		return x, true
 	case float64:
-		if !(math.Abs(x) < 1<<53) {
+		if !(math.Abs(x) <= MaxWholeNumber) {
 			return "", false
 		}
 	}
@@ -184,12 +222,12 @@ func registryText(v any) (string, bool) {
 
 // integerText writes a whole number in decimal, or "" when the value is not
 // one that can be written exactly. A float64 is a decoded JSON number: one
-// of 2^53 or more may already be rounded, so it reads as "". This is the
+// above MaxWholeNumber may already be rounded, so it reads as "". This is the
 // rule scalarString in package capability follows for identifiers.
 func integerText(v any) string {
 	switch n := v.(type) {
 	case float64:
-		if n != math.Trunc(n) || math.Abs(n) >= 1<<53 {
+		if n != math.Trunc(n) || !(math.Abs(n) <= MaxWholeNumber) {
 			return ""
 		}
 		return strconv.FormatFloat(n, 'f', -1, 64)

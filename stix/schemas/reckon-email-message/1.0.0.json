@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-email-message/1.0.0.json",
+  "title": "reckon-email-message",
+  "description": "What reckon keeps about an email message that STIX has no property for: its thread id, its envelope recipients, and the recipients that are not addresses.",
+  "type": "object",
+  "properties": {
+    "extension_type": {
+      "const": "property-extension"
+    },
+    "thread_uid": {
+      "type": "string",
+      "description": "The id of the email thread the message is part of, as the source gives it."
+    },
+    "envelope_to_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^email-addr--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "description": "The envelope recipients: the SMTP RCPT TO and Delivered-To addresses."
+    },
+    "unparsed_recipients": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Each recipient the record gives that is still not an email address after cleanup, as text, sorted."
+    }
+  },
+  "required": [
+    "extension_type"
+  ],
+  "additionalProperties": false
+}

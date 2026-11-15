@@ -524,23 +524,23 @@ func TestGetEvidence_OnFakes(t *testing.T) {
 	}
 }
 
-// TestGetEvidence_HostIdentity: an x-host reads with its identity view in the
+// TestGetEvidence_HostIdentity: a reckon-host reads with its identity view in the
 // API's shape (adr/0211); any other object carries none.
 func TestGetEvidence_HostIdentity(t *testing.T) {
 	b := newFakeBackend(t)
 	at := time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
 	store := &fakeEvidence{
-		object: evidence.Object{Ref: "x-host--1", Type: "x-host", Payload: []byte(`{"id":"x-host--1"}`)},
+		object: evidence.Object{Ref: "reckon-host--1", Type: "reckon-host", Payload: []byte(`{"id":"reckon-host--1"}`)},
 		identity: evidence.HostIdentityView{
-			Aliases: []evidence.IdentityEdge{{EdgeID: "relationship--a", OtherRef: "x-host--2", Kind: evidence.IdentityObserved, Source: "edr", At: at}},
-			Distinct: []evidence.IdentityEdge{{EdgeID: "relationship--d", OtherRef: "x-host--3", Kind: evidence.IdentityAsserted,
+			Aliases: []evidence.IdentityEdge{{EdgeID: "relationship--a", OtherRef: "reckon-host--2", Kind: evidence.IdentityObserved, Source: "edr", At: at}},
+			Distinct: []evidence.IdentityEdge{{EdgeID: "relationship--d", OtherRef: "reckon-host--3", Kind: evidence.IdentityAsserted,
 				By: "u-1", ByName: "Ana Analyst", At: at, Note: "two machines", Withdrawn: true}},
 			SeenAs: evidence.SeenAs{Domains: []string{"corp", "corp.example"}, Agents: []evidence.SourceID{{Tool: "edr", UID: "a-7"}}},
 		},
 	}
 	b.cfg.Evidence = store
 
-	code, body := send(t, b, "GET", "/api/evidence/x-host--1", mintToken(t, nil), "")
+	code, body := send(t, b, "GET", "/api/evidence/reckon-host--1", mintToken(t, nil), "")
 	if code != http.StatusOK {
 		t.Fatalf("status %d: %s", code, body)
 	}
@@ -559,7 +559,7 @@ func TestGetEvidence_HostIdentity(t *testing.T) {
 		t.Fatalf("no identity on a host: %s (%v)", body, err)
 	}
 	id := got.Identity
-	if len(id.Aliases) != 1 || id.Aliases[0]["edge_id"] != "relationship--a" || id.Aliases[0]["other_ref"] != "x-host--2" ||
+	if len(id.Aliases) != 1 || id.Aliases[0]["edge_id"] != "relationship--a" || id.Aliases[0]["other_ref"] != "reckon-host--2" ||
 		id.Aliases[0]["kind"] != "observed" || id.Aliases[0]["source"] != "edr" || id.Aliases[0]["withdrawn"] != false {
 		t.Errorf("aliases = %v", id.Aliases)
 	}
@@ -573,15 +573,15 @@ func TestGetEvidence_HostIdentity(t *testing.T) {
 
 	// The identity view failing alone degrades: the host still opens, without it.
 	store.identityErr = errStoreDown
-	code, body = send(t, b, "GET", "/api/evidence/x-host--1", mintToken(t, nil), "")
-	if code != http.StatusOK || strings.Contains(body, `"identity"`) || !strings.Contains(body, `x-host--1`) {
+	code, body = send(t, b, "GET", "/api/evidence/reckon-host--1", mintToken(t, nil), "")
+	if code != http.StatusOK || strings.Contains(body, `"identity"`) || !strings.Contains(body, `reckon-host--1`) {
 		t.Errorf("identity view down: status %d, body %s; want 200 with the object and no identity", code, body)
 	}
 	store.identityErr = nil
 
 	// The object read failing is still an error.
 	store.err = errStoreDown
-	if code, _ := send(t, b, "GET", "/api/evidence/x-host--1", mintToken(t, nil), ""); code != http.StatusInternalServerError {
+	if code, _ := send(t, b, "GET", "/api/evidence/reckon-host--1", mintToken(t, nil), ""); code != http.StatusInternalServerError {
 		t.Errorf("store down: status %d; want 500", code)
 	}
 
@@ -601,15 +601,15 @@ func TestRefAppearances_FollowAliases(t *testing.T) {
 		return sql.NullTime{Time: time.Date(2026, 1, d, 0, 0, 0, 0, time.UTC), Valid: true}
 	}
 	b.cfg.Reads = &fakeReads{appearances: map[string][]aggregate.RefAppearance{
-		"x-host--strong": {{AggregateID: inv1, Title: "one", FirstSeen: day(2), LastSeen: day(3), Mentions: 2}},
-		"x-host--weak": {
+		"reckon-host--strong": {{AggregateID: inv1, Title: "one", FirstSeen: day(2), LastSeen: day(3), Mentions: 2}},
+		"reckon-host--weak": {
 			{AggregateID: inv2, Title: "two", FirstSeen: day(5), LastSeen: day(6), Mentions: 1},
 			{AggregateID: inv1, Title: "one", FirstSeen: day(1), LastSeen: day(4), Mentions: 1},
 		},
 	}}
-	b.cfg.Evidence = &fakeEvidence{aliases: []string{"x-host--strong", "x-host--weak"}}
+	b.cfg.Evidence = &fakeEvidence{aliases: []string{"reckon-host--strong", "reckon-host--weak"}}
 
-	code, body := send(t, b, "GET", "/api/entities/x-host--strong/appearances", mintToken(t, nil), "")
+	code, body := send(t, b, "GET", "/api/entities/reckon-host--strong/appearances", mintToken(t, nil), "")
 	if code != http.StatusOK {
 		t.Fatalf("status %d: %s", code, body)
 	}
@@ -620,7 +620,7 @@ func TestRefAppearances_FollowAliases(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Ref != "x-host--strong" || len(got.Appearances) != 2 {
+	if got.Ref != "reckon-host--strong" || len(got.Appearances) != 2 {
 		t.Fatalf("appearances = %+v", got)
 	}
 	first, second := got.Appearances[0], got.Appearances[1]
@@ -631,14 +631,14 @@ func TestRefAppearances_FollowAliases(t *testing.T) {
 
 	// An evidence store error degrades to the ref alone, never a 500.
 	b.cfg.Evidence = &fakeEvidence{err: errStoreDown}
-	code, body = send(t, b, "GET", "/api/entities/x-host--strong/appearances", mintToken(t, nil), "")
+	code, body = send(t, b, "GET", "/api/entities/reckon-host--strong/appearances", mintToken(t, nil), "")
 	if err := json.Unmarshal([]byte(body), &got); code != http.StatusOK || err != nil || len(got.Appearances) != 1 || got.Appearances[0].Mentions != 2 {
 		t.Errorf("evidence store down: status %d, %+v, %v; want the ref's own appearances", code, got.Appearances, err)
 	}
 
 	// No evidence store: the ref alone, as before.
 	b.cfg.Evidence = nil
-	_, body = send(t, b, "GET", "/api/entities/x-host--strong/appearances", mintToken(t, nil), "")
+	_, body = send(t, b, "GET", "/api/entities/reckon-host--strong/appearances", mintToken(t, nil), "")
 	if err := json.Unmarshal([]byte(body), &got); err != nil || len(got.Appearances) != 1 || got.Appearances[0].Mentions != 2 {
 		t.Errorf("without an evidence store = %+v, %v", got.Appearances, err)
 	}

@@ -45,14 +45,14 @@ func TestDeriveSeedTitle_ClipsByRunes(t *testing.T) {
 func TestResolveSeedInput(t *testing.T) {
 	res := identity.NewResolver(uuid.MustParse("6f1b2c3d-0000-4000-8000-000000000001"))
 
-	// A hostname → entity seed rooted on a minted x-host id, with the human
+	// A hostname → entity seed rooted on a minted reckon-host id, with the human
 	// identifier carried and a "host …" display.
 	host, err := resolveSeedInput(res, "WIN-FILE01", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if host.Seed.Type != aggregate.SeedEntity ||
-		!strings.HasPrefix(host.Seed.EntityRef, "x-host--") ||
+		!strings.HasPrefix(host.Seed.EntityRef, "reckon-host--") ||
 		host.Seed.EntityIdentifier != "WIN-FILE01" ||
 		host.Display != "host WIN-FILE01" {
 		t.Fatalf("host seed = %+v (display %q)", host.Seed, host.Display)
@@ -62,6 +62,18 @@ func TestResolveSeedInput(t *testing.T) {
 	ip, _ := resolveSeedInput(res, "185.220.101.5", "")
 	if !strings.HasPrefix(ip.Seed.EntityRef, "ipv4-addr--") || ip.Display != "IP 185.220.101.5" {
 		t.Errorf("ip seed = %+v (display %q)", ip.Seed, ip.Display)
+	}
+	// A CIDR block is an ip SCO, of its address family, minted from the
+	// stored canonical text, never a host (adr/0357).
+	for in, want := range map[string]identity.STIXID{
+		"10.0.0.0/24":   res.IPv4Addr("10.0.0.0/24"),
+		"10.0.0.5/24":   res.IPv4Addr("10.0.0.0/24"),
+		"2001:DB8::/32": res.IPv6Addr("2001:db8::/32"),
+	} {
+		got, err := resolveSeedInput(res, in, "")
+		if err != nil || got.Seed.EntityRef != string(want) || !strings.HasPrefix(got.Display, "IP ") {
+			t.Errorf("CIDR seed %s = %+v, %v (display %q); want %s", in, got.Seed, err, got.Display, want)
+		}
 	}
 	sha := strings.Repeat("a", 64)
 	hash, _ := resolveSeedInput(res, sha, "")

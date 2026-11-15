@@ -9,7 +9,7 @@ import type { EventRow } from "../../../src/viewTypes";
 // A pinned evidence card (adr/0352): what happened in one line, its parts
 // behind one disclosure, an aliased account pair as one chip.
 const OD = "observed-data--7c1d5e4f-ae6f-4182-cd4e-5f6a7b8c9d04";
-const HOST = "x-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01";
+const HOST = "reckon-host--4f8a2d1e-7b3c-4e5f-9a1b-2c3d4e5f6a01";
 const SID = "user-account--11111111-1111-4111-8111-111111111111";
 const LOGIN = "user-account--22222222-2222-4222-8222-222222222222";
 const EV = "0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8";

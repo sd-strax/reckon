@@ -3,7 +3,7 @@ package capability
 import "github.com/sd-strax/reckon/identity"
 
 // deviceInventoryNormalizer handles OCSF inventory_info (class_uid 5001, Device
-// Inventory Info) → STIX (§4.17): the x-host the inventory names, shaped by the shared host
+// Inventory Info) → STIX (§4.17): the reckon-host the inventory names, shaped by the shared host
 // extractor, under one ObservedData that carries the os, owner and criticality
 // in its extensions. An inventory record naming the hostname beside the
 // source's device id is the record that aliases the source's weak host to the
@@ -17,7 +17,10 @@ func (*deviceInventoryNormalizer) ClassUID() int { return 5001 }
 // ObservedData id carries the version but not the normalizer's name, so a
 // version 1 here would mint the same id and keep the entity-less observation.
 // 3: OCSF classes and fields, adr/0356
-func (*deviceInventoryNormalizer) Version() int { return 3 }
+// 4: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; addresses in
+// canonical text, adr/0357
+func (*deviceInventoryNormalizer) Version() int { return 4 }
 
 func (n *deviceInventoryNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

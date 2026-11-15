@@ -1,8 +1,8 @@
 package aggregate
 
-// The eight x-action lifecycle event types (04 §3.1, 02 §3) — plus the separate
+// The eight reckon-action lifecycle event types (04 §3.1, 02 §3) — plus the separate
 // policy_evaluated audit event at the end of this block, which is NOT a
-// lifecycle transition (it never moves status). The x-action is a
+// lifecycle transition (it never moves status). The reckon-action is a
 // sibling primitive tracked *inside* the investigation aggregate — its status is
 // a projection over these events, never stored state. Each transition is paired
 // with an action-* Interpretation in the same transaction (shared
@@ -44,7 +44,7 @@ const (
 	InterpretationActionReversal  = "action-reversal"
 )
 
-// x-action status values (04 §3.1). The status field is a projection; this is
+// reckon-action status values (04 §3.1). The status field is a projection; this is
 // the state machine the events drive.
 const (
 	ActionStatusRequested        = "REQUESTED"
@@ -61,7 +61,7 @@ const (
 	ActionStatusOutcomeUnknown = "OUTCOME_UNKNOWN"
 )
 
-// Trust tiers (04 §1). T0/T1 don't produce x-actions (they stay in the
+// Trust tiers (04 §1). T0/T1 don't produce reckon-actions (they stay in the
 // interpretation layer); write actions are T2 or T3.
 const (
 	TierT1 = "T1"

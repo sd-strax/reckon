@@ -12,6 +12,7 @@ import (
 
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/module"
+	"github.com/sd-strax/reckon/stix"
 )
 
 // Account and person reads (adr/0324). An account's events are its own and
@@ -152,7 +153,7 @@ func (s *Store) directCutEdges(ctx context.Context, persons []string) ([]CutEdge
 		FROM stix_edges e
 		JOIN stix_objects o ON o.tenant_id = $2 AND o.type = $3
 		  AND o.id = CASE WHEN e.source_ref = ANY($1) THEN e.target_ref ELSE e.source_ref END
-		WHERE e.tenant_id = $2 AND e.relationship_type = '`+relDistinctFrom+`' AND e.payload->>'withdrawn_at' IS NULL
+		WHERE e.tenant_id = $2 AND e.relationship_type = '`+relDistinctFrom+`' AND `+eWithdrawnAtSQL+` IS NULL
 		  AND (e.source_ref = ANY($1) OR e.target_ref = ANY($1))
 		ORDER BY e.created, e.id
 	`, uuidArray(ids), module.SingleTenantUUID, identity.TypeUserAccount)
@@ -265,7 +266,7 @@ func (s *Store) ownedAccounts(ctx context.Context, persons []string) ([]string, 
 		SELECT e.source_ref FROM stix_edges e
 		JOIN stix_objects o ON o.tenant_id = $2 AND o.id = e.source_ref AND o.type = $3
 		WHERE e.tenant_id = $2 AND e.relationship_type = '`+relBelongsTo+`' AND e.target_ref = ANY($1)
-		  AND e.payload->>'withdrawn_at' IS NULL
+		  AND `+eWithdrawnAtSQL+` IS NULL
 		ORDER BY e.created, e.id
 	`, uuidArray(ids), module.SingleTenantUUID, identity.TypeUserAccount)
 	if err != nil {
@@ -555,7 +556,7 @@ func (s *Store) accountKeys(ctx context.Context, refs []string) (accountKeySet, 
 		return k, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT COALESCE(payload->'properties', '{}'::jsonb) FROM stix_objects
+		SELECT payload FROM stix_objects
 		WHERE tenant_id = $3 AND id = ANY($1) AND type = $2
 	`, uuidArray(ids), identity.TypeUserAccount, module.SingleTenantUUID)
 	if err != nil {
@@ -638,12 +639,13 @@ func (s *Store) accountSeenAs(ctx context.Context, refs []string, keys accountKe
 	if len(keys.ids) == 0 && len(keys.cloudIDs) == 0 && len(keys.logins) == 0 {
 		return out, nil
 	}
+	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
 	rows, err := s.db.QueryContext(ctx, `
 		WITH ev AS (
 			SELECT e.source_tool, e.payload FROM ocsf_events e
 			WHERE EXISTS (
 				SELECT 1 FROM observed_data_events ode JOIN stix_objects o ON o.id = ode.observed_data_id AND o.tenant_id = $2
-				WHERE ode.ocsf_event_id = e.id AND o.payload->'object_refs' ?| $1::text[])
+				WHERE ode.ocsf_event_id = e.id AND `+observationNamesAny("o.payload", "$1::text[]")+`)
 		),
 		-- The artifacts of a detection's evidences[] (adr/0356).
 		art AS (
@@ -821,15 +823,16 @@ func (s *Store) FindAccounts(ctx context.Context, token string, limit int) ([]Ac
 	if limit > 0 {
 		bound = limit
 	}
+	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, COALESCE(payload->'properties'->>'account_type', ''), COALESCE(payload->'properties'->>'account_login', ''),
-		       COALESCE(payload->'properties'->>'user_id', '')
+		SELECT id, COALESCE(payload->>'account_type', ''), COALESCE(payload->>'account_login', ''),
+		       COALESCE(payload->>'user_id', '')
 		FROM stix_objects
 		WHERE tenant_id = $1 AND type = $2 AND (
-			lower(payload->'properties'->>'account_login') = $3 OR lower(payload->'properties'->>'principal_name') = $3
-			OR CASE WHEN payload->'properties'->>'account_type' = ANY($6::text[])
+			lower(payload->>'account_login') = $3 OR lower(`+accountPrincipalNameSQL+`) = $3
+			OR CASE WHEN payload->>'account_type' = ANY($6::text[])
 				THEN `+userIDFoldSQL+` = $5
-				ELSE lower(payload->'properties'->>'user_id') = $3 END)
+				ELSE lower(payload->>'user_id') = $3 END)
 		ORDER BY created, id LIMIT $4::bigint
 	`, module.SingleTenantUUID, identity.TypeUserAccount, t, bound, identity.FoldCloudUID(token),
 		textArray([]string{identity.AccountCloud, identity.AccountLDAP}))
@@ -914,21 +917,25 @@ const guidForm = `'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 // userIDFoldSQL and directoryIDFoldSQL are identity.FoldCloudUID in SQL over
 // an account's user_id and a person's directory_id: trimmed, a GUID
 // lowercased, any other value exact.
-const (
-	userIDFoldSQL = `(CASE WHEN btrim(payload->'properties'->>'user_id') ~* ` + guidForm +
-		` THEN lower(btrim(payload->'properties'->>'user_id')) ELSE btrim(payload->'properties'->>'user_id') END)`
-	directoryIDFoldSQL = `(CASE WHEN btrim(payload->'properties'->>'directory_id') ~* ` + guidForm +
-		` THEN lower(btrim(payload->'properties'->>'directory_id')) ELSE btrim(payload->'properties'->>'directory_id') END)`
+var (
+	userIDFoldSQL      = foldSQL("payload->>'user_id'")
+	directoryIDFoldSQL = foldSQL(stix.PersonDirectoryID.SQL("payload"))
 )
+
+// foldSQL is identity.FoldCloudUID in SQL over the text expression v.
+func foldSQL(v string) string {
+	return `(CASE WHEN btrim(` + v + `) ~* ` + guidForm + ` THEN lower(btrim(` + v + `)) ELSE btrim(` + v + `) END)`
+}
 
 // personsNamed reads the persisted persons whose principal name or mail is
 // token, case folded, or whose directory id is token under the fold the
 // person was minted on (identity.FoldCloudUID).
 func (s *Store) personsNamed(ctx context.Context, token string) ([]string, error) {
+	// #nosec G202 -- the joined fragments are fixed JSON paths from the stix package, never input.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id FROM stix_objects
-		WHERE tenant_id = $1 AND type = $2 AND payload->'properties'->>'identity_class' = $4 AND (
-			lower(payload->'properties'->>'principal_name') = $3 OR lower(payload->'properties'->>'mail') = $3
+		WHERE tenant_id = $1 AND type = $2 AND payload->>'identity_class' = $4 AND (
+			lower(`+personPrincipalNameSQL+`) = $3 OR lower(`+personMailSQL+`) = $3
 			OR `+directoryIDFoldSQL+` = $5)
 		ORDER BY created, id
 	`, module.SingleTenantUUID, identity.TypeIdentity, strings.ToLower(strings.TrimSpace(token)), identityClassIndividual, identity.FoldCloudUID(token))
@@ -989,7 +996,7 @@ func (s *Store) ownerCandidates(ctx context.Context, account string) ([]string, 
 		SELECT DISTINCT e.target_ref FROM stix_edges e
 		JOIN stix_objects o ON o.tenant_id = $2 AND o.id = e.target_ref AND o.type = $3
 		WHERE e.tenant_id = $2 AND e.relationship_type = '`+relBelongsTo+`' AND e.source_ref = ANY($1)
-		  AND e.payload->>'withdrawn_at' IS NULL
+		  AND `+eWithdrawnAtSQL+` IS NULL
 	`, uuidArray(ids), module.SingleTenantUUID, identity.TypeIdentity)
 	if err != nil {
 		return nil, fmt.Errorf("query account owners: %w", err)

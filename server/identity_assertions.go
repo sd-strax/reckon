@@ -104,7 +104,7 @@ func (b *Backend) assertIdentity(w http.ResponseWriter, r *http.Request, act ide
 	}
 	ref, typ, ok := evidence.CanonicalEntityRef(r.PathValue("ref"))
 	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "only a host's, an account's or a person's identity can be asserted: the ref must be an x-host, a user-account or an identity")
+		writeJSONError(w, http.StatusBadRequest, "only a host's, an account's or a person's identity can be asserted: the ref must be a reckon-host, a user-account or an identity")
 		return
 	}
 	var body IdentityAssertBody

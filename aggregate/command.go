@@ -202,9 +202,9 @@ type aggregateState struct {
 	TenantID      uuid.UUID                  // tenant stamped at creation; immutable thereafter
 	Status        string                     // current lifecycle status
 	ConclusionRef string                     // set while concluded, cleared on reopen
-	Actions       map[uuid.UUID]actionState  // per-x-action folded state
-	Hypotheses    map[string]hypothesisState // per-x-hypothesis folded state, keyed by STIX id
-	Predictions   map[string]predictionState // per-x-prediction folded state, keyed by STIX id
+	Actions       map[uuid.UUID]actionState  // per-reckon-action folded state
+	Hypotheses    map[string]hypothesisState // per-reckon-hypothesis folded state, keyed by STIX id
+	Predictions   map[string]predictionState // per-reckon-prediction folded state, keyed by STIX id
 
 	// Interpretation bookkeeping for supersession + the pin/verdict folds
 	// (01 §Pinned evidence / §Verdict): every recorded interpretation's type
@@ -457,7 +457,7 @@ func applyCommand(env Envelope, cmd Command, state aggregateState, newID idSourc
 // aiAllowed is the AI_DELEGATED command allowlist (04 §5.6). It admits exactly
 // the T1-annotate tier (04 §1: hypotheses, membership, evidence, lifecycle
 // DRAFT↔ACTIVE↔PAUSED — "the AI agent operates freely here"), RecordInterpretation
-// (the AI is the legal author of x-interpretation — reasoning is annotate-tier,
+// (the AI is the legal author of reckon-interpretation — reasoning is annotate-tier,
 // 03 §1), plus RequestAction (the AI may PROPOSE a T2/T3 action; 08 §2).
 // Everything else — approve / reject / expire, conclude / reopen / archive, and
 // any future command — defaults to denied. Approving, and concluding an

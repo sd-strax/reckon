@@ -143,7 +143,7 @@ func TestOutcomeUnknown_ProjectionAndSweep(t *testing.T) {
 		id := uuid.New()
 		mustHandle(t, h, cmdEnv(aggID), RequestAction{
 			ActionID: id, ActionType: "host.isolate", Tier: TierT2,
-			Targets:   []TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-DC01"}},
+			Targets:   []TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-DC01"}},
 			ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
 		})
 		mustHandle(t, h, cmdEnv(aggID), ApproveAction{ActionID: id, Authorization: Authorization{
@@ -264,7 +264,7 @@ func TestListRecordedOutcomes(t *testing.T) {
 		id := uuid.New()
 		mustHandle(t, h, cmdEnv(agg), RequestAction{
 			ActionID: id, ActionType: "host.isolate", Tier: TierT2,
-			Targets:   []TargetSpec{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-DC01"}},
+			Targets:   []TargetSpec{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-DC01"}},
 			ExpiresAt: time.Now().Add(time.Hour), Rationale: "contain",
 		})
 		mustHandle(t, h, cmdEnv(agg), ApproveAction{ActionID: id, Authorization: Authorization{

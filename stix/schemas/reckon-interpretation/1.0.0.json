@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sd-strax/reckon/main/stix/schemas/reckon-interpretation/1.0.0.json",
+  "title": "reckon-interpretation",
+  "description": "An interpretation: one recorded reasoning act, with who made it and what it reasoned over. The STIX common properties come from the STIX 2.1 core schema, so this schema lists only the ones it constrains.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "reckon-interpretation"
+    },
+    "spec_version": {
+      "const": "2.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^reckon-interpretation--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "modified": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "actor": {
+      "type": "object",
+      "description": "Who made the act: the responsible person, and the AI delegate if one performed it."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the act was made."
+    },
+    "interpretation_type": {
+      "type": "string",
+      "description": "The kind of act, from the interpretation type list in the domain model."
+    },
+    "derivation_mode": {
+      "type": "string",
+      "enum": [
+        "DIRECT",
+        "INFERRED"
+      ],
+      "description": "Whether the act traces to a direct observation or to an inference."
+    },
+    "input_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The objects the act reasoned over."
+    },
+    "output_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The objects the act produced."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "A short reason for the act."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ],
+      "description": "How sure the act is."
+    },
+    "transcript_ref": {
+      "type": "object",
+      "description": "Where the conversation behind the act is kept."
+    },
+    "tool_call_refs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "The tool calls behind the act."
+    },
+    "consulted_sops": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "The procedures retrieval showed for the act, and whether it cited them."
+    },
+    "consulted_similar_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "The past cases retrieval showed for the act, and whether it cited them."
+    }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id",
+    "created",
+    "modified",
+    "interpretation_type"
+  ]
+}

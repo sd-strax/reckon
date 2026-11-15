@@ -3,7 +3,7 @@
 -- THE dependency PACKAGE; it lives in this migration set because
 -- aggregate/migrations is the reckon_main schema set. CRUD + thin history like
 -- comms_threads (only the investigation aggregate is event-sourced): a
--- dependency is not an x-action (nothing executes) and not a message (the
+-- dependency is not a reckon-action (nothing executes) and not a message (the
 -- channel owns the conversation); it keeps the ask, its status, who resolved
 -- it and why, and a pointer out.
 CREATE TABLE IF NOT EXISTS dependencies (

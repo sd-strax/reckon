@@ -29,7 +29,7 @@ type RequestActionBody struct {
 	RetryOf string `json:"retry_of,omitempty"`
 }
 
-// RequestActionResponse reports the created x-action and how authorization
+// RequestActionResponse reports the created reckon-action and how authorization
 // resolved.
 type RequestActionResponse struct {
 	ActionID         string `json:"action_id"`
@@ -127,7 +127,7 @@ type ActionView struct {
 }
 
 // listInvestigationActions serves GET /api/investigations/{id}/actions: every
-// x-action of the investigation, oldest first. This is how a surface recovers
+// reckon-action of the investigation, oldest first. This is how a surface recovers
 // the pending-approval queue after the turn that proposed an action is gone —
 // the request-time response is a one-shot; this list is the durable view.
 func (b *Backend) listInvestigationActions(w http.ResponseWriter, r *http.Request, invID uuid.UUID) {
@@ -161,7 +161,7 @@ type EditableInput struct {
 	Required bool   `json:"required,omitempty"`
 }
 
-// actionView maps one projected x-action to the list/record view: the frozen
+// actionView maps one projected reckon-action to the list/record view: the frozen
 // request facts plus the two derived facts (tier escalation against the
 // catalog's default, the pre-approval planned adapter).
 func (b *Backend) actionView(a aggregate.ActionCurrent) ActionView {
@@ -260,7 +260,7 @@ func (b *Backend) listActionTypes(w http.ResponseWriter, _ *http.Request) {
 }
 
 // requestAction handles POST /api/actions: the agent-facing request_action tool
-// (08 §2). It builds the x-action, runs Gate 2 (04 §4), records the request +
+// (08 §2). It builds the reckon-action, runs Gate 2 (04 §4), records the request +
 // policy evaluation in one transaction, and — on auto-approval — approves and
 // triggers the ActionLifecycle workflow. Requires the analyst role (the AI
 // proposes on an analyst's behalf; the AI is never a principal).
@@ -283,7 +283,7 @@ func (b *Backend) requestAction(w http.ResponseWriter, r *http.Request) {
 }
 
 // dispatchActionRequest is the shared request path (fresh request_action and
-// re-request of an expired action both flow through it): build the x-action,
+// re-request of an expired action both flow through it): build the reckon-action,
 // run Gate 2, record, and on auto-approval dispatch. body carries the frozen
 // request fields; the caller has already resolved the actor.
 func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, actor aggregate.Actor, subject string, body RequestActionBody) {
@@ -334,7 +334,7 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 		originalTier = orig.Tier
 	}
 
-	// Build the x-action command (validates against the catalog, applies the
+	// Build the reckon-action command (validates against the catalog, applies the
 	// blast-radius escalator).
 	var retryOf uuid.UUID
 	if body.RetryOf != "" {

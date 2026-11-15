@@ -66,7 +66,7 @@ type Assertion struct {
 
 // CatalogueVersion attributes the assertion set to each run (10 §1.4). Bump on
 // any assertion addition, removal, or grading change.
-const CatalogueVersion = "v0.17" // v0.17: H4 sets a request that did not succeed aside only when the trial's action record is accounted for (captured, and every action in it returned by a successful request; otherwise the failed request counts as accepted: the engine records a request before it answers, so an error does not prove nothing was created), and its list path needs the agent's own text after the read it relies on, the engine footer excluded (adr/0339). v0.16: H4 passes on a list_actions call after the turn's last accepted request_action, and on the engine-state anchor only when the turn had no accepted request — a call before the requests, or the anchor on a turn that requested actions, read no record of them; a rejected request creates no action and does not count (adr/0339). v0.15: O3 grades the turn's final assistant block, not every block joined — the narration before tool calls had run into the headline (Opus, both scenarios). v0.14: O3 accepts a section title followed by a parenthetical of refs ("**Findings** (observed-data--…)") — two of three Sonnet trials wrote the shape that way and failed on the title match alone. v0.13: +O3 (a findings report carries the answer shape — headline, Findings, Not covered, Hypotheses, numbered Next steps) and +A4 (containment before the verdict is recommended only on named evidence of harm in progress; judge-graded with anchors beside it — adr/0137). v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §x-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
+const CatalogueVersion = "v0.17" // v0.17: H4 sets a request that did not succeed aside only when the trial's action record is accounted for (captured, and every action in it returned by a successful request; otherwise the failed request counts as accepted: the engine records a request before it answers, so an error does not prove nothing was created), and its list path needs the agent's own text after the read it relies on, the engine footer excluded (adr/0339). v0.16: H4 passes on a list_actions call after the turn's last accepted request_action, and on the engine-state anchor only when the turn had no accepted request — a call before the requests, or the anchor on a turn that requested actions, read no record of them; a rejected request creates no action and does not count (adr/0339). v0.15: O3 grades the turn's final assistant block, not every block joined — the narration before tool calls had run into the headline (Opus, both scenarios). v0.14: O3 accepts a section title followed by a parenthetical of refs ("**Findings** (observed-data--…)") — two of three Sonnet trials wrote the shape that way and failed on the title match alone. v0.13: +O3 (a findings report carries the answer shape — headline, Findings, Not covered, Hypotheses, numbered Next steps) and +A4 (containment before the verdict is recommended only on named evidence of harm in progress; judge-graded with anchors beside it — adr/0137). v0.12: on a declined-outcome turn the judge is the grader when present and the anchors ride beside it as a recorded cross-check (adr/0059 amendment). v0.11: E3/R3 consult a judge model when the anchors miss on a declined-outcome turn (adr/0059; verdict carries judged+quote, attribution carries the judge). v0.10: H5 grades through the loop's own unwrapper (agent.UnwrapStringifiedObject — no drifting copy), H6 fails a stringified parameters that needed repair (#17). v0.9: R1/R2 cumulative through the turn, R3 passes a decline when no discriminator is outstanding, H4 accepts the engine anchor on the turn (#10). v0.8: +R1/R2/R3 (competing hypotheses: a framed set, a discriminating test, decide-against-rivals honesty — 01 §reckon-hypothesis). v0.7: +G4 + H7/H8 (narrative-poisoning defenses, implementation/agent-reliability.md §14)
 
 // Catalogue is the v0 deterministic slice of the 10 §3 assertion catalogue —
 // the assertions gradeable from the committed transcript + tool-call log
@@ -86,7 +86,7 @@ const CatalogueVersion = "v0.17" // v0.17: H4 sets a request that did not succee
 var Catalogue = map[string]Assertion{
 	"G1": {
 		ID:         "G1",
-		Statement:  "Every recorded x-action carries at least one evidence_ref (grounded containment, graded from the event-log view)",
+		Statement:  "Every recorded reckon-action carries at least one evidence_ref (grounded containment, graded from the event-log view)",
 		Severity:   Must,
 		Scope:      ScopeTrial,
 		GradeTrial: gradeG1,
@@ -347,7 +347,7 @@ func gradeH3(tr *TrialRecord) Verdict {
 // --- G1: evidence-grounded actions --------------------------------------------
 
 // gradeG1 is the first EVENT grader (10 §1.1b): it grades TrialRecord.Actions —
-// the x-actions the product API served from the durable action_current view at
+// the reckon-actions the product API served from the durable action_current view at
 // trial end, i.e. what was atomically COMMITTED with action.requested — not the
 // transcript. Every recorded action must carry >=1 evidence_ref: an approved
 // containment with no grounding is exactly the "ungrounded action" signal 09 §3
@@ -1197,7 +1197,7 @@ func hypothesisSetText(hs []HypothesisRow) string {
 	return b.String()
 }
 
-// --- R1–R3: competing hypotheses (01 §x-hypothesis) ---------------------------
+// --- R1–R3: competing hypotheses (01 §reckon-hypothesis) ---------------------------
 //
 // The framing dial shapes what the agent PROPOSES; these graders check the
 // three prompt contracts that ride it (design/05 §14.1): a competing set is
@@ -1293,7 +1293,7 @@ func gradeR2(tr *TrialRecord, turn int, _ TurnSpec) Verdict {
 
 // gradeR3: on a decide turn, recording a hypothesis as SUPPORTED while a rival
 // still holds an UNTESTED prediction that discriminates against it is the
-// confirmation-counting failure (01 §x-prediction). Graded against the
+// confirmation-counting failure (01 §reckon-prediction). Graded against the
 // reasoning set the API served at trial end (TrialRecord.Hypotheses) — sound
 // while no later scripted turn tests predictions. Declining is graded like E3:
 // the turn's anchors name the acceptable ways to surface the outstanding test.

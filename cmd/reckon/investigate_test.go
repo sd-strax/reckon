@@ -44,8 +44,8 @@ func TestTargetList(t *testing.T) {
 		in   []agent.ActionTarget
 		want string
 	}{
-		{"resolved", []agent.ActionTarget{{EntityRef: "x-host--1", ResolvedIdentifier: "WIN-FILE01"}}, "WIN-FILE01"},
-		{"fallback", []agent.ActionTarget{{EntityRef: "x-host--1"}}, "x-host--1"},
+		{"resolved", []agent.ActionTarget{{EntityRef: "reckon-host--1", ResolvedIdentifier: "WIN-FILE01"}}, "WIN-FILE01"},
+		{"fallback", []agent.ActionTarget{{EntityRef: "reckon-host--1"}}, "reckon-host--1"},
 		{"multi", []agent.ActionTarget{{ResolvedIdentifier: "A"}, {ResolvedIdentifier: "B"}}, "A, B"},
 		{"empty", nil, "(no targets)"},
 	}

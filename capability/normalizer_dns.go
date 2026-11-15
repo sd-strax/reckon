@@ -12,7 +12,12 @@ import (
 type dnsNormalizer struct{ r *identity.Resolver }
 
 func (*dnsNormalizer) ClassUID() int { return 4003 }
-func (*dnsNormalizer) Version() int  { return 2 } // 2: host identity, adr/0211
+
+// 2: host identity, adr/0211
+// 3: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; addresses in
+// canonical text and domains STIX can hold, adr/0357
+func (*dnsNormalizer) Version() int { return 3 }
 
 func (n *dnsNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

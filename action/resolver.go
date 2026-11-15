@@ -37,7 +37,7 @@ type ActionBinding struct {
 	Scope string `yaml:"-" json:"scope"`
 }
 
-// DispatchRequest is what the resolver dispatches: the frozen x-action content.
+// DispatchRequest is what the resolver dispatches: the frozen reckon-action content.
 // Resolution of the targets happened at request time (04 §8.1); the adapter
 // consumes resolved_identifier and never re-resolves.
 type DispatchRequest struct {

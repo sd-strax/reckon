@@ -197,7 +197,7 @@ func TestRequestAction_ModelCannotDeclareCriticality(t *testing.T) {
 	f := newFakeBackend(t)
 	s := newToolSession(t, f)
 	input := `{"action_type":"host.isolate","rationale":"r","evidence_refs":["e"],
-		"targets":[{"entity_ref":"x-host--1","resolved_identifier":"H","asset_criticality":"low"}]}`
+		"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H","asset_criticality":"low"}]}`
 	if res, isErr := s.dispatchTool(context.Background(), ToolRequestAction, json.RawMessage(input)); isErr {
 		t.Fatalf("refused: %s", res.Content)
 	}

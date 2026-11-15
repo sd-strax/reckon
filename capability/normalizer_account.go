@@ -16,7 +16,7 @@ const (
 // account_change (3001), user_access (3005) and group_management (3006). It is
 // registered once per class and reads only that class's fields. Every class
 // gives the target user, the initiator and the host. group_management can
-// name several targets (targets), and also gives the x-group and a
+// name several targets (targets), and also gives the reckon-group and a
 // member-of-group relationship from each target. The activity, and the
 // privileges of the two classes that carry them, ride on the ObservedData.
 type accountNormalizer struct {
@@ -29,7 +29,9 @@ func (n *accountNormalizer) ClassUID() int { return n.class }
 // 2: host identity, adr/0211; 3: account identity, adr/0324
 // 4: OCSF classes and fields, adr/0356
 // 5: OCSF read gaps, adr/0359
-func (*accountNormalizer) Version() int { return 5 }
+// 6: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error, adr/0357
+func (*accountNormalizer) Version() int { return 6 }
 
 // name is the OCSF name of the class this instance is registered for.
 func (n *accountNormalizer) name() string {

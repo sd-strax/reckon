@@ -12,7 +12,10 @@ func (*fileActivityNormalizer) ClassUID() int { return 1001 }
 // 2: host identity, adr/0211; 3: account identity, adr/0324
 // 4: OCSF classes and fields, adr/0356
 // 5: OCSF read gaps, adr/0359
-func (*fileActivityNormalizer) Version() int { return 5 }
+// 6: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; file hashes,
+// names and sizes STIX can hold, adr/0357
+func (*fileActivityNormalizer) Version() int { return 6 }
 
 func (n *fileActivityNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

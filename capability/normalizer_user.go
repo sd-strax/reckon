@@ -269,7 +269,7 @@ func (b *resultBuilder) userAccount(prefix, device string, host identity.STIXID)
 
 // userAccountAt extracts the user-account an OCSF user object names, shaped
 // per adr/0324 (03 §7.2, §7.4). device is the device object the account acted
-// on and host the x-host the normalizer minted from it ("" for none): a
+// on and host the reckon-host the normalizer minted from it ("" for none): a
 // host-scoped account (windows-local, unix, local) is keyed under it, and the
 // device's OS is one of the signals the type is read from (accountType).
 //

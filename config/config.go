@@ -111,7 +111,7 @@ type Trust struct {
 // every setting.
 type Reasoning struct {
 	// HypothesisFraming is the competing-hypotheses dial (01-domain-model.md
-	// §x-hypothesis, "Competing hypotheses"):
+	// §reckon-hypothesis, "Competing hypotheses"):
 	//   "leading_null" (default) — the delegate frames a leading hypothesis PLUS
 	//            exactly one concrete alternative (benign / different-actor),
 	//            a third only when the evidence genuinely supports it, and
@@ -126,7 +126,7 @@ type Reasoning struct {
 	HypothesisFraming string `yaml:"hypothesis_framing"`
 }
 
-// Hypothesis-framing shapes (01 §x-hypothesis).
+// Hypothesis-framing shapes (01 §reckon-hypothesis).
 const (
 	HypothesisFramingLeadingNull = "leading_null"
 	HypothesisFramingLeadingOnly = "leading_only"

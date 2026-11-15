@@ -56,6 +56,11 @@ func (b *Backend) resolveCaseSeed(r *http.Request, caseID, sourceScope string) (
 	default: // UNAVAILABLE_TRANSIENT / PARTIAL — the SoR could not be fully read
 		return seedResolution{}, http.StatusBadGateway, fmt.Errorf("case system of record unavailable reading %q (%s)", caseID, res.Coverage)
 	}
+	if _, why, all := res.UnreadRecords(); all {
+		// The SoR answered with a record that could not be normalized: not a
+		// missing case, so not a 404.
+		return seedResolution{}, http.StatusBadGateway, unreadCaseError(caseID, why)
+	}
 	if len(res.ObservedDataRefs) == 0 {
 		// COMPLETE with no case = the SoR answered "no such case" — a typo, not a
 		// transient fault. 404, never a silent phantom-rooted investigation (§2).
@@ -120,4 +125,10 @@ func caseTitle(res capability.CapabilityResult) string {
 		}
 	}
 	return ""
+}
+
+// unreadCaseError is the answer for a case the system of record returned but
+// reckon could not read: never "no such case" (adr/0357).
+func unreadCaseError(caseID string, why []string) error {
+	return fmt.Errorf("the system of record answered for case %q, but its record could not be read (%s)", caseID, strings.Join(why, "; "))
 }

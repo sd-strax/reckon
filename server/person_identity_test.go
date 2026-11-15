@@ -27,7 +27,7 @@ func accountBackend(t *testing.T) (b *Backend, store *fakeEvidence, acct, other,
 		objects: map[string]evidence.Object{
 			acct:   {Ref: acct, Type: identity.TypeUserAccount},
 			other:  {Ref: other, Type: identity.TypeUserAccount},
-			person: {Ref: person, Type: identity.TypeIdentity, Payload: []byte(`{"properties":{"identity_class":"individual"}}`)},
+			person: {Ref: person, Type: identity.TypeIdentity, Payload: []byte(`{"identity_class":"individual"}`)},
 		},
 		accountIdentity: evidence.AccountIdentityView{
 			Owners: []evidence.Owner{{IdentityEdge: evidence.IdentityEdge{EdgeID: "relationship--o", Kind: evidence.IdentityObserved, Source: "idp"}, PersonRef: person, AccountRef: acct}},
@@ -59,7 +59,7 @@ func TestEvidence_AccountAndPersonIdentity(t *testing.T) {
 		t.Fatalf("person read: %d %s", code, body)
 	}
 	vendor := "identity--" + uuid.NewString()
-	store.objects[vendor] = evidence.Object{Ref: vendor, Type: identity.TypeIdentity, Payload: []byte(`{"properties":{"name":"a vendor"}}`)}
+	store.objects[vendor] = evidence.Object{Ref: vendor, Type: identity.TypeIdentity, Payload: []byte(`{"name":"a vendor"}`)}
 	if _, body := send(t, b, "GET", "/api/evidence/"+vendor, mintToken(t, nil), ""); strings.Contains(body, "identity\":{") || strings.Contains(body, "person_identity") {
 		t.Errorf("a vendor identity carries an identity view: %s", body)
 	}
@@ -113,7 +113,7 @@ func TestAssertIdentity_AccountsAndPersons(t *testing.T) {
 			t.Errorf("split %s from %s: %d %s, acts %+v", tc.from, tc.to, code, body, store.acts)
 		}
 	}
-	host := "x-host--" + uuid.NewString()
+	host := "reckon-host--" + uuid.NewString()
 	store.acts = nil
 	for _, tc := range []struct{ name, path, body string }{
 		{"account to host", "/api/entities/" + acct + "/aliases", `{"other_ref":"` + host + `"}`},
@@ -364,7 +364,7 @@ func TestAssertIdentity_OtherHint(t *testing.T) {
 	if code != http.StatusConflict || json.Unmarshal([]byte(body), &persons) != nil || len(persons.Persons) != 2 || len(store.acts) != 0 {
 		t.Errorf("ambiguous person hint: %d %s", code, body)
 	}
-	host := "x-host--" + uuid.NewString()
+	host := "reckon-host--" + uuid.NewString()
 	for _, tc := range []struct {
 		name, path, body string
 		want             int
@@ -498,7 +498,7 @@ func TestCreateInvestigation_AccountRef(t *testing.T) {
 	b, store, acct, _, _ := accountBackend(t)
 	cmds := &fakeCommands{}
 	b.cfg.Handler = cmds
-	store.objects[acct] = evidence.Object{Ref: acct, Type: identity.TypeUserAccount, Payload: []byte(`{"properties":{"account_login":"root","account_type":"unix"}}`)}
+	store.objects[acct] = evidence.Object{Ref: acct, Type: identity.TypeUserAccount, Payload: []byte(`{"account_login":"root","account_type":"unix"}`)}
 	code, body := send(t, b, "POST", "/api/investigations", mintToken(t, nil),
 		`{"seed_input":{"value":"root","kind":"entity","entity_kind":"person","account_ref":"`+strings.ToUpper(acct[:12])+acct[12:]+`"}}`)
 	if code != http.StatusCreated {
@@ -513,7 +513,7 @@ func TestCreateInvestigation_AccountRef(t *testing.T) {
 		want int
 	}{
 		{`{"seed_input":{"value":"root","kind":"entity","account_ref":"user-account--` + uuid.NewString() + `"}}`, http.StatusNotFound},
-		{`{"seed_input":{"value":"root","kind":"entity","account_ref":"x-host--` + uuid.NewString() + `"}}`, http.StatusBadRequest},
+		{`{"seed_input":{"value":"root","kind":"entity","account_ref":"reckon-host--` + uuid.NewString() + `"}}`, http.StatusBadRequest},
 		{`{"seed_input":{"value":"who is root?","kind":"question","account_ref":"` + acct + `"}}`, http.StatusBadRequest},
 	} {
 		if code, body := send(t, b, "POST", "/api/investigations", mintToken(t, nil), tc.body); code != tc.want {
@@ -523,11 +523,11 @@ func TestCreateInvestigation_AccountRef(t *testing.T) {
 	// The record is read by uuid: a host's uuid under an account prefix names
 	// no account, and is answered as an unknown ref is.
 	store.objectsByUUID = true
-	host := "x-host--" + uuid.NewString()
+	host := "reckon-host--" + uuid.NewString()
 	store.objects[host] = evidence.Object{Ref: host, Type: identity.TypeHost}
 	cmds.cmd = nil
 	code, body = send(t, b, "POST", "/api/investigations", mintToken(t, nil),
-		`{"seed_input":{"value":"root","kind":"entity","account_ref":"user-account--`+strings.TrimPrefix(host, "x-host--")+`"}}`)
+		`{"seed_input":{"value":"root","kind":"entity","account_ref":"user-account--`+strings.TrimPrefix(host, "reckon-host--")+`"}}`)
 	if code != http.StatusNotFound || !strings.Contains(body, "no account known by that ref") || cmds.cmd != nil {
 		t.Errorf("a host's uuid as an account: %d %s, command %+v; want 404 and no command", code, body, cmds.cmd)
 	}

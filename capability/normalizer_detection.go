@@ -1,6 +1,10 @@
 package capability
 
 import (
+	"regexp"
+	"slices"
+	"strings"
+
 	"github.com/sd-strax/reckon/identity"
 	"github.com/sd-strax/reckon/internal/ocsf"
 )
@@ -17,10 +21,13 @@ import (
 //     the registry (adr/0356);
 //   - reads the finding's own cloud and resources[] by the API-activity rules
 //     (§4.15), so a cloud alert and the API calls about one resource meet on
-//     the same x-cloud-account and x-cloud-resource (adr/0356);
+//     the same reckon-cloud-account and reckon-cloud-resource (adr/0356);
 //   - emits an Indicator and a Sighting with derivation_mode = INFERRED,
-//     attributed to a per-tenant vendor Identity via created_by_ref;
-//   - does NOT wrap them in an x-interpretation (capability §1 / persistence
+//     attributed to a per-tenant vendor Identity via created_by_ref. The
+//     vendor is also where the indicator was sighted. The ATT&CK techniques
+//     the finding names are the indicator's external_references, and its
+//     other types are indicator_types or labels (adr/0357);
+//   - does NOT wrap them in a reckon-interpretation (capability §1 / persistence
 //     §2.1 forbid it — the agent loop does that on engagement).
 type detectionNormalizer struct{ r *identity.Resolver }
 
@@ -31,10 +38,30 @@ func (*detectionNormalizer) ClassUID() int { return 2004 }
 // 5: a cloud finding's account, resources and cloud principal, adr/0356
 // 6: the finding's own host, and an unknown confidence left out, adr/0356
 // 7: OCSF read gaps, adr/0359
-func (*detectionNormalizer) Version() int { return 7 }
+// 8: STIX 2.1 output through the one serializer, an artifact for a record
+// naming nothing, and a broken record is a normalize error; the vendor in
+// where_sighted_refs, ATT&CK ids in external_references, other types as
+// labels, a pattern always, the indicator id from its vendor, pattern, type
+// and uid, the sighting id from its time and observations, adr/0357
+func (*detectionNormalizer) Version() int { return 8 }
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
+
+	// OCSF has no field for a detection's pattern, so a vendor's pattern is
+	// its own field, unmapped.pattern. STIX requires a pattern. Without the
+	// vendor's, the pattern is the finding's rule reference: its uid, or
+	// else its title. OCSF requires the uid at every version, and the title
+	// from 1.1.0 to 1.3.0 (recommended from 1.4.0). So a finding with
+	// neither, and no pattern, is a broken record (adr/0357).
+	// Each is trimmed first, so a value of white space alone is absent
+	// everywhere: in this check, in the pattern and in the id (adr/0357).
+	uid := strings.TrimSpace(pathStr(p, "finding_info.uid"))
+	title := strings.TrimSpace(pathStr(p, "finding_info.title"))
+	vendorPattern := strings.TrimSpace(pathStr(p, "unmapped.pattern"))
+	if vendorPattern == "" && uid == "" && title == "" {
+		return NormalizationResult{}, ErrNoRuleReference
+	}
 
 	// 1. The evidence: DIRECT entities under the detection event's own
 	// ObservedData. §4.12 requires an ObservedData preserving the raw "this
@@ -79,43 +106,52 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 		ObservedAt:        evt.Time,
 	}
 
-	// 3. Indicator — the vendor's claim. OCSF has no field for a detection's
-	// pattern, so a vendor's pattern is its own field, unmapped.pattern.
-	// Without one the Indicator carries no pattern.
-	uid := pathStr(p, "finding_info.uid")
-	title := pathStr(p, "finding_info.title")
-	pattern := pathStr(p, "unmapped.pattern")
+	// 3. Indicator — the vendor's claim. When the pattern is the rule
+	// reference, the pattern type is the tool's name. The finding uid is
+	// stored as an external reference under the vendor's name, where STIX
+	// puts a source's own id for an object. The id is minted from what the
+	// indicator stores: the vendor, the pattern, the pattern_type and that
+	// uid (adr/0357).
 	conf := detectionConfidence(p)
 	var types []string
 	if v, ok := lookupPath(p, "finding_info.types"); ok {
 		types = stringSlice(v)
 	}
 
-	indID := n.r.Indicator(uid, pattern)
-	patternType := "vendor"
+	pattern, patternType := vendorPattern, "vendor"
 	if pattern == "" {
-		patternType = ""
+		pattern, patternType = firstNonEmpty(uid, title), vendor
 	}
+	refs := attackReferences(p, types)
+	if uid != "" {
+		refs = append(refs, ExternalReference{SourceName: vendor, ExternalID: uid})
+	}
+	indID := n.r.Indicator(vendorID, pattern, patternType, uid)
 	result.Indicators = append(result.Indicators, Indicator{
-		ID:             indID,
-		Name:           title,
-		Pattern:        pattern,
-		PatternType:    patternType,
-		IndicatorTypes: types,
-		ValidFrom:      evt.Time,
-		Confidence:     conf,
-		CreatedByRef:   vendorID,
-		Provenance:     prov,
+		ID:                 indID,
+		Name:               title,
+		Pattern:            pattern,
+		PatternType:        patternType,
+		IndicatorTypes:     indicatorTypes(types),
+		Labels:             findingLabels(types),
+		ExternalReferences: refs,
+		ValidFrom:          evt.Time,
+		Confidence:         conf,
+		CreatedByRef:       vendorID,
+		Provenance:         prov,
 	})
 
-	// 4. Sighting — the indicator seen in the observation above.
+	// 4. Sighting — the indicator seen in the observation above, by the
+	// vendor. STIX's where_sighted_refs names who saw it (adr/0357).
 	result.Sightings = append(result.Sightings, Sighting{
-		ID:               n.r.Sighting(indID, evt.Time, vendor),
+		ID:               n.r.Sighting(indID, evt.Time, vendor, odRefs),
 		SightingOfRef:    indID,
 		ObservedDataRefs: odRefs,
+		WhereSighted:     []identity.STIXID{vendorID},
 		Confidence:       conf,
 		Description:      title,
 		CreatedByRef:     vendorID,
+		SeenAt:           evt.Time,
 		Provenance:       prov,
 	})
 
@@ -134,11 +170,11 @@ func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, err
 //   - a domain from query
 //   - a URL from url
 //
-// At OCSF 1.1.0 an artifact has no device, user or url. They are read when
-// present (03 §4.16).
+// At OCSF 1.1.0 and 1.2.0 an artifact has no device, user or url. They are
+// read when present (03 §4.16).
 //
 // provider is the cloud provider the finding names, "" for none, and account
-// the x-cloud-account the finding is about. With a provider, actor.user is
+// the reckon-cloud-account the finding is about. With a provider, actor.user is
 // that provider's cloud principal (§4.15) only when the event says it is one
 // (isCloudPrincipal, adr/0359). The alert then names the same user-account
 // the provider's API calls do (adr/0356). Otherwise actor.user is a login on
@@ -175,6 +211,81 @@ func (b *resultBuilder) evidence(artifact map[string]any, provider string, accou
 	b.userAccountAt(at{obj: artifact, path: "user"}, device, host)
 	b.addDomain(pathStr(artifact, "query.hostname"))
 	b.url(pathStr(artifact, "url.url_string"))
+}
+
+// indicatorTypeOV is STIX 2.1's indicator-type-ov (§10.13).
+var indicatorTypeOV = []string{
+	"anomalous-activity", "anonymization", "benign", "compromised",
+	"malicious-activity", "attribution", "unknown",
+}
+
+// indicatorTypes keeps the finding types that are values of STIX's
+// indicator-type-ov, in their vocabulary form. A technique id, or any other
+// label, is not an indicator type and is dropped (adr/0357).
+func indicatorTypes(types []string) []string {
+	var out []string
+	for _, t := range types {
+		t = strings.ToLower(strings.TrimSpace(t))
+		if slices.Contains(indicatorTypeOV, t) && !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// findingLabels keeps the finding types that are neither technique ids nor
+// indicator types, such as a vendor's tag or tactic name, as the indicator's
+// STIX labels: terms that describe it (adr/0357). Each is kept once, in
+// reading order.
+func findingLabels(types []string) []string {
+	var out []string
+	for _, t := range types {
+		t = strings.TrimSpace(t)
+		if t == "" || slices.Contains(out, t) || techniqueID.MatchString(strings.ToUpper(t)) ||
+			slices.Contains(indicatorTypeOV, strings.ToLower(t)) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// techniqueID matches an ATT&CK technique or sub-technique id, such as T1059
+// or T1059.001.
+var techniqueID = regexp.MustCompile(`^T\d{4}(\.\d{3})?$`)
+
+// attackReferences reads the ATT&CK techniques a finding names, as STIX
+// external references under mitre-attack (adr/0357). They come from two
+// places, in this order:
+//
+//   - the values of finding_info.types[] that are technique ids
+//   - OCSF's ATT&CK objects, attacks[] on the finding and on finding_info,
+//     each with its technique.uid and sub_technique.uid
+//
+// Both lists of ATT&CK objects exist from 1.1.0 to 1.9.0. An id seen twice is
+// kept once, at its first place. Ids that are not ATT&CK technique ids, such
+// as ATLAS ids, are left out.
+func attackReferences(p map[string]any, types []string) []ExternalReference {
+	var out []ExternalReference
+	seen := map[string]bool{}
+	add := func(v string) {
+		v = strings.ToUpper(strings.TrimSpace(v))
+		if !techniqueID.MatchString(v) || seen[v] {
+			return
+		}
+		seen[v] = true
+		out = append(out, ExternalReference{SourceName: SourceMITREATTACK, ExternalID: v})
+	}
+	for _, t := range types {
+		add(t)
+	}
+	for _, path := range []string{"attacks", "finding_info.attacks"} {
+		for _, a := range objectsAt(p, path) {
+			add(pathStr(a, "technique.uid"))
+			add(pathStr(a, "sub_technique.uid"))
+		}
+	}
+	return out
 }
 
 // detectionVendor picks the vendor name for attribution, preferring OCSF
