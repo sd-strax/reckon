@@ -2,11 +2,14 @@ package runtime
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/google/uuid"
 
+	reckon "github.com/sd-strax/reckon"
 	"github.com/sd-strax/reckon/config"
 	"github.com/sd-strax/reckon/internal/secrets"
 )
@@ -65,6 +68,13 @@ type InitResult struct {
 	// the CLI reports it as such rather than as provisioned.
 	KeycloakAdminExternal bool
 	PostgresExternal      bool
+
+	// PolicyDir is the Gate 2 policy directory the config points at after
+	// init. PoliciesSeeded lists the policy files THIS run wrote into it
+	// (adr/0374): all of them on a fresh install, any missing ones on an
+	// existing install that had no policy_dir, none otherwise.
+	PolicyDir      string
+	PoliciesSeeded []string
 }
 
 // Init performs first-run setup: it writes a default config to the resolved
@@ -103,7 +113,23 @@ func Init(opts InitOptions) (InitResult, error) {
 		if serr != nil {
 			return InitResult{}, serr
 		}
+		// An install from before the shipped policies has no policy_dir: give
+		// it the same one a fresh install gets. One whose policy_dir is set is
+		// the operator's, and left alone.
+		var seeded []string
+		if cfg.Capability.PolicyDir == "" {
+			dir := filepath.Join(filepath.Dir(path), reckon.InstallPoliciesDir)
+			if seeded, serr = seedInstallPolicies(dir); serr != nil {
+				return InitResult{}, serr
+			}
+			cfg.Capability.PolicyDir = dir
+			if serr = config.Overwrite(cfg, path); serr != nil {
+				return InitResult{}, fmt.Errorf("write config: %w", serr)
+			}
+		}
 		return InitResult{
+			PolicyDir:                 cfg.Capability.PolicyDir,
+			PoliciesSeeded:            seeded,
 			ConfigPath:                path,
 			TenantNamespace:           cfg.Capability.TenantNamespace,
 			DataDir:                   cfg.Data.Dir,
@@ -145,11 +171,23 @@ func Init(opts InitOptions) (InitResult, error) {
 	// tenant is real, least of all this public OSS engine on a fresh clone
 	// (config.Demo). demo.enabled stays false (the default), so the fixture guard
 	// in the resolver builders refuses any fixture binding here.
+	// The shipped Gate 2 policies (adr/0374) land beside the config, and the
+	// config points at them: a person's own ticketing is approved when they
+	// request it.
+	policyDir := filepath.Join(filepath.Dir(path), reckon.InstallPoliciesDir)
+	seeded, err := seedInstallPolicies(policyDir)
+	if err != nil {
+		return InitResult{}, err
+	}
+	cfg.Capability.PolicyDir = policyDir
+
 	if err := config.Save(cfg, path); err != nil {
 		return InitResult{}, fmt.Errorf("write config: %w", err)
 	}
 
 	return InitResult{
+		PolicyDir:                 policyDir,
+		PoliciesSeeded:            seeded,
 		ConfigPath:                path,
 		TenantNamespace:           namespace,
 		DataDir:                   cfg.Data.Dir,
@@ -252,4 +290,38 @@ func ensureSecret(store *secrets.Store, spec secretSpec, prompt func(name, label
 	}
 	stored, created, err := store.EnsureValue(spec.name, v)
 	return stored, created, err
+}
+
+// seedInstallPolicies writes the embedded install policies (reckon.
+// InstallPoliciesFS) into dir and returns the paths it wrote. A policy file
+// that already exists is the operator's and is never overwritten.
+func seedInstallPolicies(dir string) ([]string, error) {
+	entries, err := fs.ReadDir(reckon.InstallPoliciesFS, reckon.InstallPoliciesDir)
+	if err != nil {
+		return nil, fmt.Errorf("read embedded policies: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create policy dir %s: %w", dir, err)
+	}
+	var written []string
+	for _, ent := range entries {
+		if ent.IsDir() {
+			continue
+		}
+		dst := filepath.Join(dir, ent.Name())
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("stat %s: %w", dst, err)
+		}
+		data, err := fs.ReadFile(reckon.InstallPoliciesFS, path.Join(reckon.InstallPoliciesDir, ent.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read embedded policy %s: %w", ent.Name(), err)
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return nil, fmt.Errorf("write policy %s: %w", dst, err)
+		}
+		written = append(written, dst)
+	}
+	return written, nil
 }

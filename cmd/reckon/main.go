@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -210,10 +211,18 @@ func runInit(args []string) error {
 		}
 	}
 
+	printPolicies := func() {
+		fmt.Printf("  policies:  %s\n", res.PolicyDir)
+		for _, p := range res.PoliciesSeeded {
+			fmt.Printf("    added %s\n", filepath.Base(p))
+		}
+	}
+
 	if res.AlreadyExisted {
 		fmt.Printf("%s is already initialized.\n", branding.CLI)
 		fmt.Printf("  config:    %s\n", res.ConfigPath)
 		fmt.Printf("  namespace: %s\n", res.TenantNamespace)
+		printPolicies()
 		printKCAdmin()
 		printPostgres()
 		fmt.Printf("\nEdit the config to change ports/paths, then run `%s start`.\n", branding.CLI)
@@ -223,6 +232,7 @@ func runInit(args []string) error {
 	fmt.Printf("  config:    %s\n", res.ConfigPath)
 	fmt.Printf("  data dir:  %s\n", res.DataDir)
 	fmt.Printf("  namespace: %s  (this install's immutable identity namespace)\n", res.TenantNamespace)
+	printPolicies()
 	fmt.Printf("  capabilities: none wired — a real install binds its own adapters, or run `%s demo seed` to try the bundled demo world on fixtures\n", branding.CLI)
 	printKCAdmin()
 	printPostgres()

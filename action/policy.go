@@ -23,6 +23,20 @@ const (
 	EffectDeny            PolicyEffect = "DENY"
 )
 
+// PolicyAccountable names who an AUTO_APPROVE policy's approval is credited to
+// (04 §3.3, adr/0374).
+type PolicyAccountable string
+
+const (
+	// AccountableAuthor credits the policy's last signed-off-by analyst, else
+	// its author. It is the default when the field is empty.
+	AccountableAuthor PolicyAccountable = "author"
+	// AccountableRequester credits the person who requested the action. A
+	// policy with it fires only for a HUMAN requester: the principal behind an
+	// AI-delegated request never decided anything, so they cannot be credited.
+	AccountableRequester PolicyAccountable = "requester"
+)
+
 // Policy is a versioned auto-approval policy (04 §4.1): a CEL predicate over the
 // evaluation context plus an effect. Authors write side-effect-free predicates;
 // the backend evaluates in priority order (DENY > REQUIRE_TWO_PARTY >
@@ -34,10 +48,13 @@ type Policy struct {
 	Effect                PolicyEffect `yaml:"effect" json:"effect"`
 	Shadow                bool         `yaml:"shadow" json:"shadow"`
 	SecondaryApproverPool []string     `yaml:"secondary_approver_pool" json:"secondary_approver_pool,omitempty"`
-	AuthoredBy            string       `yaml:"authored_by" json:"authored_by"`
-	SignedOffBy           []string     `yaml:"signed_off_by" json:"signed_off_by,omitempty"`
-	EffectiveFrom         time.Time    `yaml:"effective_from" json:"effective_from"`
-	EffectiveUntil        *time.Time   `yaml:"effective_until" json:"effective_until,omitempty"`
+	// Accountable is who an AUTO_APPROVE approval is credited to: "author"
+	// (default) or "requester". See PolicyAccountable.
+	Accountable    PolicyAccountable `yaml:"accountable" json:"accountable,omitempty"`
+	AuthoredBy     string            `yaml:"authored_by" json:"authored_by"`
+	SignedOffBy    []string          `yaml:"signed_off_by" json:"signed_off_by,omitempty"`
+	EffectiveFrom  time.Time         `yaml:"effective_from" json:"effective_from"`
+	EffectiveUntil *time.Time        `yaml:"effective_until" json:"effective_until,omitempty"`
 }
 
 // ContentHash is the sha256 of the policy's canonical form (04 §4.1), used as

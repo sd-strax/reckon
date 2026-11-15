@@ -1,0 +1,23 @@
+# Installed by `reckon init` into the install's capability.policy_dir (adr/0374).
+#
+# A person's own ticketing is approved when they request it: the ticket.*
+# actions a signed-in person requests are auto-approved and credited to that
+# person (accountable: requester). The action record names this policy.
+#
+# What still needs a click:
+#   - the agent's ticket requests: a requester-accountable policy fires only
+#     for a HUMAN requester, enforced by the engine;
+#   - a request escalated to T3 (more than 10 distinct targets, 04 §1), by
+#     the tier guard below;
+#   - the first action of a draft investigation, which activates it.
+#
+# This file is yours. Set `shadow: true` to record what it would approve
+# without approving, or delete it to approve every ticket by hand.
+
+id: "policy/ticket-own-auto-approve/1.0.0"
+action_match: ["ticket.*"]
+predicate: 'ctx.action.requested_by.kind == "HUMAN" && ctx.action.tier == "T2"'
+effect: AUTO_APPROVE
+accountable: requester
+shadow: false
+authored_by: "system"
