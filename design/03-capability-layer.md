@@ -1536,8 +1536,9 @@ holds a person.
   version is not copied (§4.16).
 - Edges as in §4.1.
 
-Version 2, as §4.17: a record stored before the normalizer existed went
-through the opaque default at version 1. Failure modes: two directories that
+Version 3, as §4.17: a record stored before the normalizer existed went
+through the opaque default at version 1. Version 3 follows the shared user
+name rule (adr/0359), which changes the accounts the record mints. Failure modes: two directories that
 describe one human are two persons, linked by `aliases` from a record or a
 person; a directory record that omits the on-premises identifiers leaves the
 domain accounts unowned until one names them or a person asserts the owner.

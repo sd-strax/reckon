@@ -286,7 +286,8 @@ func (r *renderer) keyList(name string, slots []slot, fold bool) {
 func (r *renderer) keyRefList(name string, slots []slot) { r.keyRefs(name, slots, false) }
 
 // keyRefs is keyRefList, with an unbound value's text folded for case when
-// fold is set: a login, which compares case-insensitively.
+// fold is set: a login, which compares case-insensitively. An unbound value
+// that carries its own key (slot.key) keys by it, never folded.
 func (r *renderer) keyRefs(name string, slots []slot, fold bool) {
 	texts := make([]string, 0, len(slots))
 	keys := make([]string, 0, len(slots))
@@ -298,6 +299,8 @@ func (r *renderer) keyRefs(name string, slots []slot, fold bool) {
 		switch {
 		case s.ref != "":
 			keys = append(keys, "ref:"+s.ref)
+		case s.key != "":
+			keys = append(keys, s.key)
 		case fold:
 			keys = append(keys, "text:"+strings.ToLower(s.text))
 		default:
@@ -329,6 +332,9 @@ func (r *renderer) keyRefs(name string, slots []slot, fold bool) {
 type slot struct {
 	text string
 	ref  string
+	// key, when set, is what an unbound slot keys by in place of its text:
+	// an account target shown by its id alone (accountTarget).
+	key string
 }
 
 func (s slot) empty() bool { return s.text == "" }
@@ -460,7 +466,10 @@ func (r *renderer) userIn(m map[string]any, prefix string) slot {
 // because the entities a view receives are the ones derived from that event.
 // The text is domain\name when both are present, else the name. With no name
 // it is the uid, else the uid_alt, so a member named by id alone is shown and
-// keyed.
+// keyed. A member shown by its uid keys by it in its own namespace ("id:"),
+// folded as accountIDKey folds it, never as a login is. A member shown by its
+// uid_alt keys as a login does, folded for case: identity.Account never keys
+// on uid_alt, and an "@" uid_alt is read as a principal-name login.
 func (r *renderer) accountTarget(read func(key string) any) (slot, string) {
 	name, domain := ocsf.UserName(nil, func(_ map[string]any, key string) any { return read(key) })
 	s := r.userNamed(name, domain)
@@ -479,16 +488,65 @@ func (r *renderer) accountTarget(read func(key string) any) (slot, string) {
 	if qualified == "" && len(ids) > 0 {
 		qualified = ids[0].value
 		s.text = qualified
+		if ids[0].prop == "user_id" {
+			s.key = "id:" + accountIDKey(qualified)
+		}
 	}
 	if s.ref == "" {
+		// Each id binds exactly first, so an account that stores it in this
+		// very case wins over one that matches only once folded.
 		for _, id := range ids {
-			if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return propEquals(p, id.prop, id.value) }); ref != "" {
+			if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return accountIDExact(p, id.prop, id.value) }); ref != "" {
+				s.ref = ref
+				break
+			}
+			if ref := r.bind(identity.TypeUserAccount, func(p map[string]any) bool { return accountIDEquals(p, id.prop, id.value) }); ref != "" {
 				s.ref = ref
 				break
 			}
 		}
 	}
 	return s, qualified
+}
+
+// accountIDExact reports whether the user-account props hold want at prop
+// (user_id or uid_alt) in exactly its case, both trimmed.
+func accountIDExact(props map[string]any, prop, want string) bool {
+	got := strings.TrimSpace(toString(props[prop]))
+	return want != "" && got == want
+}
+
+// accountIDEquals reports whether the user-account props hold want at prop,
+// compared as the account stores it. A uid_alt folds case: identity.Account
+// never keys on it, and an "@" uid_alt is a principal-name login. A user_id
+// is compared as identity.Account keys it. A cloud or LDAP account keeps an
+// opaque id's case (identity.FoldCloudUID), so "OpaqueA" and "opaquea" are
+// two accounts and match exactly once folded. Any other type lowercases its
+// id (a windows-domain SID), so case is folded.
+func accountIDEquals(props map[string]any, prop, want string) bool {
+	got := strings.TrimSpace(toString(props[prop]))
+	if want == "" || got == "" {
+		return false
+	}
+	if prop == "user_id" {
+		switch toString(props["account_type"]) {
+		case identity.AccountCloud, identity.AccountLDAP:
+			return identity.FoldCloudUID(got) == identity.FoldCloudUID(want)
+		}
+	}
+	return strings.EqualFold(got, want)
+}
+
+// accountIDKey folds an id an unbound account target is keyed by: a SID
+// lowercased, as a windows-domain account's SID is keyed; any other id as a
+// cloud or LDAP account's is (identity.FoldCloudUID): a GUID lowercased, an
+// opaque id kept exact. An unbound SID keys lowercased even when an LDAP
+// account carried it, since the view has no account type for an unbound target.
+func accountIDKey(id string) string {
+	if identity.IsSID(id) {
+		return strings.ToLower(strings.TrimSpace(id))
+	}
+	return identity.FoldCloudUID(id)
 }
 
 // userNamed binds a user by its name and domain, by the rule user describes.
@@ -1286,11 +1344,12 @@ func (r *renderer) account() {
 
 	r.keySlot("actor", actor)
 	// Each target keys on its ref, else on its qualified login folded for
-	// case, whether there is one or many, so two domains' same-named members
-	// never fold and one login in two cases does (adr/0359).
+	// case, else on its id as accountIDKey folds it, whether there is one or
+	// many, so two domains' same-named members never fold, one login in two
+	// cases does, and two opaque ids in two cases do not (adr/0359).
 	keyed := make([]slot, len(targets))
 	for i, s := range targets {
-		keyed[i] = slot{text: qualified[i], ref: s.ref}
+		keyed[i] = slot{text: qualified[i], ref: s.ref, key: s.key}
 	}
 	r.keyRefs("target", keyed, true)
 	if hasGroup {
@@ -1323,10 +1382,14 @@ func (r *renderer) accountTargets() ([]slot, []string) {
 			}
 			s, q := r.accountTarget(func(key string) any { return fieldOf(u, key) })
 			// A member listed twice is one account, as the normalizer mints
-			// it once: by its ref, else by its login folded for case.
+			// it once: by its ref, else by its login folded for case, else
+			// by its id as accountIDKey folds it.
 			key := "text:" + strings.ToLower(q)
-			if s.ref != "" {
+			switch {
+			case s.ref != "":
 				key = "ref:" + s.ref
+			case s.key != "":
+				key = s.key
 			}
 			if q != "" && seen[key] {
 				continue

@@ -108,7 +108,8 @@ func (*scheduledJobNormalizer) ClassUID() int { return 1006 }
 
 // 2: host identity, adr/0211; 3: account identity, adr/0324
 // 4: OCSF classes and fields, adr/0356
-func (*scheduledJobNormalizer) Version() int { return 4 }
+// 5: OCSF read gaps, adr/0359
+func (*scheduledJobNormalizer) Version() int { return 5 }
 
 func (n *scheduledJobNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload

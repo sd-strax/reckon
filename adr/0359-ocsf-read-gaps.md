@@ -92,7 +92,10 @@ The rules that bound the answer:
   a user when it has a real name, `uid` or `uid_alt`, by one check the
   normalizer and the event view share. Each target gets its own
   `member-of-group` edge. The event view and the account "seen as" read
-  both fields.
+  both fields. In the event view, a target with no name is shown by its
+  `uid`, else its `uid_alt`. Its `uid` is matched as the account stores
+  it: exactly for a cloud or directory account, ignoring case for any
+  other. Its `uid_alt` is matched ignoring case.
 - **Registry value data.** One shared rule reads a value's data. It takes
   the first typed field that holds a value, then `data`. An empty typed
   field counts as absent, so it never hides the next one. The value is
@@ -102,8 +105,16 @@ The rules that bound the answer:
   only from `reg_value.type` or `type_id`. The normalizer and the event
   view both use the rule, so the value's data and the event view's Data
   field always agree.
+- One shared rule reads a user's name and domain for every normalizer that
+  reads an OCSF user object by the account rule (`03 §7.2`), and for the
+  account event view. A placeholder name or domain counts as
+  absent, and a distinguished name is never split at its backslash.
 - The detection, email, email-file, email-URL, account and registry
-  normalizers each go up one version, which marks their stored results as made by an older version.
+  normalizers each go up one version. So do the authentication, process,
+  file, scheduled-job and user-inventory normalizers, because the shared
+  name rule changes the accounts they read. The version is part of an
+  observation's id, so an event read again at the new version is stored as
+  a new observation beside the old one.
 - Each case has a test event that carries only the newer or narrower form.
   Before, the examples sent the old and new fields together.
 

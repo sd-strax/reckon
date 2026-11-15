@@ -1619,9 +1619,9 @@ func TestRender_GroupMemberPlaceholderName(t *testing.T) {
 		t.Errorf("Account rows = %v; want %v", got, want)
 	}
 	for _, tc := range []struct{ users, want string }{
-		{`[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":" n/a ","uid":"S-1-5-21-7-1102"}]`, `["text:s-1-5-21-7-1101","text:s-1-5-21-7-1102"]`},
-		{`[{"name":"-","uid":"S-1-5-21-7-1101"}]`, `["text:s-1-5-21-7-1101"]`},
-		{`[{"name":"-","uid":"S-1-5-21-7-1102"}]`, `["text:s-1-5-21-7-1102"]`},
+		{`[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":" n/a ","uid":"S-1-5-21-7-1102"}]`, `["id:s-1-5-21-7-1101","id:s-1-5-21-7-1102"]`},
+		{`[{"name":"-","uid":"S-1-5-21-7-1101"}]`, `["id:s-1-5-21-7-1101"]`},
+		{`[{"name":"-","uid":"S-1-5-21-7-1102"}]`, `["id:s-1-5-21-7-1102"]`},
 	} {
 		if k := targetSlot(render(tc.users)).Identity; k != tc.want {
 			t.Errorf("%s: target key = %q; want %q", tc.users, k, tc.want)
@@ -1674,8 +1674,116 @@ func TestRender_AccountChangeUserByIDBinds(t *testing.T) {
 		t.Errorf("target slot = %+v; want the uid, keyed by user-account--u1", s)
 	}
 	unbound := Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"S-1-5-21-7-1101"}}`)}, nil)
-	if s := targetSlot(unbound); s.Text != "S-1-5-21-7-1101" || s.Ref != "" || s.Identity != `["text:s-1-5-21-7-1101"]` {
+	if s := targetSlot(unbound); s.Text != "S-1-5-21-7-1101" || s.Ref != "" || s.Identity != `["id:s-1-5-21-7-1101"]` {
 		t.Errorf("unbound target slot = %+v; want the uid, keyed by it", s)
+	}
+}
+
+// TestRender_GroupMemberOpaqueIDCase: two LDAP members whose opaque ids
+// differ only in case are two accounts, as identity.Account keys a cloud or
+// LDAP id with its case kept. Each binds its own account, unbound they are
+// two rows and two key parts, and a change of OpaqueA and OPAQUEA keys apart
+// from OpaqueA alone. A SID in two cases is still one member.
+func TestRender_GroupMemberOpaqueIDCase(t *testing.T) {
+	render := func(users string, ents ...Entity) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	}
+	const two = `[{"uid":"OpaqueA","account":{"type_id":1}},{"uid":"opaquea","account":{"type_id":1}}]`
+	upper := ent("user-account--o1", map[string]any{"account_login": "", "user_id": "OpaqueA", "account_type": "ldap"})
+	lower := ent("user-account--o2", map[string]any{"account_login": "", "user_id": "opaquea", "account_type": "ldap"})
+	v := render(two, upper, lower)
+	rows := accountRows(v)
+	if len(rows) != 2 || rows[0].Value != "OpaqueA" || rows[0].Ref != "user-account--o1" ||
+		rows[1].Value != "opaquea" || rows[1].Ref != "user-account--o2" {
+		t.Errorf("bound: Account rows = %+v; want OpaqueA linked to o1 and opaquea linked to o2", rows)
+	}
+	if k := targetSlot(v).Identity; k != `["ref:user-account--o1","ref:user-account--o2"]` {
+		t.Errorf("bound: target key = %q; want both refs", k)
+	}
+
+	v = render(two)
+	var got []string
+	for _, f := range accountRows(v) {
+		got = append(got, f.Value)
+	}
+	if want := []string{"OpaqueA", "opaquea"}; !slices.Equal(got, want) {
+		t.Errorf("unbound: Account rows = %v; want %v", got, want)
+	}
+	if k := targetSlot(v).Identity; k != `["id:OpaqueA","id:opaquea"]` {
+		t.Errorf("unbound: target key = %q; want two id parts", k)
+	}
+
+	sid := render(`[{"name":"-","uid":"S-1-5-21-7-1101"},{"name":"-","uid":"s-1-5-21-7-1101"}]`)
+	if rows := accountRows(sid); len(rows) != 1 || rows[0].Value != "S-1-5-21-7-1101" {
+		t.Errorf("SID in two cases: Account rows = %+v; want one", rows)
+	}
+	if k := targetSlot(sid).Identity; k != `["id:s-1-5-21-7-1101"]` {
+		t.Errorf("SID in two cases: target key = %q; want one id part", k)
+	}
+
+	alone := targetSlot(render(`[{"uid":"OpaqueA","account":{"type_id":1}}]`)).Identity
+	mixed := targetSlot(render(`[{"uid":"OpaqueA","account":{"type_id":1}},{"uid":"OPAQUEA","account":{"type_id":1}}]`)).Identity
+	if alone == mixed {
+		t.Errorf("OpaqueA+OPAQUEA keys as OpaqueA alone (%q); want them apart", alone)
+	}
+}
+
+// TestRender_GroupMemberUIDAltCase: a member named by uid_alt alone is read
+// as a login, whose case never counts: identity.Account never keys on
+// uid_alt, and an "@" uid_alt is a principal name. Unbound, two cases key
+// alike and one users[] holding both is one row; an LDAP account binds from
+// either case.
+func TestRender_GroupMemberUIDAltCase(t *testing.T) {
+	render := func(users string, ents ...Entity) View {
+		return Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":` + users + `}`)}, ents)
+	}
+	upper := targetSlot(render(`[{"uid_alt":"Alice@Contoso.com"}]`)).Identity
+	lower := targetSlot(render(`[{"uid_alt":"alice@contoso.com"}]`)).Identity
+	if upper != lower {
+		t.Errorf("unbound: target keys %q and %q; want one", upper, lower)
+	}
+	if rows := accountRows(render(`[{"uid_alt":"Alice@Contoso.com"},{"uid_alt":"alice@contoso.com"}]`)); len(rows) != 1 {
+		t.Errorf("both cases: Account rows = %+v; want one", rows)
+	}
+	ldap := ent("user-account--l1", map[string]any{"account_login": "", "uid_alt": "alice@contoso.com", "account_type": "ldap"})
+	if s := targetSlot(render(`[{"uid_alt":"Alice@Contoso.com"}]`, ldap)); s.Ref != "user-account--l1" {
+		t.Errorf("LDAP uid_alt: target slot = %+v; want bound to user-account--l1", s)
+	}
+}
+
+// TestRender_GroupMemberExactIDFirst: an account that stores a member's uid
+// in exactly its case binds before one that matches it only once folded. An
+// LDAP account holds OpaqueA and a unix account opaquea, which folds to it.
+func TestRender_GroupMemberExactIDFirst(t *testing.T) {
+	ldap := ent("user-account--l1", map[string]any{"account_login": "", "user_id": "OpaqueA", "account_type": "ldap"})
+	unix := ent("user-account--x1", map[string]any{"account_login": "bob", "user_id": "opaquea", "account_type": "unix"})
+	v := Render(Event{ClassUID: 3006, Payload: payload(`{"activity_name":"Add User","actor":{"user":{"name":"admin"}},"group":{"name":"G"},"users":[{"uid":"OpaqueA","account":{"type_id":1}},{"name":"bob","uid":"opaquea","account":{"type_id":9}}]}`)}, []Entity{ldap, unix})
+	rows := accountRows(v)
+	if len(rows) != 2 || rows[0].Ref != "user-account--l1" || rows[1].Ref != "user-account--x1" {
+		t.Errorf("Account rows = %+v; want OpaqueA linked to l1 and bob linked to x1", rows)
+	}
+}
+
+// TestRender_AccountTargetIDCaseByType: a uid binds as the account stores
+// it. A cloud account's GUID folds case, an opaque cloud id does not, and an
+// account of no recorded type folds case.
+func TestRender_AccountTargetIDCaseByType(t *testing.T) {
+	render := func(uid string, e Entity) SlotValue {
+		return targetSlot(Render(Event{ClassUID: 3001, Payload: payload(`{"activity_name":"Enable","user":{"name":"-","uid":"` + uid + `"}}`)}, []Entity{e}))
+	}
+	for _, tc := range []struct {
+		name, uid string
+		props     map[string]any
+		bound     bool
+	}{
+		{"cloud GUID", "8F6A0B5C-1D2E-4F3A-9B8C-7D6E5F4A3B2C", map[string]any{"account_login": "", "user_id": "8f6a0b5c-1d2e-4f3a-9b8c-7d6e5f4a3b2c", "account_type": "cloud"}, true},
+		{"cloud opaque", "abc123", map[string]any{"account_login": "", "user_id": "AbC123", "account_type": "cloud"}, false},
+		{"no type", "abc123", map[string]any{"account_login": "", "user_id": "AbC123"}, true},
+	} {
+		s := render(tc.uid, ent("user-account--u1", tc.props))
+		if got := s.Ref == "user-account--u1"; got != tc.bound {
+			t.Errorf("%s: target slot = %+v; want bound %v", tc.name, s, tc.bound)
+		}
 	}
 }
 
