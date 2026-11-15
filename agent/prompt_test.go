@@ -92,10 +92,10 @@ func TestSystemPrompt_AnswerShape(t *testing.T) {
 func TestSystemPrompt_ActionHonesty(t *testing.T) {
 	p := systemPrompt(Investigation{Title: "t"}, nil)
 	for _, want := range []string{
-		"An action exists ONLY if a request_action call returned an action_id",
-		"do not narrate a ticket",
-		"MUST call request_action again",
-		"parameters is a JSON object",
+		"only when request_action returned its action_id on this turn",
+		"Do not narrate a ticket",
+		"Call request_action again each time",
+		"parameters as a JSON object",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("system prompt is missing the action-honesty rule: %q", want)
