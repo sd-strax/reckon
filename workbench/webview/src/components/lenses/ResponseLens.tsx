@@ -1,30 +1,43 @@
-// Response — containment and handoff (08 §8.4): the plan header, the action
-// cards in every engine state grouped by the catalog's category, and the comms
-// threads. A notification is asked for in the conversation like any action
-// (#126); there is no second composer here.
+// Response — containment and handoff (08 §8.4; adr/0361): the plan header,
+// then the pending actions under "Needs your decision" (the window that closes
+// soonest first), then every other action on one timeline in the order it was
+// requested, then the comms threads. The phase is the group tile on each item,
+// not a section. A notification is asked for in the conversation like any
+// action (#126); there is no second composer here.
 import { useApp } from "../../app";
 import { proceduresCited } from "../../derive/summary";
-import { ActionCard, GROUP_LABELS, groupOf } from "../ActionCard";
+import { awaitsDecision, byDeadline, byRequested } from "../../derive/actions";
+import { ActionCard, TimelineItem } from "../ActionCard";
 import { Comms } from "../Rail";
 import { Dependencies } from "../Dependencies";
 import { Empty } from "../shared";
+import type { ActionRow } from "../../../../src/viewTypes";
 
-const ORDER = ["containment", "eradication", "recovery", "notification", "case_record"] as const;
+/** The day an ISO time falls on, in local time; empty when there is none. */
+const dayOf = (iso: string | undefined): string => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isNaN(t) ? "" : new Date(t).toDateString();
+};
+
+/** A timeline item carries its date when its day differs from the item above
+ * it in the order shown, or, for the first item, when its day is not today:
+ * the time is the ordering key and must not be ambiguous (adr/0361). */
+function showDate(prev: ActionRow | undefined, a: ActionRow): boolean {
+  const day = dayOf(a.requestedAt);
+  if (!day) return false;
+  return prev ? day !== dayOf(prev.requestedAt) : day !== new Date().toDateString();
+}
 
 export function ResponseLens() {
-  const { state, aside } = useApp();
+  const { state, responseOrder, setResponseOrder } = useApp();
   const snap = state.snap;
   if (!snap) return null;
   const actions = snap.actions || [];
-  const open = actions.filter((a) => a.pending && !a.expired);
-  const waiting = open.filter((a) => !aside.has(a.actionId));
-  const setAside = open.filter((a) => aside.has(a.actionId));
+  const open = byDeadline(actions.filter(awaitsDecision));
   const cited = proceduresCited(snap.thread || []);
   const engine = String(snap.investigation.state).toUpperCase();
   const draft = engine === "DRAFT";
-  // Decisions come first (#125); the groups hold everything already decided.
-  const decided = actions.filter((a) => !(a.pending && !a.expired));
-  const groups = ORDER.map((g) => ({ g, rows: decided.filter((a) => groupOf(a) === g) })).filter((x) => x.rows.length);
+  const timeline = byRequested(actions.filter((a) => !awaitsDecision(a)), responseOrder);
   return (
     <div className="lens response">
       <div className="planhead">
@@ -32,25 +45,26 @@ export function ResponseLens() {
         <span className="imeta">{actions.length} action{actions.length === 1 ? "" : "s"}{open.length ? ` · ${open.length} waiting on a decision` : ""}{cited.length ? ` · procedures cited: ${cited.map((f) => f.title).join(", ")}` : ""}</span>
       </div>
       {!actions.length ? <Empty>No actions requested yet. Ask reckon in the conversation; each request arrives here for you to approve.</Empty> : null}
-      {waiting.length ? (
+      {open.length ? (
         <section className="lsection" id="obj-waiting">
-          <h3>Waiting on you<span className="count">{waiting.length}</span></h3>
-          {waiting.map((a) => <ActionCard key={a.actionId} a={a} variant="full" draft={draft} />)}
+          <h3>Needs your decision<span className="count">{open.length}</span></h3>
+          {open.map((a) => <ActionCard key={a.actionId} a={a} variant="full" draft={draft} />)}
         </section>
       ) : null}
-      {setAside.length ? (
-        <section className="lsection" id="obj-aside">
-          <h3>Set aside<span className="count">{setAside.length}</span></h3>
-          <div className="imeta">Leaving a request undecided is a choice: it stays open until its approval window closes, then expires.</div>
-          {setAside.map((a) => <ActionCard key={a.actionId} a={a} variant="full" draft={draft} />)}
+      {timeline.length ? (
+        <section className="lsection" id="obj-timeline">
+          <div className="lsechead">
+            <h3>Timeline<span className="count">{timeline.length}</span></h3>
+            <div className="modetoggle" role="group" aria-label="Order">
+              <button className={responseOrder === "oldest" ? "on" : ""} aria-pressed={responseOrder === "oldest"} onClick={() => setResponseOrder("oldest")}>Oldest first</button>
+              <button className={responseOrder === "newest" ? "on" : ""} aria-pressed={responseOrder === "newest"} onClick={() => setResponseOrder("newest")}>Newest first</button>
+            </div>
+          </div>
+          <ol className="tl">
+            {timeline.map((a, i) => <TimelineItem key={a.actionId} a={a} showDate={showDate(timeline[i - 1], a)} />)}
+          </ol>
         </section>
       ) : null}
-      {groups.map(({ g, rows }) => (
-        <section key={g} className="lsection" id={g === "notification" ? "obj-notification" : undefined}>
-          <h3>{GROUP_LABELS[g]}<span className="count">{rows.length}</span></h3>
-          {rows.slice().reverse().map((a) => <ActionCard key={a.actionId} a={a} variant="full" draft={draft} />)}
-        </section>
-      ))}
       <section className="lsection" id="obj-notification-draft">
         <h3>Conversations with others</h3>
         <div className="imeta">To notify someone, ask reckon in the conversation — the message arrives here as a card you approve before it is sent.</div>

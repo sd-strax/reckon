@@ -150,7 +150,20 @@ The tracker of `02 §2.9` (`adr/0047`) with these changes:
 
 `03 §3.4`'s plan block with these additions:
 
-- **Requested action cards** keep every decision-grade element of `03 §3.3` and add a
+- **Two sections, not phase groups** (`adr/0361`):
+  - **Needs your decision** holds the pending actions, the one whose window closes
+    soonest first.
+  - **Timeline** holds every other action in the order it was requested, with oldest
+    first or newest first (view state, oldest first by default).
+  - **Each timeline item is one line**: request time, group tile, title, targets, and
+    status as a glyph plus its word. It opens to its history (requested, approved or
+    rejected or expired) and its facts.
+  - **A failed, unknown-outcome or re-requestable expired item** stays open at its place
+    in the timeline.
+  - **The phase** (containment, eradication, recovery, notification, case record) shows
+    on the group tile.
+- **Requested action cards** keep the decision-grade elements of `03 §3.3` (the evidence
+  in their details, `adr/0361`) and add a
   **policy** fact: whether the tenant's response policy pre-authorizes this action
   (`AUTO_POLICY` would fire) or it needs an approval routed to its owner. Gap `00 §6.16`.
 - **Owner action items**: work only an owner outside reckon can do (rotate a credential,

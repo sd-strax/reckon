@@ -15,7 +15,7 @@ describe("dependencies in the derivations", () => {
     expect(openDependencies([dep({ status: "OPEN" }), dep({ status: "SENT" }), dep({ status: "CONFIRMED" }), dep({ status: "WAIVED" })])).toBe(2);
   });
   it("tells a ride that stopped from one in flight", () => {
-    for (const status of ["FAILED", "TIMEOUT", "REJECTED", "EXPIRED", "PARTIAL"]) expect(rideStopped({ status, expired: status === "EXPIRED" })).toBe(true);
+    for (const status of ["FAILED", "REJECTED", "EXPIRED"]) expect(rideStopped({ status, expired: status === "EXPIRED" })).toBe(true);
     expect(rideStopped({ status: "REQUESTED", expired: true })).toBe(true); // lazily expired, still pending
     for (const status of ["REQUESTED", "PENDING_SECONDARY", "APPROVED", "EXECUTING", "OUTCOME_UNKNOWN", "SUCCEEDED"]) expect(rideStopped({ status, expired: false })).toBe(false);
   });

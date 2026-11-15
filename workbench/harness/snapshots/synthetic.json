@@ -129,6 +129,8 @@
     "actions": [
       {
         "actionId": "act-1",
+        "requestedAt": "2026-10-27T18:30:00.000Z",
+        "approvedAt": "2026-10-27T18:31:10.000Z",
         "actionType": "host.isolate",
         "tier": "T2",
         "status": "SUCCEEDED",
@@ -150,6 +152,7 @@
       },
       {
         "actionId": "act-2",
+        "requestedAt": "2026-10-27T18:40:00.000Z",
         "actionType": "notify.email",
         "tier": "T1",
         "status": "REQUESTED",
@@ -176,6 +179,7 @@
       },
       {
         "actionId": "act-3",
+        "requestedAt": "2026-10-27T18:41:00.000Z",
         "actionType": "account.disable",
         "tier": "T3",
         "status": "REQUESTED",
@@ -200,6 +204,7 @@
       },
       {
         "actionId": "act-4",
+        "requestedAt": "2026-10-27T18:20:00.000Z",
         "actionType": "ioc.block",
         "tier": "T2",
         "status": "EXPIRED",
@@ -217,6 +222,8 @@
       },
       {
         "actionId": "act-5",
+        "requestedAt": "2026-10-27T18:35:00.000Z",
+        "approvedAt": "2026-10-27T18:36:00.000Z",
         "actionType": "ticket.comment",
         "tier": "T1",
         "status": "FAILED",
@@ -1392,6 +1399,8 @@
     "act-1": {
       "action": {
         "actionId": "act-1",
+        "requestedAt": "2026-10-27T18:30:00.000Z",
+        "approvedAt": "2026-10-27T18:31:10.000Z",
         "actionType": "host.isolate",
         "tier": "T2",
         "status": "SUCCEEDED",

@@ -54,8 +54,10 @@ One investigation panel, three regions, beside the sidebar's work queue:
     known.
   - **Reasoning** — the verdict-basis line, the hypothesis cards with their
     predictions, **Pinned evidence**.
-  - **Response** — what is **Waiting on you** first, anything **Set aside**,
-    then the actions grouped by category, and the conversations with others.
+  - **Response** — **Needs your decision** first (the window that closes
+    soonest on top), then the **Timeline** of everything else in the order it
+    was requested (each a line that opens its details; a failure stays open),
+    and the conversations with others.
 - **Companion** (right, resizable from its left edge) — **Conversation** (the
   agent chat and composer) or **Thread** (the whole record in order, every act
   as a line). It carries no knowledge library: that is the sidebar's
@@ -175,16 +177,17 @@ each grounded (an action without cited evidence is refused by the engine):
 
 Every open card shows **Will do** — what it will write or change — and a
 message or ticket write can be changed with **Edit…** before approving (the
-record keeps what it said before). **Decide later** sets a card aside until its
+record keeps what it said before). The evidence, type and approval sit behind
+**Details**. A card you leave stays under **Needs your decision** until its
 window closes.
 
 Approve them. **Expect:** the first approval **activates** the investigation;
-dispatches succeed; each card shows SUCCEEDED; the notify opens a comms thread
+dispatches succeed; each moves to the **Timeline** as a SUCCEEDED line; the notify opens a comms thread
 under **Response** (`#itops`, awaiting reply, 48h clock).
 
 ### 4a. Reverse
 
-On the succeeded **host.isolate · WIN-FILE01** card → **Reverse…** → reason →
+Open the succeeded **host.isolate · WIN-FILE01** line on the **Timeline** → **Reverse…** → reason →
 a **host.unisolate** card at the same tier → approve. **Expect:** the original
 shows **REVERSED**. On `ioc.block` it reads **Reverse (best effort)…**: the
 original stays SUCCEEDED, marked reversal attempted. Once a reversal is
@@ -192,9 +195,10 @@ requested the original shows it instead of the button.
 
 ### 4b. Expiry and re-request
 
-Leave a pending card alone past its window (30 minutes). **Expect:** it shows
-**EXPIRED** with **↻ Re-request…**; re-requesting creates a new card marked
-"↻ retry of …"; the original then shows "↻ re-requested as …" in place of the
+Leave a pending card alone past its window (30 minutes). **Expect:** it moves
+to the **Timeline** as an open **EXPIRED** card with **↻ Re-request**;
+re-requesting creates a new card ("↻ retry of …" in its details); the original
+closes to a line whose details show "↻ re-requested as …" in place of the
 button. Each action can be re-requested once.
 
 ### 4c. Comms round-trip

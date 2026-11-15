@@ -10,9 +10,13 @@ export const dependencyLive = (d: Pick<Dependency, "status">): boolean => d.stat
  * deadline). A send in flight — approved, executing, or with an outcome a
  * person has yet to establish — keeps the link: its success marks the
  * dependency asked, and moving it off would lose that.
+ *
+ * It reads the lifecycle status, as the server does: a SUCCEEDED notify marks
+ * its dependencies SENT, a partial send included, so a partial ride did not
+ * stop. A timed-out send is FAILED and stopped.
  */
 export const rideStopped = (a: Pick<ActionRow, "status" | "expired">): boolean =>
-  a.expired || ["FAILED", "TIMEOUT", "REJECTED", "EXPIRED", "PARTIAL"].includes(a.status);
+  a.expired || ["FAILED", "REJECTED", "EXPIRED"].includes(a.status);
 
 /**
  * OPEN + SENT: what the conclude preflight and the Notify step count. A slice

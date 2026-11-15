@@ -128,7 +128,10 @@ describe("the inspector", () => {
   it("renders an action's record: history with actors, authorization, targets with results", () => {
     mount();
     fireEvent.click(screen.getByRole("tab", { name: /^Response/ }));
-    fireEvent.click(within(lens()).getAllByTitle(/^Open the action record/).find((a) => a.textContent === "host.isolate")!);
+    // host.isolate (act-1) is a one-line timeline row: its details hold the record link (adr/0361).
+    const row = document.getElementById("obj-act-1")!;
+    fireEvent.click(row.querySelector(".tlrow")!);
+    fireEvent.click(within(row).getByRole("button", { name: "Open action record ›" }));
     const p = pane();
     expect(within(p).getByText("Action")).toBeTruthy();
     expect(within(p).getByText(/approved by Analyst One/)).toBeTruthy();
@@ -301,5 +304,26 @@ describe("the inspector", () => {
     fireEvent.click(chip("account · user-a"));
     act(() => transport.emit({ type: "inspector.error", target: "user-account--5a9b3c2d-8c4d-4f60-ab2c-3d4e5f6a7b02", message: "no persisted record for this ref" }));
     expect(within(pane()).getByText(/no persisted record for this ref/)).toBeTruthy();
+  });
+});
+
+// adr/0361: what happened to an action reads its recorded outcome wherever an
+// inspector names it.
+describe("an action's word in the inspectors", () => {
+  it("reads PARTIAL for a partial result on an entity and in In this case", () => {
+    const d = structuredClone(data);
+    d.snapshot.actions = d.snapshot.actions!.map((a) => (a.actionId === "act-1" ? { ...a, status: "SUCCEEDED", outcome: "PARTIAL" } : a));
+    mount(d);
+    fireEvent.click(chip("host · host-a"));
+    expect(within(pane()).getByText("Actions on this entity")).toBeTruthy();
+    expect(within(pane()).getAllByText("PARTIAL").length).toBeGreaterThan(0);
+    expect(within(pane()).queryByText("SUCCEEDED")).toBeNull();
+    cleanup();
+    mount(d);
+    fireEvent.click(chip("observed data · 3 objects"));
+    const block = pane().querySelector(".ithiscase") as HTMLElement;
+    expect(within(block).getByText("host.isolate")).toBeTruthy();
+    expect(within(block).getByText("PARTIAL")).toBeTruthy();
+    expect(within(block).queryByText("SUCCEEDED")).toBeNull();
   });
 });

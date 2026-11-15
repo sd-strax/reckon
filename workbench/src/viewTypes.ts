@@ -858,6 +858,12 @@ export interface ActionRow {
   tier: string;
   /** Raw engine lifecycle status (REQUESTED, PENDING_SECONDARY, APPROVED, …). */
   status: string;
+  /**
+   * The recorded final outcome (SUCCEEDED | FAILED | PARTIAL | TIMEOUT), absent
+   * until one is recorded. The lifecycle status folds PARTIAL into SUCCEEDED
+   * and TIMEOUT into FAILED, so what happened is read here (adr/0361).
+   */
+  outcome?: string;
   requiredMode: string;
   /** Who may complete a two-party approval, frozen at request time (adr/0099); absent for manual. */
   secondaryApproverPool?: string[];
@@ -890,6 +896,10 @@ export interface ActionRow {
   category?: string;
   /** When the request was edited before approval (adr/0127). */
   editedAt?: string;
+  /** When the action was requested (ISO): the Response timeline's order (adr/0361). */
+  requestedAt?: string;
+  /** When the primary approval was recorded (ISO); absent until approved (adr/0361). */
+  approvedAt?: string;
   /** The parameters an edit may set: the type's declared non-entity inputs. */
   inputs?: { name: string; required: boolean }[];
   /** Lineage: the FAILED/EXPIRED action this request replaces. */

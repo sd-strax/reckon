@@ -224,6 +224,12 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 		case aggregate.ActionDispatched:
 			entry.Detail = "via " + p.Adapter
 		case aggregate.ActionResulted:
+			// The recorded outcome, by the rule the action list applies: the
+			// latest action.resulted or action.outcome_resolved, in sequence
+			// order, so the list row and the record never disagree (adr/0361).
+			if p.ActionID == actionID {
+				out.Action.Outcome = p.FinalOutcome
+			}
 			res := &ActionResultView{
 				FinalOutcome: p.FinalOutcome, Attempts: p.Attempts, Adapter: p.Adapter,
 				ErrorDetail: p.ErrorDetail, RawResponseRef: p.RawResponseRef,
@@ -251,6 +257,9 @@ func (b *Backend) loadActionRecord(ctx context.Context, actionID uuid.UUID) (Act
 		case aggregate.ActionOutcomeUnknown:
 			entry.Detail = p.Detail
 		case aggregate.ActionOutcomeResolved:
+			if p.ActionID == actionID {
+				out.Action.Outcome = p.Outcome
+			}
 			by := ActionApproverView{Principal: actor.PrincipalID, Name: actor.PrincipalName, At: e.OccurredAt}
 			out.Resolution = &ActionResolutionView{
 				Outcome: p.Outcome, Note: p.Note, Reference: p.Reference, Artifact: p.Artifact, By: by,

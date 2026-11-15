@@ -37,6 +37,7 @@ describe("the approval fact on a card", () => {
   it("keeps the settled words once decided", () => {
     expect(approvalFact(row({ status: "APPROVED", pending: false }))).toBe("approved");
     expect(approvalFact(row({ status: "REJECTED", pending: false }))).toBe("rejected");
-    expect(approvalFact(row({ status: "EXPIRED", pending: false, expired: true }))).toBe("—");
+    expect(approvalFact(row({ status: "EXPIRED", pending: false, expired: true }))).toBe("expired");
+    expect(approvalFact(row({ status: "FAILED", pending: false }))).toBe("approved"); // it was dispatched (adr/0361)
   });
 });

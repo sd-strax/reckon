@@ -6,6 +6,7 @@ import { dependencyLive } from "./dependencies";
 import { isEntityRef } from "../refs";
 import { terminal, isNotify } from "./stage";
 import { hypName, outstanding } from "./hyps";
+import { awaitsDecision, outcomeStatus } from "./actions";
 
 export interface KeyEntity {
   ref: string;
@@ -42,7 +43,8 @@ export function keyEntities(seed: Seed | undefined, thread: ThreadEntry[], pins:
     for (const a of onIt) {
       const words = ACTION_WORDS[a.actionType];
       if (!words) continue;
-      if (a.status === "SUCCEEDED") status = words[1];
+      // A partial outcome never reads as done (adr/0361).
+      if (outcomeStatus(a) === "SUCCEEDED") status = words[1];
       else if (!terminal(a) && !status) status = words[0];
     }
     const role = seed?.entityRef === ref ? "seed subject" : onIt.length ? "action target" : "cited";
@@ -89,6 +91,25 @@ export function proceduresCited(thread: ThreadEntry[]): { sopId: string; title: 
   return [...seen].map(([sopId, title]) => ({ sopId, title }));
 }
 
+/** What a partial or timed-out send says on the Notification tile (adr/0361):
+ * some recipients were notified, or the tool never answered. Keyed by
+ * outcomeStatus. */
+const NOTIFY_WORDS: Record<string, string> = {
+  PARTIAL: "partly notified",
+  TIMEOUT: "notification unconfirmed",
+};
+
+/** The Notification tile's word (08 §8.4), first that applies: notified by a
+ * full send, a request awaiting approval, a partial send, a send the tool
+ * never answered, else not yet notified (a failed send included). */
+export function notificationWord(notify: ActionRow[]): string {
+  const outcomes = notify.map(outcomeStatus);
+  if (outcomes.includes("SUCCEEDED")) return "notified";
+  if (notify.some(awaitsDecision)) return "awaiting approval";
+  for (const [outcome, word] of Object.entries(NOTIFY_WORDS)) if (outcomes.includes(outcome)) return word;
+  return "not yet notified";
+}
+
 /** The handoff note (08 §8.4 Summary): the facts, as text, for the clipboard. */
 export function handoffNote(title: string, verdict: Verdict | null | undefined, actions: ActionRow[], todo: TodoItem[], hs: Hypothesis[], cited: { title: string }[], narrative?: string): string {
   const lines: string[] = [title, ""];
@@ -99,7 +120,7 @@ export function handoffNote(title: string, verdict: Verdict | null | undefined, 
   if (live.length) lines.push("Hypotheses: " + live.map((h) => `${hypName(h, hs)} ${h.status}`).join("; "));
   if (actions.length) {
     lines.push("Actions:");
-    for (const a of actions) lines.push(`- ${a.actionType} → ${a.targets.join(", ")}: ${a.pending ? a.pendingLabel : a.status}${a.resultRef ? " (" + a.resultRef + ")" : ""}`);
+    for (const a of actions) lines.push(`- ${a.actionType} → ${a.targets.join(", ")}: ${a.pending ? a.pendingLabel : outcomeStatus(a)}${a.resultRef ? " (" + a.resultRef + ")" : ""}`);
   }
   if (cited.length) lines.push("Procedures cited: " + cited.map((f) => f.title).join(", "));
   if (todo.length) {
