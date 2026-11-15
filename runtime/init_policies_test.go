@@ -37,15 +37,14 @@ func TestInit_SeedsInstallPolicies(t *testing.T) {
 	}
 }
 
-// TestInit_ExistingInstallWithoutPolicyDir: re-running init on an install that
-// predates the shipped policies seeds them and sets policy_dir; a later re-run
-// writes nothing.
-func TestInit_ExistingInstallWithoutPolicyDir(t *testing.T) {
+// TestInit_ExistingInstallKeepsEmptyPolicyDir: re-running init on an install
+// with no policy_dir changes nothing about policies (adr/0374): the setting
+// stays empty, no policies directory is written, and nothing is seeded.
+func TestInit_ExistingInstallKeepsEmptyPolicyDir(t *testing.T) {
 	path := withConfigEnv(t)
 	if _, err := Init(promptStub()); err != nil {
 		t.Fatal(err)
 	}
-	// Turn it into an install from before this change.
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +53,8 @@ func TestInit_ExistingInstallWithoutPolicyDir(t *testing.T) {
 	if err := config.Overwrite(cfg, path); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.RemoveAll(filepath.Join(filepath.Dir(path), "policies")); err != nil {
+	policyDir := filepath.Join(filepath.Dir(path), "policies")
+	if err := os.RemoveAll(policyDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -62,19 +62,14 @@ func TestInit_ExistingInstallWithoutPolicyDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("re-init: %v", err)
 	}
-	if !res.AlreadyExisted || len(res.PoliciesSeeded) == 0 || res.PolicyDir == "" {
-		t.Fatalf("re-init = %+v; want the policies seeded on the existing install", res)
+	if !res.AlreadyExisted || res.PolicyDir != "" || len(res.PoliciesSeeded) != 0 {
+		t.Errorf("re-init = dir %q seeded %v existed %v; want an existing install with no policy dir and nothing seeded", res.PolicyDir, res.PoliciesSeeded, res.AlreadyExisted)
 	}
-	if cfg, _ = config.Load(); cfg.Capability.PolicyDir != res.PolicyDir {
-		t.Errorf("config policy_dir = %q; want %q", cfg.Capability.PolicyDir, res.PolicyDir)
+	if cfg, _ = config.Load(); cfg.Capability.PolicyDir != "" {
+		t.Errorf("config policy_dir = %q; want it left empty", cfg.Capability.PolicyDir)
 	}
-
-	again, err := Init(promptStub())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(again.PoliciesSeeded) != 0 {
-		t.Errorf("third init seeded %v; want nothing", again.PoliciesSeeded)
+	if _, err := os.Stat(policyDir); !os.IsNotExist(err) {
+		t.Errorf("re-init wrote %s (stat err %v); want no policies directory", policyDir, err)
 	}
 }
 

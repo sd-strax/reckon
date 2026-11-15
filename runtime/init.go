@@ -70,29 +70,27 @@ type InitResult struct {
 	PostgresExternal      bool
 
 	// PolicyDir is the Gate 2 policy directory the config points at after
-	// init. PoliciesSeeded lists the policy files THIS run wrote into it
-	// (adr/0374): all of them on a fresh install, any missing ones on an
-	// existing install that had no policy_dir, none otherwise.
+	// init; empty when an existing install has none. PoliciesSeeded lists the
+	// policy files THIS run wrote into it (adr/0374): all of them on a fresh
+	// install, none on an existing one.
 	PolicyDir      string
 	PoliciesSeeded []string
 }
 
-// Init performs first-run setup: it writes a default config to the resolved
-// config path (the same path `reckon start` will read), minting a FRESH tenant
-// identity namespace (03 §7.1) unique to this install rather than the shared
-// fixed default — so deterministic STIX ids computed here never collide with
-// another install's. It refuses to clobber an existing config (returns it with
-// AlreadyExisted set), so re-running init is a safe no-op.
+// Init performs first-run setup at the resolved config path (the same path
+// `reckon start` will read). On a fresh install it writes a default config
+// with a FRESH tenant identity namespace (03 §7.1) unique to this install, so
+// deterministic STIX ids computed here never collide with another install's;
+// it provisions the install's secrets beside the config; and it writes the
+// shipped Gate 2 policies (adr/0374) into <install>/policies and points
+// capability.policy_dir at them. The install is fixture-free: the bundled demo
+// world is opt-in via `reckon demo seed`.
 //
-// It also seeds the bundled demo: the fixture scenario JSON and a merged
-// capability+action tenant config are materialized under the config directory,
-// and the config is pointed at them, so a fresh install serves /api/capabilities
-// and can run the fixture action path with no further setup. Seeding writes only
-// its own files (never the config.yaml Save guards) and lands beside the config,
-// so it is isolated from other installs.
+// On an existing install the config is never changed (AlreadyExisted is set):
+// only missing secrets are provisioned, and no policy is written.
 //
 // Interactive Keycloak login is the surface's job; this owns the deterministic,
-// testable core (config + namespace + demo content) the login builds on.
+// testable core (config + namespace + secrets + policies) the login builds on.
 func Init(opts InitOptions) (InitResult, error) {
 	path, err := config.DefaultPath()
 	if err != nil {
@@ -113,23 +111,8 @@ func Init(opts InitOptions) (InitResult, error) {
 		if serr != nil {
 			return InitResult{}, serr
 		}
-		// An install from before the shipped policies has no policy_dir: give
-		// it the same one a fresh install gets. One whose policy_dir is set is
-		// the operator's, and left alone.
-		var seeded []string
-		if cfg.Capability.PolicyDir == "" {
-			dir := filepath.Join(filepath.Dir(path), reckon.InstallPoliciesDir)
-			if seeded, serr = seedInstallPolicies(dir); serr != nil {
-				return InitResult{}, serr
-			}
-			cfg.Capability.PolicyDir = dir
-			if serr = config.Overwrite(cfg, path); serr != nil {
-				return InitResult{}, fmt.Errorf("write config: %w", serr)
-			}
-		}
 		return InitResult{
 			PolicyDir:                 cfg.Capability.PolicyDir,
-			PoliciesSeeded:            seeded,
 			ConfigPath:                path,
 			TenantNamespace:           cfg.Capability.TenantNamespace,
 			DataDir:                   cfg.Data.Dir,

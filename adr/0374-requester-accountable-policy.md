@@ -17,7 +17,8 @@ Two rules bound the answer:
 - A `requester` policy fires only for a `HUMAN` requester with a principal id. `Gate2.Evaluate` enforces this, so no predicate can credit the principal behind an AI-delegated request. The policy evaluation records `would_have_fired: false` for such a request.
 - `requester` is valid only on `AUTO_APPROVE`. `NewGate2` refuses it on other effects, and refuses any unknown value.
 - The binary embeds `policies/ticket-own-auto-approve.policy.yaml`. It matches `ticket.*`, its predicate is `requested_by.kind == "HUMAN" && tier == "T2"`, and it has `accountable: requester`.
-- `reckon init` writes the embedded policies to `<install>/policies/` and sets `capability.policy_dir`. On an existing install with no `policy_dir`, re-running `reckon init` does the same. It never changes a `policy_dir` that is set, and it never overwrites a policy file that exists.
+- A fresh `reckon init` writes the embedded policies to `<install>/policies/` and sets `capability.policy_dir`. Re-running `reckon init` on an existing install changes nothing in its policies or config. When that install has no `policy_dir`, init prints how to turn the policy on, followed by the policy's text. The file exists only in the binary, so a binary or container install has no other copy to start from.
+- Gate 2 always evaluates an action as its requester asked for it. When an action is edited before approval, the evaluation uses the requester's kind and principal from the request, not the editor's. So a person editing an agent's request never makes a requester policy match it, and the AI-no-T3 baseline still applies to an edited AI request.
 
 What still needs a person's click:
 
@@ -29,6 +30,7 @@ What still needs a person's click:
 
 - **Credit a fixed install user.** The user's id is not known at init time, and every ticket would name one person who never saw it.
 - **Build the policy into the engine like the baseline DENY.** Tenant policies are files the tenant owns, edits, shadows and deletes (`design/04` §4.1). A built-in approval could not be turned off the same way.
+- **Add the policy to existing installs on re-init.** An empty `policy_dir` can mean "not yet" or "no", and init cannot tell which. The rewrite would also activate any other files already in the directory, and save environment overrides and defaults into `config.yaml`.
 - **Leave the guard to the predicate.** A predicate is tenant text. A requester policy without the `HUMAN` check would credit a person with an approval they never gave.
 - **Drop the tier guard.** Blast radius drives the trust tier. Mass ticketing is the case the escalator exists for.
 
@@ -36,4 +38,4 @@ What still needs a person's click:
 
 - An install's own ticketing works without a click once a ticketing write binding is configured. With no capability config, the action layer stays off, as before.
 - An operator who wants every ticket approved by hand sets `shadow: true` on the file or deletes it. Deleting the directory also needs `policy_dir` cleared, because a missing policy directory fails startup.
-- On an existing install, re-running `reckon init` rewrites `config.yaml` to add `policy_dir`, the same way `reckon demo seed` rewrites it.
+- An existing install opts in by hand: save the printed policy into a directory and set `policy_dir`. Init does not do this for an existing install. An empty `policy_dir` is the documented baseline-only setting, and an operator may have chosen it. Init also runs on every container boot, so changing an existing install there would undo that choice each time.

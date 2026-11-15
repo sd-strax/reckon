@@ -5,15 +5,18 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	reckon "github.com/sd-strax/reckon"
 	"github.com/sd-strax/reckon/config"
 	"github.com/sd-strax/reckon/internal/branding"
 	"github.com/sd-strax/reckon/internal/secrets"
@@ -212,6 +215,10 @@ func runInit(args []string) error {
 	}
 
 	printPolicies := func() {
+		if res.PolicyDir == "" {
+			printPolicyHint()
+			return
+		}
 		fmt.Printf("  policies:  %s\n", res.PolicyDir)
 		for _, p := range res.PoliciesSeeded {
 			fmt.Printf("    added %s\n", filepath.Base(p))
@@ -242,6 +249,52 @@ func runInit(args []string) error {
 	fmt.Printf("  2. %s dev-auth              — provision a local dev login (the shipped realm carries no credentials)\n", branding.CLI)
 	fmt.Printf("  3. %s demo seed             — (optional) populate the bundled demo world on fixtures to test-drive; `%s demo reset` wipes it later\n", branding.CLI, branding.CLI)
 	return nil
+}
+
+// printPolicyHint tells an existing install with no policy_dir how to turn on
+// the shipped Gate 2 policies. Init never changes an existing install's
+// policies (adr/0374), and a binary or container install has no source tree,
+// so the hint prints each embedded policy for the operator to save. If the
+// embed cannot be read, the hint is printed without the text.
+func printPolicyHint() {
+	type policyFile struct{ name, text string }
+	var files []policyFile
+	entries, err := fs.ReadDir(reckon.InstallPoliciesFS, reckon.InstallPoliciesDir)
+	if err == nil {
+		for _, ent := range entries {
+			if ent.IsDir() {
+				continue
+			}
+			data, rerr := fs.ReadFile(reckon.InstallPoliciesFS, path.Join(reckon.InstallPoliciesDir, ent.Name()))
+			if rerr != nil {
+				files = nil
+				break
+			}
+			files = append(files, policyFile{ent.Name(), string(data)})
+		}
+	}
+
+	const lead = "  policies:  none. This install has no Gate 2 policies. To approve a person's own ticketing, "
+	switch len(files) {
+	case 0:
+		fmt.Println(lead + "save the shipped policy in a directory and set capability.policy_dir to it.")
+		return
+	case 1:
+		fmt.Printf("%ssave the policy below as %s in a directory and set capability.policy_dir to it.\n", lead, files[0].name)
+	default:
+		fmt.Println(lead + "save each policy below under its name in a directory and set capability.policy_dir to it.")
+	}
+	for _, f := range files {
+		fmt.Printf("\n    --- %s ---\n", f.name)
+		for _, line := range strings.Split(strings.TrimRight(f.text, "\n"), "\n") {
+			if line == "" {
+				fmt.Println()
+				continue
+			}
+			fmt.Printf("    %s\n", line)
+		}
+	}
+	fmt.Println()
 }
 
 // runStatus queries the running supervisor's /status endpoint and prints

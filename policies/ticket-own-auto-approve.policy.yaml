@@ -1,4 +1,4 @@
-# Installed by `reckon init` into the install's capability.policy_dir (adr/0374).
+# Shipped with reckon (adr/0374). A fresh `reckon init` writes it into the install's capability.policy_dir.
 #
 # A person's own ticketing is approved when they request it: the ticket.*
 # actions a signed-in person requests are auto-approved and credited to that
