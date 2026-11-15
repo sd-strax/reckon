@@ -1,6 +1,6 @@
 # 0376 — `request_action` is a strict tool, and the loop no longer repairs its parameters
 
-Issue: #376 · PR: pending · Status: accepted
+Issue: #376 · PR: #379 · Status: accepted
 
 ## Context
 
