@@ -61,11 +61,14 @@ type Message struct {
 func TextBlock(s string) ContentBlock { return ContentBlock{Type: BlockText, Text: s} }
 
 // ToolDef is one tool advertised to the model. InputSchema is a JSON Schema
-// object (the provider adapters pass it through verbatim).
+// object (the provider adapters pass it through verbatim). Strict asks the
+// provider to hold the model's input to InputSchema (adr/0376). It is omitted
+// when false, so a tool that is not strict hashes as it did before the field.
 type ToolDef struct {
 	Name        string
 	Description string
 	InputSchema map[string]any
+	Strict      bool `json:",omitempty"`
 }
 
 // Stop reasons.

@@ -138,24 +138,30 @@ Treat this observability as first-class: when an agent claim smells wrong,
 query the ledger before theorizing. The side stores exist for compliance
 (`design/02`), but their day-to-day value is exactly this.
 
-## 7. Be liberal in what the loop accepts from the model, strict toward the engine
+## 7. Hold the model's payload to the schema; do not repair it
 
-Models malform tool payloads under long context — observed repeatedly as
-`request_action.parameters` emitted as a *stringified* JSON object, once with
-a stray trailing `]` (`"{…}]"`). Two mechanisms:
+Models malform tool payloads under long context. This was observed
+repeatedly as `request_action.parameters` emitted as a *stringified* JSON
+object, and sometimes with a stray closing bracket or brace after it
+(`"{…}]"`). The loop used to unwrap and repair such a string. That repair
+guessed at what the model meant, and it hid the fault from the H5 grader.
+It is gone (adr/0376). Two mechanisms replace it:
 
-- **Salvage, don't drop** (`agent/tools.go` `UnwrapStringifiedObject`): unwrap
-  a stringified object; decode the *first complete object* with a streaming
-  decoder so trailing junk doesn't kill it; re-marshal clean. A benign
-  double-encoding must cost nothing; before the trailing-junk fix, every
-  ticket request in a session died silently at validation.
-- **Prevent, via schema shape** (`parametersSchema`): a bare
-  `{"type":"object"}` with no properties is precisely what teaches a model to
-  emit the field as a string blob. Enumerate real properties from the action
-  catalog. (Found by the eval harness's H6 assertion — `design/10`.)
+- **Prevent, via a strict schema** (`parametersSchema`, `defineTool`):
+  `request_action` is sent with `strict: true`, so the API holds the model's
+  input to the schema. `parameters` is one closed object per action type.
+  Every key is required, and a key with no value is written as `null`. The
+  loop drops the `null` keys before the request goes to the engine. A strict
+  schema with an optional key loses values: strict mode writes keys in order
+  and cannot go back for a skipped one. A catalog past the API's strict
+  limits is sent with the same schema and no strict flag.
+- **Refuse, at the engine** (`action.validateParameters`): a `parameters`
+  that is not an object, or that has an unknown key or lacks a required one,
+  is refused before anything is recorded. This is the floor wherever strict
+  mode is not in force, and when a response is cut off.
 
-And when a payload is still bad, the error goes back to the model as a tool
-result — the observed behavior is that it self-corrects on the retry. Failing
+When a payload is still bad, the error goes back to the model as a tool
+result. The observed behavior is that it self-corrects on the retry. Failing
 loudly *to the model* is part of the loop contract.
 
 ## 8. Ground-truth tools must exist — but expect them to be ignored
@@ -234,7 +240,7 @@ CLI binary and respawn the sidecar (reload the workbench window); verify with
 
 Every lesson here started as a live incident. The eval harness
 (`design/10`, `eval/`) is where they stop being anecdotes: the
-stringified-parameters salvage traces to its H6 finding, and the
+strict `request_action` schema traces to its H6 finding, and the
 narrative-poisoning defenses of §2–§3 now graduate into assertions
 (`eval/graders.go`, catalogue `v0.7`):
 

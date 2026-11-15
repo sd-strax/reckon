@@ -380,3 +380,38 @@ func TestAnthropic_RetryBudgetExhausted(t *testing.T) {
 		t.Errorf("attempts = %d; want 3 (initial + MaxRetries)", n)
 	}
 }
+
+// TestAnthropic_StrictOnTheWire: a strict tool carries strict: true; a tool
+// that is not strict carries no strict field at all (adr/0376).
+func TestAnthropic_StrictOnTheWire(t *testing.T) {
+	var raw []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`))
+	}))
+	defer srv.Close()
+	a := &Anthropic{APIKey: "k", BaseURL: srv.URL, DisableCaching: true}
+	_, err := a.Complete(context.Background(), CompleteRequest{
+		MaxTokens: 16,
+		Messages:  []Message{{Role: RoleUser, Content: []ContentBlock{TextBlock("hi")}}},
+		Tools: []ToolDef{
+			{Name: "strict_tool", InputSchema: map[string]any{"type": "object"}, Strict: true},
+			{Name: "plain_tool", InputSchema: map[string]any{"type": "object"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	var wire struct {
+		Tools []map[string]any `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil || len(wire.Tools) != 2 {
+		t.Fatalf("tools on the wire: %s (%v)", raw, err)
+	}
+	if wire.Tools[0]["strict"] != true {
+		t.Errorf("strict tool = %v; want strict: true", wire.Tools[0])
+	}
+	if _, ok := wire.Tools[1]["strict"]; ok {
+		t.Errorf("plain tool = %v; want no strict field", wire.Tools[1])
+	}
+}
