@@ -75,7 +75,7 @@ func TestTurn_ModelFailureCommitsTurn(t *testing.T) {
 	llm := &erroringLLM{
 		scriptedLLM: scriptedLLM{script: []CompleteResponse{
 			{StopReason: StopToolUse, Content: []ContentBlock{
-				toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
+				toolUse("t1", isolateTool, `{"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
 			}},
 		}},
 		err: errors.New("provider overloaded"),
@@ -91,7 +91,7 @@ func TestTurn_ModelFailureCommitsTurn(t *testing.T) {
 		t.Fatalf("turn commits = %d; want 1", len(commits))
 	}
 	body := commits[0].Transcript.Body
-	for _, want := range []string{"[user] contain H1", "[tool_use request_action id=t1]", "[engine] turn ended early: model call failed: provider overloaded"} {
+	for _, want := range []string{"[user] contain H1", "[tool_use request_host_isolate id=t1]", "[engine] turn ended early: model call failed: provider overloaded"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("transcript lacks %q:\n%s", want, body)
 		}
@@ -100,7 +100,7 @@ func TestTurn_ModelFailureCommitsTurn(t *testing.T) {
 		t.Errorf("rationale = %q", commits[0].Rationale)
 	}
 	if len(commits[0].ToolCalls) != 1 {
-		t.Errorf("tool calls = %+v; want the request_action", commits[0].ToolCalls)
+		t.Errorf("tool calls = %+v; want the isolate request", commits[0].ToolCalls)
 	}
 	if res.InterpretationID == "" || res.Transcript != body {
 		t.Errorf("result: interpretation %q, transcript matches commit %v", res.InterpretationID, res.Transcript == body)
@@ -134,7 +134,7 @@ func TestTurn_CancelCommitsTurn(t *testing.T) {
 	llm := &cancellingLLM{
 		scriptedLLM: scriptedLLM{script: []CompleteResponse{
 			{StopReason: StopToolUse, Content: []ContentBlock{
-				toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
+				toolUse("t1", isolateTool, `{"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
 			}},
 		}},
 		cancel: cancel,
@@ -162,11 +162,11 @@ func TestTurn_CancelLetsDispatchedToolFinish(t *testing.T) {
 	f := newFakeBackend(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	action := `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
+	action := `{"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
 	llm := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopToolUse, Content: []ContentBlock{
-			toolUse("t1", ToolRequestAction, action),
-			toolUse("t2", ToolRequestAction, action),
+			toolUse("t1", isolateTool, action),
+			toolUse("t2", isolateTool, action),
 		}},
 	}}
 	s := commitSession(t, f, llm)
@@ -221,11 +221,11 @@ func TestTurn_TimeLimitNamedOnSkippedTools(t *testing.T) {
 	f := newFakeBackend(t)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	action := `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
+	action := `{"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`
 	s := commitSession(t, f, &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopToolUse, Content: []ContentBlock{
-			toolUse("t1", ToolRequestAction, action),
-			toolUse("t2", ToolRequestAction, action),
+			toolUse("t1", isolateTool, action),
+			toolUse("t2", isolateTool, action),
 		}},
 	}})
 	s.hooks.OnToolCall = func(string, json.RawMessage) { cancel(ErrTurnTimedOut) }

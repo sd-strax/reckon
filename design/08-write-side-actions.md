@@ -77,8 +77,12 @@ request_action(
 **The agent reaches it through one tool per action type** (adr/0380), as it reaches the read side
 through one tool per verb (`03 §6.3`). The model never writes `request_action` itself.
 
-- **One tool per requestable type.** The agent loop builds a tool for each action type in the
-  session's frozen catalog whose status is available or degraded. An unavailable type gets no tool.
+- **One tool per action type.** The agent loop builds a tool for each action type in the
+  session's frozen catalog. An unavailable type's tool says it cannot be carried out in this install.
+  `POST /api/actions` refuses a request for a type with no usable binding, live, before anything is
+  recorded (422); the re-request and reversal paths do the same, after a reversal's own checks. A
+  usable binding has a configured, enabled adapter and a matching scope; health does not count, so a
+  degraded type is accepted. The catalog, which has no request scope, marks a type unavailable when no binding has a configured, enabled adapter.
   The tool is named `request_` followed by the action type with each `.` written as `_`
   (`ticket.create` → `request_ticket_create`). Tool building fails when two names collide.
 - **Inputs at the top level.** A tool's properties are its type's non-entity inputs (`§3`), with the
@@ -86,17 +90,21 @@ through one tool per verb (`03 §6.3`). The model never writes `request_action` 
   request shares: `targets`, `rationale`, `evidence_refs` (required) and `retry_of` (optional).
   There is no nested `parameters` object in the tool.
 - **The loop builds the request.** Every action tool runs one handler. It takes `action_type` from
-  the tool, gathers the declared input keys into `parameters`, drops a `null` value for a declared
-  optional input, and sends `request_action`. The engine validates it against `§3` as for any
-  caller.
+  the tool, puts every key that is not a shared field into `parameters`, drops a `null` value for a
+  declared optional input, and sends `request_action`. The engine validates it against `§3` as for
+  any caller, so an undeclared key is refused by name.
 - **The description comes from the descriptor.** It holds the descriptor's `Intent`, tier and
   reversibility, "degraded" when that is the type's status, and the guidance every request shares:
   the request goes through authorization, the agent proposes and never approves, and it must cite
-  evidence. One line names the action types with no tool wired, so the agent can say one has to be
-  done by hand.
+  evidence. An unavailable type's description says it cannot be carried out in this install and
+  leaves the guidance out.
 - **No catalog, no action tools.** With the action layer off, the catalog and `POST /api/actions`
-  both answer 503, so the session offers no action tools. Any other error from the catalog fetch
-  fails the session start.
+  both answer 503, so the session offers no action tools. The loop tries the fetch up to three
+  times before it reads a 503 that way. Any other error that survives the retries fails the session
+  start.
+- **The eval record keeps the tool list.** The session exposes the tools it built, each with its
+  kind and, for an action tool, its action type. The eval's trial record keeps that list, and the
+  graders look each call up in it, never at the tool name's prefix (`design/10 §3`).
 - **Plain JSON Schema.** The tool definitions use no provider-specific schema features and no
   strict decoding. A malformed call is refused by the engine's validation, and the model sends it
   again.

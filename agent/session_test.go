@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -193,6 +194,10 @@ func (f *fakeBackend) callsTo(path string) []recordedCall {
 	return out
 }
 
+// isolateTool is the action tool of host.isolate, the one requestable type in
+// the fake backend's catalog.
+const isolateTool = "request_host_isolate"
+
 func toolUse(id, name, input string) ContentBlock {
 	return ContentBlock{Type: BlockToolUse, ToolUseID: id, ToolName: name, Input: json.RawMessage(input)}
 }
@@ -214,7 +219,7 @@ func TestSession_ToolAssembly(t *testing.T) {
 		names[d.Name] = true
 	}
 	for _, want := range []string{"enumerate_logons", ToolRecallSOPs, ToolRecallSimilar, ToolProposeHypothesis,
-		ToolRecordPrediction, ToolEvaluateHypothesis, ToolRecordPredictionOutcome, ToolRequestAction,
+		ToolRecordPrediction, ToolEvaluateHypothesis, ToolRecordPredictionOutcome, isolateTool,
 		ToolListActions} {
 		if !names[want] {
 			t.Errorf("tool %q missing from set %v", want, names)
@@ -229,78 +234,11 @@ func TestSession_ToolAssembly(t *testing.T) {
 		t.Error("system prompt missing investigation title or degraded-verb note")
 	}
 
-	// request_action is shaped by the write catalog: its action_type is a hard
-	// enum of the real types, and its description enumerates them — so the model
-	// cannot invent an action_type (the road-test failure).
-	var reqAction ToolDef
-	for _, d := range s.Tools() {
-		if d.Name == ToolRequestAction {
-			reqAction = d
-		}
-	}
-	props, _ := reqAction.InputSchema["properties"].(map[string]any)
-	at, _ := props["action_type"].(map[string]any)
-	enum, _ := at["enum"].([]string)
-	// The hard enum admits only requestable types: host.isolate is available;
-	// ioc.block is unavailable (no tool wired), so it is trimmed from the enum
-	// even though the description still enumerates it as unavailable.
-	gotEnum := strings.Join(enum, ",")
-	if len(enum) != 1 || !strings.Contains(gotEnum, "host.isolate") {
-		t.Fatalf("action_type enum = %v; want only the available type host.isolate", at["enum"])
-	}
-	if strings.Contains(gotEnum, "ioc.block") {
-		t.Errorf("action_type enum = %q; unavailable ioc.block must not be requestable", gotEnum)
-	}
-	if !strings.Contains(reqAction.Description, "ioc.block") || !strings.Contains(reqAction.Description, "unavailable") {
-		t.Errorf("request_action description should enumerate ioc.block and mark its unavailability:\n%s", reqAction.Description)
-	}
-}
-
-// TestRequestActionDescription_Parameters: the description surfaces each
-// type's declared non-entity inputs — the parameters vocabulary the backend
-// validates — so the model cannot invent keys ("title" for ticket.create's
-// "summary", the eval-harness finding). Entity inputs ride targets and are
-// omitted.
-func TestRequestActionDescription_Parameters(t *testing.T) {
-	var ticket ActionType
-	ticket.Descriptor.ActionType = "ticket.create"
-	ticket.Descriptor.Intent = "Open a ticket."
-	ticket.Descriptor.Inputs = []ActionInput{
-		{Name: "summary", Type: "string", Required: true},
-		{Name: "description", Type: "string"},
-	}
-	ticket.Status = "available"
-
-	var isolate ActionType
-	isolate.Descriptor.ActionType = "host.isolate"
-	isolate.Descriptor.Intent = "Isolate a host."
-	isolate.Descriptor.Inputs = []ActionInput{{Name: "host", Type: "entity", Required: true}}
-	isolate.Status = "available"
-
-	desc := requestActionDescription([]ActionType{ticket, isolate})
-	if !strings.Contains(desc, "summary (required)") || !strings.Contains(desc, "description") {
-		t.Errorf("description should list ticket.create's parameter vocabulary:\n%s", desc)
-	}
-	if strings.Contains(desc, "host (required)") {
-		t.Errorf("entity inputs ride targets and must not be listed as parameters:\n%s", desc)
-	}
-
-	// The `parameters` schema has one closed shape per action type (adr/0376).
-	// Entity inputs are excluded, so host.isolate takes the empty shape.
-	schema := parametersSchema([]ActionType{ticket, isolate})
-	shapes, ok := schema["anyOf"].([]any)
-	if !ok || len(shapes) != 2 {
-		t.Fatalf("parameters schema = %+v; want two shapes under anyOf", schema)
-	}
-	props := shapes[0].(map[string]any)["properties"].(map[string]any)
-	if _, ok := props["summary"]; !ok {
-		t.Errorf("ticket.create shape missing 'summary': %+v", props)
-	}
-	if empty := shapes[1].(map[string]any)["properties"].(map[string]any); len(empty) != 0 {
-		t.Errorf("entity input 'host' must not appear in parameters: %+v", empty)
-	}
-	if d, _ := schema["description"].(string); !strings.Contains(d, "never a JSON string") {
-		t.Errorf("parameters description should warn against stringifying: %q", d)
+	// The write catalog gives one tool per type (adr/0380): host.isolate is
+	// available, and unavailable ioc.block has a tool too, which refuses its
+	// calls.
+	if !names[actionToolName("ioc.block")] {
+		t.Error("unavailable ioc.block has no tool")
 	}
 }
 
@@ -319,7 +257,7 @@ func TestSession_Turn(t *testing.T) {
 			toolUse("t2", ToolProposeHypothesis, `{"statement":"RDP lateral movement to H1","rationale":"successful remote logons cite observed-data--od1","labels":["T1021.001"]}`),
 		}},
 		{StopReason: StopToolUse, Content: []ContentBlock{
-			toolUse("t3", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain lateral movement","evidence_refs":["observed-data--od1"]}`),
+			toolUse("t3", isolateTool, `{"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain lateral movement","evidence_refs":["observed-data--od1"]}`),
 		}},
 		{StopReason: StopEndTurn, Content: []ContentBlock{
 			TextBlock("I found successful RDP logons, proposed a hypothesis, and requested isolation pending your approval."),
@@ -388,7 +326,7 @@ func TestSession_Turn(t *testing.T) {
 	if summary.Transcript == nil || summary.Transcript.Body == "" {
 		t.Fatal("turn summary carries no transcript")
 	}
-	for _, want := range []string{"[user]", "enumerate_logons", ToolProposeHypothesis, ToolRequestAction, "[assistant]"} {
+	for _, want := range []string{"[user]", "enumerate_logons", ToolProposeHypothesis, isolateTool, "[assistant]"} {
 		if !strings.Contains(summary.Transcript.Body, want) {
 			t.Errorf("transcript missing %q", want)
 		}
@@ -492,7 +430,9 @@ func TestSession_Rehydrates(t *testing.T) {
 	llm := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("As I noted, svc_backup's RDP came from 10.0.4.20.")}},
 	}}
-	s, err := NewSession(context.Background(), Config{Backend: client, LLM: llm, InvestigationID: "inv-1"})
+	// The fake answers the catalog with a 503 every time: a tiny pause keeps
+	// the fetch's retries from sleeping.
+	s, err := NewSession(context.Background(), Config{Backend: client, LLM: llm, InvestigationID: "inv-1", CatalogRetryPause: time.Millisecond})
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
@@ -633,7 +573,7 @@ func TestSession_BackendRejectionFeedsModel(t *testing.T) {
 
 	llm := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopToolUse, Content: []ContentBlock{
-			toolUse("t1", ToolRequestAction, `{"action_type":"tenant.wipe","targets":[{"entity_ref":"x","resolved_identifier":"all"}],"rationale":"nope"}`),
+			toolUse("t1", isolateTool, `{"targets":[{"entity_ref":"x","resolved_identifier":"all"}],"rationale":"nope"}`),
 		}},
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("That action was denied by policy; here is why…")}},
 	}}
@@ -689,7 +629,7 @@ func TestSession_ModelFailureKeepsPendingActions(t *testing.T) {
 	llm := &erroringLLM{
 		scriptedLLM: scriptedLLM{script: []CompleteResponse{
 			{StopReason: StopToolUse, Content: []ContentBlock{
-				toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
+				toolUse("t1", isolateTool, `{"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
 			}},
 		}},
 		err: errors.New("provider overloaded"),
@@ -1715,7 +1655,7 @@ func TestSession_ReconcileNoop(t *testing.T) {
 }
 
 // TestSession_NoActionAttestation: a turn whose prose claims a creation but
-// made zero request_action calls gets the deterministic engine attestation —
+// made zero action tool calls gets the deterministic engine attestation —
 // the exact confabulation observed live (a "created and verified" narration on
 // a turn with no tool calls at all).
 func TestSession_NoActionAttestation(t *testing.T) {
@@ -1736,7 +1676,7 @@ func TestSession_NoActionAttestation(t *testing.T) {
 	// And a turn that REALLY requested an action gets no attestation.
 	llm2 := &scriptedLLM{script: []CompleteResponse{
 		{StopReason: StopToolUse, Content: []ContentBlock{
-			toolUse("t1", ToolRequestAction, `{"action_type":"host.isolate","targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
+			toolUse("t1", isolateTool, `{"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H1"}],"rationale":"contain"}`),
 		}},
 		{StopReason: StopEndTurn, Content: []ContentBlock{TextBlock("Requested isolation — the action is queued for your approval.")}},
 	}}
@@ -1949,30 +1889,23 @@ func TestTranscriptEscaping_RoundTrips(t *testing.T) {
 // lesson that the tool schema SHAPE drives model behavior). evidence_refs being
 // optional is exactly what let a live opus run omit it on a containment request;
 // the required + minItems:1 shape is load-bearing and must not silently revert.
+// Every action tool carries it (adr/0380).
 func TestRequestActionRequiresEvidence(t *testing.T) {
-	var schema map[string]any
-	for _, tl := range intrinsicTools(nil) {
-		if tl.def.Name == ToolRequestAction {
-			schema = tl.def.InputSchema
+	tools := exampleActionTools()
+	if len(tools) == 0 {
+		t.Fatal("the example catalog built no action tools")
+	}
+	for _, tl := range tools {
+		schema := tl.def.InputSchema
+		required, _ := schema["required"].([]string)
+		if !slices.Contains(required, "evidence_refs") {
+			t.Errorf("%s: evidence_refs must be REQUIRED; required=%v", tl.def.Name, required)
 		}
-	}
-	if schema == nil {
-		t.Fatal("request_action tool not found")
-	}
-	required, _ := schema["required"].([]string)
-	found := false
-	for _, r := range required {
-		if r == "evidence_refs" {
-			found = true
+		props, _ := schema["properties"].(map[string]any)
+		ev, _ := props["evidence_refs"].(map[string]any)
+		if mi, ok := ev["minItems"].(int); !ok || mi != 1 {
+			t.Errorf("%s: evidence_refs must set minItems:1; got %v", tl.def.Name, ev["minItems"])
 		}
-	}
-	if !found {
-		t.Errorf("evidence_refs must be REQUIRED on request_action; required=%v", required)
-	}
-	props, _ := schema["properties"].(map[string]any)
-	ev, _ := props["evidence_refs"].(map[string]any)
-	if mi, ok := ev["minItems"].(int); !ok || mi != 1 {
-		t.Errorf("evidence_refs must set minItems:1; got %v", ev["minItems"])
 	}
 }
 

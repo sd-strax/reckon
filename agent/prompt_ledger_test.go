@@ -22,8 +22,8 @@ var pointerRe = regexp.MustCompile(`^(#[1-9][0-9]*|[0-9a-f]{7})$`)
 // the text.
 func TestPrompt_Frozen(t *testing.T) {
 	golden := map[string]string{
-		framingLeadingNull: "eca05ffe884daa2c875deedd24c417ca0c9189e696b8058aa6f5e3f65d8ccdb2",
-		framingLeadingOnly: "ed0deeed909c18c081dac1cfe461dd72375056cb3e7d6bb263989cc0b720af11",
+		framingLeadingNull: "af7ee70c326c8ded5710c8cc0adb5c9363d55866b591a8f66b052ed362064097",
+		framingLeadingOnly: "95a0119c524c05e1e1203aba0de9b53075dc58b6efca60c10ce97ddba261bdde",
 	}
 	for dial, want := range golden {
 		if got := PromptVersion(dial); got != want {
@@ -48,7 +48,7 @@ func whatMoved(dial string) string {
 	switch {
 	case len(moved) == 0:
 		return "every component matches its golden, so their order changed: engineTexts, intrinsicTools, or the order promptComponents builds. If that is deliberate, update the golden; no text the model reads moved."
-	case !slices.ContainsFunc(moved, func(n string) bool { return n != "tools/request_action+catalog" && n != "tools/<verb>" }):
+	case !slices.ContainsFunc(moved, func(n string) bool { return !strings.HasSuffix(n, "+catalog") && n != "tools/<verb>" }):
 		return fmt.Sprintf("only %v moved: the catalog- and verb-shaped tool text, or the example fixtures it is rendered from (exampleCatalog, exampleVerb), which no model is shown. TestPrompt_ComponentsFrozen has the digests.", moved)
 	default:
 		return fmt.Sprintf("what the model is read changed: %v. If that is deliberate: update this golden and TestPrompt_ComponentsFrozen's, the ledger entry of what moved (Revised, and PendingValidation for a prompt rule), and rerun the per-model eval baselines (make eval; make eval-accept) — design/10 §4.4.", moved)
@@ -70,8 +70,8 @@ func TestSideInstructions_Frozen(t *testing.T) {
 // moved version says what moved: the prompt, a tool, an engine text, or a side
 // instruction.
 var componentGolden = map[string]string{
-	"prompt":                                           "c2e24727f5e9a3bc22f137131c145a5512f31fa27db377b86c251fe194e16426",
-	"prompt/leading_only":                              "d5d702615c6fe127a1f892954fd6190d5aca9a09bf25e26e49a1cb81f0c78ce7",
+	"prompt":                                           "0987b8620ea83488d83173368ea780b7f680c69b73429d6c6464bc5efbd96f18",
+	"prompt/leading_only":                              "f28b8ae8ae2b23864b1dc70ef38e475003f90a3a7e3272f9d87a3345eaeb9702",
 	"tools/recall_sops":                                "8c6809eb0dd1c94cbeb3a8e14fcae26eb627b2ca29785cc9b4fddfdcb347861c",
 	"tools/read_sop":                                   "d2a3d735e2d12528e5f651c56b8403778179d882ddb5a9405f88326d358a1b28",
 	"tools/recall_similar_investigations":              "013a01bbff06558a7d972be60d2e93248f23e54e71e1f5ce87196e800d45d711",
@@ -80,10 +80,11 @@ var componentGolden = map[string]string{
 	"tools/record_prediction":                          "dab8d176db49bd8468f80c619155c7d43eb98eaf43b3d2bc3d0c7fbc45ccd0ad",
 	"tools/evaluate_hypothesis":                        "6d7ba1b58f94d4dbc22f1f766efefe8793a260a99901a0f6d3fab5da3938f2be",
 	"tools/record_prediction_outcome":                  "1ca1335b3341d5ba553423d74b53b7960ae89b6d8078bc72fda2aa2c5605ad9e",
-	"tools/request_action":                             "51839db59ce2bf9e9f50e85e3840f49a3c9ab4161792d041de130d77008540a8",
 	"tools/list_actions":                               "149708b898187a9bf3a486e36bd969630944a5fa234e72a4c40cf1f90a77cbea",
 	"tools/read_result":                                "e8a77530cd8f75be5ce8c3d39c8fbc1a777defb2a5e04b4ee86e2b37e4fb4f3b",
-	"tools/request_action+catalog":                     "6eec601934af64097ebd22305190d8f39e621937b20fa054c5568b860fc89b26",
+	"tools/request_ticket_create+catalog":              "2000208dd097e1bb0c563f035cb7050d6389afd755641fd52d4573f913383ba4",
+	"tools/request_host_isolate+catalog":               "7030405d391ef564f1e7246617476a3cf504138cea14d4f0f317073e04f2bbe1",
+	"tools/request_ioc_block+catalog":                  "4665486edc22e829a81fa60594d8e1c3f3ad2b9d8c64d60b47b4d4c300977b31",
 	"tools/<verb>":                                     "795672a811bcaa201639fa7f3626615ddc873c0aa69c025d072486b773f95bf0",
 	"engine-text/clock":                                "9d82e0ccdff304d70aafa9f32ea959243dd87ef82b25b1919c0ea2ddde472f06",
 	"engine-text/reasoning-state":                      "e1aec4e82563e9898ba2876b6a9fa94d9bf4cc3842a259177a7b5c50cb1fed23",
@@ -125,6 +126,10 @@ var componentGolden = map[string]string{
 	"engine-text/prompt-seed":                          "3178d6e9524d98f221c086147a8136871db3c9de812e647af9583db25a66e14d",
 	"engine-text/prompt-case-seed":                     "f893878b496f92aecc358852953249550dffb9e9247ee93d1a0cba0a4f159abe",
 	"engine-text/prompt-degraded":                      "4dcc300552c6f82cff49a819b33069beacef67fa399d0ce3052292e14383d00b",
+	"engine-text/action-tool-guidance":                 "3719660b50d15c3161de7d44956e95e4cc861b977d73572697c3436874f42a4d",
+	"engine-text/action-tool-degraded":                 "eeecf7894d29e316071b613293c1d2193de17bf3b4bff50dadcdbad1036b11ce",
+	"engine-text/action-tool":                          "ef8e6aee59f6cdda0e3290ff7ecfebee426af66a27a5eb6d6024505f7acf6096",
+	"engine-text/action-tool-unavailable":              "c2e9905fd044cfb90f2b69526b4d439a600cda31407d85d90832895cf4a155bf",
 	"engine-text/list-separator":                       "0a07f659461970d8d8dcefe4fff96a1745599810dc7d47391e95c803b7b2072c",
 	"engine-text/clipped":                              "b4935894c8ce16bde67bbffc672428b1533c4f1e1e8b1ce21a2933183db6bfa5",
 	"side/summarize":                                   "876f69bf2774f065305f8afbadbaacbf00592ac42769161d64d3b5aadd8735e6",
@@ -205,7 +210,7 @@ func TestModelTextLedger_Complete(t *testing.T) {
 			}
 		}
 	}
-	for _, tl := range intrinsicTools(nil) {
+	for _, tl := range append(intrinsicTools(), exampleActionTools()...) {
 		checkPointers("tools/"+tl.def.Name, tl.origin, tl.revised)
 	}
 }

@@ -102,12 +102,12 @@ type selection struct {
 func (r *ActionResolver) selectBinding(req DispatchRequest) (selection, bool, error) {
 	tctx := dispatchContext(req)
 	for _, b := range sortedActionBindings(r.bindings[req.ActionType]) {
-		if !capability.ScopeApplicable(b.Scope, req.SourceScope) {
-			continue // §3.5: wrong organization's instance — not applicable, no dispatch
-		}
-		adapter, ok := r.adapters[b.Adapter]
+		// §3.5: a wrong organization's instance is not applicable, and an
+		// adapter not configured or enabled cannot carry it: try a
+		// lower-priority binding.
+		adapter, ok := r.usableFor(b, req.SourceScope)
 		if !ok {
-			continue // adapter not configured/enabled — try a lower-priority binding
+			continue
 		}
 		params, applicable, err := capability.RenderParams(b.Params, tctx)
 		if err != nil {
@@ -119,6 +119,38 @@ func (r *ActionResolver) selectBinding(req DispatchRequest) (selection, bool, er
 		return selection{binding: b, adapter: adapter, params: params}, true, nil
 	}
 	return selection{}, false, nil
+}
+
+// configuredAdapter returns the binding's adapter when that adapter is
+// configured and enabled: the resolver holds only enabled instances.
+func (r *ActionResolver) configuredAdapter(b ActionBinding) (WriteAdapter, bool) {
+	a, ok := r.adapters[b.Adapter]
+	return a, ok
+}
+
+// usableFor returns the binding's adapter when the binding could serve a
+// request in sourceScope: its scope matches (03 §3.5) and its adapter is
+// configured and enabled. Health is not checked.
+func (r *ActionResolver) usableFor(b ActionBinding, sourceScope string) (WriteAdapter, bool) {
+	if !capability.ScopeApplicable(b.Scope, sourceScope) {
+		return nil, false
+	}
+	return r.configuredAdapter(b)
+}
+
+// HasUsableBinding reports whether actionType has a usable binding for a
+// request in sourceScope: one whose adapter is configured and enabled and
+// whose scope matches, the rule dispatch's selection skips bindings by
+// (adr/0380). Health is not checked and no adapter is probed. A type with
+// none cannot be carried out in this install, and the engine refuses its
+// requests.
+func (r *ActionResolver) HasUsableBinding(actionType, sourceScope string) bool {
+	for _, b := range r.bindings[actionType] {
+		if _, ok := r.usableFor(b, sourceScope); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Resolve picks the highest-priority applicable binding for the request,

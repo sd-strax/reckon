@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/aggregate"
 	"github.com/sd-strax/reckon/capability"
 	"github.com/sd-strax/reckon/config"
@@ -60,7 +61,7 @@ func TestCaseNoteOffer(t *testing.T) {
 	now := time.Date(2026, 10, 22, 18, 0, 0, 0, time.UTC)
 	seed := &aggregate.Seed{Type: aggregate.SeedCase, CaseID: "INC0010042", CaseRef: "observed-data--abc", Source: "servicenow"}
 
-	b := &Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteConfirm}}
+	b := &Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteConfirm, ActionResolver: ticketCommentResolver()}}
 	offer := b.caseNoteOffer(context.Background(), "inv-1", "Suspicious RDP logon", seed, "sdas", now)
 	if offer == nil || offer.CaseID != "INC0010042" {
 		t.Fatalf("confirm posture: offer = %+v; want one for INC0010042", offer)
@@ -77,15 +78,37 @@ func TestCaseNoteOffer(t *testing.T) {
 			t.Errorf("default note lacks %q: %s", want, offer.Body)
 		}
 	}
-	if o := (&Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteAuto}}).caseNoteOffer(context.Background(), "inv-1", "t", seed, "", now); o == nil {
+	if o := (&Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteAuto, ActionResolver: ticketCommentResolver()}}).caseNoteOffer(context.Background(), "inv-1", "t", seed, "", now); o == nil {
 		t.Error("auto posture: want an offer")
 	}
-	if o := (&Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteOff}}).caseNoteOffer(context.Background(), "inv-1", "t", seed, "", now); o != nil {
+	if o := (&Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteOff, ActionResolver: ticketCommentResolver()}}).caseNoteOffer(context.Background(), "inv-1", "t", seed, "", now); o != nil {
 		t.Error("off posture: want no offer")
 	}
 	if o := b.caseNoteOffer(context.Background(), "inv-1", "t", &aggregate.Seed{Type: aggregate.SeedEntity}, "", now); o != nil {
 		t.Error("entity seed: want no offer")
 	}
+	// ticket.comment with no usable binding: the note cannot be carried out,
+	// so it is not offered (adr/0380).
+	for name, resolver := range map[string]*action.ActionResolver{
+		"no resolver":             nil,
+		"no binding":              action.NewActionResolver(nil, nil),
+		"adapter not enabled":     action.NewActionResolver(map[string][]action.ActionBinding{"ticket.comment": {{ActionType: "ticket.comment", Adapter: "gone", Operation: "op"}}}, nil),
+		"another scope's binding": action.NewActionResolver(map[string][]action.ActionBinding{"ticket.comment": {{ActionType: "ticket.comment", Adapter: "up", Operation: "op", Scope: "org-b"}}}, map[string]action.WriteAdapter{"up": healthWriteAdapter{name: "up", healthy: true}}),
+	} {
+		scoped := *seed
+		scoped.SourceScope = "org-a"
+		nb := &Backend{cfg: BackendConfig{CaseNoteOnSeed: config.CaseNoteConfirm, ActionResolver: resolver}}
+		if o := nb.caseNoteOffer(context.Background(), "inv-1", "t", &scoped, "", now); o != nil {
+			t.Errorf("%s: offer = %+v; want none", name, o)
+		}
+	}
+}
+
+// ticketCommentResolver binds ticket.comment to a configured, enabled adapter.
+func ticketCommentResolver() *action.ActionResolver {
+	return action.NewActionResolver(map[string][]action.ActionBinding{
+		"ticket.comment": {{ActionType: "ticket.comment", Adapter: "up", Operation: "op"}},
+	}, map[string]action.WriteAdapter{"up": healthWriteAdapter{name: "up", healthy: true}})
 }
 
 // TestCaseSystemName_ReadsTheStoredObservation: with no known seed source,

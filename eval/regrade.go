@@ -42,7 +42,7 @@ func LatestRunDir(artifactDir string) (string, error) {
 // (model, prompt hash, action catalog, driver) — except CatalogueVersion, which
 // describes the grading and is restamped from the current code.
 //
-// Two refusals keep a regrade honest:
+// Three refusals keep a regrade honest:
 //
 //   - Driver-hash mismatch: if the scenario script changed since the run, the
 //     recorded trials were driven by a different script (different turns,
@@ -51,6 +51,9 @@ func LatestRunDir(artifactDir string) (string, error) {
 //   - Missing trials: every trial the original report counted as completed must
 //     round-trip from disk; a partial regrade would silently change the SHOULD
 //     denominator (the same reason accept.go refuses truncated runs).
+//   - No tool list: a trial record without `tools` predates the recorded tool
+//     list (adr/0380). The graders look each call up in that list, so such a
+//     run cannot be regraded. Re-run instead.
 //
 // The rewritten report overwrites report.json in place: grader code is
 // version-controlled, so the previous derivation is reproducible at its commit.
@@ -91,6 +94,10 @@ func Regrade(runDir, scenarioPath string) (*Report, error) {
 		var tr TrialRecord
 		if err := json.Unmarshal(blob, &tr); err != nil {
 			return nil, fmt.Errorf("eval: parse trial %d: %w", n, err)
+		}
+		if len(tr.Tools) == 0 {
+			return nil, fmt.Errorf("eval: trial %d has no recorded tool list — the run predates it (adr/0380) "+
+				"and cannot be regraded; re-run instead", n)
 		}
 		trials = append(trials, &tr)
 	}

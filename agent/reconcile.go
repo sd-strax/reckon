@@ -91,7 +91,7 @@ var creationClaimRe = regexp.MustCompile(`(?is)\b(creat\w*|queu\w*|fil\w*|reques
 var quotedSpan = regexp.MustCompile(`"[^"]*"|“[^”]*”`)
 
 // noActionAttestation returns the engine's attestation when the model's final
-// text claims a creation but NO request_action succeeded this turn — the
+// text claims a creation but NO action tool call succeeded this turn — the
 // confabulation observed in practice (the model narrating "created and
 // verified" on a turn with zero tool calls). Deterministic: it states a fact
 // the loop's own bookkeeping guarantees. Empty when an action really was
@@ -109,7 +109,7 @@ func noActionAttestation(finalText string, actionsRequestedThisTurn int) string 
 
 // turnFooter combines the deterministic ground-truth corrections for one turn:
 // the real status of every cited action_id, and the no-action attestation when
-// a creation claim has no matching request_action. Empty when nothing needs
+// a creation claim has no matching action request. Empty when nothing needs
 // saying.
 func (s *Session) turnFooter(ctx context.Context, finalText string, actionsRequestedThisTurn int, seen map[string]bool) string {
 	parts := make([]string, 0, 2)
