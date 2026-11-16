@@ -1,5 +1,7 @@
 # Agent Roles and Model Tiering — Design Proposal (DRAFT, not yet an ADR)
 
+Issue: #389 (phases #390–#394) · Status: proposal; each phase lands with its own ADR
+
 ## 0. Framing
 
 reckon runs one `agent.Session` per investigation: one model (`claude-opus-4-8` by
