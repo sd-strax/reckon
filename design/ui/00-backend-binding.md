@@ -241,7 +241,7 @@ Built (endpoint + surface live):
 5. **Real seeds** — the Seed extension on `CreateInvestigation` (alert / entity /
    question), the projected `seed_summary` triage line, the workbench seed picker.
 6. **`retry_of` lineage** — command → event → projection → view → the agent's
-   `request_action` parameter; the card renders the chain.
+   `retry_of` field on each action tool; the card renders the chain.
 7. **Per-round step markers** — `turn/step` sidecar notifications (additive).
 8. **Transcript-open** — `GET /api/interpretations/{id}/transcript` from the
    content-addressed side store.

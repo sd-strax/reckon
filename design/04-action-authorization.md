@@ -520,7 +520,7 @@ For T3 two-party: the primary's identity is captured at primary-approve time and
 
 ### 5.6 The AI/analyst boundary in the request itself
 
-The AI agent emits an action request by calling a single tool, `request_action`, with: `action_type`, `targets`, `parameters`, `evidence_refs`, `rationale`, and `investigation_ref` (canonical tool schema in 08-write-side-actions.md §2). The Go backend constructs the `reckon-action` (in `REQUESTED`), creates the producing `reckon-interpretation` of type `action-request`, runs policy evaluation, and either advances state (`AUTO_APPROVE`) or surfaces in the analyst's review queue.
+The AI agent emits an action request by calling the action tool for its action type (one tool per type, adr/0380). The agent loop turns the call into a `request_action` with: `action_type`, `targets`, `parameters`, `evidence_refs`, `rationale`, and `investigation_ref` (canonical schema and the action tools in 08-write-side-actions.md §2). The Go backend constructs the `reckon-action` (in `REQUESTED`), creates the producing `reckon-interpretation` of type `action-request`, runs policy evaluation, and either advances state (`AUTO_APPROVE`) or surfaces in the analyst's review queue.
 
 The AI does *not* know whether a policy auto-approved; from its perspective the call returns an action id and (if policy auto-approved) a synchronous result, otherwise pending status. This keeps AI prompts simple and means you can change policy without re-prompting the AI.
 
@@ -767,7 +767,7 @@ To make the spec concrete, the path of one T2 action:
 
 1. AI agent, investigating an alert seeded from a Cobalt Strike beacon detection, runs queries (T0, no friction) and creates Sightings (T1, no friction) linking telemetry to a hypothesis `h-1: "host WIN-A14 is C2-active"` with `reckon-supports` weight STRONG from a Sighting whose evidence is two `OcsfEvent`s with `derivation_mode: DIRECT`.
 2. Hypothesis status moves from `OPEN` to `SUPPORTED` after the AI agent's reasoning (recorded as a normal `hypothesis` Interpretation).
-3. AI agent calls `request_action(action_type="host.isolate", targets=[{entity_ref: ipv4-addr--..., resolved_identifier: "WIN-A14"}], evidence_refs=[sighting-1, h-1], rationale="Hypothesis SUPPORTED with STRONG-weight direct evidence; isolation prevents lateral movement.", investigation_ref=grouping-1)`.
+3. AI agent calls the `host.isolate` action tool, and the loop sends `request_action(action_type="host.isolate", targets=[{entity_ref: ipv4-addr--..., resolved_identifier: "WIN-A14"}], evidence_refs=[sighting-1, h-1], rationale="Hypothesis SUPPORTED with STRONG-weight direct evidence; isolation prevents lateral movement.", investigation_ref=grouping-1)`.
 4. Backend creates `reckon-interpretation` of type `action-request` and `reckon-action` in `REQUESTED`. Both get `member-of` edges to the Grouping.
 5. Policy engine evaluates. The "auto-isolate on Cobalt Strike" policy from §4.3 fires: status moves to `APPROVED` with `Authorization.mode=AUTO_POLICY`, `policy_ref=policy/host-isolate-cobalt-strike/1.2.0`, `primary_approver_ref=<the analyst who signed off on this policy>`. An `action-approval` Interpretation is emitted.
 6. Dispatcher picks up `APPROVED`, calls the EDR via its capability adapter. Status `EXECUTING`, `action-dispatch` Interpretation emitted.

@@ -15,7 +15,7 @@ restate it. It owns only the adapter-facing contract.
 
 | Owned here (`08`) | Owned elsewhere (authoritative) |
 |---|---|
-| The `request_action` tool schema | Authorization, trust tiers, CEL policy (`04`) |
+| The `request_action` request and the agent's action tools | Authorization, trust tiers, CEL policy (`04`) |
 | `ActionDescriptor`, action bindings, the action resolver | The `reckon-action` primitive, lifecycle, `Execution` record (`01`, `04 §3`, `04 §6.1`) |
 | The write adapter operation signature + idempotency model | Action lifecycle events + payloads (`02 §3`) |
 | The `WriteResult` envelope | Temporal dispatch topology, manifest/registry (`05 §6.2`, `05 §11`) |
@@ -56,11 +56,12 @@ bindings, declare an action descriptor." No structural change.
 
 ---
 
-## 2. The `request_action` tool
+## 2. The `request_action` request and the agent's action tools
 
-`request_action` is the single agent-facing tool that proposes a state-changing action. Its canonical
-schema lives here (it is a capability-surface object, symmetric to the read verbs in `03 §5.3`);
-`04 §5.6` references it and owns only what happens to the request inside the authorization machine.
+`request_action` is the request that proposes a state-changing action: the body of
+`POST /api/actions`, the same for the analyst and the AI. Its canonical schema lives here (it is a
+capability-surface object, symmetric to the read verbs in `03 §5.3`); `04 §5.6` references it and
+owns only what happens to the request inside the authorization machine.
 
 ```
 request_action(
@@ -73,9 +74,36 @@ request_action(
 )
 ```
 
-**The AI/analyst boundary.** The AI may *call* `request_action`, but it can never construct an
+**The agent reaches it through one tool per action type** (adr/0380), as it reaches the read side
+through one tool per verb (`03 §6.3`). The model never writes `request_action` itself.
+
+- **One tool per requestable type.** The agent loop builds a tool for each action type in the
+  session's frozen catalog whose status is available or degraded. An unavailable type gets no tool.
+  The tool is named `request_` followed by the action type with each `.` written as `_`
+  (`ticket.create` → `request_ticket_create`). Tool building fails when two names collide.
+- **Inputs at the top level.** A tool's properties are its type's non-entity inputs (`§3`), with the
+  inputs the descriptor requires as its required keys. Every tool also carries the fields every
+  request shares: `targets`, `rationale`, `evidence_refs` (required) and `retry_of` (optional).
+  There is no nested `parameters` object in the tool.
+- **The loop builds the request.** Every action tool runs one handler. It takes `action_type` from
+  the tool, gathers the declared input keys into `parameters`, drops a `null` value for a declared
+  optional input, and sends `request_action`. The engine validates it against `§3` as for any
+  caller.
+- **The description comes from the descriptor.** It holds the descriptor's `Intent`, tier and
+  reversibility, "degraded" when that is the type's status, and the guidance every request shares:
+  the request goes through authorization, the agent proposes and never approves, and it must cite
+  evidence. One line names the action types with no tool wired, so the agent can say one has to be
+  done by hand.
+- **No catalog, no action tools.** With the action layer off, the catalog and `POST /api/actions`
+  both answer 503, so the session offers no action tools. Any other error from the catalog fetch
+  fails the session start.
+- **Plain JSON Schema.** The tool definitions use no provider-specific schema features and no
+  strict decoding. A malformed call is refused by the engine's validation, and the model sends it
+  again.
+
+**The AI/analyst boundary.** The AI may *make* a `request_action`, through its action tools, but it can never construct an
 `Authorization` record or set `status` — those fields are write-protected at the aggregate command
-handler (`04 §5.6`, enforced per `02-persistence.md §2.1`/`§4`). Calling the tool produces a `reckon-action` in
+handler (`04 §5.6`, enforced per `02-persistence.md §2.1`/`§4`). Making the request produces a `reckon-action` in
 `REQUESTED` and its producing `action-request` Interpretation, in one transaction. Everything between
 `REQUESTED` and `APPROVED` is `04`'s; this contract resumes at dispatch.
 
