@@ -27,7 +27,7 @@ The specs are not independent — they reference each other and each declares it
 | `design/04-action-authorization.md` | Action authorization, trust tiers | domain model | Adds 7 values to `interpretation_type` enum; new `reckon-action` primitive; new `reverses` edge type |
 | `design/03-capability-layer.md` | LLM↔tool **read** surface (verbs, adapters, normalization) | domain model | Identity computation rules; §7 lists every deviation from strict STIX 2.1 |
 
-The other specs (`05` component architecture, `06` knowledge service, `07` post-conclusion outputs, `08` write-side actions) build on these four. **`08-write-side-actions.md` is the write-side twin of `03`** — it owns the `request_action` tool, action descriptors/bindings, the write adapter contract, and the idempotency model; `03` is read-only. `02`/`04`/`05`/`07` reference `08` for action dispatch.
+The other specs (`05` component architecture, `06` knowledge service, `07` post-conclusion outputs, `08` write-side actions) build on these four. **`08-write-side-actions.md` is the write-side twin of `03`** — it owns the `request_action` request and the agent's action tools, action descriptors/bindings, the write adapter contract, and the idempotency model; `03` is read-only. `02`/`04`/`05`/`07` reference `08` for action dispatch.
 
 When changing one spec, scan the others for cross-references. `04-action-authorization.md` §10 explicitly lists what it adds back to the domain model; `03-capability-layer.md` §7 lists every STIX deviation; `08-write-side-actions.md` §0 lists what it owns vs. what `04`/`02`/`05` keep. These are the seams.
 

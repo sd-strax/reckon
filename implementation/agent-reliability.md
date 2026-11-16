@@ -41,7 +41,7 @@ record. A clean context on the same model behaved correctly.
 ladder that works:
 
 1. **Prompt rules** (`agent/prompt.go` "Authority boundaries": *an action
-   exists ONLY if request_action returned an action_id*; guarded by
+   exists ONLY if an action tool returned an action_id*; guarded by
    `agent/prompt_test.go` so they can't be silently edited away) — reduce the
    rate;
 2. **Deterministic in-loop guards** (§3, §4) — bound the damage;
@@ -69,7 +69,7 @@ wrong:
   runtime counterpart of the eval's G4 ground-truth (`design/10 §3`), which
   already checked *all* engine-produced ids.
 - **No-action attestation** (`noActionAttestation`): prose claims a creation
-  on a turn with zero successful `request_action` calls → append
+  on a turn with zero successful action tool calls → append
   `[engine record: NO action was requested this turn]`. The trigger regex is
   deliberately generous — safe, because the appended sentence is true by the
   loop's own bookkeeping regardless of a false-positive match. *Design rule:
@@ -141,24 +141,37 @@ query the ledger before theorizing. The side stores exist for compliance
 ## 7. Hold the model's payload to the schema; do not repair it
 
 Models malform tool payloads under long context. This was observed
-repeatedly as `request_action.parameters` emitted as a *stringified* JSON
-object, and sometimes with a stray closing bracket or brace after it
-(`"{…}]"`). The loop used to unwrap and repair such a string. That repair
-guessed at what the model meant, and it hid the fault from the H5 grader.
-It is gone (adr/0376). Two mechanisms replace it:
+repeatedly when one `request_action` tool took a nested `parameters` object
+whose keys depended on the action type. The model emitted it as a
+*stringified* JSON object, sometimes with a stray closing bracket or brace
+after it (`"{…}]"`). The loop used to unwrap and repair such a string. That
+repair guessed at what the model meant, and it hid the fault from the H5
+grader. It is gone (adr/0376). A strict schema then held the model to an
+object, but its grammar could force one action type's call into another
+type's keys (adr/0380). Two mechanisms replace both:
 
-- **Prevent, via a strict schema** (`parametersSchema`, `defineTool`):
-  `request_action` is sent with `strict: true`, so the API holds the model's
-  input to the schema. `parameters` is one closed object per action type.
-  Every key is required, and a key with no value is written as `null`. The
-  loop drops the `null` keys before the request goes to the engine. A strict
-  schema with an optional key loses values: strict mode writes keys in order
-  and cannot go back for a skipped one. A catalog past the API's strict
-  limits is sent with the same schema and no strict flag.
+- **Prevent, with one tool per action type** (`agent/action_tools.go`):
+  each action type in the catalog is its own tool, and its inputs are
+  top-level properties of that tool. There is no nested object to stringify,
+  and a call cannot carry another type's keys. The schemas are plain JSON
+  Schema, and no tool is strict. The loop puts every key that is not a
+  shared field into `parameters`, so the engine refuses an undeclared one. It
+  drops a `null` only for a declared optional input.
 - **Refuse, at the engine** (`action.validateParameters`): a `parameters`
   that is not an object, or that has an unknown key or lacks a required one,
-  is refused before anything is recorded. This is the floor wherever strict
-  mode is not in force, and when a response is cut off.
+  is refused before anything is recorded. A key the model sends that the
+  type does not declare reaches the engine and is refused there.
+
+Three smaller rules keep the action surface honest (adr/0380). An
+unavailable type has a tool whose description says it cannot be carried out
+in this install. The engine refuses a request for it with 422 before
+anything is recorded, and the model reads that refusal as the tool's error.
+The eval's trial record keeps the tool list the session offered, with each
+tool's kind and an action tool's action type, and the graders look each call
+up there, so no reader guesses an action from a tool name. The catalog fetch
+at session start is tried three times before a 503 is read as the action
+layer being off, so a passing 503 does not remove the actions for a whole
+session.
 
 When a payload is still bad, the error goes back to the model as a tool
 result. The observed behavior is that it self-corrects on the retry. Failing
@@ -240,7 +253,7 @@ CLI binary and respawn the sidecar (reload the workbench window); verify with
 
 Every lesson here started as a live incident. The eval harness
 (`design/10`, `eval/`) is where they stop being anecdotes: the
-strict `request_action` schema traces to its H6 finding, and the
+action tools' own schemas trace to the H6 findings, and the
 narrative-poisoning defenses of §2–§3 now graduate into assertions
 (`eval/graders.go`, catalogue `v0.7`):
 
@@ -256,8 +269,8 @@ narrative-poisoning defenses of §2–§3 now graduate into assertions
   committed record must carry the reconciliation footer (§3). This catches a
   regression that removes the correction even when the model behaved — the case
   G4 alone would pass.
-- **H8 — creation claims are backed.** A turn narrating a creation must carry a
-  `request_action` the backend accepted; a claim with zero tool calls is the
+- **H8 — creation claims are backed.** A turn narrating a creation must carry an
+  action request the backend accepted; a claim with zero tool calls is the
   phantom-action confabulation. A rejected *attempt* is H5/H6's concern, not
   H8's — the model engaged the tool, so honest failure-reporting is not
   penalized.

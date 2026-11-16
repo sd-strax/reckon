@@ -1,281 +1,10 @@
 {
-  "catalog": [
+  "action_tools": [
     {
-      "Name": "recall_sops",
-      "Description": "Recall the tenant's standard operating procedures relevant to a question. A hit carries the section of the procedure that matched (its text, under excerpt), where it sits (section) and the procedure's outline; it is not the whole procedure — read_sop reads any other section. EMPTY coverage is evidence of absence, not an error.",
+      "Name": "request_host_isolate",
+      "Description": "Isolate a host. Tier T2, REVERSIBLE. The request goes through authorization policy. You propose it and never approve it, and most requests wait for the analyst's approval. Cite the refs that ground it in evidence_refs; a request with no evidence is refused.",
       "InputSchema": {
         "properties": {
-          "query": {
-            "description": "what guidance you are looking for",
-            "type": "string"
-          },
-          "tags": {
-            "description": "hard filter on SOP tags, optional",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "unit": {
-            "description": "procedure (default): which procedure applies — one hit per procedure, carrying the section that matched best. section: what do our procedures say about this — one hit per section, so two hits may come from one procedure.",
-            "enum": [
-              "procedure",
-              "section"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "Name": "read_sop",
-      "Description": "Read a recalled procedure by section: with section, that section whole and the outline around it; without, the outline alone (each section's place and length). Read a section before you cite the procedure for what it says, when the hit did not carry it.",
-      "InputSchema": {
-        "properties": {
-          "revision": {
-            "description": "the revision the hit or outline returned; omitted, the newest revision you were shown this session. A section is read against that revision's numbering; a procedure changed since is refused and must be recalled again",
-            "type": "integer"
-          },
-          "section": {
-            "description": "the section to read whole, by its idx from a hit's section or outline; omit for the outline alone. A section read needs a recall or outline of the procedure first",
-            "type": "integer"
-          },
-          "sop_id": {
-            "description": "the sop_id a recall_sops hit returned",
-            "type": "string"
-          }
-        },
-        "required": [
-          "sop_id"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "Name": "recall_similar_investigations",
-      "Description": "Recall concluded investigations similar to this one — 'have we handled something like this before?'. Query with the current investigation's situation (seed, entities, techniques). Results carry a similarity band (NEAR_DUPLICATE/RELATED/DISTINCT); EMPTY coverage means no prior similar case, evidence of absence.",
-      "InputSchema": {
-        "properties": {
-          "query": {
-            "description": "the current situation to match against past cases (seed, entities, techniques, what you're seeing)",
-            "type": "string"
-          },
-          "tags": {
-            "description": "hard filter on summary tags, optional: a technique id, seed:\u003ckind\u003e (seed:host, seed:case, seed:alert), disposition:\u003cverdict\u003e, entity:\u003cidentifier\u003e",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "Name": "prior_investigations",
-      "Description": "Exact lookup: the concluded investigations that involved an entity (a host name, account, address or domain) as their seed or as an action target, most recent first. It answers 'have we investigated this before?' and works from the seed alone, before any telemetry; recall_similar_investigations answers 'have we seen this pattern before?' once there is behaviour to compare. EMPTY coverage means no concluded investigation recorded the entity.",
-      "InputSchema": {
-        "properties": {
-          "entity": {
-            "description": "the identifier as the data names it: host name, DOMAIN\\account, IP address or domain",
-            "type": "string"
-          }
-        },
-        "required": [
-          "entity"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "Name": "propose_hypothesis",
-      "Description": "Propose one falsifiable hypothesis — ONE claim, not a compound story. Hypotheses compete: call this once per rival (the leader, then the concrete alternative). It is recorded PROPOSED until the analyst acknowledges it. Returns the hypothesis id for later predictions and evaluation.",
-      "InputSchema": {
-        "properties": {
-          "confidence": {
-            "description": "HIGH | MEDIUM | LOW",
-            "type": "string"
-          },
-          "handle": {
-            "description": "short mnemonic the analyst will refer to it by: a number in proposal order plus two or three words naming the mechanism, e.g. \"H1 \u003cmechanism\u003e\", \"H2 \u003crival mechanism\u003e\"",
-            "type": "string"
-          },
-          "labels": {
-            "description": "MITRE ATT\u0026CK technique ids where evident",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "parent_ref": {
-            "description": "reckon-hypothesis id this refines, optional",
-            "type": "string"
-          },
-          "rationale": {
-            "description": "why you believe this, citing evidence refs",
-            "type": "string"
-          },
-          "rooted_at_ref": {
-            "description": "STIX id of the anchor entity, optional",
-            "type": "string"
-          },
-          "statement": {
-            "description": "the claim, one or two sentences, falsifiable, a single mechanism",
-            "type": "string"
-          }
-        },
-        "required": [
-          "statement",
-          "handle",
-          "rationale"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "Name": "record_prediction",
-      "Description": "Record a testable prediction under a hypothesis: what you expect to observe if it is true, and what query would test it. A prediction that DISCRIMINATES — one a rival hypothesis predicts the opposite outcome for — is worth more than one that merely confirms; name those rivals in discriminates. When a test is manual (no tool available to you can answer it and a person can), set test_kind to manual and say in test_query whom to ask and what; the analyst records its result, never you.",
-      "InputSchema": {
-        "properties": {
-          "discriminates": {
-            "description": "reckon-hypothesis ids of RIVALS that predict the OPPOSITE outcome for this test — CONFIRMED counts against them, DISCONFIRMED supports them. Empty if the test is merely consistent with the owner",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "hypothesis_ref": {
-            "description": "the reckon-hypothesis id that predicts this WILL be observed (the owner)",
-            "type": "string"
-          },
-          "rationale": {
-            "description": "why this test discriminates (or, if it only confirms, say so)",
-            "type": "string"
-          },
-          "statement": {
-            "description": "what should be observable if the hypothesis holds",
-            "type": "string"
-          },
-          "test_kind": {
-            "description": "tool (default) | manual — manual only when no tool can test the prediction and a person's answer can",
-            "type": "string"
-          },
-          "test_query": {
-            "description": "the query text, optional (for a manual test: the question to put to them)",
-            "type": "string"
-          },
-          "test_tool": {
-            "description": "the tool that would test it, optional (for a manual test: the role of the person to ask)",
-            "type": "string"
-          },
-          "title": {
-            "description": "a short name for the prediction: a noun phrase of at most 64 characters, no trailing period, optional — the record derives one from the statement when absent",
-            "type": "string"
-          }
-        },
-        "required": [
-          "hypothesis_ref",
-          "statement",
-          "rationale"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "Name": "evaluate_hypothesis",
-      "Description": "Record an evidential outcome for a hypothesis: support, refutation, or inconclusive. Decisive outcomes must cite the observed evidence refs.",
-      "InputSchema": {
-        "properties": {
-          "abandoned": {
-            "description": "on inconclusive: mark ABANDONED instead",
-            "type": "boolean"
-          },
-          "confidence": {
-            "description": "HIGH | MEDIUM | LOW",
-            "type": "string"
-          },
-          "disposition": {
-            "description": "support | refutation | inconclusive",
-            "type": "string"
-          },
-          "hypothesis_ref": {
-            "description": "the reckon-hypothesis id",
-            "type": "string"
-          },
-          "rationale": {
-            "description": "the evidential reasoning",
-            "type": "string"
-          },
-          "test_result_refs": {
-            "description": "STIX/OCSF refs of the observed evidence; required for support and refutation",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "hypothesis_ref",
-          "disposition",
-          "rationale"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "Name": "record_prediction_outcome",
-      "Description": "Record a prediction's test outcome. CONFIRMED and DISCONFIRMED must cite test_result_refs. A manual prediction (a person tests it) is not yours to record: the engine refuses it; ask the analyst for the result.",
-      "InputSchema": {
-        "properties": {
-          "prediction_ref": {
-            "description": "the reckon-prediction id",
-            "type": "string"
-          },
-          "rationale": {
-            "description": "what was observed",
-            "type": "string"
-          },
-          "status": {
-            "description": "CONFIRMED | DISCONFIRMED | INCONCLUSIVE",
-            "type": "string"
-          },
-          "test_result_refs": {
-            "description": "refs of the observed evidence",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "prediction_ref",
-          "status",
-          "rationale"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "Name": "request_action",
-      "Description": "Propose a state-changing action (containment, remediation). It goes through authorization policy — you can propose, never approve; most proposals await the analyst's explicit approval. Every request MUST cite evidence_refs — the STIX/OCSF refs that ground it; an ungrounded action is rejected.\n\nValid action_type values (use one EXACTLY as written; never invent a name):\n- host.isolate [T2, REVERSIBLE, available]: Isolate a host.\n  parameters: reason (required)\n- ticket.create [T1, IRREVERSIBLE, degraded]: Open a ticket.\n  parameters: summary (required), reason, priority\n- ioc.block [T2, BEST_EFFORT, unavailable]: Block an indicator.\n\nEach action's `parameters` object holds exactly its listed keys; targets carry the entities. Write every listed key, and write null for a key you have no value for. If the action you need is not in this list, or is marked 'unavailable' (no tool is wired for it), do NOT request it — tell the analyst it must be performed manually.",
-      "InputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_type": {
-            "description": "the action type — exactly one of the enumerated catalog values",
-            "enum": [
-              "host.isolate",
-              "ticket.create"
-            ],
-            "type": "string"
-          },
           "evidence_refs": {
             "description": "REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it.",
             "items": {
@@ -284,68 +13,21 @@
             "minItems": 1,
             "type": "array"
           },
-          "parameters": {
-            "anyOf": [
-              {
-                "additionalProperties": false,
-                "description": "parameters for host.isolate",
-                "properties": {
-                  "reason": {
-                    "description": "why",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "reason"
-                ],
-                "type": "object"
-              },
-              {
-                "additionalProperties": false,
-                "description": "parameters for ticket.create",
-                "properties": {
-                  "priority": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  },
-                  "reason": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "summary": {
-                    "description": "headline",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "summary",
-                  "reason",
-                  "priority"
-                ],
-                "type": "object"
-              }
-            ],
-            "description": "The action-type-specific parameters, as a JSON OBJECT — never a JSON string. Use the one shape whose description names your chosen action_type. Write every key of that shape, and write null for a key you have no value for."
-          },
           "rationale": {
             "description": "why this action, now",
             "type": "string"
           },
+          "reason": {
+            "description": "why",
+            "type": "string"
+          },
           "retry_of": {
-            "description": "when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); null otherwise",
-            "type": [
-              "string",
-              "null"
-            ]
+            "description": "when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); omit it otherwise",
+            "type": "string"
           },
           "targets": {
             "description": "the distinct targets; blast radius drives the trust tier",
             "items": {
-              "additionalProperties": false,
               "properties": {
                 "entity_ref": {
                   "description": "STIX id of the target entity",
@@ -366,48 +48,129 @@
           }
         },
         "required": [
-          "action_type",
           "targets",
           "rationale",
           "evidence_refs",
-          "parameters",
-          "retry_of"
+          "reason"
         ],
-        "type": "object"
-      },
-      "Strict": true
-    },
-    {
-      "Name": "list_actions",
-      "Description": "List this investigation's requested actions with their CURRENT engine status (REQUESTED = awaiting the analyst's approval in this surface; APPROVED/EXECUTING/SUCCEEDED/FAILED/REJECTED/EXPIRED/REVERSED/OUTCOME_UNKNOWN). Use this for ground truth about whether an action was approved or executed — never assume. OUTCOME_UNKNOWN means the action was dispatched but nobody knows whether the tool acted: say so, and leave it to the analyst, who checks the tool and resolves it; never request it again while it is unknown. Each row carries a computed `expired` flag (and the result carries `now`): expired=true means the approval window elapsed and the engine will refuse an approve even though status may still read REQUESTED — such an action is dead; a new request is the only way forward.",
-      "InputSchema": {
-        "properties": {},
         "type": "object"
       }
     },
     {
-      "Name": "read_result",
-      "Description": "Read another page of a tool result too large to return whole. Such a result carries result_bounded with a result_id, the returned/total count of each list, next_offset, and on the first page an exact digest of the whole result. Pass the result_id and next_offset; every page comes from the same snapshot. Read only what the question needs, or narrow the original query instead.",
+      "Name": "request_ioc_block",
+      "Description": "Block an indicator. Tier T2, BEST_EFFORT. Unavailable: this action cannot be carried out in this install.",
       "InputSchema": {
         "properties": {
-          "offset": {
-            "description": "the item offset to start from: next_offset from the previous page",
-            "type": "integer"
+          "evidence_refs": {
+            "description": "REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
           },
-          "result_id": {
-            "description": "the result_id from result_bounded",
+          "rationale": {
+            "description": "why this action, now",
             "type": "string"
+          },
+          "retry_of": {
+            "description": "when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); omit it otherwise",
+            "type": "string"
+          },
+          "targets": {
+            "description": "the distinct targets; blast radius drives the trust tier",
+            "items": {
+              "properties": {
+                "entity_ref": {
+                  "description": "STIX id of the target entity",
+                  "type": "string"
+                },
+                "resolved_identifier": {
+                  "description": "the concrete identifier the tool acts on (hostname, account id)",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "entity_ref",
+                "resolved_identifier"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "result_id",
-          "offset"
+          "targets",
+          "rationale",
+          "evidence_refs"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "Name": "request_ticket_create",
+      "Description": "Open a ticket. Tier T1, IRREVERSIBLE. Degraded: the tool behind it is not fully healthy, so the request may not dispatch. The request goes through authorization policy. You propose it and never approve it, and most requests wait for the analyst's approval. Cite the refs that ground it in evidence_refs; a request with no evidence is refused.",
+      "InputSchema": {
+        "properties": {
+          "evidence_refs": {
+            "description": "REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "rationale": {
+            "description": "why this action, now",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "retry_of": {
+            "description": "when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); omit it otherwise",
+            "type": "string"
+          },
+          "summary": {
+            "description": "headline",
+            "type": "string"
+          },
+          "targets": {
+            "description": "the distinct targets; blast radius drives the trust tier",
+            "items": {
+              "properties": {
+                "entity_ref": {
+                  "description": "STIX id of the target entity",
+                  "type": "string"
+                },
+                "resolved_identifier": {
+                  "description": "the concrete identifier the tool acts on (hostname, account id)",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "entity_ref",
+                "resolved_identifier"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "targets",
+          "rationale",
+          "evidence_refs",
+          "summary"
         ],
         "type": "object"
       }
     }
   ],
-  "no_catalog": [
+  "intrinsic": [
     {
       "Name": "recall_sops",
       "Description": "Recall the tenant's standard operating procedures relevant to a question. A hit carries the section of the procedure that matched (its text, under excerpt), where it sits (section) and the procedure's outline; it is not the whole procedure — read_sop reads any other section. EMPTY coverage is evidence of absence, not an error.",
@@ -666,71 +429,6 @@
           "prediction_ref",
           "status",
           "rationale"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "Name": "request_action",
-      "Description": "Propose a state-changing action (containment, remediation). It goes through authorization policy — you can propose, never approve; most proposals await the analyst's explicit approval. Every request MUST cite evidence_refs — the STIX/OCSF refs that ground it; an ungrounded action is rejected.",
-      "InputSchema": {
-        "properties": {
-          "action_type": {
-            "description": "the action type, e.g. host.isolate, account.disable",
-            "type": "string"
-          },
-          "evidence_refs": {
-            "description": "REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it.",
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "type": "array"
-          },
-          "parameters": {
-            "description": "Action-type-specific parameters as a JSON object (this catalog declares none).",
-            "type": "object"
-          },
-          "rationale": {
-            "description": "why this action, now",
-            "type": "string"
-          },
-          "retry_of": {
-            "description": "when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); null otherwise",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "targets": {
-            "description": "the distinct targets; blast radius drives the trust tier",
-            "items": {
-              "properties": {
-                "entity_ref": {
-                  "description": "STIX id of the target entity",
-                  "type": "string"
-                },
-                "resolved_identifier": {
-                  "description": "the concrete identifier the tool acts on (hostname, account id)",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "entity_ref",
-                "resolved_identifier"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "action_type",
-          "targets",
-          "rationale",
-          "evidence_refs",
-          "parameters",
-          "retry_of"
         ],
         "type": "object"
       }

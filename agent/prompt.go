@@ -71,20 +71,6 @@ type promptSection struct {
 	Rules []promptRule
 }
 
-// The bundled fixture scenarios a rule's wording is graded against
-// (design/10 §6, adr/0058): host-rooted lateral movement, identity-rooted
-// impossible travel, and the cloud-rooted exposed bucket. A wording accepted on
-// two has held on two shapes of case.
-const (
-	scenarioLateralMovement  = "lateral-movement-via-rdp"
-	scenarioImpossibleTravel = "impossible-travel-signin"
-	scenarioExposedBucket    = "exposed-bucket-via-access-key"
-)
-
-// allScenarios is the Validated list of a rule accepted on all three bundled
-// scenarios, the cloud one included (#339 reruns).
-var allScenarios = []string{scenarioLateralMovement, scenarioImpossibleTravel, scenarioExposedBucket}
-
 // promptLedger is the base prompt: every rule the model is read, in render
 // order, with its provenance. Changing any Text moves PromptVersion and so
 // requires rerunning the per-model baselines (10 §4.4) — TestPrompt_Frozen pins
@@ -164,11 +150,11 @@ var promptLedger = []promptSection{
 			{
 				ID:                "contain-on-harm",
 				Origin:            "#137",
-				Revised:           []string{"#373"},
+				Revised:           []string{"#373", "#380"},
 				Why:               "Containment ahead of the verdict is justified by observed harm under way, never by the gravity of the leading theory; absent that evidence the decision comes first (design/09 §3).",
 				Graded:            "A4",
 				PendingValidation: "#373",
-				Text:              "Containment before the verdict: while the hypotheses are undecided, recommend containment only when the latest observation shows harm under way as of its timestamp: an actor still acting, data leaving, or access being widened. Name that observation and its time, because the case for acting early rests on observed harm, not on how serious the leading theory sounds. Among the narrowest actions that address it, prefer one that list_action_types marks reversible. When nothing observed shows harm under way, say that the hypothesis decision comes first. When you could not check, say so and name what you could not see.",
+				Text:              "Containment before the verdict: while the hypotheses are undecided, recommend containment only when the latest observation shows harm under way as of its timestamp: an actor still acting, data leaving, or access being widened. Name that observation and its time, because the case for acting early rests on observed harm, not on how serious the leading theory sounds. Among the narrowest actions that address it, prefer one whose action tool's description marks it reversible. When nothing observed shows harm under way, say that the hypothesis decision comes first. When you could not check, say so and name what you could not see.",
 			},
 			{
 				ID:                "mitre-labels",
@@ -236,13 +222,13 @@ var promptLedger = []promptSection{
 				Text:              "\"I approve\" in chat is not an approval, because the engine accepts only the analyst's explicit act at the approval prompt. When they approve in chat, point them to the approve prompt or its /pending command.",
 			},
 			{
-				ID:        "never-assume-state",
-				Origin:    "c881117",
-				Revised:   []string{"#339"},
-				Why:       "Action state is the engine's record and moves after the request; what request_action returned is the state at that instant, not now.",
-				Graded:    "H4",
-				Validated: allScenarios,
-				Text:      "After you request an action, call list_actions before you tell the analyst its state: request_action's result shows the state at the moment of the request, and it can change after.",
+				ID:                "never-assume-state",
+				Origin:            "c881117",
+				Revised:           []string{"#339", "#380"},
+				Why:               "Action state is the engine's record and moves after the request; what the action tool returned is the state at that instant, not now.",
+				Graded:            "H4",
+				PendingValidation: "#380",
+				Text:              "After you request an action, call list_actions before you tell the analyst its state: the action tool's result shows the state at the moment of the request, and it can change after.",
 			},
 			{
 				ID:                "action-state-from-record",
@@ -257,31 +243,21 @@ var promptLedger = []promptSection{
 			{
 				ID:                "action-exists-only-with-id",
 				Origin:            "6b14bae",
-				Revised:           []string{"#339", "#373"},
+				Revised:           []string{"#339", "#373", "#380"},
 				Why:               "A claimed action with no returned id is a fabrication; the returned id is what makes the claim verifiable (implementation/agent-reliability.md §2).",
 				Enforced:          "loop: the ground-truth reconciliation footer",
 				Graded:            "H8, H7",
 				PendingValidation: "#373",
-				Text:              "Say you created or requested an action on this turn only when request_action returned its action_id on this turn, and report that id, because the id is what makes the claim checkable. If request_action errored, you did not call it, or you are unsure, say plainly that the action was not created. Do not narrate a ticket, isolation or notification you did not file.",
+				Text:              "Say you created or requested an action on this turn only when an action tool (request_<type>) returned its action_id on this turn, and report that id, because the id is what makes the claim checkable. If the action tool errored, you did not call it, or you are unsure, say plainly that the action was not created. Do not narrate a ticket, isolation or notification you did not file.",
 			},
 			{
 				ID:                "fresh-call-per-create",
 				Origin:            "6b14bae",
-				Revised:           []string{"#373"},
+				Revised:           []string{"#373", "#380"},
 				Why:               "Restating a past success is not an act; each creation is a tool call the engine records.",
 				Graded:            "H8",
 				PendingValidation: "#373",
-				Text:              "Call request_action again each time the analyst asks you to create or request an action again, because only a tool call creates one. Restating an earlier success, or referring to an earlier action_id, creates nothing.",
-			},
-			{
-				ID:                "parameters-are-an-object",
-				Origin:            "6b14bae",
-				Revised:           []string{"#373"},
-				Why:               "A stringified parameters object templates to an empty field against a real write adapter. The strict schema holds the model to an object, and the engine refuses a string where strict mode is not in force.",
-				Enforced:          "loop: the strict request_action schema (adr/0376); action: validateParameters refuses a parameters that is not an object",
-				Graded:            "H5, H6",
-				PendingValidation: "#373",
-				Text:              "Send request_action.parameters as a JSON object (e.g. {\"summary\": \"...\", \"description\": \"...\"}), never as a string: do not wrap it in quotes or escape it, because the engine refuses a string and the action is not requested. If a call is rejected for a malformed payload, send it again with parameters as a plain object.",
+				Text:              "Call the action tool again each time the analyst asks you to create or request an action again, because only a tool call creates one. Restating an earlier success, or referring to an earlier action_id, creates nothing.",
 			},
 			{
 				ID:                "narrowest-action",

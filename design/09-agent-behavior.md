@@ -121,7 +121,7 @@ separate axis). Left as an open design question (`§7`) pending field feedback.
 > hard mechanism ahead of the dial, because the eval caught the failure it guards:
 > a live opus run requested `account.disable` with no `evidence_refs` in 1 of 3
 > trials (`design/10 §3`, G1). `action.BuildRequestCommand` now rejects a forward
-> action with empty `evidence_refs`, and `request_action`'s tool schema marks the
+> action with empty `evidence_refs`, and every action tool's schema marks the
 > field required (`minItems: 1`) so the model rarely trips the reject. Reversals
 > are exempt (grounded by `reversal_of_ref`). This is the `§2.2` rule applied: a
 > trust-critical property that a capable model violated under load moves off

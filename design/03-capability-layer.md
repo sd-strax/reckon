@@ -2734,8 +2734,8 @@ re-litigated.
 **Action dispatch / write-side adapter contract lives in
 08-write-side-actions.md.** This spec covers the read side: 22 query verbs
 (plus the §2.9 external case lookup verbs), the binding / resolver / normalizer
-pipeline, and the `CapabilityResult` envelope. The write side — the agent-facing
-`request_action` tool, write-side adapter operations, the idempotency model, the
+pipeline, and the `CapabilityResult` envelope. The write side — the
+`request_action` request and the agent's action tools, write-side adapter operations, the idempotency model, the
 `adapter_request_id` correlation contract that 04-action-authorization.md §6.1
 and 02-persistence.md §3 `ActionDispatched` reference, and the action fixtures
 that mirror §9 read fixtures — is specified in 08 as the symmetric twin of this

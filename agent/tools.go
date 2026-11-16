@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -24,7 +23,6 @@ const (
 	ToolRecordPrediction        = "record_prediction"
 	ToolEvaluateHypothesis      = "evaluate_hypothesis"
 	ToolRecordPredictionOutcome = "record_prediction_outcome"
-	ToolRequestAction           = "request_action"
 	ToolListActions             = "list_actions"
 	ToolReadResult              = "read_result"
 	ToolReadSOP                 = "read_sop"
@@ -32,14 +30,15 @@ const (
 
 // buildTools assembles the session's tool definitions: one tool per AVAILABLE
 // capability verb (unavailable/degraded verbs are trimmed, 03 §6.3 — the model
-// only sees what can currently resolve), plus the intrinsic tools. actionTypes
-// is the write-side catalog (may be nil when the action layer is off); it shapes
-// the request_action tool so the model picks a real action_type.
+// only sees what can currently resolve), the intrinsic tools, and one tool per
+// action type in the catalog, unavailable ones included (adr/0380). actionTypes is the write-side catalog;
+// it is nil when the action layer is off, and the session then has no action
+// tools.
 //
 // What the model is shown and what dispatch can run come from this one step: the
 // definitions are the list, and the map is the list by name. Two tools of one
-// name would leave the model's list ambiguous, so a verb that takes an intrinsic
-// tool's name fails here.
+// name would leave the model's list ambiguous, so a verb or an action tool
+// that takes another tool's name fails here.
 func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[string]tool, error) {
 	var tools []tool
 	for _, c := range caps {
@@ -53,9 +52,15 @@ func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[str
 	}
 	// The list is the head of every request and the prompt cache matches it
 	// byte for byte, so its order is the session's, not the backend's: verbs by
-	// name, then the intrinsics in declared order.
+	// name, then the intrinsics in declared order, then the action tools by
+	// action type.
 	slices.SortStableFunc(tools, func(a, b tool) int { return strings.Compare(a.def.Name, b.def.Name) })
-	tools = append(tools, intrinsicTools(actionTypes)...)
+	tools = append(tools, intrinsicTools()...)
+	actions, err := actionTools(actionTypes)
+	if err != nil {
+		return nil, nil, err
+	}
+	tools = append(tools, actions...)
 
 	defs := make([]ToolDef, 0, len(tools))
 	byName := make(map[string]tool, len(tools))
@@ -73,7 +78,8 @@ func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[str
 func verbTool(c Capability) tool {
 	verb := c.Descriptor.Verb
 	return tool{
-		def: verbToolDef(c),
+		def:  verbToolDef(c),
+		kind: ToolKindVerb,
 		run: func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error) {
 			res, err := contentOf(s.invokeVerb(ctx, verb, input))
 			if err == nil {
@@ -146,9 +152,22 @@ func contentOf(content []byte, err error) (toolResult, error) {
 	return toolResult{Content: content}, err
 }
 
+// The kinds of tool in the session's list (OfferedTool.Kind, adr/0380). The
+// loop built every tool, so it knows each one's kind; a reader of the list
+// never works it out from the name. A name outside the list was not offered.
+const (
+	ToolKindVerb      = "verb"      // a capability verb
+	ToolKindIntrinsic = "intrinsic" // a tool the loop always declares
+	ToolKindAction    = "action"    // a tool that requests one action type
+)
+
 // tool is one tool's single definition: what the model is shown and what runs.
 type tool struct {
 	def ToolDef
+	// kind is what the tool is (a ToolKind value), and actionType the type an
+	// action tool requests. Session.OfferedTools reports both.
+	kind       string
+	actionType string
 	// origin and revised are an intrinsic tool's ledger entry (adr/0232): what
 	// introduced its definition and what reworded it since, as pointers in
 	// promptRule's form. A verb tool has none: its words are the tenant's.
@@ -167,25 +186,13 @@ type toolSpec[In any] struct {
 	Revised     []string
 	Description string
 	Overrides   map[string]any // see inputSchema
-	// Strict builds the schema under strict mode's rules and sends the tool
-	// with the strict flag (adr/0376). A schema past the API's strict limits
-	// is sent as built, without the flag, because the API would refuse every
-	// request that carried it.
-	Strict      bool
 	SelfBounded bool
 	Run         func(s *Session, ctx context.Context, in In) (toolResult, error)
 }
 
 func defineTool[In any](spec toolSpec[In]) tool {
-	schema := inputSchema[In](spec.Overrides, spec.Strict)
-	strict := spec.Strict
-	if unions := strictUnions(schema); strict && unions > strictUnionLimit {
-		slog.Warn("agent: tool sent without strict mode: its schema passes the API's union limit",
-			"tool", spec.Name, "unions", unions, "limit", strictUnionLimit)
-		strict = false
-	}
 	return tool{
-		def: ToolDef{Name: spec.Name, Description: spec.Description, InputSchema: schema, Strict: strict},
+		def: ToolDef{Name: spec.Name, Description: spec.Description, InputSchema: inputSchema[In](spec.Overrides)},
 		run: func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error) {
 			var in In
 			if err := json.Unmarshal(input, &in); err != nil {
@@ -193,6 +200,7 @@ func defineTool[In any](spec toolSpec[In]) tool {
 			}
 			return spec.Run(s, ctx, in)
 		},
+		kind:        ToolKindIntrinsic,
 		selfBounded: spec.SelfBounded,
 		origin:      spec.Origin,
 		revised:     spec.Revised,
@@ -276,26 +284,14 @@ type targetInput struct {
 	ResolvedIdentifier string `json:"resolved_identifier" required:"true" desc:"the concrete identifier the tool acts on (hostname, account id)"`
 }
 
-// requestActionInput: action_type and parameters take their schemas from the
-// catalog (see the overrides in intrinsicTools). Every key is required, as a
-// strict tool needs, and retry_of is null on a first request (adr/0376).
-type requestActionInput struct {
-	ActionType   string          `json:"action_type" required:"true"`
-	Targets      []targetInput   `json:"targets" required:"true" desc:"the distinct targets; blast radius drives the trust tier"`
-	Rationale    string          `json:"rationale" required:"true" desc:"why this action, now"`
-	EvidenceRefs []string        `json:"evidence_refs" required:"true" nonempty:"true" desc:"REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it."`
-	Parameters   json.RawMessage `json:"parameters" required:"true"`
-	RetryOf      string          `json:"retry_of" required:"true" nullable:"true" desc:"when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); null otherwise"`
-}
-
 type readResultInput struct {
 	ResultID string `json:"result_id" required:"true" desc:"the result_id from result_bounded"`
 	Offset   int    `json:"offset" required:"true" desc:"the item offset to start from: next_offset from the previous page"`
 }
 
-// intrinsicTools declares the reasoning + knowledge + action tools. actionTypes
-// (may be nil) shapes the request_action tool from the frozen write catalog.
-func intrinsicTools(actionTypes []ActionType) []tool {
+// intrinsicTools declares the reasoning, knowledge and action-record tools.
+// The tools that request actions are built per catalog (actionTools).
+func intrinsicTools() []tool {
 	return []tool{
 		defineTool(toolSpec[recallSOPsInput]{
 			Name:    ToolRecallSOPs,
@@ -359,20 +355,6 @@ func intrinsicTools(actionTypes []ActionType) []tool {
 			Description: "Record a prediction's test outcome. CONFIRMED and DISCONFIRMED must cite test_result_refs. A manual prediction (a person tests it) is not yours to record: the engine refuses it; ask the analyst for the result.",
 			Run:         (*Session).recordPredictionOutcome,
 		}),
-		defineTool(toolSpec[requestActionInput]{
-			Name:        ToolRequestAction,
-			Origin:      "80420c3",
-			Revised:     []string{"b50bd4f", "adac4a6", "0ade6d2", "6b020a1", "#357", "#376"},
-			Description: requestActionDescription(actionTypes),
-			Overrides: map[string]any{
-				"action_type": actionTypeSchema(actionTypes),
-				"parameters":  parametersSchema(actionTypes),
-			},
-			// With no catalog the loop knows no parameter keys, and a closed
-			// parameters object would allow none. The tool is then not strict.
-			Strict: len(actionTypes) > 0,
-			Run:    (*Session).requestAction,
-		}),
 		defineTool(toolSpec[struct{}]{
 			Name:        ToolListActions,
 			Origin:      "c881117",
@@ -408,169 +390,6 @@ func intrinsicTools(actionTypes []ActionType) []tool {
 				return res, nil
 			},
 		}),
-	}
-}
-
-// requestActionDescription renders the request_action tool description from the
-// frozen write catalog: the fixed guidance plus, when the catalog is known, an
-// enumerated list of the real action types with tier, reversibility, and current
-// dispatchability. This is what stops the model guessing action_type strings
-// (ip.block, firewall.block_ip, …) — it can read the actual vocabulary.
-func requestActionDescription(actionTypes []ActionType) string {
-	base := "Propose a state-changing action (containment, remediation). It goes through authorization policy — you can propose, never approve; most proposals await the analyst's explicit approval. Every request MUST cite evidence_refs — the STIX/OCSF refs that ground it; an ungrounded action is rejected."
-	if len(actionTypes) == 0 {
-		return base
-	}
-	var b strings.Builder
-	b.WriteString(base)
-	b.WriteString("\n\nValid action_type values (use one EXACTLY as written; never invent a name):")
-	for _, a := range actionTypes {
-		d := a.Descriptor
-		fmt.Fprintf(&b, "\n- %s [%s, %s, %s]: %s",
-			d.ActionType, d.DefaultTier, d.Reversibility, a.Status, d.Intent)
-		// The declared parameter schema (08 §3): entity inputs ride `targets`;
-		// the rest are the ONLY keys `parameters` accepts — the backend rejects
-		// unknown keys and missing required ones at request time.
-		if params := paramList(a); params != "" {
-			fmt.Fprintf(&b, "\n  parameters: %s", params)
-		}
-	}
-	b.WriteString("\n\nEach action's `parameters` object holds exactly its listed keys; targets carry the entities. Write every listed key, and write null for a key you have no value for. If the action you need is not in this list, or is marked 'unavailable' (no tool is wired for it), do NOT request it — tell the analyst it must be performed manually.")
-	return b.String()
-}
-
-// paramList renders an action type's non-entity inputs — the declared
-// request_action.parameters vocabulary — as "name (required), name, …".
-func paramList(a ActionType) string {
-	var parts []string
-	for _, in := range a.Descriptor.Inputs {
-		if in.Type == "entity" {
-			continue // satisfied via targets
-		}
-		p := in.Name
-		if in.Required {
-			p += " (required)"
-		}
-		parts = append(parts, p)
-	}
-	return strings.Join(parts, ", ")
-}
-
-// actionTypeSchema builds the action_type property. When the catalog is known it
-// is a hard enum of the real types, so an invented name cannot even be emitted;
-// otherwise it falls back to a free-text string (action layer off).
-func actionTypeSchema(actionTypes []ActionType) map[string]any {
-	if len(actionTypes) == 0 {
-		return map[string]any{"type": "string", "description": "the action type, e.g. host.isolate, account.disable"}
-	}
-	types := requestableTypes(actionTypes)
-	enum := make([]string, 0, len(types))
-	for _, a := range types {
-		enum = append(enum, a.Descriptor.ActionType)
-	}
-	return map[string]any{
-		"type":        "string",
-		"enum":        enum,
-		"description": "the action type — exactly one of the enumerated catalog values",
-	}
-}
-
-// requestableTypes is the set the action_type enum and the parameters shapes
-// are built over. Only requestable types belong in the hard enum: an
-// 'unavailable' type has no tool wired (08 §3), so the description flags it as
-// unrequestable — the enum must not then permit it. This mirrors the read
-// side, where buildTools trims non-available verbs from the tool set entirely.
-// If nothing is currently requestable, it falls back to the full list rather
-// than an empty enum (which no value could satisfy) — the backend still
-// rejects an unwired dispatch honestly, and the description says as much.
-func requestableTypes(actionTypes []ActionType) []ActionType {
-	var out []ActionType
-	for _, a := range actionTypes {
-		if a.Status != "unavailable" {
-			out = append(out, a)
-		}
-	}
-	if len(out) == 0 {
-		return actionTypes
-	}
-	return out
-}
-
-// parametersSchema builds the request_action `parameters` property from the
-// catalog's declared inputs (08 §3): one closed object per requestable action
-// type, joined with anyOf (adr/0376). A shape holds the type's non-entity
-// inputs and requires every one of them; required lists them in the
-// descriptor's order. The properties map serializes with its keys sorted.
-// Every key is required, so that order loses nothing. An input
-// the descriptor requires is its plain type; any other may be null, which is
-// how the model says it has no value. Strict mode cannot go back for a key it
-// skipped, so no key is optional. Types with no
-// such inputs share one empty shape, placed last. One shape alone is sent
-// without anyOf. The schema does not tie a shape to action_type; the engine's
-// validation does, and it rejects an unknown key or a missing required one.
-func parametersSchema(actionTypes []ActionType) map[string]any {
-	const base = "The action-type-specific parameters, as a JSON OBJECT — never a JSON string."
-	if len(actionTypes) == 0 {
-		return map[string]any{"type": "object",
-			"description": "Action-type-specific parameters as a JSON object (this catalog declares none)."}
-	}
-	var shapes []any
-	var empty []string
-	for _, a := range requestableTypes(actionTypes) {
-		props := map[string]any{}
-		required := []string{}
-		for _, in := range a.Descriptor.Inputs {
-			if in.Type == "entity" {
-				continue // entity inputs ride `targets`, not `parameters`
-			}
-			p := map[string]any{"type": jsonSchemaType(in.Type)}
-			if !in.Required {
-				p["type"] = []string{jsonSchemaType(in.Type), "null"}
-			}
-			if d := strings.TrimSpace(in.Desc); d != "" {
-				p["description"] = d
-			}
-			props[in.Name] = p
-			required = append(required, in.Name)
-		}
-		if len(props) == 0 {
-			empty = append(empty, a.Descriptor.ActionType)
-			continue
-		}
-		shapes = append(shapes, parametersShape([]string{a.Descriptor.ActionType}, props, required))
-	}
-	if len(empty) > 0 {
-		shapes = append(shapes, parametersShape(empty, map[string]any{}, []string{}))
-	}
-	if len(shapes) == 1 {
-		shape := shapes[0].(map[string]any)
-		if len(empty) > 0 {
-			shape["description"] = base + " No action type in this catalog takes any, so send an empty object."
-		} else {
-			shape["description"] = base + " Write every key, and write null for a key you have no value for."
-		}
-		return shape
-	}
-	return map[string]any{
-		"anyOf": shapes,
-		"description": base + " Use the one shape whose description names your chosen action_type. " +
-			"Write every key of that shape, and write null for a key you have no value for.",
-	}
-}
-
-// parametersShape is one closed parameters object, described by the action
-// types it serves.
-func parametersShape(types []string, props map[string]any, required []string) map[string]any {
-	desc := "parameters for " + strings.Join(types, ", ")
-	if len(props) == 0 {
-		desc += " (none: an empty object)"
-	}
-	return map[string]any{
-		"type":                 "object",
-		"description":          desc,
-		"properties":           props,
-		"required":             required,
-		"additionalProperties": false,
 	}
 }
 
@@ -832,54 +651,6 @@ func (s *Session) recordPredictionOutcome(ctx context.Context, in recordPredicti
 	return contentOf(json.Marshal(map[string]any{"interpretation_id": resp.InterpretationID}))
 }
 
-func (s *Session) requestAction(ctx context.Context, in requestActionInput) (toolResult, error) {
-	targets := make([]ActionTarget, 0, len(in.Targets))
-	for _, t := range in.Targets {
-		targets = append(targets, ActionTarget{EntityRef: t.EntityRef, ResolvedIdentifier: t.ResolvedIdentifier})
-	}
-	resp, err := s.backend.RequestAction(ctx, ActionRequest{
-		ActionType:       in.ActionType,
-		Targets:          targets,
-		Parameters:       dropNullParameters(in.Parameters),
-		EvidenceRefs:     in.EvidenceRefs,
-		Rationale:        in.Rationale,
-		InvestigationRef: s.investigationID,
-		RetryOf:          in.RetryOf,
-	})
-	if err != nil {
-		return toolResult{}, err
-	}
-	s.pendingActions = append(s.pendingActions, resp)
-	return contentOf(json.Marshal(resp))
-}
-
-// dropNullParameters removes the keys of a parameters object whose value is
-// null. The strict schema has the model write null for an input it has no
-// value for (adr/0376), and an absent key is how the engine reads that. Any
-// value that is not a JSON object goes to the backend as sent, so the engine
-// refuses a string or a list in its own words.
-func dropNullParameters(raw json.RawMessage) json.RawMessage {
-	var params map[string]json.RawMessage
-	if json.Unmarshal(raw, &params) != nil || params == nil {
-		return raw
-	}
-	dropped := false
-	for k, v := range params {
-		if string(v) == "null" {
-			delete(params, k)
-			dropped = true
-		}
-	}
-	if !dropped {
-		return raw
-	}
-	clean, err := json.Marshal(params)
-	if err != nil {
-		return raw
-	}
-	return clean
-}
-
 func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, error) {
 	acts, err := s.backend.ListActions(ctx, s.investigationID)
 	if err != nil {
@@ -965,4 +736,25 @@ func capabilityCallID(content string) string {
 		return ""
 	}
 	return env.CallID
+}
+
+// OfferedTool is one tool of the session's list, as the session built it:
+// its name, its kind (a ToolKind value), and the action type an action tool
+// requests.
+type OfferedTool struct {
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	ActionType string `json:"action_type,omitempty"`
+}
+
+// OfferedTools is the tool list the session offers the model, in the order
+// each request sends it (adr/0380). It is read from the tools buildTools
+// built, never from the names. A call to a name outside it was not offered.
+func (s *Session) OfferedTools() []OfferedTool {
+	out := make([]OfferedTool, 0, len(s.tools))
+	for _, d := range s.tools {
+		t := s.toolsByName[d.Name]
+		out = append(out, OfferedTool{Name: d.Name, Kind: t.kind, ActionType: t.actionType})
+	}
+	return out
 }

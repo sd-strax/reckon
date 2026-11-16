@@ -61,15 +61,13 @@ func TestPrompt_NoScenarioVocabulary(t *testing.T) {
 		"prompt/" + framingLeadingNull: systemPrompt(Investigation{HypothesisFraming: framingLeadingNull}, nil),
 		"prompt/" + framingLeadingOnly: systemPrompt(Investigation{HypothesisFraming: framingLeadingOnly}, nil),
 	}
-	for _, tl := range intrinsicTools(nil) {
+	for _, tl := range intrinsicTools() {
 		texts["tool/"+tl.def.Name] = toolText(tl.def)
 	}
 	// The text that renders only with a catalog or a verb is covered through
 	// the examples PromptVersion hashes (adr/0232).
-	for _, tl := range intrinsicTools(exampleCatalog()) {
-		if tl.def.Name == ToolRequestAction {
-			texts["tool/"+tl.def.Name+"+catalog"] = toolText(tl.def)
-		}
+	for _, tl := range exampleActionTools() {
+		texts["tool/"+tl.def.Name+"+catalog"] = toolText(tl.def)
 	}
 	texts["tool/<verb>"] = toolText(verbToolDef(exampleVerb()))
 	// The engine text and the side instructions are read by the model too.

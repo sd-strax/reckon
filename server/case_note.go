@@ -25,6 +25,9 @@ import (
 // asks first (confirm, the default), requests without asking (auto), or never
 // offers (off). "off" is enforced here: the endpoint refuses.
 
+// caseNoteActionType is the action the case note is requested as.
+const caseNoteActionType = "ticket.comment"
+
 // CaseNoteOffer is what the create response hands the client when a note may
 // be posted: the default text, which the analyst may edit before posting.
 type CaseNoteOffer struct {
@@ -57,10 +60,15 @@ func caseNoteBody(investigationID, title, principal string, now time.Time) strin
 }
 
 // caseNoteOffer builds the offer for a freshly created case-rooted
-// investigation under the tenant posture, or nil when the seed is not a case
-// or the posture is off.
+// investigation under the tenant posture, or nil when the seed is not a case,
+// the posture is off, or ticket.comment has no usable binding for the seed's
+// scope: a note that cannot be carried out is not offered (adr/0380).
 func (b *Backend) caseNoteOffer(ctx context.Context, investigationID, title string, seed *aggregate.Seed, principal string, now time.Time) *CaseNoteOffer {
 	if seed == nil || seed.Type != aggregate.SeedCase || b.cfg.CaseNoteOnSeed == config.CaseNoteOff {
+		return nil
+	}
+	resolver := b.actionResolver()
+	if resolver == nil || !resolver.HasUsableBinding(caseNoteActionType, seed.SourceScope) {
 		return nil
 	}
 	return &CaseNoteOffer{
@@ -123,7 +131,7 @@ func buildCaseNoteRequest(ic *aggregate.InvestigationCurrent, body string) (Requ
 		return RequestActionBody{}, err
 	}
 	return RequestActionBody{
-		ActionType:       "ticket.comment",
+		ActionType:       caseNoteActionType,
 		Targets:          []aggregate.TargetSpec{{EntityRef: ic.Seed.CaseRef, ResolvedIdentifier: ic.Seed.CaseID}},
 		Parameters:       params,
 		EvidenceRefs:     []string{ic.Seed.CaseRef},

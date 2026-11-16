@@ -170,6 +170,12 @@ string `parameters` is refused by the engine, so it can no longer reach the
 write adapter. The reason in `parameters-are-an-object` now says that: the
 engine refuses a string and the action is not requested.
 
+adr/0380 later replaced `request_action` with one tool per action type and
+removed strict mode. No tool takes a `parameters` object any more, so it
+retired `parameters-are-an-object`. The rules that named `request_action` now
+name the action tools, and `contain-on-harm` reads reversibility from the
+action tool's description. Each keeps the wording this pass gave it.
+
 ## Alternatives rejected
 
 - **Reword only the rules that failed a trial.** That is the per-finding loop
