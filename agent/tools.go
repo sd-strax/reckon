@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -166,13 +167,25 @@ type toolSpec[In any] struct {
 	Revised     []string
 	Description string
 	Overrides   map[string]any // see inputSchema
+	// Strict builds the schema under strict mode's rules and sends the tool
+	// with the strict flag (adr/0376). A schema past the API's strict limits
+	// is sent as built, without the flag, because the API would refuse every
+	// request that carried it.
+	Strict      bool
 	SelfBounded bool
 	Run         func(s *Session, ctx context.Context, in In) (toolResult, error)
 }
 
 func defineTool[In any](spec toolSpec[In]) tool {
+	schema := inputSchema[In](spec.Overrides, spec.Strict)
+	strict := spec.Strict
+	if unions := strictUnions(schema); strict && unions > strictUnionLimit {
+		slog.Warn("agent: tool sent without strict mode: its schema passes the API's union limit",
+			"tool", spec.Name, "unions", unions, "limit", strictUnionLimit)
+		strict = false
+	}
 	return tool{
-		def: ToolDef{Name: spec.Name, Description: spec.Description, InputSchema: inputSchema[In](spec.Overrides)},
+		def: ToolDef{Name: spec.Name, Description: spec.Description, InputSchema: schema, Strict: strict},
 		run: func(ctx context.Context, s *Session, input json.RawMessage) (toolResult, error) {
 			var in In
 			if err := json.Unmarshal(input, &in); err != nil {
@@ -264,14 +277,15 @@ type targetInput struct {
 }
 
 // requestActionInput: action_type and parameters take their schemas from the
-// catalog (see the overrides in intrinsicTools).
+// catalog (see the overrides in intrinsicTools). Every key is required, as a
+// strict tool needs, and retry_of is null on a first request (adr/0376).
 type requestActionInput struct {
 	ActionType   string          `json:"action_type" required:"true"`
 	Targets      []targetInput   `json:"targets" required:"true" desc:"the distinct targets; blast radius drives the trust tier"`
 	Rationale    string          `json:"rationale" required:"true" desc:"why this action, now"`
 	EvidenceRefs []string        `json:"evidence_refs" required:"true" nonempty:"true" desc:"REQUIRED: the STIX/OCSF refs that ground this action — the observed_data_refs / entity_refs / reckon-hypothesis ids you observed. A containment or remediation with no cited evidence is invalid and the engine rejects it."`
-	Parameters   json.RawMessage `json:"parameters"`
-	RetryOf      string          `json:"retry_of" desc:"when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage)"`
+	Parameters   json.RawMessage `json:"parameters" required:"true"`
+	RetryOf      string          `json:"retry_of" required:"true" nullable:"true" desc:"when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); null otherwise"`
 }
 
 type readResultInput struct {
@@ -348,13 +362,16 @@ func intrinsicTools(actionTypes []ActionType) []tool {
 		defineTool(toolSpec[requestActionInput]{
 			Name:        ToolRequestAction,
 			Origin:      "80420c3",
-			Revised:     []string{"b50bd4f", "adac4a6", "0ade6d2", "6b020a1", "#357"},
+			Revised:     []string{"b50bd4f", "adac4a6", "0ade6d2", "6b020a1", "#357", "#376"},
 			Description: requestActionDescription(actionTypes),
 			Overrides: map[string]any{
 				"action_type": actionTypeSchema(actionTypes),
 				"parameters":  parametersSchema(actionTypes),
 			},
-			Run: (*Session).requestAction,
+			// With no catalog the loop knows no parameter keys, and a closed
+			// parameters object would allow none. The tool is then not strict.
+			Strict: len(actionTypes) > 0,
+			Run:    (*Session).requestAction,
 		}),
 		defineTool(toolSpec[struct{}]{
 			Name:        ToolListActions,
@@ -418,7 +435,7 @@ func requestActionDescription(actionTypes []ActionType) string {
 			fmt.Fprintf(&b, "\n  parameters: %s", params)
 		}
 	}
-	b.WriteString("\n\nEach action's `parameters` object accepts exactly its listed parameter keys (targets carry the entities). If the action you need is not in this list, or is marked 'unavailable' (no tool is wired for it), do NOT request it — tell the analyst it must be performed manually.")
+	b.WriteString("\n\nEach action's `parameters` object holds exactly its listed keys; targets carry the entities. Write every listed key, and write null for a key you have no value for. If the action you need is not in this list, or is marked 'unavailable' (no tool is wired for it), do NOT request it — tell the analyst it must be performed manually.")
 	return b.String()
 }
 
@@ -446,24 +463,10 @@ func actionTypeSchema(actionTypes []ActionType) map[string]any {
 	if len(actionTypes) == 0 {
 		return map[string]any{"type": "string", "description": "the action type, e.g. host.isolate, account.disable"}
 	}
-	// Only requestable types belong in the hard enum: an 'unavailable' type has
-	// no tool wired (08 §3), so the description flags it as unrequestable — the
-	// enum must not then permit it. This mirrors the read side, where buildTools
-	// trims non-available verbs from the tool set entirely.
-	enum := make([]string, 0, len(actionTypes))
-	for _, a := range actionTypes {
-		if a.Status == "unavailable" {
-			continue
-		}
+	types := requestableTypes(actionTypes)
+	enum := make([]string, 0, len(types))
+	for _, a := range types {
 		enum = append(enum, a.Descriptor.ActionType)
-	}
-	// If nothing is currently requestable, fall back to the full list rather than
-	// emit an empty enum (which no value could satisfy) — the backend still
-	// rejects an unwired dispatch honestly, and the description says as much.
-	if len(enum) == 0 {
-		for _, a := range actionTypes {
-			enum = append(enum, a.Descriptor.ActionType)
-		}
 	}
 	return map[string]any{
 		"type":        "string",
@@ -472,87 +475,102 @@ func actionTypeSchema(actionTypes []ActionType) map[string]any {
 	}
 }
 
-// UnwrapStringifiedObject corrects a common model quirk: emitting a nested
-// object field — request_action.parameters — as a STRINGIFIED JSON string
-// (`"{\"summary\":...}"`) instead of a JSON object. When raw is a JSON string
-// whose contents parse as a JSON object, it returns the unwrapped object bytes;
-// otherwise it returns raw unchanged so the backend still validates the shape.
-// This is the loop being liberal in what it accepts from the model (05 §3.4):
-// a benign double-encoding must not cost a rejected action — or, against a real
-// write adapter templating ${parameters.x}, a silently empty field. The eval
-// harness applies the same normalization so H5 grades the request's substance
-// (keys), not its encoding.
-func UnwrapStringifiedObject(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 || raw[0] != '"' {
-		return raw
+// requestableTypes is the set the action_type enum and the parameters shapes
+// are built over. Only requestable types belong in the hard enum: an
+// 'unavailable' type has no tool wired (08 §3), so the description flags it as
+// unrequestable — the enum must not then permit it. This mirrors the read
+// side, where buildTools trims non-available verbs from the tool set entirely.
+// If nothing is currently requestable, it falls back to the full list rather
+// than an empty enum (which no value could satisfy) — the backend still
+// rejects an unwired dispatch honestly, and the description says as much.
+func requestableTypes(actionTypes []ActionType) []ActionType {
+	var out []ActionType
+	for _, a := range actionTypes {
+		if a.Status != "unavailable" {
+			out = append(out, a)
+		}
 	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return raw
+	if len(out) == 0 {
+		return actionTypes
 	}
-	trimmed := strings.TrimSpace(s)
-	if !strings.HasPrefix(trimmed, "{") {
-		return raw // a plain string, not a stringified object — leave it
-	}
-	// Decode the FIRST complete JSON object and tolerate trailing garbage: the
-	// model sometimes appends a stray ']' or other junk after the object (a
-	// real, repeated malformation that blocked every ticket create), which
-	// json.Unmarshal rejects but a streaming decoder does not. Re-marshal the
-	// clean object so the backend receives well-formed bytes.
-	dec := json.NewDecoder(strings.NewReader(trimmed))
-	var probe map[string]json.RawMessage
-	if dec.Decode(&probe) != nil {
-		return raw // not even a leading JSON object — let the backend reject honestly
-	}
-	clean, err := json.Marshal(probe)
-	if err != nil {
-		return raw
-	}
-	return json.RawMessage(clean)
+	return out
 }
 
-// parametersSchema builds the request_action `parameters` property as a concrete
-// object schema: the union of every action type's non-entity declared inputs
-// (08 §3), each annotated with which action_type(s) use it. A bare
-// {"type":"object"} with NO properties is precisely what leads a model to emit
-// the field as a STRINGIFIED JSON blob (the H6 finding); giving it real
-// properties makes the model fill a structured object instead. The union is
-// deliberately permissive (the model picks action_type at call time, so a single
-// schema cannot be per-type): the description tells it to include only its
-// action's keys, and the backend enforces per-type required-ness + rejects
-// unknown keys.
+// parametersSchema builds the request_action `parameters` property from the
+// catalog's declared inputs (08 §3): one closed object per requestable action
+// type, joined with anyOf (adr/0376). A shape holds the type's non-entity
+// inputs and requires every one of them; required lists them in the
+// descriptor's order. The properties map serializes with its keys sorted.
+// Every key is required, so that order loses nothing. An input
+// the descriptor requires is its plain type; any other may be null, which is
+// how the model says it has no value. Strict mode cannot go back for a key it
+// skipped, so no key is optional. Types with no
+// such inputs share one empty shape, placed last. One shape alone is sent
+// without anyOf. The schema does not tie a shape to action_type; the engine's
+// validation does, and it rejects an unknown key or a missing required one.
 func parametersSchema(actionTypes []ActionType) map[string]any {
-	props := map[string]any{}
-	owners := map[string][]string{}
-	for _, a := range actionTypes {
+	const base = "The action-type-specific parameters, as a JSON OBJECT — never a JSON string."
+	if len(actionTypes) == 0 {
+		return map[string]any{"type": "object",
+			"description": "Action-type-specific parameters as a JSON object (this catalog declares none)."}
+	}
+	var shapes []any
+	var empty []string
+	for _, a := range requestableTypes(actionTypes) {
+		props := map[string]any{}
+		required := []string{}
 		for _, in := range a.Descriptor.Inputs {
 			if in.Type == "entity" {
 				continue // entity inputs ride `targets`, not `parameters`
 			}
-			if _, seen := props[in.Name]; !seen {
-				props[in.Name] = map[string]any{"type": jsonSchemaType(in.Type), "description": in.Desc}
+			p := map[string]any{"type": jsonSchemaType(in.Type)}
+			if !in.Required {
+				p["type"] = []string{jsonSchemaType(in.Type), "null"}
 			}
-			owners[in.Name] = appendUnique(owners[in.Name], a.Descriptor.ActionType)
+			if d := strings.TrimSpace(in.Desc); d != "" {
+				p["description"] = d
+			}
+			props[in.Name] = p
+			required = append(required, in.Name)
 		}
+		if len(props) == 0 {
+			empty = append(empty, a.Descriptor.ActionType)
+			continue
+		}
+		shapes = append(shapes, parametersShape([]string{a.Descriptor.ActionType}, props, required))
 	}
-	if len(props) == 0 {
-		return map[string]any{"type": "object",
-			"description": "Action-type-specific parameters as a JSON object (this catalog declares none)."}
+	if len(empty) > 0 {
+		shapes = append(shapes, parametersShape(empty, map[string]any{}, []string{}))
 	}
-	for name := range props {
-		pm := props[name].(map[string]any)
-		usedBy := "used by: " + strings.Join(owners[name], ", ")
-		if d := strings.TrimSpace(pm["description"].(string)); d != "" {
-			pm["description"] = d + " (" + usedBy + ")"
+	if len(shapes) == 1 {
+		shape := shapes[0].(map[string]any)
+		if len(empty) > 0 {
+			shape["description"] = base + " No action type in this catalog takes any, so send an empty object."
 		} else {
-			pm["description"] = usedBy
+			shape["description"] = base + " Write every key, and write null for a key you have no value for."
 		}
+		return shape
 	}
 	return map[string]any{
-		"type":       "object",
-		"properties": props,
-		"description": "The action-type-specific parameters, as a JSON OBJECT — never a JSON string. " +
-			"Include only the keys listed for your chosen action_type (see the tool description above); omit the others.",
+		"anyOf": shapes,
+		"description": base + " Use the one shape whose description names your chosen action_type. " +
+			"Write every key of that shape, and write null for a key you have no value for.",
+	}
+}
+
+// parametersShape is one closed parameters object, described by the action
+// types it serves.
+func parametersShape(types []string, props map[string]any, required []string) map[string]any {
+	desc := "parameters for " + strings.Join(types, ", ")
+	if len(props) == 0 {
+		desc += " (none: an empty object)"
+	}
+	return map[string]any{
+		"type":                 "object",
+		"description":          desc,
+		"properties":           props,
+		"required":             required,
+		"additionalProperties": false,
 	}
 }
 
@@ -579,16 +597,6 @@ func verbScalarSchema(typ, desc string) map[string]any {
 		return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": desc}
 	}
 	return map[string]any{"type": jsonSchemaType(typ), "description": desc}
-}
-
-// appendUnique appends v to s if absent, preserving order.
-func appendUnique(s []string, v string) []string {
-	for _, x := range s {
-		if x == v {
-			return s
-		}
-	}
-	return append(s, v)
 }
 
 // dispatchTool executes one model-issued tool call against the backend and
@@ -832,7 +840,7 @@ func (s *Session) requestAction(ctx context.Context, in requestActionInput) (too
 	resp, err := s.backend.RequestAction(ctx, ActionRequest{
 		ActionType:       in.ActionType,
 		Targets:          targets,
-		Parameters:       UnwrapStringifiedObject(in.Parameters),
+		Parameters:       dropNullParameters(in.Parameters),
 		EvidenceRefs:     in.EvidenceRefs,
 		Rationale:        in.Rationale,
 		InvestigationRef: s.investigationID,
@@ -843,6 +851,33 @@ func (s *Session) requestAction(ctx context.Context, in requestActionInput) (too
 	}
 	s.pendingActions = append(s.pendingActions, resp)
 	return contentOf(json.Marshal(resp))
+}
+
+// dropNullParameters removes the keys of a parameters object whose value is
+// null. The strict schema has the model write null for an input it has no
+// value for (adr/0376), and an absent key is how the engine reads that. Any
+// value that is not a JSON object goes to the backend as sent, so the engine
+// refuses a string or a list in its own words.
+func dropNullParameters(raw json.RawMessage) json.RawMessage {
+	var params map[string]json.RawMessage
+	if json.Unmarshal(raw, &params) != nil || params == nil {
+		return raw
+	}
+	dropped := false
+	for k, v := range params {
+		if string(v) == "null" {
+			delete(params, k)
+			dropped = true
+		}
+	}
+	if !dropped {
+		return raw
+	}
+	clean, err := json.Marshal(params)
+	if err != nil {
+		return raw
+	}
+	return clean
 }
 
 func (s *Session) listActions(ctx context.Context, _ struct{}) (toolResult, error) {

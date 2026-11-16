@@ -293,12 +293,12 @@ Authorization:
   challenge_response     optional string (the typed confirmation string for T3)
 ```
 
-For `AUTO_POLICY`, `primary_approver_ref` points at the *human who authored or last signed off on the policy*, not at "the system." This preserves the principle that every action traces to a named human.
+For `AUTO_POLICY`, `primary_approver_ref` points at the *human who authored or last signed off on the policy*, not at "the system." This preserves the principle that every action traces to a named human. A policy with `accountable: requester` (§4.1) points it at the person who requested the action instead. Such a policy fires only for a `HUMAN` requester, so the named human is always the one who asked (adr/0374).
 
 **Actor / approver invariant.** When a lifecycle Interpretation is recorded for an action (`action-approval`, `action-rejection`, etc.), the event envelope's `actor.principal` (see 02-persistence.md §7) MUST equal the relevant approver field on the `Authorization` record:
 
 - `MANUAL`: `actor.principal == primary_approver_ref` (the analyst who clicked).
-- `AUTO_POLICY`: `actor.principal == primary_approver_ref` (the policy's signed-off-by analyst). The AI agent that originated the request is recorded as `actor.delegate`.
+- `AUTO_POLICY`: `actor.principal == primary_approver_ref` (the policy's signed-off-by analyst, or the requester under `accountable: requester`). The AI agent that originated the request is recorded as `actor.delegate`.
 - `TWO_PARTY`: on the primary approval Interpretation, `actor.principal == primary_approver_ref`; on the secondary approval Interpretation, `actor.principal == secondary_approver_ref`.
 
 This is the load-bearing tie between the authorization model here and the actor model in 01-domain-model.md. There is no path by which an AI agent or "the system" appears as a principal — every recorded action is owned by a named human.
@@ -331,6 +331,13 @@ policy:
                            effect == REQUIRE_TWO_PARTY; defines who can act as
                            the secondary approver. Defaults to the on-call
                            rotation when unspecified.)
+  accountable              author | requester, default author (only
+                           meaningful when effect == AUTO_APPROVE). Who the
+                           approval is credited to (§3.3): author = the last
+                           signed_off_by, else authored_by; requester = the
+                           person who requested the action. A requester
+                           policy fires only when ctx.action.requested_by.kind
+                           is HUMAN; the engine holds this, not the predicate.
   authored_by              Analyst id
   signed_off_by            list of Analyst ids (config-change governance)
   effective_from           timestamp

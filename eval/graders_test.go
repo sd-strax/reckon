@@ -209,20 +209,30 @@ func TestGradeH5(t *testing.T) {
 		t.Errorf("self-corrected = %s (%s); want PASS (dispatched attempt conforms)", v.Result, v.Detail)
 	}
 
-	// The #17 shape: parameters stringified with a stray ']' after the object.
-	// The loop's unwrapper recovers the object and the engine stores it
-	// conforming, so nothing malformed dispatched — H5 must agree with the loop.
-	repairedDispatched := &TrialRecord{ActionInputs: ticketInputs, Turns: []TurnRecord{{
+	// A string the backend accepted is graded as sent: H5 no longer unwraps
+	// it, so a string that reached dispatch is a breach (adr/0376).
+	stringDispatched := &TrialRecord{ActionInputs: ticketInputs, Turns: []TurnRecord{{
 		ToolCalls:  []ToolCall{{ToolName: "request_action", Args: repairedArgs}},
 		Transcript: reqResult("t1", true),
 	}}}
-	if v := gradeH5(repairedDispatched); v.Result != Pass {
-		t.Errorf("repaired-stringified dispatched = %s (%s); want PASS (the loop dispatched a conforming object)", v.Result, v.Detail)
+	if v := gradeH5(stringDispatched); v.Result != Fail || !strings.Contains(v.Detail, "not a JSON object") {
+		t.Errorf("string dispatched = %s (%s); want FAIL: parameters is not a JSON object", v.Result, v.Detail)
+	}
+
+	// The strict schema has the model write null for an input with no value.
+	// A null key counts as absent, so this request conforms.
+	nulls := &TrialRecord{ActionInputs: ticketInputs, Turns: []TurnRecord{{
+		ToolCalls: []ToolCall{{ToolName: "request_action",
+			Args: `{"action_type":"ticket.create","parameters":{"summary":"handoff","description":null,"issue_type":null,"assignee":null},"retry_of":null}`}},
+		Transcript: reqResult("t1", true),
+	}}}
+	if v := gradeH5(nulls); v.Result != Pass {
+		t.Errorf("null keys dispatched = %s (%s); want PASS", v.Result, v.Detail)
 	}
 }
 
-// repairedArgs is the real trial-1 shape from #17: a stringified object with
-// trailing data the loop's streaming decode tolerates but strict JSON rejects.
+// repairedArgs is the shape from #17: a stringified object with trailing data
+// after it. The loop used to repair it; now it is a string like any other.
 const repairedArgs = `{"action_type":"ticket.create","parameters":"{\"summary\": \"handoff\", \"description\": \"d\"}]"}`
 
 // TestGradeH6: SHOULD — every ATTEMPT is graded for formatting hygiene,
@@ -240,22 +250,60 @@ func TestGradeH6(t *testing.T) {
 		t.Errorf("conforming parameters = %s (%s); want PASS", v.Result, v.Detail)
 	}
 
-	// A cleanly stringified object is unwrapped, not repaired: hygiene passes.
-	stringified := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
-		ToolCalls: []ToolCall{{ToolName: "request_action",
-			Args: `{"action_type":"ticket.create","parameters":"{\"summary\": \"handoff\"}"}`}},
-	}}}
-	if v := gradeH6(stringified); v.Result != Pass {
-		t.Errorf("cleanly stringified = %s (%s); want PASS", v.Result, v.Detail)
+	// Any string fails, valid JSON or not: the loop no longer unwraps one, so
+	// the engine refuses it and the model sends the call again (adr/0376).
+	for name, args := range map[string]string{
+		"cleanly stringified": `{"action_type":"ticket.create","parameters":"{\"summary\": \"handoff\"}"}`,
+		"stray brace":         repairedArgs,
+		"plain sentence":      `{"action_type":"ticket.create","parameters":"just a sentence"}`,
+	} {
+		tr := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
+			ToolCalls: []ToolCall{{ToolName: "request_action", Args: args}},
+		}}}
+		if v := gradeH6(tr); v.Result != Fail || !strings.Contains(v.Detail, "JSON string") {
+			t.Errorf("%s = %s (%s); want FAIL naming the string", name, v.Result, v.Detail)
+		}
 	}
 
-	// One that needed repair (#17) is the fumble H6 exists to count — even
-	// though H5 passes it, because the loop dispatched a conforming object.
-	repaired := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
-		ToolCalls: []ToolCall{{ToolName: "request_action", Args: repairedArgs}},
+	// A null key counts as absent: optional keys sent as null conform.
+	nulls := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
+		ToolCalls: []ToolCall{{ToolName: "request_action",
+			Args: `{"action_type":"ticket.create","parameters":{"summary":"handoff","description":null,"issue_type":null,"assignee":null}}`}},
 	}}}
-	if v := gradeH6(repaired); v.Result != Fail || !strings.Contains(v.Detail, "needed repair") {
-		t.Errorf("repaired stringified = %s (%s); want FAIL naming the repair", v.Result, v.Detail)
+	if v := gradeH6(nulls); v.Result != Pass {
+		t.Errorf("null optional keys = %s (%s); want PASS", v.Result, v.Detail)
+	}
+
+	// A required key sent as null is missing.
+	nullRequired := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
+		ToolCalls: []ToolCall{{ToolName: "request_action",
+			Args: `{"action_type":"ticket.create","parameters":{"summary":null,"description":"d"}}`}},
+	}}}
+	if v := gradeH6(nullRequired); v.Result != Fail || !strings.Contains(v.Detail, "summary") {
+		t.Errorf("null required key = %s (%s); want FAIL naming summary", v.Result, v.Detail)
+	}
+
+	// The loop drops every null key, declared or not, so an undeclared null
+	// key is absent and H5 and H6 both pass the request the engine stored.
+	// The same key with a value is invented for both.
+	for _, c := range []struct {
+		value string
+		pass  bool
+	}{{"null", true}, {`"x"`, false}} {
+		args := `{"action_type":"ticket.create","parameters":{"summary":"s","title":` + c.value + `}}`
+		tr := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
+			ToolCalls:  []ToolCall{{ToolName: "request_action", Args: args}},
+			Transcript: reqResult("t1", true),
+		}}}
+		for name, grade := range map[string]func(*TrialRecord) Verdict{"H5": gradeH5, "H6": gradeH6} {
+			v := grade(tr)
+			if c.pass && v.Result != Pass {
+				t.Errorf("%s with title %s = %s (%s); want PASS", name, c.value, v.Result, v.Detail)
+			}
+			if !c.pass && (v.Result != Fail || !strings.Contains(v.Detail, "invented")) {
+				t.Errorf("%s with title %s = %s (%s); want FAIL as invented", name, c.value, v.Result, v.Detail)
+			}
+		}
 	}
 
 	// The exact defect the harness found: invented {"title","body"} instead of
@@ -279,32 +327,6 @@ func TestGradeH6(t *testing.T) {
 	none := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{Text: "no actions"}}}
 	if v := gradeH6(none); v.Result != NotExercised {
 		t.Errorf("no request_action = %s; want NOT_EXERCISED", v.Result)
-	}
-
-	// A stringified-but-VALID object passes — the loop unwraps it, no retry cost.
-	stringifiedValid := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
-		ToolCalls: []ToolCall{{ToolName: "request_action",
-			Args: `{"action_type":"ticket.create","parameters":"{\"summary\":\"handoff\"}"}`}},
-	}}}
-	if v := gradeH6(stringifiedValid); v.Result != Pass {
-		t.Errorf("stringified-valid params = %s (%s); want PASS (loop unwraps)", v.Result, v.Detail)
-	}
-
-	// Stringified-but-invalid (mis-escaped) is a genuine fumble → FAIL.
-	stringifiedInvented := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
-		ToolCalls: []ToolCall{{ToolName: "request_action",
-			Args: `{"action_type":"ticket.create","parameters":"{\"title\":\"t\"}"}`}},
-	}}}
-	if v := gradeH6(stringifiedInvented); v.Result != Fail || !strings.Contains(v.Detail, "title") {
-		t.Errorf("stringified-invented = %s (%s); want FAIL naming the key", v.Result, v.Detail)
-	}
-
-	stringifiedGarbage := &TrialRecord{ActionInputs: inputs, Turns: []TurnRecord{{
-		ToolCalls: []ToolCall{{ToolName: "request_action",
-			Args: `{"action_type":"ticket.create","parameters":"just a sentence"}`}},
-	}}}
-	if v := gradeH6(stringifiedGarbage); v.Result != Fail {
-		t.Errorf("stringified non-object = %s; want FAIL", v.Result)
 	}
 }
 

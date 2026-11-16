@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sd-strax/reckon/action"
 	"github.com/sd-strax/reckon/aggregate"
 )
 
@@ -67,4 +68,98 @@ func TestParamChanges(t *testing.T) {
 	if got != `body: “draft” → “final wording”; priority: “low” → —` {
 		t.Errorf("paramChanges = %q", got)
 	}
+}
+
+// TestEditAction_EvaluatesAsRequested: an edit re-runs Gate 2 as the requester
+// asked for the action, not as the editor (adr/0374). A person editing the
+// agent's ticket does not make the requester policy match it, and a person
+// editing the agent's T3 request still meets the AI-no-T3 baseline.
+func TestEditAction_EvaluatesAsRequested(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	resetInvestigations(t)
+	invID := activeInvestigation(t)
+	const ownTicket = "policy/ticket-own-auto-approve/1.0.0"
+	b := actionBackend(t, action.Policy{
+		ID: ownTicket, ActionMatch: []string{"ticket.*"},
+		Effect: action.EffectAutoApprove, Accountable: action.AccountableRequester,
+		Predicate:  `ctx.action.requested_by.kind == "HUMAN" && ctx.action.tier == "T2"`,
+		AuthoredBy: "system",
+	})
+	human := mintToken(t, nil)
+	agent := mintToken(t, map[string]any{"delegate_kind": "claude"})
+
+	// editEvaluation requests as the agent, edits as the person, and returns
+	// the policy evaluation the edit recorded.
+	editEvaluation := func(t *testing.T, body RequestActionBody, edited map[string]any) aggregate.ActionPolicyEvaluated {
+		t.Helper()
+		resp, out := postAction(t, b, agent, body)
+		if resp.StatusCode != http.StatusCreated || out.Status != "PENDING_MANUAL" {
+			t.Fatalf("agent request: %d status=%q; want 201 PENDING_MANUAL", resp.StatusCode, out.Status)
+		}
+		if r, _ := postActionDecision(t, b, human, out.ActionID, "edit", map[string]any{"parameters": edited}); r.StatusCode != http.StatusOK {
+			t.Fatalf("edit: %d", r.StatusCode)
+		}
+		id := uuid.MustParse(out.ActionID)
+		history, err := testHandler.Reads().ActionHistory(context.Background(), invID, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var last *aggregate.ActionPolicyEvaluated
+		var sawEdit bool
+		for _, e := range history {
+			switch ev := e.Event.(type) {
+			case aggregate.ActionEdited:
+				sawEdit = true
+			case aggregate.ActionPolicyEvaluated:
+				if sawEdit {
+					last = &ev
+				}
+			}
+		}
+		if last == nil {
+			t.Fatal("the edit recorded no policy evaluation")
+		}
+		return *last
+	}
+
+	t.Run("agent ticket edited by a person", func(t *testing.T) {
+		pe := editEvaluation(t, RequestActionBody{
+			ActionType:       "ticket.create",
+			Targets:          []aggregate.TargetSpec{{EntityRef: "reckon-queue--1", ResolvedIdentifier: "SEC"}},
+			Parameters:       json.RawMessage(`{"summary":"contain WIN-A"}`),
+			Rationale:        "hand off",
+			EvidenceRefs:     []string{"observed-data--od1"},
+			InvestigationRef: invID.String(),
+		}, map[string]any{"summary": "contain WIN-A now"})
+		if pe.MatchedPolicyRef == ownTicket {
+			t.Errorf("edit matched %s; the agent's request never matches a requester policy", ownTicket)
+		}
+		for _, e := range pe.Evaluations {
+			if e.PolicyRef == ownTicket && e.WouldHaveFired {
+				t.Errorf("%s would_have_fired on the edit of an agent's request", ownTicket)
+			}
+		}
+	})
+
+	t.Run("agent T3 edited by a person", func(t *testing.T) {
+		pe := editEvaluation(t, RequestActionBody{
+			ActionType:       "email.purge",
+			Targets:          []aggregate.TargetSpec{{EntityRef: "email-message--1", ResolvedIdentifier: "<msg@x>"}},
+			Parameters:       json.RawMessage(`{}`),
+			Rationale:        "phish",
+			EvidenceRefs:     []string{"observed-data--od1"},
+			InvestigationRef: invID.String(),
+		}, map[string]any{})
+		fired := false
+		for _, e := range pe.Evaluations {
+			if e.PolicyRef == action.BaselineDenyPolicyID && e.WouldHaveFired {
+				fired = true
+			}
+		}
+		if !fired {
+			t.Errorf("baseline %s did not fire on the edit of an agent's T3 request: %+v", action.BaselineDenyPolicyID, pe.Evaluations)
+		}
+	})
 }

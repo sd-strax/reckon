@@ -264,8 +264,9 @@
     },
     {
       "Name": "request_action",
-      "Description": "Propose a state-changing action (containment, remediation). It goes through authorization policy — you can propose, never approve; most proposals await the analyst's explicit approval. Every request MUST cite evidence_refs — the STIX/OCSF refs that ground it; an ungrounded action is rejected.\n\nValid action_type values (use one EXACTLY as written; never invent a name):\n- host.isolate [T2, REVERSIBLE, available]: Isolate a host.\n  parameters: reason (required)\n- ticket.create [T1, IRREVERSIBLE, degraded]: Open a ticket.\n  parameters: summary (required), reason, priority\n- ioc.block [T2, BEST_EFFORT, unavailable]: Block an indicator.\n\nEach action's `parameters` object accepts exactly its listed parameter keys (targets carry the entities). If the action you need is not in this list, or is marked 'unavailable' (no tool is wired for it), do NOT request it — tell the analyst it must be performed manually.",
+      "Description": "Propose a state-changing action (containment, remediation). It goes through authorization policy — you can propose, never approve; most proposals await the analyst's explicit approval. Every request MUST cite evidence_refs — the STIX/OCSF refs that ground it; an ungrounded action is rejected.\n\nValid action_type values (use one EXACTLY as written; never invent a name):\n- host.isolate [T2, REVERSIBLE, available]: Isolate a host.\n  parameters: reason (required)\n- ticket.create [T1, IRREVERSIBLE, degraded]: Open a ticket.\n  parameters: summary (required), reason, priority\n- ioc.block [T2, BEST_EFFORT, unavailable]: Block an indicator.\n\nEach action's `parameters` object holds exactly its listed keys; targets carry the entities. Write every listed key, and write null for a key you have no value for. If the action you need is not in this list, or is marked 'unavailable' (no tool is wired for it), do NOT request it — tell the analyst it must be performed manually.",
       "InputSchema": {
+        "additionalProperties": false,
         "properties": {
           "action_type": {
             "description": "the action type — exactly one of the enumerated catalog values",
@@ -284,34 +285,67 @@
             "type": "array"
           },
           "parameters": {
-            "description": "The action-type-specific parameters, as a JSON OBJECT — never a JSON string. Include only the keys listed for your chosen action_type (see the tool description above); omit the others.",
-            "properties": {
-              "priority": {
-                "description": "used by: ticket.create",
-                "type": "integer"
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "description": "parameters for host.isolate",
+                "properties": {
+                  "reason": {
+                    "description": "why",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
               },
-              "reason": {
-                "description": "why (used by: host.isolate, ticket.create)",
-                "type": "string"
-              },
-              "summary": {
-                "description": "headline (used by: ticket.create)",
-                "type": "string"
+              {
+                "additionalProperties": false,
+                "description": "parameters for ticket.create",
+                "properties": {
+                  "priority": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "summary": {
+                    "description": "headline",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "summary",
+                  "reason",
+                  "priority"
+                ],
+                "type": "object"
               }
-            },
-            "type": "object"
+            ],
+            "description": "The action-type-specific parameters, as a JSON OBJECT — never a JSON string. Use the one shape whose description names your chosen action_type. Write every key of that shape, and write null for a key you have no value for."
           },
           "rationale": {
             "description": "why this action, now",
             "type": "string"
           },
           "retry_of": {
-            "description": "when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage)",
-            "type": "string"
+            "description": "when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); null otherwise",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "targets": {
             "description": "the distinct targets; blast radius drives the trust tier",
             "items": {
+              "additionalProperties": false,
               "properties": {
                 "entity_ref": {
                   "description": "STIX id of the target entity",
@@ -335,10 +369,13 @@
           "action_type",
           "targets",
           "rationale",
-          "evidence_refs"
+          "evidence_refs",
+          "parameters",
+          "retry_of"
         ],
         "type": "object"
-      }
+      },
+      "Strict": true
     },
     {
       "Name": "list_actions",
@@ -659,8 +696,11 @@
             "type": "string"
           },
           "retry_of": {
-            "description": "when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage)",
-            "type": "string"
+            "description": "when re-requesting a FAILED or EXPIRED action: that action's id (records the retry lineage); null otherwise",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "targets": {
             "description": "the distinct targets; blast radius drives the trust tier",
@@ -688,7 +728,9 @@
           "action_type",
           "targets",
           "rationale",
-          "evidence_refs"
+          "evidence_refs",
+          "parameters",
+          "retry_of"
         ],
         "type": "object"
       }

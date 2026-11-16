@@ -264,10 +264,13 @@ sidebar's **Investigations** view, under their own group.
 - **reckon: Reset agent context** (Command Palette): a ⟲ boundary in the
   Thread; the agent re-grounds from the record on the next turn.
 
-**Not reachable in the demo:** T3 approval with a typed challenge, two-party
-approval and policy auto-approval need a policy file under
-`capability.policy_dir` (see `examples/policies/`) and a restart; only
-`email.purge` defaults to T3.
+**Policy auto-approval** is reachable on a fresh install: a person's own T2
+ticket in an active investigation is approved by the shipped policy
+(`adr/0374`).
+
+**Not reachable in the demo:** T3 approval with a typed challenge and two-party
+approval need a policy file under `capability.policy_dir` (see
+`examples/policies/`) and a restart; only `email.purge` defaults to T3.
 
 A **cited absence**: ask *"did svc_backup log on to any host after 14:33Z on
 Apr 20?"* — the answer is a complete, empty search the agent cites as "nothing

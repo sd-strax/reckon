@@ -102,6 +102,7 @@ type anthropicTool struct {
 	Name         string         `json:"name"`
 	Description  string         `json:"description,omitempty"`
 	InputSchema  map[string]any `json:"input_schema"`
+	Strict       bool           `json:"strict,omitempty"`
 	CacheControl *cacheControl  `json:"cache_control,omitempty"`
 }
 
@@ -198,7 +199,7 @@ func (a *Anthropic) complete(ctx context.Context, req CompleteRequest, onDelta f
 	}
 	for _, t := range req.Tools {
 		wire.Tools = append(wire.Tools, anthropicTool{
-			Name: t.Name, Description: t.Description, InputSchema: t.InputSchema,
+			Name: t.Name, Description: t.Description, InputSchema: t.InputSchema, Strict: t.Strict,
 		})
 	}
 	if req.ToolChoiceNone && len(wire.Tools) > 0 {

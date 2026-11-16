@@ -154,6 +154,22 @@ H6 is unchanged. The tool schema, the tool description and the rule all say
 description, the loop repaired it, and H5 (nothing malformed reaches
 dispatch) passed in every trial. More wording would not make that reliable.
 
+## Third round: H6 and the strict schema
+
+The third Sonnet round fixed E3 on both scenarios that have that turn. H6 fell
+from 3/3 to 1/3 on exposed bucket. Every failure was the long `ticket.create`
+handoff, with `parameters` sent as a string. The string held the whole object
+and one stray closing brace, and the loop's repair dropped the brace. The rule
+said the same thing before this pass. The cause was that nothing enforced the
+schema: the API holds a tool's input to its schema only under `strict: true`.
+
+That was fixed on its own terms (adr/0376), and this pass waited for it,
+because the fix changes `request_action`'s definition and moves the prompt
+version anyway. One run of the baselines covers both. With the repair gone, a
+string `parameters` is refused by the engine, so it can no longer reach the
+write adapter. The reason in `parameters-are-an-object` now says that: the
+engine refuses a string and the action is not requested.
+
 ## Alternatives rejected
 
 - **Reword only the rules that failed a trial.** That is the per-finding loop

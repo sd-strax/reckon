@@ -225,3 +225,66 @@ func TestApplyDecisionAttachesAudit(t *testing.T) {
 		t.Errorf("matched policy ref = %q; want p/auto/1", cmd.MatchedPolicyRef)
 	}
 }
+
+// A requester-accountable policy credits the person who requested the action
+// (adr/0374), not the policy's author.
+func TestRequesterAccountable_CreditsRequester(t *testing.T) {
+	g := mustGate2(t, Policy{
+		ID: "p/own/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove,
+		Predicate: "true", Accountable: AccountableRequester, AuthoredBy: "author",
+	})
+	d, err := g.Evaluate(baseInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.AutoApproves() || d.PolicyAccountable != "alice" {
+		t.Errorf("mode=%q accountable=%q; want AUTO_POLICY credited to the requester alice", d.Mode, d.PolicyAccountable)
+	}
+}
+
+// The engine, not the predicate, keeps a requester-accountable policy from
+// firing for an AI-delegated request: its principal never decided anything.
+func TestRequesterAccountable_NeverFiresForAI(t *testing.T) {
+	g := mustGate2(t, Policy{
+		ID: "p/own/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove,
+		Predicate: "true", Accountable: AccountableRequester,
+	})
+	in := baseInput()
+	in.RequestedByKind = "AI_DELEGATED"
+	d, err := g.Evaluate(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.AutoApproves() {
+		t.Fatalf("AI-delegated request auto-approved under a requester policy (accountable %q)", d.PolicyAccountable)
+	}
+	for _, e := range d.Evaluations {
+		if e.PolicyRef == "p/own/1" && e.WouldHaveFired {
+			t.Error("requester policy recorded would_have_fired for an AI-delegated request")
+		}
+	}
+
+	// A HUMAN kind with no principal id has nobody to credit either.
+	in = baseInput()
+	in.RequestedByID = ""
+	if d, _ := g.Evaluate(in); d.AutoApproves() {
+		t.Error("requester policy auto-approved a request with no requester id")
+	}
+}
+
+// accountable is validated when Gate 2 compiles: an unknown value, and
+// "requester" on any effect but AUTO_APPROVE, are config errors.
+func TestRequesterAccountable_Validation(t *testing.T) {
+	for name, p := range map[string]Policy{
+		"unknown value":       {ID: "p/x/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "true", Accountable: "nobody"},
+		"requester on deny":   {ID: "p/x/1", ActionMatch: []string{"*"}, Effect: EffectDeny, Predicate: "true", Accountable: AccountableRequester},
+		"requester two-party": {ID: "p/x/1", ActionMatch: []string{"*"}, Effect: EffectRequireTwoParty, Predicate: "true", Accountable: AccountableRequester},
+	} {
+		if _, err := NewGate2([]Policy{p}); err == nil {
+			t.Errorf("%s: NewGate2 accepted it; want an error", name)
+		}
+	}
+	if _, err := NewGate2([]Policy{{ID: "p/x/1", ActionMatch: []string{"*"}, Effect: EffectAutoApprove, Predicate: "true", Accountable: AccountableAuthor}}); err != nil {
+		t.Errorf("explicit author: %v", err)
+	}
+}

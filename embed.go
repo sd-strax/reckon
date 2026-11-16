@@ -18,6 +18,16 @@ import "embed"
 //go:embed fixtures examples demo
 var DemoFS embed.FS
 
+// InstallPoliciesFS carries the Gate 2 policies `reckon init` writes into a
+// fresh install's capability.policy_dir (adr/0374). They are tenant-owned files
+// once written: init never overwrites one that exists.
+//
+//go:embed policies
+var InstallPoliciesFS embed.FS
+
+// InstallPoliciesDir is the embedded subtree InstallPoliciesFS holds.
+const InstallPoliciesDir = "policies"
+
 // DemoKnowledgeSOPs / DemoKnowledgeCases are the embedded knowledge-pack
 // subtrees the demo seed loads: institutional SOPs (markdown + frontmatter) and
 // prior concluded-case summaries (JSON), both scoped to the DemoScenario world
