@@ -1,6 +1,6 @@
 # 0356 — Normalizers use OCSF's own class numbers and fields, checked by a test against the OCSF schema checked into the repo
 
-Issue: #356 · PR: #358 · Status: accepted · Amended by: adr/0359 (cloud evidence actors, the email thread id)
+Issue: #356 · PR: #358 · Status: accepted · Amended by: adr/0359 (cloud evidence actors, the email thread id, group members, registry value data)
 
 ## Context
 
@@ -86,7 +86,9 @@ Inventory (5023) first appears in 1.4.0. These fields arrive between 1.2.0 and
 reckon already reads all of them only when present.
 
 Every other registered class, and every other path, is correct at both ends
-of the range.
+of the range. *Amended (adr/0359):* two were not. The typed registry value
+fields added in 1.6.0 were never read, and `email.uid`, a thread id from
+1.4.0, was read as a message id.
 
 **Why the floor is 1.1.0.** Security Lake writes it. AWS's page on OCSF in
 Security Lake gives `metadata.version` `1.1.0` for every version-2 native
@@ -108,6 +110,9 @@ Three things change:
   `job_actions`.)
 - `actor.app_name` is deprecated in 1.9.0. Its replacement is
   `actor.application.name`.
+
+*Amended (adr/0359):* there is a fourth. 1.9.0 adds `users[]` to Group
+Management (3006) and deprecates `user`.
 
 Some fields that are required at 1.1.0 become optional later:
 - `email.from`, `email.to` and `finding_info.title` become recommended in
@@ -143,7 +148,10 @@ event view's sentence templates use the same numbers.
 
 - **Registry Key Activity (201001)** reads `reg_key.path`.
 - **Registry Value Activity (201002)** reads
-  `reg_value.{path,name,data,type,type_id}`.
+  `reg_value.{path,name,data,type,type_id}`. *Amended (adr/0359):* from
+  1.6.0 a value's data can also arrive in a field for its type, such as
+  `reg_string_data`. The data is the first typed field that holds a value,
+  then `data`.
   - One normalizer handles both registry classes, so a key event and a value
     event produce the same type of registry object. Their ids differ,
     because a value's id includes the value name (§4.6).
@@ -156,12 +164,17 @@ event view's sentence templates use the same numbers.
 - **Account Change (3001), User Access Management (3005) and Group
   Management (3006)** share one function, registered three times. Each class
   reads only its own fields:
-  - `user`, `actor.user` and `device` for all three.
+  - `user`, `actor.user` and `device` for all three. *Amended (adr/0359):*
+    OCSF 1.9.0 adds `users[]` to 3006 and deprecates `user`. Every entry of
+    `users[]` that names a user is a target. An entry names a user when it
+    has a real name, `uid` or `uid_alt`, by one check the normalizer and
+    the event view share. `user` is read only when no entry does.
   - `group` (`name`, `domain`, `uid`) for 3006 only.
   - `privileges[]` for 3005 and 3006. It is kept as a list, `privileges`, in
     the observation's extensions.
   - 3006 still produces the `x-group` and the `member-of-group` link, as
-    today.
+    today. *Amended (adr/0359):* each target gets its own `member-of-group`
+    link.
 - **Email URL Activity (4012)** handles link clicks.
 - **Email File Activity (4011) is newly handled.** Before 1.4.0, this event is
   the only place an attachment appears.
@@ -169,6 +182,11 @@ event view's sentence templates use the same numbers.
   - Its `email_uid` gives a weak `email-message`, the same way a click does.
   - A `contains` link joins the message to the file, so attachment hashes stay
     usable at the floor.
+  - *Amended (adr/0359):* `email_uid` names the email's thread, not one
+    message. The event creates no `email-message`, so no `contains` link
+    either. Its `email_uid` is kept on the observation as `thread_uid`.
+    The attachment's `file` and its hashes are still read. Below 1.4.0,
+    reckon no longer records which email held the attachment.
 
 **Field paths are OCSF's.**
 
@@ -197,6 +215,21 @@ event view's sentence templates use the same numbers.
     comes from `unmapped.bcc[]`, if the adapter's vendor reports it.
     `unmapped` is where OCSF puts a source's own fields. `bcc_refs` stays.
 - **Email link click:**
+  - *Amended (adr/0359): the weak message keyed on `email.uid`, and the
+    click naming it, no longer hold.* The Message-ID rule below still
+    holds. The weak-object rule still holds for hosts and accounts, but an
+    email message no longer has a weak form. OCSF 1.4.0 defines `email.uid`
+    as the thread's id. reckon reads it, and a click's `email_uid`, as a
+    thread id at every version, since it never checks the version
+    (`03 §4.16`). Two messages in one thread shared the weak message, so
+    they read as one. Now:
+    - `email.uid` never makes a message of its own, and no `aliases` link
+      comes from it. It is kept on the message as `thread_uid`.
+    - A message is identified by its Message-ID. Without one, it is keyed on
+      the fields adr/0359 lists (`03 §4.10`), which include the thread id
+      when present.
+    - A click creates no `email-message`. Its `email_uid` is kept on its
+      observation as `thread_uid`.
   - The click names its message by `email_uid`.
   - The `email-message` identity follows the same rule as hosts and accounts
     (adr/0211, adr/0324). The strongest identifier is used first.
@@ -256,9 +289,22 @@ event view's sentence templates use the same numbers.
     on the same `x-cloud-account` and `x-cloud-resource`.
   - When the finding names a cloud provider, an evidence piece's
     `actor.user` is shaped as that provider's cloud principal (`03 §4.15`),
-    not as a directory login.
+    not as a directory login. *Amended (adr/0359):* an alert from a cloud
+    machine can name a login on the machine itself, and filed as a
+    provider user it lost its host scope. The account type is
+    `account.type_id`, else the `account.type` caption. A host or directory
+    account type (1 LDAP, 2 Windows, 7 Mac OS, 9 Linux, 19 ActiveDirectory)
+    is always read by the account rule (`03 §7.2`), whatever its id.
+    Otherwise an evidence actor is a provider user only when its account
+    type is a user type of the finding's own provider, or when the id it
+    would be keyed on has that provider's principal form. Only AWS has such
+    a form. A container type, or another provider's user type, gives no
+    signal. An actor with no signal is read by the account rule too, as on
+    any other event.
   - Without this, a cloud alert names only a login and an IP, and nothing
-    links it to the resource or principal it is about.
+    links it to the resource or principal it is about. *Amended
+    (adr/0359):* the link to the principal holds only on the signal the
+    note above names.
 - **Incident finding:**
   - The case title, uid and description come from `finding_info_list[]`. The
     first entry names the case. Every entry's uid is kept.
@@ -377,14 +423,18 @@ class numbers.
 writes these keys into the observation's extensions map:
 
 - **None:** process activity (1007), network activity (4001), DNS activity
-  (4003), module activity (1005), email activity (4009), email URL activity
-  (4012), detection finding (2004), and the opaque default.
+  (4003), module activity (1005), email activity (4009), detection finding
+  (2004), and the opaque default. *Amended (adr/0359):* email URL activity
+  (4012) has moved out of this list.
+- **Email URL activity (4012):** `thread_uid` (string), from the event's
+  `email_uid`, when present (adr/0359).
 - **Authentication (3002):** `logon_type` and `status`, both strings.
 - **The activity pair:** `activity` (string, from `activity_name`), or
   `activity_id` (integer) only when `activity_name` is absent. Written by
   file activity (1001), registry key and value (201001, 201002), scheduled
   job (1006), email file activity (4011), user inventory (5003) and account
-  change (3001).
+  change (3001). *Amended (adr/0359):* email file activity (4011) also
+  writes `thread_uid` (string), from the event's `email_uid`, when present.
 - **User access (3005) and group management (3006):** the activity pair, plus
   `privileges` (list of strings).
 - **Incident finding (2005):**
@@ -427,7 +477,13 @@ writes these keys into the observation's extensions map:
   forbids guessing for versions, and the same reasoning applies to classes.
 - **Keep `email-message` identity on `message_uid` only, and have the click
   look up its message.** A normalizer does no I/O (`03 §4.13`). And OCSF's
-  click event names the message only by `email_uid`.
+  click event names the message only by `email_uid`. *Amended (adr/0359):*
+  a message is now identified by its Message-ID when it has one. Without
+  one, it is keyed on the fields adr/0359 lists, which include the thread
+  id when present. `email.uid` never makes a message of its own. The click
+  lookup stays rejected for the first reason. The second reason still
+  stands, but leads elsewhere: `email_uid` names a thread, not a message,
+  so a click creates no message.
 - **Check against the live schema at test time.** Tests run offline, and they
   must not change when schema.ocsf.io changes. The checked-in copy is
   versioned and only updated on purpose.
