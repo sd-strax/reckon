@@ -1,6 +1,6 @@
 # 0385 — The agent may use shared packages but never the engine's, and the availability statuses have one definition in `internal/catalog`
 
-Issue: #385 · PR: pending · Status: accepted
+Issue: #385 · PR: #407 · Status: accepted
 
 ## Context
 
