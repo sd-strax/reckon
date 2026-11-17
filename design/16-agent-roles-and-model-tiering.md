@@ -132,9 +132,10 @@ honestly, and keeping the trust properties in mechanisms, not in a model's goodw
 ### 3.3 What is deliberately *not* a role
 
 - **An action-payload formatter.** Payload malformation under long context is real
-  (`agent-reliability.md §7`), but the fix is `strict: true` on `request_action`'s
-  schema and the smaller lead context this design produces — not a second model
-  between the lead's decision and the engine.
+  (`agent-reliability.md §7`), but adr/0380 removed its cause. Each action type is
+  its own tool with flat inputs, and the engine refuses a malformed request, so the
+  model can write the fix. The smaller lead context this design produces helps
+  further. A second model between the lead's decision and the engine is not needed.
 - **A prose auditor / verifier.** `agent-reliability.md §3` deferred a second-model
   auditor on purpose: an auditor can hallucinate, the deterministic stack cannot. The
   footer, the anchor and the clock stay the trust mechanism. Any model-based check of
