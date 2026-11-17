@@ -156,6 +156,8 @@ type fakeEvidence struct {
 	entitySets      map[string][]string
 	// aliasSets, when it holds a ref, answers AliasSet for it (else aliases).
 	aliasSets map[string][]string
+	// aliasErr, when set, fails AliasSet alone.
+	aliasErr error
 }
 
 // identityAct is one assertion or withdrawal the fake recorded.
@@ -235,6 +237,9 @@ func (f *fakeEvidence) IndicatorNeighbourhood(context.Context, evidence.Object) 
 	return evidence.Neighbourhood{}, f.err
 }
 func (f *fakeEvidence) AliasSet(_ context.Context, ref string) ([]string, error) {
+	if f.aliasErr != nil {
+		return nil, f.aliasErr
+	}
 	if set, ok := f.aliasSets[ref]; ok {
 		return set, f.err
 	}

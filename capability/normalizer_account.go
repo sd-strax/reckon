@@ -31,7 +31,9 @@ func (n *accountNormalizer) ClassUID() int { return n.class }
 // 5: OCSF read gaps, adr/0359
 // 6: STIX 2.1 output through the one serializer, an artifact for a record
 // naming nothing, and a broken record is a normalize error, adr/0357
-func (*accountNormalizer) Version() int { return 6 }
+// 7: an account typed Windows only on a Windows signal, account type 19
+// read as one, adr/0366
+func (*accountNormalizer) Version() int { return 7 }
 
 // name is the OCSF name of the class this instance is registered for.
 func (n *accountNormalizer) name() string {

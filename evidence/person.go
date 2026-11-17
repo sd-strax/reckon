@@ -802,8 +802,9 @@ type AccountMatch struct {
 	Ref   string
 	Type  string
 	Login string
-	// UserID is the identifier the account carries (a SID, a provider id),
-	// empty on an account keyed on its login.
+	// UserID is the identifier the account carries (a SID, a provider id).
+	// A login-keyed account may carry one too, so whether the account is
+	// keyed on it is identity.KeyedOnUserID's to say, not its presence.
 	UserID string
 }
 

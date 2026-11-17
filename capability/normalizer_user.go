@@ -70,11 +70,13 @@ const (
 	ocsfAccountMacOS     = 7
 	ocsfAccountLinux     = 9
 	ocsfAccountGoogleWks = 15
+	ocsfAccountAD        = 19
 )
 
 var accountTypeIDs = map[int]string{
 	ocsfAccountLDAP: "LDAP Account", ocsfAccountWindows: "Windows Account", ocsfAccountAzureAD: "Azure AD Account",
 	ocsfAccountMacOS: "Mac OS Account", ocsfAccountLinux: "Linux Account", ocsfAccountGoogleWks: "Google Workspace",
+	ocsfAccountAD: "ActiveDirectory Account",
 }
 
 // machineDomains are the "domains" a Windows source names for principals that
@@ -134,13 +136,15 @@ func osFamily(loc at) string {
 //     BUILTIN, NT SERVICE, IIS APPPOOL, ...), or a domain that is the machine
 //     itself (a dotless domain that mints the event's host).
 //  5. windows-domain: a Windows source, which is a record whose uid is a SID,
-//     whose account.type_id is 2 (Windows Account), that names a domain, or
+//     whose account.type_id is 2 (Windows Account) or 19 (ActiveDirectory
+//     Account) or the same captions in account.type, that names a domain, or
 //     whose device OS is Windows, naming a domain, a SID or a principal name.
 //  6. windows: a Windows source naming a bare login, no domain and no SID:
 //     the weak account.
-//  7. windows-domain again for a principal name from a source that names no
-//     OS: the reading the seed gives "user@domain" (server seed resolution),
-//     so the two meet.
+//  7. login: a principal name from a source that names no OS: the weak
+//     account on the principal name alone, never scoped by the host, since a
+//     principal name names a domain and not a machine. Nothing in the record
+//     says Windows, so it is not a domain account (adr/0366).
 //  8. local: a bare login from a source that names no OS, on a host: scoped
 //     by the host as unix is, since keying it globally would make one account
 //     of every machine's same-named local account, a merge no edge undoes.
@@ -166,15 +170,17 @@ func (b *resultBuilder) accountType(u userObject, device at, host identity.STIXI
 	if b.machineLocal(u, host) {
 		return identity.AccountWindowsLocal
 	}
-	windows := u.sid != "" || u.accountTypeID == ocsfAccountWindows || u.domain != "" || os == "windows"
+	// The Windows account types by id, or by caption in account.type, read
+	// from the table the schema check holds.
+	windowsType := u.accountTypeID == ocsfAccountWindows || u.accountTypeID == ocsfAccountAD ||
+		u.accountType == strings.ToLower(accountTypeIDs[ocsfAccountWindows]) || u.accountType == strings.ToLower(accountTypeIDs[ocsfAccountAD])
+	windows := u.sid != "" || windowsType || u.domain != "" || os == "windows"
 	switch {
 	case windows && (u.domain != "" || u.sid != "" || u.principalName() != ""):
 		return identity.AccountWindowsDomain
 	case windows:
 		return identity.AccountWindows
-	case u.principalName() != "":
-		return identity.AccountWindowsDomain
-	case host == "":
+	case u.principalName() != "" || host == "":
 		return identity.AccountLogin
 	}
 	return identity.AccountLocal
@@ -390,7 +396,13 @@ func (b *resultBuilder) accountKeys(u userObject, typ string, host identity.STIX
 		if u.name != "" {
 			add(identity.AccountIdentity{Login: u.name}, u.name)
 		}
-	default: // windows, unix, local, login: the bare login
+	case identity.AccountLogin:
+		// The principal name when the record carries one, so a bare name
+		// beside a uid_alt "user@domain" is keyed as the "@" name is.
+		if l := firstNonEmpty(u.principalName(), u.name); l != "" {
+			add(identity.AccountIdentity{Login: l}, l)
+		}
+	default: // windows, unix, local: the bare login
 		if u.name != "" {
 			add(identity.AccountIdentity{Login: u.name}, u.name)
 		}

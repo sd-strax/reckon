@@ -43,7 +43,9 @@ func (*detectionNormalizer) ClassUID() int { return 2004 }
 // where_sighted_refs, ATT&CK ids in external_references, other types as
 // labels, a pattern always, the indicator id from its vendor, pattern, type
 // and uid, the sighting id from its time and observations, adr/0357
-func (*detectionNormalizer) Version() int { return 8 }
+// 9: an account typed Windows only on a Windows signal, account type 19
+// read as one, adr/0366
+func (*detectionNormalizer) Version() int { return 9 }
 
 func (n *detectionNormalizer) Normalize(evt OcsfEvent) (NormalizationResult, error) {
 	p := evt.Payload
