@@ -26,12 +26,13 @@ apply (05 §2.7, `design/04-action-authorization.md`).
 
 ## Decision
 
-- **What the agent may import.** The agent never depends on the engine's
-  packages: `aggregate`, `server`, `action`, `capability`, `temporal` and
-  `knowledge`. It may use reckon's shared packages, such as those under
-  `internal/` that depend on none of them. A test checks the agent's full
-  dependency list (`go list -deps`), in the same form as adr/0237's test for the
-  sidecar.
+- **What the agent may import.** The agent's production code never depends on
+  the engine's packages: `aggregate`, `server`, `action`, `capability`,
+  `temporal` and `knowledge`. It may use reckon's shared packages, such as those
+  under `internal/` that depend on none of them. A test checks the agent's full
+  non-test dependency list (`go list -deps`), in the same form as adr/0237's
+  test for the sidecar. Test code is not linked into the agent, so the agent's
+  tests may import engine packages.
 - **`internal/catalog` holds what the backend's catalogs and the agent's tool
   list share.** It imports no reckon package, and a test checks that. This
   change puts the availability statuses there.
@@ -41,12 +42,14 @@ apply (05 §2.7, `design/04-action-authorization.md`).
 - **The backend's types are aliases of the shared ones**, and their constants
   are declared from them, so backend code is unchanged.
 - **The agent's `Capability.Status` and `ActionType.Status` take the shared
-  types**, and every comparison and assignment in `agent/` goes through a
-  constant.
+  types**, and every comparison and assignment in `agent/` production code goes
+  through a constant. Tests may still write the words as literals, since an
+  untyped string converts to the named type.
 - How the agent treats a word it doesn't know is unchanged. A new value is added
   together with an API version change, and the sidecar refuses a backend whose
-  API version differs from its own, so an agent in use doesn't receive a word
-  newer than itself.
+  API version differs from its own, so an agent running in the sidecar doesn't
+  receive a word newer than itself. `reckon investigate` and the eval build the
+  agent without the sidecar and make no such check.
 
 ## Alternatives rejected
 

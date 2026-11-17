@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // Intrinsic tool names — the reasoning/action surface that exists regardless of
@@ -42,7 +44,7 @@ const (
 func buildTools(caps []Capability, actionTypes []ActionType) ([]ToolDef, map[string]tool, error) {
 	var tools []tool
 	for _, c := range caps {
-		if c.Status != "available" {
+		if c.Status != catalog.StatusAvailable {
 			continue
 		}
 		if c.Descriptor.Verb == "list_capabilities" {

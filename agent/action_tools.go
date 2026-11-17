@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/sd-strax/reckon/internal/catalog"
 )
 
 // The agent requests each action type through its own tool (adr/0380). A
@@ -33,7 +35,7 @@ type actionShared struct {
 // unavailable reports whether an action type has nothing to dispatch to: it
 // cannot be carried out in this install. The engine refuses its requests.
 func unavailable(a ActionType) bool {
-	return a.Status == "unavailable"
+	return a.Status == catalog.ActionUnavailable
 }
 
 // actionTools builds one tool per action type of the catalog, unavailable
@@ -43,8 +45,8 @@ func unavailable(a ActionType) bool {
 // It fails when a type declares an input that takes the name of a shared
 // field. Two types of one tool name fail in buildTools, which refuses any two
 // tools of one name.
-func actionTools(catalog []ActionType) ([]tool, error) {
-	types := slices.Clone(catalog)
+func actionTools(actionTypes []ActionType) ([]tool, error) {
+	types := slices.Clone(actionTypes)
 	slices.SortStableFunc(types, func(a, b ActionType) int {
 		return strings.Compare(a.Descriptor.ActionType, b.Descriptor.ActionType)
 	})
@@ -126,7 +128,7 @@ func actionToolDescription(a ActionType) string {
 		b.WriteString(textActionToolUnavailable.Text)
 		return b.String()
 	}
-	if a.Status == "degraded" {
+	if a.Status == catalog.ActionDegraded {
 		b.WriteString(textActionToolDegraded.Text)
 	}
 	b.WriteString(textActionToolGuidance.Text)
