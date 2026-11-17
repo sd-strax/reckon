@@ -8,8 +8,8 @@ type ActionAvailability string
 
 const (
 	ActionAvailable   ActionAvailability = "available"   // ≥1 healthy binding
-	ActionDegraded    ActionAvailability = "degraded"    // bindings exist, all unhealthy
-	ActionUnavailable ActionAvailability = "unavailable" // no binding configured
+	ActionDegraded    ActionAvailability = "degraded"    // usable bindings exist, all unhealthy
+	ActionUnavailable ActionAvailability = "unavailable" // no binding with a configured, enabled adapter
 )
 
 // ActionSummary pairs an action descriptor with its current availability.
@@ -39,15 +39,21 @@ func (r *ActionResolver) ListActionTypes(catalog *ActionCatalog) []ActionSummary
 	return out
 }
 
-// actionStatus classifies an action from its bindings and their adapters' health.
+// actionStatus classifies an action from its bindings and their adapters: no
+// binding with a configured, enabled adapter is unavailable; one whose adapter
+// is healthy is available; otherwise degraded. The listing has no request
+// scope, so scope is not read here (adr/0380).
 func (r *ActionResolver) actionStatus(bindings []ActionBinding) ActionAvailability {
-	if len(bindings) == 0 {
-		return ActionUnavailable
-	}
+	status := ActionUnavailable
 	for _, b := range bindings {
-		if a, ok := r.adapters[b.Adapter]; ok && a.Health().Healthy {
+		a, ok := r.configuredAdapter(b)
+		if !ok {
+			continue
+		}
+		if a.Health().Healthy {
 			return ActionAvailable
 		}
+		status = ActionDegraded
 	}
-	return ActionDegraded
+	return status
 }

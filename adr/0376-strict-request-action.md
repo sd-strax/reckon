@@ -1,6 +1,6 @@
 # 0376 — `request_action` is a strict tool, and the loop no longer repairs its parameters
 
-Issue: #376 · PR: #379 · Status: accepted
+Issue: #376 · PR: #379 · Status: accepted · Strict-mode decisions superseded by [0380](0380-action-tool-per-type.md); the deletion of the repair stands
 
 ## Context
 

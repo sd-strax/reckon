@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -100,28 +101,12 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 		}
 	}
 
-	// The served action vocabulary: H3's ground truth, the declared parameter
-	// schemas (H5's), and part of the run's attribution. An error means the
-	// action layer is off — recorded as such.
-	var catalog []string
-	actionInputs := map[string][]ParamSpec{}
-	catalogHash := "unavailable"
-	if actionTypes, err := client.ListActionTypes(ctx); err == nil {
-		for _, a := range actionTypes {
-			catalog = append(catalog, a.Descriptor.ActionType)
-			var specs []ParamSpec
-			for _, in := range a.Descriptor.Inputs {
-				if in.Type == "entity" {
-					continue // entity inputs ride targets (08 §3)
-				}
-				specs = append(specs, ParamSpec{Name: in.Name, Required: in.Required})
-			}
-			actionInputs[a.Descriptor.ActionType] = specs
-		}
-		if raw, err := json.Marshal(actionTypes); err == nil {
-			sum := sha256.Sum256(raw)
-			catalogHash = hex.EncodeToString(sum[:])
-		}
+	// The served action vocabulary: the declared parameter schemas H5 and H6
+	// grade against, and part of the run's attribution. A run that cannot
+	// fetch it stops before any trial (adr/0380).
+	catalog, actionInputs, catalogHash, err := servedCatalog(ctx, client)
+	if err != nil {
+		return nil, err
 	}
 
 	logf("eval: scenario %s — %d turns × %d trials on %s (costs real tokens)",
@@ -165,6 +150,11 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 	// One reader for the run, so its spend and calls are the run's.
 	reader := readerFromEnv(apiKey)
 	sem := make(chan struct{}, parallel)
+	// runCtx is the run's own context: the first trial that hits a run
+	// stopper cancels it, so the trials still running stop instead of
+	// spending tokens (adr/0380).
+	runCtx, stopRun := context.WithCancelCause(ctx)
+	defer stopRun(nil)
 	var wg sync.WaitGroup
 	for n := 1; n <= s.Trials; n++ {
 		wg.Add(1)
@@ -176,17 +166,23 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 			if wait := time.Duration(n-1) * stagger; wait > 0 {
 				select {
 				case <-time.After(wait):
-				case <-ctx.Done():
-					outcomes[n-1] = trialOutcome{err: ctx.Err()}
+				case <-runCtx.Done():
+					outcomes[n-1] = trialOutcome{err: runCtx.Err()}
 					return
 				}
 			}
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-runCtx.Done():
+				outcomes[n-1] = trialOutcome{err: runCtx.Err()}
+				return
+			}
 			defer func() { <-sem }()
 			logf("eval: trial %d/%d started", n, s.Trials)
-			tr, stamp, err := runTrial(ctx, client, backendURL, humanCred, s, model, apiKey, reader, n, logf)
+			tr, stamp, err := runTrial(runCtx, client, backendURL, humanCred, s, model, apiKey, reader, n, logf)
 			if err != nil {
 				logf("eval: trial %d aborted: %v", n, err)
+				stopRunOn(stopRun, err)
 			}
 			if tr != nil {
 				tr.ActionCatalog = catalog
@@ -200,6 +196,9 @@ func Run(ctx context.Context, rc RunConfig) (*Report, error) {
 		}(n)
 	}
 	wg.Wait()
+	if err := runStopped(runCtx); err != nil {
+		return nil, err
+	}
 
 	// Fold in trial order so verdict columns, trial errors, and the prompt
 	// stamp are deterministic regardless of which goroutine finished first.
@@ -320,7 +319,7 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 	}
 	stamp := promptStamp{Version: session.PromptVersion(), Framing: session.HypothesisFraming(), ToolSet: session.ToolSetHash()}
 
-	tr := &TrialRecord{Trial: trial, InvestigationID: invID, SystemPrompt: session.System()}
+	tr := &TrialRecord{Trial: trial, InvestigationID: invID, SystemPrompt: session.System(), Tools: session.OfferedTools()}
 	if inv, err := client.GetInvestigation(ctx, invID); err == nil {
 		tr.HypothesisFraming = inv.HypothesisFraming
 	}
@@ -360,7 +359,7 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 			rec.Usage = Usage{Input: res.Usage.Input, Output: res.Usage.Output,
 				CacheWrite: res.Usage.CacheWrite, CacheRead: res.Usage.CacheRead}
 			for _, tc := range res.ToolCalls {
-				rec.ToolCalls = append(rec.ToolCalls, ToolCall{ToolName: tc.ToolName, Args: string(tc.Args)})
+				rec.ToolCalls = append(rec.ToolCalls, ToolCall{ToolName: tc.ToolName, Args: string(tc.Args), CallID: tc.CallID})
 			}
 		}
 		if err != nil {
@@ -378,22 +377,14 @@ func runTrial(ctx context.Context, client *agent.Client, backendURL string, huma
 
 	// Capture the investigation's actions from the durable view at trial end —
 	// the event-log layer read back through the product API (10 §1.1b), which
-	// the event graders (G1) grade. Best-effort: a fetch failure leaves Actions
-	// nil and those graders report NOT_EXERCISED rather than silently passing.
-	if acts, err := client.ListActions(ctx, invID); err == nil {
-		tr.Actions = make([]ActionRow, 0, len(acts))
-		for _, a := range acts {
-			tr.Actions = append(tr.Actions, ActionRow{
-				ActionID:     a.ActionID,
-				ActionType:   a.ActionType,
-				Status:       a.Status,
-				IsReversal:   a.IsReversal,
-				EvidenceRefs: a.EvidenceRefs,
-			})
-		}
-	} else {
-		logf("eval: trial %d — actions view fetch failed (event graders NOT_EXERCISED): %v", trial, err)
+	// the event graders (G1) and H4 grade. A trial graded without it would
+	// grade action state against nothing, so a failed fetch stops the whole
+	// run (adr/0380).
+	acts, err := trialEndActions(ctx, client, invID)
+	if err != nil {
+		return tr, stamp, err
 	}
+	tr.Actions = acts
 	// The reasoning set at trial end — R3's ground truth for "did a rival still
 	// have an untested discriminating prediction when the agent decided?".
 	if tr.Hypotheses = hypothesesSnapshot(ctx, client, invID); tr.Hypotheses == nil {
@@ -661,4 +652,73 @@ func envDuration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+// servedCatalog fetches the action catalog the trials run against: its
+// action types, each type's declared parameters, and the hash of the catalog
+// as served. Any error, a 503 included, fails the run at once: a run with no
+// catalog would grade action requests against nothing (adr/0380).
+func servedCatalog(ctx context.Context, client *agent.Client) ([]string, map[string][]ParamSpec, string, error) {
+	actionTypes, err := client.ListActionTypes(ctx)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("eval: fetch the action catalog: %w", err)
+	}
+	catalog := make([]string, 0, len(actionTypes))
+	actionInputs := make(map[string][]ParamSpec, len(actionTypes))
+	for _, a := range actionTypes {
+		catalog = append(catalog, a.Descriptor.ActionType)
+		var specs []ParamSpec
+		for _, in := range agent.ParameterInputs(a) {
+			specs = append(specs, ParamSpec{Name: in.Name, Required: in.Required})
+		}
+		actionInputs[a.Descriptor.ActionType] = specs
+	}
+	raw, err := json.Marshal(actionTypes)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("eval: hash the action catalog: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	return catalog, actionInputs, hex.EncodeToString(sum[:]), nil
+}
+
+// errTrialEndActions marks a failed fetch of a trial's action list at trial
+// end. It stops the whole run rather than the one trial.
+var errTrialEndActions = errors.New("eval: fetch the trial-end action list")
+
+// trialEndActions reads the investigation's actions from the durable view at
+// trial end. Any error is wrapped in errTrialEndActions, so the run stops.
+func trialEndActions(ctx context.Context, client *agent.Client, invID string) ([]ActionRow, error) {
+	acts, err := client.ListActions(ctx, invID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errTrialEndActions, err)
+	}
+	rows := make([]ActionRow, 0, len(acts))
+	for _, a := range acts {
+		rows = append(rows, ActionRow{
+			ActionID:     a.ActionID,
+			ActionType:   a.ActionType,
+			Status:       a.Status,
+			IsReversal:   a.IsReversal,
+			EvidenceRefs: a.EvidenceRefs,
+		})
+	}
+	return rows, nil
+}
+
+// stopRunOn cancels the run when err stops the whole run rather than one
+// trial: a failed trial-end action fetch. The error becomes the run's cause.
+func stopRunOn(stop context.CancelCauseFunc, err error) {
+	if errors.Is(err, errTrialEndActions) {
+		stop(err)
+	}
+}
+
+// runStopped returns the error that stopped the run, or nil when no trial
+// stopped it. A cancel from outside the run is not a stop: the trials report
+// it themselves.
+func runStopped(runCtx context.Context) error {
+	if cause := context.Cause(runCtx); errors.Is(cause, errTrialEndActions) {
+		return cause
+	}
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sort"
@@ -72,7 +73,19 @@ type Config struct {
 	// block (state.go) and used wherever a tool result pre-judges time for the
 	// model (list_actions' expired flag). nil means time.Now; tests fix it.
 	Clock func() time.Time
+	// CatalogRetryPause is the wait between attempts of the action-catalog
+	// fetch at session start (adr/0380). Zero means defaultCatalogRetryPause;
+	// tests set a tiny one.
+	CatalogRetryPause time.Duration
 }
+
+// catalogAttempts is how many times the session start tries the action-catalog
+// fetch before it reads a 503 as the action layer being off, and
+// defaultCatalogRetryPause the wait between attempts.
+const (
+	catalogAttempts          = 3
+	defaultCatalogRetryPause = 250 * time.Millisecond
+)
 
 // Session is one analyst's interactive loop over one investigation. Not safe
 // for concurrent turns — the conversation is ordered.
@@ -107,6 +120,11 @@ type Session struct {
 	// wait before each retry of a commit.
 	held          []InterpretationRequest
 	commitBackoff []time.Duration
+	// catalogPause is the wait between attempts of the catalog fetch.
+	catalogPause time.Duration
+	// actionTypes is the action catalog the session's action tools were built
+	// from. A reset whose catalog fetch fails builds from it again.
+	actionTypes []ActionType
 
 	// Standing context (refreshContext is the only writer) and the hypothesis
 	// set as last read (refreshHypotheses, every turn). hyps never enters the
@@ -189,6 +207,7 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 		contextTokens:   cfg.ContextWindowTokens,
 		tokensPerByte:   defaultTokensPerByte,
 		commitBackoff:   defaultCommitBackoff,
+		catalogPause:    cfg.CatalogRetryPause,
 		hooks:           cfg.Hooks,
 		now:             cfg.Clock,
 		// The investigation id is always a legit engine id — never a fabrication
@@ -213,8 +232,11 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 	if s.now == nil {
 		s.now = time.Now
 	}
+	if s.catalogPause <= 0 {
+		s.catalogPause = defaultCatalogRetryPause
+	}
 
-	if err := s.refreshContext(ctx); err != nil {
+	if err := s.refreshContext(ctx, false); err != nil {
 		return nil, err
 	}
 
@@ -235,8 +257,12 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 // refreshContext (re)fetches the investigation, capabilities, hypotheses, and
 // action catalog and rebuilds the tool set + system prompt from them. Shared by
 // NewSession and ResetContext so a reset re-grounds on exactly what a fresh
-// session would see.
-func (s *Session) refreshContext(ctx context.Context) error {
+// session would see. At session start a 503 that survives the retries means
+// no action tools, and any other failed fetch stops the session. On a reset
+// (reset true), a fetch that returns no catalog for any reason, a 503
+// included, is logged and the session keeps the action tools and the catalog
+// it already has, so the reset still clears the context.
+func (s *Session) refreshContext(ctx context.Context, reset bool) error {
 	inv, err := s.backend.GetInvestigation(ctx, s.investigationID)
 	if err != nil {
 		return fmt.Errorf("agent: load investigation: %w", err)
@@ -250,12 +276,18 @@ func (s *Session) refreshContext(ctx context.Context) error {
 	if err != nil {
 		hyps = nil
 	}
-	// The write-side action catalog shapes request_action so the model uses real
-	// action types. Optional: a 503 (action layer off) leaves request_action
-	// generic, exactly as before.
-	actionTypes, err := s.backend.ListActionTypes(ctx)
-	if err != nil {
-		actionTypes = nil
+	// The write-side action catalog gives the session one tool per catalog
+	// type, unavailable ones included and refused (adr/0380).
+	actionTypes, attempts, err := s.fetchActionCatalog(ctx)
+	switch {
+	case reset && (err != nil || attempts > 0):
+		slog.Warn("agent: context reset keeps the session's action tools: the catalog fetch returned no catalog",
+			"err", err, "attempts", attempts)
+		actionTypes = s.actionTypes
+	case err != nil:
+		return err
+	case attempts > 0:
+		slog.Info("agent: the action layer answered 503; the session has no action tools", "attempts", attempts)
 	}
 
 	tools, byName, err := buildTools(caps, actionTypes)
@@ -263,9 +295,46 @@ func (s *Session) refreshContext(ctx context.Context) error {
 		return err
 	}
 	s.tools, s.toolsByName = tools, byName
+	s.actionTypes = actionTypes
 	s.investigation, s.caps, s.hyps = inv, caps, hyps
 	s.system = systemPrompt(inv, caps)
 	return nil
+}
+
+// fetchActionCatalog fetches the action catalog, trying up to
+// catalogAttempts times with a short pause between them (adr/0380). A 503,
+// another 5xx or a transport error is tried again; any other 4xx fails at
+// once. A 503 that survives the attempts means the action layer is off: the
+// session has no catalog and no action tools, and POST /api/actions would
+// refuse every request. That case returns no catalog, no error, and the
+// number of attempts made; a fetch that succeeds returns zero attempts. Any
+// other error that survives is returned, so a failed fetch is never read as
+// a missing action layer.
+func (s *Session) fetchActionCatalog(ctx context.Context) ([]ActionType, int, error) {
+	var err error
+	attempts := 0
+	for attempt := 1; ; attempt++ {
+		attempts = attempt
+		var actionTypes []ActionType
+		actionTypes, err = s.backend.ListActionTypes(ctx)
+		if err == nil {
+			return actionTypes, 0, nil
+		}
+		var apiErr *APIError
+		transient := !errors.As(err, &apiErr) || apiErr.Status >= 500
+		if !transient || attempt >= catalogAttempts || ctx.Err() != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(s.catalogPause):
+		}
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusServiceUnavailable {
+		return nil, attempts, nil
+	}
+	return nil, 0, fmt.Errorf("agent: list action types: %w", err)
 }
 
 // refreshHypotheses re-reads the investigation's hypothesis set for this turn's
@@ -298,7 +367,7 @@ const contextResetRationale = "context reset: the analyst rebuilt the agent's wo
 // authoritative fact, not remembered prose. The reset itself is committed to
 // the thread (attributed, auditable) and honored by future rehydration.
 func (s *Session) ResetContext(ctx context.Context) error {
-	if err := s.refreshContext(ctx); err != nil {
+	if err := s.refreshContext(ctx, true); err != nil {
 		return err
 	}
 	s.messages = nil
@@ -454,7 +523,7 @@ func (s *Session) PromptVersion() string {
 // each request sends them, and the verbs its prompt names degraded. It covers
 // what PromptVersion leaves out because it varies per install (adr/0232): the
 // capability verbs, their descriptions, schemas and availability, and the
-// action catalog as request_action renders it.
+// action catalog as the action tools render it.
 func (s *Session) ToolSetHash() string {
 	b, err := json.Marshal(struct {
 		Tools    []ToolDef `json:"tools"`
@@ -511,7 +580,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 		fmt.Fprintf(&transcript, "[engine] %s\n", sanitizeTranscript(block))
 	}
 	engine(clockBlock(s.now()))
-	if hb := hypothesisStateBlock(s.hyps); hb != "" {
+	if hb := hypothesisStateBlock(s.hyps, s.investigation.AIReasoning); hb != "" {
 		engine(hb)
 	}
 	s.turnsSinceAnchor++
@@ -665,7 +734,7 @@ func (s *Session) Turn(ctx context.Context, userMsg string) (*TurnResult, error)
 
 	// Deterministic ground-truth backstop (the prompt honesty rules have proven
 	// insufficient): state the real status of every action_id the model cited,
-	// and attest when a creation claim had no matching request_action — so a
+	// and attest when a creation claim had no matching action request — so a
 	// fabricated id or narrated-but-never-made call is corrected IN PLACE:
 	// visible to the analyst, committed to the transcript, and folded into the
 	// assistant message so the correction is in the model's own history.
@@ -874,7 +943,7 @@ func (s *Session) narrativeRecord(ctx context.Context) (narrativeRecord, error) 
 		TextBlock(clockBlock(s.now())),
 		TextBlock(fmt.Sprintf(sideNarrativeRecord.Text, inv.Status, verdict)),
 	}}
-	if hb := hypothesisStateBlock(hyps); hb != "" {
+	if hb := hypothesisStateBlock(hyps, inv.AIReasoning); hb != "" {
 		rec.blocks = append(rec.blocks, TextBlock(hb))
 		rec.hasActs = true
 	}

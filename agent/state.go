@@ -82,8 +82,10 @@ const predictionStatementMax = 140
 // a prediction tally, then the discriminators still untested — the one fact
 // the decide contract turns on (01 §reckon-hypothesis: a rival holding an untested
 // discriminator is undecided, so neither it nor the leader can be called).
-// Empty when the investigation has no hypotheses.
-func hypothesisStateBlock(raw json.RawMessage) string {
+// Empty when the investigation has no hypotheses. aiReasoning is the tenant's
+// trust.ai_reasoning dial: when it is off, a PROPOSED hypothesis carries the
+// acknowledgment refusal beside its status.
+func hypothesisStateBlock(raw json.RawMessage, aiReasoning bool) string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return ""
 	}
@@ -114,6 +116,9 @@ func hypothesisStateBlock(raw json.RawMessage) string {
 	var open []outstanding
 	for _, h := range rows {
 		fmt.Fprintf(&b, textHypothesisLine.Text, nameOf[h.ID], h.ID, h.Status)
+		if h.Status == "PROPOSED" && !aiReasoning {
+			b.WriteString(textAwaitingAck.Text)
+		}
 		if len(h.Labels) > 0 {
 			fmt.Fprintf(&b, textHypothesisLabels.Text, strings.Join(h.Labels, textListSeparator.Text))
 		}

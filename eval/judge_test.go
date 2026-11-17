@@ -35,7 +35,7 @@ func (s *scriptedJudgeLLM) Complete(_ context.Context, req agent.CompleteRequest
 // judge's instruction, the framing of its question, or any rubric moves it, so
 // two runs graded by different text never report the same rubric version.
 func TestJudgeRubric_Frozen(t *testing.T) {
-	const want = "caa20d15db77"
+	const want = "831064ea51c9"
 	if JudgeRubricVersion != want {
 		t.Errorf("judge rubric version = %s; want %s\n"+
 			"  the judge's text changed; TestJudgeText_ComponentsFrozen names which. If that is deliberate, update both goldens; runs graded before it keep the version they were stamped with.",
@@ -62,7 +62,7 @@ func TestJudgeText_ComponentsFrozen(t *testing.T) {
 		"judge/asks":      "9b11f388dfb9f68cdfbf8d1ca0190a38456eefce7c153cfa56ee9c5a25656372",
 		"judge/shows":     "55ef227173d679c8dbad56e9b6df97db13784e0100c4b7088c761a208cd4e6d1",
 		"judge/grades":    "a931c58a8fe08817879439ed06004f4b5faaa839559f6709a03a1d7f0af86442",
-		"judge/rubric/E3": "360f6c7e3494711665c0835440ef6b7feb1647a353b4e9d6076d8477675f1c66",
+		"judge/rubric/E3": "3c0cd0a1969c8097f46bca5a73a8b14b986a57369b8daedef08164dea80738af",
 		"judge/rubric/R3": "b77934500ccca4c0055266b8ad87726953de163f2059d608224b8ede693285fd",
 		"judge/rubric/A4": "0a94a765d744551c4e85dd7f286dcf981112b60c47f168018f87100fea1474e9",
 		"reader/system":   "867889c0507692235d1f99f2b9c75248df9e0702c4d7f6b0c41a55a10ec313d3",
@@ -327,5 +327,32 @@ func TestLoadScenario_AttestManual(t *testing.T) {
 		if found == 0 {
 			t.Errorf("%s: no turn authors a manual answer — the decide turn can only be graded as a decline", name)
 		}
+	}
+}
+
+// TestE3_JudgeReadsTheBlockTheAgentSaw: the E3 judge's context is the
+// [reasoning state] block from that turn's transcript, unescaped, so it grades
+// the reply against what the agent was shown: a PROPOSED hypothesis, and
+// whether a discriminator was outstanding (#373). A turn with no block says so.
+func TestE3_JudgeReadsTheBlockTheAgentSaw(t *testing.T) {
+	spec := TurnSpec{Anchors: []string{"acknowledge"}}
+	transcript := "[analyst] settle it\n" +
+		"[engine] [clock — this turn began at 2026-01-01T00:00:00Z]\n" +
+		`[engine] [reasoning state — set:\nH1 (reckon-hypothesis--a) PROPOSED (not yet acknowledged) — s1\n  predictions: none\nNo untested discriminator is outstanding.]` + "\n" +
+		"[assistant] I can't record it.\n"
+	j := &fakeJudge{verdict: JudgeVerdict{Pass: true}}
+	gradeE3Judged(trialWith(TurnRecord{Text: "I can't record it.", Transcript: transcript}), 0, spec, j)
+	if len(j.asked) != 1 {
+		t.Fatalf("judge asked %d times; want 1", len(j.asked))
+	}
+	want := "[reasoning state — set:\nH1 (reckon-hypothesis--a) PROPOSED (not yet acknowledged) — s1\n  predictions: none\nNo untested discriminator is outstanding.]"
+	if got := j.asked[0].Context; got != want {
+		t.Errorf("context = %q; want the turn's block %q", got, want)
+	}
+
+	j = &fakeJudge{verdict: JudgeVerdict{Pass: true}}
+	gradeE3Judged(trialWith(TurnRecord{Text: "I can't record it.", Transcript: "[analyst] settle it\n"}), 0, spec, j)
+	if got := j.asked[0].Context; !strings.Contains(got, "No reasoning-state block was shown") {
+		t.Errorf("a turn with no block must say so; context = %q", got)
 	}
 }

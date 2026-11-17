@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -334,6 +335,17 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 		originalTier = orig.Tier
 	}
 
+	// An action type with no usable binding for this investigation cannot be
+	// carried out in this install. It is refused after the reversal checks
+	// and before anything is built or recorded: recorded, it would wait for
+	// approval and fail only at dispatch (adr/0380). The check covers a fresh
+	// request, a re-request and a reversal, whose action_type is the inverse
+	// type. A degraded type is accepted.
+	if b.actionTypeUnavailable(body.ActionType, b.requestScope(r.Context(), investigationID)) {
+		writeJSONError(w, http.StatusUnprocessableEntity, unavailableActionMessage(body.ActionType))
+		return
+	}
+
 	// Build the reckon-action command (validates against the catalog, applies the
 	// blast-radius escalator).
 	var retryOf uuid.UUID
@@ -420,6 +432,42 @@ func (b *Backend) dispatchActionRequest(w http.ResponseWriter, r *http.Request, 
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+// actionTypeUnavailable reports whether a catalog action type has no usable
+// binding for a request in sourceScope: none whose adapter is configured and
+// enabled and whose scope matches (action.ActionResolver.HasUsableBinding).
+// Health is not checked. A type outside the catalog is left to the request's
+// own validation, and with no resolver nothing is refused here.
+func (b *Backend) actionTypeUnavailable(actionType, sourceScope string) bool {
+	resolver := b.actionResolver()
+	if resolver == nil || b.cfg.ActionCatalog == nil {
+		return false
+	}
+	if _, ok := b.cfg.ActionCatalog.Descriptor(actionType); !ok {
+		return false
+	}
+	return !resolver.HasUsableBinding(actionType, sourceScope)
+}
+
+// requestScope is the investigation's source scope (03 §3.5), read from its
+// Seed as dispatch reads it. A lookup miss leaves it empty, which is
+// fail-closed for a scoped binding, as at dispatch.
+func (b *Backend) requestScope(ctx context.Context, investigationID uuid.UUID) string {
+	if b.cfg.Reads == nil {
+		return ""
+	}
+	inv, err := b.cfg.Reads.LoadInvestigationCurrent(ctx, investigationID)
+	if err != nil || inv.Seed == nil {
+		return ""
+	}
+	return inv.Seed.SourceScope
+}
+
+// unavailableActionMessage is the refusal of a request for an unavailable
+// action type.
+func unavailableActionMessage(actionType string) string {
+	return "action type " + actionType + " is unavailable in this install and cannot be carried out"
 }
 
 // RerequestBody is the POST /api/actions/{id}/rerequest request — the

@@ -73,6 +73,66 @@ func TestListActionTypesStatus(t *testing.T) {
 	}
 }
 
+// TestUsableBinding: a type whose bindings all name an adapter that is not
+// configured or not enabled is unavailable in the listing and has no usable
+// binding; one whose adapter is configured but unhealthy is degraded and
+// usable; a binding of another scope is not usable for that request. The
+// usable-binding check never asks an adapter for its health (adr/0380).
+func TestUsableBinding(t *testing.T) {
+	catalog := DefaultActionCatalog()
+	healthCalls := 0
+	down := &countingHealthAdapter{stubWriteAdapter: stubWriteAdapter{name: "down"}, calls: &healthCalls}
+	r := NewActionResolver(
+		map[string][]ActionBinding{
+			// "gone" is not among the enabled adapters: disabled or missing.
+			"ticket.comment":  {{ActionType: "ticket.comment", Adapter: "gone", Operation: "op"}},
+			"account.disable": {{ActionType: "account.disable", Adapter: "down", Operation: "op"}},
+			"host.isolate":    {{ActionType: "host.isolate", Adapter: "down", Operation: "op", Scope: "org-a"}},
+		},
+		map[string]WriteAdapter{"down": down},
+	)
+	byType := map[string]ActionAvailability{}
+	for _, s := range r.ListActionTypes(catalog) {
+		byType[s.Descriptor.ActionType] = s.Status
+	}
+	if byType["ticket.comment"] != ActionUnavailable {
+		t.Errorf("listing: ticket.comment = %q; want unavailable (its adapter is not enabled)", byType["ticket.comment"])
+	}
+	if byType["account.disable"] != ActionDegraded {
+		t.Errorf("listing: account.disable = %q; want degraded", byType["account.disable"])
+	}
+
+	healthCalls = 0
+	for _, c := range []struct {
+		actionType, scope string
+		want              bool
+	}{
+		{"ticket.comment", "", false},
+		{"account.disable", "", true},
+		{"host.isolate", "org-a", true},
+		{"host.isolate", "org-b", false},
+		{"email.purge", "", false},
+	} {
+		if got := r.HasUsableBinding(c.actionType, c.scope); got != c.want {
+			t.Errorf("HasUsableBinding(%s, %q) = %v; want %v", c.actionType, c.scope, got, c.want)
+		}
+	}
+	if healthCalls != 0 {
+		t.Errorf("HasUsableBinding asked for health %d times; want none", healthCalls)
+	}
+}
+
+// countingHealthAdapter counts its health checks.
+type countingHealthAdapter struct {
+	stubWriteAdapter
+	calls *int
+}
+
+func (a *countingHealthAdapter) Health() capability.HealthStatus {
+	*a.calls++
+	return capability.HealthStatus{Healthy: false}
+}
+
 // TestPlannedBinding: the pre-approval preview picks the same binding Resolve
 // would — highest priority whose adapter is configured — without dispatching.
 func TestPlannedBinding(t *testing.T) {

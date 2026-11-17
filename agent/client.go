@@ -42,8 +42,8 @@ type ActionType struct {
 		Intent     string `json:"intent"`
 		// Inputs is the declared schema for request_action.parameters (08 §3).
 		// Entity-typed inputs ride the targets list; the rest are parameter
-		// keys the backend validates at request time — the loop renders them
-		// into the request_action tool so the model uses the real vocabulary.
+		// keys the backend validates at request time. The loop renders them
+		// as the top-level inputs of the type's action tool (adr/0380).
 		Inputs        []ActionInput `json:"inputs"`
 		DefaultTier   string        `json:"default_tier"`
 		Reversibility string        `json:"reversibility"`
@@ -286,6 +286,10 @@ type Investigation struct {
 	// §reckon-hypothesis): "leading_null" (default) or "leading_only". Empty is
 	// treated as leading_null.
 	HypothesisFraming string `json:"hypothesis_framing,omitempty"`
+	// AIReasoning is the tenant's autonomous-reasoning dial (trust.ai_reasoning).
+	// False means the engine refuses the agent's outcome on a PROPOSED
+	// hypothesis, which the reasoning-state block then says.
+	AIReasoning bool `json:"ai_reasoning,omitempty"`
 	// Verdict is the disposition of record (01 §Verdict), absent when none.
 	// The narrative draft reads it so an account written between turns says
 	// what the record holds, not what the conversation last heard.
@@ -437,9 +441,9 @@ func (c *Client) InvokeCapability(ctx context.Context, verb string, in InvokeInp
 }
 
 // ListActionTypes fetches the write-side action catalog with availability
-// (agent token). The loop renders it into the request_action tool so the model
-// picks a real action_type. A 503 (action layer off) surfaces as an error the
-// caller treats as "no catalog" — request_action stays generic.
+// (agent token). The loop builds one action tool per catalog type from it,
+// and refuses the calls of an unavailable one. A 503 (action layer off) surfaces as an *APIError the session reads as
+// "no action tools"; any other error fails the session start.
 func (c *Client) ListActionTypes(ctx context.Context) ([]ActionType, error) {
 	var out struct {
 		ActionTypes []ActionType `json:"action_types"`

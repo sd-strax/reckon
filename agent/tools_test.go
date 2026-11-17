@@ -23,12 +23,13 @@ func defsOf(tools []tool) []ToolDef {
 }
 
 // TestIntrinsicTools_Golden pins every byte of the intrinsic definitions the
-// model is shown, with and without an action catalog. The golden was captured
-// from the hand-written schemas the generator replaced (adr/0233).
+// model is shown, and of the action tools built from the example catalog
+// (adr/0380). The golden was captured from the hand-written schemas the
+// generator replaced (adr/0233).
 func TestIntrinsicTools_Golden(t *testing.T) {
 	got, err := json.MarshalIndent(map[string][]ToolDef{
-		"no_catalog": defsOf(intrinsicTools(nil)),
-		"catalog":    defsOf(intrinsicTools(exampleCatalog())),
+		"intrinsic":    defsOf(intrinsicTools()),
+		"action_tools": defsOf(exampleActionTools()),
 	}, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -50,9 +51,9 @@ func TestInputSchema_RefusesWhatItCannotShow(t *testing.T) {
 		Field string `json:"field" desc:"d"`
 	}
 	for name, build := range map[string]func(){
-		"undescribed field":      func() { inputSchema[undescribed](nil, false) },
-		"override of no field":   func() { inputSchema[described](map[string]any{"feild": 1}, false) },
-		"unsupported field type": func() { valueSchema(reflect.TypeFor[float64](), false) },
+		"undescribed field":      func() { inputSchema[undescribed](nil) },
+		"override of no field":   func() { inputSchema[described](map[string]any{"feild": 1}) },
+		"unsupported field type": func() { valueSchema(reflect.TypeFor[float64]()) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			defer func() {
@@ -72,7 +73,7 @@ func TestInputSchema_Required(t *testing.T) {
 		A string `json:"a" required:"true" desc:"d"`
 		C string `json:"c" desc:"d"`
 	}
-	if got := inputSchema[in](nil, false)["required"]; !reflect.DeepEqual(got, []string{"b", "a"}) {
+	if got := inputSchema[in](nil)["required"]; !reflect.DeepEqual(got, []string{"b", "a"}) {
 		t.Errorf("required = %v", got)
 	}
 }
@@ -111,6 +112,26 @@ func TestBuildTools_RefusesASharedName(t *testing.T) {
 	_, _, err := buildTools([]Capability{verb}, nil)
 	if err == nil || !strings.Contains(err.Error(), ToolListActions) {
 		t.Fatalf("err = %v; want a refusal naming the tool", err)
+	}
+	// An action tool goes through the same check: a verb that takes its name
+	// is refused (adr/0380).
+	verb.Descriptor.Verb = actionToolName("host.isolate")
+	_, _, err = buildTools([]Capability{verb}, exampleCatalog())
+	if err == nil || !strings.Contains(err.Error(), verb.Descriptor.Verb) {
+		t.Fatalf("err = %v; want a refusal naming the action tool", err)
+	}
+}
+
+// TestBuildTools_RefusesActionTypesOfOneName: two action types whose names
+// map to one tool name fail tool building; the loop could not tell them apart.
+func TestBuildTools_RefusesActionTypesOfOneName(t *testing.T) {
+	var dotted, underscored ActionType
+	dotted.Status, underscored.Status = "available", "available"
+	dotted.Descriptor.ActionType = "host.isolate"
+	underscored.Descriptor.ActionType = "host_isolate"
+	_, _, err := buildTools(nil, []ActionType{dotted, underscored})
+	if err == nil || !strings.Contains(err.Error(), "request_host_isolate") {
+		t.Fatalf("err = %v; want a refusal naming the shared tool name", err)
 	}
 }
 
@@ -154,6 +175,22 @@ func TestBuildTools_OrderIsTheSessions(t *testing.T) {
 	if defs[3].Name != ToolRecallSOPs || defs[len(defs)-1].Name != ToolReadResult {
 		t.Errorf("intrinsics are not after the verbs in declared order: %s … %s", defs[3].Name, defs[len(defs)-1].Name)
 	}
+	// The action tools follow the intrinsics, by action type, whatever the
+	// catalog's order.
+	catalog := exampleCatalog()
+	slices.Reverse(catalog)
+	defs, _, err := buildTools(caps, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := len(intrinsicTools())
+	var tail []string
+	for _, d := range defs[3+n:] {
+		tail = append(tail, d.Name)
+	}
+	if !slices.Equal(tail, []string{"request_host_isolate", "request_ioc_block", "request_ticket_create"}) {
+		t.Errorf("after the intrinsics: %v; want the action tools by action type", tail)
+	}
 }
 
 // TestDispatch_RefusesWhatWasNotOffered: a misspelled intrinsic and verbs the
@@ -196,9 +233,9 @@ func TestDispatch_OfferedVerbReachesTheBackend(t *testing.T) {
 func TestRequestAction_ModelCannotDeclareCriticality(t *testing.T) {
 	f := newFakeBackend(t)
 	s := newToolSession(t, f)
-	input := `{"action_type":"host.isolate","rationale":"r","evidence_refs":["e"],
+	input := `{"rationale":"r","evidence_refs":["e"],
 		"targets":[{"entity_ref":"reckon-host--1","resolved_identifier":"H","asset_criticality":"low"}]}`
-	if res, isErr := s.dispatchTool(context.Background(), ToolRequestAction, json.RawMessage(input)); isErr {
+	if res, isErr := s.dispatchTool(context.Background(), isolateTool, json.RawMessage(input)); isErr {
 		t.Fatalf("refused: %s", res.Content)
 	}
 	calls := f.callsTo("/api/actions")

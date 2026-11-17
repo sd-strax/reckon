@@ -53,18 +53,15 @@ func digest(b []byte) string {
 }
 
 // promptComponents is what PromptVersion covers, in a fixed order: the base
-// prompt; each intrinsic tool as rendered with no action catalog; the parts of
-// the tool text that only render with a catalog or a verb, through the example
-// ones below; and each engine-text template.
+// prompt; each intrinsic tool; the tool text that only renders with a catalog
+// or a verb, through the example ones below; and each engine-text template.
 func promptComponents(framing string) []versionComponent {
 	comps := []versionComponent{{"prompt", []byte(systemPrompt(Investigation{HypothesisFraming: framing}, nil))}}
-	for _, t := range intrinsicTools(nil) {
+	for _, t := range intrinsicTools() {
 		comps = append(comps, versionComponent{"tools/" + t.def.Name, toolBytes(t.def)})
 	}
-	for _, t := range intrinsicTools(exampleCatalog()) {
-		if t.def.Name == ToolRequestAction {
-			comps = append(comps, versionComponent{"tools/" + t.def.Name + "+catalog", toolBytes(t.def)})
-		}
+	for _, t := range exampleActionTools() {
+		comps = append(comps, versionComponent{"tools/" + t.def.Name + "+catalog", toolBytes(t.def)})
 	}
 	comps = append(comps, versionComponent{"tools/<verb>", toolBytes(verbToolDef(exampleVerb()))})
 	for _, e := range engineTexts {
@@ -91,12 +88,21 @@ func toolBytes(d ToolDef) []byte {
 	return b
 }
 
-// exampleCatalog exercises the request_action text a catalog brings: a type of
-// each availability, entity and scalar inputs, and a parameter two types share.
+// exampleActionTools is the action tools built from exampleCatalog.
+func exampleActionTools() []tool {
+	tools, err := actionTools(exampleCatalog())
+	if err != nil {
+		panic(fmt.Sprintf("agent: the example catalog does not build: %v", err))
+	}
+	return tools
+}
+
+// exampleCatalog exercises the action-tool text a catalog brings: a type of
+// each availability, entity and scalar inputs, and an input two types share.
 // It stands in for an install's catalog so the hash covers the code's words
 // around the catalog, never the catalog's own. Its literal strings are part of
-// the version all the same: editing one moves tools/request_action+catalog,
-// though no model is ever shown them.
+// the version all the same: editing one moves a tools/<action tool>+catalog
+// component, though no model is ever shown them.
 func exampleCatalog() []ActionType {
 	var isolate, ticket, block ActionType
 	isolate.Status = "available"

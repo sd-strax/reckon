@@ -37,6 +37,9 @@ type TurnRecord struct {
 type ToolCall struct {
 	ToolName string `json:"tool_name"`
 	Args     string `json:"args,omitempty"`
+	// CallID is the call's tool_use id, which pairs it with its result in
+	// the transcript.
+	CallID string `json:"call_id,omitempty"`
 }
 
 // ParamSpec is one declared parameter of an action type (the non-entity slice
@@ -87,8 +90,15 @@ type TrialRecord struct {
 	// investigation's standing context. Kept so "what was the model told"
 	// is inspectable from the artifact without re-rendering.
 	SystemPrompt string `json:"system_prompt,omitempty"`
+	// Tools is the tool list the session offered the model, in order, as
+	// the session built it (adr/0380). It is kept for the same reason as
+	// SystemPrompt: it is what the model was told. Each request sends it
+	// beside the conversation, so the transcript does not hold it. The
+	// graders look each call's name up here: a name absent from it was not
+	// offered, and an action tool gives the action type of its call.
+	Tools []agent.OfferedTool `json:"tools,omitempty"`
 	// ActionCatalog is the action_type vocabulary the backend served at session
-	// build — H3's ground truth.
+	// build, every status included; part of the run's attribution.
 	ActionCatalog []string `json:"action_catalog,omitempty"`
 	// ActionInputs is each action type's declared non-entity parameter schema
 	// (08 §3) as served by the backend — H5's ground truth.

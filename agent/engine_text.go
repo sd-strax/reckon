@@ -25,8 +25,9 @@ type modelText struct {
 // Engine text: the [engine] blocks on the analyst's message (state.go,
 // reconcile.go), the footers on the model's own reply (reconcile.go), the
 // notes on condensed and paged context (context.go, bounded.go), the answer to
-// a cut-off tool call (session.go), and the base prompt's conditional
-// paragraphs (prompt.go).
+// a cut-off tool call (session.go), the base prompt's conditional
+// paragraphs (prompt.go), and the descriptions of the action tools
+// (action_tools.go).
 var (
 	textClock = modelText{ID: "clock", Origin: "0c9a418",
 		Text: "[clock — this turn began at %s; the engine's clock, not an observation]"}
@@ -35,6 +36,11 @@ var (
 		Text: "[reasoning state — the investigation's hypothesis set as the engine holds it now (trust THIS over any earlier narration):\n"}
 	textHypothesisLine = modelText{ID: "reasoning-state-hypothesis", Origin: "f01ffc3",
 		Text: "%s (%s) %s"}
+	// textAwaitingAck follows a PROPOSED hypothesis's status when the tenant
+	// keeps the acknowledgment gate (trust.ai_reasoning off, the default), so
+	// the block the model trusts names both gates that refuse an outcome.
+	textAwaitingAck = modelText{ID: "reasoning-state-awaiting-ack", Origin: "#373",
+		Text: " (not yet acknowledged by the analyst: the engine refuses any outcome you record on it until they acknowledge it)"}
 	textHypothesisLabels = modelText{ID: "reasoning-state-labels", Origin: "f01ffc3",
 		Text: " [%s]"}
 	textHypothesisStatement = modelText{ID: "reasoning-state-statement", Origin: "f01ffc3",
@@ -117,6 +123,19 @@ var (
 	textToolCutOff = modelText{ID: "tool-cut-off", Origin: "1a7fecf",
 		Text: "this call's input was cut off at the output limit and was not run; issue it again with a shorter input"}
 
+	// The description of an action tool (adr/0380): the descriptor's intent,
+	// tier and reversibility, "degraded" when it is, and the guidance every
+	// request shares. An unavailable type's description says it cannot be
+	// carried out, and leaves the guidance out.
+	textActionTool = modelText{ID: "action-tool", Origin: "#380",
+		Text: "%s Tier %s, %s."}
+	textActionToolDegraded = modelText{ID: "action-tool-degraded", Origin: "#380",
+		Text: " Degraded: the tool behind it is not fully healthy, so the request may not dispatch."}
+	textActionToolUnavailable = modelText{ID: "action-tool-unavailable", Origin: "#380",
+		Text: " Unavailable: this action cannot be carried out in this install."}
+	textActionToolGuidance = modelText{ID: "action-tool-guidance", Origin: "#380",
+		Text: " The request goes through authorization policy. You propose it and never approve it, and most requests wait for the analyst's approval. Cite the refs that ground it in evidence_refs; a request with no evidence is refused."}
+
 	// textListSeparator joins the items of every list the engine text names:
 	// labels, rivals, tallies, action entries, degraded verbs.
 	textListSeparator = modelText{ID: "list-separator", Origin: "80420c3",
@@ -136,7 +155,7 @@ var (
 // this order, and TestModelTextLedger_Complete reads it.
 var engineTexts = []modelText{
 	textClock,
-	textReasoningState, textHypothesisLine, textHypothesisLabels, textHypothesisStatement,
+	textReasoningState, textHypothesisLine, textAwaitingAck, textHypothesisLabels, textHypothesisStatement,
 	textPositionalName, textPredictionName,
 	textNoPredictions, textPredictionTally, textTallyCount, textTallyOrder, textUntested, textDiscriminatesVs,
 	textManualTest, textPredictionStatement, textOutstanding, textHolds, textHoldsSeparator, textUntilTested,
@@ -147,6 +166,7 @@ var engineTexts = []modelText{
 	textResultBoundedShape,
 	textToolCutOff,
 	textSeedLine, textCaseSeed, textDegraded,
+	textActionTool, textActionToolDegraded, textActionToolUnavailable, textActionToolGuidance,
 	textListSeparator, textClipped,
 }
 
