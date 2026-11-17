@@ -176,6 +176,26 @@ retired `parameters-are-an-object`. The rules that named `request_action` now
 name the action tools, and `contain-on-harm` reads reversibility from the
 action tool's description. Each keeps the wording this pass gave it.
 
+## The accepted baselines
+
+The baselines were accepted on the prompt of this pass and adr/0380 together.
+They cover every bundled scenario on both models, under the `leading_null`
+framing. The `leading_only` wording was not run. Every rule now lists the three
+scenarios in `Validated`.
+
+Two SHOULD rates fell against the previous baselines, and they were accepted as
+they are.
+
+- **E3 fell from 3/3 to 1/3 for Opus on lateral movement.** In two trials the
+  judge failed a reply that the anchors passed.
+- **H6 fell from 3/3 to 1/3 for Sonnet on impossible travel.** In two trials
+  the model added an undeclared `queue` key to `ticket.create`. The engine
+  refused the call, and the model sent it again without the key, so the ticket
+  was created.
+
+Neither was tuned further. Splitting the agent into roles (#389) gives each
+role its own prompt, and that rewrite replaces this wording.
+
 ## Alternatives rejected
 
 - **Reword only the rules that failed a trial.** That is the per-finding loop

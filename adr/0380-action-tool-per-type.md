@@ -220,6 +220,9 @@ Three more constraints bound the answer.
   nothing existing changes shape. The record the backend stores is unchanged.
 - The tool definitions change, so the prompt version moves and the per-model
   baselines are run again on every bundled scenario.
+- The baselines were accepted with H6 at 1/3 for Sonnet on impossible travel.
+  In two trials the model added an undeclared key to `ticket.create`, the
+  engine refused it, and the next call left the key out. adr/0373 records it.
 - `request_action` stays the name of the request, the API body and the domain
   operation. `design/08-write-side-actions.md §2` says that the model reaches
   it through one tool per action type. `design/10-eval-harness.md §3`,

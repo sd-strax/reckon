@@ -1,17 +1,17 @@
 {
   "attribution": {
-    "prompt_version": "08fdc5fe7269cae5f79da477488ac140b710040bb39754752d30799f17f8d02e",
+    "prompt_version": "44e3271bfc64bc0256d52f8aeae31cb999cc00daf6aac816772ae38b5eb5c30b",
     "hypothesis_framing": "leading_null",
     "side_instruction_version": "efb1378e320e86a4e69b576f675dd14b8fe040717c2f21dcda5048ee2dfceba4",
     "model": "claude-sonnet-4-6",
     "action_catalog_hash": "a6a4bdae7a1f8916d7ba36c87068dce7bd7775232959528227a6f6b0384d8f1b",
     "scenario_id": "impossible-travel-signin",
     "driver_hash": "5b6fa2a85250531f34151b0dfde2720a6ccb3b4d6d754d8fb3852ae16ab667be",
-    "catalogue_version": "v0.17",
+    "catalogue_version": "v0.19",
     "trials": 3,
     "judge_model": "claude-sonnet-4-6",
-    "judge_rubric": "caa20d15db77",
-    "tool_set_hash": "f6d154c4a6c1306e66deeae76aa5851fd82a38e88b6eba7fb8c6fac8c500b3a5",
+    "judge_rubric": "831064ea51c9",
+    "tool_set_hash": "399ace48fa5c8fd550799abed6203abc9270c217e59ba10357755bc719c8a274",
     "reader_model": "claude-sonnet-4-6",
     "reader_version": "e11a1ab74e69"
   },
@@ -30,8 +30,8 @@
     },
     "A4@turn3": {
       "severity": "SHOULD",
-      "result": "FAIL",
-      "passed": 2,
+      "result": "PASS",
+      "passed": 3,
       "exercised": 3
     },
     "E1@turn9": {
@@ -90,8 +90,8 @@
     },
     "H6": {
       "severity": "SHOULD",
-      "result": "PASS",
-      "passed": 3,
+      "result": "FAIL",
+      "passed": 1,
       "exercised": 3
     },
     "H7@turn8": {
@@ -114,8 +114,8 @@
     },
     "O1": {
       "severity": "SHOULD",
-      "result": "FAIL",
-      "passed": 2,
+      "result": "PASS",
+      "passed": 3,
       "exercised": 3
     },
     "O2@turn0": {
